@@ -49,7 +49,8 @@ export interface RegularPayDirectiveState {
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 const pct = (rate: number): string => `${round2(rate * 100)}%`;
-const label = (d: RegularPayDirective): string => `SARS directive ${d.number ?? d.id}`;
+/** Its number when one was captured (the form posts '' for none), else a plain name: never the row id. */
+const label = (d: RegularPayDirective): string => (d.number?.trim() ? `SARS directive ${d.number.trim()}` : 'the SARS directive');
 
 /** The figures of a directive as stored on the line's result (the approval gate and the year to date read the code). */
 const recorded = (d: RegularPayDirective) => ({ id: d.id, number: d.number, type: d.type, rate: d.rate, fixedAmount: d.fixedAmount });

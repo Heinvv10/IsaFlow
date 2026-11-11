@@ -82,6 +82,17 @@ describe('a directive overrides the tax-status treatment (G21 p. 28-29)', () => 
   });
 });
 
+describe('the line names the directive by its number, never by its row id', () => {
+  it('a number: "SARS directive 1234567"; none or blank: "the SARS directive"', () => {
+    const message = (d: RegularPayDirective) => outside(cost(employee(), [earn(30_000)], state(d)))[0]!.message;
+    expect(message(pct20)).toMatch(/is SARS directive 1234567: 20%/);
+    for (const number of [null, '', '  ']) {
+      expect(message({ ...pct20, number })).toMatch(/is the SARS directive: 20%/);
+      expect(message({ ...pct20, number })).not.toContain('d-20');
+    }
+  });
+});
+
 describe('after the directive ends (G21 p. 15: valid only for the period stated)', () => {
   it('the tables apply again, with an UNVERIFIED warning on the first month', () => {
     const r = cost(employee(), [earn(30_000)], state(null, pct20));
