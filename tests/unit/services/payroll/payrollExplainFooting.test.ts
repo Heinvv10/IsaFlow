@@ -10,7 +10,7 @@ import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payr
 import { calculateSDL, isSdlExempt } from '@/modules/accounting/services/payroll/sdlEngine';
 import { withSdlCharge } from '@/modules/accounting/services/payroll/statutoryExplain';
 import type { PayrollLineInput } from '@/modules/accounting/services/payroll/payrollTypes';
-import { buildCaseInput, type OracleCase } from '../../../fixtures/payroll-oracle/oracle';
+import { buildCaseInput, loadCases, type OracleCase } from '../../../fixtures/payroll-oracle/oracle';
 import { cents, expectRecomputes, footingProblems, recomputeSdl, stepsByKey } from './payrollExplainRecompute.helpers';
 
 let seed = 12345;
@@ -149,6 +149,17 @@ describe('the lines the review named', () => {
     expect([back.amount, back.label]).toEqual([-l.donationDeduction, 'Plus an earlier s18A donation taken back (no longer allowed to date)']);
     expect(back.amount).toBeGreaterThan(0);
     expect(m.has('paye.regularTaxable.floor')).toBe(false);
+    expectRecomputes(l);
+  });
+
+  it('non-standard employment with an RA: the flat 25% balance is taxable pay less the recorded deduction, and foots', () => {
+    const base = loadCases().find(c => c.id === 'ts-non-standard-under-5h-day-flat-25pct')!;
+    const withRa: OracleCase = { ...base, input: { ...base.input, components: [...base.input.components, deduction('4006', 500)] } };
+    const l = calculatePayrollLine(buildCaseInput(withRa));
+    const m = stepsByKey(l.explanations.paye);
+    expect(l.retirementDeduction).toBeGreaterThan(0);
+    expect(m.get('paye.balance.retirement')!.amount).toBe(-l.retirementDeduction);
+    expect(footingProblems(l.explanations.paye)).toEqual([]);
     expectRecomputes(l);
   });
 
