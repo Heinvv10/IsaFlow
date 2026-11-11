@@ -114,3 +114,12 @@ export async function loadEarlierEtiMonths(companyId: string, from: YearMonth): 
     ...directives.map((p) => ({ year: Number(p.paymentDate.slice(0, 4)), month: Number(p.paymentDate.slice(5, 7)), paye: p.paye, eti: 0 })),
   ];
 }
+
+/**
+ * The ETI brought forward into a month (s9(1)): what the earlier months of its reconciliation period left over. The
+ * payroll journal books its use (payrollJournalBuilder), so the run's 2140 credit stays the EMP201 PAYE payable.
+ */
+export async function etiBroughtForwardInto(companyId: string, ym: YearMonth): Promise<number> {
+  const earlier = await loadEarlierEtiMonths(companyId, ym);
+  return etiCarryLedger(ym, ym, earlier).find((m) => index(m) === index(ym))?.broughtForward ?? 0;
+}
