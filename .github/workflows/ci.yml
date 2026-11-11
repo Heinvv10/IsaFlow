@@ -96,11 +96,13 @@ jobs:
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
       # What velo has and the static unit tests spawn: gs (the VLM PDF render).
-      # apt timeouts/retries: a stalled mirror fails fast instead of eating the job's cap
+      # apt timeouts/retries: a stalled mirror fails fast instead of eating the job's cap.
+      # archive.ubuntu.com is a fallback mirror: hosted runners lost DNS for the Azure mirror on 11 Nov.
       # (also covers playwright --with-deps). -q, not -qq, so a stall shows which phase.
       - if: ${{ runner.environment == 'github-hosted' }}
         run: |
           echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
+          echo 'http://archive.ubuntu.com/ubuntu/' | sudo tee -a /etc/apt/apt-mirrors.txt >/dev/null
           sudo apt-get update -q
           for i in 1 2; do sudo timeout 600 apt-get install -y -qq --no-install-recommends ghostscript && break; [ "$i" = 2 ] && exit 1; echo '::warning::apt install stalled or failed; retrying once'; sudo dpkg --configure -a; done
 
@@ -186,11 +188,13 @@ jobs:
       # What velo has and this group spawns: PostgreSQL 16 + pgvector for the
       # integration clusters (en_US.UTF-8), LibreOffice (soffice), poppler
       # (pdftotext/pdffonts/pdfinfo, the print tests).
-      # apt timeouts/retries: a stalled mirror fails fast instead of eating the job's cap
+      # apt timeouts/retries: a stalled mirror fails fast instead of eating the job's cap.
+      # archive.ubuntu.com is a fallback mirror: hosted runners lost DNS for the Azure mirror on 11 Nov.
       # (also covers playwright --with-deps). -q, not -qq, so a stall shows which phase.
       - if: ${{ runner.environment == 'github-hosted' }}
         run: |
           echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
+          echo 'http://archive.ubuntu.com/ubuntu/' | sudo tee -a /etc/apt/apt-mirrors.txt >/dev/null
           sudo apt-get update -q
           for i in 1 2; do sudo timeout 600 apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector libreoffice-calc-nogui poppler-utils && break; [ "$i" = 2 ] && exit 1; echo '::warning::apt install stalled or failed; retrying once'; sudo dpkg --configure -a; done
           sudo locale-gen en_US.UTF-8
@@ -377,11 +381,13 @@ jobs:
 
       # Hosted only: PostgreSQL 16 + pgvector for the throwaway cluster (as in
       # velo; docker, jq and psql tooling are on the image).
-      # apt timeouts/retries: a stalled mirror fails fast instead of eating the job's cap
+      # apt timeouts/retries: a stalled mirror fails fast instead of eating the job's cap.
+      # archive.ubuntu.com is a fallback mirror: hosted runners lost DNS for the Azure mirror on 11 Nov.
       # (also covers playwright --with-deps). -q, not -qq, so a stall shows which phase.
       - if: ${{ runner.environment == 'github-hosted' && steps.mq.outputs.skip != 'true' }}
         run: |
           echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
+          echo 'http://archive.ubuntu.com/ubuntu/' | sudo tee -a /etc/apt/apt-mirrors.txt >/dev/null
           sudo apt-get update -q
           for i in 1 2; do sudo timeout 600 apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector && break; [ "$i" = 2 ] && exit 1; echo '::warning::apt install stalled or failed; retrying once'; sudo dpkg --configure -a; done
           sudo locale-gen en_US.UTF-8
