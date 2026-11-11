@@ -92,6 +92,7 @@ export const entries: Array<[string, Category, string?]> = [
   ['gl/integrityChecks/dimensionChecks.ts', 'INTEGRITY'],
   ['gl/integrityChecks/documentChecks.ts', 'INTEGRITY'],
   ['gl/integrityChecks/index.ts', 'INTEGRITY'],
+  ['gl/integrityChecks/payrollChecks.ts', 'SUBLEDGER'], // 2140 and the ETI refund from payroll journals vs the EMP201 (wave 5 ET)
   ['gl/journalEntryListService.ts', 'RAW'],
   ['gl/journalEntryReadService.ts', 'RAW'],
   ['gl/nonControlPostingAccounts.ts', 'SUBLEDGER'],
@@ -100,6 +101,7 @@ export const entries: Array<[string, Category, string?]> = [
   ['gl/vatLateClaimSplit.ts', 'VAT'],
   ['gl/yearEndJournalBuilder.ts', 'WRITE'],
   ['items/fixedAssetReconciliationQueries.ts', 'SUBLEDGER'],
+  ['payroll/etiBooking.ts', 'SUBLEDGER'], // the ETI booked on 2140 / the refund receivable by payroll journals (wave 5 ET)
   ['payroll/payrollApprovalGate.ts', 'SUBLEDGER'],
   ['payroll/payrollJournalChain.ts', 'SUBLEDGER'],
   ['reconciliation/creditNoteRelief.ts', 'SUBLEDGER'],
