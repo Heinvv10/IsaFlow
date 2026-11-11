@@ -165,3 +165,18 @@ export const ROUND6_STACKS: readonly string[] = decode(`
   915 94D 937 94D 92E 94D 92F 93F 902 20, 1D11E 1D165 1D16D 1D16E 20, 61 300 301 302 303 304 305 306 307 308 20,
   1F3F4 E0067 E0062 E0065 E006E E0067 E007F 20, 61 20E3 20DD 20E0 20, 1F1E6 1F1E7 1F1E8 1F1E9 20
 `);
+
+/**
+ * The common emoji with a presentation selector (#1264, owner's follow-up): the ones ordinary commentary holds, each with
+ * U+FE0F, with U+FE0E, bare, and in a sentence; and the RGI ZWJ ones (heart on fire, rainbow flag, eye in speech bubble).
+ * A pictograph and its selector are one emoji in the print, so they cost the emoji width and not the widest glyph.
+ */
+const COMMON_BASES = cp('2764 26A0 2705 2714 2611 260E 2709 270F 25B6 2B06 2B07 2197 A9 AE 2122 2139 2600 2601 2B50');
+export const ROUND6_COMMON_EMOJI: readonly string[] = [
+  ...COMMON_BASES.flatMap((b) => [String.fromCodePoint(b, 0xfe0f, 0x20), String.fromCodePoint(b, 0xfe0e, 0x20), String.fromCodePoint(b, 0x20)]),
+  ...decode(`
+    2764 FE0F 200D 1F525 20, 1F3F3 FE0F 200D 1F308 20, 1F441 FE0F 200D 1F5E8 FE0F 20, 2764 FE0F 2764 FE0F 2764 FE0F 20,
+    2764 FE0F 20 26A0 FE0F 20 2705 20 2714 FE0F 20 A9 FE0F 20 AE FE0F 20 2122 FE0F 20 2139 FE0F 20 2600 FE0F 20
+  `),
+  ...['Margin up ', 'Check the ledger ', 'Q3 close '].flatMap((w) => COMMON_BASES.map((b) => `${w}${String.fromCodePoint(b, 0xfe0f)} `)),
+];

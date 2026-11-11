@@ -105,9 +105,19 @@ describe('a selector is measured only on the letters it was measured on (H2)', (
     for (const base of [0x61, 0x5a, 0x1000, 0x1780, 0x915]) expect(cost(base, VS1)).toBe(adv(base) + inWord(VS1));
   });
 
-  it('VS16 on a pictograph is no longer free, and the emoji floor still holds', () => {
-    expect(cost(0x2764, VS16)).toBeGreaterThanOrEqual(adv(0x2764) + widest);
-    expect(cost(0x2764, VS16)).toBeGreaterThanOrEqual(emoji);
+  it('but a selector right after a pictograph is one emoji: the emoji width, not the widest glyph', () => {
+    for (const base of [0x2764, 0x26a0, 0x2705, 0x2714, 0x2611, 0x260e, 0x2709, 0x270f, 0x25b6, 0x2b06, 0x2197, 0xa9, 0xae, 0x2122, 0x2139, 0x2600, 0x2601, 0x1f600, 0x1f441]) {
+      expect(cost(base, VS16), base.toString(16)).toBe(Math.max(emoji, adv(base) + inWord(VS16)));
+      expect(cost(base, VS16)).toBeLessThan(adv(base) + widest);
+      expect(cost(base, 0xfe0e), base.toString(16)).toBe(adv(base) + inWord(0xfe0e));
+    }
+  });
+
+  it('the exemption is the pictograph\'s only: a letter, a digit or a plain symbol keeps the widest glyph', () => {
+    for (const base of [0x22e, 0x109e, 0x31, 0x23, 0x2b, 0x4e2d]) expect(cost(base, VS16), base.toString(16)).toBe(adv(base) + widest);
+    // and a selector after a pictograph and another selector, or a mark, is still across a stack
+    expect(cost(0x2764, VS16, VS16)).toBeGreaterThanOrEqual(adv(0x2764) + widest);
+    expect(cost(0x2764, 0x301, VS16)).toBeGreaterThanOrEqual(adv(0x2764) + widest);
   });
 
   it('every text of the sweep is priced at least a selector\'s widest glyph over its base, in lines', () => {

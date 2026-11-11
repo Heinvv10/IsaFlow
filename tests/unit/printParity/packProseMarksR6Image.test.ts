@@ -15,12 +15,13 @@ import { log } from '@/lib/logger';
 import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { MAX_APPROVED_PACK_EMS, commentaryCost } from '@/modules/accounting/services/commentary/commentaryLimits';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
+import type { StampedPackPagesDocument } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { PROSE } from '@/modules/accounting/services/packs/pages/packProseStyles';
 import { GUTTER_MM, PAGE_WIDTH_MM, PRINT_CONTENT_HEIGHT_PX } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { denseInput } from '../services/packs/fixtures/boardPackInputs';
 import * as F from '../services/packs/fixtures/liveDemoBoardPack';
-import { ROUND6_EMOJI, ROUND6_IGNORED, ROUND6_NAMED, ROUND6_PAGES, ROUND6_SELECTORS, ROUND6_STACKS } from '../print/fixtures/adversaryRound6Texts';
+import { ROUND6_COMMON_EMOJI, ROUND6_EMOJI, ROUND6_IGNORED, ROUND6_NAMED, ROUND6_PAGES, ROUND6_SELECTORS, ROUND6_STACKS } from '../print/fixtures/adversaryRound6Texts';
 import { repeatedTo } from '../print/fixtures/dictionaryScriptTexts';
 import { startGotenberg, type Gotenberg } from './gotenbergParity';
 import { inImage } from './inImage';
@@ -57,7 +58,8 @@ async function pagesOver(packs: ReadonlyArray<readonly [string, BoardPackInput]>
         if (refusals === 'found') over.push(`${name}: refused, though the gate admitted it`);
         continue;
       }
-      const body = renderToStaticMarkup(createElement(PackPagesView, { document: doc }));
+      // Unstamped on purpose: the page is set as the composer built it (the type wants the stamp the print adds).
+      const body = renderToStaticMarkup(createElement(PackPagesView, { document: doc as unknown as StampedPackPagesDocument }));
       const heights = (await inImage(gotenberg!, HEIGHTS_SCRIPT, body)).filter((l) => l.startsWith('H|')).map((l) => Number(l.slice(2)));
       doc.pages.forEach((p, i) => { if (heights[i]! > PRINT_CONTENT_HEIGHT_PX[p.orientation]) over.push(`${name}: ${p.navLabel} ${heights[i]}px`); });
     }
@@ -70,7 +72,7 @@ async function pagesOver(packs: ReadonlyArray<readonly [string, BoardPackInput]>
 describe.skipIf(unavailable !== null)(`the round-6 adversary's texts in production's image${unavailable === null ? '' : ` (SKIPPED: ${unavailable})`}`, () => {
   it('no cell is read short, by the page model or the gate, at the pack\'s measures', async () => {
     const narrative = inBlock('pack-narrative-body');
-    const everywhere: Cell[] = [...ROUND6_NAMED, ...ROUND6_EMOJI, ...ROUND6_PAGES, ...ROUND6_STACKS].flatMap((pattern) => {
+    const everywhere: Cell[] = [...ROUND6_NAMED, ...ROUND6_EMOJI, ...ROUND6_COMMON_EMOJI, ...ROUND6_PAGES, ...ROUND6_STACKS].flatMap((pattern) => {
       const t = repeatedTo(pattern, 700);
       return [narrative(t, PROSE.narrativeBody, W), narrative(t, PROSE.narrativeBody, ((W - GUTTER_MM) * 2) / 3),
         inBlock('pack-disclosure-body', 'p')(t, PROSE.disclosureBody, 60), ...[52.8, 67, 90.7].map((mm) => inMattersCell(t, PROSE.mattersCell, mm))];
@@ -88,15 +90,15 @@ describe.skipIf(unavailable !== null)(`the round-6 adversary's texts in producti
   it('page 4 with each at the commentary cap: inside its sheet on the four fixtures, never refused', async () => {
     const fixtures = [['liveDemoShortPanels', F.liveDemoShortPanelsInput], ['liveDemo', F.liveDemoInput], ['liveDemoRendered', F.liveDemoRenderedInput],
       ['manyLongNullQuantumMatters', F.manyLongNullQuantumMattersInput]] as const;
-    const packs = [...ROUND6_PAGES, ...ROUND6_STACKS].flatMap((pattern) => {
+    const packs = [...ROUND6_PAGES, ...ROUND6_STACKS, ...ROUND6_COMMON_EMOJI.slice(0, 60)].flatMap((pattern) => {
       const body = atTheCap(pattern);
-      return fixtures.map(([fixture, input]) => [`${JSON.stringify(pattern.slice(0, 12))} on ${fixture}`, { ...input, commentary: { status: 'approved' as const, body, actions: [] } }] as const);
+      return fixtures.map(([fixture, input]) => [`${JSON.stringify(pattern.slice(0, 12))} on ${fixture}`, { ...input, commentary: { status: 'approved' as const, body, actions: [] as string[] } }] as const);
     });
     expect(await pagesOver(packs, 'found')).toEqual([]);
   }, 1_800_000);
 
   it('page 11 with each in every journal description of the dense company: every page inside its sheet', async () => {
-    const packs = ROUND6_PAGES.flatMap((pattern) => [150, 400].map((n) => [`${JSON.stringify(pattern.slice(0, 12))} x ${n}`, {
+    const packs = [...ROUND6_PAGES, ...ROUND6_COMMON_EMOJI.slice(0, 60)].flatMap((pattern) => [150, 400].map((n) => [`${JSON.stringify(pattern.slice(0, 12))} x ${n}`, {
       ...denseInput, matters: denseInput.matters.map((m, i) => ({ ...m, issue: `Journal JE-2026-000${61 + i} (recorded well after its entry date): ${repeatedTo(pattern, n)}` })),
     }] as const));
     // A matter too tall for its page refuses the pack (as on master), which prints nothing past a sheet.

@@ -13,6 +13,7 @@ import { log } from '@/lib/logger';
 import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { MAX_APPROVED_PACK_EMS, commentaryCost } from '@/modules/accounting/services/commentary/commentaryLimits';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
+import type { StampedPackPagesDocument } from '@/modules/accounting/services/packs/pages/packFigureFitCss';
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { PROSE } from '@/modules/accounting/services/packs/pages/packProseStyles';
 import { GUTTER_MM, PAGE_WIDTH_MM, PRINT_CONTENT_HEIGHT_PX } from '@/modules/accounting/services/packs/pages/packTextMetrics';
@@ -55,7 +56,8 @@ async function pagesOver(packs: ReadonlyArray<readonly [string, BoardPackInput]>
         if (refusals === 'found') over.push(`${name}: refused, though the gate admitted it`);
         continue;
       }
-      const body = renderToStaticMarkup(createElement(PackPagesView, { document: doc }));
+      // Unstamped on purpose: the page is set as the composer built it (the type wants the stamp the print adds).
+      const body = renderToStaticMarkup(createElement(PackPagesView, { document: doc as unknown as StampedPackPagesDocument }));
       const heights = (await inImage(gotenberg!, HEIGHTS_SCRIPT, body)).filter((l) => l.startsWith('H|')).map((l) => Number(l.slice(2)));
       doc.pages.forEach((p, i) => { if (heights[i]! > PRINT_CONTENT_HEIGHT_PX[p.orientation]) over.push(`${name}: ${p.navLabel} ${heights[i]}px`); });
     }
@@ -82,7 +84,7 @@ describe.skipIf(unavailable !== null)(`the round-5 adversary's texts in producti
       ['manyLongNullQuantumMatters', F.manyLongNullQuantumMattersInput]] as const;
     const packs = ROUND5_PAGES.flatMap((pattern) => {
       const body = atTheCap(pattern);
-      return fixtures.map(([fixture, input]) => [`${JSON.stringify(pattern.slice(0, 12))} on ${fixture}`, { ...input, commentary: { status: 'approved' as const, body, actions: [] } }] as const);
+      return fixtures.map(([fixture, input]) => [`${JSON.stringify(pattern.slice(0, 12))} on ${fixture}`, { ...input, commentary: { status: 'approved' as const, body, actions: [] as string[] } }] as const);
     });
     expect(await pagesOver(packs, 'found')).toEqual([]);
   }, 1_800_000);
