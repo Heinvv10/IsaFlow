@@ -130,8 +130,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   // Missing dates are reported as indeterminate, never fabricated into a
   // determination of "not eligible" — see resolveEtiForEmployee.
-  // The ETI base stays the whole remuneration, annual payments, lump sums and
-  // non-cash benefits included, unchanged by P3: "monthly remuneration" is the Fourth Schedule paragraph 1
+  // The ETI base is `levyRemuneration`: the whole remuneration, annual payments, lump sums and
+  // non-cash benefits included, except that a taxable 3701 / 3802 counts at its PAYE share (80% or 20%, wave 5 FB), unchanged by P3 otherwise: "monthly remuneration" is the Fourth Schedule paragraph 1
   // remuneration ("salary, leave pay, wage, overtime pay, bonus, gratuity, ...")
   // paid or payable in the month (SARS Guide to the Employment Tax Incentive,
   // Issue 5, §2.4 "Monthly remuneration",
