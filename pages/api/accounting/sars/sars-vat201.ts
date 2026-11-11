@@ -12,7 +12,7 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { isValidDate } from '@/lib/validation';
-import { saveDraftSubmission } from '@/modules/accounting/services/reports/sarsService';
+import { saveDraftSubmission, SubmissionNotOpenError } from '@/modules/accounting/services/reports/sarsService';
 // The ledger-derived boxes, not the invoice-derived ones: a period's credit
 // notes and manual VAT journals are invisible to `generateVAT201` (audit K-031).
 // `sarsFields` is the SARS form (1, 1A ... 20) the page renders; the field1..11
@@ -66,6 +66,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.created(res, submission, 'VAT201 draft saved');
     } catch (err) {
       if (respondIfLockTimeout(res, err)) return;
+      if (err instanceof SubmissionNotOpenError) return apiResponse.conflict(res, err.message);
       log.error('Failed to save VAT201 draft', { error: err }, 'sars-api');
       return apiResponse.badRequestFromError(res, err, 'Failed to save draft');
     }

@@ -46,7 +46,7 @@ function recordedDirective(figures: Record<string, unknown>): Record<string, unk
   return { directiveCount: t.count, directiveGross: t.gross, directivePaye: t.paye };
 }
 
-async function driftOf(companyId: string, v: ReturnVersion): Promise<ReturnDrift> {
+export async function driftOf(companyId: string, v: ReturnVersion): Promise<ReturnDrift> {
   const { formType: form, periodStart: start, periodEnd: end, figures } = v;
   if (form === 'VAT201') {
     const r = await getVat201Report(companyId, start, end, { detail: 'summary' });
