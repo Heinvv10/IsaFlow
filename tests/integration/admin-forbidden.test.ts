@@ -23,7 +23,10 @@ async function seed() {
 }
 
 async function makeToken(sub: string) {
-  return new SignJWT({ sub, aud: 'authenticated', role: 'authenticated' })
+  // aal2: a completed session, so verifyToken settles it from the signature
+  // alone. An AAL1 token makes it ask GoTrue for the user's factors, which
+  // this suite has nothing to do with (and the CI gate runs no GoTrue).
+  return new SignJWT({ sub, aud: 'authenticated', role: 'authenticated', aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h')
     .sign(new TextEncoder().encode(JWT_SECRET));

@@ -123,17 +123,32 @@ describe('company switch', () => {
     return reload;
   };
 
-  it('a switch clears the invoice drafts', async () => {
+  // Audit 11 Nov 2026 (a.2 S1): the old company's cached API responses and pages go too, before the reload.
+  const stubCaches = () => {
+    const entries = ['/offline', '/api/accounting/chart-of-accounts', '/accounting'];
+    const del = vi.fn(async (r: Request) => { entries.splice(entries.indexOf(new URL(r.url).pathname), 1); return true; });
+    vi.stubGlobal('caches', {
+      keys: async () => ['isaflow-v3-b'],
+      open: async () => ({ keys: async () => entries.map((u) => new Request(`https://app.isaflow.co.za${u}`)), delete: del }),
+    });
+    return { entries, del };
+  };
+
+  it('a switch clears the invoice drafts and the cached tenant entries', async () => {
+    const cache = stubCaches();
     const reload = await run(() => json(200, { success: true, data: {} }));
     await waitFor(() => expect(reload).toHaveBeenCalled());
     expect(drafts()).toEqual([]);
     expect(localStorage.getItem('isaflow_theme')).toBe('dark');
+    expect(cache.entries).toEqual(['/offline']);
   });
 
   it('a switch the server refused keeps them', async () => {
+    const cache = stubCaches();
     await run(() => json(403, { success: false, error: { code: 'FORBIDDEN', message: 'no' } }));
     await waitFor(() => expect(document.body.getAttribute('data-refused')).toBe('1'));
     document.body.removeAttribute('data-refused');
     expect(drafts()).toHaveLength(2);
+    expect(cache.del).not.toHaveBeenCalled();
   });
 });

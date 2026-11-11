@@ -6,7 +6,7 @@
  * closure CALLS, so a new suite needs no list entry.
  */
 import { describe, expect, it } from 'vitest';
-import { assignShards, importClosure, joinRelative, routeSuite, shardCount } from '../../../scripts/ci/integration/suiteRoute';
+import { assignShards, importClosure, joinRelative, planFiles, routeSuite, shardCount } from '../../../scripts/ci/integration/suiteRoute';
 
 const FILES: Record<string, string> = {
   'tests/helpers/assertNotProductionDb.ts': 'export function assertNotProductionDb(reason: string): void {}\n',
@@ -95,5 +95,23 @@ describe('shardCount', () => {
 
   it('refuses a CI_INT_SHARDS that is not a positive integer', () => {
     for (const bad of ['0', '-1', '2.5', 'six']) expect(() => shardCount(4, bad)).toThrow(/CI_INT_SHARDS/);
+  });
+});
+
+describe('planFiles: every vitest.integration.config.ts suite is gated, nothing test-shaped drops out', () => {
+  it('takes every *.test.ts, *.int.test.ts or not, sorted', () => {
+    expect(planFiles(['api/b.test.ts', 'a.int.test.ts', 'c.test.ts']).suites).toEqual(['a.int.test.ts', 'api/b.test.ts', 'c.test.ts']);
+  });
+
+  it('ignores helpers, fixtures, browser scripts and snapshots', () => {
+    expect(planFiles(['x.helpers.ts', 'helpers/y.ts', 'z.mjs', 'goods-received-browser.mjs', '__snapshots__/q.json']))
+      .toEqual({ suites: [], strays: [] });
+  });
+
+  it('reports test-shaped files vitest would not run as strays, sorted', () => {
+    expect(planFiles(['e.test.mjs', 'c.test.tsx', 'd.spec.ts', 'ok.test.ts'])).toEqual({
+      suites: ['ok.test.ts'],
+      strays: ['c.test.tsx', 'd.spec.ts', 'e.test.mjs'],
+    });
   });
 });

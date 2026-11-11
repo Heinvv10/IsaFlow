@@ -70,7 +70,10 @@ async function seed() {
 }
 
 async function makeToken(sub: string) {
-  return new SignJWT({ sub, aud: 'authenticated', role: 'authenticated' })
+  // aal2: a completed session, so verifyToken settles it from the signature
+  // alone. An AAL1 token makes it ask GoTrue for the user's factors, which
+  // this suite has nothing to do with (and the CI gate runs no GoTrue).
+  return new SignJWT({ sub, aud: 'authenticated', role: 'authenticated', aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h')
     .sign(new TextEncoder().encode(JWT_SECRET));
@@ -84,33 +87,31 @@ function mkReq(token: string) {
 }
 
 function mkRes() {
-  let _status = 200;
-  let _body: unknown;
-  const res = {
-    status(c: number) {
-      _status = c;
-      return this;
+  const state = { status: 200, body: undefined as unknown, finished: false, headersSent: false };
+  const headers: Record<string, unknown> = {};
+  // Mirrors Next's api-resolver (as withAuth.test.ts does): json/send funnel
+  // through end, and headersSent flips only once end flushes, so the wrapper's
+  // deferred flush (deferEnd, which rebinds res.end) runs as it does in a request.
+  const res: Record<string, unknown> = {
+    get statusCode() { return state.status; },
+    set statusCode(c: number) { state.status = c; },
+    get headersSent() { return state.headersSent; },
+    get finished() { return state.finished; },
+    status(c: number) { state.status = c; return res; },
+    json(v: unknown) { state.body = v; return (res.send as (b: unknown) => unknown)(JSON.stringify(v)); },
+    send(v: unknown) { state.body = v; return (res.end as (b?: unknown) => unknown)(v); },
+    end(v?: unknown) {
+      if (state.finished) return res;
+      state.finished = true;
+      state.headersSent = true;
+      if (v !== undefined) state.body = v;
+      return res;
     },
-    json(v: unknown) {
-      _body = v;
-      return this;
-    },
-    setHeader() {
-      /* noop */
-    },
-    getHeader() {
-      return undefined;
-    },
-  } as unknown as NextApiResponse;
-  return {
-    res,
-    get status() {
-      return _status;
-    },
-    get body() {
-      return _body;
-    },
+    setHeader(k: string, v: unknown) { headers[k.toLowerCase()] = v; },
+    getHeader(k: string) { return headers[k.toLowerCase()]; },
+    removeHeader(k: string) { delete headers[k.toLowerCase()]; },
   };
+  return { res: res as unknown as NextApiResponse, get status() { return state.status; }, get body() { return state.body; } };
 }
 
 describe('withPlatformAdmin — RLS bypass proof', () => {
@@ -140,7 +141,7 @@ describe('withPlatformAdmin — RLS bypass proof', () => {
       res.status(200).json({ ok: true });
     })(mkReq(tok), r.res);
 
-    expect(r.status).toBe(200);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
     expect(seenRowCount).toBeGreaterThanOrEqual(2);
   }, 15_000);
 });
