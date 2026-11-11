@@ -239,7 +239,10 @@ export interface PollOutcome {
 function mapSubmissionStatus(efilingStatus: string, current: string): string {
   if (efilingStatus === 'accepted') return 'accepted';
   if (efilingStatus === 'rejected') return 'rejected';
-  if (efilingStatus === 'received' || efilingStatus === 'processing') return 'submitted';
+  if (efilingStatus === 'received' || efilingStatus === 'processing') {
+    // SARS still working: never regress a verdict already recorded.
+    return current === 'accepted' || current === 'rejected' ? current : 'submitted';
+  }
   log.warn('SARS returned an eFiling status this service does not know; the submission status is unchanged',
     { efilingStatus, current }, 'sarsEfilingSubmissionService');
   return current;
@@ -259,9 +262,14 @@ export async function pollVAT201Status(companyId: string, submissionId: string, 
     const auth = await authenticate(config);
     const result = await pollStatus(config, auth.token, submission.efilingCorrelationId);
     const submissionStatus = mapSubmissionStatus(result.status, submission.status);
-    await applyPollResult(companyId, submissionId, {
-      submissionStatus, efilingStatus: result.status, sarsReference: result.sarsReference,
-    });
+    // A status that changes nothing (an unknown one, or SARS still working on a verdict already recorded) is a full no-op on the
+    // row: no stamping of channel, time or actor on a draft. Only a row that is already 'submitted' still takes the new
+    // efiling_last_status and reference.
+    if (submissionStatus !== submission.status || submission.status === 'submitted') {
+      await applyPollResult(companyId, submissionId, {
+        submissionStatus, efilingStatus: result.status, sarsReference: result.sarsReference,
+      });
+    }
     await insertEfilingEvent({
       companyId, submissionId, eventType: 'poll',
       efilingStatus: result.status, httpStatus: result.httpStatus, correlationId: submission.efilingCorrelationId,

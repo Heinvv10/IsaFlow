@@ -255,6 +255,20 @@ describe('pollVAT201Status', () => {
     expect(m.insertEfilingEvent).not.toHaveBeenCalledWith(expect.objectContaining({ eventType: 'error' }));
   });
 
+  it('received/processing never regress a recorded verdict: the row is left alone', async () => {
+    for (const status of ['accepted', 'rejected']) {
+      m.getEfilingSubmission.mockResolvedValue({
+        id: SID, companyId: CID, formType: 'VAT201', periodStart: '2026-03-01', periodEnd: '2026-03-31', status,
+        efilingCorrelationId: 'CORR-1', efilingLastStatus: status, formData: { ...FILED_FIELDS },
+      });
+      m.applyPollResult.mockClear();
+      m.pollStatus.mockResolvedValue({ status: 'processing', sarsReference: null, errors: [], httpStatus: 200 });
+      const out = await pollVAT201Status(CID, SID);
+      expect(out.submissionStatus).toBe(status);
+      expect(m.applyPollResult).not.toHaveBeenCalled();
+    }
+  });
+
   it('maps received and processing to submitted, and an UNKNOWN SARS status to a no-op with a warning (never to submitted)', async () => {
     const draftRow = (status: string) => m.getEfilingSubmission.mockResolvedValue({
       id: SID, companyId: CID, formType: 'VAT201', periodStart: '2026-03-01', periodEnd: '2026-03-31', status,
@@ -267,7 +281,7 @@ describe('pollVAT201Status', () => {
     expect(m.applyPollResult).toHaveBeenLastCalledWith(CID, SID, expect.objectContaining({ submissionStatus: 'submitted' }));
     m.pollStatus.mockResolvedValue({ status: 'unknown', sarsReference: null, errors: [], httpStatus: 200 });
     await pollVAT201Status(CID, SID);
-    expect(m.applyPollResult).toHaveBeenLastCalledWith(CID, SID, expect.objectContaining({ submissionStatus: 'draft' })); // unchanged
+    expect(m.applyPollResult).toHaveBeenCalledTimes(1); // the unknown status wrote NOTHING (no stamping of a draft)
     const { log } = await import('@/lib/logger');
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('does not know'), expect.objectContaining({ efilingStatus: 'unknown' }), expect.any(String));
   });

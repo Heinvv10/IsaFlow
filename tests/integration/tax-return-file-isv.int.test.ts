@@ -3,7 +3,7 @@
  * never the newest alone, and a correlation id SARS returned is persisted on the draft by the committed event write, so
  * the existing poll can resolve a send whose result could not be recorded.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
@@ -12,6 +12,18 @@ import { inTx } from './helpers/l1FifoFixture';
 import {
   applyPollResult, sendMayHaveReached, withEventWriter,
 } from '../../src/modules/accounting/services/reports/sarsEfilingRepo';
+
+// The SARS side is faked; the database is real.
+const sars = vi.hoisted(() => ({ status: 'unknown' }));
+vi.mock('../../src/modules/accounting/services/reports/sarsEfilingConfig', () => ({
+  getEfilingConfig: () => ({ baseUrl: 'http://sars.invalid', isvLogin: 'l', activationKey: 'k' }), isEfilingConfigured: () => true,
+}));
+vi.mock('../../src/modules/accounting/services/reports/sarsEfilingClient', () => ({
+  authenticate: async () => ({ token: 't' }),
+  pollStatus: async () => ({ status: sars.status, sarsReference: null, errors: [], httpStatus: 200 }),
+  submitVAT201: async () => { throw new Error('not used'); },
+}));
+import { pollVAT201Status } from '../../src/modules/accounting/services/reports/sarsEfilingSubmissionService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
@@ -105,26 +117,29 @@ describeIfDb('the ISV send guard and the correlation id', () => {
 
   it('the poll stamps the intent that PRECEDED the correlation-carrying event (else the latest intent), among several intents', async () => {
     const at = (iso: string) => new Date(iso);
-    const ev = (id: string, type: string, status: string | null, corr: string | null, when: string) => sql`INSERT INTO sars_efiling_events
+    const ev = (id: string, type: string, status: string | null, corr: string | null, when: string, by = a.admin.userId) => sql`INSERT INTO sars_efiling_events
       (company_id, submission_id, event_type, efiling_status, correlation_id, created_by, created_at)
-      VALUES (${a.fx.companyId}::UUID, ${id}::UUID, ${type}, ${status}, ${corr}, ${a.admin.userId}, ${at(when).toISOString()}::TIMESTAMPTZ)`;
+      VALUES (${a.fx.companyId}::UUID, ${id}::UUID, ${type}, ${status}, ${corr}, ${by}, ${at(when).toISOString()}::TIMESTAMPTZ)`;
+    const byOf = async (id: string) => String(((await sql`SELECT submitted_by FROM sars_submissions WHERE id = ${id}::UUID`) as Row[])[0]!.submitted_by);
     const poll = (id: string) => inTx(a.fx, () => applyPollResult(a.fx.companyId, id, { submissionStatus: 'accepted', efilingStatus: 'accepted', sarsReference: 'R' }));
     const submittedAt = async (id: string) => new Date(String(((await sql`SELECT submitted_at FROM sars_submissions WHERE id = ${id}::UUID`) as Row[])[0]!.submitted_at)).toISOString();
     // intent 1, then SARS's correlation id, then a later intent 2 (a retry that never answered): the id belongs to intent 1
     const first = await draft();
-    await ev(first.id, 'submit', 'sending', null, '2026-01-01T10:00:00Z');
+    await ev(first.id, 'submit', 'sending', null, '2026-01-01T10:00:00Z', a.admin.userId);
     await ev(first.id, 'error', null, 'CORR-A', '2026-01-01T10:00:05Z');
-    await ev(first.id, 'submit', 'sending', null, '2026-01-01T12:00:00Z');
+    await ev(first.id, 'submit', 'sending', null, '2026-01-01T12:00:00Z', a.manager.userId); // a different user's later retry
     await sql`UPDATE sars_submissions SET efiling_correlation_id = 'CORR-A' WHERE id = ${first.id}::UUID`;
     await poll(first.id);
     expect(await submittedAt(first.id)).toBe('2026-01-01T10:00:00.000Z');
+    expect(await byOf(first.id)).toBe(a.admin.userId); // the actor of the intent that preceded the id, not the later retry's
     // no event carries the id: the latest intent
     const second = await draft();
-    await ev(second.id, 'submit', 'sending', null, '2026-02-01T10:00:00Z');
-    await ev(second.id, 'submit', 'sending', null, '2026-02-01T12:00:00Z');
+    await ev(second.id, 'submit', 'sending', null, '2026-02-01T10:00:00Z', a.admin.userId);
+    await ev(second.id, 'submit', 'sending', null, '2026-02-01T12:00:00Z', a.manager.userId);
     await sql`UPDATE sars_submissions SET efiling_correlation_id = 'CORR-B' WHERE id = ${second.id}::UUID`;
     await poll(second.id);
     expect(await submittedAt(second.id)).toBe('2026-02-01T12:00:00.000Z');
+    expect(await byOf(second.id)).toBe(a.manager.userId);
   });
 
   it('a draft takes SARS\'s verdict only with a correlation id, whatever the period', async () => {
@@ -136,5 +151,25 @@ describeIfDb('the ISV send guard and the correlation id', () => {
     await expect(verdict(noId.id, 'rejected')).rejects.toThrow(/correlation id/);
     await verdict(withId.id, 'rejected'); // allowed: no version for this period, and it has an id
     expect(((await sql`SELECT status FROM sars_submissions WHERE id = ${withId.id}::UUID`) as Row[])[0]!.status).toBe('rejected');
+  });
+
+  it('an unknown SARS status is a FULL no-op on a draft (no channel, time or actor), and processing never regresses a verdict', async () => {
+    const d = await draft();
+    await sql`INSERT INTO sars_efiling_events (company_id, submission_id, event_type, efiling_status, created_by)
+      VALUES (${a.fx.companyId}::UUID, ${d.id}::UUID, 'submit', 'sending', ${a.admin.userId})`;
+    await sql`UPDATE sars_submissions SET efiling_correlation_id = 'CORR-U' WHERE id = ${d.id}::UUID`;
+    const row = async () => ((await sql`SELECT status, efiling_channel, submitted_at, submitted_by, efiling_last_status FROM sars_submissions
+      WHERE id = ${d.id}::UUID`) as Row[])[0]!;
+    const before = await row();
+    sars.status = 'unknown';
+    await inTx(a.fx, () => pollVAT201Status(a.fx.companyId, d.id, a.admin.userId));
+    expect(await row()).toEqual(before); // nothing stamped
+    expect(before).toMatchObject({ status: 'draft', efiling_channel: null, submitted_at: null, submitted_by: null });
+    sars.status = 'accepted';
+    await inTx(a.fx, () => pollVAT201Status(a.fx.companyId, d.id, a.admin.userId));
+    expect(await row()).toMatchObject({ status: 'accepted', efiling_channel: 'isv' });
+    sars.status = 'processing';
+    await inTx(a.fx, () => pollVAT201Status(a.fx.companyId, d.id, a.admin.userId));
+    expect((await row()).status).toBe('accepted'); // not regressed
   });
 });
