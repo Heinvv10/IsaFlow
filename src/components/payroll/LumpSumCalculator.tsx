@@ -11,7 +11,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 const fmtCurrency = (n: number) => formatMoney(n);
 
 const inputCls = 'w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-teal-500';
-const labelCls = 'block text-xs font-medium text-gray-400 mb-1';
+const labelCls = 'block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1';
 
 // ─── Lump Sum Calculator ──────────────────────────────────────────────────────
 
@@ -36,9 +36,9 @@ export function LumpSumCalculator() {
       </div>
       <div className="space-y-3">
         <div>
-          <label className={labelCls}>Gross Amount (ZAR)</label>
+          <label htmlFor="lsc-gross" className={labelCls}>Gross Amount (ZAR)</label>
           <input
-            type="number" min="0" step="0.01"
+            id="lsc-gross" type="number" min="0" step="0.01"
             className={inputCls}
             value={gross} onChange={e => setGross(e.target.value)} placeholder="0.00"
           />
@@ -49,9 +49,9 @@ export function LumpSumCalculator() {
         </label>
         {useDirectiveRate && (
           <div>
-            <label className={labelCls}>Directive Rate (%)</label>
+            <label htmlFor="lsc-rate" className={labelCls}>Directive Rate (%)</label>
             <input
-              type="number" min="0" max="100" step="0.01"
+              id="lsc-rate" type="number" min="0" max="100" step="0.01"
               className={inputCls}
               value={directiveRate} onChange={e => setDirectiveRate(e.target.value)} placeholder="e.g. 18.00"
             />
