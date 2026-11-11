@@ -10,7 +10,7 @@ vi.mock('@/modules/accounting/services/payroll/etiCarryRead', () => ({ etiMonthL
 vi.mock('@/modules/accounting/services/payroll/etiBooking', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/payroll/etiBooking')>()),
   bookedByEtiJournals: vi.fn(async () => ({ used: 0, refund: 0 })),
-  bookedByRunJournal: vi.fn(async () => ({ used: 0, refund: 0 })),
+  bookedByRunJournal: vi.fn(async () => ({ used: 0, refund: 0, net2140: 0 })),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollJournalEti', () => ({
   refundReceivable: vi.fn(async () => ({ id: 'acc-1150', accountCode: '1150', accountName: 'ETI refund receivable (SARS)' })),
@@ -50,7 +50,7 @@ describe('the month\'s ETI lines', () => {
   });
   it('books only what the run\'s journal and earlier ETI journals have not (one month, one total)', async () => {
     vi.mocked(etiMonthLine).mockResolvedValueOnce(month({ used: 2_300 }) as never);
-    vi.mocked(bookedByRunJournal).mockResolvedValueOnce({ used: 1_000, refund: 0 });
+    vi.mocked(bookedByRunJournal).mockResolvedValueOnce({ used: 1_000, refund: 0, net2140: 2_000 });
     vi.mocked(bookedByEtiJournals).mockResolvedValueOnce({ used: 500, refund: 0 });
     expect(sum(await directiveEtiLines(CO, { year: 2026, month: 6 }), 'acc-2140')).toBe(800);
   });

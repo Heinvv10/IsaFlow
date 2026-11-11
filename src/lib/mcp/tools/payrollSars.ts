@@ -113,6 +113,8 @@ export const emp201StatusTool: McpTool = {
       eti_used: data.etiCarry.used,
       eti_carried_forward: data.etiCarry.carriedForward,
       eti_refund_claimable: data.etiCarry.refundClaimable,
+      // ETI the ledger has not booked as declared, by name (e.g. an August/February refund no journal booked).
+      eti_warnings: data.etiWarnings,
       paye_payable: data.payePayable,
       uif_employee: data.totalUIF_employee,
       uif_employer: data.totalUIF_employer,

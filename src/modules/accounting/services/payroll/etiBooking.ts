@@ -17,6 +17,8 @@ import { payrollJournalInForce } from './payrollJournalChain';
 import type { YearMonth } from './etiCarry';
 
 export interface EtiBooked { used: number; refund: number }
+/** The run journal's booking, plus its net 2140 credit (nil when no journal of the month is in force). */
+export interface RunBooked extends EtiBooked { net2140: number }
 
 const pad = (n: number): string => String(n).padStart(2, '0');
 export const etiJournalReference = (ym: YearMonth): string => `ETI-${ym.year}-${pad(ym.month)}`;
@@ -44,13 +46,15 @@ export async function bookedByEtiJournals(companyId: string, ym: YearMonth): Pro
 }
 
 /** Booked by the month's pay-run journal, while it is in force. */
-export async function bookedByRunJournal(companyId: string, ym: YearMonth): Promise<EtiBooked> {
+export async function bookedByRunJournal(companyId: string, ym: YearMonth): Promise<RunBooked> {
   const header = ((await sql`
     SELECT journal_entry_id, total_paye FROM payroll_run_headers
      WHERE company_id = ${companyId}::UUID AND period_year = ${ym.year} AND period_month = ${ym.month}
        AND journal_entry_id IS NOT NULL
   `) as DbRow[])[0];
-  if (!header || !(await payrollJournalInForce(companyId, String(header.journal_entry_id)))) return { used: 0, refund: 0 };
+  if (!header || header.journal_entry_id == null || !(await payrollJournalInForce(companyId, String(header.journal_entry_id)))) {
+    return { used: 0, refund: 0, net2140: 0 };
+  }
   const rows = (await sql`
     SELECT
       COALESCE(SUM(CASE WHEN ga.account_code = '2140' THEN jl.credit - jl.debit ELSE 0 END), 0) AS paye_net,
@@ -62,5 +66,6 @@ export async function bookedByRunJournal(companyId: string, ym: YearMonth): Prom
   return {
     used: r2((Number(header.total_paye) || 0) - (Number(rows[0]?.paye_net) || 0)),
     refund: r2(Number(rows[0]?.refund) || 0),
+    net2140: r2(Number(rows[0]?.paye_net) || 0),
   };
 }

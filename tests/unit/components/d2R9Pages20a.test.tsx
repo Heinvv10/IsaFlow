@@ -80,6 +80,12 @@ describe('sars/emp201 (route: data = EMP201Data)', () => {
     expect(rowOf('PAYE payable')).toMatch(/255\.00/);
     expect(screen.queryByText('ETI carried forward to next month')).toBeNull();
   });
+  it('shows an ETI warning the service names (review L3: an unbooked August refund)', async () => {
+    serve(on('GET', 'sars-emp201', () => ok({ ...emp, etiWarnings: ['ETI refund R 1 500.00 claimable for March–August 2026 is not booked'] })));
+    render(<Emp201Page />);
+    fireEvent.click(screen.getByRole('button', { name: /Generate/ }));
+    expect((await screen.findByRole('note')).textContent).toMatch(/claimable for March–August 2026 is not booked/);
+  });
   it('an empty 500 shows a sentence and no figures', async () => {
     serve(on('GET', 'sars-emp201', empty500));
     render(<Emp201Page />);

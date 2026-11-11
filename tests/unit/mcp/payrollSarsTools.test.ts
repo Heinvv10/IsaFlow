@@ -48,6 +48,7 @@ const EMP201 = {
   totalETI: 4000,
   payePayable: 59360.94,
   etiCarry: { broughtForward: 0, used: 4000, carriedForward: 0, refundClaimable: 0 },
+  etiWarnings: [],
   totalUIF_employee: 1624.84,
   totalUIF_employer: 1624.84,
   totalUIF: 3249.68,
@@ -124,10 +125,12 @@ describe('emp201_status', () => {
     const { generateEMP201 } = await import('@/modules/accounting/services/reports/emp201Service');
     vi.mocked(generateEMP201).mockResolvedValueOnce({
       ...EMP201, payePayable: 57360.94, etiCarry: { broughtForward: 2000, used: 6000, carriedForward: 0, refundClaimable: 0 },
+      etiWarnings: ['ETI refund R 500.00 claimable for March–August 2026 is not booked'],
     } as never);
     const env = json(await emp201StatusTool.handler({ period_start: '2026-01-01', period_end: '2026-03-31' }, ctx));
     expect([env.eti_claimed, env.eti_brought_forward, env.eti_used, env.eti_carried_forward, env.eti_refund_claimable]).toEqual([4000, 2000, 6000, 0, 0]);
     expect(env.paye_withheld - env.eti_used).toBeCloseTo(env.paye_payable, 2);
+    expect(env.eti_warnings).toEqual(['ETI refund R 500.00 claimable for March–August 2026 is not booked']);
   });
 
   it('splits UIF and says the split is an approximation', async () => {

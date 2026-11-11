@@ -94,10 +94,14 @@ describe('generateEMP201 uses the carry', () => {
     vi.mocked(sql)
       .mockResolvedValueOnce([{ table_name: 'payroll_run_headers' }, { table_name: 'payroll_run_lines' }] as never)
       .mockResolvedValueOnce([] as never)
-      .mockResolvedValueOnce([{ period_year: 2026, period_month: 1, paye: 0, eti: 1_000, status: 'approved' }] as never);
+      .mockResolvedValueOnce([{ period_year: 2026, period_month: 1, paye: 0, eti: 1_000, status: 'approved' }] as never)
+      .mockResolvedValueOnce([] as never) // February's run header: none, so nothing booked by a run journal
+      .mockResolvedValueOnce([{ used: 0, refund: 0 }] as never); // February's ETI journals: none
     const feb = await generateEMP201(CO, '2026-02-01', '2026-02-28');
     expect(feb.etiCarry).toEqual({ broughtForward: 1_000, used: 0, carriedForward: 1_000, refundClaimable: 1_000 });
     expect(feb.payePayable).toBe(0);
+    // Review L3: the refund nobody has booked is named.
+    expect(feb.etiWarnings).toEqual([expect.stringMatching(/^ETI refund R.1.000\.00 claimable for September 2025–February 2026 is not booked: no February 2026 payroll journal/)]);
   });
 
   it('June: May\'s excess (from earlier headers and a directive) reduces June\'s PAYE payable', async () => {

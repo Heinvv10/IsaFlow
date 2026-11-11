@@ -14,6 +14,7 @@ import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { listStandaloneDirectivePayments } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 import { etiCarryLedger, etiMonthsOf, summariseCarry, type EtiCarry } from '@/modules/accounting/services/payroll/etiCarry';
 import { loadEarlierEtiMonths } from '@/modules/accounting/services/payroll/etiCarryRead';
+import { unbookedRefundWarnings } from '@/modules/accounting/services/payroll/etiRefundWarning';
 
 type Row = DbRow;
 
@@ -31,6 +32,8 @@ export interface EMP201Data {
   payePayable: number;
   /** ETI brought forward into the range, used in it, carried out of it, and claimable as a refund at reconciliation (s10). */
   etiCarry: EtiCarry;
+  /** ETI the ledger has not booked as the EMP201 declares it, by name (review L3: an unbooked August/February refund). */
+  etiWarnings: string[];
   totalUIF_employee: number;
   totalUIF_employer: number;
   totalUIF: number;
@@ -103,6 +106,7 @@ export async function generateEMP201(
     totalETI: 0,
     payePayable: 0,
     etiCarry: { broughtForward: 0, used: 0, carriedForward: 0, refundClaimable: 0 },
+    etiWarnings: [],
     totalUIF_employee: 0,
     totalUIF_employer: 0,
     totalUIF: 0,
@@ -185,8 +189,10 @@ export async function generateEMP201(
       ...etiMonthsOf(runs.map((r: Row) => ({ period_year: r.period_year, period_month: r.period_month, paye: r.total_paye, eti: r.total_eti })), directivePayments),
     ];
     // ETI Act s9(1), s10; payroll/etiCarry: a month with nothing paid still carries the excess on, or shows the refund.
-    const etiCarry = summariseCarry(etiCarryLedger(from, to, months), from);
-    if (runs.length === 0 && directivePayments.length === 0) return { ...emptyResult, etiCarry };
+    const etiLedger = etiCarryLedger(from, to, months);
+    const etiCarry = summariseCarry(etiLedger, from);
+    const etiWarnings = await unbookedRefundWarnings(companyId, etiLedger, from);
+    if (runs.length === 0 && directivePayments.length === 0) return { ...emptyResult, etiCarry, etiWarnings };
 
     let totalPAYE = directivePayments.reduce((t, p) => t + p.paye, 0);
     let totalETI = 0;
@@ -247,6 +253,7 @@ export async function generateEMP201(
       totalETI: roundCents(totalETI),
       payePayable,
       etiCarry,
+      etiWarnings,
       totalUIF_employee: uifEmployee,
       totalUIF_employer: uifEmployer,
       totalUIF: roundCents(totalUIF),
