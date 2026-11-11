@@ -3,7 +3,11 @@
  * for later months. The amounts are the ETI ledger's month line (etiCarry), the EMP201's own figures.
  */
 import { formatMoney } from '@/lib/money/formatMoney';
-import type { EtiCarryMonth } from './etiCarry';
+import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
+import { bookedByEtiJournals } from './etiBooking';
+import { etiMonthForRun } from './etiCarryRead';
+import type { EtiCarryMonth, YearMonth } from './etiCarry';
 
 export interface EtiJournalNote { code: string; detail: string }
 
@@ -24,4 +28,52 @@ export function etiAdvisories(month: EtiCarryMonth, etiUsed: number): EtiJournal
     });
   }
   return notes;
+}
+
+/** The ETI a run's journal books (ETI used, and the August/February refund), net of what the month's ETI journals booked. */
+export interface RunEti {
+  month: EtiCarryMonth;
+  etiUsed: number;
+  refund: number;
+  /** The ETI refund receivable (migration 974): null when the role has no account (a blocker if a refund is due). */
+  refundAccount: { id: string; accountCode: string; accountName: string } | null;
+}
+
+export async function etiForRun(companyId: string, ym: YearMonth, run: { paye: number; eti: number }): Promise<RunEti> {
+  const month = await etiMonthForRun(companyId, ym, run);
+  const refundAccount = await getSystemAccount('eti_refund_receivable', companyId).catch((err: unknown) => {
+    if (err instanceof MissingSystemAccountError) return null;
+    throw err;
+  });
+  const booked = await bookedByEtiJournals(companyId, ym, refundAccount?.id ?? null);
+  return {
+    month, refundAccount,
+    etiUsed: Math.round((month.used - booked.used) * 100) / 100,
+    refund: Math.round((month.refundClaimable - booked.refund) * 100) / 100,
+  };
+}
+
+/**
+ * The refund lines (Hein ruling R-C; ETI Act s10(1)): DR ETI refund receivable / CR the ETI offset on labour, for the
+ * ETI the period leaves unused at the end of August or February. A blocker when a refund is due and no account holds
+ * the role.
+ */
+export function etiRefundLines(
+  r: RunEti, labour: { id: string | null; name: string; inactive: boolean },
+): { lines: Array<{ glAccountId: string | null; accountCode: string; accountName: string; debit: number; credit: number; description: string; inactiveAccount: boolean; cc1Id: null }>; blocker: EtiJournalNote | null } {
+  if (Math.abs(r.refund) < 0.005) return { lines: [], blocker: null };
+  if (!r.refundAccount) {
+    return { lines: [], blocker: { code: 'missing_eti_refund_account', detail: `${formatMoney(r.refund)} of ETI is due back from SARS at the end of the ETI period (ETI Act s10(1)), but no account holds the ETI refund receivable role. Add it (migration 974 seeds 1150), then post.` } };
+  }
+  const debit = r.refund > 0;
+  const amount = Math.abs(r.refund);
+  return {
+    blocker: null,
+    lines: [
+      { glAccountId: r.refundAccount.id, accountCode: r.refundAccount.accountCode, accountName: r.refundAccount.accountName,
+        debit: debit ? amount : 0, credit: debit ? 0 : amount, description: 'ETI refund claimable on the EMP501 (ETI Act s10(1))', inactiveAccount: false, cc1Id: null },
+      { glAccountId: labour.id, accountCode: '5200', accountName: labour.name,
+        debit: debit ? 0 : amount, credit: debit ? amount : 0, description: 'ETI refund: the unused ETI of the period', inactiveAccount: labour.inactive, cc1Id: null },
+    ],
+  };
 }

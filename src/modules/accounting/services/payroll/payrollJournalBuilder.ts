@@ -53,8 +53,7 @@ import { judgeJournalLines } from './payrollJournalBlockers';
 import { splitRunTotals } from './payrollRunTotalsSplit';
 import type { LabourSourceBucket } from './payrollLabourComparison';
 import { payrollLoanInstalmentBlocker } from './payrollLineBlockers';
-import { etiMonthForRun } from './etiCarryRead';
-import { etiAdvisories } from './payrollJournalEti';
+import { etiAdvisories, etiForRun, etiRefundLines } from './payrollJournalEti';
 
 type Row = DbRow;
 
@@ -155,8 +154,9 @@ export async function buildPayrollJournalPlan(
 
   // The two UIF halves sum to uif exactly, so an odd cent cannot unbalance the journal.
   const { employerUif, otherDeductions } = splitRunTotals({ gross, paye, uif, net });
-  const etiMonth = await etiMonthForRun(companyId, { year: periodYear, month: periodMonth }, { paye, eti });
-  const etiUsed = round2(etiMonth.used);
+  // The month's ETI used and refund, less what the month's ETI journals (directive payments) already booked.
+  const runEti = await etiForRun(companyId, { year: periodYear, month: periodMonth }, { paye, eti });
+  const etiUsed = round2(runEti.etiUsed);
   const labourDebit = round2(gross + employerUif + sdl - etiUsed);
 
   const accounts = await resolveAccounts(companyId);
@@ -257,12 +257,15 @@ export async function buildPayrollJournalPlan(
   } else if (otherDeductions < -0.005) {
     built.push(line('2175', Math.abs(otherDeductions), 0, 'Other employee deductions reversal — amount paid back through payroll'));
   }
+  const refund = etiRefundLines(runEti, { id: accounts.get('5200')?.id ?? null, name: accounts.get('5200')?.name ?? '', inactive: accounts.get('5200')?.isActive === false });
+  built.push(...refund.lines);
+  if (refund.blocker) blockers.push(refund.blocker);
 
   const lines = built.filter((l) => l.debit !== 0 || l.credit !== 0);
   const shared = sharedNetPayAccountBlocker(netPayTarget, lines);
   if (shared) blockers.push(shared);
 
-  advisories.push(...etiAdvisories(etiMonth, etiUsed));
+  advisories.push(...etiAdvisories(runEti.month, etiUsed));
 
   const entryDate = lastDayOfMonthIso(periodYear, periodMonth);
   const judged = await judgeJournalLines(companyId, lines, entryDate);
