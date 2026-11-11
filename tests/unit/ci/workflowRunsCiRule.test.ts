@@ -18,8 +18,8 @@ function check(yamlText: string, scripts: unknown = SCRIPTS): string[] {
   return checkWorkflowRunsCi(load(yamlText), scripts, WORKFLOW_FILES);
 }
 
-/** The hosted apt steps' first two lines (apt timeouts, then update), as ci.yml writes them. */
-const APT_HEAD = `          echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null\n          sudo apt-get update -q\n`;
+/** The hosted apt steps' first three lines (apt timeouts, the fallback mirror, then update), as ci.yml writes them. */
+const APT_HEAD = `          echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null\n          echo 'http://archive.ubuntu.com/ubuntu/' | sudo tee -a /etc/apt/apt-mirrors.txt >/dev/null\n          sudo apt-get update -q\n`;
 
 /** The hosted playwright step's run line as ci.yml writes it (bounded, one retry). */
 const PW_RUN = `        run: 'for i in 1 2; do timeout 900 bunx playwright install --with-deps chromium && break; [ "$i" = 2 ] && exit 1; echo ''::warning::playwright install stalled or failed; retrying once''; sudo dpkg --configure -a; done'`;
