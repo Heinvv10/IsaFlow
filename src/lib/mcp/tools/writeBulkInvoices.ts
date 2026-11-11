@@ -32,6 +32,7 @@ import { supplierBelongsToCompany } from '@/modules/accounting/services/core/con
 import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { mcpPostingOpts } from '../mcpActor';
 import { DIMENSION_LINE_PROPERTIES, itemsWithDimensions, supplierBillWarningsOrRefusal } from './dimensionArgs';
+import { dueDateTermsWarnings } from './dueDateTermsWarning';
 import { MAX_LINES, SUPPLIER_INVOICE_TEXT_LIMITS as TEXT_LIMITS } from './invoiceCreateArgs';
 import { partitionSupplierInvoiceBatch } from './bulkInvoiceDuplicateSkip';
 import { NOT_FOUND, ok, safeErrorText, toolError } from './toolHelpers';
@@ -126,7 +127,7 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
               description: `The supplier's own invoice number. Refused over ${TEXT_LIMITS.invoice_number} characters.`,
             },
             invoice_date: { type: 'string', format: 'date', description: 'YYYY-MM-DD' },
-            due_date: { type: 'string', format: 'date', description: "When omitted: from this bill's own payment_terms ('netNN' or 'immediate') when given, else the supplier's terms, else the company's default terms" },
+            due_date: { type: 'string', format: 'date', description: "When omitted: from this bill's own payment_terms ('netNN' or 'immediate') when given, else the supplier's terms, else the company's default terms. A given date is kept even where it differs from the supplier's own terms; that comes back in due_date_warnings. Omit it unless the supplier's document states it." },
             tax_rate: { type: 'number', description: 'Invoice-level VAT %, default 15' },
             payment_terms: { type: 'string', maxLength: TEXT_LIMITS.payment_terms },
             reference: { type: 'string', maxLength: TEXT_LIMITS.reference },
@@ -184,6 +185,10 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
       warnings.push(...cos.warnings);
       withDims.push(items);
     }
+    // A given due_date is kept even where the supplier's terms disagree; the agent is told (dueDateTermsWarning.ts).
+    const dueWarnings = await dueDateTermsWarnings(ctx.companyId, kept.map(({ index, inv }) => ({
+      supplierId: inv.supplierId, invoiceDate: inv.invoiceDate, dueDate: inv.dueDate, label: `invoices[${index}]: `,
+    })));
 
     const created: Record<string, unknown>[] = [];
     let element = 0;
@@ -229,6 +234,7 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
       invoices: created,
       skipped,
       ...(warnings.length > 0 ? { dimension_warnings: warnings } : {}),
+      ...(dueWarnings.length > 0 ? { due_date_warnings: dueWarnings } : {}),
     });
   },
 };

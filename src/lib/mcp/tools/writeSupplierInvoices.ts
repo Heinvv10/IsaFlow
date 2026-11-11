@@ -25,6 +25,7 @@ import { supplierBelongsToCompany } from '@/modules/accounting/services/core/con
 import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { mcpPostingOpts } from '../mcpActor';
 import { DIMENSION_LINE_PROPERTIES, itemsWithDimensions, supplierBillWarningsOrRefusal } from './dimensionArgs';
+import { dueDateTermsWarnings } from './dueDateTermsWarning';
 import { agentApprovalRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
 import { MAX_LINES, SUPPLIER_INVOICE_TEXT_LIMITS as TEXT_LIMITS, parseSupplierInvoiceInput } from './invoiceCreateArgs';
 import {
@@ -55,7 +56,7 @@ export const createSupplierInvoiceTool: McpTool = {
         description: `The supplier's own invoice number. Refused over ${TEXT_LIMITS.invoice_number} characters.`,
       },
       invoice_date: { type: 'string', format: 'date', description: 'YYYY-MM-DD' },
-      due_date: { type: 'string', format: 'date', description: "When omitted: from this bill's own payment_terms when you give them ('netNN' or 'immediate'), else the supplier's terms (see list_suppliers), else the company's default terms" },
+      due_date: { type: 'string', format: 'date', description: "When omitted: from this bill's own payment_terms when you give them ('netNN' or 'immediate'), else the supplier's terms (see list_suppliers), else the company's default terms. A given date is kept even where it differs from the supplier's own terms; that comes back in due_date_warnings. Omit it unless the supplier's document states it." },
       tax_rate: { type: 'number', description: 'Invoice-level VAT %, default 15. Per-line tax_rate overrides it.' },
       payment_terms: { type: 'string', maxLength: TEXT_LIMITS.payment_terms },
       reference: { type: 'string', maxLength: TEXT_LIMITS.reference },
@@ -103,6 +104,10 @@ export const createSupplierInvoiceTool: McpTool = {
     if (typeof items === 'string') return toolError(items);
     const cos = await supplierBillWarningsOrRefusal(ctx.companyId, parsed.supplierId, items, (i) => `lines[${i}]`);
     if (typeof cos === 'string') return toolError(cos);
+    // A given due_date is kept even where the supplier's terms disagree; the agent is told (dueDateTermsWarning.ts).
+    const dueWarnings = await dueDateTermsWarnings(ctx.companyId, [
+      { supplierId: parsed.supplierId, invoiceDate: parsed.invoiceDate, dueDate: parsed.dueDate, label: '' },
+    ]);
 
     try {
       const invoice = await createSupplierInvoice(
@@ -132,6 +137,7 @@ export const createSupplierInvoiceTool: McpTool = {
         total_amount: invoice.totalAmount,
         status: invoice.status,
         ...(cos.warnings.length > 0 ? { dimension_warnings: cos.warnings } : {}),
+        ...(dueWarnings.length > 0 ? { due_date_warnings: dueWarnings } : {}),
       });
     } catch (err) {
       // The service's own validation (quantity, unit price) fires before its
