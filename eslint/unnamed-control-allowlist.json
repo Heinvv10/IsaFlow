@@ -1,5 +1,4 @@
 {
-  "pages/accounting/accounting-settings.tsx": 1,
   "pages/accounting/adjustments/index.tsx": 2,
   "pages/accounting/afs/portal-contacts.tsx": 1,
   "pages/accounting/afs/portal/documents/[documentId].tsx": 1,
