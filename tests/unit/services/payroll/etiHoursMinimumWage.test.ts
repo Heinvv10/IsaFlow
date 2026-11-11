@@ -122,3 +122,21 @@ describe('hours employed in the month', () => {
     expect(etiHoursOf({ ...base, payBasis: 'daily' }, june, null)).toBeNull();
   });
 });
+
+describe('the calculator tests the ordinary wage, not the month\'s remuneration', () => {
+  it('160 h at R25 (R4 000 basic) plus a R2 000 bonus: below R30.23 an hour, so nil although R6 000 would pass', async () => {
+    const { calculatePayrollLine } = await import('@/modules/accounting/services/payroll/payrollCalculator');
+    const employee: PayrollEmployee = {
+      id: 'e1', companyId: 'co', employeeNumber: 'E1', firstName: 'Test', lastName: 'Employee', employmentType: 'permanent',
+      startDate: new Date(2026, 0, 1), dateOfBirth: new Date(2004, 5, 1), uifExcluded: false, medicalAidMainMember: false,
+      medicalAidDependantsCount: 0, s18aReceiptHeld: false, taxStatus: 'employee', payBasis: 'hourly', hourlyRate: 25,
+    };
+    const line = calculatePayrollLine({
+      employee,
+      components: [comp('3601', 4_000, { quantity: 160, quantityUnit: 'hour' }), comp('3605', 2_000)],
+      period: { month: 11, year: 2026 }, taxYear: 2027, annualPayrollEstimate: 'defer',
+    });
+    expect(line.eti.monthlyEti).toBe(0);
+    expect(line.eti.ineligibilityReason).toMatch(/national minimum wage of R30\.23/);
+  });
+});
