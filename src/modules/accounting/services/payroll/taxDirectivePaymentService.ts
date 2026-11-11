@@ -29,6 +29,8 @@ import { employeeLabourLines } from './payrollCostCentreTags';
 import { lockDirectiveLabour, postOrRetry, refreshDirectiveLabour } from './taxDirectiveLabour';
 
 export { TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError };
+export { TaxDirectiveAlreadyAppliedError } from './taxDirectiveErrors';
+import { TaxDirectiveAlreadyAppliedError } from './taxDirectiveErrors';
 
 type Row = DbRow;
 
@@ -48,22 +50,6 @@ export interface ApplyDirectiveResult {
   status: 'applied';
   /** `labour_cost_centre_untagged` (a centre that cannot be a CC1 tag posts untagged), `labour_account_inactive` (to 5200). */
   advisories: Array<{ code: string; detail: string }>;
-}
-
-/**
- * Raised when the directive already carries a payment — because it always did,
- * or because a concurrent request has just claimed it. Raised BEFORE the
- * journal is created, so a route may answer it with a 4xx without `withAuth`
- * committing a half-applied directive.
- */
-export class TaxDirectiveAlreadyAppliedError extends Error {
-  readonly code = 'TAX_DIRECTIVE_ALREADY_APPLIED';
-  constructor(readonly directiveId: string, readonly paymentId: string | null, readonly payrollRunId: string | null = null) {
-    super(payrollRunId
-      ? `Directive ${directiveId} is paid by payroll run ${payrollRunId}, so it cannot be paid again here`
-      : `Directive ${directiveId} has already been applied${paymentId ? ` (paymentId: ${paymentId})` : ''}`);
-    this.name = 'TaxDirectiveAlreadyAppliedError';
-  }
 }
 
 export interface TaxDirectivePayment {

@@ -35,3 +35,19 @@ export class TaxDirectiveSplitChangedError extends Error {
     this.name = 'TaxDirectiveSplitChangedError';
   }
 }
+
+/**
+ * Raised when the directive already carries a payment — because it always did,
+ * or because a concurrent request has just claimed it. Raised BEFORE the
+ * journal is created, so a route may answer it with a 4xx without `withAuth`
+ * committing a half-applied directive.
+ */
+export class TaxDirectiveAlreadyAppliedError extends Error {
+  readonly code = 'TAX_DIRECTIVE_ALREADY_APPLIED';
+  constructor(readonly directiveId: string, readonly paymentId: string | null, readonly payrollRunId: string | null = null) {
+    super(payrollRunId
+      ? `Directive ${directiveId} is paid by payroll run ${payrollRunId}, so it cannot be paid again here`
+      : `Directive ${directiveId} has already been applied${paymentId ? ` (paymentId: ${paymentId})` : ''}`);
+    this.name = 'TaxDirectiveAlreadyAppliedError';
+  }
+}
