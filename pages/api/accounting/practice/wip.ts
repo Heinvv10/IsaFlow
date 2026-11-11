@@ -7,6 +7,7 @@ import type { NextApiResponse } from 'next';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { isUuidParam } from '@/lib/validation';
 import { getWipByClient } from '@/modules/accounting/services/practice/practiceWipService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -15,6 +16,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
   const { companyId } = req as CompanyAuthedRequest;
   const { practiceClientId, partnerId, dateFrom, dateTo } = req.query;
+  // The service casts it ::UUID: a malformed id would be a 500, not the caller's mistake.
+  if (practiceClientId !== undefined && !isUuidParam(practiceClientId)) {
+    return apiResponse.badRequest(res, 'practiceClientId must be a UUID');
+  }
   const rows = await getWipByClient(companyId, {
     practiceClientId: practiceClientId as string | undefined,
     partnerId: partnerId as string | undefined,

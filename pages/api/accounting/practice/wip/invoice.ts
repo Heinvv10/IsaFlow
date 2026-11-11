@@ -34,6 +34,9 @@ const WipInvoiceBody = z.object({
   // null keeps meaning "default 15", as it did before the schema existed.
   taxRate: z.number().finite().nullish().transform((v) => v ?? undefined),
   groupBy: z.enum(['detailed', 'by_work_item', 'by_category']).optional(),
+  // Absent: the customer's payment terms give the due date.
+  dueDate: z.iso.date().optional(),
+  notes: z.string().trim().max(2000).optional(),
 });
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {

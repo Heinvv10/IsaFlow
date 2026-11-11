@@ -269,3 +269,75 @@ describe('generateWipInvoice', () => {
       .rejects.toThrow(/being invoiced by another request/);
   });
 });
+
+// Generate Invoice form (audit 11 Nov 2026, item 12): a chosen due date, notes,
+// and VAT priced by the shared invoiceTotals.
+describe('generateWipInvoice: due date, notes and shared VAT', () => {
+  const CLIENT_ROW = { id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER, own_customer_id: LINK_CUSTOMER };
+  const entry = (lineTotal: number) => ({
+    id: ENTRY_A, hours: 1, applied_rate: lineTotal, line_total: lineTotal,
+    entry_date: '2026-11-01', task_description: 'Advice', work_item_name: null, job_category_name: 'Advisory',
+  });
+  function queueHappyPath(lineTotal = 1000) {
+    sqlMock.mockResolvedValueOnce([CLIENT_ROW]);
+    sqlMock.mockResolvedValueOnce([entry(lineTotal)]);
+    sqlMock.mockResolvedValueOnce([{ used: 1, prefix: 'INV', padding: 7 }]);
+    sqlMock.mockResolvedValueOnce([{ id: INVOICE_ID }]);
+    sqlMock.mockResolvedValueOnce([]);
+    markEntriesBilledMock.mockResolvedValueOnce(1);
+  }
+  const invoiceInsert = () => {
+    const call = sqlMock.mock.calls.find((c) => (c[0] as TemplateStringsArray).some((s) => s.includes('INSERT INTO customer_invoices (')));
+    if (!call) throw new Error('no customer_invoices INSERT');
+    return call.slice(1) as unknown[];
+  };
+  const input = { practiceClientId: CLIENT, timeEntryIds: [ENTRY_A], invoiceDate: '2026-11-05' };
+
+  it('stores a chosen due date that differs from the terms as manual', async () => {
+    queueHappyPath();
+    await inTx(() => generateWipInvoice(COMPANY, USER, { ...input, dueDate: '2026-11-20' }));
+    const v = invoiceInsert();
+    expect(v).toContain('2026-11-20');
+    expect(v).toContain('manual');
+    expect(v).not.toContain('2026-12-05');
+  });
+
+  it('stores a chosen due date equal to the terms date as terms', async () => {
+    queueHappyPath();
+    await inTx(() => generateWipInvoice(COMPANY, USER, { ...input, dueDate: '2026-12-05' }));
+    const v = invoiceInsert();
+    expect(v).toContain('2026-12-05');
+    expect(v).toContain('terms');
+    expect(v).not.toContain('manual');
+  });
+
+  it('takes the terms due date when none is given, and stores null notes', async () => {
+    queueHappyPath();
+    await inTx(() => generateWipInvoice(COMPANY, USER, input));
+    const v = invoiceInsert();
+    expect(v).toContain('2026-12-05');
+    expect(v).toContain('terms');
+    expect(v[v.length - 1]).toBeNull();
+  });
+
+  it('stores the notes on the invoice', async () => {
+    queueHappyPath();
+    await inTx(() => generateWipInvoice(COMPANY, USER, { ...input, notes: 'October advisory work' }));
+    expect(invoiceInsert()[invoiceInsert().length - 1]).toBe('October advisory work');
+  });
+
+  it('refuses a due date before the invoice date before reading or writing anything', async () => {
+    await expect(inTx(() => generateWipInvoice(COMPANY, USER, { ...input, dueDate: '2026-11-04' })))
+      .rejects.toThrow('Due date cannot be before the invoice date');
+    expect(sqlMock).not.toHaveBeenCalled();
+    expect(markEntriesBilledMock).not.toHaveBeenCalled();
+  });
+
+  it('prices VAT with the shared exact-decimal calculation (1.50 at 15% is 0.23, float gave 0.22)', async () => {
+    queueHappyPath(1.5);
+    const r = await inTx(() => generateWipInvoice(COMPANY, USER, { ...input, taxRate: 15 }));
+    expect(r.subtotal).toBe(1.5);
+    expect(r.taxAmount).toBe(0.23);
+    expect(r.totalAmount).toBe(1.73);
+  });
+});
