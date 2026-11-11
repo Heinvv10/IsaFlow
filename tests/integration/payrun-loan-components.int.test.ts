@@ -146,7 +146,8 @@ describe('a low-interest loan with no 3801 earning (Hein: collected, and blocks 
     expect(withBenefit.net).toBeCloseTo(plain.net - 1000 - (withBenefit.paye - plain.paye), 2);
     const breakdown = (await pool.query('SELECT component_breakdown FROM payroll_run_lines WHERE run_id = $1', [state.nov])).rows[0]!.component_breakdown;
     expect(breakdown).toContainEqual(expect.objectContaining({ componentId: benefit, amount: 7.08 }));
-    expect((await results()).map((r) => r.code)).toEqual([]);
+    // No loan result. TS-b stores HOURS_NOT_RECORDED (info) on every hourless monthly line; it is not a loan result.
+    expect((await results()).map((r) => r.code).filter((c) => c !== 'HOURS_NOT_RECORDED')).toEqual([]);
     expect(await blocker()).toBeNull();
   });
 

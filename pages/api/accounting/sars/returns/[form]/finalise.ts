@@ -20,6 +20,7 @@ import { VatPeriodLockRefusal } from '@/modules/accounting/services/reports/vatP
 import {
   VatGateBlockedError, VatGateOverrideForbiddenError,
 } from '@/modules/accounting/services/reports/vatGateOverrideService';
+import { respondReturnRefusal } from '@/modules/accounting/services/returns/respondRefusal';
 import { returnFormOf } from '@/modules/accounting/services/returns/returnForm';
 
 const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD');
@@ -57,9 +58,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { version, vatReturn });
   } catch (err) {
     if (respondIfImpersonationForbidden(res, err)) return;
-    if (err instanceof ReturnRefusal) {
-      return err.status === 409 ? apiResponse.conflict(res, err.message) : apiResponse.badRequest(res, err.message);
-    }
+    if (err instanceof ReturnRefusal) return respondReturnRefusal(res, err);
     if (err instanceof VatGateOverrideForbiddenError) return apiResponse.forbidden(res, err.message);
     if (err instanceof VatGateBlockedError) return apiResponse.badRequest(res, err.message, { counts: err.counts });
     if (err instanceof VatPeriodLockRefusal) return apiResponse.badRequest(res, err.message);

@@ -86,7 +86,8 @@ describe('a proper LOAN deduction', () => {
     const l = await line(state.nov);
     expect(l.net).toBeCloseTo(plain.net - 1000, 2);
     expect(l.paye).toBe(plain.paye);
-    expect(codes(l)).toEqual([]);
+    // TS-b stores HOURS_NOT_RECORDED (info) on every hourless monthly line; it is not a loan result.
+    expect(codes(l).filter((c) => c !== 'HOURS_NOT_RECORDED')).toEqual([]);
     expect(await loanState(loan)).toEqual({ balance: 0, paidFlags: [true], payments: 1 });
   });
 });

@@ -31,6 +31,7 @@ import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { RETIREMENT_CONTRIBUTION_CODES } from './retirementFundCodes';
 import type { RetirementContributions } from './easyFileRetirementFields';
+import { outsideTablesFlag } from './payrollOutsideTables';
 
 export interface RetirementRecord extends RetirementContributions {
   /** All contributions (the line's retirement_contributions, else its breakdown). */
@@ -53,8 +54,11 @@ export async function loadRetirementRecord(
   companyId: string,
   bounds: { start: string; end: string },
   employeeIds: string[] | null = null,
+  opts: { tablesOnly?: boolean } = {},
 ): Promise<Map<string, RetirementRecord>> {
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
+  // The cumulative PAYE's year to date leaves out a month whose PAYE was not taken from the tables; the certificate does not.
+  const tablesOnly = opts.tablesOnly === true;
   const rows = (await sql`
     WITH line AS (
       SELECT l.id AS line_id, l.employee_id, l.retirement_contributions, l.retirement_deduction, l.donation_deduction, x.*
@@ -83,6 +87,7 @@ export async function loadRetirementRecord(
         AND h.status = ANY(${declarable}::text[])
         AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
         AND (${employeeIds}::uuid[] IS NULL OR l.employee_id = ANY(${employeeIds}::uuid[]))
+        AND NOT (${tablesOnly}::boolean AND COALESCE(l.validation_results @> ${outsideTablesFlag}::jsonb, false))
     )
     SELECT employee_id,
            SUM(pension)::numeric AS pension, SUM(provident)::numeric AS provident, SUM(annuity)::numeric AS annuity,

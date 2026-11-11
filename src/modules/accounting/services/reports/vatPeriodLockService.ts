@@ -28,55 +28,14 @@ import { log } from '@/lib/logger';
 import { takeVatLockExclusive } from '../gl/journalVatLockGuard';
 import { VatPeriodLockRefusal, assertLockablePeriod } from './vatPeriodLockBounds';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { assertLockNotInLiveVersion } from '@/modules/accounting/services/returns/liveVersionGuard';
 import { scheduleAutoSnapshot } from '@/modules/accounting/services/audit/autoSnapshotQueue';
 
 export { VatPeriodLockRefusal } from './vatPeriodLockBounds';
 export { VatLockTimeoutError } from '../gl/journalVatLockGuard';
 
-export interface VatPeriodLock {
-  id: string;
-  periodStart: string;
-  periodEnd: string;
-  outputTax: number;
-  inputTax: number;
-  netVat: number;
-  /** MAX(created_at) of the journals the figures came from, ISO-8601. */
-  postedThrough: string;
-  lockedBy: string;
-  /** users.first_name + last_name for lockedBy, falling back to the raw id
-   *  (an agent lock, or a human whose user row is gone). */
-  lockedByName: string;
-  actorType: 'human' | 'agent' | 'system';
-  actorTokenJti: string | null;
-  lockedAt: string;
-  notes: string | null;
-  /** False once unlocked: the row is kept as history and locks nothing (migration 695). */
-  active: boolean;
-  unlockedAt: string | null;
-  unlockedBy: string | null;
-  /** Same fallback as lockedByName; null exactly when unlockedBy is null. */
-  unlockedByName: string | null;
-  unlockReason: string | null;
-}
-
-export interface VatLockFigures {
-  outputTax: number;
-  inputTax: number;
-  netVat: number;
-  postedThrough: string;
-}
-
-export interface VatLockActor {
-  userId: string;
-  actorType: 'human' | 'agent' | 'system';
-  tokenJti?: string | null;
-}
-
-export interface LockVatPeriodResult {
-  lock: VatPeriodLock;
-  /** False when the period was already locked — the existing lock is returned. */
-  created: boolean;
-}
+import type { VatPeriodLock, VatLockFigures, VatLockActor, LockVatPeriodResult } from './vatPeriodLockTypes';
+export type { VatPeriodLock, VatLockFigures, VatLockActor, LockVatPeriodResult } from './vatPeriodLockTypes';
 
 function num(v: unknown): number {
   const n = Number(v);
@@ -285,6 +244,8 @@ export async function unlockVatPeriod(
   if (rows[0].unlocked_at != null) {
     throw new VatPeriodUnlockRefusal('This VAT period lock is already unlocked.');
   }
+  // A live return version names this lock: amend the return instead. Judged before any write.
+  await assertLockNotInLiveVersion(companyId, lockId);
 
   const updated = (await sql`
     UPDATE vat_period_locks

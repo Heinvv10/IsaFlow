@@ -228,6 +228,10 @@ export function employeeChangesOf<T extends Body>(
   });
   const terms = termsOfPatch(body, refused, stored);
   if (!mayChangePricedTerms && movesPricedTerm(terms, stored)) throw new EmployeeTermsForbidden();
+  // The employment type is priced too (it feeds the director check and the hours warning; bulk needs the same role): a lower role
+  // may resend the stored value (the profile form resends every field) but not move it.
+  const movesType = body.employmentType !== undefined && body.employmentType !== current.employmentType;
+  if (!mayChangePricedTerms && movesType) throw new EmployeeTermsForbidden();
   const changes = {
     ...body,
     ...terms,
@@ -237,7 +241,7 @@ export function employeeChangesOf<T extends Body>(
     idNumber: changedIdentifier(body.idNumber, current.idNumber, isValidSaIdNumber, ID_REFUSAL),
   };  // A caller without the role never writes a priced term, equal to the stored value or not: the stored one was read
   // before the lock, and writing it back could undo a concurrent change by an owner.
-  if (!mayChangePricedTerms) for (const k of PRICED_KEYS) delete (changes as Record<string, unknown>)[k];
+  if (!mayChangePricedTerms) for (const k of [...PRICED_KEYS, 'employmentType']) delete (changes as Record<string, unknown>)[k];
   return changes;
 
 }
