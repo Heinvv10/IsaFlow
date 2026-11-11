@@ -9,15 +9,14 @@ import { buildCaseInput, loadCases, oracleTaxStatus } from '../../../fixtures/pa
 
 const cases = loadCases();
 
-/** The `unmodelled` keys buildCaseInput passes to the calculator (as a work term). */
-const PASSED = ['ordinaryHoursPerWeek', 'hoursPerDay', 'dayRate'];
+/** The `unmodelled` keys buildCaseInput passes to the calculator (as a work term, or as the RF employer contribution: rfiInput.ts). */
+const PASSED = ['ordinaryHoursPerWeek', 'hoursPerDay', 'dayRate', 'erRetirementPctOfRfi', 'rfiBase'];
 /** The keys the calculator cannot take yet, each with the PR that wires it (or why it is only context). */
 const NOT_YET: Record<string, string> = {
   monthlyHours: 'ET', ordinaryHoursWage: 'ET',
   erMedicalContribution: 'FB', travelBusinessUseAtLeast80Pct: 'FB', vehicleDeterminedValue: 'FB', vehicleBenefitPctOfValue: 'FB',
   maintenancePlanIncluded: 'FB', businessUseAtLeast80Pct: 'FB',
   fixedAmountDirective: 'DR', fixedRateDirectivePercent: 'DR',
-  erRetirementPctOfRfi: 'RF', rfiBase: 'RF',
   daysWorked: 'context only: the case notes use it to reach the day rate', employmentBasis: 'context only: the classifier works it out from the hours',
   writtenDeclarationHeld: 'not recorded by IsaFlow yet (employmentTerms.ts, the PAYE_OUTSIDE_TABLES warning)',
 };
@@ -40,6 +39,13 @@ describe('every fixture input reaches the calculator, or has a named owner', () 
     expect(employee.hoursPerDay ?? null).toBe(typeof u.hoursPerDay === 'number' ? u.hoursPerDay : null);
     expect(employee.dailyRate ?? null).toBe(typeof u.dayRate === 'number' ? u.dayRate : null);
     expect(employee.employmentType).toBe(c.input.employee.taxStatus === 'temporary_part_time' ? 'casual' : 'permanent');
+  });
+
+  it('the RF case reaches the calculator as a non-cash 3817 costed at 15% of its R20 000 RFI', () => {
+    const rf = cases.find(c => c.id === 'rf-employer-contribution-15pct-rfi-cap-binds-on-total');
+    if (!rf) throw new Error('RF case missing');
+    const er = buildCaseInput(rf).components.find(c => c.component.sarsSourceCode === '3817');
+    expect(er).toMatchObject({ amount: 3_000, isNonCash: true, percentOfRfi: 0.15, rfiBase: 20_000 });
   });
 
   it('the cases that turn on them are there: a contractor, a director, hours and a day rate', () => {

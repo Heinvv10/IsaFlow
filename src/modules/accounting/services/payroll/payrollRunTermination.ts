@@ -19,6 +19,7 @@
 
 import { log } from '@/lib/logger';
 import { getEmployeeComponents } from './payrollComponentService';
+import { isEmployerFundBenefitCode } from './retirementFund';
 import {
   buildTerminationComponents,
   getTerminationDetails,
@@ -46,8 +47,11 @@ const who = (e: PayrollEmployee): string => `${e.employeeNumber} (${e.firstName}
  */
 export async function terminationMonthlySalary(companyId: string, employeeId: string, asOf: string): Promise<number> {
   const atExit = await getEmployeeComponents(employeeId, companyId, asOf);
+  // An employer's fund contribution (3817 / 3825 / 3828, RF) is paid to the fund, not to the employee: not pay for leave
+  // or notice (BCEA s35(5) and the remuneration determination GN R691 of 2003 leave out employer contributions to a
+  // pension or provident fund; not fetched). A percent_of_rfi row's stored amount is 0 in any case.
   return atExit
-    .filter((c) => c.isRecurring === true && c.component.componentType === 'earning')
+    .filter((c) => c.isRecurring === true && c.component.componentType === 'earning' && !isEmployerFundBenefitCode(c.component.sarsSourceCode))
     .reduce((sum, c) => sum + c.amount, 0);
 }
 

@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
 import type { EmployeeComponent, PayrollEmployee, PayrollLineInput, TaxStatus } from '@/modules/accounting/services/payroll/payrollTypes';
 import { withFringeBenefits } from './fringeInput';
+import { costRfi, withEmployerRetirement } from './rfiInput';
 import { ORACLE_FIELDS, validateCase, type OracleField } from './validate';
 
 export { ORACLE_FIELDS, type OracleField };
@@ -157,7 +158,8 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
     },
     amount: x.amount,
   }));
-  const components = withFringeBenefits(base, input.unmodelled, input.period);
+  // As a run: fringe benefits applied and employer benefits marked non-cash, then the percent-of-RFI rows costed (RF).
+  const components = costRfi(withFringeBenefits(withEmployerRetirement(base, input.unmodelled), input.unmodelled, input.period), input.unmodelled);
   return {
     employee, components, period: input.period, taxYear: input.taxYear,
     annualPayrollEstimate: input.employerAnnualRemuneration,

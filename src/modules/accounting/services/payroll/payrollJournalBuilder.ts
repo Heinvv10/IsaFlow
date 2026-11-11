@@ -48,7 +48,7 @@ import {
 } from './payrollJournalParts';
 import { netPayLine, resolveNetPayTarget, sharedNetPayAccountBlocker } from './payrollJournalBank';
 import { judgeJournalLines } from './payrollJournalBlockers';
-import { employerMedicalTotal, runEmployerMedical } from './payrollJournalEmployerMedical';
+import { runEmployerFundedCosts } from './payrollJournalEmployerRetirement';
 import { splitRunTotals } from './payrollRunTotalsSplit';
 import type { LabourSourceBucket } from './payrollLabourComparison';
 import { payrollLoanInstalmentBlocker } from './payrollLineBlockers';
@@ -153,10 +153,9 @@ export async function buildPayrollJournalPlan(
   // The two UIF halves sum to uif exactly, so an odd cent cannot unbalance the journal.
   const { employerUif, otherDeductions } = splitRunTotals({ gross, paye, uif, net });
   const etiUsed = round2(Math.max(0, Math.min(eti, paye)));
-  // The employer's medical contribution (non-cash 3810): outside gross, but paid to the scheme (payrollJournalEmployerMedical).
-  const employerMedical = await runEmployerMedical(runId);
-  const medical = employerMedicalTotal(employerMedical);
-  const labourDebit = round2(gross + employerUif + sdl + medical - etiUsed);
+  // The employer's medical (non-cash 3810) and retirement fund (non-cash 3817/3825/3828, RF) contributions: outside gross, but paid to the scheme / fund.
+  const { byEmployee: employerFunded, medical, retirement } = await runEmployerFundedCosts(companyId, runId);
+  const labourDebit = round2(gross + employerUif + sdl + medical + retirement - etiUsed);
   const payable2175 = round2(otherDeductions + medical);
 
   const accounts = await resolveAccounts(companyId);
@@ -175,10 +174,10 @@ export async function buildPayrollJournalPlan(
   }
   // Only when a net-pay line survives (zero lines are dropped below): a run paying no one credits no bank.
   if (netPayTarget.blocker && round2(net) !== 0) blockers.push(netPayTarget.blocker);
-  if (Math.abs(payable2175) > 0.005 && !accounts.has('2175')) {
+  if ((Math.abs(payable2175) > 0.005 || retirement > 0.005) && !accounts.has('2175')) {
     blockers.push({
       code: 'missing_other_deductions_account',
-      detail: `The run carries R${payable2175.toFixed(2)} of voluntary deductions, employer medical contributions or reversals but the company has no GL account 2175 (Other Employee Deductions Payable).`,
+      detail: `The run carries R${round2(payable2175 + retirement).toFixed(2)} of voluntary deductions, employer medical or retirement fund contributions or reversals but the company has no GL account 2175 (Other Employee Deductions Payable).`,
     });
   }
   if (status !== 'approved') {
@@ -218,7 +217,7 @@ export async function buildPayrollJournalPlan(
   let labourBySourceCentre: LabourSourceBucket[] | undefined;
   const labourAccountId = accounts.get('5200')?.id;
   if (labourAccountId) {
-    const { lines: labour, advisory: untagged, bySource } = await buildLabourLines(companyId, runId, labourDebit, gross, labourAccountId, etiUsed, employerMedical);
+    const { lines: labour, advisory: untagged, bySource } = await buildLabourLines(companyId, runId, labourDebit, gross, labourAccountId, etiUsed, employerFunded);
     if (untagged) advisories.push(untagged);
     labourBySourceCentre = bySource;
     // The split can route a share to a cost-centre account other than 5200;
@@ -255,6 +254,7 @@ export async function buildPayrollJournalPlan(
   } else if (payable2175 < -0.005) {
     built.push(line('2175', Math.abs(payable2175), 0, 'Other employee deductions reversal — amount paid back through payroll'));
   }
+  if (retirement > 0.005) built.push(line('2175', 0, retirement, 'Employer retirement fund contributions (non-cash 3817/3825/3828), payable to the fund'));
 
   const lines = built.filter((l) => l.debit !== 0 || l.credit !== 0);
   const shared = sharedNetPayAccountBlocker(netPayTarget, lines);

@@ -48,7 +48,7 @@ import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
 import { contractorAwareReason } from './easyFileContractor';
 import { birthDate3080, medicalFieldLines } from './easyFileMedicalFields';
-import { retirementFieldLines, withDeductionTotal } from './easyFileRetirementFields';
+import { employerFundContributionFields, retirementFieldLines, withDeductionTotal, withDeemedEmployerContributions } from './easyFileRetirementFields';
 
 export { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber };
 export { splitCertificateIncome } from './payrollLumpSumFiling';
@@ -147,7 +147,9 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   const reason = it3a ? contractorAwareReason(emp) : null;
   const employerMedical = Math.floor((emp.fringeBenefits ?? []).filter(f => f.sourceCode === '3810').reduce((n, f) => n + f.amount, 0));
   const medical = medicalFieldLines(emp);
-  const retirement = retirementFieldLines(emp.retirementFund);
+  // RF: 4001 / 4003 / 4006 include the employer's contributions deemed paid by the employee (the non-cash 3817 / 3825 / 3828).
+  const retirement = retirementFieldLines(withDeemedEmployerContributions(emp.retirementFund, emp.fringeBenefits ?? []));
+  const employerFund = employerFundContributionFields(emp.fringeBenefits ?? []);
   const lines: (string | null)[] = [
     formatField(3010, emp.certificateNumber, 'AN'),
     formatField(3015, it3a ? 'IT3(a)' : 'IRP5', 'AN'),
@@ -186,8 +188,11 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     formatField(4141, Math.round((emp.uifEmployee + emp.uifEmployer) * 100) / 100, 'N_CENTS'),
     formatField(4142, emp.sdl4142, 'N_CENTS'),
     reason ? `4150,${reason}` : null,
+    // 4472 / 4473 / 4475 = the employer's fund contributions, equal to 3817 / 3825 / 3828 (RF; BRS V25.3.0 p. 55, 103).
+    employerFund.get(4472) ?? null, employerFund.get(4473) ?? null,
     // 4474 = the employer's medical contribution, equal to code 3810 (BRS V25.3.0 p. 103; V13.1 rule "3810 must equal 4474").
     employerMedical > 0 ? formatField(4474, employerMedical, 'N') : null,
+    employerFund.get(4475) ?? null,
     // 4582 (BRS p. 105): mandatory with 3701 / 3802, kept inside 20-80% of them (allowanceCertificateFields).
     emp.paye4582 !== undefined ? formatField(4582, emp.paye4582, 'N') : null,
     '9999,9999',

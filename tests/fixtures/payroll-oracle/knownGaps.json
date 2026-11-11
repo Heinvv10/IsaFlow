@@ -35,14 +35,6 @@
     "closedBy": "W3 (ETI): hours paid and the minimum-wage condition in the ETI calc, with the 160-hour apportionment"
   },
   {
-    "case": "rf-employer-contribution-15pct-rfi-cap-binds-on-total",
-    "engineActual": {
-      "paye": 1395
-    },
-    "reason": "The employer retirement contribution (15% of RFI = R3 000) is ignored (EMPLOYER_CONTRIBUTION_NOT_SUPPORTED), so the employee R4 000 is allowed in full. As a taxable fringe benefit deemed paid by the employee it joins the s11F pool: 27.5% x 23 000 = 6 325 binds on the R7 000 total. Expected 1 516.50.",
-    "closedBy": "RF (RFI and employer retirement contributions)"
-  },
-  {
     "case": "fixed-amount-directive-2500",
     "engineActual": {
       "paye": 4681,
