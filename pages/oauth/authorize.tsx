@@ -80,7 +80,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
       await assertOk(res, 'Could not authorise this app - try again');
       const json = (await res.json()) as { data?: { redirectTo: string } };
       if (!json.data?.redirectTo) { setError('Could not authorise this app - try again'); return; }
-      // Hard navigation to the partner — leaves the ISAFlow domain.
+      // Hard navigation to the partner — leaves the IsaFlow domain.
       navigating = true;
       window.location.href = json.data.redirectTo;
     } catch (err) {
@@ -117,7 +117,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
                   </span>
                 )}
               </h1>
-              <p className="text-sm text-slate-400 mt-1">would like to access your ISAFlow account.</p>
+              <p className="text-sm text-slate-400 mt-1">would like to access your IsaFlow account.</p>
               {app.homepageUrl && (
                 <a
                   href={app.homepageUrl}
@@ -156,7 +156,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
           {!app.isVerified && (
             <div className="text-xs text-amber-400 bg-amber-900/20 border border-amber-800/40 rounded-lg px-3 py-2 flex items-start gap-2">
               <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-              <span>This app has not been verified by ISAFlow. Authorise only if you trust the developer.</span>
+              <span>This app has not been verified by IsaFlow. Authorise only if you trust the developer.</span>
             </div>
           )}
 

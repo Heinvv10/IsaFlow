@@ -51,7 +51,7 @@ export function AccountMappingTable({ accounts, onChange, onAutoMap, autoMapping
               <th className="text-left px-3 py-2 text-[var(--ff-text-secondary)] font-medium">Source Code</th>
               <th className="text-left px-3 py-2 text-[var(--ff-text-secondary)] font-medium">Source Name</th>
               <th className="text-left px-3 py-2 text-[var(--ff-text-secondary)] font-medium">Source Type</th>
-              <th className="text-left px-3 py-2 text-[var(--ff-text-secondary)] font-medium">ISAFlow Type</th>
+              <th className="text-left px-3 py-2 text-[var(--ff-text-secondary)] font-medium">IsaFlow Type</th>
               <th className="text-right px-3 py-2 text-[var(--ff-text-secondary)] font-medium">Opening Bal.</th>
               <th className="px-3 py-2 text-[var(--ff-text-secondary)] font-medium text-center">Status</th>
             </tr>

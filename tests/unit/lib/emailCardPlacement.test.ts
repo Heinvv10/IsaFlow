@@ -84,7 +84,7 @@ function sentHtml(): string {
 function expectInsideCard(html: string, heading: string, firstPara: string) {
   const doc = new new Window().DOMParser().parseFromString(html, 'text/html');
   const card = doc.querySelector('table[width="600"]');
-  const logo = doc.querySelector('img[alt="ISAFlow"]');
+  const logo = doc.querySelector('img[alt="IsaFlow"]');
   const h = [...doc.querySelectorAll('h2')].find((e) => e.textContent?.trim() === heading);
   const p = [...doc.querySelectorAll('p')].find((e) => e.textContent?.includes(firstPara));
   expect(card, 'card table').toBeTruthy();
@@ -115,7 +115,7 @@ describe('emails with bare content sit inside the card, after the logo', () => {
       email: 'new@example.co.za', password: 'CorrectHorseBattery1',
       companyName: 'New Co', firstName: 'New', lastName: 'User',
     }), res());
-    expectInsideCard(sentHtml(), 'Confirm your email', 'Thanks for signing up for ISAFlow.');
+    expectInsideCard(sentHtml(), 'Confirm your email', 'Thanks for signing up for IsaFlow.');
   });
 
   it('contact form enquiry', async () => {
@@ -126,7 +126,7 @@ describe('emails with bare content sit inside the card, after the logo', () => {
 
   it('password reset', async () => {
     await sendPasswordResetEmail('u1', 'jo@example.co.za');
-    expectInsideCard(sentHtml(), 'Reset your ISAFlow password', 'We received a request to reset the password');
+    expectInsideCard(sentHtml(), 'Reset your IsaFlow password', 'We received a request to reset the password');
   });
 
   it('management pack delivery', async () => {

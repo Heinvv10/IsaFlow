@@ -74,7 +74,7 @@ export default function ExternalMigrationPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Import from External System</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">Migrate Xero, QuickBooks, or Pastel data into ISAFlow via CSV</p>
+                <p className="text-sm text-[var(--ff-text-secondary)]">Migrate Xero, QuickBooks, or Pastel data into IsaFlow via CSV</p>
               </div>
             </div>
           </div>
@@ -84,7 +84,7 @@ export default function ExternalMigrationPage() {
           {done ? (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-8 text-center space-y-4">
               <p className="text-lg font-semibold text-teal-400">Migration complete!</p>
-              <p className="text-sm text-[var(--ff-text-secondary)]">Your data has been imported into ISAFlow.</p>
+              <p className="text-sm text-[var(--ff-text-secondary)]">Your data has been imported into IsaFlow.</p>
               <div className="flex items-center justify-center gap-3">
                 <Link
                   href="/accounting/chart-of-accounts"
@@ -166,7 +166,7 @@ function SourceSelection({ onSelect }: { onSelect: (s: MigrationSource) => void 
       <div className="p-4 rounded-lg bg-blue-500/5 border border-blue-500/20 text-xs text-[var(--ff-text-secondary)] space-y-1">
         <p className="font-semibold text-[var(--ff-text-primary)]">What gets imported?</p>
         <ul className="list-disc list-inside space-y-0.5">
-          <li>Chart of Accounts — mapped to ISAFlow GL account types</li>
+          <li>Chart of Accounts — mapped to IsaFlow GL account types</li>
           <li>Opening balances — posted as a journal entry</li>
           <li>Customers and suppliers — contact records</li>
         </ul>

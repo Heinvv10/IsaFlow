@@ -157,7 +157,7 @@ describe('verify-email — happy path', () => {
     await handler(req(), mockRes());
     expect(sendEmailMock).toHaveBeenCalledTimes(1);
     const sent = sendEmailMock.mock.calls[0]![0] as { subject: string; _log: { companyId: null } };
-    expect(sent.subject).toContain('ISAFlow signup');
+    expect(sent.subject).toContain('IsaFlow signup');
     // Internal mail: logging it against the tenant surfaces it in their own
     // Customer Communication report.
     expect(sent._log.companyId).toBeNull();

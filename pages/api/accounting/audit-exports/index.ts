@@ -70,7 +70,7 @@ async function build(req: CompanyAuthedRequest, res: NextApiResponse) {
         await withSavepoint('audit_pack_build', async () => {
           const [company] = (await sql`SELECT name FROM companies WHERE id = ${companyId}::UUID`) as { name: string }[];
           const comparison = body.includeComparison ? await compareSnapshotToLive(principal, snapshotId) : null;
-          const pack = await buildSnapshotPack(draft, snapshotId, company?.name ?? 'ISAFlow', comparison);
+          const pack = await buildSnapshotPack(draft, snapshotId, company?.name ?? 'IsaFlow', comparison);
           await storePack(draft, snapshotId, pack);
         });
       } catch (err) {

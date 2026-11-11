@@ -2,7 +2,7 @@
  * Shared merchant-pattern pool — the pure aggregation (Hein, 2026-10-21, decisions 2-4). No I/O.
  *
  * Input: observations — one company's coding of one text (a learned pattern, a bank rule's match text, or a
- * decided bank line), already translated from the company's GL account to an ISAFlow category through that
+ * decided bank line), already translated from the company's GL account to an IsaFlow category through that
  * company's own mapping. Output: the rows the pool may publish.
  *
  *   1. Every text goes through the PII filter (merchantPiiFilter.ts) first; a rejected text is dropped

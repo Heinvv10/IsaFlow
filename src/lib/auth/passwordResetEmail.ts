@@ -39,7 +39,7 @@ export async function sendPasswordResetEmail(userId: string, email: string): Pro
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
     const resetUrl = `${appUrl}/reset-password#token=${token}`;
     const html = emailLayout(emailContentRow(`
-      <h2>Reset your ISAFlow password</h2>
+      <h2>Reset your IsaFlow password</h2>
       <p>We received a request to reset the password for this account.</p>
       <p>Click the button below to choose a new password. This link expires in 1 hour and can be used once.</p>
       ${ctaButton('Reset Password', resetUrl)}
@@ -49,7 +49,7 @@ export async function sendPasswordResetEmail(userId: string, email: string): Pro
     try {
       result = await sendEmail({
         to: email,
-        subject: 'Reset your ISAFlow password',
+        subject: 'Reset your IsaFlow password',
         html,
         _log: { companyId: null, emailType: 'other', sentBy: null },
       });

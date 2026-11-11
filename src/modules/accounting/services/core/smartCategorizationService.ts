@@ -209,7 +209,7 @@ export async function bulkCategorize(companyId: string,
       for (const rows of updated) if (Array.isArray(rows)) for (const r of rows as Row[]) written.add(String(r.id));
     }
     // Only the lines this run actually wrote: a line whose suggested_gl_account_id was already set (a person's
-    // saved pick, or an earlier suggestion) kept it, so ISAFlow suggested nothing new there.
+    // saved pick, or an earlier suggestion) kept it, so IsaFlow suggested nothing new there.
     await recordSuggestionsShown(companyId, matched.filter(({ txId }) => written.has(txId)).map(({ txId, result }) => ({
       txId, source: sourceFromStrategy(result.matchSource), glAccountId: result.glAccountId ?? null,
       category: result.category ?? null, confidence: result.confidence,

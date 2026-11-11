@@ -116,7 +116,7 @@ export function VerifyTable({ results }: { results: VerifyEntry[] }) {
           <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)]">
             <th className="text-left px-3 py-2 text-[var(--ff-text-secondary)]">Account</th>
             <th className="text-right px-3 py-2 text-[var(--ff-text-secondary)]">Source</th>
-            <th className="text-right px-3 py-2 text-[var(--ff-text-secondary)]">ISAFlow</th>
+            <th className="text-right px-3 py-2 text-[var(--ff-text-secondary)]">IsaFlow</th>
             <th className="text-right px-3 py-2 text-[var(--ff-text-secondary)]">Diff</th>
           </tr>
         </thead>

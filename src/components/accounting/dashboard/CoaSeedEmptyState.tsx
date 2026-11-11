@@ -20,7 +20,7 @@ interface TemplateOption {
 const TEMPLATES: TemplateOption[] = [
   {
     id: 'isaflow_standard',
-    label: 'ISAFlow Standard',
+    label: 'IsaFlow Standard',
     tagline: 'Recommended for SA businesses',
     codes: '1xxx · 2xxx · 3xxx · 4xxx · 5xxx',
     detail: 'Assets, Liabilities, Equity, Revenue, Expenses — balanced 5-category SA layout with 31 starter accounts.',
@@ -37,7 +37,7 @@ const TEMPLATES: TemplateOption[] = [
     label: 'Sage One-compatible',
     tagline: 'Match your Sage account structure',
     codes: '1000–1600 · 2000–2501 · 3000 · 4000 · 5000 · 6000',
-    detail: "Account codes aligned with Sage One SA. Ideal if you're migrating existing Sage data into ISAFlow.",
+    detail: "Account codes aligned with Sage One SA. Ideal if you're migrating existing Sage data into IsaFlow.",
   },
 ];
 

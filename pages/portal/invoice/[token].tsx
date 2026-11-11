@@ -290,7 +290,7 @@ export default function PortalInvoicePage({ invoice, token, isOverdue }: PortalI
 
           {/* Footer */}
           <p className="text-center text-xs text-gray-600 dark:text-gray-400 pb-8">
-            Powered by ISAFlow &mdash; Cloud Accounting for South Africa
+            Powered by IsaFlow &mdash; Cloud Accounting for South Africa
           </p>
         </div>
       </div>

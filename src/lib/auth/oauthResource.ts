@@ -1,7 +1,7 @@
 /**
  * RFC 8707 resource indicators and the RFC 9207 `iss` parameter (FB-4).
  *
- * ISAFlow has ONE protected resource, `${origin}/api/mcp`, and its tokens are
+ * IsaFlow has ONE protected resource, `${origin}/api/mcp`, and its tokens are
  * opaque and only ever validated there, so audience binding already holds. What
  * was missing is the protocol answer: a client that names a DIFFERENT resource
  * must be told `invalid_target` (RFC 8707 s2) rather than handed a token for

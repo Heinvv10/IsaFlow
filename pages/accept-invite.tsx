@@ -166,7 +166,7 @@ function AcceptInviteShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center px-4">
       <div className="w-full max-w-md">
         <div className="flex flex-col items-center mb-8">
-          <img src="/logo.png" alt="ISAFlow" className="h-16 w-auto dark:brightness-0 dark:invert" />
+          <img src="/logo.png" alt="IsaFlow" className="h-16 w-auto dark:brightness-0 dark:invert" />
         </div>
         {children}
       </div>
