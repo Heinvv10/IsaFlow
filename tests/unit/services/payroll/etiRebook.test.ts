@@ -77,9 +77,9 @@ describe('rebookEtiAfterEvent (round 4 M1 (a)/(b)): every run-less month of this
     await rebookEtiAfterEvent(CO, { year: 2026, month: 9 }, 'u1', '2026-10-30');
     expect(postedMonths()).toEqual(['2026-09@2026-09-30']);
   });
-  it('rev L3: today is the SAST date (00:30 on 1 November in Johannesburg is 22:30 on 31 October UTC)', async () => {
+  it('rev L3: today is the SAST date (00:30 on 31 October in Johannesburg is still 30 October in UTC)', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-10-31T22:30:00Z'));
+    vi.setSystemTime(new Date('2026-10-30T22:30:00Z')); // SAST 31 October: October's last day, so it is rebooked
     vi.mocked(periodHasEti).mockImplementation(async (_c, ym) => ym.month === 9);
     await rebookEtiAfterEvent(CO, { year: 2026, month: 11 }, 'u1');
     expect(postedMonths()).toEqual(['2026-09@2026-09-30', '2026-10@2026-10-31']);
