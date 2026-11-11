@@ -106,7 +106,7 @@ export const createSupplierInvoiceTool: McpTool = {
     if (typeof cos === 'string') return toolError(cos);
     // A given due_date is kept even where the supplier's terms disagree; the agent is told (dueDateTermsWarning.ts).
     const dueWarnings = await dueDateTermsWarnings(ctx.companyId, [
-      { supplierId: parsed.supplierId, invoiceDate: parsed.invoiceDate, dueDate: parsed.dueDate, label: '' },
+      { supplierId: parsed.supplierId, invoiceDate: parsed.invoiceDate, dueDate: parsed.dueDate, paymentTerms: parsed.paymentTerms, label: '' },
     ]);
 
     try {

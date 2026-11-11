@@ -125,6 +125,14 @@ describe('create_supplier_invoice', () => {
     expect(w[0]).toContain('2027-02-28');
   });
 
+  it('has no due_date_warnings when the bill\'s own payment_terms give the date', async () => {
+    vi.mocked(contactTerms).mockResolvedValueOnce({ days: 3, type: 'statement_months', companyDefault: { days: 30, type: 'invoice_days' } });
+    const r = parseOk(await createSupplierInvoiceTool.handler(
+      createArgs({ invoice_date: '2026-11-09', due_date: '2027-01-08', payment_terms: 'net60' }), ctx(),
+    ));
+    expect(r.due_date_warnings).toBeUndefined();
+  });
+
   it('has no due_date_warnings when no due_date is given', async () => {
     const r = parseOk(await createSupplierInvoiceTool.handler(createArgs(), ctx()));
     expect(r.due_date_warnings).toBeUndefined();

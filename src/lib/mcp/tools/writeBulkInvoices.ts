@@ -187,7 +187,8 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
     }
     // A given due_date is kept even where the supplier's terms disagree; the agent is told (dueDateTermsWarning.ts).
     const dueWarnings = await dueDateTermsWarnings(ctx.companyId, kept.map(({ index, inv }) => ({
-      supplierId: inv.supplierId, invoiceDate: inv.invoiceDate, dueDate: inv.dueDate, label: `invoices[${index}]: `,
+      supplierId: inv.supplierId, invoiceDate: inv.invoiceDate, dueDate: inv.dueDate,
+      paymentTerms: inv.paymentTerms, label: `invoices[${index}]: `,
     })));
 
     const created: Record<string, unknown>[] = [];

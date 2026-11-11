@@ -8,12 +8,14 @@
  * terms set gets no warning: the company default is not the supplier's terms.
  */
 import { contactTerms } from '@/modules/accounting/services/core/paymentTermsResolver';
-import { dueDateFromTerms } from '@/modules/accounting/services/shared/paymentTerms';
+import { dueDateFromTerms, ownTermsDueDate } from '@/modules/accounting/services/shared/paymentTerms';
 
 export interface DueDateCheck {
   supplierId: string;
   invoiceDate: string;
   dueDate: string | undefined;
+  /** The bill's own payment_terms text ('net60'); a date they give is a deliberate choice, not a copied one. */
+  paymentTerms?: string;
   /** Prefix naming the element, e.g. 'invoices[3]: '; '' for a single bill. */
   label: string;
 }
@@ -23,7 +25,7 @@ export async function dueDateTermsWarnings(companyId: string, checks: DueDateChe
   const cache = new Map<string, Awaited<ReturnType<typeof contactTerms>>>();
   const warnings: string[] = [];
   for (const c of checks) {
-    if (!c.dueDate) continue;
+    if (!c.dueDate || c.dueDate === ownTermsDueDate(c.invoiceDate, c.paymentTerms)) continue;
     let t = cache.get(c.supplierId);
     if (!t) {
       t = await contactTerms(companyId, 'supplier', c.supplierId);

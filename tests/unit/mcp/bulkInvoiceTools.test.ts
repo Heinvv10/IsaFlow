@@ -140,10 +140,11 @@ describe('bulk_create_supplier_invoices', () => {
         bill({ invoice_date: '2026-11-09', due_date: '2027-02-28' }),
         bill({ invoice_number: 'INV-9002', invoice_date: '2026-11-09', due_date: '2027-02-07' }),
         bill({ supplier_id: SUPPLIER_B, invoice_number: 'INV-9003', invoice_date: '2026-11-09', due_date: '2026-11-20' }),
+        bill({ invoice_number: 'INV-9004', invoice_date: '2026-11-09', due_date: '2027-01-08', payment_terms: 'net60' }),
       ],
       ...KEY,
     }, ctx()));
-    expect(out.created_count).toBe(3);
+    expect(out.created_count).toBe(4);
     const w = out.due_date_warnings as string[];
     expect(w).toHaveLength(1);
     expect(w[0]!.startsWith('invoices[1]: ')).toBe(true);

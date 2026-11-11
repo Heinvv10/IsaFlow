@@ -55,6 +55,27 @@ describe('dueDateTermsWarnings', () => {
     ])).toEqual([]);
   });
 
+  it('is silent when the given date is what the bill\'s OWN payment_terms (netNN) give', async () => {
+    vi.mocked(contactTerms).mockResolvedValue(terms(3, 'statement_months'));
+    expect(await dueDateTermsWarnings(COMPANY, [
+      { supplierId: CFS, invoiceDate: '2026-11-09', dueDate: '2027-01-08', paymentTerms: 'net60', label: '' },
+    ])).toEqual([]);
+  });
+
+  it('still warns when the bill\'s own terms give a different date from the one given', async () => {
+    vi.mocked(contactTerms).mockResolvedValue(terms(3, 'statement_months'));
+    expect(await dueDateTermsWarnings(COMPANY, [
+      { supplierId: CFS, invoiceDate: '2026-11-09', dueDate: '2027-02-07', paymentTerms: 'net60', label: '' },
+    ])).toHaveLength(1);
+  });
+
+  it('is silent for an invoice date the terms cannot date (dueDateFromTerms gives null)', async () => {
+    vi.mocked(contactTerms).mockResolvedValue(terms(3, 'statement_months'));
+    expect(await dueDateTermsWarnings(COMPANY, [
+      { supplierId: CFS, invoiceDate: '2026-02-30', dueDate: '2026-05-31', label: '' },
+    ])).toEqual([]);
+  });
+
   it('prefixes the element label and reads each supplier once per call', async () => {
     vi.mocked(contactTerms).mockImplementation(async (_c, _k, id) => (
       id === CFS ? terms(3, 'statement_months') : terms(30, 'invoice_days')));
