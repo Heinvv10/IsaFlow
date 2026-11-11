@@ -201,7 +201,8 @@ ALTER TABLE sars_submissions ENABLE ALWAYS TRIGGER trg_sars_submissions_filed_fr
 -- form and overlapping period (whatever the version's status: between an amend and the next finalise nothing is live,
 -- and the period is still the lifecycle's): a draft becoming submitted, and ANY change to a row that is no longer a
 -- draft (the old colour re-marking a submitted row, say), and a draft taking a verdict (a draft with a persisted correlation id
--- is resolved by the poll only while NO version exists for the period), except the ISV poll's verdict on a row it submitted. The lifecycle (markReturnFiled) sets the transaction-local flag
+-- is resolved by the poll only while NO version exists for the period; whatever the period, a draft takes a verdict ONLY with a
+-- correlation id), except the ISV poll's verdict on a row it submitted. The lifecycle (markReturnFiled) sets the transaction-local flag
 -- app.return_lifecycle. Like the claims, the flag is something SQL-capable app_user can set itself: this defends against
 -- application bugs and the old colour of a blue/green deploy (its legacy and ISV paths know nothing of the flag), not
 -- against SQL injection.
