@@ -212,10 +212,12 @@ export function hyphenExactPx(fontPx: number, weight: FaceWeight): number {
  * the pack's closest, 12px/500's 307.968, leaves), not summed exactly: the line's floor cannot take any of it back
  * (measured: "Gross margin\u00AD" needs 4852/64px on one line, its words floored and the hyphen's 307; the hyphen summed
  * exactly with them fitted it at 4851).
+ * `joiners`: a cluster holding a ZWJ is priced by `fallbackPx` though the face has a glyph for every code point of it: the
+ * face sets "1\u200D" as a digit, and production sets it beside a pictograph in the emoji face (#1264 round 7).
  */
 export function runExactPx(
   text: string, fontPx: number, weight: FaceWeight, fallbackPx: (cluster: string, sizePx: number) => number, letterSpacingPx = 0,
-  hyphen = false,
+  hyphen = false, joiners = false,
 ): number {
   const f = face(weight);
   const size = setSizePx(fontPx);
@@ -232,7 +234,7 @@ export function runExactPx(
   let at = 0;
   for (const cluster of clustersOf(asShaped(text, gaps))) {
     px += letterSpacingPx;
-    if (inFace(cluster)) inside += cluster;
+    if (inFace(cluster) && !(joiners && cluster.includes('\u200D'))) inside += cluster;
     else { flush(); px += fallbackPx(gaps.size === 0 ? cluster : withGaps(cluster, at, gaps), size); }
     if (gaps.size > 0) at += Array.from(cluster).length;
   }

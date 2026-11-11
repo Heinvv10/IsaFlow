@@ -49,7 +49,9 @@ export function boundPx(text: string, px: number): number {
     // A cluster the page model does not shape (past SHAPED_CLUSTER) it charges the widest fallback glyph a code point:
     // so does the gate, which is never under the model (#1263 round 3).
     if (segment.length > SHAPED_CLUSTER) fallback += (cps.length * PROSE_FALLBACK.widest * px) / FALLBACK_MEASURED_PX;
-    else if (cps.every((cp) => BOUND.has(cp))) for (const cp of cps) units += BOUND.get(cp)!;
+    // A cluster with a ZWJ is priced from the fallback tables though the faces set every code point of it, as page 4's is
+    // (`packGlyphRuler.runExactPx`'s `joiners`): beside a pictograph, production sets its neighbour in the emoji face.
+    else if (!cps.includes(0x200d) && cps.every((cp) => BOUND.has(cp))) for (const cp of cps) units += BOUND.get(cp)!;
     else fallback += fallbackClusterIn(PROSE_FALLBACK, PROSE_FALLBACK_RANGES, segment, px, FALLBACK_MEASURED_PX, true);
   }
   return (units * px) / PROSE_ADVANCE_UNITS + fallback;

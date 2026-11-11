@@ -109,12 +109,13 @@ describe('a selector is measured only on the letters it was measured on (H2)', (
     for (const base of [0x2764, 0x26a0, 0x2705, 0x2714, 0x2611, 0x260e, 0x2709, 0x270f, 0x25b6, 0x2b06, 0x2197, 0xa9, 0xae, 0x2122, 0x2139, 0x2600, 0x2601, 0x1f600, 0x1f441]) {
       expect(cost(base, VS16), base.toString(16)).toBe(Math.max(emoji, adv(base) + inWord(VS16)));
       expect(cost(base, VS16)).toBeLessThan(adv(base) + widest);
-      expect(cost(base, 0xfe0e), base.toString(16)).toBe(adv(base) + inWord(0xfe0e));
+      // Round 7 (#1264): a text selector after a pictograph is not free (U+1F634 U+FE0E is 19px): the sequence rule.
+      expect(cost(base, 0xfe0e), base.toString(16)).toBe(Math.max(emoji, adv(base)) + emoji);
     }
   });
 
-  it('the exemption is the pictograph\'s only: a letter, a digit or a plain symbol keeps the widest glyph', () => {
-    for (const base of [0x22e, 0x109e, 0x31, 0x23, 0x2b, 0x4e2d]) expect(cost(base, VS16), base.toString(16)).toBe(adv(base) + widest);
+  it('the exemption is the pictograph\'s only: a letter or a plain symbol keeps the widest glyph (a digit is a keycap, round 7)', () => {
+    for (const base of [0x22e, 0x109e, 0x2b, 0x4e2d]) expect(cost(base, VS16), base.toString(16)).toBe(adv(base) + widest);
     // and a selector after a pictograph and another selector, or a mark, is still across a stack
     expect(cost(0x2764, VS16, VS16)).toBeGreaterThanOrEqual(adv(0x2764) + widest);
     expect(cost(0x2764, 0x301, VS16)).toBeGreaterThanOrEqual(adv(0x2764) + widest);
@@ -134,11 +135,12 @@ describe('a ZWJ sequence of pictographs costs the sum of its components (H3)', (
   const part = (cp: number): number => Math.max(adv(cp), emoji);
 
   it('a heart joined to a heart, a face to a sign: each component an emoji', () => {
-    expect(cost(0x2764, ZWJ, 0x2764, ZWJ, 0x2764)).toBe(3 * part(0x2764));
+    // Round 7 (#1264): the joiner itself counts at an emoji, too (the sum is over every code point).
+    expect(cost(0x2764, ZWJ, 0x2764, ZWJ, 0x2764)).toBe(5 * part(0x2764));
     expect(cost(0x2764, VS16, ZWJ, 0x2764, VS16)).toBeGreaterThanOrEqual(2 * part(0x2764));
-    expect(cost(0x1f600, ZWJ, 0x2640)).toBe(part(0x1f600) + part(0x2640));
-    expect(cost(0x263a, ZWJ, 0x2640)).toBe(part(0x263a) + part(0x2640));
-    expect(cost(0x1f468, ZWJ, 0x2640)).toBe(part(0x1f468) + part(0x2640));
+    expect(cost(0x1f600, ZWJ, 0x2640)).toBe(part(0x1f600) + emoji + part(0x2640));
+    expect(cost(0x263a, ZWJ, 0x2640)).toBe(part(0x263a) + emoji + part(0x2640));
+    expect(cost(0x1f468, ZWJ, 0x2640)).toBe(part(0x1f468) + emoji + part(0x2640));
     // With a VS16 on the sign: its selector costs the widest glyph too (H2), on top of the components.
     for (const head of [0x1f600, 0x263a, 0x1f468, 0x1f3f3, 0x1f441]) expect(cost(head, ZWJ, 0x2640, VS16)).toBeGreaterThanOrEqual(part(head) + part(0x2640));
   });
@@ -148,9 +150,9 @@ describe('a ZWJ sequence of pictographs costs the sum of its components (H3)', (
     expect(cost(0x1f441, VS16, ZWJ, 0x1f5e8, VS16)).toBeGreaterThanOrEqual(2 * emoji);
   });
 
-  it('one pictograph and a joiner, or a joiner in a script, is not a sequence', () => {
-    expect(cost(0x1f600, ZWJ)).toBe(adv(0x1f600));
-    expect(cost(0x915, 0x94d, ZWJ, 0x937)).toBe(adv(0x915) + inWord(0x94d) + adv(0x937));
+  it('one pictograph and a joiner, or a joiner in a script, is a sequence too (round 7: any cluster holding a ZWJ)', () => {
+    expect(cost(0x1f600, ZWJ)).toBe(part(0x1f600) + emoji);
+    expect(cost(0x915, 0x94d, ZWJ, 0x937)).toBe(part(0x915) + part(0x94d) + emoji + part(0x937));
   });
 
   it('row labels keep the tables\' reading (marks off)', () => {

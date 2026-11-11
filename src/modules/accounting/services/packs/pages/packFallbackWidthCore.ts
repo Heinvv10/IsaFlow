@@ -49,8 +49,14 @@ const SELECTOR = /^[\uFE00-\uFE0F\u{E0100}-\u{E01EF}]$/u;
 const PICTOGRAPH = /^\p{Extended_Pictographic}$/u;
 /** The text (U+FE0E) and emoji (U+FE0F) presentation selectors. */
 const PRESENTATION = /^[\uFE0E\uFE0F]$/u;
+/** A pictograph and its emoji selector, and nothing else: one emoji. */
+const PICTOGRAPH_SELECTED = /^\p{Extended_Pictographic}\uFE0F$/u;
 /** A joiner, a selector or any other format character: a code point that is nothing a mark was measured after. */
 const IGNORABLE = /^[\p{Cf}\p{Default_Ignorable_Code_Point}]$/u;
+/** What makes a cluster an emoji sequence: a ZWJ, an emoji modifier, a text or emoji selector, a keycap or a tag character. */
+const EMOJI_SEQUENCE = /[\u200D\u{1F3FB}-\u{1F3FF}\uFE0E\uFE0F\u20E3\u{E0020}-\u{E007F}]/u;
+/** A keycap, or a digit, "#" or "*" with U+FE0F alone. */
+const KEYCAP = /^[0-9#*](?:\uFE0F?\u20E3|\uFE0F)$/u;
 
 /** The script (an index into `packFallbackScriptData.SCRIPT_NAMES`) `cp` is a measured base of; -1 for any other. */
 function scriptAt(cp: number): number {
@@ -80,6 +86,8 @@ export function fallbackClusterIn(
 ): number {
   let px = 0;
   const cps = Array.from(cluster);
+  // A keycap, or a digit, "#" or "*" with U+FE0F, is one emoji: 14.98px at 12px in production's image, wherever it stands.
+  if (marks && KEYCAP.test(cluster)) return Math.ceil((Math.max(fallbackAdvanceIn(table, ranges, cps[0]!.codePointAt(0)!), table.emoji) * sizePx) / measuredPx);
   // A mark is priced as written only on a base it was measured on (`packFallbackMarkData`: a consonant of its own
   // script, or for a Common or Inherited mark the letters of ANY_BASES), and once in its cluster; on anything else, a
   // second time, or not in the table at all, the print may set it on a dotted circle in a face of its own, wider than
@@ -106,8 +114,9 @@ export function fallbackClusterIn(
     // or Inherited script, measured on the letters of ANY_BASES only (#1264 round 6: after a base the faces lack, such
     // as U+022E or a Myanmar digit, production sets base and selector wider): on any other base, the widest glyph.
     const unmeasured = i > 0 && (selector ? MARK.test(prev) || IGNORABLE.test(prev) : IGNORABLE.test(prev) || inRun >= 2);
-    // A text or emoji selector right after a pictograph is one emoji (or its text form) in the print, which the emoji
-    // floor below prices: it adds nothing of its own (#1264 round 6, owner: ordinary text is full of "\u2764\uFE0F").
+    // An emoji selector (U+FE0F only) right after a pictograph is one emoji in the print, which the emoji floor below
+    // prices: it adds nothing of its own (#1264 round 6, owner: ordinary text is full of "\u2764\uFE0F"). U+FE0E is not
+    // free (U+1F634 U+FE0E is 19px: the sequence rule below), nor are VS1 to VS14 and the ideographic selectors (round 7).
     const onPictograph = selector && PRESENTATION.test(ch) && PICTOGRAPH.test(prev);
     const writtenOn = i > 0 && !unmeasured && (onPictograph || (ANY.has(mark[2]) ? ANY_BASE.has(base) : scriptAt(base) === mark[2]));
     // After another mark (a second sign on one consonant), the order may be one the shaper rejects (Devanagari
@@ -119,13 +128,17 @@ export function fallbackClusterIn(
     px += writtenOn ? cost : table.widest;
     seen.add(cp);
   });
-  // Joined pictographs (#1264 round 6): production draws a ZWJ sequence as one glyph only if it is one it has a glyph
-  // for, and as its components, each an emoji, otherwise (a heart joined to a heart, a face to a sign). Which it
-  // draws is not known here: the sum of the components' emoji widths, never less than the cluster's own price.
-  if (marks && cps.includes('\u200D')) {
-    const parts = cps.filter((ch) => PICTOGRAPH.test(ch));
-    if (parts.length >= 2) px = Math.max(px, parts.reduce((sum, ch) => sum + Math.max(fallbackAdvanceIn(table, ranges, ch.codePointAt(0)!), table.emoji), 0));
+  // An emoji sequence that is not a pictograph with U+FE0F (#1264 round 7, after six rounds of sequences): production draws
+  // a ZWJ, modifier, keycap or tag sequence as one glyph only if it has one, and as its components otherwise, each an
+  // emoji or its own glyph, a neighbour of a ZWJ drawn in the emoji face (a digit, "#", U+2640 after a letter) and a
+  // modifier on a base that takes none as a swatch of its own. Which is not known here, so every code point costs at
+  // least an emoji: never less than the cluster's own price.
+  if (marks && EMOJI_SEQUENCE.test(cluster) && !PICTOGRAPH_SELECTED.test(cluster)) {
+    px = Math.max(px, cps.reduce((sum, ch) => sum + Math.max(fallbackAdvanceIn(table, ranges, ch.codePointAt(0)!), table.emoji), 0));
   }
+  // A pictograph is drawn in the emoji face, the width of an emoji whatever its own advance, wherever a lone modifier or
+  // regional indicator stands before it in the text (a skin tone, a space and U+2764 print 32.78px; U+2764 alone 10px).
+  if (marks && PICTOGRAPH.test(cps[0] ?? '')) px = Math.max(px, table.emoji);
   if (/[\uFE0F\u20E3]/u.test(cluster)) px = Math.max(px, table.emoji);
   return Math.ceil((px * sizePx) / measuredPx);
 }

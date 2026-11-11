@@ -16,6 +16,7 @@ import { PROSE } from '@/modules/accounting/services/packs/pages/packProseStyles
 import { ROUND5_CELLS } from '../../print/fixtures/adversaryRound5Texts';
 
 const widest = FALLBACK.label400.widest;
+const emoji = FALLBACK.label400.emoji;
 const ZWJ = 0x200d;
 const ZWNJ = 0x200c;
 const VS1 = 0xfe00;
@@ -43,7 +44,9 @@ describe('a mark after a joiner, a selector or a format character costs the wide
   });
 
   it('but not after a virama, a joiner and a consonant (Sinhala and Hindi conjuncts keep the table\'s reading)', () => {
-    expect(cost(0xd9a, 0xdca, ZWJ, 0xdbb, 0xdd2)).toBe(adv(0xd9a) + inWord(0xdca) + adv(0xdbb) + inWord(0xdd2));
+    // Round 7 (#1264): a ZWJ is the one joiner of emoji sequences, so a cluster holding it costs the sum of its code points,
+    // each at least an emoji (Sinhala's yansaya and rakaransaya are over-priced by it: `packMarkContextsR7.test.ts`).
+    expect(cost(0xd9a, 0xdca, ZWJ, 0xdbb, 0xdd2)).toBe(5 * Math.max(emoji, adv(0xdca)));
     expect(cost(0x915, 0x94d, 0x937, 0x93f)).toBe(adv(0x915) + inWord(0x94d) + adv(0x937) + inWord(0x93f));
   });
 });
@@ -69,8 +72,8 @@ describe('a selector is measured only right after its base (M2, L3)', () => {
   it('never prices an emoji sequence below what it cost (a keycap, a heart on fire, an eye in a speech bubble)', () => {
     // Round 6 (#1264): the selector of a pictograph or a digit is no longer free (it is measured on ANY_BASES only), and a
     // joined pictograph costs the sum of its components: both only raise these prices. `packMarkContextsR6.test.ts`.
-    const emoji = FALLBACK.label400.emoji;
-    expect(cost(0x31, VS16, 0x20e3)).toBeGreaterThanOrEqual(Math.max(emoji, adv(0x31) + inWord(VS16) + widest));
+    // Round 7 (#1264): a keycap is an emoji, priced as one (measured 14.98px at 12px in production's image, `packMarkContextsR7.test.ts`).
+    expect(cost(0x31, VS16, 0x20e3)).toBe(Math.max(emoji, adv(0x31)));
     expect(cost(0x2764, VS16, ZWJ, 0x1f525)).toBeGreaterThanOrEqual(Math.max(emoji, adv(0x2764) + inWord(VS16) + adv(0x1f525)));
     expect(cost(0x1f441, VS16, ZWJ, 0x1f5e8, VS16)).toBeGreaterThanOrEqual(Math.max(emoji, adv(0x1f441) + inWord(VS16) + adv(0x1f5e8) + inWord(VS16)));
   });
