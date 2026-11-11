@@ -62,7 +62,7 @@ describe('paye_payable_differs_from_emp201', () => {
     expect(r.count).toBe(0);
     expect(vi.mocked(bookedRunJournalsByMonth).mock.calls[0]![1]).not.toContainEqual({ year: 2026, month: 11 });
   });
-  it('review L1: a month calculated before ETI carry-forward (version < 9) is named in the finding, not counted', async () => {
+  it('review L1: a month calculated before ETI carry-forward (version < 8) is named in the finding, not counted', async () => {
     vi.mocked(loadEtiMonths).mockResolvedValueOnce([{ ...june, paye: 3_000, eti: 500 }]);
     vi.mocked(sql).mockResolvedValueOnce([{ period_year: 2026, period_month: 6, calculation_version: 6 }] as never);
     bookedByRunJournal.mockImplementation(async (_c, ym) => (isJune(ym) ? { used: 0, refund: 0, net2140: 3_000 } : { used: 0, refund: 0, net2140: 0 }));

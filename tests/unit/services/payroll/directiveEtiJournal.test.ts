@@ -134,6 +134,8 @@ describe('review M3: after a directive payment\'s journal is reversed', () => {
     const input = vi.mocked(createJournalEntry).mock.calls[0]![1];
     expect(input).toMatchObject({ entryDate: '2026-05-25', reference: 'ETI-2026-05' });
     expect(sum(input.lines as never, 'acc-2140')).toBe(-1_500);
+    // round 3: then the later run-less months of May's period (June to August, all ended, none with a run journal) follow.
+    expect(vi.mocked(etiMonthLine).mock.calls.map((c) => c[1].month)).toEqual([5, 6, 7, 8]);
   });
   it('ignores any other journal', async () => {
     expect(await bookEtiAfterDirectiveReversal(CO, { source: 'auto_payroll', description: 'Payroll run 2026-05', entryDate: '2026-05-31' }, '2026-05-31', 'u1')).toBeNull();
