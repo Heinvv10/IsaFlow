@@ -42,10 +42,10 @@ import {
 import { GRANDFATHERED_PLAN_HASH } from '@/modules/accounting/services/payroll/payRunApprovalAudit';
 import { laterEtiJournalRefusal } from '@/modules/accounting/services/payroll/etiPeriodGuard';
 
-const journal = (id: string, description = 'Payroll run 2026-04') => ({ id, entryNumber: `JE-${id}`, entryDate: '2026-04-30', status: 'posted', description });
-function chain(state: 'in_force' | 'out' | 'unclear', opts: { broken?: boolean; description?: string } = {}) {
+const journal = (id: string, description = 'Payroll run 2026-04', reference: string | null = null) => ({ id, entryNumber: `JE-${id}`, entryDate: '2026-04-30', status: 'posted', description, reference });
+function chain(state: 'in_force' | 'out' | 'unclear', opts: { broken?: boolean; description?: string; reference?: string } = {}) {
   vi.mocked(readJournalChain).mockResolvedValue({
-    journals: [journal('J1', opts.description), journal('C1', 'Reversal of JE-J1')], state, broken: opts.broken ?? false,
+    journals: [journal('J1', opts.description, opts.reference ?? null), journal('C1', 'Reversal of JE-J1')], state, broken: opts.broken ?? false,
   });
 }
 const linkedRun = (status: string) => { db.run = { id: 'run-1', status, links_root: true }; };
@@ -146,15 +146,15 @@ describe('refuseReversalAgainstPayRun (the live path)', () => {
 });
 
 describe('Hein ruling R-A (wave 5 ET): a directive or ETI journal under a posted later ETI month', () => {
-  it.each([['SARS directive D1 — Emp'], ['ETI for 2026-04: directive PAYE']])('refuses reversing "%s" (dry run and live), naming the month', async (description) => {
-    chain('in_force', { description });
+  it.each([['SARS directive D1 — Emp', undefined], ['anything at all', 'ETI-2026-04']])('refuses reversing "%s" (reference %s; dry run and live), naming the month', async (description, reference) => {
+    chain('in_force', { description, reference });
     vi.mocked(laterEtiJournalRefusal).mockResolvedValue('The May 2026 payroll journal is already posted.');
     expect(await payrollReversalRefusal('c1', PAYROLL)).toBe('The May 2026 payroll journal is already posted.');
     await expect(refuseReversalAgainstPayRun('c1', PAYROLL)).rejects.toThrow(/May 2026/);
     expect(laterEtiJournalRefusal).toHaveBeenCalledWith('c1', { year: 2026, month: 4 });
   });
-  it('is not asked about any other journal', async () => {
-    chain('in_force', { description: 'UIF declaration 2026-04' });
+  it('is not asked about any other journal (an ETI journal is known by its reference, not its narrative)', async () => {
+    chain('in_force', { description: 'ETI for 2026-04: directive PAYE' });
     vi.mocked(laterEtiJournalRefusal).mockResolvedValue('posted');
     expect(await payrollReversalRefusal('c1', PAYROLL)).toBeNull();
   });

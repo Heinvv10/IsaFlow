@@ -74,15 +74,19 @@ async function directiveRevival(companyId: string, rootId: string, description: 
     + 'to pay the directive again, apply it again.';
 }
 
-/** The description directivePaymentEti gives a month's ETI journal ("ETI for YYYY-MM: directive PAYE"). */
-const ETI_JOURNAL = /^ETI for \d{4}-\d{2}: /;
+/** The reference a month's ETI journal carries (etiBooking.etiJournalReference): ETI-YYYY-MM. */
+const ETI_REFERENCE = /^ETI-(\d{4})-(\d{2})$/;
 
 /**
  * Hein ruling R-A (wave 5 ET): a directive payment's journal or an ETI journal feeds its month's ETI carry, so it is not
  * reversed while a LATER month of the same ETI period has a posted run journal (etiPeriodGuard). Null otherwise.
  */
-async function etiPeriodReversalRefusal(companyId: string, root: { description: string; entryDate: string }): Promise<string | null> {
-  if (!DIRECTIVE_JOURNAL.test(root.description) && !ETI_JOURNAL.test(root.description)) return null;
+async function etiPeriodReversalRefusal(
+  companyId: string, root: { description: string; entryDate: string; reference?: string | null },
+): Promise<string | null> {
+  const eti = ETI_REFERENCE.exec(root.reference ?? '');
+  if (eti) return laterEtiJournalRefusal(companyId, { year: Number(eti[1]), month: Number(eti[2]) });
+  if (!DIRECTIVE_JOURNAL.test(root.description)) return null;
   return laterEtiJournalRefusal(companyId, { year: Number(root.entryDate.slice(0, 4)), month: Number(root.entryDate.slice(5, 7)) });
 }
 

@@ -83,7 +83,10 @@ const EXEMPT: Record<string, string> = {
   [`${A}loans/loanPeriodCloseService.ts`]: 'loan period close: interest on a loan document',
   [`${A}payroll/payrollJournalPostingService.ts`]: 'payroll: decision 2',
   [`${A}payroll/taxDirectivePaymentService.ts`]: 'payroll tax directive: payroll (decision 2)',
-  [`${A}payroll/directivePaymentEti.ts`]: 'payroll: the month\'s ETI journal a directive payment posts (decision 2; wave 5 ET)',
+  // Deliberately exempt (wave 5 ET, security review L3): the month's ETI journal is a system posting derived from the
+  // EMP201's own ETI figures after a directive payment or its reversal (DR 2140 or the ETI refund receivable / CR 5200);
+  // no person composes its lines, so decision 2's manual-journal gate does not apply.
+  [`${A}payroll/directiveEtiJournal.ts`]: 'payroll: the month\'s ETI journal after a directive payment or its reversal (decision 2; wave 5 ET)',
   [`${A}payroll/uifPaymentService.ts`]: 'payroll UIF: payroll (decision 2)',
   [`${A}reports/drcVatService.ts`]: 'DRC VAT: decision 2 (VAT)',
   [`${A}reports/vatAdjustmentService.ts`]: 'VAT adjustment: decision 2 (VAT)',
