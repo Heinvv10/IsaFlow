@@ -23,6 +23,7 @@ import { seedFiscalYears } from './helpers/fiscalYearSeed';
 
 const GUARD = randomUUID(), PLAIN = randomUUID(), RACE = randomUUID(), USER = randomUUID();
 const ALL = [GUARD, PLAIN, RACE];
+let directiveJournal = '';
 const acc: Record<string, { paye: string; labour: string }> = Object.fromEntries(ALL.map((c) => [c, { paye: randomUUID(), labour: randomUUID() }]));
 
 async function inTx<T>(companyId: string, fn: () => Promise<T>): Promise<T> {
@@ -79,6 +80,7 @@ beforeAll(async () => {
   // RACE: April carried R1 800 into May; May has a directive with PAYE R1 500 and no run.
   await header(RACE, 2026, 4, 'approved', 200, 2_000);
   const dj = await journal(RACE, '2026-05-20', 'SARS directive D1 — Emp', 1_500);
+  directiveJournal = dj;
   const d = (await sql`INSERT INTO tax_directives (company_id, employee_name, directive_type, amount, effective_date, status, directive_number)
                        VALUES (${RACE}::UUID, 'Emp', 'severance', 4500, '2026-05-01', 'approved', 'D1') RETURNING id`) as Array<{ id: string }>;
   await sql`INSERT INTO tax_directive_payments (company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount, journal_entry_id)
@@ -135,5 +137,12 @@ describe('the company payroll lock serialises ETI booking', () => {
     const ids = await Promise.all([book(), book()]);
     expect(ids.filter((x) => x !== null)).toHaveLength(1);
     expect(await inTx(RACE, () => bookedByEtiJournals(RACE, { year: 2026, month: 5 }))).toEqual({ used: 1_500, refund: 0 });
+  });
+});
+
+describe('review M3: reversing a directive payment\'s journal books the month\'s negative ETI difference', () => {
+  it('May no longer uses the R1 500: an ETI journal for May takes it back, so May books nothing net', async () => {
+    await inTx(RACE, () => reverseJournalEntry(RACE, directiveJournal, USER));
+    expect(await inTx(RACE, () => bookedByEtiJournals(RACE, { year: 2026, month: 5 }))).toEqual({ used: 0, refund: 0 });
   });
 });
