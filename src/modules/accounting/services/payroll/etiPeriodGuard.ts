@@ -47,7 +47,7 @@ export async function periodHasEti(companyId: string, ym: YearMonth): Promise<bo
 /**
  * The latest LATER month of `ym`'s period whose RUN journal is in force, with the run's status; or null. A later month
  * with no run journal in force (directive and ETI journals only) does not block (review round 3): its ETI journal is
- * rebooked under lock 1 after the change (directiveEtiJournal.rebookRunlessMonths).
+ * rebooked under lock 1 after the change (etiRebook.rebookEtiAfterEvent).
  */
 export async function laterMonthInForce(companyId: string, ym: YearMonth): Promise<(YearMonth & { status: string }) | null> {
   const later = monthsBetween(at(index(ym) + 1), reconciliationEnd(ym));

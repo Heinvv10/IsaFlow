@@ -90,7 +90,7 @@ export function costLineEti(input: LineEtiInput): { eti: EtiResult; warnings: Va
   if (idDateOfBirthMismatch(employee) && resolved.missingInputs.includes('id_document')) {
     warnings.push({
       code: 'ETI_ID_DOB_MISMATCH', severity: 'warning',
-      message: `${name}'s ID number gives a date of birth of ${(employee.idNumber ?? '').replace(/\s+/g, '').slice(0, 6)} (YYMMDD), but the date of birth recorded is different, `
+      message: `${name}: the ID number's date of birth differs from the recorded date of birth, `
         + 'so no ETI was claimed (ETI turns on the age, ETI Act s6(a)). Correct whichever is wrong on the employee and recalculate.',
     });
   }

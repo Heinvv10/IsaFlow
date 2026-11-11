@@ -49,6 +49,10 @@ describe('adv3 L1: the ID number must match the date of birth', () => {
     const r = line(employee({ idNumber: '8001015009087' })); // 1980-01-01, but born 2004-06-01
     expect(r.eti.monthlyEti).toBe(0);
     expect(r.validationResults.map((v) => v.code)).toContain('ETI_ID_DOB_MISMATCH');
+    // rev4 L2: the message never echoes ID digits.
+    const msg = r.validationResults.find((v) => v.code === 'ETI_ID_DOB_MISMATCH')!.message;
+    expect(msg).toContain("the ID number's date of birth differs from the recorded date of birth");
+    expect(msg).not.toMatch(/\d{4,}/);
   });
   it('the matching ID claims', () => {
     expect(line(employee({ idNumber: '0406015009086' })).eti.monthlyEti).toBe(1_500);
@@ -98,14 +102,18 @@ describe('a rehire continues the 24 months (guide §3.3: they need not be consec
     expect(e!.etiPriorMonths).toBe(12);
     const call = vi.mocked(sql).mock.calls[0]!;
     expect((call[0] as TemplateStringsArray).join('?')).toContain('company_id = ?::uuid');
-    expect(call.slice(1)).toEqual(['co', ['8001015009087'], ['E1']]);
+    expect(call.slice(1)).toEqual(['co', ['8001015009087']]);
   });
-  it('adv3 L2: an earlier record under the same employee number counts too (a permit holder has no ID number)', async () => {
-    vi.mocked(sql).mockResolvedValueOnce([
-      { id: 'old', id_number: null, employee_number: 'E1', start_date: '2025-06-01', end_date: '2025-11-30' }, // 6 months
-      { id: 'other', id_number: null, employee_number: 'E9', start_date: '2025-01-01', end_date: '2025-03-31' }, // someone else
-    ] as never);
+  it('rev4 L1 NAMED LIMIT: no SA ID number (a permit holder) is not continued: nothing is read, no prior months', async () => {
     const [e] = await withEtiPriorMonths('co', [employee({ etiIdDocument: 'refugee_id' })]);
-    expect(e!.etiPriorMonths).toBe(6);
+    expect(e!.etiPriorMonths).toBeUndefined();
+    expect(sql).not.toHaveBeenCalled();
+  });
+  it('rev4 L1: a returned row whose ID number differs is never counted (the match is by ID number only)', async () => {
+    vi.mocked(sql).mockResolvedValueOnce([
+      { id: 'other', id_number: '9001015009086', start_date: '2025-01-01', end_date: '2025-03-31' },
+    ] as never);
+    const [e] = await withEtiPriorMonths('co', [employee({ idNumber: '8001015009087' })]);
+    expect(e!.etiPriorMonths).toBeUndefined();
   });
 });

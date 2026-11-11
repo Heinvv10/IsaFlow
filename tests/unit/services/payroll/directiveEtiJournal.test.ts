@@ -28,7 +28,7 @@ import { refundReceivable } from '@/modules/accounting/services/payroll/payrollJ
 import { sql } from '@/lib/neon';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import {
-  bookEtiAfterDirectiveReversal, directiveEtiLines, postMonthEtiJournal, rebookRunlessMonths,
+  directiveEtiLines, postMonthEtiJournal,
 } from '@/modules/accounting/services/payroll/directiveEtiJournal';
 
 const CO = '11111111-1111-1111-1111-111111111111';
@@ -89,57 +89,5 @@ describe('the month\'s ETI lines: a refund the run journal booked is not booked 
     const lines = await directiveEtiLines(CO, { year: 2026, month: 8 });
     expect(sum(lines, 'acc-1150')).toBe(1_000);
     expect(sum(lines, 'acc-2140')).toBe(0);
-  });
-});
-
-describe('round 3: rebookRunlessMonths keeps the run-less months of the period booked as declared', () => {
-  const today = new Date(2026, 10, 11); // 11 November 2026
-  it('adv3 M2: a directive-only October whose carry moved (a late September run) gets the difference; November has not ended', async () => {
-    vi.mocked(etiMonthLine).mockImplementation(async (_c, ym) => (ym.month === 10
-      ? { ...ym, paye: 1_500, eti: 0, broughtForward: 1_000, available: 1_000, used: 1_000, carriedForward: 0, refundClaimable: 0 }
-      : { ...ym, paye: 0, eti: 0, broughtForward: 0, available: 0, used: 0, carriedForward: 0, refundClaimable: 0 }));
-    vi.mocked(bookedByEtiJournals).mockImplementation(async (_c, ym) => ({ used: ym.month === 10 ? 400 : 0, refund: 0 }));
-    const ids = await rebookRunlessMonths(CO, { year: 2026, month: 10 }, 'u1', today);
-    expect(ids).toEqual(['je-eti']);
-    const input = vi.mocked(createJournalEntry).mock.calls[0]![1];
-    expect(input).toMatchObject({ entryDate: '2026-10-31', reference: 'ETI-2026-10' });
-    expect(sum(input.lines as never, 'acc-2140')).toBe(600);
-    expect(vi.mocked(etiMonthLine).mock.calls.map((c) => c[1].month)).toEqual([10]); // November not ended: not read
-  });
-  it('a run-less August books its refund; a month whose run journal is in force is left to the run', async () => {
-    vi.mocked(sql).mockImplementation((async (strings: TemplateStringsArray, ...v: unknown[]) =>
-      (strings.join('?').includes('payroll_run_headers') && v[2] === 7 ? [{ journal_entry_id: 'je-jul' }] : [])) as never);
-    vi.mocked(etiMonthLine).mockImplementation(async (_c, ym) => (ym.month === 8
-      ? { ...ym, paye: 0, eti: 0, broughtForward: 900, available: 900, used: 0, carriedForward: 900, refundClaimable: 900 }
-      : { ...ym, paye: 0, eti: 0, broughtForward: 0, available: 0, used: 0, carriedForward: 0, refundClaimable: 0 }));
-    await rebookRunlessMonths(CO, { year: 2026, month: 7 }, 'u1', today);
-    expect(vi.mocked(etiMonthLine).mock.calls.map((c) => c[1].month)).toEqual([8]); // July: its run journal is in force
-    const input = vi.mocked(createJournalEntry).mock.calls[0]![1];
-    expect(input).toMatchObject({ entryDate: '2026-08-31', reference: 'ETI-2026-08' });
-    expect(sum(input.lines as never, 'acc-1150')).toBe(900);
-  });
-  it('stops at the end of the period (August): September is another period', async () => {
-    await rebookRunlessMonths(CO, { year: 2026, month: 8 }, 'u1', today);
-    expect(vi.mocked(etiMonthLine).mock.calls.map((c) => c[1].month)).toEqual([8]);
-  });
-});
-
-describe('review M3: after a directive payment\'s journal is reversed', () => {
-  it('books the negative difference for the directive\'s month (the reversal guard already holds lock 1)', async () => {
-    // The directive is out: May now uses nothing of the R1 500 an ETI journal booked.
-    vi.mocked(etiMonthLine).mockResolvedValueOnce(month({ used: 0 }) as never);
-    vi.mocked(bookedByEtiJournals).mockResolvedValueOnce({ used: 1_500, refund: 0 });
-    const id = await bookEtiAfterDirectiveReversal(CO, { source: 'auto_payroll', description: 'SARS directive D1 — Emp', entryDate: '2026-05-20' }, '2026-05-25', 'u1');
-    expect(id).toBe('je-eti');
-    const input = vi.mocked(createJournalEntry).mock.calls[0]![1];
-    expect(input).toMatchObject({ entryDate: '2026-05-25', reference: 'ETI-2026-05' });
-    expect(sum(input.lines as never, 'acc-2140')).toBe(-1_500);
-    // round 3: then the later run-less months of May's period (June to August, all ended, none with a run journal) follow.
-    expect(vi.mocked(etiMonthLine).mock.calls.map((c) => c[1].month)).toEqual([5, 6, 7, 8]);
-  });
-  it('ignores any other journal', async () => {
-    expect(await bookEtiAfterDirectiveReversal(CO, { source: 'auto_payroll', description: 'Payroll run 2026-05', entryDate: '2026-05-31' }, '2026-05-31', 'u1')).toBeNull();
-    expect(await bookEtiAfterDirectiveReversal(CO, { source: 'manual', description: 'SARS directive D1', entryDate: '2026-05-31' }, '2026-05-31', 'u1')).toBeNull();
-    expect(etiMonthLine).not.toHaveBeenCalled();
   });
 });

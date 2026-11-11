@@ -1,6 +1,6 @@
 /**
  * Wave 5 ET review round 3, against real PostgreSQL:
- *  - R-A blocks only on a later RUN journal in force; a run-less later month is rebooked instead (rebookRunlessMonths).
+ *  - R-A blocks only on a later RUN journal in force; a run-less month is rebooked instead (etiRebook.rebookEtiAfterEvent).
  *  - Posting order (earlierUnapprovedRefusal): an earlier calculated, unapproved month refuses; the month's own run never counts.
  *  - Lock 1 first in the reversal guard: a directive reversal that waits on an approval holding lock 1 is judged after it,
  *    and refused when that approval put a later run journal in force. No deadlock.
@@ -17,7 +17,8 @@ import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntr
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostService';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { earlierUnapprovedRefusal, laterEtiJournalRefusal } from '@/modules/accounting/services/payroll/etiPeriodGuard';
-import { postMonthEtiJournal, rebookLaterRunlessMonths } from '@/modules/accounting/services/payroll/directiveEtiJournal';
+import { postMonthEtiJournal } from '@/modules/accounting/services/payroll/directiveEtiJournal';
+import { rebookEtiAfterEvent } from '@/modules/accounting/services/payroll/etiRebook';
 import { lockCompanyPayrollApprovals } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { payePayableDiffersFromEmp201 } from '@/modules/accounting/services/gl/integrityChecks/payrollChecks';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -131,7 +132,7 @@ describe('tdd3 H1 as restated (coordinator, round 3): only a later RUN journal i
     const june = async () => (await inTx(RUNLESS, () => payePayableDiffersFromEmp201({ companyId: RUNLESS, asAt: '2026-06-30', limit: 20 })))
       .sample.filter((x) => x.label === '2026-06');
     expect((await june()).length).toBeGreaterThan(0); // June's ETI journal no longer matches what the EMP201 declares
-    await inTx(RUNLESS, async () => { await lockCompanyPayrollApprovals(null, RUNLESS); return rebookLaterRunlessMonths(RUNLESS, { year: 2026, month: 5 }, USER); });
+    await inTx(RUNLESS, async () => { await lockCompanyPayrollApprovals(null, RUNLESS); return rebookEtiAfterEvent(RUNLESS, { year: 2026, month: 5 }, USER); });
     expect(await june()).toEqual([]);
   });
 });
@@ -169,12 +170,12 @@ describe('lock 1 first in the reversal guard', () => {
 describe('adv3 M2/M3: run-less months are rebooked and the integrity check is green', () => {
   it('a late September run carrying R1 000 into a directive-only October: October ends equal to the EMP201', async () => {
     await header(M2, 2026, 9, 'approved', 0, 1_000, await journal(M2, '2026-09-30', 'Payroll run 2026-09', 0.01));
-    await inTx(M2, async () => { await lockCompanyPayrollApprovals(null, M2); return rebookLaterRunlessMonths(M2, { year: 2026, month: 9 }, USER); });
+    await inTx(M2, async () => { await lockCompanyPayrollApprovals(null, M2); return rebookEtiAfterEvent(M2, { year: 2026, month: 9 }, USER); });
     const r = await inTx(M2, () => payePayableDiffersFromEmp201({ companyId: M2, asAt: '2026-10-31', limit: 20 }));
     expect(r.sample.filter((s) => s.label === '2026-10')).toEqual([]);
   });
   it('a run-less August books its refund (R900, no PAYE to use it), and August is green', async () => {
-    await inTx(AUG, async () => { await lockCompanyPayrollApprovals(null, AUG); return rebookLaterRunlessMonths(AUG, { year: 2026, month: 7 }, USER); });
+    await inTx(AUG, async () => { await lockCompanyPayrollApprovals(null, AUG); return rebookEtiAfterEvent(AUG, { year: 2026, month: 7 }, USER); });
     const refund = (await sql`
       SELECT COALESCE(SUM(jl.debit - jl.credit), 0)::float8 AS n FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id

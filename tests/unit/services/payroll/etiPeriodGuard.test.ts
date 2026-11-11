@@ -25,7 +25,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollJournalChain', async (orig
   ...(await orig<typeof import('@/modules/accounting/services/payroll/payrollJournalChain')>()),
   payrollJournalInForce: vi.fn(async () => true),
 }));
-vi.mock('@/modules/accounting/services/payroll/directiveEtiJournal', () => ({ rebookLaterRunlessMonths: vi.fn(async () => []) }));
+vi.mock('@/modules/accounting/services/payroll/etiRebook', () => ({ rebookEtiAfterEvent: vi.fn(async () => []) }));
 vi.mock('@/modules/accounting/services/payroll/payRunApprovalAudit', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/payroll/payRunApprovalAudit')>()),
   recordPayRunApprovalAudit: vi.fn(async () => undefined),
@@ -40,7 +40,7 @@ import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payr
 import { applyRunLoans } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { payrollJournalInForce } from '@/modules/accounting/services/payroll/payrollJournalChain';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
-import { rebookLaterRunlessMonths } from '@/modules/accounting/services/payroll/directiveEtiJournal';
+import { rebookEtiAfterEvent } from '@/modules/accounting/services/payroll/etiRebook';
 import { reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunReopen';
 import {
   earlierUnapprovedRefusal, EtiLaterMonthPostedError, laterEtiJournalRefusal, reconciliationEnd,
@@ -136,6 +136,6 @@ describe('its callers', () => {
     hasEti(false);
     vi.mocked(sql).mockResolvedValueOnce([{ id: RUN }] as never); // the reopen UPDATE
     await reopenPayrollRun({ runId: RUN, companyId: CO, userId: 'u', reason: 'fix May hours' });
-    expect(rebookLaterRunlessMonths).toHaveBeenCalledWith(CO, { year: 2026, month: 5 }, 'u');
+    expect(rebookEtiAfterEvent).toHaveBeenCalledWith(CO, { year: 2026, month: 5 }, 'u');
   });
 });

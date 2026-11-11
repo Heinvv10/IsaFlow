@@ -22,7 +22,7 @@ import { refuseReversalAgainstPayRun } from '../payroll/payrollJournalReversalGu
 import { recordPayRunApprovalAudit } from '../payroll/payRunApprovalAudit';
 import { postJournalEntry } from './journalEntryPostService';
 import { cleanUpAfter } from './reversalCleanup';
-import { bookEtiAfterDirectiveReversal } from '../payroll/directiveEtiJournal';
+import { bookEtiAfterDirectiveReversal } from '../payroll/etiRebook';
 import {
   LateClaimCompanionReversalError, copyLateClaimBaseToReversal, planLateClaimCompanionReversal,
 } from './vatLateClaimSplit';

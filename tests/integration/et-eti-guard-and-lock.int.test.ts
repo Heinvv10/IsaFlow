@@ -120,7 +120,7 @@ describe('R-A month range', () => {
   it('a tenant without ETI is never blocked', async () => {
     expect(await refusal(PLAIN, 2026, 5)).toBeNull();
   });
-  it('once June\\'s journal is reversed out of the ledger, May is free', async () => {
+  it('once June\'s journal is reversed out of the ledger, May is free', async () => {
     const june = (await sql`SELECT journal_entry_id FROM payroll_run_headers WHERE company_id = ${GUARD}::UUID AND period_month = 6`) as Array<{ journal_entry_id: string }>;
     await sql`UPDATE payroll_run_headers SET status = 'calculated' WHERE company_id = ${GUARD}::UUID AND period_month = 6`; // reopened
     await inTx(GUARD, () => reverseJournalEntry(GUARD, june[0]!.journal_entry_id, USER));

@@ -262,7 +262,7 @@ export default function EMP201Page() {
                     <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Deductions</p>
                   </div>
                   <SummaryRow label="PAYE (Pay As You Earn)" value={fmt(data.totalPAYE)} />
-                  <Emp201EtiRows totalETI={data.totalETI} etiCarry={data.etiCarry} warnings={data.etiWarnings ?? []} />
+                  <Emp201EtiRows totalETI={data.totalETI} etiCarry={data.etiCarry} warnings={data.etiWarnings ?? []} month={from.slice(0, 7) === to.slice(0, 7) ? from.slice(0, 7) : null} onBooked={() => void generate()} />
                   <SummaryRow label="PAYE payable" value={fmt(data.payePayable)} bold />
                   <SummaryRow label="UIF — Employee contribution" value={fmt(data.totalUIF_employee)} />
                   <SummaryRow label="UIF — Employer contribution" value={fmt(data.totalUIF_employer)} />

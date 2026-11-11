@@ -83,7 +83,7 @@ describe('paye_payable_differs_from_emp201', () => {
   });
   it('coordinator (b): the finding says how a hand-reversed ETI journal is rebooked', async () => {
     const r = await payePayableDiffersFromEmp201(ctx('2026-06-30'));
-    expect(r.finding).toMatch(/reversed by hand is not rebooked automatically: the month is rebooked by the next approval, reopen, or directive payment or reversal/);
+    expect(r.finding).toMatch(/reversed by hand is not rebooked automatically: use "Book ETI for this month" on the EMP201 page \(or the book_eti_for_month connector tool\)/);
   });
   it('rev3 L2: one batch read each for runs, ETI journals and directives, whatever the number of months', async () => {
     await payePayableDiffersFromEmp201(ctx('2026-08-31'));

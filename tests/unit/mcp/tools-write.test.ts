@@ -497,6 +497,8 @@ describe('write-tool manifest invariants', () => {
       // The back-fill applies cash to documents, which moves their outstanding
       // balance — the same reason the two single-document appliers are here.
       'auto_apply_unapplied',
+      // Posts a month's ETI journal (ETI-YYYY-MM) as the EMP201 declares it (wave 5 ET).
+      'book_eti_for_month',
       'bulk_allocate_bank_transactions',
       'bulk_approve_credit_notes',
       'bulk_approve_supplier_invoices',
@@ -648,6 +650,8 @@ describe('write-tool manifest invariants', () => {
       disable_bank_rule: { ...KEY },
       reverse_allocations: { ...KEY },
       set_opening_balance: { ...KEY },
+      // Refuses on the missing month before touching a service; behaviour is in bookEtiForMonthTool.test.ts.
+      book_eti_for_month: { ...KEY },
       // Refuses on the missing file_name before any lookup; behaviour in attachDocumentTool.test.ts.
       attach_document: { ...KEY },
       // Refuses on the missing entity_type before any lookup; behaviour in attachEntityDocumentTool.test.ts.

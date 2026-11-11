@@ -9,7 +9,9 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({ lockCom
 vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', () => ({ assertNoLaterEtiJournal: vi.fn(async () => { order.push('guard'); }) }));
 vi.mock('@/modules/accounting/services/payroll/directiveEtiJournal', () => ({
   postMonthEtiJournal: vi.fn(async () => { order.push('eti'); return 'je-eti'; }),
-  rebookLaterRunlessMonths: vi.fn(async () => { order.push('rebook'); return []; }),
+}));
+vi.mock('@/modules/accounting/services/payroll/etiRebook', () => ({
+  rebookEtiAfterEvent: vi.fn(async () => { order.push('rebook'); return []; }),
 }));
 vi.mock('@/modules/accounting/services/payroll/taxDirectivePaymentService', () => ({
   applyTaxDirective: vi.fn(async () => { order.push('pay'); return { paymentId: 'p1', journalEntryId: 'je-d', gross: 4_500, paye: 1_500, net: 3_000, status: 'applied', advisories: [] }; }),

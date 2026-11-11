@@ -8,7 +8,8 @@
  *  3. The month's ETI journal (directiveEtiJournal): what the month now uses less what is booked.
  * So a month's journals together book exactly the EMP201's ETI, and its 2140 nets to the EMP201 PAYE payable.
  */
-import { postMonthEtiJournal, rebookLaterRunlessMonths } from './directiveEtiJournal';
+import { postMonthEtiJournal } from './directiveEtiJournal';
+import { rebookEtiAfterEvent } from './etiRebook';
 import { assertNoLaterEtiJournal } from './etiPeriodGuard';
 import { lockCompanyPayrollApprovals } from './payrollRunLock';
 import {
@@ -28,6 +29,6 @@ export async function applyTaxDirective(
   await assertNoLaterEtiJournal(companyId, ym);
   const result = await applyTaxDirectivePayment(companyId, directiveId, input, userId);
   const etiJournalEntryId = await postMonthEtiJournal(companyId, ym, input.paymentDate, userId);
-  await rebookLaterRunlessMonths(companyId, ym, userId); // round 3: the later run-less months of the period follow
+  await rebookEtiAfterEvent(companyId, ym, userId); // rounds 3-4: the run-less months of this and the previous half-year follow
   return { ...result, etiJournalEntryId };
 }

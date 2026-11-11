@@ -4,6 +4,7 @@
  * PAYE less "ETI used" is PAYE payable. Kept out of pages/accounting/sars/emp201.tsx (review L6).
  */
 import { formatMoney } from '@/lib/money/formatMoney';
+import { Emp201BookEtiButton } from './Emp201BookEtiButton';
 
 export interface Emp201EtiCarry { broughtForward: number; used: number; carriedForward: number; refundClaimable: number }
 
@@ -19,7 +20,10 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function Emp201EtiRows({ totalETI, etiCarry, warnings }: { totalETI: number; etiCarry: Emp201EtiCarry; warnings: string[] }) {
+interface Props { totalETI: number; etiCarry: Emp201EtiCarry; warnings: string[]; month?: string | null; onBooked?: () => void }
+
+/** `month` (YYYY-MM) when the EMP201 covers one month: shows "Book ETI for this month". */
+export function Emp201EtiRows({ totalETI, etiCarry, warnings, month, onBooked }: Props) {
   return (
     <>
       <Row label="ETI for the period" value={formatMoney(totalETI)} />
@@ -30,6 +34,7 @@ export function Emp201EtiRows({ totalETI, etiCarry, warnings }: { totalETI: numb
       {warnings.map((w) => (
         <p key={w} role="note" className="px-4 py-2 text-xs text-amber-700 dark:text-amber-400">{w}</p>
       ))}
+      {month && <Emp201BookEtiButton month={month} onBooked={onBooked} />}
     </>
   );
 }

@@ -27,16 +27,16 @@ vi.mock('@/modules/accounting/services/payroll/payRunDecision', () => ({ readPay
 vi.mock('@/modules/accounting/services/payroll/payrollRunDirectiveClaim', () => ({ claimRunSeveranceDirectives: vi.fn() }));
 vi.mock('@/modules/accounting/services/payroll/payRunApprovalAudit', () => ({ recordPayRunApprovalAudit: vi.fn() }));
 vi.mock('@/modules/accounting/services/payroll/payrollJournalPostingService', () => ({ postPayrollRunJournal: vi.fn(async () => { order.push('post'); return 'je1'; }) }));
-vi.mock('@/modules/accounting/services/payroll/directiveEtiJournal', () => ({ rebookLaterRunlessMonths: vi.fn(async () => { order.push('rebook'); return []; }) }));
+vi.mock('@/modules/accounting/services/payroll/etiRebook', () => ({ rebookEtiAfterEvent: vi.fn(async () => { order.push('rebook'); return []; }) }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunService', () => ({ mapRunRow: (r: unknown) => r }));
 
-import { rebookLaterRunlessMonths } from '@/modules/accounting/services/payroll/directiveEtiJournal';
+import { rebookEtiAfterEvent } from '@/modules/accounting/services/payroll/etiRebook';
 import { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
 
 describe('approvePayrollRun', () => {
   it("posts the run journal, then rebooks the later run-less months of June's ETI period, with lock 1 taken first", async () => {
     await approvePayrollRun('c1', 'r1', 'u1');
     expect(order).toEqual(['lock1', 'post', 'rebook']);
-    expect(rebookLaterRunlessMonths).toHaveBeenCalledWith('c1', { year: 2026, month: 6 }, 'u1');
+    expect(rebookEtiAfterEvent).toHaveBeenCalledWith('c1', { year: 2026, month: 6 }, 'u1');
   });
 });
