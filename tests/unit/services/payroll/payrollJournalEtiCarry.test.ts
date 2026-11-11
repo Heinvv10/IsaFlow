@@ -161,7 +161,7 @@ describe('the journal books the ETI brought forward, as the EMP201 uses it', () 
   it('H2: ETI a directive\'s ETI journal already booked this month is not booked again by the run', async () => {
     // June: R1 800 carried, run ETI R500, run PAYE R3 000: R2 300 used, of which an ETI journal booked R300.
     route([{ period_year: 2026, period_month: 5, paye: 200, eti: 2_000 }]);
-    etiJournalsBooked = [{ used: 300, refund: 0 }];
+    etiJournalsBooked = [{ reference: 'ETI-2026-06', used: 300, refund: 0 }];
     const plan = await buildPayrollJournalPlan(COMPANY, RUN);
     expect(plan!.totals.etiUsed).toBe(2_000);
     expect(credit(plan, '2140')).toBe(1_000);

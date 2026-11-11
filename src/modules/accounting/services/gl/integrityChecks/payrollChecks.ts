@@ -20,7 +20,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { etiCarryLedger, index, reconciliationStart, type YearMonth } from '@/modules/accounting/services/payroll/etiCarry';
 import { loadEtiMonths } from '@/modules/accounting/services/payroll/etiCarryRead';
-import { bookedByEtiJournals, bookedByRunJournal } from '@/modules/accounting/services/payroll/etiBooking';
+import { bookedEtiJournalsByMonth, bookedRunJournalsByMonth, monthKey } from '@/modules/accounting/services/payroll/etiBooking';
 import { listStandaloneDirectivePayments } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 import { r2, type IntegrityCheckContext, type IntegrityCheckResult } from './types';
 
@@ -43,20 +43,24 @@ export async function payePayableDiffersFromEmp201(ctx: IntegrityCheckContext): 
                                                        AND ${`${months[11]!.year}-${pad(months[11]!.month)}-01`}::date
   `) as DbRow[];
 
+  // Review round 3 (rev3 L2): a handful of reads for the twelve months, not five a month.
+  const byRun = await bookedRunJournalsByMonth(ctx.companyId, months);
+  const byEti = await bookedEtiJournalsByMonth(ctx.companyId, months);
+  const directives = await listStandaloneDirectivePayments(ctx.companyId, { start: `${months[0]!.year}-${pad(months[0]!.month)}-01`, end: lastOf(months[11]!) });
   const failing: Array<{ id: string; label: string; amount: number; detail: string }> = [];
   const preEt: string[] = [];
   for (const ym of months) {
     const label = `${ym.year}-${pad(ym.month)}`;
     const line = ledger.find((m) => index(m) === index(ym));
-    const payable = line ? r2(Math.max(0, line.paye - line.used)) : 0;
+    // adv3 L3: no floor on either side, so a month with negative PAYE compares like for like with its 2140.
+    const payable = line ? r2(line.paye - line.used) : 0;
     const claimable = line?.refundClaimable ?? 0;
     const hdr = headers.find((h) => Number(h.period_year) === ym.year && Number(h.period_month) === ym.month);
-    const byRun = await bookedByRunJournal(ctx.companyId, ym);
-    const byEti = await bookedByEtiJournals(ctx.companyId, ym);
-    const directivePaye = (await listStandaloneDirectivePayments(ctx.companyId, { start: `${label}-01`, end: lastOf(ym) }))
-      .reduce((t, p) => t + p.paye, 0);
-    const booked2140 = r2(byRun.net2140 + directivePaye - byEti.used);
-    const bookedRefund = r2(byRun.refund + byEti.refund);
+    const run = byRun.get(monthKey(ym))!;
+    const eti = byEti.get(monthKey(ym))!;
+    const directivePaye = directives.filter((p) => p.paymentDate.slice(0, 7) === label).reduce((t, p) => t + p.paye, 0);
+    const booked2140 = r2(run.net2140 + directivePaye - eti.used);
+    const bookedRefund = r2(run.refund + eti.refund);
     const diffs: Array<{ id: string; amount: number; detail: string }> = [];
     if (Math.abs(booked2140 - payable) >= 0.01) {
       diffs.push({ id: label, amount: r2(booked2140 - payable), detail: `2140 from payroll journals ${formatMoney(booked2140)}; EMP201 PAYE payable ${formatMoney(payable)}` });
