@@ -60,24 +60,29 @@ export function boundPx(text: string, px: number): number {
  * kept (a piece, a grapheme and its neighbour, a join): a key is a text, and tenant text is as long as a tenant makes it,
  * so a long one is measured and not kept, and the cache stays under BOUNDS_KEPT x KEPT_CHARS characters.
  */
-const BOUNDS = new Map<string, number>();
+const BOUNDS = new Map<number, Map<string, number>>();
 const BOUNDS_KEPT = 100_000;
+/** How many bounds are kept, across the sizes. */
+let boundsKept = 0;
 
 /** The longest text the bounds are kept for (what `packProseFillLinear.test.ts` holds under KEPT_CHARS). */
 export function keptBoundLongest(): number {
   let longest = 0;
-  for (const key of BOUNDS.keys()) longest = Math.max(longest, key.length - key.indexOf('|') - 1);
+  for (const atPx of BOUNDS.values()) for (const key of atPx.keys()) longest = Math.max(longest, key.length);
   return longest;
 }
 
+/** Kept by size, then text: no key is built per call (the fill asks for one per grapheme of a long token). */
 function keptBoundPx(text: string, px: number): number {
   if (text.length > KEPT_CHARS) return boundPx(text, px);
-  const key = `${px}|${text}`;
-  let width = BOUNDS.get(key);
+  let atPx = BOUNDS.get(px);
+  if (atPx === undefined) { atPx = new Map(); BOUNDS.set(px, atPx); }
+  let width = atPx.get(text);
   if (width === undefined) {
-    if (BOUNDS.size >= BOUNDS_KEPT) BOUNDS.clear();
+    if (boundsKept >= BOUNDS_KEPT) { BOUNDS.clear(); boundsKept = 0; atPx = new Map(); BOUNDS.set(px, atPx); }
     width = boundPx(text, px);
-    BOUNDS.set(key, width);
+    atPx.set(text, width);
+    boundsKept += 1;
   }
   return width;
 }
