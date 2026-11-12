@@ -91,7 +91,7 @@ describe('/compare/[competitor] route', () => {
   it('prebuilds exactly the known slugs and 404s the rest', async () => {
     const paths = await (getStaticPaths as unknown as () => Promise<{ paths: { params: { competitor: string } }[]; fallback: unknown }>)();
     expect(paths.fallback).toBe(false);
-    expect(paths.paths.map((p) => p.params.competitor)).toEqual(['sage', 'xero', 'quickbooks']);
+    expect(paths.paths.map((p) => p.params.competitor)).toEqual(['sage', 'xero', 'quickbooks', 'simplepay', 'payspace']);
     const gsp = getStaticProps as unknown as (c: { params?: Record<string, string> }) => Promise<Record<string, unknown>>;
     expect(await gsp({ params: { competitor: 'zoho' } })).toEqual({ notFound: true });
     expect(await gsp({ params: {} })).toEqual({ notFound: true });
