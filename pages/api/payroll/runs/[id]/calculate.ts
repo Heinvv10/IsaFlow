@@ -20,6 +20,7 @@ import {
   PayrollRunJournalPostedError,
 } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { UnsupportedTaxYearError } from '@/modules/accounting/services/payroll/taxTables';
+import { EtiLaterMonthPostedError } from '@/modules/accounting/services/payroll/etiPeriodGuard';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -43,6 +44,10 @@ async function handler(
     const summary = await calculatePayrollRun(id, companyId, userId);
     return apiResponse.success(res, summary);
   } catch (err) {
+    // A later month of the ETI period has posted its journal (Hein ruling R-A): refused before any write.
+    if (err instanceof EtiLaterMonthPostedError) {
+      return apiResponse.conflict(res, err.message, { code: 'ETI_LATER_MONTH_POSTED' });
+    }
     if (err instanceof PayrollRunLockedError) {
       return apiResponse.badRequest(res, err.message, { lockedStatus: err.status });
     }

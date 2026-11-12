@@ -14,15 +14,26 @@ describe('termsOfCreate', () => {
   it('defaults to employee / monthly with nothing else', () => {
     expect(termsOfCreate({}, refuse)).toEqual({
       taxStatus: 'employee', payBasis: 'monthly', hoursPerWeek: null, hoursPerDay: null, hourlyRate: null, dailyRate: null, occupation: null,
+      etiIdDocument: null,
     });
   });
 
   it('takes every term and trims the occupation', () => {
     expect(termsOfCreate({
       taxStatus: 'independent_contractor', payBasis: 'daily', hoursPerWeek: 45, hoursPerDay: 9, hourlyRate: 120.5, dailyRate: 900, occupation: '  Driver ',
+      etiIdDocument: 'refugee_id',
     }, refuse)).toEqual({
       taxStatus: 'independent_contractor', payBasis: 'daily', hoursPerWeek: 45, hoursPerDay: 9, hourlyRate: 120.5, dailyRate: 900, occupation: 'Driver',
+      etiIdDocument: 'refugee_id',
     });
+  });
+
+  it('ETI identity document (migration 976): one of the three, blank clears, anything else refused; a stored value it cannot map throws', () => {
+    expect(termsOfPatch({ etiIdDocument: 'asylum_seeker_permit' }, refuse)).toEqual({ etiIdDocument: 'asylum_seeker_permit' });
+    expect(termsOfPatch({ etiIdDocument: '' }, refuse)).toEqual({ etiIdDocument: null });
+    expect(() => termsOfPatch({ etiIdDocument: 'passport' }, refuse)).toThrow(/etiIdDocument/);
+    expect(termsFromRow({ eti_id_document: 'refugee_id' }).etiIdDocument).toBe('refugee_id');
+    expect(() => termsFromRow({ eti_id_document: 'passport' })).toThrow(/eti_id_document/);
   });
 
   it.each([
@@ -121,7 +132,7 @@ describe('priced terms', () => {
   });
 
   it('the log mask names every term', () => {
-    expect([...EMPLOYEE_TERM_LOG_KEYS].sort()).toEqual(['dailyRate', 'hourlyRate', 'hoursPerDay', 'hoursPerWeek', 'occupation', 'payBasis', 'taxStatus']);
+    expect([...EMPLOYEE_TERM_LOG_KEYS].sort()).toEqual(['dailyRate', 'etiIdDocument', 'hourlyRate', 'hoursPerDay', 'hoursPerWeek', 'occupation', 'payBasis', 'taxStatus']);
   });
 });
 

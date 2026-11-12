@@ -12,6 +12,9 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { listStandaloneDirectivePayments } from '@/modules/accounting/services/payroll/directivePaymentFiling';
+import { etiCarryLedger, etiMonthsOf, summariseCarry, type EtiCarry } from '@/modules/accounting/services/payroll/etiCarry';
+import { loadEarlierEtiMonths } from '@/modules/accounting/services/payroll/etiCarryRead';
+import { unbookedRefundWarnings } from '@/modules/accounting/services/payroll/etiRefundWarning';
 
 type Row = DbRow;
 
@@ -22,8 +25,15 @@ export interface EMP201Data {
   totalPAYE: number;
   /** Employment Tax Incentive claimed for the period — an offset against PAYE. */
   totalETI: number;
-  /** PAYE actually remitted to SARS: totalPAYE − totalETI, floored at zero. */
+  /**
+   * PAYE actually remitted to SARS: totalPAYE less the ETI used, month by month, where the ETI available is the month's
+   * ETI plus any brought forward (ETI Act s9(1); payroll/etiCarry). Never below zero.
+   */
   payePayable: number;
+  /** ETI brought forward into the range, used in it, carried out of it, and claimable as a refund at reconciliation (s10). */
+  etiCarry: EtiCarry;
+  /** ETI the ledger has not booked as the EMP201 declares it, by name (review L3: an unbooked August/February refund). */
+  etiWarnings: string[];
   totalUIF_employee: number;
   totalUIF_employer: number;
   totalUIF: number;
@@ -95,6 +105,8 @@ export async function generateEMP201(
     totalPAYE: 0,
     totalETI: 0,
     payePayable: 0,
+    etiCarry: { broughtForward: 0, used: 0, carriedForward: 0, refundClaimable: 0 },
+    etiWarnings: [],
     totalUIF_employee: 0,
     totalUIF_employer: 0,
     totalUIF: 0,
@@ -169,7 +181,18 @@ export async function generateEMP201(
       paymentId: p.paymentId, directiveNumber: p.directiveNumber, paymentDate: p.paymentDate, gross: p.gross, paye: p.paye,
     }));
 
-    if (runs.length === 0 && directivePayments.length === 0) return emptyResult;
+    const from = { year: Number(startDate.slice(0, 4)), month: Number(startDate.slice(5, 7)) };
+    const to = { year: Number(endDate.slice(0, 4)), month: Number(endDate.slice(5, 7)) };
+    const earlier = await loadEarlierEtiMonths(companyId, from);
+    const months = [
+      ...earlier,
+      ...etiMonthsOf(runs.map((r: Row) => ({ period_year: r.period_year, period_month: r.period_month, paye: r.total_paye, eti: r.total_eti })), directivePayments),
+    ];
+    // ETI Act s9(1), s10; payroll/etiCarry: a month with nothing paid still carries the excess on, or shows the refund.
+    const etiLedger = etiCarryLedger(from, to, months);
+    const etiCarry = summariseCarry(etiLedger, from);
+    const etiWarnings = await unbookedRefundWarnings(companyId, etiLedger, from);
+    if (runs.length === 0 && directivePayments.length === 0) return { ...emptyResult, etiCarry, etiWarnings };
 
     let totalPAYE = directivePayments.reduce((t, p) => t + p.paye, 0);
     let totalETI = 0;
@@ -219,9 +242,9 @@ export async function generateEMP201(
     const uifEmployee = roundCents(totalUIF / 2);
     const uifEmployer = roundCents(totalUIF / 2);
 
-    // ETI is an offset against PAYE, never a refund: SARS caps the claim at the
-    // PAYE withheld for the month, so the payable side floors at zero.
-    const payePayable = roundCents(Math.max(0, totalPAYE - totalETI));
+    // ETI is an offset against the month's PAYE, never below zero; the excess carries into the next month and is
+    // claimed as a refund at the end of the reconciliation period (ETI Act s9(1), s10; payroll/etiCarry).
+    const payePayable = roundCents(Math.max(0, totalPAYE - etiCarry.used));
 
     return {
       periodStart,
@@ -229,6 +252,8 @@ export async function generateEMP201(
       totalPAYE: roundCents(totalPAYE),
       totalETI: roundCents(totalETI),
       payePayable,
+      etiCarry,
+      etiWarnings,
       totalUIF_employee: uifEmployee,
       totalUIF_employer: uifEmployer,
       totalUIF: roundCents(totalUIF),

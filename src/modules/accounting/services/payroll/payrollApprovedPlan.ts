@@ -22,12 +22,28 @@ import { lockCompanyPayrollApprovals, lockPayrollRunHeader } from './payrollRunL
 export const PLAN_CHANGED_SINCE_APPROVAL =
   'This payroll run no longer matches the journal plan that was approved. Reopen and re-approve it before posting.';
 
+/**
+ * Why a plan with ETI may have moved without anything on the run changing (wave 5 ET): the ETI it books is the month's
+ * ETI used from the ETI ledger, which reads earlier months of the reconciliation period and this month's directive PAYE.
+ */
+export const ETI_CARRY_MAY_HAVE_CHANGED =
+  'The ETI this journal books depends on the ETI brought forward from earlier months of the ETI period and on this month\'s '
+  + 'directive PAYE (ETI Act s9(1)); one of those changed since approval, or the run was approved before ETI carry-forward was booked.';
+
 /** The plan differs from the one approved. Raised before anything is written. */
 export class PayrollPlanChangedSinceApprovalError extends Error {
-  constructor() {
-    super(PLAN_CHANGED_SINCE_APPROVAL);
+  constructor(reason?: string) {
+    super(reason ? `${PLAN_CHANGED_SINCE_APPROVAL} ${reason}` : PLAN_CHANGED_SINCE_APPROVAL);
     this.name = 'PayrollPlanChangedSinceApprovalError';
   }
+}
+
+/** The ETI reason, when this plan's ETI is not the run's own ETI capped at its PAYE (the carry or a directive moved it). */
+function etiReason(plan: PayrollJournalPlan): string | undefined {
+  const { eti, paye, etiUsed } = plan.totals;
+  const runOnly = Math.round(Math.max(0, Math.min(eti, paye)) * 100);
+  return Math.round(etiUsed * 100) !== runOnly || plan.advisories.some((a) => a.code === 'eti_brought_forward')
+    ? ETI_CARRY_MAY_HAVE_CHANGED : undefined;
 }
 
 export interface ApprovedPlanRead {
@@ -64,7 +80,7 @@ export async function readApprovedPlan(
   if (clearance.grandfathered || plan.alreadyPostedJournalId) return { header, plan };
   const revision = header.approval_revision == null ? null : String(header.approval_revision);
   if (!clearance.planHash || !matchesApprovedPlanHash(plan, revision, clearance.planHash)) {
-    throw new PayrollPlanChangedSinceApprovalError();
+    throw new PayrollPlanChangedSinceApprovalError(etiReason(plan));
   }
   return { header, plan };
 }

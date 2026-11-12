@@ -8,7 +8,8 @@
  *  - UIF: the component's own is_uif_applicable flag decides, as for any earning
  *    (setup-components creates the 3801 with it off).
  *  - SDL: leviable (SDL Act s3(3): the para 1 remuneration).
- *  - ETI: "monthly remuneration" is the para 1 remuneration, so the benefit counts.
+ *  - ETI: NOT in "monthly remuneration": from 1 March 2022 its proviso disregards non-cash payments
+ *    (ET; SARS Guide to the Employment Tax Incentive, Issue 5, §2.4.1 p. 18).
  *  - Cash: not in gross pay and not paid in net pay.
  */
 import { describe, expect, it } from 'vitest';
@@ -17,7 +18,7 @@ import type { EmployeeComponent, PayrollComponent, PayrollEmployee, PayrollLineI
 
 const employee = (over: Partial<PayrollEmployee> = {}): PayrollEmployee => ({
   id: 'emp-1', companyId: 'co-1', employeeNumber: 'E001', firstName: 'Test', lastName: 'Employee',
-  idNumber: '9001015009087', taxNumber: '1234567890', employmentType: 'permanent',
+  idNumber: '8001015009087', taxNumber: '1234567890', employmentType: 'permanent', // a valid SA ID (Luhn) for the date of birth: ETI Act s6(b)
   startDate: new Date('2020-01-01'), dateOfBirth: new Date('1980-01-01'), uifExcluded: false,
   medicalAidMainMember: false, medicalAidDependantsCount: 0, ...over,
 });
@@ -79,11 +80,11 @@ describe('a non-cash 3801 benefit on a pay line [Fourth Schedule para 1; SDL Act
     expect(withBenefit.componentBreakdown.find((i) => i.componentId === 'salary')).not.toHaveProperty('isNonCash');
   });
 
-  it('counts toward ETI monthly remuneration (taper band: R1 500 - 75% x (R6 000 - R5 500) = R1 125)', () => {
-    const young = { employee: employee({ dateOfBirth: new Date('2001-01-01'), startDate: new Date('2025-01-01') }) };
+  it('is left out of ETI monthly remuneration (R5 000 cash stays in the flat band: R1 500, not R1 125 on R6 000)', () => {
+    const young = { employee: employee({ dateOfBirth: new Date('2001-01-01'), idNumber: '0101015009083', startDate: new Date('2025-01-01') }) };
     const eti = line([salary(5_000), benefit(1_000)], young).eti;
     expect(eti.isEligible).toBe(true);
-    expect(eti.monthlyEti).toBe(1_125);
+    expect(eti.monthlyEti).toBe(1_500);
     expect(line([salary(5_000)], young).eti.monthlyEti).toBe(1_500);
   });
 });

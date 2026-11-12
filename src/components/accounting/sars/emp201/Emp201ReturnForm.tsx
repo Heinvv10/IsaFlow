@@ -7,7 +7,8 @@ import { Emp201EtiSection } from './Emp201EtiSection';
 import { Emp201UifSdlSection } from './Emp201UifSdlSection';
 import { Emp201TotalSection } from './Emp201TotalSection';
 
-export function Emp201ReturnForm({ data }: { data: EMP201Data }) {
+/** `etiMonth` (YYYY-MM) when the EMP201 covers one month: the ETI section offers "Book ETI for this month". */
+export function Emp201ReturnForm({ data, etiMonth = null, onEtiBooked }: { data: EMP201Data; etiMonth?: string | null; onEtiBooked?: () => void }) {
   return (
     <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
       <div className="px-4 py-3 border-b border-[var(--ff-border-light)]">
@@ -19,7 +20,7 @@ export function Emp201ReturnForm({ data }: { data: EMP201Data }) {
       <div className="divide-y divide-[var(--ff-border-light)]">
         <Emp201EmployeeSection data={data} />
         <Emp201PayeSection data={data} />
-        <Emp201EtiSection data={data} />
+        <Emp201EtiSection data={data} month={etiMonth} onBooked={onEtiBooked} />
         <Emp201UifSdlSection data={data} />
         <Emp201TotalSection data={data} />
       </div>

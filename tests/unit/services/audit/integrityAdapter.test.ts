@@ -25,14 +25,14 @@ vi.mock('@/modules/accounting/services/gl/integrityChecks', () => ({
 import { runIntegrity } from '@/modules/accounting/services/audit/checks/integrityAdapter';
 
 describe('runIntegrity', () => {
-  it('records all fifteen; an erroring check is unknown and its savepoint rolled back; counts are the runner\'s', async () => {
+  it('records all sixteen; an erroring check is unknown and its savepoint rolled back; counts are the runner\'s', async () => {
     const out = await runIntegrity({ companyId: 'c', from: '2026-01-01', to: '2026-06-30' });
-    expect(out).toHaveLength(15);
+    expect(out).toHaveLength(16);
     const by = Object.fromEntries(out.map((r) => [r.checkId, r]));
     expect(by['integrity.duplicate_bank_references']).toMatchObject({ status: 'unknown', findingCount: 0 });
     expect(rolledBack).toEqual(['audit_integrity_3']);
     expect(by['integrity.invoices_null_due_date']).toMatchObject({ status: 'fail', findingCount: 3,
       findings: [{ key: 'invoices_null_due_date:i1', refs: ['i1'], detail: { label: 'INV-1', amount: '12.50', detail: null } }] });
-    expect(out.filter((r) => r.status === 'pass')).toHaveLength(13);
+    expect(out.filter((r) => r.status === 'pass')).toHaveLength(14);
   });
 });
