@@ -144,6 +144,7 @@ import {
   updateEmployeeTool,
 } from './tools/writeEmployees';
 import { approvePayRunTool, calculatePayRunTool } from './tools/writePayrollRun';
+import { bookEtiForMonthTool } from './tools/bookEtiForMonth';
 import {
   listFiscalPeriodsTool,
   getFiscalPeriodTool,
@@ -308,6 +309,7 @@ export const MCP_TOOLS = [
   createPayRunTool,
   calculatePayRunTool,
   approvePayRunTool,
+  bookEtiForMonthTool,
   postPayrollJournalTool,
   createEmployeeTool,
   updateEmployeeTool,

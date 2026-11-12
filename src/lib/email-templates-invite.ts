@@ -1,5 +1,5 @@
 /**
- * ISAFlow Email Templates — Invite
+ * IsaFlow Email Templates — Invite
  * Split from email-templates.ts to stay within the 300-line limit.
  */
 
@@ -35,7 +35,7 @@ export function inviteEmailHtml(data: InviteEmailData): string {
         <p style="margin:0 0 24px; font-family:${BRAND.fontStack}; font-size:15px;
                   color:${BRAND.textSecondary}; line-height:1.6;">
           <strong style="color:${BRAND.textBody};">${escapeHtml(data.inviterName)}</strong> has invited
-          you to join their organisation on ISAFlow.
+          you to join their organisation on IsaFlow.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
                style="background-color:${BRAND.outerBg}; border:1px solid ${BRAND.borderColor};

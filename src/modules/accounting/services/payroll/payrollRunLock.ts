@@ -27,7 +27,9 @@
  *   3. approval only: the linked journal and its reversal chain
  *      (lockRunJournalForApproval, payrollJournalChain), then the severance
  *      directive rows (FOR SHARE) and their payment row (payrollRunDirectiveClaim).
- * The generic journal reversal takes 2 then 3 and never 1, so no cycle.
+ * The generic journal reversal of an auto_payroll journal takes 1 first (wave 5 ET: the ETI it rebooks reads every
+ * month of the period), then, for a run's journal, 2 then 3; a stand-alone directive payment (directivePaymentEti) takes
+ * 1 first too. Nothing takes 1 after 2 or 3, so no cycle.
  * Outside this order, a LEAF: the member writers' approver lock `pay_run_approvers:<company id>`
  * (core/payRunApproverGuard: company and platform-admin role changes and removals, the onboarding reset). It is
  * taken after the member rows and the owner lock and nothing in 1-3 (calculate, approve, reopen, post) ever takes it

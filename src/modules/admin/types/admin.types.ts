@@ -1,6 +1,6 @@
 /**
  * Admin Platform Types
- * ISAFlow Admin Platform — Phase 1 MVP
+ * IsaFlow Admin Platform — Phase 1 MVP
  * Covers: Dashboard, Company Management, User Management, Audit Log
  * Billing/analytics types split to admin-billing.types.ts
  */

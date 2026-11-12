@@ -39,6 +39,7 @@ export const SYSTEM_ACCOUNT_KEYS = [
   'vat_input',                 // VAT Input (claimable)
   'vat_output',                // VAT Output (payable)
   'vat_input_late_claim',      // Input VAT - late claims (clearing; s16(3), migration 701)
+  'eti_refund_receivable',     // ETI refund receivable from SARS (ETI Act s10; migration 974)
   'retained_earnings',         // Retained Earnings
   'opening_balance_equity',    // Opening Balance Equity (clearing; nets to zero once the opening TB is complete)
   'default_revenue',           // Default revenue account

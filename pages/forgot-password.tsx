@@ -51,7 +51,7 @@ export default function ForgotPasswordPage() {
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <Image src="/logo.png" alt="ISAFlow" width={160} height={64} className="h-16 w-auto dark:brightness-0 dark:invert mb-4" priority />
+          <Image src="/logo.png" alt="IsaFlow" width={160} height={64} className="h-16 w-auto dark:brightness-0 dark:invert mb-4" priority />
           <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">Reset your password</p>
         </div>
 

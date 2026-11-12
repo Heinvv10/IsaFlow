@@ -271,7 +271,7 @@ export async function sendStatementEmail(
   });
   const html = appendSignatureToHtml(baseHtml, signature ?? null);
 
-  const subject = `Account Statement as at ${fmtDate(asAtDate)} — ${companyName || 'ISAFlow'}`;
+  const subject = `Account Statement as at ${fmtDate(asAtDate)} — ${companyName || 'IsaFlow'}`;
   const result = await sendEmail({ to: data.customer.email, subject, html });
 
   if (result.success) {

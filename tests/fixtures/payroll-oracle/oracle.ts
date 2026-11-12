@@ -4,8 +4,10 @@
  *
  * A case's `expected` comes from an outside source (`source`), never from the engine.
  * The tax status and the work terms (`taxStatus`; `unmodelled.ordinaryHoursPerWeek`, `hoursPerDay`, `dayRate`) reach the
- * calculator (buildCaseInput, TS-b). Inputs the engine still has no field for (a fixed-rate directive, ETI hours) stay in
- * `unmodelled` so the gap is visible; they are not passed to it (oracleInputs.test.ts names each one's owner).
+ * calculator (buildCaseInput, TS-b). `monthlyHours` (ET) reaches it as an hourly employee whose Basic Salary (3601) row
+ * records those hours, the way HD stores a run's hours; `ordinaryHoursWage` is what the engine derives from that row.
+ * Inputs the engine still has no field for (a fixed-rate directive, fringe terms) stay in `unmodelled` so the gap is
+ * visible; they are not passed to it (oracleInputs.test.ts names each one's owner).
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -74,6 +76,22 @@ export interface KnownGap {
   closedBy: string;
 }
 
+/** A valid 13-digit SA ID number for a date of birth (YYMMDD 5009 0 8 + the Luhn check digit). */
+export function saIdFor(dob: string): string {
+  const base = `${dob.slice(2, 4)}${dob.slice(5, 7)}${dob.slice(8, 10)}500908`;
+  for (let c = 0; c < 10; c += 1) {
+    const id = base + c;
+    let sum = 0;
+    for (let i = 0; i < 13; i += 1) {
+      let d = Number(id[12 - i]);
+      if (i % 2 === 1) { d *= 2; if (d > 9) d -= 9; }
+      sum += d;
+    }
+    if (sum % 10 === 0) return id;
+  }
+  throw new Error(`no SA ID for ${dob}`);
+}
+
 function parseDate(s: string): Date {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (!m) throw new Error(`bad date ${s}`);
@@ -131,6 +149,11 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
   const { input } = c;
   const hoursPerWeek = numberOf(input.unmodelled?.ordinaryHoursPerWeek);
   const dayRate = numberOf(input.unmodelled?.dayRate);
+  const monthlyHours = numberOf(input.unmodelled?.monthlyHours);
+  const basic = input.components.filter(x => x.type === 'earning' && x.code === '3601');
+  if (monthlyHours != null && (dayRate != null || basic.length !== 1)) {
+    throw new Error(`${c.id}: monthlyHours needs exactly one 3601 earning and no dayRate`);
+  }
   const employee: PayrollEmployee = {
     id: c.id,
     companyId: 'oracle',
@@ -140,15 +163,19 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
     employmentType: input.employee.taxStatus === 'temporary_part_time' ? 'casual' : 'permanent',
     startDate: parseDate(input.employee.startDate),
     ...(input.employee.dateOfBirth ? { dateOfBirth: parseDate(input.employee.dateOfBirth) } : {}),
+    // ETI Act s6(b): the oracle's employees hold an ID document (a valid SA ID number for their date of birth); the cases
+    // test the incentive's amount, not the document.
+    ...(input.employee.dateOfBirth ? { idNumber: saIdFor(input.employee.dateOfBirth) } : {}),
     uifExcluded: input.employee.uifExcluded,
     medicalAidMainMember: input.employee.medicalAidMainMember,
     medicalAidDependantsCount: input.employee.medicalAidDependantsCount,
     s18aReceiptHeld: input.employee.s18aReceiptHeld,
     taxStatus: oracleTaxStatus(input.employee.taxStatus),
-    payBasis: dayRate != null ? 'daily' : 'monthly',
+    payBasis: dayRate != null ? 'daily' : monthlyHours != null ? 'hourly' : 'monthly',
     hoursPerWeek,
     hoursPerDay: numberOf(input.unmodelled?.hoursPerDay),
     dailyRate: dayRate,
+    hourlyRate: monthlyHours != null && monthlyHours > 0 ? basic[0]!.amount / monthlyHours : null,
   };
   const base: EmployeeComponent[] = input.components.map((x, i) => ({
     component: {
@@ -156,6 +183,7 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
       isTaxable: x.taxable, isUifApplicable: x.uif, isSdlApplicable: x.sdl,
     },
     amount: x.amount,
+    ...(monthlyHours != null && x === basic[0] ? { quantity: monthlyHours, quantityUnit: 'hour' as const } : {}),
   }));
   const components = withFringeBenefits(base, input.unmodelled, input.period);
   return {

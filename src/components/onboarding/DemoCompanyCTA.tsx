@@ -53,7 +53,7 @@ export function DemoCompanyCTA({ message }: DemoCompanyCTAProps) {
     <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-teal-50 dark:bg-teal-900/20 border border-teal-200 dark:border-teal-700/40 text-sm">
       <Sparkles className="w-4 h-4 flex-shrink-0 text-teal-600 dark:text-teal-400" />
       <p className="flex-1 text-teal-800 dark:text-teal-200">
-        {message ?? 'New here? Explore our demo company to see ISAFlow in action.'}
+        {message ?? 'New here? Explore our demo company to see IsaFlow in action.'}
       </p>
       {/* Persist only: unmounting the banner would take TryDemoLink's busy overlay with it before the reload lands. */}
       <TryDemoLink onSwitched={rememberDismissed} />

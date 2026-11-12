@@ -30,7 +30,7 @@ export function refusalId(body: unknown): JsonRpcRequest['id'] {
  * upgrade (Cursor Marketplace Publisher Terms 3.1).
  */
 export const CONNECTOR_NOT_ENABLED_MESSAGE =
-  'MCP connector not enabled for this company. Contact ISAFlow support to have it switched on.';
+  'MCP connector not enabled for this company. Contact IsaFlow support to have it switched on.';
 
 export function connectorNotEnabled(body: unknown): JsonRpcResponse {
   return rpcError(refusalId(body), RPC_CODES.NOT_ENABLED, CONNECTOR_NOT_ENABLED_MESSAGE);

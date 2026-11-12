@@ -51,7 +51,7 @@ export default function CurrenciesPage() {
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Supported Currencies</h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">
-                  All currencies available in ISAFlow
+                  All currencies available in IsaFlow
                 </p>
               </div>
             </div>

@@ -1,5 +1,5 @@
 /**
- * Supplier Purchase Orders List Page — redesigned to match ISAFlow design system
+ * Supplier Purchase Orders List Page — redesigned to match IsaFlow design system
  */
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';

@@ -165,7 +165,7 @@ export default function OauthAppsPage() {
               <Settings className="h-6 w-6 text-teal-400" /> OAuth Apps
             </h1>
             <p className="text-sm text-slate-400 mt-1">
-              Register OAuth 2.0 client apps to integrate with ISAFlow on behalf of users.
+              Register OAuth 2.0 client apps to integrate with IsaFlow on behalf of users.
               Each app gets a <code className="text-xs">client_id</code> and{' '}
               <code className="text-xs">client_secret</code> for the auth-code+PKCE flow.
             </p>

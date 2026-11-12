@@ -100,6 +100,7 @@ export const entries: Array<[string, Category, string?]> = [
   ['gl/vatLateClaimSplit.ts', 'VAT'],
   ['gl/yearEndJournalBuilder.ts', 'WRITE'],
   ['items/fixedAssetReconciliationQueries.ts', 'SUBLEDGER'],
+  ['payroll/etiBooking.ts', 'SUBLEDGER'], // the ETI booked on 2140 / the refund receivable by payroll journals (wave 5 ET)
   ['payroll/payrollApprovalGate.ts', 'SUBLEDGER'],
   ['payroll/payrollJournalChain.ts', 'SUBLEDGER'],
   ['reconciliation/creditNoteRelief.ts', 'SUBLEDGER'],

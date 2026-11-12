@@ -108,6 +108,8 @@ describe('emp201Service — V-09 payroll run status vocabulary', () => {
       headerRow({ id: `run-${i + 1}`, period_month: i + 1, total_paye: 62653.705 }),
     );
     mockRun(rows);
+    // January's reconciliation period starts in September 2025: its earlier months (ET carry-forward), none here.
+    vi.mocked(sql).mockResolvedValueOnce([] as never);
 
     const res = await generateEMP201(COMPANY_ID, '2026-01-01', '2026-12-31');
     expect(res.totalPAYE).toBeCloseTo(751844.46, 2);

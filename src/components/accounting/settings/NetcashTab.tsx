@@ -62,7 +62,7 @@ export function NetcashTab({ company, onChange }: Props) {
           <div>
             <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-1">Netcash Integration</h2>
             <p className="text-sm text-[var(--ff-text-secondary)]">
-              Connect ISAFlow to Netcash for EFT batch payments and debit order collections.
+              Connect IsaFlow to Netcash for EFT batch payments and debit order collections.
               Netcash is a leading South African payment gateway.
             </p>
           </div>

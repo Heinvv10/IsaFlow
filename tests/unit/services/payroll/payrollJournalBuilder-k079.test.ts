@@ -24,6 +24,7 @@ vi.mock('@/modules/accounting/services/payroll/costCentreGlMappingService', () =
   getMappingLookup: vi.fn(async () => ({})),
 }));
 
+import { formatMoney } from '@/lib/money/formatMoney';
 import { buildPayrollJournalPlan } from '@/modules/accounting/services/payroll/payrollJournalBuilder';
 import { getMappingLookup } from '@/modules/accounting/services/payroll/costCentreGlMappingService';
 
@@ -113,7 +114,7 @@ describe('buildPayrollJournalPlan — ETI offsets PAYE payable (K-079)', () => {
     expect(debit(plan, '5200')).toBe(100000 + 1000 + 1000 - 300);
     expect(plan!.totals).toMatchObject({ eti: 2500, etiUsed: 300 });
     const advisory = plan!.advisories.find((a) => a.code === 'eti_beyond_paye');
-    expect(advisory?.detail).toContain('R2200.00');
+    expect(advisory?.detail).toContain(formatMoney(2200));
   });
 
   it('ETI exactly equal to PAYE is fully booked and raises no advisory', async () => {
