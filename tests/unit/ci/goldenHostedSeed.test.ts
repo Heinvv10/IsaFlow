@@ -3,7 +3,7 @@
  * in the recent past, in complete months, spread over all of them.
  */
 import { describe, it, expect } from 'vitest';
-import { seedDate, seedMonths, seedPayRun, type Client } from '../../../scripts/ci/golden-hosted/seed-demo-app';
+import { RESERVED_PAYROLL_MONTHS, seedDate, seedMonths, seedPayRun, type Client } from '../../../scripts/ci/golden-hosted/seed-demo-app';
 
 describe('seedMonths', () => {
   it('is the 10 complete months before the run, oldest first', () => {
@@ -86,5 +86,14 @@ describe('seedPayRun', () => {
     const created = refuseApproval.calls.filter((c) => c.startsWith('POST /api/payroll/runs {'));
     expect(created).toEqual(['POST /api/payroll/runs {"month":10,"year":2026}']);
     expect(refuseApproval.calls.some((c) => c.includes('"month":9'))).toBe(false);
+  });
+
+  it('never seeds a run in a month the golden payroll and close-agent specs reserve', async () => {
+    expect(RESERVED_PAYROLL_MONTHS).toEqual(['2027-01', '2027-02']);
+    const { api, calls } = fake();
+    await seedPayRun(api, seedMonths(new Date('2027-03-05T08:00:00Z')));
+    const created = calls.filter((c) => c.startsWith('POST /api/payroll/runs {'));
+    expect(created).toEqual(['POST /api/payroll/runs {"month":12,"year":2026}']);
+    expect(calls.at(-1)).toContain('/approve');
   });
 });
