@@ -15,13 +15,27 @@ const data = (carry: EMP201Data['etiCarry']): EMP201Data => ({
   totalDeductions: 0, payrollRuns: [],
 });
 
+/** An RFC 4180 reader: quoted cells may hold commas, newlines and doubled quotes. */
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = []; let row: string[] = []; let cell = ''; let quoted = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i]!;
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') { cell += '"'; i += 1; } else if (c === '"') quoted = false; else cell += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ',') { row.push(cell); cell = ''; } else if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; } else cell += c;
+  }
+  row.push(cell); rows.push(row);
+  return rows;
+}
+
 async function csvRows(d: EMP201Data): Promise<string[][]> {
   let blob: Blob | null = null;
   vi.spyOn(URL, 'createObjectURL').mockImplementation((b) => { blob = b as Blob; return 'blob:x'; });
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
   exportEmp201Csv(d, '2026-08-01', '2026-08-31');
-  return (await blob!.text()).split('\n').map((l) => l.split(','));
+  return parseCsv(await blob!.text());
 }
 
 it('the CSV writes the six ETI rows, toFixed(2), with PAYE Payable last, after PAYE', async () => {
@@ -35,8 +49,24 @@ it('the CSV writes the six ETI rows, toFixed(2), with PAYE Payable last, after P
     ['ETI refund claimable', 'Unused ETI at the end of August or February: claimed on the EMP501 (s10)', '1800.00'],
     ['PAYE Payable', 'PAYE net of ETI used', '0.00'],
   ]);
-  // The CSV is not quoted: no field may hold a comma, so every row is exactly three cells.
-  expect(rows.slice(i + 1, i + 7).every((r) => r.length === 3)).toBe(true);
+  // Every field row of the return is exactly three cells (Field, Description, Amount).
+  expect(rows.slice(0, rows.findIndex((r) => r[0] === 'Total') + 1).every((r) => r.length === 3)).toBe(true);
+});
+
+it('RFC 4180: a cell holding a comma and a quote is quoted, inner quotes doubled, and reads back as itself', async () => {
+  const d = { ...data({ broughtForward: 0, used: 0, carriedForward: 0, refundClaimable: 0 }), periodStart: '2026-08-01, "draft"' };
+  let text = '';
+  vi.spyOn(URL, 'createObjectURL').mockImplementation((b) => { void (b as Blob).text().then((t) => { text = t; }); return 'blob:x'; });
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+  exportEmp201Csv(d, '2026-08-01', '2026-08-31');
+  await vi.waitFor(() => expect(text).not.toBe(''));
+  expect(text).toContain('"2026-08-01, ""draft"" to 2026-08-31"');
+  const period = parseCsv(text).find((r) => r[0] === 'Period')!;
+  expect(period).toEqual(['Period', '2026-08-01, "draft" to 2026-08-31']);
+  // A negative amount stays a number (no formula-guard quote prefix).
+  const neg = await csvRows({ ...d, payePayable: -300 });
+  expect(neg.find((r) => r[0] === 'PAYE Payable')).toEqual(['PAYE Payable', 'PAYE net of ETI used', '-300.00']);
 });
 
 it('the section shows brought forward, carried forward and the refund only when each is above nil', () => {

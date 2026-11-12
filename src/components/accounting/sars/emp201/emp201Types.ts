@@ -1,5 +1,6 @@
 /** EMP201 page data shapes, the default period and the CSV export (moved from pages/accounting/sars/emp201.tsx). */
 import { formatMoney } from '@/lib/money/formatMoney';
+import { escapeCsv } from '@/lib/csv';
 import type { Emp201DirectivePaymentRow } from '@/components/payroll/Emp201DirectivePayments';
 
 export interface EMP201PayrollRun {
@@ -69,7 +70,11 @@ export function exportEmp201Csv(data: EMP201Data, from: string, to: string): voi
     [],
     ['Period', `${data.periodStart} to ${data.periodEnd}`],
   ];
-  const csv = rows.map((r) => r.join(',')).join('\n');
+  // RFC 4180 (wave 5 ET fold review): a cell holding a comma, quote or newline is quoted with inner quotes doubled, and a
+  // leading formula character is neutralised (escapeCsv, @/lib/csv). A plain number passes as itself: it can hold neither,
+  // and the formula guard would turn a negative amount into text.
+  const cell = (v: string): string => (/^-?\d+(\.\d+)?$/.test(v) ? v : escapeCsv(v));
+  const csv = rows.map((r) => r.map(cell).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
