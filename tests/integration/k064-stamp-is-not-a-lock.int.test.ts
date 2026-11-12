@@ -163,6 +163,9 @@ describeIfDb('K-064 final — a reconciliation stamp on an allocated line is not
     const rec = String((started.body as { data: { id: string } }).data.id);
     const alloc = await act({ action: 'allocate', bankTransactionId: bankTx, allocationType: 'supplier', entityId: ids.SUP_A2 });
     expect(alloc.statusCode, text(alloc)).toBe(200);
+    // Migration 980: completion needs the line reviewed first — the Review action, as a person would.
+    const reviewed = await act({ action: 'bulk_accept', bankTransactionIds: [bankTx] });
+    expect(reviewed.statusCode, text(reviewed)).toBe(200);
     // Completion recomputes the live GL (now gl - 115): difference R0.00.
     const done = await fx.call(bankReconciliationsAction, 'POST', { action: 'complete', reconciliationId: rec });
     expect(done.statusCode, text(done)).toBe(200);

@@ -19,7 +19,7 @@ import type { CapturedDocumentAction } from '@/modules/accounting/types/document
 import { isBeingRead, STILL_BEING_READ } from '@/modules/accounting/services/capture/captureReadState';
 import { mapCapturedDocumentRow as mapRow } from '@/modules/accounting/services/capture/capturedDocumentMapper';
 import { retryCaptureRead, type RetryRefusal } from '@/modules/accounting/services/capture/captureReadRetry';
-import { attachCapturedDocToBankTx } from '@/modules/accounting/services/capture/captureBankTxAttachService';
+import { attachCapturedDocToBankTx, PREVIOUS_LINE_RECONCILED } from '@/modules/accounting/services/capture/captureBankTxAttachService';
 import { otherVatClaimMessage } from '@/modules/accounting/services/capture/bankAttachClaimConflict';
 import {
   type LifecycleGate,
@@ -201,6 +201,7 @@ async function handleMatchBankTx(
 
   const result = await attachCapturedDocToBankTx(companyId, id, bankTxId, userId);
   if (!result.ok) {
+    if (result.reason === 'previous_line_reconciled') return apiResponse.conflict(res, PREVIOUS_LINE_RECONCILED);
     const conflict = result.reason === 'document_backs_other_claim' ? result.otherClaim : null;
     if (conflict) return apiResponse.conflict(res, otherVatClaimMessage(conflict), { otherClaim: conflict });
     return result.reason === 'bank_tx_not_found'
@@ -252,7 +253,6 @@ async function handleReject(
   log.info('Document rejected', { id }, 'document-capture');
   return apiResponse.success(res, mapRow(row as Record<string, unknown>), 'Document rejected');
 }
-
 
 /**
  * The document is in the ledger for real: a posted journal, an uncancelled

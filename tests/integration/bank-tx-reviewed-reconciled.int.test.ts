@@ -20,6 +20,7 @@ import { bulkAcceptTransactions } from '@/modules/accounting/services/bank/bankT
 import { ReconciliationReviewRequiredError } from '@/modules/accounting/services/bank/reconciliationReviewGate';
 import { isReconciledLine, saveBankTxDimensions } from '@/modules/accounting/services/bank/bankTxAnnotations';
 import { ReconciledCashError } from '@/modules/accounting/services/bank/reconciledCash';
+import { attachCapturedDocToBankTx } from '@/modules/accounting/services/capture/captureBankTxAttachService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -153,6 +154,27 @@ describe('bank lines: review stamp, tabs, completion gate, reconciled lock', () 
     await expect(inRequest(() => saveBankTxDimensions(company, L.D, {}, user))).resolves.toBeUndefined();
     expect(await inRequest(() => isReconciledLine(company, { bankTxId: L.B }))).toBe(true);
     expect(await inRequest(() => isReconciledLine(company, { bankTxId: L.D }))).toBe(false);
+  });
+
+  it('a document cannot be moved off a reconciled line; it can be moved off a reviewed one', async () => {
+    const doc = async (onLine: string) => {
+      const id = uuid();
+      await pool.query(
+        `INSERT INTO captured_documents(id,company_id,file_name,file_type,file_size,status,matched_bank_tx_id,
+           storage_bucket,storage_path)
+         VALUES($1,$2,'slip.pdf','application/pdf',10,'matched',$3,'captured-documents',$4)`,
+        [id, company, onLine, `${company}/${id}.pdf`]);
+      return id;
+    };
+    const held = await doc(L.B);
+    expect(await inRequest(() => attachCapturedDocToBankTx(company, held, L.D, user)))
+      .toEqual({ ok: false, reason: 'previous_line_reconciled' });
+    const [still] = (await pool.query('SELECT matched_bank_tx_id::TEXT AS t FROM captured_documents WHERE id=$1', [held])).rows;
+    expect(still.t).toBe(L.B);
+    const free = await doc(L.D);
+    expect(await inRequest(() => attachCapturedDocToBankTx(company, free, L.C, user))).toMatchObject({ ok: true });
+    await pool.query('DELETE FROM bank_transaction_attachments WHERE bank_transaction_id=ANY($1::uuid[])', [[L.C, L.D]]);
+    await pool.query('DELETE FROM captured_documents WHERE id=ANY($1::uuid[])', [[held, free]]);
   });
 
   it('reopening the reconciliation keeps the review: the line stays on Reviewed', async () => {

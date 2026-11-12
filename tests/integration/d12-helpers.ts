@@ -91,6 +91,15 @@ export async function startSession(c: Ctx, token: string, bank: string): Promise
 export async function matchInto(c: Ctx, token: string, rec: string, p: { bt: string; jl: string }) {
   const out = await call(c, token, routes.tx, { action: 'match', bankTransactionId: p.bt, journalLineId: p.jl, reconciliationId: rec });
   if (out.status >= 300) throw new Error(`match: ${JSON.stringify(out)}`);
+  await markReviewed([p.bt]);
+}
+
+/**
+ * Migration 980: completion refuses while a line it reconciles is unreviewed. These suites test locking, not review,
+ * so a line matched for a completion is stamped reviewed as a person would (on the request connection inside held work).
+ */
+export async function markReviewed(ids: readonly string[]): Promise<void> {
+  await sql`UPDATE bank_transactions SET reviewed_at = NOW() WHERE id = ANY(${[...ids]}::UUID[])`;
 }
 
 /**
