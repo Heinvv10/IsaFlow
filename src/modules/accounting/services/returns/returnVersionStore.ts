@@ -1,7 +1,7 @@
 /** Reads and the one insert of tax_return_versions (wave 5 L1a). */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { ReturnRefusal, type ReturnForm, type ReturnVersion, type ReturnVersionStatus } from './returnVersionTypes';
+import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnForm, type ReturnVersion, type ReturnVersionStatus } from './returnVersionTypes';
 
 const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v ?? ''));
 const day = (v: unknown): string => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v ?? '').slice(0, 10));
@@ -102,5 +102,6 @@ export async function assertNoLiveOverlap(
   const same = day(r.period_start) === periodStart && day(r.period_end) === periodEnd;
   throw new ReturnRefusal(409, same
     ? `This ${form} is already ${String(r.status)} as version ${Number(r.version_no)}. Amend it before finalising again.`
-    : `This period overlaps the ${form} already ${String(r.status)} for ${day(r.period_start)} to ${day(r.period_end)}.`);
+    : `This period overlaps the ${form} already ${String(r.status)} for ${day(r.period_start)} to ${day(r.period_end)}.`,
+  same ? STALE_RETURN_REFUSAL.LIVE_VERSION_EXISTS : 'OVERLAPS_LIVE_VERSION');
 }
