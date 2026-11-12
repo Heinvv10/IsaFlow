@@ -114,7 +114,7 @@ test.describe('panels and surfaces', () => {
       const col = (id: string) => getComputedStyle(document.getElementById(id)!).color;
       return { inside: col('in'), insideTeal: col('inb'), outside: col('out') };
     });
-    expect(c.inside, 'slate-400 on the white panel').toBe('rgb(91, 101, 115)');
+    expect(c.inside, 'slate-400 on the white panel').toBe('rgb(79, 99, 107)');
     expect(c.insideTeal, 'teal-400 on the white panel').toBe('rgb(17, 94, 89)');
     expect(c.outside, 'slate-400 on the dark page is untouched').toBe('rgb(148, 163, 184)');
   });
@@ -136,8 +136,8 @@ test.describe('panels and surfaces', () => {
         return out;
       });
     }
-    expect(colours.light, 'light: the token wins over the series colour').toBe('rgb(75, 85, 99)');
-    expect(colours.dark, 'dark: the token wins over the series colour').toBe('rgb(203, 213, 225)');
+    expect(colours.light, 'light: the token wins over the series colour').toBe('rgb(59, 80, 89)');
+    expect(colours.dark, 'dark: the token wins over the series colour').toBe('rgb(169, 196, 192)');
   });
 
   test('data-surface="light" keeps light tokens, color-scheme and form controls in the dark theme', async ({ page }) => {
@@ -154,9 +154,9 @@ test.describe('panels and surfaces', () => {
       return { scheme: cs('lp').colorScheme, lightInput: cs('li').backgroundColor, text: cs('lt').color, darkInput: cs('di').backgroundColor };
     });
     expect(probe.scheme).toBe('light');
-    expect(probe.text, 'light text token inside the panel').toBe('rgb(17, 24, 39)');
-    expect(probe.lightInput, 'an input inside a light panel is not dark-filled').not.toBe('rgb(30, 41, 59)');
-    expect(probe.darkInput, 'an ordinary input is still dark in the dark theme').toBe('rgb(30, 41, 59)');
+    expect(probe.text, 'light text token inside the panel').toBe('rgb(7, 26, 36)');
+    expect(probe.lightInput, 'an input inside a light panel is not dark-filled').not.toBe('rgb(13, 38, 50)');
+    expect(probe.darkInput, 'an ordinary input is still dark in the dark theme').toBe('rgb(13, 38, 50)');
   });
 });
 

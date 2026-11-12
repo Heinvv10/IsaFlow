@@ -4,8 +4,9 @@
  * - never the CSS by hand. It is a STOPGAP: the real fix is to migrate call sites to the `ink-*`
  * tokens and delete both files (Wave 1). scripts/ci/check-raw-muted-text-stops.ts stops it growing.
  *
- * In the LIGHT theme, dark-first text stops (`text-teal-400`, `text-slate-500`) are remapped to the
- * 800 weight of the same hue, which is AA on white, on #f3f4f6 and on the 20% tinted chips they sit on.
+ * In the LIGHT theme, text stops 300 to 700 of every hue (`text-teal-400`, `text-orange-600`) and the neutral
+ * 400/500 (`text-slate-500`) are remapped to the 800 weight of the same hue (neutrals: the River tertiary), which
+ * is AA on the tinted light surfaces (River Mist page, card and the sunken #ddebe7) and on the 20% tinted chips.
  * Text on a panel that is dark in BOTH themes keeps its palette colour: each remapped stop is a
  * custom property, light on <html>, and restored to the palette value on / inside a dark panel.
  */
@@ -16,9 +17,8 @@ import { fileURLToPath } from 'node:url';
 const colors = createRequire(import.meta.url)('tailwindcss/colors');
 
 const HUES_800 = ['teal', 'cyan', 'sky', 'blue', 'indigo', 'violet', 'purple', 'pink', 'rose', 'red', 'orange', 'amber', 'yellow', 'lime', 'green', 'emerald'];
-const WITH_600 = new Set(['amber', 'yellow', 'orange', 'green', 'emerald', 'rose', 'lime']);
 const NEUTRALS = ['slate', 'gray', 'zinc', 'neutral', 'stone'];
-const NEUTRAL_LIGHT = '#5b6573';
+const NEUTRAL_LIGHT = '#4f636b';
 
 /** A panel that stays dark in the light theme. Opaque dark utilities only: `bg-teal-900/30` is a tint. */
 const DARK_PANELS = [
@@ -39,7 +39,7 @@ const DARK_PANELS = [
 const LIGHT_SCOPES = [':where(html:not(.dark))', ':where(html.dark [data-surface="light"])'];
 
 const stops = [];
-for (const h of HUES_800) for (const n of [300, 400, 500, ...(WITH_600.has(h) ? [600] : [])]) stops.push([h, n, colors[h][800]]);
+for (const h of HUES_800) for (const n of [300, 400, 500, 600, 700]) stops.push([h, n, colors[h][800]]);
 for (const h of NEUTRALS) for (const n of [400, 500]) stops.push([h, n, NEUTRAL_LIGHT]);
 
 const v = (h, n) => `--tx-${h}-${n}`;
