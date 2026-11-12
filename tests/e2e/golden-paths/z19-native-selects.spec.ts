@@ -27,7 +27,16 @@ const SCREENS = [
   { slug: 'accounting-settings', path: '/accounting/accounting-settings', ready: ['Reporting Currency'] },
   { slug: 'journal-new', path: '/accounting/journal-entries/new', ready: ['Account, line 1', 'Account, line 2'] },
 ] as const;
-const PROFILE_READY = ['Occupational level', 'Cost centre', 'Component']; // Pay package and Pay scale only render when the company has any
+/**
+ * The profile's pickers are data-dependent: the dev Demo has cost centres and components, the hosted CI seed has no cost
+ * centres (its card then says so instead of drawing a picker). The occupational-level picker always renders. Each
+ * data-dependent card must show its kit picker OR its stated empty text, so a page that never loaded still fails.
+ */
+const PROFILE_READY = ['Occupational level'];
+const PROFILE_EITHER: { picker: string; empty: RegExp }[] = [
+  { picker: 'Cost centre', empty: /No active cost centres/i },
+  { picker: 'Component', empty: /No (active )?(payroll )?components/i },
+];
 
 test.setTimeout(240_000);
 
@@ -65,6 +74,11 @@ for (const theme of THEMES) {
         for (const s of paths) {
           await page.goto(s.path);
           await settle(page);
+          if (s.slug === 'employee-profile') {
+            for (const { picker, empty } of PROFILE_EITHER) {
+              await expect(page.getByRole('combobox', { name: picker, exact: true }).or(page.getByText(empty)).first(), `employee-profile: "${picker}" picker or its empty text`).toBeVisible({ timeout: 30_000 });
+            }
+          }
           for (const name of s.ready) await expect(page.getByRole('combobox', { name, exact: true }), `${s.slug}: kit combobox "${name}" rendered`).toBeVisible({ timeout: 30_000 });
           if (s.slug === 'journal-new') await expect(page.getByRole('heading', { name: 'Balance Summary' })).toBeVisible();
           expect(await nativeSelects(page), `${s.slug}: native selects`).toBe(0);
@@ -81,10 +95,25 @@ for (const theme of THEMES) {
       const box = page.getByRole('combobox', { name: 'Cost Centre' });
       await box.click();
       const option = page.getByRole('option').first();
-      await expect(option, 'the cost-centre list opens with an option').toBeVisible({ timeout: 15_000 });
+      // The hosted seed has no cost centres: the kit list then opens with its empty text, which is still the kit Select working.
+      await expect(option.or(page.getByText('No options'))).toBeVisible({ timeout: 15_000 });
+      if (!(await option.isVisible())) { expect(await page.evaluate(() => document.querySelectorAll('select').length)).toBe(0); return; }
       const text = (await option.textContent()) ?? '';
       await option.click();
       await expect(box).toContainText(text.trim());
+    });
+
+    test('with no cost centres (the hosted CI seed) the pickers show their empty state, still no native select', async ({ page }) => {
+      await page.route('**/api/accounting/cost-centres*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { items: [] } }) }));
+      await page.goto('/accounting/reports/income-statement');
+      await settle(page);
+      await page.getByRole('combobox', { name: 'Cost Centre' }).click();
+      await expect(page.getByText('No options')).toBeVisible({ timeout: 15_000 });
+      expect(await nativeSelects(page)).toBe(0);
+      await page.goto(await profilePath(page));
+      await settle(page);
+      await expect(page.getByText(/No active cost centres/i)).toBeVisible({ timeout: 30_000 });
+      expect(await nativeSelects(page)).toBe(0);
     });
 
     test('the invoice list passes axe colour-contrast at 1280px (the 90+ days label)', async ({ page }) => {
