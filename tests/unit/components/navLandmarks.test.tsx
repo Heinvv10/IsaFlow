@@ -53,6 +53,15 @@ describe('nav landmarks', () => {
     expect(screen.queryByRole('banner')).toBeNull();
     expect(screen.getByRole('region', { name: 'Dashboard overview' })).toBeTruthy();
   });
+
+  it('names the hero region after the tab on a non-overview tab', () => {
+    render(
+      <DashboardHero companyName="Demo" activeTab="journal-entries" onTabChange={() => {}}
+        tabs={[{ id: 'journal-entries', label: 'Journal Entries', icon: LayoutDashboard }]} />,
+    );
+    expect(screen.queryByRole('region', { name: 'Dashboard overview' })).toBeNull();
+    expect(screen.getByRole('region', { name: 'Journal Entries' })).toBeTruthy();
+  });
 });
 
 describe('settings cog', () => {

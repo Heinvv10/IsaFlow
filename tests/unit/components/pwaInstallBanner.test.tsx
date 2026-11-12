@@ -40,12 +40,20 @@ describe('PWA install banner', () => {
     expect(localStorage.getItem(KEY)).toBe('1');
   });
 
-  it('never shows a second time', () => {
+  it('never shows a second time, yet still suppresses the browser prompt on later loads', () => {
     const first = render(<Harness enabled />);
     offer();
     first.unmount();
     render(<Harness enabled />);
-    offer();
+    const e = offer();
+    expect(banner()).toBeNull();
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  it('still suppresses the browser prompt after a dismiss', () => {
+    localStorage.setItem(KEY, '1');
+    render(<Harness enabled />);
+    expect(offer().defaultPrevented).toBe(true);
     expect(banner()).toBeNull();
   });
 

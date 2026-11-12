@@ -32,12 +32,14 @@ export function usePwaInstallPrompt(enabled: boolean): PwaInstallPrompt {
   const [phase, setPhase] = useState<Phase>('idle');
   const later = useTimeoutOnce();
 
+  // Listens even once the banner has been seen or dismissed: preventDefault keeps the browser's own install
+  // infobar suppressed on every later page load too. Only the phase (whether our banner shows) is gated.
   useEffect(() => {
-    if (localStorage.getItem(PWA_INSTALL_DISMISSED_KEY)) return;
+    const seen = !!localStorage.getItem(PWA_INSTALL_DISMISSED_KEY);
     const handler = (e: Event) => {
       e.preventDefault();
       deferredPromptRef.current = e;
-      setPhase((p) => (p === 'idle' ? 'offered' : p));
+      if (!seen) setPhase((p) => (p === 'idle' ? 'offered' : p));
     };
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);

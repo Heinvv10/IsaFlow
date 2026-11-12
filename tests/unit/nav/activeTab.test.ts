@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getActiveTabId, getActiveModuleId, mostSpecificActiveHref } from '@/components/accounting/navSections/activeTab';
+import { TABS } from '@/components/accounting/accountingNavConfig';
 
 const q = {} as Record<string, string | string[] | undefined>;
 
@@ -129,6 +130,17 @@ describe('pages outside a module light the module that lists them (app audit P2.
     '/accounting/settings/connected-apps', '/accounting/settings/integrations-mcp', '/accounting/settings/billing/flows',
   ])('%s is a Settings page, not the Dashboard', (path) => {
     expect(getActiveModuleId(path, q)).toBe('settings');
+  });
+
+  it.each(['/bureau', '/bureau/clients', '/bureau/clients/[companyId]', '/bureau/settings'])(
+    '%s is Bureau: no top tab lights, not the Dashboard', (path) => {
+      expect(getActiveModuleId(path, q)).toBe('bureau');
+      expect(getActiveTabId(path, q)).toBe('bureau');
+      expect(TABS.some((t) => t.id === 'bureau')).toBe(false);
+    });
+
+  it('does not claim a route that only starts with "bureau"', () => {
+    expect(getActiveModuleId('/bureaux', q)).toBe('dashboard');
   });
 
   it('keeps the accounting settings sub-pages under Accounting', () => {

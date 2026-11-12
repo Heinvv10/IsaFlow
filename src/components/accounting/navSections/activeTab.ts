@@ -179,6 +179,9 @@ export function getActiveModuleId(
   // ── Payroll (runs, employees, leave and the statutory UIF / IRP5 / EMP501 pages) ──
   if (pathname.startsWith('/payroll')) return 'payroll';
 
+  // ── Bureau (cross-client view): no tab of its own, so no tab lights and no second row draws ──
+  if (pathname === '/bureau' || pathname.startsWith('/bureau/')) return 'bureau';
+
   return 'dashboard';
 }
 

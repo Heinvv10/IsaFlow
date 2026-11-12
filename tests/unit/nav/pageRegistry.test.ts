@@ -33,6 +33,8 @@ describe('documentTitle over the page registry', () => {
     ['/accounting', 'Dashboard · IsaFlow'],
     ['/accounting/customer-invoices', 'Tax Invoices · Sales · IsaFlow'],
     ['/accounting/opening-balances', 'Opening Balances · Accounting · IsaFlow'],
+    ['/accounting/adjustments', 'Adjustments · Sales · IsaFlow'],
+    ['/accounting/adjustments?type=supplier', 'Adjustments · Purchases · IsaFlow'],
   ])('%s is "%s"', (route, title) => {
     expect(documentTitle(route, idx)).toBe(title);
   });
@@ -59,10 +61,22 @@ describe('documentTitle over the page registry', () => {
     expect(wrong).toEqual([]);
   });
 
-  it('lets a menu entry beat an extra with the same href', () => {
-    const navHref = buildNavIndex(TABS, true)[0]!;
-    const withClash = [...buildNavIndex([...TABS, settingsTab], true), { ...navHref, label: 'Other' }];
-    expect(documentTitle(navHref.href, withClash)).toBe(documentTitle(navHref.href, idx));
+  it('titles every extra page with an area under the module that lights for it', () => {
+    const moduleLabel = (id: string): string =>
+      MODULE_BY_ID[id]?.label ?? TABS.find((t) => t.id === id)?.label ?? (id === 'settings' ? 'Settings' : id);
+    const wrong = EXTRA_PAGES
+      .filter((e) => e.trail.length > 0 && e.trail[0] !== 'Bureau')
+      .map((e) => {
+        const [p = '', qs = ''] = e.href.split('?');
+        return { href: e.href, area: e.trail[0], lit: moduleLabel(getActiveModuleId(p, Object.fromEntries(new URLSearchParams(qs)))) };
+      })
+      .filter((r) => r.area !== r.lit);
+    expect(wrong).toEqual([]);
+  });
+
+  it('lists every menu entry before any extra, so a menu entry wins a shared href (trailForPath takes the first)', () => {
+    const menuCount = buildNavIndex([...TABS, settingsTab], true).length;
+    expect(idx.slice(menuCount)).toEqual(EXTRA_PAGES);
   });
 
   it('has no duplicate extra and no extra the nav already names (a dead row)', () => {

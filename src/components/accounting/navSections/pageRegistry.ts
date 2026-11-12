@@ -1,6 +1,7 @@
 /**
  * The one source for document titles: the top-nav index, then the cog's settings pages, then the pages no menu
- * reaches (EXTRA_PAGES). A menu entry always wins over an extra with the same href.
+ * reaches (EXTRA_PAGES). Menu entries come first and trailForPath takes the first match, so a menu entry wins over an
+ * extra with the same href; a test forbids such a dead extra row anyway.
  */
 import { TABS, settingsTab } from '../accountingNavConfig';
 import { buildNavIndex, type NavIndexEntry } from './navIndex';
@@ -18,7 +19,7 @@ export const EXTRA_PAGES: NavIndexEntry[] = [
   { href: '/accounting?tab=journal-entries', label: 'Journal Entries', trail: ['Accounting'] },
   { href: '/accounting?tab=fiscal-periods', label: 'Fiscal Periods', trail: ['Accounting'] },
   { href: '/accounting?tab=reports', label: 'Reports', trail: [] },
-  { href: '/accounting/adjustments', label: 'Adjustments', trail: [] },
+  { href: '/accounting/adjustments', label: 'Adjustments', trail: ['Sales'] },
   { href: '/accounting/sales-reps', label: 'Sales Reps', trail: ['Sales'] },
   { href: '/accounting/ap/supplier-statements', label: 'Supplier Statements', trail: ['Purchases'] },
   { href: '/accounting/capture', label: 'Capture', trail: ['Purchases'] },
@@ -53,13 +54,12 @@ export const EXTRA_PAGES: NavIndexEntry[] = [
  */
 const TITLE_MODULE: Record<string, string> = { '/accounting/opening-balances': 'accounting' };
 
-/** The nav index plus the cog pages plus EXTRA_PAGES. A menu entry always wins. */
+/** The nav index plus the cog pages, then EXTRA_PAGES (menu entries first, so they win). */
 export function buildPageIndex(isVatRegistered: boolean): NavIndexEntry[] {
   const index = buildNavIndex([...TABS, settingsTab], isVatRegistered).map((e) => {
     const tab = MODULE_BY_ID[TITLE_MODULE[e.href] ?? ''];
     const owner = tab && buildNavIndex([tab], isVatRegistered).find((o) => o.href === e.href);
     return owner ? { ...e, label: owner.label, trail: owner.trail } : e;
   });
-  const seen = new Set(index.map((e) => e.href));
-  return [...index, ...EXTRA_PAGES.filter((e) => !seen.has(e.href))];
+  return [...index, ...EXTRA_PAGES];
 }
