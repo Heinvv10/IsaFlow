@@ -48,7 +48,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       now,
     ),
   ]);
-  const cashPosition = await getOwnerCashPosition(companyId, metrics.cash, now);
+  // "Total owed" is the headline receivables figure (metrics.ar), the one
+  // /accounting and Month-End show, not a separate debtors-list sum.
+  const cashPosition = { ...(await getOwnerCashPosition(companyId, metrics.cash, now)), arTotal: metrics.ar };
 
   return apiResponse.success(res, { metrics, workItems: work.items, cashPosition });
 }

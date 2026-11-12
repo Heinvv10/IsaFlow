@@ -50,13 +50,13 @@ const PILLS = (s: DashboardHeroStats) => [
     warning: false,
   },
   {
-    icon: FileText, label: 'Outstanding Invoices',
+    icon: FileText, label: 'Receivables',
     value: fmt(s.outstandingInvoices),
     accent: 'bg-amber-500/80', valueColor: 'text-slate-900 dark:text-white',
     warning: false,
   },
   {
-    icon: Landmark, label: 'Cash Position',
+    icon: Landmark, label: 'Cash',
     value: fmt(s.cashPosition),
     accent: s.cashPosition < 0 ? 'bg-red-500/80' : 'bg-emerald-500/80',
     valueColor: s.cashPosition < 0 ? 'text-red-700 dark:text-red-300' : 'text-slate-900 dark:text-white',

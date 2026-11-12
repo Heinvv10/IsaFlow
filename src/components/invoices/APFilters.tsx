@@ -4,7 +4,7 @@
  * Chips (multi-select, persist in URL via useSupplierInvoiceListState):
  *   - Missing document  — source_document_id IS NULL
  *   - Possible duplicate — same supplier + same invoice_number in the same company
- *   - Due this week     — due_date <= today + 7 days, not paid or cancelled
+ *   - Due this week: approved/partially_paid, balance > 0, due today (SAST) to today + 7
  *   - Pay run ready     — approved/partially_paid, balance > 0, due within 14 days
  *
  * Each chip delegates state management upwards via onToggle(chip) so this

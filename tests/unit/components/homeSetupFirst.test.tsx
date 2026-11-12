@@ -55,7 +55,7 @@ describe('Home: checklist first while setup is open', () => {
 });
 
 describe('TodoWidget empty state', () => {
-  const clear = { overdueInvoices: [], overdueInvoiceCount: 0, pendingSupplierPayments: [], uncategorizedBankTxns: 0, draftInvoices: 0 };
+  const clear = { overdueInvoices: [], overdueInvoiceCount: 0, pendingSupplierPayments: [], overdueBillCount: 0, uncategorizedBankTxns: 0, draftInvoices: 0 };
 
   it('says "Finish setup" instead of "All caught up!" while setup is open', async () => {
     script(() => ok(clear));

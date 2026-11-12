@@ -1,25 +1,30 @@
-import { describe, it, expect } from 'vitest';
-import { shapeClientMetrics } from '@/modules/bureau/services/bureauClientMetricsService';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-describe('shapeClientMetrics', () => {
-  it('maps numeric inputs and computes profit = revenue - expenses', () => {
-    const m = shapeClientMetrics({ cash: 142000, ar: 88000, ap: 31000, revenue: 210000, expenses: 146000 });
-    expect(m).toEqual({ cash: 142000, ar: 88000, ap: 31000, revenueMtd: 210000, profitMtd: 64000 });
+const { getHeadlineFigures } = vi.hoisted(() => ({ getHeadlineFigures: vi.fn() }));
+vi.mock('@/modules/accounting/services/reports/headlineFigures', () => ({ getHeadlineFigures }));
+
+import { clientMetricsSnapshot } from '@/modules/bureau/services/bureauClientMetricsService';
+
+const HEADLINE = {
+  asAt: '2026-11-12', monthStart: '2026-11-01',
+  cash: 142000.5, receivables: { total: 88000, overdue: 1000 }, payables: { total: 31000, overdue: 0 },
+  revenueMtd: 210000, profitMtd: 64000,
+  draftInvoices: 1, draftBills: 2, draftJournals: 3, billsDueNext7Days: 4, billsOverdue: 5,
+};
+
+describe('clientMetricsSnapshot is the headline figures', () => {
+  beforeEach(() => { getHeadlineFigures.mockReset(); });
+
+  it('maps every metric from getHeadlineFigures for the company, with its as-at date', async () => {
+    getHeadlineFigures.mockResolvedValue(HEADLINE);
+    expect(await clientMetricsSnapshot('co-1')).toEqual({
+      cash: 142000.5, ar: 88000, ap: 31000, revenueMtd: 210000, profitMtd: 64000, asAt: '2026-11-12',
+    });
+    expect(getHeadlineFigures).toHaveBeenCalledWith('co-1');
   });
 
-  it('coerces numeric-string driver values (no NaN)', () => {
-    const m = shapeClientMetrics({ cash: '100.50', ar: '0', ap: '25', revenue: '300', expenses: '120' });
-    expect(m.cash).toBeCloseTo(100.5, 2);
-    expect(m.profitMtd).toBeCloseTo(180, 2);
-  });
-
-  it('coalesces null / undefined / non-numeric to 0', () => {
-    const m = shapeClientMetrics({ cash: null, ar: undefined, ap: 'x', revenue: null, expenses: null });
-    expect(m).toEqual({ cash: 0, ar: 0, ap: 0, revenueMtd: 0, profitMtd: 0 });
-  });
-
-  it('profit goes negative when expenses exceed revenue', () => {
-    const m = shapeClientMetrics({ cash: 0, ar: 0, ap: 0, revenue: 100, expenses: 250 });
-    expect(m.profitMtd).toBe(-150);
+  it('a failed read rejects: no zero figures stand in for it', async () => {
+    getHeadlineFigures.mockRejectedValue(new Error('db down'));
+    await expect(clientMetricsSnapshot('co-1')).rejects.toThrow('db down');
   });
 });

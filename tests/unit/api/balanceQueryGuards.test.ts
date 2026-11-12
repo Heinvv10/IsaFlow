@@ -236,9 +236,18 @@ describe('class 2 — journal-entry predicates must actually restrict the summed
   it('bureau client cash excludes draft journal lines', async () => {
     await clientMetricsSnapshot(COMPANY);
 
-    const [q] = matching(BANK_SUBTYPE_FILTER);
-    expect(q!).not.toMatch(LEAKY_LINE_JOIN);
-    expect(q!).toMatch(/je\.status = 'posted'/);
+    // Bureau cash is the headline cash, getCashBalance (cash.balance.v1). Its
+    // lines are LEFT JOINed on purpose (an unmoved account still lists at 0);
+    // the posted filter sits in the entries join and the SUM drops every line
+    // whose entry did not match, so a draft line adds nothing.
+    const qs = matching(BANK_SUBTYPE_FILTER);
+    expect(qs).toHaveLength(1);
+    const [q] = qs;
+    expect(q!).toMatch(/je\.status\s*=\s*'posted'/);
+    expect(q!).toMatch(/CASE WHEN je\.id IS NULL THEN 0 ELSE jl\.debit END/);
+    expect(q!).toMatch(/CASE WHEN je\.id IS NULL THEN 0 ELSE jl\.credit END/);
+    // Bounded by the as-at date: a journal dated after it is not cash yet.
+    expect(q!).toMatch(/je\.entry_date <= \? ?::DATE/);
   });
 
   it('reports-budget-vs-actual confines actuals to the requested period', async () => {

@@ -3,17 +3,17 @@
  * used, what carries on, the refund claimable at the end of August or February (ETI Act s9(1), s10), any ETI the ledger
  * has not booked, and, for a one-month EMP201, "Book ETI for this month". PAYE less "ETI used" is PAYE payable.
  */
-import { fmt, type EMP201Data } from './emp201Types';
+import { fmt, type DrillOpener, type EMP201Data } from './emp201Types';
 import { SummaryRow } from './Emp201SummaryRow';
 import { Emp201BookEtiButton } from './Emp201BookEtiButton';
 
-interface Props { data: EMP201Data; month?: string | null; onBooked?: () => void }
+interface Props { data: EMP201Data; month?: string | null; onBooked?: () => void; onDrill?: DrillOpener }
 
-export function Emp201EtiSection({ data, month = null, onBooked }: Props) {
+export function Emp201EtiSection({ data, month = null, onBooked, onDrill }: Props) {
   const carry = data.etiCarry;
   return (
     <>
-      <SummaryRow label="ETI for the period" value={fmt(data.totalETI)} />
+      <SummaryRow label="ETI for the period" value={fmt(data.totalETI)} onDrill={onDrill?.('eti', data.totalETI)} />
       {carry.broughtForward > 0 && <SummaryRow label="ETI brought forward from earlier months" value={fmt(carry.broughtForward)} />}
       <SummaryRow label="Less: ETI used (Employment Tax Incentive)" value={fmt(-carry.used)} />
       {carry.carriedForward > 0 && <SummaryRow label="ETI carried forward to next month" value={fmt(carry.carriedForward)} />}
