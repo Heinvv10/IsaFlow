@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { APP_URL } from './landingData';
-import { HERO_MEDIA } from './riverMedia';
+import { HERO_MEDIA, ILLUSTRATIVE_CAPTION } from './riverMedia';
 import { useRiverVideoAllowed } from './useRiverMotion';
 
 const SUPPORTING_LINE =
@@ -157,6 +157,12 @@ export function LandingHero() {
           </ul>
         </div>
       </div>
+
+      {/* Real text, outside every aria-hidden layer. Its own River Deep backdrop keeps it at 4.5:1 or
+          better over the brightest part of the loop, where the desktop scrim has faded out. */}
+      <p className="absolute bottom-3 right-3 rounded bg-river-deep/75 px-2 py-1 text-xs text-white/90">
+        {ILLUSTRATIVE_CAPTION}
+      </p>
     </section>
   );
 }

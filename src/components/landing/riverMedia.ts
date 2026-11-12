@@ -7,6 +7,9 @@ export const HERO_MEDIA = {
   mobile: '/landing/river/hero-mobile.webp', // 520x1080 portrait still
 } as const;
 
+/** The hero art and the landmark footage are illustrative (Hein, 12 Nov); shown in every mode. */
+export const ILLUSTRATIVE_CAPTION = 'Illustrative footage';
+
 export interface LandmarkClip {
   place: string;
   alt: string;
