@@ -1,5 +1,5 @@
 /**
- * Offline fallback page — shown when the user is offline and the requested page is not cached.
+ * Offline fallback page: shown when the user is offline. Nothing works offline; the page asks the user to reconnect.
  * Does not use AppLayout since the user may not be authenticated.
  */
 
@@ -35,7 +35,7 @@ export default function OfflinePage() {
         </div>
 
         <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed mb-8">
-          Some features are available offline. Please check your connection to access all features.
+          IsaFlow needs an internet connection to work. Reconnect to continue, then retry.
         </p>
 
         <button
