@@ -26,10 +26,11 @@ export function SecondaryModuleNav({ moduleId, navPath }: { moduleId: string; na
   return (
     <div className="border-b border-gray-200 dark:border-gray-800 bg-[var(--ff-canvas-mid)]">
       <div className="flex items-center gap-2 px-4 text-xs font-semibold uppercase tracking-wide text-[var(--ff-text-tertiary)]">
-        <span className="py-2">{moduleTab.label}</span>
+        {/* The visible label repeats the nav's own name ("Sales sections"), so screen readers skip it. */}
+        <span className="py-2" aria-hidden="true">{moduleTab.label}</span>
         {/* flex-1 + w-full: the nav carries its own bottom border, which otherwise stops where its tabs do */}
         <div className="flex-1 min-w-0 [&>nav]:w-full">
-          <ModuleNav tabs={tabs} getActiveTabId={() => activeId} accentColor="slate" navPath={navPath} />
+          <ModuleNav tabs={tabs} getActiveTabId={() => activeId} accentColor="slate" navPath={navPath} ariaLabel={`${moduleTab.label} sections`} />
         </div>
       </div>
     </div>

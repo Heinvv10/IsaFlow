@@ -196,7 +196,14 @@ describe('AppLayout', () => {
     act(() => { window.dispatchEvent(new Event('beforeinstallprompt', { cancelable: true })); });
     h.auth.loading = false;
     rerender(page());
-    expect(screen.getByText('Install IsaFlow for a faster, app-like experience')).toBeTruthy();
+    expect(screen.getByText('Install IsaFlow on this device')).toBeTruthy();
+  });
+
+  it('shows no install prompt off the dashboard', () => {
+    go('/accounting/customers');
+    render(page());
+    act(() => { window.dispatchEvent(new Event('beforeinstallprompt', { cancelable: true })); });
+    expect(screen.queryByText('Install IsaFlow on this device')).toBeNull();
   });
 });
 

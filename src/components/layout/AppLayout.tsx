@@ -29,7 +29,7 @@ import { ShellSkeleton } from '@/components/layout/ShellSkeleton';
 import { PwaInstallBanner, usePwaInstallPrompt } from '@/components/layout/PwaInstallBanner';
 import { useGlobalShortcuts } from '@/components/layout/useGlobalShortcuts';
 import { SHELL_HEIGHTS } from '@/components/layout/shellHeights';
-import { isPayrollPath } from '@/components/layout/shellRoutes';
+import { isDashboardPath, isPayrollPath } from '@/components/layout/shellRoutes';
 import { readShellPrefs, writeShellPrefs, type NavMode } from '@/components/layout/shellPrefs';
 
 
@@ -55,8 +55,9 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
   const hasModuleNav = !!MODULE_BY_ID[activeModuleId];
   const { user, loading } = useAuth();
   const { activeCompany, loading: companyLoading } = useCompany();
-  // Listens from the first render: beforeinstallprompt can fire during the session check.
-  const pwaInstall = usePwaInstallPrompt();
+  // Listens from the first render: beforeinstallprompt can fire during the session check. Dashboards only.
+  const onDashboard = isDashboardPath(router.pathname);
+  const pwaInstall = usePwaInstallPrompt(onDashboard);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   // Track page visits for usage-based quick actions
@@ -136,7 +137,7 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
       {/* ── Main area ────────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0">
 
-        <PwaInstallBanner {...pwaInstall} />
+        {onDashboard && <PwaInstallBanner {...pwaInstall} />}
 
         <AppHeader
           navMode={navMode}
