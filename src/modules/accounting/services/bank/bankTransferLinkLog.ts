@@ -9,6 +9,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { TRANSFER_LINK_MAX_BATCHES } from './bankTransferLinkLimits';
 
 export type TransferLinkSource = 'page_load' | 'import';
 
@@ -26,14 +27,19 @@ export interface TransferLinkItem {
   description: string | null;
   amount: number;
   counterpartyAccountName: string | null;
+  /** linked: undo would restore it. changed: the line moved on since the link (undo refuses). undone: undone. */
+  state: TransferLinkState;
   undoneAt: string | null;
 }
+
+export type TransferLinkState = 'linked' | 'changed' | 'undone';
+
 
 export interface TransferLinkBatch {
   batchId: string;
   source: TransferLinkSource;
   linkedAt: string;
-  /** Links in the batch not yet undone. */
+  /** Links in the batch an undo would still restore (state 'linked'). */
   activeCount: number;
   links: TransferLinkItem[];
 }
@@ -112,7 +118,8 @@ export function groupTransferLinks(rows: Row[]): TransferLinkBatch[] {
       byBatch.set(batchId, batch);
     }
     const undoneAt = isoOrNull(r.undone_at);
-    if (undoneAt === null) batch.activeCount += 1;
+    const state: TransferLinkState = undoneAt !== null ? 'undone' : r.still_linked === true ? 'linked' : 'changed';
+    if (state === 'linked') batch.activeCount += 1;
     batch.links.push({
       id: String(r.id),
       bankTransactionId: String(r.bank_transaction_id),
@@ -120,25 +127,42 @@ export function groupTransferLinks(rows: Row[]): TransferLinkBatch[] {
       description: r.description === null || r.description === undefined ? null : String(r.description),
       amount: Number(r.amount),
       counterpartyAccountName: r.account_name === null || r.account_name === undefined ? null : String(r.account_name),
+      state,
       undoneAt,
     });
   }
   return [...byBatch.values()];
 }
 
-/** The last 90 days of automatic links on one bank account, newest first, grouped by batch. */
+/**
+ * The last 90 days of automatic links on one bank account, newest first, grouped by batch: the latest
+ * TRANSFER_LINK_MAX_BATCHES batches, each whole. A row is still linked only while its line is exactly what the link
+ * left, the same test the undo applies (a Reverse or any later write leaves the log row without an undo stamp).
+ */
 export async function listTransferLinks(companyId: string, bankAccountId: string): Promise<TransferLinkBatch[]> {
   const rows = (await sql`
+    WITH recent AS (
+      SELECT link_batch_id, max(linked_at) AS batch_at
+      FROM bank_transfer_link_log
+      WHERE company_id = ${companyId}::UUID
+        AND bank_account_id = ${bankAccountId}::UUID
+        AND linked_at >= now() - INTERVAL '90 days'
+      GROUP BY link_batch_id
+      ORDER BY batch_at DESC, link_batch_id
+      LIMIT ${TRANSFER_LINK_MAX_BATCHES}
+    )
     SELECT l.id, l.link_batch_id, l.trigger_source, l.linked_at, l.undone_at, l.bank_transaction_id,
-           bt.transaction_date, bt.description, bt.amount, ga.account_name
-    FROM bank_transfer_link_log l
+           bt.transaction_date, bt.description, bt.amount, ga.account_name,
+           (l.undone_at IS NULL AND bt.updated_at = l.linked_row_updated_at
+             AND bt.status = 'allocated' AND bt.allocation_type = 'transfer'
+             AND bt.matched_journal_line_id = l.journal_line_id
+             AND bt.transfer_journal_entry_id = l.journal_entry_id) IS TRUE AS still_linked
+    FROM recent
+    JOIN bank_transfer_link_log l ON l.link_batch_id = recent.link_batch_id AND l.company_id = ${companyId}::UUID
+      AND l.bank_account_id = ${bankAccountId}::UUID
     JOIN bank_transactions bt ON bt.id = l.bank_transaction_id AND bt.company_id = ${companyId}::UUID
     LEFT JOIN gl_accounts ga ON ga.id = l.counterparty_account_id AND ga.company_id = ${companyId}::UUID
-    WHERE l.company_id = ${companyId}::UUID
-      AND l.bank_account_id = ${bankAccountId}::UUID
-      AND l.linked_at >= now() - INTERVAL '90 days'
-    ORDER BY l.linked_at DESC, l.link_batch_id, bt.transaction_date, l.id
-    LIMIT 300
+    ORDER BY recent.batch_at DESC, l.link_batch_id, bt.transaction_date, l.id
   `) as Row[];
   return groupTransferLinks(rows);
 }

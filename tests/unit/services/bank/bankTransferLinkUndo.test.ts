@@ -43,7 +43,14 @@ const CO = '11111111-1111-4111-8111-111111111111';
 const USER = { id: 'user-1', email: 'u@example.test' };
 const row = (id: string, tx: string) => ({ id, bank_transaction_id: tx });
 const done = (id: string, tx: string) => ({
-  id, bank_transaction_id: tx, prev_status: 'imported', prev_allocation_type: null, link_batch_id: 'batch-1',
+  id, bank_transaction_id: tx, link_batch_id: 'batch-1',
+  old_status: 'allocated', new_status: 'imported', old_allocation_type: 'transfer', new_allocation_type: null,
+  old_transfer_journal_entry_id: 'je-1', new_transfer_journal_entry_id: null,
+  old_matched_journal_line_id: 'jl-1', new_matched_journal_line_id: null,
+  old_counterparty_account_id: 'ga-1', new_counterparty_account_id: null,
+  old_allocated_entity_name: 'Savings', new_allocated_entity_name: 'Prior name',
+  old_allocation_rule_id: null, new_allocation_rule_id: 'rule-1',
+  old_allocation_rule_name: null, new_allocation_rule_name: 'Prior rule',
 });
 
 async function codeOf(p: Promise<unknown>): Promise<{ code: string; message: string }> {
@@ -96,7 +103,17 @@ describe('undoTransferLinks', () => {
       entityType: 'bank_transaction', entityId: 't1',
       changes: { metadata: { source: 'transfer_link_undo', linkBatchId: 'batch-1', linkId: 'l1' } },
     });
-    expect(first.changes.fields[0]).toEqual({ field: 'status', old: 'allocated', new: 'imported', label: 'Status' });
+    // Every field the undo restores, old (as the link left it) and new (as before the link).
+    expect(first.changes.fields).toEqual([
+      { field: 'status', old: 'allocated', new: 'imported', label: 'Status' },
+      { field: 'allocation_type', old: 'transfer', new: null, label: 'Allocation type' },
+      { field: 'transfer_journal_entry_id', old: 'je-1', new: null, label: 'Transfer journal' },
+      { field: 'matched_journal_line_id', old: 'jl-1', new: null, label: 'Matched journal line' },
+      { field: 'counterparty_account_id', old: 'ga-1', new: null, label: 'Counterparty account' },
+      { field: 'allocated_entity_name', old: 'Savings', new: 'Prior name', label: 'Allocated to' },
+      { field: 'allocation_rule_id', old: null, new: 'rule-1', label: 'Allocation rule' },
+      { field: 'allocation_rule_name', old: null, new: 'Prior rule', label: 'Allocation rule name' },
+    ]);
   });
 
   it('lets an audit failure propagate (an unrecorded undo does not commit)', async () => {

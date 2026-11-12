@@ -12,8 +12,9 @@
 -- cascade from a deleted statement line or company removes the rows.
 --
 -- A BEFORE INSERT OR UPDATE trigger (SECURITY INVOKER) refuses a journal line
--- that is not this company's line of the named journal (a plain FK would accept
--- another tenant's id), stamps the actor and time from the session, and lets an
+-- that is not this company's line of the named journal, and a bank account,
+-- counterparty account or import batch that is not this company's (a plain FK
+-- would accept another tenant's id), stamps the actor and time from the session, and lets an
 -- UPDATE do nothing but set the undo stamp, once.
 --
 -- Rollback (down SQL), safe at any time, loses only the log:
@@ -56,8 +57,10 @@ CREATE TABLE IF NOT EXISTS bank_transfer_link_log (
   CONSTRAINT bank_transfer_link_log_import_ck CHECK (trigger_source = 'import' OR import_batch_id IS NULL)
 );
 
--- One live link per statement line.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_btll_active_line
+-- Not unique: a Reverse (resetBankLine) or an auto-post undo puts a linked line back to 'imported' without
+-- touching this log, and the next pass may link it again. Its earlier row stays without an undo stamp; readers and
+-- the undo judge a row live only while the line is still exactly what that link left (updated_at and the match).
+CREATE INDEX IF NOT EXISTS idx_btll_line_not_undone
   ON bank_transfer_link_log (bank_transaction_id) WHERE undone_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_btll_company_account_linked
   ON bank_transfer_link_log (company_id, bank_account_id, linked_at DESC);
@@ -79,6 +82,23 @@ BEGIN
                     WHERE jl.id = NEW.journal_line_id AND jl.company_id = NEW.company_id
                       AND jl.journal_entry_id = NEW.journal_entry_id) THEN
       RAISE EXCEPTION 'journal line % is not a line of this company''s journal %', NEW.journal_line_id, NEW.journal_entry_id
+        USING ERRCODE = '23514';
+    END IF;
+    -- The other references name a tenant's row too: refuse another company's ids.
+    IF NOT EXISTS (SELECT 1 FROM public.bank_transactions bt
+                    WHERE bt.id = NEW.bank_transaction_id AND bt.company_id = NEW.company_id
+                      AND bt.bank_account_id = NEW.bank_account_id) THEN
+      RAISE EXCEPTION 'bank account % is not this company''s account of statement line %', NEW.bank_account_id,
+        NEW.bank_transaction_id USING ERRCODE = '23514';
+    END IF;
+    IF NEW.counterparty_account_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.gl_accounts ga
+                    WHERE ga.id = NEW.counterparty_account_id AND ga.company_id = NEW.company_id) THEN
+      RAISE EXCEPTION 'counterparty account % is not this company''s account', NEW.counterparty_account_id
+        USING ERRCODE = '23514';
+    END IF;
+    IF NEW.import_batch_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.bank_transactions bt
+                    WHERE bt.company_id = NEW.company_id AND bt.import_batch_id = NEW.import_batch_id) THEN
+      RAISE EXCEPTION 'import batch % has no statement line of this company', NEW.import_batch_id
         USING ERRCODE = '23514';
     END IF;
     NEW.linked_at := now();
@@ -146,6 +166,16 @@ BEGIN
   LOOP
     EXECUTE pg_catalog.format('REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.bank_transfer_link_log FROM %s CASCADE', v_grantee);
   END LOOP;
+  -- Postcondition: nobody but the owner and migration_admin may still hold a writer privilege.
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_class c
+    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))) a
+    WHERE c.oid = 'public.bank_transfer_link_log'::pg_catalog.regclass
+      AND a.privilege_type IN ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE') AND a.grantee <> c.relowner
+      AND a.grantee IS DISTINCT FROM pg_catalog.to_regrole('migration_admin')::pg_catalog.oid
+  ) THEN
+    RAISE EXCEPTION 'migration 978: bank_transfer_link_log still grants a writer privilege to a role other than its owner and migration_admin';
+  END IF;
 END $$;
 GRANT SELECT ON bank_transfer_link_log TO app_user, platform_admin;
 GRANT INSERT (company_id, link_batch_id, bank_transaction_id, bank_account_id, journal_entry_id, journal_line_id,

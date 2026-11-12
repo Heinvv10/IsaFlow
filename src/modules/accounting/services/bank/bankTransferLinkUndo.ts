@@ -43,6 +43,21 @@ export const UNDO_CHANGED_BATCH_MESSAGE = 'These lines have changed since they w
 
 type Row = Record<string, unknown>;
 
+/** The eight fields a link overwrites and an undo restores, each recorded in the audit row. */
+const AUDIT_LABEL = {
+  status: 'Status',
+  allocation_type: 'Allocation type',
+  transfer_journal_entry_id: 'Transfer journal',
+  matched_journal_line_id: 'Matched journal line',
+  counterparty_account_id: 'Counterparty account',
+  allocated_entity_name: 'Allocated to',
+  allocation_rule_id: 'Allocation rule',
+  allocation_rule_name: 'Allocation rule name',
+} as const;
+const AUDIT_FIELDS = Object.keys(AUDIT_LABEL) as Array<keyof typeof AUDIT_LABEL>;
+
+const textOrNull = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
+
 function isUniqueViolation(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === '23505';
 }
@@ -82,6 +97,8 @@ export async function undoTransferLinks(
             allocation_rule_id        = l.prev_allocation_rule_id,
             allocation_rule_name      = l.prev_allocation_rule_name
         FROM bank_transfer_link_log l
+        -- The line as the link left it (a self-join in FROM reads the pre-update row), for the audit trail.
+        JOIN bank_transactions old ON old.id = l.bank_transaction_id AND old.company_id = ${companyId}::UUID
         WHERE l.id = ANY(${ids}::UUID[]) AND l.company_id = ${companyId}::UUID AND l.undone_at IS NULL
           AND bt.id = l.bank_transaction_id AND bt.company_id = ${companyId}::UUID
           -- Nothing has written the line since the link.
@@ -89,12 +106,20 @@ export async function undoTransferLinks(
           AND bt.status = 'allocated' AND bt.allocation_type = 'transfer'
           AND bt.matched_journal_line_id = l.journal_line_id
           AND bt.transfer_journal_entry_id = l.journal_entry_id
-        RETURNING l.id, bt.id AS bank_transaction_id, l.prev_status, l.prev_allocation_type, l.link_batch_id
+        RETURNING l.id, bt.id AS bank_transaction_id, l.link_batch_id,
+          old.status AS old_status, l.prev_status AS new_status,
+          old.allocation_type AS old_allocation_type, l.prev_allocation_type AS new_allocation_type,
+          old.transfer_journal_entry_id AS old_transfer_journal_entry_id, l.prev_transfer_journal_entry_id AS new_transfer_journal_entry_id,
+          old.matched_journal_line_id AS old_matched_journal_line_id, l.prev_matched_journal_line_id AS new_matched_journal_line_id,
+          old.counterparty_account_id AS old_counterparty_account_id, l.prev_counterparty_account_id AS new_counterparty_account_id,
+          old.allocated_entity_name AS old_allocated_entity_name, l.prev_allocated_entity_name AS new_allocated_entity_name,
+          old.allocation_rule_id AS old_allocation_rule_id, l.prev_allocation_rule_id AS new_allocation_rule_id,
+          old.allocation_rule_name AS old_allocation_rule_name, l.prev_allocation_rule_name AS new_allocation_rule_name
       )
       UPDATE bank_transfer_link_log l SET undone_at = now()
       FROM restored r
       WHERE l.id = r.id AND l.company_id = ${companyId}::UUID
-      RETURNING l.id, r.bank_transaction_id, r.prev_status, r.prev_allocation_type, r.link_batch_id
+      RETURNING r.*
     `) as Row[]);
   } catch (err) {
     // A previous journal line another statement line has since claimed: the line cannot go back as it was.
@@ -114,13 +139,7 @@ export async function undoTransferLinks(
       entityType: 'bank_transaction',
       entityId: String(r.bank_transaction_id),
       changes: {
-        fields: [
-          { field: 'status', old: 'allocated', new: r.prev_status === null ? null : String(r.prev_status), label: 'Status' },
-          {
-            field: 'allocation_type', old: 'transfer',
-            new: r.prev_allocation_type === null ? null : String(r.prev_allocation_type), label: 'Allocation type',
-          },
-        ],
+        fields: AUDIT_FIELDS.map((f) => ({ field: f, old: textOrNull(r[`old_${f}`]), new: textOrNull(r[`new_${f}`]), label: AUDIT_LABEL[f] })),
         metadata: { source: 'transfer_link_undo', linkBatchId: String(r.link_batch_id), linkId: String(r.id) },
       },
     });

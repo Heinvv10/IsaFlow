@@ -18,7 +18,7 @@ const BANK = 'bank-1';
 const now = new Date().toISOString();
 const link = (id: string, undoneAt: string | null = null) => ({
   id, bankTransactionId: `t-${id}`, transactionDate: '2026-11-10', description: `Transfer ${id}`, amount: 100,
-  counterpartyAccountName: 'Savings', undoneAt,
+  counterpartyAccountName: 'Savings', state: (undoneAt ? 'undone' : 'linked') as 'undone' | 'linked', undoneAt,
 });
 const batch = (batchId: string, links: ReturnType<typeof link>[], linkedAt = now): TransferLinkBatch => ({
   batchId, source: 'page_load', linkedAt, activeCount: links.filter((l) => !l.undoneAt).length, links,

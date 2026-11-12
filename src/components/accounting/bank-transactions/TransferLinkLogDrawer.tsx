@@ -7,6 +7,7 @@ import { Drawer } from '@/components/ui/Drawer';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate, formatDisplayDateTime } from '@/utils/dateFormat';
 import type { TransferLinkBatch } from '@/modules/accounting/services/bank/bankTransferLinkLog';
+import { TRANSFER_LINK_MAX_BATCHES } from '@/modules/accounting/services/bank/bankTransferLinkLimits';
 
 export interface TransferLinkLogDrawerProps {
   open: boolean;
@@ -27,6 +28,14 @@ const SOURCE_LABEL: Record<TransferLinkBatch['source'], string> = {
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
+/** "2 lines linked", or "1 of 2 lines linked" once some are undone or changed, or "All undone". */
+function batchSummary(batch: TransferLinkBatch): string {
+  const total = batch.links.length;
+  if (batch.links.every((l) => l.state === 'undone')) return 'All undone';
+  if (batch.activeCount === total) return `${total} ${plural(total, 'line linked', 'lines linked')}`;
+  return `${batch.activeCount} of ${total} ${plural(total, 'line', 'lines')} still linked`;
+}
+
 function BatchSection({ batch, props }: { batch: TransferLinkBatch; props: TransferLinkLogDrawerProps }) {
   const { canUndo, busyId, onUndoBatch, onUndoLink } = props;
   const busy = busyId !== null;
@@ -39,9 +48,7 @@ function BatchSection({ batch, props }: { batch: TransferLinkBatch; props: Trans
             {formatDisplayDateTime(batch.linkedAt)} · {SOURCE_LABEL[batch.source]}
           </h3>
           <p className="text-xs text-[var(--ff-text-secondary)]">
-            {batch.activeCount === 0
-              ? 'All undone'
-              : `${batch.links.length} ${plural(batch.links.length, 'line linked', 'lines linked')}`}
+            {batchSummary(batch)}
           </p>
         </div>
         {batch.activeCount > 0 && canUndo && (
@@ -65,8 +72,10 @@ function BatchSection({ batch, props }: { batch: TransferLinkBatch; props: Trans
                   : 'Linked to a transfer on another account'}
               </p>
             </div>
-            {link.undoneAt ? (
+            {link.state === 'undone' && link.undoneAt ? (
               <span className="text-xs text-[var(--ff-text-tertiary)]">Undone {formatDisplayDateTime(link.undoneAt)}</span>
+            ) : link.state === 'changed' ? (
+              <span className="text-xs text-[var(--ff-text-tertiary)]">Changed since the link</span>
             ) : canUndo ? (
               <button type="button" disabled={busy} onClick={() => onUndoLink(link.id)}
                 aria-label={`Undo link for ${link.description ?? 'this line'}`}
@@ -97,6 +106,9 @@ export function TransferLinkLogDrawer(props: TransferLinkLogDrawerProps) {
           </p>
         ) : (
           batches.map((b) => <BatchSection key={b.batchId} batch={b} props={props} />)
+        )}
+        {batches.length >= TRANSFER_LINK_MAX_BATCHES && (
+          <p className="text-xs text-[var(--ff-text-secondary)]">Showing the latest {TRANSFER_LINK_MAX_BATCHES} runs.</p>
         )}
       </div>
     </Drawer>

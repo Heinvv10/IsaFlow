@@ -9,15 +9,15 @@ const batches: TransferLinkBatch[] = [
   {
     batchId: 'b1', source: 'page_load', linkedAt: '2026-11-12T08:15:00.000Z', activeCount: 2, links: [
       { id: 'l1', bankTransactionId: 't1', transactionDate: '2026-11-10', description: 'Transfer to savings', amount: 1500,
-        counterpartyAccountName: 'Savings', undoneAt: null },
+        counterpartyAccountName: 'Savings', state: 'linked', undoneAt: null },
       { id: 'l2', bankTransactionId: 't2', transactionDate: '2026-11-11', description: null, amount: 20,
-        counterpartyAccountName: null, undoneAt: null },
+        counterpartyAccountName: null, state: 'linked', undoneAt: null },
     ],
   },
   {
     batchId: 'b2', source: 'import', linkedAt: '2026-11-01T10:00:00.000Z', activeCount: 0, links: [
       { id: 'l3', bankTransactionId: 't3', transactionDate: '2026-10-31', description: 'Inter-account transfer', amount: 10,
-        counterpartyAccountName: 'Call', undoneAt: '2026-11-02T10:00:00.000Z' },
+        counterpartyAccountName: 'Call', state: 'undone', undoneAt: '2026-11-02T10:00:00.000Z' },
     ],
   },
 ];
@@ -65,6 +65,27 @@ describe('TransferLinkLogDrawer', () => {
   it('shows no Undo to a role that may not write', () => {
     mount({ canUndo: false });
     expect(screen.queryByRole('button', { name: /Undo/ })).not.toBeInTheDocument();
+  });
+
+  it('counts a partly undone batch as "n of m" and shows a changed line without an Undo', () => {
+    const mixed: TransferLinkBatch = {
+      batchId: 'b3', source: 'page_load', linkedAt: '2026-11-12T08:15:00.000Z', activeCount: 1, links: [
+        { ...batches[0].links[0] },
+        { ...batches[0].links[1], state: 'undone', undoneAt: '2026-11-12T09:00:00.000Z' },
+        { ...batches[0].links[1], id: 'l4', description: 'Reversed later', state: 'changed' },
+      ],
+    };
+    mount({ batches: [mixed] });
+    expect(screen.getByText('1 of 3 lines still linked')).toBeInTheDocument();
+    expect(screen.getByText('Changed since the link')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Undo link for Reversed later' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^Undo link for/ })).toHaveLength(1);
+  });
+
+  it('notes the cap when the latest runs fill it', () => {
+    const many = Array.from({ length: 50 }, (_, i) => ({ ...batches[1], batchId: `x${i}` }));
+    mount({ batches: many });
+    expect(screen.getByText('Showing the latest 50 runs.')).toBeInTheDocument();
   });
 
   it('says so when the account has no automatic links, and shows an error', () => {
