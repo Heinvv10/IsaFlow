@@ -24,7 +24,7 @@ const month = (y: number, m: number): string => `${y}-${String(m).padStart(2, '0
 function Runs({ r }: { r: Emp201DrillResult }) {
   return (
     <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Pay runs behind this total">
-      <table className="w-full min-w-[420px] text-xs" data-testid="emp201-drill-runs">
+      <table className="w-full min-w-[330px] text-xs" data-testid="emp201-drill-runs">
         <thead><tr className="text-left text-[var(--ff-text-secondary)]">
           <th scope="col" className="py-1 pr-2 font-medium">Pay run</th>
           <th scope="col" className="py-1 pr-2 text-right font-medium">Run total</th>
@@ -55,7 +55,7 @@ function Lines({ r }: { r: Emp201DrillResult }) {
     <div>
       {r.rows.length > 0 && <p className="mb-1 text-xs text-[var(--ff-text-secondary)] sm:hidden">Scroll sideways for every column.</p>}
       <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Employee lines behind this total">
-        <table className="w-full min-w-[420px] text-xs" data-testid="return-drill-lines">
+        <table className="w-full min-w-[330px] text-xs" data-testid="return-drill-lines">
           <thead><tr className="text-left text-[var(--ff-text-secondary)]">
             <th scope="col" className="py-1 pr-2 font-medium">Employee</th>
             <th scope="col" className="py-1 pr-2 font-medium">Pay run</th>
