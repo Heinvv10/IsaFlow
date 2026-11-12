@@ -104,7 +104,9 @@ for (const theme of THEMES) {
     });
 
     test('with no cost centres (the hosted CI seed) the pickers show their empty state, still no native select', async ({ page }) => {
-      await page.route('**/api/accounting/cost-centres*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { items: [] } }) }));
+      // The accounting list answers { items }, the payroll card's own route answers a bare array.
+      await page.route(/\/api\/(accounting|payroll)\/cost-centres/, (route) => route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: route.request().url().includes('/api/payroll/') ? [] : { items: [] } }) }));
       await page.goto('/accounting/reports/income-statement');
       await settle(page);
       await page.getByRole('combobox', { name: 'Cost Centre' }).click();
