@@ -2,7 +2,9 @@
  * GET /api/accounting/dashboard/workbench
  *
  * Returns the six Accounting Workbench exception metrics for the current
- * company. Used by the WorkbenchSection dashboard widget.
+ * company. No screen reads it since the dashboard's one "Needs attention"
+ * list (dashboard/attention) replaced the workbench cards; kept while guard
+ * tests still pin it.
  *
  * Error handling is delegated to withErrorHandler.
  */

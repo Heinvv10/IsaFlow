@@ -5,19 +5,17 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
-import { LayoutDashboard } from 'lucide-react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
-vi.mock('@/hooks/useVatRegistration', () => ({ useVatRegistration: () => ({ isRegistered: true }) }));
 
 import { apiFetch } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { DashboardHero } from '@/components/accounting/dashboard/DashboardHero';
 import { OverviewKpiCards } from '@/components/accounting/dashboard/OverviewKpiCards';
-import { WorkbenchSection } from '@/components/accounting/dashboard/WorkbenchSection';
+import { NeedsAttention } from '@/components/accounting/dashboard/NeedsAttention';
+import type { HeadlineFigures } from '@/modules/accounting/services/reports/headlineFigures';
 
 useApiJsonOverMock();
 afterEach(() => { cleanup(); });
@@ -26,92 +24,62 @@ const BIG = 11009575.43;
 const COMPACT = /\d\.\d\s?[MK]\b/;
 /** formatMoney's text as getByText sees it: the matcher normalises the DOM's NBSP to a space. */
 const exact = (n: number): string => formatMoney(n).replace(/\s/g, ' ');
-/** The headline figures the Cash and Receivables cards read (reports/headlineFigures). */
-const headline = (cash: number, total: number, overdue: number) => ({ asAt: '2026-11-12', cash, receivables: { total, overdue } });
+/** The headline figures the KPI row reads (reports/headlineFigures). */
+const headline = (over: Partial<HeadlineFigures> = {}): HeadlineFigures => ({
+  asAt: '2026-11-12', monthStart: '2026-11-01',
+  cash: 0, receivables: { total: 0, overdue: 0 }, payables: { total: 0, overdue: 0 },
+  revenueMtd: 0, profitMtd: 0,
+  draftInvoices: 0, draftBills: 0, draftJournals: 0, billsDueNext7Days: 0, billsOverdue: 0,
+  ...over,
+});
 
 describe('dashboard tiles show exact amounts', () => {
-  it('hero pills', () => {
-    const { container } = render(
-      <DashboardHero
-        companyName="Demo" activeTab="overview" onTabChange={() => {}}
-        tabs={[{ id: 'overview', label: 'Overview', icon: LayoutDashboard }]}
-        stats={{ revenueMtd: BIG, outstandingInvoices: 2345678.9, cashPosition: -1500000 }}
-      />,
-    );
-    expect(screen.getByText(exact(BIG))).toBeTruthy();
-    expect(screen.getByText(exact(2345678.9))).toBeTruthy();
-    expect(container.textContent).not.toMatch(COMPACT);
-  });
-
-  it('KPI cards', () => {
-    const { container } = render(<OverviewKpiCards kpis={{
-      revenue: { total: BIG, priorTotal: 0, changePercent: 3 },
-      netProfit: { amount: 4321098.76, margin: 40 },
-      receivables: { total: 10686885.43, overdue: 10500000.01, avgDebtorDays: 40 },
-    }} headline={headline(1234567.89, 10686885.43, 10500000.01)} />);
-    expect(screen.getByText(exact(BIG))).toBeTruthy();
+  it('KPI row: Cash, Receivables, Payables, Profit this month, in that order, exact', () => {
+    const { container } = render(<OverviewKpiCards headline={headline({
+      cash: 1234567.89,
+      receivables: { total: 10686885.43, overdue: 10500000.01 },
+      payables: { total: 2345678.9, overdue: 45000.5 },
+      profitMtd: 4321098.76,
+      revenueMtd: BIG,
+    })} />);
+    const titles = Array.from(container.querySelectorAll('span.uppercase')).map((e) => e.textContent);
+    expect(titles).toEqual(['Cash', 'Receivables', 'Payables', 'Profit this month']);
+    expect(screen.getByText(exact(1234567.89))).toBeTruthy();
+    expect(screen.getByText('Per the ledger')).toBeTruthy();
     expect(screen.getByText(exact(10686885.43))).toBeTruthy();
     expect(screen.getByText(`${exact(10500000.01)} overdue`)).toBeTruthy();
-    expect(screen.getByText(exact(1234567.89))).toBeTruthy();
-    expect(screen.getByText('Per the ledger, as at 12 Nov 2026')).toBeTruthy();
+    expect(screen.getByText(exact(2345678.9))).toBeTruthy();
+    expect(screen.getByText(`${exact(45000.5)} overdue`)).toBeTruthy();
+    expect(screen.getByText(exact(4321098.76))).toBeTruthy();
+    expect(screen.getByText(`Revenue ${exact(BIG)} this month`)).toBeTruthy();
+    expect(screen.getByText('As at 12 Nov 2026. Posted entries only. Profit and revenue are for the month to date.')).toBeTruthy();
     expect(container.textContent).not.toMatch(COMPACT);
+    expect(container.textContent).not.toMatch(/Days to Close|Net margin|vs prior period/);
   });
 
-  it('the profit tile is labelled Net Profit with a Net margin: it is the statement\'s net profit, not a gross profit', () => {
-    render(<OverviewKpiCards kpis={{
-      revenue: { total: 0, priorTotal: 0, changePercent: 0 },
-      netProfit: { amount: -2189056.28, margin: -12.5 },
-      receivables: { total: 0, overdue: 0, avgDebtorDays: 0 },
-    }} headline={headline(0, 0, 0)} />);
-    expect(screen.getByText('Net Profit')).toBeTruthy();
-    expect(screen.getByText(exact(-2189056.28))).toBeTruthy();
-    expect(screen.getByText('Net margin: -12.5%')).toBeTruthy();
-    expect(screen.queryByText(/gross/i)).toBeNull();
-  });
-
-  it('Net margin is a dash with a reason when the API states none (no positive turnover), never 0.0%', () => {
-    const { container } = render(<OverviewKpiCards kpis={{
-      revenue: { total: 0, priorTotal: 0, changePercent: 0 },
-      netProfit: { amount: -150, margin: null },
-      receivables: { total: 0, overdue: 0, avgDebtorDays: 0 },
-    }} headline={headline(0, 0, 0)} />);
-    const margin = screen.getByText(/Net margin:/);
-    expect(margin.hasAttribute('title')).toBe(false);
-    // Visible text (touch users cannot hover), inside the same element as the label, not sr-only.
-    const reason = screen.getByText('Not meaningful: no positive revenue in this period');
-    expect(margin.contains(reason)).toBe(true);
-    expect(reason.className).not.toMatch(/sr-only/);
-    expect(margin.querySelector('span[aria-hidden="true"]')?.textContent).toBe('—');
-    expect(container.querySelectorAll('.sr-only').length).toBe(0);
-    expect(document.body.textContent).not.toMatch(/Net margin: -?\d/);
-  });
-
-  it('while the figures have not loaded there is no margin line, and no reason it cannot know', () => {
-    render(<OverviewKpiCards kpis={undefined} headline={undefined} />);
-    expect(screen.queryByText(/Net margin/)).toBeNull();
-    expect(document.body.textContent).not.toMatch(/no positive revenue/);
+  it('Payables says "No overdue" when nothing is overdue; a loss is shown as a loss', () => {
+    render(<OverviewKpiCards headline={headline({ payables: { total: 500, overdue: 0 }, profitMtd: -2189056.28 })} />);
+    expect(screen.getAllByText('No overdue')).toHaveLength(2);
+    const loss = screen.getByText(exact(-2189056.28));
+    expect(loss.className).toMatch(/text-rose-600/);
   });
 
   it('Receivables shows the disputed share of the overdue figure, only when there is one', () => {
-    const kpis = (overdueDisputed: number) => ({
-      revenue: { total: 0, priorTotal: 0, changePercent: 0 },
-      netProfit: { amount: 0, margin: 0 },
-      receivables: { total: 1500, overdue: 1000, overdueDisputed, avgDebtorDays: 40 },
-    });
-    const { unmount } = render(<OverviewKpiCards kpis={kpis(250)} headline={headline(0, 1500, 1000)} />);
+    const h = headline({ receivables: { total: 1500, overdue: 1000 } });
+    const { unmount } = render(<OverviewKpiCards headline={h} overdueDisputed={250} />);
     expect(screen.getByText(`${exact(1000)} overdue`)).toBeTruthy();
     expect(screen.getByText(`of which ${exact(250)} disputed`)).toBeTruthy();
     unmount();
-    render(<OverviewKpiCards kpis={kpis(0)} headline={headline(0, 1500, 1000)} />);
+    render(<OverviewKpiCards headline={h} overdueDisputed={0} />);
     expect(screen.queryByText(/disputed/)).toBeNull();
   });
 
-  it('workbench VAT estimate', async () => {
+  it('attention list amounts', async () => {
     vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ success: true, data: {
-      unreconciledBankTxns: 0, draftInvoices: 0, apDueThisWeek: 0, unpostedJournals: 0,
-      openPriorPeriods: 0, vatEstimateCurrentPeriod: 1234567.89,
+      asAt: '2026-11-12',
+      items: [{ key: 'overdue-invoices', area: 'Sales', label: '3 overdue invoices', amount: 1234567.89, severity: 'overdue', href: '/x' }],
     } }), { status: 200 }));
-    const { container } = render(<WorkbenchSection />);
+    const { container } = render(<NeedsAttention />);
     expect(await screen.findByText(exact(1234567.89))).toBeTruthy();
     expect(container.textContent).not.toMatch(COMPACT);
   });

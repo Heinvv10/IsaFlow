@@ -2,11 +2,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   shapePayrollAffordability,
-  shapeTopDebtors,
   shapeVatSetAside,
   type PayrollRunRow,
 } from '@/modules/bureau/services/ownerCashPositionService';
-import type { DebtorSummary } from '@/modules/accounting/services/ar/debtorsManagerService';
 
 const run = (over: Partial<PayrollRunRow> = {}): PayrollRunRow => ({
   id: 'run-1', period_month: 6, period_year: 2026, status: 'approved',
@@ -45,25 +43,6 @@ describe('shapePayrollAffordability', () => {
   it('handles pg numeric strings and zero eti', () => {
     const p = shapePayrollAffordability(run({ total_eti: '0' }), 0);
     expect(p!.totalRequired).toBe(106800);
-  });
-});
-
-describe('shapeTopDebtors', () => {
-  const d = (name: string, total: number, d30 = 0, d90p = 0): DebtorSummary => ({
-    clientId: `c-${name}`, clientName: name,
-    current: total - d30 - d90p, days30: d30, days60: 0, days90: 0, days90Plus: d90p,
-    totalOutstanding: total, invoiceCount: 1,
-  });
-
-  it('takes top 3 and sums overdue buckets', () => {
-    const out = shapeTopDebtors([d('A', 50000, 10000, 5000), d('B', 30000), d('C', 20000), d('D', 10)]);
-    expect(out.topDebtors).toHaveLength(3);
-    expect(out.topDebtors[0]).toEqual({ clientId: 'c-A', clientName: 'A', totalOutstanding: 50000, overdue: 15000 });
-    expect(out.arTotal).toBe(100010); // includes the 4th debtor
-  });
-
-  it('handles empty list', () => {
-    expect(shapeTopDebtors([])).toEqual({ topDebtors: [], arTotal: 0 });
   });
 });
 

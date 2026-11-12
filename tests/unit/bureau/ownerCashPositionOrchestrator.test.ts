@@ -4,11 +4,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn() }));
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('@/modules/accounting/services/ar/debtorsManagerService', () => ({ getDebtorsSummary: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/vatReturnService', () => ({ getVATReturn: vi.fn() }));
 
 import { getOwnerCashPosition } from '@/modules/bureau/services/ownerCashPositionService';
-import { getDebtorsSummary } from '@/modules/accounting/services/ar/debtorsManagerService';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import type { VATReturnReport } from '@/modules/accounting/types/gl.types';
 import { log } from '@/lib/logger';
@@ -32,7 +30,7 @@ function mockSqlByQuery(handlers: Record<string, unknown[]>) {
 describe('getOwnerCashPosition', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('assembles all three sections', async () => {
+  it('assembles the two sections', async () => {
     mockSqlByQuery({
       payroll_run_headers: [{
         id: 'run-1', period_month: 6, period_year: 2026, status: 'approved',
@@ -40,17 +38,13 @@ describe('getOwnerCashPosition', () => {
       }],
       'FROM companies': [{ vat_period_alignment: 'odd', vat_period: 'bi-monthly' }],
     });
-    vi.mocked(getDebtorsSummary).mockResolvedValue([
-      { clientId: 'c1', clientName: 'Acme', current: 0, days30: 5000, days60: 0, days90: 0, days90Plus: 0, totalOutstanding: 50000, invoiceCount: 2 },
-    ]);
     vi.mocked(getVATReturn).mockResolvedValue(vatReturn(23000));
 
     const pos = await getOwnerCashPosition(COMPANY, 150000, TODAY);
     expect(pos.cash).toBe(150000);
     expect(pos.payroll?.canPay).toBe(true);
     expect(pos.payroll?.totalRequired).toBe(106000);
-    expect(pos.topDebtors[0]?.clientName).toBe('Acme');
-    expect(pos.arTotal).toBe(50000);
+    expect(Object.keys(pos).sort()).toEqual(['cash', 'payroll', 'vat']);
     expect(pos.vat?.netVat).toBe(23000);
     // VAT period for 'odd' alignment on 2026-06-11 (bi-monthly) — Apr–May 2026, due 25 Jun
     expect(pos.vat?.dueDate).toBe('2026-06-25');
@@ -58,11 +52,9 @@ describe('getOwnerCashPosition', () => {
 
   it('returns null payroll when no unpaid run exists', async () => {
     mockSqlByQuery({ 'FROM companies': [{ vat_period_alignment: 'odd', vat_period: 'bi-monthly' }] });
-    vi.mocked(getDebtorsSummary).mockResolvedValue([]);
     vi.mocked(getVATReturn).mockResolvedValue(vatReturn(0));
     const pos = await getOwnerCashPosition(COMPANY, 1000, TODAY);
     expect(pos.payroll).toBeNull();
-    expect(pos.topDebtors).toEqual([]);
   });
 
   it('fails soft per section: VAT error → vat null + warn, other sections intact', async () => {
@@ -73,7 +65,6 @@ describe('getOwnerCashPosition', () => {
       }],
       'FROM companies': [{ vat_period_alignment: 'odd', vat_period: 'bi-monthly' }],
     });
-    vi.mocked(getDebtorsSummary).mockResolvedValue([]);
     vi.mocked(getVATReturn).mockRejectedValue(new Error('boom'));
     const pos = await getOwnerCashPosition(COMPANY, 1000, TODAY);
     expect(pos.vat).toBeNull();
@@ -83,20 +74,22 @@ describe('getOwnerCashPosition', () => {
 
   it('returns null vat when company row is missing', async () => {
     mockSqlByQuery({ payroll_run_headers: [], 'FROM companies': [] });
-    vi.mocked(getDebtorsSummary).mockResolvedValue([]);
     const pos = await getOwnerCashPosition(COMPANY, 0, TODAY);
     expect(pos.vat).toBeNull();
     expect(vi.mocked(log.warn)).not.toHaveBeenCalled();
   });
 
-  it('fails soft when debtors summary throws', async () => {
-    mockSqlByQuery({ 'FROM companies': [{ vat_period_alignment: 'odd', vat_period: 'bi-monthly' }] });
-    vi.mocked(getDebtorsSummary).mockRejectedValue(new Error('boom'));
-    vi.mocked(getVATReturn).mockResolvedValue(vatReturn(0));
-    const pos = await getOwnerCashPosition(COMPANY, 1000, TODAY);
-    expect(pos.topDebtors).toEqual([]);
-    expect(pos.arTotal).toBe(0);
-    expect(vi.mocked(log.warn)).toHaveBeenCalled();
+  it('bounds the payroll read to this SAST month and the month before, never an older run', async () => {
+    mockSqlByQuery({ 'FROM companies': [] });
+    // 23:30 UTC on 31 Dec 2026 is already 1 Jan 2027 in South Africa: the window is Dec 2026 to Jan 2027.
+    await getOwnerCashPosition(COMPANY, 0, new Date('2026-12-31T23:30:00Z'));
+    const call = sqlMock.mock.calls.find((c) => (c[0] as readonly string[]).join('?').includes('payroll_run_headers'));
+    expect(call).toBeDefined();
+    const text = (call![0] as readonly string[]).join('?');
+    expect(text).toMatch(/period_year \* 12 \+ period_month\) BETWEEN \?::int AND \?::int/);
+    expect(text).toContain('company_id = ?::uuid');
+    const values = call!.slice(1);
+    expect(values).toEqual([COMPANY, 2026 * 12 + 12, 2027 * 12 + 1]);
   });
 
   it('fails soft when the payroll query throws', async () => {
@@ -106,7 +99,6 @@ describe('getOwnerCashPosition', () => {
       if (q.includes('FROM companies')) return [{ vat_period_alignment: 'odd', vat_period: 'bi-monthly' }];
       return [];
     });
-    vi.mocked(getDebtorsSummary).mockResolvedValue([]);
     vi.mocked(getVATReturn).mockResolvedValue(vatReturn(0));
     const pos = await getOwnerCashPosition(COMPANY, 1000, TODAY);
     expect(pos.payroll).toBeNull();

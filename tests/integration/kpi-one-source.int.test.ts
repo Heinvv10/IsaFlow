@@ -1,9 +1,10 @@
 /**
  * One definition per headline figure (app audit 12 Nov 2026, P2.5 item 1).
  *
- * /accounting (kpi-dashboard), /home (clientMetricsSnapshot + /api/home), the
- * "Today in the books" cards (getWorkbenchMetrics), the Action Items
- * (dashboard-todos) and Month-End (getMonthEndWorkbench) each read cash,
+ * /accounting (kpi-dashboard), the bureau client home (clientMetricsSnapshot),
+ * the dashboard's "Needs attention" list (dashboard/attention), the workbench
+ * metrics (getWorkbenchMetrics), dashboard-todos and Month-End
+ * (getMonthEndWorkbench) each read cash,
  * receivables, payables, revenue MTD and the draft / bill counts from
  * reports/headlineFigures, as at one SAST day. The fixture makes every OLD
  * definition disagree with the new one, so equal figures here cannot be the
@@ -19,8 +20,9 @@
  *     12 overdue bills (the Action Items row printed its 10-row cap), a draft, a
  *     paid and a soft-deleted bill due this week (old "AP due this week"), and
  *     bills due on T, T+7 and T+8 and T-1 that pin both ends of the 7-day window.
- * A second company carries its own invoice, journal and bill; no figure of the
- * first moves.
+ * A second company carries its own invoice, journal, bill and pay run; no figure
+ * of the first moves. Pay runs (the attention list, 2026-11-12): one from January
+ * 2020, one this month and one two years ahead; only this month's is its own row.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -36,7 +38,8 @@ import { getMonthEndWorkbench } from '@/modules/accounting/services/workbench/mo
 import { getSupplierInvoices } from '@/modules/accounting/services/ap/supplierInvoiceQueryService';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import kpiDashboardRoute from '../../pages/api/accounting/kpi-dashboard';
-import homeRoute from '../../pages/api/home';
+import attentionRoute from '../../pages/api/accounting/dashboard/attention';
+import type { AttentionList } from '@/modules/accounting/services/dashboard/attentionShape';
 import todosRoute from '../../pages/api/accounting/dashboard-todos';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -53,6 +56,10 @@ const CUST = id();
 const SUPP = id();
 const D_CUST = id();
 const D_SUPP = id();
+const RUN = { old: id(), now: id(), future: id(), other: id() };
+const [T_YEAR, T_MONTH] = [Number(todayInSast().slice(0, 4)), Number(todayInSast().slice(5, 7))];
+const FUTURE_YEAR = T_YEAR + 2;
+const MONTH_NAME = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 const T = todayInSast();
 /** YYYY-MM-DD `n` days from T, by calendar arithmetic in UTC (no host-zone drift). */
@@ -125,6 +132,7 @@ async function cleanup(): Promise<void> {
   await pool.query('DELETE FROM gl_journal_lines WHERE company_id = ANY($1::uuid[])', [cos]);
   await pool.query('DELETE FROM gl_journal_entries WHERE company_id = ANY($1::uuid[])', [cos]);
   await pool.query('DELETE FROM bank_transactions WHERE company_id = ANY($1::uuid[])', [cos]);
+  await pool.query('DELETE FROM payroll_run_headers WHERE company_id = ANY($1::uuid[])', [cos]);
   await pool.query('DELETE FROM supplier_invoices WHERE company_id = ANY($1::uuid[])', [cos]);
   await pool.query('DELETE FROM customer_invoices WHERE company_id = ANY($1::uuid[])', [cos]);
   await pool.query('DELETE FROM suppliers WHERE company_id = ANY($1::uuid[])', [cos]);
@@ -144,7 +152,7 @@ async function call<T>(route: unknown, company: string = C): Promise<T> {
   return (result.state.body as { data: T }).data;
 }
 
-describeIfDb('headline figures: one definition across /accounting, /home and Month-End', () => {
+describeIfDb('headline figures: one definition across the dashboard, the bureau client home and Month-End', () => {
   beforeAll(async () => {
     assertDisposable();
     await cleanup();
@@ -218,6 +226,12 @@ describeIfDb('headline figures: one definition across /accounting, /home and Mon
     await bill(D, D_SUPP, 'DB-2', add(2), 777);
     await bill(D, D_SUPP, 'DB-3', add(2), 777, { status: 'draft' });
 
+    // Pay runs: January 2020 (forgotten), this month, two years ahead; the other tenant's this month.
+    await pool.query(
+      `INSERT INTO payroll_run_headers(id,company_id,period_year,period_month,status)
+       VALUES($1,$5,2020,1,'approved'),($2,$5,$7,$8,'draft'),($3,$5,$9,$8,'calculated'),($4,$6,$7,$8,'draft')`,
+      [RUN.old, RUN.now, RUN.future, RUN.other, C, D, T_YEAR, T_MONTH, FUTURE_YEAR]);
+
     token = await new SignJWT({ sub: USER, aal: 'aal2' })
       .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
       .sign(new TextEncoder().encode(process.env.JWT_SECRET));
@@ -260,22 +274,37 @@ describeIfDb('headline figures: one definition across /accounting, /home and Mon
     expect(data.period.to).toBe(T);
   });
 
-  it('/home and the bureau client home: clientMetricsSnapshot (no request context) is the headline', async () => {
+  it('the bureau client home: clientMetricsSnapshot (no request context) is the headline', async () => {
     expect(await clientMetricsSnapshot(C)).toEqual({
       cash: EXPECTED.cash, ar: EXPECTED.receivables.total, ap: EXPECTED.payables.total,
       revenueMtd: EXPECTED.revenueMtd, profitMtd: EXPECTED.profitMtd, asAt: T,
     });
   });
 
-  it('/api/home: the metric strip and "total owed" are the headline figures', async () => {
-    const data = await call<{ metrics: { cash: number; ar: number }; cashPosition: { cash: number; arTotal: number } }>(homeRoute);
-    expect(data.metrics.cash).toBe(EXPECTED.cash);
-    expect(data.metrics.ar).toBe(EXPECTED.receivables.total);
-    expect(data.cashPosition.cash).toBe(EXPECTED.cash);
-    expect(data.cashPosition.arTotal).toBe(EXPECTED.receivables.total);
+  it('the dashboard attention list: headline counts, one pay-run row for this month, the 2020 run summarised', async () => {
+    const data = await call<AttentionList>(attentionRoute);
+    expect(data.asAt).toBe(T);
+    const label = (key: string) => data.items.find((i) => i.key === key)?.label;
+    expect(label('overdue-bills')).toBe(`${EXPECTED.billsOverdue} overdue supplier bills`);
+    expect(label('bills-due-7')).toBe(`${EXPECTED.billsDueNext7Days} bills due in 7 days`);
+    expect(label('draft-invoices')).toBe(`${EXPECTED.draftInvoices} draft invoice`);
+    expect(label('draft-journals')).toBe(`${EXPECTED.draftJournals} draft journals`);
+    expect(data.items.find((i) => i.key === 'overdue-invoices')).toMatchObject({ label: '1 overdue invoice', amount: EXPECTED.receivables.overdue });
+    const runRows = data.items.filter((i) => i.key.startsWith('pay-run-'));
+    expect(runRows.map((i) => i.key)).toEqual([`pay-run-${RUN.now}`]);
+    expect(runRows[0]).toMatchObject({ label: `${MONTH_NAME[T_MONTH - 1]} ${T_YEAR} pay run`, detail: 'Draft', href: `/payroll/runs/${RUN.now}` });
+    expect(data.items.find((i) => i.key === 'pay-runs-older')).toMatchObject({ label: '1 older pay run still open', detail: 'Oldest: January 2020' });
+    // No row for the run two years ahead, none for the other tenant's run, and the bureau feed's per-run rows are gone.
+    const all = JSON.stringify(data.items);
+    expect(all).not.toContain(String(FUTURE_YEAR));
+    expect(all).not.toContain(RUN.future);
+    expect(all).not.toContain(RUN.other);
+    expect(all).not.toContain(RUN.old);
+    expect(data.items.filter((i) => i.href.startsWith('/payroll/runs/'))).toHaveLength(1);
+    expect(new Set(data.items.map((i) => i.key)).size).toBe(data.items.length);
   });
 
-  it('"Today in the books": draft invoices, bills due in 7 days and draft journals are the headline counts', async () => {
+  it('workbench metrics: draft invoices, bills due in 7 days and draft journals are the headline counts', async () => {
     const m = await getWorkbenchMetrics(C);
     expect(m.draftInvoices).toBe(EXPECTED.draftInvoices);
     expect(m.apDueThisWeek).toBe(EXPECTED.billsDueNext7Days);

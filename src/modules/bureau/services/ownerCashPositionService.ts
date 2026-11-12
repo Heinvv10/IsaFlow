@@ -1,17 +1,17 @@
 /**
- * Owner cash position for the direct-client /home page (Workstream G).
+ * Owner cash position, read by the dashboard's "Needs attention" list
+ * (accounting/services/dashboard/attentionService).
  *
- * Answers three plain-language questions for a business owner:
- *  - "Can I pay salaries?"  — cash vs the next unpaid payroll run's full outflow
- *  - "Who owes me?"         — top AR debtors (reuses getDebtorsSummary)
- *  - "VAT set-aside"        — current expected VAT period's net liability
+ * Answers two plain-language questions for a business owner:
+ *  - "Can I pay salaries?": cash vs the full outflow of the earliest open
+ *    payroll run of this SAST month or the month before (never an older one)
+ *  - "VAT set-aside": the current expected VAT period's net liability
  *
  * Sections are advisory estimates: each is computed fail-soft (null on error,
- * log.warn) so a broken estimate never takes down the owner's landing page.
+ * log.warn) so a broken estimate never takes down the dashboard.
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { getDebtorsSummary, type DebtorSummary } from '@/modules/accounting/services/ar/debtorsManagerService';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import {
   expectedVatPeriodAsOf,
@@ -19,7 +19,10 @@ import {
   normalizeVatSetting,
   type VatPeriod,
 } from './vatPeriodHelper';
-import { MONTHS } from './bureauWorkTypes';
+import { todayInSast } from '@/lib/saDateParser';
+import { MONTHS, PAY_RUN_WINDOW_MONTHS_BACK } from './bureauWorkTypes';
+
+export { PAY_RUN_WINDOW_MONTHS_BACK };
 
 export interface PayrollRunRow {
   id: string;
@@ -42,13 +45,6 @@ export interface CashPositionPayroll {
   shortfall: number;
 }
 
-export interface CashPositionDebtor {
-  clientId: string;
-  clientName: string;
-  totalOutstanding: number;
-  overdue: number;
-}
-
 export interface CashPositionVat {
   periodLabel: string;
   dueDate: string;
@@ -58,8 +54,6 @@ export interface CashPositionVat {
 export interface OwnerCashPosition {
   cash: number;
   payroll: CashPositionPayroll | null;
-  topDebtors: CashPositionDebtor[];
-  arTotal: number;
   vat: CashPositionVat | null;
 }
 
@@ -92,20 +86,6 @@ export function shapePayrollAffordability(
   };
 }
 
-export function shapeTopDebtors(
-  summary: DebtorSummary[],
-): { topDebtors: CashPositionDebtor[]; arTotal: number } {
-  return {
-    topDebtors: summary.slice(0, 3).map((d) => ({
-      clientId: d.clientId,
-      clientName: d.clientName,
-      totalOutstanding: d.totalOutstanding,
-      overdue: d.days30 + d.days60 + d.days90 + d.days90Plus,
-    })),
-    arTotal: summary.reduce((s, d) => s + d.totalOutstanding, 0),
-  };
-}
-
 export function shapeVatSetAside(netVat: number, period: VatPeriod): CashPositionVat {
   const s = new Date(`${period.periodStart}T00:00:00Z`);
   const e = new Date(`${period.periodEnd}T00:00:00Z`);
@@ -119,16 +99,20 @@ export function shapeVatSetAside(netVat: number, period: VatPeriod): CashPositio
 
 // ── Private section helpers ───────────────────────────────────────────────────
 
+/** The earliest open run of `asAt`'s month or the month before: a forgotten 2020 run is not "the next" one. */
 async function nextPayrollSection(
   companyId: string,
   cash: number,
+  asAt: string,
 ): Promise<CashPositionPayroll | null> {
+  const cur = Number(asAt.slice(0, 4)) * 12 + Number(asAt.slice(5, 7));
   const rows = (await sql`
     SELECT id, period_month, period_year, status,
            total_net, total_paye, total_uif, total_sdl, total_eti
       FROM payroll_run_headers
      WHERE company_id = ${companyId}::uuid
        AND status IN ('draft','calculated','approved')
+       AND (period_year * 12 + period_month) BETWEEN ${cur - PAY_RUN_WINDOW_MONTHS_BACK}::int AND ${cur}::int
      ORDER BY period_year, period_month
      LIMIT 1
   `) as unknown as PayrollRunRow[];
@@ -156,7 +140,7 @@ async function vatSection(companyId: string, today: Date): Promise<CashPositionV
 
 /**
  * Each section is an advisory estimate: failures are logged and degrade to
- * null/empty rather than failing the whole /home payload.
+ * null rather than failing the whole attention list.
  */
 export async function getOwnerCashPosition(
   companyId: string,
@@ -181,13 +165,11 @@ export async function getOwnerCashPosition(
     }
   };
 
-  const [payroll, debtors, vat] = await Promise.all([
-    soft<CashPositionPayroll | null>('payroll', null, () => nextPayrollSection(companyId, cash)),
-    soft('debtors', { topDebtors: [] as CashPositionDebtor[], arTotal: 0 }, async () =>
-      shapeTopDebtors(await getDebtorsSummary(companyId)),
-    ),
+  const asAt = todayInSast(today);
+  const [payroll, vat] = await Promise.all([
+    soft<CashPositionPayroll | null>('payroll', null, () => nextPayrollSection(companyId, cash, asAt)),
     soft<CashPositionVat | null>('vat', null, () => vatSection(companyId, today)),
   ]);
 
-  return { cash, payroll, topDebtors: debtors.topDebtors, arTotal: debtors.arTotal, vat };
+  return { cash, payroll, vat };
 }

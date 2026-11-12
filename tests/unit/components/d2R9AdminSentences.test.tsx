@@ -24,7 +24,7 @@ vi.mock('@/components/admin/users/UserProfileForm', () => ({ UserProfileForm: ()
 vi.mock('@/components/admin/users/LoginAsModal', () => ({ LoginAsModal: () => null }));
 
 import { apiFetch } from '@/lib/apiFetch';
-import HomePage from '../../../pages/home';
+import { NeedsAttention } from '@/components/accounting/dashboard/NeedsAttention';
 import WaitlistPage from '../../../pages/admin/waitlist/index';
 import AuditPage from '../../../pages/admin/audit';
 import UsersPage from '../../../pages/admin/users/index';
@@ -42,7 +42,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('loads: an empty 500 says what could not be loaded', () => {
   const cases: Array<[string, () => ReactNode, string]> = [
-    ['home', () => <HomePage />, 'Could not load the home page - try again'],
+    ['dashboard attention list', () => <NeedsAttention />, 'Could not load the attention list - try again'],
     ['waitlist', () => <WaitlistPage />, 'Could not load the waitlist - try again'],
     ['audit log', () => <AuditPage />, 'Could not load the audit log - try again'],
     ['users', () => <UsersPage />, 'Could not load the users - try again'],

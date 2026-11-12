@@ -1,5 +1,6 @@
 /**
- * Overview Tab — KPI Dashboard with charts and quick actions
+ * Overview tab: the dashboard. One KPI row, one "Needs attention" list, quick
+ * actions, then charts.
  */
 
 import { useState, useEffect, useRef } from 'react';
@@ -7,20 +8,20 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import {
   Plus, BarChart3, Landmark, FileText, CreditCard, TrendingUp,
-  BookOpen, FileSpreadsheet, Calculator, Calendar, ArrowRight, Clock, AlertCircle,
+  BookOpen, FileSpreadsheet, Calculator, Calendar, ArrowRight,
 } from 'lucide-react';
 import { Users, Upload } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { PAGE_REGISTRY, DEFAULT_QUICK_ACTIONS, type PageMeta } from '@/modules/accounting/constants/pageRegistry';
 import { OverviewTables } from './OverviewTables';
-import { TodoWidget } from './TodoWidget';
 import { OverviewKpiCards } from './OverviewKpiCards';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { WorkbenchSection } from './WorkbenchSection';
+import { NeedsAttention } from './NeedsAttention';
 import { NoBankAccountWarning } from '@/components/accounting/banking/NoBankAccountWarning';
 import { formatMoney, formatMoneyCompact } from '@/lib/money/formatMoney';
 import type { HeadlineFigures } from '@/modules/accounting/services/reports/headlineFigures';
+import type { AttentionItem } from '@/modules/accounting/services/dashboard/attentionShape';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
@@ -51,7 +52,7 @@ export interface KPIData {
   topCustomers: { name: string; revenue: number; invoiceCount: number }[];
   topExpenses: { accountName: string; total: number; percentOfExpenses: number }[];
   hasBankAccount: boolean;
-  /** The headline figures (reports/headlineFigures): the one definition /home and Month-End read. */
+  /** The headline figures (reports/headlineFigures): the one definition the KPI row and Month-End read. */
   headline: HeadlineFigures;
   /** The window `kpis.revenue` and `kpis.netProfit` span. */
   period: { from: string; to: string };
@@ -71,15 +72,15 @@ const fmtCompact = (n: number): string => formatMoneyCompact(n);
 /**
  * The kpi-dashboard load a parent already made (pages/accounting/index.tsx), so Home fetches it once.
  *
- * The load lives in the page, not here, on purpose: the hero above the tabs
- * needs the same figures, so switching tabs does not refetch them. They are
- * reloaded when the company changes (the page's effect), not on re-entering Overview.
+ * The load lives in the page, not here, on purpose: switching tabs does not
+ * refetch the figures. They are reloaded when the company changes (the page's
+ * effect), not on re-entering Overview.
  */
 export interface KpiLoad { data: KPIData | null; error: string; loading: boolean }
 
 /**
- * `setupOpen`: setup tasks are still open, so TodoWidget must not say "All caught up!".
- * `setupUnknown`: the setup checklist has not resolved (timed out or failed), so TodoWidget says neither.
+ * `setupOpen`: setup tasks are still open, so NeedsAttention must not say "All caught up!".
+ * `setupUnknown`: the setup checklist has not resolved (timed out or failed), so NeedsAttention says neither.
  */
 export function OverviewTab({ setupOpen = false, setupUnknown = false, kpiLoad, onRetry }: { setupOpen?: boolean; setupUnknown?: boolean; kpiLoad?: KpiLoad; onRetry?: () => void }) {
   const [ownData, setData] = useState<KPIData | null>(null);
@@ -146,6 +147,24 @@ export function OverviewTab({ setupOpen = false, setupUnknown = false, kpiLoad, 
 
   const kpis = data?.kpis;
 
+  // The two client-side rows of the one attention list.
+  const extra: AttentionItem[] = [];
+  if (provisionalCount !== null && provisionalCount > 0) {
+    extra.push({
+      key: 'provisional', area: 'Banking', severity: 'due_soon', href: '/accounting/bank/provisional',
+      label: `${provisionalCount} provisional entr${provisionalCount === 1 ? 'y' : 'ies'} awaiting evidence`,
+      detail: 'Posted from the bank statement without a slip. Attach documents to confirm.',
+    });
+  }
+  if (missingInvoiceCount !== null && missingInvoiceCount > 0) {
+    extra.push({
+      key: 'missing-invoices', area: 'Purchases', severity: missingInvoiceCount >= 3 ? 'overdue' : 'due_soon',
+      href: '/accounting/suppliers/missing-invoices',
+      label: `${missingInvoiceCount} expected supplier invoice${missingInvoiceCount === 1 ? '' : 's'} not received`,
+      detail: 'Chase the supplier or resolve the alert.',
+    });
+  }
+
   if (isLoading) {
     return (
       <div className="space-y-6" aria-busy="true">
@@ -159,11 +178,18 @@ export function OverviewTab({ setupOpen = false, setupUnknown = false, kpiLoad, 
   return (
     <div className="space-y-6">
       {kpiError && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{kpiError}</div>}
-      {/* Workbench — exception-first signals for accountants */}
-      <WorkbenchSection />
+      <OverviewKpiCards
+        headline={data?.headline}
+        overdueDisputed={kpis?.receivables.overdueDisputed}
+        onRetry={onRetry ?? (fetchOwn.current ? () => void loadKPIData() : undefined)}
+      />
 
-      {/* Action Items */}
-      <TodoWidget setupOpen={setupOpen} setupUnknown={setupUnknown} />
+      {/* No bank account warning: shown when the cash figure is non-zero but no bank account is configured */}
+      {data !== null && !data.hasBankAccount && (data.headline?.cash ?? 0) !== 0 && (
+        <NoBankAccountWarning />
+      )}
+
+      <NeedsAttention setupOpen={setupOpen} setupUnknown={setupUnknown} extra={extra} />
 
       {/* Quick Actions — unified teal chip for visual cohesion on the dashboard */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -185,52 +211,6 @@ export function OverviewTab({ setupOpen = false, setupUnknown = false, kpiLoad, 
           );
         })}
       </div>
-
-      {/* Provisional entries alert card */}
-      {provisionalCount !== null && provisionalCount > 0 && (
-        <Link href="/accounting/bank/provisional"
-          className="flex items-center gap-4 p-4 bg-amber-900/20 border border-amber-500/30 rounded-lg hover:border-amber-500/60 hover:shadow-md transition-all no-underline group">
-          <div className="p-2 rounded-lg bg-amber-500/10 shrink-0">
-            <Clock className="h-5 w-5 text-amber-400" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold text-amber-300">Provisional entries awaiting evidence: {provisionalCount}</p>
-            <p className="text-xs text-amber-400/70">Bank-first AI posts without slips — attach documents to confirm</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-amber-400/60 group-hover:text-amber-400 transition-colors shrink-0" />
-        </Link>
-      )}
-
-      {/* Missing invoices alert card */}
-      {missingInvoiceCount !== null && missingInvoiceCount > 0 && (
-        <Link href="/accounting/suppliers/missing-invoices"
-          className={`flex items-center gap-4 p-4 rounded-lg hover:shadow-md transition-all no-underline group border ${missingInvoiceCount >= 3 ? 'bg-red-900/20 border-red-500/30 hover:border-red-500/60' : 'bg-amber-900/20 border-amber-500/30 hover:border-amber-500/60'}`}>
-          <div className={`p-2 rounded-lg shrink-0 ${missingInvoiceCount >= 3 ? 'bg-red-500/10' : 'bg-amber-500/10'}`}>
-            <AlertCircle className={`h-5 w-5 ${missingInvoiceCount >= 3 ? 'text-red-400' : 'text-amber-400'}`} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className={`font-semibold ${missingInvoiceCount >= 3 ? 'text-red-300' : 'text-amber-300'}`}>
-              Missing invoices overdue: {missingInvoiceCount}
-            </p>
-            <p className={`text-xs ${missingInvoiceCount >= 3 ? 'text-red-400/70' : 'text-amber-400/70'}`}>
-              Supplier invoices expected but not yet received — chase or resolve
-            </p>
-          </div>
-          <ArrowRight className={`h-4 w-4 transition-colors shrink-0 ${missingInvoiceCount >= 3 ? 'text-red-400/60 group-hover:text-red-400' : 'text-amber-400/60 group-hover:text-amber-400'}`} />
-        </Link>
-      )}
-
-      {/* No bank account warning — shown when cash KPI is non-zero but no bank account configured */}
-      {data !== null && !data.hasBankAccount && (data.headline?.cash ?? 0) !== 0 && (
-        <NoBankAccountWarning />
-      )}
-
-      <OverviewKpiCards
-        kpis={kpis}
-        headline={data?.headline}
-        period={data?.period}
-        onRetry={onRetry ?? (fetchOwn.current ? () => void loadKPIData() : undefined)}
-      />
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

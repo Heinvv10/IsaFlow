@@ -1,6 +1,5 @@
 /**
- * Client-home metric snapshot: the /home metric strip (direct client) and the
- * bureau Level 2 client home.
+ * Client-home metric snapshot: the bureau Level 2 client home.
  *
  * Every figure is the headline figure (accounting reports/headlineFigures), the
  * one definition /accounting and Month-End read too: the posted ledger as at one
@@ -9,9 +8,8 @@
  * profit from the 1st of the month to `asAt`.
  *
  * The CALLER must have already verified that the companyId belongs to the
- * authenticated user: either via getBureauClientForUser (the firm/bureau path,
- * /api/bureau/client/[companyId]) OR via withAuth's company_users membership
- * check on the active company (the direct-client path, /api/home). Every query
+ * authenticated user via getBureauClientForUser (the firm/bureau path,
+ * /api/bureau/client/[companyId]). Every query
  * is scoped to the single companyId; this function adds no new tenant surface.
  */
 import { getHeadlineFigures } from '@/modules/accounting/services/reports/headlineFigures';

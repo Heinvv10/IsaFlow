@@ -28,7 +28,7 @@ export interface WorkbenchMetrics {
 type Row = DbRow;
 
 /** Count bank_transactions not yet reconciled or matched for the company. */
-async function getUnreconciledBankTxns(companyId: string): Promise<number> {
+export async function getUnreconciledBankTxns(companyId: string): Promise<number> {
   const rows = (await sql`
     SELECT COUNT(*)::int AS cnt
     FROM bank_transactions
@@ -44,7 +44,7 @@ async function getUnreconciledBankTxns(companyId: string): Promise<number> {
  * the current operating period (i.e. the earliest open period whose start_date
  * is >= today).  If no open period covers today, falls back to CURRENT_DATE.
  */
-async function getOpenPriorPeriods(companyId: string): Promise<number> {
+export async function getOpenPriorPeriods(companyId: string): Promise<number> {
   const rows = (await sql`
     WITH current_period AS (
       SELECT COALESCE(

@@ -24,12 +24,13 @@ const co = vi.hoisted(() => ({ id: 'co-1' }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: co.id, name: 'D2 Co' }, companies: [{ companyId: 'co-1' }], loading: false }) }));
 vi.mock('@/components/accounting/my-account/TwoFactorSection', () => ({ TwoFactorSection: () => null }));
 vi.mock('@/components/accounting/my-account/ChangeEmailSection', () => ({ ChangeEmailSection: () => null }));
-vi.mock('@/components/accounting/dashboard/OverviewTab', () => ({ OverviewTab: () => null }));
+vi.mock('@/components/accounting/dashboard/OverviewTab', () => ({
+  OverviewTab: ({ kpiLoad }: { kpiLoad?: { data: { headline?: { revenueMtd: number } } | null } }) => <p>tab revenue {kpiLoad?.data?.headline?.revenueMtd ?? 'none'}</p>,
+}));
 vi.mock('@/components/accounting/dashboard/ChartOfAccountsTab', () => ({ ChartOfAccountsTab: () => null }));
 vi.mock('@/components/accounting/dashboard/JournalEntriesTab', () => ({ JournalEntriesTab: () => null }));
 vi.mock('@/components/accounting/dashboard/FiscalPeriodsTab', () => ({ FiscalPeriodsTab: () => null }));
 vi.mock('@/components/accounting/dashboard/ReportsTab', () => ({ ReportsTab: () => null }));
-vi.mock('@/components/accounting/dashboard/DashboardHero', () => ({ DashboardHero: ({ stats }: { stats?: { revenueMtd: number } }) => <p>hero revenue {stats ? stats.revenueMtd : 'none'}</p> }));
 
 import { apiFetch } from '@/lib/apiFetch';
 import MyAccountPage from '../../../pages/accounting/my-account';
@@ -125,15 +126,15 @@ describe('dashboard impersonation exchange', () => {
   });
 });
 
-describe('dashboard hero figures', () => {
+describe('dashboard figures', () => {
   it('a failing reload for another company clears the previous company\'s figures', async () => {
     co.id = 'co-1';
     script(() => ok({ kpis: { revenue: { total: 1 }, revenueMtd: 777 }, headline: { asAt: '2026-11-12', monthStart: '2026-11-01', cash: 0, receivables: { total: 0, overdue: 0 }, payables: { total: 0, overdue: 0 }, revenueMtd: 777, profitMtd: 0, draftInvoices: 0, draftBills: 0, draftJournals: 0, billsDueNext7Days: 0, billsOverdue: 0 }, period: { from: '2025-10-01', to: '2026-11-12' } }));
     const { rerender } = render(<AccountingPage />);
-    expect(await screen.findByText('hero revenue 777')).toBeTruthy();
+    expect(await screen.findByText('tab revenue 777')).toBeTruthy();
     script(() => empty500()); co.id = 'co-2'; rerender(<AccountingPage />);
     expect(await screen.findByText('Could not load the dashboard figures - try again')).toBeTruthy();
-    expect(screen.queryByText('hero revenue 777')).toBeNull(); co.id = 'co-1';
+    expect(screen.queryByText('tab revenue 777')).toBeNull(); co.id = 'co-1';
   });
 });
 
