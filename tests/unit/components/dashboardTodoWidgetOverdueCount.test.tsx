@@ -22,7 +22,7 @@ const rows = (n: number) => Array.from({ length: n }, (_, i) => ({
 const serve = (data: unknown) => vi.mocked(apiFetch).mockResolvedValue(
   new Response(JSON.stringify({ success: true, data }), { status: 200 }),
 );
-const base = { pendingSupplierPayments: [], uncategorizedBankTxns: 0, draftInvoices: 0 };
+const base = { pendingSupplierPayments: [], overdueBillCount: 0, uncategorizedBankTxns: 0, draftInvoices: 0 };
 
 describe('TodoWidget overdue row', () => {
   it('labels the true count while only 10 rows are loaded', async () => {
@@ -35,5 +35,13 @@ describe('TodoWidget overdue row', () => {
     serve({ ...base, overdueInvoiceCount: 3, overdueInvoices: [] });
     render(<TodoWidget />);
     expect(await screen.findByText('3 overdue invoices')).toBeTruthy();
+  });
+
+  it('labels the true overdue supplier bill count, not the 10 rows the API lists', async () => {
+    const bills = Array.from({ length: 10 }, (_, i) => ({ id: `b${i}`, invoiceNumber: `B-${i}`, supplierName: 'S', amount: 1, daysOverdue: 3 }));
+    serve({ ...base, overdueInvoiceCount: 0, overdueInvoices: [], pendingSupplierPayments: bills, overdueBillCount: 12 });
+    render(<TodoWidget />);
+    expect(await screen.findByText('12 overdue supplier bills')).toBeTruthy();
+    expect(screen.queryByText(/10 /)).toBeNull();
   });
 });

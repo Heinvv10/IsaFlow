@@ -6,6 +6,8 @@
  */
 
 import { sql } from '@/lib/neon';
+import { todayInSast } from '@/lib/saDateParser';
+import { AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import type { InvoiceFilters, SupplierInvoiceSort } from './supplierInvoiceQueryService';
 
 // Lookahead windows used in payment-eligibility predicates.
@@ -97,10 +99,18 @@ export function buildInvoiceWhere(companyId: string, f: InvoiceFilters | undefin
     );
   }
   if (f?.dueThisWeek) {
+    // The same population as the headline "Bills due in 7 days" count
+    // (reports/headlineFigures#getHeadlineCounts), so the card and the list it
+    // opens agree: open bills with a balance, due from today (SAST) to today + 7.
+    values.push(Array.from(AP_OPEN_STATUSES));
+    const statuses = values.length;
+    values.push(todayInSast());
+    const today = values.length;
     conds.push(
-      'si.due_date IS NOT NULL'
-      + ` AND si.due_date <= CURRENT_DATE + INTERVAL '${DUE_THIS_WEEK_DAYS} days'`
-      + " AND si.status NOT IN ('paid', 'cancelled')",
+      `si.status = ANY($${statuses}::text[])`
+      + ' AND si.total_amount - COALESCE(si.amount_paid, 0) > 0'
+      + ` AND si.due_date >= $${today}::date`
+      + ` AND si.due_date <= $${today}::date + ${DUE_THIS_WEEK_DAYS}`,
     );
   }
   if (f?.payRunReady) {

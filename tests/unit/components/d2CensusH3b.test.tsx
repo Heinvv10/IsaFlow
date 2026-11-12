@@ -61,7 +61,8 @@ const SETTINGS = { maintenance_mode: false, registration_enabled: true, max_comp
 const KPI = { kpis: { revenue: { total: 0, priorTotal: 0, changePercent: 0 }, expenses: { total: 0, priorTotal: 0 }, grossProfit: { amount: 0, margin: 0 },
   netProfit: { amount: 0, margin: 0 }, cash: { total: 0, priorTotal: 0, change: 0 }, receivables: { total: 0, overdue: 0, avgDebtorDays: 0 },
   payables: { total: 0, overdue: 0, avgCreditorDays: 0 }, activity: { invoicesIssued: 0, paymentsReceived: 0, journalsPosted: 0 } },
-  revenueChart: [], cashFlowChart: [], arAging: [], apAging: [], topCustomers: [], topExpenses: [], hasBankAccount: true };
+  revenueChart: [], cashFlowChart: [], arAging: [], apAging: [], topCustomers: [], topExpenses: [], hasBankAccount: true,
+  headline: { asAt: '2026-11-12', monthStart: '2026-11-01', cash: 0, receivables: { total: 0, overdue: 0 }, payables: { total: 0, overdue: 0 }, revenueMtd: 0, profitMtd: 0, draftInvoices: 0, draftBills: 0, draftJournals: 0, billsDueNext7Days: 0, billsOverdue: 0 }, period: { from: '2025-10-01', to: '2026-11-12' } };
 const PERIOD = { yyyymm: '202601', periodDate: '2026-01-31', policyCost: 1000, policyOpeningAccDep: 0, policyCurrentDep: 10, policyClosingAccDep: 10,
   policyCarryingAmount: 990, taxCost: 1000, taxOpeningAccDep: 0, taxCurrentDep: 20, taxClosingAccDep: 20, taxCarryingAmount: 980, deferredTax: 1,
   disposalProceeds: null, policyProfitLoss: null, taxProfitLoss: null };

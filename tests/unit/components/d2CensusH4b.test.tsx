@@ -48,7 +48,7 @@ describe('Accounting dashboard hero figures', () => {
     expect(await screen.findByText('Could not load the dashboard figures - try again')).toBeTruthy(); noRawJson();
   });
   it('shows the figures on success', async () => {
-    script([[SITE, () => okRes({ kpis: { revenue: { total: 999999 }, revenueMtd: 123456, receivables: { total: 5 }, cash: { total: 7 } } })]]); render(<AccountingPage />);
+    script([[SITE, () => okRes({ kpis: { revenue: { total: 999999 }, revenueMtd: 123456, receivables: { total: 5 }, cash: { total: 7 } }, headline: { asAt: '2026-11-12', monthStart: '2026-11-01', cash: 7, receivables: { total: 5, overdue: 0 }, payables: { total: 0, overdue: 0 }, revenueMtd: 123456, profitMtd: 0, draftInvoices: 0, draftBills: 0, draftJournals: 0, billsDueNext7Days: 0, billsOverdue: 0 }, period: { from: '2025-10-01', to: '2026-11-12' } })]]); render(<AccountingPage />);
     expect(await screen.findByText(formatMoney(123456).replace(/\s/g, ' '))).toBeTruthy();
   });
 });

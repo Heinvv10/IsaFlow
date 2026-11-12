@@ -1,6 +1,6 @@
 /**
  * pages/accounting/index.tsx loads:
- *  - the hero's "Revenue MTD" is the month-to-date figure (kpis.revenueMtd), not
+ *  - the hero's "Revenue MTD" is the month-to-date figure (headline.revenueMtd), not
  *    the ~13-month revenue total the Revenue card shows;
  *  - a kpi-dashboard response that lands after the company changed is dropped,
  *    so the old company's figures never replace the new one's;
@@ -49,6 +49,8 @@ const kpiBody = (revenueTotal: number, revenueMtd: number, ar: number) => ({
     receivables: { ...money, total: ar }, payables: money,
     activity: { invoicesIssued: 0, paymentsReceived: 0, journalsPosted: 0 } },
   revenueChart: [], cashFlowChart: [], arAging: [], apAging: [], topCustomers: [], topExpenses: [], hasBankAccount: true,
+  // The hero reads the headline figures (reports/headlineFigures), not kpis.
+  headline: { asAt: '2026-11-12', monthStart: '2026-11-01', cash: 0, receivables: { total: ar, overdue: 0 }, payables: { total: 0, overdue: 0 }, revenueMtd: revenueMtd, profitMtd: 0, draftInvoices: 0, draftBills: 0, draftJournals: 0, billsDueNext7Days: 0, billsOverdue: 0 }, period: { from: '2025-10-01', to: '2026-11-12' },
 });
 const setupBody = () => ok(buildSetupProgress(ALL_FACTS));
 const calls = (needle: string) => vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u).includes(needle)).length;

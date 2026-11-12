@@ -1,10 +1,13 @@
 // tests/integration/month-end-ar-parity.int.test.ts
 //
-// The Month-End "Sales & Receivables" card must show the same overdue figure as
-// the invoice-list tile (getAROutstandingSummary). It used to age receivables
-// as at the period's last day, so for a current month every invoice due between
-// today and month end counted as overdue (dev Demo: R 3 680.00 above the tile).
-// The fixture carries exactly that invoice, plus the card's formatting.
+// The Month-End "Sales & Receivables" card, in a current period, says the
+// headline receivables figure (reports/headlineFigures): the aged debtors open
+// book as at TODAY (getOpenBook), the figure /accounting and /home show. It used
+// to age receivables as at the period's last day, so for a current month every
+// invoice due between today and month end counted as overdue (dev Demo:
+// R 3 680.00 above the tile), and later read the live-status aggregate, which
+// counts an invoice dated after today (NOT_ISSUED_BAL here) that the headline
+// leaves out. The fixture carries both, plus the card's formatting.
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
@@ -14,6 +17,9 @@ import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
 import { getSalesFigures } from '@/modules/accounting/services/workbench/monthEndSalesFigures';
 import { getAROutstandingSummary } from '@/modules/accounting/services/ar/arOutstandingService';
+import { getOpenBook } from '@/modules/accounting/services/reports/dashboardOpenBook';
+import { formatDisplayDate } from '@/utils/dateFormat';
+import { todayInSast } from '@/lib/saDateParser';
 import { fmtDate } from '@/lib/fmtDate';
 import { formatMoney } from '@/lib/money/formatMoney';
 
@@ -44,7 +50,7 @@ function addDays(base: Date, days: number): string {
   return fmtDate(d);
 }
 
-describeIfDb('month-end Sales card agrees with the shared AR aggregate', () => {
+describeIfDb('month-end Sales card is the headline receivables figure', () => {
   let admin: Pool;
   const now = new Date();
   // Next month: its last day is always after today, so the period is open.
@@ -100,25 +106,30 @@ describeIfDb('month-end Sales card agrees with the shared AR aggregate', () => {
     expect(overdueOf(await getARAging(COMPANY, periodEnd))).toBeGreaterThanOrEqual(OVERDUE_BAL + OLD_BAL + DUE_SOON_BAL);
   });
 
-  it('a current-period card equals the aggregate on overdue, outstanding and customer count', async () => {
-    const summary = await getAROutstandingSummary(COMPANY);
+  it('a current-period card equals the open book as at today on overdue, outstanding and customer count', async () => {
+    const today = todayInSast();
+    const book = await getOpenBook(COMPANY, 'ar', today);
     const sales = (await getMonthEndWorkbench(COMPANY, period)).cards.find((c) => c.id === 'sales')!;
-    expect(sales.primary).toBe(`${formatMoney(summary.overdueAmount)} overdue`);
-    // OUTSTANDING includes the not-yet-issued invoice the aging drops, so this
-    // fails if `total` is read from anywhere but the aggregate.
-    expect(sales.secondary).toBe(`${formatMoney(summary.outstanding)} outstanding · 2 customers`);
-    // The aging at today sees only CUSTOMER (the invoice dated ahead of today is not in it yet).
+    // Overdue includes the disputed balance, as the dashboard tile's does; the invoice due in 3 days is not overdue.
+    expect(book.overdue).toBeCloseTo(OVERDUE_BAL + OLD_BAL + DISPUTED_BAL, 2);
+    expect(sales.primary).toBe(`${formatMoney(book.overdue)} overdue`);
+    // The invoice dated after today is not in it: the live-status aggregate (OUTSTANDING) is.
+    expect(book.total).toBeCloseTo(OUTSTANDING - NOT_ISSUED_BAL, 2);
+    expect((await getAROutstandingSummary(COMPANY)).outstanding).toBeCloseTo(OUTSTANDING, 2);
+    expect(sales.secondary).toBe(`${formatMoney(OUTSTANDING - NOT_ISSUED_BAL)} outstanding · 1 customers · as at ${formatDisplayDate(today)}`);
     expect((await getARAging(COMPANY, fmtDate(now))).length).toBe(1);
-    expect(summary.outstanding).toBeCloseTo(OUTSTANDING, 2);
-    expect(sales.href).toBe('/accounting/debtors-manager');
+    expect(sales.href).toBe('/accounting/ar-aging');
   });
 
   it('a period ending today is current (>= today), one ending yesterday is past', async () => {
-    const summary = await getAROutstandingSummary(COMPANY);
     const onBoundary = await getSalesFigures(COMPANY, periodEnd, periodEnd);
-    expect(onBoundary.overdue).toBeCloseTo(summary.overdueAmount, 2);
-    expect(onBoundary.total).toBeCloseTo(summary.outstanding, 2);
+    const book = await getOpenBook(COMPANY, 'ar', periodEnd);
+    expect(onBoundary.past).toBe(false);
+    expect(onBoundary.asAt).toBe(periodEnd);
+    expect(onBoundary.overdue).toBeCloseTo(book.overdue, 2);
+    expect(onBoundary.total).toBeCloseTo(book.total, 2);
     const dayAfter = await getSalesFigures(COMPANY, periodEnd, addDays(new Date(periodEnd + 'T12:00:00'), 1));
+    expect(dayAfter.past).toBe(true);
     expect(dayAfter.overdue).toBeCloseTo(overdueOf(await getARAging(COMPANY, periodEnd)), 2);
   });
 
@@ -128,7 +139,8 @@ describeIfDb('month-end Sales card agrees with the shared AR aggregate', () => {
     expect(rewound).toBeCloseTo(AP_OVERDUE + AP_OLD + AP_DUE_SOON, 2);
     const purchases = (await getMonthEndWorkbench(COMPANY, period)).cards.find((c) => c.id === 'purchases')!;
     expect(purchases.primary).toBe(`${formatMoney(AP_OVERDUE + AP_OLD)} overdue`);
-    expect(purchases.secondary).toBe(`${formatMoney(AP_OVERDUE + AP_OLD + AP_DUE_SOON)} outstanding · 1 suppliers`);
+    expect(purchases.secondary).toBe(
+      `${formatMoney(AP_OVERDUE + AP_OLD + AP_DUE_SOON)} outstanding · 1 suppliers · as at ${formatDisplayDate(todayInSast())}`);
   });
 
   it('banking card prints the last reconciliation as dd MMM yyyy', async () => {

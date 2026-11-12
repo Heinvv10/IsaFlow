@@ -31,6 +31,8 @@ interface TodoData {
   overdueInvoices: OverdueInvoice[];
   overdueInvoiceCount: number;
   pendingSupplierPayments: PendingSupplierPayment[];
+  /** True overdue supplier bill count (headline figure); pendingSupplierPayments is only the first 10 rows. */
+  overdueBillCount: number;
   uncategorizedBankTxns: number;
   draftInvoices: number;
 }
@@ -129,7 +131,7 @@ export function TodoWidget({ setupOpen = false, setupUnknown = false }: { setupO
     !error &&
     data !== null &&
     data.overdueInvoiceCount === 0 &&
-    data.pendingSupplierPayments.length === 0 &&
+    data.overdueBillCount === 0 &&
     data.uncategorizedBankTxns === 0 &&
     data.draftInvoices === 0;
 
@@ -147,7 +149,16 @@ export function TodoWidget({ setupOpen = false, setupUnknown = false }: { setupO
       )}
 
       {!loading && error && (
-        <p className="text-sm text-rose-600 dark:text-rose-400 px-4 py-3">{error}</p>
+        <div role="alert" className="flex flex-wrap items-center gap-3 px-4 py-3">
+          <p className="text-sm text-rose-600 dark:text-rose-400">{error}</p>
+          <button
+            type="button"
+            onClick={() => void loadData()}
+            className="rounded-md border border-[var(--ff-border-light)] px-3 py-1 text-xs font-medium text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)]"
+          >
+            Retry
+          </button>
+        </div>
       )}
 
       {!loading && !error && isAllClear && setupUnknown && (
@@ -163,7 +174,7 @@ export function TodoWidget({ setupOpen = false, setupUnknown = false }: { setupO
           <CheckCircle2 className="h-5 w-5 text-brand-500" aria-hidden="true" />
           <div>
             <p className="text-sm font-medium text-[var(--ff-text-primary)]">All caught up!</p>
-            <p className="text-xs text-[var(--ff-text-secondary)]">No overdue invoices, supplier payments, uncategorised bank lines or drafts.</p>
+            <p className="text-xs text-[var(--ff-text-secondary)]">No overdue invoices, overdue supplier bills, uncategorised bank lines or drafts.</p>
           </div>
         </div>
       )}
@@ -185,12 +196,12 @@ export function TodoWidget({ setupOpen = false, setupUnknown = false }: { setupO
             </>
           )}
 
-          {/* Pending supplier payments */}
-          {data.pendingSupplierPayments.length > 0 && (
+          {/* Overdue supplier bills: the true count, not the 10 rows the API lists */}
+          {data.overdueBillCount > 0 && (
             <ActionRow
-              label={`${data.pendingSupplierPayments.length} supplier payment${data.pendingSupplierPayments.length !== 1 ? 's' : ''} due`}
+              label={`${data.overdueBillCount} overdue supplier bill${data.overdueBillCount !== 1 ? 's' : ''}`}
               href="/accounting/supplier-invoices"
-              badge={data.pendingSupplierPayments.length}
+              badge={data.overdueBillCount}
               badgeColor="amber"
             />
           )}
