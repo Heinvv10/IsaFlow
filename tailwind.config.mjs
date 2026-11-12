@@ -149,6 +149,16 @@ export default {
           '700': 'rgb(var(--ff-brand-700-rgb) / <alpha-value>)',
           '800': 'rgb(var(--ff-brand-800-rgb) / <alpha-value>)',
         },
+        // River: marketing-only palette (landing hero and the South Africa band). Not for app screens.
+        river: {
+          deep: '#071A24',
+          current: '#0F766E',
+          teal: '#14B8A6',
+          shallows: '#5EEAD4',
+          mist: '#E6F4F1',
+          sand: '#F6F1E7',
+          ember: '#F59E0B',
+        },
         // Semantic theme tokens (values in styles/globals.css, light and dark). Prefer these to
         // a fixed palette stop: they flip with the theme, so nothing stays dark on a white page.
         surface: {
