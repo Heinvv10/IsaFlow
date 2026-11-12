@@ -1,6 +1,7 @@
 /**
  * Bank Statement Imports — PRD-05 Phase 7
- * Lists all bank statement PDF imports with status and navigation to review.
+ * Lists all bank statement PDF imports with status and navigation to review,
+ * and (PairedExtensionsPanel) any paired browser extension, with its revoke.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -9,6 +10,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, AlertCircle, Upload, FileText } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { PairedExtensionsPanel } from '@/components/accounting/bank/PairedExtensionsPanel';
 
 type ImportStatus = 'extracting' | 'extracted' | 'reviewing' | 'committed' | 'rolled_back' | 'failed';
 
@@ -96,6 +98,8 @@ export default function BankStatementsIndexPage() {
         </div>
 
         <div className="px-6 py-4">
+          <PairedExtensionsPanel />
+
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-900/30 text-red-400 text-sm mb-4">
               <AlertCircle className="h-4 w-4 shrink-0" />{error}

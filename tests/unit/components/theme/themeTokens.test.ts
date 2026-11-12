@@ -30,13 +30,12 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-// Surfaces text sits on: page, card, secondary, hover/chip, and (dark) the lightest chip behind text.
-const SURFACES = {
-  ':root': ['#ffffff', '#f9fafb', '#f3f4f6'],
-  '.dark': ['#0f172a', '#1e293b', '#334155'],
-} as const;
+// Surfaces text sits on, read from the same block: page, card, well/hover, kit secondary and the field fill.
+// The page comes first (the hierarchy check below measures on it).
+const SURFACE_TOKENS = ['--ff-bg-primary', '--ff-bg-secondary', '--ff-bg-tertiary', '--ff-surface-secondary', '--ff-field-bg'];
 
-describe.each(Object.entries(SURFACES))('%s text tokens', (scope, surfaces) => {
+describe.each([':root', '.dark'])('%s text tokens', (scope) => {
+  const surfaces = SURFACE_TOKENS.map((name) => token(scope, name));
   const primary = token(scope, '--ff-text-primary');
   const secondary = token(scope, '--ff-text-secondary');
   const tertiary = token(scope, '--ff-text-tertiary');
