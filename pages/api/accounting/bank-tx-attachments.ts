@@ -16,6 +16,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { isReconciledLine, RECONCILED_DOCUMENT_REMOVAL } from '@/modules/accounting/services/bank/bankTxAnnotations';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -169,6 +170,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         || typeof bankTransactionId !== 'string' || !isValidUUID(bankTransactionId)) {
         return apiResponse.badRequest(res, 'documentId and bankTransactionId must be ids');
       }
+      if (await isReconciledLine(companyId, { bankTxId: bankTransactionId })) {
+        return apiResponse.conflict(res, RECONCILED_DOCUMENT_REMOVAL);
+      }
       let outcome: Awaited<ReturnType<typeof unlinkCapturedDocFromBankTx>>;
       try {
         outcome = await unlinkCapturedDocFromBankTx(companyId, documentId, bankTransactionId);
@@ -182,6 +186,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     if (!id || typeof id !== 'string' || !isValidUUID(id)) {
       return apiResponse.badRequest(res, 'id query param must be an attachment id');
+    }
+
+    if (await isReconciledLine(companyId, { attachmentId: id })) {
+      return apiResponse.conflict(res, RECONCILED_DOCUMENT_REMOVAL);
     }
 
     // Deleting only the copy of a linked captured document would bring the document back as uncopied on the next

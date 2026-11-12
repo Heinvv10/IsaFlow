@@ -96,6 +96,12 @@ export interface BankTransaction {
   buId?: string;
   createdAt: string;
   updatedAt: string;
+  /** Mig 980 review stamp (no reviewedBy = reviewer unknown); recon* = the reconciliation it sits in. */
+  reviewedAt?: string;
+  reviewedBy?: string;
+  reviewedByName?: string;
+  reconStatus?: BankReconStatus;
+  reconStatementDate?: string;
   // Joined display fields
   bankAccountName?: string;
   matchedEntryNumber?: string;

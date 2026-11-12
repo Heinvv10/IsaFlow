@@ -102,7 +102,7 @@ describe('set-based writers leave a pending feed row alone', () => {
   it('bulkAcceptTransactions', async () => {
     await seed();
     const { bulkAcceptTransactions } = await import('@/modules/accounting/services/bank/bankTransactionQueryService');
-    const n = await inRequest(() => bulkAcceptTransactions(company, [postedId, pendingId]));
+    const n = await inRequest(() => bulkAcceptTransactions(company, [postedId, pendingId], user));
     expect(n).toBe(1);
     await pendingUntouched();
   });

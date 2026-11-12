@@ -13,6 +13,7 @@ import { log } from '@/lib/logger';
 import type { BankTransaction } from '../../types/bank.types';
 import { fmtDate, mapTxRow } from './bankTxRowMapper';
 import { TX_SELECT, allocationCond } from './bankTxQueryFragments';
+import { tabStatusCond } from './bankTxTabCond';
 import {
   decodeBankTxCursor,
   encodeBankTxCursor,
@@ -81,10 +82,8 @@ export async function getBankTransactions(
       const toDate = filters.toDate || '2099-12-31';
       const fromAmt = filters.fromAmount || '-999999999';
       const toAmt = filters.toAmount || '999999999';
-      // For "New Transactions" tab always include both imported + allocated statuses
-      const statusArr = filters.status === 'imported'
-        ? ['imported', 'allocated']
-        : [filters.status];
+      // The tab's lines (./bankTxTabCond): New = waiting for review, Reviewed = reviewed + reconciled.
+      const tabCond = tabStatusCond(filters.status, filters.reconFilter);
       // SAFETY INVARIANT: all condition strings below are built from fixed string
       // literals keyed on validated enum values — no user input is interpolated
       // directly. The final `extra` fragment is therefore safe.
@@ -108,7 +107,7 @@ export async function getBankTransactions(
       rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
           AND bt.company_id = ${companyId}::UUID
-          AND bt.status = ANY(${statusArr}::TEXT[])
+          ${sql.unsafe(tabCond)}
           AND bt.feed_state <> 'removed'
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
           AND bt.amount >= ${fromAmt}::NUMERIC AND bt.amount <= ${toAmt}::NUMERIC
@@ -120,7 +119,7 @@ export async function getBankTransactions(
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions bt
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
           AND bt.company_id = ${companyId}::UUID
-          AND bt.status = ANY(${statusArr}::TEXT[])
+          ${sql.unsafe(tabCond)}
           AND bt.feed_state <> 'removed'
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
           AND bt.amount >= ${fromAmt}::NUMERIC AND bt.amount <= ${toAmt}::NUMERIC
@@ -227,16 +226,18 @@ export async function deleteTransactions(companyId: string, bankTxIds: string[])
   }
 }
 
-/** Mark a batch of imported/allocated transactions as matched without creating journal entries. */
-export async function bulkAcceptTransactions(companyId: string, ids: string[]): Promise<number> {
+/** Review a batch of imported/allocated lines: matched, stamped reviewed by `userId` (mig 980), no journal written. */
+export async function bulkAcceptTransactions(companyId: string, ids: string[], userId: string): Promise<number> {
   if (ids.length === 0) return 0;
   try {
     // D12 round 2: under the 5 s budget — the stale-stamp fragment's FOR SHARE (and the row locks) on lines this
     // path does not lock first must not wait unbounded on a held session; held -> RowLockTimeoutError, 503.
     const result = await underStampBudget(async () => (await sql`
       UPDATE bank_transactions SET status = 'matched', updated_at = NOW(),
+        reviewed_at = NOW(), reviewed_by = ${userId}::UUID,
         reconciliation_id = ${openStampOnly(companyId)} -- D12: clears the stale stamp of a completed session
-      WHERE id = ANY(${ids}::UUID[]) AND status IN ('imported', 'allocated')
+      WHERE id = ANY(${ids}::UUID[])
+        AND (status IN ('imported', 'allocated') OR (status = 'matched' AND reviewed_at IS NULL))
         AND feed_state = 'posted'
         AND company_id = ${companyId}::UUID
       RETURNING id`) as Row[]);

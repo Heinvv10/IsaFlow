@@ -41,11 +41,11 @@ beforeAll(async () => {
      VALUES($1,$2,'1100','Current account','asset','debit'),($3,$4,'1100','Their account','asset','debit')`,
     [bankAccount, company, foreignAccount, other]);
   await pool.query(
-    `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status)
-     VALUES($1,$2,$3,'2026-08-01',100,'Imported','imported'),
-           ($4,$2,$3,'2026-08-02',200,'Allocated','allocated'),
-           ($5,$2,$3,'2026-08-03',300,'Already matched','matched'),
-           ($6,$2,$3,'2026-08-04',400,'Excluded','excluded')`,
+    `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status,reviewed_at)
+     VALUES($1,$2,$3,'2026-08-01',100,'Imported','imported',NULL),
+           ($4,$2,$3,'2026-08-02',200,'Allocated','allocated',NULL),
+           ($5,$2,$3,'2026-08-03',300,'Already reviewed','matched',NOW()),
+           ($6,$2,$3,'2026-08-04',400,'Excluded','excluded',NULL)`,
     [imported, company, bankAccount, allocated, alreadyMatched, excluded]);
   await pool.query(
     `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status)
@@ -69,21 +69,26 @@ afterAll(async () => {
 });
 
 it('counts the rows the status predicate matched, not the ids it was handed', async () => {
-  const count = await bulkAcceptTransactions(company, [imported, allocated, alreadyMatched, excluded]);
+  const count = await bulkAcceptTransactions(company, [imported, allocated, alreadyMatched, excluded], user);
   const matched = await pool.query(
     "SELECT id FROM bank_transactions WHERE company_id=$1 AND status='matched'", [company]);
-  // imported + allocated move; matched and excluded do not.
+  // imported + allocated move; an already-reviewed line and an excluded one do not.
   expect({ count, stored: matched.rows.length }).toEqual({ count: 2, stored: 3 });
+  // Migration 980: the moved lines carry who reviewed them.
+  const stamped = await pool.query(
+    'SELECT id FROM bank_transactions WHERE id=ANY($1) AND reviewed_by=$2 AND reviewed_at IS NOT NULL',
+    [[imported, allocated], user]);
+  expect(stamped.rows.length).toBe(2);
 });
 
 it('does not count or touch another tenant\'s transaction', async () => {
-  const count = await bulkAcceptTransactions(company, [foreignTx]);
+  const count = await bulkAcceptTransactions(company, [foreignTx], user);
   const foreign = await pool.query('SELECT status FROM bank_transactions WHERE id=$1', [foreignTx]);
   expect({ count, foreignStatus: foreign.rows[0].status }).toEqual({ count: 0, foreignStatus: 'imported' });
 });
 
 it('reports zero for an empty id list without touching the table', async () => {
-  expect(await bulkAcceptTransactions(company, [])).toBe(0);
+  expect(await bulkAcceptTransactions(company, [], user)).toBe(0);
 });
 
 it('rejects a bulk_accept with no id list before it reaches the service', async () => {

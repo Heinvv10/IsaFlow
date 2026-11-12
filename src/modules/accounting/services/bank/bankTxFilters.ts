@@ -17,6 +17,8 @@ export interface BankTxFilters {
   txType?: 'all' | 'spent' | 'received';
   allocType?: 'all' | 'account' | 'supplier' | 'customer' | 'transfer';
   hasSuggestion?: 'all' | 'yes' | 'no';
+  /** Reviewed tab only: all reviewed lines, only those not yet reconciled, or only reconciled ones. */
+  reconFilter?: 'all' | 'unreconciled' | 'reconciled';
   limit?: number;
   /** UI paging. The MCP/agent path uses `cursor` instead — an offset page over
    *  a live import double-reads rows. */

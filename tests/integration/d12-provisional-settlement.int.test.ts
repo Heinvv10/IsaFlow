@@ -37,7 +37,8 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12: a se
       JOIN gl_journal_entries e ON e.id = l.journal_entry_id
       WHERE l.gl_account_id = $1 AND e.status = 'posted' AND e.entry_date <= $2`, [bankGl, today])).rows[0].b);
     const rec = await inTx(() => startReconciliation(company, bankGl, today, gl, user));
-    await pool.query('UPDATE bank_transactions SET reconciliation_id = $1 WHERE id = $2', [rec.id, bt]);
+    // Migration 980: completion refuses while a line it reconciles is unreviewed; a person reviewed these.
+    await pool.query('UPDATE bank_transactions SET reconciliation_id = $1, reviewed_at = NOW() WHERE id = $2', [rec.id, bt]);
     await inTx(() => completeReconciliation(company, rec.id, user));
     expect((await pool.query('SELECT status FROM bank_transactions WHERE id = $1', [bt])).rows[0].status).toBe('reconciled');
 
