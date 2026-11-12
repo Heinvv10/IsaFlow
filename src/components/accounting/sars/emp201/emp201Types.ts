@@ -57,7 +57,7 @@ export function exportEmp201Csv(data: EMP201Data, from: string, to: string): voi
     ['ETI brought forward', 'Unused ETI from earlier months (ETI Act s9(1))', data.etiCarry.broughtForward.toFixed(2)],
     ['ETI used', 'ETI set off against PAYE', data.etiCarry.used.toFixed(2)],
     ['ETI carried forward', 'Unused ETI for the next month', data.etiCarry.carriedForward.toFixed(2)],
-    ['ETI refund claimable', 'Unused ETI at the end of August or February, claimed on the EMP501 (s10)', data.etiCarry.refundClaimable.toFixed(2)],
+    ['ETI refund claimable', 'Unused ETI at the end of August or February: claimed on the EMP501 (s10)', data.etiCarry.refundClaimable.toFixed(2)],
     ['PAYE Payable', 'PAYE net of ETI used', data.payePayable.toFixed(2)],
     ['UIF (Employee)', 'UIF employee contribution', data.totalUIF_employee.toFixed(2)],
     ['UIF (Employer)', 'UIF employer contribution', data.totalUIF_employer.toFixed(2)],
