@@ -10,8 +10,11 @@
  *   the first write) when a recorded (employee, directive) of that run would not be applied again: the employee left the
  *   run's population, became an independent contractor, or the directive is not the one in force for the period. A
  *   directive legitimately shortened stays in force for every run it taxed (the expiry guard), so it never trips this.
- *   One exit (round 4 L2): an employee who really left before the period, whose directive was ended at the leave date
- *   (the expiry guard allows that date only for a leaver), may leave the run: no line is left for the tables to tax.
+ *   One exit (round 4 L2): an employee who really left BEFORE the taxed period (end date before its first day), whose
+ *   directive was ended at the leave date (the expiry guard allows that only for such a leaver), may leave the run: no
+ *   line is left for the tables to tax. The exit holds only while the end date does: assertEndDateKeepsDirectiveExits
+ *   refuses (409) an end-date change that would leave such a run taxed without its directive (security review, round 4).
+ * - regularDirectiveUsesAfter: the recorded uses judged after a date (the expiry guard's leaver check).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
@@ -63,8 +66,9 @@ export async function assertRunKeepsItsDirectives(
 ): Promise<void> {
   const uses = (await sql`
     SELECT u.employee_id, u.directive_id, d.directive_number, e.employee_number,
-           -- Ended at the leave date (expiry before this run's judge date, allowed only for a leaver): the leaver may leave the run.
+           -- Ended at the leave date of an employee who left BEFORE this taxed period: the leaver may leave the run.
            (d.status = 'approved' AND ${directiveEndsOnSql('d')} < u.judge_date AND e.end_date IS NOT NULL
+            AND e.end_date < make_date(u.period_year, u.period_month, 1)
             AND ${directiveEndsOnSql('d')} >= e.end_date) AS ended_at_leave
     FROM payroll_run_directive_uses u
     JOIN tax_directives d ON d.id = u.directive_id AND d.company_id = u.company_id
@@ -86,5 +90,48 @@ export async function assertRunKeepsItsDirectives(
     + 'tax status, since an independent contractor takes no directive; or their end date or status) and recalculate; or, for an employee '
     + 'who really left before this period, end the directive at the leave date, or at its effective date if that is later (Payroll, Tax directives, Set expiry), '
     + 'then recalculate, which takes the leaver out of this run.',
+  );
+}
+
+/** The recorded uses of a directive judged after `date`: each run's first day (YYYY-MM-DD) and period (YYYY-MM). */
+export async function regularDirectiveUsesAfter(companyId: string, directiveId: string, date: string): Promise<Array<{ firstDay: string; period: string }>> {
+  const rows = (await sql`
+    SELECT make_date(period_year, period_month, 1)::text AS first_day, period_year, period_month
+    FROM payroll_run_directive_uses
+    WHERE company_id = ${companyId}::uuid AND directive_id = ${directiveId}::uuid AND judge_date > ${date}::date
+    ORDER BY first_day
+  `) as DbRow[];
+  return rows.map(r => ({ firstDay: String(r.first_day), period: `${String(r.period_year)}-${String(r.period_month).padStart(2, '0')}` }));
+}
+
+export class EmployeeEndDateDirectiveError extends Error {
+  readonly code = 'EMPLOYEE_END_DATE_DIRECTIVE';
+  constructor(message: string) {
+    super(message);
+    this.name = 'EmployeeEndDateDirectiveError';
+  }
+}
+
+/**
+ * Called by the employee update, under the employee row lock and the company payroll lock, when the end date changes: refuse
+ * (409, before the write) a new end date that would no longer explain a directive ended before a run it taxed (the leaver
+ * exit): the employee must have left before that run's period, on or before the directive's end.
+ */
+export async function assertEndDateKeepsDirectiveExits(db: TxSql, companyId: string, employeeId: string, newEnd: string): Promise<void> {
+  const rows = (await db`
+    SELECT d.directive_number, d.id AS directive_id, u.period_year, u.period_month,
+           make_date(u.period_year, u.period_month, 1)::text AS first_day, (${directiveEndsOnSql('d')})::text AS ends_on
+    FROM payroll_run_directive_uses u
+    JOIN tax_directives d ON d.id = u.directive_id AND d.company_id = u.company_id
+    WHERE u.company_id = ${companyId}::uuid AND u.employee_id = ${employeeId}::uuid
+      AND d.status = 'approved' AND ${directiveEndsOnSql('d')} < u.judge_date
+  `) as DbRow[];
+  const broken = rows.filter(r => !(newEnd < String(r.first_day) && String(r.ends_on) >= newEnd));
+  if (broken.length === 0) return;
+  const r = broken[0]!;
+  throw new EmployeeEndDateDirectiveError(
+    `SARS directive ${String(r.directive_number ?? r.directive_id)} was ended on ${String(r.ends_on)}, before the `
+    + `${String(r.period_year)}-${String(r.period_month).padStart(2, '0')} payroll run it taxed, because this employee left before that period. `
+    + 'That end date cannot change now: the run would no longer be explained. Keep the end date, or ask your accountant how to correct the leave.',
   );
 }

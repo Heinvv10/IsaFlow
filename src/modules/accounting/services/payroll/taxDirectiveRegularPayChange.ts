@@ -26,7 +26,7 @@ import {
   assertNoRegularDirectiveOverlap, directiveEndsOn, lockEmployeeRegularDirectives, TaxDirectiveWindowError,
 } from './taxDirectiveOverlap';
 import { declarableRunInWindow } from './payrollRunRegularDirective';
-import { regularDirectiveLatestUse } from './payrollRunDirectiveUses';
+import { regularDirectiveLatestUse, regularDirectiveUsesAfter } from './payrollRunDirectiveUses';
 import { REGULAR_PAY_DIRECTIVE_TYPES } from './taxDirectiveKinds';
 import { payrollApprovalLockScope } from './payrollRunLock';
 import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
@@ -118,11 +118,17 @@ export async function judgeRegularDirectiveChange(
     if (change.expiry_date > current) {
       throw new TaxDirectiveWindowError(`An expiry date can only shorten the directive: it runs to ${current} now. SARS issues a new directive for a longer period.`);
     }
-    // Before a run it taxed only to end it at the employee's leave date (a legitimate leaver, round 4 L2): the recalculation
-    // guard then lets that run drop the leaver, who has no line left to be taxed by the tables.
-    if (used && change.expiry_date < used.judgeDate && !(row.employeeEndDate != null && change.expiry_date >= row.employeeEndDate)) {
-      throw new TaxDirectiveWindowError(`${label} taxed the ${used.period} payroll run (paid ${used.judgeDate}): the expiry date cannot be before that, `
-        + 'unless the employee has left: then it may end on or after their leave date.');
+    // Before a run it taxed only to end it at the leave date of an employee who left BEFORE every such run's period (a
+    // legitimate leaver, round 4 L2; end date read under the company payroll lock and the employee lock, as the employee
+    // update takes the same company lock): the recalculation guard then lets those runs drop the leaver.
+    if (used && change.expiry_date < used.judgeDate) {
+      const end = row.employeeEndDate;
+      const later = await regularDirectiveUsesAfter(companyId, row.id, change.expiry_date);
+      const leaver = end != null && change.expiry_date >= end && later.every(u => end < u.firstDay);
+      if (!leaver) {
+        throw new TaxDirectiveWindowError(`${label} taxed the ${used.period} payroll run (paid ${used.judgeDate}): the expiry date cannot be before that, `
+          + 'unless the employee left before that period: then it may end on or after their leave date.');
+      }
     }
   }
   if ((change.status ?? row.status) === 'approved') {
