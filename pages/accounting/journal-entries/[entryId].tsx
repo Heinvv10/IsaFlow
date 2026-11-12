@@ -4,7 +4,8 @@
  * Shows full entry with lines, and actions (post/reverse). R-035 PR6: a draft
  * shows its manual-journal approval state (DocumentApprovalPanel) and offers
  * Post only once nothing holds it; a post refused 409 reloads the entry and
- * shows why, above it.
+ * shows why, above it. Reverse asks first (ReverseJournalDialog, audit P3.2),
+ * and a failed post or reversal keeps the entry on screen with the error above it.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -30,6 +31,7 @@ import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/a
 import { JournalLinesTable } from '@/components/accounting/gl/JournalLinesTable';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import { LinkTaxInvoiceButton } from '@/components/accounting/gl/LinkTaxInvoiceButton';
+import { ReverseJournalDialog } from '@/components/accounting/gl/ReverseJournalDialog';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate, formatDisplayDateLong } from '@/utils/dateFormat';
 
@@ -41,6 +43,9 @@ export default function JournalEntryDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  /** A failed post/reverse: shown above the entry, which stays visible. `error` is for a failed load only. */
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmReverse, setConfirmReverse] = useState(false);
 
   const loadEntry = useCallback(async () => {
     setIsLoading(true);
@@ -66,26 +71,29 @@ export default function JournalEntryDetailPage() {
     if (entryId) void loadEntry();
   }, [entryId, loadEntry]);
 
-  const handleAction = useCallback(async (action: 'post' | 'reverse') => {
+  const handleAction = useCallback(async (action: 'post' | 'reverse', reversalDate?: string) => {
     if (!entry) return;
     setActionLoading(action);
     setNotice(null);
+    setActionError(null);
     try {
       const res = await apiFetch('/api/accounting/journal-entries-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ id: entry.id, action }),
+        body: JSON.stringify(reversalDate ? { id: entry.id, action, reversal_date: reversalDate } : { id: entry.id, action }),
       });
       if (!res.ok) {
         await assertOk(res, `Could not ${action} the entry - try again`);
       }
       notifyLateClaims(await res.json().catch(() => null)); // post: VAT claimed in a later period (s16(3))
+      setConfirmReverse(false);
       await loadEntry();
     } catch (err) {
       const msg = apiErrorMessage(err, `Could not ${action} the entry - try again`);
       // 409: approval holds the journal (or it changed): reload to show its state, and say why beside it.
-      if (err instanceof ApiRequestError && err.status === 409) { await loadEntry(); setNotice(msg); } else setError(msg);
+      if (err instanceof ApiRequestError && err.status === 409) { await loadEntry(); setNotice(msg); } else setActionError(msg);
+      setConfirmReverse(false);
       log.error('Journal entry action failed', { entryId, action, error: err }, 'accounting-ui');
     } finally {
       setActionLoading(null);
@@ -150,7 +158,7 @@ export default function JournalEntryDetailPage() {
 
                 {entry.status === 'posted' && !entry.reversedBy && (
                   <button
-                    onClick={() => handleAction('reverse')}
+                    onClick={() => setConfirmReverse(true)}
                     disabled={actionLoading === 'reverse'}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium disabled:opacity-50"
                   >
@@ -186,6 +194,12 @@ export default function JournalEntryDetailPage() {
           ) : entry ? (
             <div className="space-y-6">
               {notice && <p className="text-sm text-amber-500">{notice}</p>}
+              {actionError && (
+                <div role="alert" className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 flex items-start gap-2 text-sm text-red-400">
+                  <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <span>{actionError}</span>
+                </div>
+              )}
               {/* Entry Details */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6">
@@ -249,6 +263,20 @@ export default function JournalEntryDetailPage() {
           ) : null}
         </div>
       </div>
+      {entry && (
+        <ReverseJournalDialog
+          open={confirmReverse}
+          entry={{
+            entryNumber: entry.entryNumber,
+            entryDate: entry.entryDate,
+            totalDebit: entry.lines?.reduce((s, l) => s + Number(l.debit), 0) || 0,
+            lineCount: entry.lines?.length || 0,
+          }}
+          busy={actionLoading === 'reverse'}
+          onConfirm={(reversalDate) => void handleAction('reverse', reversalDate)}
+          onCancel={() => setConfirmReverse(false)}
+        />
+      )}
     </AppLayout>
   );
 }

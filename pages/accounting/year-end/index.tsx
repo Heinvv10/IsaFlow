@@ -11,6 +11,7 @@ import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { YearEndConfirmDialog } from '@/components/accounting/yearEnd/YearEndConfirmDialog';
 
 interface FiscalYear {
   year_label: string;
@@ -32,6 +33,7 @@ export default function YearEndPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+  const [confirmYear, setConfirmYear] = useState<FiscalYear | null>(null);
 
   const loadYears = useCallback(async () => {
     setIsLoading(true);
@@ -57,7 +59,7 @@ export default function YearEndPage() {
       const res = await apiFetch('/api/accounting/year-end', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ yearLabel, action: 'close' }),
+        body: JSON.stringify({ yearLabel, action: 'close', confirm: true }),
       });
       await assertOk(res, 'Could not run year-end processing - try again');
       const json = await res.json();
@@ -80,6 +82,7 @@ export default function YearEndPage() {
       setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not run year-end processing - try again') });
     } finally {
       setIsProcessing(false);
+      setConfirmYear(null);
     }
   };
 
@@ -204,7 +207,7 @@ export default function YearEndPage() {
 
                   {fy.status !== 'closed' && (
                     <button
-                      onClick={() => processYearEnd(fy.year_label)}
+                      onClick={() => setConfirmYear(fy)}
                       disabled={isProcessing || fy.periods_open > 0 || fy.revenue_error || fy.expense_error}
                       className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm"
                     >
@@ -222,6 +225,12 @@ export default function YearEndPage() {
           )}
         </div>
       </div>
+      <YearEndConfirmDialog
+        year={confirmYear}
+        busy={isProcessing}
+        onConfirm={(label) => void processYearEnd(label)}
+        onCancel={() => setConfirmYear(null)}
+      />
     </AppLayout>
   );
 }

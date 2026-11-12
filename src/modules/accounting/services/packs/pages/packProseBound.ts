@@ -11,31 +11,16 @@
  */
 import { fallbackClusterIn } from './packFallbackWidthCore';
 import { graphemes } from './packGraphemes';
-import { PROSE_ADVANCES, PROSE_ADVANCE_UNITS } from './packProseAdvanceData';
-import { PROSE_FACES, PROSE_FALLBACK, PROSE_FALLBACK_RANGES } from './packProseFallbackData';
+import { PROSE_ADVANCE_UNITS } from './packProseAdvanceData';
+import { PROSE_FALLBACK, PROSE_FALLBACK_RANGES } from './packProseFallbackData';
+import { BOUND, FALLBACK_MARK, floored } from './packProseFloor';
 import { KEPT_CHARS, proseFill, SHAPED_CLUSTER, type ProseSegment } from './packProseFill';
 import type { ProseStyle } from './packProseStyles';
 
 /** The size the fallback tables were measured at (`packFigureWidth`'s label size). */
 const FALLBACK_MEASURED_PX = 12;
 
-/** The table's mark for a code point the ruler does not set in the face: it is priced from the fallback tables. */
-export const FALLBACK_MARK = parseInt('zzz', 36);
-
-/** Each code point the faces set (and the ruler sets in them), and its bound in font units. */
-const BOUND = ((): ReadonlyMap<number, number> => {
-  const out = new Map<number, number>();
-  let i = 0;
-  for (const [from, to] of PROSE_FACES) {
-    for (let cp = from; cp <= to; cp += 1) {
-      const units = parseInt(PROSE_ADVANCES.slice(i * 3, i * 3 + 3), 36);
-      if (units !== FALLBACK_MARK) out.set(cp, units);
-      i += 1;
-    }
-  }
-  return out;
-})();
-
+export { FALLBACK_MARK };
 
 /**
  * The most `text` can be wide set at `px` in the regular face (the table is the regular's: page 4's commentary is set in
@@ -49,7 +34,9 @@ export function boundPx(text: string, px: number): number {
     // A cluster the page model does not shape (past SHAPED_CLUSTER) it charges the widest fallback glyph a code point:
     // so does the gate, which is never under the model (#1263 round 3).
     if (segment.length > SHAPED_CLUSTER) fallback += (cps.length * PROSE_FALLBACK.widest * px) / FALLBACK_MEASURED_PX;
-    else if (cps.every((cp) => BOUND.has(cp))) for (const cp of cps) units += BOUND.get(cp)!;
+    // A cluster with a ZWJ is priced from the fallback tables though the faces set every code point of it, as page 4's is
+    // (`packGlyphRuler.runExactPx`'s `joiners`): beside a pictograph, production sets its neighbour in the emoji face.
+    else if (!cps.includes(0x200d) && cps.every((cp) => BOUND.has(cp))) for (const cp of cps) units += BOUND.get(cp)!;
     else fallback += fallbackClusterIn(PROSE_FALLBACK, PROSE_FALLBACK_RANGES, segment, px, FALLBACK_MEASURED_PX, true);
   }
   return (units * px) / PROSE_ADVANCE_UNITS + fallback;
@@ -87,12 +74,14 @@ function keptBoundPx(text: string, px: number): number {
   return width;
 }
 
-/** The lines `text` takes set in `style` (a regular one), `widthMm` wide, at its bound: never fewer than page 4's. */
+/** The lines `text` takes set in `style` (a regular one), `widthMm` wide, at its bound: never fewer than page 4's (floor included). */
 export function proseLinesBound(text: string | readonly ProseSegment[], style: ProseStyle, widthMm: number): number {
   if (style.weight !== 400) throw new Error(`proseLinesBound: the advance table is the regular face's; ${style.weight} is not bounded by it`);
-  return proseFill(text, style, widthMm, (t, px, weight, hyphen) => {
+  const fill = proseFill(text, style, widthMm, (t, px, weight, hyphen) => {
     if (weight !== 400) throw new Error(`proseLinesBound: the advance table is the regular face's; ${weight} is not bounded by it`);
     // A soft hyphen that ends a line sets a hyphen (U+2010) after it: bounded as the code point it is.
     return keptBoundPx(hyphen ? `${t}\u2010` : t, px);
   });
+  // Under any text the faces do not fully set, the em model's lines (`packProseFloor`), as the page model's.
+  return floored(fill, text, style, widthMm);
 }

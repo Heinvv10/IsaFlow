@@ -193,7 +193,9 @@ describe('customer quotes', () => {
     await screen.findByText('Q-D2-1');
     fireEvent.click(screen.getAllByRole('button', { name: /New Quote/ })[0]!);
     await screen.findByText('Fill in the quote details below');
-    fireEvent.change(await screen.findByRole('combobox'), { target: { value: 'c1' } });
+    // The modal also has the "Amounts are" combobox (audit 11 Nov 2026 item 5): pick the customer one.
+    await waitFor(() => expect(screen.getAllByRole('combobox').some((s) => s.querySelector('option[value="c1"]'))).toBe(true));
+    fireEvent.change(screen.getAllByRole('combobox').find((s) => s.querySelector('option[value="c1"]'))!, { target: { value: 'c1' } });
     fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'D2 item' } });
   };
 

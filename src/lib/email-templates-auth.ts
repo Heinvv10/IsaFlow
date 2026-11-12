@@ -17,7 +17,7 @@ export interface WelcomeEmailData {
 export function welcomeEmailHtml(data: WelcomeEmailData): string {
   const features: Array<{ icon: string; title: string; desc: string }> = [
     { icon: '&#128203;', title: 'Invoicing', desc: 'Create and send professional invoices in seconds.' },
-    { icon: '&#127968;', title: 'Banking', desc: 'Reconcile transactions with your bank feeds.' },
+    { icon: '&#127968;', title: 'Banking', desc: 'Import bank statements and reconcile your transactions.' },
     { icon: '&#128200;', title: 'Reports', desc: 'Income statements, balance sheets and more.' },
   ];
 

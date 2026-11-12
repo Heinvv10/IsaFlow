@@ -203,6 +203,10 @@ test('C: close all 14 periods of FY2026, then run the year-end close', async () 
 
   await go('/accounting/year-end', 'text=Fiscal Year 2026');
   await page.getByRole('button', { name: 'Process Year-End' }).first().click();
+  // Audit P3.2: the close runs only after the year label is typed in the confirmation dialog.
+  const confirmDialog = page.getByRole('dialog');
+  await confirmDialog.getByRole('textbox').fill('2026', { timeout: 60_000 });
+  await confirmDialog.getByRole('button', { name: 'Process Year-End' }).click();
   // The closing journal is the outcome; poll for it (the page refresh after the click is slow under load), then reload.
   await expect.poll(async () => {
     const r = await api('GET', '/api/accounting/journal-entries?limit=100');

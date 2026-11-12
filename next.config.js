@@ -95,6 +95,11 @@ const nextConfig = {
       // explicitly invalidates the cached redirect.
       { source: '/accounting/bank-statements', destination: '/accounting/bank/statements', permanent: true },
       { source: '/accounting/bank-statements/:path*', destination: '/accounting/bank/statements/:path*', permanent: true },
+      // Bank Feeds was folded into Statement Imports (audit b.5, 2026-11-11):
+      // IsaFlow imports statements the user uploads and has no live bank feed.
+      // Page paths only; /api/accounting/bank-feeds/* is not matched.
+      { source: '/accounting/bank-feeds', destination: '/accounting/bank/statements', permanent: true },
+      { source: '/accounting/bank-feeds/:path*', destination: '/accounting/bank/statements', permanent: true },
       { source: '/accounting/income-statement', destination: '/accounting/reports/income-statement', permanent: true },
       { source: '/accounting/quotes', destination: '/accounting/customer-quotes', permanent: false },
       { source: '/accounting/sales-orders', destination: '/accounting/customer-sales-orders', permanent: false },

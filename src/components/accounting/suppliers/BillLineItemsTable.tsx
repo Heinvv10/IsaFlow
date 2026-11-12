@@ -10,6 +10,7 @@ import {
 } from '@/modules/accounting/services/gl/nonSupplyAccounts';
 import { useState } from 'react';
 import { Plus, Tags, Trash2 } from 'lucide-react';
+import { groupBillAccounts } from './billAccountOptions';
 import { useOverflowX } from '@/hooks/useOverflowX';
 import { formatCurrency } from '@/utils/formatters';
 import { CodingPicker } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
@@ -40,6 +41,7 @@ export interface GLAccount {
   id: string;
   accountCode: string;
   accountName: string;
+  accountType?: string;
 }
 
 /**
@@ -193,10 +195,14 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
                     className={inp}
                   >
                     <option value="">Default (5100)</option>
-                    {glAccounts.map(a => (
-                      <option key={a.id} value={a.id}>
-                        {a.accountCode} — {a.accountName}
-                      </option>
+                    {groupBillAccounts(glAccounts).map(g => (
+                      <optgroup key={g.label} label={g.label}>
+                        {g.accounts.map(a => (
+                          <option key={a.id} value={a.id}>
+                            {a.accountCode} — {a.accountName}
+                          </option>
+                        ))}
+                      </optgroup>
                     ))}
                   </select>
                   {nonSupplyReason(line, glAccounts) && (
