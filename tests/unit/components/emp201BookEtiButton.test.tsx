@@ -9,7 +9,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { Emp201BookEtiButton } from '@/components/accounting/sars/Emp201BookEtiButton';
+import { Emp201BookEtiButton } from '@/components/accounting/sars/emp201/Emp201BookEtiButton';
 
 const who = vi.hoisted(() => ({ role: 'manager' as string | null, company: 'c1' }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: who.role, activeCompany: { id: who.company } }) }));

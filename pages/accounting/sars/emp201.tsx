@@ -6,61 +6,20 @@
 
 import { useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import Link from 'next/link';
-import {
-  FileText, Loader2, Save, Send, Download,
-  ChevronLeft, ChevronDown, ChevronRight, Users, AlertTriangle,
-} from 'lucide-react';
-import { formatDate } from '@/utils/formatters';
+import { Loader2, Save, Send, AlertTriangle } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
-import { Emp201DirectivePayments, type Emp201DirectivePaymentRow } from '@/components/payroll/Emp201DirectivePayments';
-import { formatMoney } from '@/lib/money/formatMoney';
-import { DateField } from '@/components/ui/DateField';
-import { Emp201EtiRows, emp201EtiCsvRows, type Emp201EtiFields } from '@/components/accounting/sars/Emp201EtiRows';
-
-interface EMP201PayrollRun {
-  id: string;
-  runDate: string;
-  employeeCount: number;
-  grossPay: number;
-  paye: number;
-  uif: number;
-  sdl: number;
-}
-
-interface EMP201Data extends Emp201EtiFields {
-  periodStart: string;
-  periodEnd: string;
-  totalPAYE: number;
-  totalETI: number;
-  payePayable: number;
-  totalUIF_employee: number;
-  totalUIF_employer: number;
-  totalUIF: number;
-  totalSDL: number;
-  employeeCount: number;
-  totalTaxableRemuneration: number;
-  totalDeductions: number;
-  payrollRuns: EMP201PayrollRun[];
-  directivePayments?: Emp201DirectivePaymentRow[];
-}
-
-const fmt = (n: number) => formatMoney(n);
-
-function getDefaultPeriod(): { from: string; to: string } {
-  const now = new Date();
-  // Default to previous month
-  const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lastDay = new Date(prevMonth.getFullYear(), prevMonth.getMonth() + 1, 0).getDate();
-  const y = prevMonth.getFullYear();
-  const m = String(prevMonth.getMonth() + 1).padStart(2, '0');
-  return {
-    from: `${y}-${m}-01`,
-    to: `${y}-${m}-${String(lastDay).padStart(2, '0')}`,
-  };
-}
+import { Emp201DirectivePayments } from '@/components/payroll/Emp201DirectivePayments';
+import { exportEmp201Csv, getDefaultPeriod, type EMP201Data } from '@/components/accounting/sars/emp201/emp201Types';
+import { Emp201PageHeader } from '@/components/accounting/sars/emp201/Emp201PageHeader';
+import { Emp201PeriodSelector } from '@/components/accounting/sars/emp201/Emp201PeriodSelector';
+import { Emp201ReturnForm } from '@/components/accounting/sars/emp201/Emp201ReturnForm';
+import { Emp201RunsBreakdown } from '@/components/accounting/sars/emp201/Emp201RunsBreakdown';
+import { Emp201SubmitModal } from '@/components/accounting/sars/emp201/Emp201SubmitModal';
+import { ReturnLifecycleBar } from '@/components/accounting/sars/returns/ReturnLifecycleBar';
+import { useCompany } from '@/contexts/CompanyContext';
 
 export default function EMP201Page() {
+  const { companyRole } = useCompany();
   const defaults = getDefaultPeriod();
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
@@ -70,12 +29,12 @@ export default function EMP201Page() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [showRuns, setShowRuns] = useState(false);
   const [sarsRef, setSarsRef] = useState('');
   const [savedId, setSavedId] = useState('');
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
-  const generate = useCallback(async (keep: boolean = false) => { // keep: refetch with the EMP201 still shown (Book ETI)
+  // keep: refetch with the EMP201 still shown, so the ETI section keeps the Book ETI result (wave 5 ET)
+  const generate = useCallback(async (keep: boolean = false) => {
     if (!from || !to) return;
     setLoading(true);
     setError('');
@@ -141,89 +100,19 @@ export default function EMP201Page() {
     }
   };
 
-  const exportCSV = () => {
-    if (!data) return;
-    const rows = [
-      ['Field', 'Description', 'Amount (ZAR)'],
-      ['PAYE', 'Total PAYE withheld', data.totalPAYE.toFixed(2)],
-      ...emp201EtiCsvRows(data.totalETI, data.etiCarry, data.payePayable),
-      ['UIF (Employee)', 'UIF employee contribution', data.totalUIF_employee.toFixed(2)],
-      ['UIF (Employer)', 'UIF employer contribution', data.totalUIF_employer.toFixed(2)],
-      ['UIF Total', 'Total UIF', data.totalUIF.toFixed(2)],
-      ['SDL', 'Skills Development Levy', data.totalSDL.toFixed(2)],
-      ['Employees', 'Number of employees', String(data.employeeCount)],
-      ['Remuneration', 'Total taxable remuneration', data.totalTaxableRemuneration.toFixed(2)],
-      ['Total', 'Total deductions payable', data.totalDeductions.toFixed(2)],
-      [],
-      ['Period', `${data.periodStart} to ${data.periodEnd}`],
-    ];
-    const csv = rows.map((r) => r.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `EMP201_${from}_${to}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   const hasPayrollData = data && data.payrollRuns.length > 0;
   const directivePayments = data?.directivePayments ?? [];
 
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        {/* Header */}
-        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Link
-                href="/accounting/sars"
-                className="p-2 rounded-lg hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)]"
-              >
-                <ChevronLeft className="h-5 w-5" />
-              </Link>
-              <div className="p-2 rounded-lg bg-blue-500/10">
-                <Users className="h-6 w-6 text-blue-600 dark:text-blue-400" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">EMP201 Return</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">
-                  Monthly employer declaration — PAYE, UIF and SDL
-                </p>
-              </div>
-            </div>
-            {data && (
-              <button
-                onClick={exportCSV}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-teal-500/30"
-              >
-                <Download className="h-4 w-4" /> Export CSV
-              </button>
-            )}
-          </div>
-        </div>
+        <Emp201PageHeader canExport={Boolean(data)} onExport={() => { if (data) exportEmp201Csv(data, from, to); }} />
 
         <div className="p-6 space-y-6">
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
           {success && <div className="p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">{success}</div>}
 
-          {/* Period Selector */}
-          <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-            <h2 className="text-sm font-medium text-[var(--ff-text-secondary)] mb-3">Payroll Period</h2>
-            <div className="flex flex-wrap items-end gap-4">
-              <DateField label="From" required value={from || null} onChange={(iso, v) => { if (v.valid && iso) setFrom(iso); }} />
-              <DateField label="To" required value={to || null} onChange={(iso, v) => { if (v.valid && iso) setTo(iso); }} />
-              <button
-                onClick={() => void generate()}
-                disabled={loading}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                Generate
-              </button>
-            </div>
-          </div>
+          <Emp201PeriodSelector from={from} to={to} loading={loading} onFromChange={setFrom} onToChange={setTo} onGenerate={() => void generate()} />
 
           {/* EMP201 Form */}
           {data && (
@@ -243,94 +132,15 @@ export default function EMP201Page() {
                 </div>
               )}
 
-              <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
-                <div className="px-4 py-3 border-b border-[var(--ff-border-light)]">
-                  <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">
-                    EMP201 — {formatDate(data.periodStart)} to {formatDate(data.periodEnd)}
-                  </h2>
-                </div>
+              <Emp201ReturnForm data={data} etiMonth={from.slice(0, 7) === to.slice(0, 7) ? from.slice(0, 7) : null}
+                onEtiBooked={() => void generate(true)} />
 
-                <div className="divide-y divide-[var(--ff-border-light)]">
-                  {/* Summary */}
-                  <div className="px-4 py-2 bg-blue-500/5">
-                    <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Employee Summary</p>
-                  </div>
-                  <SummaryRow label="Number of employees" value={String(data.employeeCount)} />
-                  <SummaryRow label="Total taxable remuneration" value={fmt(data.totalTaxableRemuneration)} />
-
-                  <div className="px-4 py-2 bg-blue-500/5">
-                    <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Deductions</p>
-                  </div>
-                  <SummaryRow label="PAYE (Pay As You Earn)" value={fmt(data.totalPAYE)} />
-                  <Emp201EtiRows totalETI={data.totalETI} etiCarry={data.etiCarry} warnings={data.etiWarnings ?? []} month={from.slice(0, 7) === to.slice(0, 7) ? from.slice(0, 7) : null} onBooked={() => void generate(true)} />
-                  <SummaryRow label="PAYE payable" value={fmt(data.payePayable)} bold />
-                  <SummaryRow label="UIF — Employee contribution" value={fmt(data.totalUIF_employee)} />
-                  <SummaryRow label="UIF — Employer contribution" value={fmt(data.totalUIF_employer)} />
-                  <SummaryRow label="Total UIF" value={fmt(data.totalUIF)} bold />
-                  <SummaryRow label="SDL (Skills Development Levy)" value={fmt(data.totalSDL)} />
-
-                  <div className="px-4 py-2 bg-[var(--ff-bg-primary)]">
-                    <p className="text-xs font-semibold text-[var(--ff-text-secondary)] uppercase tracking-wider">Total Payable</p>
-                  </div>
-                  <div className="px-4 py-3 flex items-center justify-between bg-[var(--ff-bg-primary)]/50">
-                    <span className="text-sm font-semibold text-[var(--ff-text-primary)]">
-                      Total payable to SARS
-                    </span>
-                    <span className="text-lg font-bold text-red-400">
-                      {fmt(data.totalDeductions)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Payroll Runs Breakdown */}
-              {hasPayrollData && (
-                <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
-                  <button
-                    onClick={() => setShowRuns(!showRuns)}
-                    className="w-full px-4 py-3 flex items-center justify-between hover:bg-[var(--ff-bg-primary)]/30"
-                  >
-                    <span className="text-sm font-medium text-[var(--ff-text-primary)]">
-                      Payroll Runs ({data.payrollRuns.length})
-                    </span>
-                    {showRuns ? (
-                      <ChevronDown className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
-                    )}
-                  </button>
-                  {showRuns && (
-                    <div className="border-t border-[var(--ff-border-light)]">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
-                            <th className="px-4 py-2">Run Date</th>
-                            <th className="px-4 py-2 text-right">Employees</th>
-                            <th className="px-4 py-2 text-right">Gross Pay</th>
-                            <th className="px-4 py-2 text-right">PAYE</th>
-                            <th className="px-4 py-2 text-right">UIF</th>
-                            <th className="px-4 py-2 text-right">SDL</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.payrollRuns.map((run) => (
-                            <tr key={run.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
-                              <td className="px-4 py-2 text-[var(--ff-text-primary)]">{formatDate(run.runDate)}</td>
-                              <td className="px-4 py-2 text-right text-[var(--ff-text-secondary)]">{run.employeeCount}</td>
-                              <td className="px-4 py-2 text-right text-[var(--ff-text-primary)]">{fmt(run.grossPay)}</td>
-                              <td className="px-4 py-2 text-right text-[var(--ff-text-secondary)]">{fmt(run.paye)}</td>
-                              <td className="px-4 py-2 text-right text-[var(--ff-text-secondary)]">{fmt(run.uif)}</td>
-                              <td className="px-4 py-2 text-right text-[var(--ff-text-secondary)]">{fmt(run.sdl)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
+              {hasPayrollData && <Emp201RunsBreakdown runs={data.payrollRuns} />}
 
               <Emp201DirectivePayments rows={directivePayments} />
+
+              <ReturnLifecycleBar form="EMP201"
+                periodStart={data.periodStart} periodEnd={data.periodEnd} role={companyRole} />
 
               {/* Actions */}
               <div className="flex items-center gap-3">
@@ -354,65 +164,14 @@ export default function EMP201Page() {
             </>
           )}
 
-          {/* Submit Modal */}
           {showSubmitModal && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-              <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6 w-full max-w-md mx-4">
-                <h3 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">
-                  Record as filed on eFiling
-                </h3>
-                <p className="text-sm text-[var(--ff-text-secondary)] mb-4">
-                  This records an EMP201 filing you completed on SARS eFiling. ISAFlow does not send this return to SARS. Enter the SARS eFiling reference number.
-                </p>
-                <input
-                  type="text"
-                  value={sarsRef}
-                  onChange={(e) => setSarsRef(e.target.value)}
-                  placeholder="SARS reference number"
-                  className="w-full px-3 py-2 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm mb-4"
-                />
-                <div className="flex items-center gap-3 justify-end">
-                  <button
-                    onClick={() => setShowSubmitModal(false)}
-                    className="px-4 py-2 rounded-lg text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={markSubmitted}
-                    disabled={submitting || !sarsRef.trim()}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-success-700 text-white text-sm font-medium hover:bg-success-800 disabled:opacity-50"
-                  >
-                    {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                    Record filing
-                  </button>
-                </div>
-              </div>
-            </div>
+            <Emp201SubmitModal
+              sarsRef={sarsRef} submitting={submitting} onRefChange={setSarsRef}
+              onConfirm={markSubmitted} onClose={() => setShowSubmitModal(false)}
+            />
           )}
         </div>
       </div>
     </AppLayout>
-  );
-}
-
-function SummaryRow({
-  label,
-  value,
-  bold,
-}: {
-  label: string;
-  value: string;
-  bold?: boolean;
-}) {
-  return (
-    <div className={`px-4 py-3 flex items-center justify-between ${bold ? 'bg-[var(--ff-bg-primary)]/30' : ''}`}>
-      <span className={`text-sm ${bold ? 'font-semibold text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]'}`}>
-        {label}
-      </span>
-      <span className={`text-sm font-medium ${bold ? 'text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]'}`}>
-        {value}
-      </span>
-    </div>
   );
 }
