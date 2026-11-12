@@ -120,26 +120,37 @@ export async function seedPeople(api: Client): Promise<void> {
 /**
  * One approved pay run for the newest past month whose tax year is loaded (create, calculate, approve with the
  * sole-approver clearance: the seed's admin is the company's only member). It gives the EMP201 something to sum, so the
- * z17 EMP201 drill has data on GitHub's hosted Demo, as dev's Demo has. Best effort: a month calculate refuses (tax
- * tables not loaded for its year) is skipped; if none works this logs and the seed carries on, and z17 then fails by name.
+ * z17 EMP201 drill has data on GitHub's hosted Demo, as dev's Demo has. Best effort, never fatal to the seed: a month
+ * calculate refuses (tax tables not loaded for its year) is skipped for an older one. Once a month has calculated it is
+ * the one: an approval failure is logged loudly and the seed stops there, so no older month gets a second run and the
+ * calculated run is not left to look like a fallback. If no month calculates this logs and the seed carries on, and the
+ * z17 EMP201 test then fails by name in CI.
  */
 export async function seedPayRun(api: Client, months: string[]): Promise<void> {
   for (const ym of [...months].reverse()) {
     const [year, month] = ym.split('-').map(Number) as [number, number];
+    let runId: string;
     try {
       const run = await api.post<{ id: string }>('/api/payroll/runs', { month, year });
-      await api.post(`/api/payroll/runs/${run.id}/calculate`);
-      const request = await api.post<{ id: string; documentDigest: string }>('/api/accounting/approval-requests', {
-        action: 'request', documentType: 'pay_run', documentId: run.id,
-      });
-      await api.post('/api/accounting/approval-requests', { action: 'approve', requestId: request.id, expectedDigest: request.documentDigest });
-      const plan = await api.get<{ planHash: string }>(`/api/payroll/runs/${run.id}/journal-plan`);
-      await api.post(`/api/payroll/runs/${run.id}/approve`, { expectedPlanHash: plan.planHash });
-      say(`1 approved pay run (${ym})`);
-      return;
+      runId = run.id;
+      await api.post(`/api/payroll/runs/${runId}/calculate`);
     } catch (err) {
       say(`pay run for ${ym} not seeded: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`);
+      continue;
     }
+    try {
+      const request = await api.post<{ id: string; documentDigest: string }>('/api/accounting/approval-requests', {
+        action: 'request', documentType: 'pay_run', documentId: runId,
+      });
+      await api.post('/api/accounting/approval-requests', { action: 'approve', requestId: request.id, expectedDigest: request.documentDigest });
+      const plan = await api.get<{ planHash: string }>(`/api/payroll/runs/${runId}/journal-plan`);
+      await api.post(`/api/payroll/runs/${runId}/approve`, { expectedPlanHash: plan.planHash });
+      say(`1 approved pay run (${ym})`);
+    } catch (err) {
+      say(`WARNING: the ${ym} pay run calculated but could not be approved (${err instanceof Error ? err.message.slice(0, 200) : String(err)}); `
+        + 'it is left calculated and no other month is tried. The z17 EMP201 drill test will fail in CI.');
+    }
+    return;
   }
   say('WARNING: no pay run seeded; the z17 EMP201 drill test will fail in CI');
 }

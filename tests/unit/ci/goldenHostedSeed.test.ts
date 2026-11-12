@@ -70,7 +70,7 @@ describe('seedPayRun', () => {
     expect(calls[5]).toContain('{"expectedPlanHash":"ph"}');
   });
 
-  it('falls back to an older month when calculate refuses the newest, and never throws when none works', async () => {
+  it('falls back to an older month only when calculate refuses, and never throws when none works', async () => {
     const refuseNewest = fake((p) => p === '/api/payroll/runs/run-1/calculate');
     await seedPayRun(refuseNewest.api, months);
     const created = refuseNewest.calls.filter((c) => c.startsWith('POST /api/payroll/runs {'));
@@ -78,5 +78,13 @@ describe('seedPayRun', () => {
     expect(refuseNewest.calls.at(-1)).toContain('/approve');
     const refuseAll = fake((p) => p === '/api/payroll/runs');
     await expect(seedPayRun(refuseAll.api, months)).resolves.toBeUndefined();
+  });
+
+  it('stops at the first month that calculates: a failed approval is not retried on an older month', async () => {
+    const refuseApproval = fake((p) => p.endsWith('/approve'));
+    await seedPayRun(refuseApproval.api, months);
+    const created = refuseApproval.calls.filter((c) => c.startsWith('POST /api/payroll/runs {'));
+    expect(created).toEqual(['POST /api/payroll/runs {"month":10,"year":2026}']);
+    expect(refuseApproval.calls.some((c) => c.includes('"month":9'))).toBe(false);
   });
 });

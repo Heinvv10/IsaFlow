@@ -8,7 +8,7 @@ vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib
 
 const RUN = '11111111-1111-4111-8111-111111111111';
 const data = {
-  periodStart: '2026-09-01', periodEnd: '2026-09-30', totalPAYE: 1500, totalETI: 0, payePayable: 1500,
+  periodStart: '2026-09-01', periodEnd: '2026-09-30', totalPAYE: 1500, totalETI: 0, payePayable: 1200,
   etiCarry: { broughtForward: 0, used: 0, carriedForward: 0, refundClaimable: 0 },
   totalUIF_employee: 100, totalUIF_employer: 100, totalUIF: 200, totalSDL: 0, employeeCount: 2,
   totalTaxableRemuneration: 30000, totalDeductions: 1700, payrollRuns: [], directivePayments: [],
@@ -71,6 +71,7 @@ it('a run whose stored total and lines disagree is flagged; directive payments a
   fireEvent.click(screen.getByLabelText('Show the lines behind PAYE (Pay As You Earn)'));
   await screen.findByTestId('return-drill-lines');
   expect(screen.getByTestId('return-drill-total').textContent).toMatch(/does not match/);
+  expect(screen.getByTestId('emp201-drill-amount').textContent).toMatch(/R\s*1\D?500\.00/);
   expect(within(screen.getByTestId('emp201-drill-runs')).getAllByRole('row')[1]!.textContent).toMatch(/100\.00/);
   expect(screen.getByText(/Dee Rector, directive IRP3-9/)).toBeTruthy();
 });
@@ -110,6 +111,7 @@ it('the drawer total is the form figure, and the lines plus directive payments a
   fireEvent.click(screen.getByLabelText('Show the lines behind PAYE (Pay As You Earn)'));
   await screen.findByTestId('return-drill-lines');
   expect(screen.getByTestId('emp201-drill-amount').textContent).toBe(onForm);
+  expect(onForm).toMatch(/R\s*1\D?500\.00/);
   const cents = (t: string) => Math.round(Number(t.replace(/\u2212/g, '-').replace(/[^\d.-]/g, '')) * 100);
   const lines = within(screen.getByTestId('return-drill-lines')).getAllByRole('row').slice(1).map((r) => cents(r.lastElementChild!.textContent!));
   const directives = screen.getAllByTestId('emp201-drill-directive-amount').map((e) => cents(e.textContent!));
