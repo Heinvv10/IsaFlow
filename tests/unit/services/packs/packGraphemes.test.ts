@@ -96,16 +96,19 @@ describe('packGraphemes', () => {
     }
   }, 60_000);
 
-  it('takes time linear in the text: 200,000 characters well under the 64 times 25,000 a quadratic walk would take', () => {
+  it('takes time linear in the text: 400,000 characters well under the 64 times 50,000 a quadratic walk would take', () => {
+    // Process CPU time, not wall time: vitest runs files in parallel forks, and wall time counts the waits for a core
+    // (best of 3 wall time on 25,000 reached 25.8, and best of 7 on 50,000 reached 34.6 in the full unit run, 12 Nov).
+    const cpuMs = (): number => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
     const ms = (n: number): number => {
       const t = 'x'.repeat(n);
       let best = Infinity;
-      for (let run = 0; run < 3; run += 1) { const start = performance.now(); graphemes(t); best = Math.min(best, performance.now() - start); }
+      for (let run = 0; run < 7; run += 1) { const start = cpuMs(); graphemes(t); best = Math.min(best, cpuMs() - start); }
       return best;
     };
-    ms(5_000);
-    // 8x the text: linear is about 8x the time, quadratic 64x. The bound of 24 leaves 3x for CI load noise.
-    expect(ms(200_000) / Math.max(ms(25_000), 1)).toBeLessThan(24);
+    ms(50_000);
+    // 8x the text: linear is about 8x the CPU time, quadratic 64x.
+    expect(ms(400_000) / Math.max(ms(50_000), 1)).toBeLessThan(24);
   }, 120_000);
 
   it('and below U+0300, where it does not segment: every pair of code units, and each beside a control, a soft hyphen, a copyright sign, a tab and a space', () => {
