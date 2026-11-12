@@ -1,5 +1,8 @@
 import animate from 'tailwindcss-animate';
 
+/** Neutral stops mapped to the --rv-* variables (styles/globals.css, River neutrals). */
+const RV_STOPS = ['50', '100', '200', '300', '600', '700', '800', '900', '950'];
+
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: 'class',
@@ -41,18 +44,19 @@ export default {
         '9xl': ['8rem', { lineHeight: '1' }],
       },
       colors: {
+        // River primary: the stock teal scale; Current (#0F766E) is 700. Filled buttons use brand-600/700.
         primary: {
-          '50': '#eff6ff',
-          '100': '#dbeafe',
-          '200': '#bfdbfe',
-          '300': '#93c5fd',
-          '400': '#60a5fa',
-          '500': '#3b82f6',
-          '600': '#2563eb',
-          '700': '#1d4ed8',
-          '800': '#1e40af',
-          '900': '#1e3a8a',
-          '950': '#172554',
+          '50': '#f0fdfa',
+          '100': '#ccfbf1',
+          '200': '#99f6e4',
+          '300': '#5eead4',
+          '400': '#2dd4bf',
+          '500': '#14b8a6',
+          '600': '#0d9488',
+          '700': '#0f766e',
+          '800': '#115e59',
+          '900': '#134e4a',
+          '950': '#042f2e',
           DEFAULT: 'hsl(var(--primary))',
           foreground: 'hsl(var(--primary-foreground))',
         },
@@ -71,18 +75,19 @@ export default {
           DEFAULT: 'hsl(var(--secondary))',
           foreground: 'hsl(var(--secondary-foreground))',
         },
+        // Ember family, for warnings and attention only; text on it is Deep, never white.
         accent: {
-          '50': '#f5f3ff',
-          '100': '#ede9fe',
-          '200': '#ddd6fe',
-          '300': '#c4b5fd',
-          '400': '#a78bfa',
-          '500': '#8b5cf6',
-          '600': '#7c3aed',
-          '700': '#6d28d9',
-          '800': '#5b21b6',
-          '900': '#4c1d95',
-          '950': '#2e1065',
+          '50': '#fffbeb',
+          '100': '#fef3c7',
+          '200': '#fde68a',
+          '300': '#fcd34d',
+          '400': '#fbbf24',
+          '500': '#f59e0b',
+          '600': '#d97706',
+          '700': '#b45309',
+          '800': '#92400e',
+          '900': '#78350f',
+          '950': '#451a03',
           DEFAULT: 'hsl(var(--accent))',
           foreground: 'hsl(var(--accent-foreground))',
         },
@@ -155,7 +160,27 @@ export default {
           DEFAULT: 'var(--ff-bg-primary)',
           raised: 'var(--ff-surface-elevated)',
           sunken: 'var(--ff-bg-tertiary)',
+          brand: 'var(--ff-surface-brand)',
+          warm: 'var(--ff-surface-warm)',
+          field: 'var(--ff-field-bg)',
         },
+        // River brand anchors (app audit 11 Nov 2026). Values also in styles/globals.css as --river-*.
+        river: {
+          deep: '#071A24',
+          current: '#0F766E',
+          teal: '#14B8A6',
+          shallows: '#5EEAD4',
+          mist: '#E6F4F1',
+          sand: '#F6F1E7',
+          ember: '#F59E0B',
+        },
+        // River neutrals (gray, slate, zinc): these stops read CSS variables whose default is the stock Tailwind value. Inside the
+        // signed-in shell (AppLayout's data-app-shell) styles/globals.css points them at River surfaces, so the
+        // shell and the UI kit (bg-white, border-gray-200, dark:bg-gray-800 ...) match the --ff-* surfaces without a
+        // per-file edit. 400 and 500 are text stops and stay stock (extend merges per stop).
+        gray: Object.fromEntries(RV_STOPS.map((n) => [n, `rgb(var(--rv-gray-${n}) / <alpha-value>)`])),
+        slate: Object.fromEntries(RV_STOPS.map((n) => [n, `rgb(var(--rv-slate-${n}) / <alpha-value>)`])),
+        zinc: Object.fromEntries(RV_STOPS.map((n) => [n, `rgb(var(--rv-zinc-${n}) / <alpha-value>)`])),
         line: { DEFAULT: 'var(--ff-border-primary)', strong: 'var(--ff-border-secondary)' },
         ink: {
           DEFAULT: 'var(--ff-text-primary)',
@@ -190,8 +215,11 @@ export default {
           '3': 'hsl(var(--chart-3))',
           '4': 'hsl(var(--chart-4))',
           '5': 'hsl(var(--chart-5))',
+          '6': 'hsl(var(--chart-6))',
         },
       },
+      // Only bg-white is re-pointed (the River card tint inside the shell in light); text-white and border-white stay white.
+      backgroundColor: { white: 'rgb(var(--rv-white) / <alpha-value>)' },
       fontFamily: {
         sans: [
           // Digits come from this face (styles/globals.css): DM Sans has no tabular numerals.

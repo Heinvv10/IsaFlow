@@ -40,24 +40,25 @@ describe('focus ring tokens', () => {
   });
 
   it.each([
-    ['page', '#ffffff'],
-    ['canvas', '#f8fafc'],
-    ['raised canvas', '#f1f5f9'],
+    ['page', '#e6f4f1'],
+    ['card', '#f5faf8'],
+    ['field', '#fcfefd'],
+    ['sunken', '#ddebe7'],
   ])('light ring meets 3:1 (WCAG 1.4.11) on the %s surface', (_name, bg) => {
     expect(contrast(light, bg)).toBeGreaterThanOrEqual(3);
   });
 
   it.each([
-    ['canvas', '#0f172a'],
-    ['mid canvas', '#1a1d23'],
-    ['input fill', '#1e293b'],
+    ['canvas', '#071a24'],
+    ['mid canvas', '#0a202b'],
+    ['input fill', '#0d2632'],
   ])('dark ring meets 3:1 on the %s surface', (_name, bg) => {
     expect(contrast(dark, bg)).toBeGreaterThanOrEqual(3);
   });
 
-  it('the ring is a teal, light and dark', () => {
-    expect(light).toBe('#0d9488');
-    expect(dark).toBe('#2dd4bf');
+  it('the ring is Current in light and Shallows in dark', () => {
+    expect(light).toBe('#0f766e');
+    expect(dark).toBe('#5eead4');
   });
 });
 
