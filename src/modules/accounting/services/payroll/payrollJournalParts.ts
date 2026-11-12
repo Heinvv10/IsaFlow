@@ -160,7 +160,7 @@ export async function buildLabourLines(
       glAccountId: defaultAccountId,
       cc1Id: null,
       debit: labourDebit,
-      description: 'Labour costs — gross pay + statutory employer contributions − ETI',
+      description: 'Labour costs — gross pay + employer contributions (UIF, SDL, medical scheme) − ETI',
     }],
     advisory: null,
     bySource: [{ glAccountId: defaultAccountId, centreId: null, taggable: false, debit: labourDebit }],

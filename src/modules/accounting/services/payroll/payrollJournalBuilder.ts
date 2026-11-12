@@ -103,6 +103,8 @@ export interface PayrollJournalPlan {
   totalCredit: number;
   /** The run header totals the plan was derived from, so a reader can check it. */
   totals: {
+    /** The employer's non-cash 3810 medical contribution on the run: booked to labour and 2175, outside gross and net. */
+    employerMedical: number;
     gross: number;
     paye: number;
     uif: number;
@@ -156,10 +158,9 @@ export async function buildPayrollJournalPlan(
   const runEti = await etiForRun(companyId, { year: periodYear, month: periodMonth }, { paye, eti });
   const etiUsed = round2(runEti.etiUsed);
   // The employer's medical contribution (non-cash 3810): outside gross, but paid to the scheme (payrollJournalEmployerMedical).
-  const employerMedical = await runEmployerMedical(runId);
+  const employerMedical = await runEmployerMedical(companyId, runId);
   const medical = employerMedicalTotal(employerMedical);
   const labourDebit = round2(gross + employerUif + sdl + medical - etiUsed);
-  const payable2175 = round2(otherDeductions + medical);
 
   const accounts = await resolveAccounts(companyId);
   const netPayTarget = await resolveNetPayTarget(companyId);
@@ -177,10 +178,10 @@ export async function buildPayrollJournalPlan(
   }
   // Only when a net-pay line survives (zero lines are dropped below): a run paying no one credits no bank.
   if (netPayTarget.blocker && round2(net) !== 0) blockers.push(netPayTarget.blocker);
-  if (Math.abs(payable2175) > 0.005 && !accounts.has('2175')) {
+  if ((Math.abs(otherDeductions) > 0.005 || Math.abs(medical) > 0.005) && !accounts.has('2175')) {
     blockers.push({
       code: 'missing_other_deductions_account',
-      detail: `The run carries R${payable2175.toFixed(2)} of voluntary deductions, employer medical contributions or reversals but the company has no GL account 2175 (Other Employee Deductions Payable).`,
+      detail: `The run carries R${round2(otherDeductions + medical).toFixed(2)} of voluntary deductions, employer medical contributions or reversals but the company has no GL account 2175 (Other Employee Deductions Payable).`,
     });
   }
   if (status !== 'approved') {
@@ -246,21 +247,20 @@ export async function buildPayrollJournalPlan(
     built.push(line('5200', labourDebit, 0, 'Labour costs — gross pay + statutory employer contributions − ETI'));
   }
 
-  const payeNet = round2(paye - etiUsed);
-  // A debit only when ETI absorbed this month's directive PAYE; a negative PAYE header stays a (refused) negative credit.
-  built.push(payeNet >= 0 || paye < 0
-    ? line('2140', 0, payeNet, 'PAYE payable, net of ETI')
-    : line('2140', -payeNet, 0, 'ETI used against this month\'s directive PAYE'));
+  const payeNet = round2(paye - etiUsed); // a debit only when ETI absorbed directive PAYE; a negative PAYE header stays a negative credit
+  built.push(payeNet >= 0 || paye < 0 ? line('2140', 0, payeNet, 'PAYE payable, net of ETI') : line('2140', -payeNet, 0, 'ETI used against this month\'s directive PAYE'));
   built.push(line('2150', 0, uif, 'UIF payable (employee + employer)'));
   built.push(line('2160', 0, sdl, 'SDL payable'));
   built.push(netPayLine(netPayTarget, round2(net)));
-  if (payable2175 > 0.005) {
-    built.push(line('2175', 0, payable2175, medical > 0
-      ? 'Other employee deductions (medical aid, pension, RA, etc.) and employer medical scheme contributions'
-      : 'Other employee deductions (medical aid, pension, RA, etc.)'));
-  } else if (payable2175 < -0.005) {
-    built.push(line('2175', Math.abs(payable2175), 0, 'Other employee deductions reversal — amount paid back through payroll'));
+  // The employee's own deductions and the employer's medical contribution are separate lines: a reversal of the one must never
+  // hide the other under a "reversal" label.
+  if (otherDeductions > 0.005) {
+    built.push(line('2175', 0, otherDeductions, 'Other employee deductions (medical aid, pension, RA, etc.)'));
+  } else if (otherDeductions < -0.005) {
+    built.push(line('2175', Math.abs(otherDeductions), 0, 'Other employee deductions reversal — amount paid back through payroll'));
   }
+  if (medical > 0.005) built.push(line('2175', 0, medical, "Employer medical scheme contributions (non-cash 3810), payable to the scheme"));
+  else if (medical < -0.005) built.push(line('2175', -medical, 0, 'Employer medical scheme contributions reversal — claw-back of a non-cash 3810'));
   const refund = etiRefundLines(runEti, accounts.get('5200')); // R-C: the Aug/Feb refund (payrollJournalEti)
   built.push(...refund.lines);
   if (refund.blocker) blockers.push(refund.blocker);
@@ -292,7 +292,7 @@ export async function buildPayrollJournalPlan(
     lines,
     totalDebit,
     totalCredit,
-    totals: { gross, paye, uif, sdl, eti, etiUsed, net, employerUif, otherDeductions },
+    totals: { gross, paye, uif, sdl, eti, etiUsed, net, employerUif, otherDeductions, employerMedical: medical },
     blockers,
     advisories,
     labourBySourceCentre,

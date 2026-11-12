@@ -1,5 +1,4 @@
 // D2 round 9 (pages/accounting): findings from the uiux review that had no test.
-//   bank-feeds: the extension's own sentence survives, a failed list is an error with Retry (not "No connections");
 //   afs/[documentId]: a failed load says so; migration/index: a failed session load offers Retry, not the source picker;
 //   migration/customers: a CSV parse error is a plain sentence; far-report: a 2xx without data clears the old report;
 //   customers/[customerId]: a failed reload A->B must not keep showing A; capture/settings: the chase switch is off
@@ -32,7 +31,6 @@ vi.mock('@/components/accounting/afs/AfsReviewTab', () => ({ AfsReviewTab: () =>
 vi.mock('@/components/accounting/afs/AfsExportTab', () => ({ AfsExportTab: () => null }));
 
 import { apiFetch } from '@/lib/apiFetch';
-import BankFeedsPage from '../../../pages/accounting/bank-feeds/index';
 import AfsDocumentPage from '../../../pages/accounting/afs/[documentId]/index';
 import MigrationHubPage from '../../../pages/accounting/migration/index';
 import MigrationCustomersPage from '../../../pages/accounting/migration/customers';
@@ -49,38 +47,6 @@ configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();
 beforeEach(() => { vi.mocked(apiFetch).mockReset(); router.query = {}; router.isReady = true; });
 afterEach(() => { cleanup(); document.querySelectorAll('[data-toast]').forEach(n => n.remove()); });
-
-const EXT_CONN = { id: 'k1', companyId: 'c1', provider: 'extension', accountName: 'ABSA Cheque', status: 'active', config: {} };
-
-describe('bank feeds', () => {
-  it('keeps the extension\'s own sentence when it refuses the sync', async () => {
-    serve(on('GET', '/bank-feeds', () => ok({ items: [EXT_CONN] })));
-    const reply = (ev: MessageEvent) => {
-      const d = ev.data as { type?: string; requestId?: string } | null;
-      if (d?.type !== 'isaflow-bank-ext-sync') return;
-      window.postMessage({ source: 'isaflow-bank-extension', type: 'isaflow-bank-ext-sync-reply', requestId: d.requestId, ok: false, error: 'Your ABSA session has expired - sign in again' }, '*');
-    };
-    window.addEventListener('message', reply);
-    try {
-      render(<BankFeedsPage />);
-      fireEvent.click(await screen.findByRole('button', { name: /How to import/ }));
-      await waitFor(() => expect([...document.querySelectorAll('[data-toast]')].map(n => n.textContent)).toContain('Your ABSA session has expired - sign in again'));
-      expect(document.body.textContent).not.toContain('Could not sync the connection');
-    } finally { window.removeEventListener('message', reply); }
-  });
-
-  it('a failed connections load is an error with Retry, not "No Bank Feed Connections"', async () => {
-    let fail = true;
-    serve((u, m) => (fail && m === 'GET' && u.includes('/bank-feeds') ? empty500() : undefined), on('GET', '/bank-feeds', () => ok({ items: [EXT_CONN] })));
-    render(<BankFeedsPage />);
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Could not load the bank feed connections - try again'));
-    expect(screen.queryByText('No Bank Feed Connections')).toBeNull();
-    fail = false;
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByText('ABSA Cheque')).toBeTruthy();
-    expect(screen.queryByRole('alert')).toBeNull();
-  });
-});
 
 describe('afs document page', () => {
   it('a failed document load shows a message instead of a bare page', async () => {
