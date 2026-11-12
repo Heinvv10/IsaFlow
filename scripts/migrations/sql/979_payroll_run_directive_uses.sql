@@ -1,4 +1,4 @@
--- 977: The regular-pay directives (IRP3(b) fixed percentage, IRP3(c) fixed amount) each approved payroll run was taxed
+-- 979: The regular-pay directives (IRP3(b) fixed percentage, IRP3(c) fixed amount) each approved payroll run was taxed
 -- by, recorded at approval (wave 5 DR, #1266 round 3 M1).
 --
 -- A run's lines are rewritten by every recalculation (payrollRunLineWriter), so a reopened run's lines are not a record

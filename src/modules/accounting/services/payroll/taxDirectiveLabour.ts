@@ -88,3 +88,16 @@ export async function postOrRetry<T>(
     throw new TaxDirectiveSplitChangedError(directiveId);
   }
 }
+
+/**
+ * The apply route's first check (DR round 4): a regular-pay directive is refused (TaxDirectiveNotLumpSumError, 400) before
+ * the ETI wrapper takes the company lock and judges later ETI journals, so its caller hears "each run applies it", not an
+ * ETI 409. The type never changes; an unknown id is left to the payment service's own answer.
+ */
+export async function refuseRegularPayDirective(companyId: string, directiveId: string): Promise<void> {
+  const rows = (await sql`
+    SELECT directive_type FROM tax_directives WHERE company_id = ${companyId} AND id = ${directiveId}
+  `) as DbRow[];
+  const type = rows[0]?.directive_type;
+  if (type != null && !isLumpSumDirectiveType(type)) throw new TaxDirectiveNotLumpSumError(directiveId, String(type));
+}

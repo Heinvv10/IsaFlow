@@ -1,6 +1,6 @@
 /**
  * The durable record of which regular-pay directive (IRP3(b)/(c)) taxed which employee on which approved run
- * (payroll_run_directive_uses, migration 977; wave 5 DR, #1266 round 3 M1). A run's lines are rewritten by every
+ * (payroll_run_directive_uses, migration 979; wave 5 DR, #1266 round 3 M1). A run's lines are rewritten by every
  * recalculation, so a reopened run's lines are not a record of what it declared; this is. Company-scoped throughout.
  *
  * - recordRegularDirectiveUses: written by every run approval (payrollRunDirectiveClaim.claimRunSeveranceDirectives),

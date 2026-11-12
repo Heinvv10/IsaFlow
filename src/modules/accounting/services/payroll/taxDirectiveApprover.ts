@@ -7,7 +7,7 @@
  * with no such other member may self-approve; the approval's audit row then says so (`selfApproval: 'sole_approver'`,
  * the pay-run wording). Every approval writes that `approve` audit row in the same transaction as the status change.
  * The roster AS OF CAPTURE counts too (#1266 round 3 L-a): the members who could approve when the directive was created
- * (approvers_at_create, migration 977) block self-approval while their account is active, even if demoted since.
+ * (approvers_at_create, migration 979) block self-approval while their account is active, even if demoted since.
  * Judged by person (ids compared case-folded), before the write; the refusal is a 403 (TaxDirectiveSelfApprovalError).
  */
 import { sql } from '@/lib/neon';
