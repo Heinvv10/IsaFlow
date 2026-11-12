@@ -154,7 +154,7 @@ function SageFilesOpener({ firstStepHref }: { firstStepHref?: string }) {
   return (
     <Link id="sage" href={firstStepHref} className={`${box} hover:border-green-500 transition-colors`}>
       {body}
-      <span className="w-full text-center sm:w-auto rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white">Upload Sage files</span>
+      <span className="w-full text-center sm:w-auto rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white">Upload Sage files</span>
     </Link>
   );
 }
@@ -193,7 +193,7 @@ function SourceSelection({ onSelect, selecting, isSuperAdmin }: { onSelect: (s: 
           </p>
           <a
             href={process.env.NEXT_PUBLIC_ADMIN_URL ? `${process.env.NEXT_PUBLIC_ADMIN_URL}/admin/tools/sage-import` : '/admin/tools/sage-import'}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 text-sm font-medium"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-green-700 text-white rounded-lg hover:bg-green-800 text-sm font-medium"
           >
             Open Admin Sage Import →
           </a>
