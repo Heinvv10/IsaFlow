@@ -90,7 +90,7 @@ function Directives({ r }: { r: Emp201DrillResult }) {
         {r.directivePayments.map((d) => (
           <li key={d.paymentId} className="flex justify-between gap-2">
             <span>{d.employeeName}, directive {d.directiveNumber ?? 'none'}, {formatDate(d.paymentDate)}</span>
-            <span className="tabular-nums">{formatMoney(d.amount)}</span>
+            <span data-testid="emp201-drill-directive-amount" className="tabular-nums">{formatMoney(d.amount)}</span>
           </li>
         ))}
       </ul>
@@ -110,7 +110,7 @@ export function Emp201DrillDrawer({ field, from, to, onClose }: Props) {
         {loading && <p role="status" className="text-sm text-[var(--ff-text-secondary)]">Loading…</p>}
         {r && (
           <>
-            <p className="text-sm text-[var(--ff-text-secondary)]">EMP201 amount <strong className="text-[var(--ff-text-primary)]">{formatMoney(r.total)}</strong></p>
+            <p className="text-sm text-[var(--ff-text-secondary)]">EMP201 amount <strong data-testid="emp201-drill-amount" className="text-[var(--ff-text-primary)]">{formatMoney(r.total)}</strong></p>
             <p className="text-xs text-[var(--ff-text-secondary)]" data-testid="return-drill-total">
               The pay runs&apos; lines{r.directivePayments.length > 0 ? ' and directive payments' : ''} add up to {formatMoney(r.rowsTotal)}
               {r.ties ? ' — matches the amount.' : ' — does not match: a run’s stored total and its lines disagree (see Difference).'}

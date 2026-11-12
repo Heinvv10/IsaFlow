@@ -3,7 +3,7 @@
  * in the recent past, in complete months, spread over all of them.
  */
 import { describe, it, expect } from 'vitest';
-import { seedDate, seedMonths } from '../../../scripts/ci/golden-hosted/seed-demo-app';
+import { seedDate, seedMonths, seedPayRun, type Client } from '../../../scripts/ci/golden-hosted/seed-demo-app';
 
 describe('seedMonths', () => {
   it('is the 10 complete months before the run, oldest first', () => {
@@ -40,5 +40,43 @@ describe('seedDate', () => {
 
   it('spreads items over all the months', () => {
     expect(new Set(Array.from({ length: 80 }, (_, k) => seedDate(months, k + 1).slice(0, 7))).size).toBe(10);
+  });
+});
+
+describe('seedPayRun', () => {
+  const months = seedMonths(new Date('2026-11-01T08:00:00Z'));
+  /** A stand-in client: records each call and refuses the ones `refuse` matches. */
+  function fake(refuse: (path: string) => boolean = () => false) {
+    const calls: string[] = [];
+    const answer = (method: string, path: string, body?: unknown) => {
+      calls.push(`${method} ${path}${body ? ` ${JSON.stringify(body)}` : ''}`);
+      if (refuse(path)) return Promise.reject(new Error(`${path} refused`));
+      if (path === '/api/payroll/runs') return Promise.resolve({ id: `run-${calls.length}` });
+      if (path === '/api/accounting/approval-requests') return Promise.resolve({ id: 'req', documentDigest: 'dg' });
+      return Promise.resolve({ planHash: 'ph' });
+    };
+    const api = { post: (p: string, b?: unknown) => answer('POST', p, b), get: (p: string) => answer('GET', p) } as unknown as Client;
+    return { api, calls };
+  }
+
+  it('creates, calculates, clears and approves one run for the newest seeded month, then stops', async () => {
+    const { api, calls } = fake();
+    await seedPayRun(api, months);
+    expect(calls[0]).toBe('POST /api/payroll/runs {"month":10,"year":2026}');
+    expect(calls.map((c) => c.split(' ')[1]!.replace(/run-\d+/, 'RUN'))).toEqual([
+      '/api/payroll/runs', '/api/payroll/runs/RUN/calculate', '/api/accounting/approval-requests', '/api/accounting/approval-requests',
+      '/api/payroll/runs/RUN/journal-plan', '/api/payroll/runs/RUN/approve',
+    ]);
+    expect(calls[5]).toContain('{"expectedPlanHash":"ph"}');
+  });
+
+  it('falls back to an older month when calculate refuses the newest, and never throws when none works', async () => {
+    const refuseNewest = fake((p) => p === '/api/payroll/runs/run-1/calculate');
+    await seedPayRun(refuseNewest.api, months);
+    const created = refuseNewest.calls.filter((c) => c.startsWith('POST /api/payroll/runs {'));
+    expect(created).toEqual(['POST /api/payroll/runs {"month":10,"year":2026}', 'POST /api/payroll/runs {"month":9,"year":2026}']);
+    expect(refuseNewest.calls.at(-1)).toContain('/approve');
+    const refuseAll = fake((p) => p === '/api/payroll/runs');
+    await expect(seedPayRun(refuseAll.api, months)).resolves.toBeUndefined();
   });
 });

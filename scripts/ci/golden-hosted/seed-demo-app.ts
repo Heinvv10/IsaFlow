@@ -52,7 +52,7 @@ function parseEnvelope(text: string): Envelope | null {
 }
 
 /** A logged-in client of the dev server: cookie jar, CSRF double-submit, {success,data} unwrapping. */
-class Client {
+export class Client {
   private readonly jar = new Map<string, string>();
   constructor(private readonly base: string) {}
 
@@ -104,7 +104,7 @@ function say(msg: string): void {
   process.stdout.write(`[golden-seed] ${msg}\n`);
 }
 
-async function seedPeople(api: Client): Promise<void> {
+export async function seedPeople(api: Client): Promise<void> {
   for (let k = 1; k <= COUNTS.customers; k++) {
     await api.post('/api/accounting/customers', { name: `Demo Customer ${k}`, email: `demo-customer-${k}@example.test` });
   }
@@ -115,6 +115,33 @@ async function seedPeople(api: Client): Promise<void> {
   });
   await api.post(`/api/payroll/employees/${employee.id}/components`, { componentId: component.id, amount: 25000, effectiveFrom: '2025-03-01' });
   say(`${COUNTS.customers} customers, 1 employee`);
+}
+
+/**
+ * One approved pay run for the newest past month whose tax year is loaded (create, calculate, approve with the
+ * sole-approver clearance: the seed's admin is the company's only member). It gives the EMP201 something to sum, so the
+ * z17 EMP201 drill has data on GitHub's hosted Demo, as dev's Demo has. Best effort: a month calculate refuses (tax
+ * tables not loaded for its year) is skipped; if none works this logs and the seed carries on, and z17 then fails by name.
+ */
+export async function seedPayRun(api: Client, months: string[]): Promise<void> {
+  for (const ym of [...months].reverse()) {
+    const [year, month] = ym.split('-').map(Number) as [number, number];
+    try {
+      const run = await api.post<{ id: string }>('/api/payroll/runs', { month, year });
+      await api.post(`/api/payroll/runs/${run.id}/calculate`);
+      const request = await api.post<{ id: string; documentDigest: string }>('/api/accounting/approval-requests', {
+        action: 'request', documentType: 'pay_run', documentId: run.id,
+      });
+      await api.post('/api/accounting/approval-requests', { action: 'approve', requestId: request.id, expectedDigest: request.documentDigest });
+      const plan = await api.get<{ planHash: string }>(`/api/payroll/runs/${run.id}/journal-plan`);
+      await api.post(`/api/payroll/runs/${run.id}/approve`, { expectedPlanHash: plan.planHash });
+      say(`1 approved pay run (${ym})`);
+      return;
+    } catch (err) {
+      say(`pay run for ${ym} not seeded: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`);
+    }
+  }
+  say('WARNING: no pay run seeded; the z17 EMP201 drill test will fail in CI');
 }
 
 async function seedSuppliersAndInvoices(api: Client, months: string[]): Promise<void> {
@@ -210,6 +237,7 @@ async function main(): Promise<void> {
   const months = seedMonths(now);
   await seedLongStandingUser(api, now);
   await seedPeople(api);
+  await seedPayRun(api, months);
   await seedSuppliersAndInvoices(api, months);
   await seedJournals(api, months);
   await seedBankRows(api, months, now.toISOString().slice(0, 10));

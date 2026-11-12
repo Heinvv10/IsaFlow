@@ -16,6 +16,12 @@ export function useDrillPages<T>(enabled: boolean, key: string, load: (page: num
   const [attempt, setAttempt] = useState(0);
   const loader = useRef(load);
   useEffect(() => { loader.current = load; });
+  // Closing the drawer forgets the page and the answer: reopening starts at page 1 and never shows the last visit's rows.
+  useEffect(() => {
+    if (enabled) return;
+    setChosen({ key, page: 1 });
+    setAnswer(null);
+  }, [enabled, key]);
 
   useEffect(() => {
     if (!enabled) return undefined;

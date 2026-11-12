@@ -150,6 +150,30 @@ async function openPaye(page: Page, month: { from: string; to: string }): Promis
   await expect(page.getByTestId('emp201-drill-drawer').getByTestId('return-drill-lines')).toBeVisible({ timeout: 60_000 });
 }
 
+/**
+ * The drawer's "EMP201 amount" is the form's PAYE figure, and its employee lines (every page) plus its directive payments
+ * add up to it to the cent.
+ */
+async function expectDrawerTiesToForm(page: Page): Promise<void> {
+  const drawer = page.getByTestId('emp201-drill-drawer');
+  const onForm = money((await page.getByText('PAYE (Pay As You Earn)', { exact: true }).locator('xpath=..').getByTestId('emp201-value').textContent()) ?? '');
+  expect(money((await drawer.getByTestId('emp201-drill-amount').textContent()) ?? ''), 'the drawer shows the form\'s PAYE').toBe(onForm);
+  expect(onForm, 'the seeded run has PAYE to drill').not.toBe(0);
+  let cents = 0;
+  let pages = 0;
+  for (;;) {
+    pages++;
+    const amounts = await drawer.getByTestId('return-drill-lines').locator('tbody tr td:nth-child(3)').allTextContents();
+    cents += amounts.reduce((s, t) => s + Math.round(money(t) * 100), 0);
+    const next = drawer.getByRole('button', { name: 'Next' });
+    if (await next.isDisabled()) break;
+    await next.click();
+    await expect(drawer.getByTestId('return-drill-range')).toContainText(`Showing ${(pages * 200) + 1}\u2013`, { timeout: 30_000 });
+  }
+  for (const t of await drawer.getByTestId('emp201-drill-directive-amount').allTextContents()) cents += Math.round(money(t) * 100);
+  expect(cents, 'employee lines plus directive payments add up to the form figure').toBe(Math.round(onForm * 100));
+}
+
 test('EMP201 PAYE drills to the pay runs and employee lines it sums; axe clean (read-only)', async ({ page, context, baseURL }) => {
   const api = await Api.login(baseURL!);
   const company = process.env.Z17_COMPANY_ID;
@@ -158,14 +182,18 @@ test('EMP201 PAYE drills to the pay runs and employee lines it sums; axe clean (
     await switchBrowserCompany(context, company);
   }
   const month = await payrollMonth(api);
-  // The hosted seed has no approved pay run; the drill's figures are pinned by its unit and integration tests there.
-  test.skip(month === null, 'the golden company has no approved pay run in the last two years');
+  // The hosted seed approves one pay run (seed-demo-app.ts seedPayRun), so in CI a missing month is a failure, not a skip.
+  if (month === null) {
+    if (process.env.CI) throw new Error('the golden company has no approved pay run in the last two years: the hosted seed (seedPayRun) did not seed one');
+    test.skip(true, 'the golden company has no approved pay run in the last two years');
+  }
   const drawer = page.getByTestId('emp201-drill-drawer');
   for (const theme of THEMES) {
     for (const width of [1568, 390]) {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
       await page.addInitScript((t) => window.localStorage.setItem('accounting-theme', t), theme);
       await openPaye(page, month!);
+      if (theme === THEMES[0] && width === 1568) await expectDrawerTiesToForm(page);
       await expect(drawer.getByTestId('return-drill-total')).toContainText('matches the amount');
       for (const href of await drawer.locator('a').evaluateAll((as) => as.map((a) => a.getAttribute('href')))) {
         expect(href).toMatch(/^\/payroll\/runs\/[0-9a-f-]{36}$/);

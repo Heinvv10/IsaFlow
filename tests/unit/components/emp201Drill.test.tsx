@@ -1,5 +1,5 @@
 /** Wave 5 L3u: the EMP201 total drill drawer. */
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { Emp201ReturnForm } from '@/components/accounting/sars/emp201/Emp201ReturnForm';
 
@@ -98,4 +98,49 @@ it('a period over 400 days says so and offers no links', () => {
   mount({}, { periodStart: '2025-01-01', periodEnd: '2026-03-01' });
   expect(screen.getByTestId('emp201-drill-window-note').textContent).toMatch(/up to 400 days; narrow the period/);
   expect(screen.queryByLabelText('Show the lines behind PAYE (Pay As You Earn)')).toBeNull();
+});
+
+it('the drawer total is the form figure, and the lines plus directive payments add up to it', async () => {
+  apiFetch.mockResolvedValue(env(drill({
+    total: 1500, rowsTotal: 1500, rowCount: 2, rows: [{ ...row(1), amount: 700 }, { ...row(2), amount: 750 }],
+    directivePayments: [{ paymentId: 'd1', directiveNumber: 'IRP3-9', employeeName: 'Dee Rector', paymentDate: '2026-09-10', amount: 50 }],
+  })));
+  mount();
+  const onForm = screen.getByText('PAYE (Pay As You Earn)').parentElement!.querySelector('[data-testid="emp201-value"]')!.textContent;
+  fireEvent.click(screen.getByLabelText('Show the lines behind PAYE (Pay As You Earn)'));
+  await screen.findByTestId('return-drill-lines');
+  expect(screen.getByTestId('emp201-drill-amount').textContent).toBe(onForm);
+  const cents = (t: string) => Math.round(Number(t.replace(/\u2212/g, '-').replace(/[^\d.-]/g, '')) * 100);
+  const lines = within(screen.getByTestId('return-drill-lines')).getAllByRole('row').slice(1).map((r) => cents(r.lastElementChild!.textContent!));
+  const directives = screen.getAllByTestId('emp201-drill-directive-amount').map((e) => cents(e.textContent!));
+  expect([...lines, ...directives].reduce((a, b) => a + b, 0)).toBe(cents(onForm!));
+  expect(screen.getByTestId('return-drill-total').textContent).toMatch(/lines and directive payments add up to/);
+});
+
+it('the total line names directive payments only when there are some', async () => {
+  apiFetch.mockResolvedValue(env(drill()));
+  mount();
+  fireEvent.click(screen.getByLabelText('Show the lines behind PAYE (Pay As You Earn)'));
+  await screen.findByTestId('return-drill-lines');
+  expect(screen.getByTestId('return-drill-total').textContent).not.toMatch(/directive/);
+});
+
+it('reopening a field after closing it starts at page 1 and never shows the last visit', async () => {
+  apiFetch.mockImplementation(async (u: string) => env(drill({ page: Number(new URL(u, 'http://x').searchParams.get('page')), rowCount: 400, hasMore: !u.includes('page=2'),
+    rows: [row(u.includes('page=2') ? 3 : 1)] })));
+  mount();
+  fireEvent.click(screen.getByLabelText('Show the lines behind PAYE (Pay As You Earn)'));
+  await screen.findByText(/E1 Emp 1/);
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+  await screen.findByText(/E3 Emp 3/);
+  fireEvent.click(screen.getByRole('button', { name: 'Close drawer' }));
+  apiFetch.mockClear();
+  let release: (v: unknown) => void = () => undefined;
+  apiFetch.mockImplementationOnce(() => new Promise((r) => { release = r; }));
+  fireEvent.click(screen.getByLabelText('Show the lines behind PAYE (Pay As You Earn)'));
+  expect(screen.queryByText(/E3 Emp 3/)).toBeNull();
+  expect(screen.getByRole('status').textContent).toBe('Loading…');
+  expect(String(apiFetch.mock.calls[0]![0])).toContain('page=1&');
+  await act(async () => { release(env(drill({ rows: [row(1)] }))); });
+  await screen.findByText(/E1 Emp 1/);
 });
