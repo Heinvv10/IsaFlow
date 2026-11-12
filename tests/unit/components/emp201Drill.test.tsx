@@ -32,7 +32,8 @@ it('PAYE opens a drawer of its runs and employee lines, each run linked to its p
   fireEvent.click(screen.getByLabelText('Show the lines behind PAYE (Pay As You Earn)'));
   const table = await screen.findByTestId('return-drill-lines');
   expect(within(table).getByText(/E1 Emp 1/)).toBeTruthy();
-  expect(screen.getAllByRole('link', { name: '2026-09' })[0]!.getAttribute('href')).toBe(`/payroll/runs/${RUN}`);
+  expect(within(screen.getByTestId('emp201-drill-runs')).getByRole('link', { name: '2026-09' }).getAttribute('href')).toBe(`/payroll/runs/${RUN}`);
+  expect(within(table).getAllByRole('link').map((l) => l.getAttribute('href'))).toEqual([`/payroll/runs/${RUN}`, `/payroll/runs/${RUN}`]);
   expect(screen.getByTestId('return-drill-total').textContent).toMatch(/matches the amount/);
   const url = String(apiFetch.mock.calls[0]![0]);
   expect(url).toContain('return=emp201&field=paye&from=2026-09-01&to=2026-09-30');
