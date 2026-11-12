@@ -7,34 +7,35 @@
      (a document preview, a legacy modal with no dark styling); it also resets color-scheme. */
   :root,
   [data-surface="light"] {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
+    --background: 167 39% 92.9%;
+    --foreground: 201 67% 8.4%;
+    --card: 156 33% 97.1%;
+    --card-foreground: 201 67% 8.4%;
+    --popover: 150 25% 98.4%;
+    --popover-foreground: 201 67% 8.4%;
+    --primary: 175 77% 26.1%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 163 26% 89.4%;
+    --secondary-foreground: 201 67% 8.4%;
+    --muted: 163 26% 89.4%;
+    --muted-foreground: 197 15% 36.5%;
+    --accent: 167 39% 92.9%;
+    --accent-foreground: 201 67% 8.4%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 174 72% 56%;
+    --border: 162 20% 82.9%;
+    --input: 162 20% 82.9%;
+    --ring: 175 77% 26.1%;
     --radius: 0.5rem;
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
+    --chart-1: 175 77% 26.1%;
+    --chart-2: 32 95% 43.7%;
+    --chart-3: 221 83% 53.3%;
+    --chart-4: 271 81% 55.9%;
+    --chart-5: 333 71% 50.6%;
+    --chart-6: 215 16% 46.9%;
 
     /* Design token colours */
-    --ff-primary: #f59e0b;
+    --ff-primary: #0f766e;
 
     /* Brand — teal accent used across the entire app */
     --ff-brand:         #14b8a6;
@@ -43,39 +44,40 @@
        badge shades are the brand-600/700 tokens below (5.5:1 and 7.6:1), not teal-600/700. */
     --ff-brand-dark:    #0f766e;
     --ff-brand-muted:   rgba(20, 184, 166, 0.15);
-    /* Small brand-coloured labels on the surface: teal-700 on light, teal-400 on dark. */
-    --ff-brand-eyebrow: #0f766e;
+    /* Small brand-coloured labels on the surface: 6.1:1 or better on every light tint (Current is 4.46 on the sunken one); Shallows on dark. */
+    --ff-brand-eyebrow: #0b5f59;
     /* Channels, so Tailwind can apply an opacity (bg-brand-600/50). Same in both themes. */
     --ff-brand-600-rgb: 15 118 110;
     --ff-brand-700-rgb: 17 94 89;
     --ff-brand-800-rgb: 19 78 74; /* hover under brand-700: 10.9:1 under white */
     --ff-brand-subtle:  rgba(20, 184, 166, 0.08);
 
-    /* Canvas — light mode surfaces (overridden in .dark below) */
-    --ff-canvas-base:   #f8fafc;
-    --ff-canvas-mid:    #ffffff;
-    --ff-canvas-raised: #f1f5f9;
-    --ff-canvas-border: rgba(15, 23, 42, 0.08);
-    --ff-canvas-gradient: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+    /* Canvas: light mode surfaces, soft River tints, never a stark white page (overridden in .dark below). */
+    --ff-canvas-base:   #e6f4f1;
+    --ff-canvas-mid:    #f5faf8;
+    --ff-canvas-raised: #ddebe7;
+    --ff-canvas-border: rgba(7, 26, 36, 0.1);
+    --ff-canvas-gradient: linear-gradient(180deg, #e6f4f1 0%, #dfeeea 100%);
 
-    --ff-bg-primary: #ffffff;
-    --ff-bg-secondary: #f9fafb;
-    --ff-bg-tertiary: #f3f4f6;
-    --ff-bg-hover: #f3f4f6;
+    --ff-bg-primary: #e6f4f1;
+    --ff-bg-secondary: #f5faf8;
+    --ff-bg-tertiary: #ddebe7;
+    --ff-bg-hover: #ddebe7;
 
-    --ff-surface-primary: #ffffff;
-    --ff-surface-secondary: #f9fafb;
-    --ff-surface-elevated: #ffffff;
+    --ff-surface-primary: #f5faf8;
+    --ff-surface-secondary: #edf5f2;
+    --ff-surface-elevated: #fafcfb;
 
-    /* Text tokens clear AA (4.5:1) on every light surface above, #f3f4f6 included. */
-    --ff-text-primary: #111827;
-    --ff-text-secondary: #4b5563;
-    --ff-text-tertiary: #5b6573;
+    /* Text tokens clear AA (4.5:1) on every light surface above, the sunken #ddebe7 included (tertiary 5.14:1). */
+    --ff-text-primary: #071a24;
+    --ff-text-secondary: #3b5059;
+    --ff-text-tertiary: #4f636b;
 
-    --ff-border-primary: #e5e7eb;
-    --ff-border-secondary: #d1d5db;
-    --ff-border-subtle: #f3f4f6;
-    --ff-border-light: #e5e7eb;
+    --ff-border-primary: #cbdcd7;
+    /* Strong (control) border: 3:1 or better on every light surface. */
+    --ff-border-secondary: #6f8a85;
+    --ff-border-subtle: #ddebe7;
+    --ff-border-light: #d5e4e0;
 
     /* Page header band (PageHeader): the same surface in both themes, never a fixed dark panel. */
     --ff-header-band: var(--ff-bg-secondary);
@@ -107,7 +109,7 @@
     --ff-font-scale: 0.9375;
 
     /* Statement figures — IBCS semantic colours. Favourable/unfavourable ONLY. */
-    --ff-fav: #1f7a4d;
+    --ff-fav: #1a6b43;
     --ff-unfav: #b23a3a;
     --ff-prior: #c9d0cc;
     --ff-plan: #8a94a0;
@@ -115,80 +117,106 @@
     --ff-dirty-bg: #fdf3d6;
     --ff-conflict-bg: #fbe1e1;
     --ff-cell-selected-bg: #d9eefb;
-    --ff-cell-focus-ring: #0d9488;
+    --ff-cell-focus-ring: #0f766e;
     /* --ff-fig-font (statement figures, KPI tiles, chart text) is deliberately not defined on screen:
        figures inherit the app face (DM Sans, digits from 'IsaFlow Figures'), and charts fall back
        to FALLBACK.figFont. The board-pack print page defines it (styles/packPrintPage.css). */
 
-    /* Keyboard focus ring (kit inputs and buttons): teal-600, 3.7:1 on white, 3 px. */
-    --ff-focus-ring: #0d9488;
+    /* Keyboard focus ring (kit inputs and buttons): Current, 4.4:1 or better on every light surface, 3 px. */
+    --ff-focus-ring: #0f766e;
     --ff-focus-ring-width: 3px;
 
     /* Native controls (select and date pop-ups, scrollbars) follow the theme. ThemeContext
        and public/theme-init.js also set it inline; this covers a page before either runs. */
     color-scheme: light;
+
+    /* River brand anchors (docs: AUDIT 11 Nov 2026, colour-tokens.md). */
+    --river-deep: #071a24;
+    --river-current: #0f766e;
+    --river-teal: #14b8a6;
+    --river-shallows: #5eead4;
+    --river-mist: #e6f4f1;
+    --river-sand: #f6f1e7;
+    --river-ember: #f59e0b;
+
+    /* Large-area tints: selection and active items (Mist), onboarding, empty states and notes (Sand). */
+    --ff-surface-brand: var(--river-mist);
+    --ff-surface-warm: var(--river-sand);
+    /* The fill of an enabled text field, the lightest surface, so a field never looks disabled. */
+    --ff-field-bg: #fcfefd;
+
+    /* Names call sites already use that were never defined (an undefined var() drops the whole declaration). */
+    --ff-border: var(--ff-border-primary);
+    --ff-border-medium: var(--ff-border-secondary);
+    --ff-border-hover: var(--ff-border-secondary);
+    --ff-text-muted: var(--ff-text-tertiary);
+    --ff-brand-500: var(--ff-brand-eyebrow);
+    --ff-accent: var(--ff-brand-dark);
   }
 
   .dark {
-    --background: 222 16% 12%;
-    --foreground: 0 0% 98%;
-    --card: 222 16% 14%;
-    --card-foreground: 0 0% 98%;
-    --popover: 222 16% 18%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 222 14% 22%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 222 14% 20%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 217 91% 60%;
-    --accent-foreground: 0 0% 98%;
+    --background: 201 67% 8.4%;
+    --foreground: 167 39% 92.9%;
+    --card: 199 59% 12.4%;
+    --card-foreground: 167 39% 92.9%;
+    --popover: 199 54% 16.3%;
+    --popover-foreground: 167 39% 92.9%;
+    --primary: 173 80% 40%;
+    --primary-foreground: 201 67% 8.4%;
+    --secondary: 199 45% 18.4%;
+    --secondary-foreground: 167 39% 92.9%;
+    --muted: 199 45% 18.4%;
+    --muted-foreground: 176 15% 63.9%;
+    --accent: 199 54% 16.3%;
+    --accent-foreground: 167 39% 92.9%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
-    --border: 222 14% 25%;
-    --input: 222 14% 22%;
-    --ring: 174 72% 56%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+    --border: 198 41% 20.6%;
+    --input: 198 41% 20.6%;
+    --ring: 171 77% 64.3%;
+    --chart-1: 172 66% 50.4%;
+    --chart-2: 43 96% 56.3%;
+    --chart-3: 213 94% 67.8%;
+    --chart-4: 270 95% 75.3%;
+    --chart-5: 329 86% 70.2%;
+    --chart-6: 215 20% 65.1%;
 
     /* Brand unchanged in dark mode */
     --ff-brand:         #14b8a6;
     --ff-brand-light:   #2dd4bf;
     --ff-brand-dark:    #0f766e;
     --ff-brand-muted:   rgba(20, 184, 166, 0.20);
-    --ff-brand-eyebrow: #2dd4bf;
+    --ff-brand-eyebrow: #5eead4;
     --ff-brand-subtle:  rgba(20, 184, 166, 0.10);
 
-    /* Canvas — dark scope */
-    --ff-canvas-base:   #0f172a;
-    --ff-canvas-mid:    #1a1d23;
-    --ff-canvas-raised: #334155;
-    --ff-canvas-border: rgba(255, 255, 255, 0.08);
-    --ff-canvas-gradient: radial-gradient(ellipse at 20% 0%, rgba(20,184,166,0.04) 0%, transparent 60%), linear-gradient(180deg, #0f172a 0%, #0c1424 100%);
+    /* Canvas: dark scope, built on River Deep. */
+    --ff-canvas-base:   #071a24;
+    --ff-canvas-mid:    #0a202b;
+    --ff-canvas-raised: #1a3744;
+    --ff-canvas-border: rgba(230, 244, 241, 0.08);
+    --ff-canvas-gradient: radial-gradient(ellipse at 20% 0%, rgba(20,184,166,0.05) 0%, transparent 60%), linear-gradient(180deg, #071a24 0%, #051319 100%);
 
-    --ff-bg-primary: #0f172a;
-    --ff-bg-secondary: #1e293b;
-    --ff-bg-tertiary: #334155;
-    --ff-bg-hover: #334155;
+    --ff-bg-primary: #071a24;
+    --ff-bg-secondary: #0d2632;
+    /* #1a3744, not #1f3d4a: stock slate-400 text is 4.89:1 here and 4.49 there. */
+    --ff-bg-tertiary: #1a3744;
+    --ff-bg-hover: #1a3744;
 
-    --ff-surface-primary: #1e293b;
-    --ff-surface-secondary: #334155;
-    --ff-surface-elevated: #1e293b;
+    --ff-surface-primary: #0d2632;
+    --ff-surface-secondary: #133240;
+    --ff-surface-elevated: #133240;
 
-    --ff-text-primary: #f1f5f9;
-    /* Distinct from primary (#f1f5f9) so labels keep their hierarchy: 12.0 / 9.9 / 7.0:1 on #0f172a / #1e293b / #334155. */
-    --ff-text-secondary: #cbd5e1;
-    /* 5:1 on the lightest dark surface used behind text (#334155); #94a3b8 was 4.04:1. */
-    --ff-text-tertiary: #a9b6c9;
+    --ff-text-primary: #e6f4f1;
+    /* Distinct from primary so labels keep their hierarchy: 9.6 / 8.5 / 6.8:1 on #071a24 / #0d2632 / #1a3744. */
+    --ff-text-secondary: #a9c4c0;
+    /* 5.49:1 on the lightest dark surface used behind text (#1a3744). */
+    --ff-text-tertiary: #95b1af;
 
-    --ff-border-primary: rgba(51, 65, 85, 0.55);
-    --ff-border-secondary: rgba(71, 85, 105, 0.6);
-    --ff-border-subtle: #1e293b;
-    --ff-border-light: rgba(255, 255, 255, 0.07);
+    --ff-border-primary: #1f3d4a;
+    /* Strong (control) border: 3:1 or better on the dark page, card and raised surfaces. */
+    --ff-border-secondary: #5b8391;
+    --ff-border-subtle: #0d2632;
+    --ff-border-light: rgba(230, 244, 241, 0.08);
 
     --ff-fav: #5fcf92;
     --ff-unfav: #f08a8a;
@@ -198,10 +226,14 @@
     --ff-dirty-bg: #4a3b12;
     --ff-conflict-bg: #5a2328;
     --ff-cell-selected-bg: #173a52;
-    --ff-cell-focus-ring: #2dd4bf;
+    --ff-cell-focus-ring: #5eead4;
 
-    /* teal-400: 10:1 on the dark canvas (#0f172a), 7:1 on the dark input fill (#1e293b). */
-    --ff-focus-ring: #2dd4bf;
+    /* Shallows: 12:1 on the dark canvas (#071a24), 10.6:1 on the dark field fill (#0d2632). */
+    --ff-focus-ring: #5eead4;
+    --ff-field-bg: #0d2632;
+    /* Mist and Sand would be light panels under dark text tokens: deep tints of the same hues instead. */
+    --ff-surface-brand: #0f3b3a;
+    --ff-surface-warm: #2a2519;
 
     color-scheme: dark;
   }
@@ -212,6 +244,92 @@
     --ff-card-radius: var(--ff-radius-xl);
     --ff-density-y: 0.75rem;
     --ff-font-scale: 1;
+  }
+
+  /*
+   * River neutrals. Inside the signed-in app shell (AppLayout sets data-app-shell) the neutral stops the shell and the
+   * UI kit were written with (bg-white, gray, slate and zinc 50 to 300 and 600 to 950) take River values, so a kit input,
+   * the header and a page card sit on one family of surfaces. Everywhere else (marketing, sign-in, portals) and in a
+   * print render they keep the stock Tailwind values below; tests/unit/components/theme/riverNeutrals.test.ts holds
+   * the defaults to tailwindcss/colors. Mapped in tailwind.config.mjs. Channels, so opacity modifiers keep working.
+   */
+  :root {
+    --rv-white: 255 255 255;
+    --rv-gray-50: 249 250 251;
+    --rv-gray-100: 243 244 246;
+    --rv-gray-200: 229 231 235;
+    --rv-gray-300: 209 213 219;
+    --rv-gray-600: 75 85 99;
+    --rv-gray-700: 55 65 81;
+    --rv-gray-800: 31 41 55;
+    --rv-gray-900: 17 24 39;
+    --rv-gray-950: 3 7 18;
+    --rv-slate-50: 248 250 252;
+    --rv-slate-100: 241 245 249;
+    --rv-slate-200: 226 232 240;
+    --rv-slate-300: 203 213 225;
+    --rv-slate-600: 71 85 105;
+    --rv-slate-700: 51 65 85;
+    --rv-slate-800: 30 41 59;
+    --rv-slate-900: 15 23 42;
+    --rv-slate-950: 2 6 23;
+    --rv-zinc-50: 250 250 250;
+    --rv-zinc-100: 244 244 245;
+    --rv-zinc-200: 228 228 231;
+    --rv-zinc-300: 212 212 216;
+    --rv-zinc-600: 82 82 91;
+    --rv-zinc-700: 63 63 70;
+    --rv-zinc-800: 39 39 42;
+    --rv-zinc-900: 24 24 27;
+    --rv-zinc-950: 9 9 11;
+  }
+
+  :root:has([data-app-shell]):not(.print-mode) {
+    --rv-white: 245 250 248; /* card #f5faf8 */
+    --rv-gray-50: 237 245 242; /* #edf5f2 */
+    --rv-gray-100: 221 235 231; /* #ddebe7 */
+    --rv-gray-200: 208 224 219; /* #d0e0db: muted text #4f636b on it is 4.62 (hover:bg-gray-200) */
+    --rv-gray-300: 185 203 198; /* #b9cbc6 */
+    --rv-gray-600: 59 80 89; /* #3b5059 */
+    --rv-gray-700: 26 55 68; /* #1a3744 */
+    --rv-gray-800: 13 38 50; /* #0d2632 */
+    --rv-gray-900: 7 26 36; /* Deep #071a24 */
+    --rv-gray-950: 5 19 25; /* #051319 */
+    --rv-slate-50: 237 245 242;
+    --rv-slate-100: 221 235 231;
+    --rv-slate-200: 208 224 219;
+    --rv-slate-300: 185 203 198;
+    --rv-slate-600: 59 80 89;
+    --rv-slate-700: 26 55 68;
+    --rv-slate-800: 13 38 50;
+    --rv-slate-900: 7 26 36;
+    --rv-slate-950: 5 19 25;
+    --rv-zinc-50: 237 245 242;
+    --rv-zinc-100: 221 235 231;
+    --rv-zinc-200: 208 224 219;
+    --rv-zinc-300: 185 203 198;
+    --rv-zinc-600: 59 80 89;
+    --rv-zinc-700: 26 55 68;
+    --rv-zinc-800: 13 38 50;
+    --rv-zinc-900: 7 26 36;
+    --rv-zinc-950: 5 19 25;
+  }
+
+  /* Dark: 50 to 300 are text stops there (dark:text-gray-200) and a white panel is white on purpose, so they go back to stock. */
+  :root.dark:has([data-app-shell]):not(.print-mode) {
+    --rv-white: 255 255 255;
+    --rv-gray-50: 249 250 251;
+    --rv-gray-100: 243 244 246;
+    --rv-gray-200: 229 231 235;
+    --rv-gray-300: 209 213 219;
+    --rv-slate-50: 248 250 252;
+    --rv-slate-100: 241 245 249;
+    --rv-slate-200: 226 232 240;
+    --rv-slate-300: 203 213 225;
+    --rv-zinc-50: 250 250 250;
+    --rv-zinc-100: 244 244 245;
+    --rv-zinc-200: 228 228 231;
+    --rv-zinc-300: 212 212 216;
   }
 
   * {
@@ -225,13 +343,13 @@
 
   /* Dark theme form controls */
   .dark :is(input, select, textarea):not(:where([data-surface="light"] *)) {
-    background-color: #1e293b;
-    color: #f1f5f9;
-    border-color: #475569;
+    background-color: #0d2632;
+    color: #e6f4f1;
+    border-color: #3b5f6e;
   }
 
   .dark :is(input, textarea):not(:where([data-surface="light"] *))::placeholder {
-    color: #94a3b8;
+    color: #95b1af;
   }
 
   .dark :is(input, select, textarea):not(:where([data-surface="light"] *)):focus {
@@ -243,6 +361,32 @@
   /* Date/time input icon colors in dark mode */
   .dark input:is([type="date"], [type="time"], [type="datetime-local"]):not(:where([data-surface="light"] *))::-webkit-calendar-picker-indicator {
     filter: invert(1);
+  }
+
+  /*
+   * Light theme form controls inside the app shell: one field fill, as the dark theme has had all along. Call sites
+   * fill inputs six different ways (bg-white, the page, the well and more), which read as disabled beside each other
+   * (audit P3.4). Text-like controls only; a transparent in-cell editor and a dark panel keep what they were given.
+   * Outside the shell (sign-in, portals, marketing) and in a print render, inputs keep stock styling.
+   * Specificity is (0,1,1) on purpose: everything but the element and one state pseudo-class sits in :where(), so the
+   * rule beats a plain bg-* utility (0,1,0) and loses to hover:bg-* / focus:bg-* (0,2,0).
+   * Read-only text fields keep the sunken fill so they never look editable; disabled ones get it too.
+   */
+  :where(html:not(.dark):not(.print-mode):has([data-app-shell]))
+    :is(input, select, textarea):where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="button"], [type="submit"], [type="reset"], [type="image"], [type="hidden"], .bg-transparent, [data-surface="dark"] *)):enabled {
+    background-color: var(--ff-field-bg);
+  }
+
+  :where(html:not(.dark):not(.print-mode):has([data-app-shell]))
+    :is(input, textarea):where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="button"], [type="submit"], [type="reset"], [type="image"], [type="hidden"], .bg-transparent, [data-surface="dark"] *))[readonly],
+  :where(html:not(.dark):not(.print-mode):has([data-app-shell]))
+    :is(input, select, textarea):where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="button"], [type="submit"], [type="reset"], [type="image"], [type="hidden"], .bg-transparent, [data-surface="dark"] *)):disabled {
+    background-color: var(--ff-bg-tertiary);
+  }
+
+  /* placeholder-gray-400 was 2.54:1; the tertiary token is 6.23:1 on the field fill. */
+  :where(html:not(.dark):not(.print-mode):has([data-app-shell])) :is(input, textarea)::placeholder {
+    color: var(--ff-text-tertiary);
   }
 
   /*

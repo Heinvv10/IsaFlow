@@ -51,3 +51,28 @@ export async function rootTheme(page: Page): Promise<{ dark: boolean; scheme: st
     scheme: getComputedStyle(document.documentElement).colorScheme,
   }));
 }
+
+/** Probe markup for the River shell scope: class names the app already uses, so Tailwind has compiled them. */
+const SHELL_PROBES = `
+  <div id="p-white" class="bg-white">x</div>
+  <input id="p-field" class="bg-white" value="x" />
+  <input id="p-ro" class="bg-[var(--ff-bg-tertiary)]" readonly value="x" />
+  <span id="p-t7" class="text-teal-700">x</span>
+  <a id="p-link" href="#" class="text-teal-600 hover:text-teal-700" style="display:inline-block;padding:8px">link</a>`;
+
+/** Inject the shell-scope probes and read their computed colours. The link stays in the page for a hover check (#p-link). */
+export async function shellScopeProbe(page: Page): Promise<Record<'white' | 'field' | 'readonly' | 'teal700' | 'link', string>> {
+  return page.evaluate((html) => {
+    const host = document.createElement('div');
+    host.innerHTML = html;
+    document.body.appendChild(host);
+    const cs = (id: string) => getComputedStyle(document.getElementById(id)!);
+    return {
+      white: cs('p-white').backgroundColor,
+      field: cs('p-field').backgroundColor,
+      readonly: cs('p-ro').backgroundColor,
+      teal700: cs('p-t7').color,
+      link: cs('p-link').color,
+    };
+  }, SHELL_PROBES);
+}
