@@ -3,7 +3,7 @@
  *
  * Every string the rejection screen shows must be chosen by us, never by the
  * request. `/oauth/authorize` is reached by following a link, and the screen
- * that says "Authorisation request rejected" is ISAFlow-branded, so a message
+ * that says "Authorisation request rejected" is IsaFlow-branded, so a message
  * built from a query-string value hands an attacker a sentence on our page.
  *
  * The scope token was the one value that reached it: `Unknown scope: ${s}`.
@@ -20,7 +20,7 @@
  * by us, not by the victim.
  */
 export const UNKNOWN_SCOPE_MESSAGE =
-  'This app requested a permission ISAFlow does not recognise. Nothing was shared.';
+  'This app requested a permission IsaFlow does not recognise. Nothing was shared.';
 
 export function rejectionForUnknownScope(_scope: string): string {
   return UNKNOWN_SCOPE_MESSAGE;

@@ -36,13 +36,13 @@ async function getCompanyMeta(companyId: string): Promise<CompanyMeta> {
     ` as Row[];
     const row = rows[0];
     return {
-      name: row?.name ? String(row.name) : 'ISAFlow',
+      name: row?.name ? String(row.name) : 'IsaFlow',
       statementSignature: row?.statement_email_signature != null
         ? String(row.statement_email_signature)
         : null,
     };
   } catch {
-    return { name: 'ISAFlow', statementSignature: null };
+    return { name: 'IsaFlow', statementSignature: null };
   }
 }
 

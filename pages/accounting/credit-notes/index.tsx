@@ -1,5 +1,5 @@
 /**
- * Credit Notes List Page — redesigned to match ISAFlow design system
+ * Credit Notes List Page — redesigned to match IsaFlow design system
  */
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';

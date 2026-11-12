@@ -5,7 +5,7 @@
  * bcrypt hash stored on audit_portal_sessions, then streams the pack
  * associated with the referenced export — the snapshot pack's ZIP (only when
  * its sealed manifest verifies), or an older pack's PDF. No company session required —
- * the auditor is not an ISAFlow user. Bumps last_used_at + use_count.
+ * the auditor is not an IsaFlow user. Bumps last_used_at + use_count.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';

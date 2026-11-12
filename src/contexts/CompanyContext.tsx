@@ -53,7 +53,7 @@ export function CompanyProvider({ children, skipFetch = false }: CompanyProvider
   const userRole = user?.role ?? null;
   const userId = user?.id ?? null;
   // Hydrate active company synchronously from localStorage so the first render
-  // has at least {id, name} — avoids a flash of the 'ISAFlow' fallback title
+  // has at least {id, name} — avoids a flash of the 'IsaFlow' fallback title
   // until the async /api/accounting/companies fetch resolves. The async fetch
   // that follows will enrich the company with the full profile.
   const [activeCompany, setActiveCompany] = useState<Company | null>(readStoredCompany);

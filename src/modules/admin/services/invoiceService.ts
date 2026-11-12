@@ -1,6 +1,6 @@
 /**
  * Invoice Service
- * Admin invoice lifecycle for the ISAFlow Admin Platform.
+ * Admin invoice lifecycle for the IsaFlow Admin Platform.
  * Subscription operations are in billingService.ts.
  */
 

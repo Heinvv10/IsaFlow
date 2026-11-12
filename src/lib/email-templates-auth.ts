@@ -1,5 +1,5 @@
 /**
- * ISAFlow Email Templates — Auth (welcome + password reset)
+ * IsaFlow Email Templates — Auth (welcome + password reset)
  * Table-based layout with inline styles for broad email client compatibility.
  * Core templates (invite + invoice): src/lib/email-templates.ts
  */
@@ -33,7 +33,7 @@ export function welcomeEmailHtml(data: WelcomeEmailData): string {
       <td style="padding:36px 32px 28px;">
         <h1 style="margin:0 0 8px; font-family:${BRAND.fontStack}; font-size:24px;
                    font-weight:bold; color:${BRAND.textBody};">
-          Welcome to ISAFlow!
+          Welcome to IsaFlow!
         </h1>
         <p style="margin:0 0 24px; font-family:${BRAND.fontStack}; font-size:15px;
                   color:${BRAND.textSecondary}; line-height:1.6;">
@@ -76,7 +76,7 @@ export function passwordResetEmailHtml(data: PasswordResetData): string {
         <p style="margin:0 0 24px; font-family:${BRAND.fontStack}; font-size:15px;
                   color:${BRAND.textSecondary}; line-height:1.6;">
           Hi <strong style="color:${BRAND.textBody};">${data.name}</strong>,<br>
-          we received a request to reset the password for your ISAFlow account.
+          we received a request to reset the password for your IsaFlow account.
           Click the button below to choose a new password.
         </p>
         ${ctaButton('Reset Password', data.resetUrl)}

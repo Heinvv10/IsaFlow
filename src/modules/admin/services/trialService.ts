@@ -1,6 +1,6 @@
 /**
  * Trial Management Service
- * Queries and mutations for trial company lifecycle on the ISAFlow Admin Platform.
+ * Queries and mutations for trial company lifecycle on the IsaFlow Admin Platform.
  */
 
 import { sql } from '@/lib/neon';

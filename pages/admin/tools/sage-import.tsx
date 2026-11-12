@@ -209,7 +209,7 @@ export default function AdminSageImportPage() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Sage Auto-Import</h1>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Pull data from Sage Business Cloud into an ISAFlow company.
+                Pull data from Sage Business Cloud into an IsaFlow company.
               </p>
             </div>
           </div>
@@ -224,7 +224,7 @@ export default function AdminSageImportPage() {
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
           <h2 className="font-semibold text-gray-900 dark:text-white mb-3">Target Company</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            Select the ISAFlow company that Sage data will be imported into.
+            Select the IsaFlow company that Sage data will be imported into.
           </p>
           {companiesError ? (
             <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
@@ -252,7 +252,7 @@ export default function AdminSageImportPage() {
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-sm text-teal-600 dark:text-teal-400">
                 <CheckCircle2 className="h-4 w-4" />
-                ISAFlow Sage Connector extension detected{ext.version ? ` (v${ext.version})` : ''}.
+                IsaFlow Sage Connector extension detected{ext.version ? ` (v${ext.version})` : ''}.
               </div>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 Make sure you are signed in to <a href="https://accounting.sageone.co.za" target="_blank" rel="noreferrer" className="text-teal-500 underline">accounting.sageone.co.za</a> in this browser, with the company you want to pull from selected.
@@ -277,7 +277,7 @@ export default function AdminSageImportPage() {
               <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300 text-sm">
                 <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium">ISAFlow Sage Connector extension not detected.</p>
+                  <p className="font-medium">IsaFlow Sage Connector extension not detected.</p>
                   <p className="text-xs mt-1 opacity-90">
                     Install it to pull automatically: clone the repo, then in Chrome go to <code>chrome://extensions</code>, enable Developer mode, and load <code>chrome-extension/sage-connector/</code>. Reload this page after installing. Or use manual cookie paste below.
                   </p>
@@ -355,7 +355,7 @@ export default function AdminSageImportPage() {
           <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6 space-y-4">
             <div className="flex items-center gap-3">
               <ShieldCheck className="h-5 w-5 text-teal-500" />
-              <h2 className="font-semibold text-gray-900 dark:text-white">Step 3: Commit to ISAFlow</h2>
+              <h2 className="font-semibold text-gray-900 dark:text-white">Step 3: Commit to IsaFlow</h2>
             </div>
             {!commitSummary && (
               <p className="text-sm text-gray-500 dark:text-gray-400">

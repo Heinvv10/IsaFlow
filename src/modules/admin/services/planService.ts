@@ -1,6 +1,6 @@
 /**
  * Plan Service
- * CRUD operations for billing plans in the ISAFlow Admin Platform.
+ * CRUD operations for billing plans in the IsaFlow Admin Platform.
  */
 
 import { sql } from '@/lib/neon';

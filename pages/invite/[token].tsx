@@ -135,7 +135,7 @@ export default function InvitePage() {
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <img src="/logo.png" alt="ISAFlow" className="h-16 w-auto dark:brightness-0 dark:invert mb-4" />
+          <img src="/logo.png" alt="IsaFlow" className="h-16 w-auto dark:brightness-0 dark:invert mb-4" />
         </div>
 
         {/* Loading state */}

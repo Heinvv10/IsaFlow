@@ -42,11 +42,11 @@ export function BureauCodingMetricsPanel({ bureauId, bureauName }: { bureauId: s
   const since = data.total?.decisionLogSince ?? null;
 
   return (
-    <section aria-label="ISAFlow coding by client" className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] overflow-hidden">
+    <section aria-label="IsaFlow coding by client" className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] overflow-hidden">
       <div className="px-4 py-3 border-b border-[var(--ff-border-primary)]">
-        <h2 className="text-sm font-medium text-[var(--ff-text-primary)]">ISAFlow coding{bureauName ? ` · ${bureauName}` : ''}</h2>
+        <h2 className="text-sm font-medium text-[var(--ff-text-primary)]">IsaFlow coding{bureauName ? ` · ${bureauName}` : ''}</h2>
         <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">
-          Auto-coded counts lines ISAFlow posted without line-by-line coding: confident suggestions, and bank
+          Auto-coded counts lines IsaFlow posted without line-by-line coding: confident suggestions, and bank
           rules (one rule run can post many lines). Suggestion rates need {data.minDecisions} decisions
           {since ? `; the log started ${fmtDay(since)}` : ''}.
         </p>

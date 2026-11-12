@@ -1,6 +1,6 @@
 /**
  * Billing Service — Overview & Subscriptions
- * Aggregate KPIs and subscription lifecycle for the ISAFlow Admin Platform.
+ * Aggregate KPIs and subscription lifecycle for the IsaFlow Admin Platform.
  * Invoice operations are in invoiceService.ts.
  */
 

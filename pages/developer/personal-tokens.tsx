@@ -190,7 +190,7 @@ export default function PersonalTokensPage() {
             <Key className="h-6 w-6 text-teal-400" /> Personal Access Tokens
           </h1>
           <p className="text-sm text-slate-400 mt-1">
-            Use Personal Access Tokens to call the ISAFlow API from scripts, CI, or automation —
+            Use Personal Access Tokens to call the IsaFlow API from scripts, CI, or automation —
             no browser needed. Tokens are tied to your user and the active company.
           </p>
         </div>

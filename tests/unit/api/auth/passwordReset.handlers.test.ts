@@ -171,7 +171,7 @@ describe('POST /api/auth/forgot-password', () => {
     expect(issuePasswordResetToken).toHaveBeenCalledWith('user-1');
     const sent = (sendEmail.mock.calls[0] as unknown[])[0] as { to: string; subject: string; html: string };
     expect(sent.to).toBe('real@example.com');
-    expect(sent.subject).toBe('Reset your ISAFlow password');
+    expect(sent.subject).toBe('Reset your IsaFlow password');
     expect(sent.html).toContain('/reset-password#token=tok-own');
   });
 

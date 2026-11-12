@@ -1,5 +1,5 @@
 /**
- * Supplier Returns / Debit Notes — redesigned to match ISAFlow design system
+ * Supplier Returns / Debit Notes — redesigned to match IsaFlow design system
  */
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';

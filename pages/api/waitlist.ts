@@ -1,7 +1,7 @@
 /**
  * POST /api/waitlist — public pre-launch lead capture.
  *
- * We are marketing ISAFlow but not yet taking paying customers. Every
+ * We are marketing IsaFlow but not yet taking paying customers. Every
  * "Sign up" / "Create account" CTA on the public site posts here instead
  * of creating a real account. We persist the lead, notify the team, and
  * return success; duplicate emails are a silent no-op so re-submitters
@@ -49,7 +49,7 @@ function buildNotificationHtml(lead: {
 
   return `
     <div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:560px;margin:0 auto;padding:24px;">
-      <h2 style="color:#0f172a;margin:0 0 12px;font-size:20px;">New ISAFlow waitlist signup</h2>
+      <h2 style="color:#0f172a;margin:0 0 12px;font-size:20px;">New IsaFlow waitlist signup</h2>
       <p style="color:#475569;margin:0 0 20px;font-size:14px;">Someone just joined the pre-launch waitlist:</p>
       <table style="border-collapse:collapse;width:100%;">
         ${row('Type', lead.signup_type === 'accountant' ? 'Accountant (bureau)' : 'Direct (own business)')}
@@ -136,7 +136,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (isNew) {
     sendEmail({
       to: NOTIFY_TO,
-      subject: `ISAFlow waitlist: ${lead.email}`,
+      subject: `IsaFlow waitlist: ${lead.email}`,
       html: buildNotificationHtml(lead),
       _log: { companyId: null, emailType: 'other' },
     }).catch((err: unknown) => {
