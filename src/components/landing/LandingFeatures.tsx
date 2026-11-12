@@ -19,8 +19,8 @@ export function LandingFeaturesGrid() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8">
           {FEATURE_PILLARS.map((pillar) => (
             <div key={pillar.title} className="group text-center">
-              <div className="w-14 h-14 rounded-2xl bg-white dark:bg-gray-900 flex items-center justify-center mx-auto mb-5 group-hover:bg-brand-600 transition-colors duration-300">
-                <pillar.icon className="w-6 h-6 text-slate-900 dark:text-white" />
+              <div className="w-14 h-14 rounded-2xl bg-gray-900 flex items-center justify-center mx-auto mb-5 group-hover:bg-brand-600 transition-colors duration-300">
+                <pillar.icon className="w-6 h-6 text-white" />
               </div>
               <h3 className="text-lg font-bold text-gray-900 mb-2">{pillar.title}</h3>
               <p className="text-sm text-gray-500 leading-relaxed">{pillar.desc}</p>
@@ -60,9 +60,15 @@ export function LandingDetailedFeatures() {
               <div className={i % 2 === 1 ? 'lg:order-1' : ''}>
                 <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-gray-100 bg-white">
                   <img
-                    src={`/landing/${f.imgKey}.png`}
+                    src={`/landing/${f.imgKey}-1200.webp`}
+                    srcSet={`/landing/${f.imgKey}-640.webp 640w, /landing/${f.imgKey}-1200.webp 1200w`}
+                    sizes="(min-width: 1024px) 580px, 100vw"
+                    width={1200}
+                    height={589}
+                    loading="lazy"
+                    decoding="async"
                     alt={f.title}
-                    className="w-full"
+                    className="w-full h-auto"
                     onError={(e) => {
                       const target = e.currentTarget;
                       target.style.display = 'none';

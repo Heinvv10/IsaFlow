@@ -4,8 +4,11 @@
  * - never the CSS by hand. It is a STOPGAP: the real fix is to migrate call sites to the `ink-*`
  * tokens and delete both files (Wave 1). scripts/ci/check-raw-muted-text-stops.ts stops it growing.
  *
- * In the LIGHT theme, dark-first text stops (`text-teal-400`, `text-slate-500`) are remapped to the
- * 800 weight of the same hue, which is AA on white, on #f3f4f6 and on the 20% tinted chips they sit on.
+ * In the LIGHT theme, dark-first text stops (`text-teal-400`, `text-slate-500`) are remapped to the 800 weight of
+ * the same hue (neutrals: the River tertiary), which is AA on white, on the River tints and on 20% tinted chips.
+ * Inside the signed-in app shell only (AppLayout's data-app-shell, not a print render), where surfaces are River
+ * tints rather than white, the 600 and 700 stops of every hue are remapped too, and their hover: twins go to the
+ * 900 weight so a link still darkens on hover. Public pages and print keep stock 600/700.
  * Text on a panel that is dark in BOTH themes keeps its palette colour: each remapped stop is a
  * custom property, light on <html>, and restored to the palette value on / inside a dark panel.
  */
@@ -18,7 +21,7 @@ const colors = createRequire(import.meta.url)('tailwindcss/colors');
 const HUES_800 = ['teal', 'cyan', 'sky', 'blue', 'indigo', 'violet', 'purple', 'pink', 'rose', 'red', 'orange', 'amber', 'yellow', 'lime', 'green', 'emerald'];
 const WITH_600 = new Set(['amber', 'yellow', 'orange', 'green', 'emerald', 'rose', 'lime']);
 const NEUTRALS = ['slate', 'gray', 'zinc', 'neutral', 'stone'];
-const NEUTRAL_LIGHT = '#5b6573';
+const NEUTRAL_LIGHT = '#4f636b';
 
 /** A panel that stays dark in the light theme. Opaque dark utilities only: `bg-teal-900/30` is a tint. */
 const DARK_PANELS = [
@@ -38,9 +41,19 @@ const DARK_PANELS = [
  */
 const LIGHT_SCOPES = [':where(html:not(.dark))', ':where(html.dark [data-surface="light"])'];
 
+/** The signed-in app shell in the light theme, never a print render: the only place 600/700 text sits on a tint. */
+const SHELL_SCOPE = ':where(html:not(.dark):not(.print-mode):has([data-app-shell]))';
+
 const stops = [];
 for (const h of HUES_800) for (const n of [300, 400, 500, ...(WITH_600.has(h) ? [600] : [])]) stops.push([h, n, colors[h][800]]);
 for (const h of NEUTRALS) for (const n of [400, 500]) stops.push([h, n, NEUTRAL_LIGHT]);
+
+const shellStops = [];
+for (const h of HUES_800) for (const n of [...(WITH_600.has(h) ? [] : [600]), 700]) shellStops.push([h, n, colors[h][800]]);
+/** hover:text-<hue>-600/700 inside the shell: the 900 weight, darker than the remapped base, so hover still darkens. */
+const hoverStops = [];
+for (const h of HUES_800) for (const n of [600, 700]) hoverStops.push([h, n, colors[h][900]]);
+const hv = (h, n) => `--tx-hover-${h}-${n}`;
 
 const v = (h, n) => `--tx-${h}-${n}`;
 const lines = [];
@@ -53,7 +66,8 @@ lines.push(`/*
  * The app grew dark-first: hundreds of files colour text with a light palette stop and no light twin.
  * In the LIGHT theme each such stop is remapped to the 800 weight of its hue. Text on or inside a
  * panel that is dark in both themes (bg-slate-700..950, bg-<hue>-800..950, from-*, bg-black, a dark
- * hex background, or data-surface="dark") keeps its palette colour.
+ * hex background, or data-surface="dark") keeps its palette colour. Inside the signed-in app shell
+ * (data-app-shell, not print) the 600/700 stops are remapped as well, and hover:text-*-600/700 go to 900.
  *
  * Every selector sits in :where(), so each rule is (0,1,0) like the utility it remaps; this file
  * loads after globals.css, and hover: / focus: / group-hover: / dark: variants still outrank it.
@@ -62,12 +76,20 @@ lines.push(`/*
 lines.push(`${LIGHT_SCOPES.join(',\n')} {`);
 for (const [h, n, hex] of stops) lines.push(`  ${v(h, n)}: ${hex};`);
 lines.push('}\n');
+lines.push(`${SHELL_SCOPE} {`);
+for (const [h, n, hex] of shellStops) lines.push(`  ${v(h, n)}: ${hex};`);
+for (const [h, n, hex] of hoverStops) lines.push(`  ${hv(h, n)}: ${hex};`);
+lines.push('}\n');
 lines.push(`:where(${DARK_PANELS.join(', ')}),\n:where(${DARK_PANELS.join(', ')}) * {`);
-for (const [h, n] of stops) lines.push(`  ${v(h, n)}: ${colors[h][n]};`);
+for (const [h, n] of [...stops, ...shellStops]) lines.push(`  ${v(h, n)}: ${colors[h][n]};`);
+for (const [h, n] of hoverStops) lines.push(`  ${hv(h, n)}: ${colors[h][n]};`);
 lines.push('}\n');
 for (const [h, n] of stops) {
   lines.push(`${LIGHT_SCOPES.map((sc) => `${sc} .text-${h}-${n}`).join(',\n')} {\n  color: var(${v(h, n)});\n}`);
 }
+for (const [h, n] of shellStops) lines.push(`${SHELL_SCOPE} .text-${h}-${n} {\n  color: var(${v(h, n)});\n}`);
+// (0,2,0) like Tailwind's own hover rule; this file loads after globals.css, so it wins the tie.
+for (const [h, n] of hoverStops) lines.push(`${SHELL_SCOPE} .hover\\:text-${h}-${n}:hover {\n  color: var(${hv(h, n)});\n}`);
 lines.push(`
 /*
  * Chart legends, BOTH themes (measured: rose-500 on the dark #1e293b card is 3.98:1 in dark, 1.8-3.5:1 on a

@@ -1,7 +1,7 @@
 /**
  * Public landing page stats — real aggregates across the whole database.
- * Server-only (imports the DB client). Shared by GET /api/landing-stats and
- * the landing page's getStaticProps; returns only three numbers, no tenant data.
+ * Server-only (imports the DB client). Used by GET /api/landing-stats; returns
+ * only three numbers, no tenant data.
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
