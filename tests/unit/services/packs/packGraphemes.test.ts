@@ -97,16 +97,17 @@ describe('packGraphemes', () => {
   }, 60_000);
 
   it('takes time linear in the text: 400,000 characters well under the 64 times 50,000 a quadratic walk would take', () => {
+    // Process CPU time, not wall time: vitest runs files in parallel forks, and wall time counts the waits for a core
+    // (best of 3 wall time on 25,000 reached 25.8, and best of 7 on 50,000 reached 34.6 in the full unit run, 12 Nov).
+    const cpuMs = (): number => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
     const ms = (n: number): number => {
       const t = 'x'.repeat(n);
       let best = Infinity;
-      for (let run = 0; run < 7; run += 1) { const start = performance.now(); graphemes(t); best = Math.min(best, performance.now() - start); }
+      for (let run = 0; run < 7; run += 1) { const start = cpuMs(); graphemes(t); best = Math.min(best, cpuMs() - start); }
       return best;
     };
     ms(50_000);
-    // 8x the text: linear is about 8x the time, quadratic 64x. Best of 7 on a 50,000 base keeps GC and load
-    // noise out of the ratio (best of 3 on 25,000 reached 25.8 on 12 Nov; this setup measured 2.5-6.8 under load,
-    // and a quadratic graphemes() 39.5).
+    // 8x the text: linear is about 8x the CPU time, quadratic 64x.
     expect(ms(400_000) / Math.max(ms(50_000), 1)).toBeLessThan(24);
   }, 120_000);
 
