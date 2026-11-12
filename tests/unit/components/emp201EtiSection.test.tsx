@@ -69,6 +69,19 @@ it('RFC 4180: a cell holding a comma and a quote is quoted, inner quotes doubled
   expect(neg.find((r) => r[0] === 'PAYE Payable')).toEqual(['PAYE Payable', 'PAYE net of ETI used', '-300.00']);
 });
 
+it('CWE-1236: a text cell starting with =, + or @ is neutralised with a leading quote, so a spreadsheet never runs it', async () => {
+  const base = data({ broughtForward: 0, used: 0, carriedForward: 0, refundClaimable: 0 });
+  for (const [start, expected] of [
+    ['=HYPERLINK("x")', `'=HYPERLINK("x") to 2026-08-31`],
+    ['+SUM(1)', `'+SUM(1) to 2026-08-31`],
+    ['@SUM(1)', `'@SUM(1) to 2026-08-31`],
+  ] as const) {
+    vi.restoreAllMocks();
+    const rows = await csvRows({ ...base, periodStart: start });
+    expect(rows.find((r) => r[0] === 'Period')).toEqual(['Period', expected]);
+  }
+});
+
 it('the section shows brought forward, carried forward and the refund only when each is above nil', () => {
   const view = render(<Emp201EtiSection data={data({ broughtForward: 0, used: 300, carriedForward: 0, refundClaimable: 0 })} />);
   expect(screen.getByText('ETI for the period')).toBeTruthy();
