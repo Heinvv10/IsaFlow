@@ -9,6 +9,10 @@
  *
  * Order matters: the token is consumed FIRST (atomically), so a replay or a
  * double-click cannot provision two tenants for one signup.
+ *
+ * A sign-up whose STORED type (the token row, written at registration) is
+ * 'accountant' also gets its bureau, in the same transaction as its new company
+ * (signupBureauService). The request body is never read for it.
  */
 import type { NextApiHandler, NextApiResponse } from 'next';
 import pg from 'pg';
@@ -23,24 +27,13 @@ import {
   consumeEmailVerificationToken,
   findConsumedVerification,
 } from '@/lib/auth/emailVerificationService';
-import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { provisionTenant } from '@/modules/onboarding/services/tenantProvisioningService';
+import { notifySignup } from '@/modules/onboarding/services/signupNotification';
+import { setUpSignupBureau, type SignupBureauResult } from '@/modules/bureau/services/signupBureauService';
 import { sql } from '@/lib/neon';
 import { withRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
-
-/** Where new-tenant notifications land. Only fires for VERIFIED signups. */
-const NOTIFY_TO = 'ai@velocityfibre.co.za';
-
-/** Escape untrusted values before they go into the notification email body. */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
 
 function adminPool(): pg.Pool {
   const url = process.env.MIGRATION_ADMIN_DATABASE_URL;
@@ -153,6 +146,7 @@ const handler: NextApiHandler = async (req, res) => {
   let email = '';
   let companyName = '';
   let signupType = '';
+  let bureau: SignupBureauResult | null = null;
   let unusable = false;
 
   try {
@@ -236,6 +230,14 @@ const handler: NextApiHandler = async (req, res) => {
     });
     companyId = provisioned.companyId;
     paygEligible = provisioned.paygEligible;
+    // Only here, where this transaction has just created the user's company: not
+    // on a replay, not for a user who already owned a tenant. A database failure
+    // degrades to 'failed' (savepoint) and the sign-up still commits.
+    if (consumed.pending.signupType === 'accountant') {
+      bureau = await setUpSignupBureau(client, {
+        ownerUserId: gotrueUserId, ownerEmail: email, companyId, practiceName: consumed.pending.companyName,
+      });
+    }
     await client.query('COMMIT');
   } catch (err) {
     // Not again if the early ROLLBACK above already failed: that client is condemned, and a second
@@ -264,31 +266,11 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(503).json(CONFIRMATION_INCOMPLETE);
   }
 
-  log.info('signup verified and provisioned', { companyId, paygEligible }, 'auth');
+  log.info('signup verified and provisioned', {
+    companyId, paygEligible, bureau: bureau?.status ?? null, bureauId: bureau && 'bureauId' in bureau ? bureau.bureauId : null,
+  }, 'auth');
 
-  // Fire-and-forget ops notification. Only reachable for a verified address, so
-  // this cannot be used to flood the ops inbox with junk signups.
-  sendEmail({
-    to: NOTIFY_TO,
-    subject: `IsaFlow signup: ${email}`,
-    html:
-      `<p>New verified self-serve signup.</p>` +
-      `<ul>` +
-      `<li><strong>Email:</strong> ${escapeHtml(email)}</li>` +
-      `<li><strong>Company:</strong> ${escapeHtml(companyName)}</li>` +
-      `<li><strong>Type:</strong> ${signupType}</li>` +
-      `<li><strong>Company ID:</strong> ${companyId}</li>` +
-      `</ul>`,
-    // companyId null: internal ops mail. Logging it against the new tenant would
-    // surface it inside their own Customer Communication report, which filters
-    // email_log by company_id.
-    _log: { companyId: null, emailType: 'other', sentBy: null },
-  }).catch((err: unknown) => {
-    log.error('signup notification email failed', {
-      error: err instanceof Error ? err.message : String(err),
-      companyId,
-    }, 'auth');
-  });
+  notifySignup({ email, companyName, signupType, companyId, ownerUserId: gotrueUserId, bureau });
 
   // Deliberately NOT signed in: the link is often opened on a different device
   // from the one that signed up, and the only way to auto-sign-in here would be
