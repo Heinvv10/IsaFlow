@@ -82,6 +82,24 @@ export function routeSuite(file: string, read: (path: string) => string | undefi
 }
 
 /**
+ * Which files under tests/integration the gate runs. `suites` is every
+ * `*.test.ts`, exactly the `include` of vitest.integration.config.ts, so a
+ * suite never drops out of the gate for its name (before 11 Nov 2026 only
+ * `*.int.test.ts` ran and 37 older suites were silently left out). `strays`
+ * are test-shaped files that pattern misses (`.test.tsx`, `.spec.ts`,
+ * `.test.mjs`, ...): plan.ts fails on them, since nothing would ever run them.
+ * Paths come back sorted.
+ */
+const TEST_SHAPED = /\.(test|spec)\.[cm]?[jt]sx?$/;
+export function planFiles(all: string[]): { suites: string[]; strays: string[] } {
+  const sorted = [...all].sort();
+  return {
+    suites: sorted.filter((f) => f.endsWith('.test.ts')),
+    strays: sorted.filter((f) => TEST_SHAPED.test(f) && !f.endsWith('.test.ts')),
+  };
+}
+
+/**
  * Deal suites to shards so the shards finish together: longest first, each to
  * the shard with the least work so far (LPT). A suite's weight is its seconds
  * in `slow`, else `fallback`. Ties keep path order, so the deal is stable.

@@ -19,6 +19,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
+  type RefObject,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
@@ -42,6 +43,8 @@ interface ModalProps {
   size?: ModalSize;
   /** Prevent closing when the overlay is clicked */
   disableBackdropClose?: boolean;
+  /** Opt-in: the element to focus on open (default: the first focusable, which is the header's close button). */
+  initialFocusRef?: RefObject<HTMLElement | null>;
 }
 
 interface ModalSectionProps {
@@ -146,6 +149,7 @@ function ModalRoot({
   children,
   size = 'md',
   disableBackdropClose = false,
+  initialFocusRef,
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -162,8 +166,10 @@ function ModalRoot({
   // Focus first focusable element on open
   useEffect(() => {
     if (!open || !dialogRef.current) return;
-    const el = dialogRef.current.querySelector<HTMLElement>(FOCUSABLE);
+    const el = initialFocusRef?.current ?? dialogRef.current.querySelector<HTMLElement>(FOCUSABLE);
     el?.focus();
+    // The ref is read once, on open; a later ref change must not move focus.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // ESC to close

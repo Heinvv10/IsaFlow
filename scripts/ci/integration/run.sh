@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The integration gate: every tests/integration/**/*.int.test.ts, against
+# The integration gate: every tests/integration/**/*.test.ts, against
 # disposable PostgreSQL 16 clusters this script starts and removes itself.
 # run-ci.sh runs it as the `integration` step on GitHub, and locally when asked
 # for with CI_INTEGRATION=1. Everything here runs as the current user: no

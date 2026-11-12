@@ -10,8 +10,8 @@
  * cancelCreditNote, so the journal reversal and the invoice un-apply had
  * already committed by the time it threw.
  *
- * Requires a company whose chart of accounts carries the six system-account
- * subtypes a credit note posts through. When that fixture is absent the tests
+ * Seeds a company whose chart of accounts carries the six system-account
+ * subtypes a credit note posts through. Should that seed come up short the tests
  * mark themselves SKIPPED via the test context rather than returning early —
  * an early `return` reports as a PASS, which is exactly how a suite like this
  * rots into a green light that proves nothing.
@@ -23,10 +23,13 @@ import { sql } from '@/lib/neon';
 import { listCreditNotesTool, getCreditNoteTool } from '@/lib/mcp/tools/creditNotes';
 import { createCreditNoteTool, approveCreditNoteTool, cancelCreditNoteTool } from '@/lib/mcp/tools/writeCreditNotes';
 import type { McpToolContext } from '@/lib/mcp/types';
+import { dropFixture, seedFixture, type Fixture } from '../helpers/l1FifoFixture';
 
-const COMPANY = '00000000-0000-0000-0000-000000000aa1';
-const OTHER   = '00000000-0000-0000-0000-000000000aa2';
-const USER    = '00000000-0000-0000-e2e0-000000000001';
+// Two companies of this suite's own (l1FifoFixture: chart of accounts, an open
+// 2026 period, a customer and a supplier each), so it runs on a schema-only
+// database too. It used to borrow two fixed ids that only dev had seeded.
+let fx: Fixture; let fxOther: Fixture;
+let COMPANY: string; let OTHER: string; let USER: string;
 let supplier: string; let customer: string; let otherCustomer: string; let invoice: string;
 /** A SECOND customer inside COMPANY — needed to reach the counterparty branch. */
 let siblingCustomer: string;
@@ -76,16 +79,14 @@ const REQUIRED_SUBTYPES = [
 let ready = false;
 
 beforeAll(async () => {
-  pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
-  // customers.company_id FKs to companies, so a database lacking either demo
-  // company kills beforeAll rather than skipping cleanly.
-  for (const [id, name] of [[COMPANY, 'CN MCP Test A'], [OTHER, 'CN MCP Test B']] as const) {
-    await sql`
-      INSERT INTO companies (id, name, registration_number, created_at)
-      VALUES (${id}::UUID, ${name}, 'CNMCP-TEST', NOW())
-      ON CONFLICT (id) DO NOTHING
-    `;
-  }
+  fx = await seedFixture('CNMCP', process.env.DATABASE_URL!);
+  fxOther = await seedFixture('CNMCPB', process.env.DATABASE_URL!);
+  COMPANY = fx.companyId; OTHER = fxOther.companyId; USER = fx.userId;
+  pool = fx.pool;
+  // approve posts through default_revenue too; the shared fixture has no revenue account.
+  await sql`
+    INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance, is_active, is_system_account)
+    VALUES (${COMPANY}::UUID, '4000', ${'Revenue ' + fx.tag}, 'revenue', 'default_revenue', 'credit', true, true)`;
   const seeded = await sql`
     SELECT COUNT(DISTINCT account_subtype) AS n FROM gl_accounts
     WHERE company_id = ${COMPANY}::UUID AND account_subtype = ANY(${REQUIRED_SUBTYPES})
@@ -93,63 +94,25 @@ beforeAll(async () => {
   ready = Number(seeded[0]!.n) === REQUIRED_SUBTYPES.length;
   if (!ready) return;
 
-  supplier = (await sql`INSERT INTO suppliers (name, company_id) VALUES (${'E2E Supplier ' + TAG}, ${COMPANY}::UUID) RETURNING id` as {id:string}[])[0]!.id;
-  customer = (await sql`INSERT INTO customers (name, company_id) VALUES (${'E2E Customer ' + TAG}, ${COMPANY}::UUID) RETURNING id` as {id:string}[])[0]!.id;
-  otherCustomer = (await sql`INSERT INTO customers (name, company_id) VALUES (${'E2E Other ' + TAG}, ${OTHER}::UUID) RETURNING id` as {id:string}[])[0]!.id;
+  supplier = fx.supplierId;
+  customer = fx.customerId;
+  otherCustomer = fxOther.customerId;
   siblingCustomer = (await sql`INSERT INTO customers (name, company_id) VALUES (${'E2E Sibling ' + TAG}, ${COMPANY}::UUID) RETURNING id` as {id:string}[])[0]!.id;
   invoice = (await sql`INSERT INTO customer_invoices (company_id, client_id, customer_id, created_by, invoice_number, invoice_date, total_amount, amount_paid, status, subtotal)
     VALUES (${COMPANY}::UUID, ${customer}::UUID, ${customer}::UUID, ${USER}::UUID, ${TAG}, '2026-06-01', 1150, 0, 'approved', 1000) RETURNING id` as {id:string}[])[0]!.id;
-});
+}, 60_000);
 
 afterAll(async () => {
-  if (!ready) { await pool?.end(); return; }
-  // Teardown must not stop at the first failure. A test that leaves an
-  // unexpected row makes one of these DELETEs throw, and an aborted afterAll
-  // then abandons everything after it — which is how a failed run left three
-  // customers and an invoice behind in a shared demo company. Each step is
-  // reported and skipped rather than fatal; TAG keeps a leftover from breaking
-  // the next run either way.
-  const step = async (what: string, fn: () => Promise<unknown>) => {
-    try { await fn(); } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn(`[creditNoteMcpTools] teardown step "${what}" failed:`, err);
-    }
-  };
-  // Scoped teardown ONLY — these are shared demo companies, not throwaway ones.
-  //
-  // The journals have to go FIRST and by id: approve posts one and cancel posts
-  // its reversal, and neither is reachable from credit_notes once the note row
-  // is gone. An earlier version deleted only the notes and left both behind,
-  // silently accumulating posted entries in a demo company's ledger on every
-  // run. Reversals reference their original through reversal_of_id, so they are
-  // deleted before the entries they point at.
-  const jeIds = (await sql`
-    SELECT gl_journal_entry_id AS id FROM credit_notes
-    WHERE (client_id = ${customer}::UUID OR supplier_id = ${supplier}::UUID)
-      AND gl_journal_entry_id IS NOT NULL
-  ` as { id: string }[]).map((r) => r.id);
-
-  // credit_notes.gl_journal_entry_id is a FK onto the entries below, so the
-  // notes go FIRST or the journal delete is refused.
-  await step('credit_notes', () => sql`DELETE FROM credit_notes WHERE client_id = ${customer}::UUID OR supplier_id = ${supplier}::UUID`);
-
-  if (jeIds.length > 0) {
-    const all = (await sql`
-      SELECT id FROM gl_journal_entries
-      WHERE id = ANY(${jeIds}::UUID[]) OR reversal_of_id = ANY(${jeIds}::UUID[])
-    ` as { id: string }[]).map((r) => r.id);
-    await sql`DELETE FROM gl_journal_lines WHERE journal_entry_id = ANY(${all}::UUID[])`;
-    // Reversals reference their original through reversal_of_id, so they are
-    // deleted before the entries they point at.
-    await sql`DELETE FROM gl_journal_entries WHERE reversal_of_id = ANY(${jeIds}::UUID[])`;
-    await sql`DELETE FROM gl_journal_entries WHERE id = ANY(${jeIds}::UUID[])`;
+  // Each company is this suite's own, so teardown is by company: the notes and
+  // their allocations first (they FK the journals and invoices), then every
+  // row the fixture made (journals included).
+  for (const f of [fx, fxOther]) {
+    if (!f) continue;
+    await sql`DELETE FROM credit_note_allocations WHERE company_id = ${f.companyId}::UUID`;
+    await sql`DELETE FROM credit_notes WHERE company_id = ${f.companyId}::UUID`;
+    await dropFixture(f);
   }
-
-  await step('customer_invoices', () => sql`DELETE FROM customer_invoices WHERE id = ${invoice}::UUID`);
-  await step('customers', () => sql`DELETE FROM customers WHERE id IN (${customer}::UUID, ${otherCustomer}::UUID, ${siblingCustomer}::UUID)`);
-  await step('suppliers', () => sql`DELETE FROM suppliers WHERE id = ${supplier}::UUID`);
-  await pool.end();
-});
+}, 60_000);
 
 describe('credit note MCP tools — real round trip', () => {
   it('refuses a customer from another tenant', async (t) => {

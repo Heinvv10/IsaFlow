@@ -117,7 +117,7 @@ describe('supplier migration import', () => {
 });
 
 describe('supplier invoice form reference data', () => {
-  const accounts = [{ id: 'g1', accountCode: '5100', accountName: 'D2 Expense Account' }];
+  const accounts = [{ id: 'g1', accountCode: '5100', accountName: 'D2 Expense Account', accountType: 'expense', isActive: true }];
   const settings = [{ documentType: 'supplier_invoice', prefix: 'D2SIV-', nextNumber: 7, padding: 4 }];
   const serve = (chart: () => Response, docNums: () => Response) => {
     vi.mocked(apiFetch).mockImplementation(async (u: unknown) => (String(u).includes('chart-of-accounts') ? chart() : String(u).includes('company-settings') ? docNums() : ok({})));

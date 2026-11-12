@@ -128,12 +128,13 @@ beforeEach(() => {
   });
 });
 
-// FB-2: the challenge carries the read-only default scope set (MCP 2025-11-25
-// SHOULD), after realm and resource_metadata, which stay as they were.
+// FB-2 / 2026-11-11: the challenge carries OFFERED_MCP_SCOPES (MCP 2025-11-25
+// SHOULD): the reads, every write scope (offered as unticked consent boxes, never
+// granted without a tick), then offline_access. realm and resource_metadata stay.
 const CHALLENGE_RE = new RegExp(
   '^Bearer realm="IsaFlow MCP", ' +
   'resource_metadata="https://app\\.isaflow\\.co\\.za/\\.well-known/oauth-protected-resource", ' +
-  'scope="read:reports read:invoices read:contacts read:bank-tx read:vat read:payroll read:practice offline_access"$',
+  'scope="read:reports read:invoices read:contacts read:bank-tx read:vat read:payroll read:practice write:invoices write:bank-tx write:journals write:accounts write:contacts write:vat write:practice write:payroll write:post offline_access"$',
 );
 
 describe('withBearerAuth — strict Bearer only', () => {

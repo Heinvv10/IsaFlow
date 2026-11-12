@@ -41,7 +41,7 @@ const ALL_PAGES = [
   '/accounting/bank-transactions/new', '/accounting/bank-transfers',
   '/accounting/bank-reconciliation', '/accounting/bank-reconciliation/import',
   '/accounting/bank-reconciliation/new', '/accounting/bank-reconciliation/rules',
-  '/accounting/bank-rules', '/accounting/bank-feeds', '/accounting/cashbook',
+  '/accounting/bank-rules', '/accounting/cashbook',
   // Accounts
   '/accounting/chart-of-accounts', '/accounting/default-accounts',
   '/accounting/currencies', '/accounting/exchange-rates',

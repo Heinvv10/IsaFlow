@@ -3,10 +3,6 @@
  * integration gate saw skip, and why; exits 1 when a suite skipped every test
  * without saying why. The rules live in ./skippedIntegrationSuites.ts.
  *
- * Also names the tests/integration files the gate does not run at all: it
- * runs *.int.test.ts only, and the older *.test.ts files there (several drive
- * a running server over HTTP) are run by hand with `bun run test:integration`.
- *
  * A log's sibling `<name>.started` (startedFileReporter.ts, beside
  * `<name>.log`) lists the suites that started; one of them with no readable
  * result line in that log also fails the report, by name: whether it skipped
@@ -18,8 +14,7 @@
  * Run: bun scripts/ci/report-skipped-integration.ts <vitest log>...
  * (scripts/ci/integration/run.sh passes every shard's log.)
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import { resultLines, unreadable } from './integration/resultLines';
 import { skipNotice, skippedSuites } from './skippedIntegrationSuites';
 
@@ -54,16 +49,6 @@ const notice = skipNotice(skippedSuites(logs.join('\n'), read), unread);
 const { unexplained, unreadable: unknown } = notice;
 lines.unshift(...notice.lines);
 lines.push(...noList);
-
-const notRun = readdirSync('tests/integration', { recursive: true, encoding: 'utf8' })
-  .filter((f) => f.endsWith('.test.ts') && !f.endsWith('.int.test.ts'))
-  .map((f) => join('tests/integration', f))
-  .sort();
-if (notRun.length > 0) {
-  lines.push(`[skip] not part of this gate (it runs *.int.test.ts only; run these with bun run test:integration): `
-    + `${notRun.length} file(s)`);
-  lines.push(...notRun.map((f) => `[skip]   ${f}`));
-}
 
 for (const line of lines) process.stdout.write(`${line}\n`);
 process.exit(unexplained.length > 0 || unknown.length > 0 || noList.length > 0 ? 1 : 0);
