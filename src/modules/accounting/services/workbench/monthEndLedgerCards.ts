@@ -48,28 +48,28 @@ export async function buildBankingCard(companyId: string, periodEnd: string): Pr
 }
 
 export async function buildSalesCard(companyId: string, periodEnd: string): Promise<WorkbenchCard> {
-  const { total, overdue, parties, past } = await getSalesFigures(companyId, periodEnd);
+  const { total, overdue, parties, past, asAt } = await getSalesFigures(companyId, periodEnd);
   const status: CardStatus = overdue > total * 0.4 ? 'attention' : overdue > 0 ? 'in_progress' : 'ready';
   return {
     id: 'sales',
     title: 'Sales & Receivables',
     status,
     primary: `${fmtR(overdue)} overdue`,
-    secondary: `${fmtR(total)} outstanding · ${parties} customers`,
-    // debtors-manager has no as-at date; the aged debtors report does.
-    href: past ? `/accounting/ar-aging?as_at_date=${periodEnd}` : '/accounting/debtors-manager',
+    secondary: `${fmtR(total)} outstanding · ${parties} customers · as at ${formatDisplayDate(asAt)}`,
+    // The aged debtors report is the population this card totals (debtors-manager is not).
+    href: past ? `/accounting/ar-aging?as_at_date=${periodEnd}` : '/accounting/ar-aging',
   };
 }
 
 export async function buildPurchasesCard(companyId: string, periodEnd: string): Promise<WorkbenchCard> {
-  const { total, overdue, parties: suppliers, past } = await getPurchasesFigures(companyId, periodEnd);
+  const { total, overdue, parties: suppliers, past, asAt } = await getPurchasesFigures(companyId, periodEnd);
   const status: CardStatus = overdue > 0 ? 'attention' : total > 0 ? 'in_progress' : 'ready';
   return {
     id: 'purchases',
     title: 'Supplier Bills & Payments',
     status,
     primary: `${fmtR(overdue)} overdue`,
-    secondary: `${fmtR(total)} outstanding · ${suppliers} suppliers`,
+    secondary: `${fmtR(total)} outstanding · ${suppliers} suppliers · as at ${formatDisplayDate(asAt)}`,
     href: past ? `/accounting/ap-aging?as_at_date=${periodEnd}` : '/accounting/ap-aging',
   };
 }

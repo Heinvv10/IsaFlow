@@ -29,6 +29,8 @@ export interface OpenBook {
    * so slices + overdueDisputed = overdue, and the tile can say so.
    */
   overdueDisputed: number;
+  /** Customers (AR) or suppliers (AP) with an open balance: the report's row count. */
+  parties: number;
 }
 
 const cents = (n: number): number => Math.round(n * 100) / 100;
@@ -50,5 +52,6 @@ export async function getOpenBook(companyId: string, side: 'ar' | 'ap', todayStr
     overdue: cents(pastDue.reduce((s, inv) => s + inv.balance, 0)),
     // The same cap calculateAgingBuckets applies: a dispute never exceeds its balance.
     overdueDisputed: cents(pastDue.reduce((s, inv) => s + Math.min(Math.max(inv.disputedAmount ?? 0, 0), inv.balance), 0)),
+    parties: rows.length,
   };
 }

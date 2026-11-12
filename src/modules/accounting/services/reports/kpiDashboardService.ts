@@ -11,6 +11,7 @@ import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { todayInSast } from '@/lib/saDateParser';
 import { getOpenBook, type OpenBook } from './dashboardOpenBook';
 import { revenueBand } from '../gl/accountClassification';
+import { getMtdIncome, type MtdIncome } from './mtdIncome';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 
@@ -43,13 +44,15 @@ export interface OpenBooks { ar: OpenBook; ap: OpenBook }
  * `todayStr` is the SAST app date the Receivables / Payables tiles are as at
  * (reports/dashboardOpenBook), never the UTC session's CURRENT_DATE. `books`
  * are those tiles' open books when the caller already has them; without them
- * they are read here.
+ * they are read here. `mtd` is the month-to-date income as at `todayStr` when the
+ * caller already read it (the route shares it with the headline figures).
  */
 export async function getDashboardKPIs(companyId: string,
   fromDate: string,
   toDate: string,
   todayStr: string = todayInSast(),
   books?: OpenBooks,
+  mtd?: MtdIncome,
 ): Promise<DashboardKPIs> {
   try {
     const from = new Date(fromDate);
@@ -66,7 +69,7 @@ export async function getDashboardKPIs(companyId: string,
       arBook, arDebtorDaysRows,
       apBook, apCreditorDaysRows,
       invoicesIssuedRows, paymentsReceivedRows, journalsPostedRows,
-      mtdRevenueRows,
+      mtdIncome,
     ] = await Promise.all([
       sql`
         SELECT ga.account_subtype, COALESCE(SUM(jl.credit - jl.debit), 0) AS total
@@ -181,18 +184,8 @@ export async function getDashboardKPIs(companyId: string,
           AND status = 'posted' AND source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND entry_date >= ${fromDate} AND entry_date <= ${toDate}
       `,
-      // The revenue tile's own rule, over the SAST month so far (the tile
-      // spans the whole window and is not a month-to-date figure).
-      sql`
-        SELECT ga.account_subtype, COALESCE(SUM(jl.credit - jl.debit), 0) AS total
-        FROM gl_journal_lines jl
-        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
-        WHERE ga.account_type = 'revenue' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
-          AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
-          AND je.entry_date >= ${`${todayStr.slice(0, 8)}01`} AND je.entry_date <= ${todayStr}
-        GROUP BY ga.account_subtype
-      `,
+      // Revenue MTD: the headline figure's one definition (reports/mtdIncome).
+      mtd ?? getMtdIncome(companyId, todayStr),
     ]);
 
     // Revenue is TURNOVER, as the income statement's Revenue line: the other-income
@@ -216,7 +209,7 @@ export async function getDashboardKPIs(companyId: string,
 
     return {
       revenue: { total: totalRevenue, priorTotal: priorRevenue, changePercent: revenueChange },
-      revenueMtd: turnover(mtdRevenueRows as RevenueRow[]),
+      revenueMtd: mtdIncome.revenueMtd,
       expenses: { total: totalExpenses, priorTotal: priorExpenses },
       netProfit: { amount: netProfit, margin: netMargin },
       cash: { total: cashTotal, priorTotal: priorCash, change: cashTotal - priorCash },

@@ -67,8 +67,8 @@ function DebtorsSection({ pos }: { pos: OwnerCashPosition }) {
         </div>
       ))}
       <Link
-        href="/accounting/debtors-manager"
-        aria-label="View all debtors in the debtors manager"
+        href="/accounting/ar-aging"
+        aria-label="View all debtors in the aged debtors report"
         className="block text-xs text-teal-500 hover:text-teal-400 pt-1"
       >
         Chase debtors → (total owed: <Money amount={pos.arTotal} />)
