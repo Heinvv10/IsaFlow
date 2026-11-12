@@ -19,7 +19,7 @@ const KEEP = /ISAFlow Demo|realm="ISAFlow"|also written ISAFlow/g;
 
 /** Files left for follow-up because other open PRs or review own them. Remove an entry once its file is fixed. */
 const ALLOWED = new Set([
-  'pages/accounting/sars/emp201.tsx',
+  'src/components/accounting/sars/emp201/Emp201SubmitModal.tsx',
   'src/components/accounting/sars/VAT201SubmitModal.tsx',
   'pages/accounting/journal-entries/new.tsx',
   'pages/accounting/credit-notes/new.tsx',

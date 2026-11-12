@@ -58,7 +58,8 @@ export const CONTRACTOR_NON_DEDUCTION_REASON = '03';
 export function contractorAwareReason(emp: EmployeeInput): string {
   if ((emp.independentContractor3616 ?? 0) <= 0) return nilTaxReason(emp);
   const employeeIncome = Math.max(0, emp.grossSalary3601) + Math.max(0, emp.annualPayments3605 ?? 0)
-    + (emp.fringeBenefits ?? []).reduce((t, f) => t + Math.max(0, f.amount), 0);
+    + (emp.fringeBenefits ?? []).reduce((t, f) => t + Math.max(0, f.amount), 0)
+    + (emp.cashAllowances ?? []).reduce((t, f) => t + Math.max(0, f.amount), 0);
   if (employeeIncome > 0) nilTaxReason(emp);
   return CONTRACTOR_NON_DEDUCTION_REASON;
 }

@@ -156,7 +156,9 @@ describeIfDb('VAT201 finalise, against a real ledger', () => {
     await sql`INSERT INTO vat_returns (company_id, period_start, period_end, total_output_tax, total_input_tax, net_vat)
       VALUES (${c()}::UUID, ${MISMATCH.periodStart}::DATE, ${MISMATCH.periodEnd}::DATE, 100, 0, 100)`;
     const before = await count('vat_period_locks', c());
-    expect((await post(rf.admin.token, MISMATCH)).status).toBe(409);
+    const refused = await post(rf.admin.token, MISMATCH);
+    expect(refused.status).toBe(409);
+    expect((refused.body as { error: { details?: { code?: string } } }).error.details?.code).toBe('VAT_RETURN_MISMATCH');
     expect(await count('vat_period_locks', c())).toBe(before);
     expect((await post(rf.admin.token, { ...MISMATCH, acknowledgeVatReturnMismatch: true })).status).toBe(422); // no reason
     const r = await post(rf.admin.token, { ...MISMATCH, acknowledgeVatReturnMismatch: true, mismatchReason: 'Old record was a test' });
@@ -210,6 +212,7 @@ describeIfDb('VAT201 finalise, against a real ledger', () => {
     await sql`UPDATE companies SET vat_period = 'bi-monthly' WHERE id = ${c()}::UUID`;
     expect(overlap.status).toBe(409);
     expect(JSON.stringify(overlap.body)).toMatch(/overlaps/);
+    expect((overlap.body as { error: { details?: { code?: string } } }).error.details?.code).toBe('OVERLAPS_LIVE_VERSION');
     expect(await count('vat_period_locks', c())).toBe(locks);
   });
 

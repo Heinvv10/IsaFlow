@@ -266,6 +266,11 @@ describe('an empty 5xx on a write names what could not be done', () => {
     serve(on('POST', 'year-end', empty500), on('GET', 'year-end', () => ok({ years: [YEAR] })));
     render(<YearEndPage />);
     fireEvent.click(await screen.findByRole('button', { name: /Process Year-End/ }));
+    // Audit P3.2: the close runs only after the year label is typed in the confirmation.
+    const input = await screen.findByRole('textbox');
+    await waitFor(() => expect((input as HTMLInputElement).disabled).toBe(false));
+    fireEvent.change(input, { target: { value: 'FY2025' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /Process Year-End/ }).at(-1)!);
     expect(await screen.findByText('Could not run year-end processing - try again')).toBeTruthy();
   });
 });

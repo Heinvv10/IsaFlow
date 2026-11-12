@@ -13,11 +13,11 @@ import { useVendorSupplierMatch } from '@/components/accounting/supplier-invoice
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import { PoGrnSelector } from '@/components/accounting/suppliers/PoGrnSelector';
-import type { PoLineItem } from '@/components/accounting/suppliers/PoGrnSelector';
+import { PoGrnSelector, type PoLineItem } from '@/components/accounting/suppliers/PoGrnSelector';
 import { BillLineItemsTable } from '@/components/accounting/suppliers/BillLineItemsTable';
 import type { BillLineItem, GLAccount } from '@/components/accounting/suppliers/BillLineItemsTable';
 import { billLineFromPo, mergePoAccounts } from '@/components/accounting/suppliers/poBillLines';
+import { billLineAccountChoices } from '@/components/accounting/suppliers/billAccountOptions';
 import { InvoiceNumberField } from '@/components/accounting/suppliers/InvoiceNumberField';
 import { SupplierInvoiceSummaryCard } from '@/components/accounting/suppliers/SupplierInvoiceSummaryCard';
 import { localISODate } from '@/lib/dateUtils';
@@ -67,11 +67,11 @@ export default function NewSupplierInvoicePage() {
   useEffect(() => {
     const okJson = async (r: Response) => { await assertOk(r, 'Could not load the form data - try again'); return r.json(); };
     void Promise.all([
-      apiFetch('/api/accounting/chart-of-accounts').then(okJson),
+      apiFetch('/api/accounting/chart-of-accounts?includeInactive=true').then(okJson),
       apiFetch('/api/accounting/company-settings?type=document-numbers').then(okJson),
     ]).then(([accRes, settingsRes]) => {
       const accData = accRes.data ?? accRes;
-      setGLAccounts(Array.isArray(accData) ? accData.filter((a: GLAccount) => a.accountCode >= '5000') : []);
+      setGLAccounts(Array.isArray(accData) ? billLineAccountChoices(accData) : []);
       type DocNum = { documentType: string; prefix: string; nextNumber: number; padding: number };
       const docNums = (settingsRes.data ?? settingsRes) as DocNum[];
       const siv = Array.isArray(docNums) ? docNums.find(d => d.documentType === 'supplier_invoice') : undefined;

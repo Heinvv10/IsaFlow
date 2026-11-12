@@ -73,6 +73,8 @@ const IRP5 = {
     runsIncluded: 12,
     lumpSums: [{ sourceCode: '3901', directiveNumber: '1234567890', directiveIssuedDate: '2025-11-03', amount: 30000, paye: 3000 }],
     fringeBenefits: [{ sourceCode: '3801', amount: 10000 }],
+    cashAllowances: [{ sourceCode: '3701', amount: 5000 }],
+    paye4582: 4000,
   }],
   rowsTotal: 1,
   universeTotal: 2,

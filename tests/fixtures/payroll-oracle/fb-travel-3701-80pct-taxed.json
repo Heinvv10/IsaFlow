@@ -2,7 +2,7 @@
   "id": "fb-travel-3701-80pct-taxed",
   "source": "sars-guide:PAYE-GEN-01-G21 Rev 1 p. 5 (travelling allowance: 80% subject to employees tax)",
   "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf ; SARS e@syFile Employer Reconciliation BRS (SARS_PAYE_BRS V25.3.0, Jun-26)",
-  "notes": "R30 000 salary plus a R5 000 fixed travel allowance (3701), business use below 80% (or not certified): 80% = R4 000 is remuneration (G21 p. 5). Taxable 34 000; x12 = 408 000; tax = 79 998 + 31% x (408 000 - 383 100) = 87 717; less 17 820 = 69 897; /12 = 5824.75. The calculator taxes the whole R5 000 (payeAnnualPayment.ts treats only 3605 and 39xx specially). UIF at the R177.12 ceiling either way; SDL on the allowance is not asserted.",
+  "notes": "R30 000 salary plus a R5 000 fixed travel allowance (3701), business use below 80% (or not certified): 80% = R4 000 is remuneration (G21 p. 5). Taxable 34 000; x12 = 408 000; tax = 79 998 + 31% x (408 000 - 383 100) = 87 717; less 17 820 = 69 897; /12 = 5824.75. Before wave 5 FB the calculator taxed the whole R5 000 (payeAnnualPayment.ts treats only 3605 and 39xx specially; the gap this case closed). UIF at the R177.12 ceiling either way (the UIF base is the salary alone, flags off on the allowance). SDL AND NET ADDED (FB review round 2): SDL: the SDL-flagged 3701 counts at its PAYE share (SDL Act s3; Fourth Schedule para 1; G21 p. 5): 1% x R34 000 = R340.00. Net = R35 000 cash - PAYE 5 824.75 - UIF 177.12 = R28998.13; the 3701 is a cash allowance, so it is in gross and net pay (only its PAYE share is remuneration). These two figures are derived from the cited rules and the sourced PAYE and UIF, not read from a payslip.",
   "input": {
     "period": {
       "year": 2026,
@@ -36,7 +36,7 @@
         "amount": 5000,
         "taxable": true,
         "uif": false,
-        "sdl": false
+        "sdl": true
       }
     ],
     "unmodelled": {
@@ -46,6 +46,8 @@
   "expected": {
     "paye": 5824.75,
     "uifEmployee": 177.12,
-    "uifEmployer": 177.12
+    "uifEmployer": 177.12,
+    "sdl": 340.0,
+    "net": 28998.13
   }
 }

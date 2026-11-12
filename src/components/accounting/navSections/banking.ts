@@ -32,7 +32,6 @@ export const bankingTab: Tab = {
       section: 'Special',
       items: [
         { label: 'Mapping Rules', href: '/accounting/bank-reconciliation/rules' },
-        { label: 'Bank Feeds', href: '/accounting/bank-feeds' },
         { label: 'Provisional', href: '/accounting/bank/provisional' },
         { label: 'Statement Imports', href: '/accounting/bank/statements' },
       ],

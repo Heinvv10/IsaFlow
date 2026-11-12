@@ -58,6 +58,7 @@ import type { approvePayrollRun } from '@/modules/accounting/services/payroll/pa
 import type { LabelledJournalPlanPreview } from '@/modules/accounting/services/payroll/payrollJournalPlanLabels';
 import type { RunInputsState } from '@/modules/accounting/services/payroll/payrollRunPeriodInputs';
 import type { EmployeePayslipEntry } from '@/modules/accounting/services/payroll/payslipHistory';
+import type { FringeBenefit } from '@/modules/accounting/services/payroll/fringeBenefits';
 import type { getSetupProgress } from '@/modules/accounting/services/core/setupProgressService';
 import type { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import type { getOrCreateEmailInbox } from '@/modules/accounting/services/capture/captureInboxService';
@@ -196,6 +197,7 @@ interface DynamicRoutes extends BudgetDynamicRoutes {
   '/api/payroll/employees/{}/payslips': EmployeePayslipEntry[];
   // Wave 5 UXP. GET only; null (404) never reaches the caller.
   '/api/payroll/employees/{}/has-final-run': { hasFinalRun: boolean };
+  '/api/payroll/employees/{}/fringe-benefits': FringeBenefit[];
   // Fleet records (mig 853): GET the list, POST the new record, DELETE `{ deleted, id }` — the list and the item of
   // one resource, so a union (see above). The bank-links read is GET only; null (404) never reaches the caller.
   '/api/accounting/assets/{}/fuel': FuelRecord[] | FuelRecord | { deleted: true; id: string };

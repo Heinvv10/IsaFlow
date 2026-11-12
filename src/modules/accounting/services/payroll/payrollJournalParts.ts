@@ -153,13 +153,14 @@ export async function buildLabourLines(
   totalGross: number,
   defaultAccountId: string,
   etiUsed: number,
+  employerMedical: ReadonlyMap<string, number> = new Map(),
 ): Promise<LabourLines> {
   const fallback: LabourLines = {
     lines: [{
       glAccountId: defaultAccountId,
       cc1Id: null,
       debit: labourDebit,
-      description: 'Labour costs — gross pay + statutory employer contributions − ETI',
+      description: 'Labour costs — gross pay + employer contributions (UIF, SDL, medical scheme) − ETI',
     }],
     advisory: null,
     bySource: [{ glAccountId: defaultAccountId, centreId: null, taggable: false, debit: labourDebit }],
@@ -198,6 +199,8 @@ export async function buildLabourLines(
   // No cash gross: nothing to share by gross, so one line, unless benefits alone carry SDL (each line its own).
   if (totalGross === 0 && totalNonCash === 0) return fallback;
   const sdlPart = totalNonCash > 0 ? lineRows.reduce((s, r) => s + (Number(r.sdl) || 0), 0) : 0;
+  // The employer's non-cash 3810 medical contribution is each employee's own cost (payrollJournalEmployerMedical).
+  const medicalPart = lineRows.reduce((s, r) => s + (employerMedical.get(String(r.employee_id)) ?? 0), 0);
   for (const r of lineRows) {
     const employeeId = String(r.employee_id);
     const grossShare = totalGross === 0 ? 0 : (Number(r.gross_pay) || 0) / totalGross;
@@ -206,7 +209,8 @@ export async function buildLabourLines(
     employeeCostCentre[employeeId] = r.cost_centre_id == null ? null : String(r.cost_centre_id);
     runLines.push({
       employeeId,
-      labourAmount: round2(grossShare * (costBeforeEti - sdlPart) + (sdlPart > 0 ? Number(r.sdl) || 0 : 0) - etiShare * etiUsed),
+      labourAmount: round2(grossShare * (costBeforeEti - sdlPart - medicalPart) + (sdlPart > 0 ? Number(r.sdl) || 0 : 0)
+        + (employerMedical.get(employeeId) ?? 0) - etiShare * etiUsed),
     });
   }
   // Both reads are ORDER BY'd (the allocation split puts its own residual on

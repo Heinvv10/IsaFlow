@@ -34,9 +34,6 @@ const NEW_PAGE_ROUTES = [
   // Company Settings
   '/accounting/company-settings',
 
-  // Bank Feeds
-  '/accounting/bank-feeds',
-
   // Client Portal (public, no auth redirect)
   '/portal',
 ];
@@ -293,28 +290,6 @@ test.describe('Company Settings', () => {
   test('companies API responds', async ({ request }) => {
     const response = await request.get('/api/accounting/companies');
     expect([200, 401]).toContain(response.status());
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// BANK FEEDS
-// ═══════════════════════════════════════════════════════════════════════════
-
-test.describe('Bank Feeds', () => {
-  test('bank feeds page loads', async ({ page }) => {
-    await page.goto('/accounting/bank-feeds');
-    await expect(page.locator('h1', { hasText: /Bank Feeds/ })).toBeVisible();
-  });
-
-  test('bank feeds shows config status', async ({ page }) => {
-    await page.goto('/accounting/bank-feeds');
-    // Either shows "Not Configured" or connection list
-    const notConfigured = page.locator('text=Not Configured');
-    const connectButton = page.locator('text=Connect');
-    const noConnections = page.locator('text=No Bank Connections');
-    // One of these should be visible
-    const any = notConfigured.or(connectButton).or(noConnections);
-    await expect(any.first()).toBeVisible();
   });
 });
 

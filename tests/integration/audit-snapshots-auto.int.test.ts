@@ -52,7 +52,7 @@ async function company() {
   return { c, l, periods };
 }
 const action = (user: string, c: string, body: Record<string, unknown>) =>
-  callRoute(fiscalPeriodsAction, tokens[user]!, c, 'POST', body, '/api/accounting/fiscal-periods-action');
+  callRoute(fiscalPeriodsAction, tokens[user]!, c, 'POST', { ...body, confirm: true }, '/api/accounting/fiscal-periods-action');
 
 describe('automatic snapshots', { timeout: 3 * SNAPSHOT_WAIT_MS }, () => { // some wait for several snapshots in turn; a hang fails in 7.5 min
   it('a period close takes a sealed snapshot at the period end, as the closer', async () => {
@@ -93,7 +93,7 @@ describe('automatic snapshots', { timeout: 3 * SNAPSHOT_WAIT_MS }, () => { // so
       `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,is_system_account,account_subtype)
        VALUES($1,'3100','Retained earnings','equity','credit',true,'retained_earnings')`, [c]);
     await pool.query("UPDATE fiscal_periods SET status = 'closed' WHERE id = ANY($1)", [periods]);
-    const res = await callRoute(yearEnd, tokens[o]!, c, 'POST', { action: 'close', yearLabel: '2026' }, '/api/accounting/year-end');
+    const res = await callRoute(yearEnd, tokens[o]!, c, 'POST', { action: 'close', yearLabel: '2026', confirm: true }, '/api/accounting/year-end');
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
     expect(await waitForSnapshots(pool, c, 1)).toEqual([expect.objectContaining({ trigger: 'year_close', cutoff: '2026-12-31', status: 'sealed' })]);
   });

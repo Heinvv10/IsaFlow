@@ -65,7 +65,7 @@ export function billLineFromPo(item: PoLineItem, supplierDims: { cc2Id: string; 
   };
 }
 
-/** The picker's accounts plus any PO line's it does not offer (it starts at 5000), or the line would read as the default. */
+/** The picker's accounts plus any PO line's account it does not offer (the bill guard may refuse it), or the line would read as the default. */
 export function mergePoAccounts(accounts: GLAccount[], items: readonly PoLineItem[]): GLAccount[] {
   const known = new Set(accounts.map((a) => a.id));
   const added: GLAccount[] = [];
