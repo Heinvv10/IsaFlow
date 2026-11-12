@@ -82,7 +82,7 @@ const CASES: Case[] = [
     call: async () => ({ body: { id: await draft('EMP201'), action: 'mark_submitted', reference: 'R032-REF' } }) },
   { name: 'VAT return submit', handler: vatReturns,
     call: async () => ({ body: { periodStart: '2026-07-01', periodEnd: '2026-08-31', sarsReference: 'R032' } }) },
-  { name: 'year-end close', handler: yearEnd, call: async () => ({ body: { yearLabel: '2026', action: 'close' } }) },
+  { name: 'year-end close', handler: yearEnd, call: async () => ({ body: { yearLabel: '2026', action: 'close', confirm: true } }) },
 ];
 
 describe('R-032 L5 — a Login-as session files nothing with SARS and closes no year', () => {

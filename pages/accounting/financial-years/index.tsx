@@ -14,6 +14,7 @@ import { YearCard } from '@/components/accounting/financialYears/YearCard';
 import { AddYearModal } from '@/components/accounting/financialYears/AddYearModal';
 import { CloseYearModal } from '@/components/accounting/financialYears/CloseYearModal';
 import { log } from '@/lib/logger';
+import { PeriodActionConfirm, type PendingPeriodAction } from '@/components/accounting/fiscal-periods/PeriodActionConfirm';
 
 function loadYears() {
   return apiJson('/api/accounting/fiscal-years', undefined, 'Could not load fiscal periods - try again');
@@ -28,6 +29,7 @@ export default function FinancialYearsPage() {
   const [error, setError] = useState('');
   const [loadingPeriodId, setLoadingPeriodId] = useState<string | null>(null);
   const [closingYear, setClosingYear] = useState<number | null>(null);
+  const [pendingPeriod, setPendingPeriod] = useState<PendingPeriodAction | null>(null);
 
   // Modals
   const [showAddYear, setShowAddYear] = useState(false);
@@ -84,7 +86,8 @@ export default function FinancialYearsPage() {
       const res = await apiFetch('/api/accounting/fiscal-periods-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, action }),
+        // Close and lock need `confirm: true` (audit P3.2); they only run after PeriodActionConfirm.
+        body: JSON.stringify(action === 'reopen' ? { id, action } : { id, action, confirm: true }),
       });
       await assertOk(res, 'Could not update that period - try again');
       await fetchPeriods();
@@ -95,6 +98,13 @@ export default function FinancialYearsPage() {
       setLoadingPeriodId(null);
     }
   }, [fetchPeriods]);
+
+  /** Close and Lock ask first; Reopen runs at once. */
+  const requestPeriodAction = useCallback((id: string, action: 'close' | 'lock' | 'reopen') => {
+    if (action === 'reopen') { void handlePeriodAction(id, action); return; }
+    const periodName = groups.flatMap(g => g.periods).find(p => p.id === id)?.periodName ?? 'this period';
+    setPendingPeriod({ id, periodName, action });
+  }, [groups, handlePeriodAction]);
 
   // ── Close year ────────────────────────────────────────────────────────────
 
@@ -110,7 +120,7 @@ export default function FinancialYearsPage() {
       const res = await apiFetch('/api/accounting/fiscal-periods-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'close_year', fiscalYear: closeYearTarget }),
+        body: JSON.stringify({ action: 'close_year', fiscalYear: closeYearTarget, confirm: true }),
       });
       await assertOk(res, 'Could not close the year - try again');
       setCloseYearTarget(null);
@@ -214,7 +224,7 @@ export default function FinancialYearsPage() {
           <div className="space-y-4">
             {groups.map(group => (
               <YearCard key={group.year} group={group} jeCounts={jeCounts}
-                loadingId={loadingPeriodId} onPeriodAction={handlePeriodAction}
+                loadingId={loadingPeriodId} onPeriodAction={requestPeriodAction}
                 onCloseYear={handleCloseYearClick} closingYear={closingYear} />
             ))}
           </div>
@@ -228,6 +238,13 @@ export default function FinancialYearsPage() {
           onConfirm={handleAddYear}
           onClose={() => setShowAddYear(false)} />
       )}
+
+      <PeriodActionConfirm
+        pending={pendingPeriod}
+        busy={pendingPeriod !== null && loadingPeriodId === pendingPeriod.id}
+        onCancel={() => setPendingPeriod(null)}
+        onConfirm={async (p) => { await handlePeriodAction(p.id, p.action); setPendingPeriod(null); }}
+      />
 
       {closeYearTarget !== null && (
         <CloseYearModal year={closeYearTarget} openCount={openCountForCloseYear}

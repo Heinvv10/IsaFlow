@@ -15,6 +15,8 @@ export interface ConfirmDialogProps {
   cancelLabel?: string;
   confirmTone?: 'primary' | 'danger';
   busy?: boolean;
+  /** Keeps Confirm disabled (e.g. until a typed confirmation matches). */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -27,6 +29,7 @@ export function ConfirmDialog({
   cancelLabel = 'Cancel',
   confirmTone = 'primary',
   busy = false,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -103,7 +106,7 @@ export function ConfirmDialog({
             ref={confirmBtn}
             type="button"
             onClick={onConfirm}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
             className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 ${confirmCls}`}
           >
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
