@@ -134,7 +134,7 @@ export default function EmployeeDetailPage() {
             />
             </div>
 
-            {employeeId && mayWrite && <EmployeeRfiContributionsCard employeeId={employeeId} refreshKey={assignments.length} onChanged={() => void d.reload()} />}
+            {employeeId && mayWrite && <EmployeeRfiContributionsCard employeeId={employeeId} refreshKey={assignments.length} onChanged={() => void d.reload()} onEnd={d.endAssignment} onEditDates={d.editAssignmentDates} />}
 
             {employeeId && (
               <CostCentreAssignmentCard

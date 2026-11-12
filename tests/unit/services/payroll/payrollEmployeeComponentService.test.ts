@@ -86,6 +86,7 @@ describe('assignComponentToEmployee', () => {
       effectiveTo: null,
       isRecurring: true,
       percentOfRfi: null,
+      employerFundAsCash: false,
     });
 
     // Verify employee lookup was done

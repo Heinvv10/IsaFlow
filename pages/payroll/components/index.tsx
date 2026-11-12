@@ -138,12 +138,12 @@ export default function PayComponentsPage() {
               <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">New component</h2>
               <div className="grid grid-cols-4 gap-4">
                 <div className="col-span-2">
-                  <label className={label}>Name</label>
-                  <input className={field} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Basic Salary" />
+                  <label htmlFor="new-component-name" className={label}>Name</label>
+                  <input id="new-component-name" className={field} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Basic Salary" />
                 </div>
                 <div>
-                  <label className={label}>SARS code</label>
-                  <input className={field} value={sarsCode} onChange={e => setSarsCode(e.target.value)} />
+                  <label htmlFor="new-component-code" className={label}>SARS code</label>
+                  <input id="new-component-code" className={field} value={sarsCode} onChange={e => setSarsCode(e.target.value)} />
                   <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">{SARS_HINTS.join(' · ')}</p>
                   <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">
                     Medical aid: deduct the full scheme contribution under 4005 (it decides the IRP5 4005/4116 and the 65+ credit);
@@ -151,8 +151,8 @@ export default function PayComponentsPage() {
                   </p>
                 </div>
                 <div>
-                  <label className={label}>Type</label>
-                  <select className={field} value={type} onChange={e => setType(e.target.value as ComponentType)}>
+                  <label htmlFor="new-component-type" className={label}>Type</label>
+                  <select id="new-component-type" className={field} value={type} onChange={e => setType(e.target.value as ComponentType)}>
                     <option value="earning">Earning</option>
                     <option value="deduction">Deduction</option>
                   </select>

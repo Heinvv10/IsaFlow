@@ -118,7 +118,6 @@
   "pages/developer/oauth-apps.tsx": 3,
   "pages/payroll/batches/[id].tsx": 3,
   "pages/payroll/batches/new.tsx": 2,
-  "pages/payroll/components/index.tsx": 2,
   "pages/payroll/cost-centres/index.tsx": 4,
   "pages/payroll/loans/new.tsx": 6,
   "pages/payroll/pay-packages/[id].tsx": 1,

@@ -23,6 +23,8 @@ export interface EmployeeComponentAssignment {
   isRecurring: boolean;
   /** RF (migration 975): the share of retirement-funding income this row costs in a run; amount is then 0. Null = a plain amount. */
   percentOfRfi: number | null;
+  /** RF: a pre-RF employer fund row kept as cash (migration 975's opt-out). */
+  employerFundAsCash: boolean;
 }
 
 export type EmployeeComponentAssignmentWithMeta = EmployeeComponentAssignment & {
@@ -46,6 +48,7 @@ function mapAssignment(r: Row): EmployeeComponentAssignment {
       : null,
     isRecurring: r.is_recurring === false ? false : true,
     percentOfRfi: r.percent_of_rfi == null ? null : Number(r.percent_of_rfi),
+    employerFundAsCash: r.employer_fund_as_cash === true,
   };
 }
 
@@ -182,7 +185,7 @@ export async function listEmployeeComponentAssignments(
   const rows = (await sql`
     SELECT
       pec.id, pec.employee_id, pec.component_id, pec.amount,
-      pec.effective_from, pec.effective_to, pec.is_recurring, pec.percent_of_rfi,
+      pec.effective_from, pec.effective_to, pec.is_recurring, pec.percent_of_rfi, pec.employer_fund_as_cash,
       pc.name AS component_name,
       pc.component_type,
       pc.is_active AS component_active,
