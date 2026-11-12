@@ -4,8 +4,8 @@
  * contribution earning (3817) assigned as that share of RFI, and the case's 3601 earnings count as RFI (migration 975's
  * default). withEmployerRetirement runs before withFringeBenefits, which marks the 3817 non-cash as a run does
  * (markNonCashEmployerBenefits); costRfi then costs it (rfi.costPercentOfRfi). The case's `rfiBase` must equal the RFI the
- * engine derives (a mismatch throws, so a fixture cannot drift from the rule). SDL on the benefit follows the component flag,
- * set here as for Fourth Schedule remuneration (G21 p. 11); UIF is off (UNVERIFIED, employerContributions.ts).
+ * engine derives (a mismatch throws, so a fixture cannot drift from the rule). UIF and SDL are levied on the benefit (the run sets
+ * both flags, employerContributions.ts: UI Contributions Act s1; G21 p. 11); the case's UIF is at the ceiling either way.
  */
 import { costPercentOfRfi } from '@/modules/accounting/services/payroll/rfi';
 import type { EmployeeComponent } from '@/modules/accounting/services/payroll/payrollTypes';
@@ -21,7 +21,7 @@ export function withEmployerRetirement(components: EmployeeComponent[], unmodell
   return [...flagged, {
     component: {
       id: 'oracle-er-pension', name: 'Employer pension contribution', sarsSourceCode: '3817', componentType: 'earning',
-      isTaxable: true, isUifApplicable: false, isSdlApplicable: true,
+      isTaxable: true, isUifApplicable: true, isSdlApplicable: true,
     },
     amount: 0, percentOfRfi: pct / 100,
   }];

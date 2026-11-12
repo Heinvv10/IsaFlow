@@ -39,7 +39,7 @@ const create = (body: Record<string, unknown>) => call(components as Route, 'POS
 const patch = (id: string, body: unknown) => call(component as Route, 'PATCH', `/api/payroll/components/${id}`, id, { body });
 const assign = (body: Record<string, unknown>) => call(assignments as Route, 'POST', `/api/payroll/employees/${empA}/components`, empA,
   { body: { effectiveFrom: '2026-03-01', ...body } });
-const er = (over: Record<string, unknown> = {}) => ({ name: 'Employer pension', sarsSourceCode: '3817', componentType: 'earning', isUifApplicable: false, ...over });
+const er = (over: Record<string, unknown> = {}) => ({ name: 'Employer pension', sarsSourceCode: '3817', componentType: 'earning', ...over });
 
 beforeAll(async () => {
   for (const [c, name] of [[companyA, 'RF api A'], [companyB, 'RF api B']] as const) {
@@ -74,6 +74,9 @@ describe('creating components: every refusal writes nothing', () => {
     expect((await create(er())).statusCode).toBe(400);
     expect((await create(er({ fundType: 'defined_contribution', isTaxable: false }))).statusCode).toBe(400);
     expect((await create(er({ fundType: 'defined_contribution', countsAsRfi: true }))).statusCode).toBe(400);
+    // UIF and SDL are levied on it (UI Contributions Act s1; UIF-GEN-01-G01 p. 5; G21 p. 11).
+    expect((await create(er({ fundType: 'defined_contribution', isUifApplicable: false }))).statusCode).toBe(400);
+    expect((await create(er({ fundType: 'defined_contribution', isSdlApplicable: false }))).statusCode).toBe(400);
     expect((await create({ name: 'Union', sarsSourceCode: 'UNION', componentType: 'deduction', countsAsRfi: true })).statusCode).toBe(400);
     expect(await componentRows()).toBe(before);
   });

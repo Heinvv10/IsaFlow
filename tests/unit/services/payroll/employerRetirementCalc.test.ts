@@ -125,3 +125,22 @@ describe('an assignment from before RF keeps the cash treatment (migration 975 o
     expect(line.validationResults.map((v) => v.code)).not.toContain('EMPLOYER_FUND_BENEFIT_NOT_DEEMED');
   });
 });
+
+describe('UIF and SDL are levied on the benefit [UI Contributions Act 4 of 2002 s1 "remuneration"; UIF-GEN-01-G01 Rev 10 p. 5; G21 p. 11]', () => {
+  it('a run levies both whatever the component flags say (the 15% benefit of RFI 12 000 = 1 800)', () => {
+    const uifEmployee = { ...employee, uifExcluded: false };
+    const flagsOff: EmployeeComponent = { component: comp('3817', { isUifApplicable: false, isSdlApplicable: false }), amount: 0, percentOfRfi: 0.15 };
+    const line = calculatePayrollLine({
+      employee: uifEmployee, components: costPercentOfRfi(markNonCashEmployerBenefits([salary(12_000), flagsOff])).components,
+      period: { year: 2026, month: 3 }, taxYear: 2027, annualPayrollEstimate: 1_000_000,
+    });
+    // This fixture's salary is not UIF / SDL flagged, so only the 1 800 benefit is: UIF 1% = 18, SDL-applicable 1 800.
+    expect(line.uif.employeeContribution).toBe(18);
+    expect(line.sdlApplicable).toBe(1_800);
+    expect(line.componentBreakdown.find((b) => b.sarsSourceCode === '3817')).toMatchObject({ isUifApplicable: true, isSdlApplicable: true });
+  });
+  it('a pre-RF assignment kept as cash keeps its own flags (no figure change)', () => {
+    const kept = markNonCashEmployerBenefits([{ component: comp('3817', { isUifApplicable: false }), amount: 1_000, employerFundAsCash: true }]);
+    expect(kept[0]!.component.isUifApplicable).toBe(false);
+  });
+});

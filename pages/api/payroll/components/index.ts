@@ -81,7 +81,7 @@ async function handler(
       countsAsRfi: typeof countsAsRfi === 'boolean' ? countsAsRfi : defaultCountsAsRfi(componentType, code),
     };
     // RF: an employer's fund contribution (3817 / 3825 / 3828) is taxable and for a defined-contribution fund only.
-    const rfiRefused = componentRfiRefusal({ componentType, code, isTaxable: data.isTaxable, countsAsRfi, fundType });
+    const rfiRefused = componentRfiRefusal({ componentType, code, isTaxable: data.isTaxable, isUifApplicable: data.isUifApplicable, isSdlApplicable: data.isSdlApplicable, countsAsRfi, fundType });
     if (rfiRefused === DEFINED_BENEFIT_REFUSAL) logDefinedBenefitRefusal(companyId, code);
     if (rfiRefused) return apiResponse.badRequest(res, rfiRefused);
     // A contribution the employee pays the fund directly (PAYE 4c): retirement fund deductions only.

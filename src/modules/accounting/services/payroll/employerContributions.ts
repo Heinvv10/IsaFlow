@@ -23,9 +23,12 @@
  * employee), it is taxed in full, and the same value is deemed paid by the employee into s11F beside the employee's own
  * 4001 / 4003 / 4006, so the cap binds on the total (deemedRetirementContributions; payeCumulative). On the certificate
  * 4472 / 4473 / 4475 equal the benefit and 4001 / 4003 / 4006 include it (BRS p. 55, 101-103; easyFileRetirementFields).
- * UIF and SDL on it follow the component's flags: SDL is on Fourth Schedule remuneration (G21 p. 11), which takes in a
- * fringe benefit; whether UIF does is UNVERIFIED: G21 p. 13 ("UIF liable amount", UIC Act ss5-6) bases UIF on "remuneration as defined for UIF
- * purposes" without saying whether this benefit is in it, and the UI Contributions Act s1 definition was not fetched. A defined-benefit fund's benefit is a para
+ * UIF and SDL are levied on it, whatever the component's flags (a run sets both): UIF is on "remuneration" as defined in
+ * paragraph 1 of the Fourth Schedule, less only pensions / superannuation / retiring allowances, the lump sums of gross income
+ * paras (a), (cA), (d), (e), (eA), and commission (Unemployment Insurance Contributions Act 4 of 2002 s1, "remuneration", as
+ * enacted p. 3; SARS UIF-GEN-01-G01 Rev 10 p. 5 "Remuneration for UIF contribution purposes"), and para 1 remuneration takes
+ * in a taxable benefit included in gross income under para (i) (UIF-GEN-01-G01 p. 5), which this is (G21 p. 10). SDL is on the
+ * same Fourth Schedule remuneration (G21 p. 11, "SDL liable amount"). A defined-benefit fund's benefit is a para
  * 12D(3) fund-member-category value, not the contribution: refused when the component is created (payrollComponentService).
  */
 import { normaliseSarsCode } from './payeAnnualPayment';
@@ -52,7 +55,10 @@ export function markNonCashEmployerBenefits(components: readonly EmployeeCompone
   return components.map((c) => {
     // An employer's fund contribution (3817 / 3825 / 3828) is paid to the fund: non-cash (RF), unless the assignment predates
     // RF (employer_fund_as_cash, migration 975), which keeps the cash treatment it was paid under.
-    if (isFundBenefitEarning(c)) return c.employerFundAsCash === true ? c : { ...c, isNonCash: true };
+    if (isFundBenefitEarning(c)) {
+      return c.employerFundAsCash === true ? c
+        : { ...c, isNonCash: true, component: { ...c.component, isUifApplicable: true, isSdlApplicable: true } };
+    }
     if (!is3810Earning(c)) return c;
     return grossUp ? { ...c, medicalGrossUp: true } : { ...c, isNonCash: true };
   });

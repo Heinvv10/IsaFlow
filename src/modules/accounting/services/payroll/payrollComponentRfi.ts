@@ -47,7 +47,7 @@ function rfiFlagRefusal(componentType: string, code: string): string | null {
  * Why a new component's RF fields are refused, or null. `countsAsRfi` is a boolean or absent; `fundType` is required on an
  * employer fund contribution earning and must be 'defined_contribution'.
  */
-export function componentRfiRefusal(c: { componentType: string; code: string; isTaxable: boolean; countsAsRfi: unknown; fundType: unknown }): string | null {
+export function componentRfiRefusal(c: { componentType: string; code: string; isTaxable: boolean; isUifApplicable?: boolean; isSdlApplicable?: boolean; countsAsRfi: unknown; fundType: unknown }): string | null {
   if (c.countsAsRfi !== undefined && typeof c.countsAsRfi !== 'boolean') return 'countsAsRfi must be true or false';
   const fund = c.componentType === 'earning' && isEmployerFundBenefitCode(normaliseSarsCode(c.code));
   const flag = c.countsAsRfi === true ? rfiFlagRefusal(c.componentType, c.code) : null;
@@ -59,6 +59,10 @@ export function componentRfiRefusal(c: { componentType: string; code: string; is
       + 'Defined-benefit funds are not supported.';
   }
   if (!c.isTaxable) return 'An employer retirement fund contribution is a taxable fringe benefit (PAYE-GEN-01-G21 (2027) p. 10): it must be taxable.';
+  if (c.isUifApplicable === false || c.isSdlApplicable === false) {
+    return 'An employer retirement fund contribution is Fourth Schedule remuneration, on which UIF and SDL are levied (UI Contributions Act s1; '
+      + 'UIF-GEN-01-G01 p. 5; PAYE-GEN-01-G21 (2027) p. 11): it must be UIF and SDL applicable.';
+  }
   return null;
 }
 
