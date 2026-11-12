@@ -14,6 +14,7 @@ import approve from '../../pages/api/payroll/runs/[id]/approve';
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
 import { getIrp5EmployeeTotals } from '../../src/modules/accounting/services/payroll/irp5DataService';
 import { runLinesRefusal } from '../../src/modules/accounting/services/payroll/payrollRunRecalcGate';
+import { writeRunRow } from '../../src/modules/accounting/services/payroll/payrollRunRowWrite';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { authorisePayRun, calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 
@@ -118,6 +119,13 @@ describe('assigning a percentage of RFI', () => {
     expect((await assign({ componentId: erComponent, amount: 0, percentOfRfi: 1.5 })).statusCode).toBe(400);
     expect((await assign({ componentId: erComponent, amount: 0, percentOfRfi: '0.15' })).statusCode).toBe(400);
     expect((await assign({ componentId: salary, amount: 0, percentOfRfi: 0.1 })).statusCode).toBe(400);
+    // A percentage is recurring: a once-off one would be a one-month row the run grid then edits as an amount.
+    expect((await assign({ componentId: erComponent, amount: 0, percentOfRfi: 0.15, isRecurring: false })).statusCode).toBe(400);
+    // A pre-RF component that is not taxable cannot take a new (RF-treated) assignment.
+    const untaxed = (await pool.query<{ id: string }>(
+      "INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable) VALUES ($1, 'Old employer RA', '3828', 'earning', false) RETURNING id",
+      [companyA])).rows[0]!.id;
+    expect((await assign({ componentId: untaxed, amount: 500 })).statusCode).toBe(400);
     expect(await assignmentRows()).toBe(before);
   });
   it('stores the employer\'s 15% and the employee\'s R4 000 pension', async () => {
@@ -154,12 +162,20 @@ describe('a run costs it, the journal books it, the certificate carries it', () 
 });
 
 describe('the approval gate sees a counts_as_rfi switch after calculation', () => {
-  it('April: switching the second salary on after calculation says recalculate', async () => {
+  it('April: a switch of a component NOT on the line changes nothing; switching the line\'s Basic Salary says recalculate', async () => {
     const runId = await calculatedRun(call, 4);
     expect(await runLinesRefusal(companyA, runId)).toBeNull();
     const second = (await pool.query<{ id: string }>("SELECT id FROM payroll_components WHERE company_id = $1 AND name = 'Second salary'", [companyA])).rows[0]!.id;
     expect((await patch(second, { countsAsRfi: false })).statusCode).toBe(200);
+    expect(await runLinesRefusal(companyA, runId)).toBeNull();
+    const basic = (await pool.query<{ id: string }>("SELECT id FROM payroll_components WHERE company_id = $1 AND name = 'Basic Salary'", [companyA])).rows[0]!.id;
+    // Another audited change of the component (not counts_as_rfi) does not trip it either.
+    await pool.query(`INSERT INTO audit_log (company_id, user_id, action, entity_type, entity_id, changes) VALUES ($1, $2, 'update', 'payroll_component', $3,
+      '{"fields":[{"field":"name","old":"a","new":"b","label":"Name"}]}'::jsonb)`, [companyA, owner, basic]);
+    expect(await runLinesRefusal(companyA, runId)).toBeNull();
+    expect((await patch(basic, { countsAsRfi: false })).statusCode).toBe(200);
     expect((await runLinesRefusal(companyA, runId))?.code).toBe('components_changed_after_calculation');
+    expect((await patch(basic, { countsAsRfi: true })).statusCode).toBe(200);
   });
 });
 
@@ -178,5 +194,19 @@ describe('an assignment from before RF (migration 975 opt-out) keeps its cash tr
     expect(kept).toHaveLength(1);
     expect(kept[0]!.isNonCash).toBeUndefined();
     expect(line.validation_results.map((v) => v.code)).toContain('EMPLOYER_FUND_KEPT_AS_CASH');
+  });
+});
+
+describe('the run grid never writes an amount onto a percent row (round 1 L)', () => {
+  it('July: writeRunRow on the 15% row is a 400 refusal, not the CHECK 500, and the row is unchanged', async () => {
+    const runId = await calculatedRun(call, 7);
+    const row = (await pool.query<{ id: string }>(
+      'SELECT id FROM payroll_employee_components WHERE employee_id = $1 AND percent_of_rfi IS NOT NULL', [empA])).rows[0]!.id;
+    await expect(writeRunRow({
+      companyId: companyA, runId, employeeId: empA, componentId: erComponent, componentType: 'earning', period: { year: 2026, month: 7 },
+      rowId: row, amount: 100, clear: false, quantity: null, actor: { userId: owner, channel: 'service' },
+    })).rejects.toMatchObject({ status: 400 });
+    const after = (await pool.query<{ amount: string }>('SELECT amount FROM payroll_employee_components WHERE id = $1', [row])).rows[0]!;
+    expect(Number(after.amount)).toBe(0);
   });
 });

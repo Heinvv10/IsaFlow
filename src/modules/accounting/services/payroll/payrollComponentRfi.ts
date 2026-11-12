@@ -74,16 +74,35 @@ export function logDefinedBenefitRefusal(companyId: string, code: string): void 
 const FOUR_DECIMALS = (n: number): boolean => Math.abs(Math.round(n * 10_000) - n * 10_000) < 1e-6;
 
 /** The assignment's percent_of_rfi judged before its insert (EmployeeComponentRefused: the route answers 400, nothing written). */
-export async function judgePercentOfRfi(tx: TxSql, companyId: string, componentId: string, percentOfRfi: unknown, amount: number): Promise<void> {
+export async function judgePercentOfRfi(tx: TxSql, companyId: string, componentId: string, percentOfRfi: unknown, amount: number, isRecurring = true): Promise<void> {
   if (typeof percentOfRfi !== 'number' || !Number.isFinite(percentOfRfi) || percentOfRfi <= 0 || percentOfRfi > 1 || !FOUR_DECIMALS(percentOfRfi)) {
     throw new EmployeeComponentRefused('percentOfRfi must be a fraction above 0 and at most 1, to four decimals (0.075 = 7.5%).');
   }
+  // A fund contributes every month on RFI: a once-off percentage would be a one-month row the run grid then edits as an amount.
+  if (!isRecurring) throw new EmployeeComponentRefused('A percentage of retirement-funding income must be recurring: a once-off contribution is a fixed amount.');
   if (amount !== 0) throw new EmployeeComponentRefused('A percentage of retirement-funding income is costed by each run: send amount 0 with percentOfRfi.');
   const row = ((await tx`
     SELECT component_type, sars_source_code FROM payroll_components WHERE id = ${componentId}::uuid AND company_id = ${companyId}::uuid
   `) as DbRow[])[0];
   const refused = row ? percentOfRfiRefusal(String(row.component_type), String(row.sars_source_code)) : 'That pay component was not found in this company';
   if (refused) throw new EmployeeComponentRefused(refused);
+}
+
+/**
+ * At assign time (RF round 1): a new assignment of an employer fund contribution earning gets the RF treatment, so a component
+ * made before RF that is not taxable (it would be refused at approval, RETIREMENT_BENEFIT_NOT_TAXABLE) is refused here, before
+ * the insert. NAMED LIMIT: such a component never answered the defined-contribution question (create-time only); nothing stored
+ * says which fund kind it is, so an older defined-benefit component is not caught here.
+ */
+export async function judgeFundAssignment(tx: TxSql, companyId: string, componentId: string): Promise<void> {
+  const row = ((await tx`
+    SELECT component_type, sars_source_code, is_taxable FROM payroll_components WHERE id = ${componentId}::uuid AND company_id = ${companyId}::uuid
+  `) as DbRow[])[0];
+  if (!row || row.component_type !== 'earning' || !isEmployerFundBenefitCode(normaliseSarsCode(String(row.sars_source_code)))) return;
+  if (row.is_taxable !== true) {
+    throw new EmployeeComponentRefused('This employer retirement fund contribution component is not taxable, but the contribution is a taxable fringe benefit '
+      + '(PAYE-GEN-01-G21 (2027) p. 10). Create a taxable component for it (pay components page) and assign that.');
+  }
 }
 
 /**

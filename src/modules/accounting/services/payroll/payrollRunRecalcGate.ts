@@ -82,7 +82,7 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
       AND a.created_at > h.calculated_at
     ORDER BY 1
   `) as DbRow[]));
-  // A component's counts_as_rfi switched after calculation (RF): every line costing a percentage of RFI may now be wrong.
+  // A counts_as_rfi switch, after calculation, of a component ON the line (RF): that line's percent rows may now be costed wrong.
   changed.push(...((await sql`
     SELECT DISTINCT e.employee_number
     FROM payroll_run_headers h
@@ -91,7 +91,9 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
       AND jsonb_path_exists(COALESCE(l.component_breakdown, '[]'::jsonb), '$[*] ? (exists(@.percentOfRfi))')
       AND EXISTS (SELECT 1 FROM audit_log a WHERE a.company_id = h.company_id AND a.entity_type = 'payroll_component'
-                    AND a.created_at > h.calculated_at)
+                    AND a.created_at > h.calculated_at AND a.changes->'fields' @> '[{"field": "counts_as_rfi"}]'::jsonb
+                    AND EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(l.component_breakdown) = 'array' THEN l.component_breakdown ELSE '[]'::jsonb END) i
+                                WHERE i->>'componentId' = a.entity_id::text))
     ORDER BY 1
   `) as DbRow[]));
   // An end date or termination detail changed after calculation (the 888 entity history): it moves who the run pays,

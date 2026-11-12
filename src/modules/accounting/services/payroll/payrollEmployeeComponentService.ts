@@ -9,7 +9,7 @@ import { lockCompanyPayrollForComponentChange } from './payrollComponentPaidMont
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 import { refuseOnceOffSpan } from './payrollOnceOffGuard';
 import { refuseAssignmentWrite } from './payrollAssignmentWriteGuard';
-import { judgePercentOfRfi } from './payrollComponentRfi';
+import { judgeFundAssignment, judgePercentOfRfi } from './payrollComponentRfi';
 
 type Row = DbRow;
 
@@ -122,7 +122,8 @@ export async function assignComponentToEmployee(
     await lockCompanyPayrollForComponentChange(tx, companyId);
     await assertEmployeeInCompany(employeeId, companyId);
     await assertComponentInCompany(componentId, companyId);
-    if (percentOfRfi !== null) await judgePercentOfRfi(tx, companyId, componentId, percentOfRfi, amount);
+    await judgeFundAssignment(tx, companyId, componentId);
+    if (percentOfRfi !== null) await judgePercentOfRfi(tx, companyId, componentId, percentOfRfi, amount, isRecurring);
     await refuseAssignmentWrite(tx, companyId, { employeeId, componentId, from: effectiveFromStr, to: effectiveToStr, recurring: isRecurring });
 
     log.info('Assigning component to employee', { companyId, employeeId, componentId, isRecurring }, 'payrollEmployeeComponentService');
