@@ -16,6 +16,7 @@ import { Emp201ReturnForm } from '@/components/accounting/sars/emp201/Emp201Retu
 import { Emp201RunsBreakdown } from '@/components/accounting/sars/emp201/Emp201RunsBreakdown';
 import { Emp201SubmitModal } from '@/components/accounting/sars/emp201/Emp201SubmitModal';
 import { ReturnLifecycleBar } from '@/components/accounting/sars/returns/ReturnLifecycleBar';
+import { canWrite } from '@/lib/auth/writeRoles';
 import { useCompany } from '@/contexts/CompanyContext';
 
 export default function EMP201Page() {
@@ -133,7 +134,7 @@ export default function EMP201Page() {
               )}
 
               <Emp201ReturnForm data={data} etiMonth={from.slice(0, 7) === to.slice(0, 7) ? from.slice(0, 7) : null}
-                onEtiBooked={() => void generate(true)} />
+                onEtiBooked={() => void generate(true)} canDrill={canWrite(companyRole)} />
 
               {hasPayrollData && <Emp201RunsBreakdown runs={data.payrollRuns} />}
 

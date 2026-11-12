@@ -1,12 +1,13 @@
 // golden:dev-only
 /**
- * Golden path Z17 (wave 5 L3u): drill from a VAT201 field to the lines behind it. READ-ONLY on the golden session's company (Demo, or the CI slot's seeded copy), dev only.
+ * Golden path Z17 (wave 5 L3u): drill from a VAT201 field to the lines behind it. READ-ONLY on the golden session's company (the Demo company, or the CI slot's seeded copy), dev only.
  *
- * Finds a window on Demo with a non-zero tax-leg field (field 4 where there is output VAT, else an input field: GitHub's hosted
- * Demo is seeded with supplier invoices only), generates the VAT201, opens that field's drawer and checks that the
+ * Finds a window in that company with a non-zero tax-leg field (field 4 where there is output VAT, else an input field: GitHub's hosted
+ * seed has supplier invoices only), generates the VAT201, opens that field's drawer and checks that the
  * lines (every page) sum to the field's amount to the cent, that each row links to a journal entry, and that the drawer
  * passes axe at 1568 and 390, light and dark, with no page scroll at 390. A field with no amount offers no link.
- * Nothing is written. RETURN_EVIDENCE_DIR=<dir> saves a screenshot per width and theme.
+ * A second test does the same for EMP201 PAYE (skipped where the company has no approved pay run): the pay runs and
+ * employee lines, run links, "matches the amount", axe. Nothing is written. RETURN_EVIDENCE_DIR=<dir> saves a screenshot per width and theme.
  */
 import { expect, test, type Page } from '@playwright/test';
 import { join } from 'path';
@@ -50,7 +51,7 @@ async function busyPeriod(api: Api): Promise<Pick_> {
     fallback ??= { from, to, field, amount };
   }
   if (fallback) return fallback;
-  throw new Error('Demo has no VAT201 period with a non-zero tax field and at most 1000 lines in a week of the last two years');
+  throw new Error('The golden company has no VAT201 period with a non-zero tax field and at most 1000 lines in a week of the last two years');
 }
 
 async function generate(page: Page, p: { from: string; to: string }): Promise<void> {
@@ -66,11 +67,11 @@ async function generate(page: Page, p: { from: string; to: string }): Promise<vo
 /** 'R 1 234.50' or '\u2212R 15.00' (the formatter writes a true minus sign) in rands. */
 const money = (s: string): number => Number(s.replace(/\u2212/g, '-').replace(/[^\d.-]/g, ''));
 
-test('a tax field drills to lines that sum to the field; axe clean (Demo, read-only)', async ({ page, context, baseURL }) => {
+test('a tax field drills to lines that sum to the field; axe clean (read-only)', async ({ page, context, baseURL }) => {
   const api = await Api.login(baseURL!);
   // The golden session is already scoped to its company (the CI slot's, or the user's default Demo); never switch by a
   // dev id, since a hosted slot user is not a member of it. Z17_COMPANY_ID is for a local run as a user whose default
-  // company is not Demo (the CI job never sets it).
+  // company is not the Demo company (the CI job never sets it).
   const company = process.env.Z17_COMPANY_ID;
   if (company) {
     await switchApiCompany(api, company);
@@ -120,6 +121,59 @@ test('a tax field drills to lines that sum to the field; axe clean (Demo, read-o
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, `page scrolls sideways at ${width}`).toBeLessThanOrEqual(0);
       if (evidenceDir) await page.screenshot({ path: join(evidenceDir, `vat201-drill-${theme}-${width}.png`) });
+    }
+  }
+});
+
+/** The latest calendar month of the last two years whose EMP201 PAYE is non-zero, or null when the company has no pay runs. */
+async function payrollMonth(api: Api): Promise<{ from: string; to: string } | null> {
+  const now = new Date();
+  for (let back = 1; back <= 24; back++) {
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1));
+    const from = start.toISOString().slice(0, 10);
+    const to = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+    const r = await api.get<{ totalPAYE: number }>(`/api/accounting/sars/sars-emp201?from=${from}&to=${to}`);
+    if (r.totalPAYE) return { from, to };
+  }
+  return null;
+}
+
+async function openPaye(page: Page, month: { from: string; to: string }): Promise<void> {
+  await page.goto('/accounting/sars/emp201', { waitUntil: 'domcontentloaded' });
+  for (const [label, iso] of [['From', month.from], ['To', month.to]] as const) {
+    const field = page.getByLabel(new RegExp(`^${label}`));
+    await field.fill(text(iso));
+    await field.press('Tab');
+  }
+  await page.getByRole('button', { name: 'Generate' }).click();
+  await page.getByRole('button', { name: 'Show the lines behind PAYE (Pay As You Earn)' }).click();
+  await expect(page.getByTestId('emp201-drill-drawer').getByTestId('return-drill-lines')).toBeVisible({ timeout: 60_000 });
+}
+
+test('EMP201 PAYE drills to the pay runs and employee lines it sums; axe clean (read-only)', async ({ page, context, baseURL }) => {
+  const api = await Api.login(baseURL!);
+  const company = process.env.Z17_COMPANY_ID;
+  if (company) {
+    await switchApiCompany(api, company);
+    await switchBrowserCompany(context, company);
+  }
+  const month = await payrollMonth(api);
+  // The hosted seed has no approved pay run; the drill's figures are pinned by its unit and integration tests there.
+  test.skip(month === null, 'the golden company has no approved pay run in the last two years');
+  const drawer = page.getByTestId('emp201-drill-drawer');
+  for (const theme of THEMES) {
+    for (const width of [1568, 390]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
+      await page.addInitScript((t) => window.localStorage.setItem('accounting-theme', t), theme);
+      await openPaye(page, month!);
+      await expect(drawer.getByTestId('return-drill-total')).toContainText('matches the amount');
+      for (const href of await drawer.locator('a').evaluateAll((as) => as.map((a) => a.getAttribute('href')))) {
+        expect(href).toMatch(/^\/payroll\/runs\/[0-9a-f-]{36}$/);
+      }
+      await settle(page);
+      await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+      await expectNoSeriousA11yViolations(page, { key: `z17-emp201-${theme}-${width}`, baseline: { pages: {} } });
+      if (evidenceDir) await page.screenshot({ path: join(evidenceDir, `emp201-drill-${theme}-${width}.png`) });
     }
   }
 });

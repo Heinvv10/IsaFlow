@@ -1,6 +1,7 @@
 /** Client for GET /api/accounting/sars/return-drill (L3s). Throws on a non-2xx, with the server's message. */
 import { apiFetch, assertOk } from '@/lib/apiFetch';
 import type { Vat201DrillResult } from '@/modules/accounting/services/reports/vat201FieldDrill';
+import type { Emp201DrillResult } from '@/modules/accounting/services/reports/emp201FieldDrill';
 
 /** The server's page cap: one request per page keeps a long drill well inside the route's rate limit. */
 export const DRILL_PAGE_SIZE = 200;
@@ -21,5 +22,15 @@ export async function fetchVat201Drill(field: string, from: string, to: string, 
   const res = await apiFetch(`/api/accounting/sars/return-drill?${qs}`, { credentials: 'include', signal });
   await assertOk(res, 'The lines behind this field could not be loaded.');
   const json = await res.json() as { data: Vat201DrillResult };
+  return json.data;
+}
+
+export async function fetchEmp201Drill(field: string, from: string, to: string, page: number, signal?: AbortSignal): Promise<Emp201DrillResult> {
+  const qs = new URLSearchParams({
+    return: 'emp201', field, from: day(from), to: day(to), page: String(page), pageSize: String(DRILL_PAGE_SIZE),
+  });
+  const res = await apiFetch(`/api/accounting/sars/return-drill?${qs}`, { credentials: 'include', signal });
+  await assertOk(res, 'The lines behind this field could not be loaded.');
+  const json = await res.json() as { data: Emp201DrillResult };
   return json.data;
 }
