@@ -21,13 +21,14 @@
  *     paid and a soft-deleted bill due this week (old "AP due this week"), and
  *     bills due on T, T+7 and T+8 and T-1 that pin both ends of the 7-day window.
  * A second company carries its own invoice, journal, bill and pay run; no figure
- * of the first moves. Pay runs (the attention list, 2026-11-12): one from January
- * 2020, one this month and one two years ahead; only this month's is its own row.
+ * of the first moves. The attention list's pay-run rows have their own suite,
+ * dashboard-attention-pay-runs.int.test.ts.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import { fixtureWriters } from './kpi-one-source.helpers';
 import { todayInSast } from '@/lib/saDateParser';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
@@ -56,11 +57,6 @@ const CUST = id();
 const SUPP = id();
 const D_CUST = id();
 const D_SUPP = id();
-const RUN = { old: id(), now: id(), future: id(), other: id() };
-const [T_YEAR, T_MONTH] = [Number(todayInSast().slice(0, 4)), Number(todayInSast().slice(5, 7))];
-const FUTURE_YEAR = T_YEAR + 2;
-const MONTH_NAME = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-
 const T = todayInSast();
 /** YYYY-MM-DD `n` days from T, by calendar arithmetic in UTC (no host-zone drift). */
 const add = (n: number): string => {
@@ -97,34 +93,7 @@ const EXPECTED = {
 
 let token = '';
 
-async function journal(company: string, date: string, dr: string, cr: string, amount: number, opts: { status?: string; source?: string } = {}): Promise<void> {
-  const entry = id();
-  await pool.query(
-    `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,source,status,created_by)
-     VALUES($1,$2,$3,'kpi fixture',$4,$5,$6)`,
-    [entry, company, date, opts.source ?? 'manual', opts.status ?? 'posted', USER]);
-  await pool.query(
-    `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,description,company_id)
-     VALUES($1,$2,$4,0,'kpi',$5),($1,$3,0,$4,'kpi',$5)`, [entry, dr, cr, amount, company]);
-}
-
-async function invoice(company: string, customer: string, n: string, invoiceDate: string, due: string, total: number,
-  status = 'approved', deleted = false): Promise<void> {
-  await pool.query(
-    `INSERT INTO customer_invoices
-       (company_id, client_id, customer_id, invoice_number, invoice_date, due_date, status, total_amount, amount_paid, created_by, deleted_at)
-     VALUES ($1,$2,$2,$3,$4,$5,$6,$7,0,$8,$9)`,
-    [company, customer, n, invoiceDate, due, status, total, USER, deleted ? new Date() : null]);
-}
-
-async function bill(company: string, supplier: string, n: string, due: string, total: number,
-  opts: { status?: string; paid?: number; deleted?: boolean } = {}): Promise<void> {
-  await pool.query(
-    `INSERT INTO supplier_invoices
-       (company_id, supplier_id, invoice_number, invoice_date, due_date, status, total_amount, amount_paid, created_by, deleted_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-    [company, supplier, n, add(-40), due, opts.status ?? 'approved', total, opts.paid ?? 0, USER, opts.deleted ? new Date() : null]);
-}
+const { journal, invoice, bill } = fixtureWriters(pool, USER, add);
 
 async function cleanup(): Promise<void> {
   const cos = [C, D];
@@ -132,7 +101,6 @@ async function cleanup(): Promise<void> {
   await pool.query('DELETE FROM gl_journal_lines WHERE company_id = ANY($1::uuid[])', [cos]);
   await pool.query('DELETE FROM gl_journal_entries WHERE company_id = ANY($1::uuid[])', [cos]);
   await pool.query('DELETE FROM bank_transactions WHERE company_id = ANY($1::uuid[])', [cos]);
-  await pool.query('DELETE FROM payroll_run_headers WHERE company_id = ANY($1::uuid[])', [cos]);
   await pool.query('DELETE FROM supplier_invoices WHERE company_id = ANY($1::uuid[])', [cos]);
   await pool.query('DELETE FROM customer_invoices WHERE company_id = ANY($1::uuid[])', [cos]);
   await pool.query('DELETE FROM suppliers WHERE company_id = ANY($1::uuid[])', [cos]);
@@ -226,12 +194,6 @@ describeIfDb('headline figures: one definition across the dashboard, the bureau 
     await bill(D, D_SUPP, 'DB-2', add(2), 777);
     await bill(D, D_SUPP, 'DB-3', add(2), 777, { status: 'draft' });
 
-    // Pay runs: January 2020 (forgotten), this month, two years ahead; the other tenant's this month.
-    await pool.query(
-      `INSERT INTO payroll_run_headers(id,company_id,period_year,period_month,status)
-       VALUES($1,$5,2020,1,'approved'),($2,$5,$7,$8,'draft'),($3,$5,$9,$8,'calculated'),($4,$6,$7,$8,'draft')`,
-      [RUN.old, RUN.now, RUN.future, RUN.other, C, D, T_YEAR, T_MONTH, FUTURE_YEAR]);
-
     token = await new SignJWT({ sub: USER, aal: 'aal2' })
       .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
       .sign(new TextEncoder().encode(process.env.JWT_SECRET));
@@ -281,7 +243,7 @@ describeIfDb('headline figures: one definition across the dashboard, the bureau 
     });
   });
 
-  it('the dashboard attention list: headline counts, one pay-run row for this month, the 2020 run summarised', async () => {
+  it('the dashboard attention list: its counts are the headline counts', async () => {
     const data = await call<AttentionList>(attentionRoute);
     expect(data.asAt).toBe(T);
     const label = (key: string) => data.items.find((i) => i.key === key)?.label;
@@ -290,17 +252,6 @@ describeIfDb('headline figures: one definition across the dashboard, the bureau 
     expect(label('draft-invoices')).toBe(`${EXPECTED.draftInvoices} draft invoice`);
     expect(label('draft-journals')).toBe(`${EXPECTED.draftJournals} draft journals`);
     expect(data.items.find((i) => i.key === 'overdue-invoices')).toMatchObject({ label: '1 overdue invoice', amount: EXPECTED.receivables.overdue });
-    const runRows = data.items.filter((i) => i.key.startsWith('pay-run-'));
-    expect(runRows.map((i) => i.key)).toEqual([`pay-run-${RUN.now}`]);
-    expect(runRows[0]).toMatchObject({ label: `${MONTH_NAME[T_MONTH - 1]} ${T_YEAR} pay run`, detail: 'Draft', href: `/payroll/runs/${RUN.now}` });
-    expect(data.items.find((i) => i.key === 'pay-runs-older')).toMatchObject({ label: '1 older pay run still open', detail: 'Oldest: January 2020' });
-    // No row for the run two years ahead, none for the other tenant's run, and the bureau feed's per-run rows are gone.
-    const all = JSON.stringify(data.items);
-    expect(all).not.toContain(String(FUTURE_YEAR));
-    expect(all).not.toContain(RUN.future);
-    expect(all).not.toContain(RUN.other);
-    expect(all).not.toContain(RUN.old);
-    expect(data.items.filter((i) => i.href.startsWith('/payroll/runs/'))).toHaveLength(1);
     expect(new Set(data.items.map((i) => i.key)).size).toBe(data.items.length);
   });
 

@@ -176,6 +176,20 @@ describe('shapeAttention: VAT is one row', () => {
     expect(items[0]!.amount ?? null).toBeNull();
   });
 
+  it('puts the amount only on the period it was computed for', () => {
+    const next = work({ task: 'VAT return due', detail: 'Nov–Dec 2026', href: '/accounting/sars/vat201', dueAt: '2027-01-25T00:00:00.000Z', severity: 'info' });
+    const items = shapeAttention(input({ work: [vatItem, next], cash: { cash: 0, payroll: null, vat: vat(5400.5) } }));
+    expect(items).toHaveLength(2);
+    expect(items.find((i) => i.dueAt === '2026-11-25')!.amount).toBe(5400.5);
+    expect(items.find((i) => i.dueAt?.startsWith('2027-01-25'))!.amount ?? null).toBeNull();
+  });
+
+  it('no amount on the next period when the computed one is already filed', () => {
+    const next = work({ task: 'VAT return due', detail: 'Nov–Dec 2026', href: '/accounting/sars/vat201', dueAt: '2027-01-25', severity: 'info' });
+    const items = shapeAttention(input({ work: [next], cash: { cash: 0, payroll: null, vat: vat(5400.5) } }));
+    expect(items[0]!.amount ?? null).toBeNull();
+  });
+
   it('never invents a VAT row without the work item', () => {
     expect(shapeAttention(input({ cash: { cash: 0, payroll: null, vat: vat(900) } }))).toEqual([]);
   });
@@ -194,7 +208,7 @@ describe('shapeAttention: salary shortfall', () => {
       key: 'payroll-shortfall', area: 'Payroll', severity: 'due_soon', amount: 20000, href: '/payroll/runs/rnov',
       label: 'Cash is short for the November 2026 pay run',
     });
-    expect(items[0]!.detail).toBe(`Cash ${formatMoney(30000)} against ${formatMoney(50000)} (net pay plus PAYE, UIF and SDL)`);
+    expect(items[0]!.detail).toBe(`Cash ${formatMoney(30000)} against ${formatMoney(50000)} (net pay plus PAYE, UIF and SDL, less ETI)`);
   });
 
   it('says it is an estimate only for an unapproved run', () => {
@@ -202,6 +216,10 @@ describe('shapeAttention: salary shortfall', () => {
     expect(est[0]!.detail).toMatch(/ Estimate: the run is not approved yet\.$/);
     const appr = shapeAttention(input({ cash: { cash: 30000, payroll: payroll({}), vat: null } }));
     expect(appr[0]!.detail).not.toMatch(/Estimate/);
+  });
+
+  it('no row for a run with no totals yet, even when cash is negative', () => {
+    expect(shapeAttention(input({ cash: { cash: -500, payroll: payroll({ totalRequired: 0, shortfall: 0 }), vat: null } }))).toEqual([]);
   });
 
   it('no row when cash covers it', () => {

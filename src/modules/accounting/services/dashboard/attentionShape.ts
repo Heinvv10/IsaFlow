@@ -105,12 +105,12 @@ function countRows(input: AttentionInput): AttentionItem[] {
 function payrollRows(input: AttentionInput): AttentionItem[] {
   const rows: AttentionItem[] = [];
   const p = input.cash.payroll;
-  if (p && !p.canPay) {
+  if (p && !p.canPay && p.totalRequired > 0) {
     const estimate = p.status === 'estimated' ? ' Estimate: the run is not approved yet.' : '';
     rows.push({
       key: 'payroll-shortfall', area: 'Payroll', severity: 'due_soon', amount: p.shortfall,
       label: `Cash is short for the ${p.periodLabel} pay run`,
-      detail: `Cash ${formatMoney(input.cash.cash)} against ${formatMoney(p.totalRequired)} (net pay plus PAYE, UIF and SDL)${estimate}`,
+      detail: `Cash ${formatMoney(input.cash.cash)} against ${formatMoney(p.totalRequired)} (net pay plus PAYE, UIF and SDL, less ETI)${estimate}`,
       href: `/payroll/runs/${p.runId}`,
     });
   }
@@ -152,7 +152,9 @@ function workRows(input: AttentionInput): AttentionItem[] {
   return input.work
     .filter((w) => !w.href.startsWith(REPLACED_PAY_RUN_HREF_PREFIX) && w.href !== REPLACED_BANK_HREF)
     .map((w) => {
-      const vatAmount = w.task === 'VAT return due' && vat && vat.netVat > 0 ? vat.netVat : null;
+      // The net VAT belongs to one period only: the row whose due date is that period's.
+      const samePeriod = !!vat && (w.dueAt ?? '').slice(0, 10) === vat.dueDate.slice(0, 10);
+      const vatAmount = w.task === 'VAT return due' && vat && samePeriod && vat.netVat > 0 ? vat.netVat : null;
       return {
         key: `work-${w.task}-${w.href}-${w.dueAt ?? ''}`,
         area: areaForHref(w.href),

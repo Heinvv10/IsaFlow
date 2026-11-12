@@ -1,7 +1,8 @@
 /**
  * NeedsAttention: the dashboard's one "needs attention" list. Rows are real
  * links; a failed load shows the message and Retry, never an all-clear; the
- * empty state respects the setup checklist; more than six rows fold behind a toggle.
+ * extra rows still show under it; the empty state respects the setup checklist;
+ * more than six rows fold behind a toggle.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -74,15 +75,15 @@ describe('NeedsAttention rows', () => {
 });
 
 describe('NeedsAttention on a 500', () => {
-  it('shows the message and Retry, no all-clear and no rows; Retry refetches', async () => {
+  it('shows the message and Retry, no all-clear, the extra rows still listed; Retry refetches', async () => {
     apiFetch.mockResolvedValueOnce(fail500());
     render(<NeedsAttention extra={[row(9, { label: 'Client row' })]} />);
     expect(await screen.findByRole('alert')).toBeTruthy();
     expect(screen.getByText('Could not load the attention list - try again')).toBeTruthy();
     expect(screen.queryByText('All caught up!')).toBeNull();
     expect(screen.queryByText('Finish setup to see your daily tasks')).toBeNull();
-    expect(screen.queryByText('Client row')).toBeNull();
-    expect(document.querySelectorAll('li')).toHaveLength(0);
+    expect(screen.getByText('Client row').closest('a')!.getAttribute('href')).toBe('/row/9');
+    expect(document.querySelectorAll('li')).toHaveLength(1);
     apiFetch.mockResolvedValueOnce(ok([row(1, { label: 'Back again' })]));
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('Back again')).toBeTruthy();

@@ -5,7 +5,8 @@
  * followed by `extra` rows the Overview tab builds from its own counts
  * (provisional entries, missing supplier invoices). Each row is a real link.
  *
- * A failed load shows the message and Retry, never an all-clear.
+ * A failed load shows the message and Retry, never an all-clear; the `extra`
+ * rows still show under it, since they do not depend on that route.
  * `setupOpen`: setup tasks are still open, so an empty list is not "All caught up!".
  * `setupUnknown`: the setup checklist has not resolved, so an empty list says neither.
  */
@@ -143,6 +144,12 @@ export function NeedsAttention({ setupOpen = false, setupUnknown = false, extra 
             Retry
           </button>
         </div>
+      )}
+
+      {!loading && error && extra.length > 0 && (
+        <ul className="space-y-0.5">
+          {extra.map((item) => <Row key={item.key} item={item} />)}
+        </ul>
       )}
 
       {empty && setupUnknown && (
