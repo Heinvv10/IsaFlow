@@ -101,6 +101,8 @@ describe('robots.txt and llms.txt', () => {
       expect(llms).toContain(`https://isaflow.co.za${p}`);
     }
     expect(llms).not.toMatch(/ABSA/);
+    expect(llms).not.toMatch(/feed from every bank/);
+    expect(llms).toContain('does not connect live to any bank');
   });
 
   it('robots.txt does not block the new marketing pages', () => {

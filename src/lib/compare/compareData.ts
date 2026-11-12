@@ -42,7 +42,7 @@ const PAYROLL_ROW: CompareRow = {
 
 const BANK_ROW: CompareRow = {
   topic: 'Bank reconciliation',
-  isaflow: 'Imports statements (CSV, OFX, QFX, QIF, MT940, PDF) and matches them with rules and AI. No live direct feed from every bank.',
+  isaflow: 'Imports statements (CSV, OFX, QFX, QIF, MT940, PDF) and matches them with rules and AI. IsaFlow does not connect live to any bank.',
   other: 'Check which South African banks offer a live feed.',
 };
 

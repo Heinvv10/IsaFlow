@@ -15,7 +15,7 @@ IsaFlow is operated by Brightsphere Technologies (Pty) Ltd and trades as IsaFlow
 
 - Invoicing: invoices, quotes, sales orders, recurring invoices, credit notes, customer statements and debtor ageing.
 - Purchases: supplier invoices, payments and creditor ageing.
-- Banking: statement import (CSV, OFX, QFX, QIF, MT940, PDF) and automatic matching with rules and AI. There is no live direct feed from every bank.
+- Banking: statement import (CSV, OFX, QFX, QIF, MT940, PDF) and automatic matching with rules and AI. IsaFlow does not connect live to any bank.
 - VAT and SARS: VAT201 figures prepared for each period, pre-filing checks, and locking of filed periods. Returns are captured on SARS eFiling by the user.
 - Payroll: PAYE, UIF and SDL calculations, payslips, and EMP201 and IRP5 data. Payroll is an add-on priced per active employee.
 - Fixed assets, budgets and financial reports. Annual financial statements are on the Premium plan.

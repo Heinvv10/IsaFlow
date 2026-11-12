@@ -59,7 +59,8 @@ describe.each(PAGES)('$name page', ({ path, h1, el }) => {
 
   it('holds to the copy rules', () => {
     const { container } = render(el());
-    const text = `${container.textContent ?? ''} ${container.querySelector('[data-testid="page-head"]')?.getAttribute('data-description')}`;
+    const head = container.querySelector('[data-testid="page-head"]');
+    const text = `${container.textContent ?? ''} ${head?.getAttribute('data-title')} ${head?.getAttribute('data-description')}`;
     for (const re of FORBIDDEN) expect(text, String(re)).not.toMatch(re);
     expect(container.innerHTML).not.toMatch(DARK_VARIANT);
   });
@@ -71,6 +72,12 @@ describe('/features', () => {
     const bureaus = container.querySelector('#bureaus')!;
     const business = container.querySelector('#business')!;
     expect(bureaus.compareDocumentPosition(business) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows no product screenshots (they carry the old logo and demo counterparties)', () => {
+    const { container } = render(<FeaturesPage />);
+    expect(container.querySelector('#business img')).toBeNull();
+    expect(container.querySelector('#business')?.textContent).toContain(DETAILED_FEATURES[0]!.title);
   });
 
   it('takes its prices from pricingData and links onwards', () => {

@@ -32,14 +32,18 @@ export function LandingFeaturesGrid() {
   );
 }
 
-export function LandingDetailedFeatures() {
+/**
+ * `withScreenshots={false}` renders the copy only. The screenshots show an old
+ * logo and demo counterparties (VERIFY.md), so /features leaves them out.
+ */
+export function LandingDetailedFeatures({ withScreenshots = true }: { withScreenshots?: boolean }) {
   return (
     <section>
       {DETAILED_FEATURES.map((f, i) => (
         <div key={f.title} className={`py-16 lg:py-24 ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
-              <div className={i % 2 === 1 ? 'lg:order-2' : ''}>
+            <div className={withScreenshots ? 'grid lg:grid-cols-2 gap-12 lg:gap-20 items-center' : 'max-w-3xl'}>
+              <div className={withScreenshots && i % 2 === 1 ? 'lg:order-2' : ''}>
                 <span className="inline-block px-3 py-1 rounded-full bg-teal-50 text-teal-700 text-xs font-semibold mb-4 tracking-wide">
                   {f.badge}
                 </span>
@@ -57,7 +61,7 @@ export function LandingDetailedFeatures() {
                 </ul>
               </div>
 
-              <div className={i % 2 === 1 ? 'lg:order-1' : ''}>
+              {withScreenshots && <div className={i % 2 === 1 ? 'lg:order-1' : ''}>
                 <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-gray-100 bg-white">
                   <img
                     src={`/landing/${f.imgKey}-1200.webp`}
@@ -83,7 +87,7 @@ export function LandingDetailedFeatures() {
                     <p className="text-slate-300 text-sm">{f.title} screenshot</p>
                   </div>
                 </div>
-              </div>
+              </div>}
             </div>
           </div>
         </div>
