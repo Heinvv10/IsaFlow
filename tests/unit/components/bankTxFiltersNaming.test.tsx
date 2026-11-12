@@ -11,11 +11,11 @@ const noop = vi.fn();
 const props = {
   tab: 'new', page: 1, total: 0, pageSize: 25, selectedCount: 0, selectedBank: 'b1', smartRunning: false,
   showCC: false, showBU: false, showBatchEdit: false, searchTerm: '', fromDate: '', toDate: '',
-  fromAmount: '', toAmount: '', sortOrder: 'desc', allocationFilter: 'all', txType: 'all', allocType: 'all', hasSuggestion: 'all',
+  fromAmount: '', toAmount: '', sortOrder: 'desc', allocationFilter: 'all', txType: 'all', allocType: 'all', hasSuggestion: 'all', reconFilter: 'all',
   onRefresh: noop, onBulkAccept: noop, onBatchAccept: noop, onBatchDelete: noop, onToggleBatchEdit: noop, onExport: noop,
   onApplyRules: noop, onDownloadReport: noop, onSearchChange: noop, onFromDateChange: noop, onToDateChange: noop,
   onFromAmountChange: noop, onToAmountChange: noop, onSortOrderChange: noop, onAllocationFilterChange: noop,
-  onTxTypeChange: noop, onAllocTypeChange: noop, onHasSuggestionChange: noop, onToggleCC: noop, onToggleBU: noop,
+  onTxTypeChange: noop, onAllocTypeChange: noop, onHasSuggestionChange: noop, onReconFilterChange: noop, onToggleCC: noop, onToggleBU: noop,
 } satisfies BankTxFiltersProps;
 
 describe('BankTxFilters: named controls', () => {
@@ -34,6 +34,19 @@ describe('BankTxFilters: named controls', () => {
     expect(screen.getByRole('spinbutton', { name: 'Min R' })).toBeInTheDocument();
     expect(screen.getByRole('spinbutton', { name: 'Max R' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Search transactions' })).toBeInTheDocument();
+  });
+});
+
+describe('BankTxFilters: the reconciliation filter (Reviewed tab only)', () => {
+  it('is on Reviewed, not on New, and calls onReconFilterChange with the native value', () => {
+    const spy = vi.fn();
+    const { rerender } = render(<BankTxFilters {...props} onReconFilterChange={spy} />);
+    expect(screen.queryByRole('combobox', { name: 'Reconciliation' })).toBeNull();
+    rerender(<BankTxFilters {...props} tab="reviewed" onReconFilterChange={spy} />);
+    expect(screen.getByRole('combobox', { name: 'Reconciliation' })).toHaveTextContent('All Reviewed');
+    fireEvent.click(screen.getByRole('combobox', { name: 'Reconciliation' }));
+    fireEvent.click(within(screen.getByRole('listbox')).getByRole('option', { name: 'Not Reconciled' }));
+    expect(spy).toHaveBeenCalledWith('unreconciled');
   });
 });
 

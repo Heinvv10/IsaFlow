@@ -19,8 +19,9 @@ import type { CapturedDocumentAction } from '@/modules/accounting/types/document
 import { isBeingRead, STILL_BEING_READ } from '@/modules/accounting/services/capture/captureReadState';
 import { mapCapturedDocumentRow as mapRow } from '@/modules/accounting/services/capture/capturedDocumentMapper';
 import { retryCaptureRead, type RetryRefusal } from '@/modules/accounting/services/capture/captureReadRetry';
-import { attachCapturedDocToBankTx } from '@/modules/accounting/services/capture/captureBankTxAttachService';
+import { attachCapturedDocToBankTx, PREVIOUS_LINE_RECONCILED } from '@/modules/accounting/services/capture/captureBankTxAttachService';
 import { otherVatClaimMessage } from '@/modules/accounting/services/capture/bankAttachClaimConflict';
+import { rejectCapturedDocument, REJECT_REFUSED_RECONCILED_LINE } from '@/modules/accounting/services/capture/captureRejectService';
 import {
   type LifecycleGate,
   releaseClaimForLifecycleAction,
@@ -201,6 +202,7 @@ async function handleMatchBankTx(
 
   const result = await attachCapturedDocToBankTx(companyId, id, bankTxId, userId);
   if (!result.ok) {
+    if (result.reason === 'previous_line_reconciled') return apiResponse.conflict(res, PREVIOUS_LINE_RECONCILED);
     const conflict = result.reason === 'document_backs_other_claim' ? result.otherClaim : null;
     if (conflict) return apiResponse.conflict(res, otherVatClaimMessage(conflict), { otherClaim: conflict });
     return result.reason === 'bank_tx_not_found'
@@ -236,21 +238,11 @@ async function handleReject(
   companyId: string,
   data?: Record<string, unknown>,
 ) {
-  const notes = (data?.notes as string) || null;
-
-  const [row] = await sql`
-    UPDATE captured_documents
-    SET status = 'rejected',
-        notes = COALESCE(${notes}, notes)
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-      AND posted_at IS NULL
-    RETURNING *
-  ` as Record<string, unknown>[];
-
-  if (!row) return refusePostedOrMissing(res, id, companyId, 'rejected');
-
+  const out = await rejectCapturedDocument(companyId, id, (data?.notes as string) || null);
+  if (out && 'refused' in out) return apiResponse.conflict(res, REJECT_REFUSED_RECONCILED_LINE);
+  if (!out) return refusePostedOrMissing(res, id, companyId, 'rejected');
   log.info('Document rejected', { id }, 'document-capture');
-  return apiResponse.success(res, mapRow(row as Record<string, unknown>), 'Document rejected');
+  return apiResponse.success(res, mapRow(out.row), 'Document rejected');
 }
 
 
