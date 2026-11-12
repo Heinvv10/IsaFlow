@@ -1,47 +1,91 @@
-// EMP201 "Book ETI for this month" (wave 5 ET, review rounds 4 and 5): write roles only; posts the month; the result
-// survives the EMP201 reload that remounts it, focus moves to it; a month that has not ended is disabled with a hint;
-// the text colour passes 4.5:1 in both themes.
+// EMP201 "Book ETI for this month" (wave 5 ET, review rounds 4-6): write roles only; posts the month; the result
+// survives the EMP201 refetch a booking triggers (the page keeps the section mounted), focus moves to it; it is held
+// with its company and month, so another company, or a remount (another session), never sees it; a month that has
+// not ended is disabled with a hint; the text colour passes 4.5:1 in both themes.
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { readFileSync } from 'node:fs';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { Emp201BookEtiButton, resetEmp201BookEtiResult } from '@/components/accounting/sars/Emp201BookEtiButton';
+import { Emp201BookEtiButton } from '@/components/accounting/sars/Emp201BookEtiButton';
 
-let role: string | null = 'manager';
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: role }) }));
+const who = vi.hoisted(() => ({ role: 'manager' as string | null, company: 'c1' }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: who.role, activeCompany: { id: who.company } }) }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, pathname: '/', replace: vi.fn(), push: vi.fn() }) }));
+vi.mock('next/head', () => ({ default: () => null }));
+vi.mock('next/link', () => ({ default: ({ children }: { children: ReactNode }) => <a>{children}</a> }));
+vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
+vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ isAuthenticated: true, loading: false, user: { id: 'u-1', role: 'admin' } }) }));
 useApiJsonOverMock();
 
+import Emp201Page from '../../../pages/accounting/sars/emp201';
+
 const BOOKED = { status: 'booked', entryDate: '2026-08-31', used: 0, refund: 900 };
+const booked = () => `Booked ETI for August 2026: ${formatMoney(900).replace(/\s/g, ' ')} refund`;
+const json = (data: unknown) => Response.json({ success: true, data });
 beforeEach(() => {
-  role = 'manager';
-  resetEmp201BookEtiResult();
-  vi.mocked(apiFetch).mockImplementation(async () => Response.json({ success: true, data: BOOKED }));
+  who.role = 'manager'; who.company = 'c1';
+  vi.mocked(apiFetch).mockReset();
+  vi.mocked(apiFetch).mockImplementation(async () => json(BOOKED));
 });
 afterEach(cleanup);
 
-/** The page: a booking calls generate(), which clears the EMP201 and loads it again, so the button remounts. */
-function Page({ month }: { month: string }) {
-  const [generation, setGeneration] = useState(0);
-  return <div key={generation}><Emp201BookEtiButton month={month} onBooked={() => setGeneration((g) => g + 1)} /></div>;
+/** A page that refetches after a booking and keeps the button mounted, as emp201.tsx's generate(true) does. */
+function Refetching({ month }: { month: string }) {
+  const [, setGeneration] = useState(0);
+  return <Emp201BookEtiButton month={month} onBooked={() => setGeneration((g) => g + 1)} />;
 }
 
-it('browser M1/M2: after a booking reloads the EMP201 (remount), the result stays visible and has focus', async () => {
-  render(<Page month="2026-08" />);
+it('browser M1/M2: after a booking refetches the EMP201, the result stays visible and has focus', async () => {
+  render(<Refetching month="2026-08" />);
   fireEvent.click(screen.getByRole('button', { name: 'Book ETI for this month' }));
-  const status = await screen.findByRole('status');
-  expect(status).toHaveTextContent(`Booked ETI for August 2026: ${formatMoney(900).replace(/\s/g, " ")} refund`);
+  expect(await screen.findByRole('status')).toHaveTextContent(booked());
   await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('status')));
   const [url, init] = vi.mocked(apiFetch).mock.calls[0]!;
   expect(url).toBe('/api/accounting/sars/emp201-book-eti');
   expect(init).toMatchObject({ method: 'POST', body: JSON.stringify({ month: '2026-08' }) });
 });
 
+it('quality M1: another company never sees the result; a remount (another session) starts with none (no module state)', async () => {
+  const view = render(<Refetching month="2026-08" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Book ETI for this month' }));
+  expect(await screen.findByRole('status')).toHaveTextContent(booked());
+  who.company = 'c2';
+  view.rerender(<Refetching month="2026-08" />);
+  expect(screen.queryByRole('status')).toBeNull();
+  who.company = 'c1';
+  view.unmount();
+  render(<Refetching month="2026-08" />);
+  expect(screen.queryByRole('status')).toBeNull();
+});
+
+it('the EMP201 page refetches after a booking WITHOUT unmounting the ETI section, so the result stays', async () => {
+  const EMP = { periodStart: '2026-08-01', periodEnd: '2026-08-31', totalPAYE: 0, totalETI: 0, payePayable: 0,
+    etiCarry: { broughtForward: 900, used: 0, carriedForward: 0, refundClaimable: 900 }, etiWarnings: [],
+    totalUIF_employee: 0, totalUIF_employer: 0, totalUIF: 0, totalSDL: 0, employeeCount: 0, totalTaxableRemuneration: 0, totalDeductions: 0, payrollRuns: [] };
+  const gets: string[] = [];
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    const u = String(url);
+    if (u.includes('emp201-book-eti')) return json(BOOKED);
+    if (u.includes('sars-emp201')) { gets.push(u); return json(EMP); }
+    return json([]);
+  });
+  render(<Emp201Page />);
+  fireEvent.click(screen.getByRole('button', { name: /Generate/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Book ETI for this month' }));
+  // The page defaults to the previous month, whichever that is.
+  const said = /^Booked ETI for [A-Z][a-z]+ \d{4}: R.900\.00 refund/;
+  expect(await screen.findByRole('status')).toHaveTextContent(said);
+  await waitFor(() => expect(gets).toHaveLength(2)); // the refetch happened
+  expect(screen.getByRole('status')).toHaveTextContent(said);
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('status')));
+});
+
 it('a month whose run journal books it: says so, no reload', async () => {
-  vi.mocked(apiFetch).mockImplementation(async () => Response.json({ success: true, data: { status: 'run_journal_in_force', entryDate: null, used: 0, refund: 0 } }));
+  vi.mocked(apiFetch).mockImplementation(async () => json({ status: 'run_journal_in_force', entryDate: null, used: 0, refund: 0 }));
   const onBooked = vi.fn();
   render(<Emp201BookEtiButton month="2026-07" onBooked={onBooked} />);
   fireEvent.click(screen.getByRole('button', { name: 'Book ETI for this month' }));
@@ -57,7 +101,7 @@ it('browser L3: a month that has not ended is disabled, with a hint saying when 
 });
 
 it('a viewer does not see it', () => {
-  role = 'viewer';
+  who.role = 'viewer';
   render(<Emp201BookEtiButton month="2026-08" />);
   expect(screen.queryByRole('button', { name: 'Book ETI for this month' })).toBeNull();
 });

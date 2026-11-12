@@ -14,6 +14,10 @@ const text = (r: { content: Array<{ text: string }> }) => r.content[0]!.text;
 beforeEach(() => vi.resetAllMocks());
 
 describe('book_eti_for_month', () => {
+  it('round 6 adv L1: the description names causes that happen (an ETI journal can no longer be reversed by hand)', () => {
+    expect(bookEtiForMonthTool.description).not.toMatch(/reversed by hand/);
+    expect(bookEtiForMonthTool.description).toContain('a run-less August or February whose refund is not booked');
+  });
   it('posts to the ledger: write:payroll with write:post, like approve_pay_run', () => {
     expect(bookEtiForMonthTool).toMatchObject({ scope: 'write:payroll', write: true, requiresPost: true, requiresWriteRole: true });
   });

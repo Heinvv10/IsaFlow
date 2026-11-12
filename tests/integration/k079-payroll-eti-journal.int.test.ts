@@ -239,6 +239,17 @@ describe('K-079: approving a run that claims ETI', () => {
     expect(rows).toHaveLength(0);
   });
 
+  it("another tenant's run WITH ETI (in its own ETI period, September-February) is refused and left exactly as it was", async () => {
+    const foreign = await run(companyB, 11, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
+    const res = await callApprove(foreign, companyA);
+    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+    expect(res.statusCode).toBeLessThan(500);
+    expect(await header(foreign)).toEqual({ status: 'calculated', journal_entry_id: null });
+    const { rows } = await pool.query(
+      "SELECT 1 FROM gl_journal_entries WHERE company_id=$1 AND (reference LIKE 'ETI-%' OR description = 'Payroll run 2026-11')", [companyB]);
+    expect(rows).toHaveLength(0);
+  });
+
   it('a status approval refuses is a 400 and leaves the run as it was', async () => {
     const id = await run(companyA, 7, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
     await pool.query("UPDATE payroll_run_headers SET status='cancelled' WHERE id=$1", [id]);

@@ -21,7 +21,7 @@ export const bookEtiForMonthTool: McpTool = {
     + 'August or February refund). For a month with no pay run journal in force (a directive-only month, or no run at all); a '
     + 'month whose run journal is in force books its own ETI, and a month that has not ended is refused. Idempotent: a month '
     + 'already booked posts nothing. Use it when emp201_status or the data integrity check paye_payable_differs_from_emp201 '
-    + 'shows a month\'s ETI unbooked (for example after an ETI journal was reversed by hand). Dated the month\'s last day, or the '
+    + 'shows a month\'s ETI unbooked (for example a run-less August or February whose refund is not booked, or a run-less month whose carry changed because an earlier month changed). Dated the month\'s last day, or the '
     + 'first open date when that period is closed. Posts to the general ledger: requires write:post. dry_run: true previews it.',
   scope: 'write:payroll',
   requiresWriteRole: true,

@@ -15,9 +15,11 @@
  * same share): the steady employee's R3 000 travel allowance is taxed at R2 400, so periodic_taxable / taxable_income are
  * 30900.00 (from 31500.00), paye 3450.28 (feb) / 3316.20 (mar), sdl 286.20 (1% of 28500 + 2400 - 2280), net_pay and the
  * header totals follow, and its 3701 breakdown item carries payeInclusionRate 0.8 and payeIncludedAmount 2400. One more for
- * wave 5 ET (review round 2 ruling, ETI Act s6(b)): ETI needs a valid SA ID number or a recorded asylum seeker permit /
- * refugee ID, and the young employee has neither, so their eti is 0.00 (from 750.00), total_eti is 0.00, and their
- * validation_results carry an ETI_INDETERMINATE warning naming the missing identity document. Nothing else was edited.
+ * wave 5 ET (Hein ruling, review round 2): every ETI claim warns that IsaFlow does not record connected persons or domestic
+ * workers (ETI Act s6(c), s6(d)), so the young employee's validation_results carry ETI_CONNECTED_OR_DOMESTIC_UNCHECKED,
+ * and, as the fixture records no hours a week, ETI_HOURS_UNKNOWN (ETI claimed as for a full month, s7(5), s4(1)(a));
+ * their ETI is unchanged (750.00) because the fixture now records a valid SA ID number matching the date of birth (s6(b)).
+ * Nothing else was edited.
  */
 type Period = 'feb' | 'mar';
 export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknown>>> = {
@@ -77,7 +79,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
       "additional_medical_credit": "0.00",
       "annual_taxable": "0.00",
       "component_breakdown": "[{\"amount\": 6500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}]",
-      "eti": "0.00",
+      "eti": "750.00",
       "gross_pay": "6500.00",
       "medical_credit": "0.00",
       "medical_scheme_fees": "0.00",
@@ -88,7 +90,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
       "taxable_income": "6500.00",
       "uif_employee": "65.00",
       "uif_employer": "65.00",
-      "validation_results": "[{\"code\": \"MISSING_TAX_NUMBER\", \"field\": \"taxNumber\", \"message\": \"Read RD-YOUNG has no SARS tax number. PAYE cannot be calculated.\", \"deepLink\": \"/payroll/employees/<young>#tax-number\", \"severity\": \"error\"}, {\"code\": \"ETI_INDETERMINATE\", \"field\": \"startDate\", \"message\": \"ETI eligibility could not be determined for Read RD-YOUNG — a valid SA ID number, or an asylum seeker permit or refugee identity document recorded (ETI Act s6(b)) is missing. No Employment Tax Incentive has been claimed for this employee.\", \"deepLink\": \"/payroll/employees/<young>#id-document\", \"severity\": \"warning\"}]"
+      "validation_results": "[{\"code\": \"MISSING_TAX_NUMBER\", \"field\": \"taxNumber\", \"message\": \"Read RD-YOUNG has no SARS tax number. PAYE cannot be calculated.\", \"deepLink\": \"/payroll/employees/<young>#tax-number\", \"severity\": \"error\"}, {\"code\": \"ETI_HOURS_UNKNOWN\", \"message\": \"No ordinary hours a week are recorded for Read RD-YOUNG, so ETI of R 750.00 was claimed as for a full month, without apportioning it by hours (ETI Act s7(5)) or testing the wage against the national minimum wage (s4(1)(a)). Record the hours a week on the employee and recalculate.\", \"severity\": \"warning\"}, {\"code\": \"ETI_CONNECTED_OR_DOMESTIC_UNCHECKED\", \"message\": \"ETI of R 750.00 is claimed for Read RD-YOUNG. Confirm Read RD-YOUNG is not a connected person in relation to the employer (Income Tax Act s1) and not a domestic worker (BCEA s1): neither qualifies (ETI Act s6(c), s6(d)), and IsaFlow does not record either yet.\", \"severity\": \"warning\"}]"
     }
   },
   "mar": {
@@ -164,7 +166,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
       "additional_medical_credit": "0.00",
       "annual_taxable": "0.00",
       "component_breakdown": "[{\"amount\": 6500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}]",
-      "eti": "0.00",
+      "eti": "750.00",
       "gross_pay": "6500.00",
       "medical_credit": "0.00",
       "medical_scheme_fees": "0.00",
@@ -175,7 +177,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
       "taxable_income": "6500.00",
       "uif_employee": "65.00",
       "uif_employer": "65.00",
-      "validation_results": "[{\"code\": \"MISSING_TAX_NUMBER\", \"field\": \"taxNumber\", \"message\": \"Read RD-YOUNG has no SARS tax number. PAYE cannot be calculated.\", \"deepLink\": \"/payroll/employees/<young>#tax-number\", \"severity\": \"error\"}, {\"code\": \"ETI_INDETERMINATE\", \"field\": \"startDate\", \"message\": \"ETI eligibility could not be determined for Read RD-YOUNG — a valid SA ID number, or an asylum seeker permit or refugee identity document recorded (ETI Act s6(b)) is missing. No Employment Tax Incentive has been claimed for this employee.\", \"deepLink\": \"/payroll/employees/<young>#id-document\", \"severity\": \"warning\"}]"
+      "validation_results": "[{\"code\": \"MISSING_TAX_NUMBER\", \"field\": \"taxNumber\", \"message\": \"Read RD-YOUNG has no SARS tax number. PAYE cannot be calculated.\", \"deepLink\": \"/payroll/employees/<young>#tax-number\", \"severity\": \"error\"}, {\"code\": \"ETI_HOURS_UNKNOWN\", \"message\": \"No ordinary hours a week are recorded for Read RD-YOUNG, so ETI of R 750.00 was claimed as for a full month, without apportioning it by hours (ETI Act s7(5)) or testing the wage against the national minimum wage (s4(1)(a)). Record the hours a week on the employee and recalculate.\", \"severity\": \"warning\"}, {\"code\": \"ETI_CONNECTED_OR_DOMESTIC_UNCHECKED\", \"message\": \"ETI of R 750.00 is claimed for Read RD-YOUNG. Confirm Read RD-YOUNG is not a connected person in relation to the employer (Income Tax Act s1) and not a domestic worker (BCEA s1): neither qualifies (ETI Act s6(c), s6(d)), and IsaFlow does not record either yet.\", \"severity\": \"warning\"}]"
     }
   }
 };
@@ -183,7 +185,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
 export const EXPECTED_HEADERS: Record<Period, Record<string, unknown>> = {
   "feb": {
     "employee_count": 4,
-    "total_eti": "0.00",
+    "total_eti": "750.00",
     "total_gross": "84000.00",
     "total_net": "70764.53",
     "total_paye": "8229.11",
@@ -193,7 +195,7 @@ export const EXPECTED_HEADERS: Record<Period, Record<string, unknown>> = {
   },
   "mar": {
     "employee_count": 5,
-    "total_eti": "0.00",
+    "total_eti": "750.00",
     "total_gross": "94700.00",
     "total_net": "81711.44",
     "total_paye": "7985.20",

@@ -3,8 +3,10 @@
  * Brings a run-less month's ETI journal to what this EMP201 declares (ETI Act s9(1), s10(1)); idempotent. Write roles
  * only (the route enforces it; hidden for anyone else).
  * Review round 5 (browser M1/M2/L1/L3):
- *  - A booking reloads the EMP201, which remounts this component; the result is kept in `lastResult` (module scope, one
- *    per page session) so the message survives the remount, and focus moves to it once (role=status, tabIndex -1).
+ *  - A booking refetches the EMP201 with the page still shown (emp201.tsx generate(true)), so this component stays
+ *    mounted and keeps its result; focus moves to it once (role=status, tabIndex -1). Review round 6: no module state.
+ *    The result is held with its company and month and shown only while both still match (another company, or a page
+ *    that remounts for another user, never sees it).
  *  - A month that has not ended (its last day is today or later, SAST) cannot be booked: the button is disabled with a hint.
  *  - Text in --ff-brand-eyebrow (#0f766e light, #2dd4bf dark): at least 4.5:1 on the card in both themes.
  */
@@ -26,11 +28,6 @@ const label = (month: string): string => `${MONTHS[Number(month.slice(5, 7)) - 1
 const lastDay = (month: string): string =>
   `${month}-${String(new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()).padStart(2, '0')}`;
 
-/** The result of the last booking, kept across the remount a successful booking causes. */
-let lastResult: { month: string; text: string; focus: boolean } | null = null;
-/** Test seam: forget the kept result. */
-export function resetEmp201BookEtiResult(): void { lastResult = null; }
-
 export function describeOutcome(month: string, o: Outcome): string {
   switch (o.status) {
     case 'booked': {
@@ -48,31 +45,33 @@ export function describeOutcome(month: string, o: Outcome): string {
 }
 
 export function Emp201BookEtiButton({ month, onBooked }: { month: string; onBooked?: () => void }) {
-  const { companyRole } = useCompany();
+  const { companyRole, activeCompany } = useCompany();
+  const companyId = activeCompany?.id ?? null;
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(lastResult?.month === month ? lastResult.text : null);
+  const [result, setResult] = useState<{ companyId: string | null; month: string; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const statusRef = useRef<HTMLParagraphElement>(null);
+  const focusNext = useRef(false);
+  const message = result && result.companyId === companyId && result.month === month ? result.text : null;
 
   useEffect(() => {
-    if (lastResult?.month === month && lastResult.focus && statusRef.current) {
+    if (focusNext.current && message && statusRef.current) {
       statusRef.current.focus();
-      lastResult.focus = false;
+      focusNext.current = false;
     }
-  }, [month, message]);
+  }, [message]);
 
   if (!canWrite(companyRole)) return null;
   const ended = lastDay(month) < todayInSast();
 
   const book = async () => {
-    setBusy(true); setError(null); setMessage(null);
+    setBusy(true); setError(null); setResult(null);
     try {
       const res = await apiFetch('/api/accounting/sars/emp201-book-eti', { method: 'POST', body: JSON.stringify({ month }) });
       await assertOk(res, 'Could not book the ETI for this month');
       const json = await res.json() as { data: Outcome };
-      const text = describeOutcome(month, json.data);
-      lastResult = { month, text, focus: true };
-      setMessage(text);
+      focusNext.current = true;
+      setResult({ companyId, month, text: describeOutcome(month, json.data) });
       if (json.data.status === 'booked') onBooked?.();
     } catch (err) {
       log.warn('Emp201BookEtiButton: book failed', { error: err }, 'Emp201BookEtiButton');
