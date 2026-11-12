@@ -154,12 +154,12 @@ export default function NewSupplierPaymentPage() {
               </div>
 
               <div className={`${card} p-5`}>
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center justify-between gap-3 mb-4">
                   <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                     <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">2</span>
                     Invoice Allocations
                   </h3>
-                  <button type="button" onClick={addAllocation} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors">
+                  <button type="button" onClick={addAllocation} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors">
                     <Plus className="h-3 w-3" /> Add Allocation
                   </button>
                 </div>
@@ -180,19 +180,19 @@ export default function NewSupplierPaymentPage() {
                             {invoices.map(inv => <option key={inv.id} value={inv.id}>{inv.invoiceNumber} — Balance: {formatCurrency(inv.balance)}</option>)}
                           </select>
                         </div>
-                        <div className="col-span-5 sm:col-span-2">
+                        <div className="col-span-6 sm:col-span-2">
                           <label className={idx === 0 ? lbl : `${lbl} sm:hidden`}>Balance</label>
-                          <div className={`${inp} bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 text-right tabular-nums`}>{selectedInvoice ? formatCurrency(selectedInvoice.balance) : '—'}</div>
+                          <div className={`${inp} bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 text-right tabular-nums whitespace-nowrap`}>{selectedInvoice ? formatCurrency(selectedInvoice.balance) : '—'}</div>
                         </div>
-                        <div className="col-span-5 sm:col-span-3">
+                        <div className="col-span-6 sm:col-span-3">
                           <label className={idx === 0 ? lbl : `${lbl} sm:hidden`}>Pay amount</label>
                           <input type="number" aria-label="Pay Amount" step="0.01" min="0" max={selectedInvoice?.balance || undefined} value={alloc.amount || ''} onChange={e => updateAllocation(alloc.key, 'amount', Number(e.target.value))} className={`${inp} text-right`} />
                         </div>
-                        <div className="col-span-2 sm:col-span-1 flex justify-center">
-                          {allocations.length > 1 && (
+                        {allocations.length > 1 && (
+                          <div className="col-span-12 sm:col-span-1 flex justify-end sm:justify-center">
                             <button type="button" onClick={() => removeAllocation(alloc.key)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 dark:text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="h-4 w-4" /></button>
-                          )}
-                        </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}

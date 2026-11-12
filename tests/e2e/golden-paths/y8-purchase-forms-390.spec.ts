@@ -144,3 +144,64 @@ for (const form of ENTRY_FORMS) {
     expect(await layoutFaults(page, 100)).toEqual({ narrow: [], overlaps: [] });
   });
 }
+
+// Second allocation rows (review of the 12 Nov change): the delete button and, on the supplier payment, the row 2
+// labels only exist once a row is added, so measure with two rows. No client or supplier is picked; nothing is saved.
+const ALLOCATIONS = [
+  { form: ENTRY_FORMS[0], add: 'Add Line' },
+  { form: ENTRY_FORMS[1], add: 'Add Allocation' },
+];
+for (const { form, add } of ALLOCATIONS) {
+  for (const width of [390, 1440]) {
+    test(`${form.title} ${width} px: a second allocation row keeps its fields, labels and delete button in the card`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await open(page, form);
+      const button = page.getByRole('button', { name: add });
+      await button.click();
+      const selects = page.locator('main select[name=invoiceId]');
+      await expect(selects).toHaveCount(2);
+      const card = await box(cardOf(button));
+      const [addBox, heading] = [await box(button), await box(page.getByRole('heading', { name: 'Invoice Allocations' }))];
+      expect(addBox.height, `${add} stays on one line`).toBeLessThan(40);
+      expect(Math.abs(addBox.y - heading.y), `${add} sits beside the card heading`).toBeLessThan(12);
+      const row2 = await box(selects.nth(1));
+      const bin = await box(selects.nth(1).locator('xpath=ancestor::div[.//button][1]').locator('button').last());
+      expect(bin.x + bin.width, 'delete button inside the card').toBeLessThanOrEqual(card.x + card.width);
+      if (width === 390) expect(row2.width, 'invoice select takes the full row on a phone').toBeGreaterThanOrEqual(card.width - 60);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth), 'no sideways scroll').toBeLessThanOrEqual(width);
+      expect(await layoutFaults(page, 100)).toEqual({ narrow: [], overlaps: [] });
+      if (add === 'Add Allocation') {
+        for (const label of ['Invoice', 'Balance', 'Pay amount']) {
+          await expect(page.locator('main label').getByText(label, { exact: true }).filter({ visible: true }),
+            `${label}: on every row on a phone, a column header (row 1 only) from sm`).toHaveCount(width === 390 ? 2 : 1);
+        }
+      }
+    });
+  }
+}
+
+test('New Supplier Payment 390 px: a seven-figure balance fits its cell', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page, ENTRY_FORMS[1]);
+  const cell = page.locator('main label:text-is("Balance") + div').first();
+  // The cell shows formatCurrency(balance); no supplier is picked here, so write the widest realistic value into it.
+  const fit = await cell.evaluate((e) => {
+    const before = e.getBoundingClientRect().height;
+    e.textContent = 'R 1 234 567.89';
+    return { clipped: e.scrollWidth > e.clientWidth, wrapped: e.getBoundingClientRect().height > before + 1 };
+  });
+  expect(fit, 'R 1 234 567.89 shows on one line, unclipped').toEqual({ clipped: false, wrapped: false });
+});
+
+// Between sm and lg the forms stack with two and three column grids.
+for (const form of ENTRY_FORMS) {
+  test(`${form.title} 768 px: the summary sits under the form, fields keep their width`, async ({ page }) => {
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await open(page, form);
+    const details = await box(cardOf(page.getByRole('heading', { name: form.details })));
+    const summary = await box(summaryCard(page, form));
+    expect(summary.y, 'summary starts below the details card').toBeGreaterThanOrEqual(details.y + details.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth), 'no sideways scroll').toBeLessThanOrEqual(768);
+    expect(await layoutFaults(page, 100)).toEqual({ narrow: [], overlaps: [] });
+  });
+}
