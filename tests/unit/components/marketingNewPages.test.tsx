@@ -74,6 +74,14 @@ describe('/features', () => {
     expect(bureaus.compareDocumentPosition(business) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it('describes bureau setup as the code does it: Accountant sign-up, dashboard switched on, clients linked by the bureau', () => {
+    const text = render(<FeaturesPage />).container.querySelector('#bureaus')?.textContent ?? '';
+    expect(text).toContain('Choose Accountant when you sign up');
+    expect(text).toContain('link your client companies yourself');
+    expect(text).not.toMatch(/sets itself up|set up the bureau dashboard with you/);
+    expect(text).toContain('EMP201');
+  });
+
   it('shows no product screenshots (they carry the old logo and demo counterparties)', () => {
     const { container } = render(<FeaturesPage />);
     expect(container.querySelector('#business img')).toBeNull();
@@ -96,6 +104,13 @@ describe('/about', () => {
     const text = container.textContent ?? '';
     for (const s of [LEGAL_ENTITY.name, 'trading as IsaFlow', 'Pretoria', 'POPIA', 'e@syFile Employer']) expect(text).toContain(s);
     for (const s of [LEGAL_ENTITY.director, LEGAL_ENTITY.informationOfficer, LEGAL_ENTITY.registeredAddress]) expect(text).not.toContain(s);
+  });
+
+  it('does not show the company registration number', () => {
+    const { container } = render(<AboutPage />);
+    const text = container.textContent ?? '';
+    expect(text).not.toContain(LEGAL_ENTITY.registrationNumber);
+    expect(text.toLowerCase()).not.toContain('registration number');
   });
 });
 

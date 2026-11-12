@@ -35,7 +35,7 @@ export default function AboutPage() {
           <section>
             <h2 className="text-2xl font-bold mb-4">Who we are</h2>
             <p className="text-gray-700">
-              IsaFlow is operated by {LEGAL_ENTITY.name} (registration number {LEGAL_ENTITY.registrationNumber}),
+              IsaFlow is operated by {LEGAL_ENTITY.name},
               trading as IsaFlow. Our head office is in Pretoria, South Africa.
             </p>
           </section>

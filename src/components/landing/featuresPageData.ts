@@ -37,7 +37,7 @@ export const BUREAU_FEATURES: FeatureCard[] = [
   {
     icon: CalendarCheck,
     title: 'Compliance calendar',
-    body: 'A compliance calendar sits in your cockpit beside your client list.',
+    body: 'Switch on the returns each client owes and the upcoming VAT, EMP201, EMP501, provisional tax and CIPC due dates appear in your bureau work list.',
   },
   {
     icon: ArrowRightLeft,

@@ -69,8 +69,7 @@ export default function FeaturesPage() {
                 <Link href="/pricing#bureau" className="text-teal-700 underline">See practice pricing</Link>
               </p>
               <p>
-                Tell us you are a bureau when you sign up and we set up the bureau dashboard with you.{' '}
-                <Link href="/contact" className="text-teal-700 underline">Contact us</Link>
+                Choose Accountant when you sign up and add your practice name. We switch on the bureau dashboard for your account, then you link your client companies yourself.
               </p>
             </div>
           </div>
