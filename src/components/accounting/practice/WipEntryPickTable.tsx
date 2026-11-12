@@ -36,11 +36,11 @@ export function WipEntryPickTable({ entries, selected, onToggle, onToggleAll }: 
         <thead className="bg-[var(--ff-bg-tertiary)]">
           <tr>
             <th className={`${TH} w-10`}><SelectAllBox state={state} onChange={onToggleAll} /></th>
-            <th className={TH}>Date</th>
-            <th className={TH}>Category / Work item</th>
+            <th className={`${TH} hidden sm:table-cell`}>Date</th>
+            <th className={`${TH} hidden sm:table-cell`}>Category / Work item</th>
             <th className={TH}>Description</th>
             <th className={`${TH} text-right`}>Hours</th>
-            <th className={`${TH} text-right`}>Rate</th>
+            <th className={`${TH} hidden text-right sm:table-cell`}>Rate</th>
             <th className={`${TH} text-right`}>Amount</th>
           </tr>
         </thead>
@@ -51,11 +51,11 @@ export function WipEntryPickTable({ entries, selected, onToggle, onToggleAll }: 
                 <input type="checkbox" aria-label={`Select entry ${e.taskDescription}`} checked={selected.has(e.id)}
                   onChange={() => onToggle(e.id)} className="h-4 w-4 rounded accent-teal-500 cursor-pointer" />
               </td>
-              <td className={`${TD} whitespace-nowrap`}>{e.entryDate ? formatDisplayDate(e.entryDate) : ''}</td>
-              <td className={TD}>{[e.jobCategoryName, e.workItemName].filter(Boolean).join(' / ')}</td>
+              <td className={`${TD} hidden whitespace-nowrap sm:table-cell`}>{e.entryDate ? formatDisplayDate(e.entryDate) : ''}</td>
+              <td className={`${TD} hidden sm:table-cell`}>{[e.jobCategoryName, e.workItemName].filter(Boolean).join(' / ')}</td>
               <td className={`${TD} text-[var(--ff-text-primary)]`}>{e.taskDescription}</td>
               <td className={`${TD} text-right tabular-nums`}>{Number(e.hours).toFixed(2)}</td>
-              <td className={`${TD} text-right tabular-nums`}>{e.appliedRate != null ? formatMoney(e.appliedRate) : ''}</td>
+              <td className={`${TD} hidden text-right tabular-nums sm:table-cell`}>{e.appliedRate != null ? formatMoney(e.appliedRate) : ''}</td>
               <td className={`${TD} text-right tabular-nums text-[var(--ff-text-primary)]`}>{formatMoney(e.lineTotal ?? 0)}</td>
             </tr>
           ))}

@@ -5,7 +5,7 @@
  * entries billed). The preview prices with the shared invoiceTotals, the
  * figure the server stores.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -79,19 +79,23 @@ export function GenerateInvoiceForm() {
     })();
   }, []);
 
+  const wipRequest = useRef(0);
   const loadWip = useCallback(async (id: string) => {
+    const mine = ++wipRequest.current;
     setWip(null); setSelected(new Set()); setWipError(null);
-    if (!id) return;
+    if (!id) { setWipLoading(false); return; }
     setWipLoading(true);
     try {
       const res = await apiFetch(`/api/accounting/practice/wip?practiceClientId=${encodeURIComponent(id)}`);
       await assertOk(res, 'Could not load the unbilled time - try again');
       const json = (await res.json()) as { data?: WipClientRow[] };
+      if (mine !== wipRequest.current) return; // a newer client pick superseded this response
       const row = json.data?.[0] ?? null;
       setWip(row);
       setSelected(new Set(row?.entries.map((e) => e.id) ?? []));
-    } catch (err) { setWipError(apiErrorMessage(err, 'Could not load the unbilled time - try again')); }
-    finally { setWipLoading(false); }
+    } catch (err) {
+      if (mine === wipRequest.current) setWipError(apiErrorMessage(err, 'Could not load the unbilled time - try again'));
+    } finally { if (mine === wipRequest.current) setWipLoading(false); }
   }, []);
 
   function pickClient(id: string) {

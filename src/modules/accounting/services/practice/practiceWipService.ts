@@ -76,7 +76,7 @@ export async function getWipByClient(
       SUM(COALESCE(te.line_total, 0))::NUMERIC AS total_value,
       MIN(te.approved_at::DATE) AS oldest_approved_date
     FROM time_entries te
-    JOIN practice_clients pc ON pc.id = te.practice_client_id
+    JOIN practice_clients pc ON pc.id = te.practice_client_id AND pc.company_id = te.company_id
     WHERE te.company_id = ${companyId}::UUID
       AND te.status = 'approved'
       AND te.billed_at IS NULL
@@ -100,7 +100,7 @@ export async function getWipByClient(
       pjc.name AS job_category_name,
       pwi.name AS work_item_name
     FROM time_entries te
-    JOIN practice_clients pc ON pc.id = te.practice_client_id
+    JOIN practice_clients pc ON pc.id = te.practice_client_id AND pc.company_id = te.company_id
     LEFT JOIN practice_job_categories pjc ON pjc.id = te.job_category_id
     LEFT JOIN practice_work_items pwi ON pwi.id = te.work_item_id
     WHERE te.company_id = ${companyId}::UUID

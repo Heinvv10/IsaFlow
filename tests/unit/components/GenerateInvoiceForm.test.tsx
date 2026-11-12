@@ -158,3 +158,20 @@ it('posts the selection, due date and notes, then links to the draft invoice', a
     notes: 'October advisory', taxRate: 15, groupBy: 'detailed',
   });
 });
+
+it('ignores a slow response for a client that is no longer picked', async () => {
+  let releaseA: (r: Response) => void = () => undefined;
+  const slowA = new Promise<Response>((res) => { releaseA = res; });
+  const base = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).includes('practiceClientId=pc-1')) return slowA;
+    return base(url, init);
+  });
+  render(<GenerateInvoiceForm />);
+  await pick('pc-1');
+  fireEvent.change(screen.getByLabelText('Client'), { target: { value: 'pc-3' } });
+  await waitFor(() => expect(screen.getByLabelText('Client')).toHaveProperty('value', 'pc-3'));
+  releaseA(Response.json({ success: true, data: [{ ...WIP, entries: [entry('te-x', 'Belongs to client A', 700)] }] }));
+  await new Promise((r) => setTimeout(r, 20));
+  expect(screen.queryByText('Belongs to client A')).toBeNull();
+});
