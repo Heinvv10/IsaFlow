@@ -120,13 +120,14 @@ export async function seedPeople(api: Client): Promise<void> {
 /**
  * Months the golden e2e specs own, never given a seeded pay run: 2027-02 is PAYROLL_SANDBOX_MONTH
  * (tests/e2e/golden-paths/_api.ts), which h-payroll-run.spec.ts fails on when it already holds an approved run; 2027-01 is
- * the first open 2027 period the close-agent specs take as their sandbox. Keep this in step with those specs.
+ * the first open 2027 period the close-agent specs take as their sandbox. Keep this in step with those specs:
+ * the unit test in tests/unit/ci/goldenHostedSeed.test.ts fails when PAYROLL_SANDBOX_MONTH leaves this list.
  */
 export const RESERVED_PAYROLL_MONTHS: readonly string[] = ['2027-01', '2027-02'];
 
 /**
- * One approved pay run for the newest past month, outside RESERVED_PAYROLL_MONTHS, whose tax year is loaded (create, calculate, approve with the
- * sole-approver clearance: the seed's admin is the company's only member). It gives the EMP201 something to sum, so the
+ * One approved pay run for the newest past month, outside RESERVED_PAYROLL_MONTHS, whose tax year is loaded (create,
+ * calculate, approve with the sole-approver clearance: the seed's admin is the company's only member). It gives the EMP201 something to sum, so the
  * z17 EMP201 drill has data on GitHub's hosted Demo, as dev's Demo has. Best effort, never fatal to the seed: a month
  * calculate refuses (tax tables not loaded for its year) is skipped for an older one. Once a month has calculated it is
  * the one: an approval failure is logged loudly and the seed stops there, so no older month gets a second run and the
