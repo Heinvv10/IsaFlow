@@ -186,3 +186,21 @@ it('the sideways-scroll hint shows only when there are rows', async () => {
   await screen.findByText('No lines in this period.');
   expect(screen.queryByText('Scroll sideways for every column.')).toBeNull();
 });
+
+it('reopening a field after closing it starts at page 1 and never shows the last visit', async () => {
+  apiFetch.mockImplementation(async (u: string) => env(lines(pageOf(u))));
+  mount(); openField();
+  await screen.findByText('JE-1');
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+  await screen.findByText('JE-3');
+  fireEvent.click(screen.getByRole('button', { name: 'Close drawer' }));
+  apiFetch.mockClear();
+  let release: (v: unknown) => void = () => undefined;
+  apiFetch.mockImplementationOnce(() => new Promise((r) => { release = r; }));
+  openField();
+  expect(screen.queryByText('JE-3')).toBeNull();
+  expect(screen.getByRole('status').textContent).toBe('Loading…');
+  expect(String(apiFetch.mock.calls[0]![0])).toContain('page=1&');
+  await act(async () => { release(env(lines(1))); });
+  await screen.findByText('JE-1');
+});

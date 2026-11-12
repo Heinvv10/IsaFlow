@@ -2,10 +2,12 @@
 import { useEffect, useRef } from 'react';
 import { Drawer } from '@/components/ui/Drawer';
 import { Button } from '@/components/ui/Button';
+import { DrillFailureNote } from './DrillFailureNote';
+import { DrillPager } from './DrillPager';
 import { formatMoney } from '@/lib/money/formatMoney';
 import type { Vat201DrillResult } from '@/modules/accounting/services/reports/vat201FieldDrill';
 import { DrillLinesTable } from './DrillLinesTable';
-import { useVat201Drill, type DrillFailure } from './useVat201Drill';
+import { useVat201Drill } from './useVat201Drill';
 
 interface Props {
   field: string | null; from: string; to: string;
@@ -45,17 +47,6 @@ function Tie({ lines }: { lines: Extract<Vat201DrillResult, { source: 'tax-lines
   );
 }
 
-function Failure({ failure, onRetry }: { failure: DrillFailure; onRetry: () => void }) {
-  return (
-    <div className="space-y-2">
-      <p role="alert" className="text-sm text-red-700 dark:text-red-400">
-        {failure.message}{failure.retryAfterSecs ? ` Try again in ${failure.retryAfterSecs} seconds.` : ''}
-      </p>
-      <Button variant="secondary" size="sm" onClick={onRetry}>Retry</Button>
-    </div>
-  );
-}
-
 export function Vat201DrillDrawer({ field, from, to, onClose, onField, backTo, onBack }: Props) {
   const drill = useVat201Drill(field, from, to);
   const { result, failure, loading, page, paged } = drill;
@@ -71,7 +62,7 @@ export function Vat201DrillDrawer({ field, from, to, onClose, onField, backTo, o
         {onBack && backTo && (
           <Button variant="ghost" size="sm" onClick={onBack}>Back to field {backTo}</Button>
         )}
-        {failure && <Failure failure={failure} onRetry={drill.retry} />}
+        {failure && <DrillFailureNote failure={failure} onRetry={drill.retry} />}
         {loading && <p role="status" className="text-sm text-[var(--ff-text-secondary)]">Loading…</p>}
         {result && (
           <>
@@ -84,13 +75,8 @@ export function Vat201DrillDrawer({ field, from, to, onClose, onField, backTo, o
           </>
         )}
         {pager && (
-          <div className="flex items-center justify-between gap-2">
-            <Button variant="secondary" size="sm" disabled={loading || page <= 1} onClick={() => drill.setPage(page - 1)}>Previous</Button>
-            <span className="text-center text-xs text-[var(--ff-text-secondary)]" data-testid="return-drill-range">
-              {lines ? `Showing ${lines.rowCount === 0 ? 0 : (page - 1) * size + 1}–${Math.min(page * size, lines.rowCount)} of ${lines.rowCount}` : `Page ${page}`}
-            </span>
-            <Button variant="secondary" size="sm" disabled={loading || failure !== null || (lines !== null && !lines.hasMore)} onClick={() => drill.setPage(page + 1)}>Next</Button>
-          </div>
+          <DrillPager page={page} pageSize={size} rowCount={lines ? lines.rowCount : null} hasMore={lines ? lines.hasMore : null}
+            loading={loading} failed={failure !== null} onPage={drill.setPage} />
         )}
       </div>
     </Drawer>
