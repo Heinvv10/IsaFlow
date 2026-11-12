@@ -109,6 +109,9 @@ const nextConfig = {
       // Nav menu roots — ensure clicking a top-level menu label never 404s
       { source: '/accounting/banking', destination: '/accounting/bank-accounts', permanent: false },
       { source: '/accounting/vat', destination: '/accounting/sars/vat201', permanent: false },
+      // One dashboard is home (app audit P2.5 item 5, 2026-11-12): /home was a second
+      // dashboard. Temporary, so a revert needs no cache flush; the query string carries over.
+      { source: '/home', destination: '/accounting', permanent: false },
       { source: '/payroll', destination: '/payroll/employees', permanent: false },
       { source: '/payroll/dashboard', destination: '/payroll/employees', permanent: false },
       { source: '/payroll/year-end', destination: '/accounting/year-end', permanent: false },

@@ -1,6 +1,6 @@
 /**
  * useSetupProgress — loads the Home setup checklist once, for the checklist card
- * (rendered above the hero while setup is open) and for TodoWidget (which must
+ * (rendered above the hero while setup is open) and for NeedsAttention (which must
  * not say "All caught up!" while setup tasks are still open).
  */
 

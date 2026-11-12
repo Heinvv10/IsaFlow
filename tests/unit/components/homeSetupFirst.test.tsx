@@ -1,6 +1,6 @@
 /**
  * W2 H: while setup is open the checklist sits ABOVE the hero (it used to sit at
- * y = 846–1050, below the fold), and TodoWidget does not claim "All caught up!".
+ * y = 846–1050, below the fold), and NeedsAttention does not claim "All caught up!".
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
@@ -17,7 +17,7 @@ vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany
 vi.mock('@/components/accounting/dashboard/OverviewTab', () => ({ OverviewTab: ({ setupOpen, setupUnknown }: { setupOpen: boolean; setupUnknown: boolean }) => <p>overview setupOpen={String(setupOpen)}{setupUnknown ? ' unknown=true' : ''}</p> }));
 vi.mock('@/components/accounting/dashboard/DashboardHero', () => ({ DashboardHero: () => <p>the hero</p> }));
 
-import { TodoWidget } from '@/components/accounting/dashboard/TodoWidget';
+import { NeedsAttention } from '@/components/accounting/dashboard/NeedsAttention';
 import AccountingPage from '../../../pages/accounting/index';
 import { buildSetupProgress } from '../../../src/modules/accounting/services/core/setupProgressService';
 import { NO_FACTS, ALL_FACTS } from '../helpers/setupFacts';
@@ -54,19 +54,19 @@ describe('Home: checklist first while setup is open', () => {
   });
 });
 
-describe('TodoWidget empty state', () => {
-  const clear = { overdueInvoices: [], overdueInvoiceCount: 0, pendingSupplierPayments: [], overdueBillCount: 0, uncategorizedBankTxns: 0, draftInvoices: 0 };
+describe('NeedsAttention empty state', () => {
+  const clear = { asAt: '2026-11-12', items: [] };
 
   it('says "Finish setup" instead of "All caught up!" while setup is open', async () => {
     script(() => ok(clear));
-    render(<TodoWidget setupOpen />);
+    render(<NeedsAttention setupOpen />);
     expect(await screen.findByText('Finish setup to see your daily tasks')).toBeTruthy();
     expect(screen.queryByText('All caught up!')).toBeNull();
   });
 
   it('says neither while the checklist is unknown (its load failed or timed out)', async () => {
     script(() => ok(clear));
-    render(<TodoWidget setupOpen setupUnknown />);
+    render(<NeedsAttention setupOpen setupUnknown />);
     expect(await screen.findByText('Daily tasks will show here once your setup status is confirmed')).toBeTruthy();
     expect(screen.queryByText('All caught up!')).toBeNull();
     expect(screen.queryByText('Finish setup to see your daily tasks')).toBeNull();
@@ -74,7 +74,7 @@ describe('TodoWidget empty state', () => {
 
   it('still says "All caught up!" once setup is complete', async () => {
     script(() => ok(clear));
-    render(<TodoWidget setupOpen={false} />);
+    render(<NeedsAttention setupOpen={false} />);
     expect(await screen.findByText('All caught up!')).toBeTruthy();
     expect(screen.queryByText('Finish setup to see your daily tasks')).toBeNull();
   });

@@ -1,8 +1,7 @@
 /**
  * The headline figures: ONE definition per measure, as at ONE SAST date, read by
- * every screen that shows them (/accounting overview and hero, /home and the
- * bureau client home, the Month-End workbench, the "Today in the books" cards
- * and Action Items).
+ * every screen that shows them (the dashboard's KPI row and "Needs attention"
+ * list, the bureau client home, the Month-End workbench).
  *
  * The rule: every figure is the posted ledger as at `asAt` (todayInSast() unless
  * given); nothing dated after `asAt` counts. Each money figure has an owner that

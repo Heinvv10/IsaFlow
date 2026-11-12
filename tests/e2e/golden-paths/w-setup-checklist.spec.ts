@@ -100,7 +100,7 @@ test('setup checklist: a company with no customers has Sales open; adding one ma
     await page.goto('/accounting');
     // The overview renders after its KPI load (slow on a loaded runner); wait for it, then for the card,
     // and say where the page ended up if the card is missing.
-    await expect(page.getByRole('heading', { name: 'Action Items' })).toBeVisible({ timeout: 90_000 });
+    await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: 90_000 });
     const card = page.getByRole('region', { name: 'Finish setting up' });
     await card.waitFor({ state: 'visible', timeout: 60_000 }).catch(async (err: unknown) => {
       const text = (await page.locator('main').innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 600);
@@ -121,17 +121,17 @@ test('setup checklist: on Demo the card hides exactly when every task is done', 
   const api = await Api.login(baseURL!);
   try {
     const checklist = await api.get<Checklist>('/api/accounting/setup-checklist');
-    const todos = await api.get<{
-      overdueInvoiceCount: number; pendingSupplierPayments: unknown[]; uncategorizedBankTxns: number; draftInvoices: number;
-    }>('/api/accounting/dashboard-todos');
-    const noActions = todos.overdueInvoiceCount === 0 && todos.pendingSupplierPayments.length === 0
-      && todos.uncategorizedBankTxns === 0 && todos.draftInvoices === 0;
+    // The one attention list: the server's rows plus the two the Overview tab adds itself.
+    const attention = await api.get<{ items: unknown[] }>('/api/accounting/dashboard/attention');
+    const provisional = await api.get<unknown[]>('/api/accounting/provisional/outstanding');
+    const missing = await api.get<unknown[]>('/api/accounting/expected-invoice-alerts?status=pending');
+    const noActions = attention.items.length === 0 && provisional.length === 0 && missing.length === 0;
 
     expect(checklist.allComplete).toBe(checklist.modules.every((m) => m.complete));
     expect(checklist.doneCount).toBe(checklist.modules.reduce((n, m) => n + m.tasks.filter((t) => t.done).length, 0));
 
     await page.goto('/accounting');
-    await expect(page.getByRole('heading', { name: 'Action Items' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: 30_000 });
     const card = page.getByRole('region', { name: 'Finish setting up' });
     await expect(card).toHaveCount(checklist.allComplete ? 0 : 1);
     // "All caught up!" is not said while setup tasks are still open (W2 H).

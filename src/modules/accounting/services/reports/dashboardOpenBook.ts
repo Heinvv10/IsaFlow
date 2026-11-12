@@ -24,6 +24,8 @@ export interface OpenBook {
   total: number;
   /** Open balances already past due on `todayStr`, disputed or not: the report's overdue. */
   overdue: number;
+  /** Open documents already past due on `todayStr`: the documents behind `overdue`. */
+  overdueCount: number;
   /**
    * The disputed part of `overdue`. The donut's four overdue slices exclude it,
    * so slices + overdueDisputed = overdue, and the tile can say so.
@@ -50,6 +52,7 @@ export async function getOpenBook(companyId: string, side: 'ar' | 'ap', todayStr
     buckets,
     total: cents(open.reduce((s, inv) => s + inv.balance, 0)),
     overdue: cents(pastDue.reduce((s, inv) => s + inv.balance, 0)),
+    overdueCount: pastDue.length,
     // The same cap calculateAgingBuckets applies: a dispute never exceeds its balance.
     overdueDisputed: cents(pastDue.reduce((s, inv) => s + Math.min(Math.max(inv.disputedAmount ?? 0, 0), inv.balance), 0)),
     parties: rows.length,

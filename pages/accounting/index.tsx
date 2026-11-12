@@ -1,6 +1,6 @@
 /**
- * Accounting Module — thin shell with tab routing.
- * Tabs are integrated into DashboardHero as a pill bar.
+ * The dashboard, and home for every direct client (/home redirects here).
+ * Thin shell with tab routing; tabs are integrated into DashboardHero as a pill bar.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -19,7 +19,8 @@ import { ChartOfAccountsTab } from '@/components/accounting/dashboard/ChartOfAcc
 import { JournalEntriesTab } from '@/components/accounting/dashboard/JournalEntriesTab';
 import { FiscalPeriodsTab } from '@/components/accounting/dashboard/FiscalPeriodsTab';
 import { ReportsTab } from '@/components/accounting/dashboard/ReportsTab';
-import { DashboardHero, type DashboardHeroStats, type HeroTab } from '@/components/accounting/dashboard/DashboardHero';
+import { DashboardHero, type HeroTab } from '@/components/accounting/dashboard/DashboardHero';
+import { NoCompanySelected } from '@/components/accounting/dashboard/NoCompanySelected';
 import { ModuleSetupChecklist } from '@/components/accounting/dashboard/ModuleSetupChecklist';
 import { useSetupProgress, isSetupOpen, isSetupUnknown } from '@/components/accounting/dashboard/useSetupProgress';
 
@@ -36,10 +37,10 @@ const TABS: HeroTab[] = [
 export default function AccountingPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const { activeCompany, companies, loading: companiesLoading } = useCompany();
+  const { activeCompany, companies, loading: companiesLoading, switchCompany } = useCompany();
   const [activeTab, setActiveTab] = useState<AccountingTab>('overview');
   const [isMounted, setIsMounted] = useState(false);
-  // One kpi-dashboard load feeds the hero and the Overview tab.
+  // One kpi-dashboard load feeds the Overview tab; switching tabs does not refetch it.
   const [kpiLoad, setKpiLoad] = useState<KpiLoad>({ data: null, error: '', loading: true });
   const [impersonateError, setImpersonateError] = useState('');
   // Bumped by Retry: reloads the dashboard figures after a failed load.
@@ -107,11 +108,13 @@ export default function AccountingPage() {
     void router.push({ pathname: '/accounting', query: { tab } }, undefined, { shallow: true });
   }, [router]);
 
-  // Load the dashboard figures once, for the hero and the Overview tab.
+  // Load the dashboard figures once, for the Overview tab.
   // `cancelled` drops an answer that lands after the company changed (or the
   // page left): the old company's figures must not replace the new one's.
+  // No active company, nothing to ask: every company-scoped call would 403.
   useEffect(() => {
     if (!isMounted) return;
+    if (!activeCompany?.id) { setKpiLoad({ data: null, error: '', loading: false }); return; }
     let cancelled = false;
     setKpiLoad({ data: null, error: '', loading: true });
     apiFetch('/api/accounting/kpi-dashboard')
@@ -124,14 +127,6 @@ export default function AccountingPage() {
     return () => { cancelled = true; };
   }, [isMounted, activeCompany?.id, reloadKey]);
 
-  // The headline figures (reports/headlineFigures): the one definition /home and
-  // Month-End show too. No figures, no pills: the hero keeps its skeletons.
-  const headline = kpiLoad.data?.headline;
-  const heroStats: DashboardHeroStats | undefined = headline && {
-    revenueMtd:          headline.revenueMtd,
-    outstandingInvoices: headline.receivables.total,
-    cashPosition:        headline.cash,
-  };
   const heroError = kpiLoad.error;
 
   // The skeleton holds until the setup checklist is known: it renders ABOVE the
@@ -155,6 +150,21 @@ export default function AccountingPage() {
     );
   }
 
+  // Company loading has FINISHED and there is still no active company (the
+  // 2026-10-16 incident: the session's company had been soft-deleted). Say so
+  // and give a way out. An impersonation exchange in flight sets one shortly.
+  if (!companiesLoading && !activeCompany && !router.query.impersonate) {
+    return (
+      <AppLayout>
+        <NoCompanySelected
+          companies={companies}
+          onSwitch={(id) => void switchCompany(id)}
+          onSetUp={() => void router.push('/onboarding')}
+        />
+      </AppLayout>
+    );
+  }
+
   return (
     <AppLayout>
       <div key="dashboard-content" className="min-h-screen bg-[image:var(--ff-canvas-gradient)]">
@@ -165,9 +175,8 @@ export default function AccountingPage() {
             <div className="mb-5"><ModuleSetupChecklist progress={setup.progress} /></div>
           )}
           <DashboardHero
-            companyName={activeCompany?.tradingName ?? activeCompany?.name ?? 'ISAFlow'}
+            companyName={activeCompany?.tradingName ?? activeCompany?.name ?? 'IsaFlow'}
             loading={companiesLoading}
-            stats={heroStats}
             tabs={TABS}
             activeTab={activeTab}
             onTabChange={handleTabChange}
