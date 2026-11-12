@@ -15,7 +15,7 @@ export function useDrillPages<T>(enabled: boolean, key: string, load: (page: num
   const [answer, setAnswer] = useState<Answer<T> | null>(null);
   const [attempt, setAttempt] = useState(0);
   const loader = useRef(load);
-  loader.current = load;
+  useEffect(() => { loader.current = load; });
 
   useEffect(() => {
     if (!enabled) return undefined;
