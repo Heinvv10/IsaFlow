@@ -159,6 +159,23 @@ describe('sign-up bureau: refusals and failure', () => {
     });
   });
 
+  it("a user who already holds a signup_auto bureau, called with another user's company: failed, nothing changed", async () => {
+    await rolledBack(async (c) => {
+      const owner = await provision(c);
+      const holder = await provision(c);
+      const mine = await setUpSignupBureau(c, input(holder));
+      expect(mine.status).toBe('created');
+      await c.query(`UPDATE users SET account_type = 'direct' WHERE id = $1`, [holder.userId]);
+      await c.query(`DELETE FROM bureau_users WHERE user_id = $1`, [holder.userId]);
+      expect(await setUpSignupBureau(c, { ...input(holder), companyId: owner.companyId })).toEqual({ status: 'failed' });
+      const s = await state(c, holder.userId, owner.companyId);
+      expect(s.bureaus).toHaveLength(1);
+      expect([s.members, s.links]).toEqual([[], []]);
+      expect(s.accountType).toBe('direct');
+      expect(s.audit).toHaveLength(1);
+    });
+  });
+
   it('an outer ROLLBACK leaves nothing', async () => {
     let p: Awaited<ReturnType<typeof provision>> | undefined;
     await rolledBack(async (c) => {

@@ -192,6 +192,13 @@ describe('verify-email bureau: outcomes', () => {
     expect(ops().html).toContain('automatic setup FAILED, convert on /admin/users/user-1');
   });
 
+  it('existing: ops is told a second company was provisioned, not that a bureau was created', async () => {
+    bureauMock.mockResolvedValue({ status: 'existing', bureauId: 'bureau-1' });
+    await handler(req(), mockRes());
+    expect(ops().html).toContain('already existed (bureau-1); a second company was provisioned for this user, check /admin/users/user-1');
+    expect(ops().html).not.toContain('created automatically');
+  });
+
   it('throws: everything rolls back, nothing confirmed, no mail', async () => {
     bureauMock.mockRejectedValue(new TypeError('boom'));
     await expect(handler(req(), mockRes())).rejects.toThrow('boom');

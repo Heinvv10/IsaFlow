@@ -98,6 +98,14 @@ describe('setUpSignupBureau: replay and refusal', () => {
     expect(c.first().at(-1)).toBe('RELEASE SAVEPOINT signup_bureau');
   });
 
+  it('the replay lookup carries the same owner predicate as the insert', async () => {
+    const c = fakeClient(() => ({ rows: [] }));
+    await setUpSignupBureau(c, INPUT);
+    const sel = c.calls.find((x) => /^SELECT id FROM bureaus/.test(x.text.trim()))!;
+    expect(sel.text).toMatch(/EXISTS \(SELECT 1 FROM company_users cu\s+WHERE cu\.company_id = \$2::uuid AND cu\.user_id = \$1 AND cu\.role = 'owner'\)/);
+    expect(sel.values).toEqual(['user-1', 'company-1']);
+  });
+
   it('not the company owner: failed, rolled back to the savepoint, nothing after it', async () => {
     const c = fakeClient(() => ({ rows: [] }));
     expect(await setUpSignupBureau(c, INPUT)).toEqual({ status: 'failed' });

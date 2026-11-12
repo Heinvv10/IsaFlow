@@ -38,6 +38,10 @@ function bureauLine(n: SignupNotice): string {
   if (n.bureau.status === 'failed') {
     return `<li><strong>Bureau:</strong> automatic setup FAILED, convert on /admin/users/${escapeHtml(n.ownerUserId)}</li>`;
   }
+  if (n.bureau.status === 'existing') {
+    // Reachable only when two live tokens provisioned a second company for one user.
+    return `<li><strong>Bureau:</strong> already existed (${escapeHtml(n.bureau.bureauId)}); a second company was provisioned for this user, check /admin/users/${escapeHtml(n.ownerUserId)}</li>`;
+  }
   return `<li><strong>Bureau:</strong> created automatically (${escapeHtml(n.bureau.bureauId)})</li>`;
 }
 

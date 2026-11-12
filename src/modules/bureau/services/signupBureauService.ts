@@ -62,9 +62,13 @@ async function createInSavepoint(client: QueryRunner, input: SignupBureauInput):
   let bureauId = inserted.rows[0]?.id;
   let created = true;
   if (!bureauId) {
+    // Same owner predicate as the insert: a user who already holds a signup_auto
+    // bureau but does not own `companyId` is refused, not handed the bureau.
     const found = await client.query<{ id: string }>(
-      `SELECT id FROM bureaus WHERE owner_user_id = $1 AND created_via = 'signup_auto'`,
-      [input.ownerUserId],
+      `SELECT id FROM bureaus WHERE owner_user_id = $1 AND created_via = 'signup_auto'
+         AND EXISTS (SELECT 1 FROM company_users cu
+                      WHERE cu.company_id = $2::uuid AND cu.user_id = $1 AND cu.role = 'owner')`,
+      [input.ownerUserId, input.companyId],
     );
     bureauId = found.rows[0]?.id;
     if (!bureauId) return { status: 'failed' }; // not this company's owner
