@@ -1,8 +1,8 @@
 /**
  * D2 census group 4 (d): webhooks, scan-and-fill, journal entries tab, supplier activity tab. A 400 shows the
  * server's message, an empty 500 a plain sentence (never "Unexpected end of JSON input"), a 200 renders.
- * LEFT: onboarding/AccountingTour preference read (best-effort: a failed read already opens the tour, same as a
- * missing preference).
+ * LEFT: onboarding/AccountingTour preference read (best-effort: a failed read leaves the tour closed until a later
+ * visit reads the preference; accountingTourPreferenceRead.test.tsx).
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';

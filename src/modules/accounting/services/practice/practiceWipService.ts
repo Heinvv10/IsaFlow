@@ -10,6 +10,9 @@ import { WipInvoiceRefusal, assertWipTaxRate, assertWipEntryLines } from './wipI
 import type { PracticeTimeEntry } from './practiceTimeEntryTypes';
 import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
 import { dueDateForContact } from '../core/paymentTermsResolver';
+import { dueDateSourceOf } from '../shared/dueDateSource';
+import { invoiceTotals } from '../ar/invoiceLineAmount';
+import { buildGroupedLines } from './wipInvoiceLines';
 
 export { WipInvoiceRefusal } from './wipInvoiceGuards';
 
@@ -29,6 +32,10 @@ export interface GenerateWipInvoiceInput {
   invoiceDate?: string;
   taxRate?: number;
   groupBy?: 'detailed' | 'by_work_item' | 'by_category';
+  /** ISO date; absent means the customer's payment terms decide it. */
+  dueDate?: string;
+  /** Stored on the invoice as its notes. */
+  notes?: string;
 }
 
 export interface WipInvoiceResult {
@@ -51,21 +58,6 @@ export interface WipFilters {
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
-type GroupedLine = { name: string; hours: number; value: number };
-
-function buildGroupedLines(entries: DbRow[], groupBy: 'by_work_item' | 'by_category'): Map<string, GroupedLine> {
-  const wi = groupBy === 'by_work_item';
-  const groups = new Map<string, GroupedLine>();
-  for (const e of entries) {
-    const k = wi ? String(e.work_item_id) : String(e.job_category_id);
-    const name = wi ? String(e.work_item_name ?? 'Work item') : String(e.job_category_name ?? 'Category');
-    const prev = groups.get(k) ?? { name, hours: 0, value: 0 };
-    prev.hours += Number(e.hours); prev.value += Number(e.line_total);
-    groups.set(k, prev);
-  }
-  return groups;
-}
-
 export async function getWipByClient(
   companyId: string,
   filters?: WipFilters,
@@ -84,7 +76,7 @@ export async function getWipByClient(
       SUM(COALESCE(te.line_total, 0))::NUMERIC AS total_value,
       MIN(te.approved_at::DATE) AS oldest_approved_date
     FROM time_entries te
-    JOIN practice_clients pc ON pc.id = te.practice_client_id
+    JOIN practice_clients pc ON pc.id = te.practice_client_id AND pc.company_id = te.company_id
     WHERE te.company_id = ${companyId}::UUID
       AND te.status = 'approved'
       AND te.billed_at IS NULL
@@ -108,9 +100,9 @@ export async function getWipByClient(
       pjc.name AS job_category_name,
       pwi.name AS work_item_name
     FROM time_entries te
-    JOIN practice_clients pc ON pc.id = te.practice_client_id
-    LEFT JOIN practice_job_categories pjc ON pjc.id = te.job_category_id
-    LEFT JOIN practice_work_items pwi ON pwi.id = te.work_item_id
+    JOIN practice_clients pc ON pc.id = te.practice_client_id AND pc.company_id = te.company_id
+    LEFT JOIN practice_job_categories pjc ON pjc.id = te.job_category_id AND pjc.company_id = te.company_id
+    LEFT JOIN practice_work_items pwi ON pwi.id = te.work_item_id AND pwi.company_id = te.company_id
     WHERE te.company_id = ${companyId}::UUID
       AND te.status = 'approved'
       AND te.billed_at IS NULL
@@ -150,6 +142,11 @@ export async function generateWipInvoice(
   input: GenerateWipInvoiceInput,
 ): Promise<WipInvoiceResult> {
   const taxRate = assertWipTaxRate(input.taxRate);
+  const invDate = input.invoiceDate ?? new Date().toISOString().split('T')[0]!;
+  // ISO dates compare as text. Refused before anything is read or written.
+  if (input.dueDate && input.dueDate < invDate) {
+    throw new WipInvoiceRefusal('Due date cannot be before the invoice date');
+  }
 
   // 1. Validate practice client — active + link_customer_id required
   //    The linked customer must be a live customer of THIS company: there is
@@ -181,10 +178,12 @@ export async function generateWipInvoice(
 
   assertWipEntryLines(entries);
 
-  const subtotal = round2(entries.reduce((s, e) => s + Number(e.line_total ?? 0), 0));
-  const taxAmount = round2(subtotal * (taxRate / 100));
-  const totalAmount = round2(subtotal + taxAmount);
-  const invDate = input.invoiceDate ?? new Date().toISOString().split('T')[0]!;
+  // The shared invoice pricing (exact decimal), so the stored VAT is the figure
+  // the Generate Invoice preview and the standard invoice create path give.
+  const totals = invoiceTotals(entries.map((e) => Number(e.line_total)), taxRate);
+  const subtotal = totals.subtotal;
+  const taxAmount = totals.tax;
+  const totalAmount = totals.total;
   const eligibleIds = entries.map((e) => String(e.id));
 
   // Steps 3-5 write. The route answers a WipInvoiceRefusal with a 400, which
@@ -200,7 +199,10 @@ export async function generateWipInvoice(
     // K-120). `insertWithReservedNumber` reserves outside each attempt's own
     // savepoint and retries only on the numbering index, so the retry terminates.
     // The customer's terms, else the company default (migration 960).
-    const dueDate = await dueDateForContact(companyId, 'customer', customerId, invDate);
+    const termsDueDate = await dueDateForContact(companyId, 'customer', customerId, invDate);
+    const dueDate = input.dueDate || termsDueDate;
+    const dueDateSource = dueDateSourceOf(input.dueDate, termsDueDate, 'manual');
+    const notes = input.notes || null;
     const { invoiceId, invoiceNumber } = await insertWithReservedNumber(
       companyId, 'customer_invoice', 'wip_inv_', 'uq_customer_invoices_company_number',
       async (number) => {
@@ -209,12 +211,12 @@ export async function generateWipInvoice(
             company_id, invoice_number, customer_id, client_id,
             subtotal, tax_rate, tax_amount, total_amount,
             invoice_date, due_date, due_date_source, status, created_by,
-            currency_code, exchange_rate, functional_total
+            currency_code, exchange_rate, functional_total, notes
           ) VALUES (
             ${companyId}::UUID, ${number}, ${customerId}::UUID, ${customerId}::UUID,
             ${subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
-            ${invDate}, ${dueDate}, 'terms', 'draft', ${userId},
-            'ZAR', 1.0, ${totalAmount}
+            ${invDate}, ${dueDate}, ${dueDateSource}, 'draft', ${userId},
+            'ZAR', 1.0, ${totalAmount}, ${notes}
           ) RETURNING id
         `) as DbRow[];
         return { invoiceId: String(invRows[0]!.id), invoiceNumber: number };

@@ -99,6 +99,10 @@ const READ_BY_HAND = new Set([
   // 951 (2026-10-31, pay-run approval): EXECUTE only as GRANT EXECUTE ON FUNCTION / EXECUTE FUNCTION in CREATE TRIGGER;
   // "journal" is only the R-035 document-type list ('journal_entry', 'manual_journal'), as in 708/862/881. No DDL on gl_journal_entries / gl_journal_lines, no dynamic SQL.
   '951_pay_run_approval.sql',
+  // 978 (2026-11-12, transfer link log): EXECUTE only as EXECUTE FUNCTION in CREATE TRIGGER and a DO-block REVOKE on
+  // bank_transfer_link_log itself; "journal" is that table's own journal_entry_id / journal_line_id columns and its
+  // guard's read of gl_journal_lines. No DDL on gl_journal_entries / gl_journal_lines.
+  '978_bank_transfer_link_log.sql',
   // 981 (2026-11-12, bank review reset): EXECUTE only as EXECUTE FUNCTION in CREATE TRIGGER on bank_transactions;
   // "journal" is only the bank line's matched_journal_line_id column. No DDL on gl_journal_entries / gl_journal_lines.
   '981_bank_tx_review_reset_on_rematch.sql',

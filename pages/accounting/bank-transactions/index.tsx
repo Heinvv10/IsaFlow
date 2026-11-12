@@ -17,7 +17,7 @@ import { BankTxFilters } from '@/components/accounting/bank-transactions/BankTxF
 import { BankTxBatchPanel, type RulePrompt } from '@/components/accounting/bank-transactions/BankTxBatchPanel';
 import { BankTxModals } from '@/components/accounting/bank-transactions/BankTxModals';
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
-import { useRelinkTransfers } from '@/components/accounting/bank-transactions/useRelinkTransfers';
+import { useRelinkTransfersWithTick, TransferLinkNotice } from '@/components/accounting/bank-transactions/transferLinks';
 import { useBankTxRefData } from '@/components/accounting/bank-transactions/useBankTxRefData';
 import { useBankTxColumnPrefs } from '@/components/accounting/bank-transactions/useBankTxColumnPrefs';
 import { useBankLineDetail } from '@/components/accounting/bank-transactions/useBankLineDetail';
@@ -139,7 +139,7 @@ export default function BankTransactionsPage() {
   // AI background poll — picks up late-arriving LLM suggestions after smart-categorize
   const { aiPolling, pollForLlmResults } = useLlmResultPoll(transactions, loadTransactions);
 
-  const relinkFailed = useRelinkTransfers(selectedBank);
+  const [relinkFailed, linkTick] = useRelinkTransfersWithTick(selectedBank, () => void loadLatest.current());
 
   useSeedRowSelections(transactions, rowSelections, setRowSelections); // rowSelections from DB suggestion fields
 
@@ -234,6 +234,7 @@ export default function BankTransactionsPage() {
         <div className="px-4 py-2">
           <CodingMetricsStrip />
           <AutoPostRunsPanel onUndone={loadTransactions} />
+          <TransferLinkNotice bankAccountId={selectedBank} refreshKey={linkTick} onChanged={loadTransactions} />
           <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading} error={error}
             empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab}
             detailTx={detailTx} onDetailClose={closeDetail}>

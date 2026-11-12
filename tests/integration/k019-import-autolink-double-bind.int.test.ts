@@ -10,6 +10,7 @@ import { als } from '@/lib/als';
 import { getPoolForTests } from '@/lib/neon';
 import { autoLinkImportedBatchTransfers } from '@/modules/accounting/services/bank/bankTransferLinkService';
 import { insertPreConstraintRow } from './helpers/preConstraintRow';
+import { importTrigger } from './helpers/k019TransferFixture';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const company = crypto.randomUUID();
@@ -140,7 +141,7 @@ describe('K-019 import batch auto-link', () => {
     const t = await seedAllocatedTransfer(targetBank, 1);
     const batchId = await seedBatch(targetBank, 2);
 
-    const { linked, failed } = await inRequest(() => autoLinkImportedBatchTransfers(company, batchId));
+    const { linked, failed } = await inRequest(() => autoLinkImportedBatchTransfers(company, batchId, importTrigger(batchId)));
     expect(failed).toBe(false);
     expect(linked).toBe(1);
 
@@ -158,7 +159,7 @@ describe('K-019 import batch auto-link', () => {
     const b = await seedAllocatedTransfer(targetBank, 1);
     const batchId = await seedBatch(targetBank, 2);
 
-    const { linked } = await inRequest(() => autoLinkImportedBatchTransfers(company, batchId));
+    const { linked } = await inRequest(() => autoLinkImportedBatchTransfers(company, batchId, importTrigger(batchId)));
     expect(linked).toBe(2);
 
     const claimed = (await rowsOn(targetBank)).filter((r) => r.matched_journal_line_id !== null);
@@ -173,7 +174,7 @@ describe('K-019 import batch auto-link', () => {
     await seedAllocatedTransfer(targetBank, 0);
     const batchId = await seedBatch(targetBank, 1);
 
-    const { linked } = await inRequest(() => autoLinkImportedBatchTransfers(company, batchId));
+    const { linked } = await inRequest(() => autoLinkImportedBatchTransfers(company, batchId, importTrigger(batchId)));
     expect(linked).toBe(0);
 
     const rows = await rowsOn(targetBank);
@@ -186,10 +187,10 @@ describe('K-019 import batch auto-link', () => {
     const targetBank = await addAccount();
     const t = await seedAllocatedTransfer(targetBank, 1);
     const firstBatch = await seedBatch(targetBank, 1);
-    expect((await inRequest(() => autoLinkImportedBatchTransfers(company, firstBatch))).linked).toBe(1);
+    expect((await inRequest(() => autoLinkImportedBatchTransfers(company, firstBatch, importTrigger(firstBatch)))).linked).toBe(1);
 
     const secondBatch = await seedBatch(targetBank, 1);
-    const { linked } = await inRequest(() => autoLinkImportedBatchTransfers(company, secondBatch));
+    const { linked } = await inRequest(() => autoLinkImportedBatchTransfers(company, secondBatch, importTrigger(secondBatch)));
     expect(linked).toBe(0);
 
     const claimed = (await rowsOn(targetBank)).filter((r) => r.matched_journal_line_id !== null);
@@ -231,7 +232,7 @@ describe('K-019 import batch auto-link', () => {
     );
     const batchId = await seedBatch(targetBank, 1);
 
-    const { linked } = await inRequest(() => autoLinkImportedBatchTransfers(company, batchId));
+    const { linked } = await inRequest(() => autoLinkImportedBatchTransfers(company, batchId, importTrigger(batchId)));
     expect(linked).toBe(0);
 
     const rows = await rowsOn(targetBank);
@@ -250,7 +251,7 @@ describe('K-019 import batch auto-link', () => {
     );
     const batchId = await seedBatch(targetBank, 1);
 
-    const { linked } = await inRequest(() => autoLinkImportedBatchTransfers(company, batchId));
+    const { linked } = await inRequest(() => autoLinkImportedBatchTransfers(company, batchId, importTrigger(batchId)));
     expect(linked).toBe(1);
 
     const claimed = (await rowsOn(targetBank)).filter((r) => r.matched_journal_line_id !== null);
@@ -263,7 +264,7 @@ describe('K-019 import batch auto-link', () => {
     for (let i = 0; i < 5; i += 1) await seedAllocatedTransfer(targetBank, 1);
     const batchId = await seedBatch(targetBank, 5);
 
-    const { linked, passes } = await inRequest(() => autoLinkImportedBatchTransfers(company, batchId));
+    const { linked, passes } = await inRequest(() => autoLinkImportedBatchTransfers(company, batchId, importTrigger(batchId)));
     expect(linked).toBe(5);
     // The claim the name makes: the rank pairing settles all five in ONE
     // statement. One-row-per-pass would report five and still link five.
@@ -309,7 +310,7 @@ describe('K-019 import batch auto-link', () => {
       );
     }
 
-    const { linked } = await inRequest(() => autoLinkImportedBatchTransfers(company, batchId));
+    const { linked } = await inRequest(() => autoLinkImportedBatchTransfers(company, batchId, importTrigger(batchId)));
     expect(linked).toBe(2);
 
     const rows = await rowsOn(targetBank);
@@ -324,9 +325,9 @@ describe('K-019 import batch auto-link', () => {
     try {
       await client.query('BEGIN');
       const result = await als.run(ctxFor(client, company), () =>
-        autoLinkImportedBatchTransfers(company, 'not-a-uuid'),
+        autoLinkImportedBatchTransfers(company, 'not-a-uuid', importTrigger('not-a-uuid')),
       );
-      expect(result).toEqual({ linked: 0, passes: 0, failed: true });
+      expect(result).toEqual({ linked: 0, passes: 0, failed: true, batchId: null });
       const res = await client.query('SELECT 1 AS ok');
       expect(res.rows[0].ok).toBe(1);
       await client.query('COMMIT');

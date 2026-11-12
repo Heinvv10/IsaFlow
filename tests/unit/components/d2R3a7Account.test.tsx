@@ -128,7 +128,7 @@ describe('dashboard impersonation exchange', () => {
 describe('dashboard hero figures', () => {
   it('a failing reload for another company clears the previous company\'s figures', async () => {
     co.id = 'co-1';
-    script(() => ok({ kpis: { revenue: { total: 1 }, revenueMtd: 777 } }));
+    script(() => ok({ kpis: { revenue: { total: 1 }, revenueMtd: 777 }, headline: { asAt: '2026-11-12', monthStart: '2026-11-01', cash: 0, receivables: { total: 0, overdue: 0 }, payables: { total: 0, overdue: 0 }, revenueMtd: 777, profitMtd: 0, draftInvoices: 0, draftBills: 0, draftJournals: 0, billsDueNext7Days: 0, billsOverdue: 0 }, period: { from: '2025-10-01', to: '2026-11-12' } }));
     const { rerender } = render(<AccountingPage />);
     expect(await screen.findByText('hero revenue 777')).toBeTruthy();
     script(() => empty500()); co.id = 'co-2'; rerender(<AccountingPage />);

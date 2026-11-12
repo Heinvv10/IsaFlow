@@ -20,6 +20,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { WorkbenchSection } from './WorkbenchSection';
 import { NoBankAccountWarning } from '@/components/accounting/banking/NoBankAccountWarning';
 import { formatMoney, formatMoneyCompact } from '@/lib/money/formatMoney';
+import type { HeadlineFigures } from '@/modules/accounting/services/reports/headlineFigures';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
@@ -50,6 +51,10 @@ export interface KPIData {
   topCustomers: { name: string; revenue: number; invoiceCount: number }[];
   topExpenses: { accountName: string; total: number; percentOfExpenses: number }[];
   hasBankAccount: boolean;
+  /** The headline figures (reports/headlineFigures): the one definition /home and Month-End read. */
+  headline: HeadlineFigures;
+  /** The window `kpis.revenue` and `kpis.netProfit` span. */
+  period: { from: string; to: string };
 }
 
 const ICON_MAP: Record<string, React.ElementType> = {
@@ -76,7 +81,7 @@ export interface KpiLoad { data: KPIData | null; error: string; loading: boolean
  * `setupOpen`: setup tasks are still open, so TodoWidget must not say "All caught up!".
  * `setupUnknown`: the setup checklist has not resolved (timed out or failed), so TodoWidget says neither.
  */
-export function OverviewTab({ setupOpen = false, setupUnknown = false, kpiLoad }: { setupOpen?: boolean; setupUnknown?: boolean; kpiLoad?: KpiLoad }) {
+export function OverviewTab({ setupOpen = false, setupUnknown = false, kpiLoad, onRetry }: { setupOpen?: boolean; setupUnknown?: boolean; kpiLoad?: KpiLoad; onRetry?: () => void }) {
   const [ownData, setData] = useState<KPIData | null>(null);
   const [ownLoading, setIsLoading] = useState(!kpiLoad);
   const data = kpiLoad ? kpiLoad.data : ownData;
@@ -216,11 +221,16 @@ export function OverviewTab({ setupOpen = false, setupUnknown = false, kpiLoad }
       )}
 
       {/* No bank account warning — shown when cash KPI is non-zero but no bank account configured */}
-      {data !== null && !data.hasBankAccount && (kpis?.cash.total ?? 0) !== 0 && (
+      {data !== null && !data.hasBankAccount && (data.headline?.cash ?? 0) !== 0 && (
         <NoBankAccountWarning />
       )}
 
-      <OverviewKpiCards kpis={kpis} />
+      <OverviewKpiCards
+        kpis={kpis}
+        headline={data?.headline}
+        period={data?.period}
+        onRetry={onRetry ?? (fetchOwn.current ? () => void loadKPIData() : undefined)}
+      />
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

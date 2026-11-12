@@ -12,6 +12,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { relinkTransferCounterparts } from '@/modules/accounting/services/bank/bankTransferLinkService';
+import { newLinkBatchId } from '@/modules/accounting/services/bank/bankTransferLinkLog';
 
 const BodySchema = z.object({ bankAccountId: UUID }).strict();
 
@@ -25,9 +26,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
   // `failed` is reported rather than thrown: the pass swallows its error to
   // keep the import non-fatal, so linked: 0 alone cannot tell the UI apart
-  // from "there was nothing to link".
-  const { linked, failed } = await relinkTransferCounterparts(companyId, parsed.data.bankAccountId);
-  return apiResponse.success(res, { linked, failed });
+  // from "there was nothing to link". `batchId` names this load's entry in the transfer link log (migration 978).
+  const { linked, failed, batchId } = await relinkTransferCounterparts(
+    companyId, parsed.data.bankAccountId, { source: 'page_load', linkBatchId: newLinkBatchId() },
+  );
+  return apiResponse.success(res, { linked, failed, batchId });
 }
 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

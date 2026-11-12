@@ -5,7 +5,9 @@
  *
  * Overdue customer invoices (rows AND count) come from arOutstandingService, the
  * one definition of overdue shared with the dashboard figure and the invoice
- * list tiles. The rest of this queue (supplier bills, drafts) keeps the
+ * list tiles. The draft invoice and overdue bill COUNTS are the headline counts
+ * (reports/headlineFigures), shared with the workbench cards and Month-End.
+ * The rest of this queue (the supplier bill rows) keeps the
  * UNDATED `deleted_at IS NULL` predicate of K-053: a workflow queue asked as
  * at NOW, as on the chase siblings `dunningService`, `dunningCronService` and
  * `smart-reminder`.
@@ -17,6 +19,9 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { todayInSast } from '@/lib/saDateParser';
+import { AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { getHeadlineCounts } from '@/modules/accounting/services/reports/headlineFigures';
 import { getAROutstandingSummary, listOverdueInvoices, type OverdueInvoiceRow } from '@/modules/accounting/services/ar/arOutstandingService';
 
 interface PendingSupplierPayment {
@@ -31,7 +36,10 @@ interface TodoData {
   overdueInvoices: OverdueInvoiceRow[];
   /** True company-wide count (shared AR service); overdueInvoices is only the top 10 rows. */
   overdueInvoiceCount: number;
+  /** The first 10 overdue bills; overdueBillCount is the true company-wide count. */
   pendingSupplierPayments: PendingSupplierPayment[];
+  /** Open bills with a balance, due before today (SAST): the headline count. */
+  overdueBillCount: number;
   uncategorizedBankTxns: number;
   draftInvoices: number;
 }
@@ -42,9 +50,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
+  const today = todayInSast();
 
   try {
-    const [overdueRows, supplierRows, bankCountRows, draftCountRows, arSummary] = await Promise.all([
+    const [overdueRows, supplierRows, bankCountRows, counts, arSummary] = await Promise.all([
       listOverdueInvoices(companyId, 10),
       sql`
         SELECT
@@ -57,8 +66,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
         WHERE si.company_id = ${companyId}
           AND si.deleted_at IS NULL
-          AND si.status IN ('approved', 'partially_paid')
-          AND si.due_date < NOW()
+          AND si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
+          AND si.total_amount - COALESCE(si.amount_paid, 0) > 0
+          -- The headline overdue-bill population (reports/headlineFigures), so
+          -- these rows are the first 10 of overdueBillCount.
+          AND si.due_date < ${today}::DATE
         ORDER BY si.due_date ASC
         LIMIT 10
       `,
@@ -70,13 +82,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           AND status = 'imported'
           AND feed_state = 'posted'
       `,
-      sql`
-        SELECT COUNT(*)::int AS cnt
-        FROM customer_invoices
-        WHERE company_id = ${companyId}
-          AND deleted_at IS NULL
-          AND status = 'draft'
-      `,
+      getHeadlineCounts(companyId, today),
       getAROutstandingSummary(companyId),
     ]);
 
@@ -89,12 +95,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }));
 
     const uncategorizedBankTxns = Number(bankCountRows[0]?.cnt ?? 0);
-    const draftInvoices = Number(draftCountRows[0]?.cnt ?? 0);
+    const draftInvoices = counts.draftInvoices;
 
     const data: TodoData = {
       overdueInvoices: overdueRows,
       overdueInvoiceCount: arSummary.overdueCount,
       pendingSupplierPayments,
+      overdueBillCount: counts.billsOverdue,
       uncategorizedBankTxns,
       draftInvoices,
     };

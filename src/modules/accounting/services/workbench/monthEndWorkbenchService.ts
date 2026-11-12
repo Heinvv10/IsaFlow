@@ -12,6 +12,8 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { buildBankingCard, buildSalesCard, buildPurchasesCard, buildVatCard, buildPayrollCard } from './monthEndLedgerCards';
+import { getHeadlineCounts, countDraftJournals } from '@/modules/accounting/services/reports/headlineFigures';
+import { formatDisplayDate } from '@/utils/dateFormat';
 import { listAfsDocuments } from '@/modules/accounting/services/afs/afsDocumentService';
 
 export type CardStatus = 'ready' | 'attention' | 'blocked' | 'in_progress' | 'not_started';
@@ -86,22 +88,23 @@ async function buildAfsCard(companyId: string, period: string): Promise<Workbenc
 }
 
 async function buildExceptionsCard(companyId: string, periodEnd: string): Promise<WorkbenchCard> {
-  const rows = (await sql`
-    SELECT
-      (SELECT COUNT(*) FROM customer_invoices WHERE company_id = ${companyId}::uuid AND status = 'draft') AS draft_invoices,
-      (SELECT COUNT(*) FROM supplier_invoices WHERE company_id = ${companyId}::uuid AND status = 'draft') AS draft_bills,
-      (SELECT COUNT(*) FROM bank_transactions WHERE company_id = ${companyId}::uuid AND status = 'imported' AND feed_state = 'posted' AND transaction_date <= ${periodEnd}::date AND suggested_gl_account_id IS NULL) AS unsuggested,
-      (SELECT COUNT(*) FROM gl_journal_entries WHERE company_id = ${companyId}::uuid AND status = 'draft' AND entry_date <= ${periodEnd}::date) AS draft_journals
-  `) as DbRow[];
-  const r = rows[0]!;
-  const draftInv = Number(r.draft_invoices) || 0;
-  const draftBills = Number(r.draft_bills) || 0;
-  const unsugg = Number(r.unsuggested) || 0;
-  // Unposted draft journals are close-blocking exceptions too, so the workbench
-  // surfaces them. This is a workbench heuristic (draft, dated up to period end) —
+  // Draft invoice and bill counts are the headline counts (reports/headlineFigures),
+  // the figures the dashboard shows. Draft journals are period-bounded on purpose,
+  // and the card says so: a workbench heuristic (draft, dated up to period end),
   // NOT byte-for-byte the close run's unpostedJournalsCheck (which keys on
   // fiscal_period_id and status != 'posted'); the per-client close run is authoritative.
-  const draftJournals = Number(r.draft_journals) || 0;
+  const [counts, draftJournals, rows] = await Promise.all([
+    getHeadlineCounts(companyId),
+    countDraftJournals(companyId, periodEnd),
+    sql`
+      SELECT COUNT(*) AS unsuggested FROM bank_transactions
+       WHERE company_id = ${companyId}::uuid AND status = 'imported' AND feed_state = 'posted'
+         AND transaction_date <= ${periodEnd}::date AND suggested_gl_account_id IS NULL
+    ` as Promise<DbRow[]>,
+  ]);
+  const draftInv = counts.draftInvoices;
+  const draftBills = counts.draftBills;
+  const unsugg = Number(rows[0]?.unsuggested) || 0;
   const totalExceptions = draftInv + draftBills + unsugg + draftJournals;
   const status: CardStatus = totalExceptions === 0 ? 'ready' : totalExceptions < 10 ? 'in_progress' : 'attention';
   return {
@@ -109,7 +112,7 @@ async function buildExceptionsCard(companyId: string, periodEnd: string): Promis
     title: 'Exceptions',
     status,
     primary: `${totalExceptions} items`,
-    secondary: `${draftInv} draft invoices · ${draftBills} draft bills · ${unsugg} unclassified bank txns · ${draftJournals} draft journals`,
+    secondary: `${draftInv} draft invoices · ${draftBills} draft bills · ${unsugg} unclassified bank txns · ${draftJournals} draft journals dated to ${formatDisplayDate(periodEnd)}`,
     count: totalExceptions,
   };
 }
