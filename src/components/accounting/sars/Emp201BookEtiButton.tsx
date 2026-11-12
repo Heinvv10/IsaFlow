@@ -22,8 +22,9 @@ interface Outcome { status: Status; entryDate: string | null; used: number; refu
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const label = (month: string): string => `${MONTHS[Number(month.slice(5, 7)) - 1]} ${month.slice(0, 4)}`;
+/** 'YYYY-MM-DD' of the month's last day: day 0 of the next month gives the day count, whatever the time zone. */
 const lastDay = (month: string): string =>
-  new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
+  `${month}-${String(new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()).padStart(2, '0')}`;
 
 /** The result of the last booking, kept across the remount a successful booking causes. */
 let lastResult: { month: string; text: string; focus: boolean } | null = null;
