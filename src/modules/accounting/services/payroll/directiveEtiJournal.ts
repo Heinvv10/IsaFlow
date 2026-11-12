@@ -53,11 +53,12 @@ export async function etiMonthPlan(companyId: string, ym: YearMonth): Promise<Et
     return [{ glAccountId: dr, debit: a, credit: 0, description }, { glAccountId: cr, debit: 0, credit: a, description }];
   };
   const bookUsed = Math.abs(used) >= 0.005;
-  const bookRefund = Math.abs(refund) >= 0.005 && !!refundAccount;
+  // `refund` is non-zero only when an account holds the role (above): the one guard.
+  const bookRefund = Math.abs(refund) >= 0.005;
   return {
     lines: [
       ...(bookUsed ? pair(paye, used, 'ETI used against this month\'s PAYE (ETI Act s9(1))') : []),
-      ...(bookRefund && refundAccount ? pair(refundAccount.id, refund, 'ETI refund claimable on the EMP501 (ETI Act s10(1))') : []),
+      ...(bookRefund ? pair(refundAccount!.id, refund, 'ETI refund claimable on the EMP501 (ETI Act s10(1))') : []),
     ],
     used: bookUsed ? used : 0,
     refund: bookRefund ? refund : 0,

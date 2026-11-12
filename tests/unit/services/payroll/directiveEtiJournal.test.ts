@@ -28,7 +28,7 @@ import { refundReceivable } from '@/modules/accounting/services/payroll/payrollJ
 import { sql } from '@/lib/neon';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import {
-  directiveEtiLines, postMonthEtiJournal,
+  directiveEtiLines, etiMonthPlan, postMonthEtiJournal,
 } from '@/modules/accounting/services/payroll/directiveEtiJournal';
 
 const CO = '11111111-1111-1111-1111-111111111111';
@@ -74,6 +74,18 @@ describe('the month\'s ETI lines', () => {
     vi.mocked(bookedByEtiJournals).mockResolvedValueOnce({ used: 1_500, refund: 1_500 });
     expect(await directiveEtiLines(CO, { year: 2026, month: 8 })).toEqual([]);
     expect(refundReceivable).not.toHaveBeenCalled();
+  });
+  it('round 5 adv L1: a refund due with no account holding the role is left out of the plan (lines AND amounts), the same for post and preview', async () => {
+    vi.mocked(etiMonthLine).mockResolvedValueOnce(month({ month: 8, used: 0, refundClaimable: 900 }) as never);
+    vi.mocked(bookedByEtiJournals).mockResolvedValueOnce({ used: 0, refund: 0 });
+    vi.mocked(refundReceivable).mockResolvedValueOnce(null as never);
+    expect(await etiMonthPlan(CO, { year: 2026, month: 8 })).toEqual({ lines: [], used: 0, refund: 0 });
+  });
+  it('round 5 adv L1: the plan says what its lines book (used on 2140, refund on the receivable)', async () => {
+    vi.mocked(etiMonthLine).mockResolvedValueOnce(month({ month: 8, used: 1_500, refundClaimable: 900 }) as never);
+    const plan = await etiMonthPlan(CO, { year: 2026, month: 8 });
+    expect([plan.used, plan.refund]).toEqual([1_500, 900]);
+    expect([sum(plan.lines, 'acc-2140'), sum(plan.lines, 'acc-1150')]).toEqual([1_500, 900]);
   });
   it('posts the journal with reference ETI-2026-05 and source auto_payroll, dated as given', async () => {
     vi.mocked(etiMonthLine).mockResolvedValueOnce(month({}) as never);
