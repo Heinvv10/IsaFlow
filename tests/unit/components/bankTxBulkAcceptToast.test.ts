@@ -41,7 +41,7 @@ describe('bulk accept toast', () => {
     expect(success).not.toHaveBeenCalled();
     expect(warning).toHaveBeenCalledWith(
       '7 of 10 transaction(s) marked as reviewed',
-      '3 were already reviewed or no longer eligible',
+      '3 were already reviewed or are not allocated yet - allocate a line before reviewing it',
     );
   });
 
@@ -65,7 +65,7 @@ describe('bulk accept toast', () => {
     await actionsFor(['a', 'b']).handleBulkAccept();
     expect(warning).toHaveBeenCalledWith(
       '0 of 2 transaction(s) marked as reviewed',
-      '2 were already reviewed or no longer eligible',
+      '2 were already reviewed or are not allocated yet - allocate a line before reviewing it',
     );
   });
 });

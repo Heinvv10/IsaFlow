@@ -16,7 +16,6 @@
  */
 
 import type { NextApiResponse } from 'next';
-import { isReconciledLine, RECONCILED_DOCUMENT_REMOVAL } from '@/modules/accounting/services/bank/bankTxAnnotations';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -31,6 +30,7 @@ import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
 import { runAfterCommit } from '@/lib/afterCommit';
 import { listBankLineAttachments, unlinkCapturedDocFromBankTx } from '@/modules/accounting/services/capture/capturedAttachmentLinks';
 import { isCopyOfSql, linkedCapturedDocSql, uploadFileName } from '@/modules/accounting/services/bank/bankLineDocumentSql';
+import { documentRemovalRefused, RECONCILED_DOCUMENT_REMOVAL } from '@/modules/accounting/services/bank/reconciledCash';
 import { isValidUUID } from '@/lib/validation';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 
@@ -170,7 +170,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         || typeof bankTransactionId !== 'string' || !isValidUUID(bankTransactionId)) {
         return apiResponse.badRequest(res, 'documentId and bankTransactionId must be ids');
       }
-      if (await isReconciledLine(companyId, { bankTxId: bankTransactionId })) {
+      if (await documentRemovalRefused(companyId, { bankTxId: bankTransactionId })) {
         return apiResponse.conflict(res, RECONCILED_DOCUMENT_REMOVAL);
       }
       let outcome: Awaited<ReturnType<typeof unlinkCapturedDocFromBankTx>>;
@@ -188,7 +188,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'id query param must be an attachment id');
     }
 
-    if (await isReconciledLine(companyId, { attachmentId: id })) {
+    if (await documentRemovalRefused(companyId, { attachmentId: id })) {
       return apiResponse.conflict(res, RECONCILED_DOCUMENT_REMOVAL);
     }
 

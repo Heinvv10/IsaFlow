@@ -13,7 +13,12 @@
 
 export type ReconFilter = 'all' | 'unreconciled' | 'reconciled';
 
-const PLAIN_STATUSES = new Set(['excluded', 'reconciled', 'allocated', 'provisional']);
+const PLAIN_STATUS_COND: Readonly<Record<string, string>> = {
+  excluded: "AND bt.status = 'excluded'",
+  reconciled: "AND bt.status = 'reconciled'",
+  allocated: "AND bt.status = 'allocated'",
+  provisional: "AND bt.status = 'provisional'",
+};
 
 export function tabStatusCond(status: string, reconFilter?: ReconFilter): string {
   if (status === 'imported') {
@@ -25,8 +30,7 @@ export function tabStatusCond(status: string, reconFilter?: ReconFilter): string
     return "AND (bt.status = 'reconciled' OR (bt.status IN ('allocated', 'matched') AND bt.reviewed_at IS NOT NULL))"
       + recon;
   }
-  if (PLAIN_STATUSES.has(status)) return `AND bt.status = '${status}'`;
-  return 'AND FALSE';
+  return Object.hasOwn(PLAIN_STATUS_COND, status) ? PLAIN_STATUS_COND[status]! : 'AND FALSE';
 }
 
 export function parseReconFilter(v: unknown): ReconFilter | undefined {

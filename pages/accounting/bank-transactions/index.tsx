@@ -30,8 +30,9 @@ import { useBankTxOutcome } from '@/components/accounting/bank-transactions/useB
 import { BankTxPagination, BankTxReviewBar } from '@/components/accounting/bank-transactions/BankTxPagination';
 import { BankTxTabs, type BankTxTab as Tab } from '@/components/accounting/bank-transactions/BankTxTabs';
 import { useLlmResultPoll } from '@/components/accounting/bank-transactions/useLlmResultPoll';
-import { suggestedRowSelections } from '@/components/accounting/bank-transactions/suggestedRowSelections';
-import { bankTxQueryParams } from '@/components/accounting/bank-transactions/bankTxQuery'; import type { ReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
+import { useSeedRowSelections } from '@/components/accounting/bank-transactions/useSeedRowSelections';
+import { bankTxQueryParams } from '@/components/accounting/bank-transactions/bankTxQuery';
+import type { ReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
 import { BankTxListFrame, BANK_TX_PAGE_SIZE as PAGE_SIZE } from '@/components/accounting/bank-transactions/BankTxListFrame';
 import { bankTxPastEnd, usePageClamp } from '@/components/accounting/bank-transactions/usePageClamp';
 import { exportAllBankTx, exportLoadedBankTx } from '@/components/accounting/bank-transactions/bankTxExport';
@@ -80,7 +81,8 @@ export default function BankTransactionsPage() {
   const [allocationFilter, setAllocationFilter] = useState<'all' | 'unallocated' | 'suggested' | 'allocated'>('all');
   const [txType, setTxType] = useState<'all' | 'spent' | 'received'>('all');
   const [allocType, setAllocType] = useState<'all' | 'account' | 'supplier' | 'customer' | 'transfer'>('all');
-  const [hasSuggestion, setHasSuggestion] = useState<'all' | 'yes' | 'no'>('all'), [reconFilter, setReconFilter] = useState<ReconFilter>('all');
+  const [hasSuggestion, setHasSuggestion] = useState<'all' | 'yes' | 'no'>('all');
+  const [reconFilter, setReconFilter] = useState<ReconFilter>('all');
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Selection / UI
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -139,24 +141,12 @@ export default function BankTransactionsPage() {
 
   const relinkFailed = useRelinkTransfers(selectedBank);
 
-  // ---- Seed rowSelections from DB suggestion fields ----
-  useEffect(() => {
-    if (transactions.length === 0) return;
-    const initial = suggestedRowSelections(transactions, rowSelections);
-    if (Object.keys(initial).length > 0) {
-      setRowSelections(prev => {
-        const merged = { ...prev };
-        for (const [id, sel] of Object.entries(initial)) { if (!merged[id]?.entityId) merged[id] = sel; }
-        return merged;
-      });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactions]);
+  useSeedRowSelections(transactions, rowSelections, setRowSelections); // rowSelections from DB suggestion fields
 
   // ---- Reset filters when bank or tab changes ----
   useEffect(() => {
     setPage(1); setSelectedIds(new Set()); setRowSelections({});
-    setAllocationFilter('all'); setTxType('all'); setAllocType('all'); setHasSuggestion('all');
+    setAllocationFilter('all'); setTxType('all'); setAllocType('all'); setHasSuggestion('all'); setReconFilter('all');
   }, [selectedBank, tab]);
 
   // ---- Build action handlers ----
@@ -208,7 +198,8 @@ export default function BankTransactionsPage() {
           selectedBank={selectedBank} smartRunning={smartRunning} showCC={showCC} showBU={showBU}
           showBatchEdit={showBatchEdit} searchTerm={searchTerm} fromDate={fromDate} toDate={toDate}
           fromAmount={fromAmount} toAmount={toAmount} sortOrder={sortOrder}
-          allocationFilter={allocationFilter} txType={txType} allocType={allocType} hasSuggestion={hasSuggestion} reconFilter={reconFilter}
+          allocationFilter={allocationFilter} txType={txType} allocType={allocType} hasSuggestion={hasSuggestion}
+          reconFilter={reconFilter}
           onRefresh={loadTransactions} onBulkAccept={actions.handleBulkAccept}
           onBatchAccept={actions.handleBatchAccept} onBatchDelete={actions.handleBatchDelete}
           onToggleBatchEdit={() => { setShowBatchEdit(s => !s); setBatchSearch(''); }}
@@ -220,7 +211,8 @@ export default function BankTransactionsPage() {
           onFromAmountChange={withReset(setFromAmount)} onToAmountChange={withReset(setToAmount)}
           onSortOrderChange={withReset(setSortOrder)} onAllocationFilterChange={withReset(setAllocationFilter)}
           onTxTypeChange={withReset(setTxType)} onAllocTypeChange={withReset(setAllocType)}
-          onHasSuggestionChange={withReset(setHasSuggestion)} onReconFilterChange={withReset(setReconFilter)}
+          onHasSuggestionChange={withReset(setHasSuggestion)}
+          onReconFilterChange={withReset(setReconFilter)}
           onToggleCC={toggleCC} onToggleBU={toggleBU}
         />
 

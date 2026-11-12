@@ -5,7 +5,7 @@
 // Fixture, one bank account, statement 2025-06-30:
 //   A  imported                                   → New
 //   B  allocated (own journal), not reviewed      → New; claimed and self-matched by the session
-//   C  matched, not reviewed                      → New
+//   C  matched to a journal, not reviewed         → New (as a match on the recon screen leaves it)
 //   D  matched, reviewed                          → Reviewed (not reconciled)
 //   S  reconciled in the Sage import (no recon)   → Reviewed (reconciled)
 //   X  excluded                                   → Excluded
@@ -17,10 +17,13 @@ import {
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { reopenReconciliation } from '@/modules/accounting/services/bank/bankReconciliationReopenService';
 import { bulkAcceptTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
+import { matchTransaction, unmatchTransaction } from '@/modules/accounting/services/bank/bankTxStatusMutations';
 import { ReconciliationReviewRequiredError } from '@/modules/accounting/services/bank/reconciliationReviewGate';
-import { isReconciledLine, saveBankTxDimensions } from '@/modules/accounting/services/bank/bankTxAnnotations';
-import { ReconciledCashError } from '@/modules/accounting/services/bank/reconciledCash';
+import { ReconciliationCompletedError } from '@/modules/accounting/services/bank/reconciliationSessionLock';
+import { saveBankTxDimensions } from '@/modules/accounting/services/bank/bankTxAnnotations';
+import { isReconciledLine, ReconciledCashError } from '@/modules/accounting/services/bank/reconciledCash';
 import { attachCapturedDocToBankTx } from '@/modules/accounting/services/capture/captureBankTxAttachService';
+import { rejectCapturedDocument } from '@/modules/accounting/services/capture/captureRejectService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -44,9 +47,22 @@ async function journal(date: string, amount: number): Promise<string> {
 async function line(id: string, date: string, amount: number, status: string, jl: string | null, reviewed = false) {
   await pool.query(
     `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status,
-       matched_journal_line_id,reviewed_at)
-     VALUES($1,$2,$3,$4::DATE,$5,'review fixture',$6,$7,$8)`,
-    [id, company, bank, date, amount, status, jl, reviewed ? new Date() : null]);
+       matched_journal_line_id,reviewed_at,allocation_type)
+     VALUES($1,$2,$3,$4::DATE,$5,'review fixture',$6,$7,$8,$9)`,
+    [id, company, bank, date, amount, status, jl, reviewed ? new Date() : null, status === 'allocated' ? 'account' : null]);
+}
+
+/** As a real request runs: app_user under RLS, with the session's user and company GUCs. */
+async function asAppUser<T>(fn: () => Promise<T>): Promise<T> {
+  const { als } = await import('@/lib/als');
+  const client: PoolClient = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SET LOCAL ROLE app_user');
+    await client.query("SELECT set_config('request.jwt.claims', $1, true), set_config('app.current_company_id', $2, true)",
+      [JSON.stringify({ sub: user }), company]);
+    return await als.run({ client, userId: user, companyId: company, claims: {} }, fn);
+  } finally { await client.query('ROLLBACK'); client.release(); }
 }
 
 async function inRequest<T>(fn: () => Promise<T>): Promise<T> {
@@ -70,7 +86,8 @@ const row = async (id: string) => (await pool.query(
 describe('bank lines: review stamp, tabs, completion gate, reconciled lock', () => {
   beforeAll(async () => {
     await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'Review fixture']);
-    await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
+    await pool.query("INSERT INTO users(id,email,role,is_active,first_name,last_name) VALUES($1,$2,'admin',true,'Rita','Reviewer')", [user, `${user}@test.local`]);
+    await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, user]);
     await pool.query(
       `INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
        VALUES($1,$2,'RV Jun',1,2025,'2025-06-01','2025-06-30','open')`, [period, company]);
@@ -80,7 +97,7 @@ describe('bank lines: review stamp, tabs, completion gate, reconciled lock', () 
       [bank, contra, company]);
     await line(L.A, '2025-06-02', 10, 'imported', null);
     await line(L.B, '2025-06-03', 300, 'allocated', await journal('2025-06-03', 300));
-    await line(L.C, '2025-06-04', 20, 'matched', null);
+    await line(L.C, '2025-06-04', 20, 'matched', await journal('2025-06-04', 20));
     await line(L.D, '2025-06-05', 30, 'matched', null, true);
     await line(L.S, '2025-05-20', 40, 'reconciled', null);
     await line(L.X, '2025-06-06', 50, 'excluded', null);
@@ -95,6 +112,7 @@ describe('bank lines: review stamp, tabs, completion gate, reconciled lock', () 
       await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id=ANY($1::uuid[])', [[bank, contra]]);
       await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [company]);
       await pool.query('DELETE FROM fiscal_periods WHERE company_id=$1', [company]);
+      await pool.query('DELETE FROM company_users WHERE company_id=$1', [company]);
       await pool.query('DELETE FROM companies WHERE id=$1', [company]);
       await pool.query('DELETE FROM users WHERE id=$1', [user]);
     } finally { await pool.end(); }
@@ -122,36 +140,46 @@ describe('bank lines: review stamp, tabs, completion gate, reconciled lock', () 
   });
 
   it('completion refuses while a line it would reconcile is unreviewed, and writes nothing', async () => {
-    const r = await startReconciliation(company, bank, '2025-06-30', 300, user);
+    const r = await startReconciliation(company, bank, '2025-06-30', 320, user);
     recId = r.id;
     expect(r.selfMatched).toBe(1);
     const err = await completeReconciliation(company, recId, user).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ReconciliationReviewRequiredError);
+    // Only B blocks: A is in the session too but unallocated (it would not be reconciled), so it does not count.
+    expect((await pool.query('SELECT reconciliation_id::TEXT AS r FROM bank_transactions WHERE id=$1', [L.A])).rows[0].r).toBe(recId);
     expect((err as ReconciliationReviewRequiredError).unreviewed).toBe(1);
     expect((await row(L.B)).status).toBe('allocated');
     const [h] = (await pool.query('SELECT status FROM bank_reconciliations WHERE id=$1', [recId])).rows;
     expect(h.status).toBe('in_progress');
   });
 
-  it('review stamps who and when; the line moves to Reviewed; completion then reconciles it', async () => {
+  it('an unallocated line cannot be reviewed: no journal carries its cash (it stays on New)', async () => {
+    expect(await inRequest(() => bulkAcceptTransactions(company, [L.A], user))).toBe(0);
+    expect(await row(L.A)).toMatchObject({ status: 'imported', reviewed_at: null });
+  });
+
+  it('review stamps who and when and leaves status alone; the line moves to Reviewed; completion then reconciles it', async () => {
     expect(await inRequest(() => bulkAcceptTransactions(company, [L.B], user))).toBe(1);
-    expect(await row(L.B)).toMatchObject({ status: 'matched', reviewed_by: user });
+    expect(await row(L.B)).toMatchObject({ status: 'allocated', reviewed_by: user });
     expect((await row(L.B)).reviewed_at).not.toBeNull();
     expect(await ids('matched')).toEqual(sorted(L.B, L.D, L.S));
     const done = await completeReconciliation(company, recId, user);
     expect(done.status).toBe('completed');
     expect((await row(L.B)).status).toBe('reconciled');
     expect(await ids('matched', 'reconciled')).toEqual(sorted(L.B, L.S));
-    const [t] = (await getBankTransactions(company, { bankAccountId: bank, status: 'matched', reconFilter: 'reconciled' }))
+    const [t] = (await asAppUser(() => getBankTransactions(company, { bankAccountId: bank, status: 'matched', reconFilter: 'reconciled' })))
       .transactions.filter((x) => x.id === L.B);
     expect(t).toMatchObject({ reconciliationId: recId, reconStatus: 'completed', reconStatementDate: '2025-06-30',
-      reviewedBy: user, reviewedByName: `${user}@test.local` });
+      reviewedBy: user, reviewedByName: 'Rita Reviewer' });
   });
 
   it('a reconciled line refuses dimension changes and document removal; a reviewed one does not', async () => {
     const err = await inRequest(() => saveBankTxDimensions(company, L.S, {}, user)).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ReconciledCashError);
-    await expect(inRequest(() => saveBankTxDimensions(company, L.D, {}, user))).resolves.toBeUndefined();
+    const inSession = await inRequest(() => saveBankTxDimensions(company, L.B, {}, user)).catch((e: unknown) => e);
+    expect(inSession).toBeInstanceOf(ReconciliationCompletedError); // the shared 409: its reconciliation is completed
+    await expect(inRequest(() => saveBankTxDimensions(company, L.D, {}, user))).resolves.toBe(true);
+    await expect(inRequest(() => saveBankTxDimensions(company, uuid(), {}, user))).resolves.toBe(false);
     expect(await inRequest(() => isReconciledLine(company, { bankTxId: L.B }))).toBe(true);
     expect(await inRequest(() => isReconciledLine(company, { bankTxId: L.D }))).toBe(false);
   });
@@ -171,16 +199,46 @@ describe('bank lines: review stamp, tabs, completion gate, reconciled lock', () 
       .toEqual({ ok: false, reason: 'previous_line_reconciled' });
     const [still] = (await pool.query('SELECT matched_bank_tx_id::TEXT AS t FROM captured_documents WHERE id=$1', [held])).rows;
     expect(still.t).toBe(L.B);
+    // Rejecting it would drop it from the line's documents too: refused, nothing written.
+    expect(await inRequest(() => rejectCapturedDocument(company, held, 'not ours'))).toEqual({ refused: 'reconciled_line' });
+    expect((await pool.query('SELECT status FROM captured_documents WHERE id=$1', [held])).rows[0].status).toBe('matched');
     const free = await doc(L.D);
     expect(await inRequest(() => attachCapturedDocToBankTx(company, free, L.C, user))).toMatchObject({ ok: true });
+    expect(await inRequest(() => rejectCapturedDocument(company, free, null))).toMatchObject({ row: { status: 'rejected' } });
     await pool.query('DELETE FROM bank_transaction_attachments WHERE bank_transaction_id=ANY($1::uuid[])', [[L.C, L.D]]);
     await pool.query('DELETE FROM captured_documents WHERE id=ANY($1::uuid[])', [[held, free]]);
   });
 
   it('reopening the reconciliation keeps the review: the line stays on Reviewed', async () => {
     await inRequest(() => reopenReconciliation(company, recId, user, { reason: 'review fixture' }));
-    expect(await row(L.B)).toMatchObject({ status: 'matched', reviewed_by: user });
+    expect(await row(L.B)).toMatchObject({ status: 'allocated', reviewed_by: user });
     expect(await ids('matched', 'unreconciled')).toEqual(sorted(L.B, L.D));
     expect(await ids('imported')).toEqual(sorted(L.A, L.C));
+  });
+
+  it('Review takes a matched line nobody reviewed (matched on the recon screen) off New', async () => {
+    expect(await inRequest(() => bulkAcceptTransactions(company, [L.C], user))).toBe(1);
+    expect(await row(L.C)).toMatchObject({ status: 'matched', reviewed_by: user });
+    expect(await ids('imported')).toEqual([L.A]);
+  });
+
+  it('a review covers the journal it was given: a re-match or a new provisional journal clears it (mig 981)', async () => {
+    const t = uuid();
+    await line(t, '2025-06-08', 5, 'matched', await journal('2025-06-08', 5), true);
+    await pool.query('UPDATE bank_transactions SET matched_journal_line_id = $2 WHERE id = $1', [t, await journal('2025-06-08', 5)]);
+    expect((await row(t)).reviewed_at).toBeNull();
+    await pool.query('UPDATE bank_transactions SET reviewed_at = NOW() WHERE id = $1', [t]);
+    await pool.query("UPDATE bank_transactions SET notes = 'x', status = 'matched' WHERE id = $1", [t]);
+    expect((await row(t)).reviewed_at).not.toBeNull(); // same journal, same status: the review stands
+    await pool.query('DELETE FROM bank_transactions WHERE id=$1', [t]);
+  });
+
+  it('a Sage-reconciled line cannot be matched, unmatched or excluded (it has no session to reopen)', async () => {
+    const jl = await journal('2025-06-20', 40);
+    const err = await inRequest(() => matchTransaction(company, L.S, jl, undefined, user)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ReconciledCashError);
+    const un = await inRequest(() => unmatchTransaction(company, L.S, user)).catch((e: unknown) => e);
+    expect(un).toBeInstanceOf(ReconciledCashError);
+    expect((await row(L.S)).status).toBe('reconciled');
   });
 });

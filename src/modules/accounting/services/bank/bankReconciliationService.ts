@@ -19,7 +19,7 @@ import {
 import { lockSessionForHeaderChange, refuseCompletedSession, shareLockSession } from './reconciliationSessionLock';
 import { bankGlBalanceAsAt, refreshReconciledBalanceIfFree, updateReconciledBalance } from './bankReconciliationBalance';
 import { RowLockTimeoutError } from '../core/rowLockBudget';
-import { ReconciliationReviewRequiredError } from './reconciliationReviewGate';
+import { isReconciliationReviewRequired, ReconciliationReviewRequiredError } from './reconciliationReviewGate';
 import { newManualJournalRefusal } from '../gl/manualJournalApproval';
 import { ApprovalRequiredError } from '../gl/approvalGate';
 
@@ -163,7 +163,8 @@ export async function completeReconciliation(
     log.info('Completed bank reconciliation', { id }, 'accounting');
     return mapReconRow(completedRow);
   } catch (err) {
-    log.error('Failed to complete reconciliation', { id, error: err }, 'accounting');
+    if (isReconciliationReviewRequired(err)) log.info('Reconciliation not completed: lines unreviewed', { id, unreviewed: err.unreviewed }, 'accounting');
+    else log.error('Failed to complete reconciliation', { id, error: err }, 'accounting');
     throw err;
   }
 }

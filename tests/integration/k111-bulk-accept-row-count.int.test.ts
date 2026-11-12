@@ -40,19 +40,28 @@ beforeAll(async () => {
     `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance)
      VALUES($1,$2,'1100','Current account','asset','debit'),($3,$4,'1100','Their account','asset','debit')`,
     [bankAccount, company, foreignAccount, other]);
+  await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
+  await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, user]);
+  // Migration 980: Review stamps only a line whose cash a journal carries, so the allocated and matched lines each
+  // point at a journal line (a draft entry is enough for the FK).
+  const je = (await pool.query(
+    `INSERT INTO gl_journal_entries(company_id,entry_date,description,status,created_by)
+     VALUES($1,'2026-08-02','K111 seed','draft',$2) RETURNING id`, [company, user])).rows[0].id;
+  const jl = (await pool.query(
+    `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,company_id)
+     VALUES($1,$2,200,0,$3),($1,$2,300,0,$3) RETURNING id`, [je, bankAccount, company])).rows.map((r) => r.id);
   await pool.query(
-    `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status,reviewed_at)
-     VALUES($1,$2,$3,'2026-08-01',100,'Imported','imported',NULL),
-           ($4,$2,$3,'2026-08-02',200,'Allocated','allocated',NULL),
-           ($5,$2,$3,'2026-08-03',300,'Already reviewed','matched',NOW()),
-           ($6,$2,$3,'2026-08-04',400,'Excluded','excluded',NULL)`,
-    [imported, company, bankAccount, allocated, alreadyMatched, excluded]);
+    `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status,reviewed_at,
+       matched_journal_line_id)
+     VALUES($1,$2,$3,'2026-08-01',100,'Imported','imported',NULL,NULL),
+           ($4,$2,$3,'2026-08-02',200,'Allocated','allocated',NULL,$7),
+           ($5,$2,$3,'2026-08-03',300,'Already reviewed','matched',NOW(),$8),
+           ($6,$2,$3,'2026-08-04',400,'Excluded','excluded',NULL,NULL)`,
+    [imported, company, bankAccount, allocated, alreadyMatched, excluded, jl[0], jl[1]]);
   await pool.query(
     `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status)
      VALUES($1,$2,$3,'2026-08-05',500,'Other tenant','imported')`,
     [foreignTx, other, foreignAccount]);
-  await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
-  await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, user]);
   token = await new SignJWT({ sub: user, aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
     .sign(new TextEncoder().encode(process.env.JWT_SECRET));
@@ -61,6 +70,8 @@ beforeAll(async () => {
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM bank_transactions WHERE company_id=ANY($1)', [[company, other]]);
+    await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM gl_accounts WHERE company_id=ANY($1)', [[company, other]]);
     await pool.query('DELETE FROM company_users WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1)', [[company, other]]);
@@ -70,15 +81,14 @@ afterAll(async () => {
 
 it('counts the rows the status predicate matched, not the ids it was handed', async () => {
   const count = await bulkAcceptTransactions(company, [imported, allocated, alreadyMatched, excluded], user);
-  const matched = await pool.query(
-    "SELECT id FROM bank_transactions WHERE company_id=$1 AND status='matched'", [company]);
-  // imported + allocated move; an already-reviewed line and an excluded one do not.
-  expect({ count, stored: matched.rows.length }).toEqual({ count: 2, stored: 3 });
-  // Migration 980: the moved lines carry who reviewed them.
-  const stamped = await pool.query(
-    'SELECT id FROM bank_transactions WHERE id=ANY($1) AND reviewed_by=$2 AND reviewed_at IS NOT NULL',
-    [[imported, allocated], user]);
-  expect(stamped.rows.length).toBe(2);
+  // Migration 980: only the allocated line is reviewed — the imported one has no journal, the matched one is already
+  // reviewed, the excluded one is not reviewable. Review stamps who and when and changes no status.
+  expect(count).toBe(1);
+  const rows = (await pool.query(
+    'SELECT id::TEXT AS id, status, reviewed_by::TEXT AS by FROM bank_transactions WHERE company_id=$1 ORDER BY amount',
+    [company])).rows;
+  expect(rows.map((r) => [r.status, r.by])).toEqual([
+    ['imported', null], ['allocated', user], ['matched', null], ['excluded', null]]);
 });
 
 it('does not count or touch another tenant\'s transaction', async () => {

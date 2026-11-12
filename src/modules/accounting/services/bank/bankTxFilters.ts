@@ -3,6 +3,8 @@
  * fragment helpers can depend on it without importing the service (and so the
  * service file stays under the 300-line limit).
  */
+import type { ReconFilter } from './bankTxTabCond';
+
 export interface BankTxFilters {
   bankAccountId?: string;
   reconciliationId?: string;
@@ -18,7 +20,7 @@ export interface BankTxFilters {
   allocType?: 'all' | 'account' | 'supplier' | 'customer' | 'transfer';
   hasSuggestion?: 'all' | 'yes' | 'no';
   /** Reviewed tab only: all reviewed lines, only those not yet reconciled, or only reconciled ones. */
-  reconFilter?: 'all' | 'unreconciled' | 'reconciled';
+  reconFilter?: ReconFilter;
   limit?: number;
   /** UI paging. The MCP/agent path uses `cursor` instead — an offset page over
    *  a live import double-reads rows. */

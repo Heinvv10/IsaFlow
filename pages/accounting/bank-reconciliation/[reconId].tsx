@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 import { ReconciliationBalances } from '@/components/accounting/bank/ReconciliationBalances';
+import { isUnreviewedMatch, NotReviewedChip, ReconUnreviewedNotice } from '@/components/accounting/bank/ReconUnreviewed';
 import type { BankReconciliation, BankTransaction } from '@/modules/accounting/types/bank.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -244,6 +245,7 @@ export default function ReconciliationDetailPage() {
   const matchedTxs = transactions.filter(t => t.status === 'matched' || t.status === 'reconciled'
     || (t.status === 'allocated' && !!t.matchedJournalLineId));
   const isCompleted = recon.status === 'completed';
+  const unreviewedCount = isCompleted ? 0 : matchedTxs.filter(isUnreviewedMatch).length;
   const canComplete = Math.abs(recon.difference) < 0.01 && !isCompleted;
 
   return (
@@ -307,6 +309,7 @@ export default function ReconciliationDetailPage() {
         </div>
 
         <div className="p-6 space-y-6">
+          <ReconUnreviewedNotice count={unreviewedCount} bankAccountId={recon.bankAccountId} />
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
               <AlertCircle className="h-4 w-4" /> {error}
@@ -410,6 +413,7 @@ export default function ReconciliationDetailPage() {
                                   {formatCurrency(tx.amount)}
                                 </span>
                                 <TxStatusBadge status={tx.status} />
+                                {!isCompleted && isUnreviewedMatch(tx) && <NotReviewedChip />}
                                 {!isCompleted && tx.status === 'matched' && (
                                   <button
                                     onClick={() => handleUnmatch(tx.id)}

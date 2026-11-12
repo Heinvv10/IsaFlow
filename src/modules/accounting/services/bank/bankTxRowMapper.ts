@@ -41,7 +41,7 @@ export function mapTxRow(row: Row): BankTransaction {
     suggestedCostCentre: row.suggested_cost_centre ? String(row.suggested_cost_centre) : undefined,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
-    reviewedAt: row.reviewed_at ? String(row.reviewed_at instanceof Date ? row.reviewed_at.toISOString() : row.reviewed_at) : undefined,
+    reviewedAt: row.reviewed_at instanceof Date ? row.reviewed_at.toISOString() : row.reviewed_at ? String(row.reviewed_at) : undefined,
     reviewedBy: row.reviewed_by ? String(row.reviewed_by) : undefined,
     reviewedByName: row.reviewed_by_name ? String(row.reviewed_by_name) : undefined,
     reconStatus: row.recon_status === 'completed' || row.recon_status === 'in_progress' ? row.recon_status : undefined,

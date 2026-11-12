@@ -224,8 +224,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return apiResponse.success(res, { saved: true });
       }
       case 'save_dimensions': {
-        await saveBankTxDimensions(companyId, body.bankTransactionId,
+        const saved = await saveBankTxDimensions(companyId, body.bankTransactionId,
           { cc1Id: body.cc1Id, cc2Id: body.cc2Id, buId: body.buId }, userId);
+        if (!saved) return apiResponse.notFound(res, 'Bank transaction', body.bankTransactionId);
         return apiResponse.success(res, { saved: true });
       }
       case 'reverse': {

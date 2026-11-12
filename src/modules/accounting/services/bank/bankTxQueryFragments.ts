@@ -155,8 +155,10 @@ export const TX_SELECT = `
     bt.allocation_rule_id, bt.allocation_rule_name,
     bt.created_at, bt.updated_at,
     -- Review (migration 980) and the reconciliation the line sits in: the Reviewed tab's badge and recon link.
+    -- The reviewer's name through approval_company_member_name (mig 714): app_user's RLS on users shows only its own
+    -- row, so a plain join named nobody else; the function answers only for a member of the caller's own company.
     bt.reviewed_at, bt.reviewed_by,
-    COALESCE(NULLIF(btrim(concat_ws(' ', rvu.first_name, rvu.last_name)), ''), rvu.email) AS reviewed_by_name,
+    public.approval_company_member_name(bt.company_id, bt.reviewed_by::TEXT) AS reviewed_by_name,
     rec.status AS recon_status, rec.statement_date AS recon_statement_date,
     aa.account_code AS allocated_account_code,
     aa.account_name AS allocated_account_name,
@@ -180,7 +182,6 @@ export const TX_SELECT = `
   LEFT JOIN suppliers ss ON ss.id = bt.suggested_supplier_id AND ss.company_id = bt.company_id
   LEFT JOIN customers sc ON sc.id = bt.suggested_client_id AND sc.company_id = bt.company_id
   LEFT JOIN gl_journal_lines mje ON mje.id = bt.matched_journal_line_id AND mje.company_id = bt.company_id
-  LEFT JOIN users rvu ON rvu.id = bt.reviewed_by::TEXT
   LEFT JOIN bank_reconciliations rec ON rec.id = bt.reconciliation_id AND rec.company_id = bt.company_id
   ${ALLOCATED_ACCOUNT_LATERAL}
   LEFT JOIN LATERAL (${POSTED_VAT_LATERAL}) pv ON TRUE

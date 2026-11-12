@@ -21,6 +21,7 @@ import { mapCapturedDocumentRow as mapRow } from '@/modules/accounting/services/
 import { retryCaptureRead, type RetryRefusal } from '@/modules/accounting/services/capture/captureReadRetry';
 import { attachCapturedDocToBankTx, PREVIOUS_LINE_RECONCILED } from '@/modules/accounting/services/capture/captureBankTxAttachService';
 import { otherVatClaimMessage } from '@/modules/accounting/services/capture/bankAttachClaimConflict';
+import { rejectCapturedDocument, REJECT_REFUSED_RECONCILED_LINE } from '@/modules/accounting/services/capture/captureRejectService';
 import {
   type LifecycleGate,
   releaseClaimForLifecycleAction,
@@ -237,22 +238,13 @@ async function handleReject(
   companyId: string,
   data?: Record<string, unknown>,
 ) {
-  const notes = (data?.notes as string) || null;
-
-  const [row] = await sql`
-    UPDATE captured_documents
-    SET status = 'rejected',
-        notes = COALESCE(${notes}, notes)
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-      AND posted_at IS NULL
-    RETURNING *
-  ` as Record<string, unknown>[];
-
-  if (!row) return refusePostedOrMissing(res, id, companyId, 'rejected');
-
+  const out = await rejectCapturedDocument(companyId, id, (data?.notes as string) || null);
+  if (out && 'refused' in out) return apiResponse.conflict(res, REJECT_REFUSED_RECONCILED_LINE);
+  if (!out) return refusePostedOrMissing(res, id, companyId, 'rejected');
   log.info('Document rejected', { id }, 'document-capture');
-  return apiResponse.success(res, mapRow(row as Record<string, unknown>), 'Document rejected');
+  return apiResponse.success(res, mapRow(out.row), 'Document rejected');
 }
+
 
 /**
  * The document is in the ledger for real: a posted journal, an uncancelled

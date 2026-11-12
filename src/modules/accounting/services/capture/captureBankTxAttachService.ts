@@ -25,7 +25,7 @@ import { mimeForCapturedFileType } from './capturedFileTypes';
 import { findOtherVatClaim, type OtherVatClaim } from './bankAttachClaimConflict';
 import { lockCapturedDocumentForUpdate } from './captureRowLock';
 import { lockBankTransactionForUpdate } from '../bank/bankTxLock';
-import { isReconciledLine } from '../bank/bankTxAnnotations';
+import { isReconciledLine } from '../bank/reconciledCash';
 
 export { mimeForCapturedFileType };
 
@@ -73,7 +73,7 @@ export async function attachCapturedDocToBankTx(
   `) as Row[];
   const previous = held?.matched_bank_tx_id ? String(held.matched_bank_tx_id) : null;
   // Hein 2026-11-12: a reconciled line keeps its supporting documents; moving this one would strip it from that line.
-  // Refused before any write. Read FOR SHARE (isReconciledLine), after this line and the document (the lock order).
+  // Refused before any write; a plain read (isReconciledLine says why it takes no lock here).
   if (previous && previous !== bankTxId && await isReconciledLine(companyId, { bankTxId: previous })) {
     return { ok: false, reason: 'previous_line_reconciled' };
   }

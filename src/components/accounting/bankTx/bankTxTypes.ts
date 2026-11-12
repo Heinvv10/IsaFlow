@@ -32,7 +32,6 @@ export interface BankTx {
   reviewedAt?: string;
   reviewedByName?: string;
   reconciliationId?: string;
-  reconStatus?: 'in_progress' | 'completed';
   reconStatementDate?: string;
   /** Suggestion fields — populated by rules or classified import */
   suggestedGlAccountId?: string;

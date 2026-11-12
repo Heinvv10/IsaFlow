@@ -21,7 +21,7 @@ import {
   InvalidCursorError,
 } from './bankTxCursor';
 import type { BankTxFilters } from './bankTxFilters';
-import { openStampOnly, underStampBudget } from './reconciliationSessionLock';
+import { underStampBudget } from './reconciliationSessionLock';
 
 type Row = DbRow;
 
@@ -226,18 +226,22 @@ export async function deleteTransactions(companyId: string, bankTxIds: string[])
   }
 }
 
-/** Review a batch of imported/allocated lines: matched, stamped reviewed by `userId` (mig 980), no journal written. */
+/**
+ * Review a batch of lines (Hein 2026-11-12, mig 980): stamp reviewed_at/reviewed_by and NOTHING else. Status is never
+ * touched — the old flip to 'matched' let an unallocated line (no journal) be reconciled with nothing in the GL, and an
+ * allocated one skip countsAsMatched's own-journal check. Only a line that carries its cash in the GL is reviewable:
+ * allocated or matched, with a matched journal line or a provisional journal. Unallocated lines stay on New.
+ */
 export async function bulkAcceptTransactions(companyId: string, ids: string[], userId: string): Promise<number> {
   if (ids.length === 0) return 0;
   try {
-    // D12 round 2: under the 5 s budget — the stale-stamp fragment's FOR SHARE (and the row locks) on lines this
-    // path does not lock first must not wait unbounded on a held session; held -> RowLockTimeoutError, 503.
+    // D12 round 2: under the 5 s budget — the row locks on lines this path does not lock first must not wait
+    // unbounded; held -> RowLockTimeoutError, 503. The route took the stamped sessions FOR SHARE first.
     const result = await underStampBudget(async () => (await sql`
-      UPDATE bank_transactions SET status = 'matched', updated_at = NOW(),
-        reviewed_at = NOW(), reviewed_by = ${userId}::UUID,
-        reconciliation_id = ${openStampOnly(companyId)} -- D12: clears the stale stamp of a completed session
+      UPDATE bank_transactions SET reviewed_at = NOW(), reviewed_by = ${userId}::UUID, updated_at = NOW()
       WHERE id = ANY(${ids}::UUID[])
-        AND (status IN ('imported', 'allocated') OR (status = 'matched' AND reviewed_at IS NULL))
+        AND status IN ('allocated', 'matched') AND reviewed_at IS NULL
+        AND (matched_journal_line_id IS NOT NULL OR provisional_je_id IS NOT NULL)
         AND feed_state = 'posted'
         AND company_id = ${companyId}::UUID
       RETURNING id`) as Row[]);

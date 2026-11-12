@@ -106,19 +106,19 @@ describe('BankTxTable: a new row calls each handler with the row and its value',
 });
 
 describe('BankTxTable: reviewed rows undo through the handler for their status', () => {
-  it('allocated -> onReverse; reconciled -> onUnmatch, and onReverse for "Reverse reconciled"', () => {
-    const p = tableProps({ tab: 'reviewed' });
+  it('allocated -> onReverse; matched -> onUnmatch; reconciled -> no undo at all (locked until reopened)', () => {
+    const m = { id: 'm', description: 'Matched', amount: 40, transactionDate: '2026-06-05', status: 'matched' };
+    const txs = [...TXS, m];
+    const p = tableProps({ tab: 'reviewed', transactions: txs });
     render(<BankTxTable {...p} />);
     fireEvent.click(rowOf('d').getByRole('button', { name: `Undo allocation, ${row('d')}` }));
     expect(p.onReverse).toHaveBeenCalledTimes(1);
     expect(p.onReverse).toHaveBeenLastCalledWith('d');
     expect(p.onUnmatch).not.toHaveBeenCalled();
-    fireEvent.click(rowOf('e').getByRole('button', { name: `Undo allocation, ${row('e')}` }));
+    fireEvent.click(screen.getByRole('button', { name: `Undo allocation, ${rowLabel(m)}` }));
     expect(p.onUnmatch).toHaveBeenCalledTimes(1);
-    expect(p.onUnmatch).toHaveBeenCalledWith('e');
-    fireEvent.click(rowOf('e').getByRole('button', { name: `Reverse reconciled, ${row('e')}` }));
-    expect(p.onReverse).toHaveBeenLastCalledWith('e');
-    expect(p.onReverse).toHaveBeenCalledTimes(2);
+    expect(p.onUnmatch).toHaveBeenCalledWith('m');
+    expect(rowOf('e').queryByRole('button', { name: /^(Undo allocation|Reverse reconciled)/ })).toBeNull();
     expect(p.onAccept).not.toHaveBeenCalled();
   });
 });

@@ -24,7 +24,7 @@ import {
   withBankLockBudget,
 } from './bankTxLock';
 import { openStampOnly, refuseCompletedSession, shareLockSession } from './reconciliationSessionLock';
-import { refuseLineOfCompletedReconciliation } from './reconciledCash';
+import { ReconciledCashError, refuseLineOfCompletedReconciliation } from './reconciledCash';
 import { assertFeedPosted } from './bankFeedStateGuard';
 import { journalReversalState } from './journalReversalState';
 import { refuseResettingProvisionalLine, type ProvisionalLineVerb } from './provisionalLineGuard';
@@ -65,6 +65,11 @@ async function lockForStatusWrite(
   assertFeedPosted(row, verb);
   // D12: a line IN a completed reconciliation (the shared rule; its session was locked with the row) — 409.
   await refuseLineOfCompletedReconciliation(companyId, row);
+  // Hein 2026-11-12: a line reconciled in the Sage import has no session to reopen; it stays as reconciled.
+  if (row.status === 'reconciled' && !row.reconciliation_id) {
+    throw new ReconciledCashError('This line was reconciled in the Sage import, so it cannot be matched, unmatched or '
+      + 'excluded in the app. Correct it with a journal, or contact support.');
+  }
   await refuseResettingProvisionalLine(companyId, row, verb); // D10 O9: a provisional's own line, X standing
   const status = String(row.status ?? '');
   if (status === POSTED_STATUS && row.matched_journal_line_id) {

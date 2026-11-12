@@ -25,7 +25,9 @@ vi.mock('@/modules/accounting/services/capture/captureRowLock', async (orig) => 
   ...(await orig<object>()), lockCapturedDocumentForUpdate: m.lockDoc, lockPostableCaptureEventIds: m.lockEvents,
 }));
 vi.mock('@/modules/accounting/services/capture/captureLifecycleGate', () => ({ releaseClaimForLifecycleAction: m.releaseClaim }));
-vi.mock('@/modules/accounting/services/capture/captureBankTxAttachService', () => ({ attachCapturedDocToBankTx: m.attachBank }));
+vi.mock('@/modules/accounting/services/capture/captureBankTxAttachService', () => ({
+  attachCapturedDocToBankTx: m.attachBank, PREVIOUS_LINE_RECONCILED: 'supports a reconciled bank line',
+}));
 
 import pipeline from '../../../pages/api/accounting/ai-invoice-pipeline';
 import receipt from '../../../pages/api/accounting/receipt-to-journal';
@@ -126,6 +128,14 @@ describe('document-capture-action', () => {
     expect(r.statusCode).toBe(409);
     expect(JSON.stringify(r.sent)).toContain('already supports the VAT on journal JE-9');
     expect(JSON.stringify(r.sent)).toContain('"otherClaim"');
+  });
+
+  it('match_bank_tx: 409 when the move would strip the document from a reconciled line (mig 980)', async () => {
+    m.attachBank.mockResolvedValue({ ok: false, reason: 'previous_line_reconciled' });
+    m.sql.mockResolvedValue([row({ read_state: 'done' })]);
+    const r = await call(action, { id: ID, action: 'match_bank_tx', data: { bankTxId: ID } });
+    expect(r.statusCode).toBe(409);
+    expect(JSON.stringify(r.sent)).toContain('supports a reconciled bank line');
   });
 
   it('match_bank_tx: 503, retryable, when the bank line or document lock is held', async () => {
