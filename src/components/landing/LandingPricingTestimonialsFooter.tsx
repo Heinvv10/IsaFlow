@@ -1,5 +1,6 @@
 import { Check, Star, ChevronDown, ArrowRight } from 'lucide-react';
 import { APP_URL, PRICING_TIERS, FAQ_ITEMS } from './landingData';
+import { COMPARE_ENTRIES } from '@/lib/compare/compareData';
 
 interface FAQProps {
   openFaq: number | null;
@@ -28,11 +29,11 @@ export function LandingPricing() {
           {PRICING_TIERS.map((tier) => (
             <div
               key={tier.name}
-              className={`relative rounded-2xl p-8 ${ tier.popular ? 'bg-gray-900 text-slate-900 dark:text-white shadow-2xl shadow-gray-900/20 ring-2 ring-teal-500' : 'bg-white border border-gray-200 shadow-sm' }`}
+              className={`relative rounded-2xl p-8 ${ tier.popular ? 'bg-gray-900 text-white shadow-2xl shadow-gray-900/20 ring-2 ring-teal-500' : 'bg-white border border-gray-200 shadow-sm' }`}
             >
               {tier.popular && (
                 <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-                  <span className="inline-flex items-center gap-1 px-4 py-1.5 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500 text-slate-900 dark:text-white text-xs font-bold shadow-lg">
+                  <span className="inline-flex items-center gap-1 px-4 py-1.5 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500 text-white text-xs font-bold shadow-lg">
                     <Star className="w-3 h-3 fill-white" /> MOST POPULAR
                   </span>
                 </div>
@@ -61,7 +62,7 @@ export function LandingPricing() {
               </ul>
               <a
                 href={tier.cta === 'Contact Sales' ? '/contact' : `${APP_URL}/register`}
-                className={`block w-full text-center py-3 rounded-xl text-sm font-semibold transition-all ${ tier.popular ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-slate-900 dark:text-white hover:from-teal-600 hover:to-cyan-600 shadow-lg shadow-teal-500/25' : 'bg-gray-900 text-slate-900 dark:text-white hover:bg-gray-800' }`}
+                className={`block w-full text-center py-3 rounded-xl text-sm font-semibold transition-all ${ tier.popular ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white hover:from-teal-600 hover:to-cyan-600 shadow-lg shadow-teal-500/25' : 'bg-gray-900 text-white hover:bg-gray-800' }`}
               >
                 {tier.cta}
               </a>
@@ -97,7 +98,7 @@ export function LandingFAQ({ openFaq, onToggle }: FAQProps) {
               >
                 <span className="font-semibold text-gray-900 text-sm">{item.q}</span>
                 <ChevronDown
-                  className={`w-5 h-5 text-gray-600 dark:text-gray-400 flex-shrink-0 ml-4 transition-transform duration-200 ${ openFaq === i ? 'rotate-180' : '' }`}
+                  className={`w-5 h-5 text-gray-600 flex-shrink-0 ml-4 transition-transform duration-200 ${ openFaq === i ? 'rotate-180' : '' }`}
                 />
               </button>
               {/* Always in the DOM (hidden when closed) so the answer text is crawlable. */}
@@ -115,12 +116,12 @@ export function LandingFAQ({ openFaq, onToggle }: FAQProps) {
 // ── Closing CTA ────────────────────────────────────────────────────────────
 export function LandingCTA() {
   return (
-    <section className="py-20 lg:py-28 bg-white dark:bg-gray-900">
+    <section className="py-20 lg:py-28 bg-gray-900">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-        <h2 className="text-4xl sm:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-4">
+        <h2 className="text-4xl sm:text-5xl font-extrabold text-white tracking-tight mb-4">
           Ready to take control<br />of your finances?
         </h2>
-        <p className="text-lg text-gray-600 dark:text-gray-400 mb-10">
+        <p className="text-lg text-white/70 mb-10">
           Start your free 30-day trial today. No credit card required.
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -132,7 +133,7 @@ export function LandingCTA() {
           </a>
           <a
             href="/contact"
-            className="inline-flex items-center gap-2 px-8 py-4 text-base font-semibold text-slate-900 dark:text-white border border-white/30 rounded-xl hover:bg-white/5 transition-all"
+            className="inline-flex items-center gap-2 px-8 py-4 text-base font-semibold text-white border border-white/30 rounded-xl hover:bg-white/5 transition-all"
           >
             Book a Demo
           </a>
@@ -145,39 +146,48 @@ export function LandingCTA() {
 // ── Footer ─────────────────────────────────────────────────────────────────
 export function LandingFooter() {
   return (
-    <footer className="bg-white dark:bg-gray-900 border-t border-white/10 py-12">
+    <footer className="bg-gray-900 border-t border-white/10 py-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid gap-10 lg:grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))]">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_repeat(5,minmax(0,1fr))]">
           <div>
-            <img src="/logo.png" alt="IsaFlow" className="h-8 w-auto brightness-0 invert opacity-60" />
-            <p className="mt-4 max-w-sm text-sm text-slate-600 dark:text-slate-400">
+            <img src="/landing/logo-nav.webp" alt="IsaFlow" width={389} height={80} loading="lazy" className="h-8 w-auto brightness-0 invert opacity-60" />
+            <p className="mt-4 max-w-sm text-sm text-white/60">
               © {new Date().getFullYear()} Brightsphere Technologies (Pty) Ltd, trading as IsaFlow. All rights reserved.
             </p>
           </div>
           <div className="text-sm">
-            <p className="font-semibold text-gray-900 dark:text-white">Product</p>
-            <div className="mt-3 space-y-2 text-slate-600 dark:text-slate-400">
-              <a href="/#features" className="block hover:text-white transition-colors">Features</a>
+            <p className="font-semibold text-white">Product</p>
+            <div className="mt-3 space-y-2 text-white/60">
+              <a href="/features" className="block hover:text-white transition-colors">Features</a>
               <a href="/pricing" className="block hover:text-white transition-colors">Pricing</a>
             </div>
           </div>
           <div className="text-sm">
-            <p className="font-semibold text-gray-900 dark:text-white">Resources</p>
-            <div className="mt-3 space-y-2 text-slate-600 dark:text-slate-400">
+            <p className="font-semibold text-white">Compare</p>
+            <div className="mt-3 space-y-2 text-white/60">
+              {COMPARE_ENTRIES.map((e) => (
+                <a key={e.slug} href={`/compare/${e.slug}`} className="block hover:text-white transition-colors">IsaFlow vs {e.name}</a>
+              ))}
+            </div>
+          </div>
+          <div className="text-sm">
+            <p className="font-semibold text-white">Resources</p>
+            <div className="mt-3 space-y-2 text-white/60">
               <a href="/blog" className="block hover:text-white transition-colors">Blog</a>
               <a href="/help" className="block hover:text-white transition-colors">Help</a>
               <a href="/#faq" className="block hover:text-white transition-colors">FAQ</a>
             </div>
           </div>
           <div className="text-sm">
-            <p className="font-semibold text-gray-900 dark:text-white">Company</p>
-            <div className="mt-3 space-y-2 text-slate-600 dark:text-slate-400">
+            <p className="font-semibold text-white">Company</p>
+            <div className="mt-3 space-y-2 text-white/60">
+              <a href="/about" className="block hover:text-white transition-colors">About</a>
               <a href="/contact" className="block hover:text-white transition-colors">Contact</a>
             </div>
           </div>
           <div className="text-sm">
-            <p className="font-semibold text-gray-900 dark:text-white">Legal</p>
-            <div className="mt-3 space-y-2 text-slate-600 dark:text-slate-400">
+            <p className="font-semibold text-white">Legal</p>
+            <div className="mt-3 space-y-2 text-white/60">
               <a href="/privacy" className="block hover:text-white transition-colors">Privacy</a>
               <a href="/terms" className="block hover:text-white transition-colors">Terms</a>
             </div>

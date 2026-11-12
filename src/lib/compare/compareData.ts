@@ -1,7 +1,8 @@
 /**
- * Content for /compare/{sage,xero,quickbooks}. Rules: plain short sentences, no
+ * Content for /compare/{sage,xero,quickbooks,simplepay,payspace}. Rules: plain short sentences, no
  * competitor prices, no invented numbers. Claims about competitors stay general
  * and tell the reader to check the vendor. Claims about IsaFlow match the product.
+ * SimplePay and PaySpace are payroll products: those two pages compare payroll only.
  */
 import type { FaqEntry } from '@/lib/seo/faqSchema';
 
@@ -12,7 +13,7 @@ export interface CompareRow {
 }
 
 export interface CompareEntry {
-  slug: 'sage' | 'xero' | 'quickbooks';
+  slug: 'sage' | 'xero' | 'quickbooks' | 'simplepay' | 'payspace';
   /** Short brand name used in headings. */
   name: string;
   /** Full product name. */
@@ -41,7 +42,7 @@ const PAYROLL_ROW: CompareRow = {
 
 const BANK_ROW: CompareRow = {
   topic: 'Bank reconciliation',
-  isaflow: 'Imports statements (CSV, OFX, QFX, QIF, MT940, PDF) and matches them with rules and AI. No live direct feed from every bank.',
+  isaflow: 'Imports statements (CSV, OFX, QFX, QIF, MT940, PDF) and matches them with rules and AI. IsaFlow does not connect live to any bank.',
   other: 'Check which South African banks offer a live feed.',
 };
 
@@ -50,6 +51,41 @@ const FIXED_ROW: CompareRow = {
   isaflow: 'Fixed assets, budgets and financial reports are part of the product. Annual financial statements are on the Premium plan.',
   other: 'Check what is in your plan and what needs an add-on or app.',
 };
+
+const VENDOR_SITE = "See the vendor's own site for current details.";
+
+// IsaFlow payroll facts: faqData.ts, content/help/running-payroll.md,
+// content/help/getting-started-for-a-bureau.md and PAYROLL_ADDON in pricingData.ts.
+const PAYROLL_COMPARE_ROWS: CompareRow[] = [
+  { topic: 'What it is', isaflow: 'Accounting and payroll in one product. Payroll is an add-on.', other: 'A payroll product. Check which accounting software it works with.' },
+  { topic: 'PAYE, UIF and SDL', isaflow: 'Calculated on each pay run from versioned SARS tax tables, with ETI where it is set up.', other: VENDOR_SITE },
+  { topic: 'Payslips', isaflow: 'Produced from each pay run.', other: VENDOR_SITE },
+  { topic: 'EMP201, EMP501 and IRP5/IT3(a)', isaflow: 'Prepares EMP201 for you to file on eFiling, and EMP501 and IRP5/IT3(a) for you to submit through e@syFile Employer.', other: 'Check which SARS returns and files your plan prepares.' },
+  { topic: 'Payroll journal', isaflow: 'Approving a pay run posts the payroll journal to the general ledger in the same product.', other: 'Check how payroll journals reach your accounting software.' },
+  { topic: 'Bureaus and practices', isaflow: 'Each client is its own company with its own ledger, payroll and VAT. One bureau dashboard lists the work owed across your clients.', other: 'Check what the vendor offers for bureaus and accountants.' },
+  { topic: 'Pricing', isaflow: 'Payroll is priced per active employee per month. See the pricing page.', other: "See the vendor's own pricing page." },
+  { topic: 'Moving over', isaflow: 'Employees and year-to-date figures are not imported. You set up employees and pay packages in IsaFlow.', other: 'Not applicable. You already use it.' },
+];
+
+const PAYROLL_ISAFLOW_STRENGTHS = [
+  'Payroll and accounting in one product: approving a pay run posts the payroll journal to your general ledger.',
+  'EMP201 is prepared for eFiling, and EMP501 and IRP5/IT3(a) for e@syFile Employer, next to your VAT201.',
+  'Built for bureaus and practices: each client is its own company, with one bureau dashboard across all of them.',
+  'Plans are priced in rand, with a 30-day free trial.',
+];
+
+const payrollSwitching = (name: string): string =>
+  `IsaFlow does not import employees or year-to-date payroll figures from ${name}. You add employees and pay packages in IsaFlow. We suggest that your first IsaFlow pay run is March, the start of the tax year. Before you switch, run one month in both systems and compare gross pay, PAYE, UIF, SDL and net pay.`;
+
+const PAYROLL_FAQ_COMMON = [
+  { q: 'Does IsaFlow handle PAYE, UIF and SDL?', a: 'Yes. IsaFlow payroll calculates PAYE, UIF and SDL, produces payslips, and prepares EMP201 and IRP5 data. It is an add-on priced per active employee per month.' },
+  { q: 'How do I file EMP201 and IRP5 from IsaFlow?', a: 'IsaFlow prepares EMP201 for you to file on SARS eFiling, and EMP501 and IRP5/IT3(a) for you to submit through e@syFile Employer. You do the filing yourself.' },
+];
+
+const payrollMoveFaq = (name: string) => ({
+  q: `Can I move my payroll from ${name} to IsaFlow?`,
+  a: 'Yes. IsaFlow does not import employees or year-to-date figures, so you set up employees and pay packages in IsaFlow. We suggest starting with the March pay run, the start of the tax year, and comparing one month in both systems first.',
+});
 
 export const COMPARE_ENTRIES: CompareEntry[] = [
   {
@@ -137,6 +173,50 @@ export const COMPARE_ENTRIES: CompareEntry[] = [
       { q: 'Does IsaFlow handle South African payroll?', a: 'Yes. IsaFlow payroll calculates PAYE, UIF and SDL and prepares payslips plus EMP201 and IRP5 data. It is an add-on priced per active employee.' },
       { q: 'Does IsaFlow prepare VAT201?', a: 'Yes. IsaFlow prepares VAT201 figures for each VAT period and flags problems before you file. You capture the return on SARS eFiling yourself.' },
       { q: 'What does QuickBooks do better than IsaFlow?', a: 'QuickBooks is a larger international brand with more integrations and mobile apps. If you rely on a particular integration, check that IsaFlow supports it.' },
+    ],
+  },
+  {
+    slug: 'simplepay',
+    name: 'SimplePay',
+    product: 'SimplePay',
+    title: 'IsaFlow vs SimplePay: Payroll Software Comparison for South Africa',
+    description: 'How IsaFlow payroll and SimplePay compare for South African employers, practices and bureaus: PAYE, UIF and SDL, payslips, EMP201, IRP5 and switching.',
+    intro: 'SimplePay is a South African cloud payroll product. IsaFlow is accounting software with payroll built in, so pay runs and the books live in one place. This page compares payroll only, in plain terms, so you can choose.',
+    rows: PAYROLL_COMPARE_ROWS,
+    otherStrengths: [
+      'A dedicated payroll product: payroll is its whole focus.',
+      'It may be all you need if you only want payroll and are happy with your current accounting software.',
+      'If you rely on a particular payroll feature, check its site and check that IsaFlow has it before you move.',
+    ],
+    isaflowStrengths: PAYROLL_ISAFLOW_STRENGTHS,
+    switching: payrollSwitching('SimplePay'),
+    faq: [
+      { q: 'Is IsaFlow a payroll product like SimplePay?', a: 'IsaFlow is accounting software with payroll built in as an add-on. SimplePay is a payroll product. If you want payroll and your books in one place, IsaFlow covers both. If you only need payroll, a payroll-only product may suit you.' },
+      ...PAYROLL_FAQ_COMMON,
+      payrollMoveFaq('SimplePay'),
+      { q: 'What does SimplePay do better than IsaFlow?', a: 'SimplePay is a dedicated payroll product, so payroll is its whole focus. Check its site for features you need, and compare the total cost for your number of employees.' },
+    ],
+  },
+  {
+    slug: 'payspace',
+    name: 'PaySpace',
+    product: 'PaySpace',
+    title: 'IsaFlow vs PaySpace: Payroll Software Comparison for South Africa',
+    description: 'How IsaFlow payroll and PaySpace compare for South African employers, practices and bureaus: PAYE, UIF and SDL, payslips, EMP201, IRP5 and switching.',
+    intro: 'PaySpace is a cloud payroll and HR product used in South Africa. IsaFlow is accounting software with payroll built in, so pay runs and the books live in one place. This page compares payroll only, in plain terms, so you can choose.',
+    rows: PAYROLL_COMPARE_ROWS,
+    otherStrengths: [
+      'A dedicated payroll and HR product.',
+      'If you need HR tools as well as payroll, check what it offers.',
+      'If you run payroll in more than one country, check which countries each product supports.',
+    ],
+    isaflowStrengths: PAYROLL_ISAFLOW_STRENGTHS,
+    switching: payrollSwitching('PaySpace'),
+    faq: [
+      { q: 'Is IsaFlow a payroll product like PaySpace?', a: 'IsaFlow is accounting software with payroll built in as an add-on. PaySpace is a payroll and HR product. If you want payroll and your books in one place, IsaFlow covers both. If you need a separate payroll and HR system, a specialist product may suit you.' },
+      ...PAYROLL_FAQ_COMMON,
+      payrollMoveFaq('PaySpace'),
+      { q: 'What does PaySpace do better than IsaFlow?', a: 'PaySpace is a dedicated payroll and HR product. Check its site for the HR and payroll features you need, and compare the total cost for your number of employees.' },
     ],
   },
 ];
