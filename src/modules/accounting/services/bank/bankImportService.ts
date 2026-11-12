@@ -9,6 +9,7 @@ import { sweep, type SweepWarning } from './autoPostGateService';
 import { withLedgerDays } from './bankStatementLedgerDays';
 import type { BankCsvParseResult } from '../../types/bank.types';
 import { autoLinkImportedBatchTransfers, relinkTransferCounterparts } from './bankTransferLinkService';
+import { newLinkBatchId } from './bankTransferLinkLog';
 import type { ImportProvenance } from './importProvenance';
 
 // A statement upload's provenance, for importParsedTransactions' upload caller (bank-transactions-bulk-commit).
@@ -138,11 +139,13 @@ export async function importParsedTransactions(
     // both must honour one-bank-line-per-GL-movement and both must run inside
     // a savepoint, and keeping two copies of that SQL here is what let this
     // one keep the defect the other had fixed.
-    const batchLink = await autoLinkImportedBatchTransfers(companyId, batchId);
+    // One link batch for both passes: the import's links are one entry in the transfer link log (migration 978).
+    const linkTrigger = { source: 'import' as const, linkBatchId: newLinkBatchId(), importBatchId: batchId };
+    const batchLink = await autoLinkImportedBatchTransfers(companyId, batchId, linkTrigger);
 
     // Broader re-link pass: catches account-type allocations to bank GL accounts
     // (e.g. user allocated the other leg as 'Account' rather than 'Transfer')
-    const accountLink = await relinkTransferCounterparts(companyId, bankAccountId);
+    const accountLink = await relinkTransferCounterparts(companyId, bankAccountId, linkTrigger);
 
     // Both passes swallow their error to keep the import non-fatal. Reporting a
     // clean import when the transfer linking failed outright is what left the

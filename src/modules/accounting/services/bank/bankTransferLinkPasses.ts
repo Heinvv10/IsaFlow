@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import { lockBankTransactionsInIdOrder } from './bankTxLock';
 import { shareLockChainHeadOf } from '../shared/journalChainHead';
 import { journalStandsUnbrokenFragment } from '../shared/journalInForceAsAt';
+import { pairNotUndoneFragment, type TransferLinkTrigger } from './bankTransferLinkLog';
 
 export type Row = Record<string, unknown>;
 
@@ -30,6 +31,8 @@ export interface TransferLinkResult {
    */
   passes: number;
   failed: boolean;
+  /** The trigger's batch id when something linked (its log rows carry it); null when nothing did or the pass failed. */
+  batchId: string | null;
 }
 
 /**
@@ -66,8 +69,10 @@ export async function runLinkPasses(
   label: string,
   savepointName: string,
   context: Record<string, unknown>,
+  trigger: TransferLinkTrigger,
   pass: () => Promise<Row[]>,
 ): Promise<TransferLinkResult> {
+  context = { ...context, linkBatchId: trigger.linkBatchId };
   try {
     return await withSavepoint(savepointName, async () => {
       let linked = 0;
@@ -84,11 +89,11 @@ export async function runLinkPasses(
         }
       }
       if (linked > 0) log.info(label, { ...context, linked, passes }, 'accounting');
-      return { linked, passes, failed: false };
+      return { linked, passes, failed: false, batchId: linked > 0 ? trigger.linkBatchId : null };
     });
   } catch (err) {
     log.warn(`${label} failed — non-fatal`, { ...context, error: err }, 'accounting');
-    return { linked: 0, passes: 0, failed: true };
+    return { linked: 0, passes: 0, failed: true, batchId: null };
   }
 }
 
@@ -98,38 +103,75 @@ export interface TransferLinkPair {
 }
 
 /**
- * Apply a pass's pairings (D12 round 4, brk-d12 R3-1): a link ties a statement line to an EXISTING journal, so — as a
- * match does — the lines are locked first (their sessions first, `lockBankTransactionsInIdOrder`), then each target
- * journal's chain HEAD FOR SHARE (`shareLockChainHeadOf`, 5 s → 503); a reversal in flight on that chain is waited for,
+ * Apply a pass's pairings (D12 round 4, brk-d12 R3-1): a link ties a statement line to an EXISTING journal, so (as a
+ * match does) the lines are locked first (their sessions first, `lockBankTransactionsInIdOrder`), then each target
+ * journal's chain HEAD FOR SHARE (`shareLockChainHeadOf`, 5 s to 503); a reversal in flight on that chain is waited for,
  * and the UPDATE re-reads under those locks that the journal still stands. Bank line -> journal head, the one order.
  * `transfer_journal_entry_id` is set alongside the line: the duplicate-transfer guard in bankAllocationService selects
  * on it, so a linked row without it is invisible to that guard.
+ *
+ * Migration 978: the same statement writes one `bank_transfer_link_log` row per link with the line's previous fields
+ * (`prev` reads the pre-UPDATE snapshot of rows already locked above) and the `updated_at` the link left, so an undo can
+ * restore the line exactly. One statement inside the caller's savepoint: a link never commits without its log row.
+ * A pair the user undid is never linked again (`pairNotUndoneFragment`).
  */
-export async function applyTransferLinks(companyId: string, pairs: TransferLinkPair[]): Promise<Row[]> {
+export async function applyTransferLinks(
+  companyId: string,
+  pairs: TransferLinkPair[],
+  trigger: TransferLinkTrigger,
+): Promise<Row[]> {
   if (pairs.length === 0) return [];
   await lockBankTransactionsInIdOrder(companyId, pairs.map((p) => p.new_tx_id));
   for (const je of [...new Set(pairs.map((p) => String(p.je_id)))].sort()) await shareLockChainHeadOf(companyId, je);
   return (await sql`
-    UPDATE bank_transactions bt
-    SET status                    = 'allocated',
-        allocation_type           = 'transfer',
-        transfer_journal_entry_id = m.je_id,
-        matched_journal_line_id   = m.je_line_id,
-        counterparty_account_id   = m.counterparty_bank_id,
-        allocated_entity_name     = m.entity_name,
-        -- Redundant today (the WHERE is status='imported', which a rule-posted row can never be) but keeps every
-        -- writer of allocated_entity_name symmetrical.
-        allocation_rule_id = NULL, allocation_rule_name = NULL,
-        updated_at                = NOW()
-    FROM jsonb_to_recordset(${JSON.stringify(pairs)}::JSONB)
-      AS m(new_tx_id UUID, je_id UUID, je_line_id UUID, counterparty_bank_id UUID, entity_name TEXT)
-    JOIN gl_journal_entries je ON je.id = m.je_id AND je.company_id = ${companyId}::UUID
-    WHERE bt.id         = m.new_tx_id
-      AND bt.company_id = ${companyId}::UUID
-      AND bt.status     = 'imported'
-      AND bt.feed_state = 'posted'
-      AND je.status     = 'posted' AND ${journalStandsUnbrokenFragment('je.id', companyId)}
-      AND NOT EXISTS (SELECT 1 FROM bank_transactions u
-        WHERE u.company_id = ${companyId}::UUID AND u.matched_journal_line_id = m.je_line_id)
-    RETURNING bt.id`) as Row[];
+    WITH m AS (
+      SELECT * FROM jsonb_to_recordset(${JSON.stringify(pairs)}::JSONB)
+        AS m(new_tx_id UUID, je_id UUID, je_line_id UUID, counterparty_bank_id UUID, entity_name TEXT)
+    ),
+    prev AS (
+      SELECT bt.id, bt.bank_account_id, bt.status, bt.allocation_type, bt.transfer_journal_entry_id,
+             bt.matched_journal_line_id, bt.counterparty_account_id, bt.allocated_entity_name,
+             bt.allocation_rule_id, bt.allocation_rule_name
+      FROM bank_transactions bt JOIN m ON m.new_tx_id = bt.id
+      WHERE bt.company_id = ${companyId}::UUID
+    ),
+    upd AS (
+      UPDATE bank_transactions bt
+      SET status                    = 'allocated',
+          allocation_type           = 'transfer',
+          transfer_journal_entry_id = m.je_id,
+          matched_journal_line_id   = m.je_line_id,
+          counterparty_account_id   = m.counterparty_bank_id,
+          allocated_entity_name     = m.entity_name,
+          -- Redundant today (the WHERE is status='imported', which a rule-posted row can never be) but keeps every
+          -- writer of allocated_entity_name symmetrical.
+          allocation_rule_id = NULL, allocation_rule_name = NULL,
+          updated_at                = NOW()
+      FROM m
+      JOIN gl_journal_entries je ON je.id = m.je_id AND je.company_id = ${companyId}::UUID
+      WHERE bt.id         = m.new_tx_id
+        AND bt.company_id = ${companyId}::UUID
+        AND bt.status     = 'imported'
+        AND bt.feed_state = 'posted'
+        AND je.status     = 'posted' AND ${journalStandsUnbrokenFragment('je.id', companyId)}
+        AND NOT EXISTS (SELECT 1 FROM bank_transactions u
+          WHERE u.company_id = ${companyId}::UUID AND u.matched_journal_line_id = m.je_line_id)
+        AND ${pairNotUndoneFragment('m.new_tx_id', 'm.je_line_id', companyId)}
+      RETURNING bt.id, bt.updated_at
+    ),
+    ins AS (
+      INSERT INTO bank_transfer_link_log (company_id, link_batch_id, bank_transaction_id, bank_account_id,
+        journal_entry_id, journal_line_id, counterparty_account_id, trigger_source, import_batch_id,
+        prev_status, prev_allocation_type, prev_transfer_journal_entry_id, prev_matched_journal_line_id,
+        prev_counterparty_account_id, prev_allocated_entity_name, prev_allocation_rule_id, prev_allocation_rule_name,
+        linked_row_updated_at)
+      SELECT ${companyId}::UUID, ${trigger.linkBatchId}::UUID, upd.id, prev.bank_account_id,
+        m.je_id, m.je_line_id, m.counterparty_bank_id, ${trigger.source}, ${trigger.importBatchId ?? null}::UUID,
+        prev.status, prev.allocation_type, prev.transfer_journal_entry_id, prev.matched_journal_line_id,
+        prev.counterparty_account_id, prev.allocated_entity_name, prev.allocation_rule_id, prev.allocation_rule_name,
+        upd.updated_at
+      FROM upd JOIN prev ON prev.id = upd.id JOIN m ON m.new_tx_id = upd.id
+      RETURNING bank_transaction_id
+    )
+    SELECT bank_transaction_id AS id FROM ins`) as Row[];
 }
