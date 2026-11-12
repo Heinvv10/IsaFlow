@@ -15,7 +15,7 @@ import { todayInSast } from '@/lib/saDateParser';
 import { aggregateBureauWork, type CompanyMeta } from '@/modules/bureau/services/bureauWorkAggregatorService';
 import { getOwnerCashPosition } from '@/modules/bureau/services/ownerCashPositionService';
 import { getHeadlineCounts } from '../reports/headlineFigures';
-import { getAROutstandingSummary } from '../ar/arOutstandingService';
+import { getOpenBook } from '../reports/dashboardOpenBook';
 import { getCashBalance } from '../bank/cashBalanceService';
 import { getUnreconciledBankTxns, getOpenPriorPeriods } from './workbenchService';
 import { shapeAttention, type AttentionList, type OpenPayRun } from './attentionShape';
@@ -39,7 +39,8 @@ export async function getAttentionList(companyId: string, now: Date = new Date()
   const asAt = todayInSast(now);
   const [counts, ar, unreconciledBankTxns, openPriorPeriods, cashBalance, payRuns] = await Promise.all([
     getHeadlineCounts(companyId, asAt),
-    getAROutstandingSummary(companyId),
+    // The Receivables card's own population and day (headlineFigures), so the row and the card's "overdue" are one figure.
+    getOpenBook(companyId, 'ar', asAt),
     getUnreconciledBankTxns(companyId),
     getOpenPriorPeriods(companyId),
     getCashBalance(companyId, asAt),
@@ -56,7 +57,7 @@ export async function getAttentionList(companyId: string, now: Date = new Date()
     asAt,
     today: now,
     counts,
-    overdueInvoices: { count: ar.overdueCount, amount: ar.overdueAmount },
+    overdueInvoices: { count: ar.overdueCount, amount: ar.overdue },
     unreconciledBankTxns,
     openPriorPeriods,
     payRuns,

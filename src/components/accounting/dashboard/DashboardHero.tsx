@@ -117,8 +117,8 @@ export function DashboardHero({
 
         {/* Pill tab bar — integrated into the card */}
         {/* Scrolls sideways when narrower than the tabs (390 px phones). */}
-        <div
-          role="tablist"
+        {/* Plain buttons, not an ARIA tablist: two of the items open another page. */}
+        <nav
           aria-label="Dashboard sections"
           className="flex items-center gap-1 backdrop-blur-sm rounded-xl p-1 w-fit max-w-full overflow-x-auto"
           style={{ background: 'var(--ff-canvas-base)', border: '1px solid var(--ff-canvas-border)' }}
@@ -130,8 +130,7 @@ export function DashboardHero({
               <button
                 key={tab.id}
                 type="button"
-                role="tab"
-                aria-selected={isActive}
+                aria-current={isActive ? 'page' : undefined}
                 onClick={() => onTabChange(tab.id)}
                 style={isActive ? { background: 'var(--ff-brand-dark)' } : {}}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap shrink-0 ${isActive ? 'text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-900/5 dark:hover:bg-white/5' }`}
@@ -141,7 +140,7 @@ export function DashboardHero({
               </button>
             );
           })}
-        </div>
+        </nav>
       </div>
     </div>
   );

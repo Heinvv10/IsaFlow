@@ -3,8 +3,9 @@
  * (accounting/services/dashboard/attentionService).
  *
  * Answers two plain-language questions for a business owner:
- *  - "Can I pay salaries?": cash vs the full outflow of the earliest open
- *    payroll run of this SAST month or the month before (never an older one)
+ *  - "Can I pay salaries?": cash vs the full outflow of each open payroll run
+ *    of this SAST month or the month before (never an older one); see
+ *    pickPayrollRun for which run is reported
  *  - "VAT set-aside": the current expected VAT period's net liability
  *
  * Sections are advisory estimates: each is computed fail-soft (null on error,
@@ -97,9 +98,20 @@ export function shapeVatSetAside(netVat: number, period: VatPeriod): CashPositio
   return { periodLabel, dueDate: period.dueDate, netVat };
 }
 
+/**
+ * Which run of the window to report: the earliest one with totals that cash
+ * cannot cover; else the latest one with totals; else the earliest run. A run
+ * with no totals yet (a draft) never hides a shortfall on another run.
+ */
+export function pickPayrollRun(runs: PayrollRunRow[], cash: number): CashPositionPayroll | null {
+  const shaped = runs.map((r) => shapePayrollAffordability(r, cash)!);
+  const withTotals = shaped.filter((p) => p.totalRequired > 0);
+  return withTotals.find((p) => !p.canPay) ?? withTotals[withTotals.length - 1] ?? shaped[0] ?? null;
+}
+
 // ── Private section helpers ───────────────────────────────────────────────────
 
-/** The earliest open run of `asAt`'s month or the month before: a forgotten 2020 run is not "the next" one. */
+/** The open runs of `asAt`'s month and the month before: a forgotten 2020 run is not "the next" one. */
 async function nextPayrollSection(
   companyId: string,
   cash: number,
@@ -114,9 +126,8 @@ async function nextPayrollSection(
        AND status IN ('draft','calculated','approved')
        AND (period_year * 12 + period_month) BETWEEN ${cur - PAY_RUN_WINDOW_MONTHS_BACK}::int AND ${cur}::int
      ORDER BY period_year, period_month
-     LIMIT 1
   `) as unknown as PayrollRunRow[];
-  return shapePayrollAffordability(rows[0] ?? null, cash);
+  return pickPayrollRun(rows, cash);
 }
 
 async function vatSection(companyId: string, today: Date): Promise<CashPositionVat | null> {
