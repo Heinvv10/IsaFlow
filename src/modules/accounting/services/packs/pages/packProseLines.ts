@@ -8,11 +8,12 @@
  * and weight), filling lines as the print does (`packProseFill.proseFill`). The style's size and weight come from
  * `packProseStyles`, held to the CSS.
  *
- * A character the faces do not set is priced from the fallback tables (measured alone in production's image), as the
- * em model priced it: a KNOWN LIMIT, unreached by any fixture. A joined script (Syriac, Arabic, Mongolian) can set a run
- * wider joined than its letters alone (Syriac SADHE 7.52px alone, about 10.3px joined), so a long run of one in prose
- * can read a line short. Pricing every fallback glyph at the widest (7.25em) would be never short, but it cut the
- * dense pack's Japanese matters from 12 to 5 of 15 (#1261 round 2), so the tables stay. A run of a script Chromium
+ * A character the faces do not set is priced from the fallback tables (measured alone in production's image). What the
+ * tables cannot see (a joined script set wider joined than alone, a mark or symbol the primary face lacks that makes later
+ * symbols draw in a wider face, ZWNJ between consonants) is held by the FLOOR (`packProseFloor`, #1264 round 9): a text
+ * holding a code point the faces do not set is priced at max(this model, the pre-#1263 em model) in lines. Pricing every
+ * fallback glyph at the widest (7.25em) would be never short too, but it cut the dense pack's Japanese matters from 12 to
+ * 5 of 15 (#1261 round 2), so the tables stay for the width side. A run of a script Chromium
  * breaks by dictionary (Thai, Lao, Myanmar, Khmer) is one piece here and is filled grapheme by grapheme; the markup sets
  * it to break anywhere so Chromium does too (`packDictionaryBreak`), and a spacing mark costs its own advance
  * (`packFallbackWidthCore`).
@@ -22,6 +23,7 @@ import { textExactPx } from './packFigureWidth';
 import { FALLBACK } from './packFallbackWidthData';
 import { graphemes } from './packGraphemes';
 import { KEPT_CHARS, PROSE_TEXT_CAP, proseFill, SHAPED_CLUSTER, type ProseSegment } from './packProseFill';
+import { floored } from './packProseFloor';
 import type { ProseStyle, ProseWeight } from './packProseStyles';
 
 export { PROSE_GUARD_PX, type ProseSegment } from './packProseFill';
@@ -83,14 +85,24 @@ export const forgetLongLines = (): void => { LONG_LINES.clear(); };
 /**
  * The lines of SHORT texts (and segments) at a style and width, kept: the composer measures the same captions, notes and
  * labels again on every fit attempt of every page, and filling them anew made the pack's composition twice as slow
- * (#1263: the unit suite ran past CI's job cap). Bounded in entries of at most LONG_TEXT characters, cleared when full.
+ * (#1263: the unit suite ran past CI's job cap). Bounded in entries (SHORT_KEPT) and in key text (SHORT_UNITS), texts of at most LONG_TEXT characters, cleared when full.
  */
 const SHORT_LINES = new Map<string, number>();
 const SHORT_KEPT = 20_000;
+/** And in the key text kept, in code units (about 4 MB): 20,000 entries of 1,000 characters would be tens of MB. */
+const SHORT_UNITS = 2_000_000;
+let shortUnits = 0;
+
+/** What the short-lines cache holds, for `packProseLineCache.test.ts`: entries, and code units of key text. */
+export const keptShortLines = (): { entries: number; units: number } => ({ entries: SHORT_LINES.size, units: shortUnits });
 
 /** A key naming the text (or its segments, each weight and length with its text: no two inputs share one). */
 const shortKey = (text: string | readonly ProseSegment[], style: ProseStyle, widthMm: number): string =>
   `${style.pt}|${style.weight}|${widthMm}|${typeof text === 'string' ? `|${text}` : text.map((s) => `${s.weight}:${s.text.length}:${s.text}`).join('')}`;
+
+/** The width model's lines for `text`, raised to the em model's where the text holds a code point the faces do not set. */
+const filled = (text: string | readonly ProseSegment[], style: ProseStyle, widthMm: number): number =>
+  floored(proseFill(text, style, widthMm, exactPx), text, style, widthMm);
 
 /** The lines `text` (or its segments) takes set in `style`, `widthMm` wide. */
 export function proseLines(text: string | readonly ProseSegment[], style: ProseStyle, widthMm: number): number {
@@ -99,17 +111,21 @@ export function proseLines(text: string | readonly ProseSegment[], style: ProseS
     const key = shortKey(text, style, widthMm);
     let lines = SHORT_LINES.get(key);
     if (lines === undefined) {
-      lines = proseFill(text, style, widthMm, exactPx);
-      if (SHORT_LINES.size >= SHORT_KEPT) SHORT_LINES.clear();
+      lines = filled(text, style, widthMm);
+      if (SHORT_LINES.size >= SHORT_KEPT || shortUnits + key.length > SHORT_UNITS) {
+        SHORT_LINES.clear();
+        shortUnits = 0;
+      }
       SHORT_LINES.set(key, lines);
+      shortUnits += key.length;
     }
     return lines;
   }
-  if (typeof text !== 'string' || text.length > PROSE_TEXT_CAP) return proseFill(text, style, widthMm, exactPx);
+  if (typeof text !== 'string' || text.length > PROSE_TEXT_CAP) return filled(text, style, widthMm);
   const key = `${style.pt}|${style.weight}|${widthMm}|${text}`;
   let lines = LONG_LINES.get(key);
   if (lines === undefined) {
-    lines = proseFill(text, style, widthMm, exactPx);
+    lines = filled(text, style, widthMm);
     if (LONG_LINES.size >= LONG_KEPT) LONG_LINES.delete(LONG_LINES.keys().next().value!);
     LONG_LINES.set(key, lines);
   }

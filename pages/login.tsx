@@ -19,6 +19,7 @@ import { ApiEnvelopeError, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LoginBrandPanel } from '@/components/auth/LoginBrandPanel';
+import { AdminSignInNav, AdminSignInNotice } from '@/components/auth/AdminSignInChrome';
 import { useResumeRenewedSession } from '@/components/auth/useResumeRenewedSession';
 
 type LoginStep = 'credentials' | 'totp';
@@ -220,7 +221,8 @@ function isSafeRedirect(url: string): boolean {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-export default function LoginPage() {
+/** adminConsole: the admin host's sign-in (pages/console-sign-in.tsx); same form, admin chrome. */
+export default function LoginPage({ adminConsole = false }: { adminConsole?: boolean }) {
   const router = useRouter();
   const { error, clearError, isAuthenticated, loading: authLoading } = useAuth();
 
@@ -463,6 +465,7 @@ export default function LoginPage() {
       <div className="absolute inset-0 z-[1] bg-[linear-gradient(90deg,rgba(3,12,27,0.42)_0%,rgba(3,12,27,0.16)_44%,rgba(3,12,27,0)_100%)]" />
       <div className="absolute inset-0 z-[1] bg-[linear-gradient(180deg,rgba(2,8,23,0.22)_0%,rgba(2,8,23,0)_45%,rgba(2,8,23,0.44)_100%)]" />
 
+      {adminConsole ? <AdminSignInNav /> : (
       <nav className="relative z-10 border-b border-white/10 bg-slate-950/75 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:h-20 lg:px-8">
           <Link href="/" className="flex items-center">
@@ -504,18 +507,19 @@ export default function LoginPage() {
           </div>
         </div>
       </nav>
+      )}
 
       <main className="relative z-10 mx-auto grid min-h-[calc(100vh-4rem)] max-w-6xl items-center gap-8 px-4 py-8 sm:px-6 lg:min-h-[calc(100vh-5rem)] lg:grid-cols-[minmax(0,1.08fr)_minmax(380px,440px)] lg:gap-10 lg:px-8 lg:py-10">
-        <LoginBrandPanel />
+        {adminConsole ? <AdminSignInNotice /> : <LoginBrandPanel />}
 
         <div className="mx-auto w-full max-w-md lg:-mt-10">
 
         <div className="mb-5 text-center text-white lg:text-left">
           <h2 className="text-2xl font-bold tracking-normal">
-            {showTotpStep ? 'Verify your identity' : 'Welcome back'}
+            {showTotpStep ? 'Verify your identity' : adminConsole ? 'Admin console: sign in' : 'Welcome back'}
           </h2>
           <p className="mt-1 text-sm text-white/70">
-            {showTotpStep ? 'Complete two-factor authentication' : 'Sign in to your ISAFlow account'}
+            {showTotpStep ? 'Complete two-factor authentication' : adminConsole ? 'Sign in with your platform administrator account' : 'Sign in to your ISAFlow account'}
           </p>
         </div>
 
@@ -671,7 +675,7 @@ export default function LoginPage() {
         {/* Footer link — only on credentials screen. Pre-launch, public
             signups land on the waitlist form; invite flows keep the real
             "create account" wording. */}
-        {!showTotpStep && (
+        {!showTotpStep && !adminConsole && (
           <p className="mt-6 text-center text-sm text-white/75">
             Don&apos;t have an account?{' '}
             <Link

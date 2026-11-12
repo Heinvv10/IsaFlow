@@ -37,9 +37,9 @@ describe('commentaryCost', () => {
     expect(commentaryCost([alt])).toBeGreaterThanOrEqual(commentaryCost([uniform]));
   });
 
-  it('charges 90 Chinese characters at the fallback tables\' width, well inside the budget (#1261 round 2, blind L1: a 7.25em charge made it 673)', () => {
+  it('charges 90 Chinese characters at the em model\'s floor, well inside the budget (#1261 round 2, blind L1: a 7.25em charge made it 673; #1264 round 9: the floor, 3 lines of 49.3 ems against the fallback tables\' 126)', () => {
     const chinese = '\u6536'.repeat(90);
-    expect(Math.round(commentaryCost([chinese]))).toBe(126);
+    expect(Math.round(commentaryCost([chinese]))).toBe(148);
     expect(commentaryCost([chinese])).toBeLessThan(MAX_APPROVED_PACK_EMS);
   });
 

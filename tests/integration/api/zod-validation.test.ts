@@ -23,6 +23,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
 import { assertNotProductionDb } from '../../helpers/assertNotProductionDb';
+import { IN_INTEGRATION_GATE } from '../../helpers/integrationGate';
+
+// ci-integration-skip: drives a running dev server over HTTP (TEST_BASE_URL, default localhost:3200); the CI gate starts none. Run it with bun run test:integration beside bun run dev.
 
 const BASE = process.env.TEST_BASE_URL ?? 'http://localhost:3200';
 
@@ -188,7 +191,7 @@ function assertRejected(
 // ---------------------------------------------------------------------------
 // 1. POST /api/auth/login
 // ---------------------------------------------------------------------------
-describe('Input validation — POST /api/auth/login', () => {
+describe.skipIf(IN_INTEGRATION_GATE)('Input validation — POST /api/auth/login', () => {
   beforeAll(async () => {
     const available = await serverAvailable();
     if (!available) {
@@ -244,7 +247,7 @@ describe('Input validation — POST /api/auth/login', () => {
 // sixth case here will start 429ing the last one — raise the handler's budget
 // or fold cases together instead.
 // ---------------------------------------------------------------------------
-describe('Input validation — POST /api/auth/register', () => {
+describe.skipIf(IN_INTEGRATION_GATE)('Input validation — POST /api/auth/register', () => {
   it('NEGATIVE: empty body → 400 BAD_REQUEST', async () => {
     const { status, json } = await post('/api/auth/register', {});
     assertRejected(status, json, ['BAD_REQUEST']);
@@ -320,7 +323,7 @@ describe('Input validation — POST /api/auth/register', () => {
 // ---------------------------------------------------------------------------
 // 3. POST /api/auth/do-reset-password  (self-owned reset token, #153/#155)
 // ---------------------------------------------------------------------------
-describe('Input validation — POST /api/auth/do-reset-password', () => {
+describe.skipIf(IN_INTEGRATION_GATE)('Input validation — POST /api/auth/do-reset-password', () => {
   it('NEGATIVE: empty body → 400 BAD_REQUEST', async () => {
     const { status, json } = await post('/api/auth/do-reset-password', {});
     assertRejected(status, json, ['BAD_REQUEST']);
@@ -355,7 +358,7 @@ describe('Input validation — POST /api/auth/do-reset-password', () => {
 // ---------------------------------------------------------------------------
 // 4. POST /api/auth/forgot-password
 // ---------------------------------------------------------------------------
-describe('Input validation — POST /api/auth/forgot-password', () => {
+describe.skipIf(IN_INTEGRATION_GATE)('Input validation — POST /api/auth/forgot-password', () => {
   it('NEGATIVE: empty body → 400 BAD_REQUEST on email', async () => {
     const { status, json } = await post('/api/auth/forgot-password', {});
     assertRejected(status, json, ['BAD_REQUEST']);
@@ -382,7 +385,7 @@ describe('Input validation — POST /api/auth/forgot-password', () => {
 // 5. POST /api/accounting/sage-migration-action
 // (requires auth + admin role; we test schema rejection before auth)
 // ---------------------------------------------------------------------------
-describe('Zod validation — POST /api/accounting/sage-migration-action', () => {
+describe.skipIf(IN_INTEGRATION_GATE)('Zod validation — POST /api/accounting/sage-migration-action', () => {
   it('NEGATIVE: empty body → 400 VALIDATION_ERROR on action', async () => {
     const { status, json } = await post('/api/accounting/sage-migration-action', {});
     // Could be 401 (no auth) or 400 (validation). Either is acceptable — just NOT validation error code
@@ -433,7 +436,7 @@ describe('Zod validation — POST /api/accounting/sage-migration-action', () => 
 // 6. POST /api/accounting/company-logo
 // (requires auth; tests schema rejection before/after auth check)
 // ---------------------------------------------------------------------------
-describe('Zod validation — POST /api/accounting/company-logo', () => {
+describe.skipIf(IN_INTEGRATION_GATE)('Zod validation — POST /api/accounting/company-logo', () => {
   it('NEGATIVE: empty body → 400 VALIDATION_ERROR or 401', async () => {
     const { status, json } = await post('/api/accounting/company-logo', {});
     if (status === 400) {
@@ -485,7 +488,7 @@ describe('Zod validation — POST /api/accounting/company-logo', () => {
 // 7. POST /api/accounting/bank-rules-action
 // (wrapped with withCsrf; CSRF mismatch → 403 before Zod; but missing auth → 401)
 // ---------------------------------------------------------------------------
-describe('Zod validation — POST /api/accounting/bank-rules-action', () => {
+describe.skipIf(IN_INTEGRATION_GATE)('Zod validation — POST /api/accounting/bank-rules-action', () => {
   it('NEGATIVE: empty body → 400 VALIDATION_ERROR, 401, or 403 (CSRF/auth)', async () => {
     const { status, json } = await post('/api/accounting/bank-rules-action', {});
     if (status === 400) {

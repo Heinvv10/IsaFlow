@@ -96,7 +96,7 @@ describe('packGraphemes', () => {
     }
   }, 60_000);
 
-  it('takes time linear in the text: 100,000 characters at most about four times 25,000', () => {
+  it('takes time linear in the text: 200,000 characters well under the 64 times 25,000 a quadratic walk would take', () => {
     const ms = (n: number): number => {
       const t = 'x'.repeat(n);
       let best = Infinity;
@@ -104,6 +104,17 @@ describe('packGraphemes', () => {
       return best;
     };
     ms(5_000);
-    expect(ms(100_000) / Math.max(ms(25_000), 1)).toBeLessThan(8);
+    // 8x the text: linear is about 8x the time, quadratic 64x. The bound of 24 leaves 3x for CI load noise.
+    expect(ms(200_000) / Math.max(ms(25_000), 1)).toBeLessThan(24);
+  }, 120_000);
+
+  it('and below U+0300, where it does not segment: every pair of code units, and each beside a control, a soft hyphen, a copyright sign, a tab and a space', () => {
+    const wrong: string[] = [];
+    const same = (t: string): void => {
+      if (JSON.stringify(graphemes(t)) !== JSON.stringify(reference(t))) wrong.push(JSON.stringify(t));
+    };
+    for (let a = 0; a < 0x300; a += 1) for (let b = 0; b < 0x300; b += 1) same(String.fromCharCode(a, b));
+    for (let a = 0; a < 0x300; a += 7) for (const mid of [0x00, 0x09, 0x0d, 0x1f, 0x7f, 0x85, 0xa0, 0xa9, 0xad, 0xae]) for (let b = 0; b < 0x300; b += 5) same(String.fromCharCode(a, mid, b));
+    expect(wrong.slice(0, 10)).toEqual([]);
   }, 120_000);
 });

@@ -156,7 +156,7 @@ if in_group velo; then
 # timeout fails the gate.
 run_step "browser-tests"     capped bun run test:print
 
-# Every tests/integration/**/*.int.test.ts against throwaway PostgreSQL 16
+# Every tests/integration/**/*.test.ts against throwaway PostgreSQL 16
 # clusters the step starts and removes itself (initdb as the current user; no
 # docker, no dev database, no secret), from the committed schema baseline plus
 # this branch's newer migrations. It ignores DATABASE_URL. It names every suite

@@ -45,6 +45,10 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
 vi.mock('@/modules/accounting/services/ap/billLineAccountGuard', () => ({
   billLineAccountRefusal: vi.fn(),
 }));
+// Supplier terms for the due-date warning: none set unless a test says otherwise (dueDateTermsWarning.test.ts has the rest).
+vi.mock('@/modules/accounting/services/core/paymentTermsResolver', () => ({
+  contactTerms: vi.fn(async () => ({ days: null, type: null, companyDefault: { days: 30, type: 'invoice_days' } })),
+}));
 
 import {
   createSupplierInvoice,
@@ -54,6 +58,7 @@ import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplie
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { invoiceVatRefusals } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
+import { contactTerms } from '@/modules/accounting/services/core/paymentTermsResolver';
 import {
   createSupplierInvoiceTool,
   approveSupplierInvoiceTool,
@@ -109,6 +114,30 @@ beforeEach(() => {
 });
 
 describe('create_supplier_invoice', () => {
+  it('keeps a given due_date that differs from the supplier terms, and says so in due_date_warnings', async () => {
+    vi.mocked(contactTerms).mockResolvedValueOnce({ days: 3, type: 'statement_months', companyDefault: { days: 30, type: 'invoice_days' } });
+    const r = parseOk(await createSupplierInvoiceTool.handler(
+      createArgs({ invoice_date: '2026-11-09', due_date: '2027-02-07' }), ctx(),
+    ));
+    expect((vi.mocked(createSupplierInvoice).mock.calls[0]![1] as { dueDate?: string }).dueDate).toBe('2027-02-07');
+    const w = r.due_date_warnings as string[];
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain('2027-02-28');
+  });
+
+  it('has no due_date_warnings when the bill\'s own payment_terms give the date', async () => {
+    vi.mocked(contactTerms).mockResolvedValueOnce({ days: 3, type: 'statement_months', companyDefault: { days: 30, type: 'invoice_days' } });
+    const r = parseOk(await createSupplierInvoiceTool.handler(
+      createArgs({ invoice_date: '2026-11-09', due_date: '2027-01-08', payment_terms: 'net60' }), ctx(),
+    ));
+    expect(r.due_date_warnings).toBeUndefined();
+  });
+
+  it('has no due_date_warnings when no due_date is given', async () => {
+    const r = parseOk(await createSupplierInvoiceTool.handler(createArgs(), ctx()));
+    expect(r.due_date_warnings).toBeUndefined();
+  });
+
   it('creates a DRAFT against the token company and posts nothing', async () => {
     const r = parseOk(await createSupplierInvoiceTool.handler(createArgs(), ctx()));
     expect(r.status).toBe('draft');
