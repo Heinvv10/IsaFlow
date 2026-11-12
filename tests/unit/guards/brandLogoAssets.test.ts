@@ -4,14 +4,24 @@
  * above the x-height between the two (x 250..680, y 0..55 of the 1405x289 master) must be empty.
  *
  * Also pins the files that pages, emails and the OG tag load: same size, format and alpha channel as before.
+ *
+ * The blog og.webp/hero.webp images carry the same wordmark (white "Isa", 160 px wide at 66,52 on the 1200x630
+ * OG, 214 px wide at 88,70 on the 1600x900 hero). The same band, scaled, must be dark there.
  */
 import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync, existsSync } from 'fs';
 
 const ROOT = process.cwd();
 const WORDMARKS = ['public/logo.png', 'public/logo-email.png', 'public/BI/logo-primary-transparent.png'];
 const BAND = { x0: 250, x1: 680, y0: 0, y1: 55 };
+
+// Blog images with the wordmark. The draft placeholder post has plain text, no wordmark.
+const BLOG_LOGO = { 'og.webp': { w: 160, x: 66, y: 52, width: 1200, height: 630 }, 'hero.webp': { w: 214, x: 88, y: 70, width: 1600, height: 900 } };
+const BLOG_IMAGES = readdirSync(`${ROOT}/public/blog`)
+  .filter((dir) => dir !== 'placeholder-component-showcase')
+  .flatMap((dir) => (['og.webp', 'hero.webp'] as const).map((name) => ({ file: `public/blog/${dir}/${name}`, name })))
+  .filter(({ file }) => existsSync(`${ROOT}/${file}`));
 
 async function decode(file: string) {
   const { data, info } = await sharp(`${ROOT}/${file}`).raw().toBuffer({ resolveWithObject: true });
@@ -50,5 +60,27 @@ describe('IsaFlow wordmark assets', () => {
 
   it('the hero copy in public/BI is the same file as public/logo.png', () => {
     expect(readFileSync(`${ROOT}/public/BI/logo-primary-transparent.png`).equals(readFileSync(`${ROOT}/public/logo.png`))).toBe(true);
+  });
+
+  it('finds the blog images to check', () => {
+    expect(BLOG_IMAGES.length).toBeGreaterThanOrEqual(16);
+  });
+
+  it.each(BLOG_IMAGES)('$file keeps its size and has no cap-height ink between "I" and "F"', async ({ file, name }) => {
+    const pos = BLOG_LOGO[name];
+    const { data, info } = await decode(file);
+    expect({ width: info.width, height: info.height }).toEqual({ width: pos.width, height: pos.height });
+    const s = pos.w / 1405;
+    const x0 = pos.x + Math.floor(260 * s) + 1;
+    const x1 = pos.x + Math.floor(670 * s);
+    const y1 = pos.y + Math.floor(50 * s);
+    let bright = 0;
+    for (let y = pos.y; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        const i = (y * info.width + x) * info.channels;
+        if ((data[i] + data[i + 1] + data[i + 2]) / 3 > 100) bright++;
+      }
+    }
+    expect(bright).toBe(0);
   });
 });
