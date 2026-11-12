@@ -83,8 +83,14 @@ describe('getLineExplanation', () => {
 });
 
 describe('the not-recorded message', () => {
-  it('a draft is asked to recalculate', () => {
-    expect(notRecordedMessage(false, '2026-11-12T06:00:00.000Z', COSTED.toISOString())).toBe('Recalculate the run to see how this was calculated.');
+  it('a draft line costed before the first recorded line (or with none recorded yet) is told why, and asked to recalculate', () => {
+    const why = 'This line was calculated before explanations were recorded; recalculate the run to see how it was calculated.';
+    expect(notRecordedMessage(false, '2026-11-12T06:00:00.000Z', COSTED.toISOString())).toBe(why);
+    expect(notRecordedMessage(false, null, COSTED.toISOString())).toBe(why);
+  });
+
+  it('a draft line costed after it (code that did not record one) is only asked to recalculate', () => {
+    expect(notRecordedMessage(false, '2026-10-01T06:00:00.000Z', COSTED.toISOString())).toBe('Recalculate the run to see how this was calculated.');
   });
 
   it('a final run costed before the first recorded line: "Not recorded for runs costed before <date>"', () => {

@@ -202,7 +202,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       charge: annualPayrollEstimate === 'defer' ? 'deferred'
         : { annualRemuneration: annualPayrollEstimate, exempt: isSdlExempt(annualPayrollEstimate, taxYear), sdl },
     },
-    eti: { eti },
+    eti: { eti, hasPayeShare: earningParts.some((p) => p.rate !== undefined) },
   });
 
   return {

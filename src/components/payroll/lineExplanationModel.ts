@@ -11,6 +11,7 @@ import type { ExplainedFigure, ExplainStep, FigureExplanation } from '@/modules/
 export const FIGURE_NAME: Record<ExplainedFigure, string> = { paye: 'PAYE', uif: 'UIF', sdl: 'SDL', eti: 'ETI' };
 
 export const RECALCULATE_TO_EXPLAIN = 'Recalculate the run to see how this was calculated.';
+export const PREDATES_EXPLANATIONS = 'This line was calculated before explanations were recorded; recalculate the run to see how it was calculated.';
 
 /**
  * A line with no stored explanation. Draft: recalculating records one. Final: costed before this company's lines began
@@ -18,7 +19,8 @@ export const RECALCULATE_TO_EXPLAIN = 'Recalculate the run to see how this was c
  * date it was costed; with no recorded line at all, said without a date.
  */
 export function notRecordedMessage(final: boolean, recordedFrom: string | null, costedAt: string | null = null): string {
-  if (!final) return RECALCULATE_TO_EXPLAIN;
+  // A draft: say why when the line predates this company's first recorded explanation (or there is none yet).
+  if (!final) return !recordedFrom || (costedAt !== null && costedAt < recordedFrom) ? PREDATES_EXPLANATIONS : RECALCULATE_TO_EXPLAIN;
   if (recordedFrom && (!costedAt || costedAt < recordedFrom)) return `Not recorded for runs costed before ${formatDate(recordedFrom)}.`;
   if (recordedFrom && costedAt) return `Not recorded: this run was costed on ${formatDate(costedAt)} by a version of IsaFlow that did not keep explanations.`;
   return 'Not recorded for runs costed before explanations were kept.';

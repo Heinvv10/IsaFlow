@@ -110,7 +110,7 @@ const BAND_ROW: Record<EtiBand, (t: EtiTable) => { label: string; formula: strin
   nil: (t) => ({ label: `${r(t.wageCeiling)} or more: nil`, formula: 'nil' }),
 };
 
-export function explainEti(input: { taxYear: number; eti: EtiResult; periodDate: Date }): FigureExplanation {
+export function explainEti(input: { taxYear: number; eti: EtiResult; periodDate: Date; hasPayeShare: boolean }): FigureExplanation {
   const { eti, taxYear } = input;
   const base = { figure: 'eti' as const, title: 'How ETI was calculated', result: eti.monthlyEti, resultLabel: 'ETI this period' };
   if (!eti.isEligible || !eti.applied || eti.employmentYear === null) {
@@ -122,7 +122,10 @@ export function explainEti(input: { taxYear: number; eti: EtiResult; periodDate:
   const { table, remuneration, hours, tabled, share, band, yearOne } = eti.applied;
   const row = BAND_ROW[band](table);
   const steps: ExplainStep[] = [
-    { key: 'eti.remuneration', label: 'Monthly remuneration', amount: remuneration, note: 'Cash remuneration for the month (a travel allowance at its PAYE share).' },
+    {
+      key: 'eti.remuneration', label: 'Monthly remuneration', amount: remuneration,
+      note: input.hasPayeShare ? 'Cash remuneration for the month, a travel allowance at its PAYE share.' : 'Cash remuneration for the month.',
+    },
     { key: 'eti.monthsEmployed', label: 'Months employed, this one included', amount: eti.monthsEmployed, unit: 'count' },
   ];
   if (hours !== null) {

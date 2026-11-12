@@ -189,6 +189,14 @@ describe('the lines the review named', () => {
     expect(footingProblems(medical.explanations.paye)).toEqual([]);
     expectRecomputes(medical);
 
+    // The ETI remuneration names the PAYE share only where a 3701 / 3802 is on the line.
+    const etiNote = (l: ReturnType<typeof calculatePayrollLine>) => stepsByKey(l.explanations.eti).get('eti.remuneration')?.note;
+    const basicOnly = byId('eti-year1-taper-6000');
+    expect(etiNote(basicOnly)).toBe('Cash remuneration for the month.');
+    const taper = loadCases().find(c => c.id === 'eti-year1-taper-6000')!;
+    const withTravel = calculatePayrollLine(buildCaseInput({ ...taper, input: { ...taper.input, components: [...taper.input.components, { ...earning('3701', 500), uif: false }] } }));
+    expect(etiNote(withTravel)).toBe('Cash remuneration for the month, a travel allowance at its PAYE share.');
+
     const hourly = byId('eti-year1-120h-5000-apportioned');
     const e = stepsByKey(hourly.explanations.eti);
     expect([e.get('eti.hours')!.amount, e.get('eti.share')!.amount, hourly.eti.monthlyEti]).toEqual([120, 0.75, 468.75]);

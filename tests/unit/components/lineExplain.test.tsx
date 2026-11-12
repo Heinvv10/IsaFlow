@@ -90,14 +90,15 @@ describe('the run table', () => {
     expect((await within(drawer).findByRole('note')).textContent).toBe('Not recorded for runs costed before 12 Nov 2026.');
   });
 
-  it('the review grid (a draft) has the buttons too; a line costed before the column: "Recalculate the run to see how this was calculated."', async () => {
+  it('the review grid (a draft) has the buttons too; a line costed before explanations says so and asks for a recalculation', async () => {
     // A calculated run is the review grid: the harness serves its inputs; the explanation is added on top.
     serve(() => ok({}), { run: twoRuns() });
     const base = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => (String(url).includes('/explanation?')
-      ? ok({ state: 'not_recorded', final: false, recordedFrom: '2026-11-12' }) : base(url, init)));
+      ? ok({ state: 'not_recorded', final: false, costedAt: '2026-11-01T08:00:00.000Z', recordedFrom: '2026-11-12T06:00:00.000Z' }) : base(url, init)));
     const drawer = await openFrom('Thandi Nkosi', 'ETI');
-    expect((await within(drawer).findByRole('note')).textContent).toBe('Recalculate the run to see how this was calculated.');
+    expect((await within(drawer).findByRole('note')).textContent)
+      .toBe('This line was calculated before explanations were recorded; recalculate the run to see how it was calculated.');
   });
 
   it.each([
