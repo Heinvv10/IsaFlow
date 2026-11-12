@@ -175,3 +175,35 @@ it('ignores a slow response for a client that is no longer picked', async () => 
   await new Promise((r) => setTimeout(r, 20));
   expect(screen.queryByText('Belongs to client A')).toBeNull();
 });
+
+it('does not offer an entry with no line total (the server lock would drop it)', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    const u = String(url);
+    if (u.startsWith('/api/accounting/practice/clients')) return Response.json({ success: true, data: { clients: CLIENTS, total: 3 } });
+    if (u.includes('practiceClientId=pc-1')) {
+      return Response.json({ success: true, data: [{ ...WIP, entries: [entry('te-1', 'Audit planning', 1000), { ...entry('te-9', 'No total yet', 0), lineTotal: null }] }] });
+    }
+    return Response.json({ success: true, data: [] });
+  });
+  render(<GenerateInvoiceForm />);
+  await pick('pc-1');
+  await screen.findByText('Audit planning');
+  expect(screen.queryByText('No total yet')).not.toBeInTheDocument();
+  expect(screen.getByText(/1 of 1 entries selected/)).toBeInTheDocument();
+});
+
+it('locks the client picker while the invoice is being generated', async () => {
+  let release: (r: Response) => void = () => undefined;
+  onPost = () => { throw new Error('unused'); };
+  const base = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => (
+    init?.method === 'POST' ? new Promise<Response>((r) => { release = r; }) : base(url, init)
+  ));
+  render(<GenerateInvoiceForm />);
+  await pick('pc-1');
+  await screen.findByText('Audit planning');
+  fireEvent.click(screen.getByRole('button', { name: 'Generate draft invoice' }));
+  await waitFor(() => expect(screen.getByLabelText('Client')).toBeDisabled());
+  release(Response.json({ success: true, data: { invoiceId: 'inv-1', invoiceNumber: 'INV-9', subtotal: 1500, taxAmount: 225, totalAmount: 1725, lineCount: 2, skippedEntryCount: 0 } }, { status: 201 }));
+  await waitFor(() => expect(screen.getByLabelText('Client')).not.toBeDisabled());
+});

@@ -95,6 +95,18 @@ describe('getWipByClient', () => {
   });
 });
 
+describe('getWipByClient: entry joins stay inside the company', () => {
+  it.each(['practice_clients pc', 'practice_job_categories pjc', 'practice_work_items pwi'])('joins %s on company_id', async (join) => {
+    sqlMock.mockResolvedValueOnce([{ practice_client_id: CLIENT, legal_name: 'A', link_customer_id: null, total_hours: 1, total_value: 1, oldest_approved_date: new Date('2026-04-10') }]);
+    sqlMock.mockResolvedValueOnce([]);
+    await getWipByClient(COMPANY);
+    const text = (sqlMock.mock.calls[1]![0] as string[]).join('?').replace(/\s+/g, ' ');
+    const alias = join.split(' ')[1]!;
+    expect(text).toContain(`${join} ON ${alias}.id =`);
+    expect(text).toMatch(new RegExp(`${alias}\\.company_id = te\\.company_id`));
+  });
+});
+
 describe('generateWipInvoice', () => {
   const baseInput = {
     practiceClientId: CLIENT,

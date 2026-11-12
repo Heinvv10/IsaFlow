@@ -101,8 +101,8 @@ export async function getWipByClient(
       pwi.name AS work_item_name
     FROM time_entries te
     JOIN practice_clients pc ON pc.id = te.practice_client_id AND pc.company_id = te.company_id
-    LEFT JOIN practice_job_categories pjc ON pjc.id = te.job_category_id
-    LEFT JOIN practice_work_items pwi ON pwi.id = te.work_item_id
+    LEFT JOIN practice_job_categories pjc ON pjc.id = te.job_category_id AND pjc.company_id = te.company_id
+    LEFT JOIN practice_work_items pwi ON pwi.id = te.work_item_id AND pwi.company_id = te.company_id
     WHERE te.company_id = ${companyId}::UUID
       AND te.status = 'approved'
       AND te.billed_at IS NULL

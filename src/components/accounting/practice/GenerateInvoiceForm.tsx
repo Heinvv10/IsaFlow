@@ -29,7 +29,7 @@ const LABEL_CLS = 'block text-xs font-medium text-[var(--ff-text-secondary)] mb-
 const GROUPINGS: [GroupBy, string][] = [['detailed', 'Detailed (one line per entry)'], ['by_work_item', 'By work item'], ['by_category', 'By category']];
 
 function ErrBanner({ msg }: { msg: string }) {
-  return <div role="alert" className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-sm"><AlertCircle className="h-4 w-4 shrink-0" />{msg}</div>;
+  return <div role="alert" className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-400 text-sm"><AlertCircle className="h-4 w-4 shrink-0" />{msg}</div>;
 }
 
 /** What stops the form from posting, or null. */
@@ -90,7 +90,9 @@ export function GenerateInvoiceForm() {
       await assertOk(res, 'Could not load the unbilled time - try again');
       const json = (await res.json()) as { data?: WipClientRow[] };
       if (mine !== wipRequest.current) return; // a newer client pick superseded this response
-      const row = json.data?.[0] ?? null;
+      const raw = json.data?.[0] ?? null;
+      // The server lock needs a line total; an entry without one can never be billed, so do not offer it.
+      const row = raw ? { ...raw, entries: raw.entries.filter((e) => e.lineTotal != null) } : null;
       setWip(row);
       setSelected(new Set(row?.entries.map((e) => e.id) ?? []));
     } catch (err) {
@@ -155,7 +157,7 @@ export function GenerateInvoiceForm() {
       {clientsError && <ErrBanner msg={clientsError} />}
       <div className="max-w-md">
         <label htmlFor="gi-client" className={LABEL_CLS}>Client</label>
-        <select id="gi-client" value={clientId} onChange={(e) => pickClient(e.target.value)} disabled={clients == null} className={INPUT_CLS}>
+        <select id="gi-client" value={clientId} onChange={(e) => pickClient(e.target.value)} disabled={clients == null || submitting} className={INPUT_CLS}>
           <option value="">{clients == null ? 'Loading clients...' : 'Choose a client'}</option>
           {(clients ?? []).map((c) => <option key={c.id} value={c.id}>{c.legalName}{c.tradingName ? ` (${c.tradingName})` : ''}</option>)}
         </select>
