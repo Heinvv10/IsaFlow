@@ -144,3 +144,12 @@ describe('UIF and SDL are levied on the benefit [UI Contributions Act 4 of 2002 
     expect(kept[0]!.component.isUifApplicable).toBe(false);
   });
 });
+
+describe('a pre-RF cash-kept row that is not taxable (round 1 M)', () => {
+  it('keeps the warning-only path: no RETIREMENT_BENEFIT_NOT_TAXABLE error, so approval is not newly blocked on deploy', () => {
+    const line = run([salary(20_000), { component: comp('3817', { isTaxable: false }), amount: 1_000, employerFundAsCash: true }]);
+    const codes = line.validationResults.map((v) => [v.code, v.severity]);
+    expect(codes).toContainEqual(['EMPLOYER_FUND_KEPT_AS_CASH', 'warning']);
+    expect(codes.map(([c]) => c)).not.toContain('RETIREMENT_BENEFIT_NOT_TAXABLE');
+  });
+});

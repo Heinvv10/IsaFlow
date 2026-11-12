@@ -51,14 +51,15 @@ export function withDeemedEmployerContributions(r: RetirementContributions | und
   return out;
 }
 
-/** The employer's own fund contribution codes, 4472 / 4473 / 4475, each equal to its benefit; none without a value. */
-export function employerFundContributionFields(fringe: readonly CertifiedBenefit[]): Map<number, string> {
-  const out = new Map<number, string>();
-  for (const [code, , employer] of EMPLOYER_FUND_CODES) {
-    const line = field(employer, benefitTotal(fringe, code));
-    if (line) out.set(employer, line);
-  }
-  return out;
+/** The employer's contribution field each non-cash benefit is reported beside (BRS V25.3.0 p. 103), in code order. */
+const EMPLOYER_CONTRIBUTION_FIELDS: ReadonlyArray<[string, number]> = [['3817', 4472], ['3825', 4473], ['3810', 4474], ['3828', 4475]];
+
+/**
+ * The employer's own contribution codes in code order, each equal to its benefit; none without a value: 4472 / 4473 / 4475
+ * (pension, provident, RA; RF) and 4474, the medical scheme contribution (V13.1 rule "3810 must equal 4474"; FB).
+ */
+export function employerFundContributionFields(fringe: readonly CertifiedBenefit[]): string[] {
+  return EMPLOYER_CONTRIBUTION_FIELDS.map(([code, employer]) => field(employer, benefitTotal(fringe, code))).filter((l): l is string => l !== null);
 }
 
 

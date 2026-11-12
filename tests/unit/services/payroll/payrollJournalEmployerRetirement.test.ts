@@ -46,8 +46,7 @@ const ACCOUNTS = [
 function routes(opts: { header?: Record<string, unknown>; retirement?: unknown[]; accounts?: unknown[] } = {}) {
   const table: Array<{ match: string; rows: unknown[] }> = [
     { match: 'payroll_employee_cost_allocations', rows: [] },
-    { match: "'3810'", rows: [] },
-    { match: "'3817'", rows: opts.retirement ?? [{ employee_id: 'A', employer_retirement: '1500.00' }] },
+    { match: "'3817'", rows: opts.retirement ?? [{ employee_id: 'A', employer_medical: '0', employer_retirement: '1500.00' }] },
     { match: 'payroll_run_lines prl', rows: LINES },
     { match: 'payroll_run_headers', rows: [opts.header ?? HEADER] },
     { match: 'FROM gl_accounts', rows: opts.accounts ?? ACCOUNTS },
@@ -77,6 +76,10 @@ describe('buildPayrollJournalPlan — employer retirement fund contribution (non
     expect(on(plan, '2175', 'credit')).toBe(750 + 1500);
     expect(plan.totalDebit).toBe(21915);
     expect(plan.totalCredit).toBe(21915);
+    // The totals name it, and labour = gross + employer UIF + SDL + medical + retirement - ETI used.
+    const t = plan.totals;
+    expect(t.employerRetirement).toBe(1500);
+    expect(on(plan, '5200', 'debit')).toBe(t.gross + t.employerUif + t.sdl + t.employerMedical + t.employerRetirement - t.etiUsed);
   });
 
   it('reads the run through its company (the header join)', async () => {

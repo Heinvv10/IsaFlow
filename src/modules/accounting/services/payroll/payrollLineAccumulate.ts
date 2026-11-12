@@ -124,10 +124,10 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
       }
       // An employer's fund contribution (3817 / 3825 / 3828): deemed above when taxable and non-cash, as a run marks it (RF).
       if (isEmployerFundBenefitCode(component.sarsSourceCode)) {
-        if (!component.isTaxable) warnings.push(retirementBenefitNotTaxableWarning(component.name, component.sarsSourceCode, amount));
-        else if (!isNonCash) {
-          warnings.push((employerFundAsCash ? employerFundKeptAsCashWarning : employerFundBenefitWarning)(component.name, component.sarsSourceCode, amount));
-        }
+        // A pre-RF row kept as cash (migration 975) keeps its pre-RF treatment, a warning only, taxable or not: no new block on deploy.
+        if (employerFundAsCash) warnings.push(employerFundKeptAsCashWarning(component.name, component.sarsSourceCode, amount));
+        else if (!component.isTaxable) warnings.push(retirementBenefitNotTaxableWarning(component.name, component.sarsSourceCode, amount));
+        else if (!isNonCash) warnings.push(employerFundBenefitWarning(component.name, component.sarsSourceCode, amount));
       }
       const treatment = payeTreatment(component.sarsSourceCode);
       // Any lump-sum earning, taxable flag or not: para 9(3) of the Fourth

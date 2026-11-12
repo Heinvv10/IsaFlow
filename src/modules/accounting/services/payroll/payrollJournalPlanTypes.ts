@@ -47,6 +47,8 @@ export interface PayrollJournalPlan {
   totals: {
     /** The employer's non-cash 3810 medical contribution on the run: booked to labour and 2175, outside gross and net. */
     employerMedical: number;
+    /** The employer's non-cash 3817 / 3825 / 3828 fund contributions on the run (RF): booked to labour and 2175, outside gross and net. */
+    employerRetirement: number;
     gross: number;
     paye: number;
     uif: number;

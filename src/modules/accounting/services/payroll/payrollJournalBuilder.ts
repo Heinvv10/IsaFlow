@@ -186,7 +186,7 @@ export async function buildPayrollJournalPlan(
       });
     }
   } else {
-    built.push(line('5200', labourDebit, 0, 'Labour costs — gross pay + statutory employer contributions − ETI'));
+    built.push(line('5200', labourDebit, 0, 'Labour costs — gross pay + employer contributions (UIF, SDL, medical scheme, retirement funds) − ETI'));
   }
 
   const payeNet = round2(paye - etiUsed); // a debit only when ETI absorbed directive PAYE; a negative PAYE header stays a negative credit
@@ -235,7 +235,7 @@ export async function buildPayrollJournalPlan(
     lines,
     totalDebit,
     totalCredit,
-    totals: { gross, paye, uif, sdl, eti, etiUsed, net, employerUif, otherDeductions, employerMedical: medical },
+    totals: { gross, paye, uif, sdl, eti, etiUsed, net, employerUif, otherDeductions, employerMedical: medical, employerRetirement: retirement },
     blockers,
     advisories,
     labourBySourceCentre,
