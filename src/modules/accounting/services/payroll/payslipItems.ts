@@ -14,6 +14,7 @@
  * (component gone from the catalogue) is never guessed: it is left to "Not itemised".
  * An employer contribution is neither pay nor a deduction: it is listed as the employer's.
  */
+import { EMPLOYER_FUND_BENEFIT_CODES } from './retirementFundCodes';
 import type { ComponentBreakdownItem } from './payrollTypes';
 
 export interface PayslipItem {
@@ -53,11 +54,20 @@ export interface PayslipLines {
   sdl: number;
   /** A "Not itemised" line is on the slip. */
   notItemised: boolean;
+  /**
+   * RF: the retirement fund contributions counted for the s11F deduction: the employee's own (4001 / 4003 / 4006, deducted
+   * or paid directly) and the employer's non-cash 3817 / 3825 / 3828, deemed paid by the employee (G21 (2027) p. 10). Null
+   * when there are none.
+   */
+  retirementFund: { own: number; employerDeemed: number } | null;
 }
 
 export const NOT_ITEMISED = 'Not itemised';
 export const BENEFIT_NOTE = 'Taxable benefit, not paid';
 export const PAID_DIRECTLY_NOTE = 'Paid by you directly; counted for tax';
+/** RF: said beside an employer fund contribution benefit. */
+export const DEEMED_FUND_NOTE = 'taxable benefit, also counted as your retirement contribution';
+const FUND_BENEFIT_CODES = new Set<string>(EMPLOYER_FUND_BENEFIT_CODES);
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -90,9 +100,16 @@ export function itemisePayslip(line: StoredPayslipLine, componentTypes: Readonly
   const deductions: PayslipItem[] = [];
   const paidDirectly: PayslipItem[] = [];
   const employerContributions: PayslipItem[] = [];
+  let own = 0;
+  let employerDeemed = 0;
   for (const raw of readBreakdown(line.breakdown)) {
     const item = itemOf(raw);
     if (item.amount === 0) continue;
+    if (raw.retirementContribution === true) own += item.amount;
+    if (raw.isNonCash === true && FUND_BENEFIT_CODES.has(item.code)) {
+      employerDeemed += item.amount;
+      item.label = `${item.label} (${DEEMED_FUND_NOTE})`;
+    }
     const type = componentTypes.get(String(raw.componentId ?? ''));
     if (type === 'deduction') (raw.paidOutsidePayroll === true ? paidDirectly : deductions).push(item);
     else if (type === 'earning') (raw.isNonCash === true ? benefits : earnings).push(item);
@@ -112,6 +129,7 @@ export function itemisePayslip(line: StoredPayslipLine, componentTypes: Readonly
     grossPay, paye: round2(line.paye), uifEmployee: round2(line.uifEmployee), otherDeductions,
     netPay: round2(line.netPay), uifEmployer: round2(line.uifEmployer), sdl: round2(line.sdl),
     notItemised: earningGap !== 0 || deductionGap !== 0,
+    retirementFund: own !== 0 || employerDeemed !== 0 ? { own: round2(own), employerDeemed: round2(employerDeemed) } : null,
   };
 }
 
