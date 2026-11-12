@@ -192,7 +192,9 @@ export function readers(t: G01Tenant, user: string, pool: Pool): Reader[] {
     R('mapped trial balance (period, prior period)', () => getMappedTrialBalance(c, t.period.p25, t.period.p24), /1750|1000/),
     R('mapped trial balance FY26 with FY25 as prior', () => getMappedTrialBalance(c, t.period.p26, t.period.p25), /1750|600/),
     R('pack trend', () => getPackTrend(c, FY25[1], 12), /1000|1750/),
-    R('bureau client metrics', () => atNow(NOW, () => clientMetricsSnapshot(c)), /16850/),
+    // Cash as at NOW (the headline figure, reports/headlineFigures): 16 850 less the
+    // FY26 postings dated after it (S4 +600, X3 -200). The year-end journal never touches the bank.
+    R('bureau client metrics', () => atNow(NOW, () => clientMetricsSnapshot(c)), /"cash":16450\b/),
     R('AFS primary statements FY25', () => allGenerators(primary, c), EQUITY_25, REVENUE_25),
     R('AFS primary statements FY26 (opening accumulated income)', () => allGenerators(primary, c, 2026), /1450/),
     R('AFS notes 1-5', () => allGenerators(notes1, c), /\{/),

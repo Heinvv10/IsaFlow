@@ -39,6 +39,7 @@ const KPIS = {
     receivables: { ...money, total: 4321 }, payables: money,
     activity: { invoicesIssued: 0, paymentsReceived: 0, journalsPosted: 0 } },
   revenueChart: [], cashFlowChart: [], arAging: [], apAging: [], topCustomers: [], topExpenses: [], hasBankAccount: true,
+  headline: { asAt: '2026-11-12', monthStart: '2026-11-01', cash: 0, receivables: { total: 4321, overdue: 0 }, payables: { total: 0, overdue: 0 }, revenueMtd: 0, profitMtd: 0, draftInvoices: 0, draftBills: 0, draftJournals: 0, billsDueNext7Days: 0, billsOverdue: 0 }, period: { from: '2025-10-01', to: '2026-11-12' },
 };
 const serve = () => script((u) => (u.includes('setup-checklist') ? ok(buildSetupProgress(ALL_FACTS))
   : u.includes('kpi-dashboard') ? ok(KPIS) : ok([])));
@@ -59,7 +60,7 @@ describe('Home loads the dashboard figures once', () => {
     vi.mocked(apiFetch).mockClear();
     serve();
     render(<OverviewTab />);
-    expect(await screen.findByText('Outstanding AR')).toBeTruthy();
+    expect(await screen.findByText('Receivables')).toBeTruthy();
     expect(kpiCalls()).toBe(1);
   });
 });

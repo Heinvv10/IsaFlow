@@ -26,6 +26,8 @@ const BIG = 11009575.43;
 const COMPACT = /\d\.\d\s?[MK]\b/;
 /** formatMoney's text as getByText sees it: the matcher normalises the DOM's NBSP to a space. */
 const exact = (n: number): string => formatMoney(n).replace(/\s/g, ' ');
+/** The headline figures the Cash and Receivables cards read (reports/headlineFigures). */
+const headline = (cash: number, total: number, overdue: number) => ({ asAt: '2026-11-12', cash, receivables: { total, overdue } });
 
 describe('dashboard tiles show exact amounts', () => {
   it('hero pills', () => {
@@ -45,12 +47,13 @@ describe('dashboard tiles show exact amounts', () => {
     const { container } = render(<OverviewKpiCards kpis={{
       revenue: { total: BIG, priorTotal: 0, changePercent: 3 },
       netProfit: { amount: 4321098.76, margin: 40 },
-      cash: { total: 1234567.89, priorTotal: 0, change: 98765.43 },
       receivables: { total: 10686885.43, overdue: 10500000.01, avgDebtorDays: 40 },
-    }} />);
+    }} headline={headline(1234567.89, 10686885.43, 10500000.01)} />);
     expect(screen.getByText(exact(BIG))).toBeTruthy();
     expect(screen.getByText(exact(10686885.43))).toBeTruthy();
     expect(screen.getByText(`${exact(10500000.01)} overdue`)).toBeTruthy();
+    expect(screen.getByText(exact(1234567.89))).toBeTruthy();
+    expect(screen.getByText('Per the ledger, as at 12 Nov 2026')).toBeTruthy();
     expect(container.textContent).not.toMatch(COMPACT);
   });
 
@@ -58,9 +61,8 @@ describe('dashboard tiles show exact amounts', () => {
     render(<OverviewKpiCards kpis={{
       revenue: { total: 0, priorTotal: 0, changePercent: 0 },
       netProfit: { amount: -2189056.28, margin: -12.5 },
-      cash: { total: 0, priorTotal: 0, change: 0 },
       receivables: { total: 0, overdue: 0, avgDebtorDays: 0 },
-    }} />);
+    }} headline={headline(0, 0, 0)} />);
     expect(screen.getByText('Net Profit')).toBeTruthy();
     expect(screen.getByText(exact(-2189056.28))).toBeTruthy();
     expect(screen.getByText('Net margin: -12.5%')).toBeTruthy();
@@ -71,9 +73,8 @@ describe('dashboard tiles show exact amounts', () => {
     const { container } = render(<OverviewKpiCards kpis={{
       revenue: { total: 0, priorTotal: 0, changePercent: 0 },
       netProfit: { amount: -150, margin: null },
-      cash: { total: 0, priorTotal: 0, change: 0 },
       receivables: { total: 0, overdue: 0, avgDebtorDays: 0 },
-    }} />);
+    }} headline={headline(0, 0, 0)} />);
     const margin = screen.getByText(/Net margin:/);
     expect(margin.hasAttribute('title')).toBe(false);
     // Visible text (touch users cannot hover), inside the same element as the label, not sr-only.
@@ -85,25 +86,23 @@ describe('dashboard tiles show exact amounts', () => {
     expect(document.body.textContent).not.toMatch(/Net margin: -?\d/);
   });
 
-  it('while the figures have not loaded the margin is a plain dash, with no reason it cannot know', () => {
-    render(<OverviewKpiCards kpis={undefined} />);
-    const margin = screen.getByText('Net margin: —');
-    expect(margin.hasAttribute('title')).toBe(false);
+  it('while the figures have not loaded there is no margin line, and no reason it cannot know', () => {
+    render(<OverviewKpiCards kpis={undefined} headline={undefined} />);
+    expect(screen.queryByText(/Net margin/)).toBeNull();
     expect(document.body.textContent).not.toMatch(/no positive revenue/);
   });
 
-  it('Outstanding AR shows the disputed share of the overdue figure, only when there is one', () => {
+  it('Receivables shows the disputed share of the overdue figure, only when there is one', () => {
     const kpis = (overdueDisputed: number) => ({
       revenue: { total: 0, priorTotal: 0, changePercent: 0 },
       netProfit: { amount: 0, margin: 0 },
-      cash: { total: 0, priorTotal: 0, change: 0 },
       receivables: { total: 1500, overdue: 1000, overdueDisputed, avgDebtorDays: 40 },
     });
-    const { unmount } = render(<OverviewKpiCards kpis={kpis(250)} />);
+    const { unmount } = render(<OverviewKpiCards kpis={kpis(250)} headline={headline(0, 1500, 1000)} />);
     expect(screen.getByText(`${exact(1000)} overdue`)).toBeTruthy();
     expect(screen.getByText(`of which ${exact(250)} disputed`)).toBeTruthy();
     unmount();
-    render(<OverviewKpiCards kpis={kpis(0)} />);
+    render(<OverviewKpiCards kpis={kpis(0)} headline={headline(0, 1500, 1000)} />);
     expect(screen.queryByText(/disputed/)).toBeNull();
   });
 

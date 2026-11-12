@@ -2,13 +2,19 @@
  * Workbench Service — exception-first signals for the accounting workbench.
  *
  * Returns six counts/values that flag items requiring accountant attention.
- * Every query is scoped by company_id. All six run in parallel.
+ * Every query is scoped by company_id. All run in parallel.
+ *
+ * draftInvoices, apDueThisWeek and unpostedJournals are the headline counts
+ * (reports/headlineFigures#getHeadlineCounts), the one definition the Action
+ * Items and Month-End read too: customer drafts only, open bills with a balance
+ * due in the next 7 SAST days, every draft journal. The keys are kept.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from '../reports/vatSubmissionClearing';
+import { getHeadlineCounts } from '../reports/headlineFigures';
 
 export interface WorkbenchMetrics {
   unreconciledBankTxns: number;
@@ -29,58 +35,6 @@ async function getUnreconciledBankTxns(companyId: string): Promise<number> {
     WHERE company_id = ${companyId}::UUID
       AND status NOT IN ('reconciled', 'matched', 'excluded')
       AND feed_state = 'posted'
-  `) as Row[];
-  return Number(rows[0]?.cnt ?? 0);
-}
-
-/**
- * Count invoices in draft status across both customer and supplier invoices.
- * customer_invoices.status = 'draft'
- * supplier_invoices.status = 'draft'
- */
-async function getDraftInvoices(companyId: string): Promise<number> {
-  const rows = (await sql`
-    SELECT (
-      (
-        SELECT COUNT(*)::int
-        FROM customer_invoices
-        WHERE company_id = ${companyId}::UUID
-          AND status = 'draft'
-      ) +
-      (
-        SELECT COUNT(*)::int
-        FROM supplier_invoices
-        WHERE company_id = ${companyId}::UUID
-          AND status = 'draft'
-      )
-    ) AS cnt
-  `) as Row[];
-  return Number(rows[0]?.cnt ?? 0);
-}
-
-/**
- * Count supplier invoices due within the next 7 days that are not yet paid.
- * Status can be anything except 'paid' or 'cancelled'.
- */
-async function getApDueThisWeek(companyId: string): Promise<number> {
-  const rows = (await sql`
-    SELECT COUNT(*)::int AS cnt
-    FROM supplier_invoices
-    WHERE company_id = ${companyId}::UUID
-      AND due_date >= CURRENT_DATE
-      AND due_date <= CURRENT_DATE + INTERVAL '7 days'
-      AND status NOT IN ('paid', 'cancelled')
-  `) as Row[];
-  return Number(rows[0]?.cnt ?? 0);
-}
-
-/** Count gl_journal_entries in draft (not yet posted) for the company. */
-async function getUnpostedJournals(companyId: string): Promise<number> {
-  const rows = (await sql`
-    SELECT COUNT(*)::int AS cnt
-    FROM gl_journal_entries
-    WHERE company_id = ${companyId}::UUID
-      AND status = 'draft'
   `) as Row[];
   return Number(rows[0]?.cnt ?? 0);
 }
@@ -173,23 +127,22 @@ async function getVatEstimateCurrentPeriod(companyId: string): Promise<number> {
   return Number(rows[0]?.vat_estimate ?? 0);
 }
 
-/** Run all six metrics in parallel. Each query is independently scoped by company_id. */
+/** Run every metric in parallel. Each query is independently scoped by company_id. */
 export async function getWorkbenchMetrics(companyId: string): Promise<WorkbenchMetrics> {
   const [
     unreconciledBankTxns,
-    draftInvoices,
-    apDueThisWeek,
-    unpostedJournals,
+    counts,
     openPriorPeriods,
     vatEstimateCurrentPeriod,
   ] = await Promise.all([
     getUnreconciledBankTxns(companyId),
-    getDraftInvoices(companyId),
-    getApDueThisWeek(companyId),
-    getUnpostedJournals(companyId),
+    getHeadlineCounts(companyId),
     getOpenPriorPeriods(companyId),
     getVatEstimateCurrentPeriod(companyId),
   ]);
+  const draftInvoices = counts.draftInvoices;
+  const apDueThisWeek = counts.billsDueNext7Days;
+  const unpostedJournals = counts.draftJournals;
 
   log.info('Workbench metrics computed', {
     companyId,
