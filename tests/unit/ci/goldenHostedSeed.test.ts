@@ -105,9 +105,11 @@ describe('RESERVED_PAYROLL_MONTHS', () => {
   });
 
   it('is skipped by seedPayRun even when it is the newest month', async () => {
-    const api = { post: () => Promise.resolve({ id: 'r' }), get: () => Promise.resolve({ planHash: 'p' }) } as unknown as Client;
     const created: string[] = [];
-    const spy = { ...api, post: (path: string, body?: unknown) => { if (path === '/api/payroll/runs') created.push(JSON.stringify(body)); return Promise.resolve({ id: 'r', documentDigest: 'd' }); } } as unknown as Client;
+    const spy = {
+      post: (path: string, body?: unknown) => { if (path === '/api/payroll/runs') created.push(JSON.stringify(body)); return Promise.resolve({ id: 'r', documentDigest: 'd' }); },
+      get: () => Promise.resolve({ planHash: 'p' }),
+    } as unknown as Client;
     await seedPayRun(spy, ['2026-12', PAYROLL_SANDBOX_MONTH]);
     expect(created).toEqual(['{"month":12,"year":2026}']);
   });
