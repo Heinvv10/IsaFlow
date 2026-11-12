@@ -4,6 +4,7 @@ import { loadFringeBenefitsByEmployee, loadVehicleBenefitComponent } from './fri
 import { markNonCashEmployerBenefits } from './employerContributions';
 import { appendTerminationIfEndingThisPeriod, severanceOnlyComponents } from './payrollRunTermination';
 import { loadRegularPayDirectives } from './payrollRunRegularDirective';
+import { assertRunKeepsItsDirectives } from './payrollRunDirectiveUses';
 import type { RegularPayDirectiveState } from './directiveRegularPay';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 
@@ -27,6 +28,8 @@ export async function prepareRunComponents(args: {
   const { companyId, runId, period, readDate, population } = args;
   const prepared: PreparedRunEmployee[] = [];
   const directives = await loadRegularPayDirectives(companyId, population.map(p => p.employee.id), period, runId);
+  // An ever-approved run keeps every directive it was approved with: refused here, before the first write (DR round 3).
+  await assertRunKeepsItsDirectives(companyId, runId, population, directives);
   const benefits = await loadFringeBenefitsByEmployee(companyId, population.map((p) => p.employee.id));
   const vehicleComponent = await loadVehicleBenefitComponent(companyId);
   for (const { employee, severanceOnly: onlySeverance } of population) {

@@ -11,10 +11,10 @@ import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockB
 import { directivePaidBy, TaxDirectivePaidError } from './taxDirectivePaidGuard';
 import { isRegularPayDirectiveType } from './taxDirectiveKinds';
 import { TaxDirectiveWindowError } from './taxDirectiveOverlap';
-import { regularDirectiveLatestUse } from './payrollRunRegularDirective';
+import { regularDirectiveLatestUse } from './payrollRunDirectiveUses';
 import { judgeRegularDirectiveChange, judgeRegularDirectiveCreate, lockForRegularChange, regularDirectiveRow } from './taxDirectiveRegularPayChange';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
-import { auditDirectiveApproval, judgeDirectiveApprover } from './taxDirectiveApprover';
+import { approversAtCreate, auditDirectiveApproval, judgeDirectiveApprover } from './taxDirectiveApprover';
 import { mapRow, type DirectiveStatus, type TaxDirective, type TaxDirectiveCreateInput, type ListTaxDirectivesFilter } from './taxDirectiveModel';
 
 export { TaxDirectivePaidError };
@@ -82,7 +82,7 @@ export async function createTaxDirective(
     INSERT INTO tax_directives (
       company_id, employee_id, employee_name, employee_tax_number,
       directive_number, directive_type, amount, tax_rate, tax_amount,
-      effective_date, issued_date, expiry_date, status, sars_reference, notes, requested_by
+      effective_date, issued_date, expiry_date, status, sars_reference, notes, requested_by, approvers_at_create
     ) VALUES (
       ${companyId},
       ${input.employee_id ?? null},
@@ -99,7 +99,8 @@ export async function createTaxDirective(
       'pending',
       ${input.sars_reference ?? null},
       ${input.notes ?? null},
-      ${requestedByUserId}
+      ${requestedByUserId},
+      ${await approversAtCreate(companyId, requestedByUserId)}::text[]
     )
     RETURNING *
   `;

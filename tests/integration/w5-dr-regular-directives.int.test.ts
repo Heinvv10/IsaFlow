@@ -75,6 +75,13 @@ describe('one regular-pay directive per employee per period', () => {
     expect((await postDirective(f, { ...PCT, effective_date: '2026-06-01', directive_number: '4444444' })).statusCode).toBe(201);
   });
 
+  it('the reverse: "to 05-31" created while "from 06-01" exists is allowed', async () => {
+    await cancelAll(pool, f);
+    expect((await postDirective(f, { ...PCT, effective_date: '2026-06-01' })).statusCode).toBe(201);
+    const r = await postDirective(f, { ...PCT, expiry_date: '2026-05-31', directive_number: '3434343' });
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(201);
+  });
+
   it('a create waits on the employee lock, then sees the holder\'s pending row: 400, one row', async () => {
     await cancelAll(pool, f);
     const { result, waited } = await underHeldLock(pool, f, () => postDirective(f, PCT), { status: 'pending' });

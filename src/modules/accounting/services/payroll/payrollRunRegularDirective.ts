@@ -97,7 +97,7 @@ export async function loadRegularPayDirectives(
 export async function regularDirectiveRefusal(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
   const lines = (await sql`
     SELECT l.employee_id, e.employee_number, h.period_year, h.period_month,
-           (SELECT v->'directive'->>'id' FROM jsonb_array_elements(COALESCE(l.validation_results, '[]'::jsonb)) v
+           (SELECT v->'directive'->>'id' FROM jsonb_array_elements(CASE WHEN jsonb_typeof(l.validation_results) = 'array' THEN l.validation_results ELSE '[]'::jsonb END) v
              WHERE v->>'code' = ${PAYE_OUTSIDE_TABLES} AND v->>'treatment' = 'directive' LIMIT 1) AS applied,
            COALESCE(l.validation_results @> ${JSON.stringify([{ code: DIRECTIVE_FOR_CONTRACTOR }])}::jsonb, false) AS contractor_directive
     FROM payroll_run_lines l
@@ -136,7 +136,7 @@ export async function regularDirectiveRefusal(companyId: string, runId: string):
     return {
       code: 'regular_directive_contractor',
       detail: `${contractors.map(l => String(l.employee_number)).join(', ')}: an independent contractor has a fixed-percentage or fixed-amount directive. `
-        + 'Change the tax status first (employee profile, Work terms), or cancel the directive, then recalculate.',
+        + 'Restore the employee\'s tax status (employee profile, Work terms); or, for a run never approved, cancel the directive. Then recalculate.',
     };
   }
   const changed = lines.filter(l => (l.applied == null ? null : String(l.applied)) !== (now.get(String(l.employee_id))?.current?.id ?? null));
@@ -156,32 +156,18 @@ export async function regularDirectiveRefusal(companyId: string, runId: string):
 const everApproved = (declarable: string[]) => sql`(h.status = ANY(${declarable}::text[]) OR h.approved_at IS NOT NULL OR h.reopened_at IS NOT NULL
   OR (h.approval_history IS NOT NULL AND NOT isempty(h.approval_history)))`;
 
-/** The latest run ever approved whose line was taxed by this directive: its period (YYYY-MM) and judge date, else null. */
-export async function regularDirectiveLatestUse(companyId: string, directiveId: string): Promise<{ period: string; judgeDate: string } | null> {
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
-  const flag = JSON.stringify([{ code: PAYE_OUTSIDE_TABLES, directive: { id: directiveId } }]);
-  const rows = (await sql`
-    SELECT h.period_year, h.period_month,
-           COALESCE(h.run_date, (make_date(h.period_year, h.period_month, 1) + INTERVAL '1 month - 1 day')::date)::text AS judge
-    FROM payroll_run_lines l
-    JOIN payroll_run_headers h ON h.id = l.run_id
-    WHERE h.company_id = ${companyId}::uuid AND ${everApproved(declarable)}
-      AND l.validation_results @> ${flag}::jsonb
-    ORDER BY judge DESC
-    LIMIT 1
-  `) as DbRow[];
-  const r = rows[0];
-  return r ? { period: `${String(r.period_year)}-${String(r.period_month).padStart(2, '0')}`, judgeDate: String(r.judge) } : null;
-}
-
 /** The first run ever approved (YYYY-MM) this employee was paid in whose judge date falls in [from, to], else null. */
 export async function declarableRunInWindow(companyId: string, employeeId: string, from: string, to: string): Promise<string | null> {
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     SELECT h.period_year, h.period_month
-    FROM payroll_run_lines l
-    JOIN payroll_run_headers h ON h.id = l.run_id
-    WHERE h.company_id = ${companyId}::uuid AND l.employee_id = ${employeeId}::uuid AND ${everApproved(declarable)}
+    FROM payroll_run_headers h
+    WHERE h.company_id = ${companyId}::uuid AND ${everApproved(declarable)}
+      -- Paid in it: a line now, or (reopened, the lines rewritten since) taxed by an earlier approved version
+      -- (approved_taxed_employees, migration 925; NULL on a reopened run = unknown, fail closed), or a recorded directive use.
+      AND (EXISTS (SELECT 1 FROM payroll_run_lines l WHERE l.run_id = h.id AND l.employee_id = ${employeeId}::uuid) OR ${employeeId}::uuid = ANY(COALESCE(h.approved_taxed_employees, '{}'::uuid[]))
+        OR (h.reopened_at IS NOT NULL AND h.approved_taxed_employees IS NULL)
+        OR EXISTS (SELECT 1 FROM payroll_run_directive_uses u WHERE u.company_id = h.company_id AND u.run_id = h.id AND u.employee_id = ${employeeId}::uuid))
       AND COALESCE(h.run_date, (make_date(h.period_year, h.period_month, 1) + INTERVAL '1 month - 1 day')::date) BETWEEN ${from}::date AND ${to}::date
     ORDER BY h.period_year, h.period_month
     LIMIT 1

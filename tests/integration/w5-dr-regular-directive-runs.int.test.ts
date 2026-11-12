@@ -16,7 +16,8 @@ import {
   applyStandalone, approveRun, calculateRun, cleanSeveranceFixtures, codes, createRunFor, previewRun, runLine, type SeveranceFixture,
 } from './p3-severance.helpers';
 import { deleteDirective, drFixture, insertDirective, patchDirective, PCT, postDirective } from './w5-dr.helpers';
-import { loadRegularPayDirectives, regularDirectiveLatestUse, regularDirectiveRefusal } from '@/modules/accounting/services/payroll/payrollRunRegularDirective';
+import { loadRegularPayDirectives, regularDirectiveRefusal } from '@/modules/accounting/services/payroll/payrollRunRegularDirective';
+import { regularDirectiveLatestUse } from '@/modules/accounting/services/payroll/payrollRunDirectiveUses';
 import { loadPayeYearToDate } from '@/modules/accounting/services/payroll/payrollYearToDate';
 import { listRunLumpSums } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
 import { listRegularDirectiveNumbers } from '@/modules/accounting/services/payroll/easyFileRegularDirectives';

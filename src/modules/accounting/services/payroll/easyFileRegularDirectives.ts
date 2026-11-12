@@ -25,7 +25,7 @@ export async function listRegularDirectiveNumbers(
     SELECT l.employee_id, v->'directive'->>'number' AS number, MIN(make_date(h.period_year, h.period_month, 1)) AS first_used
     FROM payroll_run_lines l
     JOIN payroll_run_headers h ON h.id = l.run_id
-    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.validation_results, '[]'::jsonb)) v
+    CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(l.validation_results) = 'array' THEN l.validation_results ELSE '[]'::jsonb END) v
     WHERE h.company_id = ${companyId}::uuid
       AND h.status = ANY(${declarable}::text[])
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date

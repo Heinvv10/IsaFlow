@@ -41,6 +41,7 @@ import type { DbRow, TxSql } from '@/lib/neon';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { withBoundedLockWait } from './payrollRunLock';
+import { recordRegularDirectiveUses } from './payrollRunDirectiveUses';
 import { PayrollApprovalRefusedError } from './payrollApprovalRefusal';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
 import {
@@ -192,6 +193,8 @@ export async function claimRunSeveranceDirectives(companyId: string, runId: stri
       }
     }
     if (lines.length > 0) log.info('Severance directives claimed by payroll run', { companyId, runId, directives: ids }, 'payrollRunDirectiveClaim');
+    // The regular-pay directives the approved lines were taxed by, kept beyond any reopen (migration 977, DR round 3).
+    await recordRegularDirectiveUses(tx, companyId, runId);
   });
 }
 

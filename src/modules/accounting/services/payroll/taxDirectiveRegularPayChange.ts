@@ -25,7 +25,8 @@ import { TaxDirectivePaidError } from './taxDirectivePaidGuard';
 import {
   assertNoRegularDirectiveOverlap, directiveEndsOn, lockEmployeeRegularDirectives, TaxDirectiveWindowError,
 } from './taxDirectiveOverlap';
-import { declarableRunInWindow, regularDirectiveLatestUse } from './payrollRunRegularDirective';
+import { declarableRunInWindow } from './payrollRunRegularDirective';
+import { regularDirectiveLatestUse } from './payrollRunDirectiveUses';
 import { REGULAR_PAY_DIRECTIVE_TYPES } from './taxDirectiveKinds';
 import { payrollApprovalLockScope } from './payrollRunLock';
 import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
