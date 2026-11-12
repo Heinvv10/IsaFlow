@@ -7,13 +7,11 @@
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
-import { tmpdir } from 'os';
-import path from 'path';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'fs';
 
 const ROOT = process.cwd();
-const listFiles = (root: string = ROOT): string[] => execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', 'src', 'pages', 'public'], {
-  cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+const listFiles = (): string[] => execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', 'src', 'pages', 'public'], {
+  cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
 }).split('\n').filter((f) => /\.(tsx?|js|mjs|html|txt|json|webmanifest)$/.test(f));
 
 /** Spellings that stay: a company literally named "ISAFlow Demo", the OAuth realm, and the search alias in llms.txt. */
@@ -34,8 +32,8 @@ const ALLOWED = new Set([
 ]);
 
 const stripKept = (text: string): string => text.replace(KEEP, '');
-const hits = (files: string[], root: string = ROOT): string[] => files.filter((f) => !ALLOWED.has(f)).flatMap((f) =>
-  readFileSync(`${root}/${f}`, 'utf8').split('\n')
+const hits = (files: string[]): string[] => files.filter((f) => !ALLOWED.has(f)).flatMap((f) =>
+  readFileSync(`${ROOT}/${f}`, 'utf8').split('\n')
     .map((line, i) => (stripKept(line).includes('ISAFlow') ? `${f}:${i + 1}` : ''))
     .filter(Boolean));
 
@@ -58,17 +56,13 @@ describe('brand spelling', () => {
     expect(stripKept('Sign in to your IsaFlow account')).not.toContain('ISAFlow');
   });
 
-  it('finds a new file that uses the old spelling (written in a scratch repo, not the real tree)', () => {
-    // A scratch repo, so no other test that walks pages/ can see the probe file mid-run.
+  it('finds a new file that uses the old spelling (written, scanned, removed)', () => {
     const probe = 'pages/zzBrandProbe.tsx';
-    const scratch = mkdtempSync(path.join(tmpdir(), 'brand-probe-'));
     try {
-      execFileSync('git', ['init', '-q'], { cwd: scratch });
-      mkdirSync(path.join(scratch, 'pages'));
-      writeFileSync(path.join(scratch, probe), "export const x = 'ISAFlow';\n");
-      expect(hits(listFiles(scratch), scratch)).toContain(`${probe}:1`);
+      writeFileSync(`${ROOT}/${probe}`, "export const x = 'ISAFlow';\n");
+      expect(hits(listFiles())).toContain(`${probe}:1`);
     } finally {
-      rmSync(scratch, { recursive: true, force: true });
+      rmSync(`${ROOT}/${probe}`, { force: true });
     }
   });
 });
