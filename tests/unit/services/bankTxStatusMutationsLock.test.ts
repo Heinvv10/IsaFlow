@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ReconciledCashError } from '@/modules/accounting/services/bank/reconciledCash';
+import { SageReconciledLineError } from '@/modules/accounting/services/bank/reconciledCash';
 
 // The learning-loop log has its own suites (codingDecisionLog, coding-decision-paths); it is kept out of this
 // file's SQL sequence.
@@ -42,6 +42,7 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import { enterFakeRequestCtx } from '../helpers/requestCtx';
 import {
   matchTransaction,
@@ -137,8 +138,12 @@ describe('bank transaction status mutations — locked and guarded', () => {
       // unlock it; match / unmatch / exclude would quietly take it out of reconciled. Refused on the locked read.
       queue([row({ status: 'reconciled', matched_journal_line_id: JL_ID, reconciliation_id: null })], [row()]);
 
-      await expect(run()).rejects.toBeInstanceOf(ReconciledCashError);
+      vi.mocked(log.error).mockClear(); vi.mocked(log.info).mockClear();
+      await expect(run()).rejects.toBeInstanceOf(SageReconciledLineError);
       expect(vi.mocked(sql)).toHaveBeenCalledTimes(1);
+      // An expected refusal: logged at info, kept out of the error tracker (only this subclass is).
+      expect(vi.mocked(log.error)).not.toHaveBeenCalled();
+      expect(vi.mocked(log.info)).toHaveBeenCalledWith(expect.stringMatching(/^Failed to /), expect.anything(), 'accounting');
     });
 
     it(`${name} reports NOT_FOUND from the locked read`, async () => {
