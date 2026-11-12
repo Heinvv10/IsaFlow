@@ -9,10 +9,10 @@ interface Props {
   onCloseMobile: () => void;
 }
 
-// Pricing has its own page; the rest are anchors on the landing page, prefixed
-// with '/' so they resolve from any route (including /pricing itself).
+// Features, Pricing, Blog and Contact are their own pages; FAQ is an anchor on the
+// landing page, prefixed with '/' so it resolves from any route.
 const NAV_LINKS = [
-  { label: 'Features', href: '/#features' },
+  { label: 'Features', href: '/features' },
   { label: 'Pricing', href: '/pricing' },
   { label: 'Blog', href: '/blog' },
   { label: 'FAQ', href: '/#faq' },
@@ -29,7 +29,7 @@ export function LandingNavbar({ scrolled, mobileMenuOpen, onToggleMobile, onClos
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 lg:h-20">
           <Link href="/" className="flex items-center">
-            <img src="/logo.png" alt="IsaFlow" className="h-8 sm:h-10 w-auto brightness-0 invert" />
+            <img src="/landing/logo-nav.webp" alt="IsaFlow" width={389} height={80} className="h-8 sm:h-10 w-auto brightness-0 invert" />
           </Link>
 
           <div className="hidden lg:flex items-center gap-8">

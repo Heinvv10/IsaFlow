@@ -24,9 +24,53 @@
  *
  * Light tokens: the same hook also strips `.dark` from <html>, so every
  * `--ff-*` custom property (styles/globals.css) falls back to its `:root`
- * (light) definition on its own — no need to duplicate that token set here,
- * where it would drift as new tokens are added.
+ * (light) definition on its own. The screen's light surfaces are soft River
+ * tints, though, so the paper block below puts back the white paper and the
+ * ink the packs were tuned on (surface, text, border, focus and shadcn base
+ * tokens). A plain browser Ctrl+P without print-mode (management accounts'
+ * window.print()) prints the screen's light theme, tints included.
  */
+
+/*
+ * Paper: a print render keeps white paper and the ink the packs were tuned on, whatever the screen theme's tints are.
+ * Also applied to a data-surface="light" panel, which re-declares the light (River) tokens on itself.
+ */
+html.print-mode,
+html.print-mode [data-surface="light"] {
+  --background: 0 0% 100%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --foreground: 0 0% 3.9%;
+  --secondary: 0 0% 96.1%;
+  --muted: 0 0% 96.1%;
+  --accent: 0 0% 96.1%;
+  --muted-foreground: 0 0% 45.1%;
+  --border: 0 0% 89.8%;
+  --input: 0 0% 89.8%;
+  --ff-brand-eyebrow: #0f766e;
+  --ff-canvas-border: rgba(15, 23, 42, 0.08);
+  --ff-focus-ring: #0d9488;
+  --ff-bg-primary: #ffffff;
+  --ff-bg-secondary: #f9fafb;
+  --ff-bg-tertiary: #f3f4f6;
+  --ff-bg-hover: #f3f4f6;
+  --ff-surface-primary: #ffffff;
+  --ff-surface-secondary: #f9fafb;
+  --ff-surface-elevated: #ffffff;
+  --ff-canvas-base: #ffffff;
+  --ff-canvas-mid: #ffffff;
+  --ff-canvas-raised: #f1f5f9;
+  --ff-canvas-gradient: none;
+  --ff-text-primary: #111827;
+  --ff-text-secondary: #4b5563;
+  --ff-text-tertiary: #5b6573;
+  --ff-border-primary: #e5e7eb;
+  --ff-border-secondary: #d1d5db;
+  --ff-border-subtle: #f3f4f6;
+  --ff-border-light: #e5e7eb;
+  --ff-fav: #1f7a4d;
+  --ff-field-bg: #ffffff;
+}
 
 @media print {
   /* AppLayout chrome: sidebar (desktop + mobile drawer), top header bar,
