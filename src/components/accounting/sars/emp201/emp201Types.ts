@@ -83,3 +83,6 @@ export function exportEmp201Csv(data: EMP201Data, from: string, to: string): voi
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/** Gives a section's row the function that opens its drill, or undefined when the total is zero (nothing to drill). */
+export type DrillOpener = (field: string, amount: number) => (() => void) | undefined;
