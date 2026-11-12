@@ -8,7 +8,7 @@
     "build": "NODE_OPTIONS=--max-old-space-size=8192 next build",
     "start": "next start -p 3200",
     "lint": "NODE_OPTIONS=--max-old-space-size=4096 eslint src pages --report-unused-disable-directives",
-    "type-check": "tsc --noEmit",
+    "type-check": "NODE_OPTIONS=--max-old-space-size=6144 tsc --noEmit",
     "type-check:pack-fixtures": "tsc -p tsconfig.packfixtures.json",
     "type-check:paystack-exports": "tsc -p tsconfig.paystackexports.json",
     "type-check:ci-scripts": "tsc -p tsconfig.ciscripts.json",
