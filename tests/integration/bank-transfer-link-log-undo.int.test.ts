@@ -45,6 +45,20 @@ async function asApp<T>(companyId: string, sub: string, fn: (c: PoolClient) => P
 }
 const inRequest = <T>(fn: () => Promise<T>, companyId = company, sub = user) => asApp(companyId, sub, () => fn());
 
+/** The same request transaction as the table owner (RLS not applied): proves the code's own company scoping. */
+async function asOwner<T>(companyId: string, sub: string, fn: () => Promise<T>): Promise<T> {
+  const client = await getPoolForTests().connect();
+  try {
+    await client.query('BEGIN');
+    const out = await als.run({ client, userId: sub, companyId, claims: {} } as unknown as Ctx, fn);
+    await client.query('COMMIT');
+    return out;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally { client.release(); }
+}
+
 async function fields(txId: string) {
   return (await pool.query(`SELECT ${FIELDS} FROM bank_transactions WHERE id = $1`, [txId])).rows[0];
 }
@@ -186,6 +200,19 @@ describe('978 undo', () => {
     expect((await fields(tx)).matched_journal_line_id).toBe(secondLeg);
   });
 
+  it('a vetoed pair does not starve the next-best journal line in the same pass', async () => {
+    // Two transfer journals, one statement line: the first link takes the lower line. Once undone, that pair must be
+    // left out of the ranking, or it wins again, links nothing and ends the pass before the other line is tried.
+    const s = await seedScenario(pool, company, user, 2, 1);
+    const tx = s.imported[0];
+    await inRequest(() => relinkTransferCounterparts(company, s.targetBank, pageLoad()));
+    const [link] = await logRows(tx);
+    expect(link.journal_line_id).toBe([...s.freeLines].sort()[0]);
+    await inRequest(() => undoTransferLinks(company, { linkId: link.id }, USER));
+    expect((await inRequest(() => relinkTransferCounterparts(company, s.targetBank, pageLoad()))).linked).toBe(1);
+    expect((await fields(tx)).matched_journal_line_id).toBe([...s.freeLines].sort()[1]);
+  });
+
   it('refuses after a later change to the line, and leaves the line and the log untouched', async () => {
     const s = await seedScenario(pool, company, user, 2, 2);
     await inRequest(() => relinkTransferCounterparts(company, s.targetBank, pageLoad()));
@@ -222,6 +249,10 @@ describe('978 undo', () => {
     expect(await undoErr(inRequest(() => undoTransferLinks(other, { linkId: link.id }, OTHER), other, otherUser))).toBe('NOT_FOUND');
     expect(await undoErr(inRequest(() => undoTransferLinks(other, { batchId: trigger.linkBatchId }, OTHER), other, otherUser))).toBe('NOT_FOUND');
     expect(await inRequest(() => listTransferLinks(other, s.targetBank), other, otherUser)).toEqual([]);
+    // Without RLS too: the service's own company_id scoping refuses it.
+    expect(await undoErr(asOwner(other, otherUser, () => undoTransferLinks(other, { linkId: link.id }, OTHER)))).toBe('NOT_FOUND');
+    expect(await undoErr(asOwner(other, otherUser, () => undoTransferLinks(other, { batchId: trigger.linkBatchId }, OTHER)))).toBe('NOT_FOUND');
+    expect(await asOwner(other, otherUser, () => listTransferLinks(other, s.targetBank))).toEqual([]);
     expect((await fields(s.imported[0])).status).toBe('allocated');
     expect((await logRows(s.imported[0]))[0].undone_at).toBeNull();
   });
