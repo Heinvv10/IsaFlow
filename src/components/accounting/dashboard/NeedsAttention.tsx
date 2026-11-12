@@ -50,13 +50,16 @@ function Row({ item }: { item: AttentionItem }) {
           <span className="hidden sm:inline ml-2 text-xs text-[var(--ff-text-tertiary)]">{item.area}</span>
           {item.detail && <span className="block text-xs text-[var(--ff-text-secondary)]">{item.detail}</span>}
         </span>
-        <span className="flex shrink-0 items-center gap-3 text-xs text-[var(--ff-text-secondary)]">
-          {typeof item.amount === 'number' && (
-            <Money amount={item.amount} className="text-sm font-medium text-[var(--ff-text-primary)]" />
-          )}
-          {item.dueAt && <span>Due {formatDisplayDate(item.dueAt)}</span>}
-          <ChevronRight aria-hidden="true" className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-[var(--ff-text-secondary)]" />
-        </span>
+        {(typeof item.amount === 'number' || item.dueAt) && (
+          <span className="flex shrink-0 items-center gap-3 text-xs text-[var(--ff-text-secondary)]">
+            {typeof item.amount === 'number' && (
+              <Money amount={item.amount} className="text-sm font-medium text-[var(--ff-text-primary)]" />
+            )}
+            {item.dueAt && <span>Due {formatDisplayDate(item.dueAt)}</span>}
+          </span>
+        )}
+        {/* Decorative; on a phone it would wrap onto a line of its own. */}
+        <ChevronRight aria-hidden="true" className="hidden sm:block h-4 w-4 shrink-0 text-[var(--ff-text-tertiary)] group-hover:text-[var(--ff-text-secondary)]" />
       </Link>
     </li>
   );

@@ -119,6 +119,19 @@ describe('shapeAttention: bureau work items', () => {
     expect(items.find((i) => i.label === 'CIPC annual return due')).toMatchObject({ area: 'Compliance' });
   });
 
+  it('tags SARS links by what they are: VAT201 is VAT, EMP201 is Payroll, the rest Compliance', () => {
+    const items = shapeAttention(input({
+      work: [
+        work({ task: 'VAT return due', href: '/accounting/sars/vat201' }),
+        work({ task: 'EMP201 due', href: '/accounting/sars/emp201' }),
+        work({ task: 'Provisional tax (IRP6) due', href: '/accounting/sars' }),
+      ],
+    }));
+    expect(items.map((i) => `${i.label}:${i.area}`)).toEqual([
+      'VAT return due:VAT', 'EMP201 due:Payroll', 'Provisional tax (IRP6) due:Compliance',
+    ]);
+  });
+
   it('one bank row and one draft-invoice row however many sources mention them', () => {
     const items = shapeAttention(input({
       unreconciledBankTxns: 439,

@@ -85,8 +85,8 @@ const monthLabel = (m: number, y: number): string => `${MONTH_FULL[m - 1] ?? '?'
 const periodIndex = (y: number, m: number): number => y * 12 + m;
 
 function areaForHref(href: string): AttentionArea {
-  if (href.startsWith('/payroll')) return 'Payroll';
-  if (href.startsWith('/accounting/sars')) return 'VAT';
+  if (href.startsWith('/payroll') || href.startsWith('/accounting/sars/emp')) return 'Payroll';
+  if (href.startsWith('/accounting/sars/vat')) return 'VAT';
   if (href.startsWith('/accounting/bank')) return 'Banking';
   if (href.startsWith('/accounting/reports/ap-aging')) return 'Purchases';
   return 'Compliance';
