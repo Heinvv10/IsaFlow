@@ -70,7 +70,12 @@ it('the EMP201 page refetches after a booking WITHOUT unmounting the ETI section
   vi.mocked(apiFetch).mockImplementation(async (url) => {
     const u = String(url);
     if (u.includes('emp201-book-eti')) return json(BOOKED);
-    if (u.includes('sars-emp201')) { gets.push(u); return json(EMP); }
+    if (u.includes('sars-emp201')) {
+      gets.push(u);
+      // The refetch takes time, as on a network: a page that clears the EMP201 meanwhile unmounts the section.
+      if (gets.length > 1) await new Promise((r) => setTimeout(r, 100));
+      return json(EMP);
+    }
     return json([]);
   });
   render(<Emp201Page />);
@@ -80,6 +85,8 @@ it('the EMP201 page refetches after a booking WITHOUT unmounting the ETI section
   const said = /^Booked ETI for [A-Z][a-z]+ \d{4}: R.900\.00 refund/;
   expect(await screen.findByRole('status')).toHaveTextContent(said);
   await waitFor(() => expect(gets).toHaveLength(2)); // the refetch happened
+  // ... and has LANDED (Generate is enabled again, the new data is rendered): the result is still there.
+  await waitFor(() => expect(screen.getByRole('button', { name: /Generate/ })).not.toBeDisabled());
   expect(screen.getByRole('status')).toHaveTextContent(said);
   await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('status')));
 });
