@@ -127,8 +127,9 @@ describe('the rate is a snapshot', () => {
 });
 
 describe('ETI by the run\'s hours (ET: ETI Act s7(5); ETI guide Issue 5 §5.3)', () => {
+  // A valid SA ID number matching the date of birth (ETI Act s6(b), review rounds 2-3): without one there is no ETI.
   it('80 hours at R35 for a 21-year-old claims R712.50 (R5 600 grossed up, R1 425 x 80/160); 160 hours the full R1 425', async () => {
-    await pool.query(`UPDATE payroll_employees SET date_of_birth = '2005-03-01', start_date = '2026-06-01', id_number = NULL WHERE id = $1`, [state.employee]);
+    await pool.query(`UPDATE payroll_employees SET date_of_birth = '2005-03-01', start_date = '2026-06-01', id_number = '0503015009080' WHERE id = $1`, [state.employee]);
     await makeHourly(35);
     await hours(state.nov, 80);
     const part = await line(state.nov);

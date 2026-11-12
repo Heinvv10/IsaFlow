@@ -83,10 +83,10 @@ describe('bookedByEtiJournals', () => {
     expect(await inTx(CO, () => bookedByEtiJournals(CO, MAY))).toEqual({ used: 300, refund: 100 });
   });
 
-  it('a reversed ETI journal books nothing (its reversal is followed by reversal_of_id)', async () => {
+  it('round 5 ruling: an ETI journal cannot be reversed by hand, so what it booked stands', async () => {
     const id = await journal(CO, 'auto_payroll', 'ETI-2026-05', acc.paye, acc.labour, 50);
     expect(await inTx(CO, () => bookedByEtiJournals(CO, MAY))).toEqual({ used: 350, refund: 100 });
-    await inTx(CO, () => reverseJournalEntry(CO, id, USER));
-    expect(await inTx(CO, () => bookedByEtiJournals(CO, MAY))).toEqual({ used: 300, refund: 100 });
+    await expect(inTx(CO, () => reverseJournalEntry(CO, id, USER))).rejects.toThrow('ETI journals are rebooked automatically');
+    expect(await inTx(CO, () => bookedByEtiJournals(CO, MAY))).toEqual({ used: 350, refund: 100 });
   });
 });

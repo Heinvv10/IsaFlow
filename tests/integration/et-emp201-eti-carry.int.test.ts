@@ -48,9 +48,9 @@ describe('EMP201 ETI carry-forward', () => {
     expect(june.payePayable).toBe(700);
   });
 
-  it('February\'s excess is the refund claimable, and March starts at nil', async () => {
+  it('February\'s excess is the refund claimable, not carried (s10(1), round 5 ruling), and March starts at nil', async () => {
     const feb = await generateEMP201(coA, '2026-02-01', '2026-02-28');
-    expect(feb.etiCarry).toEqual({ broughtForward: 0, used: 0, carriedForward: 1_000, refundClaimable: 1_000 });
+    expect(feb.etiCarry).toEqual({ broughtForward: 0, used: 0, carriedForward: 0, refundClaimable: 1_000 });
     const march = await generateEMP201(coA, '2026-03-01', '2026-03-31');
     expect(march.etiCarry.broughtForward).toBe(0);
     expect(march.payePayable).toBe(400);

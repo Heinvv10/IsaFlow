@@ -57,16 +57,19 @@ function parked() {
   return { slot: { hold, entered }, inside, release: () => release() };
 }
 
-/** 'waiting' once a backend waits on a lock while inserting a directive payment. */
+/**
+ * 'waiting' once the second writer waits on the first: on the payment row, or (since wave 5 ET, which made the stand-alone
+ * payment take the company payroll approval lock first, as approval does: lock order 1 -> 2 -> 3) on that advisory lock.
+ */
 async function waitsOnPaymentRow(): Promise<'waiting'> {
   for (let i = 0; i < 200; i += 1) {
     const r = await pool.query(
       `SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
-          AND query ILIKE '%INSERT INTO tax_directive_payments%'`);
+          AND (query ILIKE '%INSERT INTO tax_directive_payments%' OR query ILIKE '%pg_advisory_xact_lock%')`);
     if (r.rowCount) return 'waiting';
     await new Promise((res) => setTimeout(res, 20));
   }
-  throw new Error('the second writer never waited on the payment row');
+  throw new Error('the second writer never waited on the first');
 }
 
 async function finalRunWithDirective(name: string) {

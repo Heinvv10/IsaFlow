@@ -90,7 +90,11 @@ describeIfDb('migration 958: seeded Long-term Loans subtype', () => {
     expect(rows.find((r) => r.account_code === '2210')).toMatchObject({ account_type: 'liability', account_subtype: 'long_term_liability' });
     // The chart as 701 seeded it, from a company seeded by the PREVIOUS definition of the seeder (701's body, re-created here
     // as a function of its own, so the comparison is every code, type and subtype, not a few spot codes).
-    expect(without2210).toEqual(await previousChartWithout2210());
+    // Wave 5 ET (migration 974): the seeder also creates 1150 ETI refund receivable (SARS), the eti_refund_receivable role.
+    expect(rows.find((r) => r.account_code === '1150')).toMatchObject({
+      account_name: 'ETI refund receivable (SARS)', account_type: 'asset', account_subtype: 'eti_refund_receivable', is_system_account: true,
+    });
+    expect(without2210.filter((r) => r.account_code !== '1150')).toEqual(await previousChartWithout2210());
     expect(rows.length).toBeGreaterThan(30);
   });
 

@@ -102,7 +102,7 @@ beforeAll(async () => {
   // CLOSED: everything to the end of August is closed after July's journal posted; September is open.
   await setPeriodsEndingBy(CLOSED, '2026-08-31', 'closed');
   // NO_OPEN: every seeded period closed, so nothing is open on or after August's end.
-  await setPeriodsEndingBy(NO_OPEN, '2028-02-28', 'closed');
+  await setPeriodsEndingBy(NO_OPEN, '2028-12-31', 'closed'); // 2028 is a leap year: February ends on the 29th
   // Repro B: October's run (PAYE nil, ETI 1 000) in force; a November directive (PAYE 1 500) whose ETI journal used R1 000.
   await header(REPRO_B, 2026, 10, 'approved', 0, 1_000, await journal(REPRO_B, '2026-10-31', 'Payroll run 2026-10', 0.01));
   await directive(REPRO_B, '2026-11-10', 1_500);
