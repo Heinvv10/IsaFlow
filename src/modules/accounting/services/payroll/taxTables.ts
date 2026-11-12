@@ -148,15 +148,14 @@ export function unloadedTaxYearMessage(periodMonth: number, periodYear: number):
   }
 }
 
+/** The bracket an annual income falls in (the last one above every bound): what computeAnnualTax taxes it with. */
+export function bracketFor(annualIncome: number, brackets: TaxBracket[]): TaxBracket {
+  const found = brackets.find(b => annualIncome <= b.to) ?? brackets[brackets.length - 1];
+  if (!found) throw new Error('No tax brackets provided');
+  return found;
+}
+
 export function computeAnnualTax(annualIncome: number, brackets: TaxBracket[]): number {
-  for (const bracket of brackets) {
-    if (annualIncome <= bracket.to) {
-      return bracket.baseTax + bracket.rate * (annualIncome - bracket.from + 1);
-    }
-  }
-  const last = brackets[brackets.length - 1];
-  if (!last) {
-    throw new Error('No tax brackets provided');
-  }
-  return last.baseTax + last.rate * (annualIncome - last.from + 1);
+  const bracket = bracketFor(annualIncome, brackets);
+  return bracket.baseTax + bracket.rate * (annualIncome - bracket.from + 1);
 }

@@ -13,12 +13,18 @@ vi.mock('@/lib/neon', () => ({
 }));
 
 import { replaceRunLines, type LineInsert } from '@/modules/accounting/services/payroll/payrollRunLineWriter';
+import { applySdlToLines } from '@/modules/accounting/services/payroll/sdlLeviabilityService';
+import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
+import { buildCaseInput, loadCases } from '../../../fixtures/payroll-oracle/oracle';
+
+/** A real line's explanation, costed as a run costs it (SDL deferred). */
+const costed = calculatePayrollLine({ ...buildCaseInput(loadCases().find(c => c.id === 'sage-2027-03-kesh')!), annualPayrollEstimate: 'defer' });
 
 const insert = (over: Partial<LineInsert>): LineInsert => ({
   employeeId: 'e1', grossPay: 21_000, taxableIncome: 20_500, periodicTaxable: 20_400, annualTaxable: 0, paye: 0,
   medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0, retirementContributions: 0, retirementDeduction: 0,
   uifEmployee: 0, uifEmployer: 0, sdl: 0, sdlLeviable: 14_500, sdlApplicable: 20_000, sdlExempt: true, eti: 0, netPay: 20_000,
-  componentBreakdown: '[]', validationResults: '[]', ...over,
+  componentBreakdown: '[{"componentId":"c1"}]', validationResults: '[{"code":"W1"}]', explanation: costed.explanations, ...over,
 });
 
 /** Column name -> inserted value for each INSERT INTO payroll_run_lines the writer made. */
@@ -55,5 +61,32 @@ describe('replaceRunLines: SDL state (migration 957)', () => {
     txMock.mockClear();
     await replaceRunLines('run-2', 'co-1', [insert({ sdl: 7, sdlLeviable: 8, sdlApplicable: 9, sdlExempt: false })]);
     expect(insertedRows()[0]).toMatchObject({ sdl: 7, sdl_leviable: 8, sdl_applicable: 9, sdl_exempt: false });
+  });
+});
+
+describe('replaceRunLines: the explanation (migration 973)', () => {
+  it('stores the line\'s explanation as JSON in its own column, with the SDL charge the run decided', async () => {
+    txMock.mockClear();
+    const line = insert({ sdlLeviable: costed.sdlLeviable });
+    expect(line.explanation.sdl.steps.some(s => s.key === 'sdl.pending')).toBe(true);
+    const total = applySdlToLines([line], 900_000, 2027);
+    expect(line.explanation.sdl.result).toBe(line.sdl);
+    expect(line.explanation.sdl.steps.some(s => s.key === 'sdl.charge')).toBe(true);
+    expect(line.explanation.sdl.steps.some(s => s.key === 'sdl.pending')).toBe(false);
+    expect(total).toBeGreaterThan(0);
+    await replaceRunLines('run-3', 'co-1', [line]);
+    const stored = insertedRows()[0]!.explanation;
+    expect(typeof stored).toBe('string');
+    expect(JSON.parse(stored as string)).toEqual(line.explanation);
+    // The other JSON columns keep their own values beside it.
+    expect(insertedRows()[0]).toMatchObject({ validation_results: line.validationResults, component_breakdown: line.componentBreakdown });
+  });
+
+  it('an SDL-exempt run explains a nil levy', () => {
+    const line = insert({ sdlLeviable: costed.sdlLeviable });
+    applySdlToLines([line], 400_000, 2027);
+    expect(line.sdl).toBe(0);
+    expect(line.explanation.sdl.result).toBe(0);
+    expect(line.explanation.sdl.steps.find(s => s.key === 'sdl.threshold')?.label).toMatch(/exempt/i);
   });
 });

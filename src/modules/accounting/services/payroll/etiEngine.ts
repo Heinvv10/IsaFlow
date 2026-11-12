@@ -1,4 +1,4 @@
-import { etiForRemuneration, nationalMinimumWageCents, selectEtiTable } from './etiTables';
+import { etiBandOf, etiForRemuneration, nationalMinimumWageCents, selectEtiTable } from './etiTables';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { getAge } from './payeEngine';
 import { belowMinimumWage, grossUpTo160, hoursShare } from './etiHours';
@@ -93,7 +93,8 @@ export function calculateEti(input: EtiInput): EtiResult {
   }
 
   const employmentYear: 1 | 2 = monthsEmployed <= ETI_FIRST_YEAR_MONTHS ? 1 : 2;
-  const monthlyEti = etiForRemuneration(remuneration, employmentYear, table) * (hours ? hoursShare(hours.monthlyHours) : 1);
+  const share = hours ? hoursShare(hours.monthlyHours) : 1;
+  const monthlyEti = etiForRemuneration(remuneration, employmentYear, table) * share;
 
   return {
     isEligible: true,
@@ -102,6 +103,12 @@ export function calculateEti(input: EtiInput): EtiResult {
     monthsEmployed,
     employmentYear,
     monthlyEti: Math.round(monthlyEti * 100) / 100,
+    // EX-core: what the figure was taken on, for the explanation (never recomputed there): the remuneration, the hours
+    // and the grossed-up figure the table read (s7(5)), the table row, and the hours share it was grossed down by.
+    applied: {
+      table, remuneration: input.monthlyRemuneration, hours: hours?.monthlyHours ?? null, tabled: remuneration, share,
+      ...etiBandOf(remuneration, table),
+    },
   };
 }
 

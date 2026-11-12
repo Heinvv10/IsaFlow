@@ -2,6 +2,8 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { calculateSDL, isSdlExempt } from './sdlEngine';
+import { withSdlCharge } from './statutoryExplain';
+import type { LineExplanations } from './payrollExplainTypes';
 import type { PayrollPeriod } from './payrollTypes';
 import { contractorLineFlag } from './payrollOutsideTables';
 
@@ -69,6 +71,8 @@ export interface SdlLine {
   sdlLeviable: number;
   /** Set by applySdlToLines: the run was SDL-exempt (s4(b)), stored as sdl_exempt (migration 957). */
   sdlExempt?: boolean;
+  /** The line's explanation (EX-core): applySdlToLines completes its SDL charge with the run's threshold decision. */
+  explanation?: LineExplanations;
 }
 
 function periodIndex(year: number, month: number): number {
@@ -156,6 +160,12 @@ export function applySdlToLines(
   for (const line of lines) {
     line.sdlExempt = exempt;
     line.sdl = calculateSDL(line.sdlLeviable, annualRemunerationEstimate, taxYear);
+    if (line.explanation) {
+      line.explanation = {
+        ...line.explanation,
+        sdl: withSdlCharge(line.explanation.sdl, taxYear, { annualRemuneration: annualRemunerationEstimate, exempt, sdl: line.sdl }),
+      };
+    }
     total += line.sdl;
   }
   return total;

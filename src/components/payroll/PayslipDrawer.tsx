@@ -3,18 +3,26 @@
  * as InvoicePdfPreview shows invoices (the API route cannot be framed; frame-src allows
  * blob:), plus Download. Each load and each download is one audited request; the blob
  * URL is revoked when the drawer closes or shows another slip. Nothing is cached.
+ * "How was this calculated?" opens each statutory figure's stored explanation over it (wave 5 EX-core).
  */
 import { useEffect, useState } from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import { Drawer } from '@/components/ui/Drawer';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import type { ExplainedFigure } from '@/modules/accounting/services/payroll/payrollExplainTypes';
+import { useLineExplain } from './LineExplain';
+import { FIGURE_NAME } from './lineExplanationModel';
+
+const FIGURES: ExplainedFigure[] = ['paye', 'uif', 'sdl', 'eti'];
 
 export interface PayslipTarget {
   runId: string;
   employeeId: string;
   /** "Zanele Grid, November 2026": the drawer's title. */
   title: string;
+  /** "Zanele Grid": who the explanations name (the title when absent). */
+  employeeName?: string;
 }
 
 export const payslipUrl = (runId: string, employeeId: string | null, disposition: 'inline' | 'attachment') => {
@@ -29,6 +37,7 @@ export function PayslipDrawer({ target, onClose }: { target: PayslipTarget | nul
   const [shown, setShown] = useState<{ key: string; url: string } | null>(null);
   const [failed, setFailed] = useState('');
   const key = target ? `${target.runId}:${target.employeeId}` : '';
+  const { openExplain, explainDrawer } = useLineExplain();
 
   useEffect(() => {
     if (!target) return;
@@ -73,10 +82,22 @@ export function PayslipDrawer({ target, onClose }: { target: PayslipTarget | nul
               <Download className="h-4 w-4" aria-hidden="true" /> Download
             </a>
           </div>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-[var(--ff-text-secondary)]">How was this calculated?</span>
+            {FIGURES.map((figure) => (
+              <button key={figure} type="button"
+                aria-label={`How was ${FIGURE_NAME[figure]} for ${target.employeeName ?? target.title} calculated?`}
+                onClick={() => openExplain({ runId: target.runId, employeeId: target.employeeId, employeeName: target.employeeName ?? target.title, figure })}
+                className="ff-focus-ring rounded-md border border-[var(--ff-border-primary)] px-2.5 py-1 font-medium text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)]">
+                {FIGURE_NAME[figure]}
+              </button>
+            ))}
+          </div>
           {failed && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{failed}</p>}
           {doc && <iframe key={doc.url} title="Payslip PDF" src={doc.url} className="h-[75vh] w-full rounded border border-[var(--ff-border-primary)] bg-white" />}
         </div>
       )}
+      {explainDrawer}
     </Drawer>
   );
 }
