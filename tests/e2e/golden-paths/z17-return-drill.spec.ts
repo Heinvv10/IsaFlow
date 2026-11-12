@@ -1,6 +1,6 @@
 // golden:dev-only
 /**
- * Golden path Z17 (wave 5 L3u): drill from a VAT201 field to the lines behind it. READ-ONLY on the Demo company, dev only.
+ * Golden path Z17 (wave 5 L3u): drill from a VAT201 field to the lines behind it. READ-ONLY on the golden session's company (Demo, or the CI slot's seeded copy), dev only.
  *
  * Finds a window on Demo with a non-zero tax-leg field (field 4 where there is output VAT, else an input field: GitHub's hosted
  * Demo is seeded with supplier invoices only), generates the VAT201, opens that field's drawer and checks that the
@@ -15,7 +15,6 @@ import { switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { THEMES, settle } from '../helpers/themeSpec';
 
-const DEMO = '00000000-0000-0000-0000-000000000001';
 const evidenceDir = process.env.RETURN_EVIDENCE_DIR;
 test.setTimeout(300_000);
 
@@ -69,8 +68,14 @@ const money = (s: string): number => Number(s.replace(/\u2212/g, '-').replace(/[
 
 test('a tax field drills to lines that sum to the field; axe clean (Demo, read-only)', async ({ page, context, baseURL }) => {
   const api = await Api.login(baseURL!);
-  await switchApiCompany(api, DEMO);
-  await switchBrowserCompany(context, DEMO);
+  // The golden session is already scoped to its company (the CI slot's, or the user's default Demo); never switch by a
+  // dev id, since a hosted slot user is not a member of it. Z17_COMPANY_ID is for a local run as a user whose default
+  // company is not Demo (the CI job never sets it).
+  const company = process.env.Z17_COMPANY_ID;
+  if (company) {
+    await switchApiCompany(api, company);
+    await switchBrowserCompany(context, company);
+  }
   const p = await busyPeriod(api);
   await page.setViewportSize({ width: 1568, height: 1000 });
   await page.goto('/accounting/sars/vat201', { waitUntil: 'domcontentloaded' });
