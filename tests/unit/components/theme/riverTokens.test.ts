@@ -8,6 +8,8 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { describe, expect, it } from 'vitest';
 import config from '../../../../tailwind.config.mjs';
+// @ts-expect-error plain .mjs module, no declaration file
+import { themeContrastCss } from '../../../../scripts/generateThemeContrast.mjs';
 
 const root = process.cwd();
 const css = readFileSync(join(root, 'styles/globals.css'), 'utf8');
@@ -99,6 +101,13 @@ describe('light mode is tinted, not stark white', () => {
     expect(hex(':root', '--ff-canvas-base')).toBe(RIVER.mist);
   });
 
+  it.each(['--ff-surface-brand', '--ff-surface-warm'])('%s has a dark value that dark text tokens read on (AA)', (name) => {
+    const dark = hex('.dark', name);
+    for (const fg of ['--ff-text-primary', '--ff-text-secondary', '--ff-text-tertiary']) {
+      expect(contrast(hex('.dark', fg), dark), `${fg} on ${name}`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it('dark mode is built on Deep', () => {
     expect(hex('.dark', '--ff-bg-primary')).toBe(RIVER.deep);
     expect(hex('.dark', '--ff-canvas-base')).toBe(RIVER.deep);
@@ -120,9 +129,13 @@ describe('light mode is tinted, not stark white', () => {
 });
 
 describe('print keeps white paper', () => {
-  const paper = /html\.print-mode\s*\{([^}]*)\}/.exec(printCss)?.[1] ?? '';
+  const paper = /html\.print-mode,\s*html\.print-mode \[data-surface="light"\]\s*\{([^}]*)\}/.exec(printCss)?.[1] ?? '';
 
   it.each([
+    ['--background', '0 0% 100%'],
+    ['--card', '0 0% 100%'],
+    ['--border', '0 0% 89\\.8%'],
+    ['--ff-canvas-border', 'rgba\\(15, 23, 42, 0\\.08\\)'],
     ['--ff-bg-primary', '#ffffff'],
     ['--ff-surface-primary', '#ffffff'],
     ['--ff-text-primary', '#111827'],
@@ -130,5 +143,43 @@ describe('print keeps white paper', () => {
     ['--ff-text-tertiary', '#5b6573'],
   ])('%s is %s under html.print-mode', (name, value) => {
     expect(paper).toMatch(new RegExp(`${name}:\\s*${value}\\s*;`));
+  });
+});
+
+describe('the light 600/700 text remap and hover arms are scoped to the app shell', () => {
+  const SHELL = ':where(html:not(.dark):not(.print-mode):has([data-app-shell]))';
+  const generated = themeContrastCss as string;
+
+  it('text-teal-700 and text-blue-600 are remapped only under the shell scope', () => {
+    for (const cls of ['text-teal-700', 'text-blue-600']) {
+      const rules = generated.split('\n').filter((l) => l.includes(`.${cls} {`) || l.includes(`.${cls},`));
+      expect(rules.length, cls).toBeGreaterThan(0);
+      for (const r of rules) expect(r.startsWith(SHELL), r).toBe(true);
+    }
+  });
+
+  it('a stock-remapped stop (text-teal-400) still applies on every light page', () => {
+    expect(generated).toContain(':where(html:not(.dark)) .text-teal-400');
+  });
+
+  it('hover:text-teal-700 inside the shell goes to the 900 weight (darker than the 800 base)', () => {
+    expect(generated).toContain(`${SHELL} .hover\\:text-teal-700:hover {\n  color: var(--tx-hover-teal-700);`);
+    expect(generated).toMatch(/--tx-hover-teal-700: #134e4a;/);
+  });
+});
+
+describe('light form controls are scoped to the app shell and leave state utilities a way to win', () => {
+  const rules = css.slice(css.indexOf('Light theme form controls inside the app shell'), css.indexOf('Buttons and links without'));
+
+  it('every rule is under the shell scope (not print, not dark)', () => {
+    const selectors = [...rules.matchAll(/^\s*(:where\(html[^{]*)\{/gm)].map((m) => m[1] as string);
+    expect(selectors.length).toBe(3);
+    for (const s of selectors) for (const part of s.split(/,\n/)) {
+      expect(part.trim().startsWith(':where(html:not(.dark):not(.print-mode):has([data-app-shell]))'), part).toBe(true);
+    }
+  });
+
+  it('read-only fields get the sunken fill', () => {
+    expect(rules).toMatch(/\[readonly\][^{]*\{\s*background-color: var\(--ff-bg-tertiary\)/);
   });
 });

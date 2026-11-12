@@ -60,7 +60,7 @@ describe('golden dev-only marker', () => {
 
   it('marks exactly the specs the post-deploy run skips', () => {
     expect(devOnlySpecFiles(DIR).map((f) => f.replace('.spec.ts', '')).sort()).toEqual([
-      'n-a11y-main-screens', 'o-theme-contrast', 'o2-theme-behaviour', 'o3-banner-titles', 'q2-top-nav-axe', 'r-command-palette',
+      'n-a11y-main-screens', 'o-theme-contrast', 'o2-theme-behaviour', 'o3-banner-titles', 'o4-river-shell-scope', 'q2-top-nav-axe', 'r-command-palette',
       's-shell-cls-mobile', 't-report-filter-dates', 'v-budget-workspace-axe', 'v-empty-states', 'w-setup-checklist', 'x-contrast-sweep',
       'y1-invoice-form-kit', 'y2-bank-tx-naming', 'y3-employee-create-kit', 'y5-document-dates-sales', 'y6-document-dates-rest', 'y7-dashboard-aging-tie',
       'y8-purchase-forms-390', 'z1-invoice-defaults', 'z2-invoice-autosave-send', 'z2b-invoice-held-back', 'z3-pnl-pdf', 'z4-employee-pay-on-create',

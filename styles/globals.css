@@ -231,6 +231,9 @@
     /* Shallows: 12:1 on the dark canvas (#071a24), 10.6:1 on the dark field fill (#0d2632). */
     --ff-focus-ring: #5eead4;
     --ff-field-bg: #0d2632;
+    /* Mist and Sand would be light panels under dark text tokens: deep tints of the same hues instead. */
+    --ff-surface-brand: #0f3b3a;
+    --ff-surface-warm: #2a2519;
 
     color-scheme: dark;
   }
@@ -339,20 +342,28 @@
   }
 
   /*
-   * Light theme form controls: one field fill, as the dark theme has had all along. Call sites fill inputs six
-   * different ways (bg-white, the page, the well and more), which read as disabled beside each other (audit P3.4).
-   * Text-like controls only; a transparent in-cell editor and a dark panel keep what they were given.
+   * Light theme form controls inside the app shell: one field fill, as the dark theme has had all along. Call sites
+   * fill inputs six different ways (bg-white, the page, the well and more), which read as disabled beside each other
+   * (audit P3.4). Text-like controls only; a transparent in-cell editor and a dark panel keep what they were given.
+   * Outside the shell (sign-in, portals, marketing) and in a print render, inputs keep stock styling.
+   * Specificity is (0,1,1) on purpose: everything but the element and one state pseudo-class sits in :where(), so the
+   * rule beats a plain bg-* utility (0,1,0) and loses to hover:bg-* / focus:bg-* (0,2,0).
+   * Read-only text fields keep the sunken fill so they never look editable; disabled ones get it too.
    */
-  html:not(.dark) :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="button"], [type="submit"], [type="reset"], [type="image"]), select, textarea):not(.bg-transparent):not(:where([data-surface="dark"] *)) {
+  :where(html:not(.dark):not(.print-mode):has([data-app-shell]))
+    :is(input, select, textarea):where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="button"], [type="submit"], [type="reset"], [type="image"], [type="hidden"], .bg-transparent, [data-surface="dark"] *)):enabled {
     background-color: var(--ff-field-bg);
   }
 
-  html:not(.dark) :is(input, select, textarea):disabled:not(.bg-transparent):not(:where([data-surface="dark"] *)) {
+  :where(html:not(.dark):not(.print-mode):has([data-app-shell]))
+    :is(input, textarea):where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="button"], [type="submit"], [type="reset"], [type="image"], [type="hidden"], .bg-transparent, [data-surface="dark"] *))[readonly],
+  :where(html:not(.dark):not(.print-mode):has([data-app-shell]))
+    :is(input, select, textarea):where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="button"], [type="submit"], [type="reset"], [type="image"], [type="hidden"], .bg-transparent, [data-surface="dark"] *)):disabled {
     background-color: var(--ff-bg-tertiary);
   }
 
   /* placeholder-gray-400 was 2.54:1; the tertiary token is 6.23:1 on the field fill. */
-  html:not(.dark) :is(input, textarea)::placeholder {
+  :where(html:not(.dark):not(.print-mode):has([data-app-shell])) :is(input, textarea)::placeholder {
     color: var(--ff-text-tertiary);
   }
 
