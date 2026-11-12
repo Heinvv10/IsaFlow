@@ -100,17 +100,18 @@ export function withSdlCharge(
   return { ...sdl, result: charge.sdl, steps: [...sdl.steps.slice(0, pending), ...chargeSteps(taxYear, leviable, charge)] };
 }
 
-const BAND_ROW: Record<EtiBand, (t: EtiTable) => { label: string; formula: string }> = {
-  low: (t) => ({ label: `Under ${r(t.lowBandCeiling)}: ${pct(t.lowBandRate)} of remuneration`, formula: `${pct(t.lowBandRate)} × remuneration` }),
+/** `on`: what the row reads, "remuneration", or under 160 hours "the remuneration for 160 hours" (s7(5)). */
+const BAND_ROW: Record<EtiBand, (t: EtiTable, on: string) => { label: string; formula: string }> = {
+  low: (t, on) => ({ label: `Under ${r(t.lowBandCeiling)}: ${pct(t.lowBandRate)} of remuneration`, formula: `${pct(t.lowBandRate)} × ${on}` }),
   flat: (t) => ({ label: `${r(t.lowBandCeiling)} to under ${r(t.taperStart)}: a flat ${r(t.maxMonthlyEti)}`, formula: r(t.maxMonthlyEti) }),
-  taper: (t) => ({
+  taper: (t, on) => ({
     label: `${r(t.taperStart)} to under ${r(t.wageCeiling)}: tapering`,
-    formula: `${r(t.maxMonthlyEti)} − ${pct(t.taperRate)} × (remuneration − ${r(t.taperStart)})`,
+    formula: `${r(t.maxMonthlyEti)} − ${pct(t.taperRate)} × (${on} − ${r(t.taperStart)})`,
   }),
   nil: (t) => ({ label: `${r(t.wageCeiling)} or more: nil`, formula: 'nil' }),
 };
 
-export function explainEti(input: { taxYear: number; eti: EtiResult; periodDate: Date; hasPayeShare: boolean }): FigureExplanation {
+export function explainEti(input: { taxYear: number; eti: EtiResult; periodDate: Date; hasPayeShare: boolean; hoursAssumed: boolean }): FigureExplanation {
   const { eti, taxYear } = input;
   const base = { figure: 'eti' as const, title: 'How ETI was calculated', result: eti.monthlyEti, resultLabel: 'ETI this period' };
   if (!eti.isEligible || !eti.applied || eti.employmentYear === null) {
@@ -120,7 +121,7 @@ export function explainEti(input: { taxYear: number; eti: EtiResult; periodDate:
     return { ...base, steps: [{ key: 'eti.ineligible', label: 'No ETI', amount: 0, note: why, source: sourceFor(SOURCES.eti, taxYear) }] };
   }
   const { table, remuneration, hours, tabled, share, band, yearOne } = eti.applied;
-  const row = BAND_ROW[band](table);
+  const row = BAND_ROW[band](table, hours !== null && hours < 160 ? 'the remuneration for 160 hours' : 'remuneration');
   const steps: ExplainStep[] = [
     {
       key: 'eti.remuneration', label: 'Monthly remuneration', amount: remuneration,
@@ -129,7 +130,10 @@ export function explainEti(input: { taxYear: number; eti: EtiResult; periodDate:
     { key: 'eti.monthsEmployed', label: 'Months employed, this one included', amount: eti.monthsEmployed, unit: 'count' },
   ];
   if (hours !== null) {
-    steps.push({ key: 'eti.hours', label: 'Hours employed and paid in the month', amount: hours, unit: 'count', source: sourceFor(SOURCES.eti, taxYear) });
+    steps.push({
+      key: 'eti.hours', amount: hours, unit: 'count', source: sourceFor(SOURCES.eti, taxYear),
+      label: input.hoursAssumed ? 'Hours assumed: 40 a week for the part of the month employed (none recorded)' : 'Hours employed and paid in the month',
+    });
     steps.push({
       key: 'eti.tabled', label: 'Remuneration for 160 hours (what the table reads)', amount: tabled,
       formula: hours < 160 ? `${r(remuneration)} × 160 ÷ ${hours}` : 'at least 160 hours: as paid', note: 'ETI Act s7(5).',

@@ -6,6 +6,8 @@ import { uifWithLeviable } from './uifEngine';
 import { calculateSDL, isSdlExempt } from './sdlEngine';
 import { sdlLeviableTrace } from './sdlLeviableCumulative';
 import { explainPayrollLine } from './payrollExplain';
+import { normaliseSarsCode } from './payeAnnualPayment';
+import { TRAVEL_CODE } from './fringeBenefits';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
 import { classifyEmployment, employedShareOfMonth, timeWorkedEarnings } from './employmentTerms';
 import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './taxStatusTreatment';
@@ -202,7 +204,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       charge: annualPayrollEstimate === 'defer' ? 'deferred'
         : { annualRemuneration: annualPayrollEstimate, exempt: isSdlExempt(annualPayrollEstimate, taxYear), sdl },
     },
-    eti: { eti, hasPayeShare: earningParts.some((p) => p.rate !== undefined) },
+    // The ETI base takes a taxable cash 3701 at its PAYE share and no 38xx or non-cash item (etiHours.etiRemunerationOf).
+    eti: { eti, hoursAssumed: lineEti.hoursAssumed, hasPayeShare: earningParts.some((p) => p.rate !== undefined && p.taxable && !p.isNonCash && normaliseSarsCode(p.code) === TRAVEL_CODE) },
   });
 
   return {

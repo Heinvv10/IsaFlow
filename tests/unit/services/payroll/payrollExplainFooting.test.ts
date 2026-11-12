@@ -59,6 +59,9 @@ function randomInput(): PayrollLineInput {
   }, ytd);
 }
 
+/** A full-month line with no hours recorded: the table reads the remuneration as paid. */
+const basicNoHours = (input: PayrollLineInput) => calculatePayrollLine({ ...input, employee: { ...input.employee, hoursPerWeek: null } }).explanations.eti;
+
 const amountOf = (line: ReturnType<typeof calculatePayrollLine>, key: string) =>
   stepsByKey(line.explanations.paye).get(key)?.amount;
 
@@ -202,6 +205,38 @@ describe('the lines the review named', () => {
     expect([e.get('eti.hours')!.amount, e.get('eti.share')!.amount, hourly.eti.monthlyEti]).toEqual([120, 0.75, 468.75]);
     expect(e.get('eti.tabled')!.amount).toBeCloseTo(5000 * 160 / 120, 6);
     expectRecomputes(hourly);
+  });
+
+  it('ETI wording follows what the engine took: no travel-allowance note for a 3802 or a non-cash 3701; assumed hours said; the 160-hour figure named', () => {
+    const taper = loadCases().find(c => c.id === 'eti-year1-taper-6000')!;
+    // A monthly employee with no hours recorded (the fixture's 160 hours left out).
+    const base = buildCaseInput({ ...taper, input: { ...taper.input, unmodelled: undefined, components: [{ ...earning('3601', 5300) }] } });
+    const extra = (code: string, rate: number) => ({
+      component: { id: `x-${code}`, name: code, sarsSourceCode: code, componentType: 'earning' as const, isTaxable: true, isUifApplicable: false, isSdlApplicable: true },
+      amount: 1000, isNonCash: true, payeInclusionRate: rate,
+    });
+    const note = (l: ReturnType<typeof calculatePayrollLine>) => stepsByKey(l.explanations.eti).get('eti.remuneration')?.note;
+    for (const code of ['3802', '3701']) {
+      const l = calculatePayrollLine({ ...base, components: [...base.components, extra(code, 0.8)] });
+      expect(l.eti.monthlyEti, code).toBeGreaterThan(0);
+      expect(note(l), code).toBe('Cash remuneration for the month.');
+      expectRecomputes(l);
+    }
+
+    // R-B: a monthly starter with no hours a week recorded, employed for part of the month: the hours are assumed.
+    const starter = calculatePayrollLine({
+      ...base, employee: { ...base.employee, hoursPerWeek: null, startDate: new Date(2025, 5, 16) },
+      components: [{ ...base.components[0]!, amount: 2000 }], // half a month's pay, so the 160-hour figure stays under the ceiling
+    });
+    expect(starter.eti.monthlyEti).toBeGreaterThan(0);
+    const hours = stepsByKey(starter.explanations.eti).get('eti.hours')!;
+    expect(hours.label).toBe('Hours assumed: 40 a week for the part of the month employed (none recorded)');
+    expectRecomputes(starter);
+
+    // Under 160 hours the table row reads the remuneration grossed up to 160 hours, and says so.
+    const hourly = calculatePayrollLine(buildCaseInput(loadCases().find(c => c.id === 'eti-year1-120h-5000-apportioned')!));
+    expect(stepsByKey(hourly.explanations.eti).get('eti.band')!.formula).toContain('the remuneration for 160 hours');
+    expect(stepsByKey(basicNoHours(base)).get('eti.band')!.formula).not.toContain('160 hours');
   });
 
   it('the cap to date binds what comes off the bonus: R5 000 salary, R2 000 000 bonus, R100 000 RA, first month', () => {
