@@ -32,6 +32,9 @@ export class ReconciledCashError extends Error {
   }
 }
 
+/** Mig 980: a match / unmatch / exclude of a line reconciled in the Sage import — an expected refusal, not a fault. */
+export class SageReconciledLineError extends ReconciledCashError {}
+
 export type LineLock =
   | { kind: 'completed'; accountName: string | null; statementDate: unknown }
   | { kind: 'anomaly' }

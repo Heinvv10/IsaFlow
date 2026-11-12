@@ -24,7 +24,7 @@ import {
   withBankLockBudget,
 } from './bankTxLock';
 import { openStampOnly, refuseCompletedSession, shareLockSession } from './reconciliationSessionLock';
-import { ReconciledCashError, refuseLineOfCompletedReconciliation } from './reconciledCash';
+import { refuseLineOfCompletedReconciliation, SageReconciledLineError } from './reconciledCash';
 import { assertFeedPosted } from './bankFeedStateGuard';
 import { journalReversalState } from './journalReversalState';
 import { refuseResettingProvisionalLine, type ProvisionalLineVerb } from './provisionalLineGuard';
@@ -38,7 +38,7 @@ type Row = DbRow;
 
 /** A Sage-reconciled line's refusal is expected (a 4xx), so it stays out of the error tracker; the rest are faults. */
 function logStatusWriteFailure(message: string, data: Record<string, unknown> & { error: unknown }): void {
-  if (data.error instanceof ReconciledCashError) log.info(message, data, 'accounting');
+  if (data.error instanceof SageReconciledLineError) log.info(message, data, 'accounting');
   else log.error(message, data, 'accounting');
 }
 
@@ -73,7 +73,7 @@ async function lockForStatusWrite(
   await refuseLineOfCompletedReconciliation(companyId, row);
   // Hein 2026-11-12: a line reconciled in the Sage import has no session to reopen; it stays as reconciled.
   if (row.status === 'reconciled' && !row.reconciliation_id) {
-    throw new ReconciledCashError('This line was reconciled in the Sage import, so it cannot be matched, unmatched or '
+    throw new SageReconciledLineError('This line was reconciled in the Sage import, so it cannot be matched, unmatched or '
       + 'excluded in the app. Correct it with a journal, or contact support.');
   }
   await refuseResettingProvisionalLine(companyId, row, verb); // D10 O9: a provisional's own line, X standing

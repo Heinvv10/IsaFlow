@@ -85,11 +85,12 @@ const CLASSIFICATION: Record<string, { why: string; lines: string[] }> = {
     lines: ['AND (matched_journal_line_id IS NOT NULL OR provisional_je_id IS NOT NULL)'],
   },
   'scripts/migrations/sql/981_bank_tx_review_reset_on_rematch.sql': {
-    why: 'reads only: the review-reset trigger compares NEW/OLD and clears reviewed_at/by, never assigns the link',
+    why: 'reads only: the review-reset trigger compares NEW/OLD and clears reviewed_at/by, never assigns the link; its data step filters on it',
     lines: [
       '-- moves: matched_journal_line_id or provisional_je_id changes, on any writer.',
       'OR NEW.provisional_je_id IS DISTINCT FROM OLD.provisional_je_id)) THEN',
       'BEFORE INSERT OR UPDATE OF status, matched_journal_line_id, provisional_je_id ON bank_transactions',
+      "WHERE status = 'matched' AND matched_journal_line_id IS NULL AND provisional_je_id IS NULL",
     ],
   },
   'src/modules/accounting/services/bank/feed/bankIngestionPersistence.ts': {

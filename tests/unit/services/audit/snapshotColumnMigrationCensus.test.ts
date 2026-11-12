@@ -99,6 +99,9 @@ const READ_BY_HAND = new Set([
   // 951 (2026-10-31, pay-run approval): EXECUTE only as GRANT EXECUTE ON FUNCTION / EXECUTE FUNCTION in CREATE TRIGGER;
   // "journal" is only the R-035 document-type list ('journal_entry', 'manual_journal'), as in 708/862/881. No DDL on gl_journal_entries / gl_journal_lines, no dynamic SQL.
   '951_pay_run_approval.sql',
+  // 981 (2026-11-12, bank review reset): EXECUTE only as EXECUTE FUNCTION in CREATE TRIGGER on bank_transactions;
+  // "journal" is only the bank line's matched_journal_line_id column. No DDL on gl_journal_entries / gl_journal_lines.
+  '981_bank_tx_review_reset_on_rematch.sql',
 ]);
 
 /** The columns a snapshot's canonical row freezes: what `je.` / `jl.` the row's jsonb_build_object reads. */

@@ -257,9 +257,17 @@ describe('bank lines: review stamp, tabs, completion gate, reconciled lock', () 
   });
 
   it('migration 981 un-reviews a matched line no journal carries, and keeps every other review', async () => {
-    const [orphan, real] = [uuid(), uuid()];
+    const [orphan, real, prov, alloc] = [uuid(), uuid(), uuid(), uuid()];
     await line(orphan, '2025-06-09', 6, 'matched', null, true);
     await line(real, '2025-06-09', 7, 'matched', await journal('2025-06-09', 7), true);
+    // Evidence attach leaves a line 'matched' with only its provisional journal: a real pairing, kept.
+    await line(prov, '2025-06-09', 8, 'matched', null, true);
+    const [{ je }] = (await pool.query('SELECT journal_entry_id::TEXT AS je FROM gl_journal_lines WHERE id = $1',
+      [await journal('2025-06-09', 8)])).rows;
+    await pool.query('UPDATE bank_transactions SET provisional_je_id = $2 WHERE id = $1', [prov, je]);
+    await pool.query('UPDATE bank_transactions SET reviewed_at = NOW() WHERE id = $1', [prov]); // after: a link change clears it
+    // Only 'matched' is in scope: a reviewed non-matched line without a journal link is left alone.
+    await line(alloc, '2025-06-09', 9, 'allocated', null, true);
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -267,8 +275,8 @@ describe('bank lines: review stamp, tabs, completion gate, reconciled lock', () 
       await client.query('COMMIT');
     } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
     expect(await row(orphan)).toMatchObject({ status: 'matched', reviewed_at: null, reviewed_by: null });
-    expect((await row(real)).reviewed_at).not.toBeNull();
-    expect((await row(L.D)).reviewed_at).toBeNull(); // the fixture's D has the same legacy shape: no journal
-    await pool.query('DELETE FROM bank_transactions WHERE id = ANY($1::uuid[])', [[orphan, real]]);
+    for (const kept of [real, prov, alloc]) expect((await row(kept)).reviewed_at, kept).not.toBeNull();
+    await pool.query('UPDATE bank_transactions SET provisional_je_id = NULL WHERE id = $1', [prov]);
+    await pool.query('DELETE FROM bank_transactions WHERE id = ANY($1::uuid[])', [[orphan, real, prov, alloc]]);
   });
 });
