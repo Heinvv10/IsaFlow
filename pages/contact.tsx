@@ -110,7 +110,7 @@ export default function ContactPage() {
                 </p>
               </div>
             ) : (
-              <form onSubmit={handleSubmit} className="rounded-2xl border border-gray-200 bg-white shadow-sm p-6 lg:p-8 space-y-5">
+              <form onSubmit={handleSubmit} data-surface="light" className="rounded-2xl border border-gray-200 bg-white shadow-sm p-6 lg:p-8 space-y-5">
                 <div>
                   <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1.5">Name</label>
                   <input id="name" name="name" type="text" required maxLength={100} autoComplete="name" className={inputClass} placeholder="Your name" />
@@ -121,7 +121,7 @@ export default function ContactPage() {
                 </div>
                 <div>
                   <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Phone <span className="text-slate-600 dark:text-slate-400 font-normal">(optional)</span>
+                    Phone <span className="text-gray-600 font-normal">(optional)</span>
                   </label>
                   <input id="phone" name="phone" type="tel" maxLength={40} autoComplete="tel" className={inputClass} placeholder="Your phone number" />
                 </div>
@@ -146,7 +146,7 @@ export default function ContactPage() {
                   <p className="text-sm text-red-600" role="alert">{error}</p>
                 )}
 
-                <p className="text-xs text-slate-600 dark:text-slate-400">
+                <p className="text-xs text-gray-600">
                   We use these details only to reply to your enquiry. See our{' '}
                   <a href="/privacy" className="text-teal-600 hover:underline">Privacy Policy</a>.
                 </p>

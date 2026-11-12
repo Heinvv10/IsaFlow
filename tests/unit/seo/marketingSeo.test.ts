@@ -29,8 +29,8 @@ describe('FAQPage schema', () => {
 });
 
 describe('compare pages', () => {
-  it('cover sage, xero and quickbooks and appear in the sitemap', () => {
-    expect(COMPARE_ENTRIES.map((e) => e.slug)).toEqual(['sage', 'xero', 'quickbooks']);
+  it('cover sage, xero, quickbooks, simplepay and payspace and appear in the sitemap', () => {
+    expect(COMPARE_ENTRIES.map((e) => e.slug)).toEqual(['sage', 'xero', 'quickbooks', 'simplepay', 'payspace']);
     const xml = buildSitemapXml([], new Date());
     for (const e of COMPARE_ENTRIES) expect(xml).toContain(`<loc>https://isaflow.co.za/compare/${e.slug}</loc>`);
   });
@@ -97,6 +97,18 @@ describe('robots.txt and llms.txt', () => {
     expect(llms.startsWith('# IsaFlow\n')).toBe(true);
     expect(llms).toMatch(/^> /m);
     expect(llms).toContain('https://isaflow.co.za/compare/sage');
+    for (const p of ['/features', '/about', '/compare/simplepay', '/compare/payspace']) {
+      expect(llms).toContain(`https://isaflow.co.za${p}`);
+    }
+    expect(llms).not.toMatch(/ABSA/);
+  });
+
+  it('robots.txt does not block the new marketing pages', () => {
+    for (const disallows of groups().values()) {
+      for (const d of disallows) {
+        for (const p of ['/features', '/about', '/compare/simplepay']) expect(p.startsWith(d), `${d} blocks ${p}`).toBe(false);
+      }
+    }
   });
 });
 
