@@ -75,12 +75,12 @@ export default function EMP201Page() {
   const [savedId, setSavedId] = useState('');
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
-  const generate = useCallback(async (keep?: unknown) => { // keep === true: refetch with the EMP201 still shown (Book ETI)
+  const generate = useCallback(async (keep: boolean = false) => { // keep: refetch with the EMP201 still shown (Book ETI)
     if (!from || !to) return;
     setLoading(true);
     setError('');
     setSuccess('');
-    if (keep !== true) setData(null);
+    if (!keep) setData(null);
     setSavedId('');
     try {
       const res = await apiFetch(
@@ -215,7 +215,7 @@ export default function EMP201Page() {
               <DateField label="From" required value={from || null} onChange={(iso, v) => { if (v.valid && iso) setFrom(iso); }} />
               <DateField label="To" required value={to || null} onChange={(iso, v) => { if (v.valid && iso) setTo(iso); }} />
               <button
-                onClick={generate}
+                onClick={() => void generate()}
                 disabled={loading}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
               >
