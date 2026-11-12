@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { VAT201DetailView } from './VAT201DetailView';
 import { VAT201SummaryForm } from './VAT201SummaryForm';
+import { Vat201DrillDrawer } from './drill/Vat201DrillDrawer';
 import type { VAT201Invoice } from './VAT201FormSections';
 import type { Vat201SarsField } from '@/modules/accounting/services/reports/vat201SarsFields';
 
@@ -14,6 +15,7 @@ interface Props {
 
 export function Vat201FieldsSection({ data }: Props) {
   const [viewMode, setViewMode] = useState<'summary' | 'detail'>('summary');
+  const [drillField, setDrillField] = useState<string | null>(null);
   return (
     <>
       <div className="flex items-center justify-between">
@@ -31,10 +33,11 @@ export function Vat201FieldsSection({ data }: Props) {
       </div>
 
       {viewMode === 'summary' ? (
-        <VAT201SummaryForm data={data} />
+        <VAT201SummaryForm data={data} onDrill={setDrillField} />
       ) : (
         <VAT201DetailView data={data} />
       )}
+      <Vat201DrillDrawer field={drillField} from={data.periodStart} to={data.periodEnd} onClose={() => setDrillField(null)} onField={setDrillField} />
     </>
   );
 }

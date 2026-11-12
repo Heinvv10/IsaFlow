@@ -9,7 +9,7 @@ const fmt = (n: number) => formatMoney(n);
 // ── FormRow ──────────────────────────────────────────────────────────────────
 
 export function FormRow({
-  field, label, amount, highlight, kind, note,
+  field, label, amount, highlight, kind, note, onDrill,
 }: {
   field: string;
   label: string;
@@ -19,6 +19,8 @@ export function FormRow({
   /** `value` = rand value of supplies, `tax` = a VAT amount. */
   kind?: 'value' | 'tax';
   note?: string;
+  /** Opens the lines behind the field (wave 5 L3u); the amount becomes the link. */
+  onDrill?: () => void;
 }) {
   return (
     <div data-testid={`vat201-field-${field}`} className={`px-4 py-3 flex items-center justify-between ${highlight ? 'bg-[var(--ff-bg-primary)]/30' : ''}`}>
@@ -36,6 +38,10 @@ export function FormRow({
         <span data-testid="vat201-field-amount" className={`text-sm font-medium ${highlight ? 'text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]'}`}>
           {amount === null ? '—' : fmt(amount)}
         </span>
+        {onDrill && amount !== null && (
+          <button type="button" onClick={onDrill} data-testid="vat201-field-drill" aria-label={`Show the lines behind field ${field}`}
+            className="min-h-[24px] text-xs text-teal-700 underline dark:text-teal-400">Lines</button>
+        )}
       </div>
     </div>
   );
