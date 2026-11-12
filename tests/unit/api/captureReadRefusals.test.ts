@@ -25,6 +25,11 @@ vi.mock('@/modules/accounting/services/capture/captureRowLock', async (orig) => 
   ...(await orig<object>()), lockCapturedDocumentForUpdate: m.lockDoc, lockPostableCaptureEventIds: m.lockEvents,
 }));
 vi.mock('@/modules/accounting/services/capture/captureLifecycleGate', () => ({ releaseClaimForLifecycleAction: m.releaseClaim }));
+// The real reject service by default (its SQL runs through m.sql); one case below stubs its reconciled-line refusal.
+vi.mock('@/modules/accounting/services/capture/captureRejectService', async (orig) => {
+  const actual = await orig<typeof import('@/modules/accounting/services/capture/captureRejectService')>();
+  return { ...actual, rejectCapturedDocument: vi.fn(actual.rejectCapturedDocument) };
+});
 vi.mock('@/modules/accounting/services/capture/captureBankTxAttachService', () => ({
   attachCapturedDocToBankTx: m.attachBank, PREVIOUS_LINE_RECONCILED: 'supports a reconciled bank line',
 }));
@@ -151,5 +156,14 @@ describe('document-capture-action', () => {
     const r = await call(action, { id: ID, action: 'reject' });
     expect(r.statusCode).toBe(200);
     expect(m.releaseClaim).toHaveBeenCalledWith('c', ID, 'reject');
+  });
+
+  it('reject: 409, nothing written, when the document supports a reconciled bank line (mig 980)', async () => {
+    const { rejectCapturedDocument } = await import('@/modules/accounting/services/capture/captureRejectService');
+    vi.mocked(rejectCapturedDocument).mockResolvedValueOnce({ refused: 'reconciled_line' });
+    m.releaseClaim.mockResolvedValue('ok');
+    const r = await call(action, { id: ID, action: 'reject' });
+    expect(r.statusCode).toBe(409);
+    expect(JSON.stringify(r.sent)).toContain('supports a reconciled bank line, so it cannot be rejected');
   });
 });

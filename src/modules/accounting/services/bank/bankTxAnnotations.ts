@@ -53,4 +53,3 @@ export async function updateBankTxNotes(
     RETURNING status`) as Array<{ status: string }>;
   log.info('Updated bank transaction notes', { bankTxId, userId, status: rows[0]?.status }, 'accounting');
 }
-

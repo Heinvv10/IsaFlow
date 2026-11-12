@@ -158,7 +158,8 @@ export const TX_SELECT = `
     -- The reviewer's name through approval_company_member_name (mig 714): app_user's RLS on users shows only its own
     -- row, so a plain join named nobody else; the function answers only for a member of the caller's own company.
     bt.reviewed_at, bt.reviewed_by,
-    public.approval_company_member_name(bt.company_id, bt.reviewed_by::TEXT) AS reviewed_by_name,
+    CASE WHEN bt.reviewed_by IS NOT NULL
+      THEN public.approval_company_member_name(bt.company_id, bt.reviewed_by::TEXT) END AS reviewed_by_name,
     rec.status AS recon_status, rec.statement_date AS recon_statement_date,
     aa.account_code AS allocated_account_code,
     aa.account_name AS allocated_account_name,

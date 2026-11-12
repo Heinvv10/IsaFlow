@@ -191,9 +191,11 @@ export async function isReconciledLine(companyId: string, ref: LineRef): Promise
 
 /**
  * The same question for a caller holding no lock yet (removing an upload, unlinking a document): the line's stamped
- * session is taken FOR SHARE first (the shared session -> line order, 5 s budget, held -> 503), so no completion can
- * reconcile it before the caller's write commits; a line in a completed session is the shared 409. True when the line
- * is reconciled without a session (the Sage import): the caller refuses with RECONCILED_DOCUMENT_REMOVAL.
+ * session is taken FOR SHARE first (the shared session -> line order, 5 s budget, held -> 503), so that session cannot
+ * complete before the caller's write commits; a line in a completed session is the shared 409. A line with NO stamp
+ * locks nothing: a session started and completed meanwhile can reconcile it first, which leaves the same state as a
+ * removal made just before the reconciliation. True when the line is reconciled without a session (the Sage import):
+ * the caller refuses with RECONCILED_DOCUMENT_REMOVAL.
  */
 export async function documentRemovalRefused(companyId: string, ref: LineRef): Promise<boolean> {
   const line = await lineStatusOf(companyId, ref);

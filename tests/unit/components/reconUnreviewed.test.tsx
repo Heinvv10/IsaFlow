@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import { isUnreviewedMatch, ReconUnreviewedNotice } from '@/components/accounting/bank/ReconUnreviewed';
+import { isUnreviewedMatch, NotReviewedChip, ReconUnreviewedNotice } from '@/components/accounting/bank/ReconUnreviewed';
 import type { BankTransaction } from '@/modules/accounting/types/bank.types';
 
 const tx = (over: Partial<BankTransaction>) => ({ id: 't', status: 'matched', ...over }) as BankTransaction;
@@ -17,10 +17,22 @@ describe('ReconUnreviewed', () => {
   });
 
   it('says how many and links to the bank account\'s transactions; renders nothing at zero', () => {
-    const { container, rerender } = render(<ReconUnreviewedNotice count={2} bankAccountId="b1" />);
+    const matched = [tx({ id: 'a' }), tx({ id: 'b', status: 'allocated' }), tx({ id: 'c', reviewedAt: '2026-06-01T00:00:00Z' })];
+    const { container, rerender } = render(<ReconUnreviewedNotice matched={matched} completed={false} bankAccountId="b1" />);
     expect(container).toHaveTextContent('2 matched transactions are not reviewed yet');
     expect(screen.getByRole('link', { name: 'Bank Transactions' })).toHaveAttribute('href', '/accounting/bank-transactions?account_id=b1');
-    rerender(<ReconUnreviewedNotice count={0} bankAccountId="b1" />);
+    rerender(<ReconUnreviewedNotice matched={matched} completed bankAccountId="b1" />);
+    expect(container).toBeEmptyDOMElement();
+    rerender(<ReconUnreviewedNotice matched={[matched[2]!]} completed={false} bankAccountId="b1" />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('the chip shows on an unreviewed line of an open reconciliation only', () => {
+    const { container, rerender } = render(<NotReviewedChip tx={tx({})} completed={false} />);
+    expect(container).toHaveTextContent('Not reviewed');
+    rerender(<NotReviewedChip tx={tx({})} completed />);
+    expect(container).toBeEmptyDOMElement();
+    rerender(<NotReviewedChip tx={tx({ reviewedAt: '2026-06-01T00:00:00Z' })} completed={false} />);
     expect(container).toBeEmptyDOMElement();
   });
 });

@@ -6,7 +6,13 @@
 -- moves: matched_journal_line_id or provisional_je_id changes, on any writer.
 --
 -- Replaces the function (same name, same pinned search_path) and recreates the trigger with the wider column list.
--- Plain plpgsql, not SECURITY DEFINER (no definer registry row). No data change; old code is unaffected.
+-- Plain plpgsql, not SECURITY DEFINER (no definer registry row). Old code is unaffected.
+--
+-- Data (Hein, 2026-11-12): the old Review button flipped an UNALLOCATED line to 'matched' with no journal behind it,
+-- and 980 backfilled every 'matched' line as reviewed — so a reconciliation would still reconcile those lines with
+-- nothing in the GL. Their review stamp is cleared: they reappear on New and block completion until someone undoes
+-- them and allocates them properly (Review now refuses a line no journal carries). 100 such lines on dev at writing.
+-- The UPDATE fires trg_bank_transactions_updated_at; it does not touch status or the journal link.
 
 SET LOCAL lock_timeout = '5s';
 
@@ -29,3 +35,8 @@ DROP TRIGGER IF EXISTS trg_bank_tx_review_reset ON bank_transactions;
 CREATE TRIGGER trg_bank_tx_review_reset
   BEFORE INSERT OR UPDATE OF status, matched_journal_line_id, provisional_je_id ON bank_transactions
   FOR EACH ROW EXECUTE FUNCTION public.bank_tx_review_reset();
+
+UPDATE bank_transactions
+SET reviewed_at = NULL, reviewed_by = NULL
+WHERE status = 'matched' AND matched_journal_line_id IS NULL AND provisional_je_id IS NULL
+  AND reviewed_at IS NOT NULL;

@@ -10,7 +10,9 @@ import type { BankTransaction } from '@/modules/accounting/types/bank.types';
 /** A line this reconciliation would reconcile that nobody has reviewed yet. */
 export const isUnreviewedMatch = (tx: BankTransaction): boolean => tx.status !== 'reconciled' && !tx.reviewedAt;
 
-export function NotReviewedChip() {
+/** Only on a line still waiting for review, and only while the reconciliation is open. */
+export function NotReviewedChip({ tx, completed }: { tx: BankTransaction; completed: boolean }) {
+  if (completed || !isUnreviewedMatch(tx)) return null;
   return (
     <span className="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
       Not reviewed
@@ -18,7 +20,10 @@ export function NotReviewedChip() {
   );
 }
 
-export function ReconUnreviewedNotice({ count, bankAccountId }: { count: number; bankAccountId: string }) {
+export function ReconUnreviewedNotice({ matched, completed, bankAccountId }: {
+  matched: BankTransaction[]; completed: boolean; bankAccountId: string;
+}) {
+  const count = completed ? 0 : matched.filter(isUnreviewedMatch).length;
   if (count === 0) return null;
   return (
     <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300 text-sm">
