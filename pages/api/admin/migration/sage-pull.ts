@@ -5,7 +5,7 @@
  *   → Returns JS snippets the admin pastes / bookmarklets onto a Sage tab.
  *
  * POST /api/admin/migration/sage-pull?companyId=<uuid>
- *   → Receives raw Sage data, maps to ISAFlow format, returns mapped rows.
+ *   → Receives raw Sage data, maps to IsaFlow format, returns mapped rows.
  *
  * Staff-only. Uses withAdmin (= withPlatformAdmin + CSRF + error handler),
  * which reads public.users.role under BYPASSRLS and 403s non-super-admins.

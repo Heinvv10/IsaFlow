@@ -471,7 +471,7 @@ export default function LoginPage({ adminConsole = false }: { adminConsole?: boo
           <Link href="/" className="flex items-center">
             <Image
               src="/logo.png"
-              alt="ISAFlow"
+              alt="IsaFlow"
               width={160}
               height={64}
               className="h-9 w-auto brightness-0 invert sm:h-10"
@@ -519,7 +519,7 @@ export default function LoginPage({ adminConsole = false }: { adminConsole?: boo
             {showTotpStep ? 'Verify your identity' : adminConsole ? 'Admin console: sign in' : 'Welcome back'}
           </h2>
           <p className="mt-1 text-sm text-white/70">
-            {showTotpStep ? 'Complete two-factor authentication' : adminConsole ? 'Sign in with your platform administrator account' : 'Sign in to your ISAFlow account'}
+            {showTotpStep ? 'Complete two-factor authentication' : adminConsole ? 'Sign in with your platform administrator account' : 'Sign in to your IsaFlow account'}
           </p>
         </div>
 

@@ -15,7 +15,7 @@ export type GLAccountSubtype =
   | 'tax'
   | 'vat_input'
   | 'vat_output'
-  | 'vat_input_late_claim'
+  | 'vat_input_late_claim' | 'eti_refund_receivable' // the late-claim clearing account (701); the ETI refund receivable (974)
   | 'inventory'
   | 'fixed_asset'
   | 'accumulated_depreciation'

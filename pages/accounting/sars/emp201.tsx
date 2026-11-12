@@ -33,12 +33,13 @@ export default function EMP201Page() {
   const [savedId, setSavedId] = useState('');
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
-  const generate = useCallback(async () => {
+  // keep: refetch with the EMP201 still shown, so the ETI section keeps the Book ETI result (wave 5 ET)
+  const generate = useCallback(async (keep: boolean = false) => {
     if (!from || !to) return;
     setLoading(true);
     setError('');
     setSuccess('');
-    setData(null);
+    if (!keep) setData(null);
     setSavedId('');
     try {
       const res = await apiFetch(
@@ -111,7 +112,7 @@ export default function EMP201Page() {
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
           {success && <div className="p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">{success}</div>}
 
-          <Emp201PeriodSelector from={from} to={to} loading={loading} onFromChange={setFrom} onToChange={setTo} onGenerate={generate} />
+          <Emp201PeriodSelector from={from} to={to} loading={loading} onFromChange={setFrom} onToChange={setTo} onGenerate={() => void generate()} />
 
           {/* EMP201 Form */}
           {data && (
@@ -131,7 +132,8 @@ export default function EMP201Page() {
                 </div>
               )}
 
-              <Emp201ReturnForm data={data} />
+              <Emp201ReturnForm data={data} etiMonth={from.slice(0, 7) === to.slice(0, 7) ? from.slice(0, 7) : null}
+                onEtiBooked={() => void generate(true)} />
 
               {hasPayrollData && <Emp201RunsBreakdown runs={data.payrollRuns} />}
 

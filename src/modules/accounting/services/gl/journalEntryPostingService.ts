@@ -22,6 +22,7 @@ import { refuseReversalAgainstPayRun } from '../payroll/payrollJournalReversalGu
 import { recordPayRunApprovalAudit } from '../payroll/payRunApprovalAudit';
 import { postJournalEntry } from './journalEntryPostService';
 import { cleanUpAfter } from './reversalCleanup';
+import { bookEtiAfterDirectiveReversal } from '../payroll/etiRebook';
 import {
   LateClaimCompanionReversalError, copyLateClaimBaseToReversal, planLateClaimCompanionReversal,
 } from './vatLateClaimSplit';
@@ -259,6 +260,8 @@ async function reverseJournalEntryInner(
       ? await releaseCapturedDocumentPostingClaim(companyId, String(current.source_document_id)) : false;
     log.info('Reversed journal entry',
       { originalId: id, reversalId: reversalEntry.id, claimReleased }, 'accounting');
+    // Wave 5 ET (review M3): a reversed directive payment leaves its month using less ETI; book the difference.
+    await bookEtiAfterDirectiveReversal(companyId, entry, reversalDate, userId, opts?.postingAgent);
     if (payRunReversal?.planHash) {
       await recordPayRunApprovalAudit({
         companyId, runId: payRunReversal.runId, actorId: userId,

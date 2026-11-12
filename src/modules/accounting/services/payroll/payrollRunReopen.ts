@@ -12,6 +12,8 @@ import {
 import { GRANDFATHERED_PLAN_HASH, recordPayRunApprovalAudit } from './payRunApprovalAudit';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 import type { DbRow } from '@/lib/neon';
+import { laterEtiJournalRefusal } from './etiPeriodGuard';
+import { rebookEtiAfterEvent } from './etiRebook';
 
 /**
  * A refusal raised before reopenPayrollRun writes anything. The route answers
@@ -52,6 +54,9 @@ export async function reopenPayrollRun(opts: {
     }
     throw new PayrollRunReopenRefusedError(`Cannot reopen run in status '${previousStatus}' — only 'approved' is reopenable.`);
   }
+  // Hein ruling R-A (wave 5 ET): a later month of the same ETI period has posted the carry this month feeds.
+  const etiLater = await laterEtiJournalRefusal(opts.companyId, { year: Number(run.period_year), month: Number(run.period_month) });
+  if (etiLater) throw new PayrollRunReopenRefusedError(etiLater);
 
   // Predicated on the status just judged: a run that left 'approved' between
   // the read above and this write (paid, say) must not be reopened by it.
@@ -108,5 +113,7 @@ export async function reopenPayrollRun(opts: {
     'payrollRunReopen',
   );
 
+  // Wave 5 ET (round 3): the run no longer declares; the later run-less months of the ETI period follow (under lock 1).
+  await rebookEtiAfterEvent(opts.companyId, { year: Number(run.period_year), month: Number(run.period_month) }, opts.userId);
   return { runId: opts.runId, previousStatus, newStatus: 'calculated' };
 }

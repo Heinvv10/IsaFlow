@@ -1,6 +1,6 @@
 /**
  * Admin Analytics Service
- * Platform health, usage analytics, and settings for ISAFlow Admin Platform.
+ * Platform health, usage analytics, and settings for IsaFlow Admin Platform.
  */
 
 import { sql } from '@/lib/neon';

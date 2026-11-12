@@ -17,7 +17,7 @@ function requireEnv(name: string): string {
 
 /** Free-form label tagged on every Paystack log line. Lets us tell which
  *  integration handled an event when one Paystack login serves multiple
- *  apps (ISAFlow + ApexGEO etc). */
+ *  apps (IsaFlow + ApexGEO etc). */
 function integrationName(): string {
   return process.env.PAYSTACK_INTEGRATION_NAME?.trim() || 'unset';
 }

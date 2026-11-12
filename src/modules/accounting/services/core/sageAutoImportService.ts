@@ -2,7 +2,7 @@
  * Sage Auto-Import Service
  *
  * Pulls data from Sage Business Cloud's internal REST APIs via the user's
- * authenticated browser session. The browser acts as a proxy — ISAFlow
+ * authenticated browser session. The browser acts as a proxy — IsaFlow
  * injects fetch calls into the Sage tab and receives structured JSON.
  *
  * Discovered endpoints (Sage internal, session-cookie auth):
@@ -166,7 +166,7 @@ export function buildSageCompanyFetchScript(): string {
   `.trim();
 }
 
-// ── Mappers: Sage → ISAFlow ─────────────────────────────────────────────────
+// ── Mappers: Sage → IsaFlow ─────────────────────────────────────────────────
 
 const SAGE_CATEGORY_TO_TYPE: Record<number, string> = {
   1: 'revenue',     // Sales

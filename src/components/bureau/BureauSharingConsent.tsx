@@ -90,7 +90,7 @@ export function BureauSharingConsent({ enabled, canEdit, available, saving, hist
           <ul className="text-xs text-[var(--ff-text-tertiary)] space-y-0.5">
             {history.map((h) => (
               <li key={h.id}>
-                {formatDisplayDateTime(h.changedAt)}: switched {onOff(h.oldValue)} to {onOff(h.newValue)} by {h.actorName ?? 'a user no longer on ISAFlow'}
+                {formatDisplayDateTime(h.changedAt)}: switched {onOff(h.oldValue)} to {onOff(h.newValue)} by {h.actorName ?? 'a user no longer on IsaFlow'}
               </li>
             ))}
           </ul>

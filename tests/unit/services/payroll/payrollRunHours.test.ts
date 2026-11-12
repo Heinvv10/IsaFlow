@@ -16,7 +16,7 @@ const basic: PayrollComponent = {
   isTaxable: true, isUifApplicable: true, isSdlApplicable: true,
 };
 const employee = (extra: Partial<PayrollEmployee> = {}): PayrollEmployee => ({
-  id: 'e1', companyId: 'co', employeeNumber: 'E1', firstName: 'Thandi', lastName: 'Zulu', employmentType: 'permanent',
+  id: 'e1', companyId: 'co', employeeNumber: 'E1', idNumber: '8001015009087', firstName: 'Thandi', lastName: 'Zulu', employmentType: 'permanent',
   startDate: new Date(2025, 0, 1), uifExcluded: false, medicalAidMainMember: false, medicalAidDependantsCount: 0,
   s18aReceiptHeld: false, taxStatus: 'employee', payBasis: 'hourly', hourlyRate: 85.5, dailyRate: null,
   hoursPerWeek: 40, hoursPerDay: 8, ...extra,
@@ -156,28 +156,36 @@ describe('through the calculator', () => {
   });
 });
 
-describe('ETI until ET apportions by hours (80 h x R30 case)', () => {
+describe('ETI by the run\'s hours (ET: s7(5) gross-up and gross-down; ETI guide Issue 5 §5.3)', () => {
   const young = (extra: Partial<PayrollEmployee> = {}) => employee({
-    dateOfBirth: new Date(2004, 5, 1), startDate: new Date(2026, 0, 1), hourlyRate: 30, ...extra,
+    dateOfBirth: new Date(2004, 5, 1), idNumber: '0406015009086', startDate: new Date(2026, 0, 1), hourlyRate: 35, ...extra,
   });
   const run = (e: PayrollEmployee, c: EmployeeComponent[]) => calculatePayrollLine({
     employee: e, components: c, period: { month: 11, year: 2026 }, taxYear: 2027, annualPayrollEstimate: 'defer',
   });
+  const codesOf = (l: ReturnType<typeof run>) => l.validationResults.map((v) => v.code);
 
-  it('80 hours at R30 claims no ETI and says why; the same pay as a monthly employee does claim', () => {
-    const hourly = run(young(), [worked(80, 'hour', 2400)]);
-    expect(hourly.eti.monthlyEti).toBe(0);
-    expect(hourly.validationResults.map((v) => v.code)).toContain('ETI_HOURS_APPORTIONMENT_PENDING');
-    const monthly = run(young({ payBasis: 'monthly' }), [{ component: basic, amount: 2400, isRecurring: true }]);
-    expect(monthly.eti.monthlyEti).toBeGreaterThan(0); // proves the guard, not the data, zeroed it
-    expect(monthly.validationResults.map((v) => v.code)).not.toContain('ETI_HOURS_APPORTIONMENT_PENDING');
+  it('80 hours at R35: R2 800 grosses up to R5 600, R1 425 x 80/160 = R712.50', () => {
+    const hourly = run(young(), [worked(80, 'hour', 2800)]);
+    expect(hourly.eti.monthlyEti).toBe(712.5);
+    expect(codesOf(hourly)).not.toContain('ETI_HOURS_UNKNOWN');
   });
-  it('a full month (160 h) keeps the ETI the engine works out; hours that cannot be told claim none', () => {
-    const full = run(young({ hourlyRate: 30 }), [worked(160, 'hour', 4800)]);
-    expect(full.eti.monthlyEti).toBeGreaterThan(0);
-    expect(full.validationResults.map((v) => v.code)).not.toContain('ETI_HOURS_APPORTIONMENT_PENDING');
-    const daily = run(young({ payBasis: 'daily', dailyRate: 240, hoursPerDay: null }), [worked(10, 'day', 2400)]);
+  it('160 hours keeps the table value; 80 hours at R30 is under the R30.23 minimum wage: nil', () => {
+    expect(run(young(), [worked(160, 'hour', 5600)]).eti.monthlyEti).toBe(1425);
+    expect(run(young({ hourlyRate: 30 }), [worked(80, 'hour', 2400)]).eti.monthlyEti).toBe(0);
+  });
+  it('days with no hours per day cannot be told: none is claimed and the line says why', () => {
+    const daily = run(young({ payBasis: 'daily', dailyRate: 280, hoursPerDay: null }), [worked(10, 'day', 2800)]);
     expect(daily.eti.monthlyEti).toBe(0);
+    expect(codesOf(daily)).toContain('ETI_HOURS_UNKNOWN');
+  });
+  it('a monthly employee with no hours a week keeps today\'s figure and is warned; with hours a week it is tested', () => {
+    const unknown = run(young({ payBasis: 'monthly', hoursPerWeek: null }), [{ component: basic, amount: 2400, isRecurring: true }]);
+    expect(unknown.eti.monthlyEti).toBe(1440); // 60% x R2 400, as before ET
+    expect(codesOf(unknown)).toContain('ETI_HOURS_UNKNOWN');
+    const known = run(young({ payBasis: 'monthly', hoursPerWeek: 40 }), [{ component: basic, amount: 2400, isRecurring: true }]);
+    expect(known.eti.monthlyEti).toBe(0); // R2 400 for 173.33 h is under the minimum wage
+    expect(codesOf(known)).not.toContain('ETI_HOURS_UNKNOWN');
   });
 });
 

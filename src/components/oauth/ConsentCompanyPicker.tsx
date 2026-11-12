@@ -10,7 +10,7 @@
  * gets a plain statement — a dropdown with one option is noise, not a choice.
  *
  * The app's name is deliberately NOT a prop. This block is the only place the
- * name was ever interpolated into a sentence ISAFlow wrote, and a name that
+ * name was ever interpolated into a sentence IsaFlow wrote, and a name that
  * ends that sentence early ("Nothing.") makes our own reassurance say
  * something we did not say. The name is already the h1 two elements above, so
  * "This app" loses nothing. Removing the prop rather than escaping it keeps

@@ -153,7 +153,7 @@ export async function sendInviteEmail(options: InviteEmailOptions): Promise<Emai
 
   return sendEmail({
     to: options.recipientEmail,
-    subject: `You've been invited to join ${options.companyName} on ISAFlow`,
+    subject: `You've been invited to join ${options.companyName} on IsaFlow`,
     html: inviteEmailHtml(inviteData),
     _log: { companyId: options.companyId, emailType: 'invite' },
   });
