@@ -10,10 +10,13 @@
  *   the first write) when a recorded (employee, directive) of that run would not be applied again: the employee left the
  *   run's population, became an independent contractor, or the directive is not the one in force for the period. A
  *   directive legitimately shortened stays in force for every run it taxed (the expiry guard), so it never trips this.
+ *   One exit (round 4 L2): an employee who really left before the period, whose directive was ended at the leave date
+ *   (the expiry guard allows that date only for a leaver), may leave the run: no line is left for the tables to tax.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { PAYE_OUTSIDE_TABLES } from './taxStatusTreatment';
+import { directiveEndsOnSql } from './taxDirectiveOverlap';
 import type { RegularPayDirectiveState } from './directiveRegularPay';
 import type { PayrollEmployee } from './payrollTypes';
 
@@ -59,7 +62,10 @@ export async function assertRunKeepsItsDirectives(
   directives: Map<string, RegularPayDirectiveState>,
 ): Promise<void> {
   const uses = (await sql`
-    SELECT u.employee_id, u.directive_id, d.directive_number, e.employee_number
+    SELECT u.employee_id, u.directive_id, d.directive_number, e.employee_number,
+           -- Ended at the leave date (expiry before this run's judge date, allowed only for a leaver): the leaver may leave the run.
+           (d.status = 'approved' AND ${directiveEndsOnSql('d')} < u.judge_date AND e.end_date IS NOT NULL
+            AND ${directiveEndsOnSql('d')} >= e.end_date) AS ended_at_leave
     FROM payroll_run_directive_uses u
     JOIN tax_directives d ON d.id = u.directive_id AND d.company_id = u.company_id
     JOIN payroll_employees e ON e.id = u.employee_id AND e.company_id = u.company_id
@@ -68,13 +74,17 @@ export async function assertRunKeepsItsDirectives(
   `) as DbRow[];
   const lost = uses.filter((u) => {
     const member = population.find((p) => p.employee.id === String(u.employee_id) && !p.severanceOnly);
-    if (!member || member.employee.taxStatus === 'independent_contractor') return true;
+    // A leaver no longer in the run whose directive was ended at the leave date: no line is left to be taxed by the tables.
+    if (!member) return u.ended_at_leave !== true;
+    if (member.employee.taxStatus === 'independent_contractor') return true;
     return directives.get(String(u.employee_id))?.current?.id !== String(u.directive_id);
   });
   if (lost.length === 0) return;
   throw new PayrollRunDirectiveUseError(
     `This run was approved with SARS directive ${lost.map((u) => `${String(u.directive_number ?? u.directive_id)} for ${String(u.employee_number)}`).join(', ')}, `
-    + 'and recalculating it now would not apply it, so its declared PAYE would change. Restore what changed: the employee\'s tax status '
-    + '(an independent contractor takes no directive), their place in this run (end date, status), or the directive itself; then recalculate.',
+    + 'and recalculating it now would not apply it, so its declared PAYE would change. To proceed: restore what changed (the employee\'s '
+    + 'tax status, since an independent contractor takes no directive; or their end date or status) and recalculate; or, for an employee '
+    + 'who really left before this period, end the directive at the leave date, or at its effective date if that is later (Payroll, Tax directives, Set expiry), '
+    + 'then recalculate, which takes the leaver out of this run.',
   );
 }

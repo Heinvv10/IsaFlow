@@ -31,20 +31,27 @@ import { REGULAR_PAY_DIRECTIVE_TYPES } from './taxDirectiveKinds';
 import { payrollApprovalLockScope } from './payrollRunLock';
 import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
 
-export interface RegularDirectiveRow { id: string; employeeId: string; effectiveDate: string; expiryDate: string | null; status: string; number: string | null }
+export interface RegularDirectiveRow {
+  id: string; employeeId: string; effectiveDate: string; expiryDate: string | null; status: string; number: string | null;
+  /** The employee's end date (YYYY-MM-DD), else null. */
+  employeeEndDate: string | null;
+}
 
 /** The directive's row when it is a regular-pay one of this company (unlocked: type, employee and effective date never change). */
 export async function regularDirectiveRow(companyId: string, id: string): Promise<RegularDirectiveRow | null> {
   const r = ((await sql`
-    SELECT id, employee_id, effective_date::text AS effective_date, expiry_date::text AS expiry_date, status, directive_number
-    FROM tax_directives
-    WHERE company_id = ${companyId}::uuid AND id = ${id}::uuid AND directive_type = ANY(${[...REGULAR_PAY_DIRECTIVE_TYPES]}::text[])
+    SELECT d.id, d.employee_id, d.effective_date::text AS effective_date, d.expiry_date::text AS expiry_date, d.status, d.directive_number,
+           e.end_date::text AS employee_end_date
+    FROM tax_directives d
+    LEFT JOIN payroll_employees e ON e.id = d.employee_id AND e.company_id = d.company_id
+    WHERE d.company_id = ${companyId}::uuid AND d.id = ${id}::uuid AND d.directive_type = ANY(${[...REGULAR_PAY_DIRECTIVE_TYPES]}::text[])
   `) as DbRow[])[0];
   if (!r || r.employee_id == null) return null;
   return {
     id: String(r.id), employeeId: String(r.employee_id), effectiveDate: String(r.effective_date),
     expiryDate: r.expiry_date == null ? null : String(r.expiry_date), status: String(r.status),
     number: r.directive_number == null ? null : String(r.directive_number),
+    employeeEndDate: r.employee_end_date == null ? null : String(r.employee_end_date),
   };
 }
 
@@ -111,8 +118,11 @@ export async function judgeRegularDirectiveChange(
     if (change.expiry_date > current) {
       throw new TaxDirectiveWindowError(`An expiry date can only shorten the directive: it runs to ${current} now. SARS issues a new directive for a longer period.`);
     }
-    if (used && change.expiry_date < used.judgeDate) {
-      throw new TaxDirectiveWindowError(`${label} taxed the ${used.period} payroll run (paid ${used.judgeDate}): the expiry date cannot be before that.`);
+    // Before a run it taxed only to end it at the employee's leave date (a legitimate leaver, round 4 L2): the recalculation
+    // guard then lets that run drop the leaver, who has no line left to be taxed by the tables.
+    if (used && change.expiry_date < used.judgeDate && !(row.employeeEndDate != null && change.expiry_date >= row.employeeEndDate)) {
+      throw new TaxDirectiveWindowError(`${label} taxed the ${used.period} payroll run (paid ${used.judgeDate}): the expiry date cannot be before that, `
+        + 'unless the employee has left: then it may end on or after their leave date.');
     }
   }
   if ((change.status ?? row.status) === 'approved') {

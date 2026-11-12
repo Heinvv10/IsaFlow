@@ -19,8 +19,9 @@ import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailSe
 export class TaxDirectiveSelfApprovalError extends Error {
   readonly code = 'TAX_DIRECTIVE_SELF_APPROVAL';
   constructor() {
-    super('You captured this directive, so another owner, admin or manager must approve it. If the member who could approve it '
-      + 'when it was captured has since left the company, capture the directive again.');
+    super('You captured this directive, so you cannot approve it yourself while another owner, admin or manager could. To proceed: '
+      + 'ask another owner, admin or manager to approve it; or, if nobody else can any more (the member who could approve it when it '
+      + 'was captured has left or been removed), cancel this directive and create it again, so that today\'s members are recorded.');
     this.name = 'TaxDirectiveSelfApprovalError';
   }
 }

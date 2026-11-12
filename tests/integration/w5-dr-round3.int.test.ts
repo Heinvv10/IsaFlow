@@ -68,13 +68,22 @@ describe('M1: the use is recorded at approval and survives the reopen', () => {
     expect((await runLine(pool, march, f.employee)).paye).toBe(4000);
   });
 
-  it('dropped from the population (end date before March): recalculation 409, nothing written', async () => {
-    const { f, march } = await approvedUnderDThenReopened('DR r3 population');
+  it('dropped from the population (end date before March): recalculation 409 naming the exit; D ended at the leave date, it recalculates', async () => {
+    const { f, d, march } = await approvedUnderDThenReopened('DR r3 population');
     expect((await patchEmployee(f, { endDate: '2026-02-28' })).statusCode).toBe(200);
     const lines = await lineCount(march);
     const r = await recalc(f, march);
     expect(r.statusCode, JSON.stringify(r.body)).toBe(409);
+    expect(r.body.error?.message).toMatch(/end the directive at the leave date/);
     expect(await lineCount(march)).toBe(lines);
+    // The way out for a real leaver (round 4 L2): end D at the leave date, then the recalculation drops them.
+    // D starts on 03-01, after the 02-28 leave date: the earliest it can end is its effective date. Before it: 400.
+    expect((await patchDirective(f, d, { expiry_date: '2026-02-28' })).statusCode).toBe(400);
+    expect((await patchDirective(f, d, { expiry_date: '2026-03-01' })).statusCode).toBe(200);
+    expect((await recalc(f, march)).statusCode).toBe(200);
+    expect((await pool.query('SELECT count(*)::int AS n FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [march, f.employee])).rows[0]!.n).toBe(0);
+    // The record stays: D still cannot be cancelled.
+    expect((await patchDirective(f, d, { status: 'cancelled' })).statusCode).toBe(409);
   });
 
   it('retroactive: an employee dropped from a reopened run still counts as paid in it', async () => {
@@ -109,7 +118,7 @@ describe('L-a: four eyes judge the roster as of capture', () => {
     await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [f.company, f.approver]);
     const own = await patchDirective(f, d, { status: 'approved' }, f.admin);
     expect(own.statusCode, JSON.stringify(own.body)).toBe(403);
-    expect(own.body.error?.message).toMatch(/capture the directive again/);
+    expect(own.body.error?.message).toMatch(/cancel this directive and create it again/);
   });
 
   it('a MANAGER creator (company_users RLS shows them only their own row) still records the owner; demoted later, still refused', async () => {
