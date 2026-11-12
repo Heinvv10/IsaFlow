@@ -1,8 +1,7 @@
 /**
  * The landing page's live stats: the shared DB aggregate and its formatting.
- * getLandingStats is read by both GET /api/landing-stats and the landing
- * page's getStaticProps, so a DB failure must come back as null, never a throw
- * (a throw would fail `next build` when no DB is reachable).
+ * getLandingStats is read by GET /api/landing-stats, so a DB failure must
+ * come back as null, never a throw.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 

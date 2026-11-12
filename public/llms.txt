@@ -15,7 +15,7 @@ IsaFlow is operated by Brightsphere Technologies (Pty) Ltd and trades as IsaFlow
 
 - Invoicing: invoices, quotes, sales orders, recurring invoices, credit notes, customer statements and debtor ageing.
 - Purchases: supplier invoices, payments and creditor ageing.
-- Banking: statement import (CSV, OFX, QFX, QIF, MT940, PDF), automatic matching with rules and AI, and a browser import for ABSA. There is no live direct feed from every bank.
+- Banking: statement import (CSV, OFX, QFX, QIF, MT940, PDF) and automatic matching with rules and AI. IsaFlow does not connect live to any bank.
 - VAT and SARS: VAT201 figures prepared for each period, pre-filing checks, and locking of filed periods. Returns are captured on SARS eFiling by the user.
 - Payroll: PAYE, UIF and SDL calculations, payslips, and EMP201 and IRP5 data. Payroll is an add-on priced per active employee.
 - Fixed assets, budgets and financial reports. Annual financial statements are on the Premium plan.
@@ -27,11 +27,15 @@ IsaFlow is operated by Brightsphere Technologies (Pty) Ltd and trades as IsaFlow
 
 - [Home](https://isaflow.co.za/): overview, features and frequently asked questions
 - [Pricing](https://isaflow.co.za/pricing): plans in rand, with a 30-day free trial and no credit card needed
+- [Features](https://isaflow.co.za/features): what the product does for practices, bureaus and businesses
 - [IsaFlow vs Sage](https://isaflow.co.za/compare/sage): plain-language comparison with Sage Business Cloud Accounting
 - [IsaFlow vs Xero](https://isaflow.co.za/compare/xero): plain-language comparison with Xero
 - [IsaFlow vs QuickBooks](https://isaflow.co.za/compare/quickbooks): plain-language comparison with QuickBooks Online
+- [IsaFlow vs SimplePay](https://isaflow.co.za/compare/simplepay): plain-language payroll comparison with SimplePay
+- [IsaFlow vs PaySpace](https://isaflow.co.za/compare/payspace): plain-language payroll comparison with PaySpace
 - [Help centre](https://isaflow.co.za/help): how-to guides for using IsaFlow
 - [Blog](https://isaflow.co.za/blog): guides on VAT, payroll and running a South African business
+- [About](https://isaflow.co.za/about): who operates IsaFlow and how it is built
 - [Contact and demo](https://isaflow.co.za/contact): book a demo or talk to the team
 - [Privacy policy](https://isaflow.co.za/privacy): POPIA-based privacy policy
 - [Terms](https://isaflow.co.za/terms): terms of use

@@ -119,7 +119,7 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
   // The banner sits above both the skeleton and the shell, so it is not remounted when the session check ends.
   // D9: during an auth-service outage the skeleton's content area explains itself and offers Retry.
   return (
-    <div className="flex flex-col h-screen overflow-hidden" style={{ background: 'var(--ff-canvas-base)' }}>
+    <div data-app-shell className="flex flex-col h-screen overflow-hidden" style={{ background: 'var(--ff-canvas-base)' }}>
       <ImpersonationBanner />
       {loading ? <ShellSkeleton hasModuleNav={hasModuleNav} /> : (<>
       <div className="flex flex-1 min-h-0 overflow-hidden">

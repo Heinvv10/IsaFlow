@@ -9,10 +9,7 @@ if (!DATABASE_URL) throw new Error('DATABASE_URL required');
  * company_id tables known to lack RLS, each a real defect awaiting its own fix
  * (not an exemption). Found when this suite first ran in the CI gate, 11 Nov 2026.
  */
-const KNOWN_GAPS: Record<string, string> = {
-  portal_access: 'KNOWN BUG: migration 937 added company_id but no RLS, FORCE RLS or policy; app_user keeps SELECT on it '
-    + '(every column but password_hash) and DELETE, so tenant isolation of AR portal logins rests on query filters alone.',
-};
+const KNOWN_GAPS: Record<string, string> = {};
 
 describe('RLS policy coverage across every company_id table', () => {
   let pool: Pool;
