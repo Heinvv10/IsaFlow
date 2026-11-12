@@ -97,7 +97,7 @@ export default function FeaturesPage() {
           <div className="bg-white pt-16 text-center px-4">
             <MarketingSectionHeading eyebrow="For your business" title="Invoicing, banking and capture in one set of books." />
           </div>
-          <LandingDetailedFeatures withScreenshots={false} />
+          <LandingDetailedFeatures />
         </div>
 
         <section id="more" className="py-16 lg:py-24 bg-white">

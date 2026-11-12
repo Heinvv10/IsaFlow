@@ -82,9 +82,10 @@ describe('/features', () => {
     expect(text).toContain('EMP201');
   });
 
-  it('shows no product screenshots (they carry the old logo and demo counterparties)', () => {
+  it('shows the re-captured product screenshots (fictional data) beside each business feature', () => {
     const { container } = render(<FeaturesPage />);
-    expect(container.querySelector('#business img')).toBeNull();
+    const srcs = [...container.querySelectorAll('#business img')].map((img) => img.getAttribute('src'));
+    expect(srcs).toEqual(DETAILED_FEATURES.map((f) => `/landing/${f.imgKey}-1200.webp`));
     expect(container.querySelector('#business')?.textContent).toContain(DETAILED_FEATURES[0]!.title);
   });
 
