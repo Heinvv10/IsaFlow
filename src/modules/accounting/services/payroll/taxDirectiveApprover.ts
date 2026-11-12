@@ -19,7 +19,8 @@ import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailSe
 export class TaxDirectiveSelfApprovalError extends Error {
   readonly code = 'TAX_DIRECTIVE_SELF_APPROVAL';
   constructor() {
-    super('You captured this directive, so another owner, admin or manager must approve it.');
+    super('You captured this directive, so another owner, admin or manager must approve it. If the member who could approve it '
+      + 'when it was captured has since left the company, capture the directive again.');
     this.name = 'TaxDirectiveSelfApprovalError';
   }
 }
@@ -37,10 +38,14 @@ export async function judgeDirectiveApprover(companyId: string, id: string, appr
     SELECT m.user_id, m.role, m.is_active, m.status, m.suspended_at FROM approval_company_other_members(${companyId}::uuid, ${approverId}::text) m
   `) as Array<{ user_id: string; role: string; is_active: boolean | null; status: string | null; suspended_at: string | null }>;
   const writers: readonly string[] = DEFAULT_WRITE_ROLES;
-  // Roster as of capture (L-a): anyone who could approve then still blocks while their account is active, whatever their role now.
+  // Roster as of capture (L-a): anyone who could approve then still blocks while their account is active, whatever their role
+  // now; one whose membership was REMOVED since cannot be seen at all, so a removal counts as a demotion and blocks too (the
+  // creator captures the directive again to start from today's roster).
   const atCreate = new Set(((row?.approvers_at_create ?? []) as string[]).map(u => u.toLowerCase()));
+  const present = new Set(others.map(m => String(m.user_id).toLowerCase()));
   const blocks = (m: (typeof others)[number]) => isActiveUserAccount(m) && (writers.includes(String(m.role)) || atCreate.has(String(m.user_id).toLowerCase()));
-  if (others.some(blocks)) throw new TaxDirectiveSelfApprovalError();
+  const removedSince = [...atCreate].some(u => !present.has(u));
+  if (removedSince || others.some(blocks)) throw new TaxDirectiveSelfApprovalError();
   return { selfApproval: true };
 }
 
@@ -52,12 +57,23 @@ export async function auditDirectiveApproval(companyId: string, id: string, user
   });
 }
 
-/** The other owner / admin / manager members the creator can see now: stored on the directive at capture (approvers_at_create). */
+/**
+ * The company's other owner / admin / manager members with an active account, stored on the directive at capture
+ * (approvers_at_create). Read through the R-035 definer approval_company_other_members, which sees the whole roster
+ * whatever the creator's role (company_users RLS shows a manager only their own row). The definer answers only inside
+ * the creator's own request; a caller with no request claims (a service context) reads company_users directly, which
+ * that context sees whole.
+ */
 export async function approversAtCreate(companyId: string, creatorId: string): Promise<string[]> {
-  const rows = (await sql`
-    SELECT user_id FROM company_users
-    WHERE company_id = ${companyId}::uuid AND role = ANY(${[...DEFAULT_WRITE_ROLES]}::text[]) AND lower(user_id) <> ${creatorId.toLowerCase()}
-    ORDER BY user_id
-  `) as DbRow[];
-  return rows.map(r => String(r.user_id));
+  const inRequest = ((await sql`
+    SELECT NULLIF(current_setting('request.jwt.claims', true), '') IS NOT NULL AS has_claims
+  `) as DbRow[])[0]?.has_claims === true;
+  const members = (inRequest
+    ? await sql`SELECT m.user_id, m.role, m.is_active, m.status, m.suspended_at FROM approval_company_other_members(${companyId}::uuid, ${creatorId}::text) m`
+    : await sql`
+        SELECT cu.user_id, cu.role, TRUE AS is_active, NULL::text AS status, NULL::timestamptz AS suspended_at
+        FROM company_users cu WHERE cu.company_id = ${companyId}::uuid AND lower(cu.user_id) <> ${creatorId.toLowerCase()}
+      `) as Array<{ user_id: string; role: string; is_active: boolean | null; status: string | null; suspended_at: string | null }>;
+  const writers: readonly string[] = DEFAULT_WRITE_ROLES;
+  return members.filter(m => writers.includes(String(m.role)) && isActiveUserAccount(m)).map(m => String(m.user_id)).sort();
 }

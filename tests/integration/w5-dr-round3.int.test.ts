@@ -6,8 +6,8 @@
  *   recalculated off the directive (409, nothing written), and the directive guards read the record, not the lines.
  *   Restoring the change lets the recalculation through, still under the directive.
  * - M1 (retroactive): an employee dropped from a reopened run still counts as paid in it (approved_taxed_employees).
- * - L-a: four eyes judge the roster as of capture: demoting the other approver before approving does not open
- *   self-approval.
+ * - L-a: four eyes judge the roster as of capture: demoting or removing the other approver before approving does not open
+ *   self-approval, and the snapshot sees the whole roster even when the creator is a manager (the R-035 definer).
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -101,5 +101,25 @@ describe('L-a: four eyes judge the roster as of capture', () => {
     await pool.query("UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [f.company, f.approver]);
     const own = await patchDirective(f, d, { status: 'approved' }, f.admin);
     expect(own.statusCode, JSON.stringify(own.body)).toBe(403);
+  });
+
+  it('the other approver REMOVED from the company after capture: the creator still may not approve', async () => {
+    const f = await fixture('DR r3 removed');
+    const d = String((await postDirective(f, PCT)).body.data!.id);
+    await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [f.company, f.approver]);
+    const own = await patchDirective(f, d, { status: 'approved' }, f.admin);
+    expect(own.statusCode, JSON.stringify(own.body)).toBe(403);
+    expect(own.body.error?.message).toMatch(/capture the directive again/);
+  });
+
+  it('a MANAGER creator (company_users RLS shows them only their own row) still records the owner; demoted later, still refused', async () => {
+    const f = await fixture('DR r3 manager');
+    await pool.query("UPDATE company_users SET role = 'manager' WHERE company_id = $1 AND user_id = $2", [f.company, f.admin]);
+    const made = await postDirective(f, PCT);
+    expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
+    const d = String(made.body.data!.id);
+    expect((await pool.query('SELECT approvers_at_create FROM tax_directives WHERE id = $1', [d])).rows[0]!.approvers_at_create).toEqual([f.approver]);
+    await pool.query("UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [f.company, f.approver]);
+    expect((await patchDirective(f, d, { status: 'approved' }, f.admin)).statusCode).toBe(403);
   });
 });
