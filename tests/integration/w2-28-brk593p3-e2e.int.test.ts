@@ -117,7 +117,7 @@ for (const template of ['isaflow_standard', 'xero_compatible', 'sage_compatible'
       const years = ((await fx.call(yearEnd, 'GET', '/api/accounting/year-end', {})).body as { data?: { years?: { yearLabel?: string; label?: string; fiscalYear?: number }[] } }).data?.years ?? [];
       await fx.query("UPDATE fiscal_periods SET status = 'closed' WHERE company_id = $1 AND fiscal_year = 2026", [CO]);
       const label = years.map((y) => y.yearLabel ?? y.label ?? String(y.fiscalYear)).find((l) => String(l).includes('2026')) ?? '2026';
-      steps['9 year-end close'] = st(await fx.call(yearEnd, 'POST', '/api/accounting/year-end', { yearLabel: label, action: 'close' }));
+      steps['9 year-end close'] = st(await fx.call(yearEnd, 'POST', '/api/accounting/year-end', { yearLabel: label, action: 'close', confirm: true }));
       steps['final'] = { rolesNotOne: await roleReport(), tree: await treeReport() };
       show(`E2E ${template}`, steps);
       // Ported note: step 9 (the year-end close) answers 400 on this walk's own fixture — its fiscal periods

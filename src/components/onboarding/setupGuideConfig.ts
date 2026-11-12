@@ -132,14 +132,14 @@ export const SETUP_CATEGORIES: SetupCategory[] = [
   },
   {
     id: 'connect-bank',
-    label: 'Connect Bank',
-    description: 'Link your bank accounts',
+    label: 'Add Bank Account',
+    description: 'Add your bank accounts and import statements',
     icon: Landmark,
     tasks: [
       {
         id: 'bank-account',
         label: 'Add bank account',
-        description: 'Connect your business bank account to IsaFlow',
+        description: 'Add your business bank account to IsaFlow',
         href: '/accounting/bank-accounts',
         autoDetectKey: 'bank-account',
       },
@@ -152,9 +152,9 @@ export const SETUP_CATEGORIES: SetupCategory[] = [
       },
       {
         id: 'bank-feed',
-        label: 'Set up bank feed',
-        description: 'Configure automatic transaction import rules',
-        href: '/accounting/bank-transactions',
+        label: 'Review statement imports',
+        description: 'Check the statements you have uploaded and what was imported',
+        href: '/accounting/bank/statements',
       },
     ],
   },

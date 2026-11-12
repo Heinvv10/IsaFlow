@@ -73,7 +73,6 @@
   "src/components/accounting/capture/CaptureInboxPanel.tsx": 7,
   "src/components/accounting/capture/CaptureApiKeysSection.tsx": 13,
   "src/components/accounting/capture/WhatsAppVerificationSection.tsx": 7,
-  "src/components/accounting/bankFeeds/bankFeedTypes.ts": 1,
   "src/components/accounting/fiscal-periods/CloseReadinessChecklist.tsx": 4,
   "src/components/accounting/fiscal-periods/statusVisuals.tsx": 1,
   "src/components/accounting/fiscal-periods/BulkConfirmModal.tsx": 1,

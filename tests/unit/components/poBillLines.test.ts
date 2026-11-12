@@ -65,7 +65,7 @@ describe('billLineFromPo', () => {
 describe('mergePoAccounts', () => {
   const list = [{ id: 'a', accountCode: '5100', accountName: 'Materials' }];
 
-  it('adds a PO line\'s account the picker does not offer (below 5000), or the line would read as the default', () => {
+  it('adds a PO line\'s account the picker does not offer, or the line would read as the default', () => {
     const [coded] = poLinesFromOrder({ status: 'approved', items: [row] });
     expect(mergePoAccounts(list, [coded!])).toEqual([...list, { id: 'acc-1', accountCode: '1210', accountName: 'Equipment' }]);
   });

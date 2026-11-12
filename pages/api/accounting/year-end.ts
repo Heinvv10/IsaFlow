@@ -1,7 +1,9 @@
 /**
  * Year-End Processing API
  * GET  /api/accounting/year-end - List fiscal years with revenue/expense totals
- * POST /api/accounting/year-end - Close a fiscal year (action: "close")
+ * GET  /api/accounting/year-end?preview=<yearLabel> - Read-only dry run of the close
+ *      (net income, the Retained Earnings account, or the refusal the close would give)
+ * POST /api/accounting/year-end - Close a fiscal year (action: "close", confirm: true)
  * Sage equivalent: Accountant's Area > Year-End
  */
 
@@ -17,6 +19,7 @@ import { log } from '@/lib/logger';
 import { listFiscalYears, closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
 import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { isHeaderAccountRefusal } from '@/modules/accounting/services/gl/headerAccountGuard';
+import { yearEndCloseRefusal, type YearEndCloseRefusal } from '@/lib/yearEndCloseRefusal';
 
 /**
  * Postgres "undefined_table" / "undefined_column" SQLSTATEs. Schema-not-ready
@@ -31,8 +34,51 @@ function isSchemaMissingError(err: unknown): boolean {
   return typeof code === 'string' && SCHEMA_MISSING_CODES.has(code);
 }
 
+function sendRefusal(res: NextApiResponse, refusal: YearEndCloseRefusal) {
+  if (refusal.kind === 'notFound') return apiResponse.notFound(res, 'Fiscal year');
+  if (refusal.kind === 'conflict') return apiResponse.conflict(res, refusal.message, refusal.details);
+  return apiResponse.badRequest(res, refusal.message);
+}
+
+/**
+ * What the close WOULD do, for the confirmation dialog. `closeFiscalYear` with
+ * `dryRun` runs every guard and writes nothing. A typed refusal comes back as a
+ * 200 `{ refusal }` so the dialog can show it and keep Confirm disabled.
+ */
+async function previewHandler(req: NextApiRequest, res: NextApiResponse, yearLabel: string) {
+  const { companyId } = req as CompanyAuthedRequest;
+  const userId = (req as AuthenticatedNextApiRequest).user.id;
+  const result = await closeFiscalYear(companyId, yearLabel, userId, { dryRun: true });
+  if ('error' in result) {
+    return apiResponse.success(res, { yearLabel, refusal: yearEndCloseRefusal(result).message });
+  }
+  if (!('dryRun' in result)) {
+    log.error('Year-end preview answered without a dry run', { yearLabel, module: 'accounting' });
+    return apiResponse.badRequest(res, 'Year-end preview could not be read.');
+  }
+  if (result.alreadyClosed) {
+    return apiResponse.success(res, { yearLabel, alreadyClosed: true, netIncome: result.netIncome });
+  }
+  // yearEndJournalBuilder.buildPreview appends the Retained Earnings line LAST,
+  // and only when the rounded result is non-zero (a break-even year transfers nothing).
+  const { preview } = result;
+  const reLine = preview.lines.length > 0 && Math.round(result.netIncome * 100) !== 0
+    ? preview.lines[preview.lines.length - 1]!
+    : null;
+  return apiResponse.success(res, {
+    yearLabel,
+    alreadyClosed: false,
+    netIncome: result.netIncome,
+    entryDate: preview.entryDate,
+    entryNumber: preview.entryNumber,
+    retainedEarnings: reLine ? { accountCode: reLine.accountCode, accountName: reLine.accountName } : null,
+  });
+}
+
 async function getHandler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
+  const preview = req.query?.preview;
+  if (typeof preview === 'string' && preview.length > 0) return previewHandler(req, res, preview);
   try {
     const years = await listFiscalYears(companyId);
     return apiResponse.success(res, { years });
@@ -72,93 +118,8 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     if (result === JOURNAL_DATE_REFUSED) return;
 
     if ('error' in result) {
-      switch (result.error) {
-        case 'open_periods':
-          return apiResponse.badRequest(
-            res,
-            `${result.count} periods still open. Close all periods first.`
-          );
-        case 'year_not_found':
-          return apiResponse.notFound(res, 'Fiscal year');
-        case 'start_month_assumed':
-          return apiResponse.badRequest(
-            res,
-            'This company has no financial year start month set, so this year was cut on an assumed ' +
-              'March start. Set the start month in Settings, then run the year-end close again.'
-          );
-        case 'no_retained_earnings':
-          return apiResponse.badRequest(
-            res,
-            'No Retained Earnings system account is configured. Mark the equity ' +
-              "account as a system account with account_subtype 'retained_earnings', " +
-              'then run the year-end close again.'
-          );
-        case 'ambiguous_retained_earnings':
-          return apiResponse.badRequest(
-            res,
-            `More than one account is flagged as the Retained Earnings system account ` +
-              `(${result.accountCodes.join(', ')}). Year-end close posts the whole year's ` +
-              `result to one account, so it will not guess — un-flag all but one and try again.`
-          );
-        case 'no_fiscal_period':
-          return apiResponse.badRequest(
-            res,
-            `No fiscal period covers ${result.entryDate}, where the closing journal has to ` +
-              `land. Create the period that covers the last day of the year, then close again.`
-          );
-        case 'period_range_mismatch':
-          return apiResponse.badRequest(
-            res,
-            `The periods labelled this fiscal year run ${result.actual.startDate} to ` +
-              `${result.actual.endDate}, but this company's financial year with that label runs ` +
-              `${result.expected.startDate} to ${result.expected.endDate}. Closing the labelled ` +
-              `span would roll the wrong months into equity and lock them. To move the year end, ` +
-              `use Change financial year end; otherwise fix the period dates, then close again.`
-          );
-        case 'closing_journal_not_posted':
-          return apiResponse.conflict(
-            res,
-            `This year already has a closing journal (${result.entryNumber}) and it is `
-              + `${result.status}, not posted. The year is therefore NOT closed, but it also `
-              + `cannot be closed again while that entry holds the number (a reversed closing `
-              + `journal does not block: the next close takes the next -R<n> number). Delete or renumber `
-              + `journal ${result.entryId}, then close the year.`
-          );
-        case 'closing_entry_number_taken':
-          return apiResponse.conflict(
-            res,
-            `Journal ${result.entryId} already carries the entry number this year's closing `
-              + `journal needs (${result.entryNumber}). It is a ${result.source} journal in `
-              + `status ${result.status}, not a year-end close, so the year is NOT closed — but `
-              + `entry numbers are unique per company, so it cannot be closed while that row `
-              + `holds the number. Renumber journal ${result.entryId}, then close the year.`
-          );
-        case 'too_many_recloses':
-          return apiResponse.conflict(
-            res,
-            `Closing journal ${result.entryNumber} has been reversed and re-posted too many times. `
-              + `Nothing was posted; a person has to look at the reversals before the year is closed again.`,
-            { code: result.code }
-          );
-        case 'closing_chain_unreadable':
-          return apiResponse.conflict(
-            res,
-            `The reversal chain of closing journal ${result.entryNumber} is too long to read, so it `
-              + `cannot be told whether the year is closed. Nothing was posted; a person has to inspect it.`,
-            { code: result.code }
-          );
-        default: {
-          // Exhaustive over CloseYearError: `unhandled` stops being `never` the
-          // moment a member is added without a case. Without this the refusal
-          // fell through to the success response below and the route answered
-          // 200 with an `error` body — which is exactly what `no_fiscal_period`
-          // and `period_range_mismatch` did.
-          const unhandled: never = result;
-          log.error('Year-end close refused with an unhandled error shape',
-            { unhandled, yearLabel, module: 'accounting' });
-          return apiResponse.badRequest(res, 'Year-end close was refused.');
-        }
-      }
+      const refusal = yearEndCloseRefusal(result);
+      return sendRefusal(res, refusal);
     }
 
     // A re-run of an already-closed year is a 200 that writes NOTHING: no
@@ -183,6 +144,12 @@ async function mux(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     // R-032 L5: refused before the PAYG meter debits (and refunds) the wallet.
     await assertNotImpersonating();
+    // Audit P3.2: the close posts a whole year's result to equity and locks every
+    // period, so it needs an explicit `confirm: true` (strict boolean). Refused
+    // before the meter, so an unconfirmed call is never billed.
+    if ((req.body as { confirm?: unknown } | undefined)?.confirm !== true) {
+      return apiResponse.badRequest(res, 'Year-end close needs explicit confirmation. Send confirm: true.');
+    }
     return meteredPost(req, res);
   }
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);

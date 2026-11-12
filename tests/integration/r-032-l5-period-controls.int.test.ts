@@ -67,14 +67,14 @@ const state = async () => (await pool.query(`SELECT
 type Case = { name: string; handler: NextApiHandler; call: Call };
 const FP = (body: Record<string, unknown>): Call => ({ body });
 const CASES: Case[] = [
-  { name: 'fiscal period close', handler: fiscalPeriodsAction, call: FP({ action: 'close', id: period.open1 }) },
-  { name: 'fiscal period lock', handler: fiscalPeriodsAction, call: FP({ action: 'lock', id: period.closed }) },
+  { name: 'fiscal period close', handler: fiscalPeriodsAction, call: FP({ action: 'close', id: period.open1, confirm: true }) },
+  { name: 'fiscal period lock', handler: fiscalPeriodsAction, call: FP({ action: 'lock', id: period.closed, confirm: true }) },
   { name: 'fiscal period reopen', handler: fiscalPeriodsAction, call: FP({ action: 'reopen', id: period.closed }) },
   { name: 'fiscal period bulk close', handler: fiscalPeriodsAction,
-    call: FP({ action: 'bulk_close', ids: [period.open1, period.open2] }) },
-  { name: 'fiscal period bulk lock', handler: fiscalPeriodsAction, call: FP({ action: 'bulk_lock', ids: [period.closed] }) },
+    call: FP({ action: 'bulk_close', ids: [period.open1, period.open2], confirm: true }) },
+  { name: 'fiscal period bulk lock', handler: fiscalPeriodsAction, call: FP({ action: 'bulk_lock', ids: [period.closed], confirm: true }) },
   { name: 'fiscal period bulk reopen', handler: fiscalPeriodsAction, call: FP({ action: 'bulk_reopen', ids: [period.closed] }) },
-  { name: 'fiscal year close (close_year)', handler: fiscalPeriodsAction, call: FP({ action: 'close_year', fiscalYear: 2026 }) },
+  { name: 'fiscal year close (close_year)', handler: fiscalPeriodsAction, call: FP({ action: 'close_year', fiscalYear: 2026, confirm: true }) },
   { name: 'VAT period lock', handler: vatPeriodLocks,
     call: FP({ action: 'lock', periodStart: '2026-05-01', periodEnd: '2026-06-30', force: true }) },
   { name: 'VAT period unlock', handler: vatPeriodLocks, call: FP({ action: 'unlock', lockId: vatLock, reason: 'r032' }) },

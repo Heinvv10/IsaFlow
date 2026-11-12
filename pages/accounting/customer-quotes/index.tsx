@@ -3,6 +3,7 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
+import { useOpenOnAction } from '@/hooks/useOpenOnAction';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, Plus, Search, Loader2, Send, Check, X, ArrowRight,
   ExternalLink, ClipboardList, Trash2, Download } from 'lucide-react';
@@ -133,6 +134,7 @@ export default function CustomerQuotesPage() {
   const [tab, setTab] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [showNew, setShowNew] = useState(false);
+  useOpenOnAction('new', () => setShowNew(true));
   const [converting, setConverting] = useState<string | null>(null);
   const [convertingToSO, setConvertingToSO] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<{ text: string; invoiceId: string } | null>(null);
