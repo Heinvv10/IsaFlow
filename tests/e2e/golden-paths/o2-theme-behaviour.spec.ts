@@ -7,12 +7,13 @@
  *  - Phone width: the theme control and Log out are reachable (they live in the account menu).
  *  - Panels that are dark in both themes keep their text colour in the light theme; a
  *    data-surface="light" panel keeps light tokens and form controls in the dark theme.
+ *  - River light surfaces and the 600/700 text remap apply inside the app shell (data-app-shell) only, not the portal.
  *  - Reports pin the header row and the first column to the page scroll (no nested scroll box).
  * Read-only: writes no data.
  */
 import { expect, test } from '../helpers/navSpec';
 import { auditContrast } from '../helpers/themeContrast';
-import { axeContrastFailures, rootTheme, seedTheme, settle } from '../helpers/themeSpec';
+import { axeContrastFailures, rootTheme, seedTheme, settle, shellScopeProbe } from '../helpers/themeSpec';
 
 test.setTimeout(180_000);
 
@@ -157,6 +158,35 @@ test.describe('panels and surfaces', () => {
     expect(probe.text, 'light text token inside the panel').toBe('rgb(7, 26, 36)');
     expect(probe.lightInput, 'an input inside a light panel is not dark-filled').not.toBe('rgb(13, 38, 50)');
     expect(probe.darkInput, 'an ordinary input is still dark in the dark theme').toBe('rgb(13, 38, 50)');
+  });
+});
+
+test.describe('the River light theme is scoped to the app shell', () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+  test('inside the shell: card tint, field fills and the 600/700 text remap; hover goes darker', async ({ page }) => {
+    await seedTheme(page, 'light');
+    await page.goto('/accounting/customer-invoices', { waitUntil: 'domcontentloaded' });
+    await settle(page);
+    expect(await page.locator('[data-app-shell]').count()).toBeGreaterThan(0);
+    const c = await shellScopeProbe(page);
+    expect(c.white, 'bg-white is the card tint #f5faf8').toBe('rgb(245, 250, 248)');
+    expect(c.field, 'an enabled field is the field fill #fcfefd, over bg-white').toBe('rgb(252, 254, 253)');
+    expect(c.readonly, 'a read-only field keeps the sunken fill #ddebe7').toBe('rgb(221, 235, 231)');
+    expect(c.teal700, 'text-teal-700 is teal-800').toBe('rgb(17, 94, 89)');
+    expect(c.link, 'text-teal-600 is teal-800').toBe('rgb(17, 94, 89)');
+    await page.locator('#p-link').hover();
+    await expect.poll(() => page.locator('#p-link').evaluate((e) => getComputedStyle(e).color), { message: 'hover: teal-900' }).toBe('rgb(19, 78, 74)');
+  });
+
+  test('outside the shell (the client portal): stock white, own input fill, stock teal-700', async ({ page }) => {
+    await seedTheme(page, 'light');
+    await page.goto('/portal', { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('html[data-theme-applied]');
+    expect(await page.locator('[data-app-shell]').count()).toBe(0);
+    const c = await shellScopeProbe(page);
+    expect(c.white, 'bg-white is white').toBe('rgb(255, 255, 255)');
+    expect(c.field, 'an input keeps its own bg-white, no field fill').toBe('rgb(255, 255, 255)');
+    expect(c.teal700, 'text-teal-700 is stock').toBe('rgb(15, 118, 110)');
   });
 });
 

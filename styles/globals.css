@@ -248,7 +248,7 @@
 
   /*
    * River neutrals. Inside the signed-in app shell (AppLayout sets data-app-shell) the neutral stops the shell and the
-   * UI kit were written with (bg-white, gray and slate 50 to 300 and 600 to 950) take River values, so a kit input,
+   * UI kit were written with (bg-white, gray, slate and zinc 50 to 300 and 600 to 950) take River values, so a kit input,
    * the header and a page card sit on one family of surfaces. Everywhere else (marketing, sign-in, portals) and in a
    * print render they keep the stock Tailwind values below; tests/unit/components/theme/riverNeutrals.test.ts holds
    * the defaults to tailwindcss/colors. Mapped in tailwind.config.mjs. Channels, so opacity modifiers keep working.
@@ -273,13 +273,22 @@
     --rv-slate-800: 30 41 59;
     --rv-slate-900: 15 23 42;
     --rv-slate-950: 2 6 23;
+    --rv-zinc-50: 250 250 250;
+    --rv-zinc-100: 244 244 245;
+    --rv-zinc-200: 228 228 231;
+    --rv-zinc-300: 212 212 216;
+    --rv-zinc-600: 82 82 91;
+    --rv-zinc-700: 63 63 70;
+    --rv-zinc-800: 39 39 42;
+    --rv-zinc-900: 24 24 27;
+    --rv-zinc-950: 9 9 11;
   }
 
   :root:has([data-app-shell]):not(.print-mode) {
     --rv-white: 245 250 248; /* card #f5faf8 */
     --rv-gray-50: 237 245 242; /* #edf5f2 */
     --rv-gray-100: 221 235 231; /* #ddebe7 */
-    --rv-gray-200: 203 220 215; /* #cbdcd7 */
+    --rv-gray-200: 208 224 219; /* #d0e0db: muted text #4f636b on it is 4.62 (hover:bg-gray-200) */
     --rv-gray-300: 185 203 198; /* #b9cbc6 */
     --rv-gray-600: 59 80 89; /* #3b5059 */
     --rv-gray-700: 26 55 68; /* #1a3744 */
@@ -288,13 +297,22 @@
     --rv-gray-950: 5 19 25; /* #051319 */
     --rv-slate-50: 237 245 242;
     --rv-slate-100: 221 235 231;
-    --rv-slate-200: 203 220 215;
+    --rv-slate-200: 208 224 219;
     --rv-slate-300: 185 203 198;
     --rv-slate-600: 59 80 89;
     --rv-slate-700: 26 55 68;
     --rv-slate-800: 13 38 50;
     --rv-slate-900: 7 26 36;
     --rv-slate-950: 5 19 25;
+    --rv-zinc-50: 237 245 242;
+    --rv-zinc-100: 221 235 231;
+    --rv-zinc-200: 208 224 219;
+    --rv-zinc-300: 185 203 198;
+    --rv-zinc-600: 59 80 89;
+    --rv-zinc-700: 26 55 68;
+    --rv-zinc-800: 13 38 50;
+    --rv-zinc-900: 7 26 36;
+    --rv-zinc-950: 5 19 25;
   }
 
   /* Dark: 50 to 300 are text stops there (dark:text-gray-200) and a white panel is white on purpose, so they go back to stock. */
@@ -308,6 +326,10 @@
     --rv-slate-100: 241 245 249;
     --rv-slate-200: 226 232 240;
     --rv-slate-300: 203 213 225;
+    --rv-zinc-50: 250 250 250;
+    --rv-zinc-100: 244 244 245;
+    --rv-zinc-200: 228 228 231;
+    --rv-zinc-300: 212 212 216;
   }
 
   * {

@@ -174,12 +174,13 @@ export default {
           sand: '#F6F1E7',
           ember: '#F59E0B',
         },
-        // River neutrals: these stops read CSS variables whose default is the stock Tailwind value. Inside the
+        // River neutrals (gray, slate, zinc): these stops read CSS variables whose default is the stock Tailwind value. Inside the
         // signed-in shell (AppLayout's data-app-shell) styles/globals.css points them at River surfaces, so the
         // shell and the UI kit (bg-white, border-gray-200, dark:bg-gray-800 ...) match the --ff-* surfaces without a
         // per-file edit. 400 and 500 are text stops and stay stock (extend merges per stop).
         gray: Object.fromEntries(RV_STOPS.map((n) => [n, `rgb(var(--rv-gray-${n}) / <alpha-value>)`])),
         slate: Object.fromEntries(RV_STOPS.map((n) => [n, `rgb(var(--rv-slate-${n}) / <alpha-value>)`])),
+        zinc: Object.fromEntries(RV_STOPS.map((n) => [n, `rgb(var(--rv-zinc-${n}) / <alpha-value>)`])),
         line: { DEFAULT: 'var(--ff-border-primary)', strong: 'var(--ff-border-secondary)' },
         ink: {
           DEFAULT: 'var(--ff-text-primary)',

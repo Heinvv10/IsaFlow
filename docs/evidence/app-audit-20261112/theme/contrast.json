@@ -1,5 +1,5 @@
 {
-  "walker": "tests/e2e/helpers/themeContrast.ts auditContrast, local dev server, Demo company, 12 Nov 2026 (retaken after review fixes)",
+  "walker": "tests/e2e/helpers/themeContrast.ts auditContrast, local dev server, Demo company, 12 Nov 2026 (retaken after review round 2 fixes)",
   "results": {
     "dashboard-desktop-light": {
       "url": "/accounting",
@@ -60,7 +60,7 @@
     "bank-transactions-desktop-light": {
       "url": "/accounting/bank-transactions",
       "appShell": true,
-      "total": 333,
+      "total": 332,
       "worst": 5.08,
       "failing": []
     },
@@ -88,7 +88,7 @@
     "invoice-new-desktop-light": {
       "url": "/accounting/customer-invoices/new",
       "appShell": true,
-      "total": 79,
+      "total": 77,
       "worst": 5.47,
       "failing": []
     },

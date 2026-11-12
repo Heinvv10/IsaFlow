@@ -1,6 +1,6 @@
 /**
  * River neutrals (Layer B). Inside the signed-in shell (AppLayout's data-app-shell) the stock neutral stops the shell
- * and the UI kit were written with (bg-white, gray and slate 50 to 300 and 600 to 950) resolve to River surfaces.
+ * and the UI kit were written with (bg-white, gray, slate and zinc 50 to 300 and 600 to 950) resolve to River surfaces.
  * Everywhere else, and in a print render, they must stay the stock Tailwind values, or marketing, sign-in and the
  * board pack would change too.
  */
@@ -13,7 +13,7 @@ import config from '../../../../tailwind.config.mjs';
 const root = process.cwd();
 const css = readFileSync(join(root, 'styles/globals.css'), 'utf8');
 const STOPS = ['50', '100', '200', '300', '600', '700', '800', '900', '950'] as const;
-const HUES = ['gray', 'slate'] as const;
+const HUES = ['gray', 'slate', 'zinc'] as const;
 const SHELL = ':root:has([data-app-shell]):not(.print-mode)';
 const SHELL_DARK = ':root.dark:has([data-app-shell]):not(.print-mode)';
 
@@ -67,6 +67,11 @@ describe('inside the app shell', () => {
   });
 
   const surfaces = ['#e6f4f1', '#f5faf8', '#fcfefd', '#ddebe7'];
+  const MUTED = '#4f636b'; // themeContrast.css light --tx-gray/slate/zinc-400/500
+  it.each(HUES)('muted text (remapped 400/500) is AA on light %s-200, the hover:bg stop', (hue) => {
+    const bg = toHex(light.get(`--rv-${hue}-200`) as string);
+    expect(contrast(MUTED, bg), `${MUTED} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+  });
   it.each(HUES.flatMap((h) => (['600', '700', '800', '900'] as const).map((s) => [h, s] as const)))(
     'light %s-%s as text is AA on every light surface',
     (hue, stop) => {
