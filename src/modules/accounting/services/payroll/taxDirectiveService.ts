@@ -12,7 +12,9 @@ import { directivePaidBy, TaxDirectivePaidError } from './taxDirectivePaidGuard'
 import { isRegularPayDirectiveType } from './taxDirectiveKinds';
 import { TaxDirectiveWindowError } from './taxDirectiveOverlap';
 import { regularDirectiveLatestUse } from './payrollRunDirectiveUses';
-import { judgeRegularDirectiveChange, judgeRegularDirectiveCreate, lockForRegularChange, regularDirectiveRow } from './taxDirectiveRegularPayChange';
+import {
+  auditLeaverExit, judgeRegularDirectiveChange, judgeRegularDirectiveCreate, lockForRegularChange, regularDirectiveRow,
+} from './taxDirectiveRegularPayChange';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { approversAtCreate, auditDirectiveApproval, judgeDirectiveApprover } from './taxDirectiveApprover';
 import { mapRow, type DirectiveStatus, type TaxDirective, type TaxDirectiveCreateInput, type ListTaxDirectivesFilter } from './taxDirectiveModel';
@@ -148,6 +150,8 @@ export async function updateTaxDirective(
   id: string,
   change: TaxDirectiveChange,
   approvedByUserId?: string,
+  /** Who made the change (the audit row of an expiry that takes the leaver exit). */
+  actorUserId?: string,
 ): Promise<TaxDirective | null> {
   log.info('updateTaxDirective', { companyId, id, status: change.status, issuedDate: change.issued_date });
 
@@ -171,7 +175,7 @@ export async function updateTaxDirective(
   }
   // Judged on the row as it is under both locks (status and expiry may have moved since the unlocked read).
   const fresh = regular ? await regularDirectiveRow(companyId, id) : null;
-  if (fresh) await judgeRegularDirectiveChange(companyId, fresh, change);
+  const judged = fresh ? await judgeRegularDirectiveChange(companyId, fresh, change) : null;
   // Four eyes (Hein, #1266 round 2): judged before the write; the audit row follows it in the same transaction.
   const approving = change.status === 'approved' && locked[0].status !== 'approved' && approvedByUserId != null;
   const approval = approving ? await judgeDirectiveApprover(companyId, id, approvedByUserId!) : null;
@@ -194,6 +198,9 @@ export async function updateTaxDirective(
   `;
 
   if (approval && rows.length) await auditDirectiveApproval(companyId, id, approvedByUserId!, approval.selfApproval);
+  if (fresh && judged?.leaverExitPeriods && rows.length && actorUserId) {
+    await auditLeaverExit(companyId, fresh, change.expiry_date!, judged.leaverExitPeriods, actorUserId);
+  }
   return rows.length ? mapRow(rows[0]!) : null;
 }
 

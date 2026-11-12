@@ -30,6 +30,7 @@ import { regularDirectiveLatestUse, regularDirectiveUsesAfter } from './payrollR
 import { REGULAR_PAY_DIRECTIVE_TYPES } from './taxDirectiveKinds';
 import { payrollApprovalLockScope } from './payrollRunLock';
 import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
+import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 
 export interface RegularDirectiveRow {
   id: string; employeeId: string; effectiveDate: string; expiryDate: string | null; status: string; number: string | null;
@@ -100,10 +101,11 @@ export async function lockForRegularChange(companyId: string, row: RegularDirect
   await lockFor(companyId, row.employeeId);
 }
 
-/** Under the employee's lock and the row's: refuse the change before the write (see the header). */
+/** Under the employee's lock and the row's: refuse the change before the write (see the header). Says when the leaver exit was taken. */
 export async function judgeRegularDirectiveChange(
   companyId: string, row: RegularDirectiveRow, change: { status?: string; expiry_date?: string },
-): Promise<void> {
+): Promise<{ leaverExitPeriods: string[] | null }> {
+  let leaverExitPeriods: string[] | null = null;
   const used = await regularDirectiveLatestUse(companyId, row.id);
   const label = `SARS directive ${row.number?.trim() || row.id}`;
   if (change.status !== undefined && change.status !== 'approved' && row.status === 'approved' && used) {
@@ -129,6 +131,7 @@ export async function judgeRegularDirectiveChange(
         throw new TaxDirectiveWindowError(`${label} taxed the ${used.period} payroll run (paid ${used.judgeDate}): the expiry date cannot be before that, `
           + 'unless the employee left before that period: then it may end on or after their leave date.');
       }
+      leaverExitPeriods = later.map(u => u.period);
     }
   }
   if ((change.status ?? row.status) === 'approved') {
@@ -139,4 +142,26 @@ export async function judgeRegularDirectiveChange(
       await assertNoApprovedRunInWindow(companyId, row.employeeId, row.effectiveDate, endsOn);
     }
   }
+  return { leaverExitPeriods };
+}
+
+/**
+ * The audit row for an expiry set before a run the directive taxed (the leaver exit, #1266 adv2 L1): it lets those
+ * declared runs drop the employee on recalculation, so it is reviewable outside the employee change log. Written on the
+ * request's transaction, after the update, so it commits or rolls back with it.
+ */
+export async function auditLeaverExit(
+  companyId: string, row: RegularDirectiveRow, newExpiry: string, periods: string[], userId: string,
+): Promise<void> {
+  await logAuditOrThrow({
+    companyId, userId, action: 'update', entityType: 'tax_directive', entityId: row.id, entityRef: row.number ?? undefined,
+    changes: {
+      fields: [{ field: 'expiry_date', old: row.expiryDate, new: newExpiry, label: 'Expiry date' }],
+      metadata: {
+        leaverExit: 'true', employeeId: row.employeeId, employeeEndDate: String(row.employeeEndDate),
+        directiveNumber: row.number ?? '', runs: periods.join(','),
+        oldEndsOn: directiveEndsOn(row.effectiveDate, row.expiryDate), newExpiry,
+      },
+    },
+  });
 }

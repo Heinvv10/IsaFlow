@@ -54,10 +54,10 @@ const patchEmployee = (f: SeveranceFixture, body: Record<string, unknown>) =>
   f.call(employeeRoute as Route, 'PATCH', `/api/payroll/employees/${f.employee}`, f.employee, { body, user: f.approver });
 const recalc = (f: SeveranceFixture, run: string) => f.call(calculateRoute as Route, 'POST', `/api/payroll/runs/${run}/calculate`, run);
 
-async function marchUnderDReopened(name: string) {
+async function marchUnderDReopened(name: string, window: { effective_date?: string; expiry_date?: string } = {}) {
   const f = await drFixture(pool, name);
   made.push(f);
-  const d = String((await postDirective(f, PCT)).body.data!.id);
+  const d = String((await postDirective(f, { ...PCT, ...window })).body.data!.id);
   expect((await patchDirective(f, d, { status: 'approved' })).statusCode).toBe(200);
   const march = await createRunFor(f, 3);
   await calculateRun(f, march);
@@ -103,5 +103,44 @@ describe('the leaver exit cannot be borrowed', () => {
     await pool.query("UPDATE payroll_employees SET end_date = '2026-02-28' WHERE id = $1", [f.employee]);
     await pool.query("UPDATE tax_directives SET expiry_date = '2026-03-01' WHERE company_id = $1", [f.company]);
     await expect(assertRunKeepsItsDirectives(f.company, march, [], new Map())).resolves.toBeUndefined();
+  });
+
+  it('rev2 L3: after the exit, an end date that no longer precedes the directive\'s end is 409 (to 03-01; and, for D ending 02-20, to 02-25)', async () => {
+    const one = await marchUnderDReopened('DR r4 L3 a');
+    expect((await patchEmployee(one.f, { endDate: '2026-02-15' })).statusCode).toBe(200);
+    expect((await patchDirective(one.f, one.d, { expiry_date: '2026-03-01' })).statusCode).toBe(200);
+    expect((await patchEmployee(one.f, { endDate: '2026-03-01' })).statusCode).toBe(409);
+    // D from 02-01 to 12-31 (a window across the tax-year end, stated on it): ended 02-20 for a 02-15 leaver. 02-25 is still
+    // before March but after D's end: 409 (ends_on >= newEnd).
+    const two = await marchUnderDReopened('DR r4 L3 b', { effective_date: '2026-02-01', expiry_date: '2026-12-31' });
+    expect((await patchEmployee(two.f, { endDate: '2026-02-15' })).statusCode).toBe(200);
+    expect((await patchDirective(two.f, two.d, { expiry_date: '2026-02-20' })).statusCode).toBe(200);
+    expect((await patchEmployee(two.f, { endDate: '2026-02-25' })).statusCode).toBe(409);
+    expect((await patchEmployee(two.f, { endDate: '2026-02-18' })).statusCode).toBe(200);
+  });
+
+  it('adv2 L1: the leaver exit writes an audit row naming the directive, the employee, the runs and the expiries', async () => {
+    const { f, d } = await marchUnderDReopened('DR r4 L1 audit');
+    expect((await patchEmployee(f, { endDate: '2026-02-28' })).statusCode).toBe(200);
+    expect((await patchDirective(f, d, { expiry_date: '2026-03-01' })).statusCode).toBe(200);
+    const rows = (await pool.query(
+      "SELECT action, entity_ref, changes FROM audit_log WHERE entity_type = 'tax_directive' AND entity_id = $1 AND action = 'update'", [d])).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].entity_ref).toBe('1234567');
+    expect(rows[0].changes.metadata).toEqual(expect.objectContaining({
+      leaverExit: 'true', employeeId: f.employee, employeeEndDate: '2026-02-28', runs: '2026-03', oldEndsOn: '2027-02-28', newExpiry: '2026-03-01',
+    }));
+    expect(rows[0].changes.fields).toEqual([expect.objectContaining({ field: 'expiry_date', old: null, new: '2026-03-01' })]);
+  });
+
+  it('adv2 L2: once the exit is taken it does not unwind: the expiry cannot be lengthened again, and the end date stays (named limit)', async () => {
+    const { f, d, march } = await marchUnderDReopened('DR r4 L2 unwind');
+    expect((await patchEmployee(f, { endDate: '2026-02-28' })).statusCode).toBe(200);
+    expect((await patchDirective(f, d, { expiry_date: '2026-03-01' })).statusCode).toBe(200);
+    expect((await recalc(f, march)).statusCode).toBe(200);
+    // The run (still reopened) no longer pays the leaver. Restoring the directive's window is refused (shorten-only: SARS issues a new directive for a longer period) ...
+    expect((await patchDirective(f, d, { expiry_date: '2027-02-28' })).statusCode).toBe(400);
+    // ... and so the end date cannot move past the taxed period.
+    expect((await patchEmployee(f, { endDate: '2026-06-30' })).statusCode).toBe(409);
   });
 });

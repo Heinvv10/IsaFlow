@@ -77,6 +77,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         directiveId,
         { status: status as DirectiveStatus | undefined, issued_date: issuedDate as string | null | undefined, expiry_date: expiryDate as string | undefined },
         status === 'approved' ? user.id : undefined,
+        user.id,
       );
     } catch (err) {
       // Approving, and any change to a regular-pay directive, is refused under Login-as (403, before any write).
