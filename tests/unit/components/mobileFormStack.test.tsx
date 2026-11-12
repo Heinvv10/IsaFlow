@@ -34,7 +34,8 @@ describe.each(FORMS)('$name at phone width', ({ Page, summary, cards }) => {
     for (const grid of grids) {
       expect(classes(grid)).toContain('grid-cols-1');
       expect(classes(grid).filter(c => /^grid-cols-[2-9]$/.test(c)), 'multi-column only from sm up').toEqual([]);
-      expect(classes(grid).filter(c => /^col-span-[2-9]$/.test(c)), 'no fixed span on a phone').toEqual([]);
+      const childSpans = [...grid.children].flatMap(c => classes(c)).filter(c => /^col-span-[2-9]$/.test(c));
+      expect(childSpans, 'no fixed span on a phone').toEqual([]);
     }
   });
 });
