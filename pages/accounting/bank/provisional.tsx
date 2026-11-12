@@ -141,7 +141,7 @@ export default function ProvisionalEntriesPage() {
           ) : error ? null : filtered.length === 0 ? (
             <div className="text-center py-20 px-8 max-w-2xl mx-auto">
               <Clock className="h-10 w-10 text-[var(--ff-text-tertiary)] mx-auto mb-3 opacity-40" />
-              <p className="text-[var(--ff-text-secondary)] text-sm leading-relaxed">No provisional entries awaiting evidence — the system posts bank transactions here when a supplier match is confident but no slip is attached yet. Connect a bank feed or import a statement to see this in action.</p>
+              <p className="text-[var(--ff-text-secondary)] text-sm leading-relaxed">No provisional entries awaiting evidence. The system posts bank transactions here when a supplier match is confident but no slip is attached yet. Import a statement to see this in action.</p>
             </div>
           ) : (
             <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg overflow-x-auto">

@@ -187,6 +187,7 @@ export const postPayrollJournalTool: McpTool = {
         employment_cost: {
           gross_pay: plan.totals.gross,
           employer_uif: plan.totals.employerUif,
+          employer_medical: plan.totals.employerMedical,
           sdl: plan.totals.sdl,
           eti: plan.totals.eti,
           eti_used: plan.totals.etiUsed,
