@@ -12,6 +12,7 @@ import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { withSourceEditorStamp } from './sourceContentEditor';
 import { assertLineAccountIds } from './invoiceLineCodingGuard';
 import { shownPosition } from '@/lib/lineNumbers';
+import { quoteLineAmount, quoteTotals, taxRateProblem, withQuoteTaxRates } from './quoteLineTax';
 
 type Row = DbRow;
 
@@ -60,7 +61,7 @@ interface QuoteInput {
   expiryDate?: string;
   notes?: string;
   terms?: string;
-  lines: { description: string; quantity: number; unitPrice: number; taxRate?: number; accountId?: string; lineNo?: number }[];
+  lines: { description: string; quantity: number; unitPrice: number; taxRate?: number | null; accountId?: string; lineNo?: number }[];
 }
 
 function mapQuote(r: Row): Quote {
@@ -122,22 +123,13 @@ export class LineValidationError extends Error {
 export async function assertValidLines(companyId: string, lines: QuoteInput['lines']): Promise<void> {
   for (const [i, l] of (lines || []).entries()) {
     const n = shownPosition(l.lineNo, i + 1); // the number on the form, which may have dropped blank lines
-    if (!(Number(l.quantity) > 0)) throw new LineValidationError(`Line ${n}: quantity must be positive`);
+    if (!(Number(l.quantity) > 0) || !Number.isFinite(Number(l.quantity))) throw new LineValidationError(`Line ${n}: quantity must be positive`);
+    if (!Number.isFinite(Number(l.unitPrice))) throw new LineValidationError(`Line ${n}: unit price must be a number`);
     if (Number(l.unitPrice) < 0) throw new LineValidationError(`Line ${n}: unit price cannot be negative`);
+    const rateProblem = taxRateProblem(l.taxRate);
+    if (rateProblem) throw new LineValidationError(`Line ${n}: ${rateProblem}`);
   }
   await assertLineAccountIds(companyId, (lines || []).map((l) => l.accountId)); // conversion posts to them (mig 874)
-}
-
-function calcTotals(lines: QuoteInput['lines']) {
-  let subtotal = 0;
-  let taxAmount = 0;
-  for (const l of lines) {
-    const lt = Math.round(l.quantity * l.unitPrice * 100) / 100;
-    const lineTax = Math.round(lt * ((l.taxRate ?? 15) / 100) * 100) / 100;
-    subtotal += lt;
-    taxAmount += lineTax;
-  }
-  return { subtotal: Math.round(subtotal * 100) / 100, taxAmount: Math.round(taxAmount * 100) / 100, total: Math.round((subtotal + taxAmount) * 100) / 100 };
 }
 
 export async function getQuotes(companyId: string, filters?: QuoteFilters): Promise<{ quotes: Quote[]; total: number }> {
@@ -194,7 +186,8 @@ export async function createQuote(companyId: string, input: QuoteInput, userId?:
   // convertToInvoice copies this client_id onto the invoice verbatim.
   await assertCustomerInCompany(companyId, input.clientId);
   await assertValidLines(companyId, input.lines);
-  const { subtotal, taxAmount, total } = calcTotals(input.lines);
+  const lines = await withQuoteTaxRates(companyId, input.lines);
+  const { subtotal, taxAmount, total } = quoteTotals(lines);
   const qd = input.quoteDate || fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
 
   // Header AND lines inside the savepointed attempt: a 23505 on the number must
@@ -211,13 +204,12 @@ export async function createQuote(companyId: string, input: QuoteInput, userId?:
         RETURNING id
       `) as Row[];
       const quoteId = String(rows[0]!.id);
-      for (let i = 0; i < input.lines.length; i++) {
-        const l = input.lines[i];
+      for (let i = 0; i < lines.length; i++) {
+        const l = lines[i];
         if (!l) continue;
-        const amount = Math.round(l.quantity * l.unitPrice * 100) / 100;
         await sql`
           INSERT INTO customer_quote_lines (quote_id, sort_order, description, quantity, unit_price, tax_rate, amount, gl_account_id)
-          VALUES (${quoteId}::UUID, ${i + 1}, ${l.description}, ${l.quantity}, ${l.unitPrice}, ${l.taxRate ?? 15}, ${amount}, ${l.accountId || null})
+          VALUES (${quoteId}::UUID, ${i + 1}, ${l.description}, ${l.quantity}, ${l.unitPrice}, ${l.taxRate}, ${quoteLineAmount(l)}, ${l.accountId || null})
         `;
       }
       return { id: quoteId, quoteNumber: number };
@@ -233,7 +225,8 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
   if (!existing || existing.status !== 'draft') return null;
   await assertCustomerInCompany(companyId, input.clientId);
   await assertValidLines(companyId, input.lines);
-  const { subtotal, taxAmount, total } = calcTotals(input.lines);
+  const lines = await withQuoteTaxRates(companyId, input.lines);
+  const { subtotal, taxAmount, total } = quoteTotals(lines);
 
   await withSourceEditorStamp(companyId, { kind: 'quote', id }, editedBy, async () => {
   await sql`
@@ -245,13 +238,12 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
   `;
   // Parent-verified: getQuote(companyId, id) at the top of this function early-returns null for cross-tenant ids, so this quote_id is tenant-owned.
   await sql`DELETE FROM customer_quote_lines WHERE quote_id = ${id}::UUID`;
-  for (let i = 0; i < input.lines.length; i++) {
-    const l = input.lines[i];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
     if (!l) continue;
-    const amount = Math.round(l.quantity * l.unitPrice * 100) / 100;
     await sql`
       INSERT INTO customer_quote_lines (quote_id, sort_order, description, quantity, unit_price, tax_rate, amount, gl_account_id)
-      VALUES (${id}::UUID, ${i + 1}, ${l.description}, ${l.quantity}, ${l.unitPrice}, ${l.taxRate ?? 15}, ${amount}, ${l.accountId || null})
+      VALUES (${id}::UUID, ${i + 1}, ${l.description}, ${l.quantity}, ${l.unitPrice}, ${l.taxRate}, ${quoteLineAmount(l)}, ${l.accountId || null})
     `;
   }
   });
