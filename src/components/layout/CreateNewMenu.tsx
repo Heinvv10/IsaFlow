@@ -43,14 +43,14 @@ interface MenuItem {
   shortcutLetter: string;
 }
 
-const MENU_ITEMS: MenuItem[] = [
-  { label: 'New Invoice',       icon: FileText,        route: '/accounting/customer-invoices?action=new', shortcutLetter: 'I' },
-  { label: 'New Bill',          icon: Receipt,         route: '/accounting/supplier-invoices?action=new', shortcutLetter: 'B' },
+export const MENU_ITEMS: MenuItem[] = [
+  { label: 'New Invoice',       icon: FileText,        route: '/accounting/customer-invoices/new',      shortcutLetter: 'I' },
+  { label: 'New Bill',          icon: Receipt,         route: '/accounting/supplier-invoices/new',      shortcutLetter: 'B' },
   { label: 'New Quote',         icon: FileCheck,       route: '/accounting/customer-quotes?action=new',   shortcutLetter: 'Q' },
   { label: 'Record Payment',    icon: CreditCard,      route: '/accounting/customer-payments/new',        shortcutLetter: 'P' },
   { label: 'New Journal Entry', icon: BookOpen,        route: '/accounting/journal-entries/new',          shortcutLetter: 'J' },
   { label: 'New Contact',       icon: UserPlus,        route: '/accounting/customers/new',                shortcutLetter: 'C' },
-  { label: 'Bank Transfer',     icon: ArrowLeftRight,  route: '/accounting/bank-transfers?action=new',    shortcutLetter: 'T' },
+  { label: 'Bank Transfer',     icon: ArrowLeftRight,  route: '/accounting/bank-transfers',               shortcutLetter: 'T' },
 ];
 
 // Map shortcut letter → index for quick lookup

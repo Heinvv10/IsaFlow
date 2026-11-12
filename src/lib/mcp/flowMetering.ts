@@ -240,6 +240,8 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   end_employee_component: null,
   calculate_pay_run: null,
   approve_pay_run: null,
+  // Books an ETI journal the EMP201 already declares (a correction to the ledger, not a new transaction).
+  book_eti_for_month: null,
 
   // ── Corrections ──────────────────────────────────────────────────────────
   reverse_bank_allocation: null,

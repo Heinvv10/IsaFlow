@@ -26,14 +26,30 @@ export interface ReturnVersion {
   amendedAt: string | null;
 }
 
+/**
+ * Refusal codes meaning the return moved on elsewhere (another tab or session): the UI reloads the lifecycle on them.
+ * One list for the server's throws and the client's check (ReturnActionDialog); this file imports nothing server-side.
+ */
+export const STALE_RETURN_REFUSAL = {
+  LIVE_VERSION_EXISTS: 'LIVE_VERSION_EXISTS',
+  ALREADY_FILED: 'ALREADY_FILED',
+  VERSION_SUPERSEDED: 'VERSION_SUPERSEDED',
+  ALREADY_AMENDED: 'ALREADY_AMENDED',
+} as const;
+export const STALE_RETURN_REFUSAL_CODES: readonly string[] = Object.values(STALE_RETURN_REFUSAL);
+
 /** A finalise, filing or amend the caller can fix or must wait out. Raised before the first write. */
 export class ReturnRefusal extends Error {
   readonly status: 400 | 403 | 404 | 409;
   /** A stable name the caller can act on (LEGACY_SUBMISSION_EXISTS), when the message alone is not enough. */
   readonly refusalCode: string | null;
-  constructor(status: 400 | 403 | 404 | 409, message: string, refusalCode: string | null = null) {
+  /** Data the caller needs to take the next step (LEGACY_SUBMISSION_EXISTS: legacySubmissionIds), sent in error.details. */
+  readonly refusalDetails: Record<string, unknown> | null;
+  constructor(status: 400 | 403 | 404 | 409, message: string, refusalCode: string | null = null,
+    refusalDetails: Record<string, unknown> | null = null) {
     super(message);
     this.refusalCode = refusalCode;
+    this.refusalDetails = refusalDetails;
     this.name = 'ReturnRefusal';
     this.status = status;
   }

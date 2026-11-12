@@ -1,5 +1,7 @@
 /**
- * Fiscal Periods Tab — period management with open/close/lock/reopen actions
+ * Fiscal Periods Tab — period management with open/close/lock/reopen actions.
+ * Single Close and Lock ask first (PeriodActionConfirm); Close is not offered on
+ * a period that has not started (audit P3.2).
  */
 
 import { useState, useEffect } from 'react';
@@ -13,19 +15,19 @@ import { BulkConfirmModal, type BulkAction } from '@/components/accounting/fisca
 import { statusIcon, statusBadge } from '@/components/accounting/fiscal-periods/statusVisuals';
 import { localISODate } from '@/lib/dateUtils';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { usePeriodActions } from '@/components/accounting/fiscal-periods/usePeriodActions';
+import { PeriodActionConfirm, type PendingPeriodAction } from '@/components/accounting/fiscal-periods/PeriodActionConfirm';
 
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
 export function FiscalPeriodsTab() {
   const [periods, setPeriods] = useState<FiscalPeriod[]>([]);
   const [isLoading, setIsLoading] = useState(true); const [loadError, setLoadError] = useState('');
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
-  const [bulkBusy, setBulkBusy] = useState<BulkAction | null>(null);
   const [bulkConfirm, setBulkConfirm] = useState<BulkAction | null>(null);
-  const [bulkResult, setBulkResult] = useState<{ ok: number; total: number; failures: Array<{ id: string; error: string }> } | null>(null);
+  const [pending, setPending] = useState<PendingPeriodAction | null>(null);
 
   useEffect(() => { void loadPeriods(); }, []);
 
@@ -39,39 +41,9 @@ export function FiscalPeriodsTab() {
     } finally { setIsLoading(false); }
   };
 
-  const handleBulkAction = async (action: BulkAction) => {
-    const ids = [...checked];
-    if (ids.length === 0) return;
-    setBulkBusy(action); setBulkResult(null);
-    try {
-      const res = await apiFetch('/api/accounting/fiscal-periods-action', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        credentials: 'include', body: JSON.stringify({ action, ids }),
-      });
-      await assertOk(res, 'Could not run the bulk action - try again');
-      const json = await res.json() as { data?: { results: Array<{ id: string; ok: boolean; error?: string }>; okCount: number; total: number } };
-      const data = json.data!;
-      setBulkResult({
-        ok: data.okCount,
-        total: data.total,
-        failures: data.results.filter(r => !r.ok).map(r => ({ id: r.id, error: r.error || 'This period could not be updated' })),
-      });
-      setChecked(new Set());
-      await loadPeriods();
-    } catch (err) {
-      log.error('Bulk fiscal period action failed', { error: err, action }, 'accounting-ui');
-      // Network/server error: the server may have processed some periods
-      // before the connection broke. Reload to surface whatever did land,
-      // and tell the user the count is best-effort.
-      const msg = apiErrorMessage(err, 'Could not run the bulk action - try again');
-      setBulkResult({
-        ok: 0,
-        total: ids.length,
-        failures: ids.map(id => ({ id, error: `${msg} — partial success possible, list reloaded` })),
-      });
-      await loadPeriods();
-    } finally { setBulkBusy(null); }
-  };
+  const { actionLoading, bulkBusy, bulkResult, setBulkResult, runBulk, runSingle } = usePeriodActions({
+    reload: loadPeriods, showSentence: setLoadError, clearSelection: () => setChecked(new Set()),
+  });
 
   const toggleAll = (visiblePeriods: FiscalPeriod[]) => {
     const allIds = visiblePeriods.map(p => p.id);
@@ -85,21 +57,6 @@ export function FiscalPeriodsTab() {
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
-  };
-
-  const handlePeriodAction = async (periodId: string, action: 'close' | 'lock' | 'reopen') => {
-    setActionLoading(periodId);
-    try {
-      const res = await apiFetch('/api/accounting/fiscal-periods-action', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        credentials: 'include', body: JSON.stringify({ id: periodId, action }),
-      });
-      await assertOk(res, 'Could not update the fiscal period - try again');
-      await loadPeriods();
-    } catch (err) {
-      log.error('Fiscal period action failed', { error: err, periodId, action }, 'accounting-ui');
-      setLoadError(apiErrorMessage(err, 'Could not update the fiscal period - try again'));
-    } finally { setActionLoading(null); }
   };
 
   const selectedPeriod = selectedPeriodId
@@ -246,15 +203,17 @@ export function FiscalPeriodsTab() {
                   <td className="px-5 py-3.5 text-right">
                     <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
                       {period.status === 'open' && (
-                        <button onClick={() => handlePeriodAction(period.id, 'close')} disabled={actionLoading === period.id}
+                        <button onClick={() => setPending({ id: period.id, periodName: period.periodName, action: 'close' })}
+                          disabled={actionLoading === period.id || isFuture}
+                          title={isFuture ? 'This period has not started yet' : undefined}
                           className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-40">
                           {actionLoading === period.id ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Close'}
                         </button>
                       )}
                       {period.status === 'closed' && (<>
-                        <button onClick={() => handlePeriodAction(period.id, 'lock')} disabled={actionLoading === period.id}
+                        <button onClick={() => setPending({ id: period.id, periodName: period.periodName, action: 'lock' })} disabled={actionLoading === period.id}
                           className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors disabled:opacity-40">Lock</button>
-                        <button onClick={() => handlePeriodAction(period.id, 'reopen')} disabled={actionLoading === period.id}
+                        <button onClick={() => void runSingle(period.id, 'reopen')} disabled={actionLoading === period.id}
                           className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors disabled:opacity-40">Reopen</button>
                       </>)}
                       {period.status === 'locked' && <span className="text-xs text-slate-500 dark:text-slate-400">Locked</span>}
@@ -292,10 +251,17 @@ export function FiscalPeriodsTab() {
           onConfirm={async () => {
             const action = bulkConfirm;
             setBulkConfirm(null);
-            await handleBulkAction(action);
+            await runBulk(action, [...checked]);
           }}
         />
       )}
+
+      <PeriodActionConfirm
+        pending={pending}
+        busy={pending !== null && actionLoading === pending.id}
+        onCancel={() => setPending(null)}
+        onConfirm={async (p) => { await runSingle(p.id, p.action); setPending(null); }}
+      />
     </div>
   );
 }

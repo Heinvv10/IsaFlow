@@ -104,7 +104,7 @@ export default function ValidatePage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Validation & Go-Live</h1>
-            <p className="text-sm text-[var(--ff-text-secondary)]">Verify your migration data before activating ISAFlow</p>
+            <p className="text-sm text-[var(--ff-text-secondary)]">Verify your migration data before activating IsaFlow</p>
           </div>
         </div>
 
@@ -118,7 +118,7 @@ export default function ValidatePage() {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-8 text-center">
             <PartyPopper className="h-12 w-12 text-teal-400 mx-auto mb-4" />
             <h2 className="text-xl font-bold text-[var(--ff-text-primary)] mb-2">Migration Complete!</h2>
-            <p className="text-[var(--ff-text-secondary)] mb-6">Your data has been successfully migrated to ISAFlow.</p>
+            <p className="text-[var(--ff-text-secondary)] mb-6">Your data has been successfully migrated to IsaFlow.</p>
             <div className="flex justify-center gap-3">
               <Link href="/accounting" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
                 Go to Dashboard

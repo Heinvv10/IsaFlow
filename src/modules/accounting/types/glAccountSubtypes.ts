@@ -25,7 +25,7 @@ import type { GLAccountSubtype, GLAccountType } from './gl.types';
 export const GL_ACCOUNT_SUBTYPES_BY_TYPE = {
   asset: [
     'bank', 'cash', 'receivable', 'inventory', 'fixed_asset', 'accumulated_depreciation',
-    'vat_input', 'vat_input_late_claim', 'other_current_asset', 'other',
+    'vat_input', 'vat_input_late_claim', 'eti_refund_receivable', 'other_current_asset', 'other',
   ],
   // payroll_liability (2140-2175), current_liability (2215) and
   // long_term_liability (BL1024) are carried by system accounts and are
@@ -59,7 +59,7 @@ export const SYSTEM_RESERVED_SUBTYPES: readonly GLAccountSubtype[] = [
   'opening_balance_equity',
   'default_revenue', 'other_income', 'default_expense', 'admin_expense',
   'accumulated_depreciation', 'depreciation_expense', 'disposal_profit_loss',
-  'vat_input_late_claim',
+  'vat_input_late_claim', 'eti_refund_receivable',
 ];
 
 /** Every subtype any account_type may carry, flattened. */

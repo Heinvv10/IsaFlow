@@ -146,3 +146,29 @@ describe('convertToInvoice — writes real customer_invoice_items columns', () =
     expect(values[columnList.indexOf('cc1_id')]).toBeNull();
   });
 });
+
+describe('convertToInvoice: the invoice header rate (audit 11 Nov 2026 item 5)', () => {
+  const line = (taxRate: number, n: number) => ({ ...acceptedQuote().lines[0]!, id: `4444444${n}-4444-4444-4444-444444444444`, taxRate });
+  async function convert(lines: ReturnType<typeof line>[]) {
+    mockGetQuote.mockResolvedValueOnce({ ...acceptedQuote(), lines } as never);
+    mockSql.mockResolvedValueOnce([{ id: QUOTE_ID }]); // claim
+    mockSql.mockResolvedValueOnce([{ id: 'inv-1' }]); // INSERT customer_invoices
+    mockGetQuote.mockResolvedValueOnce({ ...acceptedQuote(), status: 'converted' } as never);
+    await inRequestTx(() => convertToInvoice(COMPANY_ID, QUOTE_ID));
+    const head = mockSql.mock.calls.find((c) => sqlTextOf(c).includes('INSERT INTO customer_invoices'))!;
+    const cols = sqlTextOf(head).match(/INSERT INTO customer_invoices\s*\(([^)]+)\)/)![1]!.split(',').map((c) => c.trim());
+    expect(cols[cols.indexOf('total_amount') + 1]).toBe('tax_rate');
+    const binds = head.slice(1);
+    const items = mockSql.mock.calls.filter((c) => sqlTextOf(c).includes('INSERT INTO customer_invoice_items'));
+    // tax_rate is bound straight after total_amount (the quote's total, 230); items bind tax_rate fifth.
+    return { headerRate: binds[binds.indexOf(230) + 1], itemRates: items.map((c) => c.slice(1)[4]) };
+  }
+
+  it('a uniform 0% quote writes header tax_rate 0 and items at 0', async () => {
+    expect(await convert([line(0, 1), line(0, 2)])).toEqual({ headerRate: 0, itemRates: [0, 0] });
+  });
+
+  it('a mixed quote writes the standard header rate and keeps each item rate', async () => {
+    expect(await convert([line(15, 1), line(0, 2)])).toEqual({ headerRate: 15, itemRates: [15, 0] });
+  });
+});

@@ -23,6 +23,7 @@ import { assertLineAccountIds } from './invoiceLineCodingGuard';
 import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
 import { dueDateForContact } from '../core/paymentTermsResolver';
 import { todayInSast } from '@/lib/saDateParser';
+import { STANDARD_VAT_RATE } from './quoteLineTax';
 
 type Row = DbRow;
 
@@ -206,17 +207,21 @@ export async function convertToInvoice(
   const invoiceDate = todayInSast();
   // The customer's terms, else the company default (migration 960): not the quote's expiry, which is how long the offer stands.
   const dueDate = (await dueDateForContact(companyId, 'customer', quote.clientId || null, invoiceDate)) ?? invoiceDate;
+  // The invoice's one rate, when every line shares it: the draft edit re-taxes at the header rate, so a 0% quote must not
+  // come back at the column default of 15%. A mixed-rate quote gets 15% as before (its lines keep their own rates).
+  const rates = new Set((quote.lines || []).map((l) => Number(l.taxRate)));
+  const headerRate = rates.size === 1 ? [...rates][0]! : null;
   const invoiceId = await insertWithReservedNumber(
     companyId, 'customer_invoice', 'quote_conv_inv_', 'uq_customer_invoices_company_number', async (invoiceNumber) => {
       const invRows = (await sql`
         INSERT INTO customer_invoices (
           company_id, invoice_number, client_id, customer_id,
-          invoice_date, due_date, due_date_source, subtotal, tax_amount, total_amount,
+          invoice_date, due_date, due_date_source, subtotal, tax_amount, total_amount, tax_rate,
           notes, status, created_by
         ) VALUES (
           ${companyId}::UUID, ${invoiceNumber}, ${quote.clientId || null}, ${quote.clientId || null},
           ${invoiceDate}, ${dueDate}, 'terms',
-          ${quote.subtotal}, ${quote.taxAmount}, ${quote.total},
+          ${quote.subtotal}, ${quote.taxAmount}, ${quote.total}, ${headerRate ?? STANDARD_VAT_RATE},
           ${'Converted from ' + quote.quoteNumber}, 'draft', ${userId || null}
         ) RETURNING id
       `) as Row[];

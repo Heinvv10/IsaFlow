@@ -123,7 +123,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const today = new Date().toISOString().slice(0, 10);
 
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'ISAFlow';
+  wb.creator = 'IsaFlow';
   wb.created = new Date();
 
   const ws = wb.addWorksheet('Balance Sheet');

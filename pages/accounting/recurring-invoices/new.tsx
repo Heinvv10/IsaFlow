@@ -1,5 +1,5 @@
 /**
- * New Recurring Invoice — redesigned with ISAFlow design system
+ * New Recurring Invoice — redesigned with IsaFlow design system
  */
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';

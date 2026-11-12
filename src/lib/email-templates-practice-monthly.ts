@@ -1,5 +1,5 @@
 /**
- * ISAFlow Email Templates — Monthly Practice Management Report
+ * IsaFlow Email Templates — Monthly Practice Management Report
  * Inline-styled, table-based HTML for email clients.
  */
 

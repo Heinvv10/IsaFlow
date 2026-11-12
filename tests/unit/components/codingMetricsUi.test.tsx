@@ -24,7 +24,7 @@ const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data 
 afterEach(() => { cleanup(); apiFetch.mockReset(); });
 
 describe('CodingMetricsStrip', () => {
-  it('says how many lines ISAFlow coded with no clicks, and how often suggestions were accepted', async () => {
+  it('says how many lines IsaFlow coded with no clicks, and how often suggestions were accepted', async () => {
     apiFetch.mockResolvedValue(ok({
       minDecisions: 20,
       metrics: computeCodingMetrics(counts({
@@ -33,7 +33,7 @@ describe('CodingMetricsStrip', () => {
       })),
     }));
     render(<CodingMetricsStrip />);
-    expect(await screen.findByText('Auto-coded by ISAFlow: 78% of lines this month (no line-by-line coding)')).toBeTruthy();
+    expect(await screen.findByText('Auto-coded by IsaFlow: 78% of lines this month (no line-by-line coding)')).toBeTruthy();
     expect(screen.getByText('Suggestions accepted: 64% this month (log started 21 Oct 2026)')).toBeTruthy();
     expect(apiFetch).toHaveBeenCalledWith('/api/accounting/coding-metrics', expect.anything());
   });
@@ -42,7 +42,7 @@ describe('CodingMetricsStrip', () => {
     apiFetch.mockResolvedValue(ok({ minDecisions: 20, metrics: computeCodingMetrics(counts({ suggestionsDecided: 3, suggestionsAccepted: 3 })) }));
     render(<CodingMetricsStrip />);
     expect(await screen.findByText(/Suggestions accepted: not enough data yet \(3 of 20 decisions this month\)/)).toBeTruthy();
-    expect(screen.getByText('Auto-coded by ISAFlow: no lines coded this month yet')).toBeTruthy();
+    expect(screen.getByText('Auto-coded by IsaFlow: no lines coded this month yet')).toBeTruthy();
   });
 
   it('a failed load says so', async () => {
@@ -71,7 +71,7 @@ describe('BureauCodingMetricsPanel', () => {
       'Client', 'Auto-coded this month', 'Suggestions accepted this month', 'Accepted in client\'s first 30 days',
       'Auto-posts this month later re-coded',
     ]);
-    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('ISAFlow coding');
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('IsaFlow coding');
   });
 
   it('viewer (total null): per-client rows only', async () => {
@@ -120,7 +120,7 @@ describe('BureauSharingConsent', () => {
       { id: 'a2', changedAt: at, actorName: null, oldValue: false, newValue: true },
     ]} />);
     expect(screen.getByText(/switched on to off by Thandi Mokoena/)).toBeTruthy();
-    expect(screen.getByText(/switched off to on by a user no longer on ISAFlow/)).toBeTruthy();
+    expect(screen.getByText(/switched off to on by a user no longer on IsaFlow/)).toBeTruthy();
   });
 
   it('anyone else sees a disabled switch and why', () => {

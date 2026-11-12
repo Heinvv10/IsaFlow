@@ -1,5 +1,5 @@
 /**
- * Recurring Invoices — redesigned with ISAFlow design system
+ * Recurring Invoices — redesigned with IsaFlow design system
  */
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';

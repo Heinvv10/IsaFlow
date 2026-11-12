@@ -21,17 +21,17 @@
  * falling back to the bank).
  *
  * Balance formula:
- *   DR 5200 Labour = gross + employer UIF + SDL + employer medical (non-cash 3810) − ETI used, split by cost centre
+ *   DR 5200 Labour = gross + employer UIF + SDL + employer medical (non-cash 3810) and fund (3817/3825/3828) − ETI used, split by cost centre
  *     (the mapping picks the account; the centre is the line's CC1 — payrollJournalParts#buildLabourLines)
  *   CR 2140 PAYE = PAYE − ETI used   CR 2150 UIF (both halves)   CR 2160 SDL
  *   CR 2175 deductions + employer medical (scheme payable), or DR 2175 for a net reversal   CR net pay: the bank-role account, or the clearing account set
  *
  * ETI (K-079, Hein 2026-09-26). ETI is an offset against the PAYE remitted, so
  * it reduces the 2140 credit, and it is presented net of labour cost. Only the
- * ETI this run's PAYE can absorb is booked — `etiUsed = max(0, min(eti, paye))` — which
- * makes CR 2140 equal EMP201's PAYE payable (`emp201Service` floors it at zero;
- * one run per company per period). ETI beyond PAYE is not booked; the plan
- * says so in an advisory.
+ * ETI the month's PAYE can absorb is booked: the month's ETI used from the ETI ledger (`etiCarry`, the EMP201's own: this
+ * run's ETI plus any brought forward, ETI Act s9(1), against the month's whole PAYE, directives included), less what
+ * the month's ETI journals booked (payrollJournalEti.etiForRun). So the month's net 2140 equals EMP201's PAYE payable;
+ * when the ETI used exceeds this run's PAYE the 2140 line is a debit. The rest is carried; an advisory says so.
  *
  * A zero line is dropped: the GL rejects a line with neither debit nor credit,
  * and an SDL-exempt run, or one whose PAYE the ETI absorbs, has one.
@@ -52,6 +52,7 @@ import { runEmployerFundedCosts } from './payrollJournalEmployerRetirement';
 import { splitRunTotals } from './payrollRunTotalsSplit';
 import type { LabourSourceBucket } from './payrollLabourComparison';
 import { payrollLoanInstalmentBlocker } from './payrollLineBlockers';
+import { etiAdvisories, etiForRun, etiRefundLines } from './payrollJournalEti';
 
 type Row = DbRow;
 
@@ -102,6 +103,8 @@ export interface PayrollJournalPlan {
   totalCredit: number;
   /** The run header totals the plan was derived from, so a reader can check it. */
   totals: {
+    /** The employer's non-cash 3810 medical contribution on the run: booked to labour and 2175, outside gross and net. */
+    employerMedical: number;
     gross: number;
     paye: number;
     uif: number;
@@ -152,11 +155,11 @@ export async function buildPayrollJournalPlan(
 
   // The two UIF halves sum to uif exactly, so an odd cent cannot unbalance the journal.
   const { employerUif, otherDeductions } = splitRunTotals({ gross, paye, uif, net });
-  const etiUsed = round2(Math.max(0, Math.min(eti, paye)));
-  // The employer's medical (non-cash 3810) and retirement fund (non-cash 3817/3825/3828, RF) contributions: outside gross, but paid to the scheme / fund.
+  const runEti = await etiForRun(companyId, { year: periodYear, month: periodMonth }, { paye, eti });
+  const etiUsed = round2(runEti.etiUsed);
+  // The employer's medical (non-cash 3810) and fund (non-cash 3817/3825/3828, RF) contributions: outside gross, but paid over.
   const { byEmployee: employerFunded, medical, retirement } = await runEmployerFundedCosts(companyId, runId);
   const labourDebit = round2(gross + employerUif + sdl + medical + retirement - etiUsed);
-  const payable2175 = round2(otherDeductions + medical);
 
   const accounts = await resolveAccounts(companyId);
   const netPayTarget = await resolveNetPayTarget(companyId);
@@ -174,10 +177,10 @@ export async function buildPayrollJournalPlan(
   }
   // Only when a net-pay line survives (zero lines are dropped below): a run paying no one credits no bank.
   if (netPayTarget.blocker && round2(net) !== 0) blockers.push(netPayTarget.blocker);
-  if ((Math.abs(payable2175) > 0.005 || retirement > 0.005) && !accounts.has('2175')) {
+  if ((Math.abs(otherDeductions) > 0.005 || Math.abs(medical) > 0.005 || Math.abs(retirement) > 0.005) && !accounts.has('2175')) {
     blockers.push({
       code: 'missing_other_deductions_account',
-      detail: `The run carries R${round2(payable2175 + retirement).toFixed(2)} of voluntary deductions, employer medical or retirement fund contributions or reversals but the company has no GL account 2175 (Other Employee Deductions Payable).`,
+      detail: `The run carries R${round2(otherDeductions + medical + retirement).toFixed(2)} of voluntary deductions, employer medical or retirement fund contributions or reversals but the company has no GL account 2175 (Other Employee Deductions Payable).`,
     });
   }
   if (status !== 'approved') {
@@ -243,29 +246,30 @@ export async function buildPayrollJournalPlan(
     built.push(line('5200', labourDebit, 0, 'Labour costs — gross pay + statutory employer contributions − ETI'));
   }
 
-  built.push(line('2140', 0, paye - etiUsed, 'PAYE payable, net of ETI'));
+  const payeNet = round2(paye - etiUsed); // a debit only when ETI absorbed directive PAYE; a negative PAYE header stays a negative credit
+  built.push(payeNet >= 0 || paye < 0 ? line('2140', 0, payeNet, 'PAYE payable, net of ETI') : line('2140', -payeNet, 0, 'ETI used against this month\'s directive PAYE'));
   built.push(line('2150', 0, uif, 'UIF payable (employee + employer)'));
   built.push(line('2160', 0, sdl, 'SDL payable'));
   built.push(netPayLine(netPayTarget, round2(net)));
-  if (payable2175 > 0.005) {
-    built.push(line('2175', 0, payable2175, medical > 0
-      ? 'Other employee deductions (medical aid, pension, RA, etc.) and employer medical scheme contributions'
-      : 'Other employee deductions (medical aid, pension, RA, etc.)'));
-  } else if (payable2175 < -0.005) {
-    built.push(line('2175', Math.abs(payable2175), 0, 'Other employee deductions reversal — amount paid back through payroll'));
+  // The employee's own deductions and the employer's medical contribution are separate lines: a reversal of the one must never
+  // hide the other under a "reversal" label.
+  if (otherDeductions > 0.005) {
+    built.push(line('2175', 0, otherDeductions, 'Other employee deductions (medical aid, pension, RA, etc.)'));
+  } else if (otherDeductions < -0.005) {
+    built.push(line('2175', Math.abs(otherDeductions), 0, 'Other employee deductions reversal — amount paid back through payroll'));
   }
-  if (retirement > 0.005) built.push(line('2175', 0, retirement, 'Employer retirement fund contributions (non-cash 3817/3825/3828), payable to the fund'));
+  if (medical > 0.005) built.push(line('2175', 0, medical, "Employer medical scheme contributions (non-cash 3810), payable to the scheme"));
+  else if (medical < -0.005) built.push(line('2175', -medical, 0, 'Employer medical scheme contributions reversal — claw-back of a non-cash 3810'));
+  if (Math.abs(retirement) > 0.005) built.push(retirement > 0 ? line('2175', 0, retirement, 'Employer retirement fund contributions (non-cash 3817/3825/3828), payable to the fund') : line('2175', -retirement, 0, 'Employer retirement fund contributions reversal (non-cash 3817/3825/3828)'));
+  const refund = etiRefundLines(runEti, accounts.get('5200')); // R-C: the Aug/Feb refund (payrollJournalEti)
+  built.push(...refund.lines);
+  if (refund.blocker) blockers.push(refund.blocker);
 
   const lines = built.filter((l) => l.debit !== 0 || l.credit !== 0);
   const shared = sharedNetPayAccountBlocker(netPayTarget, lines);
   if (shared) blockers.push(shared);
 
-  if (eti - etiUsed > 0.005) {
-    advisories.push({
-      code: 'eti_beyond_paye',
-      detail: `The run claims R${eti.toFixed(2)} of ETI but its PAYE is R${paye.toFixed(2)}, so only R${etiUsed.toFixed(2)} is booked. The remaining R${(eti - etiUsed).toFixed(2)} is not booked: EMP201 floors PAYE payable at zero and carries no ETI forward.`,
-    });
-  }
+  advisories.push(...etiAdvisories(runEti.month, etiUsed));
 
   const entryDate = lastDayOfMonthIso(periodYear, periodMonth);
   const judged = await judgeJournalLines(companyId, lines, entryDate);
@@ -288,7 +292,7 @@ export async function buildPayrollJournalPlan(
     lines,
     totalDebit,
     totalCredit,
-    totals: { gross, paye, uif, sdl, eti, etiUsed, net, employerUif, otherDeductions },
+    totals: { gross, paye, uif, sdl, eti, etiUsed, net, employerUif, otherDeductions, employerMedical: medical },
     blockers,
     advisories,
     labourBySourceCentre,

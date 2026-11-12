@@ -224,7 +224,7 @@ export function employeeChangesOf<T extends Body>(
   }
   const stored = termsFromRow({
     tax_status: current.taxStatus, pay_basis: current.payBasis, hours_per_week: current.hoursPerWeek, hours_per_day: current.hoursPerDay,
-    hourly_rate: current.hourlyRate, daily_rate: current.dailyRate, occupation: current.occupation,
+    hourly_rate: current.hourlyRate, daily_rate: current.dailyRate, occupation: current.occupation, eti_id_document: current.etiIdDocument,
   });
   const terms = termsOfPatch(body, refused, stored);
   if (!mayChangePricedTerms && movesPricedTerm(terms, stored)) throw new EmployeeTermsForbidden();

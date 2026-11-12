@@ -1,16 +1,18 @@
 /**
  * plan — prints the integration gate's work list, one suite per line:
  *   <shard>\t<database>\t<file>
- * Every tests/integration/**\/*.int.test.ts, routed by ./suiteRoute.ts and
+ * Every tests/integration/**\/*.test.ts (suiteRoute.ts planFiles: the same
+ * files vitest.integration.config.ts includes), routed by ./suiteRoute.ts and
  * dealt to <shards> shards longest-first (assignShards), so one shard does not
  * collect the slow suites and finish minutes after the rest.
- * Exits 1, naming the files, when a suite's guards cannot pass on either database.
+ * Exits 1, naming the files, when a suite's guards cannot pass on either database,
+ * or when a test-shaped file there (`.test.tsx`, `.spec.ts`, ...) would never run.
  *
  * Run: bun scripts/ci/integration/plan.ts <shards>
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { assignShards, routeSuite } from './suiteRoute';
+import { assignShards, planFiles, routeSuite } from './suiteRoute';
 
 /**
  * Seconds each suite of 3 s or more took (suite-seconds.json, the median over
@@ -41,10 +43,14 @@ if (!Number.isInteger(shards) || shards < 1) {
 const read = (path: string): string | undefined =>
   existsSync(path) && statSync(path).isFile() ? readFileSync(path, 'utf8') : undefined;
 
-const suites = readdirSync('tests/integration', { recursive: true, encoding: 'utf8' })
-  .filter((f) => f.endsWith('.int.test.ts'))
-  .map((f) => join('tests/integration', f))
-  .sort();
+const { suites, strays } = planFiles(readdirSync('tests/integration', { recursive: true, encoding: 'utf8' })
+  .map((f) => join('tests/integration', f)));
+if (strays.length > 0) {
+  process.stderr.write('[integration] these test files are not *.test.ts, so the gate (and vitest.integration.config.ts) '
+    + 'would never run them; rename them to *.test.ts:\n');
+  for (const f of strays) process.stderr.write(`  ${f}\n`);
+  process.exit(1);
+}
 
 const routes = suites.map((file) => routeSuite(file, read));
 const conflicts = routes.filter((r) => r.db === 'conflict');

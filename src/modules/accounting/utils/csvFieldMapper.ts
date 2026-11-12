@@ -2,7 +2,7 @@
  * CSV Field Mapper
  * PRD: Customer Migration Wizard — Phase 1
  *
- * Auto-maps CSV column headers to ISAFlow field names based on known
+ * Auto-maps CSV column headers to IsaFlow field names based on known
  * aliases per source system. Used in the wizard's field mapping step.
  */
 
@@ -16,7 +16,7 @@ export type MigrationStep =
 
 // ── Alias tables per source system ───────────────────────────────────────────
 
-// Each entry: [normalized header alias] → ISAFlow field name
+// Each entry: [normalized header alias] → IsaFlow field name
 // Keys are lowercase and stripped of spaces/underscores for loose matching.
 
 const GENERIC_COA_ALIASES: Record<string, string> = {
@@ -211,7 +211,7 @@ const ALIAS_MAP: AliasMap = {
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Auto-map CSV column headers to ISAFlow field names.
+ * Auto-map CSV column headers to IsaFlow field names.
  *
  * @param headers     Array of raw header strings from the CSV
  * @param sourceSystem Source system key (e.g. 'sage_cloud', 'xero')

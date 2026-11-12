@@ -1,5 +1,5 @@
 /**
- * ISAFlow Email Templates — Practice Daily Digest
+ * IsaFlow Email Templates — Practice Daily Digest
  * Inline-styled, table-based HTML for email clients.
  */
 

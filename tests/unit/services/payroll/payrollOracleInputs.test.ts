@@ -6,14 +6,15 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildCaseInput, loadCases, oracleTaxStatus } from '../../../fixtures/payroll-oracle/oracle';
+import { runHoursOf } from '@/modules/accounting/services/payroll/payrollRunHours';
+import { ordinaryWageCents } from '@/modules/accounting/services/payroll/etiHours';
 
 const cases = loadCases();
 
 /** The `unmodelled` keys buildCaseInput passes to the calculator (as a work term, or as the RF employer contribution: rfiInput.ts). */
-const PASSED = ['ordinaryHoursPerWeek', 'hoursPerDay', 'dayRate', 'erRetirementPctOfRfi', 'rfiBase'];
+const PASSED = ['ordinaryHoursPerWeek', 'hoursPerDay', 'dayRate', 'monthlyHours', 'ordinaryHoursWage', 'erRetirementPctOfRfi', 'rfiBase'];
 /** The keys the calculator cannot take yet, each with the PR that wires it (or why it is only context). */
 const NOT_YET: Record<string, string> = {
-  monthlyHours: 'ET', ordinaryHoursWage: 'ET',
   erMedicalContribution: 'FB', travelBusinessUseAtLeast80Pct: 'FB', vehicleDeterminedValue: 'FB', vehicleBenefitPctOfValue: 'FB',
   maintenancePlanIncluded: 'FB', businessUseAtLeast80Pct: 'FB',
   fixedAmountDirective: 'DR', fixedRateDirectivePercent: 'DR',
@@ -39,6 +40,10 @@ describe('every fixture input reaches the calculator, or has a named owner', () 
     expect(employee.hoursPerDay ?? null).toBe(typeof u.hoursPerDay === 'number' ? u.hoursPerDay : null);
     expect(employee.dailyRate ?? null).toBe(typeof u.dayRate === 'number' ? u.dayRate : null);
     expect(employee.employmentType).toBe(c.input.employee.taxStatus === 'temporary_part_time' ? 'casual' : 'permanent');
+    // ET: the month's hours reach the calculator as the run hours, and the ordinary wage it derives is the fixture's.
+    const { components } = buildCaseInput(c);
+    expect(runHoursOf(employee, components)).toBe(typeof u.monthlyHours === 'number' ? u.monthlyHours : null);
+    if (typeof u.ordinaryHoursWage === 'number') expect(ordinaryWageCents(components)).toBe(Math.round(u.ordinaryHoursWage * 100));
   });
 
   it('the RF case reaches the calculator as a non-cash 3817 costed at 15% of its R20 000 RFI', () => {

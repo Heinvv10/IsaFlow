@@ -214,6 +214,47 @@ function textEms(text: string): number {
  */
 export const WIDTH_SAFETY = 1.12;
 
+/** The ems of `pt`-sized text one `widthMm` line holds. */
+export function emsPerLine(pt: number, widthMm: number): number {
+  return (widthMm / (pt * PT_MM)) / WIDTH_SAFETY;
+}
+
+/**
+ * A "WORD" IS WHAT A BROWSER WILL NOT BREAK, WHICH IS NOT WHAT `\s` MATCHES: `formatMoney` separates thousands with
+ * U+00A0 so a figure cannot split at its own separator, and `\s` matches it.
+ */
+const BREAKABLE = /[^\S\u00a0\u202f]+/;
+
+/**
+ * Lines `text` takes on a line of `perLine` ems, WORD BY WORD (a character count cannot see that an unbreakable
+ * identifier pushes the line before it short). This was the page model's prose wrapper until #1263 gave it the faces'
+ * own widths; it is kept as the FLOOR under any prose text holding a code point the faces do not set
+ * (`packProseFloor.floorLines`, #1264 round 9: eight reviews kept finding new classes of fallback text the width model
+ * read short, and max(the width model, this one) read none of the stored sweeps short).
+ */
+export function wrapEms(text: string, perLine: number): number {
+  // A measure of no width holds nothing: the word loop below would never end (#1264 round 9 adversarial L).
+  if (!(perLine > 0)) throw new RangeError(`wrapEms: a line must hold some ems, got ${perLine}`);
+  let count = 1;
+  let used = 0;
+  for (const word of text.split(BREAKABLE)) {
+    if (word.length === 0) continue;
+    const wordEms = textEms(word);
+    const withWord = used === 0 ? wordEms : used + EM_SPACE + wordEms;
+    if (withWord <= perLine) { used = withWord; continue; }
+    if (used > 0) count += 1;
+    used = wordEms;
+    // A word wider than the measure breaks inside itself.
+    while (used > perLine) { count += 1; used -= perLine; }
+  }
+  return count;
+}
+
+/** Lines a string takes at `pt` across `widthMm`, at least one: `wrapEms` at the measure's ems. */
+export function wrappedLines(text: string, pt: number, widthMm: number): number {
+  return wrapEms(text, emsPerLine(pt, widthMm));
+}
+
 /** Millimetres of `n` lines set at a `lineHeightPt` leading. */
 export function lines(n: number, lineHeightPt: number): number {
   return n * lineHeightPt * PT_MM;

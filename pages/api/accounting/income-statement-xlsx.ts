@@ -105,7 +105,7 @@ export async function buildIncomeStatementWorkbook(
   today: string = new Date().toISOString().slice(0, 10),
 ): Promise<ExcelJS.Workbook> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'ISAFlow';
+  wb.creator = 'IsaFlow';
   wb.created = new Date();
 
   const ws = wb.addWorksheet('Income Statement');

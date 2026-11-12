@@ -120,7 +120,7 @@ export async function createPayrollEmployee(
       company_id, employee_number, first_name, last_name,
       id_number, tax_number, employment_type, start_date, end_date,
       date_of_birth, uif_excluded, medical_aid_main_member, medical_aid_dependants_count, s18a_receipt_held,
-      tax_status, pay_basis, hours_per_week, hours_per_day, hourly_rate, daily_rate, occupation
+      tax_status, pay_basis, hours_per_week, hours_per_day, hourly_rate, daily_rate, occupation, eti_id_document
     ) VALUES (
       ${companyId}::uuid, ${data.employeeNumber}, ${data.firstName}, ${data.lastName},
       ${data.idNumber ?? null}, ${data.taxNumber ?? null},
@@ -129,7 +129,7 @@ export async function createPayrollEmployee(
       ${data.dateOfBirth ? fmtDate(data.dateOfBirth) : null},
       ${data.uifExcluded}, ${data.medicalAidMainMember}, ${data.medicalAidDependantsCount}, ${data.s18aReceiptHeld},
       ${data.taxStatus ?? 'employee'}, ${data.payBasis ?? 'monthly'}, ${data.hoursPerWeek ?? null}, ${data.hoursPerDay ?? null},
-      ${data.hourlyRate ?? null}, ${data.dailyRate ?? null}, ${data.occupation ?? null}
+      ${data.hourlyRate ?? null}, ${data.dailyRate ?? null}, ${data.occupation ?? null}, ${data.etiIdDocument ?? null}
     )
     RETURNING *
   `) as Row[];
@@ -160,8 +160,10 @@ export async function updatePayrollEmployee(
   // Terms: a key present (null clears the optional ones) is written; the tax status and pay basis feed the figures
   // from TS-b on, so any touch of the terms waits for the same lock.
   const has = (k: keyof EmployeeTerms) => data[k] !== undefined;
+  // The date of birth and the ID number decide ETI (age, ETI Act s6(a); the document, s6(b); wave 5 ET): they take the lock too.
   const needsCompanyLock = endIso !== null || data.s18aReceiptHeld !== undefined || data.employmentType !== undefined
-    || (['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate'] as const).some(has);
+    || dobIso !== null || data.idNumber !== undefined
+    || (['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate', 'etiIdDocument'] as const).some(has);
   const write = (db: typeof sql, now: Row) => db`
     UPDATE payroll_employees SET
       first_name                   = COALESCE(${data.firstName ?? null}, first_name),
@@ -183,6 +185,7 @@ export async function updatePayrollEmployee(
       hourly_rate                  = CASE WHEN ${has('hourlyRate')} THEN ${data.hourlyRate ?? null}::numeric ELSE hourly_rate END,
       daily_rate                   = CASE WHEN ${has('dailyRate')} THEN ${data.dailyRate ?? null}::numeric ELSE daily_rate END,
       occupation                   = CASE WHEN ${has('occupation')} THEN ${data.occupation ?? null} ELSE occupation END,
+      eti_id_document              = CASE WHEN ${has('etiIdDocument')} THEN ${data.etiIdDocument ?? null} ELSE eti_id_document END,
       updated_at                   = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *

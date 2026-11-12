@@ -1,6 +1,6 @@
 /**
  * Admin Dashboard Service
- * Aggregates platform-wide KPIs for the ISAFlow Admin Platform.
+ * Aggregates platform-wide KPIs for the IsaFlow Admin Platform.
  * Queries: company counts, user counts, MRR/ARR, recent activity.
  */
 

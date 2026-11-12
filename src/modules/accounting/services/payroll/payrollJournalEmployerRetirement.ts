@@ -40,7 +40,7 @@ const total = (m: ReadonlyMap<string, number>): number => round2([...m.values()]
  * funds' 3817 / 3825 / 3828, in total each, and per employee together (the labour split puts both on the employee's share).
  */
 export async function runEmployerFundedCosts(companyId: string, runId: string): Promise<{ byEmployee: Map<string, number>; medical: number; retirement: number }> {
-  const medical = await runEmployerMedical(runId);
+  const medical = await runEmployerMedical(companyId, runId);
   const retirement = await runEmployerRetirement(companyId, runId);
   const byEmployee = new Map(medical);
   for (const [id, n] of retirement) byEmployee.set(id, round2((byEmployee.get(id) ?? 0) + n));

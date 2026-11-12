@@ -1,5 +1,5 @@
 /**
- * Component Showcase — ISAFlow living design system.
+ * Component Showcase — IsaFlow living design system.
  * Renders all 15 UI primitives with every variant, size, and state.
  */
 
@@ -133,7 +133,7 @@ export default function ComponentShowcasePage() {
                     UI Component Library
                   </h1>
                   <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    ISAFlow shared primitives — PRD-2026-04-003
+                    IsaFlow shared primitives — PRD-2026-04-003
                   </p>
                 </div>
                 <div className="flex items-center gap-3">

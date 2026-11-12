@@ -1,8 +1,8 @@
 /**
- * Merchant Categories — map each ISAFlow merchant category to one of this company's own GL accounts.
+ * Merchant Categories — map each IsaFlow merchant category to one of this company's own GL accounts.
  *
  * The shared merchant pool (learning loop PR 2) stores which CATEGORY merchants usually fall in, never an
- * account. A pool suggestion ("Common at other ISAFlow clients") reaches this company only for a category
+ * account. A pool suggestion ("Common at other IsaFlow clients") reaches this company only for a category
  * mapped here, and this company's coding feeds the pool only through these mappings (when its bureau shares
  * merchant patterns; the subtitle says so). Auto-map fills the unmapped categories whose account name is an
  * exact, unique match; every row stays editable. Header accounts are not offered (the server refuses them),
@@ -131,13 +131,13 @@ export default function MerchantCategoriesPage() {
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Merchant Categories</h1>
                 {sharingAvailable ? (
                   <p className="text-sm text-[var(--ff-text-secondary)]">
-                    Which of your accounts each ISAFlow category means. Suggestions marked &ldquo;Common at other ISAFlow clients&rdquo; use this map.
-                    If your bureau shares merchant patterns, your coding on mapped accounts also counts (anonymously) toward these suggestions for other ISAFlow clients.
+                    Which of your accounts each IsaFlow category means. Suggestions marked &ldquo;Common at other IsaFlow clients&rdquo; use this map.
+                    If your bureau shares merchant patterns, your coding on mapped accounts also counts (anonymously) toward these suggestions for other IsaFlow clients.
                   </p>
                 ) : (
                   <p className="text-sm text-[var(--ff-text-secondary)]" data-testid="sharing-pending">
-                    Which of your accounts each ISAFlow category means. Shared suggestions: {SHARING_COMING_SOON_LABEL}.
-                    Until then none of your coding is shared with other ISAFlow clients, and no &ldquo;Common at other ISAFlow clients&rdquo; suggestions are made.
+                    Which of your accounts each IsaFlow category means. Shared suggestions: {SHARING_COMING_SOON_LABEL}.
+                    Until then none of your coding is shared with other IsaFlow clients, and no &ldquo;Common at other IsaFlow clients&rdquo; suggestions are made.
                   </p>
                 )}
               </div>

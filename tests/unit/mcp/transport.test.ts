@@ -320,7 +320,7 @@ describe('/api/mcp transport', () => {
       expect(err.code).toBe(-32001);
       // G3: names who can switch it on, never an upgrade.
       expect(err.message).toBe(
-        'MCP connector not enabled for this company. Contact ISAFlow support to have it switched on.',
+        'MCP connector not enabled for this company. Contact IsaFlow support to have it switched on.',
       );
       expect(err.message).not.toMatch(/upgrade|plan|subscri/i);
       // The request's id, not null: a null-id reply to a request that carried

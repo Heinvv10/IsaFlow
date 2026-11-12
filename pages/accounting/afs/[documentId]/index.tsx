@@ -97,7 +97,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
   if (!doc) {
     return (
       <AppLayout navPath={loadingNavPath}>
-        <Head><title>Document | ISAFlow</title></Head>
+        <Head><title>Document | IsaFlow</title></Head>
         {loadError ? (
           <div role="alert" className="max-w-xl mx-auto mt-16 p-4 rounded-lg bg-red-900/20 border border-red-800 text-sm text-red-400">
             {loadError} <Link href="/accounting/afs" className="underline">Back to AFS</Link>
@@ -116,7 +116,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
     return (
       // The URL is the same as an AFS document's; this is what lights "Management Packs", not "Annual Financial Statements".
       <AppLayout navPath={packNavPath}>
-        <Head><title>{`${managementPackTitle(doc.period)} | ISAFlow`}</title></Head>
+        <Head><title>{`${managementPackTitle(doc.period)} | IsaFlow`}</title></Head>
         <ManagementPackView doc={doc} periodStart={periodStart} periodEnd={periodEnd} />
       </AppLayout>
     );
@@ -126,7 +126,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
   return (
     // Explicit, not the router's: an AFS document opened at ?type=management_pack must still light AFS, not Management Packs.
     <AppLayout navPath={`/accounting/afs/${documentId}`}>
-      <Head><title>{`AFS ${doc.fiscalYear ?? periodStart.slice(0, 4)} | ISAFlow`}</title></Head>
+      <Head><title>{`AFS ${doc.fiscalYear ?? periodStart.slice(0, 4)} | IsaFlow`}</title></Head>
       <div className="min-h-screen bg-white dark:bg-slate-900">
 
         {/* Breadcrumb */}

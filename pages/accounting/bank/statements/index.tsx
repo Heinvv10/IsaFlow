@@ -83,7 +83,7 @@ export default function BankStatementsIndexPage() {
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Bank Statement Imports</h1>
-              <p className="text-sm text-[var(--ff-text-secondary)] mt-1">Upload and review PDF bank statements before committing to transactions.</p>
+              <p className="text-sm text-[var(--ff-text-secondary)] mt-1">Upload and review PDF bank statements before committing to transactions. Statement import is user-operated: you upload each statement and confirm what is imported.</p>
             </div>
             <button
               onClick={() => router.push('/accounting/bank/statements/import-pdf')}
@@ -109,7 +109,7 @@ export default function BankStatementsIndexPage() {
           ) : imports.length === 0 ? (
             <div className="text-center py-20">
               <FileText className="h-10 w-10 text-[var(--ff-text-tertiary)] mx-auto mb-3 opacity-40" />
-              <p className="text-[var(--ff-text-secondary)] text-sm">No imports yet — upload a PDF bank statement to get started.</p>
+              <p className="text-[var(--ff-text-secondary)] text-sm">No imports yet. Upload a PDF bank statement to get started.</p>
             </div>
           ) : (
             <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg overflow-x-auto">

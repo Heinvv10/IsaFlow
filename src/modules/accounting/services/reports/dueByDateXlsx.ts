@@ -63,7 +63,7 @@ function addInvoices(wb: ExcelJS.Workbook, name: string, entity: string, s: Full
 
 export function buildDueByDateWorkbook(report: DueByDateReport<DueByDateContactDetail>): ExcelJS.Workbook {
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'ISAFlow';
+  wb.creator = 'IsaFlow';
   wb.created = new Date();
 
   const ws = wb.addWorksheet('Due by date');

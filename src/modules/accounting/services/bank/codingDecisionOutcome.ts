@@ -16,7 +16,7 @@ const same = (a: string | null, b: string | null): boolean =>
   a !== null && b !== null && a.toLowerCase() === b.toLowerCase();
 
 /**
- * A person's allocation against ISAFlow's suggestion: `accepted` when it lands on a target the suggestion
+ * A person's allocation against IsaFlow's suggestion: `accepted` when it lands on a target the suggestion
  * named (its GL account, or the supplier / customer a rule named), otherwise `recoded`. A split allocation
  * passes no single target and is always `recoded`.
  */

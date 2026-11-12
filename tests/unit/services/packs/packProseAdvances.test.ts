@@ -118,6 +118,22 @@ describe('the combining marks\' table (packFallbackMarkData)', () => {
     expect(wrong.slice(0, 10)).toEqual([]);
   });
 
+  it('names each mark\'s script as Unicode does (the drift check measures widths, and takes the script column as given)', () => {
+    const wrong: string[] = [];
+    const scripts = new Map<number, RegExp | null>();
+    for (const [cp, , , idx] of FALLBACK_MARKS) {
+      const ch = String.fromCodePoint(cp);
+      // A mark this runtime has not assigned yet, or a script it does not know, is held by the regeneration, not here.
+      if (/^\p{Cn}$/u.test(ch)) continue;
+      if (!scripts.has(idx)) {
+        try { scripts.set(idx, new RegExp(`^\\p{Script=${SCRIPT_NAMES[idx]}}$`, 'u')); } catch { scripts.set(idx, null); }
+      }
+      const script = scripts.get(idx);
+      if (script !== null && script !== undefined && !script.test(ch)) wrong.push(`${cp.toString(16)} is not ${SCRIPT_NAMES[idx]}`);
+    }
+    expect(wrong.slice(0, 10)).toEqual([]);
+  });
+
   it('holds every mark this runtime knows but SignWriting\'s (a script with no letters to write them on: they cost the widest glyph)', () => {
     const held = new Set(FALLBACK_MARKS.map(([cp]) => cp));
     const missing: string[] = [];

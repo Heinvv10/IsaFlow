@@ -9,7 +9,9 @@
  * table, so the font ruler never loads in the browser). ONE FUNCTION for every
  * layer — the service (on the rows it reads under the lock), the editor (on the
  * rows on screen) and the tests — so none can disagree about the pack, and none
- * can let through what page 4 then refuses. Client-safe on purpose.
+ * can let through what page 4 then refuses. A paragraph holding a code point the faces do not set is costed at the
+ * pre-#1263 em model's lines where they are more (`packProseFloor`, #1264 round 9), as page 4's own prose is. Client-safe
+ * on purpose.
  *
  * CALIBRATION (tests/unit/services/packs/packApprovedCommentaryCap.test.ts):
  * the cost page 4 holds before it refuses, on the tightest fixture

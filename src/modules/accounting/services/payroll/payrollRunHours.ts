@@ -53,11 +53,6 @@ export function runHoursOf(employee: PayrollEmployee, components: EmployeeCompon
   return employee.hoursPerDay == null ? null : Math.round(quantity * Number(employee.hoursPerDay) * 100) / 100;
 }
 
-/** ETI is apportioned by hours out of 160 (ETI Act s7(5)); until ET does that, a part-month hourly or daily line claims none. */
-export const ETI_FULL_MONTH_HOURS = 160;
-export const etiHoursPending = (employee: PayrollEmployee, hours: number | null): boolean =>
-  unitOf(employee) != null && (hours == null || hours < ETI_FULL_MONTH_HOURS);
-
 const err = (code: string, message: string): ValidationResult => ({ code, severity: 'error', message });
 
 /**

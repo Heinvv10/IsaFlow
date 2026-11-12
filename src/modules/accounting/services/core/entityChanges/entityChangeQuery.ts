@@ -163,7 +163,7 @@ export async function listEntityChanges(companyId: string, opts: ListEntityChang
  * taken (TS-b), and what an hourly or daily line was priced and judged on hangs on them (HD). Any change after calculation counts, for any
  * employee. The employment type feeds the director check and the hours warning.
  */
-const WORK_TERMS = ['tax_status', 'pay_basis', 'hours_per_week', 'hours_per_day', 'hourly_rate', 'daily_rate', 'employment_type'];
+const WORK_TERMS = ['tax_status', 'pay_basis', 'hours_per_week', 'hours_per_day', 'hourly_rate', 'daily_rate', 'employment_type', 'eti_id_document', 'date_of_birth', 'id_number'];
 /** The payroll_employees columns whose change after calculation sends a pay run back for recalculation. */
 const PAYROLL_TERMS = [
   'end_date', 'termination_reason', 'termination_notice_period_days', 'termination_served_notice_days',

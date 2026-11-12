@@ -25,6 +25,12 @@ describe('parseSuiteTimes', () => {
   });
 });
 
+describe('parseSuiteTimes on a suite not named *.int.test.ts', () => {
+  it('reads it: the gate runs every *.test.ts under tests/integration', () => {
+    expect(parseSuiteTimes(' ✓ tests/integration/api/foo.test.ts (3 tests) 4000ms')).toEqual([['tests/integration/api/foo.test.ts', 4000]]);
+  });
+});
+
 describe('suiteSeconds', () => {
   it('keeps the median over logs, rounded up, and drops suites under MIN_SECONDS', () => {
     const run = (ms: number) => log([` ✓ tests/integration/slow.int.test.ts (1 test) ${ms}ms`, ' ✓ tests/integration/fast.int.test.ts (1 test) 900ms']);
@@ -39,7 +45,7 @@ describe('the committed suite-seconds.json', () => {
   it('names only integration suites, each at least MIN_SECONDS, as integers', () => {
     expect(Object.keys(table).length).toBeGreaterThan(0);
     for (const [file, s] of Object.entries(table)) {
-      expect(file).toMatch(/^tests\/integration\/.+\.int\.test\.ts$/);
+      expect(file).toMatch(/^tests\/integration\/.+\.test\.ts$/);
       expect(Number.isInteger(s) && s >= MIN_SECONDS).toBe(true);
     }
   });

@@ -1,4 +1,4 @@
-# ISAFlow robots.txt: marketing pages are open to all crawlers, including AI search
+# IsaFlow robots.txt: marketing pages are open to all crawlers, including AI search
 # and answer engines. The logged-in app, auth flows and APIs are not for indexing.
 
 User-agent: *

@@ -27,14 +27,6 @@
     "closedBy": "W3: directives in the calc"
   },
   {
-    "case": "eti-below-minimum-wage-4000",
-    "engineActual": {
-      "eti": 1500
-    },
-    "reason": "R4 000 for 160 hours is R25.00 an hour, below the R28.79 national minimum wage (from 1 March 2025), so the employee does not qualify and ETI is nil (SARS ETI page). The calculator has no hours or minimum-wage input and claims R1 500.00.",
-    "closedBy": "W3 (ETI): hours paid and the minimum-wage condition in the ETI calc, with the 160-hour apportionment"
-  },
-  {
     "case": "fixed-amount-directive-2500",
     "engineActual": {
       "paye": 4681,
@@ -42,21 +34,5 @@
     },
     "reason": "An IRP3(c) fixed-amount directive (G21 p. 16-17) is not applied: the calculator uses the tables (R4 681.00) instead of the directed R2 500.00, and net pay follows.",
     "closedBy": "DR (directives on regular pay)"
-  },
-  {
-    "case": "eti-year1-120h-5000-apportioned",
-    "engineActual": {
-      "eti": 1500
-    },
-    "reason": "No hours input: the calculator takes the full R1 500 band. SARS: gross R5 000 up to 160 hours (6 666.67), table value 625.00, gross down by 120/160 = 468.75.",
-    "closedBy": "ET (ETI hours, minimum wage, carry-forward)"
-  },
-  {
-    "case": "eti-min-wage-1c-below-4606-39",
-    "engineActual": {
-      "eti": 1500
-    },
-    "reason": "No minimum-wage test: R4 606.39 for 160 ordinary hours is 1c under R28.79 an hour, so the employee does not qualify and ETI is nil; the calculator claims R1 500.00.",
-    "closedBy": "ET (ETI hours, minimum wage, carry-forward)"
   }
 ]

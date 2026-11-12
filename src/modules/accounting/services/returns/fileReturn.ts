@@ -20,7 +20,7 @@ import { periodSendUncertain } from '@/modules/accounting/services/reports/sarsE
 import { driftOf } from './returnDrift';
 import { assertMayActOnReturns, visibleText } from './returnGuards';
 import { getVersionForUpdate, isLockActive, markVersionFiled } from './returnVersionWrites';
-import { ReturnRefusal, type ReturnActor, type ReturnForm, type ReturnVersion } from './returnVersionTypes';
+import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnActor, type ReturnForm, type ReturnVersion } from './returnVersionTypes';
 
 export interface FiledReturn {
   version: ReturnVersion;
@@ -62,7 +62,8 @@ export async function markReturnFiled(
   if (v.status !== 'finalised') {
     throw new ReturnRefusal(409, v.status === 'filed'
       ? `Version ${v.versionNo} is already filed (${v.filedReference ?? 'no reference'}). Amend it to file a correction.`
-      : `Version ${v.versionNo} was superseded by an amend. File the current version.`);
+      : `Version ${v.versionNo} was superseded by an amend. File the current version.`,
+    v.status === 'filed' ? STALE_RETURN_REFUSAL.ALREADY_FILED : STALE_RETURN_REFUSAL.VERSION_SUPERSEDED);
   }
   if (v.formType === 'VAT201' && !(v.vatPeriodLockId && await isLockActive(companyId, v.vatPeriodLockId))) {
     throw new ReturnRefusal(409,
@@ -90,8 +91,8 @@ export async function markReturnFiled(
     const given = new Set(opts.correctsLegacySubmissionIds ?? []);
     if (given.size !== legacy.length || !legacy.every((l) => given.has(l.id))) {
       throw new ReturnRefusal(409,
-        `This period was already filed the legacy way: ${named}. Filing this version supersedes ALL of them: send `
-        + `correctsLegacySubmissionIds [${legacy.map((l) => l.id).join(', ')}] and a reason.`, 'LEGACY_SUBMISSION_EXISTS');
+        `This period was already filed outside the return lifecycle: ${named}. Filing this version supersedes all of `
+        + 'them: confirm and give the reason.', 'LEGACY_SUBMISSION_EXISTS', { legacySubmissionIds: legacy.map((l) => l.id) });
     }
     correction = visibleText(opts.reason ?? '', 'A reason for correcting the legacy filing');
   }

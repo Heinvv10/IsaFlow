@@ -11,3 +11,21 @@ describe('Next image security stop-gap', () => {
     expect(nextConfig.images?.unoptimized).toBe(true);
   });
 });
+
+type Redirect = { source: string; destination: string; permanent: boolean };
+const withRedirects = nextConfig as unknown as { redirects: () => Promise<Redirect[]> };
+
+describe('Bank Feeds folded into Statement Imports', () => {
+  it('redirects /accounting/bank-feeds and its sub-paths to Statement Imports, permanently', async () => {
+    const redirects = await withRedirects.redirects();
+    for (const source of ['/accounting/bank-feeds', '/accounting/bank-feeds/:path*']) {
+      const r = redirects.find((x) => x.source === source);
+      expect(r, source).toEqual({ source, destination: '/accounting/bank/statements', permanent: true });
+    }
+  });
+
+  it('never redirects an API route', async () => {
+    const redirects = await withRedirects.redirects();
+    for (const r of redirects) expect(r.source.startsWith('/api/'), r.source).toBe(false);
+  });
+});
