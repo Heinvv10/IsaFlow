@@ -28,6 +28,8 @@ export interface ChainJournal {
   entryDate: string;
   status: string;
   description: string;
+  /** gl_journal_entries.reference: an ETI journal carries ETI-YYYY-MM (wave 5 ET). */
+  reference?: string | null;
 }
 
 /**
@@ -72,7 +74,7 @@ export async function readJournalChain(companyId: string, rootId: string, db: Tx
         JOIN chain ON e.reversal_of_id = chain.id
        WHERE e.company_id = ${companyId}::uuid AND chain.depth < ${MAX_CHAIN_JOURNALS}
     )
-    SELECT e.id, e.entry_number, e.entry_date, e.status, e.description, chain.depth,
+    SELECT e.id, e.entry_number, e.entry_date, e.status, e.description, e.reference, chain.depth,
            l.gl_account_id, (round(l.debit * 100) - round(l.credit * 100))::float8 AS cents
       FROM chain
       JOIN gl_journal_entries e ON e.id = chain.id
@@ -108,6 +110,7 @@ export async function readJournalChain(companyId: string, rootId: string, db: Tx
         entryDate: r.entry_date instanceof Date ? r.entry_date.toISOString().slice(0, 10) : String(r.entry_date).slice(0, 10),
         status: String(r.status),
         description: String(r.description ?? ''),
+        reference: r.reference == null ? null : String(r.reference),
       });
     }
     if (r.gl_account_id == null || String(r.status) !== 'posted') continue;

@@ -23,7 +23,11 @@ vi.mock('@/modules/accounting/services/payroll/payrollJournalChain', () => ({
   readJournalChain: vi.fn(),
   lockJournalChain: vi.fn(),
 }));
+// Hein ruling R-A (wave 5 ET): the guard's own SQL is tested in etiPeriodGuard.test.ts.
+vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', () => ({ laterEtiJournalRefusal: vi.fn(async () => { order.push('guard'); return null; }) }));
+const order = vi.hoisted(() => [] as string[]);
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
+  lockCompanyPayrollApprovals: vi.fn(async () => { order.push('lock1'); }),
   lockPayrollRunHeader: vi.fn(async () => ({})),
   withBoundedLockWait: vi.fn(async (_run: string, fn: (tx: unknown) => Promise<unknown>) => fn({})),
 }));
@@ -38,11 +42,12 @@ import {
   refuseReversalAgainstPayRun,
 } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
 import { GRANDFATHERED_PLAN_HASH } from '@/modules/accounting/services/payroll/payRunApprovalAudit';
+import { laterEtiJournalRefusal } from '@/modules/accounting/services/payroll/etiPeriodGuard';
 
-const journal = (id: string, description = 'Payroll run 2026-04') => ({ id, entryNumber: `JE-${id}`, entryDate: '2026-04-30', status: 'posted', description });
-function chain(state: 'in_force' | 'out' | 'unclear', opts: { broken?: boolean; description?: string } = {}) {
+const journal = (id: string, description = 'Payroll run 2026-04', reference: string | null = null) => ({ id, entryNumber: `JE-${id}`, entryDate: '2026-04-30', status: 'posted', description, reference });
+function chain(state: 'in_force' | 'out' | 'unclear', opts: { broken?: boolean; description?: string; reference?: string } = {}) {
   vi.mocked(readJournalChain).mockResolvedValue({
-    journals: [journal('J1', opts.description), journal('C1', 'Reversal of JE-J1')], state, broken: opts.broken ?? false,
+    journals: [journal('J1', opts.description, opts.reference ?? null), journal('C1', 'Reversal of JE-J1')], state, broken: opts.broken ?? false,
   });
 }
 const linkedRun = (status: string) => { db.run = { id: 'run-1', status, links_root: true }; };
@@ -139,5 +144,43 @@ describe('refuseReversalAgainstPayRun (the live path)', () => {
     await expect(refuseReversalAgainstPayRun('c1', PAYROLL)).resolves.toEqual({
       runId: 'run-1', planHash: GRANDFATHERED_PLAN_HASH,
     });
+  });
+});
+
+describe('Hein ruling R-A (wave 5 ET): a directive or ETI journal under a posted later ETI month', () => {
+  it('refuses reversing a directive payment\'s journal (dry run and live), naming the month', async () => {
+    const [description, reference] = ['SARS directive D1 — Emp', undefined];
+    chain('in_force', { description, reference });
+    vi.mocked(laterEtiJournalRefusal).mockResolvedValue('The May 2026 payroll journal is already posted.');
+    expect(await payrollReversalRefusal('c1', PAYROLL)).toBe('The May 2026 payroll journal is already posted.');
+    await expect(refuseReversalAgainstPayRun('c1', PAYROLL)).rejects.toThrow(/May 2026/);
+    expect(laterEtiJournalRefusal).toHaveBeenCalledWith('c1', { year: 2026, month: 4 });
+  });
+  it('round 5 ruling: an ETI journal (ETI-YYYY-MM) is NEVER reversed by hand, later month or not (dry run and live)', async () => {
+    chain('in_force', { description: 'anything at all', reference: 'ETI-2026-04' });
+    vi.mocked(laterEtiJournalRefusal).mockResolvedValue(null);
+    const msg = "ETI journals are rebooked automatically; to write off an ETI amount SARS won't pay, post a manual journal";
+    expect(await payrollReversalRefusal('c1', PAYROLL)).toBe(msg);
+    await expect(refuseReversalAgainstPayRun('c1', PAYROLL)).rejects.toThrow(msg);
+  });
+  it('is not asked about any other journal (an ETI journal is known by its reference, not its narrative)', async () => {
+    chain('in_force', { description: 'ETI for 2026-04: directive PAYE' });
+    vi.mocked(laterEtiJournalRefusal).mockResolvedValue('posted');
+    expect(await payrollReversalRefusal('c1', PAYROLL)).toBeNull();
+  });
+});
+
+describe('round 3: lock 1 first, before the guard and before the claim', () => {
+  it('a directive journal: the company approval lock, then the R-A guard', async () => {
+    order.length = 0;
+    vi.mocked(laterEtiJournalRefusal).mockImplementation(async () => { order.push('guard'); return null; });
+    chain('in_force', { description: 'SARS directive D1 — Emp' });
+    await refuseReversalAgainstPayRun('c1', PAYROLL);
+    expect(order).toEqual(['lock1', 'guard']);
+  });
+  it('not an auto_payroll journal: no lock at all', async () => {
+    order.length = 0;
+    await refuseReversalAgainstPayRun('c1', { id: 'J1', source: 'manual' });
+    expect(order).toEqual([]);
   });
 });

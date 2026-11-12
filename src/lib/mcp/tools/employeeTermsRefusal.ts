@@ -6,7 +6,7 @@
 import type { McpToolResult } from '../types';
 import { toolError } from './toolHelpers';
 
-const TERM_ARGS = ['tax_status', 'pay_basis', 'hours_per_week', 'hours_per_day', 'hourly_rate', 'daily_rate', 'occupation'] as const;
+const TERM_ARGS = ['tax_status', 'pay_basis', 'hours_per_week', 'hours_per_day', 'hourly_rate', 'daily_rate', 'occupation', 'eti_id_document'] as const;
 /** Either spelling: the REST body's camelCase is refused as well as the tool's snake_case. */
 const camel = (k: string) => k.replace(/_([a-z])/g, (_m, c: string) => c.toUpperCase());
 const SPELLINGS: readonly string[] = TERM_ARGS.flatMap((k) => [k, camel(k)]);

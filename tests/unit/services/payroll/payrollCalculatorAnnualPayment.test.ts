@@ -161,7 +161,7 @@ describe('P3: a leaver paid after leaving earns no ETI', () => {
   // 23 years old, R5 000, in the second 12 months employed (from January 2025):
   // the April 2025 table gives R750 (etiTables.ts).
   const young = {
-    id: 'emp-2', dateOfBirth: new Date(2003, 0, 1), startDate: new Date(2025, 0, 1),
+    id: 'emp-2', idNumber: '0301015009089', dateOfBirth: new Date(2003, 0, 1), startDate: new Date(2025, 0, 1),
     uifExcluded: false, medicalAidMainMember: false, medicalAidDependantsCount: 0,
   } as unknown as PayrollEmployee;
   const severance: EmployeeComponent = {

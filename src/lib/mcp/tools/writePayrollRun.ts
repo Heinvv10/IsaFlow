@@ -41,13 +41,14 @@ import {
   runHasLoanWork,
 } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { payrollJournalInForce } from '@/modules/accounting/services/payroll/payrollJournalChain';
-import { ETI_TABLE_UNCONFIRMED_MESSAGE, isEtiTableUnconfirmed } from '@/modules/accounting/services/payroll/etiTables';
 import { UnsupportedTaxYearError, unloadedTaxYearMessage } from '@/modules/accounting/services/payroll/taxTables';
 import { withheldLoansReport as withheldLoans } from '@/modules/accounting/services/payroll/payrollLoanWithholding';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import { assertPayRunApproved } from '@/modules/accounting/services/payroll/payRunApprovalControl';
+import { EtiLaterMonthPostedError } from '@/modules/accounting/services/payroll/etiPeriodGuard';
+
 
 const NEEDS_PERSON = 'A person must approve this pay run in ISAFlow before the connector can post it.';
 
@@ -134,9 +135,6 @@ export const calculatePayRunTool: McpTool = {
       const costed = await calculatePayrollRun(runId, ctx.companyId, ctx.userId);
       return ok({
         ...runPayload(costed),
-        ...(costed.totalEti > 0 && isEtiTableUnconfirmed(new Date(costed.periodYear, costed.periodMonth - 1, 28))
-          ? { warnings: [ETI_TABLE_UNCONFIRMED_MESSAGE] }
-          : {}),
         withheld_loans: await withheldLoans(ctx.companyId, costed), approval_blocker: (await previewPayrollApproval(ctx.companyId, runId))?.blocker ?? null,
         next_step: costed.employeeCount === 0
           ? 'No employees were costed — create_employee and assign_employee_component first.'
@@ -147,7 +145,7 @@ export const calculatePayRunTool: McpTool = {
       // raised BEFORE any line is touched. Everything else propagates to the
       // registry's savepoint rather than being flattened into a tool error
       // that would leave the lines half-rebuilt and the key freed.
-      if (err instanceof PayrollRunLockedError) return toolError(err.message);
+      if (err instanceof PayrollRunLockedError || err instanceof EtiLaterMonthPostedError) return toolError(err.message);
       // Same shape: raised before any line is touched, and the message names
       // the action the agent must take instead.
       if (err instanceof PayrollRunJournalPostedError

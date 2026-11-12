@@ -12,6 +12,7 @@ import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Serv
 import { listVersionRows } from './returnVersionStore';
 import { getVatReturnRecord } from './vatReturnRecord';
 import { empRunDrift } from './empDrift';
+import { empEtiDrift } from './empEtiDrift';
 import type { ReturnForm, ReturnVersion, VatReturnRecord } from './returnVersionTypes';
 
 export interface DriftField { name: string; recorded: number; current: number }
@@ -22,6 +23,8 @@ export interface ReturnDrift {
   changed: string[];
   /** EMP201: summed runs no longer final under R-035. */
   unfinalRuns: number;
+  /** Why a figure moved without the source changing (a calculation change, wave 5 ET). Absent when none. */
+  notes?: string[];
 }
 
 export interface ReturnVersionView extends ReturnVersion {
@@ -58,15 +61,20 @@ export async function driftOf(companyId: string, v: ReturnVersion): Promise<Retu
   }
   const e = await generateEMP201(companyId, start, end);
   const run = await empRunDrift(companyId, figures, e);
+  const eti = empEtiDrift(figures, e);
   const fields = [
     ...compare(figures, {
       totalPAYE: e.totalPAYE, totalETI: e.totalETI, payePayable: e.payePayable, totalUIF: e.totalUIF,
       totalSDL: e.totalSDL, employeeCount: e.employeeCount, totalTaxableRemuneration: e.totalTaxableRemuneration,
     }),
     ...compare(recordedDirective(figures), run.directive),
-  ];
+    ...eti.fields,
+  ].filter((f) => !(eti.payableExplained && f.name === 'payePayable'));
   const changed = run.runsChanged ? ['runs'] : [];
-  return { drifted: fields.length + changed.length > 0 || run.unfinalRuns > 0, fields, changed, unfinalRuns: run.unfinalRuns };
+  return {
+    drifted: fields.length + changed.length > 0 || run.unfinalRuns > 0, fields, changed, unfinalRuns: run.unfinalRuns,
+    ...(eti.notes.length > 0 ? { notes: eti.notes } : {}),
+  };
 }
 
 async function removedLocks(companyId: string, versions: ReturnVersion[]): Promise<Set<string>> {

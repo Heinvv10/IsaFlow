@@ -22,6 +22,8 @@ import journalEntriesAction from '../../pages/api/accounting/journal-entries-act
 import { previewPayrollApproval } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { callRoute } from './r035-approval.helpers';
 import { PAYROLL_CALCULATION_VERSION } from '@/modules/accounting/services/payroll/payrollCalculationVersion';
+import { etiMonthLine } from '@/modules/accounting/services/payroll/etiCarryRead';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 const fault = vi.hoisted(() => ({ armed: false, fired: false }));
 vi.mock('@/modules/accounting/services/payroll/payrollJournalPostingService', async (importOriginal) => {
@@ -190,15 +192,17 @@ describe('K-079: approving a run that claims ETI', () => {
     expect(j.debit).toBe(j.credit);
     // The unbooked ETI is reported to the caller, not only logged.
     const advisories = (res.body as { data: { advisories: Array<{ code: string; detail: string }> } }).data.advisories;
-    expect(advisories.find((a) => a.code === 'eti_beyond_paye')?.detail).toContain('R2200.00');
+    // Wave 5 ET: money in the advisory is formatMoney's (the type-and-money census), and the remainder carries (s9(1)).
+    expect(advisories.find((a) => a.code === 'eti_beyond_paye')?.detail).toContain(formatMoney(2200));
     // 2140 nets to zero, so no PAYE line; labour is reduced by the 300 used.
     expect(j.by('2140').reduce((s, l) => s + Number(l.credit) - Number(l.debit), 0)).toBe(0);
     expect(j.by('5200').map((l) => Number(l.debit))).toEqual([10000 + 100 - 300]);
     expect(j.by('1110').map((l) => Number(l.credit))).toEqual([9600]);
   });
 
-  it('no ETI: the journal is unchanged — 2140 carries the full PAYE', async () => {
-    const id = await run(companyA, 5, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 0, net: 79250 });
+  it('no ETI in the ETI period at all: the journal is unchanged — 2140 carries the full PAYE', async () => {
+    // January 2026 is in the September 2025 - February 2026 ETI period, which has no ETI in this tenant.
+    const id = await run(companyA, 1, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 0, net: 79250 });
     const res = await callApproved(id);
     expect(res.statusCode).toBe(200);
 
@@ -208,14 +212,41 @@ describe('K-079: approving a run that claims ETI', () => {
     expect(j.by('5200').map((l) => Number(l.debit))).toEqual([101750]);
   });
 
+  it('wave 5 ET: no ETI of its own, but April carried R2 200 (ETI Act s9(1)): 2140 = PAYE - the carried ETI used, as the EMP201 declares', async () => {
+    // April (above) had ETI 2 500 against PAYE 300: R2 200 unused, carried into May of the same ETI period (ruling C:
+    // the run journal books the brought-forward ETI it uses). Before wave 5 ET this case asserted 20 000.
+    const id = await run(companyA, 5, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 0, net: 79250 });
+    const res = await callApproved(id);
+    expect(res.statusCode).toBe(200);
+
+    const may = await etiMonthLine(companyA, { year: 2026, month: 5 });
+    expect(may).toMatchObject({ broughtForward: 2200, used: 2200 });
+    const j = await journal((await header(id)).journal_entry_id!);
+    expect(j.debit).toBe(j.credit);
+    expect(j.by('2140').reduce((t, l) => t + Number(l.credit) - Number(l.debit), 0)).toBe(20000 - may.used);
+  });
+
   it("another tenant's run is refused and left exactly as it was", async () => {
-    const foreign = await run(companyB, 3, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
+    // No ETI in tenant B (wave 5 ET): a calculated, unapproved run WITH ETI would, by the posting-order rule
+    // (etiPeriodGuard.earlierUnapprovedRefusal), refuse B's later months of the same ETI period in the cases below.
+    const foreign = await run(companyB, 3, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 0, net: 79250 });
     const res = await callApprove(foreign, companyA);
     expect(res.statusCode).toBeGreaterThanOrEqual(400);
     expect(res.statusCode).toBeLessThan(500);
 
     expect(await header(foreign)).toEqual({ status: 'calculated', journal_entry_id: null });
     const { rows } = await pool.query('SELECT 1 FROM gl_journal_entries WHERE company_id=$1', [companyB]);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("another tenant's run WITH ETI (in its own ETI period, September-February) is refused and left exactly as it was", async () => {
+    const foreign = await run(companyB, 11, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
+    const res = await callApprove(foreign, companyA);
+    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+    expect(res.statusCode).toBeLessThan(500);
+    expect(await header(foreign)).toEqual({ status: 'calculated', journal_entry_id: null });
+    const { rows } = await pool.query(
+      "SELECT 1 FROM gl_journal_entries WHERE company_id=$1 AND (reference LIKE 'ETI-%' OR description = 'Payroll run 2026-11')", [companyB]);
     expect(rows).toHaveLength(0);
   });
 
@@ -244,7 +275,7 @@ describe('K-079: approving a run that claims ETI', () => {
     expect(await header(id)).toEqual({ status: 'calculated', journal_entry_id: null });
 
     // The same month in another tenant is not closed by this one's period.
-    const other = await run(companyB, 8, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
+    const other = await run(companyB, 8, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 0, net: 79250 });
     expect((await callApproved(other, companyB)).statusCode).toBe(200);
   });
 
@@ -356,7 +387,9 @@ describe('K-079: approving a run that claims ETI', () => {
   });
 
   it('a deactivated target account is refused BEFORE the status write (the GL poster refuses it)', async () => {
-    const id = await run(companyB, 5, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
+    // No ETI (see the tenant-isolation case): with ETI, August's in-force journal (approved above) would refuse May
+    // first by the ETI period rule (etiPeriodGuard R-A), before the GL poster ever saw the deactivated account.
+    const id = await run(companyB, 5, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 0, net: 79250 });
     await pool.query("UPDATE gl_accounts SET is_active=false WHERE company_id=$1 AND account_code='2160'", [companyB]);
     try {
       const res = await callApprove(id, companyB);

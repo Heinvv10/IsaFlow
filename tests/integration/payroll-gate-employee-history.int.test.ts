@@ -86,6 +86,17 @@ describe(`the gate reads termination and end-date changes (TZ=${process.env.TZ ?
   });
 });
 
+describe('wave 5 ET round 3 (adv3 L1): the date of birth decides ETI, so it sends a run back too', () => {
+  it('a date of birth changed after calculation refuses approval until recalculated', async () => {
+    const run = await calculatedRun(call, 1);
+    expect(await preview(run)).toBeNull();
+    await updatePayrollEmployee(open, company, { dateOfBirth: new Date('1981-01-01') });
+    const refused = await preview(run);
+    expect(refused?.code).toBe('components_changed_after_calculation');
+    expect(refused?.detail).toContain('GH-OPEN');
+  });
+});
+
 describe('3: end-date and termination writers wait for the company lock', () => {
   async function waitsForLock(write: () => Promise<unknown>): Promise<void> {
     const holder = await pool.connect();
@@ -101,6 +112,10 @@ describe('3: end-date and termination writers wait for the company lock', () => 
       expect(done).toBe(true);
     } finally { holder.release(); }
   }
+
+  it('updatePayrollEmployee with a date of birth (wave 5 ET round 3)', async () => {
+    await waitsForLock(() => updatePayrollEmployee(open, company, { dateOfBirth: new Date('1982-01-01') }));
+  });
 
   it('updatePayrollEmployee with an end date', async () => {
     await waitsForLock(() => updatePayrollEmployee(future, company, { endDate: new Date('2027-08-31') }));

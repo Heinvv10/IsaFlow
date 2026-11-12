@@ -1,7 +1,7 @@
 /**
  * The integrity check runner.
  *
- * Fifteen checks, each a count, a rand total and a bounded sample. Callers ask
+ * Sixteen checks, each a count, a rand total and a bounded sample. Callers ask
  * for all of them or name the ones they want.
  *
  * A CHECK THAT FAILS DOES NOT FAIL THE SUITE. One broken query would otherwise
@@ -41,6 +41,7 @@ import {
 } from './accountChecks';
 import { testRecordsInProduction, vatDisplayedDiffersFromPosted } from './vatChecks';
 import { projectFnoMismatch } from './dimensionChecks';
+import { payePayableDiffersFromEmp201 } from './payrollChecks';
 
 export const INTEGRITY_CHECKS: Record<IntegrityCheckId, IntegrityCheckFn> = {
   invoices_null_due_date: invoicesNullDueDate,
@@ -58,6 +59,7 @@ export const INTEGRITY_CHECKS: Record<IntegrityCheckId, IntegrityCheckFn> = {
   invoices_without_revenue_line: invoicesWithoutRevenueLine,
   payment_matched_but_unapplied: paymentMatchedButUnapplied,
   project_fno_mismatch: projectFnoMismatch,
+  paye_payable_differs_from_emp201: payePayableDiffersFromEmp201,
 };
 
 export interface IntegrityReport {

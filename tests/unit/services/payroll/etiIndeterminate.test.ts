@@ -178,7 +178,7 @@ describe('calculatePayrollLine — the wiring that produced the production silen
       employee: {
         id: 'emp-1', companyId: 'co-1', employeeNumber: 'E001',
         firstName: 'Thandi', lastName: 'Mokoena',
-        idNumber: '0201155009087', taxNumber: '1234567890',
+        idNumber: '0201155009081', taxNumber: '1234567890', // a valid SA ID (Luhn): ETI Act s6(b)
         employmentType: 'permanent',
         startDate: START, dateOfBirth: DOB,
         uifExcluded: false, medicalAidMainMember: false, medicalAidDependantsCount: 0,

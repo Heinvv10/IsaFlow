@@ -137,6 +137,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'end_employee_component',
   'calculate_pay_run',
   'approve_pay_run',
+  'book_eti_for_month',
   'create_bank_rule',
   'update_bank_rule',
   'disable_bank_rule',
