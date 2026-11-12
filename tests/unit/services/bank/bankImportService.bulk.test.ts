@@ -227,6 +227,11 @@ describe('importParsedTransactions — post-import side-effect gate', () => {
     expect(relinkTransferCounterparts).toHaveBeenCalled();
     // Both transfer passes run on the UI path; the batch pass runs first.
     expect(autoLinkImportedBatchTransfers).toHaveBeenCalled();
+    // Migration 978: both passes log under ONE import link batch that names the import batch.
+    const batchCall = vi.mocked(autoLinkImportedBatchTransfers).mock.calls.at(-1)!;
+    const relinkCall = vi.mocked(relinkTransferCounterparts).mock.calls.at(-1)!;
+    expect(batchCall[2]).toEqual({ source: 'import', linkBatchId: expect.any(String), importBatchId: batchCall[1] });
+    expect(relinkCall[2]).toBe(batchCall[2]);
   });
 
   it('reports a failed transfer pass in the import result instead of a clean import', async () => {
