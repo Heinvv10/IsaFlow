@@ -33,8 +33,9 @@ export function AccountingTour() {
         const json = await res.json() as { data?: Record<string, string> };
         if (!json.data?.[PREF_KEY]) setActive(true);
       } catch (err) {
+        // Unknown is not "never seen": a failed read must not put a full-screen overlay over a returning user's
+        // page (it covered the top nav in golden paths, #1270). Nothing is stored, so the next visit asks again.
         log.warn('Failed to load tour preference', { error: err }, 'AccountingTour');
-        setActive(true);
       }
     };
     void check();
