@@ -1,6 +1,6 @@
 /**
  * Merchant category mappings (shared merchant-pattern pool, learning loop PR 2).
- * GET  /api/accounting/category-mappings  — the ISAFlow category list with this company's account for each,
+ * GET  /api/accounting/category-mappings  — the IsaFlow category list with this company's account for each,
  *      plus `sharingAvailable` (the MERCHANT_SHARING_ENABLED legal-review gate, merchantSharingGate.ts), so the
  *      page can say pooling is pending legal review without a NEXT_PUBLIC variable
  * POST /api/accounting/category-mappings

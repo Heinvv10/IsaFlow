@@ -6,6 +6,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { contractorLineFlag } from './payrollOutsideTables';
 import { UI19_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import {
   componentIdsToResolve,
@@ -142,6 +143,8 @@ export async function getUifDeclaration(
       AND prh.period_year  = ${decl.periodYear}
       AND prh.period_month = ${decl.periodMonth}
       AND prh.status = ANY(${declarableStatuses}::text[])
+      -- An independent contractor is no UIF contributor (G21 p. 26): not on the UI-19.
+      AND NOT COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)
     ORDER BY pe.employee_number
   `) as Row[];
 
@@ -197,6 +200,7 @@ export async function generateUifDeclaration(
       AND prh.period_year  = ${year}
       AND prh.period_month = ${month}
       AND prh.status = ANY(${declarableStatuses}::text[])
+      AND NOT COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)
   `) as Row[];
 
   const agg = aggRows[0];

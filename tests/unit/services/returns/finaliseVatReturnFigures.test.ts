@@ -64,7 +64,7 @@ describe('finaliseVatReturn', () => {
     m.computeVatLockFigures.mockResolvedValue({
       figures: {}, report: { rateCheck: { ties: false, outputVariance: 5, inputVariance: 0 }, totals: {}, boxes: [] },
     });
-    await expect(run()).rejects.toMatchObject({ status: 400 });
+    await expect(run()).rejects.toMatchObject({ status: 400, refusalCode: 'RATE_CHECK_FAILED' });
     expect(m.assertVatGateClear).not.toHaveBeenCalled();
     expect(m.lockVatPeriod).not.toHaveBeenCalled();
     await run({ force: true });
@@ -74,7 +74,7 @@ describe('finaliseVatReturn', () => {
   it('refuses a submitted vat_returns record with other figures before the gate; acknowledging keeps the reason', async () => {
     const rec = { status: 'submitted', outputTax: 1, inputTax: 0, netVat: 1, mismatch: true };
     m.getVatReturnRecord.mockResolvedValue(rec);
-    await expect(run()).rejects.toMatchObject({ status: 409 });
+    await expect(run()).rejects.toMatchObject({ status: 409, refusalCode: 'VAT_RETURN_MISMATCH' });
     expect(m.assertVatGateClear).not.toHaveBeenCalled();
     await run({ acknowledgeVatReturnMismatch: { reason: 'old test record' } });
     expect(m.insertVersion).toHaveBeenCalledWith(expect.objectContaining({

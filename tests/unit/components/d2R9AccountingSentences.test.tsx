@@ -106,7 +106,7 @@ describe('group eliminations writes', () => {
 });
 
 describe('EMP201', () => {
-  const DATA = { periodStart: '2026-08-01', periodEnd: '2026-08-31', totalPAYE: 1, totalETI: 0, payePayable: 1, totalUIF_employee: 1, totalUIF_employer: 1, totalUIF: 2, totalSDL: 1,
+  const DATA = { periodStart: '2026-08-01', periodEnd: '2026-08-31', totalPAYE: 1, totalETI: 0, payePayable: 1, etiCarry: { broughtForward: 0, used: 0, carriedForward: 0, refundClaimable: 0 }, totalUIF_employee: 1, totalUIF_employer: 1, totalUIF: 2, totalSDL: 1,
     employeeCount: 1, totalTaxableRemuneration: 10, totalDeductions: 1, payrollRuns: [] };
   it('generate, save-draft and submit each say which step failed on an empty 500', async () => {
     serve(on('GET', 'sars-emp201', empty500));
@@ -266,6 +266,11 @@ describe('an empty 5xx on a write names what could not be done', () => {
     serve(on('POST', 'year-end', empty500), on('GET', 'year-end', () => ok({ years: [YEAR] })));
     render(<YearEndPage />);
     fireEvent.click(await screen.findByRole('button', { name: /Process Year-End/ }));
+    // Audit P3.2: the close runs only after the year label is typed in the confirmation.
+    const input = await screen.findByRole('textbox');
+    await waitFor(() => expect((input as HTMLInputElement).disabled).toBe(false));
+    fireEvent.change(input, { target: { value: 'FY2025' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /Process Year-End/ }).at(-1)!);
     expect(await screen.findByText('Could not run year-end processing - try again')).toBeTruthy();
   });
 });

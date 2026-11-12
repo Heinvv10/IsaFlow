@@ -40,6 +40,9 @@
 
 export const PT_MM = 25.4 / 72;
 
+/** `--pack-gutter`. */
+export const GUTTER_MM = 8;
+
 export type PageOrientation = 'portrait' | 'landscape';
 
 /**
@@ -217,32 +220,21 @@ export function emsPerLine(pt: number, widthMm: number): number {
 }
 
 /**
- * Lines a string takes at `pt` across `widthMm`. At least one — an empty
- * paragraph still occupies its line box.
- *
- * WORD BY WORD, not a division. A character count assumes text breaks
- * anywhere, and the pack's does not: an unbreakable 36-character identifier
- * pushes the line before it short, and the division cannot see it.
- */
-export function wrappedLines(text: string, pt: number, widthMm: number): number {
-  return wrapEms(text, emsPerLine(pt, widthMm));
-}
-
-/**
- * A "WORD" IS WHAT A BROWSER WILL NOT BREAK, WHICH IS NOT WHAT `\s` MATCHES.
- *
- * `formatMoney` separates thousands with U+00A0 so a figure cannot split
- * across a line at its own separator (see `GROUP_SEPARATOR`) — and JavaScript's
- * `\s` matches U+00A0, so a wrap model splitting on `/\s+/` would offer the
- * renderer a break the browser will never take. It would then under-count the
- * lines of any block carrying a figure in prose, which is the number every
- * page's fit is decided on.
+ * A "WORD" IS WHAT A BROWSER WILL NOT BREAK, WHICH IS NOT WHAT `\s` MATCHES: `formatMoney` separates thousands with
+ * U+00A0 so a figure cannot split at its own separator, and `\s` matches it.
  */
 const BREAKABLE = /[^\S\u00a0\u202f]+/;
 
-/** Lines `text` takes on a line of `perLine` ems — `wrappedLines` without the
- *  millimetre conversion, for a caller that already holds the measure in ems. */
+/**
+ * Lines `text` takes on a line of `perLine` ems, WORD BY WORD (a character count cannot see that an unbreakable
+ * identifier pushes the line before it short). This was the page model's prose wrapper until #1263 gave it the faces'
+ * own widths; it is kept as the FLOOR under any prose text holding a code point the faces do not set
+ * (`packProseFloor.floorLines`, #1264 round 9: eight reviews kept finding new classes of fallback text the width model
+ * read short, and max(the width model, this one) read none of the stored sweeps short).
+ */
 export function wrapEms(text: string, perLine: number): number {
+  // A measure of no width holds nothing: the word loop below would never end (#1264 round 9 adversarial L).
+  if (!(perLine > 0)) throw new RangeError(`wrapEms: a line must hold some ems, got ${perLine}`);
   let count = 1;
   let used = 0;
   for (const word of text.split(BREAKABLE)) {
@@ -256,6 +248,11 @@ export function wrapEms(text: string, perLine: number): number {
     while (used > perLine) { count += 1; used -= perLine; }
   }
   return count;
+}
+
+/** Lines a string takes at `pt` across `widthMm`, at least one: `wrapEms` at the measure's ems. */
+export function wrappedLines(text: string, pt: number, widthMm: number): number {
+  return wrapEms(text, emsPerLine(pt, widthMm));
 }
 
 /** Millimetres of `n` lines set at a `lineHeightPt` leading. */

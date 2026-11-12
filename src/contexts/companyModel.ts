@@ -1,7 +1,7 @@
 /**
  * The company shapes CompanyProvider holds, and the two pure translations it
  * needs: an API row to a `Company`, and the localStorage stub that lets the
- * first paint show a company name instead of the 'ISAFlow' fallback.
+ * first paint show a company name instead of the 'IsaFlow' fallback.
  *
  * Split out of CompanyContext.tsx, which was over the 300-line ceiling. No
  * behaviour moves with it: every function here is what the provider already

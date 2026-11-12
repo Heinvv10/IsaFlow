@@ -18,11 +18,29 @@ import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { recordEmployeeChange } from './payrollEmployeeHistoryService';
+import { lockCompanyPayrollForComponentChange } from './payrollCompanyLock';
 
 export interface BulkFilter {
   department?: string | null;
   costCentreId?: string | null;
   employmentType?: string | null;
+}
+
+/** What a bulk update may set: a director is a tax status (TS-b), set on the profile; the employment type feeds the run's figures. */
+export const BULK_EMPLOYMENT_TYPES = ['permanent', 'contract', 'casual'] as const;
+
+/** Raised before any read or write when a bulk update names an employment type it may not set (answered 400). */
+export class BulkEmploymentTypeRefused extends Error {
+  constructor(value: string) {
+    super(`employmentType must be one of: ${BULK_EMPLOYMENT_TYPES.join(', ')} (got "${value}"; a director is set through the tax status)`);
+    this.name = 'BulkEmploymentTypeRefused';
+  }
+}
+
+function judgeEmploymentType(u: BulkUpdate): void {
+  if (u.employmentType !== undefined && !(BULK_EMPLOYMENT_TYPES as readonly string[]).includes(u.employmentType)) {
+    throw new BulkEmploymentTypeRefused(u.employmentType);
+  }
 }
 
 export interface BulkUpdate {
@@ -82,8 +100,9 @@ function hasAnyUpdate(u: BulkUpdate): boolean {
 async function findMatchingEmployees(
   companyId: string,
   filter: BulkFilter,
+  db: typeof sql = sql,
 ): Promise<DbRow[]> {
-  return (await sql`
+  return (await db`
     SELECT id, employee_number, first_name, last_name, department, cost_centre_id, employment_type
       FROM payroll_employees
      WHERE company_id = ${companyId}::uuid
@@ -123,6 +142,7 @@ export async function previewBulkEmployeeUpdate(
 ): Promise<BulkPreview> {
   if (!hasAnyUpdate(update)) throw new EmptyUpdateError();
   if (!hasAnyFilter(filter)) throw new EmptyFilterError();
+  judgeEmploymentType(update);
 
   const rows = await findMatchingEmployees(companyId, filter);
   const sample: BulkPreviewRow[] = rows.slice(0, sampleLimit).map(r => ({
@@ -144,15 +164,8 @@ export async function applyBulkEmployeeUpdate(
 ): Promise<BulkApplyResult> {
   if (!hasAnyUpdate(update)) throw new EmptyUpdateError();
   if (!hasAnyFilter(filter)) throw new EmptyFilterError();
+  judgeEmploymentType(update);
 
-  const rows = await findMatchingEmployees(companyId, filter);
-  if (rows.length === 0) return { updated: 0 };
-
-  log.info(
-    'Applying bulk employee update',
-    { companyId, userId, matchCount: rows.length, update },
-    'payrollBulkEmployeeService',
-  );
 
   // withTransaction, NEVER raw BEGIN/COMMIT. A raw `sql`COMMIT`` routes onto
   // the ALS request client (`neon/query.ts` LazyQuery.run), which is the transaction
@@ -173,6 +186,17 @@ export async function applyBulkEmployeeUpdate(
   // survive a rollback. Unreachable today; if this function ever gains a caller
   // outside a request transaction, `recordEmployeeChange` must take the `tx`.
   return withTransaction(async (tx) => {
+    // The employment type feeds the run's figures (the hours warning, the director check): it waits for the company's
+    // payroll-approval lock like the single-employee write does, so an approval in flight is not left on old figures. The lock
+    // comes BEFORE the matching rows are read, so what is read is what is written.
+    if (update.employmentType !== undefined) await lockCompanyPayrollForComponentChange(tx, companyId);
+    const rows = await findMatchingEmployees(companyId, filter, tx as typeof sql);
+    if (rows.length === 0) return { updated: 0 };
+    log.info(
+      'Applying bulk employee update',
+      { companyId, userId, matchCount: rows.length, update },
+      'payrollBulkEmployeeService',
+    );
     for (const r of rows) {
       const id = String(r.id);
       await tx`

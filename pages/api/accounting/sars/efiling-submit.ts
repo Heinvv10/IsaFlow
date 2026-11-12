@@ -23,6 +23,7 @@ import {
   EfilingBlockedError,
   EfilingSubmissionNotFoundError,
   EfilingAlreadyFiledError,
+  EfilingSendUncertainError,
 } from '@/modules/accounting/services/reports/sarsEfilingSubmissionService';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
@@ -58,6 +59,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.conflict(res, 'This VAT201 has already been filed to SARS', {
         correlationId: err.correlationId,
       });
+    }
+    if (err instanceof EfilingSendUncertainError) {
+      return apiResponse.conflict(res, err.message, { correlationId: err.correlationId });
     }
     if (err instanceof EfilingBlockedError) {
       // "Do not file" — the differentiator. Surface the reason to the user.

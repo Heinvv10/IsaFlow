@@ -33,6 +33,8 @@ export interface Employee {
   hourlyRate?: number | null;
   dailyRate?: number | null;
   occupation?: string | null;
+  /** ETI Act s6(b), migration 976: null or sa_id = the ID number decides. */
+  etiIdDocument?: 'sa_id' | 'asylum_seeker_permit' | 'refugee_id' | null;
 }
 
 interface Props {

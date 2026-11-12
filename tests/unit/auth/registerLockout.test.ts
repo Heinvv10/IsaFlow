@@ -175,7 +175,7 @@ describe('register — failure cleanup', () => {
     expect(res.body.data).toMatchObject({ pendingVerification: true });
     // The ops notification must not fire until the address is verified.
     const subjects = sendEmailMock.mock.calls.map((c) => (c[0] as { subject: string }).subject);
-    expect(subjects).toEqual(['Confirm your email to activate ISAFlow']);
+    expect(subjects).toEqual(['Confirm your email to activate IsaFlow']);
   });
 
   it('normalises the email before use', async () => {

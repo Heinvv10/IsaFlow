@@ -15,10 +15,10 @@ import { companiesWithFeature, hasFeature } from '@/modules/admin/services/featu
 export const MCP_CONNECTOR_FEATURE = 'mcp_connector';
 
 export const NO_CONNECTOR_COMPANY_MESSAGE =
-  'The MCP connector is not switched on for any of your companies. Contact ISAFlow support to have it switched on.';
+  'The MCP connector is not switched on for any of your companies. Contact IsaFlow support to have it switched on.';
 
 export const CONNECTOR_COMPANY_REFUSED_MESSAGE =
-  'The MCP connector is not switched on for this company. Choose another company, or contact ISAFlow support to have it switched on.';
+  'The MCP connector is not switched on for this company. Choose another company, or contact IsaFlow support to have it switched on.';
 
 export async function isConnectorEnabled(companyId: string): Promise<boolean> {
   return hasFeature(companyId, MCP_CONNECTOR_FEATURE);

@@ -96,12 +96,12 @@ async function refresh() {
     const list = await bg('list-connections');
     if (!list || list.length === 0) {
       const empty = el('div', { cls: 'empty' });
-      empty.appendChild(document.createTextNode('No connections yet. Open '));
-      const a = el('a', { text: 'ISAFlow → Bank Feeds' });
-      a.href = 'https://app.isaflow.co.za/accounting/bank-feeds';
+      empty.appendChild(document.createTextNode('No connections in this browser. Paired extensions are listed, and can be revoked, in '));
+      const a = el('a', { text: 'ISAFlow → Statement Imports' });
+      a.href = 'https://app.isaflow.co.za/accounting/bank/statements';
       a.target = '_blank';
       empty.appendChild(a);
-      empty.appendChild(document.createTextNode(' to pair a bank.'));
+      empty.appendChild(document.createTextNode('.'));
       $conn.appendChild(empty);
       return;
     }

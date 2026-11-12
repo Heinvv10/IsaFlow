@@ -17,6 +17,7 @@ import type {
   PackDefinition,
   PackDisclosure,
 } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { proseText } from '../primitives/PackProse';
 
 export interface PackDisclosureBlockProps {
   disclosure: PackDisclosure;
@@ -25,13 +26,13 @@ export interface PackDisclosureBlockProps {
 export function PackDisclosureBlock({ disclosure }: PackDisclosureBlockProps) {
   return (
     <div className={disclosure.columns === 2 ? 'pack-disclosure is-two-column' : 'pack-disclosure'}>
-      <h3 className="pack-disclosure-heading">{disclosure.heading}</h3>
+      <h3 className="pack-disclosure-heading">{proseText(disclosure.heading)}</h3>
       {disclosure.notes.map((note, index) => (
         <p key={`${note.heading}-${index}`} className="pack-disclosure-body">
-          <span className="pack-disclosure-note-heading">{note.heading}</span>
+          <span className="pack-disclosure-note-heading">{proseText(note.heading)}</span>
           <FootnoteMarker number={note.footnote ?? null} />
           {' '}
-          {note.body}
+          {proseText(note.body)}
         </p>
       ))}
     </div>
@@ -49,9 +50,9 @@ export function PackDefinitionsBlock({ entries, scale }: PackDefinitionsBlockPro
     <dl className="pack-definitions">
       {entries.map((entry) => (
         <div key={entry.term} className="pack-definition">
-          <dt className="pack-definition-term">{entry.term}</dt>
+          <dt className="pack-definition-term">{proseText(entry.term)}</dt>
           <dd className="pack-definition-body">
-            {entry.definition}
+            {proseText(entry.definition)}
             {entry.reconciliation && entry.reconciliation.length > 0 && (
               <table className="pack-table pack-definition-bridge">
                 {/* A SECOND COLUMN NEEDS A HEADING; ONE DOES NOT.
@@ -92,7 +93,7 @@ export function PackDefinitionsBlock({ entries, scale }: PackDefinitionsBlockPro
               </table>
             )}
             {entry.reconciliationNote && (
-              <p className="pack-definition-bridge-note">{entry.reconciliationNote}</p>
+              <p className="pack-definition-bridge-note">{proseText(entry.reconciliationNote)}</p>
             )}
           </dd>
         </div>

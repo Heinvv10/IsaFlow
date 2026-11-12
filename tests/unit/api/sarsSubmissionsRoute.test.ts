@@ -18,6 +18,7 @@ vi.mock('@/lib/apiResponse', () => ({
     badRequest: vi.fn((_res: unknown, error: string, details?: unknown) => ({ kind: 'badRequest', error, details })),
     badRequestFromError: vi.fn((_res: unknown, err: unknown) => ({ kind: 'badRequestFromError', err })),
     forbidden: vi.fn((_res: unknown, error: string) => ({ kind: 'forbidden', error })),
+    conflict: vi.fn((_res: unknown, error: string) => ({ kind: 'conflict', error })),
     notFound: vi.fn((_res: unknown, resource: string, id: string) => ({ kind: 'notFound', resource, id })),
     methodNotAllowed: vi.fn(() => ({ kind: 'methodNotAllowed' })),
   },
@@ -30,6 +31,7 @@ const m = vi.hoisted(() => ({
   assertVatGateClear: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/reports/sarsService', () => ({
+  SubmissionNotOpenError: class SubmissionNotOpenError extends Error {},
   listSubmissions: m.listSubmissions,
   markSubmitted: m.markSubmitted,
   getSubmission: m.getSubmission,
@@ -44,6 +46,7 @@ import handler from '../../../pages/api/accounting/sars/sars-submissions';
 import {
   VatGateBlockedError, VatGateOverrideForbiddenError,
 } from '@/modules/accounting/services/reports/vatGateOverrideService';
+import { SubmissionNotOpenError } from '@/modules/accounting/services/reports/sarsService';
 
 const COMPANY = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa';
 const USER = 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb';
@@ -92,6 +95,12 @@ describe('mark_submitted — VAT201 blocking exceptions gate', () => {
     const out = await call('manager', { ...body, overrideReason: 'trust me' });
     expect(out.kind).toBe('forbidden');
     expect(m.markSubmitted).not.toHaveBeenCalled();
+  });
+
+  it('answers a submission that is not an open draft (or belongs to a return version) with 409', async () => {
+    m.markSubmitted.mockRejectedValue(new SubmissionNotOpenError('file through the return lifecycle'));
+    const out = await call('owner', body);
+    expect(out.kind).toBe('conflict');
   });
 
   it('is not consulted for a non-VAT201 submission', async () => {

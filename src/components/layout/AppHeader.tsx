@@ -57,7 +57,7 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
       </button>
 
       {/* Logo (in top-nav mode, show logo here; in side mode it's in the sidebar) */}
-      <Image src="/logo.png" alt="ISAFlow" width={80} height={32} className="h-8 w-auto hidden sm:block dark:brightness-0 dark:invert" />
+      <Image src="/logo.png" alt="IsaFlow" width={80} height={32} className="h-8 w-auto hidden sm:block dark:brightness-0 dark:invert" />
 
       {/* Company switcher (hidden on admin subdomain) */}
       {!isAdminHost && (

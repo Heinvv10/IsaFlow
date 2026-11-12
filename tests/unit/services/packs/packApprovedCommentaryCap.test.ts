@@ -5,20 +5,20 @@
  * approved row's text into one paragraph (`packDraftState.approvedCommentary`)
  * and a page that does not fit its sheet is REFUSED — `buildBoardPackPages`
  * throws `PackRefusal` and the company gets no board pack at all. The limit is
- * therefore on the pack, and the cost is `commentaryCost`: the page model's
- * own wrapper (`wrapEms`) run on the joined paragraph at the two prose
- * measures, lines x line-ems. Approximating word shapes lost every arms race
+ * therefore on the pack, and the cost is `commentaryCost`: page 4's own fill,
+ * at widths never under page 4's, run on the joined paragraph at the two prose
+ * measures, lines x the measure in ems. Approximating word shapes lost every arms race
  * (a character count, a plain ems sum, a per-word line charge each admitted a
  * text the page then refused); running the page's wrapper cannot.
  *
  * MEASUREMENT (real page builder; the cost page 4 holds before it refuses,
- * tightest fixture `liveDemoShortPanelsInput`): 617 for wide glyphs,
- * alternating line-wide and short words and every word-length sweep (the
- * capacity is the page's line count, not a function of word shape); prose 644,
- * caps 672, CJK 784. Other fixtures hold 793 to 980. MAX_APPROVED_PACK_EMS =
- * 600 is 3% under the tightest.
+ * tightest fixture `liveDemoShortPanelsInput`; the cost is page 4's own fill at
+ * `packProseBound`'s widths, lines x the measure in ems): 787 for capitals,
+ * digits, wide glyphs, long words and words of 10 or 26 letters; prose 813, a
+ * URL 838, CJK 939. Other fixtures hold 1083 to 1996. MAX_APPROVED_PACK_EMS =
+ * 760 is 3% under the tightest.
  *
- * Mutation check: raise MAX_APPROVED_PACK_EMS to 1200 and the at-budget tests
+ * Mutation check: raise MAX_APPROVED_PACK_EMS to 1500 and the at-budget tests
  * go red with a PackRefusal on page 4.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -80,10 +80,13 @@ function textCosting(kind: string, cost: number): string {
 /** `rows` approved rows of `kind`, the pack costing about `factor` x the budget as joined. */
 function approvedRows(kind: string, rows: number, factor: number): CommentaryRow[] {
   const whole = textCosting(kind, MAX_APPROVED_PACK_EMS * factor);
-  const per = Math.ceil(whole.length / rows);
+  // Cut at spaces, so the rows joined by one space are the costed text again (a cut inside a word makes two words of
+  // it, which page 4 sets differently from the one it was costed as).
+  const words = whole.split(' ');
+  const pieces = Array.from({ length: rows }, (_, i) => words.slice(Math.floor((i * words.length) / rows), Math.floor(((i + 1) * words.length) / rows)).join(' '));
   return Array.from({ length: rows }, (_, i) => ({
     id: `row-${i}`, sectionRef: i < 3 ? 'income_statement' : 'balance_sheet', rowRef: `r${String(i).padStart(2, '0')}`,
-    draftText: 'machine draft', approvedText: whole.slice(i * per, (i + 1) * per).trim() || '.',
+    draftText: 'machine draft', approvedText: pieces[i]!.trim() || '.',
     status: 'approved' as const, approvedBy: 'u1', approvedAt: '2026-10-01T00:00:00.000Z',
     withdrawnBy: null, withdrawnAt: null,
   }));

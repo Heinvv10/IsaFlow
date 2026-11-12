@@ -57,16 +57,23 @@ function parked() {
   return { slot: { hold, entered }, inside, release: () => release() };
 }
 
-/** 'waiting' once a backend waits on a lock while inserting a directive payment. */
-async function waitsOnPaymentRow(): Promise<'waiting'> {
+/**
+ * 'waiting' once the second writer waits on the first. Since wave 5 ET the stand-alone payment takes the company payroll
+ * approval lock first, as approval does (lock order 1 -> 2 -> 3), so here the second writer waits on THAT lock: this
+ * company's `payroll_approval:<company>` advisory key, and nothing else. The payment row's UNIQUE backstop, which the
+ * company lock now keeps out of reach, is exercised in p3-severance-directive-race-row-claim.int.test.ts.
+ */
+async function waitsOnCompanyApprovalLock(company: string): Promise<'waiting'> {
   for (let i = 0; i < 200; i += 1) {
     const r = await pool.query(
-      `SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
-          AND query ILIKE '%INSERT INTO tax_directive_payments%'`);
+      `SELECT 1 FROM pg_locks l
+        WHERE l.locktype = 'advisory' AND NOT l.granted
+          AND ((l.classid::bigint << 32) | l.objid::bigint) = (hashtextextended($1, 0) & x'FFFFFFFFFFFFFFFF'::bigint)`,
+      [`payroll_approval:${company}`]);
     if (r.rowCount) return 'waiting';
     await new Promise((res) => setTimeout(res, 20));
   }
-  throw new Error('the second writer never waited on the payment row');
+  throw new Error('the second writer never waited on the company payroll approval lock');
 }
 
 async function finalRunWithDirective(name: string) {
@@ -91,7 +98,7 @@ describe('P3: run approval and stand-alone payment of one directive, concurrentl
     const approval = approveRun(f, sept);
     await p.inside;
     const standalone = applyStandalone(f, directive);
-    const state = await Promise.race([standalone.then(() => 'finished' as const), waitsOnPaymentRow()]);
+    const state = await Promise.race([standalone.then(() => 'finished' as const), waitsOnCompanyApprovalLock(f.company)]);
     p.release();
     const [a, s] = await Promise.all([approval, standalone]);
     expect(state).toBe('waiting');
@@ -109,7 +116,7 @@ describe('P3: run approval and stand-alone payment of one directive, concurrentl
     const standalone = applyStandalone(f, directive);
     await p.inside;
     const approval = approveRun(f, sept);
-    const state = await Promise.race([approval.then(() => 'finished' as const), waitsOnPaymentRow()]);
+    const state = await Promise.race([approval.then(() => 'finished' as const), waitsOnCompanyApprovalLock(f.company)]);
     p.release();
     const [s, a] = await Promise.all([standalone, approval]);
     expect(state).toBe('waiting');

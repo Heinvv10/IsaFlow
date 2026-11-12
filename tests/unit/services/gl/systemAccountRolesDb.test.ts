@@ -17,6 +17,8 @@
  * This test WRITES, so it refuses to run against production. Everything happens
  * inside one transaction that is rolled back.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { PoolClient } from 'pg';
 import { als } from '@/lib/als';
@@ -85,6 +87,10 @@ describe('system account roles (DB)', async () => {
     assertNotProductionDb('creates a company and GL accounts, then rolls back');
     client = await getPoolForTests().connect();
     await client.query('BEGIN');
+    // Migration 974 (wave 5 ET) adds the eti_refund_receivable role. The shared dev database gets a branch migration only
+    // after merge, so this suite applies 974 INSIDE its own transaction (idempotent; rolled back in afterAll): the
+    // roles are then judged against the chart as the deploy leaves it, without touching the database.
+    await client.query(readFileSync(join(process.cwd(), 'scripts/migrations/sql/974_eti_refund_receivable_account.sql'), 'utf8'));
   });
 
   afterAll(async () => {
@@ -105,7 +111,7 @@ describe('system account roles (DB)', async () => {
     return client;
   }
 
-  it.skipIf(!reachable)('a brand-new tenant can resolve all fifteen roles (fourteen, plus vat_input_late_claim since migration 701)', async () => {
+  it.skipIf(!reachable)('a brand-new tenant can resolve all sixteen roles (fourteen, plus vat_input_late_claim since 701 and eti_refund_receivable since 974)', async () => {
     const c = db();
 
     // The same seeder `create_company_with_owner` invokes, so this exercises
@@ -133,15 +139,16 @@ describe('system account roles (DB)', async () => {
       expect(account.accountSubtype).toBe(key);
       resolved.push(`${key}=${account.accountCode}`);
     }
-    expect(resolved).toHaveLength(15);
+    expect(resolved).toHaveLength(16);
 
     const coverage = await asCompany(companyId, () => getSystemRoleCoverage(companyId));
     expect(coverage.empty).toEqual([]);
     expect(coverage.contested).toEqual([]);
-    expect(coverage.roles).toHaveLength(15);
+    expect(coverage.roles).toHaveLength(16);
 
     // The two roles migration 605 added, at the codes that were signed off.
     const byRole = new Map(coverage.roles.map((r) => [r.key, r.holder?.accountCode]));
+    expect(byRole.get('eti_refund_receivable')).toBe('1150'); // migration 974's seeder row
     expect(byRole.get('disposal_profit_loss')).toBe('4410');
     expect(byRole.get('opening_balance_equity')).toBe('3300');
     // The one that was a flag rather than an account.
@@ -169,7 +176,7 @@ describe('system account roles (DB)', async () => {
    * migration file's logic, and it should not be read as proof that 606 is
    * correct — only that whatever ran left the roles resolvable.
    */
-  it.skipIf(!reachable)('every production tenant PRESENT IN THIS DATABASE holds all fifteen roles', async () => {
+  it.skipIf(!reachable)('every production tenant PRESENT IN THIS DATABASE holds all sixteen roles', async () => {
     const c = db();
 
     // The 13 companies measured in production on 2026-09-04.

@@ -10,6 +10,10 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// Hein ruling R-A / review L4 (wave 5 ET) have their own tests (etiPeriodGuard.test.ts, previewPayrollApproval.test.ts).
+vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', () => ({
+  laterEtiJournalRefusal: vi.fn(async () => null), earlierUnapprovedRefusal: vi.fn(async () => null),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollJournalBuilder', () => ({ buildPayrollJournalPlan: vi.fn() }));
 vi.mock('@/modules/accounting/services/payroll/payrollApprovalRefusal', () => ({ approvalStatusRefusal: vi.fn(() => null) }));

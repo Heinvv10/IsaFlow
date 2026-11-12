@@ -37,11 +37,14 @@ import { capWarningsForHeader } from '@/modules/accounting/services/payroll/easy
 import {
   ageAtYearEnd, firstTwoNames, initialsFromName, localDay, monthsBetween, taxThresholdFor, toCCYYMMDD,
 } from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
+import { allowanceCertificateFields, listRunAllowanceFiling } from '@/modules/accounting/services/payroll/payrollAllowanceFiling';
 import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
 import {
   listRunNonCashBenefits, listRunUnflaggedFringe, unflaggedFringeSummary,
 } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
 import { medicalCertificateWarnings } from '@/modules/accounting/services/payroll/easyFileMedicalFields';
+import { splitContractorIncome } from '@/modules/accounting/services/payroll/easyFileContractor';
+import { loadCertificateAggregates } from '@/modules/accounting/services/payroll/easyFileCertificateAggregates';
 import { loadRetirementContributions } from '@/modules/accounting/services/payroll/payrollRetirementRecord';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
@@ -66,7 +69,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   // follow-ups G1). The stand-alone payments are in no run line, so their
   // gross and PAYE are added to the run totals.
   const bounds = saTaxYearBounds(taxYear);
-  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee, retirementByEmployee, fringeByEmployee, unflaggedFringe] = await Promise.all([
+  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee, retirementByEmployee, fringeByEmployee, unflaggedFringe, allowancesByEmployee] = await Promise.all([
     sql`
       SELECT
         COALESCE(registered_name, name) AS trading_name,
@@ -84,33 +87,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       WHERE  company_id = ${companyId}::uuid
       ORDER  BY last_name, first_name
     ` as Promise<DbRow[]>,
-    sql`
-      SELECT
-        prl.employee_id,
-        SUM(prl.gross_pay)    AS total_gross,
-        SUM(prl.paye)         AS total_paye,
-        SUM(prl.uif_employee) AS total_uif_emp,
-        SUM(prl.uif_employer) AS total_uif_empr,
-        SUM(prl.sdl)          AS total_sdl
-      FROM payroll_run_lines prl
-      JOIN payroll_run_headers prh ON prh.id = prl.run_id
-      WHERE prh.company_id = ${companyId}::uuid
-        AND prh.status = ANY(${declarableStatuses}::text[])
-        AND (
-          (prh.period_year = ${startYear} AND prh.period_month >= ${startMonth})
-          OR
-          (prh.period_year = ${endYear}   AND prh.period_month <= ${endMonth})
-        )
-      GROUP BY prl.employee_id
-    ` as Promise<DbRow[]>,
+    loadCertificateAggregates(companyId, declarableStatuses, { startYear, startMonth, endYear, endMonth }),
     listCertificateLumpSums(companyId, bounds),
     listRunAnnualPayments(companyId, bounds),
     loadMedicalRecord(companyId, bounds),
     loadRetirementContributions(companyId, bounds),
     // Non-cash benefits: outside gross_pay, so outside 3601; under their own code (3801).
-    listRunNonCashBenefits(companyId, bounds),
+    listRunNonCashBenefits(companyId, bounds, null, { excludeContractorLines: true }),
     // 3801 items paid in cash (no flag): in 3601, and said so below.
     listRunUnflaggedFringe(companyId, bounds),
+    // 3701 (own code, outside 3601) and 4582 (the part of 3701 + 3802 PAYE was withheld on).
+    listRunAllowanceFiling(companyId, bounds),
   ]);
 
   const company = companyRows[0];
@@ -151,18 +138,27 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const standalone = lumpSums.standaloneTotals.get(String(row.id)) ?? { gross: 0, paye: 0 };
     const agg = aggMap.get(String(row.id)) ?? (standalone.gross > 0 ? ({} as DbRow) : undefined);
     if (!agg) continue;
-    const gross = Number(agg.total_gross ?? 0) + standalone.gross;
+    const { salaryGross: gross, annualPayments, income3616 } = splitContractorIncome({
+      totalGross: Number(agg.total_gross ?? 0), contractorGross: Number(agg.contractor_gross ?? 0), contractorAnnual: Number(agg.contractor_annual ?? 0),
+      contractorDirective: Number(agg.contractor_directive ?? 0), contractorNonCash: Number(agg.contractor_noncash ?? 0),
+      annualAll: annualByEmployee.get(String(row.id)) ?? 0, standaloneGross: standalone.gross,
+    });
     const fringeBenefits = fringeByEmployee.get(String(row.id)) ?? [];
     const employeeLumpSums = lumpSums.byEmployee.get(String(row.id)) ?? [];
     const split = splitCertificateIncome({
       gross, paye: Number(agg.total_paye ?? 0) + standalone.paye,
-      annualPayments: annualByEmployee.get(String(row.id)) ?? 0, lumpSums: employeeLumpSums,
+      annualPayments, lumpSums: employeeLumpSums,
     });
     const who = `${String(row.first_name ?? '')} ${String(row.last_name ?? '')}`.trim();
+    // Contractor lines are left out of the allowance totals (their fees, 3701 included, are in 3616), so a year that is part employee,
+    // part contractor keeps the employee months' 3701 / 4582.
+    const allowance = allowanceCertificateFields(allowancesByEmployee.get(String(row.id)), who);
+    split.grossSalary3601 = Math.round((split.grossSalary3601 - allowance.cashAllowances.reduce((n, a) => n + a.amount, 0)) * 100) / 100;
+    warnings.push(...allowance.warnings);
     // The writer's rule (cents dropped, a nil field left out): no income code of R1 or more, no
     // certificate. Skipped, not refused for the whole company, unless PAYE was withheld: no
     // certificate could carry it and 4102 would under-report, so the file is refused, naming it.
-    const incomes = [split.grossSalary3601, split.annualPayments3605, ...employeeLumpSums.map(l => l.amount), ...fringeBenefits.map(f => f.amount)];
+    const incomes = [split.grossSalary3601, income3616, split.annualPayments3605, ...allowance.cashAllowances.map(a => a.amount), ...employeeLumpSums.map(l => l.amount), ...fringeBenefits.map(f => f.amount)];
     if (!incomes.some(a => Math.floor(a) >= 1)) {
       const paye = Math.round((Number(agg.total_paye ?? 0) + standalone.paye) * 100) / 100;
       if (paye !== 0) {
@@ -204,6 +200,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       employmentEndDate: certEndDate,
       periodsInYoA: monthsBetween(periodStart, periodEnd),
       ...split,
+      cashAllowances: allowance.cashAllowances,
+      ...(allowance.paye4582 !== undefined ? { paye4582: allowance.paye4582 } : {}),
+      ...(income3616 > 0 ? { independentContractor3616: income3616 } : {}),
       fringeBenefits,
       lumpSums: employeeLumpSums.map(l => ({
         sourceCode: l.sourceCode,

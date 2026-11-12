@@ -1,6 +1,6 @@
 /**
  * CodingMetricsStrip — the company's learning-loop numbers above the bank transactions table:
- * how many lines ISAFlow coded with no clicks this month, and how often its suggestions were accepted.
+ * how many lines IsaFlow coded with no clicks this month, and how often its suggestions were accepted.
  * Reads GET /api/accounting/coding-metrics (active company). Renders nothing until loaded.
  */
 import { useEffect, useState } from 'react';
@@ -30,7 +30,7 @@ export function CodingMetricsStrip() {
   if (!data) return null;
   const { metrics, minDecisions } = data;
   return (
-    <div aria-label="ISAFlow coding" className="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-[var(--ff-text-secondary)]">
+    <div aria-label="IsaFlow coding" className="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-[var(--ff-text-secondary)]">
       <span>{autoCodedLabel(metrics.autoCoded)}</span>
       <span>{acceptedLabel(metrics.suggestionsAccepted, metrics.decisionLogSince, minDecisions)}</span>
     </div>

@@ -1,5 +1,5 @@
 /**
- * ISAFlow shared UI component library — barrel export.
+ * IsaFlow shared UI component library — barrel export.
  * Import from '@/components/ui' for any shared primitive.
  */
 

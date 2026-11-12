@@ -68,6 +68,7 @@ describe('journal entry detail: refusal message reaches the user', () => {
       method(init) === 'POST' ? refuse(MSG, 422) : ok({ ...ENTRY, status: 'posted' }));
     render(<JournalEntryDetailPage />);
     fireEvent.click(await screen.findByRole('button', { name: /^reverse$/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /reverse journal/i })); // audit P3.2 confirmation
     await sees(MSG);
   });
 });

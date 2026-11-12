@@ -35,6 +35,16 @@ export const PRINT_PARITY_FILES = [
   'tests/unit/printParity/packNumericHoldImage.test.ts', // the same
   'tests/unit/printParity/packAnywhereLabelImage.test.ts', // the same
   'tests/unit/printParity/packRunNoiseImage.test.ts', // the same
+  'tests/unit/printParity/packProseLinesImage.test.ts', // the same
+  'tests/unit/printParity/packProseLinksImage.test.ts', // the same
+  'tests/unit/printParity/packProseDictionaryImage.test.ts', // the same
+  'tests/unit/printParity/packFallbackMarksImage.test.ts', // the same
+  'tests/unit/printParity/packProseMixedImage.test.ts', // the same
+  'tests/unit/printParity/packProseMarksR4Image.test.ts', // the same
+  'tests/unit/printParity/packProseMarksR5Image.test.ts', // the same
+  'tests/unit/printParity/packProseMarksR6Image.test.ts', // the same
+  'tests/unit/printParity/packProseMarksR7Image.test.ts', // the same
+  'tests/unit/printParity/packProseMarksR8Image.test.ts', // the same
 ];
 
 export const VELO_MACHINE_FILES = [

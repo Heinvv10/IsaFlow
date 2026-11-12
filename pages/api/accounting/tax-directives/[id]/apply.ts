@@ -18,9 +18,12 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
-  applyTaxDirective, TaxDirectiveAlreadyAppliedError, TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError,
+  TaxDirectiveAlreadyAppliedError, TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError,
   TaxDirectiveWithoutEmployeeError,
 } from '@/modules/accounting/services/payroll/taxDirectivePaymentService';
+// The payment plus its month's ETI journal, refused while a later ETI month is posted (wave 5 ET: H2, R-A, R-C).
+import { applyTaxDirective } from '@/modules/accounting/services/payroll/directivePaymentEti';
+import { EtiLaterMonthPostedError } from '@/modules/accounting/services/payroll/etiPeriodGuard';
 import { isBankAccountRefusal } from '@/modules/accounting/services/gl/paymentBankAccount';
 import { log } from '@/lib/logger';
 
@@ -66,6 +69,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (respondIfLockTimeout(res, err)) return;
     // Raised before anything is written (taxDirectivePaymentService), so the
     // 409 withAuth commits leaves nothing half-applied.
+    if (err instanceof EtiLaterMonthPostedError) return apiResponse.conflict(res, err.message, { code: 'ETI_LATER_MONTH_POSTED' });
     if (err instanceof TaxDirectiveAlreadyAppliedError) return apiResponse.conflict(res, err.message);
     if (err instanceof TaxDirectiveNotApprovedError) return apiResponse.conflict(res, err.message);
     if (err instanceof TaxDirectiveWithoutEmployeeError) return apiResponse.badRequest(res, err.message);

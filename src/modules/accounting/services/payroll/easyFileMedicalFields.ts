@@ -5,9 +5,10 @@
  * (Jun-26):
  * - 4005 (p. 52-53; p. 101 "Medical scheme fees (contributions) paid and
  *   'deemed paid' by employee"): cents omitted. Here: the fees the employee
- *   paid through payroll, deductions coded 4005. The 'deemed paid' part, an
- *   employer's contribution taxed as a 3810 benefit (G21 2027 p. 11), is not
- *   supported.
+ *   paid through payroll, deductions coded 4005, plus (wave 5 FB) the 'deemed
+ *   paid' part: an employer's contribution taxed as a 3810 benefit (G21 2027
+ *   p. 11-12), which the line's stored medical_scheme_fees already carries.
+ *   The certificate also writes 4474 = 3810 (easyFileExportService).
  * - 4116 (p. 59): "Medical Scheme Fees Tax Credit considered by employer for
  *   PAYE purposes"; IRP5 or IT3(a); "mandatory if any value is completed for
  *   ... 4005" and "must not be completed if there is no value for ... 4005";
@@ -73,7 +74,8 @@ export function medicalFieldLines(emp: EmployeeInput): { fees: (string | null)[]
 export function nilTaxReason(emp: EmployeeInput): '02' | '04' | '08' {
   // A non-cash fringe benefit (3801) is taxable remuneration like 3601 / 3605.
   const income = Math.max(0, emp.grossSalary3601) + Math.max(0, emp.annualPayments3605 ?? 0)
-    + (emp.fringeBenefits ?? []).reduce((s, f) => s + Math.max(0, f.amount), 0);
+    + (emp.fringeBenefits ?? []).reduce((s, f) => s + Math.max(0, f.amount), 0)
+    + (emp.cashAllowances ?? []).reduce((s, f) => s + Math.max(0, f.amount), 0);
   const lumpSums = emp.lumpSums ?? [];
   if (emp.taxThreshold != null && income <= emp.taxThreshold) return lumpSums.length > 0 ? '04' : '02';
   const m = emp.medical;
@@ -95,7 +97,7 @@ function medicalGap(m: MedicalCertificateInput | undefined): string {
   }
   if (m == null || Math.floor(m.fees) <= 0) {
     return 'No medical aid contribution is deducted through payroll for this employee (a deduction component coded 4005); '
-      + 'employer-paid medical aid (a 3810 benefit) is not supported. ';
+      + 'an employer-paid contribution (a 3810 benefit) counts only with a taxable 3810 earning on the employee. ';
   }
   return 'No medical credit took tax off this year. ';
 }

@@ -14,7 +14,7 @@
  *      (llmCategorizationPass RESIDUAL_CONFIDENCE_CEILING), so a pool suggestion is not handed straight
  *      back to the LLM pass to overwrite.
  *
- * Source 'shared_pool': labelled "Common at other ISAFlow clients" in the bank screen, and NEVER
+ * Source 'shared_pool': labelled "Common at other IsaFlow clients" in the bank screen, and NEVER
  * auto-posted (autoPostGate refuses the strategy outright). Non-fatal: a failed lookup costs the
  * suggestion, never the categorisation run (own savepoint, so a request transaction stays usable).
  *
@@ -32,7 +32,7 @@ import { merchantCategory } from './merchantCategories';
 import { poolMerchantKey } from './merchantPiiFilter';
 
 export const SHARED_POOL_MIN_CONFIDENCE = 0.6;
-export const SHARED_POOL_LABEL = 'Common at other ISAFlow clients';
+export const SHARED_POOL_LABEL = 'Common at other IsaFlow clients';
 const MAX_KEYS_PER_LOOKUP = 500;
 
 export interface SharedLookupLine { txId: string; description: string }

@@ -128,7 +128,7 @@ export default function CustomerDedupPage() {
             <div className="text-sm text-[var(--ff-text-secondary)]">
               <p className="font-medium text-[var(--ff-text-primary)] mb-0.5">How deduplication works</p>
               <p>
-                ISAFlow matches customers by identical email, VAT number, or similar name.
+                IsaFlow matches customers by identical email, VAT number, or similar name.
                 Merging moves all invoices, payments, quotes, sales orders, and credit notes
                 to the customer you keep. The duplicate is then marked inactive.
               </p>

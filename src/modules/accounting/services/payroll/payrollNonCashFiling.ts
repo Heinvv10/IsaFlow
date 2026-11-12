@@ -20,6 +20,7 @@
  * data and the e@syFile export's warnings. Declarable runs and the tax year as
  * listRunAnnualPayments reads them; codes after the calculator's trim.
  */
+import { contractorLineFlag } from './payrollOutsideTables';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
@@ -43,8 +44,11 @@ export async function listRunNonCashBenefits(
   companyId: string,
   bounds: { start: string; end: string },
   employeeId: string | null = null,
+  opts: { excludeContractorLines?: boolean } = {},
 ): Promise<Map<string, NonCashBenefitFiling[]>> {
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
+  // An independent contractor's benefits are 3616 income, never 38xx (easyFileContractor): the e@syFile export leaves those lines out.
+  const excludeContractor = opts.excludeContractorLines === true;
   const rows = (await sql`
     SELECT l.employee_id,
            regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') AS source_code,
@@ -59,6 +63,7 @@ export async function listRunNonCashBenefits(
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
       AND (${employeeId}::uuid IS NULL OR l.employee_id = ${employeeId}::uuid)
       AND item->>'isNonCash' = 'true'
+      AND NOT (${excludeContractor}::boolean AND COALESCE(l.validation_results @> ${contractorLineFlag}::jsonb, false))
     GROUP BY l.employee_id, regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g')
     ORDER BY l.employee_id, source_code
   `) as DbRow[];
@@ -112,13 +117,13 @@ export function unflaggedFringeSummary(entries: ReadonlyArray<{ employee: string
   const rest = entries.slice(SUMMARY_NAMES);
   const more = rest.length > 0 ? ` and ${rest.length} more (${formatMoney(round2(rest.reduce((s, e) => s + e.amount, 0)))})` : '';
   return 'Code 3801 items paid in cash inside gross pay (runs costed before the loan benefit was non-cash, or a 3801 component '
-    + `paid as cash) are certified in 3601, not 3801, for ${entries.length} employee${entries.length === 1 ? '' : 's'}: `
+    + `paid as cash) are certified in 3601 (in 3616 for months paid as an independent contractor), not 3801, for ${entries.length} employee${entries.length === 1 ? '' : 's'}: `
     + `${named}${more}. Check those certificates before filing.`;
 }
 
 /** The warning for an employee whose 3801 items were paid in cash and so are certified in 3601. */
 export function unflaggedFringeWarning(employee: string, amount: number): string {
   return `${employee}: ${formatMoney(amount)} of code 3801 items this tax year was paid in cash inside gross pay `
-    + '(a run costed before the loan benefit was non-cash, or a 3801 component paid as cash), so it is certified in 3601, '
+    + '(a run costed before the loan benefit was non-cash, or a 3801 component paid as cash), so it is certified in 3601 (3616 for months paid as an independent contractor), '
     + 'not 3801. Check the certificate before filing it.';
 }

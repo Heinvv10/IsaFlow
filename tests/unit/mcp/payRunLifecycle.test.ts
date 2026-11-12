@@ -131,21 +131,9 @@ describe('calculate_pay_run', () => {
     expect(calculatePayrollRun).toHaveBeenCalledWith(RUN, COMPANY, ctx().userId);
   });
 
-  it('warns that the post-March-2026 ETI table is unconfirmed when ETI is claimed', async () => {
+  it('gives no ETI table warning: the April 2025 table is law (Act 3 of 2026 s7, GG 54446; ET)', async () => {
     vi.mocked(calculatePayrollRun).mockResolvedValue(
       run({ status: 'calculated', periodMonth: 5, periodYear: 2026, totalEti: 1500 }) as never,
-    );
-    const out = parseOk(await calculatePayRunTool.handler({ run_id: RUN, ...KEY }, ctx()));
-    expect(JSON.stringify(out.warnings)).toContain('unconfirmed');
-  });
-
-  it('gives no ETI warning before April 2026 or when no ETI is claimed', async () => {
-    vi.mocked(calculatePayrollRun).mockResolvedValue(
-      run({ status: 'calculated', periodMonth: 3, periodYear: 2026, totalEti: 1500 }) as never,
-    );
-    expect(parseOk(await calculatePayRunTool.handler({ run_id: RUN, ...KEY }, ctx())).warnings).toBeUndefined();
-    vi.mocked(calculatePayrollRun).mockResolvedValue(
-      run({ status: 'calculated', periodMonth: 5, periodYear: 2026, totalEti: 0 }) as never,
     );
     expect(parseOk(await calculatePayRunTool.handler({ run_id: RUN, ...KEY }, ctx())).warnings).toBeUndefined();
   });

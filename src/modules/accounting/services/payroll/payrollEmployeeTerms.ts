@@ -3,28 +3,31 @@
  * Judged before any write, so a refused body changes no row (a 4xx commits). Nothing in the calculator reads
  * them yet (TS-b does); `tax_status` is the one source of truth for "director", `employment_type` is display and HR.
  */
-import type { PayBasis, PayrollEmployee, TaxStatus } from './payrollTypes';
+import type { EtiIdDocument, PayBasis, PayrollEmployee, TaxStatus } from './payrollTypes';
 
 export const TAX_STATUSES: readonly TaxStatus[] = ['employee', 'director', 'independent_contractor'];
 export const PAY_BASES: readonly PayBasis[] = ['monthly', 'hourly', 'daily'];
+/** ETI Act s6(b), migration 976 (wave 5 ET). */
+export const ETI_ID_DOCUMENTS: readonly EtiIdDocument[] = ['sa_id', 'asylum_seeker_permit', 'refugee_id'];
 const MAX_OCCUPATION = 100;
 const MAX_RATE = 9_999_999_999.99; // NUMERIC(12,2)
 
 export type EmployeeTerms = Pick<
-  PayrollEmployee, 'taxStatus' | 'payBasis' | 'hoursPerWeek' | 'hoursPerDay' | 'hourlyRate' | 'dailyRate' | 'occupation'
+  PayrollEmployee, 'taxStatus' | 'payBasis' | 'hoursPerWeek' | 'hoursPerDay' | 'hourlyRate' | 'dailyRate' | 'occupation' | 'etiIdDocument'
 >;
 export const DEFAULT_TERMS: EmployeeTerms = {
   taxStatus: 'employee', payBasis: 'monthly', hoursPerWeek: null, hoursPerDay: null, hourlyRate: null, dailyRate: null, occupation: null,
+  etiIdDocument: null,
 };
-export const TERM_KEYS = ['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate', 'occupation'] as const;
+export const TERM_KEYS = ['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate', 'occupation', 'etiIdDocument'] as const;
 
 type Body = Record<string, unknown>;
 
 /** A route's request-log mask (withErrorHandler maskBodyKeys): the terms are pay detail, never logged. */
 export const EMPLOYEE_TERM_LOG_KEYS: readonly string[] = [...TERM_KEYS];
 
-/** Status and rates decide what an employee costs: only the roles that may redirect net pay may move them. */
-export const PRICED_KEYS = ['taxStatus', 'payBasis', 'hourlyRate', 'dailyRate'] as const;
+/** Status, hours and rates decide what an employee costs and how they are taxed (hours classify the employment, G21 p. 28): only the roles that may redirect net pay may move them. */
+export const PRICED_KEYS = ['taxStatus', 'payBasis', 'hoursPerWeek', 'hoursPerDay', 'hourlyRate', 'dailyRate', 'etiIdDocument'] as const;
 
 /** Whether a judged patch changes one of the priced terms from `current` (an unchanged value is no change). */
 export function movesPricedTerm(patch: Partial<EmployeeTerms>, current: EmployeeTerms): boolean {
@@ -85,6 +88,7 @@ export function termsOfCreate(body: Body, refuse: Refuse): EmployeeTerms {
     hourlyRate: rate(body.hourlyRate, 'hourlyRate', refuse),
     dailyRate: rate(body.dailyRate, 'dailyRate', refuse),
     occupation: occupationOf(body.occupation, refuse),
+    etiIdDocument: isBlank(body.etiIdDocument) ? null : oneOf(body.etiIdDocument, ETI_ID_DOCUMENTS, 'etiIdDocument', refuse),
   }, refuse);
 }
 
@@ -115,6 +119,7 @@ export function termsOfPatch(body: Body, refuse: Refuse, current: EmployeeTerms 
   if (body.hourlyRate !== undefined) out.hourlyRate = rate(body.hourlyRate, 'hourlyRate', refuse);
   if (body.dailyRate !== undefined) out.dailyRate = rate(body.dailyRate, 'dailyRate', refuse);
   if (body.occupation !== undefined) out.occupation = occupationOf(body.occupation, refuse);
+  if (body.etiIdDocument !== undefined) out.etiIdDocument = isBlank(body.etiIdDocument) ? null : oneOf(body.etiIdDocument, ETI_ID_DOCUMENTS, 'etiIdDocument', refuse);
   // The cross-column rules judge the terms as they would stand after the patch.
   if (Object.keys(out).length > 0) judgeTerms({ ...current, ...out }, refuse);
   return out;
@@ -137,12 +142,13 @@ export function termsFromRow(r: Record<string, unknown>): EmployeeTerms {
     hourlyRate: numOrNull(r.hourly_rate),
     dailyRate: numOrNull(r.daily_rate),
     occupation: r.occupation == null ? null : String(r.occupation),
+    etiIdDocument: r.eti_id_document == null ? null : oneOf(r.eti_id_document, ETI_ID_DOCUMENTS, 'eti_id_document', (m) => new Error(`Stored ${m}`)),
   };
 }
 
 const COLUMN_OF: Record<(typeof TERM_KEYS)[number], string> = {
   taxStatus: 'tax_status', payBasis: 'pay_basis', hoursPerWeek: 'hours_per_week', hoursPerDay: 'hours_per_day',
-  hourlyRate: 'hourly_rate', dailyRate: 'daily_rate', occupation: 'occupation',
+  hourlyRate: 'hourly_rate', dailyRate: 'daily_rate', occupation: 'occupation', etiIdDocument: 'eti_id_document',
 };
 
 /** The terms a patch moved, as history rows (old and new as text), for the change log; `only`: the keys the patch carried. */

@@ -18,7 +18,7 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 const company = crypto.randomUUID();
-const runs = { feb: crypto.randomUUID(), mar: crypto.randomUUID() } as const;
+const runs = { feb: crypto.randomUUID(), mar: crypto.randomUUID(), apr: crypto.randomUUID() } as const;
 const comp = {
   salary: crypto.randomUUID(), travel: crypto.randomUUID(), overtime: crypto.randomUUID(),
   bonus: crypto.randomUUID(), pension: crypto.randomUUID(), medical: crypto.randomUUID(), union: crypto.randomUUID(),
@@ -40,12 +40,12 @@ async function addComponent(id: string, name: string, code: string, type: 'earni
   );
 }
 
-async function addEmployee(id: string, num: string, start: string, born: string, medicalDependants: number) {
+async function addEmployee(id: string, num: string, start: string, born: string, medicalDependants: number, idNumber: string | null = null) {
   await pool.query(
     `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,date_of_birth,status,
-       medical_aid_main_member,medical_aid_dependants_count)
-     VALUES($1,$2,$3,'Read',$3,$4::date,$5::date,'active',true,$6)`,
-    [id, company, num, start, born, medicalDependants],
+       medical_aid_main_member,medical_aid_dependants_count,id_number)
+     VALUES($1,$2,$3,'Read',$3,$4::date,$5::date,'active',true,$6,$7)`,
+    [id, company, num, start, born, medicalDependants, idNumber],
   );
 }
 
@@ -61,7 +61,11 @@ async function linesOf(runId: string): Promise<Record<string, unknown>> {
   const { rows } = await pool.query(
     `SELECT employee_id, gross_pay, taxable_income, periodic_taxable, annual_taxable, paye, medical_credit,
             additional_medical_credit, medical_scheme_fees, uif_employee, uif_employer, sdl, eti, net_pay,
-            component_breakdown::text AS component_breakdown, validation_results::text AS validation_results
+            component_breakdown::text AS component_breakdown,
+            -- TS-b (calculation version 5) stores one info result on every hourless monthly line, HOURS_NOT_RECORDED, which master's
+            -- output does not have. It is the ONLY code left out of the comparison; every other result stays byte-identical.
+            (SELECT COALESCE(jsonb_agg(v), '[]'::jsonb) FROM jsonb_array_elements(validation_results) v
+              WHERE v->>'code' <> 'HOURS_NOT_RECORDED')::text AS validation_results
        FROM payroll_run_lines WHERE run_id=$1`,
     [runId],
   );
@@ -106,7 +110,8 @@ beforeAll(async () => {
   await assign(emp.increase, comp.bonus, 10000, '2026-02-10', '2026-02-28', false);
   await assign(emp.increase, comp.overtime, 1200, '2026-03-12', '2026-03-31', false);
 
-  await addEmployee(emp.young, 'RD-YOUNG', '2025-09-01', '2002-05-20', 0);
+  // A valid SA ID number matching the date of birth (ETI Act s6(b), wave 5 ET): the suite keeps a positive ETI line.
+  await addEmployee(emp.young, 'RD-YOUNG', '2025-09-01', '2002-05-20', 0, '0205205009082');
   await assign(emp.young, comp.salary, 6500, '2025-09-01', null);
 
   // Union dues stop on 15 March: paid in February, not in March, at either read date.
@@ -152,4 +157,17 @@ describe(`a normal run is byte-identical to master's (TZ=${process.env.TZ ?? 'un
       expect(await headerOf(runs[period])).toEqual(EXPECTED_HEADERS[period]);
     });
   }
+});
+
+describe('wave 5 ET: the no-identity-document path (ETI Act s6(b))', () => {
+  it('RD-YOUNG with no SA ID number (and no permit recorded): no ETI, and an ETI_INDETERMINATE warning naming the document', async () => {
+    await pool.query('UPDATE payroll_employees SET id_number = NULL WHERE id = $1', [emp.young]);
+    await pool.query(
+      `INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status) VALUES($1,$2,4,2026,'draft')`, [runs.apr, company]);
+    await calculatePayrollRun(runs.apr, company);
+    const young = (await linesOf(runs.apr)).young as { eti: string; validation_results: string };
+    expect(young.eti).toBe('0.00');
+    const codes = (JSON.parse(young.validation_results) as Array<{ code: string; message: string }>);
+    expect(codes.find((v) => v.code === 'ETI_INDETERMINATE')?.message).toContain('a valid SA ID number, or an asylum seeker permit or refugee identity document recorded (ETI Act s6(b)) is missing');
+  });
 });

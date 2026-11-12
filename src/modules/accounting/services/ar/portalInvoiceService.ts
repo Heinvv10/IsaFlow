@@ -142,7 +142,7 @@ export async function loadPortalInvoice(token: string, req: PortalViewerRequest)
     amount_paid: Number(inv.amount_paid ?? 0),
     notes: inv.notes ? String(inv.notes) : null,
     customer_name: String(inv.customer_name ?? 'Customer'),
-    company_name: String(inv.company_name ?? 'ISAFlow'),
+    company_name: String(inv.company_name ?? 'IsaFlow'),
     company_logo_url: inv.company_logo_url != null ? String(inv.company_logo_url) : null,
     portal_viewed_at: inv.portal_viewed_at != null ? String(inv.portal_viewed_at) : null,
     portal_display_name: inv.portal_display_name != null ? String(inv.portal_display_name) : null,

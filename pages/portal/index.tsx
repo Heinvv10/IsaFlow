@@ -142,11 +142,11 @@ export default function PortalPage() {
   if (!user) {
     return (
       <>
-        <Head><title>ISAFlow — Client Portal</title></Head>
+        <Head><title>IsaFlow — Client Portal</title></Head>
         <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center px-4">
           <div className="w-full max-w-sm">
             <div className="flex flex-col items-center mb-8">
-              <Image src="/logo.png" alt="ISAFlow" width={160} height={64} className="h-16 w-auto dark:brightness-0 dark:invert mb-4" priority />
+              <Image src="/logo.png" alt="IsaFlow" width={160} height={64} className="h-16 w-auto dark:brightness-0 dark:invert mb-4" priority />
               <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">Client Portal — sign in to view your account</p>
             </div>
             <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow-xl">
@@ -192,7 +192,7 @@ export default function PortalPage() {
 
   return (
     <>
-      <Head><title>ISAFlow — {user.name}</title></Head>
+      <Head><title>IsaFlow — {user.name}</title></Head>
       <div className="min-h-screen bg-slate-50 dark:bg-gray-950">
         {/* Header */}
         <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between">
@@ -200,7 +200,7 @@ export default function PortalPage() {
             <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
               <BookOpen className="w-4 h-4 text-slate-900 dark:text-white" />
             </div>
-            <span className="font-semibold text-teal-600 dark:text-teal-400 text-sm">ISAFlow Portal</span>
+            <span className="font-semibold text-teal-600 dark:text-teal-400 text-sm">IsaFlow Portal</span>
           </div>
           <div className="flex items-center gap-4">
             <span className="text-sm text-slate-600 dark:text-gray-400">{user.name}</span>

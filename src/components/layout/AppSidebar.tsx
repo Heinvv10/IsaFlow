@@ -39,7 +39,7 @@ function SidebarContent({ collapsed, nav }: { collapsed: boolean; nav: ReactNode
             <BookOpen className="w-4 h-4 text-white" />
           </div>
         ) : (
-          <Image src="/logo.png" alt="ISAFlow" width={90} height={36} className="h-9 w-auto dark:brightness-0 dark:invert" />
+          <Image src="/logo.png" alt="IsaFlow" width={90} height={36} className="h-9 w-auto dark:brightness-0 dark:invert" />
         )}
       </div>
 

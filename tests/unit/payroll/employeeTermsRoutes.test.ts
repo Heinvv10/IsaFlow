@@ -67,7 +67,7 @@ describe('the request log', () => {
 });
 
 describe('priced terms: owner and admin only', () => {
-  it.each([{ taxStatus: 'director' }, { payBasis: 'hourly', hourlyRate: 100 }, { dailyRate: 5 }])('a manager creating with %j is 403 and writes nothing', async (over) => {
+  it.each([{ taxStatus: 'director' }, { payBasis: 'hourly', hourlyRate: 100 }, { dailyRate: 5 }, { hoursPerWeek: 14 }, { hoursPerDay: 4 }])('a manager creating with %j is 403 and writes nothing', async (over) => {
     const res = await call(indexHandler, 'POST', 'manager', { ...BASE, ...over });
     expect(apiResponse.forbidden).toHaveBeenCalled();
     expect(createPayrollEmployee).not.toHaveBeenCalled();
@@ -90,6 +90,22 @@ describe('priced terms: owner and admin only', () => {
     expect(patch).toMatchObject({ occupation: 'Clerk' });
     expect(patch).not.toHaveProperty('taxStatus'); // equal to the stored value, still not written by a manager
     expect(patch).not.toHaveProperty('payBasis');
+  });
+
+  it.each([{ hoursPerWeek: 14 }, { hoursPerDay: 4 }, { employmentType: 'casual' }, { employmentType: 'director' }])(
+    'a manager PATCHing %j is 403 and nothing is updated; an admin may', async (change) => {
+      const res = await call(idHandler, 'PATCH', 'manager', change);
+      expect(apiResponse.forbidden).toHaveBeenCalled();
+      expect(updatePayrollEmployee).not.toHaveBeenCalled();
+      expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store');
+      await call(idHandler, 'PATCH', 'admin', change);
+      expect(updatePayrollEmployee).toHaveBeenCalledTimes(1);
+    });
+
+  it('a manager resending the stored employment type is fine and it is not written back', async () => {
+    await call(idHandler, 'PATCH', 'manager', { employmentType: 'permanent', occupation: 'Clerk' });
+    expect(updatePayrollEmployee).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(updatePayrollEmployee).mock.calls[0]![2]).not.toHaveProperty('employmentType');
   });
 
   it('a refused body (hours 200) is a 400, no-store, nothing updated', async () => {

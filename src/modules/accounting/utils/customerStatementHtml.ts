@@ -120,7 +120,7 @@ export function buildStatementHtml(
   <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
   <tbody>${rows || '<tr><td colspan="7" style="text-align:center;padding:8px">No transactions in this period</td></tr>'}</tbody>
 </table>
-<div class="footer">ISAFlow Customer Statement — Confidential &nbsp;|&nbsp; ${clientData.name} &nbsp;|&nbsp; ${from} – ${to}</div>
+<div class="footer">IsaFlow Customer Statement — Confidential &nbsp;|&nbsp; ${clientData.name} &nbsp;|&nbsp; ${from} – ${to}</div>
 <script>window.onload = function() { window.print(); }</script>
 </body>
 </html>`;

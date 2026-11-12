@@ -37,12 +37,12 @@ const page = (blocks: PackPageBlock[]): Omit<PackPage, 'number'> => ({
 });
 
 describe('a droppable caption', () => {
-  // 27 sentences: 275.6mm as composed; the caption goes first and two of the three footnotes after it.
-  const subject = page([required(27), caption({ droppable: true })]);
+  // 28 sentences: over the sheet as composed; the caption goes first and two of the three footnotes after it.
+  const subject = page([required(28), caption({ droppable: true })]);
 
   it('is the fixture: footnotes alone cannot pay for it, so the page is refused without the flag', () => {
     expect(pageMm(subject)).toBeGreaterThan(pageBoxMm(subject));
-    expect(() => fitPageReport(page([required(27), caption()]))).toThrow(PackRefusal);
+    expect(() => fitPageReport(page([required(28), caption()]))).toThrow(PackRefusal);
   });
 
   it('is dropped when nothing else is left, the page fits, and the page says so (without logging)', () => {
@@ -64,8 +64,9 @@ describe('a droppable caption', () => {
   });
 
   it('is taken BEFORE the footnotes: a page the footnotes alone could have fitted keeps more of them', () => {
-    // 25 sentences: with no caption lever two footnotes pay; with the caption first one footnote is enough.
-    const { page: fitted, dropped } = fitPageReport(page([required(25), caption({ droppable: true })]));
+    // 27 sentences: with no caption lever two footnotes pay; with the caption first one footnote is enough.
+    expect(() => fitPageReport(page([required(27), caption()]))).not.toThrow();
+    const { page: fitted, dropped } = fitPageReport(page([required(27), caption({ droppable: true })]));
     expect(dropped.captions).toBe(1);
     expect(dropped.footnotes).toBeLessThan(2);
     expect(fitted.footnotes.filter((f) => !f.text.startsWith(OMISSION_MARK)).length).toBeGreaterThanOrEqual(2);
@@ -74,7 +75,7 @@ describe('a droppable caption', () => {
 
   it('is taken before an optional note too', () => {
     const withNote = page([
-      required(22), caption({ droppable: true }),
+      required(23), caption({ droppable: true }),
       { kind: 'disclosure', disclosure: { heading: 'Reading this page', notes: [{ heading: 'A', body: SENTENCE }] } },
     ]);
     const { dropped } = fitPageReport(withNote);
@@ -83,7 +84,7 @@ describe('a droppable caption', () => {
   });
 
   it('is not dropped when it would not make the page fit: the page is still refused', () => {
-    expect(() => fitPageReport(page([required(29), caption({ droppable: true })]))).toThrow(PackRefusal);
+    expect(() => fitPageReport(page([required(30), caption({ droppable: true })]))).toThrow(PackRefusal);
   });
 
   it('a page that fits keeps its caption and is returned unchanged', () => {

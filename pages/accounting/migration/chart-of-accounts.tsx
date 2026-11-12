@@ -236,7 +236,7 @@ export default function ChartOfAccountsPage() {
           {rows.length > 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
               <h2 className="font-semibold text-[var(--ff-text-primary)] mb-1">5. Map System Accounts</h2>
-              <p className="text-xs text-[var(--ff-text-secondary)] mb-4">ISAFlow needs to know which accounts serve these system roles.</p>
+              <p className="text-xs text-[var(--ff-text-secondary)] mb-4">IsaFlow needs to know which accounts serve these system roles.</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {SYSTEM_ACCOUNT_ROLES.map(({ key, label }) => (
                   <div key={key}>

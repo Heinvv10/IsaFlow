@@ -1,6 +1,7 @@
 /**
  * Bank Statement Imports — PRD-05 Phase 7
- * Lists all bank statement PDF imports with status and navigation to review.
+ * Lists all bank statement PDF imports with status and navigation to review,
+ * and (PairedExtensionsPanel) any paired browser extension, with its revoke.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -9,6 +10,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, AlertCircle, Upload, FileText } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { PairedExtensionsPanel } from '@/components/accounting/bank/PairedExtensionsPanel';
 
 type ImportStatus = 'extracting' | 'extracted' | 'reviewing' | 'committed' | 'rolled_back' | 'failed';
 
@@ -83,7 +85,7 @@ export default function BankStatementsIndexPage() {
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Bank Statement Imports</h1>
-              <p className="text-sm text-[var(--ff-text-secondary)] mt-1">Upload and review PDF bank statements before committing to transactions.</p>
+              <p className="text-sm text-[var(--ff-text-secondary)] mt-1">Upload and review PDF bank statements before committing to transactions. Statement import is user-operated: you upload each statement and confirm what is imported.</p>
             </div>
             <button
               onClick={() => router.push('/accounting/bank/statements/import-pdf')}
@@ -96,6 +98,8 @@ export default function BankStatementsIndexPage() {
         </div>
 
         <div className="px-6 py-4">
+          <PairedExtensionsPanel />
+
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-900/30 text-red-400 text-sm mb-4">
               <AlertCircle className="h-4 w-4 shrink-0" />{error}
@@ -109,7 +113,7 @@ export default function BankStatementsIndexPage() {
           ) : imports.length === 0 ? (
             <div className="text-center py-20">
               <FileText className="h-10 w-10 text-[var(--ff-text-tertiary)] mx-auto mb-3 opacity-40" />
-              <p className="text-[var(--ff-text-secondary)] text-sm">No imports yet — upload a PDF bank statement to get started.</p>
+              <p className="text-[var(--ff-text-secondary)] text-sm">No imports yet. Upload a PDF bank statement to get started.</p>
             </div>
           ) : (
             <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg overflow-x-auto">

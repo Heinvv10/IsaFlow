@@ -27,10 +27,14 @@ export function textPx(text: string, fontPx: number, weight: FigureWeight, hyphe
   return runPx(text, fontPx, weight, (cluster, sizePx) => fallbackClusterPx(cluster, LABEL_STYLE[weight], sizePx, LABEL_PX), 0, hyphen, slack);
 }
 
-/** `text`'s exact advance sum, unrounded: a line's boxes are summed exactly and floored once (`packGlyphRuler.fitUnitsPx`). */
-export function textExactPx(text: string, fontPx: number, weight: FigureWeight, hyphen = false): number {
+/**
+ * `text`'s exact advance sum, unrounded: a line's boxes are summed exactly and floored once (`packGlyphRuler.fitUnitsPx`).
+ * `marks`: price a combining mark the faces lack as production sets it (`packFallbackMarkData`), as prose is measured;
+ * a row label holding one is printed to break anywhere and priced apart (`packAnywhereLabel`), and keeps the tables'.
+ */
+export function textExactPx(text: string, fontPx: number, weight: FigureWeight, hyphen = false, marks = false): number {
   if (text === '' && !hyphen) return 0;
-  return runExactPx(text, fontPx, weight, (cluster, sizePx) => fallbackClusterPx(cluster, LABEL_STYLE[weight], sizePx, LABEL_PX), 0, hyphen);
+  return runExactPx(text, fontPx, weight, (cluster, sizePx) => fallbackClusterPx(cluster, LABEL_STYLE[weight], sizePx, LABEL_PX, marks), 0, hyphen, marks);
 }
 
 /**

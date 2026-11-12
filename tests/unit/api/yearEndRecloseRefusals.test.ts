@@ -43,7 +43,7 @@ async function post(): Promise<{ status: number; body: unknown }> {
     json(b: unknown) { out.body = b; return res; },
     setHeader: vi.fn(),
   } as unknown as NextApiResponse;
-  await yearEnd({ method: 'POST', body: { yearLabel: '2027', action: 'close' }, companyId: ctx.companyId, user: { id: 'u' } } as unknown as NextApiRequest, res);
+  await yearEnd({ method: 'POST', body: { yearLabel: '2027', action: 'close', confirm: true }, companyId: ctx.companyId, user: { id: 'u' } } as unknown as NextApiRequest, res);
   return out;
 }
 

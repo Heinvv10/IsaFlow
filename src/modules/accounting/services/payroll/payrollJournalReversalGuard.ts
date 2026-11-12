@@ -31,9 +31,10 @@
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { MAX_CHAIN_JOURNALS, findChainRoot, lockJournalChain, readJournalChain } from './payrollJournalChain';
-import { lockPayrollRunHeader, withBoundedLockWait } from './payrollRunLock';
+import { lockCompanyPayrollApprovals, lockPayrollRunHeader, withBoundedLockWait } from './payrollRunLock';
 import { PayrollLoanLockTimeoutError } from './payrollRunLoanApplication';
 import { GRANDFATHERED_PLAN_HASH } from './payRunApprovalAudit';
+import { laterEtiJournalRefusal } from './etiPeriodGuard';
 
 /** Raised before the reversal writes anything; its message is for the caller. */
 export class PayrollJournalReversalRefusedError extends Error {
@@ -73,6 +74,26 @@ async function directiveRevival(companyId: string, rootId: string, description: 
     + 'to pay the directive again, apply it again.';
 }
 
+/** The reference a month's ETI journal carries (etiBooking.etiJournalReference): ETI-YYYY-MM. */
+const ETI_REFERENCE = /^ETI-(\d{4})-(\d{2})$/;
+
+/** Review round 5 ruling (adv M1+M2): an ETI journal is never reversed by hand; the rebook keeps it as declared. */
+export const ETI_JOURNAL_REVERSAL_REFUSED =
+  'ETI journals are rebooked automatically; to write off an ETI amount SARS won\'t pay, post a manual journal';
+
+/**
+ * An ETI journal (reference ETI-YYYY-MM) is refused outright (review round 5 ruling: the rebook would only post it
+ * again). Hein ruling R-A (wave 5 ET): a directive payment's journal feeds its month's ETI carry, so it is not reversed
+ * while a LATER month of the same ETI period has a run journal in force (etiPeriodGuard). Null otherwise.
+ */
+async function etiPeriodReversalRefusal(
+  companyId: string, root: { description: string; entryDate: string; reference?: string | null },
+): Promise<string | null> {
+  if (ETI_REFERENCE.test(root.reference ?? '')) return ETI_JOURNAL_REVERSAL_REFUSED;
+  if (!DIRECTIVE_JOURNAL.test(root.description)) return null;
+  return laterEtiJournalRefusal(companyId, { year: Number(root.entryDate.slice(0, 4)), month: Number(root.entryDate.slice(5, 7)) });
+}
+
 /** The description postPayrollRunJournal gives a run's journal (payrollJournalBuilder). */
 const RUN_JOURNAL = /^Payroll run (\d{4})-(\d{2})$/;
 
@@ -101,7 +122,7 @@ async function judge(companyId: string, rootId: string, db: TxSql): Promise<stri
   const root = chain?.journals[0];
   if (!chain || !root) return null;
   const run = await payRunOf(companyId, rootId, root.description, db);
-  if (!run) return directiveRevival(companyId, rootId, root.description, db);
+  if (!run) return (await directiveRevival(companyId, rootId, root.description, db)) ?? etiPeriodReversalRefusal(companyId, root);
   const numbers = chain.journals.map((j) => j.entryNumber).join(', ');
   if (chain.broken) return brokenChain(numbers);
 
@@ -145,6 +166,10 @@ export async function refuseReversalAgainstPayRun(
   entry: { id: string; source?: string },
 ): Promise<{ runId: string; planHash: string | null } | null> {
   if (entry.source !== 'auto_payroll') return null;
+  // LOCK ORDER 1 first (payrollRunLock.ts; wave 5 ET review round 3): the R-A guard below and the ETI this reversal
+  // rebooks afterwards (directiveEtiJournal) read the whole ETI period, so they are judged under the company approval
+  // lock that approve, reopen, recalculate and a directive payment take first. Before the claim, so never after a row lock.
+  await lockCompanyPayrollApprovals(null, companyId);
   const rootId = await findChainRoot(companyId, entry.id);
   if (!rootId) throw new PayrollJournalReversalRefusedError(brokenChain(entry.id));
   const chain = await readJournalChain(companyId, rootId);
@@ -153,7 +178,7 @@ export async function refuseReversalAgainstPayRun(
   const run = await payRunOf(companyId, rootId, root.description, sql);
   if (!run) {
     // No run lock to take: a directive payment's chain only ever goes from in force to out.
-    const refusal = await directiveRevival(companyId, rootId, root.description, sql);
+    const refusal = (await directiveRevival(companyId, rootId, root.description, sql)) ?? await etiPeriodReversalRefusal(companyId, root);
     if (refusal) throw new PayrollJournalReversalRefusedError(refusal);
     return null;
   }

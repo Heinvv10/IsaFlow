@@ -10,7 +10,16 @@
  * total_sdl is 817.20 (feb) and 924.20 (mar), 22.80 lower. Two more for PR #1215 (para 2(4): only s11F and s18A
  * deductions reduce PAYE): the steady employee's taxable medical aid (4005, R1 950) no longer reduces taxable_income /
  * periodic_taxable (29550.00 -> 31500.00), so their paye is 507.00 higher (net_pay and total_paye / total_net follow),
- * and their validation_results carry a DEDUCTION_NOT_PAYE_DEDUCTIBLE warning. Nothing else was edited.
+ * and their validation_results carry a DEDUCTION_NOT_PAYE_DEDUCTIBLE warning. One more for wave 5 FB (Hein's ruling
+ * 2026-11-08: every 3701 earning is 80% remuneration for PAYE, PAYE-GEN-01-G21 (2027) Rev 1 p. 5; SDL and UIF follow the
+ * same share): the steady employee's R3 000 travel allowance is taxed at R2 400, so periodic_taxable / taxable_income are
+ * 30900.00 (from 31500.00), paye 3450.28 (feb) / 3316.20 (mar), sdl 286.20 (1% of 28500 + 2400 - 2280), net_pay and the
+ * header totals follow, and its 3701 breakdown item carries payeInclusionRate 0.8 and payeIncludedAmount 2400. One more for
+ * wave 5 ET (Hein ruling, review round 2): every ETI claim warns that IsaFlow does not record connected persons or domestic
+ * workers (ETI Act s6(c), s6(d)), so the young employee's validation_results carry ETI_CONNECTED_OR_DOMESTIC_UNCHECKED,
+ * and, as the fixture records no hours a week, ETI_HOURS_UNKNOWN (ETI claimed as for a full month, s7(5), s4(1)(a));
+ * their ETI is unchanged (750.00) because the fixture now records a valid SA ID number matching the date of birth (s6(b)).
+ * Nothing else was edited.
  */
 type Period = 'feb' | 'mar';
 export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknown>>> = {
@@ -52,16 +61,16 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
     "steady": {
       "additional_medical_credit": "0.00",
       "annual_taxable": "0.00",
-      "component_breakdown": "[{\"amount\": 1950, \"isTaxable\": true, \"componentId\": \"<medical>\", \"componentName\": \"Medical aid\", \"sarsSourceCode\": \"4005\", \"isSdlApplicable\": false, \"isUifApplicable\": false}, {\"amount\": 2280, \"isTaxable\": true, \"componentId\": \"<pension>\", \"componentName\": \"Pension fund\", \"sarsSourceCode\": \"4001\", \"isSdlApplicable\": false, \"isUifApplicable\": false, \"retirementContribution\": true}, {\"amount\": 28500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}, {\"amount\": 3000, \"isTaxable\": true, \"componentId\": \"<travel>\", \"componentName\": \"Travel allowance\", \"sarsSourceCode\": \"3701\", \"isSdlApplicable\": true, \"isUifApplicable\": true}]",
+      "component_breakdown": "[{\"amount\": 1950, \"isTaxable\": true, \"componentId\": \"<medical>\", \"componentName\": \"Medical aid\", \"sarsSourceCode\": \"4005\", \"isSdlApplicable\": false, \"isUifApplicable\": false}, {\"amount\": 2280, \"isTaxable\": true, \"componentId\": \"<pension>\", \"componentName\": \"Pension fund\", \"sarsSourceCode\": \"4001\", \"isSdlApplicable\": false, \"isUifApplicable\": false, \"retirementContribution\": true}, {\"amount\": 28500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}, {\"amount\": 3000, \"isTaxable\": true, \"componentId\": \"<travel>\", \"componentName\": \"Travel allowance\", \"sarsSourceCode\": \"3701\", \"isSdlApplicable\": true, \"isUifApplicable\": true, \"payeInclusionRate\": 0.8, \"payeIncludedAmount\": 2400}]",
       "eti": "0.00",
       "gross_pay": "31500.00",
       "medical_credit": "974.00",
       "medical_scheme_fees": "1950.00",
-      "net_pay": "23486.60",
-      "paye": "3606.28",
-      "periodic_taxable": "31500.00",
-      "sdl": "292.20",
-      "taxable_income": "31500.00",
+      "net_pay": "23642.60",
+      "paye": "3450.28",
+      "periodic_taxable": "30900.00",
+      "sdl": "286.20",
+      "taxable_income": "30900.00",
       "uif_employee": "177.12",
       "uif_employer": "177.12",
       "validation_results": "[{\"code\": \"MISSING_TAX_NUMBER\", \"field\": \"taxNumber\", \"message\": \"Read RD-STEADY has no SARS tax number. PAYE cannot be calculated.\", \"deepLink\": \"/payroll/employees/<steady>#tax-number\", \"severity\": \"error\"}, {\"code\": \"DEDUCTION_NOT_PAYE_DEDUCTIBLE\", \"message\": \"Medical aid (code 4005, R 1 950.00) is marked taxable, but SARS lets an employer deduct only retirement fund contributions (4001, 4003, 4006) and s18A donations (4030) before PAYE, so PAYE was calculated without it. Medical aid contributions are given the medical tax credit instead.\", \"severity\": \"warning\"}]"
@@ -81,7 +90,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
       "taxable_income": "6500.00",
       "uif_employee": "65.00",
       "uif_employer": "65.00",
-      "validation_results": "[{\"code\": \"MISSING_TAX_NUMBER\", \"field\": \"taxNumber\", \"message\": \"Read RD-YOUNG has no SARS tax number. PAYE cannot be calculated.\", \"deepLink\": \"/payroll/employees/<young>#tax-number\", \"severity\": \"error\"}]"
+      "validation_results": "[{\"code\": \"MISSING_TAX_NUMBER\", \"field\": \"taxNumber\", \"message\": \"Read RD-YOUNG has no SARS tax number. PAYE cannot be calculated.\", \"deepLink\": \"/payroll/employees/<young>#tax-number\", \"severity\": \"error\"}, {\"code\": \"ETI_HOURS_UNKNOWN\", \"message\": \"No ordinary hours a week are recorded for Read RD-YOUNG, so ETI of R 750.00 was claimed as for a full month, without apportioning it by hours (ETI Act s7(5)) or testing the wage against the national minimum wage (s4(1)(a)). Record the hours a week on the employee and recalculate.\", \"severity\": \"warning\"}, {\"code\": \"ETI_CONNECTED_OR_DOMESTIC_UNCHECKED\", \"message\": \"ETI of R 750.00 is claimed for Read RD-YOUNG. Confirm Read RD-YOUNG is not a connected person in relation to the employer (Income Tax Act s1) and not a domestic worker (BCEA s1): neither qualifies (ETI Act s6(c), s6(d)), and IsaFlow does not record either yet.\", \"severity\": \"warning\"}]"
     }
   },
   "mar": {
@@ -139,16 +148,16 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
     "steady": {
       "additional_medical_credit": "0.00",
       "annual_taxable": "0.00",
-      "component_breakdown": "[{\"amount\": 1950, \"isTaxable\": true, \"componentId\": \"<medical>\", \"componentName\": \"Medical aid\", \"sarsSourceCode\": \"4005\", \"isSdlApplicable\": false, \"isUifApplicable\": false}, {\"amount\": 2280, \"isTaxable\": true, \"componentId\": \"<pension>\", \"componentName\": \"Pension fund\", \"sarsSourceCode\": \"4001\", \"isSdlApplicable\": false, \"isUifApplicable\": false, \"retirementContribution\": true}, {\"amount\": 28500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}, {\"amount\": 3000, \"isTaxable\": true, \"componentId\": \"<travel>\", \"componentName\": \"Travel allowance\", \"sarsSourceCode\": \"3701\", \"isSdlApplicable\": true, \"isUifApplicable\": true}]",
+      "component_breakdown": "[{\"amount\": 1950, \"isTaxable\": true, \"componentId\": \"<medical>\", \"componentName\": \"Medical aid\", \"sarsSourceCode\": \"4005\", \"isSdlApplicable\": false, \"isUifApplicable\": false}, {\"amount\": 2280, \"isTaxable\": true, \"componentId\": \"<pension>\", \"componentName\": \"Pension fund\", \"sarsSourceCode\": \"4001\", \"isSdlApplicable\": false, \"isUifApplicable\": false, \"retirementContribution\": true}, {\"amount\": 28500, \"isTaxable\": true, \"componentId\": \"<salary>\", \"componentName\": \"Basic salary\", \"sarsSourceCode\": \"3601\", \"isSdlApplicable\": true, \"isUifApplicable\": true}, {\"amount\": 3000, \"isTaxable\": true, \"componentId\": \"<travel>\", \"componentName\": \"Travel allowance\", \"sarsSourceCode\": \"3701\", \"isSdlApplicable\": true, \"isUifApplicable\": true, \"payeInclusionRate\": 0.8, \"payeIncludedAmount\": 2400}]",
       "eti": "0.00",
       "gross_pay": "31500.00",
       "medical_credit": "1006.00",
       "medical_scheme_fees": "1950.00",
-      "net_pay": "23620.68",
-      "paye": "3472.20",
-      "periodic_taxable": "31500.00",
-      "sdl": "292.20",
-      "taxable_income": "31500.00",
+      "net_pay": "23776.68",
+      "paye": "3316.20",
+      "periodic_taxable": "30900.00",
+      "sdl": "286.20",
+      "taxable_income": "30900.00",
       "uif_employee": "177.12",
       "uif_employer": "177.12",
       "validation_results": "[{\"code\": \"MISSING_TAX_NUMBER\", \"field\": \"taxNumber\", \"message\": \"Read RD-STEADY has no SARS tax number. PAYE cannot be calculated.\", \"deepLink\": \"/payroll/employees/<steady>#tax-number\", \"severity\": \"error\"}, {\"code\": \"DEDUCTION_NOT_PAYE_DEDUCTIBLE\", \"message\": \"Medical aid (code 4005, R 1 950.00) is marked taxable, but SARS lets an employer deduct only retirement fund contributions (4001, 4003, 4006) and s18A donations (4030) before PAYE, so PAYE was calculated without it. Medical aid contributions are given the medical tax credit instead.\", \"severity\": \"warning\"}]"
@@ -168,7 +177,7 @@ export const EXPECTED_LINES: Record<Period, Record<string, Record<string, unknow
       "taxable_income": "6500.00",
       "uif_employee": "65.00",
       "uif_employer": "65.00",
-      "validation_results": "[{\"code\": \"MISSING_TAX_NUMBER\", \"field\": \"taxNumber\", \"message\": \"Read RD-YOUNG has no SARS tax number. PAYE cannot be calculated.\", \"deepLink\": \"/payroll/employees/<young>#tax-number\", \"severity\": \"error\"}]"
+      "validation_results": "[{\"code\": \"MISSING_TAX_NUMBER\", \"field\": \"taxNumber\", \"message\": \"Read RD-YOUNG has no SARS tax number. PAYE cannot be calculated.\", \"deepLink\": \"/payroll/employees/<young>#tax-number\", \"severity\": \"error\"}, {\"code\": \"ETI_HOURS_UNKNOWN\", \"message\": \"No ordinary hours a week are recorded for Read RD-YOUNG, so ETI of R 750.00 was claimed as for a full month, without apportioning it by hours (ETI Act s7(5)) or testing the wage against the national minimum wage (s4(1)(a)). Record the hours a week on the employee and recalculate.\", \"severity\": \"warning\"}, {\"code\": \"ETI_CONNECTED_OR_DOMESTIC_UNCHECKED\", \"message\": \"ETI of R 750.00 is claimed for Read RD-YOUNG. Confirm Read RD-YOUNG is not a connected person in relation to the employer (Income Tax Act s1) and not a domestic worker (BCEA s1): neither qualifies (ETI Act s6(c), s6(d)), and IsaFlow does not record either yet.\", \"severity\": \"warning\"}]"
     }
   }
 };
@@ -178,9 +187,9 @@ export const EXPECTED_HEADERS: Record<Period, Record<string, unknown>> = {
     "employee_count": 4,
     "total_eti": "750.00",
     "total_gross": "84000.00",
-    "total_net": "70608.53",
-    "total_paye": "8385.11",
-    "total_sdl": "817.20",
+    "total_net": "70764.53",
+    "total_paye": "8229.11",
+    "total_sdl": "811.20",
     "total_taxable": "84000.00",
     "total_uif": "1192.72"
   },
@@ -188,9 +197,9 @@ export const EXPECTED_HEADERS: Record<Period, Record<string, unknown>> = {
     "employee_count": 5,
     "total_eti": "750.00",
     "total_gross": "94700.00",
-    "total_net": "81555.44",
-    "total_paye": "8141.20",
-    "total_sdl": "924.20",
+    "total_net": "81711.44",
+    "total_paye": "7985.20",
+    "total_sdl": "918.20",
     "total_taxable": "94700.00",
     "total_uif": "1546.72"
   }

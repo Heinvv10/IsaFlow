@@ -33,23 +33,48 @@ const isDecimal = (ch: string | undefined): boolean => ch !== undefined && /\p{N
  * "111\u204422"; "1\u00AD\u20442" makes no fraction); and a line or paragraph separator set as the space Chromium sets it
  * as. No character stands for anything else: a code point a tenant can type means only itself (a private-use one is a
  * fallback glyph, as Chromium sets it).
+ *
+ * `gaps`, if given, receives the offset (in code points of the result) of every combining mark that a deleted run stood
+ * directly before: "\u092F\u00AD\u093C" shapes as "\u092F\u093C", one cluster, but production sets the nukta apart, on a
+ * dotted circle (#1264 round 6: a mark after a soft hyphen, a zero-width space, a word joiner, a bidi control, ... was
+ * priced as on its base, and a line in eight read short). The pricing of a fallback cluster reads them
+ * (`packGlyphRuler.runExactPx`): a mark across a gap is one the fallback tables did not measure.
  */
-export function asShaped(text: string): string {
+export function asShaped(text: string, gaps?: Set<number>): string {
   const chars = Array.from(text);
   let out = '';
+  let emitted = 0;
   for (let i = 0; i < chars.length;) {
     if (SET_AS_NOTHING.test(chars[i]!)) {
       let end = i;
       while (end < chars.length && SET_AS_NOTHING.test(chars[end]!)) end += 1;
       const before = chars[i - 1];
       const after = chars[end];
-      if ((isDecimal(before) && isDecimal(after)) || before === '\u2044' || after === '\u2044') out += '\u200B';
+      if ((isDecimal(before) && isDecimal(after)) || before === '\u2044' || after === '\u2044') { out += '\u200B'; emitted += 1; }
+      else if (gaps !== undefined && after !== undefined && /^\p{M}$/u.test(after)) gaps.add(emitted);
       i = end;
     } else {
       const ch = chars[i]!;
       out += ch === '\u2028' || ch === '\u2029' ? ' ' : ch;
+      emitted += 1;
       i += 1;
     }
+  }
+  return out;
+}
+
+/**
+ * `cluster` (which starts `at` code points into the shaped text) for the fallback pricing, with a zero-width non-joiner
+ * put back before each mark a deleted run stood in front of (`asShaped`'s `gaps`): the pricer reads a mark after a
+ * joiner as one the tables did not measure. The faces are not given it; it adds nothing of its own.
+ */
+export function withGaps(cluster: string, at: number, gaps: ReadonlySet<number>): string {
+  let out = '';
+  let j = 0;
+  for (const ch of cluster) {
+    if (j > 0 && gaps.has(at + j)) out += '\u200C';
+    out += ch;
+    j += 1;
   }
   return out;
 }

@@ -1,5 +1,5 @@
 /**
- * D2 round 7 (k1): a pay-package apply, the top-customers widget, the loan components check, the bank-feed accounts list,
+ * D2 round 7 (k1): a pay-package apply, the top-customers widget, the loan components check,
  * the command palette search and the migration wizard say what failed instead of dropping the response.
  * REAL assertOk / apiErrorMessage over a scripted apiFetch.
  */
@@ -35,7 +35,6 @@ vi.mock('@/components/accounting/migration/WizardParts', async (orig) => ({
 
 import { ApplyPackageCard } from '@/components/payroll/ApplyPackageCard';
 import LoansListPage from '../../../pages/payroll/loans/index';
-import BankFeedsPage from '../../../pages/accounting/bank-feeds/index';
 import CompliancePage from '../../../pages/accounting/practice/reports/compliance';
 import { CommandPalette } from '@/components/layout/CommandPalette';
 import { ExternalMigrationWizard } from '@/components/accounting/migration/ExternalMigrationWizard';
@@ -97,20 +96,6 @@ describe('loans list', () => {
     render(<LoansListPage />);
     expect(await screen.findByText('Could not check the loan payslip components - try again')).toBeTruthy();
     expect(screen.getByText('LN-D2')).toBeTruthy();
-    expect(noRawText()).toBe(true);
-  });
-});
-
-describe('bank feeds', () => {
-  it('a refused bank-accounts list shows the server message', async () => {
-    route((u) => (u.includes('bank-accounts') ? bad(403) : ok({ items: [] })));
-    render(<BankFeedsPage />);
-    await waitFor(() => expect(toasts()).toContain(MSG));
-  });
-  it('an empty-body 500 shows a plain sentence', async () => {
-    route((u) => (u.includes('bank-accounts') ? empty500() : ok({ items: [] })));
-    render(<BankFeedsPage />);
-    await waitFor(() => expect(toasts()).toContain('Could not load the bank accounts - try again'));
     expect(noRawText()).toBe(true);
   });
 });

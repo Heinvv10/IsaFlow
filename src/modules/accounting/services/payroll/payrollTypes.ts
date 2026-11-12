@@ -5,6 +5,10 @@ export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 /** What the engine reads (TS-b): employment_type is display and HR only. Migration 967. */
 export type TaxStatus = 'employee' | 'director' | 'independent_contractor';
 export type PayBasis = 'monthly' | 'hourly' | 'daily';
+/** ETI Act s6(b) (migration 976): NULL or sa_id = the ID number decides; a permit or refugee ID as recorded. */
+export type EtiIdDocument = 'sa_id' | 'asylum_seeker_permit' | 'refugee_id';
+/** The unit of a run's quantity on a component row (migration 967). */
+export type QuantityUnit = 'hour' | 'day';
 
 export interface PayrollEmployee {
   id: string;
@@ -28,7 +32,7 @@ export interface PayrollEmployee {
   occupationalLevelId?: string | null;
   /** How net pay reaches them (mig 455): cash is paid from the cash register, not by EFT. */
   paymentMethod?: 'eft' | 'cash';
-  /** Tax status (mig 967): nothing reads it in the calculator yet. */
+  /** Tax status (mig 967): decides the PAYE, UIF, SDL and ETI treatment (taxStatusTreatment). */
   taxStatus: TaxStatus;
   payBasis: PayBasis;
   hoursPerWeek?: number | null;
@@ -37,6 +41,10 @@ export interface PayrollEmployee {
   dailyRate?: number | null;
   /** BCEA s33(1)(b) occupation, at most 100 characters. */
   occupation?: string | null;
+  /** The identity document held, for ETI (migration 976). */
+  etiIdDocument?: EtiIdDocument | null;
+  /** Months employed by this employer before the current start date, under the same ID number (ET: a rehire continues the ETI window). */
+  etiPriorMonths?: number;
 }
 
 export interface PayrollComponent {
@@ -66,12 +74,19 @@ export interface EmployeeComponent {
   amount: number;
   /** Taxable remuneration reported on the payslip but not paid to the employee in cash. */
   isNonCash?: boolean;
+  /** The share of a taxable periodic earning that is remuneration for PAYE (0.8 or 0.2; fringeBenefits.ts). Absent = all of it. */
+  payeInclusionRate?: number;
+  /** A 3810 earning under the explicit gross-up opt-in: paid as cash, its fees are the 4005 deduction's (employerContributions.ts). */
+  medicalGrossUp?: boolean;
   /** Set on a lump-sum (39xx) component paid under a directive; see payrollCalculator. */
   directive?: DirectiveFigures;
   /** The assignment's is_recurring, when read from payroll_employee_components (the termination base takes recurring rows only). */
   isRecurring?: boolean;
   /** The payroll_employee_components row it was read from (the pro-rata guard asks which rows the reader paid). */
   assignmentId?: string;
+  /** Hours or days this row pays (HD, migration 967): amount = quantity x the rate at entry. Absent on a plain amount. */
+  quantity?: number | null;
+  quantityUnit?: QuantityUnit | null;
 }
 
 export interface PayrollPeriod {
@@ -115,6 +130,8 @@ export interface ValidationResult {
   deepLink?: string;
   /** PAYE_LATER_PERIODS_APPROVED only: the later months it names, YYYY-MM. The approval gate matches on this, not the message. */
   periods?: string[];
+  /** PAYE_OUTSIDE_TABLES only: how this month's PAYE was taken (taxStatusTreatment); the year to date leaves such a month out. */
+  treatment?: 'flat_25' | 'none';
   /** DEDUCTIONS_EXCEED_PAY only: net pay before the floor at nil, negative. */
   rawNet?: number;
   /** LOAN_DEDUCTION_MISSING only: the loan numbers whose instalment was not taken. */
@@ -159,6 +176,13 @@ export interface ComponentBreakdownItem {
   isTaxable: boolean;
   isUifApplicable: boolean;
   /**
+   * HD: the hours or days behind `amount` (0 is an entered nil; the keys are omitted when none was recorded), and `rate` = amount / quantity,
+   * the EFFECTIVE rate it was paid at, to four decimals: the employee's rate at entry, not looked up again. Omitted at quantity 0.
+   */
+  quantity?: number;
+  quantityUnit?: QuantityUnit;
+  rate?: number;
+  /**
    * The item counted toward this line's SDL-applicable remuneration, as costed: an earning flagged
    * is_sdl_applicable (payrollCalculator's sdlLeviable). Absent on a line costed before it existed;
    * payrollYearToDate then reads today's catalogue instead.
@@ -166,6 +190,10 @@ export interface ComponentBreakdownItem {
   isSdlApplicable?: boolean;
   /** True when the earning is taxable remuneration but is not paid in cash. */
   isNonCash?: true;
+  /** As on EmployeeComponent: the PAYE inclusion the line was costed with, kept so a reader need not re-derive it. */
+  payeInclusionRate?: number;
+  /** What the calculator took as remuneration for PAYE from this item (amount x rate, to the cent): exact for the certificate's 4582. */
+  payeIncludedAmount?: number;
   directive?: DirectiveFigures;
   /** Set on an employee retirement fund contribution (4001/4003/4006 deduction; PAYE 4c, migration 948). */
   retirementContribution?: true;
@@ -230,4 +258,6 @@ export interface PayrollLineResult {
   netPay: number;
   componentBreakdown: ComponentBreakdownItem[];
   validationResults: ValidationResult[];
+  /** Hours worked on this run (HD): hours, or days x hours per day. Null when not recorded or not determinable, never 0. */
+  hours: number | null;
 }

@@ -158,18 +158,21 @@ describe('fiscal periods tab', () => {
   const period = { id: 'p1', periodName: 'D2 January 2026', periodNumber: 1, fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-01-31', status: 'open', createdAt: '2026-01-01', updatedAt: '2026-01-01' };
   const api = (write: () => Response, reload?: () => Response) => (_u: string, m: string) => (m !== 'GET' ? write() : reload ? reload() : ok([period]));
   const loaded = async () => { render(<FiscalPeriodsTab />); await screen.findByText('D2 January 2026'); };
-  const closePeriod = () => fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  const closePeriod = async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Close period' })); // audit P3.2 confirmation
+  };
 
   it('an action the server refuses shows the reason and keeps the period', async () => {
     script(api(refuse));
-    await loaded(); closePeriod();
+    await loaded(); await closePeriod();
     expect(await screen.findByText(MSG)).toBeTruthy();
     expect(screen.getByText('D2 January 2026')).toBeTruthy();
   });
 
   it('an action answered by an empty-body 500 shows a plain sentence', async () => {
     script(api(empty500));
-    await loaded(); closePeriod();
+    await loaded(); await closePeriod();
     expect(await screen.findByText('Could not update the fiscal period - try again')).toBeTruthy();
     expectNoRawError();
   });
@@ -177,7 +180,7 @@ describe('fiscal periods tab', () => {
   it('an action that went through followed by a failing reload clears the old periods and shows the reload error', async () => {
     let done = false;
     script(api(() => { done = true; return ok({}); }, () => (done ? empty500() : ok([period]))));
-    await loaded(); closePeriod();
+    await loaded(); await closePeriod();
     expect(await screen.findByText('Could not load fiscal periods - try again')).toBeTruthy();
     await waitFor(() => expect(screen.queryByText('D2 January 2026')).toBeNull());
     expect(document.querySelector('.animate-spin')).toBeNull();

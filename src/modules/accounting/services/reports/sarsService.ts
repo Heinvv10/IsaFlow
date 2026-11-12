@@ -30,6 +30,7 @@ export {
   listSubmissions,
   getSubmission,
   markSubmitted,
+  SubmissionNotOpenError,
   getTaxPeriods,
   getComplianceCalendar,
   getComplianceCalendarWithDB,

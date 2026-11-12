@@ -158,10 +158,17 @@ export async function listEntityChanges(companyId: string, opts: ListEntityChang
   };
 }
 
+/**
+ * The work terms (migration 967), the superset of TS-b's and HD's: tax status, pay basis, hours and rates decide how PAYE, UIF, SDL and ETI are
+ * taken (TS-b), and what an hourly or daily line was priced and judged on hangs on them (HD). Any change after calculation counts, for any
+ * employee. The employment type feeds the director check and the hours warning.
+ */
+const WORK_TERMS = ['tax_status', 'pay_basis', 'hours_per_week', 'hours_per_day', 'hourly_rate', 'daily_rate', 'employment_type', 'eti_id_document', 'date_of_birth', 'id_number'];
 /** The payroll_employees columns whose change after calculation sends a pay run back for recalculation. */
 const PAYROLL_TERMS = [
   'end_date', 'termination_reason', 'termination_notice_period_days', 'termination_served_notice_days',
   'termination_severance_weeks_per_year', 'termination_include_leave_payout', 's18a_receipt_held',
+  ...WORK_TERMS,
 ];
 /** The termination details: they count only for an employee whose end date is on or before the run's last day. */
 const TERMINATION_TERMS = PAYROLL_TERMS.filter(t => t.startsWith('termination_'));
@@ -171,7 +178,7 @@ const TERMINATION_TERMS = PAYROLL_TERMS.filter(t => t.startsWith('termination_')
  * termination details or s18A receipt tick changed after run `runId` was calculated (both stamps compared in SQL: the capture's
  * clock_timestamp() against the run's calculated_at). An end-date change counts only when the earlier of the old and
  * the new date (empty = no end) is on or before the run's last day; a termination-detail change only for an employee
- * whose end date is on or before it; an s18A receipt tick always. NULL when this caller may not read the history: without SELECT on the columns
+ * whose end date is on or before it; an s18A receipt tick or a work term (tax status, pay basis, hours, rates, employment type) always. NULL when this caller may not read the history: without SELECT on the columns
  * read (migration_admin has none), or neither bypassing RLS nor app_user (a member of it) acting as an owner / admin /
  * manager of the request's company.
  * The gate then fails closed rather than read "no change".
@@ -225,6 +232,9 @@ export async function payrollTermsChangedSinceCalculation(
           AND c.after->>'end_date' IS NOT NULL AND (c.after->>'end_date')::date <= p.last_day)
         -- The s18A receipt tick moves PAYE and SDL for any employee, in either direction.
         OR 's18a_receipt_held' = ANY(c.changed)
+        -- The work terms (TS-b: tax status, pay basis, hours and rates; HD: a line's hours, price and ETI hang on them) and the employment type
+        -- the director check and the hours warning read.
+        OR c.changed && ${WORK_TERMS}::text[]
       )
   `) as Array<{ entity_id: string }>;
   return rows.map((r) => String(r.entity_id));

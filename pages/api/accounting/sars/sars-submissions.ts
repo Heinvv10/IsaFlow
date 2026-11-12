@@ -23,6 +23,7 @@ import {
   listSubmissions,
   markSubmitted,
   getSubmission,
+  SubmissionNotOpenError,
 } from '@/modules/accounting/services/reports/sarsService';
 import {
   assertVatGateClear, VatGateBlockedError, VatGateOverrideForbiddenError,
@@ -81,6 +82,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       } catch (err) {
         if (respondIfLockTimeout(res, err)) return;
         if (respondIfImpersonationForbidden(res, err)) return;
+        if (err instanceof SubmissionNotOpenError) return apiResponse.conflict(res, err.message);
         if (err instanceof VatGateOverrideForbiddenError) return apiResponse.forbidden(res, err.message);
         if (err instanceof VatGateBlockedError) return apiResponse.badRequest(res, err.message, { counts: err.counts });
         log.error('Failed to mark submission', { error: err }, 'sars-api');

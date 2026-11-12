@@ -126,7 +126,7 @@ export default function SupplierDedupPage() {
             <div className="text-sm text-[var(--ff-text-secondary)]">
               <p className="font-medium text-[var(--ff-text-primary)] mb-0.5">How deduplication works</p>
               <p>
-                ISAFlow matches suppliers by identical email, VAT number, or similar name.
+                IsaFlow matches suppliers by identical email, VAT number, or similar name.
                 Merging moves all invoices, payments, and purchase orders
                 to the supplier you keep. The duplicate is then marked inactive.
               </p>

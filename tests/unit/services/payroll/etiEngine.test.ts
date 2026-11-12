@@ -1,11 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { calculateEti } from '@/modules/accounting/services/payroll/etiEngine';
-import {
-  ETI_AFTER_MARCH_2026_POLICY,
-  UnsupportedEtiPeriodError,
-  isEtiTableUnconfirmed,
-  selectEtiTable,
-} from '@/modules/accounting/services/payroll/etiTables';
+import { UnsupportedEtiPeriodError, selectEtiTable } from '@/modules/accounting/services/payroll/etiTables';
 
 /** Last pay run under the 1 Mar 2022 formula, and the first two under the 1 Apr 2025 one. */
 const OLD_PERIOD = new Date(2025, 2, 28);
@@ -188,35 +183,9 @@ describe('ETI engine - the formula is chosen by the pay period', () => {
   });
 });
 
-describe('ETI engine - periods from April 2026 (table unconfirmed)', () => {
-  it('flags only pay periods from 1 April 2026', () => {
-    expect(isEtiTableUnconfirmed(new Date(2026, 2, 28))).toBe(false);
-    expect(isEtiTableUnconfirmed(new Date(2026, 3, 1))).toBe(true);
-    expect(isEtiTableUnconfirmed(new Date(2027, 0, 28))).toBe(true);
-  });
-
-  it('claims on the April 2025 table while the policy is "warn" (the shipped setting)', () => {
-    expect(ETI_AFTER_MARCH_2026_POLICY).toBe('warn');
+describe('ETI engine - periods from April 2026 (Act 3 of 2026: the April 2025 table, no end date)', () => {
+  it('claims on the April 2025 table after 31 March 2026, as before', () => {
     expect(eti(LATER_PERIOD, 3_000).monthlyEti).toBe(1_500);
-  });
-
-  const claim = (periodDate: Date, policy: 'warn' | 'fail_closed') => calculateEti({
-    dateOfBirth: dob(periodDate, 25),
-    employmentStartDate: monthsAgo(periodDate, 2),
-    periodDate,
-    monthlyRemuneration: 3_000,
-    isUifExcluded: false,
-  }, 2027, policy);
-
-  it('claims nothing from April 2026 when flipped to fail_closed', () => {
-    const r = claim(LATER_PERIOD, 'fail_closed');
-    expect(r.isEligible).toBe(false);
-    expect(r.monthlyEti).toBe(0);
-    expect(r.ineligibilityReason).toContain('unconfirmed');
-  });
-
-  it('fail_closed leaves March 2026 and earlier untouched', () => {
-    expect(claim(new Date(2026, 2, 28), 'fail_closed').monthlyEti).toBe(1_500);
-    expect(claim(OLD_PERIOD, 'fail_closed').monthlyEti).toBe(1_500);
+    expect(selectEtiTable(new Date(2027, 0, 28))).toEqual(selectEtiTable(NEW_PERIOD));
   });
 });

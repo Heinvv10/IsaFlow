@@ -154,6 +154,18 @@ export const ALLOWED: Record<string, AllowedEntry> = {
   },
 
   // ── NO CLAIM DECIDED ──────────────────────────────────────────────────────
+  'src/modules/accounting/services/ar/quoteLineTax.ts': {
+    kinds: ['rate_constant'],
+    reason: 'No claim decided: STANDARD_VAT_RATE is the rate a customer QUOTE line takes when the caller sends none '
+    + '(0 for a company that is not VAT registered). A quote posts nothing and picks no account; it is output VAT '
+    + 'on an offer, priced as the invoice it may become (audit 11 Nov 2026 item 5).',
+  },
+  'src/modules/accounting/services/ar/quoteConvertService.ts': {
+    kinds: ['rate_constant'],
+    reason: 'No claim decided: STANDARD_VAT_RATE is the DRAFT invoice header rate when a converted quote mixes rates '
+    + '(the column default it had before). The draft posts nothing; it posts through the customer-invoice '
+    + 'approval path like any other draft.',
+  },
   'src/modules/accounting/services/ar/writeOffService.ts': {
     kinds: ['vat_field_on_a_posting_path'],
     reason: 'Posts a bad-debt write-off with the fixed code `bad_debt` (VAT201 box '

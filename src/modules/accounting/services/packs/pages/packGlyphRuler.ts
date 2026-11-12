@@ -14,7 +14,8 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as fontkit from 'fontkit';
-import { asShaped, shapingInput } from './packGlyphShaping';
+import { asShaped, shapingInput, withGaps } from './packGlyphShaping';
+import { clusters } from './packGraphemes';
 
 export type FaceWeight = 400 | 500 | 600;
 
@@ -67,8 +68,8 @@ export function inFace(cluster: string): boolean {
   return Array.from(cluster).every((ch) => f.hasGlyphForCodePoint(ch.codePointAt(0)!));
 }
 
-const SEGMENTER = new Intl.Segmenter('en', { granularity: 'grapheme' });
-export const clustersOf = (text: string): string[] => Array.from(SEGMENTER.segment(text), (s) => s.segment);
+/** A text's grapheme clusters (`packGraphemes`: `Intl.Segmenter`'s, in time linear in the text). */
+export const clustersOf = (text: string): string[] => clusters(text);
 
 const FACE_SCRIPTS = ['Latin', 'Greek', 'Cyrillic'] as const;
 const SCRIPT_SETS = new Map<string, readonly string[] | null>();
@@ -211,10 +212,12 @@ export function hyphenExactPx(fontPx: number, weight: FaceWeight): number {
  * the pack's closest, 12px/500's 307.968, leaves), not summed exactly: the line's floor cannot take any of it back
  * (measured: "Gross margin\u00AD" needs 4852/64px on one line, its words floored and the hyphen's 307; the hyphen summed
  * exactly with them fitted it at 4851).
+ * `joiners`: a cluster holding a ZWJ is priced by `fallbackPx` though the face has a glyph for every code point of it: the
+ * face sets "1\u200D" as a digit, and production sets it beside a pictograph in the emoji face (#1264 round 7).
  */
 export function runExactPx(
   text: string, fontPx: number, weight: FaceWeight, fallbackPx: (cluster: string, sizePx: number) => number, letterSpacingPx = 0,
-  hyphen = false,
+  hyphen = false, joiners = false,
 ): number {
   const f = face(weight);
   const size = setSizePx(fontPx);
@@ -227,10 +230,13 @@ export function runExactPx(
   };
   // What Chromium sets as nothing (a soft hyphen, a zero-width space, a word joiner, ...) out, kerned across; a line or
   // paragraph separator as a space; a fraction slash decided on the text as given (`packGlyphShaping.asShaped`).
-  for (const cluster of clustersOf(asShaped(text))) {
+  const gaps = new Set<number>();
+  let at = 0;
+  for (const cluster of clustersOf(asShaped(text, gaps))) {
     px += letterSpacingPx;
-    if (inFace(cluster)) inside += cluster;
-    else { flush(); px += fallbackPx(cluster, size); }
+    if (inFace(cluster) && !(joiners && cluster.includes('\u200D'))) inside += cluster;
+    else { flush(); px += fallbackPx(gaps.size === 0 ? cluster : withGaps(cluster, at, gaps), size); }
+    if (gaps.size > 0) at += Array.from(cluster).length;
   }
   flush();
   if (hyphen) px += Math.ceil(hyphenExactPx(fontPx, weight) * UNIT - 1e-7) / UNIT;

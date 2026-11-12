@@ -2,6 +2,12 @@
  * THE RULER IS MEASURED AGAINST THE BROWSER, ON TEXT THE PACK CAN ACTUALLY
  * RECEIVE.
  *
+ * The prose model is now `packProseLines.proseLines` (each word at the faces'
+ * own widths, filled as the print fills a line); this holds it on text the
+ * faces set. Text in a fallback face is held in production's image
+ * (`printParity/packProseLinesImage.test.ts`): this Chromium's fallback faces
+ * are not production's. What follows is the em table's history.
+ *
  * `packTextMetrics` decides how many lines a string takes, and every page
  * budget is built on it. Its em table was fitted to English prose and gave
  * every codepoint outside that table `EM_DEFAULT` — 0.47em — including CJK,
@@ -23,21 +29,19 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Browser } from 'playwright';
 import { launchPrintChromium } from './printChromium';
-import { wrappedLines } from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import { proseLines } from '@/modules/accounting/services/packs/pages/packProseLines';
+import { PROSE, type ProseStyle } from '@/modules/accounting/services/packs/pages/packProseStyles';
 import { readPackPrintCss } from './packPrintCss';
 
 const ROOT = path.resolve(__dirname, '../../..');
 const HOST = 'http://text.metrics.local/';
 
-/** Strings the pack could carry, one per script the em table has to survive. */
+/** Strings the pack could carry, in the scripts the faces set. */
 const SAMPLES: Array<[string, string]> = [
   ['English prose', 'Targets are the platform defaults; a metric with no target is shown unscored rather than assumed met, and the page says so.'],
   ['digits and identifiers', 'Reversal of JE-2026-00417 against company d27bac33-0000-0000-0000-000000000000 on 2026-01-31, 1 234 567.89'],
   ['capitals', 'VAT CONTROL ACCOUNT RECONCILIATION FOR THE PERIOD ENDED 31 AUGUST 2026 — SARS VAT201 SUBMISSION'],
   ['Afrikaans', 'Die grootboekinskrywing is teruggeskryf omdat die bedrag nie ooreenstem met die staat se saldo nie.'],
-  ['Chinese', '这是一笔来自客户的付款，金额与银行对账单上的余额不符，需要财务部门在本月底之前完成核对。'],
-  ['Japanese', 'この仕訳は銀行明細の残高と一致しないため、月末までに経理部門による照合が必要です。'],
-  ['Korean', '이 분개는 은행 명세서의 잔액과 일치하지 않으므로 월말까지 회계 부서의 확인이 필요합니다.'],
   ['Cyrillic', 'Проводка не соответствует остатку по банковской выписке и требует проверки бухгалтерией.'],
   ['Greek', 'Η εγγραφή δεν συμφωνεί με το υπόλοιπο του τραπεζικού λογαριασμού και απαιτεί έλεγχο.'],
   /**
@@ -58,57 +62,76 @@ const SAMPLES: Array<[string, string]> = [
     + 'revenue and other income of (5\u00a0536).'],
 ];
 
-/** The three measures the pack actually sets prose across. */
-const MEASURES: Array<[number, number]> = [[9.5, 174], [9.5, 116], [7.5, 168], [9, 34]];
+/** Measures the pack sets prose across, each in its style. */
+const MEASURES: Array<[ProseStyle, number]> = [
+  [PROSE.disclosureBody, 174], [PROSE.disclosureBody, 116], [PROSE.footnote, 168], [PROSE.mattersCell, 34], [PROSE.narrativeBody, 110],
+];
 
 let browser: Browser;
 beforeAll(async () => { browser = await launchPrintChromium(); }, 120_000);
 afterAll(async () => { await browser?.close(); });
 
+/** The lines Chromium sets each paragraph in: one per case, at its size and measure, in the real face. */
+async function drawnLines(cases: ReadonlyArray<{ text: string; pt: number; widthMm: number }>): Promise<number[]> {
+  const pack = readPackPrintCss(ROOT);
+  const html = '<!doctype html><html class="print-mode"><head><meta charset="utf-8"><style>'
+    + `body{margin:0;font-family:'IBM Plex Sans',sans-serif}${pack}</style></head><body>`
+    + cases.map((c, i) =>
+      `<p id="s${i}" style="margin:0;width:${c.widthMm}mm;font-size:${c.pt}pt;line-height:100pt">`
+      + `${c.text}</p>`).join('')
+    + '</body></html>';
+  const page = await browser.newPage();
+  try {
+    await page.route(`${HOST}**`, async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === '/') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: html });
+      if (url.pathname.startsWith('/fonts/')) {
+        return route.fulfill({ contentType: 'font/woff2', body: readFileSync(path.join(ROOT, 'public', url.pathname)) });
+      }
+      return route.abort();
+    });
+    await page.goto(HOST, { waitUntil: 'load' });
+    await page.evaluate(() => document.fonts.ready);
+    // 100pt of leading per line makes the line COUNT readable off the
+    // element's height without trusting a second height model.
+    return await page.evaluate((n) => Array.from({ length: n }, (unused, i) => {
+      const el = document.getElementById(`s${i}`)!;
+      return Math.round(el.getBoundingClientRect().height / (100 * (96 / 72)));
+    }), cases.length);
+  } finally {
+    await page.close();
+  }
+}
+
 describe('the pack text ruler', () => {
   it('never counts fewer lines than Chromium sets, in any script', async () => {
-    const pack = readPackPrintCss(ROOT);
     // One paragraph per sample per measure, at the real size, in the real
     // face — a fallback face has different advances and would measure a
     // different document.
-    const cases = MEASURES.flatMap(([pt, widthMm]) =>
-      SAMPLES.map(([name, text]) => ({ name, text, pt, widthMm })));
-    const html = '<!doctype html><html class="print-mode"><head><meta charset="utf-8"><style>'
-      + `body{margin:0;font-family:'IBM Plex Sans',sans-serif}${pack}</style></head><body>`
-      + cases.map((c, i) =>
-        `<p id="s${i}" style="margin:0;width:${c.widthMm}mm;font-size:${c.pt}pt;line-height:100pt">`
-        + `${c.text}</p>`).join('')
-      + '</body></html>';
+    const cases = MEASURES.flatMap(([style, widthMm]) =>
+      SAMPLES.map(([name, text]) => ({ name, text, style, pt: style.pt, widthMm })));
+    const drawn = await drawnLines(cases);
+    const short = cases
+      .map((c, i) => ({ ...c, browser: drawn[i]!, model: proseLines(c.text, c.style, c.widthMm) }))
+      .filter((c) => c.model < c.browser);
+    expect(
+      short.map((c) => `${c.name} at ${c.pt}pt/${c.widthMm}mm: model ${c.model}, browser ${c.browser}`),
+      'the ruler reads short — the direction that puts a page on a second sheet',
+    ).toEqual([]);
+  }, 120_000);
 
-    const page = await browser.newPage();
-    try {
-      await page.route(`${HOST}**`, async (route) => {
-        const url = new URL(route.request().url());
-        if (url.pathname === '/') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: html });
-        if (url.pathname.startsWith('/fonts/')) {
-          return route.fulfill({ contentType: 'font/woff2', body: readFileSync(path.join(ROOT, 'public', url.pathname)) });
-        }
-        return route.abort();
-      });
-      await page.goto(HOST, { waitUntil: 'load' });
-      await page.evaluate(() => document.fonts.ready);
-      // 100pt of leading per line makes the line COUNT readable off the
-      // element's height without trusting a second height model.
-      const drawn = await page.evaluate((n) => Array.from({ length: n }, (unused, i) => {
-        const el = document.getElementById(`s${i}`)!;
-        return Math.round(el.getBoundingClientRect().height / (100 * (96 / 72)));
-      }), cases.length);
-
-      const short = cases
-        .map((c, i) => ({ ...c, browser: drawn[i]!, model: wrappedLines(c.text, c.pt, c.widthMm) }))
-        .filter((c) => c.model < c.browser);
-      expect(
-        short.map((c) => `${c.name} at ${c.pt}pt/${c.widthMm}mm: model ${c.model}, browser ${c.browser}`),
-        'the ruler reads short — the direction that puts a page on a second sheet',
-      ).toEqual([]);
-    } finally {
-      await page.close();
-    }
+  /**
+   * AND A LINE IS SHAPED ACROSS EACH BREAK IN IT. A hyphen before a round capital kerns OUT ("a-O" is 0.2px wider than
+   * "a-" and "O" apart at 10pt), so a chain of such pieces summed piece by piece reads its lines short; the model
+   * measures each piece against the one before it. Swept over the measure, so a line that ends a join or two from full
+   * is among the cases.
+   */
+  it('measures a hyphenated chain across its joins, never short at any measure', async () => {
+    const chain = `Ref ${'Ca-Oa-Ga-Qa-'.repeat(12)}end and ${'sa-Ca-Oa-'.repeat(10)}done`;
+    const cases = Array.from({ length: 121 }, (unused, i) => ({ text: chain, pt: PROSE.disclosureBody.pt, widthMm: 40 + i * 0.5 }));
+    const drawn = await drawnLines(cases);
+    const short = cases.filter((c, i) => proseLines(c.text, PROSE.disclosureBody, c.widthMm) < drawn[i]!).map((c) => c.widthMm);
+    expect(short, 'mm at which the model reads the chain short').toEqual([]);
   }, 120_000);
 
   /**
@@ -122,30 +145,26 @@ describe('the pack text ruler', () => {
    * line the browser will leave short. That is the ruler reading SHORT, which
    * is the direction that puts a page on a second sheet.
    *
-   * Asserted against the ruler directly rather than against Chromium: the em
-   * table is conservative enough that a whole paragraph absorbs the
-   * difference, and it is the single wrap decision that has to be right.
+   * Asserted against the ruler directly: it is the single wrap decision that
+   * has to be right, and the sample above holds it only where a paragraph's
+   * fill happens to reach a figure.
    */
   it('does not break a figure at its own thousands separator', () => {
-    const pt = 9.5;
-    const grouped = '111\u00a0111 222\u00a0222';
-    const breakable = grouped.replace(/\u00a0/g, ' ');
-
-    // THE MEASURE IS FOUND, NOT WRITTEN DOWN — the narrowest whole
-    // millimetre at which the same characters fit one line when every space
-    // in them may break. At that width the difference between the two models
-    // is exactly one break, and the em table can be refitted without this
-    // case quietly ceasing to discriminate.
+    const style = PROSE.disclosureBody;
+    // THE MEASURE IS FOUND, NOT WRITTEN DOWN — the narrowest whole millimetre
+    // at which one figure, "111 111", fits a line. There "1 111 111 1" sets
+    // in three lines (the figure cannot share one with either "1"), and a
+    // model that breaks at the separator fits it in two.
     const measureMm = [...Array(120).keys()]
       .map((n) => n + 1)
-      .find((mm) => wrappedLines(breakable, pt, mm) === 1);
+      .find((mm) => proseLines('111 111', style, mm) === 1);
     expect(measureMm, 'no measure fits the sample, so nothing is being tested').toBeDefined();
-
+    expect(proseLines('1 111 111 1', style, measureMm!), 'the measure does not discriminate').toBe(2);
     expect(
-      wrappedLines(grouped, pt, measureMm!),
-      `at ${measureMm}mm the ruler fitted two grouped figures on one line, which it can only do `
-        + 'by breaking one of them at its own thousands separator — a break the browser will '
+      proseLines('1 111\u00a0111 1', style, measureMm!),
+      `at ${measureMm}mm the ruler fitted a grouped figure beside a word, which it can only do `
+        + 'by breaking it at its own thousands separator — a break the browser will '
         + 'never take, so the ruler reads short',
-    ).toBe(2);
+    ).toBe(3);
   });
 });

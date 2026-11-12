@@ -2,6 +2,9 @@
  * The pay-run review grid's period inputs (master plan wave 3, R).
  * GET /api/payroll/runs/[id]/inputs  - the run, what it may edit, what is captured
  * PUT /api/payroll/runs/[id]/inputs  - { employeeId, componentId, amount, expectedAmount } in rand; 0 clears
+ *                                    or (HD) { employeeId, quantity, expectedQuantity[, expectedAmount] } hours or days; the amount
+ *                                    is worked out on the server from the employee's rate. quantity null clears the row, 0 is an
+ *                                    entered nil; expectedQuantity null = no row; expectedAmount names a plain amount it replaces
  *
  * Both answer the same shape, so a PUT hands the grid the recalculated lines.
  * expectedAmount is what the cell last showed: a mismatch answers 409.
@@ -20,6 +23,7 @@ import {
   getRunInputs,
   setRunPeriodAmount,
 } from '@/modules/accounting/services/payroll/payrollRunPeriodInputs';
+import { setRunHours } from '@/modules/accounting/services/payroll/payrollRunHoursInput';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID_RE.test(v);
@@ -38,15 +42,27 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PUT']);
   }
 
-  const { employeeId, componentId, amount, expectedAmount } = (req.body ?? {}) as Record<string, unknown>;
-  if (!isUuid(employeeId) || !isUuid(componentId)) return apiResponse.badRequest(res, 'employeeId and componentId are required');
-  if (typeof amount !== 'number') return apiResponse.badRequest(res, 'amount must be a number');
-  if (typeof expectedAmount !== 'number') return apiResponse.badRequest(res, 'expectedAmount must be a number');
+  const { employeeId, componentId, amount, expectedAmount, quantity, expectedQuantity } = (req.body ?? {}) as Record<string, unknown>;
+  const actor = { userId: req.user.id, userEmail: req.user.email, channel: 'rest' } as const;
+  const hours = quantity !== undefined || expectedQuantity !== undefined;
+  if (hours) {
+    if (!isUuid(employeeId)) return apiResponse.badRequest(res, 'employeeId is required');
+    if (componentId !== undefined || amount !== undefined) return apiResponse.badRequest(res, 'Send hours or days, or an amount, not both');
+    if (quantity !== null && typeof quantity !== 'number') return apiResponse.badRequest(res, 'quantity must be a number, or null to clear');
+    if (expectedQuantity !== null && typeof expectedQuantity !== 'number') return apiResponse.badRequest(res, 'expectedQuantity must be a number, or null for none');
+    if (expectedAmount !== undefined && expectedAmount !== null && typeof expectedAmount !== 'number') return apiResponse.badRequest(res, 'expectedAmount must be a number');
+  } else {
+    if (!isUuid(employeeId) || !isUuid(componentId)) return apiResponse.badRequest(res, 'employeeId and componentId are required');
+    if (typeof amount !== 'number') return apiResponse.badRequest(res, 'amount must be a number');
+    if (typeof expectedAmount !== 'number') return apiResponse.badRequest(res, 'expectedAmount must be a number');
+  }
 
   try {
-    return apiResponse.success(res, await setRunPeriodAmount(
-      companyId, id, employeeId, componentId, amount, expectedAmount, { userId: req.user.id, userEmail: req.user.email, channel: 'rest' },
-    ));
+    return apiResponse.success(res, hours
+      ? await setRunHours(companyId, id, employeeId as string, quantity as number | null, {
+        quantity: expectedQuantity as number | null, amount: (expectedAmount ?? null) as number | null,
+      }, actor)
+      : await setRunPeriodAmount(companyId, id, employeeId as string, componentId as string, amount as number, expectedAmount as number, actor));
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;
     if (err instanceof PayrollRunInputRefusedError) {

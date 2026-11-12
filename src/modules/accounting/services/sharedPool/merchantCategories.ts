@@ -1,5 +1,5 @@
 /**
- * Shared merchant-pattern pool — the fixed ISAFlow category list (Hein, 2026-10-21, decision 1).
+ * Shared merchant-pattern pool — the fixed IsaFlow category list (Hein, 2026-10-21, decision 1).
  *
  * WHY A LIST OF ITS OWN, NOT THE isaflow_standard TEMPLATE. The template (chartOfAccountsImportService.ts
  * ISAFLOW_TEMPLATE) is a TS constant with eight expense accounts (Salaries, Rent, Transport & Fuel, Bank
