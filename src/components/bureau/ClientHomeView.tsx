@@ -31,7 +31,7 @@ export function ClientHomeView({ metrics, workItems, onOpenItem }: ClientHomeVie
     <div className="p-6 space-y-6">
       {/* Metric strip: the headline figures, as at one date */}
       <div className="space-y-2">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
           {METRIC_CARDS.map((m) => (
             <Card key={m.key}>
               <div className="text-xs text-[var(--ff-text-tertiary)]">{m.label}</div>

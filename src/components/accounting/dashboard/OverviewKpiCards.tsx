@@ -63,7 +63,7 @@ function Unloaded({ onRetry }: { onRetry?: () => void }) {
         {titles.map(([title, icon]) => (
           <div key={title} className={CARD}>
             <CardHead title={title} icon={icon} />
-            <p className={VALUE}><Money /></p>
+            <p className={VALUE}><Money /><span className="sr-only">not loaded</span></p>
           </div>
         ))}
       </div>

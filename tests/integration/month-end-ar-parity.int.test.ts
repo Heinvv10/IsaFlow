@@ -118,7 +118,7 @@ describeIfDb('month-end Sales card is the headline receivables figure', () => {
     expect((await getAROutstandingSummary(COMPANY)).outstanding).toBeCloseTo(OUTSTANDING, 2);
     expect(sales.secondary).toBe(`${formatMoney(OUTSTANDING - NOT_ISSUED_BAL)} outstanding · 1 customers · as at ${formatDisplayDate(today)}`);
     expect((await getARAging(COMPANY, fmtDate(now))).length).toBe(1);
-    expect(sales.href).toBe('/accounting/debtors-manager');
+    expect(sales.href).toBe('/accounting/ar-aging');
   });
 
   it('a period ending today is current (>= today), one ending yesterday is past', async () => {

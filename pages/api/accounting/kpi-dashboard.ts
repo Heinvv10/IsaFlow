@@ -23,6 +23,7 @@ import {
 } from '@/modules/accounting/services/reports/kpiService';
 import { getOpenBook } from '@/modules/accounting/services/reports/dashboardOpenBook';
 import { getHeadlineFigures } from '@/modules/accounting/services/reports/headlineFigures';
+import { getMtdIncome } from '@/modules/accounting/services/reports/mtdIncome';
 import { hasBankAccount } from '@/modules/accounting/services/bank/hasBankAccountService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -51,18 +52,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const months = Math.max(1, Math.min(Number(req.query.months) || 6, 120));
 
     // Each side of the open book is read once and feeds both its tile and its
-    // donut: they are one figure by construction, and one query's cost.
-    const [arBook, apBook] = await Promise.all([
+    // donut: they are one figure by construction, and one query's cost. The
+    // month-to-date income is read once too, for the KPI tiles and the headline.
+    const [arBook, apBook, mtd] = await Promise.all([
       getOpenBook(companyId, 'ar', today),
       getOpenBook(companyId, 'ap', today),
+      getMtdIncome(companyId, today),
     ]);
 
     const [kpis, headline, revenueChart, cashFlowChart, arAging, apAging, topCustomers, topExpenses, bankConfigured] =
       await Promise.all([
-        getDashboardKPIs(companyId, from, to, today, { ar: arBook, ap: apBook }),
+        getDashboardKPIs(companyId, from, to, today, { ar: arBook, ap: apBook }, mtd),
         // The headline figures (cash, receivables, revenue MTD, counts): the one
         // definition /home and Month-End read too, as at the same SAST day.
-        getHeadlineFigures(companyId, today, { books: { ar: arBook, ap: apBook } }),
+        getHeadlineFigures(companyId, today, { books: { ar: arBook, ap: apBook }, mtd }),
         getRevenueChart(companyId, months, today),
         getCashFlowChart(companyId, months),
         getAgingBreakdown(companyId, 'ar', today, arBook),

@@ -47,6 +47,8 @@ describe('KPI cards with no figures', () => {
     expect(screen.queryByText(/change/)).toBeNull();
     for (const title of ['Revenue', 'Net Profit', 'Cash', 'Receivables']) expect(screen.getByText(title)).toBeTruthy();
     expect(container.querySelectorAll('span.tabular-nums').length).toBe(4);
+    // A screen reader hears why each card has no figure.
+    expect(screen.getAllByText('not loaded')).toHaveLength(4);
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });

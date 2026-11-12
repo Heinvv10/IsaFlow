@@ -11,7 +11,7 @@ import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { todayInSast } from '@/lib/saDateParser';
 import { getOpenBook, type OpenBook } from './dashboardOpenBook';
 import { revenueBand } from '../gl/accountClassification';
-import { getMtdIncome } from './mtdIncome';
+import { getMtdIncome, type MtdIncome } from './mtdIncome';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 
@@ -44,13 +44,15 @@ export interface OpenBooks { ar: OpenBook; ap: OpenBook }
  * `todayStr` is the SAST app date the Receivables / Payables tiles are as at
  * (reports/dashboardOpenBook), never the UTC session's CURRENT_DATE. `books`
  * are those tiles' open books when the caller already has them; without them
- * they are read here.
+ * they are read here. `mtd` is the month-to-date income as at `todayStr` when the
+ * caller already read it (the route shares it with the headline figures).
  */
 export async function getDashboardKPIs(companyId: string,
   fromDate: string,
   toDate: string,
   todayStr: string = todayInSast(),
   books?: OpenBooks,
+  mtd?: MtdIncome,
 ): Promise<DashboardKPIs> {
   try {
     const from = new Date(fromDate);
@@ -183,7 +185,7 @@ export async function getDashboardKPIs(companyId: string,
           AND entry_date >= ${fromDate} AND entry_date <= ${toDate}
       `,
       // Revenue MTD: the headline figure's one definition (reports/mtdIncome).
-      getMtdIncome(companyId, todayStr),
+      mtd ?? getMtdIncome(companyId, todayStr),
     ]);
 
     // Revenue is TURNOVER, as the income statement's Revenue line: the other-income

@@ -270,6 +270,12 @@ describe('kpi-dashboard handler', () => {
     expect(h.apCalls).toBe(1);
   });
 
+  it('reads the month-to-date income once, for the tiles and the headline', async () => {
+    await call();
+    const mtd = h.queries.filter((q) => q.text.includes("account_type IN ('revenue', 'expense')") && !q.text.includes('generate_series'));
+    expect(mtd).toHaveLength(1);
+  });
+
   it('the Overdue tile is the overdue donut slices plus the overdue disputed share', async () => {
     const out = await call();
     const slice = (name: string) => out.arAging.find((b) => b.name === name)!.value;

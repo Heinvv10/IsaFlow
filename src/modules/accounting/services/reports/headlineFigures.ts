@@ -25,7 +25,8 @@ import { todayInSast } from '@/lib/saDateParser';
 import { AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { getCashBalance } from '../bank/cashBalanceService';
 import { getOpenBook, type OpenBook } from './dashboardOpenBook';
-import { getMtdIncome } from './mtdIncome';
+import { getMtdIncome, type MtdIncome } from './mtdIncome';
+import { DUE_THIS_WEEK_DAYS } from '../ap/supplierInvoiceWhereBuilder';
 
 export interface HeadlineCounts {
   /** Customer invoices in draft, not soft-deleted. */
@@ -34,7 +35,10 @@ export interface HeadlineCounts {
   draftBills: number;
   /** Journal entries in draft, any date. */
   draftJournals: number;
-  /** Open supplier bills with a balance, due from `asAt` to `asAt` + 7 days. */
+  /**
+   * Open supplier bills with a balance, due from `asAt` to `asAt` + 7 days, both ends
+   * included. The supplier list's "Due this week" filter is the same population.
+   */
   billsDueNext7Days: number;
   /** Open supplier bills with a balance, due before `asAt`. */
   billsOverdue: number;
@@ -67,7 +71,7 @@ export async function getHeadlineCounts(companyId: string, asAt: string = todayI
         WHERE company_id = ${companyId}::UUID AND deleted_at IS NULL
           AND status = ANY(${open}::text[])
           AND total_amount - COALESCE(amount_paid, 0) > 0
-          AND due_date >= ${asAt}::DATE AND due_date <= ${asAt}::DATE + 7) AS bills_due_7,
+          AND due_date >= ${asAt}::DATE AND due_date <= ${asAt}::DATE + ${DUE_THIS_WEEK_DAYS}::int) AS bills_due_7,
       (SELECT COUNT(*)::int FROM supplier_invoices
         WHERE company_id = ${companyId}::UUID AND deleted_at IS NULL
           AND status = ANY(${open}::text[])
@@ -94,17 +98,17 @@ export async function countDraftJournals(companyId: string, datedUpTo?: string):
   return Number(rows[0]?.cnt ?? 0);
 }
 
-/** `books`: the AR and AP open books when the caller already read them at the same `asAt`. */
+/** `books` and `mtd`: the open books and month-to-date income when the caller already read them at the same `asAt`. */
 export async function getHeadlineFigures(
   companyId: string,
   asAt: string = todayInSast(),
-  opts: { books?: { ar: OpenBook; ap: OpenBook } } = {},
+  opts: { books?: { ar: OpenBook; ap: OpenBook }; mtd?: MtdIncome } = {},
 ): Promise<HeadlineFigures> {
   const [cash, ar, ap, income, counts] = await Promise.all([
     getCashBalance(companyId, asAt),
     opts.books ? opts.books.ar : getOpenBook(companyId, 'ar', asAt),
     opts.books ? opts.books.ap : getOpenBook(companyId, 'ap', asAt),
-    getMtdIncome(companyId, asAt),
+    opts.mtd ?? getMtdIncome(companyId, asAt),
     getHeadlineCounts(companyId, asAt),
   ]);
   return {

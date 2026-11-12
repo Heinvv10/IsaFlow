@@ -56,8 +56,8 @@ export async function buildSalesCard(companyId: string, periodEnd: string): Prom
     status,
     primary: `${fmtR(overdue)} overdue`,
     secondary: `${fmtR(total)} outstanding · ${parties} customers · as at ${formatDisplayDate(asAt)}`,
-    // debtors-manager has no as-at date; the aged debtors report does.
-    href: past ? `/accounting/ar-aging?as_at_date=${periodEnd}` : '/accounting/debtors-manager',
+    // The aged debtors report is the population this card totals (debtors-manager is not).
+    href: past ? `/accounting/ar-aging?as_at_date=${periodEnd}` : '/accounting/ar-aging',
   };
 }
 

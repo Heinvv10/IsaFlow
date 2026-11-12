@@ -26,7 +26,7 @@ Cross-client cockpit for accounting firms (bureaus). The `/bureau` page lands ac
 1. `clientMetricsSnapshot` (`bureauClientMetricsService.ts`) — accounting KPIs for the single verified company.
 2. `aggregateBureauWork([companyId])` — work-queue items scoped to that one id.
 
-Both reads are scoped to the single verified `companyId`; no new tenant surface is introduced. The path `companyId` is never trusted directly — it is always validated through the gate first. The metrics are the headline figures (`accounting/services/reports/headlineFigures`), the same numbers /accounting and Month-End show, as at the SAST day.
+Both reads are scoped to the single verified `companyId`; no new tenant surface is introduced. The path `companyId` is never trusted directly: it is always validated through the gate first. The metrics are the headline figures (`accounting/services/reports/headlineFigures`), the same numbers /accounting and Month-End show, as at the SAST day.
 
 **Second consumer — `clientMetricsSnapshot` / `aggregateBureauWork` are also reused by the direct-client home `GET /api/home` (PR #147).** There, the caller is a non-bureau company OWNER, so the gate is NOT `getBureauClientForUser` (the company isn't in any bureau) — instead `withAuth` validates `company_users` membership for the active company and supplies `req.companyId` (no URL-supplied id). That is an equivalent/stronger ownership check; the services themselves stay company-scoped and gate-agnostic.
 

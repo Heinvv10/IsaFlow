@@ -17,7 +17,8 @@
  *     both), a year-end closing journal and last month's sale;
  *   counts: a draft bill and a soft-deleted draft invoice (old "Draft invoices"),
  *     12 overdue bills (the Action Items row printed its 10-row cap), a draft, a
- *     paid and a soft-deleted bill due this week (old "AP due this week").
+ *     paid and a soft-deleted bill due this week (old "AP due this week"), and
+ *     bills due on T, T+7 and T+8 and T-1 that pin both ends of the 7-day window.
  * A second company carries its own invoice, journal and bill; no figure of the
  * first moves.
  */
@@ -32,6 +33,7 @@ import { getHeadlineFigures } from '@/modules/accounting/services/reports/headli
 import { clientMetricsSnapshot } from '@/modules/bureau/services/bureauClientMetricsService';
 import { getWorkbenchMetrics } from '@/modules/accounting/services/dashboard/workbenchService';
 import { getMonthEndWorkbench } from '@/modules/accounting/services/workbench/monthEndWorkbenchService';
+import { getSupplierInvoices } from '@/modules/accounting/services/ap/supplierInvoiceQueryService';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import kpiDashboardRoute from '../../pages/api/accounting/kpi-dashboard';
 import homeRoute from '../../pages/api/home';
@@ -76,14 +78,14 @@ const EXPECTED = {
   monthStart: MONTH_START,
   cash: 1250, // 1000 bank (T-5) + 200 inactive bank + 50 petty cash
   receivables: { total: 1250, overdue: 1000 },
-  payables: { total: 320, overdue: 120 },
+  payables: { total: 335, overdue: 128 }, // 12 x 10 + 8 (T-1) overdue; + 200, 1, 2, 4 not yet due
   revenueMtd: 400,
   profitMtd: 340, // 400 turnover + 40 other income - 100 rent
   draftInvoices: 1,
   draftBills: 2,
   draftJournals: 2,
-  billsDueNext7Days: 1,
-  billsOverdue: 12,
+  billsDueNext7Days: 3, // due T, T+3 and T+7; T+8 is out
+  billsOverdue: 13, // 12 at T-11 or older, 1 at T-1
 };
 
 let token = '';
@@ -201,6 +203,11 @@ describeIfDb('headline figures: one definition across /accounting, /home and Mon
     await bill(C, SUPP, 'KPB-15', add(3), 400, { status: 'paid', paid: 400 });
     await bill(C, SUPP, 'KPB-16', add(3), 500, { deleted: true });
     await bill(C, SUPP, 'KPB-17', add(60), 600, { status: 'draft' });
+    // The window's edges: today and today + 7 are in, today + 8 is out, yesterday is overdue.
+    await bill(C, SUPP, 'KPB-18', T, 1);
+    await bill(C, SUPP, 'KPB-19', add(7), 2);
+    await bill(C, SUPP, 'KPB-20', add(8), 4);
+    await bill(C, SUPP, 'KPB-21', add(-1), 8);
 
     // The other tenant: an invoice, a posted journal, a draft journal and bills of its own.
     await invoice(D, D_CUST, 'D-1', add(-40), add(-10), 777);
@@ -275,10 +282,16 @@ describeIfDb('headline figures: one definition across /accounting, /home and Mon
     expect(m.unpostedJournals).toBe(EXPECTED.draftJournals);
   });
 
-  it('Action Items: the overdue bill count is the true 12, beside its 10 listed rows', async () => {
+  it('the "Bills due in 7 days" card opens a list of exactly the bills it counts', async () => {
+    const list = await getSupplierInvoices(C, { dueThisWeek: true, limit: 200 });
+    expect(list.total).toBe(EXPECTED.billsDueNext7Days);
+    expect(list.invoices.map((i) => i.invoiceNumber).sort()).toEqual(['KPB-13', 'KPB-18', 'KPB-19']);
+  });
+
+  it('Action Items: the overdue bill count is the true 13, beside its 10 listed rows', async () => {
     const data = await call<{ draftInvoices: number; overdueBillCount: number; pendingSupplierPayments: unknown[] }>(todosRoute);
     expect(data.draftInvoices).toBe(EXPECTED.draftInvoices);
-    expect(data.overdueBillCount).toBe(12);
+    expect(data.overdueBillCount).toBe(EXPECTED.billsOverdue);
     expect(data.pendingSupplierPayments).toHaveLength(10);
   });
 
