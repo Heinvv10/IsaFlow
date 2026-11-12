@@ -47,6 +47,8 @@ const EMP201 = {
   totalPAYE: 63360.94,
   totalETI: 4000,
   payePayable: 59360.94,
+  etiCarry: { broughtForward: 0, used: 4000, carriedForward: 0, refundClaimable: 0 },
+  etiWarnings: [],
   totalUIF_employee: 1624.84,
   totalUIF_employer: 1624.84,
   totalUIF: 3249.68,
@@ -73,6 +75,8 @@ const IRP5 = {
     runsIncluded: 12,
     lumpSums: [{ sourceCode: '3901', directiveNumber: '1234567890', directiveIssuedDate: '2025-11-03', amount: 30000, paye: 3000 }],
     fringeBenefits: [{ sourceCode: '3801', amount: 10000 }],
+    cashAllowances: [{ sourceCode: '3701', amount: 5000 }],
+    paye4582: 4000,
   }],
   rowsTotal: 1,
   universeTotal: 2,
@@ -117,6 +121,18 @@ describe('emp201_status', () => {
     expect(env.paye_withheld).toBe(63360.94);
     expect(env.eti_claimed).toBe(4000);
     expect(env.paye_payable).toBe(59360.94);
+  });
+
+  it('reports the ETI carry so the figures add up: withheld - used = payable (ETI Act s9(1), s10; wave 5 ET)', async () => {
+    const { generateEMP201 } = await import('@/modules/accounting/services/reports/emp201Service');
+    vi.mocked(generateEMP201).mockResolvedValueOnce({
+      ...EMP201, payePayable: 57360.94, etiCarry: { broughtForward: 2000, used: 6000, carriedForward: 0, refundClaimable: 0 },
+      etiWarnings: ['ETI refund R 500.00 claimable for March–August 2026 is not booked'],
+    } as never);
+    const env = json(await emp201StatusTool.handler({ period_start: '2026-01-01', period_end: '2026-03-31' }, ctx));
+    expect([env.eti_claimed, env.eti_brought_forward, env.eti_used, env.eti_carried_forward, env.eti_refund_claimable]).toEqual([4000, 2000, 6000, 0, 0]);
+    expect(env.paye_withheld - env.eti_used).toBeCloseTo(env.paye_payable, 2);
+    expect(env.eti_warnings).toEqual(['ETI refund R 500.00 claimable for March–August 2026 is not booked']);
   });
 
   it('splits UIF and says the split is an approximation', async () => {

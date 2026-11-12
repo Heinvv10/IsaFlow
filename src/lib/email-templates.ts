@@ -1,5 +1,5 @@
 /**
- * ISAFlow Email Templates — Barrel Index
+ * IsaFlow Email Templates — Barrel Index
  * Re-exports all email template functions and types from split files.
  * All existing imports from this path continue to work unchanged.
  *

@@ -1,5 +1,5 @@
 /**
- * Migration Execute Service — import parsed Xero/QuickBooks/Pastel data into ISAFlow
+ * Migration Execute Service — import parsed Xero/QuickBooks/Pastel data into IsaFlow
  * Uses existing migrationCoaService and migrationContactService patterns.
  */
 

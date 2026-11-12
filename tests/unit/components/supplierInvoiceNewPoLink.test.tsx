@@ -54,7 +54,7 @@ beforeEach(() => {
       });
     }
     if (url.includes('/purchase-orders/po-a')) { await holdPo; return json(PO); }
-    if (url.includes('chart-of-accounts')) return json([{ id: 'acc-5500', accountCode: '5500', accountName: 'Equipment Costs' }]);
+    if (url.includes('chart-of-accounts')) return json([{ id: 'acc-5500', accountCode: '5500', accountName: 'Equipment Costs', accountType: 'expense', isActive: true }]);
     if (url.includes('document-numbers')) return json([{ documentType: 'supplier_invoice', prefix: 'SIV', nextNumber: 1, padding: 4 }]);
     return json({});
   });
@@ -190,5 +190,29 @@ describe('a bill whose lines were copied from a PO', () => {
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(posted).toHaveLength(1));
     expect(items()[0]?.poItemId).toBeUndefined();
+  });
+});
+
+describe('the bill line account picker', () => {
+  it('offers an asset account under Assets and leaves out a bank account', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('chart-of-accounts')) {
+        return json([
+          { id: 'a1', accountCode: '1500', accountName: 'Equipment', accountType: 'asset', accountSubtype: 'fixed_asset', isActive: true },
+          { id: 'b1', accountCode: '1110', accountName: 'Cheque Account', accountType: 'asset', accountSubtype: 'bank', isActive: true },
+        ]);
+      }
+      if (url.includes('document-numbers')) return json([{ documentType: 'supplier_invoice', prefix: 'SIV', nextNumber: 1, padding: 4 }]);
+      return json({});
+    });
+    const { container } = render(<NewSupplierInvoice />);
+    const opt = await waitFor(() => {
+      const o = container.querySelector('optgroup[label="Assets"] option');
+      expect(o).toBeTruthy();
+      return o as HTMLOptionElement;
+    });
+    expect(opt.textContent).toContain('1500');
+    expect(container.textContent).not.toContain('1110');
   });
 });

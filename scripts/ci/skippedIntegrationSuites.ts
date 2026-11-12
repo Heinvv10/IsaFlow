@@ -2,7 +2,7 @@
  * Which integration suites the CI integration gate saw skip, and why, in words
  * for the log.
  *
- * The gate (scripts/ci/integration/run.sh) runs every *.int.test.ts against
+ * The gate (scripts/ci/integration/run.sh) runs every tests/integration *.test.ts against
  * disposable databases, but a suite can still skip itself: one that needs a
  * live GoTrue, or isaflow_dev's real tenants, has nothing to run against
  * there. vitest counts a skipped suite as a pass, so a green run would not say

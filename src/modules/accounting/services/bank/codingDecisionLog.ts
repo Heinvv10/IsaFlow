@@ -1,12 +1,12 @@
 /**
  * Coding decision log — the only writer of `categorization_decisions` (migration 903).
  *
- * One row per suggestion ISAFlow makes on a bank line, then its outcome:
+ * One row per suggestion IsaFlow makes on a bank line, then its outcome:
  *   recordSuggestionsShown   rule / pattern / historical / llm / supplier_rule suggestion written -> pending
  *   recordAllocationDecision a person allocated the line: accepted (the suggested target) or recoded
  *   recordMatchDecision      a person matched the line to a journal: judged by what that journal posts
  *   recordExcluded           a person excluded a line that still had a pending suggestion -> rejected
- *   recordAutoPosted         ISAFlow posted the line with no click (rule auto-post, gate sweep) -> accepted, auto
+ *   recordAutoPosted         IsaFlow posted the line with no click (rule auto-post, gate sweep) -> accepted, auto
  *   recordAutoPostUndone     an auto-posted line was undone (run undo, or a person's reverse / unmatch) -> undone
  *   recordHandCorrected      a person marked an auto-posted line corrected by hand -> recoded
  *
@@ -47,12 +47,12 @@ export interface ShownSuggestion {
 export type FinalChoice = CodingTarget;
 
 /**
- * An auto-post. `target: 'own'` — ISAFlow chose the target itself (a rule, the import predictor), so a
+ * An auto-post. `target: 'own'` — IsaFlow chose the target itself (a rule, the import predictor), so a
  * different open suggestion is closed as superseded and the auto-post gets its own row. `target:
  * 'suggestion'` — the gate sweep posted the line's suggested_* columns, which a person's save_selection also
  * writes: only an open suggestion naming that same target becomes the auto-accepted row. Otherwise the target
  * was a person's pick, so the open suggestion is closed as recoded by the person whose run posted it, and no
- * auto-post row claims the coding as ISAFlow's.
+ * auto-post row claims the coding as IsaFlow's.
  */
 export type AutoPosting = ShownSuggestion & { journalEntryId: string } & (
   | { target: 'own' }
@@ -102,7 +102,7 @@ async function pendingOf(companyId: string, txId: string): Promise<PendingRow | 
 const suggestedOf = (p: PendingRow): CodingTarget =>
   ({ glAccountId: idOrNull(p.suggested_gl_account_id), contactId: idOrNull(p.suggested_contact_id) });
 
-/** Closes the pending row `id` with `outcome`; decidedBy null = ISAFlow decided. */
+/** Closes the pending row `id` with `outcome`; decidedBy null = IsaFlow decided. */
 async function closePending(
   companyId: string, id: string, outcome: 'accepted' | 'recoded', final: FinalChoice, decidedBy: string | null,
 ): Promise<void> {
@@ -187,7 +187,7 @@ export async function recordMatchDecision(
   });
 }
 
-/** A person excluded the line while ISAFlow's suggestion was still open. */
+/** A person excluded the line while IsaFlow's suggestion was still open. */
 export async function recordExcluded(companyId: string, txId: string, userId: string): Promise<void> {
   await nonFatal('excluded', { companyId, txId }, () => sql`
     UPDATE categorization_decisions
@@ -197,7 +197,7 @@ export async function recordExcluded(companyId: string, txId: string, userId: st
 }
 
 /**
- * ISAFlow posted the line with no human click (see AutoPosting for `target`). An open suggestion naming
+ * IsaFlow posted the line with no human click (see AutoPosting for `target`). An open suggestion naming
  * the posted target becomes the auto-posted decision, its suggestion untouched. Any other open suggestion is
  * closed as recoded — never rewritten into the posted target.
  */

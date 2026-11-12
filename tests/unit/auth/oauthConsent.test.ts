@@ -257,3 +257,72 @@ describe('POST /api/oauth/consent — MCP connector gate (incident 2026-10-28)',
     expect(hasFeature).not.toHaveBeenCalled();
   });
 });
+
+// 2026-11-11: MCP clients now request the offered set (reads + every write scope,
+// OFFERED_MCP_SCOPES) because the /api/mcp challenge hints at it. Offering must not
+// grant: only a tick does, a viewer still loses writes, and the company binding holds.
+// buildGrantedScopes lists the automatic scopes first, then the ticked writes.
+describe('POST /api/oauth/consent - offered write scopes stay opt-in', () => {
+  // The offered set, cut down to the scopes this file's OAUTH_SCOPES mock knows.
+  const OFFERED = ['read:reports', 'read:invoices', 'write:invoices', 'write:journals', 'write:accounts', 'write:post', 'offline_access'];
+  const call = (req: Record<string, unknown>, res: unknown) =>
+    (handler as (req: unknown, res: unknown) => Promise<void>)(req, res);
+  const granted = () => vi.mocked(createAuthorisationCode).mock.calls[0]![0];
+
+  it('Authorise with nothing ticked yields a read-only grant', async () => {
+    const res = makeRes();
+    await call(makeReq({ scopes: OFFERED, optInConfirmed: [] }), res);
+    expect(res.statusCode).toBe(200);
+    expect(granted().scopes).toEqual(['read:reports', 'read:invoices', 'offline_access']);
+    expect(granted().scopes.some((s: string) => s.startsWith('write:'))).toBe(false);
+  });
+
+  it('a missing optInConfirmed is the same as nothing ticked', async () => {
+    const res = makeRes();
+    await call(makeReq({ scopes: OFFERED }), res);
+    expect(res.statusCode).toBe(200);
+    expect(granted().scopes).toEqual(['read:reports', 'read:invoices', 'offline_access']);
+  });
+
+  it('a tick grants that write scope and no other', async () => {
+    const res = makeRes();
+    await call(makeReq({ scopes: OFFERED, optInConfirmed: ['write:invoices'] }), res);
+    expect(res.statusCode).toBe(200);
+    expect(granted().scopes).toEqual(['read:reports', 'read:invoices', 'offline_access', 'write:invoices']);
+  });
+
+  it('a viewer who ticks write scopes still gets the reads only', async () => {
+    const res = makeRes();
+    await call({ ...makeReq({ scopes: OFFERED, optInConfirmed: ['write:invoices', 'write:post'] }), companyRole: 'viewer' }, res);
+    expect(res.statusCode).toBe(200);
+    expect(granted().scopes).toEqual(['read:reports', 'read:invoices', 'offline_access']);
+  });
+
+  it('the grant stays bound to the active company when none is picked', async () => {
+    const res = makeRes();
+    await call(makeReq({ scopes: OFFERED, optInConfirmed: ['write:journals'] }), res);
+    expect(res.statusCode).toBe(200);
+    expect(granted()).toEqual(expect.objectContaining({ companyId: HOME_COMPANY, userId: USER_ID }));
+  });
+
+  it('the grant stays bound to the company picked at consent', async () => {
+    mockSqlOnce([{ role: 'owner' }]); // membership probe: row exists
+    const res = makeRes();
+    await call(makeReq({ scopes: OFFERED, optInConfirmed: ['write:journals'], companyId: OTHER_COMPANY }), res);
+    expect(res.statusCode).toBe(200);
+    expect(granted()).toEqual(expect.objectContaining({
+      companyId: OTHER_COMPANY, userId: USER_ID,
+      scopes: ['read:reports', 'read:invoices', 'offline_access', 'write:journals'],
+    }));
+  });
+
+  it('a viewer in the picked company gets reads only even when an owner at home', async () => {
+    mockSqlOnce([{ role: 'viewer' }]);
+    const res = makeRes();
+    await call(makeReq({ scopes: OFFERED, optInConfirmed: ['write:journals'], companyId: OTHER_COMPANY }), res);
+    expect(res.statusCode).toBe(200);
+    expect(granted()).toEqual(expect.objectContaining({
+      companyId: OTHER_COMPANY, scopes: ['read:reports', 'read:invoices', 'offline_access'],
+    }));
+  });
+});

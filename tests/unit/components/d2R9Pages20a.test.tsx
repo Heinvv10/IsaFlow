@@ -53,7 +53,7 @@ describe('practice/reports/wip-aging (route: data = WipAgingRow[])', () => {
 });
 
 describe('sars/emp201 (route: data = EMP201Data)', () => {
-  const emp = { periodStart: '2026-09-01', periodEnd: '2026-09-30', totalPAYE: 555, totalETI: 55, payePayable: 500, totalUIF_employee: 12, totalUIF_employer: 13,
+  const emp = { periodStart: '2026-09-01', periodEnd: '2026-09-30', totalPAYE: 555, totalETI: 55, payePayable: 500, etiCarry: { broughtForward: 0, used: 55, carriedForward: 0, refundClaimable: 0 }, totalUIF_employee: 12, totalUIF_employer: 13,
     totalUIF: 25, totalSDL: 77, employeeCount: 17, totalTaxableRemuneration: 888, totalDeductions: 602,
     payrollRuns: [{ id: 'r1', runDate: '2026-09-25', employeeCount: 17, grossPay: 999, paye: 555, uif: 25, sdl: 77 }] };
   const rowOf = (label: string) => (screen.getByText(label).parentElement as HTMLElement).textContent ?? '';
@@ -69,6 +69,22 @@ describe('sars/emp201 (route: data = EMP201Data)', () => {
     expect(rowOf('SDL (Skills Development Levy)')).toMatch(/77\.00/);
     fireEvent.click(screen.getByText(/Payroll Runs \(1\)/));
     expect(await screen.findByText(/999\.00/)).toBeDefined();   // run.grossPay
+  });
+  it('shows the ETI carry so PAYE less ETI used is PAYE payable (wave 5 ET; ETI Act s9(1), s10)', async () => {
+    serve(on('GET', 'sars-emp201', () => ok({ ...emp, payePayable: 255, etiCarry: { broughtForward: 245, used: 300, carriedForward: 0, refundClaimable: 0 } })));
+    render(<Emp201Page />);
+    fireEvent.click(screen.getByRole('button', { name: /Generate/ }));
+    await screen.findByText('Number of employees');
+    expect(rowOf('ETI brought forward from earlier months')).toMatch(/245\.00/);
+    expect(rowOf('Less: ETI used (Employment Tax Incentive)')).toMatch(/300\.00/);
+    expect(rowOf('PAYE payable')).toMatch(/255\.00/);
+    expect(screen.queryByText('ETI carried forward to next month')).toBeNull();
+  });
+  it('shows an ETI warning the service names (review L3: an unbooked August refund)', async () => {
+    serve(on('GET', 'sars-emp201', () => ok({ ...emp, etiWarnings: ['ETI refund R 1 500.00 claimable for March–August 2026 is not booked'] })));
+    render(<Emp201Page />);
+    fireEvent.click(screen.getByRole('button', { name: /Generate/ }));
+    expect((await screen.findByRole('note')).textContent).toMatch(/claimable for March–August 2026 is not booked/);
   });
   it('an empty 500 shows a sentence and no figures', async () => {
     serve(on('GET', 'sars-emp201', empty500));

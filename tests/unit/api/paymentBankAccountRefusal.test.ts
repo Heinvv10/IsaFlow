@@ -16,6 +16,10 @@ vi.mock('@/lib/apiJournalDate', () => ({
   JOURNAL_DATE_REFUSED: Symbol('refused'),
   withJournalDateRefusal: (_res: unknown, run: () => unknown) => run(),
 }));
+// The route calls the ETI wrapper (wave 5 ET), which locks and books ETI around the service: route-level tests pass straight through it.
+vi.mock('@/modules/accounting/services/payroll/directivePaymentEti', async () => ({
+  applyTaxDirective: (await import('@/modules/accounting/services/payroll/taxDirectivePaymentService')).applyTaxDirective,
+}));
 vi.mock('@/modules/accounting/services/payroll/taxDirectivePaymentService', () => ({
   applyTaxDirective: vi.fn(),
   TaxDirectiveAlreadyAppliedError: class extends Error {},

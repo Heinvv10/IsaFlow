@@ -53,6 +53,7 @@ describe('financial years: refusal message reaches the user', () => {
     scriptYears('close', false, MSG);
     render(<FinancialYearsPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'Close' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Close period' })); // audit P3.2 confirmation
     await sees(MSG);
   });
 

@@ -7,6 +7,8 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { ADDITIONAL_MEDICAL_MTC_MULTIPLE, ADDITIONAL_MEDICAL_RATE, type AnnualTaxAfterCredits } from './payeEngine';
 import type { CumulativePayeTrace } from './payeCumulative';
 import type { EmploymentClass } from './employmentTerms';
+import { earningStep } from './earningExplain';
+import type { EarningPart } from './payrollLineAccumulate';
 import { RETIREMENT_DEDUCTION_RATE } from './retirementFund';
 import { getTaxYearConfig } from './taxTables';
 import { NON_STANDARD_RATE, type PayeTreatment } from './taxStatusTreatment';
@@ -18,9 +20,11 @@ export interface PayeExplainInput {
   classification: { kind: EmploymentClass; reason: string };
   /** Periodic taxable pay before the s18A donation came off (the accumulator's, after a clawback; may be negative). */
   periodicBeforeDonation: number;
-  /** The taxable periodic earnings that add up to it, and a negative annual payment moved into it (or 0). */
-  periodicParts: Array<{ name: string; code: string; amount: number; isNonCash: boolean }>;
+  /** The earnings as the totals took them (the taxable periodic ones add up to it), and a negative annual payment moved into it (or 0). */
+  earningParts: EarningPart[];
   clawback: number;
+  /** This line's medical scheme fees (the credits' fees): the employee's 4005 deductions plus the employer's 3810 deemed paid (FB). */
+  medicalFees: { total: number; employee: number; employer: number };
   /** This period's annual payments before the donation (nil after a clawback took them into periodic pay). */
   annualBeforeDonation: number;
   /** The s18A deduction allowed on this line, and the part of it larger than periodic pay, off the annual payments (payrollLinePaye). */
@@ -167,9 +171,7 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
   const steps: ExplainStep[] = [
     footed({ key: 'paye.regularTaxable', label: 'Taxable pay this period', amount: t.regularTaxable }, [
       footed({ key: 'paye.periodicBeforeDonation', label: 'Taxable periodic pay', amount: input.periodicBeforeDonation }, [
-        ...input.periodicParts.map((p, i) => ({
-          key: `paye.periodic.${i}`, label: `${p.name} (${p.code})${p.isNonCash ? ', a non-cash benefit' : ''}`, amount: p.amount,
-        })),
+        ...input.earningParts.filter((p) => p.taxable && p.treatment === 'periodic').map((p, i) => earningStep(`paye.periodic.${i}`, p)),
         ...(input.clawback < 0 ? [{ key: 'paye.periodic.clawback', label: 'Less a negative annual payment (a bonus clawback)', amount: input.clawback }] : []),
       ]),
       // Signed: a negative deduction takes back an earlier line's donation the year to date no longer allows (s18aDonation).
@@ -192,6 +194,18 @@ function tablesSteps(input: PayeExplainInput): ExplainStep[] {
       note: 'IsaFlow taxes the year to date (the cumulative method, a business decision of 2026-10-22): with the same pay every month it equals the SARS tables; a mid-year change is spread over the rest of the year.',
     },
   ];
+  if (input.medicalFees.total !== 0) {
+    steps.push(footed({
+      key: 'paye.medicalFees', label: 'Medical scheme fees this period (for the medical credits)', amount: input.medicalFees.total,
+      note: 'With the earlier periods\' fees, taken a year (× 12 ÷ periods) inside the tax for the year below.', source: sourceFor(SOURCES.additionalMedical, taxYear),
+    }, [
+      { key: 'paye.medicalFees.employee', label: 'Deducted from the employee (4005)', amount: input.medicalFees.employee },
+      ...(input.medicalFees.employer !== 0 ? [{
+        key: 'paye.medicalFees.employer', label: 'Paid by the employer (3810), deemed paid by the employee', amount: input.medicalFees.employer,
+        source: sourceFor(SOURCES.employerMedical, taxYear),
+      }] : []),
+    ]));
+  }
   if (t.annualDeduction > 0 || t.contributionsToDate > 0) steps.push(retirementStep(input));
   steps.push({ key: 'paye.taxedAnnualEquivalent', label: 'Annual equivalent taxed', amount: t.taxedAnnualEquivalent, formula: 'annual equivalent − the deduction off it (never below nil)' });
   steps.push(taxBlock('paye.atAE', 'Tax for the year on the annual equivalent', t.atAE, taxYear));

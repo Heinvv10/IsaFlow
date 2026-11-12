@@ -15,12 +15,12 @@ export function fmtDay(iso: string | null): string {
 }
 
 /**
- * "Auto-coded by ISAFlow: 78% of lines this month (no line-by-line coding)". Not "no clicks": a bank-rule
+ * "Auto-coded by IsaFlow: 78% of lines this month (no line-by-line coding)". Not "no clicks": a bank-rule
  * run posts many lines from one click, and those lines count here.
  */
 export function autoCodedLabel(r: Ratio): string {
-  if (r.denominator === 0) return 'Auto-coded by ISAFlow: no lines coded this month yet';
-  return `Auto-coded by ISAFlow: ${fmtPct(r)} of lines this month (no line-by-line coding)`;
+  if (r.denominator === 0) return 'Auto-coded by IsaFlow: no lines coded this month yet';
+  return `Auto-coded by IsaFlow: ${fmtPct(r)} of lines this month (no line-by-line coding)`;
 }
 
 /** "Suggestions accepted: 64% this month (log started 21 Oct 2026)", or the not-enough-data form. */

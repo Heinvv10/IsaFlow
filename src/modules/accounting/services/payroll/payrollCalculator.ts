@@ -4,14 +4,14 @@ import { accumulateComponents } from './payrollLineAccumulate';
 import { costPayeWithDonations } from './payrollLinePaye';
 import { uifWithLeviable } from './uifEngine';
 import { calculateSDL, isSdlExempt } from './sdlEngine';
-import { resolveEtiForEmployee } from './etiEngine';
 import { sdlLeviableTrace } from './sdlLeviableCumulative';
 import { explainPayrollLine } from './payrollExplain';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
 import { classifyEmployment, employedShareOfMonth, timeWorkedEarnings } from './employmentTerms';
 import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './taxStatusTreatment';
 import { validateEmploymentTerms } from './validationEngine';
-import { etiHoursPending, hoursValidation, runHoursOf } from './payrollRunHours';
+import { hoursValidation, runHoursOf } from './payrollRunHours';
+import { costLineEti } from './payrollLineEti';
 import type {
   PayrollLineInput,
   PayrollLineResult,
@@ -28,11 +28,13 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
  *  - PAYE: remuneration (Fourth Schedule para 1 (a) takes in para (i) of "gross income"),
  *    so it is periodic taxable pay like cash. loadLoanComponents takes only a taxable 3801.
  *  - UIF: the component's is_uif_applicable flag, as for every earning; setup-components
- *    creates the 3801 with it off. Whether UIF's "remuneration" takes in a benefit is not
- *    settled here (no SARS/UIF source fetched): the flag is the one switch.
+ *    creates the 3801 with it off. A taxable 3701 / 3802 counts at its PAYE share (80% or 20%),
+ *    as the Fourth Schedule para 1 "remuneration" UIF Contributions Act s1 refers to.
  *  - SDL: leviable when is_sdl_applicable (setup default on; SDL Act s3(3) is para 1
- *    remuneration), and part of the employer's s4(b) threshold basis, `remuneration`.
- *  - ETI: in "monthly remuneration" (the para 1 remuneration), as when it was paid as cash.
+ *    remuneration; a 3701 / 3802 at its PAYE share), and part of the employer's s4(b)
+ *    threshold basis, `remuneration` (which still takes the full amount).
+ *  - ETI: in "monthly remuneration" (the para 1 remuneration), as when it was paid as cash;
+ *    a 3701 / 3802 at its PAYE share.
  *  - Cash: NOT in grossPay, so not in netPay or the journal (DR labour = gross = cash),
  *    though the PAYE on it is withheld from the cash.
  * Stored per line: gross_pay (and the header's total_gross) = cash earnings only;
@@ -53,7 +55,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const rebateAge = employee.dateOfBirth ? getAge(employee.dateOfBirth, taxYearEnd) : 30;
 
   const acc = accumulateComponents(components);
-  const { grossPay, allEarnings, directivePaye, uifLeviable, sdlLeviable, totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, breakdown, warnings, periodicParts } = acc;
+  const { grossPay, allEarnings, employerMedicalFees, directivePaye, uifLeviable, sdlLeviable, totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, breakdown, warnings, earningParts, employeeMedicalFees } = acc;
   let { periodicTaxable, annualPayments } = acc;
 
   // A month counts as a periodic-remuneration period when periodic remuneration
@@ -87,11 +89,20 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   // Fees deducted for a scheme the employee is not recorded as a member of: no MTC (and, 65+, no
   // additional credit) is given, so PAYE is over-deducted. Warned, not corrected: the membership is data.
-  if (medicalSchemeFees > 0 && medicalBeneficiaries <= 0) {
+  // The employer's medical contribution earns the credits only for a member: with no membership none is given.
+  if (employerMedicalFees > 0 && medicalBeneficiaries <= 0) {
+    warnings.push({
+      code: 'MEDICAL_BENEFIT_WITHOUT_MEMBERSHIP', severity: 'warning',
+      message: `${formatMoney(employerMedicalFees)} of the employer's medical contribution (code 3810) is taxed, but the employee is not marked as a medical aid member `
+        + 'and has no dependants, so no medical tax credit was given and PAYE is over-deducted. Set the medical aid membership on the employee and recalculate.',
+    });
+  }
+  // A 3810-only employee has no deducted fees to warn about (the employer's contribution is the benefit).
+  if (medicalSchemeFees - employerMedicalFees > 0 && medicalBeneficiaries <= 0) {
     warnings.push({
       code: 'MEDICAL_FEES_WITHOUT_MEMBERSHIP',
       severity: 'warning',
-      message: `R${medicalSchemeFees.toFixed(2)} of medical aid contributions (code 4005) is deducted, but the employee is not marked as a `
+      message: `R${(medicalSchemeFees - employerMedicalFees).toFixed(2)} of medical aid contributions (code 4005) is deducted, but the employee is not marked as a `
         + `medical aid member and has no dependants, so no medical tax credit${rebateAge >= 65 ? ' (nor the 65+ additional credit)' : ''} `
         + 'was given and PAYE is over-deducted. Set the medical aid membership on the employee and recalculate.',
     });
@@ -137,47 +148,14 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? 0
     : calculateSDL(sdlLeviableAfterDeductions, annualPayrollEstimate, taxYear);
 
-  // Missing dates are reported as indeterminate, never fabricated into a
-  // determination of "not eligible" — see resolveEtiForEmployee.
-  // The ETI base stays the whole remuneration, annual payments, lump sums and
-  // non-cash benefits included, unchanged by P3: "monthly remuneration" is the Fourth Schedule paragraph 1
-  // remuneration ("salary, leave pay, wage, overtime pay, bonus, gratuity, ...")
-  // paid or payable in the month (SARS Guide to the Employment Tax Incentive,
-  // Issue 5, §2.4 "Monthly remuneration",
-  // https://www.sars.gov.za/wp-content/uploads/Ops/Guides/LAPD-ETI-G01-Guide-to-the-Employment-Tax-Incentive.pdf).
-  const resolved: EtiResult = resolveEtiForEmployee({
-    dateOfBirth: employee.dateOfBirth,
-    employmentStartDate: employee.startDate,
-    periodDate,
-    monthlyRemuneration: allEarnings,
-    isUifExcluded: employee.uifExcluded,
-  }, taxYear);
-  // A leaver paid after leaving worked no hours in the period, and ETI is
-  // apportioned by hours employed and paid for out of 160 (section 7(5); same
-  // guide, §2.4 and §5.3 "Employee employed for part of a month"): nil.
-  const etiRaw: EtiResult = input.notEmployedInPeriod
-    ? {
-      ...resolved, isEligible: false, isDeterminable: true, missingInputs: [], monthlyEti: 0,
-      ineligibilityReason: 'Not employed in this period (paid after leaving): ETI is apportioned by hours employed, none here.',
-    }
-    : !treatment.eti
-      ? { ...resolved, isEligible: false, isDeterminable: true, missingInputs: [], monthlyEti: 0, ineligibilityReason: 'Independent contractor: not an employee, so no ETI.' }
-      : resolved;
-
-  // HD: ETI is apportioned by hours out of 160 and ET (not yet built) will do it from the stored quantity. Until then an
-  // hourly or daily line under a full month's hours, or with hours that cannot be told, claims none.
+  // ETI (wave 5 ET): hours, the minimum wage and the remuneration base are in payrollLineEti / etiHours.
   const hours = input.notEmployedInPeriod ? null : runHoursOf(employee, components);
-  const etiPending = !input.notEmployedInPeriod && etiHoursPending(employee, hours) && etiRaw.monthlyEti > 0;
-  const eti: EtiResult = etiPending
-    ? { ...etiRaw, isEligible: false, monthlyEti: 0, ineligibilityReason: 'Hourly or daily pay under 160 hours: ETI apportionment by hours is not built yet, so none is claimed.' }
-    : etiRaw;
-  if (etiPending) {
-    warnings.push({
-      code: 'ETI_HOURS_APPORTIONMENT_PENDING', severity: 'warning',
-      message: `${employee.firstName} ${employee.lastName} is paid by the ${employee.payBasis === 'hourly' ? 'hour' : 'day'} and worked under 160 hours (or the hours cannot be told), `
-        + 'so no ETI was claimed: ETI apportioned by hours is not built yet. Claim it on the EMP201 by hand if due.',
-    });
-  }
+  const lineEti = costLineEti({
+    employee, components, period, periodDate, runHours: hours,
+    notEmployedInPeriod: input.notEmployedInPeriod === true, etiApplies: treatment.eti,
+  });
+  const eti: EtiResult = lineEti.eti;
+  warnings.push(...lineEti.warnings);
 
   const netPay = Math.round(
     (grossPay - totalDeductions - paye.monthlyPaye - uif.employeeContribution) * 100,
@@ -209,16 +187,17 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const explanations = explainPayrollLine({
     taxYear, periodDate,
     paye: {
-      treatment: treatment.paye, classification, periodicParts, clawback, periodicBeforeDonation: periodicTaxable, annualBeforeDonation: annualPayments,
+      treatment: treatment.paye, classification, earningParts, clawback, periodicBeforeDonation: periodicTaxable, annualBeforeDonation: annualPayments,
+      medicalFees: { total: medicalSchemeFees, employee: employeeMedicalFees, employer: employerMedicalFees },
       donationDeduction: donation.deduction, donationOffAnnual,
       trace, retirementRecorded: retirementDeduction, balanceOfRemuneration, regularTaxable, annualTaxable, split: payeSplit, paye: paye.monthlyPaye,
     },
     uif: {
-      uif, leviable: uifCosted?.leviable ?? null, uifRemuneration: uifLeviable,
+      uif, leviable: uifCosted?.leviable ?? null, uifRemuneration: uifLeviable, parts: earningParts,
       outsideReason: !treatment.uif ? 'Independent contractor: no UIF' : employee.uifExcluded ? 'The employee is excluded from UIF' : null,
     },
     sdl: {
-      outsideReason: treatment.sdl ? null : 'Independent contractor: no SDL', sdlApplicable, trace: sdlTrace,
+      outsideReason: treatment.sdl ? null : 'Independent contractor: no SDL', sdlApplicable, parts: earningParts, trace: sdlTrace,
       deduction: sdlDeduction, retirementDeduction, donationDeduction: donation.sdlDeduction,
       charge: annualPayrollEstimate === 'defer' ? 'deferred'
         : { annualRemuneration: annualPayrollEstimate, exempt: isSdlExempt(annualPayrollEstimate, taxYear), sdl },

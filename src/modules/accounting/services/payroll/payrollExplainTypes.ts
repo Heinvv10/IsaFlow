@@ -89,6 +89,7 @@ export const SOURCES = {
   retirement: { label: 'SARS PAYE-GEN-01-G21 (2027) Rev 1 p. 10-11, retirement fund contributions (s11F)', href: G21 },
   donations: { label: 'SARS PAYE-GEN-01-G21 (2027) Rev 1 p. 10, s18A donations', href: G21 },
   annualPayment: { label: 'SARS PAYE-GEN-01-G21 (2027) Rev 1 p. 32-33, annual payments', href: G21 },
+  employerMedical: { label: 'SARS PAYE-GEN-01-G21 (2027) Rev 1 p. 12, employer medical contributions (Seventh Schedule para 12A)', href: G21 },
   nonStandard: { label: 'SARS PAYE-GEN-01-G21 (2027) Rev 1 p. 28, non-standard employment', href: G21 },
   contractor: { label: 'SARS PAYE-GEN-01-G21 (2027) Rev 1 p. 26, independent contractors', href: G21 },
   directive: { label: 'SARS PAYE-GEN-01-G21 (2027) Rev 1 p. 26, tax directives', href: G21 },

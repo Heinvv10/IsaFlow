@@ -1,6 +1,6 @@
 /**
  * Audit Service
- * Admin action logging for ISAFlow Admin Platform.
+ * Admin action logging for IsaFlow Admin Platform.
  * Read/query functions live in auditQueryService.ts.
  */
 

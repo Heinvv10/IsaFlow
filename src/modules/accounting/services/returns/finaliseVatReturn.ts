@@ -30,14 +30,15 @@ export async function finaliseVatReturn(
   if (report.rateCheck.ties === false && opts.force !== true) {
     throw new ReturnRefusal(400,
       `This period fails SARS's 15% check: box 1 is out by ${report.rateCheck.outputVariance} and input tax is `
-      + `over-claimed by ${report.rateCheck.inputVariance} (summed per journal). Correct it, or finalise with force to record it.`);
+      + `over-claimed by ${report.rateCheck.inputVariance} (summed per journal). Correct the postings, or finalise anyway and `
+      + 'record that it fails the check.', 'RATE_CHECK_FAILED');
   }
   const vatReturn = await getVatReturnRecord(companyId, periodStart, periodEnd, figures);
   const mismatched = vatReturn?.status === 'submitted' && vatReturn.mismatch;
   if (mismatched && !opts.acknowledgeVatReturnMismatch) {
     throw new ReturnRefusal(409,
-      'A submitted VAT return on record for this period (the older vat_returns record) has different figures. '
-      + 'Reconcile it, or finalise with acknowledgeVatReturnMismatch and a reason.');
+      'A VAT return already recorded as submitted for this period has different figures. '
+      + 'Reconcile it, or finalise anyway and give the reason the figures differ.', 'VAT_RETURN_MISMATCH');
   }
 
   await assertVatGateClear(

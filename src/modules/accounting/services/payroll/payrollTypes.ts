@@ -6,6 +6,8 @@ export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 /** What the engine reads (TS-b): employment_type is display and HR only. Migration 967. */
 export type TaxStatus = 'employee' | 'director' | 'independent_contractor';
 export type PayBasis = 'monthly' | 'hourly' | 'daily';
+/** ETI Act s6(b) (migration 976): NULL or sa_id = the ID number decides; a permit or refugee ID as recorded. */
+export type EtiIdDocument = 'sa_id' | 'asylum_seeker_permit' | 'refugee_id';
 /** The unit of a run's quantity on a component row (migration 967). */
 export type QuantityUnit = 'hour' | 'day';
 
@@ -40,6 +42,10 @@ export interface PayrollEmployee {
   dailyRate?: number | null;
   /** BCEA s33(1)(b) occupation, at most 100 characters. */
   occupation?: string | null;
+  /** The identity document held, for ETI (migration 976). */
+  etiIdDocument?: EtiIdDocument | null;
+  /** Months employed by this employer before the current start date, under the same ID number (ET: a rehire continues the ETI window). */
+  etiPriorMonths?: number;
 }
 
 export interface PayrollComponent {
@@ -69,6 +75,10 @@ export interface EmployeeComponent {
   amount: number;
   /** Taxable remuneration reported on the payslip but not paid to the employee in cash. */
   isNonCash?: boolean;
+  /** The share of a taxable periodic earning that is remuneration for PAYE (0.8 or 0.2; fringeBenefits.ts). Absent = all of it. */
+  payeInclusionRate?: number;
+  /** A 3810 earning under the explicit gross-up opt-in: paid as cash, its fees are the 4005 deduction's (employerContributions.ts). */
+  medicalGrossUp?: boolean;
   /** Set on a lump-sum (39xx) component paid under a directive; see payrollCalculator. */
   directive?: DirectiveFigures;
   /** The assignment's is_recurring, when read from payroll_employee_components (the termination base takes recurring rows only). */
@@ -181,6 +191,10 @@ export interface ComponentBreakdownItem {
   isSdlApplicable?: boolean;
   /** True when the earning is taxable remuneration but is not paid in cash. */
   isNonCash?: true;
+  /** As on EmployeeComponent: the PAYE inclusion the line was costed with, kept so a reader need not re-derive it. */
+  payeInclusionRate?: number;
+  /** What the calculator took as remuneration for PAYE from this item (amount x rate, to the cent): exact for the certificate's 4582. */
+  payeIncludedAmount?: number;
   directive?: DirectiveFigures;
   /** Set on an employee retirement fund contribution (4001/4003/4006 deduction; PAYE 4c, migration 948). */
   retirementContribution?: true;

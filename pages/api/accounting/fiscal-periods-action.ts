@@ -1,7 +1,11 @@
 /**
  * Fiscal Period Actions API
  * POST /api/accounting/fiscal-periods-action
- * Body: { id?, ids?, action, fiscalYear? }
+ * Body: { id?, ids?, action, fiscalYear?, confirm? }
+ *
+ * close, lock, bulk_close, bulk_lock and close_year need `confirm: true`
+ * (strict boolean; audit P3.2): they post at once and lock is permanent.
+ * reopen and bulk_reopen do not.
  *
  * Single-id actions: 'close' | 'lock' | 'reopen'  (require `id`)
  * Bulk actions:      'bulk_close' | 'bulk_lock' | 'bulk_reopen'  (require `ids`)
@@ -26,6 +30,8 @@ import {
 } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { ImpersonationForbiddenError, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
+const CONFIRM_REQUIRED = new Set(['close', 'lock', 'bulk_close', 'bulk_lock', 'close_year']);
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
@@ -34,15 +40,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
   try {
-    const { id, ids, action, fiscalYear } = req.body as {
+    const { id, ids, action, fiscalYear, confirm } = req.body as {
       id?: string;
       ids?: unknown;
       action?: string;
       fiscalYear?: unknown;
+      confirm?: unknown;
     };
 
     if (!action) {
       return apiResponse.badRequest(res, 'action is required');
+    }
+
+    if (CONFIRM_REQUIRED.has(action) && confirm !== true) {
+      return apiResponse.badRequest(res, `The ${action} action needs explicit confirmation. Send confirm: true.`);
     }
 
     // Use authenticated user ID — never trust userId from request body

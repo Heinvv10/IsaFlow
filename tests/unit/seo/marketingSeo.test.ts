@@ -94,7 +94,7 @@ describe('robots.txt and llms.txt', () => {
 
   it('llms.txt follows the llmstxt.org shape and links the new pages', () => {
     const llms = pub('llms.txt');
-    expect(llms.startsWith('# ISAFlow\n')).toBe(true);
+    expect(llms.startsWith('# IsaFlow\n')).toBe(true);
     expect(llms).toMatch(/^> /m);
     expect(llms).toContain('https://isaflow.co.za/compare/sage');
   });

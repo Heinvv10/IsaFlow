@@ -5,10 +5,27 @@ export interface EtiInput {
   periodDate: Date;
   monthlyRemuneration: number;
   isUifExcluded: boolean;
+  /**
+   * Hours employed and paid in the month and the wage for ordinary hours (ET; etiHours.ts). Null or absent: the hours
+   * cannot be told, so ETI is neither apportioned (s7(5)) nor tested against the minimum wage (s4(1)(a)).
+   */
+  hours?: EtiHoursInput | null;
+  /** ETI Act s6(b) (etiEligibility): false when no valid SA ID number or recorded permit shows a document is held. */
+  idDocumentShown?: boolean;
+  /** Months employed by this employer before the current start date (a rehire continues the 24 months; guide §3.3). */
+  priorMonths?: number;
+}
+
+export interface EtiHoursInput {
+  /** Hours employed and paid (s7(5)): ordinary plus overtime. */
+  monthlyHours: number;
+  /** Ordinary hours paid, the minimum-wage divisor (s4(4)); null: the test is not run (R-B assumed hours). */
+  ordinaryHours: number | null;
+  ordinaryWageCents: number;
 }
 
 /** An employee field the ETI engine needs and may not have. */
-export type EtiMissingInput = 'date_of_birth' | 'employment_start_date';
+export type EtiMissingInput = 'date_of_birth' | 'employment_start_date' | 'id_document';
 
 export interface EtiResult {
   /**
@@ -35,5 +52,7 @@ export interface EtiResult {
   employmentYear: 1 | 2 | null;
   monthlyEti: number;
   /** On an eligible result: the table the engine applied and the remuneration it applied it to (EX-core explanation). */
-  applied?: { table: EtiTable; remuneration: number; band: EtiBand; yearOne: number };
+  applied?: {
+    table: EtiTable; remuneration: number; hours: number | null; tabled: number; share: number; band: EtiBand; yearOne: number;
+  };
 }

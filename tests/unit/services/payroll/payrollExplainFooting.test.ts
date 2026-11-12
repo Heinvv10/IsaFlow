@@ -170,6 +170,32 @@ describe('the lines the review named', () => {
     expectRecomputes(l);
   });
 
+  it('FB and ET on master: a 3701 at its 80% share in PAYE, UIF and SDL; the 3810 deemed fees; ETI by hours', () => {
+    const byId = (id: string) => calculatePayrollLine(buildCaseInput(loadCases().find(c => c.id === id)!));
+    const steps = (l: ReturnType<typeof calculatePayrollLine>, fig: 'paye' | 'uif' | 'sdl' | 'eti') => [...stepsByKey(l.explanations[fig]).values()];
+
+    const travel = byId('fb-travel-3701-80pct-taxed');
+    // The fixture's 3701 is taxable and SDL-applicable, not UIF-applicable (as a travel allowance is set up).
+    for (const [fig, want] of [['paye', [0.8]], ['sdl', [0.8]], ['uif', []]] as const) {
+      const shares = steps(travel, fig).filter(s => s.key.endsWith('.share')).map(s => s.amount);
+      expect(shares, fig).toEqual(want);
+    }
+    expect(stepsByKey(travel.explanations.paye).get('paye.periodic.1')!.amount).toBe(4000);
+    expectRecomputes(travel);
+
+    const medical = byId('fb-medical-3810-employer-contribution-taxable');
+    const m = stepsByKey(medical.explanations.paye);
+    expect(m.get('paye.medicalFees.employer')!.amount).toBeGreaterThan(0);
+    expect(footingProblems(medical.explanations.paye)).toEqual([]);
+    expectRecomputes(medical);
+
+    const hourly = byId('eti-year1-120h-5000-apportioned');
+    const e = stepsByKey(hourly.explanations.eti);
+    expect([e.get('eti.hours')!.amount, e.get('eti.share')!.amount, hourly.eti.monthlyEti]).toEqual([120, 0.75, 468.75]);
+    expect(e.get('eti.tabled')!.amount).toBeCloseTo(5000 * 160 / 120, 6);
+    expectRecomputes(hourly);
+  });
+
   it('the cap to date binds what comes off the bonus: R5 000 salary, R2 000 000 bonus, R100 000 RA, first month', () => {
     const l = calculatePayrollLine(mk({ dob: '1990-01-01', components: [earning('3601', 5000), earning('3605', 2_000_000), deduction('4006', 100_000)] }));
     const m = stepsByKey(l.explanations.paye);

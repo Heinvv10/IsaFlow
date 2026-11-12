@@ -27,46 +27,6 @@
     "closedBy": "W3: directives in the calc"
   },
   {
-    "case": "eti-below-minimum-wage-4000",
-    "engineActual": {
-      "eti": 1500
-    },
-    "reason": "R4 000 for 160 hours is R25.00 an hour, below the R28.79 national minimum wage (from 1 March 2025), so the employee does not qualify and ETI is nil (SARS ETI page). The calculator has no hours or minimum-wage input and claims R1 500.00.",
-    "closedBy": "W3 (ETI): hours paid and the minimum-wage condition in the ETI calc, with the 160-hour apportionment"
-  },
-  {
-    "case": "fb-vehicle-3802-35pct-80pct-taxed",
-    "engineActual": {
-      "paye": 12515.58
-    },
-    "reason": "3802 is taxed as a full cash earning (R14 000); PAYE must take 80% of the benefit (R11 200) when business use is under 80% (BRS V25.3.0 code 4582 p. 105; G21 p. 5 rate). Expected 11 507.58.",
-    "closedBy": "FB (fringe benefits engine)"
-  },
-  {
-    "case": "fb-vehicle-3802-325pct-maintenance-plan-20pct-taxed",
-    "engineActual": {
-      "paye": 12155.58
-    },
-    "reason": "3802 is taxed in full (R13 000); with a maintenance plan (3.25%) and business use of at least 80%, PAYE takes 20% (R2 600) (BRS code 4582 p. 105; G21 p. 5). Expected 8 490.75.",
-    "closedBy": "FB (fringe benefits engine)"
-  },
-  {
-    "case": "fb-travel-3701-80pct-taxed",
-    "engineActual": {
-      "paye": 6134.75
-    },
-    "reason": "The R5 000 travel allowance (3701) is taxed in full (payeAnnualPayment.ts treats only 3605 and 39xx specially); G21 p. 5 includes 80% (R4 000) in remuneration. Expected 5 824.75.",
-    "closedBy": "FB (fringe benefits engine)"
-  },
-  {
-    "case": "fb-travel-3701-20pct-taxed",
-    "engineActual": {
-      "paye": 6134.75
-    },
-    "reason": "The travel allowance is taxed in full; where the employer is satisfied at least 80% of the use is business, G21 p. 5 includes only 20% (R1 000). Expected 4 941.00.",
-    "closedBy": "FB (fringe benefits engine)"
-  },
-  {
     "case": "rf-employer-contribution-15pct-rfi-cap-binds-on-total",
     "engineActual": {
       "paye": 1395
@@ -82,21 +42,5 @@
     },
     "reason": "An IRP3(c) fixed-amount directive (G21 p. 16-17) is not applied: the calculator uses the tables (R4 681.00) instead of the directed R2 500.00, and net pay follows.",
     "closedBy": "DR (directives on regular pay)"
-  },
-  {
-    "case": "eti-year1-120h-5000-apportioned",
-    "engineActual": {
-      "eti": 1500
-    },
-    "reason": "No hours input: the calculator takes the full R1 500 band. SARS: gross R5 000 up to 160 hours (6 666.67), table value 625.00, gross down by 120/160 = 468.75.",
-    "closedBy": "ET (ETI hours, minimum wage, carry-forward)"
-  },
-  {
-    "case": "eti-min-wage-1c-below-4606-39",
-    "engineActual": {
-      "eti": 1500
-    },
-    "reason": "No minimum-wage test: R4 606.39 for 160 ordinary hours is 1c under R28.79 an hour, so the employee does not qualify and ETI is nil; the calculator claims R1 500.00.",
-    "closedBy": "ET (ETI hours, minimum wage, carry-forward)"
   }
 ]

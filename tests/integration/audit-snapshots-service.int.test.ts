@@ -68,7 +68,8 @@ describe('taking', { timeout: 120_000 }, () => {
     expect(h.totals).toMatchObject({ journal_count: 2, line_count: 4, total_debit: '1500.00', total_credit: '1500.00' });
     const run = await read(c, () => getCheckRun(c, s.checkRunId));
     expect(run!.results.map((r) => r.family).sort()).toEqual([
-      ...Array(4).fill('anomaly'), ...Array(15).fill('integrity'), ...Array(5).fill('journal_risk')]);
+      // 16 integrity checks since wave 5 ET added paye_payable_differs_from_emp201 (gl/integrityChecks/payrollChecks.ts).
+      ...Array(4).fill('anomaly'), ...Array(16).fill('integrity'), ...Array(5).fill('journal_risk')]);
     expect((await read(c, () => verifySnapshot(c, s.id, KEY)))!.status).toBe('valid');
   });
 

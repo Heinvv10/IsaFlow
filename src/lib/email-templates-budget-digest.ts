@@ -1,5 +1,5 @@
 /**
- * ISAFlow Email Templates — Budget overspend digest (budgets P5 spec §3d, decision 9).
+ * IsaFlow Email Templates — Budget overspend digest (budgets P5 spec §3d, decision 9).
  * Inline-styled, table-based HTML for email clients, in the practice digest's pattern.
  *
  * Every value that came from the books or a user (company, recipient, account, slice, month, and

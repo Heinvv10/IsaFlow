@@ -19,8 +19,8 @@ import type { RowSelection } from '@/components/accounting/BankTxTable';
 
 const LEARNING_KEPT_MESSAGE = 'Undo reverses the journal. What was learned from this allocation is kept.';
 // categorization_decisions: a decided row is never re-opened (migration 903), and a person's allocation closed it.
-const DECISION_KEPT_MESSAGE = 'Undo reverses the journal. If ISAFlow suggested a coding, your decision on it stays recorded.';
-const SUGGESTION_KEPT_MESSAGE = 'Undo restores the line. If ISAFlow suggested a coding, it stays recorded as rejected.';
+const DECISION_KEPT_MESSAGE = 'Undo reverses the journal. If IsaFlow suggested a coding, your decision on it stays recorded.';
+const SUGGESTION_KEPT_MESSAGE = 'Undo restores the line. If IsaFlow suggested a coding, it stays recorded as rejected.';
 
 interface UndoContext {
   callAction: (body: Record<string, string>) => Promise<unknown>;

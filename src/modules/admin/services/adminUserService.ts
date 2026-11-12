@@ -1,6 +1,6 @@
 /**
  * Admin User Service
- * Cross-company user management for the ISAFlow Admin Platform.
+ * Cross-company user management for the IsaFlow Admin Platform.
  * All mutations should be followed by logAdminAction from auditService.
  */
 

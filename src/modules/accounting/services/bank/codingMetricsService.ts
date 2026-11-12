@@ -48,7 +48,7 @@ export async function loadCodingCounts(companyIds: string[], period: MonthPeriod
              (${period.to}::DATE::TIMESTAMP AT TIME ZONE 'Africa/Johannesburg') AS t
     )
     SELECT d.company_id,
-           -- A person's decisions only: decided_by NULL is ISAFlow superseding its own open suggestion.
+           -- A person's decisions only: decided_by NULL is IsaFlow superseding its own open suggestion.
            COUNT(*) FILTER (WHERE NOT d.was_auto_posted AND d.decided_by IS NOT NULL
                               AND d.outcome IN ('accepted', 'recoded', 'rejected')
                               AND d.decided_at >= b.f AND d.decided_at < b.t)::int AS suggestions_decided,

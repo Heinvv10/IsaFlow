@@ -59,7 +59,7 @@ export default function MigrationHubPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Migration Wizard</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">Migrate your data from any accounting system to ISAFlow</p>
+                <p className="text-sm text-[var(--ff-text-secondary)]">Migrate your data from any accounting system to IsaFlow</p>
               </div>
             </div>
           </div>

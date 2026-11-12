@@ -122,7 +122,14 @@ export function recomputeSdl(fig: FigureExplanation): number {
 function recomputeEti(fig: FigureExplanation): number {
   const r = reader(fig);
   if (r.has('eti.ineligible')) return 0;
-  const rem = r.amt('eti.remuneration');
+  // With the hours known, the table reads the remuneration grossed up to 160 hours, and the result is grossed down by
+  // the hours share (ETI Act s7(5)); without them, the remuneration as paid and the whole of it.
+  const hours = r.has('eti.hours') ? r.amt('eti.hours') : null;
+  const paid = r.amt('eti.remuneration');
+  const rem = hours !== null && hours < 160 ? (paid * 160) / hours : paid;
+  if (hours !== null) expect(r.amt('eti.tabled')).toBeCloseTo(rem, 6);
+  const share = hours !== null ? Math.min(1, hours / 160) : 1;
+  if (hours !== null) expect(r.amt('eti.share')).toBeCloseTo(share, 9);
   const t = (k: string) => r.amt(`eti.table.${k}`);
   let yearOne: number;
   if (rem >= t('wageCeiling')) yearOne = 0;
@@ -130,7 +137,7 @@ function recomputeEti(fig: FigureExplanation): number {
   else if (rem < t('taperStart')) yearOne = t('maxMonthlyEti');
   else yearOne = t('maxMonthlyEti') - t('taperRate') * (rem - t('taperStart'));
   expect(r.amt('eti.band')).toBeCloseTo(yearOne, 9);
-  return round2(Math.max(0, r.amt('eti.employmentYear') === 1 ? yearOne : yearOne / 2));
+  return round2(Math.max(0, r.amt('eti.employmentYear') === 1 ? yearOne : yearOne / 2) * share);
 }
 
 /**

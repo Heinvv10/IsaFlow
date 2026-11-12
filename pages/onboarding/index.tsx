@@ -150,7 +150,7 @@ export default function OnboardingWizard() {
     <div className="min-h-screen bg-slate-50 dark:bg-gray-950 text-slate-900 dark:text-white px-4 py-8">
       {/* Logo */}
       <div className="max-w-2xl mx-auto mb-8">
-        <img src="/logo.png" alt="ISAFlow" className="h-10 w-auto brightness-0 dark:invert" />
+        <img src="/logo.png" alt="IsaFlow" className="h-10 w-auto brightness-0 dark:invert" />
       </div>
 
       {/* Progress — hidden on the Smart Setup pre-step */}

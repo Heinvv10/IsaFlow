@@ -11,14 +11,15 @@ import { explainEti, explainSdl, explainUif } from './statutoryExplain';
 import type { SdlLeviableTrace } from './sdlLeviableCumulative';
 import type { EtiResult, UifResult } from './payrollTypes';
 import type { LineExplanations } from './payrollExplainTypes';
+import type { EarningPart } from './payrollLineAccumulate';
 
 export interface LineExplainParts {
   taxYear: number;
   periodDate: Date;
   paye: Omit<PayeExplainInput, 'taxYear'>;
-  uif: { uif: UifResult; leviable: number | null; uifRemuneration: number; outsideReason: string | null };
+  uif: { uif: UifResult; leviable: number | null; uifRemuneration: number; parts: EarningPart[]; outsideReason: string | null };
   sdl: {
-    outsideReason: string | null; sdlApplicable: number; deduction: number; retirementDeduction: number; donationDeduction: number;
+    outsideReason: string | null; sdlApplicable: number; parts: EarningPart[]; deduction: number; retirementDeduction: number; donationDeduction: number;
     trace: SdlLeviableTrace | null; charge: { annualRemuneration: number; exempt: boolean; sdl: number } | 'deferred';
   };
   eti: { eti: EtiResult };

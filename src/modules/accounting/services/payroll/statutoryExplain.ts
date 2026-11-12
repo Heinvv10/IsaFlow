@@ -7,7 +7,9 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { UIF_RATE } from './uifEngine';
 import { SDL_RATE } from './sdlEngine';
 import { getTaxYearConfig } from './taxTables';
-import { ETI_TABLE_UNCONFIRMED_MESSAGE, isEtiTableUnconfirmed, type EtiBand, type EtiTable } from './etiTables';
+import type { EtiBand, EtiTable } from './etiTables';
+import { earningStep } from './earningExplain';
+import type { EarningPart } from './payrollLineAccumulate';
 import type { SdlLeviableTrace } from './sdlLeviableCumulative';
 import type { EtiResult, UifResult } from './payrollTypes';
 import { SOURCES, footed, pct, sourceFor, type ExplainStep, type FigureExplanation } from './payrollExplainTypes';
@@ -15,7 +17,7 @@ import { SOURCES, footed, pct, sourceFor, type ExplainStep, type FigureExplanati
 const r = (n: number) => formatMoney(n);
 
 export function explainUif(input: {
-  taxYear: number; uif: UifResult; leviable: number | null; uifRemuneration: number; outsideReason: string | null;
+  taxYear: number; uif: UifResult; leviable: number | null; uifRemuneration: number; parts: EarningPart[]; outsideReason: string | null;
 }): FigureExplanation {
   const { uif, taxYear, leviable } = input;
   const base = { figure: 'uif' as const, title: 'How UIF was calculated', result: uif.employeeContribution, resultLabel: 'UIF, employee (the employer pays the same)' };
@@ -25,7 +27,8 @@ export function explainUif(input: {
   return {
     ...base,
     steps: [
-      { key: 'uif.remuneration', label: 'Pay that UIF applies to this period', amount: input.uifRemuneration, note: 'Earnings flagged as UIF-applicable.' },
+      footed({ key: 'uif.remuneration', label: 'Pay that UIF applies to this period', amount: input.uifRemuneration, note: 'Earnings flagged as UIF-applicable.' },
+        input.parts.filter((p) => p.uif).map((p, i) => earningStep(`uif.earning.${i}`, p))),
       { key: 'uif.ceiling', label: 'Monthly ceiling', amount: getTaxYearConfig(taxYear).uifCeiling, source: sourceFor(SOURCES.uif, taxYear) },
       { key: 'uif.leviable', label: 'Pay the contribution is on', amount: leviable, formula: 'the lesser of the pay and the ceiling' },
       { key: 'uif.rate', label: 'Rate, each of employee and employer', amount: UIF_RATE, unit: 'percent' },
@@ -39,7 +42,7 @@ export function explainUif(input: {
 const SDL_PENDING = 'sdl.pending';
 
 export function explainSdl(input: {
-  taxYear: number; outsideReason: string | null; sdlApplicable: number; deduction: number; retirementDeduction: number; donationDeduction: number;
+  taxYear: number; outsideReason: string | null; sdlApplicable: number; parts: EarningPart[]; deduction: number; retirementDeduction: number; donationDeduction: number;
   trace: SdlLeviableTrace | null; charge: { annualRemuneration: number; exempt: boolean; sdl: number } | 'deferred';
 }): FigureExplanation {
   const { taxYear, trace } = input;
@@ -48,7 +51,8 @@ export function explainSdl(input: {
     return { ...base, result: 0, steps: [{ key: 'sdl.none', label: input.outsideReason ?? 'No SDL on this line', amount: 0 }] };
   }
   const steps: ExplainStep[] = [
-    { key: 'sdl.applicable', label: 'SDL-applicable pay this period', amount: input.sdlApplicable, note: 'Earnings flagged as SDL-applicable.' },
+    footed({ key: 'sdl.applicable', label: 'SDL-applicable pay this period', amount: input.sdlApplicable, note: 'Earnings flagged as SDL-applicable, to the cent.' },
+      input.parts.filter((p) => p.sdl).map((p, i) => earningStep(`sdl.earning.${i}`, p))),
     footed({
       key: 'sdl.deduction', label: 'The para 2(4) deductions this period', amount: input.deduction, formula: 'rounded to the cent',
       source: sourceFor(SOURCES.sdl, taxYear),
@@ -115,31 +119,36 @@ export function explainEti(input: { taxYear: number; eti: EtiResult; periodDate:
       : eti.ineligibilityReason ?? 'Not eligible';
     return { ...base, steps: [{ key: 'eti.ineligible', label: 'No ETI', amount: 0, note: why, source: sourceFor(SOURCES.eti, taxYear) }] };
   }
-  const { table, remuneration, band, yearOne } = eti.applied;
+  const { table, remuneration, hours, tabled, share, band, yearOne } = eti.applied;
   const row = BAND_ROW[band](table);
-  const unconfirmed = isEtiTableUnconfirmed(input.periodDate);
   const steps: ExplainStep[] = [
-    { key: 'eti.remuneration', label: 'Monthly remuneration', amount: remuneration, note: 'All remuneration for the month, bonuses and benefits included.' },
+    { key: 'eti.remuneration', label: 'Monthly remuneration', amount: remuneration, note: 'Cash remuneration for the month (a travel allowance at its PAYE share).' },
     { key: 'eti.monthsEmployed', label: 'Months employed, this one included', amount: eti.monthsEmployed, unit: 'count' },
-    {
-      key: 'eti.band', label: `The table row: ${row.label}`, amount: yearOne, formula: row.formula,
-      source: sourceFor(SOURCES.eti, taxYear), ...(unconfirmed ? { status: 'unverified' as const } : {}),
-      children: [
-        { key: 'eti.table.lowBandCeiling', label: 'Low band below', amount: table.lowBandCeiling },
-        { key: 'eti.table.lowBandRate', label: 'Low-band rate', amount: table.lowBandRate, unit: 'percent' },
-        { key: 'eti.table.maxMonthlyEti', label: 'Flat amount', amount: table.maxMonthlyEti },
-        { key: 'eti.table.taperStart', label: 'Taper starts at', amount: table.taperStart },
-        { key: 'eti.table.taperRate', label: 'Taper rate', amount: table.taperRate, unit: 'percent' },
-        { key: 'eti.table.wageCeiling', label: 'Nil at or above', amount: table.wageCeiling },
-      ],
-    },
-    {
-      key: 'eti.employmentYear', label: eti.employmentYear === 1 ? 'First 12 months of employment: the full amount' : 'Second 12 months: half the amount',
-      amount: eti.employmentYear, unit: 'count', formula: eti.employmentYear === 1 ? 'the row amount' : 'the row amount ÷ 2',
-    },
   ];
-  return {
-    ...base, steps,
-    ...(unconfirmed && eti.monthlyEti > 0 ? { caution: ETI_TABLE_UNCONFIRMED_MESSAGE } : {}),
-  };
+  if (hours !== null) {
+    steps.push({ key: 'eti.hours', label: 'Hours employed and paid in the month', amount: hours, unit: 'count', source: sourceFor(SOURCES.eti, taxYear) });
+    steps.push({
+      key: 'eti.tabled', label: 'Remuneration for 160 hours (what the table reads)', amount: tabled,
+      formula: hours < 160 ? `${r(remuneration)} × 160 ÷ ${hours}` : 'at least 160 hours: as paid', note: 'ETI Act s7(5).',
+    });
+  }
+  steps.push({
+    key: 'eti.band', label: `The table row: ${row.label}`, amount: yearOne, formula: row.formula, source: sourceFor(SOURCES.eti, taxYear),
+    children: [
+      { key: 'eti.table.lowBandCeiling', label: 'Low band below', amount: table.lowBandCeiling },
+      { key: 'eti.table.lowBandRate', label: 'Low-band rate', amount: table.lowBandRate, unit: 'percent' },
+      { key: 'eti.table.maxMonthlyEti', label: 'Flat amount', amount: table.maxMonthlyEti },
+      { key: 'eti.table.taperStart', label: 'Taper starts at', amount: table.taperStart },
+      { key: 'eti.table.taperRate', label: 'Taper rate', amount: table.taperRate, unit: 'percent' },
+      { key: 'eti.table.wageCeiling', label: 'Nil at or above', amount: table.wageCeiling },
+    ],
+  });
+  steps.push({
+    key: 'eti.employmentYear', label: eti.employmentYear === 1 ? 'First 12 months of employment: the full amount' : 'Second 12 months: half the amount',
+    amount: eti.employmentYear, unit: 'count', formula: eti.employmentYear === 1 ? 'the row amount' : 'the row amount ÷ 2',
+  });
+  if (hours !== null) {
+    steps.push({ key: 'eti.share', label: 'Share of a full month (hours ÷ 160, at most all of it)', amount: share, unit: 'percent', formula: `× ${pct(share)}, rounded to the cent` });
+  }
+  return { ...base, steps };
 }

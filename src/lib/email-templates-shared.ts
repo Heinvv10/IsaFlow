@@ -1,5 +1,5 @@
 /**
- * ISAFlow Email Templates — Shared Helpers
+ * IsaFlow Email Templates — Shared Helpers
  * Brand constants, layout wrapper, CTA button, and signature helpers.
  * Split from email-templates.ts to stay within the 300-line limit.
  */
@@ -82,7 +82,7 @@ export function emailLayout(content: string): string {
     <tr>
       <td align="center" style="background-color:${BRAND.darkBg}; padding:28px 32px; border-bottom:3px solid ${BRAND.primaryTeal};">
         <a href="${BRAND.appUrl}" style="text-decoration:none;">
-          <img src="${BRAND.logoUrl}" alt="ISAFlow" height="40"
+          <img src="${BRAND.logoUrl}" alt="IsaFlow" height="40"
                style="display:block; max-height:40px; width:auto; border:0;" />
         </a>
       </td>
@@ -94,7 +94,7 @@ export function emailLayout(content: string): string {
         <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
           <tr>
             <td style="font-family:${BRAND.fontStack}; font-size:12px; color:${BRAND.textMuted}; line-height:1.5;">
-              ISAFlow &#8212; South African Cloud Accounting<br>
+              IsaFlow &#8212; South African Cloud Accounting<br>
               This is an automated email. Please do not reply directly.
             </td>
             <td align="right" style="font-family:${BRAND.fontStack}; font-size:12px; color:${BRAND.textMuted};">

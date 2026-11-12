@@ -9,7 +9,7 @@
  * the already-closed lookup exists to prevent.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, within } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
 vi.mock('@/components/layout/AppLayout', () => ({
@@ -29,17 +29,30 @@ const YEAR = {
   periods_open: 0, periods_closed: 12, total_revenue: 0, total_expenses: 0, net_income: 0,
 };
 
-/** GET returns one closeable year; POST returns the given close result. */
+const PREVIEW = {
+  yearLabel: '2025', alreadyClosed: false, netIncome: 0, entryDate: '2025-12-31', entryNumber: 'YE-2025',
+  retainedEarnings: null,
+};
+
+/** GET returns one closeable year (and its close preview); POST returns the given close result. */
 function mockApi(closeBody: Record<string, unknown>, status = 200) {
-  vi.mocked(apiFetch).mockImplementation(async (_url, init) =>
+  vi.mocked(apiFetch).mockImplementation(async (url, init) =>
     (init?.method === 'POST'
       ? new Response(JSON.stringify({ data: closeBody }), { status })
-      : new Response(JSON.stringify({ data: { years: [YEAR] } }), { status: 200 })));
+      : String(url).includes('preview=')
+        ? new Response(JSON.stringify({ data: PREVIEW }), { status: 200 })
+        : new Response(JSON.stringify({ data: { years: [YEAR] } }), { status: 200 })));
 }
 
+/** Opens the confirmation, types the year label and confirms (audit P3.2). */
 async function clickClose() {
   render(<YearEndPage />);
   fireEvent.click(await screen.findByRole('button', { name: /Process Year-End/ }));
+  const dialog = await screen.findByRole('dialog');
+  const input = within(dialog).getByRole('textbox');
+  await vi.waitFor(() => expect((input as HTMLInputElement).disabled).toBe(false));
+  fireEvent.change(input, { target: { value: '2025' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: /Process Year-End/ }));
 }
 
 describe('year-end page success message', () => {
@@ -93,10 +106,12 @@ describe('year-end page success message', () => {
   });
 
   it('still shows the API message on a refusal', async () => {
-    vi.mocked(apiFetch).mockImplementation(async (_url, init) =>
+    vi.mocked(apiFetch).mockImplementation(async (url, init) =>
       (init?.method === 'POST'
         ? new Response(JSON.stringify({ success: false, error: { code: 'BAD_REQUEST', message: 'This year already has a closing journal (YE-2025) and it is reversed, not posted.' } }), { status: 409 })
-        : new Response(JSON.stringify({ data: { years: [YEAR] } }), { status: 200 })));
+        : String(url).includes('preview=')
+          ? new Response(JSON.stringify({ data: PREVIEW }), { status: 200 })
+          : new Response(JSON.stringify({ data: { years: [YEAR] } }), { status: 200 })));
     await clickClose();
     expect(await screen.findByText(/reversed, not posted/i)).toBeTruthy();
   });

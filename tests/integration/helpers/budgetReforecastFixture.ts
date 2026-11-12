@@ -71,7 +71,7 @@ export function budgetReforecastFixture(pool: Pool) {
     ...fx.call,
     /** The reforecast route on `versionId`; a write naming no `expectedUpdatedAt` is sent none (the route requires one where it must). */
     reforecast: (u: SetupUser, versionId: string, method: string, body?: unknown) => reforecast.call(u, method, body, { id: versionId }),
-    period: (u: SetupUser, body: Record<string, unknown>) => periodsCall.call(u, 'POST', body),
+    period: (u: SetupUser, body: Record<string, unknown>) => periodsCall.call(u, 'POST', { ...body, confirm: true }),
   };
 
   /** Closes the months in order through the real route (the after-commit roll runs). */

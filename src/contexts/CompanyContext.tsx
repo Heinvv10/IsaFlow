@@ -17,6 +17,7 @@ import {
 } from './companyModel';
 import { recoverActiveCompany } from './companyRecovery';
 import { clearInvoiceDrafts } from '@/lib/invoiceDrafts';
+import { clearTenantCacheStorage } from '@/lib/auth/clearTenantClientState';
 
 // The shapes and the two pure translations live in companyModel.ts (300-line
 // ceiling). Re-exported so every existing import site is unchanged.
@@ -52,7 +53,7 @@ export function CompanyProvider({ children, skipFetch = false }: CompanyProvider
   const userRole = user?.role ?? null;
   const userId = user?.id ?? null;
   // Hydrate active company synchronously from localStorage so the first render
-  // has at least {id, name} — avoids a flash of the 'ISAFlow' fallback title
+  // has at least {id, name} — avoids a flash of the 'IsaFlow' fallback title
   // until the async /api/accounting/companies fetch resolves. The async fetch
   // that follows will enrich the company with the full profile.
   const [activeCompany, setActiveCompany] = useState<Company | null>(readStoredCompany);
@@ -238,6 +239,7 @@ export function CompanyProvider({ children, skipFetch = false }: CompanyProvider
       }
       if (match) setCompanyRole(match.role);
       clearInvoiceDrafts(); // switched: no draft is offered under another company
+      await clearTenantCacheStorage(); // switched: no cached response from the old company survives the reload
 
       // Best-effort: persist as user's default company for next login.
       try {
