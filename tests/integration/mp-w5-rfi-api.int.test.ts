@@ -210,3 +210,14 @@ describe('the run grid never writes an amount onto a percent row (round 1 L)', (
     expect(Number(after.amount)).toBe(0);
   });
 });
+
+describe('the gate refuses a non-taxable employer fund benefit (round 1 TDD M)', () => {
+  it('August: a non-taxable 3828 written past the assign check is an error on the line and the gate says fringe_benefit_not_applied', async () => {
+    const untaxed = (await pool.query<{ id: string }>("SELECT id FROM payroll_components WHERE company_id = $1 AND name = 'Old employer RA'", [companyA])).rows[0]!.id;
+    await pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to) VALUES ($1, $2, 500, '2026-08-01', '2026-08-31')`, [empA, untaxed]);
+    const runId = await calculatedRun(call, 8);
+    const v = (await pool.query<{ v: Array<{ code: string; severity: string }> }>('SELECT validation_results AS v FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [runId, empA])).rows[0]!.v;
+    expect(v).toContainEqual(expect.objectContaining({ code: 'RETIREMENT_BENEFIT_NOT_TAXABLE', severity: 'error' }));
+    expect((await runLinesRefusal(companyA, runId))?.code).toBe('fringe_benefit_not_applied');
+  });
+});
