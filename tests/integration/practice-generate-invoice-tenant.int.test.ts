@@ -1,5 +1,5 @@
 /**
- * Generate Invoice form (audit 11 Nov 2026, item 12): the page posts to the
+ * Generate Invoice form (audit 11 Nov 2026, P2.5 item 2): the page posts to the
  * existing WIP invoice route and reads the existing WIP route, so these pin
  * what the form now relies on, driven through withAuth as the page drives it:
  *   - another company can neither invoice this company's client nor bill its

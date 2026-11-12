@@ -1,5 +1,5 @@
 /**
- * Generate Invoice form (audit 11 Nov 2026, item 12): pick a practice client,
+ * Generate Invoice form (audit 11 Nov 2026, P2.5 item 2): pick a practice client,
  * tick its unbilled WIP, preview the shared invoice totals, and post to the
  * existing WIP invoice route. Only apiFetch and the VAT hook are mocked;
  * assertOk, apiErrorMessage and invoiceTotals are the real ones.

@@ -21,6 +21,8 @@ import { WipEntryPickTable } from './WipEntryPickTable';
 type GroupBy = NonNullable<GenerateWipInvoiceInput['groupBy']>;
 type ClientOption = Pick<PracticeClient, 'id' | 'legalName' | 'tradingName' | 'linkCustomerId'>;
 
+// Standard VAT rate: 15% from 1 April 2018, Value-Added Tax Act 89 of 1991 s 7(1). The user can change it per invoice.
+const STANDARD_VAT_RATE = '15';
 const RING = 'focus:outline-none focus:ring-2 focus:ring-teal-500/40';
 const INPUT_CLS = `w-full rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-2 text-sm text-[var(--ff-text-primary)] ${RING}`;
 const LABEL_CLS = 'block text-xs font-medium text-[var(--ff-text-secondary)] mb-1';
@@ -55,7 +57,7 @@ export function GenerateInvoiceForm() {
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
   const [groupBy, setGroupBy] = useState<GroupBy>('detailed');
-  const [taxRate, setTaxRate] = useState('15');
+  const [taxRate, setTaxRate] = useState(STANDARD_VAT_RATE);
   const [rateTouched, setRateTouched] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -63,7 +65,7 @@ export function GenerateInvoiceForm() {
 
   // The company's VAT status sets the default rate once it is known; a rate the user typed stays.
   useEffect(() => {
-    if (vat.known && !rateTouched) setTaxRate(vat.isRegistered ? '15' : '0');
+    if (vat.known && !rateTouched) setTaxRate(vat.isRegistered ? STANDARD_VAT_RATE : '0');
   }, [vat.known, vat.isRegistered, rateTouched]);
 
   useEffect(() => {

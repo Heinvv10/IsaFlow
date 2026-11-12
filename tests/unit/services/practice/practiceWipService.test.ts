@@ -270,7 +270,7 @@ describe('generateWipInvoice', () => {
   });
 });
 
-// Generate Invoice form (audit 11 Nov 2026, item 12): a chosen due date, notes,
+// Generate Invoice form (audit 11 Nov 2026, P2.5 item 2): a chosen due date, notes,
 // and VAT priced by the shared invoiceTotals.
 describe('generateWipInvoice: due date, notes and shared VAT', () => {
   const CLIENT_ROW = { id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER, own_customer_id: LINK_CUSTOMER };

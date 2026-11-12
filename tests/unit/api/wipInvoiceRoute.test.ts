@@ -1,5 +1,5 @@
 /**
- * Generate Invoice form (audit 11 Nov 2026, item 12): the WIP routes' input
+ * Generate Invoice form (audit 11 Nov 2026, P2.5 item 2): the WIP routes' input
  * contract. POST /practice/wip/invoice takes an optional dueDate and notes; a
  * malformed one is a 400 naming the field, never a 500 from Postgres. GET
  * /practice/wip answers a malformed practiceClientId 400 instead of letting
