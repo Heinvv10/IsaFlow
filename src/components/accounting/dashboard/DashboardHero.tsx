@@ -67,10 +67,10 @@ export function DashboardHero({
   const subtitle = tabHero ? tabHero.subtitle : 'General Ledger, Journal Entries & Financial Reports';
 
   return (
-    <div
+    <section
       className="relative overflow-hidden rounded-3xl border border-slate-900/10 dark:border-white/10 [contain:paint]"
       style={{ background: `linear-gradient(135deg, var(--ff-canvas-raised) 0%, var(--ff-canvas-mid) 50%, var(--ff-canvas-base) 100%)` }}
-      role="banner"
+      aria-label={tabHero ? tabHero.title : 'Dashboard overview'}
     >
 
       {/* Dot grid — covers entire card */}
@@ -142,6 +142,6 @@ export function DashboardHero({
           })}
         </nav>
       </div>
-    </div>
+    </section>
   );
 }
