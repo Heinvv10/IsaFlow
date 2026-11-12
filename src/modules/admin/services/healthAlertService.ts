@@ -106,7 +106,7 @@ async function sendEmailAlert(
   alertEmail: string,
 ): Promise<void> {
   const statusLabel = health.overall_status.toUpperCase();
-  const subject = `[ISAFlow] System Health ${statusLabel} — ${health.checked_at}`;
+  const subject = `[IsaFlow] System Health ${statusLabel} — ${health.checked_at}`;
 
   const statusColor = health.overall_status === 'critical' ? '#dc2626' : '#d97706';
   const rowStyle = `padding:8px 12px; border-top:1px solid ${BRAND.borderColor}; font-family:${BRAND.fontStack}; font-size:13px; color:${BRAND.textBody};`;
@@ -133,7 +133,7 @@ async function sendEmailAlert(
           <tr><td style="${rowStyle}">Checked At</td><td style="${rowStyle}">${health.checked_at}</td></tr>
         </table>
         <p style="margin:20px 0 0; font-family:${BRAND.fontStack}; font-size:12px; color:${BRAND.textMuted};">
-          This is an automated alert from ISAFlow admin health monitoring.
+          This is an automated alert from IsaFlow admin health monitoring.
         </p>
       </td>
     </tr>`);

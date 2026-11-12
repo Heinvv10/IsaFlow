@@ -45,6 +45,10 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
 vi.mock('@/modules/accounting/services/ap/billLineAccountGuard', () => ({
   billLineAccountRefusal: vi.fn(),
 }));
+// Supplier terms for the due-date warning: none set unless a test says otherwise (dueDateTermsWarning.test.ts has the rest).
+vi.mock('@/modules/accounting/services/core/paymentTermsResolver', () => ({
+  contactTerms: vi.fn(async () => ({ days: null, type: null, companyDefault: { days: 30, type: 'invoice_days' } })),
+}));
 
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { createDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
@@ -53,6 +57,7 @@ import {
   customerBelongsToCompany,
 } from '@/modules/accounting/services/core/contactDirectoryService';
 import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
+import { contactTerms } from '@/modules/accounting/services/core/paymentTermsResolver';
 import { bulkCreateSupplierInvoicesTool } from '@/lib/mcp/tools/writeBulkInvoices';
 import { bulkCreateCustomerInvoicesTool } from '@/lib/mcp/tools/writeBulkCustomerInvoices';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
@@ -124,6 +129,25 @@ describe('bulk_create_supplier_invoices', () => {
     expect(out.created_count).toBe(2);
     expect((out.invoices as Record<string, unknown>[]).map((i) => i.index)).toEqual([0, 1]);
     expect(createSupplierInvoice).toHaveBeenCalledTimes(2);
+  });
+
+  it('warns per element, by index, when a given due_date differs from the supplier terms', async () => {
+    vi.mocked(contactTerms).mockImplementation(async (_c, _k, id) => (id === SUPPLIER_A
+      ? { days: 3, type: 'statement_months', companyDefault: { days: 30, type: 'invoice_days' } }
+      : { days: null, type: null, companyDefault: { days: 30, type: 'invoice_days' } }));
+    const out = parseOk(await bulkCreateSupplierInvoicesTool.handler({
+      invoices: [
+        bill({ invoice_date: '2026-11-09', due_date: '2027-02-28' }),
+        bill({ invoice_number: 'INV-9002', invoice_date: '2026-11-09', due_date: '2027-02-07' }),
+        bill({ supplier_id: SUPPLIER_B, invoice_number: 'INV-9003', invoice_date: '2026-11-09', due_date: '2026-11-20' }),
+        bill({ invoice_number: 'INV-9004', invoice_date: '2026-11-09', due_date: '2027-01-08', payment_terms: 'net60' }),
+      ],
+      ...KEY,
+    }, ctx()));
+    expect(out.created_count).toBe(4);
+    const w = out.due_date_warnings as string[];
+    expect(w).toHaveLength(1);
+    expect(w[0]!.startsWith('invoices[1]: ')).toBe(true);
   });
 
   it('stamps the BULK tool name, not the single one', async () => {

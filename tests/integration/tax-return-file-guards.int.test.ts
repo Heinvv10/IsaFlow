@@ -84,6 +84,9 @@ describeIfDb('file and amend a return: guards on their own company', () => {
     expect(r.status).toBe(409);
     expect(JSON.stringify(r.body)).toMatch(/LEGACY_SUBMISSION_EXISTS/);
     expect(JSON.stringify(r.body)).toContain(legacyRow);
+    // The ids the filing must name come back as data (wave 5 L2 sends them back), not only in the message.
+    expect([...(r.body as { error: { details: { legacySubmissionIds: string[] } } }).error.details.legacySubmissionIds].sort())
+      .toEqual([legacyRow, legacyRow2].sort());
     // the wrong id, and the right id with no reason
     const wrong = await fileV(String(e.id), { reference: 'EMP-LEG', correctsLegacySubmissionIds: ['00000000-0000-4000-8000-000000000077'], reason: 'because' }, rf.admin.token, 'emp201');
     expect(wrong.status).toBe(409);

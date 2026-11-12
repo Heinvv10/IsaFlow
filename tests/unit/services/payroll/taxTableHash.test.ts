@@ -4,8 +4,8 @@
  * - taxTables.ts: brackets, rebates, thresholds, medical credits, UIF ceiling, SDL threshold, s11F cap, the non-standard
  *   daily threshold (G21 p. 28; R394 in 2027, R383 in 2026, null = unverified in 2025);
  * - the rates: UIF_RATE, SDL_RATE, RETIREMENT_DEDUCTION_RATE (27.5%), the s18A DONATION_LIMIT (5%);
- * - etiTables.ts / etiEngine.ts: the ETI table and its unconfirmed flag for each month of the year,
- *   the unconfirmed-table policy, the age band, the 24-month window and the first-year length.
+ * - etiTables.ts / etiEngine.ts: the ETI table and the national minimum wage (ET) for each month of the year,
+ *   the age band, the 24-month window and the first-year length.
  * NOT pinned here (still literals in code): the 65 / 75 rebate ages and the 33.3% / 3x additional
  * medical credit (payeEngine.ts), and the 12 periods a year (payeCumulative.ts).
  * Changing a pinned figure, or adding a tax year, without updating PINNED below is red. The oracle
@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { getTaxYearConfig, SUPPORTED_TAX_YEARS } from '@/modules/accounting/services/payroll/taxTables';
 import {
-  ETI_AFTER_MARCH_2026_POLICY, isEtiTableUnconfirmed, selectEtiTable, UnsupportedEtiPeriodError,
+  nationalMinimumWageCents, selectEtiTable, UnsupportedEtiPeriodError,
 } from '@/modules/accounting/services/payroll/etiTables';
 import {
   ETI_FIRST_YEAR_MONTHS, ETI_MAX_AGE, ETI_MIN_AGE, ETI_WINDOW_MONTHS,
@@ -30,9 +30,9 @@ const TABLE_OWNER = 'the wave coordinator agent prepares the February tables PR 
 const CRON = '~/bin/isaflow-tax-tables-cron.sh';
 
 const PINNED: Record<number, string> = {
-  2025: '001780e01a2d0ea8c53c5e0e75598f0ccdc286b01600773e3d81d8953bb374e6',
-  2026: '38dfdecdff841da5dc373d37c555eca2722d4898bb814c958c7993676046f8f5',
-  2027: 'e4af8856d1423161aca245929c838f25bb5c5a62941922d84874186ca2e3cfe3',
+  2025: 'ff1aeed3388da64a5a1201f57ca7e08efa2fcf6b0f47353a615d480e4ba94e98',
+  2026: 'fc9776a1f2d9f8ea562a6fa8b4f119559d5107c4a2e7a1340ed96b13746be668',
+  2027: '7fe74546974e581584e4b02e398d2478dd8a7da34cff1ec1dcef02518d618db7',
 };
 
 /** JSON with sorted keys and Infinity spelled out, so the hash is stable and Infinity is not lost as null. */
@@ -52,7 +52,7 @@ function etiForTaxYear(taxYear: number): unknown[] {
     const d = new Date(taxYear - 1, 2 + i, 1);
     const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     try {
-      return { month, table: selectEtiTable(d), unconfirmed: isEtiTableUnconfirmed(d) };
+      return { month, table: selectEtiTable(d), minimumWageCents: nationalMinimumWageCents(d) };
     } catch (err) {
       if (err instanceof UnsupportedEtiPeriodError) return { month, table: null };
       throw err;
@@ -66,7 +66,7 @@ function tableHash(taxYear: number): string {
     rates: { uif: UIF_RATE, sdl: SDL_RATE, retirementDeduction: RETIREMENT_DEDUCTION_RATE, s18aDonationLimit: DONATION_LIMIT },
     eti: etiForTaxYear(taxYear),
     etiRules: {
-      policy: ETI_AFTER_MARCH_2026_POLICY, minAge: ETI_MIN_AGE, maxAge: ETI_MAX_AGE,
+      minAge: ETI_MIN_AGE, maxAge: ETI_MAX_AGE,
       windowMonths: ETI_WINDOW_MONTHS, firstYearMonths: ETI_FIRST_YEAR_MONTHS,
     },
   };
@@ -76,7 +76,7 @@ function tableHash(taxYear: number): string {
 function checklist(year: number, what: string): string {
   return `Payroll tax tables for tax year ${year}: ${what}. This is the February SARS budget checklist: check every `
     + 'bracket, rebate, threshold, medical credit, the UIF ceiling, the SDL threshold, the s11F cap, the UIF and SDL rates, '
-    + 'the 27.5% retirement and 5% s18A limits, and the ETI table, age band and window against SARS, then set '
+    + 'the 27.5% retirement and 5% s18A limits, and the ETI table, age band, window and the national minimum wage against SARS and the NMW Act Schedule 1, then set '
     + `PINNED[${year}] in tests/unit/services/payroll/taxTableHash.test.ts and re-run payrollOracle.test.ts. `
     + `Table owner: ${TABLE_OWNER}. The ${CRON} cron's headless session opens a taxTables PR every February; `
     + 'that PR must update this pin.';

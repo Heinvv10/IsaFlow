@@ -6,6 +6,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Both loan components exist: the fail-closed path has its own integration suites.
+// Hein ruling R-A (wave 5 ET) has its own tests (etiPeriodGuard.test.ts): no later month posted here.
+// A rehire's earlier ETI months (etiPriorEmployment) have their own tests (etiEligibility.test.ts).
+vi.mock('@/modules/accounting/services/payroll/etiPriorEmployment', () => ({ withEtiPriorMonths: async (_c: string, e: unknown[]) => e }));
+vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/payroll/etiPeriodGuard')>()),
+  laterEtiJournalRefusal: vi.fn(async () => null),
+  earlierUnapprovedRefusal: vi.fn(async () => null),
+  assertNoLaterEtiJournal: vi.fn(async () => undefined),
+}));
 vi.mock('@/modules/accounting/services/payroll/fringeBenefitService', () => ({
   loadFringeBenefitsByEmployee: async () => new Map(),
   loadVehicleBenefitComponent: async () => null,

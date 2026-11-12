@@ -68,7 +68,7 @@ describe('routes', { timeout: 120_000 }, () => {
       expect(list.snapshots.map((s) => s.id), u).toEqual([id]);
       const detail = dataOf<{ snapshot: { status: string }; checkRun: { results: unknown[] } }>(await snap(u, c, 'GET', undefined, { id }));
       expect(detail.snapshot.status).toBe('sealed');
-      expect(detail.checkRun.results).toHaveLength(24);
+      expect(detail.checkRun.results).toHaveLength(25); // 25 since wave 5 ET's paye_payable_differs_from_emp201
       const ver = dataOf<{ verification: { status: string } }>(await snap(u, c, 'GET', undefined, { id, verify: '1' }));
       expect(ver.verification.status).toBe('valid');
       const chain = dataOf<{ chain: { status: string; length: number } }>(await snap(u, c, 'GET', undefined, { chain: '1' }));
@@ -134,7 +134,7 @@ describe('routes', { timeout: 120_000 }, () => {
     const id = dataOf<{ run: { id: string } }>(run).run.id;
     expect((await callRoute(auditCheckRuns, tokens[m]!, c, 'POST', { asAt: '2026-06-30' }, '/x')).state.statusCode).toBe(403);
     const got = dataOf<{ run: { results: unknown[]; purpose: string } }>(await callRoute(auditCheckRuns, tokens[m]!, c, 'GET', undefined, '/x', { id }));
-    expect([got.run.results.length, got.run.purpose]).toEqual([24, 'standalone']);
+    expect([got.run.results.length, got.run.purpose]).toEqual([25, 'standalone']);
     expect((await callRoute(auditCheckRuns, tokens[v]!, c, 'GET', undefined, '/x')).state.statusCode).toBe(403);
   });
 });

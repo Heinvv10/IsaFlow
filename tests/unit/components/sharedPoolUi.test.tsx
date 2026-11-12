@@ -1,5 +1,5 @@
 /**
- * Shared-pool UI: the bank line's "Common at other ISAFlow clients" hint shows only while the selection is
+ * Shared-pool UI: the bank line's "Common at other IsaFlow clients" hint shows only while the selection is
  * still the pool's suggestion; the Merchant Categories page lists every category, saves a pick, and runs
  * auto-map.
  */
@@ -21,7 +21,7 @@ afterEach(() => { cleanup(); apiFetch.mockReset(); });
 describe('SharedPoolHint', () => {
   it('shows the label while the selection is the pool suggestion', () => {
     render(<SharedPoolHint suggestedStrategy="shared_pool" suggestedGlAccountId="gl-1" selectedEntityId="gl-1" />);
-    expect(screen.getByTestId('shared-pool-hint').textContent).toBe('Common at other ISAFlow clients');
+    expect(screen.getByTestId('shared-pool-hint').textContent).toBe('Common at other IsaFlow clients');
   });
 
   it('is the same wording the service labels the suggestion with', () => {
@@ -76,7 +76,7 @@ describe('Merchant Categories page', () => {
   it('says that mapped coding counts toward other clients\' suggestions when the bureau shares', async () => {
     serve();
     render(<MerchantCategoriesPage />);
-    expect(await screen.findByText(/your coding on mapped accounts also counts \(anonymously\) toward these suggestions for other ISAFlow clients/)).toBeTruthy();
+    expect(await screen.findByText(/your coding on mapped accounts also counts \(anonymously\) toward these suggestions for other IsaFlow clients/)).toBeTruthy();
   });
 
   it.each([false, 'omitted'] as const)('sharingAvailable %s: says shared suggestions are pending legal review, not that coding counts', async (v) => {
@@ -84,7 +84,7 @@ describe('Merchant Categories page', () => {
     render(<MerchantCategoriesPage />);
     const p = await screen.findByTestId('sharing-pending');
     expect(p.textContent).toContain('Shared suggestions: Coming soon - pending legal review.');
-    expect(p.textContent).toContain('none of your coding is shared with other ISAFlow clients');
+    expect(p.textContent).toContain('none of your coding is shared with other IsaFlow clients');
     expect(screen.queryByText(/also counts \(anonymously\)/)).toBeNull();
   });
 

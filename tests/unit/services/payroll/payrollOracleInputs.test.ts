@@ -6,14 +6,15 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildCaseInput, loadCases, oracleTaxStatus } from '../../../fixtures/payroll-oracle/oracle';
+import { runHoursOf } from '@/modules/accounting/services/payroll/payrollRunHours';
+import { ordinaryWageCents } from '@/modules/accounting/services/payroll/etiHours';
 
 const cases = loadCases();
 
-/** The `unmodelled` keys buildCaseInput passes to the calculator (as a work term, or as the regular-pay directive). */
-const PASSED = ['ordinaryHoursPerWeek', 'hoursPerDay', 'dayRate', 'fixedAmountDirective', 'fixedRateDirectivePercent'];
+/** The `unmodelled` keys buildCaseInput passes to the calculator (as a work term, the run hours, or the regular-pay directive). */
+const PASSED = ['ordinaryHoursPerWeek', 'hoursPerDay', 'dayRate', 'monthlyHours', 'ordinaryHoursWage', 'fixedAmountDirective', 'fixedRateDirectivePercent'];
 /** The keys the calculator cannot take yet, each with the PR that wires it (or why it is only context). */
 const NOT_YET: Record<string, string> = {
-  monthlyHours: 'ET', ordinaryHoursWage: 'ET',
   erMedicalContribution: 'FB', travelBusinessUseAtLeast80Pct: 'FB', vehicleDeterminedValue: 'FB', vehicleBenefitPctOfValue: 'FB',
   maintenancePlanIncluded: 'FB', businessUseAtLeast80Pct: 'FB',
   erRetirementPctOfRfi: 'RF', rfiBase: 'RF',
@@ -39,6 +40,10 @@ describe('every fixture input reaches the calculator, or has a named owner', () 
     expect(employee.hoursPerDay ?? null).toBe(typeof u.hoursPerDay === 'number' ? u.hoursPerDay : null);
     expect(employee.dailyRate ?? null).toBe(typeof u.dayRate === 'number' ? u.dayRate : null);
     expect(employee.employmentType).toBe(c.input.employee.taxStatus === 'temporary_part_time' ? 'casual' : 'permanent');
+    // ET: the month's hours reach the calculator as the run hours, and the ordinary wage it derives is the fixture's.
+    const { components } = buildCaseInput(c);
+    expect(runHoursOf(employee, components)).toBe(typeof u.monthlyHours === 'number' ? u.monthlyHours : null);
+    if (typeof u.ordinaryHoursWage === 'number') expect(ordinaryWageCents(components)).toBe(Math.round(u.ordinaryHoursWage * 100));
     // The directive (DR): a percentage as its fraction, an amount as is, else none.
     const d = buildCaseInput(c).regularPayDirective?.current ?? null;
     expect(d?.rate ?? null).toBe(typeof u.fixedRateDirectivePercent === 'number' ? u.fixedRateDirectivePercent / 100 : null);

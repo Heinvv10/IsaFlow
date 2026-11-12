@@ -8,6 +8,13 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// Hein ruling R-A (wave 5 ET) has its own tests (etiPeriodGuard.test.ts): no later month posted here.
+vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/payroll/etiPeriodGuard')>()),
+  laterEtiJournalRefusal: vi.fn(async () => null),
+  earlierUnapprovedRefusal: vi.fn(async () => null),
+  assertNoLaterEtiJournal: vi.fn(async () => undefined),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollJournalBuilder', () => ({ buildPayrollJournalPlan: vi.fn() }));
 vi.mock('@/modules/accounting/services/payroll/payrollJournalPostingService', () => ({ postPayrollRunJournal: vi.fn() }));
@@ -74,6 +81,21 @@ describe('previewPayrollApproval', () => {
   it('reports the first real blocker', async () => {
     vi.mocked(buildPayrollJournalPlan).mockResolvedValue(plan([notApproved, closed]));
     expect((await previewPayrollApproval('c1', 'r1'))?.blocker).toEqual(closed);
+  });
+
+  it('Hein ruling R-A (wave 5 ET): a later month of the ETI period posted is a blocker naming it', async () => {
+    const { laterEtiJournalRefusal } = await import('@/modules/accounting/services/payroll/etiPeriodGuard');
+    vi.mocked(laterEtiJournalRefusal).mockResolvedValueOnce('The June 2026 payroll journal is already posted.');
+    vi.mocked(buildPayrollJournalPlan).mockResolvedValue({ ...(plan([notApproved]) as object), periodYear: 2026, periodMonth: 5 } as never);
+    expect((await previewPayrollApproval('c1', 'r1'))?.blocker).toEqual({ code: 'eti_later_month_posted', detail: 'The June 2026 payroll journal is already posted.' });
+    expect(laterEtiJournalRefusal).toHaveBeenCalledWith('c1', { year: 2026, month: 5 });
+  });
+
+  it('review L4: an earlier calculated, unapproved month of the ETI period is a blocker', async () => {
+    const { earlierUnapprovedRefusal } = await import('@/modules/accounting/services/payroll/etiPeriodGuard');
+    vi.mocked(earlierUnapprovedRefusal).mockResolvedValueOnce('The April 2026 pay run is calculated but not approved.');
+    vi.mocked(buildPayrollJournalPlan).mockResolvedValue({ ...(plan([notApproved]) as object), periodYear: 2026, periodMonth: 5 } as never);
+    expect((await previewPayrollApproval('c1', 'r1'))?.blocker).toEqual({ code: 'eti_earlier_month_unapproved', detail: 'The April 2026 pay run is calculated but not approved.' });
   });
 
   it('reports no blocker for a reopened run that still carries its journal', async () => {

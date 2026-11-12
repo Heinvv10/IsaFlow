@@ -24,6 +24,8 @@ import { replaceRunLines, type LineInsert } from './payrollRunLineWriter';
 import { laterPeriodsWarnings, loadPayeYearToDate } from './payrollYearToDate';
 import { recordPreparedApproval } from './payrollRunPrepared';
 import { blockedLoanValidation, judgeLoanApplications } from './payrollRunLoanDecision';
+import { assertNoLaterEtiJournal } from './etiPeriodGuard';
+import { withEtiPriorMonths } from './etiPriorEmployment';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
@@ -140,14 +142,12 @@ export async function calculatePayrollRun(
   // deductions and before any line is built. UnsupportedTaxYearError is a
   // refusal with nothing written; the callers answer it as a 4xx.
   getTaxYearConfig(taxYear);
+  // Hein ruling R-A (wave 5 ET): no recalculation while a later month of the ETI period has posted the carry.
+  await assertNoLaterEtiJournal(companyId, period);
   // Components are read as at the period's last day, a plain calendar string (payrollRunReadDate).
   const readDate = payrollRunReadDate(period);
-  // Only for validateEti's ETI_TABLE_UNCONFIRMED warning, which reads its month through local getters. ETI itself
-  // (table, age, months employed) is worked out in calculatePayrollLine on its own local day-28 Date, not on this nor
-  // on readDate; getAge there compares days, so ETI age is still taken on the 28th.
-  const periodDate = new Date(period.year, period.month - 1, 28);
 
-  const employees = await listPayrollRunEmployees(companyId, period);
+  const employees = await withEtiPriorMonths(companyId, await listPayrollRunEmployees(companyId, period)); // ET: a rehire continues its ETI months
   const allTaxNumbers = await listTaxNumbersForCompany(companyId);
 
   let totalGross = 0;
@@ -241,7 +241,7 @@ export async function calculatePayrollRun(
       netPay: line.netPay,
       componentBreakdown: JSON.stringify(line.componentBreakdown),
       validationResults: JSON.stringify([
-        ...empValidation, ...lineValidation, ...validateEti(employee, line.eti, periodDate),
+        ...empValidation, ...lineValidation, ...validateEti(employee, line.eti),
         ...line.validationResults, ...terminationWarnings, ...(withheldResults.get(employee.id) ?? []), ...(fringeWarnings.has(employee.id) ? [fringeWarnings.get(employee.id)!] : []),
         ...(blockedLoans.has(employee.id) ? [blockedLoanValidation(
           blockedLoans.get(employee.id)!.applications, blockedLoans.get(employee.id)!.rawNet,

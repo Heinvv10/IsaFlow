@@ -9,35 +9,11 @@
     "closedBy": "Never by a status label: only if Sage's hours for this employee are recorded (then correct the fixture or add them). Parity only."
   },
   {
-    "case": "eti-below-minimum-wage-4000",
-    "engineActual": {
-      "eti": 1500
-    },
-    "reason": "R4 000 for 160 hours is R25.00 an hour, below the R28.79 national minimum wage (from 1 March 2025), so the employee does not qualify and ETI is nil (SARS ETI page). The calculator has no hours or minimum-wage input and claims R1 500.00.",
-    "closedBy": "W3 (ETI): hours paid and the minimum-wage condition in the ETI calc, with the 160-hour apportionment"
-  },
-  {
     "case": "rf-employer-contribution-15pct-rfi-cap-binds-on-total",
     "engineActual": {
       "paye": 1395
     },
     "reason": "The employer retirement contribution (15% of RFI = R3 000) is ignored (EMPLOYER_CONTRIBUTION_NOT_SUPPORTED), so the employee R4 000 is allowed in full. As a taxable fringe benefit deemed paid by the employee it joins the s11F pool: 27.5% x 23 000 = 6 325 binds on the R7 000 total. Expected 1 516.50.",
     "closedBy": "RF (RFI and employer retirement contributions)"
-  },
-  {
-    "case": "eti-year1-120h-5000-apportioned",
-    "engineActual": {
-      "eti": 1500
-    },
-    "reason": "No hours input: the calculator takes the full R1 500 band. SARS: gross R5 000 up to 160 hours (6 666.67), table value 625.00, gross down by 120/160 = 468.75.",
-    "closedBy": "ET (ETI hours, minimum wage, carry-forward)"
-  },
-  {
-    "case": "eti-min-wage-1c-below-4606-39",
-    "engineActual": {
-      "eti": 1500
-    },
-    "reason": "No minimum-wage test: R4 606.39 for 160 ordinary hours is 1c under R28.79 an hour, so the employee does not qualify and ETI is nil; the calculator claims R1 500.00.",
-    "closedBy": "ET (ETI hours, minimum wage, carry-forward)"
   }
 ]

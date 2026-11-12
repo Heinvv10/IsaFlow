@@ -302,7 +302,7 @@ export default function GlImportPage() {
               <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg p-4">
                 <p className="text-sm text-[var(--ff-text-secondary)] mb-4">
                   File: <span className="font-medium text-[var(--ff-text-primary)]">{fileName}</span> — {rawRows.length} data rows detected.
-                  Map each column to an ISAFlow field. Required fields are marked below.
+                  Map each column to an IsaFlow field. Required fields are marked below.
                 </p>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">

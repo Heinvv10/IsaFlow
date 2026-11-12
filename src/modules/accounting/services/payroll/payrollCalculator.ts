@@ -4,13 +4,13 @@ import { accumulateComponents } from './payrollLineAccumulate';
 import { costPayeWithDonations } from './payrollLinePaye';
 import { calculateUIF } from './uifEngine';
 import { calculateSDL } from './sdlEngine';
-import { resolveEtiForEmployee } from './etiEngine';
 import { sdlLeviableToDate } from './sdlLeviableCumulative';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
 import { classifyEmployment, employedShareOfMonth, timeWorkedEarnings } from './employmentTerms';
 import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './taxStatusTreatment';
 import { validateEmploymentTerms } from './validationEngine';
-import { etiHoursPending, hoursValidation, runHoursOf } from './payrollRunHours';
+import { hoursValidation, runHoursOf } from './payrollRunHours';
+import { costLineEti } from './payrollLineEti';
 import { capDirectivePaye, contractorDirectiveResult, directiveStateResults, regularPayDirectivePaye } from './directiveRegularPay';
 import type {
   PayrollLineInput,
@@ -55,7 +55,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const rebateAge = employee.dateOfBirth ? getAge(employee.dateOfBirth, taxYearEnd) : 30;
 
   const acc = accumulateComponents(components);
-  const { grossPay, allEarnings, levyRemuneration, employerMedicalFees, directivePaye, uifLeviable, sdlLeviable, totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, breakdown, warnings } = acc;
+  const { grossPay, allEarnings, employerMedicalFees, directivePaye, uifLeviable, sdlLeviable, totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, breakdown, warnings } = acc;
   let { periodicTaxable, annualPayments } = acc;
 
   // A month counts as a periodic-remuneration period when periodic remuneration
@@ -156,47 +156,14 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? 0
     : calculateSDL(sdlLeviableAfterDeductions, annualPayrollEstimate, taxYear);
 
-  // Missing dates are reported as indeterminate, never fabricated into a
-  // determination of "not eligible" — see resolveEtiForEmployee.
-  // The ETI base is `levyRemuneration`: the whole remuneration, annual payments, lump sums and
-  // non-cash benefits included, except that a taxable 3701 / 3802 counts at its PAYE share (80% or 20%, wave 5 FB), unchanged by P3 otherwise: "monthly remuneration" is the Fourth Schedule paragraph 1
-  // remuneration ("salary, leave pay, wage, overtime pay, bonus, gratuity, ...")
-  // paid or payable in the month (SARS Guide to the Employment Tax Incentive,
-  // Issue 5, §2.4 "Monthly remuneration",
-  // https://www.sars.gov.za/wp-content/uploads/Ops/Guides/LAPD-ETI-G01-Guide-to-the-Employment-Tax-Incentive.pdf).
-  const resolved: EtiResult = resolveEtiForEmployee({
-    dateOfBirth: employee.dateOfBirth,
-    employmentStartDate: employee.startDate,
-    periodDate,
-    monthlyRemuneration: levyRemuneration,
-    isUifExcluded: employee.uifExcluded,
-  }, taxYear);
-  // A leaver paid after leaving worked no hours in the period, and ETI is
-  // apportioned by hours employed and paid for out of 160 (section 7(5); same
-  // guide, §2.4 and §5.3 "Employee employed for part of a month"): nil.
-  const etiRaw: EtiResult = input.notEmployedInPeriod
-    ? {
-      ...resolved, isEligible: false, isDeterminable: true, missingInputs: [], monthlyEti: 0,
-      ineligibilityReason: 'Not employed in this period (paid after leaving): ETI is apportioned by hours employed, none here.',
-    }
-    : !treatment.eti
-      ? { ...resolved, isEligible: false, isDeterminable: true, missingInputs: [], monthlyEti: 0, ineligibilityReason: 'Independent contractor: not an employee, so no ETI.' }
-      : resolved;
-
-  // HD: ETI is apportioned by hours out of 160 and ET (not yet built) will do it from the stored quantity. Until then an
-  // hourly or daily line under a full month's hours, or with hours that cannot be told, claims none.
+  // ETI (wave 5 ET): hours, the minimum wage and the remuneration base are in payrollLineEti / etiHours.
   const hours = input.notEmployedInPeriod ? null : runHoursOf(employee, components);
-  const etiPending = !input.notEmployedInPeriod && etiHoursPending(employee, hours) && etiRaw.monthlyEti > 0;
-  const eti: EtiResult = etiPending
-    ? { ...etiRaw, isEligible: false, monthlyEti: 0, ineligibilityReason: 'Hourly or daily pay under 160 hours: ETI apportionment by hours is not built yet, so none is claimed.' }
-    : etiRaw;
-  if (etiPending) {
-    warnings.push({
-      code: 'ETI_HOURS_APPORTIONMENT_PENDING', severity: 'warning',
-      message: `${employee.firstName} ${employee.lastName} is paid by the ${employee.payBasis === 'hourly' ? 'hour' : 'day'} and worked under 160 hours (or the hours cannot be told), `
-        + 'so no ETI was claimed: ETI apportioned by hours is not built yet. Claim it on the EMP201 by hand if due.',
-    });
-  }
+  const lineEti = costLineEti({
+    employee, components, period, periodDate, runHours: hours,
+    notEmployedInPeriod: input.notEmployedInPeriod === true, etiApplies: treatment.eti,
+  });
+  const eti: EtiResult = lineEti.eti;
+  warnings.push(...lineEti.warnings);
 
   const netPay = Math.round(
     (grossPay - totalDeductions - paye.monthlyPaye - uif.employeeContribution) * 100,

@@ -2,11 +2,11 @@
  * Learning-loop coding metrics — pure computation. No imports, no I/O; the counts come from
  * codingMetricsService.ts. Definitions (Hein's design answers 2026-10-21):
  *
- *  1. autoCoded (headline, "no clicks"): bank lines coded in the period that ISAFlow posted without a
+ *  1. autoCoded (headline, "no clicks"): bank lines coded in the period that IsaFlow posted without a
  *     person clicking, over all bank lines coded in the period. Backfilled from bank_transactions.
- *  2. suggestionsAccepted: decisions a PERSON made on an ISAFlow suggestion in the period that landed on the
+ *  2. suggestionsAccepted: decisions a PERSON made on an IsaFlow suggestion in the period that landed on the
  *     suggested target, over all such decisions (accepted + recoded + rejected). Auto-posted decisions, and
- *     suggestions ISAFlow itself superseded (decided_by NULL), are excluded. Matches count, judged by what
+ *     suggestions IsaFlow itself superseded (decided_by NULL), are excluded. Matches count, judged by what
  *     the matched journal posts. Decision log only, so it starts the day the log shipped.
  *  3. firstThirtyDays: of the bank lines whose FIRST decision fell in the client's first 30 days (from its
  *     first bank import or first bank line, whichever came first), the share whose first suggestion was accepted as-is (a person accepted it, or it

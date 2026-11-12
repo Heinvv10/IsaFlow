@@ -1,5 +1,5 @@
 /**
- * ISAFlow Email Templates — Invoice
+ * IsaFlow Email Templates — Invoice
  * Split from email-templates.ts to stay within the 300-line limit.
  */
 

@@ -225,7 +225,7 @@ function PageShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Head>
-        <title>Pay Invoice | ISAFlow</title>
+        <title>Pay Invoice | IsaFlow</title>
         <meta name="robots" content="noindex, nofollow" />
       </Head>
       <div className="min-h-screen bg-white">
@@ -236,7 +236,7 @@ function PageShell({ children }: { children: React.ReactNode }) {
               <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
                 <span className="text-slate-900 dark:text-white font-bold text-sm">IS</span>
               </div>
-              <span className="font-semibold text-gray-900">ISAFlow</span>
+              <span className="font-semibold text-gray-900">IsaFlow</span>
             </div>
             <span className="text-xs text-gray-600 dark:text-gray-400">Secure Payment</span>
           </div>
@@ -250,7 +250,7 @@ function PageShell({ children }: { children: React.ReactNode }) {
         {/* Footer */}
         <footer className="border-t border-gray-100 mt-auto">
           <div className="max-w-2xl mx-auto px-6 py-6 text-center text-xs text-gray-600 dark:text-gray-400">
-            Powered by ISAFlow Accounting
+            Powered by IsaFlow Accounting
           </div>
         </footer>
       </div>

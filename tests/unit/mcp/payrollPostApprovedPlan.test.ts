@@ -21,7 +21,7 @@ import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/pay
 import { lockCompanyPayrollApprovals, lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { assertPayRunApproved } from '@/modules/accounting/services/payroll/payRunApprovalControl';
 import { hashOf } from '@/modules/accounting/services/payroll/payrollApprovalHash';
-import { PLAN_CHANGED_SINCE_APPROVAL } from '@/modules/accounting/services/payroll/payrollApprovedPlan';
+import { ETI_CARRY_MAY_HAVE_CHANGED, PLAN_CHANGED_SINCE_APPROVAL } from '@/modules/accounting/services/payroll/payrollApprovedPlan';
 import { postPayrollJournalTool } from '@/lib/mcp/tools/writePayroll';
 import type { PayrollJournalPlan } from '@/modules/accounting/services/payroll/payrollJournalBuilder';
 import type { McpToolContext } from '@/lib/mcp/types';
@@ -95,6 +95,17 @@ describe('post_payroll_journal posts only the approved plan', () => {
       expect(text(res)).toBe(PLAN_CHANGED_SINCE_APPROVAL);
     }
     expect(postPayrollRunJournal).not.toHaveBeenCalled();
+  });
+
+  it('names the ETI carry when the plan books ETI other than the run\'s own (wave 5 ET round 1)', async () => {
+    vi.mocked(buildPayrollJournalPlan).mockResolvedValue(plan('cc-a', {
+      totals: { gross: 100, paye: 30, uif: 0, sdl: 0, eti: 0, etiUsed: 20, net: 70, employerUif: 0, otherDeductions: 0 },
+      advisories: [{ code: 'eti_brought_forward', detail: 'R20 brought forward' }],
+    }));
+    for (const res of [await call(false), await call(true)]) {
+      expect(res.isError).toBe(true);
+      expect(text(res)).toBe(`${PLAN_CHANGED_SINCE_APPROVAL} ${ETI_CARRY_MAY_HAVE_CHANGED}`);
+    }
   });
 
   it('the dry run takes no lock, the live call takes both, in order', async () => {

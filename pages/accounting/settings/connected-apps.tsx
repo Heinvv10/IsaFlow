@@ -100,7 +100,7 @@ export default function ConnectedAppsPage() {
             <Plug className="h-6 w-6 text-teal-400" /> Connected Apps
           </h1>
           <p className="text-sm text-slate-400 mt-1">
-            Apps you&apos;ve authorised to access ISAFlow on your behalf for this company.
+            Apps you&apos;ve authorised to access IsaFlow on your behalf for this company.
             Revoke access at any time — the app&apos;s tokens stop working immediately.
           </p>
         </div>
@@ -113,7 +113,7 @@ export default function ConnectedAppsPage() {
             </div>
           ) : apps.length === 0 ? (
             <p className="text-sm text-slate-500 py-2">
-              No connected apps yet. Apps that integrate with ISAFlow will appear here after you authorise them.
+              No connected apps yet. Apps that integrate with IsaFlow will appear here after you authorise them.
             </p>
           ) : (
             <ul className="divide-y divide-[rgba(255,255,255,0.06)]">

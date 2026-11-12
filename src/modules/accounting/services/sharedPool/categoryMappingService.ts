@@ -1,5 +1,5 @@
 /**
- * Company category mappings — which of the company's OWN GL accounts each ISAFlow merchant category means
+ * Company category mappings — which of the company's OWN GL accounts each IsaFlow merchant category means
  * (Hein, 2026-10-21, decision 1). Table company_category_mappings (migration 905).
  *
  * Callers: pages/api/accounting/category-mappings.ts under withAuth (app_user, RLS-bound to the active

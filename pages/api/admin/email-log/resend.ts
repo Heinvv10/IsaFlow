@@ -51,7 +51,7 @@ function buildResendHtml(subject: string, recipientEmail: string, emailType: str
   <p>This is a resent copy of the original <strong>${safeEmailType}</strong> email originally sent to <em>${safeEmail}</em>.</p>
   <p>If you have questions, please contact us at <a href="mailto:accounts@isaflow.co.za">accounts@isaflow.co.za</a>.</p>
   <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0"/>
-  <p style="font-size:12px;color:#9ca3af">Sent by ISAFlow &mdash; <a href="https://app.isaflow.co.za">app.isaflow.co.za</a></p>
+  <p style="font-size:12px;color:#9ca3af">Sent by IsaFlow &mdash; <a href="https://app.isaflow.co.za">app.isaflow.co.za</a></p>
 </body>
 </html>`;
 }

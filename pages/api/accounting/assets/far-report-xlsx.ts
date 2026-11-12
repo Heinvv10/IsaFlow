@@ -75,7 +75,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   // ── Build workbook ────────────────────────────────────────────
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'ISAFlow';
+  wb.creator = 'IsaFlow';
   wb.created = new Date();
 
   const ws = wb.addWorksheet('FAR');

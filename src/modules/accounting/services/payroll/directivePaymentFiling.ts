@@ -68,11 +68,12 @@ export async function listStandaloneDirectivePayments(
     LEFT JOIN payroll_employees e ON e.id = d.employee_id AND e.company_id = d.company_id
     WHERE tdp.company_id = ${companyId}::uuid
       AND tdp.payroll_run_id IS NULL
-      -- Lump sums only: a regular-pay directive (IRP3(b)/(c)) is PAYE on a run's lines, never a lump-sum line (DR).
-      AND d.directive_type = ANY(${[...LUMP_SUM_DIRECTIVE_TYPES]}::text[])
       AND je.status = 'posted'
       AND je.entry_date BETWEEN ${bounds.start}::date AND ${bounds.end}::date
       AND (${employeeId}::uuid IS NULL OR e.id = ${employeeId}::uuid)
+      -- Lump sums only: a regular-pay directive (IRP3(b)/(c)) is PAYE on a run's lines, never a lump-sum line (DR). Kept after
+      -- the bounds so the query's parameters keep their order.
+      AND d.directive_type = ANY(${[...LUMP_SUM_DIRECTIVE_TYPES]}::text[])
     ORDER BY je.entry_date, tdp.id
   `) as DbRow[];
   // A posted journal nothing has reversed is in force; only a reversed one needs its chain read.

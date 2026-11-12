@@ -225,6 +225,7 @@ describe('createQuote — writes real customer_quote_lines columns', () => {
   });
 
   it('passes sort_order as the 1-based line position', async () => {
+    mockSql.mockResolvedValueOnce([{ vat_period: 'bi-monthly', vat_system_type: null }]); // lines omit taxRate: the company's default
     mockSql.mockResolvedValueOnce([{ used: 0, prefix: 'QUO', padding: 7 }]);
     mockSql.mockResolvedValueOnce([{ id: QUOTE_ID }]);
     mockSql.mockResolvedValueOnce([]);
@@ -258,6 +259,7 @@ describe('updateQuote — re-inserts lines using real columns', () => {
   it('inserts replacement lines using sort_order/amount/gl_account_id', async () => {
     mockSql.mockResolvedValueOnce([quoteHeaderRow()]); // existing header (getQuote)
     mockSql.mockResolvedValueOnce([realQuoteLineRow()]); // existing lines (getQuote)
+    mockSql.mockResolvedValueOnce([{ vat_period: 'bi-monthly', vat_system_type: null }]); // the line omits taxRate
     mockSql.mockResolvedValueOnce([]); // UPDATE customer_quotes
     mockSql.mockResolvedValueOnce([]); // DELETE customer_quote_lines
     mockSql.mockResolvedValueOnce([]); // INSERT replacement line

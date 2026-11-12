@@ -22,7 +22,7 @@ const RULE_GL = '00000000-0000-4000-8000-0000000000aa';
 const POOL_GL = '00000000-0000-4000-8000-0000000000bb';
 const POOL_RESULT = {
   glAccountId: POOL_GL, category: 'Fuel', vatCode: 'standard', confidence: 0.7, confidenceLevel: 'MEDIUM',
-  matchSource: 'shared_pool', matchDetail: 'Common at other ISAFlow clients',
+  matchSource: 'shared_pool', matchDetail: 'Common at other IsaFlow clients',
 };
 
 beforeEach(() => {

@@ -270,7 +270,7 @@ const handler: NextApiHandler = async (req, res) => {
   // this cannot be used to flood the ops inbox with junk signups.
   sendEmail({
     to: NOTIFY_TO,
-    subject: `ISAFlow signup: ${email}`,
+    subject: `IsaFlow signup: ${email}`,
     html:
       `<p>New verified self-serve signup.</p>` +
       `<ul>` +

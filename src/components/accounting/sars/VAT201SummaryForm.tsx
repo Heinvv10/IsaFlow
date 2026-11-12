@@ -10,6 +10,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 
 interface Props {
   data: { periodStart: string; periodEnd: string; sarsFields: Vat201SarsField[] };
+  onDrill?: (field: string) => void;
 }
 
 /** Heading printed above the first field of each group, as on the form. */
@@ -25,7 +26,7 @@ const TOTAL_GROUPS: readonly Vat201SarsGroup[] = ['output-total', 'input-total',
 
 const fmt = (n: number) => formatMoney(n);
 
-export function VAT201SummaryForm({ data }: Props) {
+export function VAT201SummaryForm({ data, onDrill }: Props) {
   const result = data.sarsFields.find((f) => f.field === '20');
   return (
     <div data-testid="vat201-sars-form" className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
@@ -48,6 +49,7 @@ export function VAT201SummaryForm({ data }: Props) {
               <FormRow
                 field={f.field} label={f.label} amount={f.amount} kind={f.kind} note={f.note}
                 highlight={TOTAL_GROUPS.includes(f.group)}
+                onDrill={onDrill ? () => onDrill(f.field) : undefined}
               />
             </div>
           );

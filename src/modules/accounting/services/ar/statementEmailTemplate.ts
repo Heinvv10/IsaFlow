@@ -82,7 +82,7 @@ export function buildStatementEmailHtml(data: StatementEmailData): string {
         </p>
         <h1 style="margin:0 0 8px; font-family:${BRAND.fontStack}; font-size:24px;
                    font-weight:bold; color:${BRAND.textBody};">
-          ${escHtml(data.companyName || 'ISAFlow')}
+          ${escHtml(data.companyName || 'IsaFlow')}
         </h1>
         <p style="margin:0 0 24px; font-family:${BRAND.fontStack}; font-size:15px;
                   color:${BRAND.textSecondary}; line-height:1.6;">

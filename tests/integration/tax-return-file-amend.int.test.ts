@@ -94,7 +94,9 @@ describeIfDb('file and amend a return, against a real ledger', () => {
   });
 
   it('filing it again: 409, still one submission', async () => {
-    expect((await fileV(String(v1.id), { reference: 'REF-2' })).status).toBe(409);
+    const again = await fileV(String(v1.id), { reference: 'REF-2' });
+    expect(again.status).toBe(409);
+    expect((again.body as { error: { details?: { code?: string } } }).error.details?.code).toBe('ALREADY_FILED');
     expect(await submissions()).toBe(1);
   });
 
@@ -138,8 +140,12 @@ describeIfDb('file and amend a return, against a real ledger', () => {
     expect(await lockActive(String(v1.vatPeriodLockId))).toBe(false);
     expect((await audits(String(v1.id))).map((a) => JSON.stringify(a.changes)).join('|')).toMatch(/Corrected a supplier bill/);
     expect(await lockActive(String(dirty.vatPeriodLockId))).toBe(true); // another period's lock is untouched
-    expect((await amendV(String(v1.id))).status).toBe(409); // already amended
-    expect((await fileV(String(v1.id))).status).toBe(409); // a superseded version cannot be filed
+    const twice = await amendV(String(v1.id));
+    expect(twice.status).toBe(409); // already amended
+    expect((twice.body as { error: { details?: { code?: string } } }).error.details?.code).toBe('ALREADY_AMENDED');
+    const old = await fileV(String(v1.id));
+    expect(old.status).toBe(409); // a superseded version cannot be filed
+    expect((old.body as { error: { details?: { code?: string } } }).error.details?.code).toBe('VERSION_SUPERSEDED');
 
     const v2 = versionOf(await fin(CLEAN));
     expect(v2).toMatchObject({ versionNo: 2, amendsVersionId: v1.id, status: 'finalised' });

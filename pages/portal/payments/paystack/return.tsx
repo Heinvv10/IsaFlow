@@ -1,6 +1,6 @@
 /**
  * Paystack — customer invoice payment return landing.
- * Public route; payer has no ISAFlow session. Paystack appends ?reference=
+ * Public route; payer has no IsaFlow session. Paystack appends ?reference=
  * (and we also pass &ref= ourselves for symmetry). Final status is verified
  * server-side via /api/portal/payments/paystack/verify.
  */

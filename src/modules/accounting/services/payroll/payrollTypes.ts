@@ -7,6 +7,8 @@ export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 /** What the engine reads (TS-b): employment_type is display and HR only. Migration 967. */
 export type TaxStatus = 'employee' | 'director' | 'independent_contractor';
 export type PayBasis = 'monthly' | 'hourly' | 'daily';
+/** ETI Act s6(b) (migration 976): NULL or sa_id = the ID number decides; a permit or refugee ID as recorded. */
+export type EtiIdDocument = 'sa_id' | 'asylum_seeker_permit' | 'refugee_id';
 /** The unit of a run's quantity on a component row (migration 967). */
 export type QuantityUnit = 'hour' | 'day';
 
@@ -41,6 +43,10 @@ export interface PayrollEmployee {
   dailyRate?: number | null;
   /** BCEA s33(1)(b) occupation, at most 100 characters. */
   occupation?: string | null;
+  /** The identity document held, for ETI (migration 976). */
+  etiIdDocument?: EtiIdDocument | null;
+  /** Months employed by this employer before the current start date, under the same ID number (ET: a rehire continues the ETI window). */
+  etiPriorMonths?: number;
 }
 
 export interface PayrollComponent {
