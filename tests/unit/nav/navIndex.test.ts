@@ -128,3 +128,12 @@ describe('buildNavIndex aliases (W2 H)', () => {
     }
   });
 });
+
+describe('Practice Generate Invoice entry', () => {
+  const idx = buildNavIndex(TABS, true);
+  it('opens the Generate Invoice form, not the WIP board with a query nothing reads', () => {
+    expect(find(idx, '/accounting/practice/generate-invoice')?.label).toBe('Generate Invoice');
+    expect(idx.some((e) => e.href.includes('action=invoice'))).toBe(false);
+    expect(find(idx, '/accounting/practice/wip')?.label).toBe('WIP Board');
+  });
+});
