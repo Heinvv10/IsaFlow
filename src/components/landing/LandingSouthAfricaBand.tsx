@@ -75,6 +75,7 @@ export function LandingSouthAfricaBand() {
       started.current = true;
       finished.current = false;
       current.current = 0;
+      setVisible(0); // otherwise Pretoria's first frame shows until Cape Town fires `playing`
       playClip(0);
     } else if (inView) {
       playClip(current.current);
@@ -143,7 +144,7 @@ export function LandingSouthAfricaBand() {
                       muted
                       playsInline
                       preload="none"
-                      poster={clip.poster}
+                      poster={near ? clip.poster : undefined}
                       src={near ? clip.src : undefined}
                       width={1920}
                       height={1080}

@@ -40,6 +40,14 @@ export function LandingHero() {
     void v.play().catch(() => setFailed(true));
   }, [showVideo]);
 
+  // The videos unmount when a visitor narrows the window or turns on reduced motion; when they come
+  // back, the intro replays from the start, so the handoff state must start over with it.
+  useEffect(() => {
+    if (showVideo) return;
+    setPhase('intro');
+    setLoopWarm(false);
+  }, [showVideo]);
+
   const onIntroTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     const v = e.currentTarget;
     if (!loopWarm && v.duration - v.currentTime <= LOOP_WARM_SECONDS) setLoopWarm(true);

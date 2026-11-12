@@ -7,7 +7,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LandingHero } from '@/components/landing/LandingHero';
-import { setRiverEnv, stubMediaPlayback } from './landingRiverMocks';
+import { changeRiverEnv, setRiverEnv, stubMediaPlayback } from './landingRiverMocks';
 
 afterEach(() => {
   cleanup();
@@ -81,10 +81,13 @@ describe('LandingHero media', () => {
     expect(html).not.toContain('<video');
     expect(html).not.toContain('.mp4');
     const doc = new DOMParser().parseFromString(html, 'text/html');
-    const sources = Array.from(doc.querySelectorAll('picture source'));
-    const byMedia = (m: string) => sources.find((s) => s.getAttribute('media') === m)?.getAttribute('srcset');
-    expect(byMedia('(max-width: 767px)')).toBe('/landing/river/hero-mobile.webp');
-    expect(byMedia('(prefers-reduced-motion: reduce)')).toBe('/landing/river/hero-poster-day.webp');
+    // Order matters: the browser takes the first matching <source>, so a reduced-motion phone must
+    // hit the portrait still before the 1920px day poster.
+    const sources = Array.from(doc.querySelectorAll('picture source')).map((s) => [s.getAttribute('media'), s.getAttribute('srcset')]);
+    expect(sources).toEqual([
+      ['(max-width: 767px)', '/landing/river/hero-mobile.webp'],
+      ['(prefers-reduced-motion: reduce)', '/landing/river/hero-poster-day.webp'],
+    ]);
     const img = doc.querySelector('picture img');
     expect(img?.getAttribute('src')).toBe('/landing/river/hero-poster-night.webp');
     expect(img?.getAttribute('width')).toBe('1920');
@@ -150,5 +153,40 @@ describe('LandingHero media', () => {
     const { container } = render(<LandingHero />);
     await waitFor(() => expect(videos(container)).toHaveLength(0));
     expect(hero(container).getAttribute('data-hero-phase')).toBe('still');
+  });
+
+  it('drops the video when the window narrows and brings it back when it widens', async () => {
+    const { container, play } = await renderDesktop();
+    changeRiverEnv({ desktop: false });
+    expect(videos(container)).toHaveLength(0);
+    expect(hero(container).getAttribute('data-hero-phase')).toBe('still');
+    play.mockClear();
+    changeRiverEnv({ desktop: true });
+    await act(async () => { await Promise.resolve(); });
+    expect(videos(container)).toHaveLength(2);
+    expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the video when reduced motion is switched on', async () => {
+    const { container } = await renderDesktop();
+    changeRiverEnv({ reducedMotion: true });
+    expect(videos(container)).toHaveLength(0);
+  });
+
+  it('starts the handoff over after the videos unmount and remount mid-loop', async () => {
+    const { container, intro, loop } = await renderDesktop();
+    Object.defineProperty(intro, 'duration', { value: 10.5, configurable: true });
+    Object.defineProperty(intro, 'currentTime', { value: 9, configurable: true, writable: true });
+    fireEvent.timeUpdate(intro);
+    fireEvent.ended(intro);
+    fireEvent.playing(loop);
+    expect(hero(container).getAttribute('data-hero-phase')).toBe('loop');
+    changeRiverEnv({ desktop: false });
+    changeRiverEnv({ desktop: true });
+    await act(async () => { await Promise.resolve(); });
+    const [loop2, intro2] = videos(container) as [HTMLVideoElement, HTMLVideoElement];
+    expect(hero(container).getAttribute('data-hero-phase')).toBe('intro');
+    expect(intro2.className).not.toContain('invisible');
+    expect(loop2.getAttribute('preload')).toBe('metadata');
   });
 });

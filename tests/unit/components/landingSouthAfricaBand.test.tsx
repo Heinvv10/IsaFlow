@@ -7,7 +7,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LandingSouthAfricaBand } from '@/components/landing/LandingSouthAfricaBand';
-import { installIntersectionObserver, setRiverEnv, stubMediaPlayback } from './landingRiverMocks';
+import { changeRiverEnv, installIntersectionObserver, setRiverEnv, stubMediaPlayback } from './landingRiverMocks';
 
 afterEach(() => {
   cleanup();
@@ -111,9 +111,10 @@ describe('LandingSouthAfricaBand film', () => {
     for (const v of clips()) {
       expect(v.hasAttribute('src')).toBe(false);
       expect(v.getAttribute('preload')).toBe('none');
-      expect(v.getAttribute('poster')).toMatch(/landmark-.*-poster\.webp$/);
+      expect(v.hasAttribute('poster')).toBe(false);
     }
     expect(container.innerHTML).not.toContain('.mp4');
+    expect(container.innerHTML).not.toContain('poster.webp');
     expect(play).not.toHaveBeenCalled();
   });
 
@@ -124,6 +125,11 @@ describe('LandingSouthAfricaBand film', () => {
       '/landing/sa/landmark-capetown.mp4',
       '/landing/sa/landmark-joburg.mp4',
       '/landing/sa/landmark-pretoria.mp4',
+    ]);
+    expect(clips().map((v) => v.getAttribute('poster'))).toEqual([
+      '/landing/sa/landmark-capetown-poster.webp',
+      '/landing/sa/landmark-joburg-poster.webp',
+      '/landing/sa/landmark-pretoria-poster.webp',
     ]);
     for (const v of clips()) expect(v.getAttribute('preload')).toBe('none');
     expect(play).not.toHaveBeenCalled();
@@ -170,10 +176,11 @@ describe('LandingSouthAfricaBand film', () => {
   });
 
   it('restarts from Cape Town on the next entry after it finished', () => {
-    const { io, clips, play } = renderDesktop();
+    const { container, io, clips, play } = renderDesktop();
     io.fire(isNear, true);
     io.fire(isInView, true);
     for (const v of clips()) { fireEvent.playing(v); fireEvent.ended(v); }
+    expect(visibleIndex(container)).toBe(2);
     io.fire(isInView, false);
     const c0 = clips()[0] as HTMLVideoElement;
     c0.currentTime = 7;
@@ -182,6 +189,17 @@ describe('LandingSouthAfricaBand film', () => {
     expect(play).toHaveBeenCalledTimes(1);
     expect(play.mock.contexts[0]).toBe(c0);
     expect(c0.currentTime).toBe(0);
+    expect(visibleIndex(container)).toBe(0);
+  });
+
+  it('swaps the film for the poster strip when the window narrows', () => {
+    const { container, io } = renderDesktop();
+    io.fire(isNear, true);
+    changeRiverEnv({ desktop: false });
+    expect(videos(container)).toHaveLength(0);
+    expect(container.querySelectorAll('img')).toHaveLength(3);
+    changeRiverEnv({ desktop: true });
+    expect(videos(container)).toHaveLength(3);
   });
 
   it('falls back to the poster strip when playback is refused', async () => {

@@ -11,16 +11,29 @@ export interface RiverEnv {
   saveData: boolean;
 }
 
-export function setRiverEnv({ desktop, reducedMotion, saveData }: RiverEnv): void {
+let currentEnv: RiverEnv = { desktop: false, reducedMotion: false, saveData: false };
+const listeners = new Set<() => void>();
+
+export function setRiverEnv(env: RiverEnv): void {
+  currentEnv = { ...env };
+  listeners.clear();
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
-    matches: query === '(min-width: 768px)' ? desktop
-      : query === '(prefers-reduced-motion: reduce)' ? reducedMotion
-        : false,
+    get matches() {
+      return query === '(min-width: 768px)' ? currentEnv.desktop
+        : query === '(prefers-reduced-motion: reduce)' ? currentEnv.reducedMotion
+          : false;
+    },
     media: query,
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
+    addEventListener: (_type: string, cb: () => void) => { listeners.add(cb); },
+    removeEventListener: (_type: string, cb: () => void) => { listeners.delete(cb); },
   })) as unknown as typeof window.matchMedia;
-  Object.defineProperty(navigator, 'connection', { value: { saveData }, configurable: true });
+  Object.defineProperty(navigator, 'connection', { value: { saveData: env.saveData }, configurable: true });
+}
+
+/** Change the breakpoint or reduced-motion preference and fire every subscribed `change` listener. */
+export function changeRiverEnv(patch: Partial<Omit<RiverEnv, 'saveData'>>): void {
+  currentEnv = { ...currentEnv, ...patch };
+  act(() => { for (const cb of Array.from(listeners)) cb(); });
 }
 
 interface FakeObserver {
