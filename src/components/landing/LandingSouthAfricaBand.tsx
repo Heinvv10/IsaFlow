@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ILLUSTRATIVE_CAPTION, LANDMARK_CLIPS } from './riverMedia';
+import { LANDMARK_CLIPS } from './riverMedia';
 import { useInView, useRiverVideoAllowed } from './useRiverMotion';
 
 const FACTS = [
@@ -18,30 +18,27 @@ const FACTS = [
   },
 ] as const;
 
-const PLACES_CAPTION = `Cape Town, Johannesburg and Pretoria. ${ILLUSTRATIVE_CAPTION}.`;
+const PLACES_CAPTION = 'Cape Town, Johannesburg and Pretoria.';
 const LAST_CLIP = LANDMARK_CLIPS.length - 1;
 
 function PosterStrip() {
   return (
-    <>
-      <div className="flex gap-4 overflow-x-auto snap-x snap-mandatory sm:grid sm:grid-cols-3 sm:overflow-visible">
-        {LANDMARK_CLIPS.map((clip) => (
-          <figure key={clip.place} className="min-w-[80%] snap-center sm:min-w-0">
-            <img
-              src={clip.poster}
-              alt={clip.alt}
-              width={1280}
-              height={720}
-              loading="lazy"
-              decoding="async"
-              className="aspect-video w-full rounded-xl object-cover"
-            />
-            <figcaption className="mt-2 text-sm text-white/80">{clip.place}</figcaption>
-          </figure>
-        ))}
-      </div>
-      <p className="mt-3 text-sm text-white/80">{`${ILLUSTRATIVE_CAPTION}.`}</p>
-    </>
+    <div className="flex gap-4 overflow-x-auto snap-x snap-mandatory sm:grid sm:grid-cols-3 sm:overflow-visible">
+      {LANDMARK_CLIPS.map((clip) => (
+        <figure key={clip.place} className="min-w-[80%] snap-center sm:min-w-0">
+          <img
+            src={clip.poster}
+            alt={clip.alt}
+            width={1280}
+            height={720}
+            loading="lazy"
+            decoding="async"
+            className="aspect-video w-full rounded-xl object-cover"
+          />
+          <figcaption className="mt-2 text-sm text-white/80">{clip.place}</figcaption>
+        </figure>
+      ))}
+    </div>
   );
 }
 

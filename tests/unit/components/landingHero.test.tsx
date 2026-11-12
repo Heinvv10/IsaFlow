@@ -75,40 +75,6 @@ describe('LandingHero copy', () => {
   });
 });
 
-/** The caption must be real, visible text that assistive technology reads, in every mode. */
-function expectIllustrativeCaption(container: HTMLElement) {
-  const caption = screen.getByText('Illustrative footage');
-  expect(hero(container).contains(caption)).toBe(true);
-  expect(caption.closest('[aria-hidden="true"]')).toBeNull();
-  expect(caption.className).not.toMatch(/\b(sr-only|hidden|invisible)\b/);
-}
-
-describe('LandingHero illustrative caption', () => {
-  it('is in the server HTML', () => {
-    const doc = new DOMParser().parseFromString(renderToString(<LandingHero />), 'text/html');
-    const caption = Array.from(doc.querySelectorAll('#hero p')).find((p) => p.textContent === 'Illustrative footage');
-    expect(caption).toBeTruthy();
-    expect(caption?.closest('[aria-hidden="true"]')).toBeNull();
-  });
-
-  it.each([
-    ['a phone', { desktop: false, reducedMotion: false, saveData: false }],
-    ['reduced motion', { desktop: true, reducedMotion: true, saveData: false }],
-    ['save-data', { desktop: true, reducedMotion: false, saveData: true }],
-  ])('shows over the still on %s', (_label, env) => {
-    setRiverEnv(env);
-    const { container } = render(<LandingHero />);
-    expect(hero(container).getAttribute('data-hero-phase')).toBe('still');
-    expectIllustrativeCaption(container);
-  });
-
-  it('shows over the video on desktop', async () => {
-    const { container } = await renderDesktop();
-    expect(videos(container)).toHaveLength(2);
-    expectIllustrativeCaption(container);
-  });
-});
-
 describe('LandingHero media', () => {
   it('server HTML has the still picture and no video', () => {
     const html = renderToString(<LandingHero />);

@@ -37,34 +37,6 @@ function renderDesktop() {
   return { ...r, ...media, io, clips: () => videos(r.container) };
 }
 
-function expectCaption(text: string) {
-  const caption = screen.getByText(text);
-  expect(caption.closest('[aria-hidden="true"]')).toBeNull();
-  expect(caption.className).not.toMatch(/\b(sr-only|hidden|invisible)\b/);
-}
-
-describe('LandingSouthAfricaBand illustrative caption', () => {
-  it('labels the poster strip on a phone', () => {
-    setRiverEnv(PHONE);
-    installIntersectionObserver();
-    const { container } = render(<LandingSouthAfricaBand />);
-    expect(container.querySelectorAll('img')).toHaveLength(3);
-    expectCaption('Illustrative footage.');
-  });
-
-  it('labels the poster strip in the server HTML', () => {
-    expect(renderToString(<LandingSouthAfricaBand />)).toContain('Illustrative footage.');
-  });
-
-  it('labels the film in its figcaption on desktop', () => {
-    const { container, clips, io } = renderDesktop();
-    io.fire(isNear, true);
-    expect(clips()).toHaveLength(3);
-    expect(container.querySelector('figcaption')?.textContent).toBe('Cape Town, Johannesburg and Pretoria. Illustrative footage.');
-    expectCaption('Cape Town, Johannesburg and Pretoria. Illustrative footage.');
-  });
-});
-
 describe('LandingSouthAfricaBand still mode', () => {
   it('renders the verified copy and the poster strip', () => {
     setRiverEnv(PHONE);
