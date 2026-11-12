@@ -137,7 +137,7 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
       {/* ── Main area ────────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0">
 
-        {onDashboard && <PwaInstallBanner {...pwaInstall} />}
+        <PwaInstallBanner {...pwaInstall} />
 
         <AppHeader
           navMode={navMode}

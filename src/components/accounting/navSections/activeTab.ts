@@ -69,7 +69,7 @@ export function getActiveModuleId(
     pathname.startsWith('/accounting/sales-reps') ||
     pathname === '/accounting/reports/sales-by-customer' ||
     pathname === '/accounting/reports/unallocated-receipts' ||
-    (pathname.startsWith('/accounting/adjustments') && query.type === 'customer')
+    (pathname.startsWith('/accounting/adjustments') && query.type !== 'supplier') // the page defaults to customer
   ) {
     return 'sales';
   }

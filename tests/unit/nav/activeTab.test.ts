@@ -118,6 +118,12 @@ describe('pages outside a module light the module that lists them (app audit P2.
     expect(getActiveTabId(path, q)).toBe('reports');
   });
 
+  it('adjustments with no ?type= light Sales, as the page defaults to customer', () => {
+    expect(getActiveModuleId('/accounting/adjustments', q)).toBe('sales');
+    expect(getActiveModuleId('/accounting/adjustments', { type: 'customer' })).toBe('sales');
+    expect(getActiveModuleId('/accounting/adjustments', { type: 'supplier' })).toBe('purchases');
+  });
+
   it.each([
     '/accounting/user-access', '/accounting/webhooks', '/developer/personal-tokens', '/developer/oauth-apps',
     '/accounting/settings/connected-apps', '/accounting/settings/integrations-mcp', '/accounting/settings/billing/flows',

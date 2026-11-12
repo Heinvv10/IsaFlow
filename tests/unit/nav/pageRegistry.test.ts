@@ -9,6 +9,8 @@ import { buildPageIndex, EXTRA_PAGES } from '@/components/accounting/navSections
 import { buildNavIndex } from '@/components/accounting/navSections/navIndex';
 import { TABS, settingsTab } from '@/components/accounting/accountingNavConfig';
 import { documentTitle } from '@/components/layout/shellRoutes';
+import { getActiveModuleId } from '@/components/accounting/navSections/activeTab';
+import { MODULE_BY_ID } from '@/components/accounting/navSections/secondaryNav';
 
 const idx = buildPageIndex(true);
 
@@ -30,8 +32,31 @@ describe('documentTitle over the page registry', () => {
     ['/accounting?tab=journal-entries', 'Journal Entries · Accounting · IsaFlow'],
     ['/accounting', 'Dashboard · IsaFlow'],
     ['/accounting/customer-invoices', 'Tax Invoices · Sales · IsaFlow'],
+    ['/accounting/opening-balances', 'Opening Balances · Accounting · IsaFlow'],
   ])('%s is "%s"', (route, title) => {
     expect(documentTitle(route, idx)).toBe(title);
+  });
+
+  it('titles every menu page under the module that lights for it', () => {
+    // The module that lights (its second row), as the title names it: Library modules by their own name.
+    const moduleLabel = (id: string): string =>
+      MODULE_BY_ID[id]?.label ?? TABS.find((t) => t.id === id)?.label ?? (id === 'settings' ? 'Settings' : id);
+    // Known exceptions: company-settings ?tab= links (one Settings page, linked from Tax and Banking) and
+    // /accounting/timesheets (Practice page, Settings state: listed under "Not in scope").
+    const allowed = new Set([
+      '/accounting/company-settings?tab=netcash', '/accounting/company-settings?tab=general',
+      '/accounting/company-settings?tab=vat', '/accounting/timesheets',
+    ]);
+    const menus = new Set(buildNavIndex([...TABS, settingsTab], true).map((e) => e.href));
+    const wrong = buildPageIndex(true)
+      .filter((e) => menus.has(e.href) && e.trail.length > 0 && !allowed.has(e.href))
+      .map((e) => {
+        const [p = '', qs = ''] = e.href.split('?');
+        const area = e.trail[0] === 'Library' ? e.trail[1] : e.trail[0];
+        return { href: e.href, area, lit: moduleLabel(getActiveModuleId(p, Object.fromEntries(new URLSearchParams(qs)))) };
+      })
+      .filter((r) => r.area !== r.lit);
+    expect(wrong).toEqual([]);
   });
 
   it('lets a menu entry beat an extra with the same href', () => {

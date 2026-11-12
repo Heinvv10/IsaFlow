@@ -4,6 +4,7 @@
  */
 import { TABS, settingsTab } from '../accountingNavConfig';
 import { buildNavIndex, type NavIndexEntry } from './navIndex';
+import { MODULE_BY_ID } from './secondaryNav';
 
 /** Pages no menu reaches. href is a path prefix (segment boundary), label is the page's own heading, trail[0] its area. */
 export const EXTRA_PAGES: NavIndexEntry[] = [
@@ -46,9 +47,19 @@ export const EXTRA_PAGES: NavIndexEntry[] = [
   { href: '/accounting/reports/waterfall', label: 'Waterfall Charts', trail: ['Reports'] },
 ];
 
+/**
+ * Pages several menus list, titled under the module that lights for them (getActiveModuleId), not under the first
+ * tab in TABS. Opening Balances is in Sales > Statement Run too, but lights Library > Accounting.
+ */
+const TITLE_MODULE: Record<string, string> = { '/accounting/opening-balances': 'accounting' };
+
 /** The nav index plus the cog pages plus EXTRA_PAGES. A menu entry always wins. */
 export function buildPageIndex(isVatRegistered: boolean): NavIndexEntry[] {
-  const index = buildNavIndex([...TABS, settingsTab], isVatRegistered);
+  const index = buildNavIndex([...TABS, settingsTab], isVatRegistered).map((e) => {
+    const tab = MODULE_BY_ID[TITLE_MODULE[e.href] ?? ''];
+    const owner = tab && buildNavIndex([tab], isVatRegistered).find((o) => o.href === e.href);
+    return owner ? { ...e, label: owner.label, trail: owner.trail } : e;
+  });
   const seen = new Set(index.map((e) => e.href));
   return [...index, ...EXTRA_PAGES.filter((e) => !seen.has(e.href))];
 }

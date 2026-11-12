@@ -1,11 +1,12 @@
 /**
  * "Install IsaFlow" banner, shown when the browser offers a PWA install (beforeinstallprompt), on the dashboard only
- * and only once: it is marked seen as soon as it shows, under the same key a dismiss writes. It hides itself after
- * 10s so it doesn't eat vertical space; the browser's own install control stays available.
+ * and only once: it is marked seen when the banner is actually drawn, under the same key a dismiss writes. It hides
+ * itself after 10s so it doesn't eat vertical space; the browser's own install control stays available.
  *
  * The listener lives in `usePwaInstallPrompt`, which AppLayout calls before it decides between the skeleton and the
  * shell: the browser fires beforeinstallprompt once, often during the session check, and a listener that only
- * attached with the banner would miss it.
+ * attached with the banner would miss it. It listens on every page (so the browser's own mini-infobar stays
+ * suppressed everywhere, as before) and only the display is limited to the dashboard.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, X as XIcon } from 'lucide-react';
@@ -14,53 +15,77 @@ import { log } from '@/lib/logger';
 
 const PWA_INSTALL_DISMISSED_KEY = 'isaflow-pwa-install-dismissed';
 
+/** idle: no offer yet. offered: the browser offered, not drawn yet. showing: drawn (and marked seen). done: never again. */
+type Phase = 'idle' | 'offered' | 'showing' | 'done';
+
 export interface PwaInstallPrompt {
   show: boolean;
   install: () => Promise<void>;
   dismiss: () => void;
+  /** Called by the banner once it is on screen: marks it seen and starts the 10s auto-hide. */
+  onShown: () => void;
 }
 
-/** `enabled`: listen at all (AppLayout passes "on a dashboard"). */
+/** `enabled`: may the banner show here (AppLayout passes "on a dashboard"). The listener runs either way. */
 export function usePwaInstallPrompt(enabled: boolean): PwaInstallPrompt {
   const deferredPromptRef = useRef<Event | null>(null);
-  const [show, setShow] = useState(false);
+  const [phase, setPhase] = useState<Phase>('idle');
   const later = useTimeoutOnce();
 
   useEffect(() => {
-    if (!enabled || localStorage.getItem(PWA_INSTALL_DISMISSED_KEY)) return;
+    if (localStorage.getItem(PWA_INSTALL_DISMISSED_KEY)) return;
     const handler = (e: Event) => {
       e.preventDefault();
       deferredPromptRef.current = e;
-      setShow(true);
-      try {
-        localStorage.setItem(PWA_INSTALL_DISMISSED_KEY, '1');
-      } catch (err) {
-        log.warn('PWA install banner: could not mark it seen', { error: String(err) });
-      }
-      later(() => setShow(false), 10_000);
+      setPhase((p) => (p === 'idle' ? 'offered' : p));
     };
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
-  }, [enabled, later]);
+  }, []);
+
+  // Leaving the dashboard while the banner is up ends it: it does not come back on the next dashboard visit.
+  useEffect(() => {
+    if (!enabled) setPhase((p) => (p === 'showing' ? 'done' : p));
+  }, [enabled]);
+
+  const onShown = useCallback(() => {
+    setPhase((p) => (p === 'offered' ? 'showing' : p));
+  }, []);
+
+  useEffect(() => {
+    if (phase !== 'showing') return;
+    try {
+      localStorage.setItem(PWA_INSTALL_DISMISSED_KEY, '1');
+    } catch (err) {
+      log.warn('PWA install banner: could not mark it seen', { error: String(err) });
+    }
+    later(() => setPhase('done'), 10_000);
+  }, [phase, later]);
 
   const install = useCallback(async () => {
     const prompt = deferredPromptRef.current as (Event & { prompt: () => Promise<void> }) | null;
     if (!prompt) return;
     await prompt.prompt();
     deferredPromptRef.current = null;
-    setShow(false);
+    setPhase('done');
   }, []);
 
   const dismiss = useCallback(() => {
-    setShow(false);
+    setPhase('done');
     localStorage.setItem(PWA_INSTALL_DISMISSED_KEY, '1');
   }, []);
 
-  return { show, install, dismiss };
+  const show = enabled && (phase === 'offered' || phase === 'showing');
+  return { show, install, dismiss, onShown };
 }
 
-export function PwaInstallBanner({ show, install, dismiss }: PwaInstallPrompt) {
+export function PwaInstallBanner({ show, ...rest }: PwaInstallPrompt) {
   if (!show) return null;
+  return <ShownBanner {...rest} />;
+}
+
+function ShownBanner({ install, dismiss, onShown }: Omit<PwaInstallPrompt, 'show'>) {
+  useEffect(() => { onShown(); }, [onShown]);
   return (
     <section aria-label="Install IsaFlow" className="bg-brand-600 text-white px-4 py-2 flex items-center justify-between gap-3 text-sm flex-shrink-0">
       <div className="flex items-center gap-2 min-w-0">
