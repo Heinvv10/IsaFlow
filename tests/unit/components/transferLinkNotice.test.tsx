@@ -117,6 +117,25 @@ describe('TransferLinkNotice', () => {
     expect(onChanged).not.toHaveBeenCalled();
   });
 
+  it('carries on past a refused batch and reports the split (200, 409, 200)', async () => {
+    batches = [batch('b1', [link('a')]), batch('b2', [link('b'), link('c')]), batch('b3', [link('d')])];
+    const replies = [
+      () => ok({ undone: 1, refused: 0 }),
+      () => fail(409, 'These lines have changed since they were linked, so nothing was undone.'),
+      () => ok({ undone: 1, refused: 0 }),
+    ];
+    postReply = () => (replies.shift() ?? replies[0])();
+    const onChanged = mount();
+    const undo = await screen.findByRole('button', { name: 'Undo' });
+    await waitFor(() => expect(undo).toBeEnabled());
+    fireEvent.click(undo);
+    await waitFor(() => expect(notify.warning).toHaveBeenCalledWith('2 undone, 2 not undone',
+      'These lines have changed since they were linked, so nothing was undone.'));
+    expect(posts()).toHaveLength(3);
+    expect(notify.error).not.toHaveBeenCalled();
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
   it('gives a viewer Review but no Undo', async () => {
     h.role = 'viewer';
     batches = [batch('b1', [link('a')])];

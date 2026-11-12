@@ -32,6 +32,11 @@ function mount(over: Partial<TransferLinkLogDrawerProps> = {}) {
 }
 
 describe('TransferLinkLogDrawer', () => {
+  it('says which links it covers: page load and statement import, not a transfer the user allocates', () => {
+    mount();
+    expect(screen.getByText(/when you opened Bank Transactions or imported a statement\./)).toBeInTheDocument();
+  });
+
   it('heads each batch with its source, and counts or marks it all undone', () => {
     mount();
     expect(screen.getByText(/· Opened Bank Transactions$/)).toBeInTheDocument();

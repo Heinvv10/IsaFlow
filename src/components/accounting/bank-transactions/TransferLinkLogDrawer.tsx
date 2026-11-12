@@ -96,8 +96,9 @@ export function TransferLinkLogDrawer(props: TransferLinkLogDrawerProps) {
     <Drawer open={open} onClose={onClose} title="Transfer link log" width="md">
       <div className="space-y-3">
         <p className="text-sm text-[var(--ff-text-secondary)]">
-          Statement lines that IsaFlow linked to an existing transfer journal. Undo puts a line back exactly as it
-          was before the link, and IsaFlow will not link that pair again.
+          Statement lines that IsaFlow linked to an existing transfer journal when you opened Bank Transactions or
+          imported a statement. Undo puts a line back exactly as it was before the link, and IsaFlow will not link
+          that pair again.
         </p>
         {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
         {batches.length === 0 ? (

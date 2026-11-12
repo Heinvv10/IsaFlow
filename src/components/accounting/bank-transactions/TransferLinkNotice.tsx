@@ -54,14 +54,19 @@ export function TransferLinkNotice({ bankAccountId, refreshKey, onChanged }: {
   );
   const count = noticeBatches.reduce((n, b) => n + b.activeCount, 0);
 
-  /** Undo each target in turn; one toast for the lot. */
-  async function undo(targets: Array<{ batchId: string } | { linkId: string }>, busy: string) {
+  /**
+   * Undo each target in turn, carrying on past one the server refuses (its lines changed in another tab, say), so
+   * one refused batch neither hides the batches already undone nor stops the ones after it. One toast for the lot.
+   * `lines` is how many live links a target holds, counted as "not undone" when its request fails.
+   */
+  async function undo(targets: Array<({ batchId: string } | { linkId: string }) & { lines: number }>, busy: string) {
     setBusyId(busy);
     setUndoError(null);
     let undone = 0;
     let refused = 0;
-    try {
-      for (const target of targets) {
+    let firstError: string | null = null;
+    for (const { lines, ...target } of targets) {
+      try {
         const res = await apiFetch(ROUTE, {
           method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'undo', ...target }),
@@ -70,22 +75,24 @@ export function TransferLinkNotice({ bankAccountId, refreshKey, onChanged }: {
         const data = ((await res.json()) as { data?: UndoReply } | null)?.data;
         undone += data?.undone ?? 0;
         refused += data?.refused ?? 0;
+      } catch (err) {
+        refused += lines;
+        firstError ??= apiErrorMessage(err, UNDO_ERROR);
       }
-      if (refused > 0) {
-        notify.warning(`${undone} undone, ${refused} not undone`,
-          'Those lines have changed since they were linked. Open each line to change it.');
-      } else {
-        notify.success(undone === 1 ? '1 transfer link undone' : `${undone} transfer links undone`);
-      }
-    } catch (err) {
-      const message = apiErrorMessage(err, UNDO_ERROR);
-      setUndoError(message);
-      notify.error(message);
-    } finally {
-      setBusyId(null);
-      void load();
-      if (undone > 0) onChanged();
     }
+    if (firstError && undone === 0) {
+      setUndoError(firstError);
+      notify.error(firstError);
+    } else if (refused > 0) {
+      const detail = firstError ?? 'Those lines have changed since they were linked. Open each line to change it.';
+      if (firstError) setUndoError(firstError);
+      notify.warning(`${undone} undone, ${refused} not undone`, detail);
+    } else {
+      notify.success(undone === 1 ? '1 transfer link undone' : `${undone} transfer links undone`);
+    }
+    setBusyId(null);
+    void load();
+    if (undone > 0) onChanged();
   }
 
   function dismiss() {
@@ -113,7 +120,7 @@ export function TransferLinkNotice({ bankAccountId, refreshKey, onChanged }: {
               <button type="button" className={btn} onClick={() => setOpen(true)}>Review</button>
               {mayUndo && (
                 <button type="button" className={btn} disabled={busyId !== null}
-                  onClick={() => { void undo(noticeBatches.map((b) => ({ batchId: b.batchId })), 'notice'); }}>
+                  onClick={() => { void undo(noticeBatches.map((b) => ({ batchId: b.batchId, lines: b.activeCount })), 'notice'); }}>
                   {busyId === 'notice' ? 'Undoing...' : 'Undo'}
                 </button>
               )}
@@ -131,8 +138,10 @@ export function TransferLinkNotice({ bankAccountId, refreshKey, onChanged }: {
       <TransferLinkLogDrawer
         open={open} onClose={() => setOpen(false)} batches={batches} canUndo={mayUndo} busyId={busyId}
         error={undoError}
-        onUndoBatch={(batchId) => { void undo([{ batchId }], batchId); }}
-        onUndoLink={(linkId) => { void undo([{ linkId }], linkId); }}
+        onUndoBatch={(batchId) => {
+          void undo([{ batchId, lines: batches.find((b) => b.batchId === batchId)?.activeCount ?? 0 }], batchId);
+        }}
+        onUndoLink={(linkId) => { void undo([{ linkId, lines: 1 }], linkId); }}
       />
     </>
   );

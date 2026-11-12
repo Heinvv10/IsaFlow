@@ -127,7 +127,16 @@ export async function undoTransferLinks(
     throw err;
   }
 
-  if (restored.length === 0) throw new TransferLinkUndoError('CHANGED', changedMessage);
+  if (restored.length === 0) {
+    // A concurrent undo of the same rows committed while this one waited on the line locks: say "already undone"
+    // (as the sequential case does), not "changed". A fresh statement sees that commit under READ COMMITTED.
+    const stillLive = (await sql`
+      SELECT id FROM bank_transfer_link_log
+      WHERE company_id = ${companyId}::UUID AND undone_at IS NULL AND id = ANY(${ids}::UUID[])
+    `) as Row[];
+    if (stillLive.length === 0) throw new TransferLinkUndoError('NOT_FOUND', UNDO_NOT_FOUND_MESSAGE);
+    throw new TransferLinkUndoError('CHANGED', changedMessage);
+  }
 
   // In the request transaction and throwing: an unrecorded undo does not commit.
   for (const r of restored) {

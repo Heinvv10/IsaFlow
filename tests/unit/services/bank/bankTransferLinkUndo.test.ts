@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
   calls: [] as string[],
   active: [] as Array<Record<string, unknown>>,
   restored: [] as Array<Record<string, unknown>> | Error,
+  recheck: null as Array<Record<string, unknown>> | null,
   audit: vi.fn(),
   lock: vi.fn(),
 }));
@@ -20,6 +21,10 @@ vi.mock('@/lib/neon', () => ({
       h.calls.push('restore');
       if (h.restored instanceof Error) return Promise.reject(h.restored);
       return Promise.resolve(h.restored);
+    }
+    if (/id = ANY/.test(text) && /FROM bank_transfer_link_log/.test(text)) {
+      h.calls.push('recheck');
+      return Promise.resolve(h.recheck ?? h.active);
     }
     if (/FROM bank_transfer_link_log/.test(text)) { h.calls.push('select'); return Promise.resolve(h.active); }
     return Promise.resolve([]);
@@ -65,6 +70,7 @@ beforeEach(() => {
   h.calls = [];
   h.active = [row('l1', 't1'), row('l2', 't2')];
   h.restored = [done('l1', 't1'), done('l2', 't2')];
+  h.recheck = null;
   h.audit.mockReset().mockResolvedValue(undefined);
   h.lock.mockReset().mockResolvedValue([]);
 });
@@ -86,6 +92,14 @@ describe('undoTransferLinks', () => {
     h.restored = [];
     expect(await codeOf(undoTransferLinks(CO, { linkId: 'l1' }, USER))).toEqual({ code: 'CHANGED', message: UNDO_CHANGED_LINE_MESSAGE });
     expect(await codeOf(undoTransferLinks(CO, { batchId: 'b' }, USER))).toEqual({ code: 'CHANGED', message: UNDO_CHANGED_BATCH_MESSAGE });
+    expect(h.audit).not.toHaveBeenCalled();
+  });
+
+  it('is NOT_FOUND, not CHANGED, when a concurrent undo already undid every row while this one waited', async () => {
+    h.restored = [];
+    h.recheck = [];
+    expect(await codeOf(undoTransferLinks(CO, { linkId: 'l1' }, USER))).toEqual({ code: 'NOT_FOUND', message: UNDO_NOT_FOUND_MESSAGE });
+    expect(h.calls).toEqual(['select', 'lock', 'savepoint', 'restore', 'recheck']);
     expect(h.audit).not.toHaveBeenCalled();
   });
 
