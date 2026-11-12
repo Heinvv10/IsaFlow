@@ -5,7 +5,7 @@
  * Plane and the joiners, marks, selectors, jamo, emoji, flags and line ends that the rules treat specially, at lengths
  * that cross many stretches. And the work is linear: four times the text, about four times the time.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { graphemes } from '@/modules/accounting/services/packs/pages/packGraphemes';
 
 const SEGMENTER = new Intl.Segmenter('en', { granularity: 'grapheme' });
@@ -85,6 +85,23 @@ describe('packGraphemes', () => {
     expect(wrong.slice(0, 10), `${wrong.length} of ${n}`).toEqual([]);
   }, 600_000);
 
+  it('stays linear by construction: Intl.Segmenter only ever sees short windows, and each part of the text about once', () => {
+    // Counted, not timed: wall time and process CPU time both flaked on CI runners (12 Nov, #1270).
+    const spy = vi.spyOn(Intl.Segmenter.prototype, 'segment');
+    try {
+      for (const n of [50_000, 400_000]) {
+        spy.mockClear();
+        const t = 'a\u0301'.repeat(n / 2);
+        expect(graphemes(t).length).toBe(n / 2);
+        const sizes = spy.mock.calls.map(([s]) => String(s).length);
+        expect(Math.max(...sizes), `largest window at ${n}`).toBeLessThanOrEqual(2_048);
+        expect(sizes.reduce((a, b) => a + b, 0) / n, `segmented per character at ${n}`).toBeLessThan(1.1);
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('segments every run the round-2 reviews timed, at 64,000 to 128,000 characters, each in well under a second', () => {
     for (const [unit, n] of [['\u{1F1FF}', 128_000], ['\u{20000}', 128_000], ['\u{1F44D}\u{1F3FD}', 64_000], ['\uAC01', 128_000], ['\uAC00', 128_000],
       ['\u{1F600}', 64_000], ['a\u0301', 64_000], ['\u3000', 128_000], ['\u0915\u094D', 64_000]] as const) {
@@ -95,21 +112,6 @@ describe('packGraphemes', () => {
       expect(got.map((g) => g.segment).join('') === t).toBe(true);
     }
   }, 60_000);
-
-  it('takes time linear in the text: 400,000 characters well under the 64 times 50,000 a quadratic walk would take', () => {
-    // Process CPU time, not wall time: vitest runs files in parallel forks, and wall time counts the waits for a core
-    // (best of 3 wall time on 25,000 reached 25.8, and best of 7 on 50,000 reached 34.6 in the full unit run, 12 Nov).
-    const cpuMs = (): number => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
-    const ms = (n: number): number => {
-      const t = 'x'.repeat(n);
-      let best = Infinity;
-      for (let run = 0; run < 7; run += 1) { const start = cpuMs(); graphemes(t); best = Math.min(best, cpuMs() - start); }
-      return best;
-    };
-    ms(50_000);
-    // 8x the text: linear is about 8x the CPU time, quadratic 64x.
-    expect(ms(400_000) / Math.max(ms(50_000), 1)).toBeLessThan(24);
-  }, 120_000);
 
   it('and below U+0300, where it does not segment: every pair of code units, and each beside a control, a soft hyphen, a copyright sign, a tab and a space', () => {
     const wrong: string[] = [];
