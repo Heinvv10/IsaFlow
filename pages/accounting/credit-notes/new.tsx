@@ -86,7 +86,7 @@ export default function NewCreditNotePage() {
         />
 
         <form onSubmit={handleSubmit} className="p-6 xl:p-8">
-          <div className="max-w-6xl mx-auto flex gap-6 items-start">
+          <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6 items-stretch lg:items-start">
             <div className="flex-1 min-w-0 space-y-5">
               {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">{error}</div>}
 
@@ -95,7 +95,7 @@ export default function NewCreditNotePage() {
                   <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">1</span>
                   Credit Note Details
                 </h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label htmlFor="credit-notes-new-type" className={lbl}>Type *</label>
                     <select id="credit-notes-new-type" name="type" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value as 'customer' | 'supplier', clientId: '', supplierId: '' }))} className={inp}>
@@ -135,7 +135,7 @@ export default function NewCreditNotePage() {
                   <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">2</span>
                   Amounts
                 </h3>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label htmlFor="credit-notes-new-subtotal" className={lbl}>Subtotal (excl. VAT) *</label>
                     <input id="credit-notes-new-subtotal" type="number" name="subtotal" step="0.01" min="0" value={form.subtotal || ''} onChange={e => setForm(f => ({ ...f, subtotal: Number(e.target.value) }))} className={inp} required />
@@ -152,7 +152,7 @@ export default function NewCreditNotePage() {
               </div>
             </div>
 
-            <div className="w-72 shrink-0">
+            <div className="w-full lg:w-72 shrink-0">
               <div className="sticky top-6">
                 <div className={`${card} p-5`}>
                   <div className="flex items-center gap-2 mb-5">

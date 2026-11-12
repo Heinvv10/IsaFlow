@@ -157,7 +157,7 @@ export default function NewCustomerPaymentPage() {
         />
 
         <form onSubmit={handleSubmit} className="p-6 xl:p-8">
-          <div className="max-w-6xl mx-auto flex gap-6 items-start">
+          <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6 items-stretch lg:items-start">
             <div className="flex-1 min-w-0 space-y-5">
               {scanBanner && (
                 <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400 text-sm flex items-center gap-2">
@@ -172,7 +172,7 @@ export default function NewCustomerPaymentPage() {
                   <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">1</span>
                   Payment Details
                 </h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className={lbl}>Client *</label>
                     <select name="clientId" aria-label="Client" value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))} className={inp} required>
@@ -220,14 +220,14 @@ export default function NewCustomerPaymentPage() {
                     const inv = invoices.find(i => i.id === alloc.invoiceId);
                     const balance = inv ? Number(inv.total_amount) - Number(inv.amount_paid) : 0;
                     return (
-                      <div key={alloc.key} className="flex items-center gap-3">
-                        <select name="invoiceId" aria-label="Invoice" value={alloc.invoiceId} onChange={e => updateAllocation(alloc.key, 'invoiceId', e.target.value)} className={`${inp} flex-1`}>
+                      <div key={alloc.key} className="flex flex-wrap sm:flex-nowrap items-center gap-3">
+                        <select name="invoiceId" aria-label="Invoice" value={alloc.invoiceId} onChange={e => updateAllocation(alloc.key, 'invoiceId', e.target.value)} className={`${inp} basis-full sm:basis-0 flex-1`}>
                           <option value="">Select invoice…</option>
                           {invoices.map(i => (
                             <option key={i.id} value={i.id}>{i.invoice_number} — Balance: {fmt(Number(i.total_amount) - Number(i.amount_paid))}</option>
                           ))}
                         </select>
-                        <input type="number" name="amount" step="0.01" min="0" max={balance || undefined} value={alloc.amount || ''} onChange={e => updateAllocation(alloc.key, 'amount', Number(e.target.value))} placeholder="Amount" className={`${inp} w-36`} />
+                        <input type="number" name="amount" step="0.01" min="0" max={balance || undefined} value={alloc.amount || ''} onChange={e => updateAllocation(alloc.key, 'amount', Number(e.target.value))} placeholder="Amount" className={`${inp} flex-1 sm:flex-none sm:w-36`} />
                         {allocations.length > 1 && (
                           <button type="button" onClick={() => removeAllocation(alloc.key)} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="h-4 w-4" /></button>
                         )}
@@ -238,7 +238,7 @@ export default function NewCustomerPaymentPage() {
               </div>
             </div>
 
-            <div className="w-72 shrink-0">
+            <div className="w-full lg:w-72 shrink-0">
               <div className="sticky top-6">
                 <div className={`${card} p-5`}>
                   <div className="flex items-center gap-2 mb-5">

@@ -3,6 +3,9 @@
  * 390 px: the summary card sat on the form, which was squeezed to a ~20 px column with date labels printed over each
  * other, and no sideways scroll to show for it). The same stack as the customer invoice (Y1): one column of fields,
  * the summary under the form, the line table scrolling inside its own region. Nothing is saved.
+ * App audit 12 Nov 2026 (P2.5 item 3): the receipt, supplier payment and credit note forms had the same fault. They
+ * crushed rather than scrolled, so the no-sideways-scroll check alone passes on the broken page; the card width,
+ * summary position and field widths are what catch it.
  */
 // golden:dev-only
 // Dev only: it measures layout, which the post-deploy run has no use for. The post-deploy run skips it by this marker.
@@ -15,14 +18,14 @@ const FORMS = [
 ];
 type Form = (typeof FORMS)[number];
 
-async function open(page: Page, form: Form): Promise<void> {
+async function open(page: Page, form: Pick<Form, 'path' | 'title'>): Promise<void> {
   await page.goto(form.path, { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: form.title, level: 1 })).toBeVisible({ timeout: 60_000 });
   await settle(page);
 }
 
 const cardOf = (el: Locator): Locator => el.locator('xpath=ancestor::div[contains(@class,"rounded-2xl")][1]');
-const summaryCard = (page: Page, form: Form): Locator => cardOf(page.getByRole('heading', { name: form.summary, exact: true }));
+const summaryCard = (page: Page, form: Pick<Form, 'summary'>): Locator => cardOf(page.getByRole('heading', { name: form.summary, exact: true }));
 
 async function box(el: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
   const b = await el.boundingBox();
@@ -107,5 +110,37 @@ for (const form of FORMS) {
     const notes = await box(page.getByPlaceholder(form.notes));
     expect(summary.x, 'summary starts right of the form').toBeGreaterThanOrEqual(notes.x + notes.width);
     expect(await layoutFaults(page, 0)).toEqual({ narrow: [], overlaps: [] });
+  });
+}
+
+const ENTRY_FORMS = [
+  { path: '/accounting/customer-payments/new', title: 'Record Customer Payment', details: 'Payment Details', summary: 'Payment Summary' },
+  { path: '/accounting/supplier-payments/new', title: 'New Supplier Payment', details: 'Payment Details', summary: 'Payment Summary' },
+  { path: '/accounting/credit-notes/new', title: 'New Credit Note', details: 'Credit Note Details', summary: 'Summary' },
+];
+
+for (const form of ENTRY_FORMS) {
+  for (const theme of THEMES) {
+    test(`${form.title} 390 px (${theme}): the summary sits under the form, fields keep their width`, async ({ page }) => {
+      await seedTheme(page, theme);
+      await page.setViewportSize({ width: 390, height: 844 });
+      await open(page, form);
+      const details = await box(cardOf(page.getByRole('heading', { name: form.details })));
+      const summary = await box(summaryCard(page, form));
+      expect(details.width, 'the details card keeps a usable width').toBeGreaterThanOrEqual(300);
+      expect(summary.y, 'summary starts below the details card').toBeGreaterThanOrEqual(details.y + details.height);
+      expect(summary.x + summary.width).toBeLessThanOrEqual(390);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth), 'no sideways scroll').toBeLessThanOrEqual(390);
+      expect(await layoutFaults(page, 100)).toEqual({ narrow: [], overlaps: [] });
+    });
+  }
+
+  test(`${form.title} 1440 px: the summary sits beside the form, fields keep their width`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page, form);
+    const details = await box(cardOf(page.getByRole('heading', { name: form.details })));
+    const summary = await box(summaryCard(page, form));
+    expect(summary.x, 'summary starts right of the form').toBeGreaterThanOrEqual(details.x + details.width);
+    expect(await layoutFaults(page, 100)).toEqual({ narrow: [], overlaps: [] });
   });
 }
