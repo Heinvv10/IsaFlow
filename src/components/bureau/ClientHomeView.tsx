@@ -10,10 +10,12 @@ import type { WorkItem } from '@/modules/bureau/services/bureauWorkTypes';
 import type { ClientMetrics } from '@/modules/bureau/services/bureauClientMetricsService';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
-const METRIC_CARDS: Array<{ key: keyof ClientMetrics; label: string }> = [
+type MoneyMetric = Exclude<keyof ClientMetrics, 'asAt'>;
+
+const METRIC_CARDS: Array<{ key: MoneyMetric; label: string }> = [
   { key: 'cash', label: 'Cash' },
-  { key: 'ar', label: 'Accounts Receivable' },
-  { key: 'ap', label: 'Accounts Payable' },
+  { key: 'ar', label: 'Receivables' },
+  { key: 'ap', label: 'Payables' },
   { key: 'revenueMtd', label: 'Revenue MTD' },
   { key: 'profitMtd', label: 'Profit MTD' },
 ];
@@ -27,14 +29,17 @@ interface ClientHomeViewProps {
 export function ClientHomeView({ metrics, workItems, onOpenItem }: ClientHomeViewProps) {
   return (
     <div className="p-6 space-y-6">
-      {/* Metric strip */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-        {METRIC_CARDS.map((m) => (
-          <Card key={m.key}>
-            <div className="text-xs text-[var(--ff-text-tertiary)]">{m.label}</div>
-            <Money amount={metrics[m.key]} className="block text-2xl mt-1 text-[var(--ff-text-primary)]" />
-          </Card>
-        ))}
+      {/* Metric strip: the headline figures, as at one date */}
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+          {METRIC_CARDS.map((m) => (
+            <Card key={m.key}>
+              <div className="text-xs text-[var(--ff-text-tertiary)]">{m.label}</div>
+              <Money amount={metrics[m.key]} className="block text-2xl mt-1 text-[var(--ff-text-primary)]" />
+            </Card>
+          ))}
+        </div>
+        <p className="text-xs text-[var(--ff-text-tertiary)]">As at {formatDisplayDate(metrics.asAt)}. Posted entries only.</p>
       </div>
 
       {/* Needs-you feed */}

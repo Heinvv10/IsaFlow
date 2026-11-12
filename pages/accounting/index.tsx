@@ -42,6 +42,9 @@ export default function AccountingPage() {
   // One kpi-dashboard load feeds the hero and the Overview tab.
   const [kpiLoad, setKpiLoad] = useState<KpiLoad>({ data: null, error: '', loading: true });
   const [impersonateError, setImpersonateError] = useState('');
+  // Bumped by Retry: reloads the dashboard figures after a failed load.
+  const [reloadKey, setReloadKey] = useState(0);
+  const retryKpis = useCallback(() => setReloadKey(k => k + 1), []);
   const setup = useSetupProgress(activeCompany?.id);
 
   useEffect(() => { setIsMounted(true); }, []);
@@ -119,13 +122,15 @@ export default function AccountingPage() {
         if (!cancelled) setKpiLoad({ data: null, error: apiErrorMessage(err, 'Could not load the dashboard figures - try again'), loading: false });
       });
     return () => { cancelled = true; };
-  }, [isMounted, activeCompany?.id]);
+  }, [isMounted, activeCompany?.id, reloadKey]);
 
-  const kpis = kpiLoad.data?.kpis;
-  const heroStats: DashboardHeroStats | undefined = kpis && {
-    revenueMtd:          kpis.revenueMtd         ?? 0,
-    outstandingInvoices: kpis.receivables?.total ?? 0,
-    cashPosition:        kpis.cash?.total        ?? 0,
+  // The headline figures (reports/headlineFigures): the one definition /home and
+  // Month-End show too. No figures, no pills: the hero keeps its skeletons.
+  const headline = kpiLoad.data?.headline;
+  const heroStats: DashboardHeroStats | undefined = headline && {
+    revenueMtd:          headline.revenueMtd,
+    outstandingInvoices: headline.receivables.total,
+    cashPosition:        headline.cash,
   };
   const heroError = kpiLoad.error;
 
@@ -174,7 +179,7 @@ export default function AccountingPage() {
         {/* key={activeCompany?.id} forces full remount when company switches,
             so each tab's useEffect re-fires with the correct localStorage company */}
         <div className="p-6 pt-5" key={activeCompany?.id ?? 'loading'}>
-          {activeTab === 'overview'          && <OverviewTab setupOpen={isSetupOpen(setup)} setupUnknown={isSetupUnknown(setup)} kpiLoad={kpiLoad} />}
+          {activeTab === 'overview'          && <OverviewTab setupOpen={isSetupOpen(setup)} setupUnknown={isSetupUnknown(setup)} kpiLoad={kpiLoad} onRetry={retryKpis} />}
           {activeTab === 'chart-of-accounts' && <ChartOfAccountsTab />}
           {activeTab === 'journal-entries'   && <JournalEntriesTab />}
           {activeTab === 'fiscal-periods'    && <FiscalPeriodsTab />}

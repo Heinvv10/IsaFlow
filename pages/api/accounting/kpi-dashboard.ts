@@ -22,6 +22,7 @@ import {
   getTopExpenseCategories,
 } from '@/modules/accounting/services/reports/kpiService';
 import { getOpenBook } from '@/modules/accounting/services/reports/dashboardOpenBook';
+import { getHeadlineFigures } from '@/modules/accounting/services/reports/headlineFigures';
 import { hasBankAccount } from '@/modules/accounting/services/bank/hasBankAccountService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -56,9 +57,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       getOpenBook(companyId, 'ap', today),
     ]);
 
-    const [kpis, revenueChart, cashFlowChart, arAging, apAging, topCustomers, topExpenses, bankConfigured] =
+    const [kpis, headline, revenueChart, cashFlowChart, arAging, apAging, topCustomers, topExpenses, bankConfigured] =
       await Promise.all([
         getDashboardKPIs(companyId, from, to, today, { ar: arBook, ap: apBook }),
+        // The headline figures (cash, receivables, revenue MTD, counts): the one
+        // definition /home and Month-End read too, as at the same SAST day.
+        getHeadlineFigures(companyId, today, { books: { ar: arBook, ap: apBook } }),
         getRevenueChart(companyId, months, today),
         getCashFlowChart(companyId, months),
         getAgingBreakdown(companyId, 'ar', today, arBook),
@@ -70,6 +74,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     return apiResponse.success(res, {
       kpis,
+      headline,
+      period: { from, to },
       revenueChart,
       cashFlowChart,
       arAging,

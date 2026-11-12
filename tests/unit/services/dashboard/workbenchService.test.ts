@@ -3,6 +3,8 @@
  *
  * Coverage:
  *   - Each of the 6 metrics returns the expected numeric value
+ *   - draftInvoices / apDueThisWeek / unpostedJournals are the headline counts
+ *     (reports/headlineFigures#getHeadlineCounts), asked for this company
  *   - company_id is the first interpolated argument in every SQL query
  *   - Cross-tenant isolation: different company_id → empty results
  */
@@ -15,6 +17,9 @@ vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
   return { sql: sqlMock };
 });
+
+const { getHeadlineCounts } = vi.hoisted(() => ({ getHeadlineCounts: vi.fn() }));
+vi.mock('@/modules/accounting/services/reports/headlineFigures', () => ({ getHeadlineCounts }));
 
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
@@ -31,26 +36,27 @@ const COMPANY_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * The service calls sql six times in parallel (Promise.all order):
- *   0 = unreconciledBankTxns
- *   1 = draftInvoices
- *   2 = apDueThisWeek
- *   3 = unpostedJournals
- *   4 = openPriorPeriods
- *   5 = vatEstimateCurrentPeriod
+ * The service calls sql three times in parallel (Promise.all order), and reads
+ * the headline counts once:
+ *   sql 0 = unreconciledBankTxns
+ *   counts = draftInvoices, apDueThisWeek (billsDueNext7Days), unpostedJournals (draftJournals)
+ *   sql 1 = openPriorPeriods
+ *   sql 2 = vatEstimateCurrentPeriod
+ * `values` keeps the six-metric order of the payload.
  */
 function mockSqlSequence(values: (number | string)[]): void {
   const sqlMock = sql as unknown as MockInstance;
   let callIdx = 0;
+  getHeadlineCounts.mockResolvedValue({
+    draftInvoices: Number(values[1] ?? 0), draftBills: 99, draftJournals: Number(values[3] ?? 0),
+    billsDueNext7Days: Number(values[2] ?? 0), billsOverdue: 98,
+  });
   sqlMock.mockImplementation(() => {
     const idx = callIdx++;
     switch (idx) {
       case 0: return Promise.resolve([{ cnt: String(values[0] ?? 0) }]);
-      case 1: return Promise.resolve([{ cnt: String(values[1] ?? 0) }]);
-      case 2: return Promise.resolve([{ cnt: String(values[2] ?? 0) }]);
-      case 3: return Promise.resolve([{ cnt: String(values[3] ?? 0) }]);
-      case 4: return Promise.resolve([{ cnt: String(values[4] ?? 0) }]);
-      case 5: return Promise.resolve([{ vat_estimate: String(values[5] ?? 0) }]);
+      case 1: return Promise.resolve([{ cnt: String(values[4] ?? 0) }]);
+      case 2: return Promise.resolve([{ vat_estimate: String(values[5] ?? 0) }]);
       default: return Promise.resolve([]);
     }
   });
@@ -146,7 +152,9 @@ describe('getWorkbenchMetrics', () => {
     // The mock is called as sql(strings, ...args).
     // vitest stores calls as .mock.calls[i] = [strings, arg0, arg1, ...]
     // We verify every call has COMPANY_A as the first interpolated arg.
-    expect(sqlMock.mock.calls.length).toBe(6);
+    expect(sqlMock.mock.calls.length).toBe(3);
+    expect(getHeadlineCounts).toHaveBeenCalledTimes(1);
+    expect(getHeadlineCounts).toHaveBeenCalledWith(COMPANY_A);
     for (const call of sqlMock.mock.calls) {
       // call[0] = TemplateStringsArray, call[1] = first interpolated value
       const firstArg = call[1] as string;

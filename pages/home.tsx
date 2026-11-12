@@ -131,8 +131,15 @@ export default function HomePage() {
     return (
       <AppLayout>
         <div className="p-6">
-          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+          <div role="alert" className="flex flex-wrap items-center gap-2 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
             <AlertCircle className="h-4 w-4" /> {error || 'We couldn’t load your home right now. Please try again.'}
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="ml-auto rounded-md border border-red-500/40 px-3 py-1 text-xs font-medium text-red-700 dark:text-red-300 hover:bg-red-500/10"
+            >
+              Retry
+            </button>
           </div>
         </div>
       </AppLayout>

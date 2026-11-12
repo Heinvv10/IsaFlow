@@ -3,17 +3,19 @@
  *
  * Renders six cards that flag items needing attention:
  *   1. Unreconciled bank transactions  → /accounting/bank-transactions
- *   2. Draft invoices                  → /accounting/customer-invoices?filter=draft
- *   3. AP due this week                → /accounting/supplier-invoices?due_this_week=1
- *   4. Unposted journals               → /accounting/journal-entries
+ *   2. Draft invoices (customer)       → /accounting/customer-invoices?filter=draft
+ *   3. Bills due in 7 days             → /accounting/supplier-invoices?due_this_week=1
+ *   4. Draft journals                  → /accounting/journal-entries
  *   5. Open prior periods              → /accounting/fiscal-periods
  *   6. VAT estimate (current period)   → /accounting/sars/vat201
  *
  * Loading: skeleton placeholders (no layout shift).
- * Error: small banner - does not block the rest of the dashboard.
+ * Error: small banner with Retry - does not block the rest of the dashboard.
+ * Every card shows the placeholder, never 0, when the metrics did not load.
+ * Cards 2 to 4 are the headline counts (reports/headlineFigures).
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   Landmark, FileText, Clock, BookOpen, CalendarX2, Receipt,
@@ -24,6 +26,7 @@ import { log } from '@/lib/logger';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { isVatSurfaceHref } from '@/components/accounting/navSections/vatNav';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { Money } from '@/components/ui/Money';
 
 interface WorkbenchMetrics {
   unreconciledBankTxns: number;
@@ -64,14 +67,14 @@ const CARDS: CardDef[] = [
   },
   {
     key: 'apDueThisWeek',
-    label: 'AP due this week',
+    label: 'Bills due in 7 days',
     href: '/accounting/supplier-invoices?due_this_week=1',
     icon: Clock,
     severity: (v) => (v > 0 ? 'amber' : 'normal'),
   },
   {
     key: 'unpostedJournals',
-    label: 'Unposted journals',
+    label: 'Draft journals',
     href: '/accounting/journal-entries',
     icon: BookOpen,
     severity: (v) => (v > 0 ? 'amber' : 'normal'),
@@ -133,35 +136,37 @@ export function WorkbenchSection() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const load = useCallback((isCancelled: () => boolean = () => false) => {
     setLoading(true);
     setError(null);
-
     apiFetch('/api/accounting/dashboard/workbench')
       .then(async (res) => {
         await assertOk(res, 'Could not load workbench metrics');
         const json = (await res.json()) as { data?: WorkbenchMetrics };
-        if (!cancelled) {
-          if (!json.data) {
-            setError('Could not load workbench metrics');
-          } else {
-            setMetrics(json.data);
-          }
+        if (isCancelled()) return;
+        if (!json.data) {
+          setMetrics(null);
+          setError('Could not load workbench metrics');
+        } else {
+          setMetrics(json.data);
         }
       })
       .catch((err: unknown) => {
-        if (!cancelled) {
-          log.error('WorkbenchSection: fetch failed', { error: err }, 'workbench-ui');
-          setError('Could not load workbench metrics');
-        }
+        if (isCancelled()) return;
+        log.error('WorkbenchSection: fetch failed', { error: err }, 'workbench-ui');
+        setMetrics(null);
+        setError('Could not load workbench metrics');
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!isCancelled()) setLoading(false);
       });
-
-    return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    load(() => cancelled);
+    return () => { cancelled = true; };
+  }, [load]);
 
   return (
     <section role="region" aria-labelledby="workbench-heading">
@@ -176,6 +181,13 @@ export function WorkbenchSection() {
         <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-900/20 border border-red-500/30 text-red-400 text-xs mb-3">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => load()}
+            className="ml-auto rounded-md border border-red-500/40 px-2 py-0.5 font-medium text-red-700 dark:text-red-300 hover:bg-red-500/10"
+          >
+            Retry
+          </button>
         </div>
       )}
 
@@ -183,11 +195,14 @@ export function WorkbenchSection() {
         {loading
           ? cards.map((c) => <SkeletonCard key={c.key} />)
           : cards.map((card) => {
-              const value = metrics?.[card.key] ?? 0;
-              const severity = card.severity(value);
+              // Not loaded: the placeholder, never a 0 that reads as "nothing to do".
+              const value = metrics ? metrics[card.key] : null;
+              const severity = value === null ? 'normal' : card.severity(value);
               const styles = SEVERITY_STYLES[severity];
               const Icon = card.icon;
-              const displayValue = card.format ? card.format(value) : String(value);
+              const displayValue = value === null
+                ? 'not loaded'
+                : card.format ? card.format(value) : String(value);
 
               return (
                 <Link
@@ -206,7 +221,7 @@ export function WorkbenchSection() {
                   </div>
 
                   <p className={`${card.format ? 'text-xl tabular-nums' : 'text-2xl'} font-bold leading-none ${styles.value}`}>
-                    {displayValue}
+                    {value === null ? <Money /> : displayValue}
                   </p>
 
                   <div className="flex items-center gap-1 mt-auto">
