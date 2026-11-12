@@ -122,6 +122,12 @@ const nextConfig = {
         source: '/:path*',
         headers: securityHeaders(process.env.NODE_ENV),
       },
+      // River hero and South Africa band media (public/landing/river, public/landing/sa): a week in
+      // the browser. Without this Next serves public files with max-age=0. Rename a file to replace it.
+      {
+        source: '/landing/:dir(river|sa)/:file*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=604800' }],
+      },
     ];
   },
 

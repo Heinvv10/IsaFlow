@@ -3,13 +3,15 @@
  *
  * Used by:
  *   • Admin: convertUserToBureauOwner() — manual conversion of an existing user.
+ *     (Accountant sign-ups get theirs at verification: signupBureauService.)
  *   • /bureau/* pages: listBureausForUser(), listBureauCompanies().
  *
  * No company_id scoping (bureaus are user-scoped, not tenant-scoped). Callers
  * must enforce that the calling user is a member of the bureau before reading.
  * Writes: no app role may write bureaus, bureau_users or bureau_companies
  * (migration 932). createBureauForOwner runs on the admin convert route's
- * platform_admin transaction; client links and the sharing consent run on the
+ * platform_admin transaction (created_via defaults to 'admin'; the sign-up
+ * creator runs on migration_admin, migration 982); client links and the sharing consent run on the
  * migration_admin pool (bureauCompanyLinkService, bureauSettingsService).
  */
 

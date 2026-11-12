@@ -1,5 +1,6 @@
 /**
- * Public comparison pages: /compare/sage, /compare/xero, /compare/quickbooks.
+ * Public comparison pages: /compare/sage, /compare/xero, /compare/quickbooks,
+ * /compare/simplepay, /compare/payspace.
  * Static, unauthenticated, marketing host only (see middleware isMarketingOnlyPath).
  */
 import type { GetStaticPaths, GetStaticProps } from 'next';
