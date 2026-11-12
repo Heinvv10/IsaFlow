@@ -74,6 +74,10 @@ it('the pager is disabled while a page loads, so a double click cannot skip one'
   await waitFor(() => expect(screen.queryByTestId('return-drill-lines')).toBeNull());
   expect(apiFetch).toHaveBeenCalledTimes(2);
   expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true);
+  const previous = screen.getByRole('button', { name: 'Previous' }) as HTMLButtonElement;
+  expect(previous.disabled).toBe(true);
+  fireEvent.click(previous);
+  expect(apiFetch).toHaveBeenCalledTimes(2);
   await act(async () => { release(env(lines(2))); });
   await screen.findByText('JE-3');
 });
@@ -159,4 +163,26 @@ it('a period over 400 days says so up front and offers no links', () => {
   mount({ periodStart: '2025-01-01', periodEnd: '2026-03-01' });
   expect(screen.getByTestId('vat201-drill-window-note').textContent).toMatch(/up to 400 days; narrow the period/);
   expect(screen.queryByLabelText('Show the lines behind field 4')).toBeNull();
+});
+
+it('after a failed load Next is disabled (Retry is the way forward)', async () => {
+  apiFetch.mockResolvedValueOnce(env(lines(1))).mockResolvedValueOnce(refusal(500, 'Boom'));
+  mount(); openField();
+  await screen.findByText('JE-1');
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+  await screen.findByRole('alert');
+  expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+});
+
+it('the sideways-scroll hint shows only when there are rows', async () => {
+  apiFetch.mockResolvedValueOnce(env(lines(1)));
+  mount(); openField();
+  await screen.findByText('JE-1');
+  expect(screen.getByText('Scroll sideways for every column.')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Close drawer' }));
+  apiFetch.mockResolvedValueOnce(env(lines(1, { field: '1', rows: [], rowCount: 0, hasMore: false, rowsTotal: 0, ties: null })));
+  openField('1');
+  await screen.findByText('No lines in this period.');
+  expect(screen.queryByText('Scroll sideways for every column.')).toBeNull();
 });

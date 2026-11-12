@@ -89,7 +89,7 @@ export function Vat201DrillDrawer({ field, from, to, onClose, onField, backTo, o
             <span className="text-center text-xs text-[var(--ff-text-secondary)]" data-testid="return-drill-range">
               {lines ? `Showing ${lines.rowCount === 0 ? 0 : (page - 1) * size + 1}–${Math.min(page * size, lines.rowCount)} of ${lines.rowCount}` : `Page ${page}`}
             </span>
-            <Button variant="secondary" size="sm" disabled={loading || (lines !== null && !lines.hasMore)} onClick={() => drill.setPage(page + 1)}>Next</Button>
+            <Button variant="secondary" size="sm" disabled={loading || failure !== null || (lines !== null && !lines.hasMore)} onClick={() => drill.setPage(page + 1)}>Next</Button>
           </div>
         )}
       </div>

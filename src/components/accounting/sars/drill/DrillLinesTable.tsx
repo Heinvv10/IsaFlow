@@ -10,7 +10,9 @@ export function DrillLinesTable({ result }: { result: LineResult }) {
   const tax = result.source === 'tax-lines';
   return (
     <div>
-      <p className="mb-1 text-xs text-[var(--ff-text-secondary)] sm:hidden">Scroll sideways for every column.</p>
+      {result.rows.length > 0 && (
+        <p className="mb-1 text-xs text-[var(--ff-text-secondary)] sm:hidden">Scroll sideways for every column.</p>
+      )}
       <div className="overflow-x-auto" tabIndex={0} role="region" aria-label={`Lines behind field ${result.field}`}>
         <table className="w-full min-w-[560px] text-xs" data-testid="return-drill-lines">
           <thead>
