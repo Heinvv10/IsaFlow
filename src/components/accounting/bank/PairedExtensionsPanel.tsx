@@ -50,7 +50,7 @@ function accountNumber(c: Connection): string | null {
 function statusLabel(c: Connection): string {
   if (c.lastSyncStatus === 'failed') return 'Last import failed';
   if (c.status === 'paused') return 'Paused';
-  if (c.status === 'error') return 'Error';
+  if (c.status === 'error') return 'Connection error';
   return 'Active';
 }
 
@@ -135,7 +135,7 @@ export function PairedExtensionsPanel() {
                 return (
                   <tr key={c.id} className="border-b border-[var(--ff-border-light)] last:border-0">
                     <td className="px-4 py-2.5 text-xs font-medium text-[var(--ff-text-primary)]">
-                      {accountLabel(c)}{number && <span className="ml-2 font-mono text-[var(--ff-text-tertiary)]">{number}</span>}
+                      {accountLabel(c)}{number && <span className="ml-2 font-id text-[var(--ff-text-tertiary)]">{number}</span>}
                     </td>
                     <td className={`${TD} tabular-nums`}>{formatDisplayDate(toDate(c.createdAt))}</td>
                     <td className={`${TD} tabular-nums`}>{synced ? formatDisplayDateTime(synced) : 'Never'}</td>
