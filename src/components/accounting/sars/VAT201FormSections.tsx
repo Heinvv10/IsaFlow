@@ -38,7 +38,7 @@ export function FormRow({
         <span data-testid="vat201-field-amount" className={`text-sm font-medium ${highlight ? 'text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]'}`}>
           {amount === null ? '—' : fmt(amount)}
         </span>
-        {onDrill && amount !== null && (
+        {onDrill && amount !== null && amount !== 0 && (
           <button type="button" onClick={onDrill} data-testid="vat201-field-drill" aria-label={`Show the lines behind field ${field}`}
             className="min-h-[24px] text-xs text-teal-700 underline dark:text-teal-400">Lines</button>
         )}

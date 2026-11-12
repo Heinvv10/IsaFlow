@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { VAT201DetailView } from './VAT201DetailView';
 import { VAT201SummaryForm } from './VAT201SummaryForm';
 import { Vat201DrillDrawer } from './drill/Vat201DrillDrawer';
+import { MAX_DRILL_WINDOW_DAYS, windowTooLong } from './drill/returnDrillClient';
 import type { VAT201Invoice } from './VAT201FormSections';
 import type { Vat201SarsField } from '@/modules/accounting/services/reports/vat201SarsFields';
 
@@ -15,7 +16,9 @@ interface Props {
 
 export function Vat201FieldsSection({ data }: Props) {
   const [viewMode, setViewMode] = useState<'summary' | 'detail'>('summary');
-  const [drillField, setDrillField] = useState<string | null>(null);
+  /** The fields drilled through, newest last: a component's drill can go back to the field it came from. */
+  const [trail, setTrail] = useState<string[]>([]);
+  const tooLong = windowTooLong(data.periodStart, data.periodEnd);
   return (
     <>
       <div className="flex items-center justify-between">
@@ -32,12 +35,19 @@ export function Vat201FieldsSection({ data }: Props) {
         </span>
       </div>
 
+      {viewMode === 'summary' && tooLong && (
+        <p className="text-xs text-[var(--ff-text-secondary)]" data-testid="vat201-drill-window-note">
+          Lines are available for periods up to {MAX_DRILL_WINDOW_DAYS} days; narrow the period.
+        </p>
+      )}
       {viewMode === 'summary' ? (
-        <VAT201SummaryForm data={data} onDrill={setDrillField} />
+        <VAT201SummaryForm data={data} onDrill={tooLong ? undefined : (f) => setTrail([f])} />
       ) : (
         <VAT201DetailView data={data} />
       )}
-      <Vat201DrillDrawer field={drillField} from={data.periodStart} to={data.periodEnd} onClose={() => setDrillField(null)} onField={setDrillField} />
+      <Vat201DrillDrawer field={trail.at(-1) ?? null} from={data.periodStart} to={data.periodEnd}
+        onClose={() => setTrail([])} onField={(f) => setTrail((t) => [...t, f])}
+        backTo={trail.length > 1 ? trail.at(-2) : undefined} onBack={() => setTrail((t) => t.slice(0, -1))} />
     </>
   );
 }

@@ -27,8 +27,8 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const text = (iso: string) => { const [y, m, d] = iso.split('-').map(Number); return `${d} ${MONTHS[m! - 1]} ${y}`; };
 
 /**
- * A one-week window of the last two years where a tax-leg field is non-zero and its lines fit in four pages
- * (at most 200: a busy period would page past the drill's rate limit). One with more than a page is preferred,
+ * A one-week window of the last two years where a tax-leg field is non-zero and its lines fit in five pages
+ * (at most 1000: a busy period would page past the drill's rate limit). One with more than a page (200) is preferred,
  * so the paging is exercised; failing that, any.
  */
 async function busyPeriod(api: Api): Promise<Pick_> {
@@ -46,12 +46,12 @@ async function busyPeriod(api: Api): Promise<Pick_> {
     if (!field || !amount) continue;
     probes++;
     const d = await api.get<{ rowCount: number; hasMore: boolean }>(`/api/accounting/sars/return-drill?return=vat201&field=${field}&from=${from}&to=${to}&pageSize=200`);
-    if (d.hasMore || d.rowCount === 0) continue;
-    if (d.rowCount > 50) return { from, to, field, amount };
+    if (d.rowCount === 0 || d.rowCount > 1000) continue;
+    if (d.rowCount > 200) return { from, to, field, amount };
     fallback ??= { from, to, field, amount };
   }
   if (fallback) return fallback;
-  throw new Error('Demo has no VAT201 period with a non-zero tax field and at most 200 lines in a week of the last two years');
+  throw new Error('Demo has no VAT201 period with a non-zero tax field and at most 1000 lines in a week of the last two years');
 }
 
 async function generate(page: Page, p: { from: string; to: string }): Promise<void> {
@@ -95,7 +95,7 @@ test('a tax field drills to lines that sum to the field; axe clean (Demo, read-o
     const next = drawer.getByRole('button', { name: 'Next' });
     if (await next.isDisabled()) break;
     await next.click();
-    await expect(drawer.getByText(`Page ${pages + 1}`, { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(drawer.getByTestId('return-drill-range')).toContainText(`Showing ${pages * 200 + 1}–`, { timeout: 30_000 });
   }
   expect(cents).toBe(Math.round(p.amount * 100));
   await expect(drawer.getByTestId('return-drill-total')).toContainText('matches the field');
