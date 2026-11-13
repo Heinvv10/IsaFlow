@@ -98,7 +98,7 @@ describe('metering', () => {
     expect(m.answer).toHaveBeenCalledTimes(1);
   });
 
-  it.each([['what is my profit for 2025'], ['what is my profit in q3'], ['what are my total assets last year'], ['what are my total assets last quarter'], ['what are my expenses today'], ['what are my total assets as at 15 october 2027'], ['what is my profit on 15 october']])(
+  it.each([['what is my profit for 2025'], ['what is my profit in q3'], ['what are my total assets last year'], ['what are my total assets last quarter'], ['what are my expenses today'], ['what are my total assets as at 15 october 2027'], ['what are my total assets as at 29 february 2026'], ['what is my profit on 15 october']])(
     'a refused window (%s) is decided before any debit: no charge, no refund, no 402 path',
     async (q) => {
       m.deduct.mockRejectedValue(new InsufficientFlowsError(0, 10)); // a dry wallet must not matter

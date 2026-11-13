@@ -113,7 +113,32 @@ describe('ambiguous and multi-window replies offer the choices', () => {
     const p = parseQuestion('profit this year vs last year');
     expect(p.kind === 'periods' && p.examples).toEqual(['What is my profit last year?', 'What is my profit this year?']);
     const q = parseQuestion('what vat do I owe for october and november');
-    expect(q.kind === 'periods' && q.examples).toEqual(['What VAT do I owe October?', 'What VAT do I owe November?']);
+    expect(q.kind === 'periods' && q.examples).toEqual(['What VAT do I owe in October?', 'What VAT do I owe in November?']);
+  });
+});
+
+describe('ambiguous replies keep the window the person named', () => {
+  it('revenue and expenses last month suggests last month, not the default', () => {
+    const p = parseQuestion('revenue and expenses last month');
+    expect(p.kind === 'ambiguous' && p.examples).toEqual(['What is my revenue last month?', 'What are my expenses last month?']);
+    const q = parseQuestion('gross profit and net profit in october');
+    expect(q.kind === 'ambiguous' && q.examples).toEqual(['What is my gross profit in October?', 'What is my profit in October?']);
+  });
+  it('a window that is not named leaves the intents\' own examples', () => {
+    const p = parseQuestion('revenue and expenses');
+    expect(p.kind === 'ambiguous' && p.examples).toEqual(['What is my revenue this year?', 'What are my expenses last month?']);
+  });
+});
+
+describe('aging buckets and durations', () => {
+  it.each([['who owes me over 90 days'], ['customers owing more than 60 days'], ['who owes me overdue'], ['who owes me older than 30 days']])('%s: refused as an aging bucket', (q) => {
+    const p = parseQuestion(q);
+    expect(p.kind === 'unsupported' && p.said).toBe('by aging bucket');
+  });
+  it('a duration after "over" is not an amount; an amount still is', () => {
+    expect(parseQuestion('profit over 12 months').kind).toBe('intent');
+    const p = parseQuestion('who owes me over 2000');
+    expect(p.kind === 'unsupported' && p.said).toContain('amount filters');
   });
 });
 
@@ -141,6 +166,12 @@ describe('qualifiers', () => {
 });
 
 describe('askPeriod days', () => {
+  it('a day that does not exist in the year it lands in is refused (29 February)', () => {
+    expect(resolveAsAt({ kind: 'day', day: 29, month: 2, year: null }, '2026-11-13')?.date).toBe('2024-02-29'); // latest real 29 Feb not after today
+    expect(resolveAsAt({ kind: 'day', day: 29, month: 2, year: 2026 }, '2026-11-13')).toBeNull();
+    expect(resolveAsAt({ kind: 'day', day: 29, month: 2, year: 2028 }, '2028-11-13')?.date).toBe('2028-02-29');
+    expect(resolveAsAt({ kind: 'day', day: 30, month: 2, year: null }, '2026-11-13')).toBeNull();
+  });
   it('as-at honours the exact day; a day without a year is the latest one not after today; the future is refused', () => {
     expect(resolveAsAt({ kind: 'day', day: 15, month: 10, year: null }, '2026-11-13')?.date).toBe('2026-10-15');
     expect(resolveAsAt({ kind: 'day', day: 15, month: 12, year: null }, '2026-11-13')?.date).toBe('2025-12-15');

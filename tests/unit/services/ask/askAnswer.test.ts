@@ -267,6 +267,13 @@ describe('exact days', () => {
     }
     for (const fn of [m.income, m.vat, m.emp, m.run, m.bank]) expect(fn).not.toHaveBeenCalled();
   });
+  it('29 February in a non-leap year is refused before any service call; in a leap year it is honoured', async () => {
+    const a = await ask('total assets as at 29 february 2026');
+    expect(a.figure).toBeNull();
+    expect(m.sheet).not.toHaveBeenCalled();
+    await ask('total assets as at 29 february 2024');
+    expect(m.sheet).toHaveBeenLastCalledWith(CO, '2024-02-29');
+  });
   it('a day in the future is refused for a position', async () => {
     const a = await ask('total assets as at 15 october 2027');
     expect(a.figure).toBeNull();
