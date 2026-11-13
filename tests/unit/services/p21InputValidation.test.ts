@@ -18,6 +18,17 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 // FX PR0: the currency gate reads the company row; it has its own tests (fx-pr0-*).
 vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
   (await import('../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));
+// Brief step 7: the posted-credit cap and the application invariants are proved on a real ledger
+// (credit-note-posted-credit*, credit-note-application-invariant .int.test.ts); passed through here.
+vi.mock('@/modules/accounting/services/shared/creditNotePostedCredit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/shared/creditNotePostedCredit')>()),
+  readNotePostedCredit: async () => ({ journalId: 'je', posted: 1e12 }),
+  assertApplicationWithinPostedCredit: async () => ({ journalId: 'je', posted: 1e12 }),
+}));
+vi.mock('@/modules/accounting/services/shared/creditNoteApplicationInvariant', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/shared/creditNoteApplicationInvariant')>()),
+  assertApplicationRecorded: async () => undefined,
+}));
 vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn().mockResolvedValue([]), {
     transaction: vi.fn(),
@@ -232,8 +243,8 @@ describe('N6 — linked credit note cannot be applied twice', () => {
         }]);
       }
       if (/SELECT ci\.id/i.test(text)) return Promise.resolve([]);
-      if (/UPDATE customer_invoices SET amount_paid/i.test(text)) {
-        return Promise.resolve([{ id: 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb' }]);
+      if (/UPDATE customer_invoices d SET amount_paid/i.test(text)) {
+        return Promise.resolve([{ moved: Number(values[2]) }]);
       }
       if (/UPDATE credit_notes SET status/i.test(text)) {
         updates.push({ text, values });

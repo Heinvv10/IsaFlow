@@ -15,6 +15,7 @@ import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { log } from '@/lib/logger';
 import { UUID } from '@/lib/schemas/common';
 import { approveCreditNote, cancelCreditNote, applyCreditNoteToInvoice } from '@/modules/accounting/services/ar/creditNoteService';
+import { CreditNoteApplicationDriftError } from '@/modules/accounting/services/shared/creditNoteApplicationInvariant';
 import {
   CREDIT_NOTE_AUTO_APPLY,
   listCreditNoteAllocations,
@@ -97,6 +98,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (respondIfLockTimeout(res, err)) return;
     // After the journal was written: a 4xx would COMMIT the orphan draft. 5xx rolls it back.
     if (err instanceof ArPostingAfterWriteError) throw err;
+    // An application whose documents moved apart from the note (brief step 7): after the writes, so 5xx rolls them back.
+    if (err instanceof CreditNoteApplicationDriftError) throw err;
     if (err instanceof CreditNoteDimensionRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Credit note action failed', { error: err }, 'accounting-api');

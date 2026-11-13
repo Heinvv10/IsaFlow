@@ -5,7 +5,7 @@
  * as posted — and proves the live paths still refuse to record an application
  * the ledger does not carry, and that the refusal unwinds the document as well.
  *
- * Only `readNotePostedCredit` (what the plans import) is replaced; the invariant
+ * Only `readPostedCreditOrRefuse` (what the plans import) is replaced; the invariant
  * (`assertApplicationWithinPostedCredit`) calls the module's own, real read.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -14,7 +14,7 @@ vi.mock('@/modules/accounting/services/shared/creditNotePostedCredit', async (im
   const real = await importOriginal<typeof import('@/modules/accounting/services/shared/creditNotePostedCredit')>();
   return {
     ...real,
-    readNotePostedCredit: vi.fn(async (_c: string, note: { gl_journal_entry_id?: unknown }) =>
+    readPostedCreditOrRefuse: vi.fn(async (_c: string, note: { gl_journal_entry_id?: unknown }) =>
       ({ journalId: String(note.gl_journal_entry_id), posted: 100 })),
   };
 });

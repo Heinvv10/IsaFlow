@@ -20,6 +20,7 @@ import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
 import { deriveCreditNoteStatus, type CreditNoteSide } from './creditNoteFifo';
 import { assertAllocationsMatchApplied, lockInvoicesForUpdate, undoApplication } from './creditNoteApplicationWrites';
 import { UnapplyRefusal, assertSourceJournalLive } from './unapplyRefusal';
+import { assertApplicationRecorded } from './creditNoteApplicationInvariant';
 import type { UnapplyLine } from '../ap/supplierPaymentUnapply';
 
 export interface CreditNoteUnapplyInput {
@@ -66,8 +67,9 @@ export async function unapplyCreditNote(
   await lockInvoicesForUpdate('unapplyCreditNote', companyId, side, targets.map((t) => String(t.invoice_id)));
   const plan = await buildPlan(companyId, note, input);
 
+  let paidMoved = 0;
   for (const line of plan.lines) {
-    await undoApplication(companyId, plan.creditNoteId, plan.side, { invoiceId: line.invoiceId, amount: line.amount });
+    paidMoved += await undoApplication(companyId, plan.creditNoteId, plan.side, { invoiceId: line.invoiceId, amount: line.amount });
     await sql`
       DELETE FROM credit_note_allocations
       WHERE credit_note_id = ${plan.creditNoteId}::UUID AND invoice_id = ${line.invoiceId}::UUID
@@ -77,6 +79,9 @@ export async function unapplyCreditNote(
     UPDATE credit_notes SET applied_amount = ${plan.noteAppliedAfter}, status = ${plan.noteStatusAfter},
            updated_at = NOW()
     WHERE id = ${plan.creditNoteId}::UUID AND company_id = ${companyId}::UUID`;
+  // What the documents moved must equal what the note records (brief step 7); thrown — the documents have moved.
+  await assertApplicationRecorded(companyId, plan.creditNoteId, plan.creditNoteNumber,
+    { appliedBefore: round2(plan.noteAppliedAfter + plan.amountUnapplied), appliedAfter: plan.noteAppliedAfter, paidMoved });
 
   log.info('Unapplied credit note', {
     creditNoteId: plan.creditNoteId, lines: plan.lines.length, amount: plan.amountUnapplied, userId,

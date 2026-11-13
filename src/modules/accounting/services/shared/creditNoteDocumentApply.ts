@@ -23,7 +23,6 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { formatMoney } from '@/lib/money/formatMoney';
 import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
 import { invoiceFloor, round2 } from './autoAllocateStrategy';
 import { APPLICABLE_CREDIT_NOTE_STATUSES } from './autoApplyBackfillApply';
@@ -32,7 +31,8 @@ import { assertAllocationsMatchApplied, lockInvoicesForUpdate } from './creditNo
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
 import { assertStoredDocumentSettleable } from './documentCurrency';
 import { readCreditNoteDocument } from './creditNoteDocumentRead';
-import { assertApplicationWithinPostedCredit, readNotePostedCredit } from './creditNotePostedCredit';
+import { assertApplicationWithinPostedCredit, postedCreditRefusal, readPostedCreditOrRefuse } from './creditNotePostedCredit';
+import { assertApplicationRecorded } from './creditNoteApplicationInvariant';
 
 /** A refusal whose message is safe to show the caller: it names no schema. */
 export class CreditNoteApplyRefusal extends Error {
@@ -124,12 +124,14 @@ export async function applyCreditNoteToDocument(
 
   const appliedAfter = round2(plan.noteAppliedBefore + applied);
   const statusAfter = deriveCreditNoteStatus(appliedAfter, plan.noteTotal, plan.side);
-  // The invariant, before the note records it: thrown, never a refusal — the allocation is already written.
-  await assertApplicationWithinPostedCredit(companyId, checked.note, plan.side, appliedAfter);
+  // The invariants: thrown, never a refusal — the allocation is already written.
+  await assertApplicationWithinPostedCredit(companyId, checked.note, plan.side, plan.noteAppliedBefore, appliedAfter);
   await sql`
     UPDATE credit_notes
     SET applied_amount = ${appliedAfter}, status = ${statusAfter}, updated_at = NOW()
     WHERE id = ${plan.creditNoteId}::UUID AND company_id = ${companyId}::UUID`;
+  await assertApplicationRecorded(companyId, plan.creditNoteId, plan.creditNoteNumber,
+    { appliedBefore: plan.noteAppliedBefore, appliedAfter, paidMoved: application.paidMoved });
 
   log.info('Credit note applied to a named document', {
     creditNoteId: plan.creditNoteId, invoiceId: plan.invoiceId, applied, appliedAfter, userId,
@@ -250,21 +252,18 @@ async function buildPlan(
   // (FX PR0) neither a foreign note nor a foreign document can be settled.
   // And (brief fix, CN-388) only what the note's journal POSTED may be applied:
   // no live journal, or a control leg short of the total, is credit the ledger never carried.
-  let posted: number;
   try {
     await assertAllocationsMatchApplied(companyId, input.creditNoteId, appliedBefore);
     await assertStoredDocumentSettleable(companyId, 'credit_note', input.creditNoteId);
     await assertStoredDocumentSettleable(companyId, side === 'customer' ? 'customer_invoice' : 'supplier_invoice', input.invoiceId);
-    posted = (await readNotePostedCredit(companyId, note, side)).posted;
   } catch (err) {
     throw new CreditNoteApplyRefusal(err instanceof Error ? err.message : String(err));
   }
-  const postedLeft = round2(posted - appliedBefore);
+  // Outside that catch: a reversal-lock timeout is retryable and must reach the registry as itself.
+  const posted = await readPostedCreditOrRefuse(companyId, note, side, (m) => new CreditNoteApplyRefusal(m));
+  const postedLeft = round2(posted.posted - appliedBefore);
   if (postedLeft <= invoiceFloor(side)) {
-    throw new CreditNoteApplyRefusal(
-      `Credit note ${number}'s journal put ${formatMoney(posted)} on the control account and ${formatMoney(appliedBefore)} `
-      + `is already applied; ${formatMoney(round2(total - posted))} of its ${formatMoney(total)} total was never posted, so it cannot be applied.`,
-    );
+    throw new CreditNoteApplyRefusal(postedCreditRefusal(number, posted.posted, appliedBefore, total));
   }
 
   const amount = round2(Math.min(input.amount ?? remainder, remainder, outstanding, postedLeft));

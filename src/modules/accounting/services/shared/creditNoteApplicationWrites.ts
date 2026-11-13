@@ -38,7 +38,9 @@ import type { DbRow } from '@/lib/neon';
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
 import { withCustomerInvoiceLock } from '../ar/customerInvoiceLock';
 import { withSupplierInvoiceLock } from '../ap/supplierInvoiceLock';
-import { EPS, round2 } from './autoAllocateStrategy';
+import { round2 } from './autoAllocateStrategy';
+
+const HALF_CENT = 0.005;
 import type { CreditNoteApplicationLine, CreditNoteSide } from './creditNoteFifo';
 
 /**
@@ -135,20 +137,26 @@ export async function writeApplication(
   creditNoteId: string,
   side: CreditNoteSide,
   line: CreditNoteApplicationLine,
-): Promise<void> {
+): Promise<number> {
   await sql`
     INSERT INTO credit_note_allocations (company_id, credit_note_id, invoice_id, amount_allocated)
     VALUES (${companyId}::UUID, ${creditNoteId}::UUID, ${line.invoiceId}::UUID, ${line.amount})
   `;
+  // `moved` is MEASURED (the stored figure after less before), not the amount
+  // asked for: the caller's invariant compares it with what the note records.
   const applied = (side === 'customer'
     ? await sql`
-        UPDATE customer_invoices SET amount_paid = COALESCE(amount_paid, 0) + ${line.amount}
-        WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
-        RETURNING id`
+        WITH prev AS (SELECT id, COALESCE(amount_paid, 0) AS paid FROM customer_invoices
+                      WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID)
+        UPDATE customer_invoices d SET amount_paid = COALESCE(d.amount_paid, 0) + ${line.amount}
+        FROM prev WHERE d.id = prev.id AND d.company_id = ${companyId}::UUID
+        RETURNING d.amount_paid - prev.paid AS moved`
     : await sql`
-        UPDATE supplier_invoices SET amount_paid = COALESCE(amount_paid, 0) + ${line.amount}
-        WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
-        RETURNING id`) as DbRow[];
+        WITH prev AS (SELECT id, COALESCE(amount_paid, 0) AS paid FROM supplier_invoices
+                      WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID)
+        UPDATE supplier_invoices d SET amount_paid = COALESCE(d.amount_paid, 0) + ${line.amount}
+        FROM prev WHERE d.id = prev.id AND d.company_id = ${companyId}::UUID
+        RETURNING d.amount_paid - prev.paid AS moved`) as DbRow[];
   // A row count of zero means the document vanished between the read and the
   // write. Refusing beats an allocation row pointing at nothing.
   if (applied.length !== 1) {
@@ -157,6 +165,7 @@ export async function writeApplication(
     );
   }
   await recomputeInvoiceStatus(companyId, side, line.invoiceId);
+  return Number(applied[0]!.moved);
 }
 
 /**
@@ -171,24 +180,29 @@ export async function undoApplication(
   creditNoteId: string,
   side: CreditNoteSide,
   line: CreditNoteApplicationLine,
-): Promise<void> {
+): Promise<number> {
   const done = (side === 'customer'
     ? await sql`
-        UPDATE customer_invoices SET amount_paid = amount_paid - ${line.amount}
-        WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
-          AND amount_paid >= ${line.amount}
-        RETURNING id`
+        WITH prev AS (SELECT id, amount_paid AS paid FROM customer_invoices
+                      WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID)
+        UPDATE customer_invoices d SET amount_paid = d.amount_paid - ${line.amount}
+        FROM prev WHERE d.id = prev.id AND d.company_id = ${companyId}::UUID
+          AND d.amount_paid >= ${line.amount}
+        RETURNING d.amount_paid - prev.paid AS moved`
     : await sql`
-        UPDATE supplier_invoices SET amount_paid = amount_paid - ${line.amount}
-        WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
-          AND amount_paid >= ${line.amount}
-        RETURNING id`) as DbRow[];
+        WITH prev AS (SELECT id, amount_paid AS paid FROM supplier_invoices
+                      WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID)
+        UPDATE supplier_invoices d SET amount_paid = d.amount_paid - ${line.amount}
+        FROM prev WHERE d.id = prev.id AND d.company_id = ${companyId}::UUID
+          AND d.amount_paid >= ${line.amount}
+        RETURNING d.amount_paid - prev.paid AS moved`) as DbRow[];
   if (done.length === 0) {
     throw new Error(
       `Cannot cancel credit note ${creditNoteId}: invoice ${line.invoiceId} has less applied than the ${line.amount} this note credited.`,
     );
   }
   await recomputeInvoiceStatus(companyId, side, line.invoiceId);
+  return Number(done[0]!.moved);
 }
 
 /**
@@ -218,7 +232,9 @@ export async function assertAllocationsMatchApplied(
   `) as DbRow[];
   const allocated = round2(Number(rows[0]?.allocated ?? 0));
   const applied = round2(appliedAmount);
-  if (Math.abs(allocated - applied) <= EPS) return allocated;
+  // EXACT (half a cent), not a cent: both columns are NUMERIC(15,2), so a one-cent gap is a real gap
+  // (CN-388: R490.44 recorded on the note, R490.45 credited to its bill; a cent tolerance hides that shape).
+  if (Math.abs(allocated - applied) < HALF_CENT) return allocated;
 
   // A note with NO rows and a non-zero column is the legacy shape: approved
   // before migration 677 with no link, so the backfill had nothing to attribute
@@ -227,7 +243,7 @@ export async function assertAllocationsMatchApplied(
   // is only called before an extension. Writing a row for the new amount
   // creates exactly the mismatch the branch below then refuses forever, so the
   // note would be applied once more and then be uncancellable.
-  if (allocated <= EPS) {
+  if (allocated < HALF_CENT) {
     throw new Error(
       `Credit note ${creditNoteId} carries applied_amount ${applied} with no allocation rows — `
       + 'it was applied before the allocations table existed and nothing records which document it '

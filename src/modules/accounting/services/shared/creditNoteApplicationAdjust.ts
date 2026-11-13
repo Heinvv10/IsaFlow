@@ -31,14 +31,15 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { hasWholeCents } from '@/lib/money/wholeCents';
 import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
-import { EPS, invoiceFloor, round2 } from './autoAllocateStrategy';
+import { invoiceFloor, round2 } from './autoAllocateStrategy';
 import { deriveCreditNoteStatus, type CreditNoteSide } from './creditNoteFifo';
 import {
   assertAllocationsMatchApplied, lockInvoicesForUpdate, undoApplication, writeApplication,
 } from './creditNoteApplicationWrites';
 import { assertStoredDocumentSettleable } from './documentCurrency';
 import { readCreditNoteDocument } from './creditNoteDocumentRead';
-import { assertApplicationWithinPostedCredit, readNotePostedCredit } from './creditNotePostedCredit';
+import { assertApplicationWithinPostedCredit, postedCreditRefusal, readPostedCreditOrRefuse } from './creditNotePostedCredit';
+import { assertApplicationRecorded } from './creditNoteApplicationInvariant';
 
 /** A refusal decided from reads, before any write. Its message names no schema. */
 export class CreditNoteAdjustRefusal extends Error {
@@ -105,23 +106,25 @@ export async function adjustCreditNoteApplication(
   const plan = await buildPlan(companyId, note, input);
 
   const line = { invoiceId: plan.documentId };
+  let paidMoved = 0;
   if (plan.appliedBefore > 0) {
-    await undoApplication(companyId, plan.creditNoteId, side, { ...line, amount: plan.appliedBefore });
+    paidMoved += await undoApplication(companyId, plan.creditNoteId, side, { ...line, amount: plan.appliedBefore });
     await sql`
       DELETE FROM credit_note_allocations
       WHERE credit_note_id = ${plan.creditNoteId}::UUID AND invoice_id = ${plan.documentId}::UUID
         AND company_id = ${companyId}::UUID`;
   }
   if (plan.appliedAfter > 0) {
-    await writeApplication(companyId, plan.creditNoteId, side, { ...line, amount: plan.appliedAfter });
+    paidMoved += await writeApplication(companyId, plan.creditNoteId, side, { ...line, amount: plan.appliedAfter });
   }
-  // The invariant, before the note records the figure. Thrown, never refused:
-  // the document has already moved, so the registry must unwind it.
-  await assertApplicationWithinPostedCredit(companyId, note!, side, plan.noteAppliedAfter);
+  // The invariants. Thrown, never refused: the document has already moved, so the registry must unwind it.
+  await assertApplicationWithinPostedCredit(companyId, note!, side, plan.noteAppliedBefore, plan.noteAppliedAfter);
   await sql`
     UPDATE credit_notes SET applied_amount = ${plan.noteAppliedAfter}, status = ${plan.noteStatusAfter},
            updated_at = NOW()
     WHERE id = ${plan.creditNoteId}::UUID AND company_id = ${companyId}::UUID`;
+  await assertApplicationRecorded(companyId, plan.creditNoteId, plan.creditNoteNumber,
+    { appliedBefore: plan.noteAppliedBefore, appliedAfter: plan.noteAppliedAfter, paidMoved });
 
   log.info('Adjusted a credit note application', {
     creditNoteId: plan.creditNoteId, documentId: plan.documentId,
@@ -168,10 +171,9 @@ async function buildPlan(
     throw new CreditNoteAdjustRefusal(`Document ${docNumber} belongs to a different ${side} than credit note ${number}.`);
   }
 
-  let journalId: string;
-  let posted: number;
+  // Outside the catch below: a reversal-lock timeout is retryable and must reach the registry as itself.
+  const { journalId, posted } = await readPostedCreditOrRefuse(companyId, note, side, (m) => new CreditNoteAdjustRefusal(m));
   try {
-    ({ journalId, posted } = await readNotePostedCredit(companyId, note, side));
     await assertAllocationsMatchApplied(companyId, input.creditNoteId, noteAppliedBefore);
     await assertStoredDocumentSettleable(companyId, 'credit_note', input.creditNoteId);
     await assertStoredDocumentSettleable(companyId, side === 'customer' ? 'customer_invoice' : 'supplier_invoice', input.documentId);
@@ -201,7 +203,7 @@ async function buildPlan(
     );
   }
   const paid = round2(Number(doc.amount_paid));
-  if (appliedBefore > 0 && paid + EPS < appliedBefore) {
+  if (appliedBefore > 0 && paid + HALF_CENT < appliedBefore) {
     throw new CreditNoteAdjustRefusal(
       `Document ${docNumber} shows ${formatMoney(paid)} settled, less than the ${formatMoney(appliedBefore)} credit note ${number} `
       + 'applied to it; its balance and the allocation disagree. Reconcile it by hand.',
@@ -222,11 +224,10 @@ async function buildPlan(
         `Credit note ${number} has only ${formatMoney(Math.max(0, remainder))} unapplied; ${formatMoney(change)} more cannot be applied.`,
       );
     }
+    // The rule: a write never takes applied above max(posted, applied before) — so a decrease is always
+    // allowed (it is never checked here), and an increase on a note already past its posted credit is refused.
     if (change > postedLeft + HALF_CENT) {
-      throw new CreditNoteAdjustRefusal(
-        `Credit note ${number}'s journal put ${formatMoney(posted)} on the control account and ${formatMoney(noteAppliedBefore)} is `
-        + `applied; ${formatMoney(change)} more would apply credit that was never posted.`,
-      );
+      throw new CreditNoteAdjustRefusal(postedCreditRefusal(number, posted, noteAppliedBefore, total, change));
     }
     if (change > outstanding + HALF_CENT) {
       throw new CreditNoteAdjustRefusal(

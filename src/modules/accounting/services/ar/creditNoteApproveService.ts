@@ -31,6 +31,8 @@ import { creditNoteRevenueJournalLines, recordCreditNoteRevenueAllocations } fro
 import { creditNoteHeaderOf, creditNoteHeaderTags } from './creditNoteHeaderTags';
 import type { CreditNoteAllocation } from './invoiceRevenueLines';
 import { ArPostingAfterWriteError } from './arErrors';
+import { assertApplicationRecorded } from '../shared/creditNoteApplicationInvariant';
+import { assertApplicationWithinPostedCredit } from '../shared/creditNotePostedCredit';
 import { afterJournalWritten, assertCreditNoteCanPost, lockInvoiceCreditNotes } from './creditNotePostingChecks';
 import { assertStoredDocumentPostable, storedDocumentsSettleable } from '../shared/documentCurrency';
 import { POST_AS_STORED, assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
@@ -200,7 +202,7 @@ export async function approveCreditNote(
     // credit stays on account for an explicit apply_credit_note. See creditNoteFifo.
     const autoApply = opts?.autoApply ?? 'fifo';
     const application: CreditNoteApplication = !settles || autoApply === 'none'
-      ? { appliedAmount: 0, lines: [], remainder: Number(cn.total_amount) }
+      ? { appliedAmount: 0, lines: [], remainder: Number(cn.total_amount), paidMoved: 0 }
       : await afterJournalWritten(noteNumber, () => applyCreditNote({
       companyId,
       creditNoteId: id,
@@ -236,6 +238,12 @@ export async function approveCreditNote(
       throw new ArPostingAfterWriteError(`Credit note ${id} was approved concurrently; this attempt posted nothing new.`);
     }
     const updated = updatedRows[0] as Record<string, unknown>;
+    // The application invariants (brief step 7), still inside the posting: what the documents moved equals what the
+    // note records, and the note never applies more than its own journal put on the control account.
+    await afterJournalWritten(noteNumber, async () => {
+      await assertApplicationRecorded(companyId, id, noteNumber, { appliedBefore: 0, appliedAfter: appliedAmount, paidMoved: application.paidMoved });
+      await assertApplicationWithinPostedCredit(companyId, { gl_journal_entry_id: je.id, credit_note_number: noteNumber }, side, 0, appliedAmount);
+    });
 
     log.info('Approved credit note', {
       id, journalEntryId: je.id, status: finalStatus,

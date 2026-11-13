@@ -130,12 +130,12 @@ describeIfDb('credit-note applications are backed by the posted journal', () => 
     const note = await seedPostedNote(fx, { side: 'supplier', number: 'NINV', total: 100, posted: 99.99 });
     const row = (await sql`SELECT * FROM credit_notes WHERE id = ${note}::UUID`) as Record<string, unknown>[];
 
-    const err = await inTx(fx, () => assertApplicationWithinPostedCredit(fx.companyId, row[0]!, 'supplier', 100))
+    const err = await inTx(fx, () => assertApplicationWithinPostedCredit(fx.companyId, row[0]!, 'supplier', 0, 100))
       .then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(CreditNotePostedCreditError);
     expect((err as Error).message).toContain(formatMoney(99.99));
 
-    const okay = await inTx(fx, () => assertApplicationWithinPostedCredit(fx.companyId, row[0]!, 'supplier', 99.99));
+    const okay = await inTx(fx, () => assertApplicationWithinPostedCredit(fx.companyId, row[0]!, 'supplier', 0, 99.99));
     expect(okay.posted).toBe(99.99);
   });
 });

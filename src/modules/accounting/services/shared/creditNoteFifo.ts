@@ -57,8 +57,7 @@ import { fetchOpenSupplierBills } from '../ap/supplierAutoAllocate';
 import { fetchOpenCustomerInvoices } from '../ar/customerAutoAllocate';
 import { invoiceFloor, planGreedyAllocations, round2 } from './autoAllocateStrategy';
 import {
-  UNAPPLICABLE_STATUSES, assertAllocationsMatchApplied, lockInvoicesForUpdate,
-  undoApplication, writeApplication,
+  UNAPPLICABLE_STATUSES, assertAllocationsMatchApplied, lockInvoicesForUpdate, writeApplication,
 } from './creditNoteApplicationWrites';
 
 export const CREDIT_NOTE_AUTO_APPLY = ['fifo', 'linked', 'none'] as const;
@@ -103,6 +102,8 @@ export interface CreditNoteApplication {
   lines: CreditNoteApplicationLine[];
   /** Face value not consumed by any document — on-account credit. */
   remainder: number;
+  /** What the documents' amount_paid measurably moved by — the invariant's other side. */
+  paidMoved: number;
 }
 
 /**
@@ -223,14 +224,16 @@ export async function applyCreditNote(args: {
   }
 
   // ── 4. WRITE ──────────────────────────────────────────────────────────────
+  let paidMoved = 0;
   for (const line of lines) {
-    await writeApplication(companyId, creditNoteId, side, line);
+    paidMoved = round2(paidMoved + await writeApplication(companyId, creditNoteId, side, line));
   }
 
   return {
     appliedAmount: round2(consumed),
     lines,
     remainder: round2(totalAmount - consumed),
+    paidMoved,
   };
 }
 
@@ -258,41 +261,6 @@ export async function listCreditNoteAllocations(
     invoiceId: String(r.invoice_id),
     amount: Number(r.amount_allocated),
   }));
-}
-
-/**
- * Give back everything a note applied, and delete the rows that recorded it.
- *
- * Returns the documents restored. A note approved before migration 677 has no
- * rows, so the caller falls back to its single link — see creditNoteCancelService.
- */
-export async function reverseCreditNoteApplications(
-  companyId: string,
-  creditNoteId: string,
-  side: CreditNoteSide,
-  /** `credit_notes.applied_amount`, checked against the rows before anything moves. */
-  appliedAmount: number,
-): Promise<CreditNoteApplicationLine[]> {
-  const lines = await listCreditNoteAllocations(companyId, creditNoteId);
-  if (lines.length === 0) return lines;
-
-  // Refuses a note whose column and rows disagree — restoring only the rows
-  // would leave the rest of `applied_amount` credited to a document nothing
-  // names. Same guard, same reasoning, as on the way in.
-  await assertAllocationsMatchApplied(companyId, creditNoteId, appliedAmount);
-
-  // Locked in id order, in ONE statement, exactly as the apply path takes them.
-  await lockInvoicesForUpdate('cancelCreditNote', companyId, side, lines.map((l) => l.invoiceId));
-
-  for (const line of lines) {
-    await undoApplication(companyId, creditNoteId, side, line);
-  }
-
-  await sql`
-    DELETE FROM credit_note_allocations
-    WHERE credit_note_id = ${creditNoteId}::UUID AND company_id = ${companyId}::UUID
-  `;
-  return lines;
 }
 
 /**
