@@ -169,6 +169,9 @@ describe('a kept-as-cash row beside an RF-treated one (round 2 adv L3)', () => {
     expect(mixed.validationResults.find((v) => v.code === 'EMPLOYER_FUND_MIXED_TREATMENT')?.severity).toBe('info');
     const one = run([salary(20_000), { component: comp('3817'), amount: 1_000, employerFundAsCash: true }]);
     expect(one.validationResults.map((v) => v.code)).not.toContain('EMPLOYER_FUND_MIXED_TREATMENT');
+    // Only RF-treated fund rows (no kept-as-cash one): nothing mixed (round 3 tdd L).
+    const rfOnly = run([salary(20_000), { component: comp('3817'), amount: 1_000 }, er('3825', 0.05)]);
+    expect(rfOnly.validationResults.map((v) => v.code)).not.toContain('EMPLOYER_FUND_MIXED_TREATMENT');
   });
 });
 
