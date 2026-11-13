@@ -76,6 +76,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'list_unapplied_receipts',
   'list_unapplied_payments',
   'list_supplier_payments',
+  'find_double_settlements',
   'list_fiscal_periods',
   'get_fiscal_period',
   'period_close_checklist',
