@@ -134,9 +134,12 @@ for (const theme of THEMES) {
       await expectNoSeriousA11yViolations(page, { baseline: NOTHING_EXCUSED });
       await snap(page, `bill-comments-${theme}`);
 
-      await page.goto(`/accounting/bank-transactions?account_id=${bankAccountId}`, { waitUntil: 'domcontentloaded' });
       const row = page.locator('[data-testid="bank-tx-table"] tbody tr', { hasText: ref });
-      await expect(row).toBeVisible({ timeout: 60_000 });
+      // The first compile of this page on a cold dev server can answer "No bank accounts configured" once: look again.
+      await expect(async () => {
+        await page.goto(`/accounting/bank-transactions?account_id=${bankAccountId}`, { waitUntil: 'domcontentloaded' });
+        await expect(row).toBeVisible({ timeout: 20_000 });
+      }).toPass({ timeout: 120_000, intervals: [1_000] });
       await row.getByRole('button', { name: /^Details, / }).click();
       const drawer = page.getByRole('dialog', { name: 'Bank line' });
       await expect(drawer.getByTestId('comments-panel')).toBeVisible();
