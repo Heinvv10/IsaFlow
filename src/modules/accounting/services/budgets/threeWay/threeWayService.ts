@@ -104,7 +104,7 @@ export async function runVersion(companyId: string, ctx: YearContext, head: Vers
   const { versions, stored } = await readChain(companyId, head.id);
   const resolved = resolveAssumptions(head.id, versions, ctx.derived.assumptions);
   const pnl = await readVersionPnl(companyId, ctx.fiscalYear, head.id, ctx.months);
-  const loanSchedules = await readLoanSchedules(companyId, resolved.assumptions, ctx.months);
+  const loanSchedules = await readLoanSchedules(companyId, resolved.assumptions);
   const output = runThreeWay({
     months: ctx.months,
     entityType: ctx.profile.entityType,

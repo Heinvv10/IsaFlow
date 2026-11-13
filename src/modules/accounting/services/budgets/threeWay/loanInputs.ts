@@ -14,6 +14,7 @@
  *   between drawdown and first repayment is not capitalised.
  * Schedule dates are the engine's 'YYYY-MM-DD' strings (never a DB Date), so
  * the month is the text's first 7 characters. Principal repaid = principal + lump.
+ * Schedules are passed WHOLE (the engine ignores lines outside the version).
  */
 import { sql, withSavepoint, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -30,19 +31,20 @@ const cents = (rand: number): number => {
   return c === 0 ? 0 : c;
 };
 
-/** Schedule rows → per-month lines (cents) for the version's months only. */
-export function scheduleLines(rows: readonly ScheduleRow[], months: readonly string[]): LoanScheduleLine[] {
-  const inside = new Set(months);
+/**
+ * Schedule rows → per-month lines (cents), the loan's WHOLE life: the engine takes full-life schedules
+ * (≤ 600 lines) and applies only the lines inside the version.
+ */
+export function scheduleLines(rows: readonly ScheduleRow[]): LoanScheduleLine[] {
   const byMonth = new Map<string, LoanScheduleLine>();
   for (const r of rows) {
     const month = r.date.slice(0, 7);
-    if (!inside.has(month)) continue;
     const line = byMonth.get(month) ?? { month, principal: 0, interest: 0 };
     line.principal += cents(r.principal + r.lump);
     line.interest += cents(r.interest);
     byMonth.set(month, line);
   }
-  return months.filter((m) => byMonth.has(m)).map((m) => byMonth.get(m) as LoanScheduleLine);
+  return [...byMonth.values()];
 }
 
 /** The amortisation inputs of a planned loan (rand, fixed rate). */
@@ -82,15 +84,15 @@ async function existingSchedule(companyId: string, loanId: string): Promise<Sche
   }
 }
 
-export async function readLoanSchedules(companyId: string, a: ThreeWayAssumptions, months: readonly string[]): Promise<LoanScheduleInput[]> {
+export async function readLoanSchedules(companyId: string, a: ThreeWayAssumptions): Promise<LoanScheduleInput[]> {
   const wanted = a.loans.existing.filter((l) => l.include).map((l) => l.loanId);
   const own = await companyLoanIds(companyId, wanted);
   const out: LoanScheduleInput[] = [];
   for (const loanId of wanted) {
     if (!own.has(loanId.toLowerCase())) continue;
     const rows = await existingSchedule(companyId, loanId.toLowerCase());
-    if (rows) out.push({ loanId, lines: scheduleLines(rows, months) });
+    if (rows) out.push({ loanId, lines: scheduleLines(rows) });
   }
-  for (const l of a.loans.planned) out.push({ loanId: l.id, lines: scheduleLines(amortise(plannedLoanInputs(l), [], []), months) });
+  for (const l of a.loans.planned) out.push({ loanId: l.id, lines: scheduleLines(amortise(plannedLoanInputs(l), [], [])) });
   return out;
 }

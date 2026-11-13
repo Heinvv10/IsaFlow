@@ -15,7 +15,10 @@
  * - `foldOpening`: per-account balance-sheet balances → debit-positive buckets,
  *   the unmapped list and the per-type totals `getBalanceSheet` reports.
  */
+import { MAX_MONEY } from '@/lib/money/wholeCents';
 import { toCents } from '@/modules/accounting/services/budgets/grid/cents';
+import { EngineInputError } from './errors';
+import { checkedAdd } from './ratios';
 import { bucketOf, pnlBandOf, type BalanceSheetType } from './bucketMap';
 import { addMonths, daysInMonth } from './months';
 import { emptyBuckets, emptyPnl, type Buckets, type LookbackMonth, type PnlMonth, type UnmappedBalance, type UnmappedBucket } from './types';
@@ -29,6 +32,12 @@ export interface PnlRow {
   amount: number;
 }
 
+/** Rand → cents; beyond NUMERIC(15,2) is the engine's typed RANGE refusal (a 4xx), never a bare RangeError. */
+function rowCents(rand: number, month: string): number {
+  if (!Number.isFinite(rand) || Math.abs(rand) > MAX_MONEY) throw new EngineInputError('RANGE', `A ${month} figure is beyond the budget range: ${rand}`);
+  return toCents(rand);
+}
+
 function foldRows(rows: readonly PnlRow[], months: readonly string[]): PnlMonth[] {
   const index = new Map(months.map((m, i) => [m, i]));
   const out = months.map(() => emptyPnl());
@@ -37,7 +46,7 @@ function foldRows(rows: readonly PnlRow[], months: readonly string[]): PnlMonth[
     if (i === undefined) continue;
     const band = pnlBandOf(r.accountType, r.accountSubtype);
     const month = out[i] as PnlMonth;
-    month[band] += toCents(r.amount);
+    month[band] = checkedAdd(month[band], rowCents(r.amount, r.month));
   }
   return out;
 }

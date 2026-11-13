@@ -14,15 +14,17 @@ const row = (date: string, principal: number, interest: number, lump = 0): Sched
 });
 
 describe('scheduleLines', () => {
-  it('cents per month inside the version only; a lump is principal repaid', () => {
+  it('cents per month over the whole life (the engine keeps only in-version lines); a lump is principal repaid', () => {
     expect(scheduleLines([
       row('2026-02-01', 100, 10),
       row('2026-03-01', 1000.25, 50.5),
       row('2026-04-01', 1000, 40, 500),
       row('2027-03-01', 1, 1),
-    ], ['2026-03', '2026-04'])).toEqual([
+    ])).toEqual([
+      { month: '2026-02', principal: 10000, interest: 1000 },
       { month: '2026-03', principal: 100025, interest: 5050 },
       { month: '2026-04', principal: 150000, interest: 4000 },
+      { month: '2027-03', principal: 100, interest: 100 },
     ]);
   });
 });
@@ -33,8 +35,8 @@ describe('a planned loan', () => {
     const rows = amortise(plannedLoanInputs(planned), [], []);
     expect(rows[0]!.date.slice(0, 7)).toBe('2026-05');
     expect(rows).toHaveLength(12);
-    const months = Array.from({ length: 13 }, (_, i) => `${2026 + Math.floor((3 + i) / 12)}-${String(((3 + i) % 12) + 1).padStart(2, '0')}`);
-    const lines = scheduleLines(rows, months);
+    const lines = scheduleLines(rows);
+    expect(lines).toHaveLength(12);
     expect(lines[0]!.month).toBe('2026-05');
     expect(lines.reduce((s, l) => s + l.principal, 0)).toBe(12_000_000);
     expect(lines[0]!.interest).toBe(120_000);

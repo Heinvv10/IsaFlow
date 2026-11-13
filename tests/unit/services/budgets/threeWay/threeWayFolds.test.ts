@@ -65,3 +65,10 @@ describe('foldOpening', () => {
     expect([...f.cashAccounts.entries()]).toEqual([['bank', { accountCode: '1000', balance: 50000 }]]);
   });
 });
+
+describe('foldPnl range', () => {
+  it('a figure beyond NUMERIC(15,2) is the engine’s typed RANGE refusal, never a bare RangeError', () => {
+    expect(() => foldPnl([{ accountType: 'revenue', accountSubtype: null, month: '2026-03', amount: 1e14 }], ['2026-03']))
+      .toThrow(expect.objectContaining({ name: 'EngineInputError', code: 'RANGE' }));
+  });
+});

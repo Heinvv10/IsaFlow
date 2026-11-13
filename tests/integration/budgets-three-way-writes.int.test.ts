@@ -92,6 +92,36 @@ describe('save: the row token, the version token, the audit row', () => {
   });
 });
 
+describe('the token is the DB text to the microsecond (never a JS Date)', () => {
+  it('answers 6 fractional digits equal to updated_at, and a millisecond-truncated token is 409 STALE', async () => {
+    const v = await fx.version(A, { kind: 'reforecast' });
+    let r = await fx.routes.put(A.owner, { version_id: v, doc: fullDoc(10), expected_updated_at: null });
+    expect(r.status, dump(r)).toBe(200);
+    // A token whose microseconds are a whole millisecond survives a Date round trip: save again until it is not.
+    for (let i = 0; i < 5 && tokenOf(r).slice(23, 26) === '000'; i++) {
+      r = await fx.routes.put(A.owner, { version_id: v, doc: fullDoc(11 + i), expected_updated_at: tokenOf(r) });
+    }
+    const token = tokenOf(r);
+    expect(token).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/);
+    expect(token.slice(23, 26)).not.toBe('000');
+    const same = (await pool.query(
+      `SELECT updated_at = $2::TIMESTAMPTZ AS same, updated_at = $3::TIMESTAMPTZ AS ms FROM budget_three_way_assumptions WHERE version_id = $1`,
+      [v, token, new Date(token).toISOString()])).rows[0];
+    expect(same).toEqual({ same: true, ms: false });
+
+    const before = await fx.state(v);
+    const truncated = await fx.routes.put(A.owner, { version_id: v, doc: fullDoc(99), expected_updated_at: new Date(token).toISOString() });
+    expect(truncated.status).toBe(409);
+    expect(details(truncated)).toEqual({ code: 'BUDGET_ASSUMPTIONS_STALE', currentUpdatedAt: token });
+    expect(await fx.state(v)).toEqual(before);
+    // Postgres' own spelling of the same instant is accepted (compared as timestamptz in SQL).
+    const pgText = String((await pool.query(`SELECT updated_at::text AS t FROM budget_three_way_assumptions WHERE version_id = $1`, [v])).rows[0].t);
+    const ok = await fx.routes.put(A.owner, { version_id: v, doc: fullDoc(98), expected_updated_at: pgText });
+    expect(ok.status, dump(ok)).toBe(200);
+    expect(tokenOf(ok)).not.toBe(token);
+  });
+});
+
 describe('I9: a locked version refuses assumption writes', () => {
   it('409 BUDGET_VERSION_LOCKED, nothing written, no audit row', async () => {
     const v = await fx.version(A, { kind: 'reforecast', status: 'locked' });
