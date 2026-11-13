@@ -305,10 +305,10 @@ jobs:
     # Green runs took 19-30 min of test time on 2026-10-29, and #952's green run
     # took 49 min wall-clock at load ~60 (00:23-01:12Z); 30 cancelled every
     # queue run (#938, #940, #917) and 45 would still have cut that one.
-    # 60 is ~2x the test time. Re-measure when specs are added: sum the
-    # per-test times in a green run's log; keep this at >= 2x. Cost: a hung
-    # run holds its golden-paths group up to 60 min.
-    timeout-minutes: 60
+    # Green runs now take 43-58 min wall-clock (2026-11-13) and 60 cancelled
+    # merge-queue batches at the cap, so it is 90. Re-measure when specs are
+    # added. Cost: a hung run holds its golden-paths group up to 90 min.
+    timeout-minutes: 90
     # Velo (CI_HOSTED=off): each runner owns one Golden Paths slot, a company of
     # its own on isaflow_dev with its own golden user (the step below maps
     # $RUNNER_NAME to GOLDEN_SLOT_n in /home/hein/isaflow-ci.env;
