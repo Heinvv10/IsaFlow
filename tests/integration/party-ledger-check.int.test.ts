@@ -101,13 +101,27 @@ describeIfDb('party_ledger_check', () => {
     // company's bill that names OUR supplier (supplier_id is a bare FK). None may appear.
     const rival = ((await sql`INSERT INTO suppliers (company_id, name) VALUES (${COMPANY}::UUID, ${'rival ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
     await bill(rival, 'RB', 7777, await clean('JRB', 7777));
+    await supplierPayment(rival, 'RP', 666, null);
+    await creditNote('supplier', rival, 'RC', 555, null);
     const rivalCust = ((await sql`INSERT INTO customers (company_id, name) VALUES (${COMPANY}::UUID, ${'rival ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
-    await invoice(rivalCust, 'RI', 8888, await cj('KRI', 8888));
+    const ri = await invoice(rivalCust, 'RI', 8888, await cj('KRI', 8888));
+    await receipt(rivalCust, 'RR', 444, null);
+    await creditNote('customer', rivalCust, 'RCN', 333, null);
+    await writeOff(rivalCust, ri, 'RW', 222, null);
     await sql`
       INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date, due_date, status,
         subtotal, tax_amount, total_amount, amount_paid, created_by)
       VALUES (${OTHER}::UUID, ${supplier}::UUID, ${TAG + 'XB'}, ${DOC_DATE}::date, ${DOC_DATE}::date, 'approved',
         5555, 0, 5555, 0, ${USER}::UUID)`;
+    await sql`
+      INSERT INTO credit_notes (company_id, type, supplier_id, credit_note_number, credit_date, subtotal,
+        tax_amount, total_amount, status, applied_amount, created_by)
+      VALUES (${OTHER}::UUID, 'supplier', ${supplier}::UUID, ${TAG + 'XC'}, ${PAY_DATE}::date, 4444, 0, 4444,
+        'approved', 0, ${USER}::UUID)`;
+    await sql`
+      INSERT INTO supplier_payments (company_id, payment_number, supplier_id, payment_date, total_amount,
+        status, payment_method, created_by)
+      VALUES (${OTHER}::UUID, ${TAG + 'XP'}, ${supplier}::UUID, ${PAY_DATE}::date, 3333, 'processed', 'eft', ${USER}::UUID)`;
 
     sup = (await partyLedgerCheck(COMPANY, 'supplier', supplier, AS_AT))!;
     cus = (await partyLedgerCheck(COMPANY, 'customer', customer, AS_AT))!;
@@ -115,6 +129,8 @@ describeIfDb('party_ledger_check', () => {
 
   afterAll(async () => {
     await sql`DELETE FROM supplier_invoices WHERE company_id = ${OTHER}::UUID`;
+    await sql`DELETE FROM credit_notes WHERE company_id = ${OTHER}::UUID`;
+    await sql`DELETE FROM supplier_payments WHERE company_id = ${OTHER}::UUID`;
     await sql`DELETE FROM suppliers WHERE company_id = ${OTHER}::UUID`;
     await sql`DELETE FROM companies WHERE id = ${OTHER}::UUID`;
     await cleanup();
@@ -203,8 +219,10 @@ describeIfDb('party_ledger_check', () => {
   });
 
   it('another party\'s documents, and another company\'s bill naming this supplier, are not in the check', () => {
-    expect(sup.documents.some((d) => d.number === TAG + 'RB' || d.number === TAG + 'XB')).toBe(false);
-    expect(cus.documents.some((d) => d.number === TAG + 'RI')).toBe(false);
+    const rivals = ['RB', 'RP', 'RC', 'XB', 'XC', 'XP'].map((n) => TAG + n);
+    expect(sup.documents.filter((d) => rivals.includes(d.number ?? ''))).toEqual([]);
+    const rivalsAr = ['RI', 'RR', 'RCN', 'RW'].map((n) => TAG + n);
+    expect(cus.documents.filter((d) => rivalsAr.includes(d.number ?? ''))).toEqual([]);
   });
 
   it('a party in another company is indistinguishable from a miss', async () => {

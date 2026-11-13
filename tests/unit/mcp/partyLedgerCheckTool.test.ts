@@ -88,6 +88,11 @@ describe('party_ledger_check tool', () => {
     expect(partyLedgerCheck).toHaveBeenCalledWith(CTX.companyId, 'supplier', PARTY, '2026-06-30');
   });
 
+  it('ignores a company id smuggled into the arguments', async () => {
+    await run({ company_id: '99999999-9999-4999-8999-999999999999', companyId: '99999999-9999-4999-8999-999999999999' });
+    expect(vi.mocked(partyLedgerCheck).mock.calls[0]![0]).toBe(CTX.companyId);
+  });
+
   it('a party the company does not own reads exactly like a miss', async () => {
     vi.mocked(partyLedgerCheck).mockResolvedValue(null);
     const res = await run({});
