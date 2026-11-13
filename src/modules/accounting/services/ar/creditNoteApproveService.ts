@@ -37,6 +37,7 @@ import { POST_AS_STORED, assertPostsStoredDimensions } from '../gl/dimensions/di
 import {
   assertSupplierNoteHeaderTags, creditNoteExpenseJournalLines, recordCreditNoteExpenseAllocations,
 } from '../ap/supplierCreditNoteExpenseLines';
+import { ackMatchesOf, assertMirroredNoteVatStands, isoOf } from '../ap/supplierCreditNoteMirrorApprove';
 
 /**
  * `autoApply` defaults to 'fifo': a credit note exists to reduce what the
@@ -76,6 +77,12 @@ export async function approveCreditNote(
     // R-035 PR3: under the lock and before any other read or write, so a
     // refusal (ApprovalRequiredError, answered 409) has written nothing.
     await assertApprovalCleared(companyId, creditNoteApprovalType(String(cn.type)), id);
+    // 988: a mirror_bill note is re-checked against the VAT its bill still carries (under the bill's key, pre-write).
+    await assertMirroredNoteVatStands(companyId, {
+      id, number: String(cn.credit_note_number), type: String(cn.type), subtotal: Number(cn.subtotal), taxAmount: Number(cn.tax_amount),
+      billId: cn.supplier_invoice_id ? String(cn.supplier_invoice_id) : null, vatBasis: String(cn.vat_basis ?? 'rate'),
+      createdAt: isoOf(cn.created_at), ackMatches: ackMatchesOf(cn.vat_ack_matches),
+    });
     // A customer note's header job / CC1 / CC2 / BU: refused on a linked note, posted on an unlinked one.
     const headerTags = String(cn.type) === 'customer' ? await creditNoteHeaderTags(companyId, creditNoteHeaderOf(cn)) : null;
     // A supplier note's CC1 / CC2 / BU: refused on a note linked to a bill (892), posted on an unlinked one.
@@ -196,7 +203,10 @@ export async function approveCreditNote(
     // never be applied again; it now settles the next open document, and
     // whatever is still left is on-account credit the aged reports net.
     const side = String(cn.type) === 'customer' ? 'customer' as const : 'supplier' as const;
-    const application: CreditNoteApplication = !settles
+    // auto_apply 'none' applies NOTHING — not even the linked document; the
+    // credit stays on account for an explicit apply_credit_note. See creditNoteFifo.
+    const autoApply = opts?.autoApply ?? 'fifo';
+    const application: CreditNoteApplication = !settles || autoApply === 'none'
       ? { appliedAmount: 0, lines: [], remainder: Number(cn.total_amount) }
       : await afterJournalWritten(noteNumber, () => applyCreditNote({
       companyId,
@@ -209,7 +219,7 @@ export async function approveCreditNote(
       linkedInvoiceId: side === 'customer'
         ? (cn.customer_invoice_id ? String(cn.customer_invoice_id) : null)
         : (cn.supplier_invoice_id ? String(cn.supplier_invoice_id) : null),
-      autoApply: opts?.autoApply ?? 'fifo',
+      autoApply,
     }));
     const appliedAmount = application.appliedAmount;
 

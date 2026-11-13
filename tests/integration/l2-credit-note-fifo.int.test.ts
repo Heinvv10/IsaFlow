@@ -37,7 +37,7 @@ describeIfDb('L2 credit-note FIFO application', () => {
       linkedInvoiceId: bill,
     });
 
-    await f.inTx(() => approveCreditNote(f.company, note, f.user, { autoApply: 'none' }));
+    await f.inTx(() => approveCreditNote(f.company, note, f.user, { autoApply: 'linked' }));
 
     // Capped at 400: the bill cannot absorb more than it owes.
     expect(await billState(f, bill)).toEqual({ paid: 400, status: 'paid' });
@@ -131,6 +131,22 @@ describeIfDb('L2 credit-note FIFO application', () => {
     const bill = await makeBill(f, 'L2-NONE-1', 900, '2026-09-01');
     const note = await makeDraftNote(f, {
       type: 'supplier', number: 'L2-NONE-CN', total: 300, creditDate: '2026-09-02',
+    });
+
+    await f.inTx(() => approveCreditNote(f.company, note, f.user, { autoApply: 'none' }));
+
+    expect(await billState(f, bill)).toEqual({ paid: 0, status: 'approved' });
+    const state = await noteState(f, note);
+    expect(state.status).toBe('approved');
+    expect(state.applied).toBe(0);
+    expect(state.allocations).toEqual([]);
+  }, 60000);
+
+  it('auto_apply "none" leaves a LINKED note on account too — not even its own bill (CN-2026-00563)', async () => {
+    const bill = await makeBill(f, 'L2-NONE-LINKED-1', 400, '2026-09-10');
+    const note = await makeDraftNote(f, {
+      type: 'supplier', number: 'L2-NONE-LINKED-CN', total: 100, creditDate: '2026-09-11',
+      linkedInvoiceId: bill,
     });
 
     await f.inTx(() => approveCreditNote(f.company, note, f.user, { autoApply: 'none' }));

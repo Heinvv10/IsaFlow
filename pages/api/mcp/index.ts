@@ -173,6 +173,9 @@ const postHandler = async (req: BearerAuthedRequest, res: NextApiResponse): Prom
     tokenJti: req.patId ?? req.oauthAuthorisationId ?? null,
     oauthAppId: req.oauthAppId ?? null,
     companyRole: req.companyRole ?? null,
+    authMethod: req.authMethod === 'pat' || req.authMethod === 'oauth' ? req.authMethod : null,
+    tokenExpiresAt: req.tokenExpiresAt ?? null,
+    refreshExpiresAt: req.refreshExpiresAt ?? null,
   };
 
   if (Array.isArray(body)) {
