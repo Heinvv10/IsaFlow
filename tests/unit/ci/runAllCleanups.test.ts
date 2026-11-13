@@ -1,5 +1,5 @@
 /**
- * Golden afterAll cleanups (z19: put the flag override back, delete the run's versions) run through `runAllCleanups`:
+ * Golden afterAll cleanups (z20: put the flag override back, delete the run's versions) run through `runAllCleanups`:
  * every step runs even when an earlier one throws, and the failures are reported together afterwards.
  */
 import { describe, expect, it, vi } from 'vitest';

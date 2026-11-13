@@ -1,6 +1,6 @@
 // golden:dev-only
 /**
- * Golden path (z19): the three-way budget (budgets P6 spec §10 acceptance, §13.23) at /accounting/budgets/three-way.
+ * Golden path (z20): the three-way budget (budgets P6 spec §10 acceptance, §13.23) at /accounting/budgets/three-way.
  * Dev only: it needs the `budgets_three_way` flag (dark everywhere but the company it was enabled for) and it
  * WRITES assumptions, so it never runs in the post-deploy production verify (the marker above, helpers/devOnlySpecs.ts).
  *

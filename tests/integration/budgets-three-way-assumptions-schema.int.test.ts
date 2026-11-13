@@ -94,15 +94,17 @@ describe('983: budget_three_way_assumptions', () => {
       expect(await codeOf(q, `INSERT INTO ${T} (company_id, version_id, doc, updated_by) VALUES ($1, $2, '{}'::jsonb, 'forged')`, [A.id, v])).toBe('42501');
       expect(await codeOf(q, `INSERT INTO ${T} (id, company_id, version_id, doc) VALUES (gen_random_uuid(), $1, $2, '{}'::jsonb)`, [A.id, v])).toBe('42501');
       await q.query(...insertSql(A.id, v));
-      const first = (await q.query(`SELECT updated_by, updated_at, created_at FROM ${T} WHERE version_id = $1`, [v])).rows[0];
+      const first = (await q.query(`SELECT updated_by, updated_at::text AS ua, created_at::text AS ca FROM ${T} WHERE version_id = $1`, [v])).rows[0];
       expect(first.updated_by).toBe(A.user);
       for (const col of ['updated_at', 'updated_by', 'created_at', 'company_id', 'version_id']) {
         expect(await codeOf(q, `UPDATE ${T} SET ${col} = ${col} WHERE version_id = $1`, [v]), col).toBe('42501');
       }
       await q.query(`UPDATE ${T} SET doc = '{"schemaVersion":1}'::jsonb WHERE version_id = $1`, [v]);
-      const second = (await q.query(`SELECT updated_at, created_at FROM ${T} WHERE version_id = $1`, [v])).rows[0];
-      expect(second.updated_at.getTime()).toBeGreaterThan(first.updated_at.getTime());
-      expect(second.created_at.getTime()).toBe(first.created_at.getTime());
+      // Compared in SQL at microsecond precision (a JS Date drops microseconds).
+      const second = (await q.query(
+        `SELECT updated_at > $2::timestamptz AS advanced, created_at = $3::timestamptz AS kept FROM ${T} WHERE version_id = $1`,
+        [v, first.ua, first.ca])).rows[0];
+      expect(second).toEqual({ advanced: true, kept: true });
     });
   });
 

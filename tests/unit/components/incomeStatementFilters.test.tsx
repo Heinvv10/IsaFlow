@@ -1,5 +1,6 @@
 // P&L filters (wave 2 L): To's "eom" counts from From, and the cost-centre and business-unit selects are
 // named by their labels.
+import { expectKitTrigger } from '../../helpers/kitSelect';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
@@ -66,8 +67,8 @@ it('"1 Sep 2026" in From and "eom" in To request 1 to 30 Sep 2026', async () => 
 
 it('the cost-centre and business-unit selects are named by their labels', () => {
   render(<IncomeStatementPage />);
-  expect(screen.getByRole('combobox', { name: 'Cost Centre' }).tagName).toBe('SELECT');
-  expect(screen.getByRole('combobox', { name: 'Business Unit' }).tagName).toBe('SELECT');
+  expectKitTrigger(screen.getByRole('combobox', { name: 'Cost Centre' }));
+  expectKitTrigger(screen.getByRole('combobox', { name: 'Business Unit' }));
 });
 
 it('To may not be before From: "-7" from 1 Apr is refused, and no report is requested for it', async () => {

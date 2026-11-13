@@ -45,10 +45,11 @@ export function AutoPostLlmSection({ ap, apDraft, apSaving, onDraftChange, onSav
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">
+          <label htmlFor="ap-llm-min-confidence" className="block text-xs text-[var(--ff-text-secondary)] mb-1">
             AI min confidence (0–1, default 0.95)
           </label>
           <input
+            id="ap-llm-min-confidence"
             type="number" step="0.01" min="0.01" max="1"
             className="ff-input text-sm w-full"
             value={apDraft.llmMinConfidence}
@@ -57,10 +58,11 @@ export function AutoPostLlmSection({ ap, apDraft, apSaving, onDraftChange, onSav
           />
         </div>
         <div>
-          <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">
+          <label htmlFor="ap-llm-amount-cap" className="block text-xs text-[var(--ff-text-secondary)] mb-1">
             AI amount cap (R, 0 = no cap, default 2000)
           </label>
           <input
+            id="ap-llm-amount-cap"
             type="number" step="1" min="0"
             className="ff-input text-sm w-full"
             value={apDraft.llmAmountCap}

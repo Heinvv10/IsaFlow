@@ -73,6 +73,8 @@ describe('approve_credit_note', () => {
 
     await approveCreditNoteTool.handler({ credit_note_id: NOTE, auto_apply: 'none', ...KEY }, ctx());
     expect(vi.mocked(approveCreditNote).mock.calls[0]![3]).toMatchObject({ autoApply: 'none' });
+    await approveCreditNoteTool.handler({ credit_note_id: NOTE, auto_apply: 'linked', ...KEY }, ctx());
+    expect(vi.mocked(approveCreditNote).mock.calls[1]![3]).toMatchObject({ autoApply: 'linked' });
 
     // Coercing an unknown value to the default would spend the credit for an
     // agent that asked for the opposite.

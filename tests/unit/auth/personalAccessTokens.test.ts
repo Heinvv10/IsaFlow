@@ -162,6 +162,7 @@ describe('validatePat (verify)', () => {
     user_id: USER_ID,
     company_id: COMPANY_ID,
     scopes: ['read:reports', 'read:invoices'],
+    expires_at: new Date('2027-01-01T00:00:00Z'),
   };
 
   it('verify returns user+company+scopes for a valid unexpired token', async () => {
@@ -172,10 +173,16 @@ describe('validatePat (verify)', () => {
       userId: USER_ID,
       companyId: COMPANY_ID,
       scopes: ['read:reports', 'read:invoices'],
+      expiresAt: '2027-01-01T00:00:00.000Z',
     });
     // The lookup uses the hash — the plaintext never touches the DB.
     expect(sqlCallValues(0)).toContain(sha256(raw));
     expect(allSqlValues()).not.toContain(raw);
+  });
+
+  it('reports an unreadable expiry as null instead of failing authentication', async () => {
+    mockSqlOnce([{ ...validRow, expires_at: null }]);
+    await expect(validatePat(raw, null)).resolves.toMatchObject({ patId: PAT_ID, expiresAt: null });
   });
 
   it('verify rejects an expired token', async () => {

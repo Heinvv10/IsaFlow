@@ -1,6 +1,6 @@
 /**
  * Disposable golden stack only (scripts/ci/golden-hosted/up.sh): sets a company's feature-flag override, so a dev-only
- * spec can see a flagged page both ways (z19: the three-way budget with `budgets_three_way` on and off). Feature flags
+ * spec can see a flagged page both ways (z20: the three-way budget with `budgets_three_way` on and off). Feature flags
  * are a platform-admin write (migration 945 made the tables read-only to app roles), so no route can do it.
  *
  * Without GOLDEN_HOSTED_DB_URL (velo's dev, a production verify) `hostedFlagAvailable` is false and nothing connects.
@@ -47,7 +47,7 @@ export async function setHostedFlag(companyId: string, code: string, enabled: bo
       await client.query('DELETE FROM company_feature_overrides WHERE company_id = $1 AND feature_id = $2', [companyId, flag.id]);
     } else {
       await client.query(
-        `INSERT INTO company_feature_overrides (company_id, feature_id, enabled, reason, set_by) VALUES ($1, $2, $3, 'golden z19', $4)
+        `INSERT INTO company_feature_overrides (company_id, feature_id, enabled, reason, set_by) VALUES ($1, $2, $3, 'golden z20', $4)
          ON CONFLICT (company_id, feature_id) DO UPDATE SET enabled = EXCLUDED.enabled`, [companyId, flag.id, enabled, adminId]);
     }
     return before ? before.enabled : null;

@@ -1,5 +1,5 @@
 /**
- * The disposable-stack flag writer (tests/e2e/golden-paths/helpers/hostedFeatureFlag.ts, z19's flag-off step) writes
+ * The disposable-stack flag writer (tests/e2e/golden-paths/helpers/hostedFeatureFlag.ts, z20's flag-off step) writes
  * company_feature_overrides, so every refusal must hold before it connects, and the server must confirm the database
  * and the seeded company before any write. A real Demo company (another name) is never written.
  */

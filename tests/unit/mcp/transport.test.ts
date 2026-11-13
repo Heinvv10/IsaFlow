@@ -19,6 +19,8 @@ const h = vi.hoisted(() => ({
     patId: 'pat-jti-1',
     authMethod: 'pat' as const,
     companyRole: 'viewer',
+    tokenExpiresAt: '2027-01-01T00:00:00.000Z',
+    refreshExpiresAt: null,
   },
 }));
 
@@ -256,6 +258,10 @@ describe('/api/mcp transport', () => {
     expect(seenContexts[0]!.tokenJti).toBe('pat-jti-1');
     // The membership role the bearer pipeline resolved is what payroll tools are fenced on (D3 round 3).
     expect(seenContexts[0]!.companyRole).toBe('viewer');
+    // What token_info reports, carried from the request.
+    expect(seenContexts[0]!.authMethod).toBe('pat');
+    expect(seenContexts[0]!.tokenExpiresAt).toBe('2027-01-01T00:00:00.000Z');
+    expect(seenContexts[0]!.refreshExpiresAt).toBeNull();
     const result = (res.body as { result: { content: Array<{ text: string }> } }).result;
     expect(result.content[0]!.text).toContain(COMPANY_ID);
   });

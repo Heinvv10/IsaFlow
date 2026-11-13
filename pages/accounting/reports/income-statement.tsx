@@ -3,6 +3,7 @@
  * PRD-060 Phase 5: Revenue, Cost of Sales, Operating Expenses
  */
 
+import { Select } from '@/components/ui/Select';
 import { useState, useEffect } from 'react';
 import { DateField } from '@/components/ui/DateField';
 import { useDateGate } from '@/hooks/useDateGate';
@@ -180,22 +181,15 @@ export default function IncomeStatementPage() {
               <DateField label="To" value={periodEnd || null} name="periodEnd" anchorDate={periodStart || null} error={toError} minDate={periodStart || undefined} resetKey={toGate.resetKey('to')} onChange={onToChange} />
             </div>
             <div>
-              <label htmlFor="income-statement-cost-centre-id" className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cost Centre</label>
-              <select id="income-statement-cost-centre-id" name="costCentreId" value={costCentreId} onChange={e => setCostCentreId(e.target.value)}
-                className="ff-input text-sm min-w-[160px]">
-                <option value="">All Cost Centres</option>
-                {costCentres.map(cc => (
-                  <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
-                ))}
-              </select>
+              <Select id="income-statement-cost-centre-id" label="Cost Centre" labelClassName="block text-xs text-[var(--ff-text-tertiary)] mb-1" className="min-w-[160px]" size="sm"
+                placeholder="All Cost Centres" clearable value={costCentreId || null} onChange={v => setCostCentreId(v ?? '')}
+                options={costCentres.map(cc => ({ value: cc.id, label: `${cc.code} — ${cc.name}` }))} />
             </div>
             <div>
-              <label htmlFor="income-statement-business-unit" className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Business Unit</label>
-              <select id="income-statement-business-unit" value={businessUnitId} onChange={e => setBusinessUnitId(e.target.value)} className="ff-input text-sm min-w-[160px]">
-                <option value="">All Business Units</option>
-                {businessUnitId && !businessUnits.some(bu => bu.id === businessUnitId) && <option value={businessUnitId}>Selected Business Unit (unavailable)</option>}
-                {businessUnits.map(bu => <option key={bu.id} value={bu.id}>{bu.code} — {bu.name}</option>)}
-              </select>
+              <Select id="income-statement-business-unit" label="Business Unit" labelClassName="block text-xs text-[var(--ff-text-tertiary)] mb-1" className="min-w-[160px]" size="sm"
+                placeholder="All Business Units" clearable value={businessUnitId || null} onChange={v => setBusinessUnitId(v ?? '')}
+                valueOption={businessUnitId && !businessUnits.some(bu => bu.id === businessUnitId) ? { value: businessUnitId, label: 'Selected Business Unit (unavailable)' } : null}
+                options={businessUnits.map(bu => ({ value: bu.id, label: `${bu.code} — ${bu.name}` }))} />
             </div>
             <div className="pb-2">
               <ComparatorControls value={columns} onChange={setColumns}

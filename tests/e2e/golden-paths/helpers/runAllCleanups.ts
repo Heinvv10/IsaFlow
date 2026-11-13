@@ -1,5 +1,5 @@
 /**
- * An afterAll's cleanups, each in its own try: every step runs even when an earlier one throws (z19: a failed flag
+ * An afterAll's cleanups, each in its own try: every step runs even when an earlier one throws (z20: a failed flag
  * restore must never skip deleting the run's versions, nor the reverse), and the failures are thrown together after.
  */
 export async function runAllCleanups(steps: ReadonlyArray<readonly [string, () => Promise<void>]>): Promise<void> {

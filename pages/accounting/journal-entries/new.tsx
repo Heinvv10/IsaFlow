@@ -1,6 +1,7 @@
 /**
  * New Journal Entry — redesigned with ISAFlow design system
  */
+import { Select } from '@/components/ui/Select';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -83,6 +84,8 @@ export default function NewJournalEntryPage() {
     if (dates.blocked) return;
     setError(null);
     if (!isBalanced) { setError('Journal entry must be balanced (total debits must equal total credits)'); return; }
+    // The kit Select has no browser `required`: a line with an amount and no account is refused here, not silently dropped.
+    if (lines.some(l => !l.accountId && (parseFloat(l.debitAmount) || parseFloat(l.creditAmount)))) { setError('Choose an account for every line that has an amount'); return; }
     const validLines = lines.filter(l => l.accountId && (parseFloat(l.debitAmount) || parseFloat(l.creditAmount)));
     if (validLines.length < 2) { setError('At least 2 lines with amounts are required'); return; }
     setIsSubmitting(true);
@@ -127,7 +130,7 @@ export default function NewJournalEntryPage() {
 
         <div className="p-6 xl:p-8">
           <form onSubmit={e => void handleSubmit(e)}>
-            <div className="max-w-6xl mx-auto flex gap-6 items-start">
+            <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6 items-stretch lg:items-start">
               <div className="flex-1 min-w-0 space-y-5">
                 {error && (
                   <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm flex items-center gap-2">
@@ -189,12 +192,9 @@ export default function NewJournalEntryPage() {
                         <tr key={line.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                           <td className="px-4 py-2 text-xs text-slate-500 dark:text-slate-400">{idx + 1}</td>
                           <td className="px-3 py-2">
-                            <select name="accountId" aria-label="Account" value={line.accountId} onChange={e => updateLine(line.key, 'accountId', e.target.value)} className={inp} required>
-                              <option value="">Select account…</option>
-                              {accounts.map(a => (
-                                <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>
-                              ))}
-                            </select>
+                            <Select label={`Account, line ${idx + 1}`} labelClassName="sr-only" size="sm" placeholder="Select account…" searchable
+                              value={line.accountId || null} onChange={v => updateLine(line.key, 'accountId', v ?? '')}
+                              options={accounts.map(a => ({ value: a.id, label: `${a.accountCode} - ${a.accountName}` }))} />
                           </td>
                           <td className="px-3 py-2">
                             <DescriptionAutocomplete
@@ -223,7 +223,7 @@ export default function NewJournalEntryPage() {
                 </div>
               </div>
 
-              <div className="w-72 shrink-0">
+              <div className="w-full lg:w-72 shrink-0">
                 <div className="sticky top-6">
                   <div className={`${card} p-5`}>
                     <div className="flex items-center gap-2 mb-5">
