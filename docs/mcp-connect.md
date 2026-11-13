@@ -134,6 +134,10 @@ as well as the read one, and they say so on the consent screen:
   sealed, append-only snapshot of the ledger at a cutoff. It cannot be deleted afterwards.
 - `run_depreciation` (`write:journals` + **`write:post`**) **posts** the month's
   depreciation journals to the general ledger. Run it with `dry_run: true` first.
+- `create_recurring_journal`, `run_recurring_journals` and `deactivate_recurring_journal`
+  (`write:journals`) manage recurring journal templates and generate a month's due journals,
+  each run once. A template that posts its journals (`auto_post: true`) also needs
+  **`write:post`**, to create, resume or run it; without it, runs are left as drafts or reported.
 
 Two **read** tools are the review loop around the writes: `get_match_candidates`
 (`read:bank-tx`) shows the scored shortlist for one bank transaction before anything is

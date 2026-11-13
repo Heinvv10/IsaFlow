@@ -208,17 +208,18 @@ export async function runRecurringJournal(companyId: string,
   await assertNoHeaderAccountLines(companyId, lines); // D1, likewise before the claim
   await assertTemplateLinesPostable(companyId, lines);
 
+  const approval = await newManualJournalGate(companyId, lines);
+  const autoPost = rj.auto_post !== false; // absent before migration 989: every template posted
+  if (opts.agent && autoPost && approval.held) { // a read refusal, so it goes before the period guard (which writes)
+    throw new RecurringJournalRequestError(await agentNewManualJournalsRefusal(companyId, [lines])
+      ?? 'This journal needs approval before it can be posted, and this connector cannot raise or decide approvals.');
+  }
+
   await assertPostablePeriod(companyId, dueDate);
 
   const nextDate = advanceDate(dueDate, String(rj.frequency));
   const endDate = rj.end_date ? String(rj.end_date) : null;
   const newStatus = endDate && nextDate > endDate ? 'completed' : 'active';
-  const approval = await newManualJournalGate(companyId, lines);
-  const autoPost = rj.auto_post !== false; // absent before migration 989: every template posted
-  if (opts.agent && autoPost && approval.held) {
-    throw new RecurringJournalRequestError(await agentNewManualJournalsRefusal(companyId, [lines])
-      ?? 'This journal needs approval before it can be posted, and this connector cannot raise or decide approvals.');
-  }
   // An agent raises no request (Q6): its draft is marked under enforcement, and a person submits it.
   const settleGate = opts.agent ? { enforced: approval.enforced, held: false } : approval;
   const posts = autoPost && !approval.held;
