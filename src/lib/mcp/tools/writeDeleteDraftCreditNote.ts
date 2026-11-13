@@ -18,6 +18,7 @@ import {
   deleteDraftCreditNote,
   type DeletedCreditNote,
 } from '@/modules/accounting/services/ar/creditNoteDeleteService';
+import { canDeleteDraftCreditNote } from '@/lib/auth/writeRoles';
 import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolledBackSavepoint';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -30,9 +31,12 @@ export const deleteDraftCreditNoteTool: McpTool = {
     + 'no journal, so nothing posts and no balance moves. Only a draft can be deleted: an approved, partially applied '
     + 'or applied note is refused and pointed to cancel_credit_note (needs write:post), and a cancelled note stays on '
     + 'the books. Also refused when the draft carries a journal or applied credit (inconsistent data), when a dispute '
-    + 'resolution raised it, or when it has a pending approval request. Attachments are detached (the files stay). '
-    + 'A deleted draft CANNOT be restored: the reply returns the note\'s values so create_credit_note can raise a '
-    + 'fresh one (new id; the number may be reused). Run with dry_run first: it runs the real delete and rolls it '
+    + 'resolution raised it, when it has a pending approval request, or when it was numbered from the supplier return '
+    + 'sequence (a hard delete would leave a permanent gap in that series: leave it, or approve and cancel it). '
+    + 'Owner or admin only. Attachments are detached (the files stay); nothing else is deleted. The delete is recorded '
+    + 'in the audit trail. A deleted draft CANNOT be restored: the reply returns the note\'s values so create_credit_note '
+    + 'can raise a fresh one (new id; a CN-year-number is issued as highest + 1, so deleting the latest frees its number). '
+    + 'Run with dry_run first: it runs the real delete and rolls it '
     + 'back, so it refuses exactly what the live call would, and writes nothing.',
   scope: 'write:invoices',
   write: true,
@@ -46,6 +50,9 @@ export const deleteDraftCreditNoteTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
+    // The registry's write fence admits owner/admin/manager; a hard delete is owner/admin only. Before anything is
+    // read, and the dry run alike, so a manager is not shown a preview of a call that will be refused.
+    if (!canDeleteDraftCreditNote(ctx.companyRole)) return toolError('Only an owner or admin can delete a draft credit note.');
     const id = strArg(args, 'credit_note_id');
     if (!id) return toolError('credit_note_id is required');
     const bad = guardCastableArgs(args, { uuid: ['credit_note_id'] });
@@ -55,12 +62,12 @@ export const deleteDraftCreditNoteTool: McpTool = {
       if (args.dry_run === true) {
         let planned: DeletedCreditNote | null = null;
         await inRolledBackSavepoint('mcp_cn_delete_dry_run', async () => {
-          planned = await deleteDraftCreditNote(ctx.companyId, id);
+          planned = await deleteDraftCreditNote(ctx.companyId, id, ctx.userId);
         });
         // `wroteNothing` keeps the idempotency key free for the real call.
         return { ...ok({ dry_run: true, would_delete: shape(planned!), restorable: false }), wroteNothing: true };
       }
-      const deleted = await deleteDraftCreditNote(ctx.companyId, id);
+      const deleted = await deleteDraftCreditNote(ctx.companyId, id, ctx.userId);
       return ok({
         deleted: true,
         restorable: false,

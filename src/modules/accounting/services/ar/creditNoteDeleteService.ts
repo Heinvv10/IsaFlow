@@ -7,6 +7,10 @@
  * re-read inside it: a concurrent `approve_credit_note` either holds the row first (this waits, then sees
  * `approved` and refuses) or waits behind this (and finds the note gone).
  *
+ * A draft numbered from the supplier return sequence (anything but the trigger's CN-<year>-<n>) is refused: its
+ * number came off a sequential series and a hard delete would leave a permanent gap. The delete writes an
+ * `audit_log` row ('delete', entity_type 'credit_note', the note's values) in the same transaction.
+ *
  * Every refusal is raised BEFORE the first write, as a `CreditNoteDeleteRefusal`; once the attachment update has
  * run, a failure is a plain throw so the caller's savepoint unwinds both statements.
  *
@@ -25,10 +29,11 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
+import { logAuditOrThrow, type AuditFieldChange } from '../core/auditTrailService';
 import { lockCreditNoteForUpdate } from './creditNoteLock';
 
 export type CreditNoteDeleteRefusalCode =
-  | 'NOT_FOUND' | 'NOT_DRAFT' | 'HAS_JOURNAL' | 'HAS_APPLICATIONS' | 'DISPUTE_NOTE' | 'APPROVAL_PENDING';
+  | 'NOT_FOUND' | 'NOT_DRAFT' | 'OWN_SEQUENCE' | 'HAS_JOURNAL' | 'HAS_APPLICATIONS' | 'DISPUTE_NOTE' | 'APPROVAL_PENDING';
 
 /** A refusal written for the caller; always raised before any write. */
 export class CreditNoteDeleteRefusal extends Error {
@@ -59,6 +64,14 @@ export interface DeletedCreditNote {
   /** Attachment links deactivated (procurement_documents.is_active = false). */
   attachmentsDetached: number;
 }
+
+/**
+ * The numbers the credit-note trigger issues (`generate_credit_note_number`: CN-<year>-<highest + 1>). A note numbered
+ * any other way came off a document-number SEQUENCE: the only such writer is `supplier-returns.ts`, which reserves
+ * `reserveNextDocumentNumber(companyId, 'supplier_return')` (prefix and format are the company's setting) and links
+ * nothing else on the row. Deleting one would leave a permanent gap in that sequential series.
+ */
+const CREDIT_NOTE_SERIES = /^CN-\d{4}-\d+$/;
 
 const APPROVAL_TYPES = ['customer_credit_note', 'supplier_credit_note', 'credit_note'];
 
@@ -111,7 +124,7 @@ async function assertNothingHoldsTheNote(companyId: string, id: string, number: 
   }
 }
 
-export async function deleteDraftCreditNote(companyId: string, id: string): Promise<DeletedCreditNote> {
+export async function deleteDraftCreditNote(companyId: string, id: string, userId: string): Promise<DeletedCreditNote> {
   // Locked FOR UPDATE for the rest of the request transaction, status read INSIDE the lock. A peer holding the row
   // past the 5 s budget throws CreditNoteLockTimeoutError ("retry in a moment") before any write.
   const cn = await lockCreditNoteForUpdate(companyId, id);
@@ -119,6 +132,12 @@ export async function deleteDraftCreditNote(companyId: string, id: string): Prom
   const number = String(cn.credit_note_number ?? id);
   const status = String(cn.status);
   if (status !== 'draft') throw new CreditNoteDeleteRefusal('NOT_DRAFT', notDraftMessage(number, status));
+  if (!CREDIT_NOTE_SERIES.test(number)) {
+    throw new CreditNoteDeleteRefusal('OWN_SEQUENCE',
+      `Credit note ${number} was numbered from the supplier return sequence, not the credit-note series, so deleting it `
+      + 'would leave a permanent gap in that sequence. It cannot be deleted. Leave it as a draft, or approve it and then '
+      + 'cancel it with cancel_credit_note (needs write:post), which keeps the number on the books.');
+  }
   await assertNothingHoldsTheNote(companyId, id, number, cn);
 
   // Detached BEFORE the delete: procurement_documents' policy for a credit_note row asks for the parent to exist.
@@ -135,8 +154,7 @@ export async function deleteDraftCreditNote(companyId: string, id: string): Prom
   `) as DbRow[];
   if (gone.length !== 1) throw new Error(`Credit note ${id} vanished while being deleted.`);
 
-  log.info('Deleted draft credit note', { id, number, attachmentsDetached: detached.length }, 'accounting');
-  return {
+  const result: DeletedCreditNote = {
     id,
     creditNoteNumber: number,
     type: String(cn.type) as DeletedCreditNote['type'],
@@ -156,4 +174,25 @@ export async function deleteDraftCreditNote(companyId: string, id: string): Prom
     externalSystem: str(cn.external_system),
     attachmentsDetached: detached.length,
   };
+  // The record of what was removed, in the SAME transaction (append-only audit_log): a rollback takes both, a dry
+  // run's rolled-back savepoint leaves neither. The registry's mcp_tool_calls row also carries the tool result, but
+  // only as an idempotency record and not where a reviewer of the document looks.
+  await logAuditOrThrow({
+    companyId, userId, action: 'delete', entityType: 'credit_note', entityId: id, entityRef: number,
+    changes: { fields: auditFields(result), metadata: { source: 'mcp:delete_draft_credit_note', attachments_detached: String(detached.length) } },
+  });
+  log.info('Deleted draft credit note', { id, number, attachmentsDetached: detached.length }, 'accounting');
+  return result;
+}
+
+function auditFields(n: DeletedCreditNote): AuditFieldChange[] {
+  const rows: Array<[string, string | number | null]> = [
+    ['credit_note_number', n.creditNoteNumber], ['type', n.type], ['status', 'draft'], ['credit_date', n.creditDate],
+    ['subtotal', n.subtotal], ['tax_rate', n.taxRate], ['tax_amount', n.taxAmount], ['total_amount', n.totalAmount],
+    ['reason', n.reason], ['client_id', n.clientId], ['supplier_id', n.supplierId],
+    ['customer_invoice_id', n.customerInvoiceId], ['supplier_invoice_id', n.supplierInvoiceId],
+    ['gl_account_id', n.glAccountId], ['external_ref', n.externalRef],
+    ['external_document_number', n.externalDocumentNumber], ['external_system', n.externalSystem],
+  ];
+  return rows.map(([field, v]) => ({ field, old: v == null ? null : String(v), new: null, label: field }));
 }

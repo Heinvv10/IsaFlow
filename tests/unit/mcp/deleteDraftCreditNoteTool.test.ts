@@ -26,7 +26,8 @@ import type { McpToolContext } from '@/lib/mcp/types';
 
 const COMPANY = 'cccccccc-0000-4000-8000-cccccccccccc';
 const NOTE = '0b0b0b0b-0000-4000-8000-000000000001';
-const ctx = { companyId: COMPANY, userId: 'u-1' } as McpToolContext;
+const ctx = { companyId: COMPANY, userId: 'u-1', companyRole: 'owner' } as McpToolContext;
+const asRole = (companyRole: string | null | undefined) => ({ ...ctx, companyRole }) as McpToolContext;
 const KEY = { idempotency_key: 'k-1' };
 const text = (r: { content: { text: string }[] }) => r.content[0]!.text;
 const refusal = (code: string, message: string) => new (CreditNoteDeleteRefusal as unknown as new (c: string, m: string) => Error)(code, message);
@@ -53,6 +54,22 @@ describe('delete_draft_credit_note', () => {
     expect(deleteDraftCreditNoteTool.inputSchema.required).toEqual(['credit_note_id', 'idempotency_key']);
   });
 
+  it.each(['manager', 'viewer', 'member', null, undefined])('refuses role %s before any read, dry run alike', async (role) => {
+    for (const extra of [{}, { dry_run: true }]) {
+      const r = await deleteDraftCreditNoteTool.handler({ credit_note_id: NOTE, ...extra, ...KEY }, asRole(role));
+      expect(r.isError).toBe(true);
+      expect(text(r)).toBe('Only an owner or admin can delete a draft credit note.');
+    }
+    // Even a malformed id gets the role answer first: nothing about the call is examined.
+    expect(text(await deleteDraftCreditNoteTool.handler({ credit_note_id: 'x', ...KEY }, asRole('manager')))).toContain('Only an owner or admin');
+    expect(deleteDraftCreditNote).not.toHaveBeenCalled();
+    expect(inRolledBackSavepoint).not.toHaveBeenCalled();
+  });
+
+  it.each(['owner', 'admin'])('lets %s through', async (role) => {
+    expect((await deleteDraftCreditNoteTool.handler({ credit_note_id: NOTE, ...KEY }, asRole(role))).isError).toBeFalsy();
+  });
+
   it('refuses a missing or non-uuid id before touching the service', async () => {
     expect(text(await deleteDraftCreditNoteTool.handler({ ...KEY }, ctx))).toBe('credit_note_id is required');
     expect((await deleteDraftCreditNoteTool.handler({ credit_note_id: 'x', ...KEY }, ctx)).isError).toBe(true);
@@ -63,7 +80,7 @@ describe('delete_draft_credit_note', () => {
     const r = await deleteDraftCreditNoteTool.handler({ credit_note_id: NOTE, ...KEY }, ctx);
     expect(r.isError).toBeFalsy();
     expect(r.wroteNothing).toBeUndefined();
-    expect(deleteDraftCreditNote).toHaveBeenCalledWith(COMPANY, NOTE);
+    expect(deleteDraftCreditNote).toHaveBeenCalledWith(COMPANY, NOTE, 'u-1');
     expect(inRolledBackSavepoint).not.toHaveBeenCalled();
     const body = JSON.parse(text(r));
     expect(body).toMatchObject({ deleted: true, restorable: false });
@@ -77,7 +94,7 @@ describe('delete_draft_credit_note', () => {
   it('dry_run runs the real delete inside a rolled-back savepoint and frees the idempotency key', async () => {
     const r = await deleteDraftCreditNoteTool.handler({ credit_note_id: NOTE, dry_run: true, ...KEY }, ctx);
     expect(inRolledBackSavepoint).toHaveBeenCalledTimes(1);
-    expect(deleteDraftCreditNote).toHaveBeenCalledWith(COMPANY, NOTE);
+    expect(deleteDraftCreditNote).toHaveBeenCalledWith(COMPANY, NOTE, 'u-1');
     expect(r.wroteNothing).toBe(true);
     const body = JSON.parse(text(r));
     expect(body).toMatchObject({ dry_run: true, restorable: false });
@@ -93,6 +110,13 @@ describe('delete_draft_credit_note', () => {
     expect(text(dry)).toBe(text(live));
     expect(text(dry)).toContain('cancel_credit_note');
     expect(dry.wroteNothing).toBeUndefined();
+  });
+
+  it('the series-number refusal reaches the caller with its text', async () => {
+    vi.mocked(deleteDraftCreditNote).mockRejectedValue(refusal('OWN_SEQUENCE', 'Credit note RTN0000001 was numbered from the supplier return sequence'));
+    const r = await deleteDraftCreditNoteTool.handler({ credit_note_id: NOTE, ...KEY }, ctx);
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain('supplier return sequence');
   });
 
   it('a missing or foreign id reads as the generic Not found, never the service text', async () => {

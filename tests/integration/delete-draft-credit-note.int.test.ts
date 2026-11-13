@@ -21,14 +21,14 @@ const describeIfDb = DATABASE_URL ? describe : describe.skip;
 let fx: Fixture;
 let other: Fixture;
 const KEY = { idempotency_key: 'k-int' };
-const ctxFor = (f: Fixture) => ({ companyId: f.companyId, userId: f.userId, tokenJti: 'jti' }) as unknown as McpToolContext;
+const ctxFor = (f: Fixture, companyRole = 'owner') => ({ companyId: f.companyId, userId: f.userId, tokenJti: 'jti', companyRole }) as unknown as McpToolContext;
 const del = (id: string, extra: Record<string, unknown> = {}, f: Fixture = fx) =>
   inTx(f, () => deleteDraftCreditNoteTool.handler({ credit_note_id: id, ...KEY, ...extra }, ctxFor(f)));
 const text = (r: { content: { text: string }[] }) => r.content[0]!.text;
 
 let seq = 0;
 async function seedNote(over: {
-  type?: 'customer' | 'supplier'; status?: string; journal?: boolean; applied?: number; invoice?: string; bill?: string; f?: Fixture;
+  type?: 'customer' | 'supplier'; number?: string; status?: string; journal?: boolean; applied?: number; invoice?: string; bill?: string; f?: Fixture;
 } = {}): Promise<string> {
   const f = over.f ?? fx;
   const type = over.type ?? 'customer';
@@ -44,7 +44,7 @@ async function seedNote(over: {
     INSERT INTO credit_notes (company_id, type, client_id, supplier_id, customer_invoice_id, supplier_invoice_id, credit_note_number,
       credit_date, subtotal, tax_rate, tax_amount, total_amount, applied_amount, status, created_by, gl_journal_entry_id, reason, external_ref)
     VALUES (${f.companyId}::UUID, ${type}, ${type === 'customer' ? f.customerId : null}::UUID, ${type === 'supplier' ? f.supplierId : null}::UUID,
-      ${over.invoice ?? null}::UUID, ${over.bill ?? null}::UUID, ${`CN-T${++seq}-${f.tag.slice(-6)}`}, '2026-03-01'::DATE, 100, 15, 15, 115,
+      ${over.invoice ?? null}::UUID, ${over.bill ?? null}::UUID, ${over.number ?? `CN-2026-${90000 + ++seq}`}, '2026-03-01'::DATE, 100, 15, 15, 115,
       ${over.applied ?? 0}, ${over.status ?? 'draft'}, ${f.userId}::UUID, ${je}::UUID, 'int test', 'EXT-1')
     RETURNING id`) as { id: string }[])[0]!.id;
 }
@@ -59,6 +59,10 @@ async function statusOf(id: string): Promise<string | null> {
 async function journalCount(): Promise<number> {
   return Number(((await sql`SELECT COUNT(*) AS n FROM gl_journal_entries WHERE company_id = ${fx.companyId}::UUID`) as { n: string }[])[0]!.n);
 }
+async function auditRows(id: string) {
+  return (await sql`SELECT user_id, action, entity_type, entity_ref, changes FROM audit_log WHERE entity_id = ${id}::UUID`) as
+    { user_id: string; action: string; entity_type: string; entity_ref: string; changes: { fields: { field: string; old: string | null }[]; metadata: Record<string, string> } }[];
+}
 async function attach(id: string): Promise<string> {
   return ((await sql`
     INSERT INTO procurement_documents (entity_type, entity_id, document_name, uploaded_by)
@@ -70,6 +74,10 @@ describeIfDb('delete_draft_credit_note — over a real database', () => {
     assertNotProductionDb('This test creates and deletes credit notes.');
     fx = await seedFixture('DDC', DATABASE_URL!);
     other = await seedFixture('DDX', DATABASE_URL!);
+    // audit_log.user_id references users: the fixture's actor needs a row, as every real caller has one.
+    for (const f of [fx, other]) {
+      await sql`INSERT INTO users (id, email, role, is_active) VALUES (${f.userId}, ${`${f.userId}@test.local`}, 'viewer', true)`;
+    }
     await sql`
       INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance, is_active, is_system_account)
       VALUES (${fx.companyId}::UUID, '4000', ${`Revenue ${fx.tag}`}, 'revenue', 'default_revenue', 'credit', true, true)`;
@@ -83,6 +91,7 @@ describeIfDb('delete_draft_credit_note — over a real database', () => {
       await sql`DELETE FROM credit_note_allocations WHERE company_id = ${f.companyId}::UUID`;
       await sql`DELETE FROM credit_notes WHERE company_id = ${f.companyId}::UUID`;
       await dropFixture(f);
+      await sql`DELETE FROM users WHERE id = ${f.userId}`;
     }
   }, 120000);
 
@@ -96,6 +105,54 @@ describeIfDb('delete_draft_credit_note — over a real database', () => {
     const body = JSON.parse(text(r));
     expect(body).toMatchObject({ deleted: true, restorable: false });
     expect(body.deleted_note).toMatchObject({ credit_note_id: id, type: 'customer', total_amount: 115, credit_date: '2026-03-01', external_ref: 'EXT-1', client_id: fx.customerId });
+  });
+
+  it('writes an audit_log delete row with the note\'s values in the same transaction; none for a dry run or a refusal', async () => {
+    const id = await seedNote({ type: 'customer' });
+    await del(id, { dry_run: true });
+    expect(await auditRows(id)).toHaveLength(0);
+    const approved = await seedNote({ status: 'approved', journal: true });
+    await del(approved);
+    expect(await auditRows(approved)).toHaveLength(0);
+
+    await del(id);
+    const rows = await auditRows(id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ user_id: fx.userId, action: 'delete', entity_type: 'credit_note' });
+    const f = Object.fromEntries(rows[0]!.changes.fields.map((x) => [x.field, x.old]));
+    expect(f).toMatchObject({ credit_note_number: rows[0]!.entity_ref, total_amount: '115', client_id: fx.customerId, external_ref: 'EXT-1', status: 'draft' });
+    expect(rows[0]!.changes.metadata.source).toBe('mcp:delete_draft_credit_note');
+  });
+
+  it('a delete whose transaction rolls back leaves neither the note nor an audit row', async () => {
+    const id = await seedNote({ type: 'customer' });
+    const c = await fx.pool.connect();
+    try {
+      await c.query('BEGIN');
+      await runOn(fx, c, () => deleteDraftCreditNoteTool.handler({ credit_note_id: id, ...KEY }, ctxFor(fx)));
+      await c.query('ROLLBACK');
+    } finally { c.release(); }
+    expect(await exists(id)).toBe(true);
+    expect(await auditRows(id)).toHaveLength(0);
+  });
+
+  it('a draft numbered from the supplier return sequence is refused, kept and not audited', async () => {
+    const id = await seedNote({ type: 'supplier', number: 'RTN0000042' });
+    const r = await del(id);
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain('supplier return sequence');
+    expect(await exists(id)).toBe(true);
+    expect(await auditRows(id)).toHaveLength(0);
+    expect(text(await del(id, { dry_run: true }))).toBe(text(r));
+  });
+
+  it('a manager is refused before any read: the draft survives, dry run and live', async () => {
+    const id = await seedNote({ type: 'customer' });
+    for (const extra of [{}, { dry_run: true }]) {
+      const r = await inTx(fx, () => deleteDraftCreditNoteTool.handler({ credit_note_id: id, ...KEY, ...extra }, ctxFor(fx, 'manager')));
+      expect(text(r)).toBe('Only an owner or admin can delete a draft credit note.');
+    }
+    expect(await exists(id)).toBe(true);
   });
 
   it('deletes a supplier draft linked to a bill and leaves the bill untouched', async () => {
