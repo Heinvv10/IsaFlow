@@ -16,7 +16,8 @@
  *   follows its base again, through the same no-token / confirm / one-retry save, then re-reads.
  * - The payable pickers offer only the accounts the server accepts (`eligiblePayableAccounts`).
  * - A scenario's save compares with its BASE's resolved document (read beside it), so a field edited back to the
- *   base's value drops its override (review L7).
+ *   base's value drops its override (review L7). Until that base document has loaded, a scenario's save is blocked
+ *   with the reason (`baseBlock`) and `retryBase()` re-reads it: never a silent fallback (round 2).
  * - Every answer (read, save, derive) is checked against `seq`: one in flight when the version changes or the row
  *   is re-read never writes into the new form (review L6).
  */
@@ -53,6 +54,10 @@ export interface AssumptionsForm {
   /** The save without a token met a stored row: confirm to retry once with this token. */
   replaceToken: string | null;
   replaceWithDerived(): Promise<void>;
+  /** A scenario's save needs its base's resolved document: why the save is blocked (loading, failed), else null. */
+  baseBlock: string | null;
+  baseFailed: boolean;
+  retryBase(): void;
   /** A scenario over a base: store empty overrides so it follows the base again. */
   resetToBase(): Promise<void>;
   confirmReplace(): Promise<void>;
@@ -80,6 +85,16 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
   const seq = useRef(0);
   const replaceMode = useRef<SaveMode>('form');
   const [base, setBase] = useState<ThreeWayAssumptions | null>(null);
+  const [baseState, setBaseState] = useState<'none' | 'loading' | 'loaded' | 'failed'>('none');
+
+  /** The base's resolved document (a scenario's save compares with it); `mine` drops an answer the form moved past. */
+  const loadBase = useCallback((baseId: string, mine: number) => {
+    setBaseState('loading');
+    void fetchAssumptions(baseId).then((b) => {
+      if (mine !== seq.current) return;
+      if (b.ok) { setBase(b.data.resolved); setBaseState('loaded'); } else { setBase(null); setBaseState('failed'); }
+    });
+  }, []);
 
   useEffect(() => {
     const mine = ++seq.current;
@@ -89,6 +104,7 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
     setReplaceToken(null);
     setSaving(false);
     setBase(null);
+    setBaseState('none');
     void fetchAssumptions(versionId).then((r) => {
       if (mine !== seq.current) return;
       if (!r.ok) {
@@ -101,14 +117,12 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
       setView(r.data);
       setEdited(r.data.resolved);
       const baseId = r.data.version.basedOnVersionId;
-      if (savesOverrides(r.data) && baseId) {
-        void fetchAssumptions(baseId).then((b) => { if (mine === seq.current && b.ok) setBase(b.data.resolved); });
-      }
+      if (savesOverrides(r.data) && baseId) loadBase(baseId, mine);
       setGeneration((g) => g + 1);
       setStale(false);
       setSaveError(null);
     });
-  }, [versionId, attempt]);
+  }, [versionId, attempt, loadBase]);
 
   useEffect(() => {
     let gone = false;
@@ -127,6 +141,12 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
   const statusLocked = view?.version.status === 'locked';
   const readOnly = locked || statusLocked || lockedOnSave;
   const readOnlyReason = readOnly ? 'This version is locked: its assumptions are read-only until an owner unlocks it.' : null;
+  const baseBlock = baseState === 'loading' ? "Loading the base version's assumptions…"
+    : baseState === 'failed' ? "Base version's assumptions not loaded — retry" : null;
+  const retryBase = useCallback(() => {
+    const baseId = view?.version.basedOnVersionId;
+    if (baseId && baseState === 'failed') loadBase(baseId, seq.current);
+  }, [view, baseState, loadBase]);
   const dirty = view !== null && edited !== null && (replacing || JSON.stringify(view.resolved) !== JSON.stringify(edited));
 
   const update = useCallback((next: (doc: ThreeWayAssumptions) => ThreeWayAssumptions) => {
@@ -135,7 +155,7 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
 
   /** One PUT. `retried`: this is the confirmed retry of a replacement (never retried again). */
   const send = useCallback(async (token: string | null, retried: boolean, mode: SaveMode) => {
-    if (readOnly || (mode === 'form' && (!view || !edited))) return;
+    if (readOnly || (mode === 'form' && (!view || !edited || baseBlock !== null))) return;
     setSaving(true);
     setSaveError(null);
     const doc = mode === 'followBase' ? EMPTY_OVERRIDES : buildSaveDoc(view as AssumptionsView, edited as ThreeWayAssumptions, base);
@@ -159,7 +179,7 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
     }
     if (r.kind === 'locked') { setLockedOnSave(true); return; }
     setSaveError({ message: r.message, issues: r.kind === 'invalid' ? r.issues : [] });
-  }, [view, edited, readOnly, versionId, onSaved, replacing, base]);
+  }, [view, edited, readOnly, versionId, onSaved, replacing, base, baseBlock]);
 
   const save = useCallback(() => send(replacing ? null : view?.stored?.updatedAt ?? null, false, 'form'), [send, replacing, view]);
 
@@ -191,5 +211,5 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
   const discard = useCallback(() => { if (view) setEdited(view.resolved); setSaveError(null); }, [view]);
 
   return { view, edited, loadError, saving, saveError, stale, readOnly, readOnlyReason, dirty, accounts, loans, generation,
-    invalidDoc, replacing, replaceToken, replaceWithDerived, resetToBase, confirmReplace, update, save, reload, discard };
+    invalidDoc, replacing, replaceToken, replaceWithDerived, resetToBase, baseBlock, baseFailed: baseState === 'failed', retryBase, confirmReplace, update, save, reload, discard };
 }

@@ -23,6 +23,7 @@ import type { BudgetYearsAnswer } from '../helpers/budgetWorkspace';
 import type { ThreeWayAssumptions } from '@/modules/accounting/services/budgets/threeWay/assumptionsSchema';
 import { cleanUp, created, sweep, type GridAccount, type Version } from '../helpers/budgetDrivers';
 import { hostedFlagAvailable, setHostedFlag } from './helpers/hostedFeatureFlag';
+import { runAllCleanups } from './helpers/runAllCleanups';
 
 const PAGE = '/accounting/budgets/three-way';
 const PER_DAY = 1_000;
@@ -112,15 +113,25 @@ async function openTab(page: Page, tab: 'bs' | 'cf' | 'assumptions' | 'compare')
 }
 
 test.afterAll(async ({}, testInfo) => {
-  if (flagBefore) { await setHostedFlag(flagBefore.companyId, FLAG, flagBefore.enabled); flagBefore = undefined; }
-  if (created.size === 0) return;
-  const api = await Api.login(testInfo.project.use.baseURL!);
-  try {
-    const errors = await cleanUp(api);
-    if (errors.length > 0) throw new Error(`three-way cleanup: ${errors.join('; ')}`);
-  } finally {
-    await api.dispose();
-  }
+  // Each cleanup in its own try (runAllCleanups): a failed flag restore never skips the version delete, nor the reverse.
+  await runAllCleanups([
+    ['restore the flag override', async () => {
+      if (!flagBefore) return;
+      const { companyId, enabled } = flagBefore;
+      flagBefore = undefined;
+      await setHostedFlag(companyId, FLAG, enabled);
+    }],
+    ['delete the run\'s versions', async () => {
+      if (created.size === 0) return;
+      const api = await Api.login(testInfo.project.use.baseURL!);
+      try {
+        const errors = await cleanUp(api);
+        if (errors.length > 0) throw new Error(errors.join('; '));
+      } finally {
+        await api.dispose();
+      }
+    }],
+  ]);
 });
 
 test('three-way: balances, debtor days move cash, a scenario override, compare, light/dark 1280/390', async ({ page, baseURL }) => {

@@ -78,6 +78,12 @@ export function AssumptionsPanel({ versionId, locked, firstMonth = '', onSaved, 
         <AssumptionLists doc={edited} firstMonth={firstMonth} loans={form.loans} readOnly={form.readOnly} onChange={form.update} />
       </section>
       <ReplaceConfirm form={form} />
+      {form.baseBlock && !form.readOnly && (
+        <p data-testid="assumptions-base-missing" role="status" className="flex flex-wrap items-center gap-2 text-sm text-amber-800 dark:text-amber-300">
+          <span>{form.baseBlock}</span>
+          {form.baseFailed && <button type="button" className={BTN} onClick={form.retryBase}>Retry</button>}
+        </p>
+      )}
       {form.saveError && (
         <div role="alert" className="text-sm text-error-700 dark:text-error-400">
           <p>{form.saveError.message}</p>
@@ -86,7 +92,7 @@ export function AssumptionsPanel({ versionId, locked, firstMonth = '', onSaved, 
       )}
       {!form.readOnly && (
         <div className="sticky bottom-0 flex flex-wrap items-center gap-2 border-t border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] py-3">
-          <button type="button" className={PRIMARY} disabled={!form.dirty || form.saving || form.stale || form.replaceToken !== null} onClick={() => void form.save()}>
+          <button type="button" className={PRIMARY} disabled={!form.dirty || form.saving || form.stale || form.replaceToken !== null || form.baseBlock !== null} onClick={() => void form.save()}>
             {form.saving ? 'Saving…' : 'Save assumptions'}
           </button>
           <button type="button" className={BTN} disabled={!form.dirty || form.saving} onClick={form.discard}>Discard changes</button>

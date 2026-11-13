@@ -40,6 +40,9 @@ describe('setHostedFlag', () => {
 
   it.each([
     ['outside a hosted runner without GOLDEN_HOSTED_LOCAL', { GITHUB_ACTIONS: undefined }],
+    ['a self-hosted GitHub runner (GITHUB_ACTIONS=true, RUNNER_ENVIRONMENT=self-hosted)', { RUNNER_ENVIRONMENT: 'self-hosted' }],
+    ['GITHUB_ACTIONS=true with any other runner environment', { RUNNER_ENVIRONMENT: 'velo' }],
+    ['GITHUB_ACTIONS=true with no runner environment', { RUNNER_ENVIRONMENT: undefined }],
     ['a non-loopback host', { GOLDEN_HOSTED_DB_URL: 'postgresql://postgres@10.0.0.5:5555/isaflow_golden' }],
     ['another database', { GOLDEN_HOSTED_DB_URL: 'postgresql://postgres@127.0.0.1:7772/isaflow_dev' }],
   ])('refuses %s before connecting', async (_n, over) => {

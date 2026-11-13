@@ -25,6 +25,7 @@ Budgets P6 PR D, spec `docs/plans/budgets/P6-three-way-spec.md` §8, §10, **§1
 
 - Races (review round 1): a version switch clears the run at once and a run for another version is never drawn; Compare's picks belong to the version they were made on; every hook answer is checked against a sequence (`useThreeWay` runSeq incl. the no-version paths, `useAssumptionsForm` seq for save and derive); `useNavFlags` reads the flags of the company on screen at render. The switcher shows on every refused run; a switch writes `?version_id=` (shallow).
 - A scenario's save compares with its base's resolved document (read beside it): a field edited back to the base value drops its override.
+- A scenario override equal to the base's value is dropped on save: scenarios store differences only. Until the base document has loaded, a scenario's Save is disabled with the reason ("Base version's assumptions not loaded — retry") and a Retry; never a silent fallback.
 
 ## Tests
 `tests/unit/budgets/threeWay*.test.ts` (rows, client, compare, runway, assumptions model) and `tests/unit/components/budgets/threeWay/` (header chips, stale-409, read-only, compare ink); fixtures run the real pure engine. Nav: `tests/unit/flagNav.test.ts`, `tests/unit/components/flagNavCallSites.test.tsx`. Hooks for real: `threeWayHooks.test.tsx` (deferred, out-of-order answers). Golden (dev-only): `tests/e2e/golden-paths/z19-budgets-three-way.spec.ts`; its flag-off step writes the override only on up.sh's stack (`helpers/hostedFeatureFlag.ts`).

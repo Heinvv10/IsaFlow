@@ -6,7 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { assumptionsView, V1 } from './fixtures';
+import { assumptionsView, V1, V2 } from './fixtures';
 
 const h = vi.hoisted(() => ({ fetchAssumptions: vi.fn(), saveAssumptionsDoc: vi.fn(), fetchChartOfAccounts: vi.fn(), fetchLoans: vi.fn(), fetchDerive: vi.fn() }));
 vi.mock('@/components/accounting/budgets/threeWay/threeWayClient', () => h);
@@ -228,5 +228,46 @@ describe('payable-account pickers', () => {
     const issue = await screen.findByTestId('payable-issue-incomeTax');
     expect(issue.textContent).toMatch(/not a header, AP, VAT/);
     expect(screen.queryByTestId('payable-issue-dividends')).toBeNull();
+  });
+});
+
+describe("a scenario whose base version's assumptions are not loaded (round 2 LOW 3)", () => {
+  const scenarioView = () => {
+    const v = assumptionsView();
+    v.version = { ...v.version, kind: 'scenario', isPrimary: false, basedOnVersionId: V2 };
+    v.chain = [V1, V2];
+    return v;
+  };
+  const baseView = () => {
+    const v = assumptionsView();
+    v.version = { ...v.version, id: V2 };
+    return v;
+  };
+
+  it('Save is disabled with the reason until the base loads; Retry reads it; then the save stores only the differences', async () => {
+    h.fetchAssumptions.mockImplementation((id: string) => (id === V1
+      ? Promise.resolve({ ok: true, data: scenarioView() })
+      : Promise.resolve({ ok: false, kind: 'failed', message: 'down', status: 500 })));
+    await openPanel();
+    fireEvent.change(debtorDays(), { target: { value: '90' } });
+    const missing = await screen.findByTestId('assumptions-base-missing');
+    expect(missing.textContent).toContain("Base version's assumptions not loaded — retry");
+    expect((screen.getByRole('button', { name: 'Save assumptions' }) as HTMLButtonElement).disabled).toBe(true);
+    h.fetchAssumptions.mockImplementation((id: string) => Promise.resolve({ ok: true, data: id === V1 ? scenarioView() : baseView() }));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByTestId('assumptions-base-missing')).toBeNull());
+    expect(debtorDays().value).toBe('90');
+    h.saveAssumptionsDoc.mockResolvedValueOnce({ ok: true, data: { versionId: V1, doc: {}, updatedAt: 't2', updatedBy: 'u' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save assumptions' }));
+    await waitFor(() => expect(h.saveAssumptionsDoc).toHaveBeenCalled());
+    expect(h.saveAssumptionsDoc.mock.calls[0]![1]).toEqual({ schemaVersion: 1, overrides: { workingCapital: { debtorDays: { value: 90, source: 'manual' } } } });
+  });
+
+  it('while the base is still loading, Save stays disabled (no silent fallback)', async () => {
+    h.fetchAssumptions.mockImplementation((id: string) => (id === V1 ? Promise.resolve({ ok: true, data: scenarioView() }) : new Promise(() => undefined)));
+    await openPanel();
+    fireEvent.change(debtorDays(), { target: { value: '90' } });
+    expect((screen.getByRole('button', { name: 'Save assumptions' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('assumptions-base-missing').textContent).toMatch(/loading/i);
   });
 });
