@@ -22,7 +22,12 @@
  * there is nothing open stays on the note as on-account credit, visible through
  * `getUnappliedCreditNotes` and netted by the aged reports.
  *
- * `auto_apply: 'none'` turns the walk off: the linked document only.
+ * `auto_apply: 'linked'` turns the walk off: the linked document only.
+ * `auto_apply: 'none'` applies nothing at all: approval posts the journal and
+ * the whole credit stays on account (Hein, 2026-11-13 — until then 'none' meant
+ * what 'linked' means now, and CN-2026-00563 was applied to its linked bill by
+ * an agent that had asked for nothing). The approval service short-circuits
+ * 'none' before reaching this engine, so the engine takes only fifo | linked.
  *
  * ── WHY THE ROWS, NOT THE COLUMN ────────────────────────────────────────────
  *
@@ -56,8 +61,10 @@ import {
   undoApplication, writeApplication,
 } from './creditNoteApplicationWrites';
 
-export const CREDIT_NOTE_AUTO_APPLY = ['fifo', 'none'] as const;
+export const CREDIT_NOTE_AUTO_APPLY = ['fifo', 'linked', 'none'] as const;
 export type CreditNoteAutoApply = (typeof CREDIT_NOTE_AUTO_APPLY)[number];
+/** What the engine itself can do. 'none' never reaches it — there is nothing to apply. */
+export type CreditNoteApplyMode = Exclude<CreditNoteAutoApply, 'none'>;
 export type CreditNoteSide = 'customer' | 'supplier';
 
 /** A value from a request or a tool argument, or null when it is neither. */
@@ -114,7 +121,7 @@ export async function applyCreditNote(args: {
   entityId: string | null;
   totalAmount: number;
   linkedInvoiceId: string | null;
-  autoApply: CreditNoteAutoApply;
+  autoApply: CreditNoteApplyMode;
   /**
    * What this note has consumed ALREADY, per `credit_notes.applied_amount`.
    * Approval passes 0. It is checked against the allocation rows before

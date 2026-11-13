@@ -2,6 +2,7 @@
  * Payroll Employee Components card — assignment form + list of current assignments.
  * Used by /payroll/employees/[id].
  */
+import { Select } from '@/components/ui/Select';
 import { Fragment, useState } from 'react';
 import { Loader2, Plus, X, Repeat, Calendar, CalendarRange } from 'lucide-react';
 import { AssignmentDatesEditor } from './AssignmentDatesEditor';
@@ -76,13 +77,9 @@ export function EmployeeComponentsCard({
       <div className="mb-4 pb-4 border-b border-[var(--ff-border-primary)] space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:flex lg:items-end">
           <div className="min-w-0 lg:flex-1">
-            <label htmlFor="assign-component" className={label}>Component</label>
-            <select id="assign-component" className={field} value={newComponentId} onChange={e => onNewComponentId(e.target.value)}>
-              <option value="">Select a component…</option>
-              {components.map(c => (
-                <option key={c.id} value={c.id}>{c.name} ({c.componentType})</option>
-              ))}
-            </select>
+            <Select id="assign-component" label="Component" labelClassName={label} placeholder="Select a component…" searchable clearable
+              value={newComponentId || null} onChange={v => onNewComponentId(v ?? '')}
+              options={components.map(c => ({ value: c.id, label: `${c.name} (${c.componentType})` }))} />
           </div>
           <div className="lg:w-40">
             <label htmlFor="assign-amount" className={label}>Amount (R)</label>

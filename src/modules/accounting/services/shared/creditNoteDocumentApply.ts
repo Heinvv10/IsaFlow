@@ -8,7 +8,7 @@
  * THAT document.
  *
  * It writes through the one application engine (`applyCreditNote`, with the
- * named document as the link and `autoApply: 'none'`), so what it writes is
+ * named document as the link and `autoApply: 'linked'`), so what it writes is
  * cancellable by `cancel_credit_note` exactly like an approval's application,
  * and it posts NO journal: the note's journal already moved the control
  * account at approval; only the subledger moves here.
@@ -101,9 +101,9 @@ export async function applyCreditNoteToDocument(
     totalAmount: plan.amount,
     linkedInvoiceId: plan.invoiceId,
     // Belt and braces: `totalAmount` is already capped at the document's
-    // outstanding balance, so no remainder is ever left for a walk. 'none' says
+    // outstanding balance, so no remainder is ever left for a walk. 'linked' says
     // the intent anyway, should that cap ever move.
-    autoApply: 'none',
+    autoApply: 'linked',
     alreadyApplied: plan.noteAppliedBefore,
   });
   // Unreachable by construction: the document is locked and the plan refuses

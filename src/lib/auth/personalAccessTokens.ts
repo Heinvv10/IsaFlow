@@ -8,6 +8,7 @@
  * creation; revocation is instant (revoked_at IS NULL filter on every lookup).
  */
 
+import { isoOrNull } from './tokenExpiry';
 import { createHash, randomBytes } from 'crypto';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -27,6 +28,8 @@ export interface PatContext {
   userId: string;
   companyId: string;
   scopes: string[];
+  /** ISO timestamp, or null when unreadable; token_info reports it so an agent knows when to ask for a new token. */
+  expiresAt: string | null;
 }
 
 /**
@@ -58,7 +61,7 @@ export async function validatePat(rawToken: string, ip: string | null): Promise<
   const hash = createHash('sha256').update(rawToken).digest('hex');
 
   const rows = (await sql`
-    SELECT id, user_id, company_id, scopes
+    SELECT id, user_id, company_id, scopes, expires_at
     FROM personal_access_tokens
     WHERE token_hash = ${hash}
       AND revoked_at IS NULL
@@ -91,6 +94,7 @@ export async function validatePat(rawToken: string, ip: string | null): Promise<
     userId: row.user_id as string,
     companyId: row.company_id as string,
     scopes: Array.isArray(row.scopes) ? (row.scopes as string[]) : [],
+    expiresAt: isoOrNull(row.expires_at),
   };
 }
 

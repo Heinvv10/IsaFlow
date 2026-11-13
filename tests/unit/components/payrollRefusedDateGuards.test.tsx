@@ -2,6 +2,7 @@
  * A refused date reaches onChange as null. Each payroll date control must hold its action button until the text
  * is fixed, never act on "no date": Apply package, bulk Apply, the profile's end date and its date-of-birth bound.
  */
+import { pickKit } from '../../helpers/kitSelect';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
@@ -41,7 +42,7 @@ const saveButton = () => screen.getByRole('button', { name: /^save/i }) as HTMLB
 describe('refused dates hold the action', () => {
   it('Apply package waits for a refused effective-from date', async () => {
     render(<ApplyPackageCard employeeId="e1" />);
-    fireEvent.change(await screen.findByRole('combobox'), { target: { value: 'p1' } });
+    await pickKit(await screen.findByRole('combobox'), /Standard/);
     const apply = screen.getByRole('button', { name: /apply package/i }) as HTMLButtonElement;
     expect(apply.disabled).toBe(false);
     typeDate(/^Effective from/, '31 Feb 2026');
