@@ -5,13 +5,17 @@
  * delete routes) and this gating is cosmetic. Every transition needs a clean grid. Below `md` the
  * action buttons collapse into one menu (§12); Approve and Lock stay reachable there. P4 adds
  * "New reforecast from actuals" beside the copy-based "New reforecast" (when the workspace wires
- * it) and a slot after the status chip for the rolling forecast's controls.
+ * it) and a slot after the status chip for the rolling forecast's controls. P6 adds a "Three-way" link to the
+ * version's three-way budget, only for a company with the `budgets_three_way` flag.
  */
 import { useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import { Lock, Star } from 'lucide-react';
 import { ActionMenu, type ActionMenuItem } from '@/components/ui/ActionMenu';
 import { longDate } from '@/components/accounting/budgets/budgetClient';
 import { canWrite } from '@/lib/auth/writeRoles';
+import { useNavFlags } from '@/hooks/useNavFlags';
+import { flagOfHref, THREE_WAY_HREF } from '@/components/accounting/navSections/flagNav';
 import { VersionStatusDialogs, type RunVersionAction, type VersionAction } from './VersionStatusDialogs';
 import type { BudgetVersion } from './types';
 
@@ -91,6 +95,7 @@ export function VersionsBar(props: VersionsBarProps) {
   const cleanNote = dirty ? `Save or discard ${dirtyCount} change${dirtyCount === 1 ? '' : 's'} first` : undefined;
   const others = versions.filter((v) => v.id !== current?.id);
   const reforecast = canWriteRole(role) && current !== null;
+  const threeWay = useNavFlags().has(flagOfHref(THREE_WAY_HREF) ?? '');
 
   const menuItems: ActionMenuItem[] = [
     ...(reforecast ? [{ label: 'New reforecast', onClick: onNewReforecast, disabled: blocked }] : []),
@@ -140,6 +145,9 @@ export function VersionsBar(props: VersionsBarProps) {
           <option value="">Compare with…</option>
           {others.map((v) => <option key={v.id} value={v.id}>{versionOptionLabel(v)}</option>)}
         </select>
+      )}
+      {current && threeWay && (
+        <Link href={`${THREE_WAY_HREF}?version_id=${encodeURIComponent(current.id)}`} className={BTN} data-testid="version-three-way">Three-way</Link>
       )}
       {cleanNote && <span className="text-xs text-[var(--ff-text-secondary)]" data-testid="versions-clean-note">{cleanNote}</span>}
       {current && (
