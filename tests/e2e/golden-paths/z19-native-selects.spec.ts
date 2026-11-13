@@ -54,23 +54,44 @@ async function expectAxeClean(page: Page): Promise<void> {
 }
 
 /**
- * goto, then reload (at most twice) when an employee profile answers "not found" for an id its own list just showed: the
- * first request to that route on a dev server that is still compiling it does, and it is not what this spec tests.
+ * goto, then reload (at most twice) when an employee profile answers "... with identifier X not found" for an id its own
+ * list just showed. Two causes are suspected, neither is what this spec tests, and the logs say which: (1) a cold compile of
+ * the profile route on a dev server, (2) on dev a peer session switching the shared reporting-qa user's active company
+ * (the 404 then carries another companyId). Hosted CI gives each run its own seed, so cause (2) cannot happen there.
+ * Every reload is recorded as a test annotation, so the flake rate shows in the report. A dedicated QA user for dev
+ * goldens is a backlog item, not a fix made here.
  */
 async function gotoScreen(page: Page, path: string): Promise<void> {
   await page.goto(path);
-  for (let attempt = 0; attempt < 2 && (await page.getByText(/with identifier .* not found/i).count()) > 0; attempt++) {
+  for (let attempt = 1; attempt <= 2 && (await page.getByText(/with identifier .* not found/i).count()) > 0; attempt++) {
+    test.info().annotations.push({ type: 'reload-not-found', description: `${path} attempt ${attempt}` });
     await page.waitForTimeout(3_000);
     await page.reload();
   }
+  const listed = profileListCompany.get(page);
+  if (listed && /^\/payroll\/employees\/[0-9a-f-]{36}$/.test(path)) {
+    expect(await activeCompany(page), `the employee list was read under company ${listed}; the session's company changed before the profile loaded (another session switched it)`).toBe(listed);
+  }
 }
+
+/** The company a page's API calls run under, read from the app itself (the session can be switched by another session on dev). */
+const activeCompany = (page: Page): Promise<string> =>
+  page.evaluate(async () => {
+    const res = await fetch('/api/accounting/companies?action=user-companies', { credentials: 'include' });
+    const body = await res.json() as { data?: { activeCompanyId?: string } };
+    return String(body.data?.activeCompanyId ?? '');
+  });
+
+const profileListCompany = new WeakMap<Page, string>();
 
 async function profilePath(page: Page): Promise<string> {
   await page.goto('/payroll/employees');
+  const listCompany = await activeCompany(page);
   const link = page.locator('main a[href^="/payroll/employees/"]:not([href$="/new"]):not([href$="/bulk-update"])').first();
   await expect(link).toBeVisible({ timeout: 60_000 });
   const href = await link.getAttribute('href');
   expect(href).toMatch(/^\/payroll\/employees\/[0-9a-f-]{36}$/);
+  profileListCompany.set(page, listCompany);
   return href!;
 }
 
@@ -113,7 +134,7 @@ for (const theme of THEMES) {
     // employee profile (re-laid out by this work) load twice; the rest load once at 1568 and are resized (two loads per
     // screen pushed the hosted suite past its job timeout and the dev server toward its memory restart).
     test('screens at 1568 and 390px: 0 native selects, no sideways scroll at 390, axe clean at both', async ({ page }) => {
-      test.setTimeout(600_000);
+      test.setTimeout(300_000); // measured 0.5-3.5 min per theme at load 40; the golden job caps at 60 min for ~2 themes of this and every other spec
       const screens: Screen[] = [...SCREENS, { slug: 'employee-profile', path: await profilePath(page), ready: PROFILE_READY, fresh390: true }];
       for (const s of screens) {
         await page.setViewportSize({ width: 1568, height: 900 });
