@@ -3,8 +3,8 @@
  * the figure the answer quoted). A link with a missing, unreal or reversed date is ignored whole and the page keeps its own
  * default. `held` tells the page's own settings load not to put its default back over the link's period.
  */
-import { useEffect, type MutableRefObject } from 'react';
-import { useRouter } from 'next/router';
+import { useContext, useEffect, type MutableRefObject } from 'react';
+import { RouterContext } from 'next/dist/shared/lib/router-context.shared-runtime';
 import { localDateFromISO } from '@/lib/dateUtils';
 
 export function readDeepLinkPeriod(query: Record<string, string | string[] | undefined>): { from: string; to: string } | null {
@@ -17,7 +17,8 @@ export function readDeepLinkPeriod(query: Record<string, string | string[] | und
 export function useReturnDeepLink(
   setFrom: (v: string) => void, setTo: (v: string) => void, held?: MutableRefObject<boolean>,
 ): void {
-  const router = useRouter();
+  // The context, not useRouter(): it is null (no link) where no router is mounted, instead of throwing.
+  const router = useContext(RouterContext);
   const ready = router?.isReady ?? false;
   const query = router?.query;
   useEffect(() => {
