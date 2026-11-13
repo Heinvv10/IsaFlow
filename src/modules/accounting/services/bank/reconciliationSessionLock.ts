@@ -7,6 +7,17 @@
  * closed on `matched`). The same id on an imported / allocated / provisional / excluded line is a STALE stamp —
  * `bankReconciliationClaim.ts` re-claims it — and writes to that line proceed.
  *
+ * ONE EXCEPTION (2026-11-13): `bankReallocationService.reallocateReconciledTransaction` (MCP
+ * `reallocate_bank_transaction`) may move a completed session's line to ANOTHER journal line — and nothing else may.
+ * It holds the session FOR SHARE and the line FOR UPDATE (`lockBankTransactionForUpdate`), re-checks the line is
+ * still reconciled on exactly that completed session inside `allocateTransaction` (`opts.reallocation`,
+ * `bankReallocationGuards.assertReallocatableRow`), keeps the line `reconciled` with the same `reconciliation_id` and
+ * review stamp, and asserts the new bank leg has the same account, amount and date as the old — so the session's
+ * signed-off figures (bank GL balance as at the statement date, the reconciled lines) do not move. The exception
+ * lives in application code (pinned by `bankReallocationCensus.test.ts`); a future SQL / trigger enforcement of D12
+ * must give `reallocateReconciledTransaction` a session-local exemption (a transaction-local setting it sets itself),
+ * because the census cannot see a trigger.
+ *
  * ── THE SESSION ROW SERIALISES THEM ────────────────────────────────────────
  *
  * Every line writer takes the session row FOR SHARE (writers must not serialise each other), and so does an
