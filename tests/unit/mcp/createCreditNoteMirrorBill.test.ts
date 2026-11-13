@@ -52,7 +52,7 @@ describe('create_credit_note mirror_bill — the plan', () => {
     vi.mocked(planMirroredSupplierNote).mockResolvedValue({ ok: true, plan, acknowledged: true });
     const r = parseOk(await createCreditNoteTool.handler({ ...base, mirror_bill: true, acknowledge_vat_already_reversed: true }, ctx()));
     expect(planMirroredSupplierNote).toHaveBeenCalledWith(COMPANY, SUPP_INV, 1000, true);
-    expect(createCreditNote).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ taxRate: 0, taxAmount: 0, subtotal: 1000 }),
+    expect(createCreditNote).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ taxRate: 0, taxAmount: 0, subtotal: 1000, vatBasis: 'mirror_bill' }),
       expect.any(String), expect.anything());
     expect(vi.mocked(findOpenDuplicateDraft).mock.calls[0]![2]).toBe(1000);
     expect(r.mirror).toMatchObject({ acknowledged_vat_already_reversed: true, vat_out_of_proportion: 260.87 });
@@ -72,6 +72,7 @@ describe('create_credit_note mirror_bill — the plan', () => {
     expect(planMirroredSupplierNote).not.toHaveBeenCalled();
     const input = vi.mocked(createCreditNote).mock.calls[0]![1] as unknown as Record<string, unknown>;
     expect(input).not.toHaveProperty('taxAmount');
+    expect(input).not.toHaveProperty('vatBasis');
     expect(input.taxRate).toBeUndefined();
     expect(vi.mocked(findOpenDuplicateDraft).mock.calls[0]![2]).toBe(1150);
   });

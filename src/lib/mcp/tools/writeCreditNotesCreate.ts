@@ -203,7 +203,7 @@ export const createCreditNoteTool: McpTool = {
         reason: strArg(args, 'reason'),
         subtotal,
         taxRate: mirrored ? mirrored.taxRate : taxRate,
-        ...(mirrored ? { taxAmount: mirrored.taxAmount } : {}),
+        ...(mirrored ? { taxAmount: mirrored.taxAmount, vatBasis: 'mirror_bill' as const } : {}),
         glAccountId,
       },
       ctx.userId,

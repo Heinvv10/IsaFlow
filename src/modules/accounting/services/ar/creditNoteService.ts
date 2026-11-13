@@ -134,6 +134,10 @@ export async function createCreditNote(companyId: string,
     if (glAccountId && input.type !== 'supplier') {
       throw new CreditNoteLinkError('glAccountId can only be set on a supplier credit note');
     }
+    const vatBasis = input.vatBasis ?? 'rate';
+    if (vatBasis !== 'rate' && (vatBasis !== 'mirror_bill' || input.type !== 'supplier' || !input.supplierInvoiceId)) {
+      throw new CreditNoteLinkError('vatBasis mirror_bill needs a supplier credit note linked to a bill');
+    }
     if (input.type === 'supplier') {
       // 892: the note's own account follows the bill-line rule; header tags are refused on a linked note.
       if (glAccountId) await assertBillLineAccounts(companyId, [glAccountId]);
@@ -164,7 +168,7 @@ export async function createCreditNote(companyId: string,
         company_id,
         type, client_id, customer_invoice_id, supplier_id, supplier_invoice_id,
         credit_date, reason, subtotal, tax_rate, tax_amount, total_amount,
-        project_id, created_by, actor_type, actor_token_jti, cc1_id, cc2_id, bu_id, gl_account_id
+        project_id, created_by, actor_type, actor_token_jti, cc1_id, cc2_id, bu_id, gl_account_id, vat_basis
       ) VALUES (
         ${companyId}::UUID,
         ${input.type}, ${input.clientId || null}, ${input.customerInvoiceId || null},
@@ -175,7 +179,7 @@ export async function createCreditNote(companyId: string,
         ${projectId}, ${userId}::UUID,
         ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null},
         ${dims?.cc1Id || null}::UUID, ${dims?.cc2Id || null}::UUID, ${dims?.buId || null}::UUID,
-        ${glAccountId}::UUID
+        ${glAccountId}::UUID, ${vatBasis}
       ) RETURNING *
     `) as Record<string, unknown>[];
 

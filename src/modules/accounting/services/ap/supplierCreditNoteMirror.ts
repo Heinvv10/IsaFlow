@@ -25,9 +25,10 @@
  * Drafts count: every other live, unposted (draft) note on the bill is taken off
  * the base and VAT first, under the bill's credit-note key, so two mirrored
  * drafts cannot each take the whole remaining VAT. The figure is then fixed on
- * the draft; approval does not re-read it — a NON-mirrored note or a journal
- * posted against the bill after this create is not seen (open: needs a marker
- * on the note to re-check only mirrored notes at approve).
+ * the draft, marked `vat_basis = 'mirror_bill'` (migration 988), and approval
+ * re-checks it against the bill's standing VAT (supplierCreditNoteMirrorApprove),
+ * so a note or journal posted against the bill after this create cannot make
+ * the approval reverse VAT twice.
  */
 import { sql } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';

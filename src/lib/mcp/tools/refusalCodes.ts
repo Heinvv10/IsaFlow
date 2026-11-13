@@ -250,6 +250,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // blank reason, document not found, or not currently marked (unmark) —
   // reports/vatDeclaredElsewhereService. Names no id/amount/table beyond the
   // caller's own document, scoped by company_id. Pre-write.
+  // 988: approving a mirror_bill credit note whose bill no longer carries its VAT (ap/supplierCreditNoteMirrorApprove).
+  // Names the note's own number, its VAT and the bill's standing VAT; raised under the bill's key, before any write.
+  'VAT_ALREADY_REVERSED',
   'VAT_DECLARED_ELSEWHERE_FORBIDDEN',
   'VAT_DECLARED_ELSEWHERE_REFUSED',
   // R-032 L5: an approve/post/file/close act refused to a platform-admin
