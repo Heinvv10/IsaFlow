@@ -48,7 +48,7 @@ export async function generatedRuns(
       MAX(j.entry_date::TEXT) FILTER (WHERE j.live AND date_trunc(${unit}::TEXT, j.entry_date) = date_trunc(${unit}::TEXT, ${date}::DATE))
         AS clash,
       MAX(j.entry_date::TEXT) FILTER (WHERE j.live) AS last_live,
-      COUNT(j.*) AS linked,
+      COUNT(*) AS linked,
       (${lastRunDate}::DATE IS NOT NULL
         AND date_trunc(${unit}::TEXT, ${date}::DATE) = date_trunc(${unit}::TEXT, ${lastRunDate}::DATE)) AS same_as_last_run
     FROM (
