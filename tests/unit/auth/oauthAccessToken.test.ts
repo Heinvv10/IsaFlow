@@ -55,6 +55,7 @@ describe('validateOauthAccessToken', () => {
     company_id: COMPANY_ID,
     scopes: ['read:reports'],
     access_token_expires_at: new Date('2027-01-01T00:00:00Z'),
+    refresh_token_expires_at: new Date('2027-03-01T00:00:00Z'),
   };
 
   it('valid oat_ → returns the full authorisation context, looked up by hash only', async () => {
@@ -66,6 +67,8 @@ describe('validateOauthAccessToken', () => {
       userId: USER_ID,
       companyId: COMPANY_ID,
       scopes: ['read:reports'],
+      expiresAt: '2027-01-01T00:00:00.000Z',
+      refreshExpiresAt: '2027-03-01T00:00:00.000Z',
     });
     expect(sqlCallValues(0)).toContain(sha256Hex(RAW));
     expect(allSqlValues()).not.toContain(RAW);
