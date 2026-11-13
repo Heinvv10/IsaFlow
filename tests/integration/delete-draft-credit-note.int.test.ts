@@ -9,6 +9,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { deleteDraftCreditNoteTool } from '@/lib/mcp/tools/writeDeleteDraftCreditNote';
+import { reserveNextDocumentNumber } from '@/modules/accounting/services/core/companySettingsService';
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteApproveService';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
@@ -144,6 +145,30 @@ describeIfDb('delete_draft_credit_note — over a real database', () => {
     expect(await exists(id)).toBe(true);
     expect(await auditRows(id)).toHaveLength(0);
     expect(text(await del(id, { dry_run: true }))).toBe(text(r));
+  });
+
+  it('a return numbered through the real sequence under a CN-looking prefix is refused and kept; a trigger CN still deletes', async () => {
+    await sql`INSERT INTO company_document_numbers (company_id, document_type, prefix, next_number, padding)
+      VALUES (${fx.companyId}::UUID, 'supplier_return', 'CN-2026-', 42, 7)
+      ON CONFLICT (company_id, document_type) DO UPDATE SET prefix = 'CN-2026-', next_number = 42, padding = 7`;
+    try {
+      const reserved = await inTx(fx, () => reserveNextDocumentNumber(fx.companyId, 'supplier_return'));
+      expect(reserved).toBe('CN-2026-0000042');
+      const ret = await seedNote({ type: 'supplier', number: reserved });
+      const r = await del(ret);
+      expect(r.isError).toBe(true);
+      expect(text(r)).toContain('supplier return sequence');
+      expect(text(await del(ret, { dry_run: true }))).toBe(text(r));
+      expect(await exists(ret)).toBe(true);
+      expect(await auditRows(ret)).toHaveLength(0);
+
+      // A trigger number outside the prefix (a different year) deletes as before.
+      const trigger = await seedNote({ type: 'customer', number: 'CN-2025-00007' });
+      expect((await del(trigger)).isError).toBeFalsy();
+      expect(await exists(trigger)).toBe(false);
+    } finally {
+      await sql`UPDATE company_document_numbers SET prefix = 'RTN' WHERE company_id = ${fx.companyId}::UUID AND document_type = 'supplier_return'`;
+    }
   });
 
   it('a manager is refused before any read: the draft survives, dry run and live', async () => {

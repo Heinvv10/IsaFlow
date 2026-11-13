@@ -8,10 +8,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/core/auditTrailService', () => ({ logAuditOrThrow: vi.fn() }));
+vi.mock('@/modules/accounting/services/core/companySettingsService', () => ({ getDocumentNumbers: vi.fn() }));
 vi.mock('@/modules/accounting/services/ar/creditNoteLock', () => ({ lockCreditNoteForUpdate: vi.fn() }));
 
 import { sql } from '@/lib/neon';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
+import { getDocumentNumbers } from '@/modules/accounting/services/core/companySettingsService';
 import { lockCreditNoteForUpdate } from '@/modules/accounting/services/ar/creditNoteLock';
 import { CreditNoteDeleteRefusal, deleteDraftCreditNote } from '@/modules/accounting/services/ar/creditNoteDeleteService';
 
@@ -44,6 +46,10 @@ function db(over: { alloc?: number; dispute?: boolean; pending?: boolean } = {})
   }) as never);
 }
 
+function returnPrefix(prefix: string | null) {
+  vi.mocked(getDocumentNumbers).mockResolvedValue((prefix === null ? [] : [{ documentType: 'supplier_return', prefix }]) as never);
+}
+
 async function refusalOf(p: Promise<unknown>): Promise<CreditNoteDeleteRefusal> {
   const err = await p.then(() => null, (e: unknown) => e);
   expect(err).toBeInstanceOf(CreditNoteDeleteRefusal);
@@ -54,6 +60,7 @@ beforeEach(() => {
   vi.mocked(sql).mockReset();
   vi.mocked(lockCreditNoteForUpdate).mockReset();
   vi.mocked(logAuditOrThrow).mockReset();
+  returnPrefix('RTN');
   vi.mocked(lockCreditNoteForUpdate).mockResolvedValue(note() as never);
   db();
 });
@@ -170,5 +177,29 @@ describe('deleteDraftCreditNote', () => {
   it.each(['CN-2026-00001', 'CN-2026-123456'])('a trigger-issued %s is deletable', async (number) => {
     vi.mocked(lockCreditNoteForUpdate).mockResolvedValue(note({ credit_note_number: number }) as never);
     expect((await deleteDraftCreditNote(COMPANY, ID, USER)).creditNoteNumber).toBe(number);
+  });
+
+  it('reads the supplier_return prefix for THIS company', async () => {
+    await deleteDraftCreditNote(COMPANY, ID, USER);
+    expect(getDocumentNumbers).toHaveBeenCalledWith(COMPANY);
+  });
+
+  it('a return numbered under a prefix that LOOKS like the credit-note series is refused (prefix "CN-2026-")', async () => {
+    returnPrefix('CN-2026-');
+    vi.mocked(lockCreditNoteForUpdate).mockResolvedValue(note({ credit_note_number: 'CN-2026-0000042', type: 'supplier' }) as never);
+    const e = await refusalOf(deleteDraftCreditNote(COMPANY, ID, USER));
+    expect(e.code).toBe('OWN_SEQUENCE');
+    expect(wrote()).toBe(false);
+  });
+
+  it('with the same prefix a number outside it is still deletable', async () => {
+    returnPrefix('CN-2026-');
+    vi.mocked(lockCreditNoteForUpdate).mockResolvedValue(note({ credit_note_number: 'CN-2025-00007' }) as never);
+    expect((await deleteDraftCreditNote(COMPANY, ID, USER)).creditNoteNumber).toBe('CN-2025-00007');
+  });
+
+  it.each([null, '', '   '])('an unset or blank prefix (%j) refuses nothing extra', async (prefix) => {
+    returnPrefix(prefix);
+    expect((await deleteDraftCreditNote(COMPANY, ID, USER)).creditNoteNumber).toBe('CN-2026-00001');
   });
 });

@@ -7,7 +7,8 @@
  * re-read inside it: a concurrent `approve_credit_note` either holds the row first (this waits, then sees
  * `approved` and refuses) or waits behind this (and finds the note gone).
  *
- * A draft numbered from the supplier return sequence (anything but the trigger's CN-<year>-<n>) is refused: its
+ * A draft numbered from the supplier return sequence (anything but the trigger's CN-<year>-<n>, or anything starting
+ * with the company's current supplier_return prefix) is refused: its
  * number came off a sequential series and a hard delete would leave a permanent gap. The delete writes an
  * `audit_log` row ('delete', entity_type 'credit_note', the note's values) in the same transaction.
  *
@@ -30,6 +31,7 @@ import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow, type AuditFieldChange } from '../core/auditTrailService';
+import { getDocumentNumbers } from '../core/companySettingsService';
 import { lockCreditNoteForUpdate } from './creditNoteLock';
 
 export type CreditNoteDeleteRefusalCode =
@@ -72,6 +74,17 @@ export interface DeletedCreditNote {
  * nothing else on the row. Deleting one would leave a permanent gap in that sequential series.
  */
 const CREDIT_NOTE_SERIES = /^CN-\d{4}-\d+$/;
+
+/**
+ * The company's CURRENT `supplier_return` prefix (a free-text setting). A prefix such as "CN-2026-" makes a return
+ * look like a trigger number, so the series test alone is not enough. Company-scoped read, in the delete's
+ * transaction. Empty when unset or blank: every note would otherwise match.
+ * LIMIT: a return numbered under an EARLIER prefix that looks like CN-<year>-<n> is not recognised.
+ */
+async function supplierReturnPrefix(companyId: string): Promise<string> {
+  const rows = await getDocumentNumbers(companyId);
+  return rows.find((d) => d.documentType === 'supplier_return')?.prefix.trim() ?? '';
+}
 
 const APPROVAL_TYPES = ['customer_credit_note', 'supplier_credit_note', 'credit_note'];
 
@@ -132,7 +145,8 @@ export async function deleteDraftCreditNote(companyId: string, id: string, userI
   const number = String(cn.credit_note_number ?? id);
   const status = String(cn.status);
   if (status !== 'draft') throw new CreditNoteDeleteRefusal('NOT_DRAFT', notDraftMessage(number, status));
-  if (!CREDIT_NOTE_SERIES.test(number)) {
+  const returnPrefix = await supplierReturnPrefix(companyId);
+  if (!CREDIT_NOTE_SERIES.test(number) || (returnPrefix !== '' && number.startsWith(returnPrefix))) {
     throw new CreditNoteDeleteRefusal('OWN_SEQUENCE',
       `Credit note ${number} was numbered from the supplier return sequence, not the credit-note series, so deleting it `
       + 'would leave a permanent gap in that sequence. It cannot be deleted. Leave it as a draft, or approve it and then '
