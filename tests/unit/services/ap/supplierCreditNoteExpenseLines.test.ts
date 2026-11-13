@@ -177,6 +177,8 @@ describe('pure helpers', () => {
     expect(isBillExpenseLeg({ gl_account_id: AP, account_subtype: null }, roles)).toBe(false);
     expect(isBillExpenseLeg({ gl_account_id: 'x', account_subtype: 'payable' }, roles)).toBe(false);
     expect(isBillExpenseLeg({ gl_account_id: 'x', account_subtype: 'vat_input' }, roles)).toBe(false);
+    // The s16(3) late-claim clearing leg is VAT: crediting it is refused by lateClaimClearingGuard (step 5 review A1).
+    expect(isBillExpenseLeg({ gl_account_id: 'x', account_subtype: 'vat_input_late_claim' }, roles)).toBe(false);
   });
 
   it('billExpenseLegs reads what earlier notes took per journal line', () => {
