@@ -11,6 +11,7 @@ import type { CompareView } from '@/modules/accounting/services/budgets/threeWay
 import { fetchCompare } from './threeWayClient';
 import { deltaColour, deltaPctText, kpiRows } from './compareModel';
 import { buildRunwayOption, MAX_RUNWAY_SERIES } from './runwayOption';
+import { warningText } from './warningText';
 
 const R = (cents: number): string => formatStatementFigure(cents / 100, { symbol: true });
 const signed = (cents: number): string => (cents > 0 ? `+${R(cents)}` : R(cents));
@@ -89,6 +90,13 @@ export function CompareTab({ versions, currentId }: CompareTabProps) {
               </tbody>
             </table>
           </div>
+          {data.versions.some((v) => v.warnings.length > 0) && (
+            <ul data-testid="compare-warnings" className="space-y-1 text-xs text-[var(--ff-text-secondary)]">
+              {data.versions.flatMap((v) => v.warnings.map((w, i) => (
+                <li key={`${v.versionId}-${w.code}-${i}`}><span className="font-medium text-[var(--ff-text-primary)]">{v.name}:</span> {warningText(w)}</li>
+              )))}
+            </ul>
+          )}
         </>
       )}
     </div>

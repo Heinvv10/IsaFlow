@@ -61,6 +61,16 @@ describe('CompareTab', () => {
     expect(within(table).queryByTestId(`delta-closingCash-${V1}`)).toBeNull();
   });
 
+  it("each version's run warnings are listed under its name", async () => {
+    const withWarnings: CompareView = { ...answer, versions: answer.versions.map((v, i) => (i === 1 ? { ...v, warnings: [{ code: 'negative_cash', months: ['2026-04'] }] } : v)) };
+    h.fetchCompare.mockResolvedValue({ ok: true, data: withWarnings });
+    render(<CompareTab versions={versions} currentId={V1} />);
+    fireEvent.click(screen.getByLabelText('Worst'));
+    const list = await screen.findByTestId('compare-warnings');
+    expect(list.textContent).toMatch(/Worst: Cash below zero in 2026-04/);
+    expect(list.textContent).not.toMatch(/FY2027 Plan:/);
+  });
+
   it('a refused compare shows its message', async () => {
     h.fetchCompare.mockResolvedValue({ ok: false, kind: 'invalid', message: 'Compare versions of one financial year only', code: 'BUDGET_THREE_WAY_INPUT' });
     render(<CompareTab versions={versions} currentId={V1} />);

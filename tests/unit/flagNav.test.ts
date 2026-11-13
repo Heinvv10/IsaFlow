@@ -83,3 +83,16 @@ describe('buildNavIndex applies it (the command palette and page titles read the
     expect(e?.trail).toEqual(['Accounting', 'Management Accounting']);
   });
 });
+
+describe('document title (ShellTitle over buildPageIndex) follows the flags', () => {
+  it('flag on: "Three-Way Budget · Accounting · IsaFlow"', async () => {
+    const { buildPageIndex } = await import('@/components/accounting/navSections/pageRegistry');
+    const { documentTitle } = await import('@/components/layout/shellRoutes');
+    expect(documentTitle(`${THREE_WAY_HREF}?version_id=x`, buildPageIndex(true, ON))).toBe('Three-Way Budget · Accounting · IsaFlow');
+  });
+  it('no flags (the default): the page is titled by its parent, never named', async () => {
+    const { buildPageIndex } = await import('@/components/accounting/navSections/pageRegistry');
+    const { documentTitle } = await import('@/components/layout/shellRoutes');
+    expect(documentTitle(THREE_WAY_HREF, buildPageIndex(true))).not.toContain('Three-Way');
+  });
+});

@@ -32,6 +32,7 @@ export function ThreeWayPage() {
   const cf = useMemo(() => (run ? cashFlowModel(run) : null), [run]);
   const ind = useMemo(() => (run ? indirectModel(run) : null), [run]);
   const locked = run?.version.status === 'locked';
+  const current = data.versions.find((v) => v.id === data.versionId);
 
   return (
     <div className="mx-auto w-full max-w-[100rem] min-w-0 space-y-4 p-4 sm:p-6" data-testid="three-way-page">
@@ -56,8 +57,8 @@ export function ThreeWayPage() {
           <select aria-label="Budget version" className={SELECT} value={data.versionId} onChange={(e) => data.select(e.target.value)}>
             {data.versions.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
           </select>
-          <AssumptionsPanel versionId={data.versionId} locked={data.versions.find((v) => v.id === data.versionId)?.status === 'locked'}
-            onSaved={data.reload} />
+          <AssumptionsPanel versionId={data.versionId} locked={current?.status === 'locked'} onSaved={data.reload}
+            scenarioWithBase={current?.kind === 'scenario' && current.basedOnVersionId !== null} />
         </div>
       )}
       {data.loading && !run && <p className="text-sm text-[var(--ff-text-secondary)]">Projecting the balance sheet and cash flow…</p>}
@@ -83,7 +84,8 @@ export function ThreeWayPage() {
               </div>
             )}
             {tab === 'assumptions' && (
-              <AssumptionsPanel versionId={data.versionId} locked={locked} firstMonth={run.months[0]} onSaved={data.reload} />
+              <AssumptionsPanel versionId={data.versionId} locked={locked} firstMonth={run.months[0]} onSaved={data.reload}
+                scenarioWithBase={current?.kind === 'scenario' && current.basedOnVersionId !== null} />
             )}
             {tab === 'compare' && <CompareTab versions={data.versions} currentId={data.versionId} />}
           </div>

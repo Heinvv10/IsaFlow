@@ -4,7 +4,7 @@
  * 409 STALE shows a reload prompt (the edits stay until Reload); a locked version is read-only. A scenario over a
  * base saves its changes as overrides (`buildSaveDoc`).
  */
-import { PROV_FIELDS, SECTION_TITLES, savesOverrides, type ProvSection } from './assumptionsModel';
+import { PROV_FIELDS, SECTION_TITLES, payableIssue, savesOverrides, type ProvSection } from './assumptionsModel';
 import { PayablePicker, ProvFieldRow } from './AssumptionFields';
 import { AssumptionLists } from './AssumptionLists';
 import { useAssumptionsForm } from './useAssumptionsForm';
@@ -24,19 +24,24 @@ export interface AssumptionsPanelProps {
   firstMonth?: string;
   /** A save landed: re-run the three-way. */
   onSaved: () => void;
+  /** A scenario over a base: an invalid stored document is reset to empty overrides, not replaced by derived defaults. */
+  scenarioWithBase?: boolean;
 }
 
-export function AssumptionsPanel({ versionId, locked, firstMonth = '', onSaved }: AssumptionsPanelProps) {
-  const form = useAssumptionsForm(versionId, locked, onSaved);
+export function AssumptionsPanel({ versionId, locked, firstMonth = '', onSaved, scenarioWithBase = false }: AssumptionsPanelProps) {
+  const form = useAssumptionsForm(versionId, locked, onSaved, scenarioWithBase);
+  const issues = form.saveError?.issues ?? [];
   const { view, edited } = form;
   if (form.loadError) return <p role="alert" className="text-sm text-error-700 dark:text-error-400">{form.loadError}</p>;
-  if (form.invalidDoc && (!view || !edited)) return <InvalidDocNotice form={form} />;
+  if (form.invalidDoc && (!view || !edited)) {
+    return <div className="space-y-3"><InvalidDocNotice form={form} scenarioWithBase={scenarioWithBase} /><ReplaceConfirm form={form} /></div>;
+  }
   if (!view || !edited) return <p className="text-sm text-[var(--ff-text-secondary)]">Loading the assumptions…</p>;
   const derived = view.derived.assumptions;
   const ev = view.derived.evidence;
   return (
     <div className="space-y-4" key={form.generation} data-testid="assumptions-panel">
-      <InvalidDocNotice form={form} />
+      <InvalidDocNotice form={form} scenarioWithBase={scenarioWithBase} />
       {view.warnings.map((w) => <p key={w.accountId} className="text-xs text-amber-800 dark:text-amber-300">{warningText(w)}</p>)}
       {form.readOnly && <p data-testid="assumptions-readonly" className="text-sm text-[var(--ff-text-secondary)]">{form.readOnlyReason}</p>}
       {form.stale && (
@@ -59,7 +64,7 @@ export function AssumptionsPanel({ versionId, locked, firstMonth = '', onSaved }
             ))}
             {s === 'incomeTax' && (
               <PayablePicker label="Income tax payable account" value={edited.incomeTax.payableAccountId} accounts={form.accounts}
-                evidence={ev.payableAccounts.incomeTaxPayable.basis} readOnly={form.readOnly}
+                evidence={ev.payableAccounts.incomeTaxPayable.basis} readOnly={form.readOnly} issue={payableIssue(issues, 'incomeTax')} testId="payable-issue-incomeTax"
                 onChange={(id) => form.update((d) => ({ ...d, incomeTax: { ...d.incomeTax, payableAccountId: id } }))} />
             )}
           </div>
@@ -68,7 +73,7 @@ export function AssumptionsPanel({ versionId, locked, firstMonth = '', onSaved }
       <section className={CARD} aria-labelledby="tw-sec-lists">
         <h3 id="tw-sec-lists" className="mb-2 text-sm font-semibold text-[var(--ff-text-primary)]">Capex, loans and equity</h3>
         <PayablePicker label="Dividends payable account" value={edited.equity.dividendsPayableAccountId} accounts={form.accounts}
-          evidence={ev.payableAccounts.dividendsPayable.basis} readOnly={form.readOnly}
+          evidence={ev.payableAccounts.dividendsPayable.basis} readOnly={form.readOnly} issue={payableIssue(issues, 'dividends')} testId="payable-issue-dividends"
           onChange={(id) => form.update((d) => ({ ...d, equity: { ...d.equity, dividendsPayableAccountId: id } }))} />
         <AssumptionLists doc={edited} firstMonth={firstMonth} loans={form.loans} readOnly={form.readOnly} onChange={form.update} />
       </section>

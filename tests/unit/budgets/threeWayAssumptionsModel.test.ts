@@ -75,3 +75,20 @@ describe('form conversions', () => {
     expect(parseInput(field('incomeTax.topUpMonthOffset'), '7')).toBe(7);
   });
 });
+
+describe('eligiblePayableAccounts (the server rule: leaf liability, would sit in other liabilities, no loan account)', () => {
+  const acc = (id: string, over: Record<string, unknown> = {}) => ({
+    id, accountCode: id, accountName: `A ${id}`, accountType: 'liability', accountSubtype: undefined as string | undefined,
+    parentAccountId: undefined as string | undefined, isActive: true, level: 3, ...over,
+  });
+  it('keeps a plain leaf liability; drops AP, VAT, payroll, credit card, a loan account, a header, inactive and non-liabilities', async () => {
+    const { eligiblePayableAccounts } = await import('@/components/accounting/budgets/threeWay/assumptionsModel');
+    const accounts = [
+      acc('ok'), acc('ap', { accountSubtype: 'payable' }), acc('vat', { accountSubtype: 'vat_output' }),
+      acc('paye', { accountSubtype: 'payroll_liability' }), acc('card', { accountSubtype: 'credit_card' }), acc('loan'),
+      acc('head', { level: 2 }), acc('child', { level: 2, parentAccountId: 'head' }), acc('off', { isActive: false }),
+      acc('rev', { accountType: 'revenue' }),
+    ];
+    expect(eligiblePayableAccounts(accounts, new Set(['loan'])).map((a) => a.id)).toEqual(['ok', 'child']);
+  });
+});

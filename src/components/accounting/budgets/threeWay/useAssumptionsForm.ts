@@ -12,12 +12,19 @@
  *   `invalidDoc` holds the issues and `replaceWithDerived()` loads the derive service's defaults as a full document.
  *   Its save sends no token (null); the server's 409 names the row's token, and only after the user confirms
  *   (`confirmReplace`) is the save retried ONCE with it. A second 409 is the ordinary reload prompt.
+ *   A SCENARIO over a base (`scenarioWithBase`) is reset instead (`resetToBase`): it stores EMPTY overrides, so it
+ *   follows its base again, through the same no-token / confirm / one-retry save, then re-reads.
+ * - The payable pickers offer only the accounts the server accepts (`eligiblePayableAccounts`).
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ThreeWayAssumptions } from '@/modules/accounting/services/budgets/threeWay/assumptionsSchema';
 import type { AssumptionsView } from '@/modules/accounting/services/budgets/threeWay/threeWayViews';
-import { fetchAssumptions, fetchDerive, fetchLiabilityAccounts, fetchLoans, saveAssumptionsDoc, type LoanOption } from './threeWayClient';
-import { buildSaveDoc } from './assumptionsModel';
+import { fetchAssumptions, fetchChartOfAccounts, fetchDerive, fetchLoans, saveAssumptionsDoc, type LoanOption } from './threeWayClient';
+import { buildSaveDoc, eligiblePayableAccounts, type CoaAccount } from './assumptionsModel';
+
+/** A scenario's reset: no overrides, so it resolves to its base. */
+export const EMPTY_OVERRIDES = { schemaVersion: 1, overrides: {} } as const;
+type SaveMode = 'form' | 'followBase';
 
 export interface LiabilityOption { id: string; accountCode: string; accountName: string }
 
@@ -42,6 +49,8 @@ export interface AssumptionsForm {
   /** The save without a token met a stored row: confirm to retry once with this token. */
   replaceToken: string | null;
   replaceWithDerived(): Promise<void>;
+  /** A scenario over a base: store empty overrides so it follows the base again. */
+  resetToBase(): Promise<void>;
   confirmReplace(): Promise<void>;
   update(next: (doc: ThreeWayAssumptions) => ThreeWayAssumptions): void;
   save(): Promise<void>;
@@ -49,7 +58,7 @@ export interface AssumptionsForm {
   discard(): void;
 }
 
-export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: () => void): AssumptionsForm {
+export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: () => void, scenarioWithBase = false): AssumptionsForm {
   const [view, setView] = useState<AssumptionsView | null>(null);
   const [edited, setEdited] = useState<ThreeWayAssumptions | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -57,7 +66,7 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
   const [saveError, setSaveError] = useState<AssumptionsForm['saveError']>(null);
   const [stale, setStale] = useState(false);
   const [lockedOnSave, setLockedOnSave] = useState(false);
-  const [accounts, setAccounts] = useState<LiabilityOption[]>([]);
+  const [coa, setCoa] = useState<CoaAccount[]>([]);
   const [loans, setLoans] = useState<LoanOption[]>([]);
   const [generation, setGeneration] = useState(0);
   const [attempt, setAttempt] = useState(0);
@@ -65,6 +74,7 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
   const [replacing, setReplacing] = useState(false);
   const [replaceToken, setReplaceToken] = useState<string | null>(null);
   const seq = useRef(0);
+  const replaceMode = useRef<SaveMode>('form');
 
   useEffect(() => {
     const mine = ++seq.current;
@@ -91,12 +101,17 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
 
   useEffect(() => {
     let gone = false;
-    void fetchLiabilityAccounts().then((r) => { if (!gone && r.ok) setAccounts(r.data); });
+    void fetchChartOfAccounts().then((r) => { if (!gone && r.ok) setCoa(r.data); });
     void fetchLoans().then((r) => { if (!gone && r.ok) setLoans(r.data); });
     return () => { gone = true; };
   }, []);
 
   useEffect(() => { setLockedOnSave(false); }, [versionId]);
+
+  const accounts = useMemo<LiabilityOption[]>(() => {
+    const loanAccounts = new Set(loans.map((l) => l.glAccountId?.toLowerCase()).filter((x): x is string => typeof x === 'string'));
+    return eligiblePayableAccounts(coa, loanAccounts).map(({ id, accountCode, accountName }) => ({ id, accountCode, accountName }));
+  }, [coa, loans]);
 
   const statusLocked = view?.version.status === 'locked';
   const readOnly = locked || statusLocked || lockedOnSave;
@@ -108,21 +123,24 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
   }, []);
 
   /** One PUT. `retried`: this is the confirmed retry of a replacement (never retried again). */
-  const send = useCallback(async (token: string | null, retried: boolean) => {
-    if (!view || !edited || readOnly) return;
+  const send = useCallback(async (token: string | null, retried: boolean, mode: SaveMode) => {
+    if (readOnly || (mode === 'form' && (!view || !edited))) return;
     setSaving(true);
     setSaveError(null);
-    const r = await saveAssumptionsDoc(versionId, buildSaveDoc(view, edited), token);
+    const doc = mode === 'followBase' ? EMPTY_OVERRIDES : buildSaveDoc(view as AssumptionsView, edited as ThreeWayAssumptions);
+    const r = await saveAssumptionsDoc(versionId, doc, token);
     setSaving(false);
     if (r.ok) {
-      setView({ ...view, stored: { doc: r.data.doc, updatedAt: r.data.updatedAt, updatedBy: r.data.updatedBy }, resolved: edited });
       setReplacing(false);
       setInvalidDoc(null);
+      if (mode === 'followBase') setAttempt((n) => n + 1);
+      else setView({ ...(view as AssumptionsView), stored: { doc: r.data.doc, updatedAt: r.data.updatedAt, updatedBy: r.data.updatedBy }, resolved: edited as ThreeWayAssumptions });
       onSaved();
       return;
     }
     if (r.kind === 'stale') {
-      if (replacing && !retried && r.currentUpdatedAt !== null) { setReplaceToken(r.currentUpdatedAt); return; }
+      const replacement = mode === 'followBase' || replacing;
+      if (replacement && !retried && r.currentUpdatedAt !== null) { replaceMode.current = mode; setReplaceToken(r.currentUpdatedAt); return; }
       setStale(true);
       return;
     }
@@ -130,13 +148,18 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
     setSaveError({ message: r.message, issues: r.kind === 'invalid' ? r.issues : [] });
   }, [view, edited, readOnly, versionId, onSaved, replacing]);
 
-  const save = useCallback(() => send(replacing ? null : view?.stored?.updatedAt ?? null, false), [send, replacing, view]);
+  const save = useCallback(() => send(replacing ? null : view?.stored?.updatedAt ?? null, false, 'form'), [send, replacing, view]);
 
   const confirmReplace = useCallback(async () => {
     const token = replaceToken;
     setReplaceToken(null);
-    if (token !== null) await send(token, true);
+    if (token !== null) await send(token, true, replaceMode.current);
   }, [replaceToken, send]);
+
+  const resetToBase = useCallback(async () => {
+    if (!scenarioWithBase) return;
+    await send(null, false, 'followBase');
+  }, [scenarioWithBase, send]);
 
   const replaceWithDerived = useCallback(async () => {
     if (readOnly) return;
@@ -153,5 +176,5 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
   const discard = useCallback(() => { if (view) setEdited(view.resolved); setSaveError(null); }, [view]);
 
   return { view, edited, loadError, saving, saveError, stale, readOnly, readOnlyReason, dirty, accounts, loans, generation,
-    invalidDoc, replacing, replaceToken, replaceWithDerived, confirmReplace, update, save, reload, discard };
+    invalidDoc, replacing, replaceToken, replaceWithDerived, resetToBase, confirmReplace, update, save, reload, discard };
 }

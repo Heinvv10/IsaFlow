@@ -89,9 +89,12 @@ export interface PayablePickerProps {
   evidence: string;
   readOnly: boolean;
   onChange: (id: string | undefined) => void;
+  /** The server's 400 message for this slot (a refused save names its path). */
+  issue?: string | null;
+  testId?: string;
 }
 
-export function PayablePicker({ label, value, accounts, evidence, readOnly, onChange }: PayablePickerProps) {
+export function PayablePicker({ label, value, accounts, evidence, readOnly, onChange, issue, testId }: PayablePickerProps) {
   const id = `tw-payable-${label.replace(/\W+/g, '-').toLowerCase()}`;
   const known = value === undefined || accounts.some((a) => a.id === value);
   return (
@@ -102,7 +105,10 @@ export function PayablePicker({ label, value, accounts, evidence, readOnly, onCh
         {!known && <option value={value}>{value}</option>}
         {accounts.map((a) => <option key={a.id} value={a.id}>{a.accountCode} {a.accountName}</option>)}
       </select>
-      <p className="text-xs text-[var(--ff-text-secondary)]">{evidence}</p>
+      <div className="text-xs">
+        <p className="text-[var(--ff-text-secondary)]">{evidence} Only accounts that would otherwise sit in other liabilities are listed.</p>
+        {issue && <p role="alert" data-testid={testId} className="text-error-700 dark:text-error-400">{issue}</p>}
+      </div>
     </div>
   );
 }

@@ -10,6 +10,7 @@
  *   document. An override cannot clear a base's payable account (undefined = keep, the server's rule), so a cleared
  *   account is not sent.
  */
+import { payableSlotAllowed } from '@/modules/accounting/services/budgets/threeWay/bucketMap';
 import type { ThreeWayAssumptions } from '@/modules/accounting/services/budgets/threeWay/assumptionsSchema';
 import type { AssumptionsView } from '@/modules/accounting/services/budgets/threeWay/threeWayViews';
 
@@ -125,4 +126,29 @@ export function buildSaveDoc(view: AssumptionsView, edited: Doc): Record<string,
 export function newId(prefix: string): string {
   const rnd = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2);
   return `${prefix}-${rnd}`.slice(0, 64);
+}
+
+/** A chart-of-accounts row as `/api/accounting/chart-of-accounts` lists it (the fields the eligibility rule reads). */
+export interface CoaAccount {
+  id: string; accountCode: string; accountName: string; accountType: string;
+  accountSubtype?: string; parentAccountId?: string; isActive: boolean; level: number;
+}
+
+/**
+ * The accounts a payable slot may name: the server's rule (`assertPayableAccounts`) applied client-side, so the picker
+ * offers nothing it would refuse — an active LEAF liability (level >= 3 or no child) whose balance would otherwise sit
+ * in other liabilities (`payableSlotAllowed`: never AP, VAT, payroll, a credit card) and that is no loan's account.
+ */
+export function eligiblePayableAccounts(accounts: readonly CoaAccount[], loanAccountIds: ReadonlySet<string>): CoaAccount[] {
+  const parents = new Set(accounts.map((a) => a.parentAccountId?.toLowerCase()).filter((p): p is string => p !== undefined));
+  return accounts.filter((a) => a.accountType === 'liability' && a.isActive
+    && (a.level >= 3 || !parents.has(a.id.toLowerCase()))
+    && payableSlotAllowed(a.accountSubtype ?? null, loanAccountIds.has(a.id.toLowerCase())));
+}
+
+/** The server's 400 issue (`"<path>: <message>"`) about one payable slot, if a save was refused for it. */
+export function payableIssue(issues: readonly string[], slot: 'incomeTax' | 'dividends'): string | null {
+  const key = slot === 'incomeTax' ? 'incomeTax.payableAccountId: ' : 'equity.dividendsPayableAccountId: ';
+  const hit = issues.find((i) => i.startsWith(key) || i.startsWith(`overrides.${key}`));
+  return hit ? hit.slice(hit.indexOf(': ') + 2) : null;
 }

@@ -12,7 +12,7 @@ import { call } from '@/components/accounting/budgets/workspace/budgetWorkspaceC
 import type { ApiResult } from '@/components/accounting/budgets/workspace/types';
 import type { AssumptionsView, CompareView, DeriveView, ThreeWayView } from '@/modules/accounting/services/budgets/threeWay/threeWayViews';
 import type { StoredAssumptions } from '@/modules/accounting/services/budgets/threeWay/assumptionsRepo';
-import type { GLAccount } from '@/modules/accounting/types/gl.types';
+import type { CoaAccount } from './assumptionsModel';
 
 export type SavedAssumptions = StoredAssumptions & { versionId: string };
 
@@ -66,16 +66,12 @@ export function fetchCompare(versionIds: readonly string[]): Promise<ApiResult<C
   return call(`/api/accounting/budget-three-way/compare?version_ids=${encodeURIComponent(versionIds.join(','))}`, undefined, 'Could not compare the versions.');
 }
 
-/** Active LEAF liability accounts (candidates for the income-tax and dividends payable pickers). */
-export async function fetchLiabilityAccounts(): Promise<ApiResult<Array<Pick<GLAccount, 'id' | 'accountCode' | 'accountName'>>>> {
+/** The chart of accounts (the payable pickers filter it with `eligiblePayableAccounts`). */
+export async function fetchChartOfAccounts(): Promise<ApiResult<CoaAccount[]>> {
   const fallback = 'Could not load the liability accounts.';
   const r = await call('/api/accounting/chart-of-accounts', undefined, fallback);
   if (!r.ok) return r;
-  if (!Array.isArray(r.data)) return { ok: false, kind: 'failed', message: fallback, status: 200 };
-  const accounts = r.data as GLAccount[];
-  const parents = new Set(accounts.map((a) => a.parentAccountId).filter((p): p is string => typeof p === 'string'));
-  const leaves = accounts.filter((a) => a.accountType === 'liability' && a.isActive && !parents.has(a.id));
-  return { ok: true, data: leaves.map((a) => ({ id: a.id, accountCode: a.accountCode, accountName: a.accountName })) };
+  return Array.isArray(r.data) ? { ok: true, data: r.data as CoaAccount[] } : { ok: false, kind: 'failed', message: fallback, status: 200 };
 }
 
 interface ErrorBody { message?: string; error?: { message?: string; details?: { code?: unknown; currentUpdatedAt?: unknown; issues?: unknown } } }
@@ -122,7 +118,8 @@ export async function saveAssumptionsDoc(versionId: string, doc: Record<string, 
   return { ok: true, data };
 }
 
-export interface LoanOption { id: string; label: string }
+/** A loan, and the GL account it posts to (a loan's account may never be a payable slot). */
+export interface LoanOption { id: string; label: string; glAccountId: string | null }
 
 /** The company's loans (for "include an existing loan"); the schedules are the server's (`previewSchedule`). */
 export async function fetchLoans(): Promise<ApiResult<LoanOption[]>> {
@@ -132,8 +129,8 @@ export async function fetchLoans(): Promise<ApiResult<LoanOption[]>> {
   if (!Array.isArray(r.data)) return { ok: false, kind: 'failed', message: fallback, status: 200 };
   return {
     ok: true,
-    data: (r.data as Array<{ id?: unknown; reference?: unknown; description?: unknown }>)
+    data: (r.data as Array<{ id?: unknown; reference?: unknown; description?: unknown; glAccountId?: unknown }>)
       .filter((l) => typeof l.id === 'string')
-      .map((l) => ({ id: l.id as string, label: [l.reference, l.description].filter((x) => typeof x === 'string' && x !== '').join(' · ') || (l.id as string) })),
+      .map((l) => ({ id: l.id as string, glAccountId: typeof l.glAccountId === 'string' ? l.glAccountId : null, label: [l.reference, l.description].filter((x) => typeof x === 'string' && x !== '').join(' · ') || (l.id as string) })),
   };
 }
