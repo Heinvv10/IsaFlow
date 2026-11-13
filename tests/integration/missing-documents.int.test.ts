@@ -78,6 +78,11 @@ describeIfDb('list_missing_documents service', () => {
     await bill('otherCompanyBill', 9999, '2026-06-10');
     await sql`UPDATE supplier_invoices SET company_id = ${other.companyId}::UUID, supplier_id = ${other.supplierId}::UUID WHERE id = ${id.otherCompanyBill!}::UUID`;
 
+    // The other company's undocumented rows of every SQL type: none may ever surface for fx.
+    await creditNote(other, 'otherCn', 777, 'approved');
+    id.otherInv = await seedInvoice(other, { number: `I-${n()}`, date: '2026-06-10', total: 888 });
+    id.otherTx = await seedBankTx(other, { date: '2026-06-15', amount: -999, description: 'theirs' });
+
     id.invMissing = await seedInvoice(fx, { number: `I-${n()}`, date: '2026-06-10', total: 575 });
     id.invDoc = await seedInvoice(fx, { number: `I-${n()}`, date: '2026-06-10', total: 400 });
     await procDoc('customer_invoice', id.invDoc!);
@@ -206,6 +211,11 @@ describeIfDb('list_missing_documents service', () => {
       after = page.next;
     }
     expect(keys(threes)).toEqual(keys(all));
+    // After the very last row nothing follows — including the VAT journal, which is merged in JS, not SQL.
+    const last = all[all.length - 1]!;
+    const tail = await list({ after: { cents: last.cents, entityType: last.entityType, id: last.entityId } });
+    expect(tail.rows).toEqual([]);
+    expect(tail.next).toBeNull();
   });
 
   it('answers from the document tables live: attaching a document drops the row, no cached flag involved', async () => {
@@ -225,7 +235,7 @@ describeIfDb('list_missing_documents service', () => {
     const vatOnly = await list({ types: ['vat_journal'] });
     expect(named(vatOnly.rows)).toEqual(['vat_journal:vatMissing']);
     const theirs = await inTx(other, () => listMissingDocuments({ ...filters(), companyId: other.companyId }));
-    expect(theirs.rows.map((r) => r.entityId)).toEqual([id.otherCompanyBill]);
+    expect(theirs.rows.map((r) => r.entityId)).toEqual([id.otherCompanyBill, id.otherTx, id.otherInv, id.otherCn]);
   });
 
   it('gives the same answer as app_user under RLS', async () => {

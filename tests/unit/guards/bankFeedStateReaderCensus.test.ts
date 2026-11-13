@@ -72,6 +72,8 @@ const EXTRA_FILES: readonly string[] = ['pages/api/accounting/nl-query.ts'];
  */
 const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/core/anomalyScanService.ts': 'filtered',
+  'src/modules/accounting/services/core/missingDocumentsQuery.ts': "filtered (list_missing_documents: bank SPEND lines, feed_state = 'posted', not excluded, not a transfer)",
+  'src/modules/accounting/services/core/bankLineDocumentRouting.ts': 'exempt: ownership check and same-file probe of ONE named bank line before attaching or listing its documents, not a total',
   'pages/api/accounting/bank-accounts.ts': 'exempt: group-promotion usage guard, not a financial total',
   'pages/api/accounting/bank-match-confirm.ts': 'exempt: writer (Task 3) — read-before-write plan phase',
   'pages/api/accounting/bank-reconciliation-report.ts': 'filtered',
