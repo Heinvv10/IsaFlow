@@ -118,6 +118,7 @@ describe('reopening the palette after Ask', () => {
       rerender(<CommandPalette isOpen onClose={() => undefined} />);
       expect(screen.queryByTestId('ask-panel')).toBeNull();
       expect(document.activeElement).toBe(screen.getByRole('combobox'));
+      expect((screen.getByRole('combobox') as HTMLInputElement).value).toBe('');
       fireEvent.change(screen.getByRole('combobox'), { target: { value: 'xyz' } });
       expect((screen.getByRole('combobox') as HTMLInputElement).value).toBe('xyz');
       rerender(<CommandPalette isOpen={false} onClose={() => undefined} />);

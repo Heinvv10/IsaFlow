@@ -114,6 +114,9 @@ function dayIn(q: string): AskPeriod | null {
   return null;
 }
 
+/** Window phrases we do not support: a duration, "past/next/since ...", a week or fortnight. Refused, never dropped for the default. */
+const UNSUPPORTED_WINDOW = /\b(?:(?:last|past|next|previous)\s+\d+\s+(?:days?|weeks?|months?|years?)|\d+\s+(?:days?|weeks?|months?|years?)|past\s+(?:\w+\s+)?(?:days?|weeks?|months?|years?)|next\s+\w+|since\s+\w+(?:\s+20\d{2})?|fortnight|last\s+week|this\s+week)\b/;
+
 /** The window named, or null when none was. A window we recognise but cannot honour is `unsupported`, never dropped. */
 export function parsePeriod(raw: string): AskPeriod | null {
   const q = normalise(raw);
@@ -121,6 +124,8 @@ export function parsePeriod(raw: string): AskPeriod | null {
   if (quarter) return { kind: 'unsupported', said: quarter[1]! };
   const day = dayIn(q);
   if (day) return day;
+  const odd = UNSUPPORTED_WINDOW.exec(q);
+  if (odd) return { kind: 'unsupported', said: odd[0]! };
   if (/\blast\s+month\b/.test(q)) return { kind: 'last_month' };
   if (/\bthis\s+month\b/.test(q)) return { kind: 'this_month' };
   if (/\b(last|previous|prior)\s+(financial\s+|fiscal\s+)?year\b/.test(q)) return { kind: 'last_year' };
@@ -139,8 +144,16 @@ export function parsePeriod(raw: string): AskPeriod | null {
 }
 
 /** Every distinct window a question names, as the words to put after a stem. Two or more is "one period at a time". */
-function windowPhrases(q: string): string[] {
+function windowPhrases(raw: string): string[] {
   const found = new Set<string>();
+  let q = raw;
+  // Exact days first, counted by the day itself, then removed so their month names are not counted again.
+  const dayRe = new RegExp(`\\b(\\d{1,2})${ORD}\\s+(?:of\\s+)?(${MONTHS.join('|')})(?:\\s+(20\\d{2}))?\\b|\\b(${MONTHS.join('|')})\\s+(\\d{1,2})${ORD}(?:\\s+(20\\d{2}))?\\b`, 'g');
+  for (const m of raw.matchAll(dayRe)) {
+    const day = m[1] ?? m[5]; const name = m[2] ?? m[4]; const year = m[3] ?? m[6];
+    found.add(`as at ${Number(day)} ${name![0]!.toUpperCase()}${name!.slice(1)}${year ? ` ${year}` : ''}`);
+  }
+  q = q.replace(dayRe, ' ');
   for (const [re, phrase] of [[/\blast\s+month\b/, 'last month'], [/\bthis\s+month\b/, 'this month'],
     [/\b(last|previous|prior)\s+(financial\s+|fiscal\s+)?year\b/, 'last year'],
     [/\b(this|current)\s+(financial\s+|fiscal\s+)?year\b|\byear\s+to\s+date\b|\bytd\b/, 'this year']] as const) {
@@ -173,8 +186,8 @@ function exampleForKey(k: Key, window: string | null): string {
 }
 
 function qualifierOf(q: string, id: AskIntentId): AskQualifier | undefined {
-  if (id === 'profit' && /\bgross\s+(profit|margin)\b/.test(q)) return 'gross';
-  if (id === 'profit' && /\boperating\s+(profit|income)\b/.test(q)) return 'operating';
+  if (id === 'profit' && /\bgross\s+(profit|margin)\b|\b(profit|margin)\s+gross\b/.test(q)) return 'gross';
+  if (id === 'profit' && /\boperating\s+(profit|income)\b|\b(profit|income)\s+operating\b/.test(q)) return 'operating';
   if (id === 'expenses' && /\bcostofsales\b/.test(q)) return 'cost_of_sales';
   return undefined;
 }
@@ -194,15 +207,19 @@ const DURATION_UNIT = /^(?:days?|weeks?|months?|years?)$/;
 /** "over 90 days", "overdue", "buckets": a refinement by age, which the plain total does not honour. */
 const AGING_BUCKET = /\b\d+\s+days?\b|\boverdue\b|\bbuckets?\b|\bolder\s+than\b/;
 const COMPARISON = /\b(?:vs|versus|compared\s+(?:to|with)|compare|comparison|against)\b/;
-const TAX_BASIS = /\b(?:before|after|pre|post)\s+tax\b|\b(?:excluding|including|incl|excl|ex)\s+vat\b/;
+const TAX_BASIS = /\b(?:before|after|pre|post)\s+tax\b/;
+/** "excluding VAT" modifies a figure; it is not a VAT question, so it is cut out before the intents are read. */
+const VAT_BASIS = /\b(?:excluding|including|incl|excl|ex)\s+vat\b/g;
 
 export function parseQuestion(question: string): ParsedQuestion {
-  const q = normalise(question);
+  const full = normalise(question);
+  const vatBasis = new RegExp(VAT_BASIS.source).test(full);
+  const q = full.replace(VAT_BASIS, ' ').replace(/\s+/g, ' ').trim();
   if (q.length < 3) return { kind: 'none' };
   // The whole question first (a comma inside a clause must not split "cash, roughly, in the bank"), then each clause: a question
   // joining clauses that ask for different things is ambiguous, and clauses that match nothing are ignored.
   const found = new Map<string, Key>();
-  for (const k of [...keysOf(q), ...question.toLowerCase().split(JOINERS).flatMap((c) => keysOf(normalise(c)))]) found.set(keyName(k), k);
+  for (const k of [...keysOf(q), ...question.toLowerCase().replace(/\b(?:excluding|including|incl|excl|ex)\s+vat\b/g, ' ').split(JOINERS).flatMap((c) => keysOf(normalise(c)))]) found.set(keyName(k), k);
   const keys = [...found.values()];
   if (keys.length === 0) return { kind: 'none' };
   if (keys.length > 1) return { kind: 'ambiguous', ids: [...new Set(keys.map((k) => k.id))], examples: keys.map((k) => exampleForKey(k, windowPhrases(q)[0] ?? null)) };
@@ -210,6 +227,7 @@ export function parseQuestion(question: string): ParsedQuestion {
   if ((id === 'owed_to_me' || id === 'i_owe') && AGING_BUCKET.test(q)) return { kind: 'unsupported', id, said: 'by aging bucket' };
   const amount = AMOUNT_FILTER.exec(q);
   if (amount && !DURATION_UNIT.test(amount[1] ?? '')) return { kind: 'unsupported', id, said: 'amount filters ("more than R2 000")' };
+  if (vatBasis && (id === 'revenue' || id === 'expenses' || id === 'profit')) return { kind: 'unsupported', id, said: 'figures including or excluding VAT' };
   if (TAX_BASIS.test(q)) return { kind: 'unsupported', id, said: 'figures before or after tax' };
   const windows = windowPhrases(q);
   if (windows.length > 1) return { kind: 'periods', id, examples: windows.map((w) => `${STEMS[id]} ${w}?`) };
