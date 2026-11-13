@@ -6,6 +6,7 @@
  * to the period containing the month before the start.
  */
 import { monthOrdinal } from './months';
+import { checkedAdd } from './ratios';
 import type { VatSettlement } from './types';
 import { vatPeriodOf, vatSettleMonth, type VatAlignment, type VatCadence } from './vatSchedule';
 
@@ -25,7 +26,7 @@ export class VatBook {
   accrue(month: string, net: number): void {
     const ref = vatPeriodOf(month, this.cadence, this.alignment);
     const p = this.periods.get(ref.end) ?? { ...ref, net: 0, settled: false, settleMonth: null };
-    p.net += net;
+    p.net = checkedAdd(p.net, net);
     this.periods.set(ref.end, p);
   }
 

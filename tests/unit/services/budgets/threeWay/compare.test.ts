@@ -1,7 +1,7 @@
 /**
  * compare (§7, §13.22): per version closing cash series, min cash, NP, closing
  * AR/AP, net debt; Δ = version − first; Δ% = Δ / |first| × 100, null when first
- * is 0; favourable separate (cash higher = favourable).
+ * is 0; favourable separate (cash higher = favourable), null when Δ = 0 (fix round 1, item 14).
  */
 import { describe, it, expect } from 'vitest';
 import { compareVersions } from '@/modules/accounting/services/budgets/threeWay/compare';
@@ -31,13 +31,13 @@ describe('compareVersions', () => {
   });
   it('KPIs with Δ, Δ% and favourable', () => {
     const w = res.versions[1]?.kpis;
-    expect(w?.closingCash).toEqual({ value: R(33000), delta: -R(31000), deltaPct: (-R(31000) / R(64000)) * 100, favourable: false });
-    expect(w?.minCash).toEqual({ value: -R(9000), delta: -R(31000), deltaPct: (-R(31000) / R(22000)) * 100, favourable: false });
-    expect(w?.netProfit).toEqual({ value: R(63000), delta: 0, deltaPct: 0, favourable: true });
+    expect(w?.closingCash).toEqual({ value: R(33000), delta: -R(31000), deltaPct: -48.4375, favourable: false });
+    expect(w?.minCash).toEqual({ value: -R(9000), delta: -R(31000), deltaPct: -140.9090909090909, favourable: false });
+    expect(w?.netProfit).toEqual({ value: R(63000), delta: 0, deltaPct: 0, favourable: null });
     expect(w?.closingReceivables).toEqual({ value: R(31000), delta: R(31000), deltaPct: null, favourable: false });
-    expect(w?.netDebt).toEqual({ value: -R(28000), delta: R(31000), deltaPct: (R(31000) / R(59000)) * 100, favourable: false });
+    expect(w?.netDebt).toEqual({ value: -R(28000), delta: R(31000), deltaPct: 52.54237288135594, favourable: false });
     expect(res.versions[1]?.minCashMonth).toBe('2026-03');
-    expect(res.versions[0]?.kpis.closingCash).toEqual({ value: R(64000), delta: 0, deltaPct: 0, favourable: true });
+    expect(res.versions[0]?.kpis.closingCash).toEqual({ value: R(64000), delta: 0, deltaPct: 0, favourable: null });
   });
   it('refuses 0 or 4 versions and mismatched months', () => {
     expect(() => compareVersions([])).toThrow(CompareInputError);

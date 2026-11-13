@@ -14,7 +14,7 @@
  */
 import type { EntityTypeCode } from '@/lib/entityTypes';
 import { addMonths, monthNumber } from './months';
-import { PPM, mulDiv } from './ratios';
+import { PPM, checkedAdd, mulDiv } from './ratios';
 import type { TaxEvent } from './types';
 
 /** Payroll split into the statutory accrual and the net paid now. `net` is the residual, so the two always sum to `payroll`. */
@@ -49,7 +49,7 @@ export interface ProvisionalTaxInput {
 export function provisionalTaxSchedule(p: ProvisionalTaxInput): TaxEvent[] {
   const n = p.months.length;
   if (n === 0) return [];
-  const fyTax = p.taxExpense.reduce((s, t) => s + t, 0);
+  const fyTax = p.taxExpense.reduce(checkedAdd, 0);
   const events: TaxEvent[] = [];
   const first = n > 6 ? Math.max(0, mulDiv(fyTax, 1, 2)) : 0;
   if (first > 0) events.push({ month: p.months[5] as string, kind: 'irp6_first', amount: first });

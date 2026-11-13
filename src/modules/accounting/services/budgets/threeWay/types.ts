@@ -191,6 +191,18 @@ export interface Runway {
 
 export type OutsideMonthsList = 'capex' | 'loans.planned' | 'equity.shareIssues' | 'equity.dividends';
 
+/** An assumption entry (or its payment) skipped because a date is outside the version; `detail` says exactly what. */
+export interface OutsideMonthsEntry {
+  list: OutsideMonthsList;
+  id: string;
+  /** 'entry' = nothing of it posted; 'payment' = declared inside, paid after the version (stays payable). */
+  skipped: 'entry' | 'payment';
+  detail: string;
+}
+
+/** A residual flow that came out negative (kept so the balance sheet holds; shown so a reviewer sees it). */
+export type ResidualFlow = 'receipts' | 'stock_purchases' | 'supplier_payments';
+
 export type ThreeWayWarning =
   | { code: 'opening_provisional'; asAt: string }
   | { code: 'opening_cent_difference'; cents: number }
@@ -199,9 +211,14 @@ export type ThreeWayWarning =
   | { code: 'depreciation_check'; budgeted: number; check: number }
   | { code: 'interest_check'; budgeted: number; check: number }
   | { code: 'lookback_short'; series: 'receivables' | 'payables' | 'inventory'; months: string[] }
-  | { code: 'outside_months'; entries: Array<{ list: OutsideMonthsList; id: string }> }
+  | { code: 'outside_months'; entries: OutsideMonthsEntry[] }
   | { code: 'loan_schedule_missing'; loanIds: string[] }
-  | { code: 'provisional_tax_not_applicable'; entityType: EntityTypeCode };
+  | { code: 'provisional_tax_not_applicable'; entityType: EntityTypeCode }
+  /** A manual top-up offset that differs from SARS (7 after a February year end, else 6). */
+  | { code: 'top_up_offset_not_sars'; value: 6 | 7; sars: 6 | 7 }
+  /** A debit opening on a statutory liability: carried flat, never refunded as cash. */
+  | { code: 'opening_debit_carried'; bucket: 'payrollLiabilities' | 'incomeTaxPayable'; amount: number }
+  | { code: 'negative_flow'; month: string; flow: ResidualFlow; amount: number };
 
 export interface FiscalInfo {
   /** Last month of the version (the year end). */

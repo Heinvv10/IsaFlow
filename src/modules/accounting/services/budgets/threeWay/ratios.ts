@@ -7,6 +7,7 @@
  * product ever reaches a cent.
  */
 import { divRoundHalfAway } from '@/modules/accounting/services/budgets/grid/cents';
+import { EngineInputError } from './errors';
 
 /**
  * The SA standard rate in basis points (15 %). Pinned equal to the reports
@@ -14,6 +15,22 @@ import { divRoundHalfAway } from '@/modules/accounting/services/budgets/grid/cen
  * this pure engine cannot import it.
  */
 export const SA_STANDARD_RATE_BP = 1500;
+
+/**
+ * Engine money bounds (fix round 1). One value ≤ R100 bn (1e13 cents); Σ|every
+ * money input| ≤ R10 tn (1e15). Every bucket and flow is a signed sum of input
+ * cents, VAT (≤ 15 %) and residuals that re-add them, so it stays within a small
+ * multiple of the total: far below 2^53 ≈ 9.007e15. `checkedAdd` is the backstop.
+ */
+export const MAX_VALUE_CENTS = 10_000_000_000_000;
+export const MAX_TOTAL_CENTS = 1_000_000_000_000_000;
+
+/** a + b, refused as RANGE when the result is not a safe integer. */
+export function checkedAdd(a: number, b: number): number {
+  const s = a + b;
+  if (!Number.isSafeInteger(s)) throw new EngineInputError('RANGE', `Sum left the safe-integer range: ${a} + ${b}`);
+  return s;
+}
 
 export const PPM = 1_000_000;
 const BP = 10_000;

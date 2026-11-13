@@ -14,7 +14,11 @@
  * the days method gives, so AR/AP/inventory always tie and rounding can never
  * unbalance. The opening must balance within 1 cent (`OpeningUnbalancedError`
  * beyond that; a 1-cent difference is carried to retained earnings and warned).
- * Negative cash is shown, never funded (10d).
+ * Negative cash is shown, never funded (10d). A negative residual flow is kept
+ * (clamping would unbalance) and warned (`negative_flow`). A debit opening on
+ * payroll liabilities or income tax payable is carried flat, never refunded.
+ * Payment-basis VAT: the balance sheet books output VAT at invoice, as the
+ * ledger does; only the SARS settlement follows receipts (spec §13.25).
  */
 import { balanceSheetSections, bucketSum } from './balanceSheet';
 import { cashFlowMonth, netProfit, runwayOf } from './cashFlow';
@@ -26,7 +30,7 @@ import { addMonths, daysInMonth } from './months';
 import * as P from './postings';
 import { vatInGross, vatOnNet } from './ratios';
 import { payrollSplit } from './statutorySchedule';
-import type { Buckets, EngineInput, EngineOutput, MonthResult, Posting, ThreeWayWarning } from './types';
+import type { Buckets, EngineInput, EngineOutput, MonthResult, Posting, ResidualFlow, ThreeWayWarning } from './types';
 import { VatBook } from './vatBook';
 
 /** Flow series over lookback + version months (oldest first), for the days method. */
@@ -55,6 +59,10 @@ function openingOf(input: EngineInput, warnings: ThreeWayWarning[]): Buckets {
   if (input.opening.provisional) warnings.push({ code: 'opening_provisional', asAt: input.opening.asAt });
   const unmapped = (input.opening.unmapped ?? []).filter(u => u.balance !== 0);
   if (unmapped.length > 0) warnings.push({ code: 'unmapped_balance', accounts: [...unmapped] });
+  // A debit (overpaid) statutory liability is carried flat, never refunded as cash.
+  for (const bucket of ['payrollLiabilities', 'incomeTaxPayable'] as const) {
+    if (b[bucket] > 0) warnings.push({ code: 'opening_debit_carried', bucket, amount: b[bucket] });
+  }
   return b;
 }
 
@@ -81,6 +89,10 @@ export function runThreeWay(input: EngineInput): EngineOutput {
   const short = { receivables: [] as string[], payables: [] as string[], inventory: [] as string[] };
 
   const b: Buckets = { ...opening };
+  const payrollDebit = Math.max(0, opening.payrollLiabilities);
+  const negative = (month: string, flow: ResidualFlow, amount: number) => {
+    if (amount < 0) warnings.push({ code: 'negative_flow', month, flow, amount });
+  };
   const postings: Posting[] = [];
   const results: MonthResult[] = [];
 
@@ -101,9 +113,11 @@ export function runThreeWay(input: EngineInput): EngineOutput {
     add(P.otherIncomePosting(m, p.otherIncome));
     // 2. Receipts = the residual that leaves AR at its days-method closing.
     const receipts = b.receivables - closingFromDays(r.debtorDays, s.salesIncl, s.days, k);
+    negative(m, 'receipts', receipts);
     add(P.receiptsPosting(m, receipts));
     // 3. Cost of sales; stock purchases = the residual that leaves inventory at its closing.
     const stockPurchases = p.costOfSales + closingFromDays(r.inventoryDays, s.cogs, s.days, k) - open.inventory;
+    negative(m, 'stock_purchases', stockPurchases);
     add(P.cogsPosting(m, p.costOfSales));
     // 4. Supplier purchases (stock + opex) and payments.
     const purchasesEx = stockPurchases + p.otherOpex;
@@ -111,9 +125,10 @@ export function runThreeWay(input: EngineInput): EngineOutput {
     s.purchasesIncl[k] = purchasesEx + inputVat;
     add(P.purchasesPosting(m, stockPurchases, p.otherOpex, inputVat));
     const payments = -b.payables - closingFromDays(r.creditorDays, s.purchasesIncl, s.days, k);
+    negative(m, 'supplier_payments', payments);
     add(P.supplierPaymentsPosting(m, payments));
-    // 5. EMP201: remit what was owed at the start of the month; accrue this month's statutory share.
-    add(P.payrollRemittancePosting(m, -open.payrollLiabilities));
+    // 5. EMP201: remit what was owed at the start of the month (a debit opening stays flat); accrue this month's share.
+    add(P.payrollRemittancePosting(m, -(open.payrollLiabilities - payrollDebit)));
     const pay = payrollSplit(p.payroll, r.statutorySharePpm);
     add(P.payrollPosting(m, p.payroll, pay.net, pay.statutory));
     // 6. Depreciation (non-cash).
@@ -158,8 +173,8 @@ export function runThreeWay(input: EngineInput): EngineOutput {
   for (const series of ['receivables', 'payables', 'inventory'] as const) {
     if (short[series].length > 0) warnings.push({ code: 'lookback_short', series, months: short[series] });
   }
-  const negative = results.filter(x => x.closing.cash < 0).map(x => x.month);
-  if (negative.length > 0) warnings.push({ code: 'negative_cash', months: negative });
+  const belowZero = results.filter(x => x.closing.cash < 0).map(x => x.month);
+  if (belowZero.length > 0) warnings.push({ code: 'negative_cash', months: belowZero });
 
   const months = input.months;
   return {

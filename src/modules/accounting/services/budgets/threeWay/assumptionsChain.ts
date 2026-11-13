@@ -64,6 +64,22 @@ function isProv(v: Record<string, unknown>): boolean {
   return 'value' in v && 'source' in v;
 }
 
+/** Keys that could reach an object's prototype: refused here, not left to a later parse. */
+const FORBIDDEN_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
+
+/** The assumptions document nests at most a few levels; anything deeper is refused, not recursed. */
+const MAX_OVERRIDE_DEPTH = 8;
+
+function refuseForbiddenKeys(v: unknown, path: string, depth = 0): void {
+  if (!isPlainObject(v)) return;
+  if (depth > MAX_OVERRIDE_DEPTH) throw new AssumptionsDocError([{ path, message: 'Nested too deeply' }]);
+  for (const k of Object.keys(v)) {
+    const at = path ? `${path}.${k}` : k;
+    if (FORBIDDEN_KEYS.has(k)) throw new AssumptionsDocError([{ path: at, message: 'Forbidden key' }]);
+    refuseForbiddenKeys(v[k], at, depth + 1);
+  }
+}
+
 function mergeValue(base: unknown, over: unknown): unknown {
   if (over === undefined) return base;
   if (!isPlainObject(over) || !isPlainObject(base) || isProv(over)) return over;
@@ -74,6 +90,7 @@ function mergeValue(base: unknown, over: unknown): unknown {
 
 /** One override layer over a full document; the result is validated. */
 export function mergeOverrides(base: ThreeWayAssumptions, overrides: AssumptionOverrides): ThreeWayAssumptions {
+  refuseForbiddenKeys(overrides, '');
   return parseAssumptions(mergeValue(base, overrides));
 }
 

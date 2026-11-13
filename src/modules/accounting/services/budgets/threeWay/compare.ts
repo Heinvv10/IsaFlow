@@ -7,7 +7,7 @@
  * payables, net debt = loans − cash at the year end). Δ = version − first
  * (the movement, contract variance sign); Δ% = Δ / |first| × 100, null ("—")
  * when the first is 0; `favourable` is separate and only colours (via
- * `ibcs.varianceColor`): cash, minimum cash and NP higher = favourable;
+ * `ibcs.varianceColor`; null when Δ = 0): cash, minimum cash and NP higher = favourable;
  * receivables, payables and net debt lower = favourable.
  */
 import { CompareInputError } from './errors';
@@ -26,7 +26,8 @@ export interface KpiDelta {
   value: number;
   delta: number;
   deltaPct: number | null;
-  favourable: boolean;
+  /** null when Δ = 0 (nothing to colour). */
+  favourable: boolean | null;
 }
 
 export const KPI_NAMES = ['closingCash', 'minCash', 'netProfit', 'closingReceivables', 'closingPayables', 'netDebt'] as const;
@@ -71,7 +72,7 @@ function delta(name: KpiName, value: number, first: number): KpiDelta {
     value,
     delta: d,
     deltaPct: first === 0 ? null : (d / Math.abs(first)) * 100,
-    favourable: HIGHER_IS_FAVOURABLE[name] ? d >= 0 : d <= 0,
+    favourable: d === 0 ? null : HIGHER_IS_FAVOURABLE[name] ? d > 0 : d < 0,
   };
 }
 

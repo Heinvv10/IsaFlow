@@ -320,3 +320,4 @@ Refreshed 2026-11-13 against origin/master `ed4297cfc0` and the P0–P5 handoffs
 22. Compare: Δ = version − first; `favourable` separate (cash higher = favourable), colour only via `varianceColor`; Δ% = Δ / |first| × 100, "—" when first is 0 (contract).
 23. Demo: primary FY2027 is "P5 acceptance FY2027" (sparse); the populated versions are non-primary ("FY2027 Operating Plan", reforecast, "Upside +8%", "Downside −5%"). Acceptance on Demo opens a named version, not the primary. The dev golden seeds its own non-primary `GP-<runId>` scenario, sweeps stale `GP-%`, deletes by id in `afterAll`. P2's `v-budget-workspace` and P4's `z-budget-drivers` run in prod verify: any versions-bar change must keep them green.
 24. §3 Out, added: no GL writes, so no R-035 digest impact.
+25. Payment-basis VAT: the BS books output VAT at invoice, as the ledger does; only the SARS settlement follows receipts (§5 step 2's 'instead of in 1' applies to the settlement, not the balance).
