@@ -44,6 +44,7 @@ let flagBefore: { companyId: string; enabled: boolean | null } | undefined;
 
 /** The Management Accounting menu's links on the secondary (Accounting) nav, opened by hover. */
 async function managementLinks(page: Page): Promise<number> {
+  await page.mouse.move(1, 1); // a pointer left on the tab by the last page would fire no new hover
   await page.getByRole('navigation', { name: 'Accounting sections' }).getByText('Management Accounting', { exact: true }).hover();
   await expect(page.getByRole('link', { name: 'Budget Controls' }).first()).toBeVisible();
   return page.locator(`a[href="${PAGE}"]`).count();
