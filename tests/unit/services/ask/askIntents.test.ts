@@ -48,7 +48,13 @@ describe('parseQuestion', () => {
     ['profit compared to last month', 'unsupported:profit'],
     ['profit before tax', 'unsupported:profit'],
     ['profit after tax', 'unsupported:profit'],
-    ['revenue excluding vat', 'unsupported:vat'],
+    ['revenue excluding vat', 'unsupported:revenue'],
+    ['expenses incl vat', 'unsupported:expenses'],
+    ['profit including VAT', 'unsupported:profit'],
+    ['what vat do I owe', 'vat'],
+    ['profit gross', 'profit'],
+    ['profit, operating', 'ambiguous:profit'],
+    ['revenue over 12 months', 'revenue'],
     ['profit this year vs last year', 'periods:profit'],
     ['profit this month vs last month', 'periods:profit'],
     ['profit last month and this month', 'periods:profit'],
@@ -136,9 +142,33 @@ describe('aging buckets and durations', () => {
     expect(p.kind === 'unsupported' && p.said).toBe('by aging bucket');
   });
   it('a duration after "over" is not an amount; an amount still is', () => {
-    expect(parseQuestion('profit over 12 months').kind).toBe('intent');
+    const q = parseQuestion('profit over 12 months');
+    expect(q.kind === 'intent' && q.intent.period).toEqual({ kind: 'unsupported', said: '12 months' });
     const p = parseQuestion('who owes me over 2000');
     expect(p.kind === 'unsupported' && p.said).toContain('amount filters');
+  });
+});
+
+describe('windows we do not support are refused, never dropped', () => {
+  it.each([['profit last 30 days', '30 days'], ['revenue past 3 months', 'past 3 months'], ['expenses since march', 'since march'], ['profit next month', 'next month'],
+    ['profit last week', 'last week'], ['revenue over 12 months', '12 months'], ['who owes me over 30 days', '30 days'], ['profit last 6 months', '6 months']])('%s', (q, said) => {
+    const p = parsePeriod(q);
+    expect(p && p.kind === 'unsupported' && p.said).toContain(said.split(' ')[0]);
+  });
+  it('supported windows are not caught by it', () => {
+    for (const q of ['profit last month', 'profit this month', 'profit last year', 'profit year to date']) expect(parsePeriod(q)?.kind).not.toBe('unsupported');
+  });
+});
+
+describe('two exact days are two windows', () => {
+  it('as at 15 october and 20 october asks one period at a time', () => {
+    const p = parseQuestion('who owes me money as at 15 october and 20 october');
+    expect(p.kind).toBe('periods');
+    expect(p.kind === 'periods' && p.examples).toEqual(['Who owes me money as at 15 October?', 'Who owes me money as at 20 October?']);
+  });
+  it('a day and a month are two windows; a single day is one', () => {
+    expect(parseQuestion('total assets as at 15 october and november').kind).toBe('periods');
+    expect(parseQuestion('total assets as at 15 october').kind).toBe('intent');
   });
 });
 

@@ -300,6 +300,26 @@ describe('refinements we cannot honour are said, never answered with the broader
   });
 });
 
+describe('unsupported windows are answered with a refusal, not a default', () => {
+  it.each([['profit last 30 days'], ['revenue since march'], ['what are my expenses past 3 months'], ['profit next month']])('%s', async (q) => {
+    const a = await ask(q);
+    expect(a.figure).toBeNull();
+    expect(a.text).toMatch(/can't answer/);
+    expect(m.income).not.toHaveBeenCalled();
+  });
+  it('periodIsHonoured is false for a day that resolves to nothing', () => {
+    expect(periodIsHonoured('assets', { kind: 'day', day: 29, month: 2, year: 2026 }, TODAY)).toBe(false);
+    expect(periodIsHonoured('assets', { kind: 'day', day: 29, month: 2, year: null }, TODAY)).toBe(true);
+    expect(periodIsHonoured('liabilities', { kind: 'day', day: 31, month: 4, year: 2026 }, TODAY)).toBe(false);
+  });
+  it('excluding VAT is a refusal for revenue, and the plain suggestion is revenue', async () => {
+    const a = await ask('revenue excluding vat');
+    expect(a.figure).toBeNull();
+    expect(a.suggestions).toEqual(['What is my revenue this year?']);
+    expect(m.vat).not.toHaveBeenCalled();
+  });
+});
+
 describe('unrecognised and ambiguous', () => {
   it('an unrecognised question calls nothing and suggests the twelve', async () => {
     const a = await ask('what is the weather');
