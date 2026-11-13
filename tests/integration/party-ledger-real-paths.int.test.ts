@@ -153,4 +153,36 @@ describeIfDb('party_ledger_check over the real shared-journal posting paths', ()
       .sort((x, y) => (x[1] as number) - (y[1] as number)))
       .toEqual([['line_match', -700], ['line_match', -300]]);
   }, 120000);
+
+  it('splitAllocateTransaction: ONE money-out line to a supplier and a customer refund -> both parties clean (each side matches only its own lines)', async () => {
+    const supplier = await seedSupplier(fx, 'MIXS');
+    await bill(supplier, 'MX1', 300);
+    const customer = ((await sql`INSERT INTO customers (name, company_id) VALUES (${'MIXC ' + fx.tag}, ${fx.companyId}::UUID) RETURNING id`) as { id: string }[])[0]!.id;
+    // The customer paid R100 on account earlier; the refund hands it back.
+    const ar = await accountId('1100');
+    const jr = ((await sql`
+      INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, status, created_by, source)
+      VALUES (${fx.companyId}::UUID, ${'PLR-MXR'}, '2026-03-02', 'plr receipt', 'posted', ${fx.userId}::UUID, 'manual') RETURNING id`) as { id: string }[])[0]!.id;
+    await sql`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit) VALUES
+              (${fx.companyId}::UUID, ${jr}::UUID, ${fx.bankAccountId}::UUID, 100, 0),
+              (${fx.companyId}::UUID, ${jr}::UUID, ${ar}::UUID, 0, 100)`;
+    await sql`INSERT INTO customer_payments (company_id, payment_number, client_id, payment_date, total_amount, status,
+                payment_method, gl_journal_entry_id, created_by)
+              VALUES (${fx.companyId}::UUID, 'PLR-MXRC', ${customer}::UUID, '2026-03-02', 100, 'confirmed', 'eft', ${jr}::UUID, ${fx.userId}::UUID)`;
+    const tx = await seedBankTx(fx, { date: '2026-10-25', amount: -400, description: 'supplier and customer refund' });
+    await inTx(fx, () => splitAllocateTransaction(fx.companyId, tx, [
+      { contactType: 'supplier', contactId: supplier, amount: 300 },
+      { contactType: 'customer', contactId: customer, amount: 100 },
+    ], fx.userId));
+    const s = await check('supplier', supplier);
+    const c = await check('customer', customer);
+    expect(s.documents.find((d) => d.kind === 'payment')!.gl).toMatchObject({ attribution: 'line_match', controlNet: -300 });
+    expect(c.documents.find((d) => d.number?.startsWith('PLR-MXRC') === false && d.kind === 'payment')!.gl)
+      .toMatchObject({ attribution: 'line_match', controlNet: 100 });
+    for (const x of [s, c]) {
+      expect(x.totals).toMatchObject({ statementBalance: 0, glControlNet: 0, statementMinusGl: 0, unexplainedResidual: 0 });
+      expect(flags(x)).toEqual([]);
+      expect(x.invariants.filter((i) => !i.holds)).toEqual([]);
+    }
+  }, 120000);
 });

@@ -24,6 +24,9 @@
  * journal and everyone sharing it. Guessing a share would compare the statement
  * with a number the ledger never stated.
  *
+ * Documents of the other subledger sharing the journal are not counted: their lines are
+ * on the other control account, which the control-line read excludes.
+ *
  * A reversal reverses the whole journal, so a document's leg is scaled by the
  * chain's net over the head's net (1 when never reversed, 0 when fully reversed).
  */
@@ -63,15 +66,18 @@ function sameMultiset(a: readonly number[], b: readonly number[]): boolean {
 export function attributeSharedJournal(input: SharedInput): SharedAttribution {
   const { headLines, chainNet, refs, isBatch } = input;
   const unattributable: SharedAttribution = { kind: 'unattributable' };
-  if (refs.some((r) => r.expected === null)) return unattributable;
-  const expected = refs.map((r) => r.expected as number);
+  // A document of the OTHER subledger (a split money-out line can pay a supplier and refund a
+  // customer on one journal) has its lines on the other control account, which `headLines`
+  // already leaves out. It is no claim on THIS side's lines, so it drops out of the match.
+  const own = refs.filter((r): r is SharedRef & { expected: number } => r.expected !== null);
+  const expected = own.map((r) => r.expected);
   const legsFrom = (scale: number): Map<string, number> =>
-    new Map(refs.map((r) => [r.id, round2((r.expected as number) * scale)]));
+    new Map(own.map((r) => [r.id, round2(r.expected * scale)]));
 
   // Nothing of the head reached a control account (unposted, dated later, or on
   // other accounts): there is no leg to divide, and the chain cannot have one.
   if (headLines.length === 0) {
-    return chainNet === 0 ? { kind: 'attributed', basis: 'line_match', legs: new Map(refs.map((r) => [r.id, 0])) } : unattributable;
+    return chainNet === 0 ? { kind: 'attributed', basis: 'line_match', legs: new Map(own.map((r) => [r.id, 0])) } : unattributable;
   }
   const headNet = round2(headLines.reduce((s, v) => s + v, 0));
   let basis: 'line_match' | 'batch_total';

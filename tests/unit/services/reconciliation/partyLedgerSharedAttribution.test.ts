@@ -30,8 +30,12 @@ describe('attributeSharedJournal', () => {
     expect(attributeSharedJournal({ headLines: [-900], chainNet: -900, refs: refs(-600, -400), isBatch: true }).kind).toBe('unattributable');
   });
 
-  it('refuses when a sharing document belongs to the other subledger', () => {
-    expect(attributeSharedJournal({ headLines: [-300, -200], chainNet: -500, refs: refs(-300, null), isBatch: false }).kind).toBe('unattributable');
+  it('ignores a sharing document of the OTHER subledger: its lines are on the other control account', () => {
+    const r = attributeSharedJournal({ headLines: [-300], chainNet: -300, refs: refs(-300, null), isBatch: false });
+    expect(legs(r)).toEqual({ d1: -300 });
+    // ...but this side's own lines must still match this side's own documents.
+    expect(attributeSharedJournal({ headLines: [-300, -50], chainNet: -350, refs: refs(-300, null), isBatch: false }).kind).toBe('unattributable');
+    expect(legs(attributeSharedJournal({ headLines: [], chainNet: 0, refs: refs(-300, null), isBatch: false }))).toEqual({ d1: 0 });
   });
 
   it('scales every leg by what a reversal left of the journal', () => {
