@@ -55,6 +55,7 @@ import {
 import { incomeStatementBalanceNullFrom, runningBalanceIsDefined, streamFiscalBasis, withRetainedBf } from './generalLedgerStreamYearEnd';
 import { INCOME_STATEMENT_TYPES } from './trialBalanceBasis';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+import { readUniverseLineCount } from './generalLedgerUniverse';
 export type { GeneralLedgerCursor, GeneralLedgerLine, GeneralLedgerPage, GeneralLedgerQuery } from './generalLedgerStreamTypes';
 
 /**
@@ -207,10 +208,12 @@ export async function getGeneralLedgerLines(
     const totals =
       agg === undefined
         // `after === null` and no rows means the filtered set really is empty,
-        // so the zeros are the truth. Re-reading in that case would recurse
-        // forever, which is how a guard that looks defensive hangs a request.
+        // so the zeros are the truth, EXCEPT the universe: it is the unfiltered window,
+        // not the matched set, and the filters are what emptied this one. Re-reading
+        // the stream in that case would recurse forever, which is how a guard that
+        // looks defensive hangs a request; the universe is its own count.
         ? after === null
-          ? EMPTY_TOTALS
+          ? { ...EMPTY_TOTALS, universeLineCount: await readUniverseLineCount(companyId, periodStart, periodEnd) }
           : await readTotalsOnly(query)
         : {
             lineCount: Number(agg.line_count ?? 0),

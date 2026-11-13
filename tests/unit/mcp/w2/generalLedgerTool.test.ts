@@ -108,6 +108,18 @@ describe('general_ledger', () => {
     expect(body.excludedRows).toEqual([]);
   });
 
+  it('a filter that matches nothing still certifies the window universe: all of it is excluded', async () => {
+    vi.mocked(getGeneralLedgerLines).mockResolvedValue({
+      ...PAGE, lines: [], lineCount: 0, universeLineCount: 6, totalDebit: 0, totalCredit: 0, accountCount: 0, postedThrough: null,
+    } as never);
+    const body = payload(await generalLedgerTool.handler(
+      { period_start: '2026-02-01', period_end: '2026-02-28', search: 'no such text' }, CTX,
+    ));
+    assertEnvelopeSound(body as never);
+    expect([body.rowsTotal, body.universeTotal, body.excludedTotal]).toEqual([0, 6, 6]);
+    expect(generalLedgerTool.description).toContain('even when your filters match nothing');
+  });
+
   it('passes balanced THROUGH rather than deriving it from the page', async () => {
     vi.mocked(getGeneralLedgerLines).mockResolvedValue({
       ...PAGE, balanced: false, totalDebit: 1000, totalCredit: 999,
