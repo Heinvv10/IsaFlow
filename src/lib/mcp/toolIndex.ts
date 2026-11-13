@@ -6,6 +6,7 @@
 import { McpRegistry } from './registry';
 import { companyProfileTool, listCompaniesTool } from './tools/company';
 import { tokenInfoTool } from './tools/tokenInfo';
+import { findByExternalRefTool } from './tools/externalRef';
 import { listGlAccountsTool, searchGlTool } from './tools/reports';
 import { trialBalanceTool } from './tools/reportsTrialBalance';
 import { getInvoiceTool, listInvoicesTool, listQuotesTool } from './tools/invoices';
@@ -169,6 +170,7 @@ export const MCP_TOOLS = [
   companyProfileTool,
   listCompaniesTool,
   tokenInfoTool,
+  findByExternalRefTool,
   trialBalanceTool,
   profitAndLossTool,
   balanceSheetTool,
