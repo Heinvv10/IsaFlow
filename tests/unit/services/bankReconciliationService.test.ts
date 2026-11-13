@@ -222,7 +222,11 @@ describe('getBankTransactions', () => {
     vi.mocked(sql).unsafe = vi.fn().mockReturnValue('');
   });
 
+  /** The company-wide and bank-account-only reads build their shared WHERE (bankTxScopeWhere) through sql`` first. */
+  const scopeFragment = (): void => { vi.mocked(sql).mockReturnValueOnce({} as never); };
+
   it('returns transactions and total for a company (no filters)', async () => {
+    scopeFragment();
     vi.mocked(sql).mockResolvedValueOnce([makeTxRow()] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ cnt: '1' }] as never);
 
@@ -233,6 +237,7 @@ describe('getBankTransactions', () => {
   });
 
   it('returns empty list when no transactions exist', async () => {
+    scopeFragment();
     vi.mocked(sql).mockResolvedValueOnce([] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ cnt: '0' }] as never);
 
@@ -250,6 +255,7 @@ describe('getBankTransactions', () => {
   });
 
   it('uses bankAccountId-only filter branch when only bankAccountId is provided', async () => {
+    scopeFragment();
     vi.mocked(sql).mockResolvedValueOnce([makeTxRow()] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ cnt: '1' }] as never);
 
@@ -271,6 +277,7 @@ describe('getBankTransactions', () => {
   });
 
   it('maps each row through mapTxRow (camelCase fields)', async () => {
+    scopeFragment();
     vi.mocked(sql).mockResolvedValueOnce([makeTxRow()] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ cnt: '1' }] as never);
 
@@ -297,6 +304,7 @@ describe('getBankTransactions', () => {
   });
 
   it('propagates sql errors to the caller', async () => {
+    scopeFragment();
     vi.mocked(sql).mockRejectedValueOnce(new Error('query timeout') as never);
 
     await expect(getBankTransactions(COMPANY_ID)).rejects.toThrow('query timeout');

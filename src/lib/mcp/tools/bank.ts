@@ -104,7 +104,7 @@ export const listBankTransactionsTool: McpTool = {
     + 'compact bank_reference is the statement reference from either column (the row\'s bank_reference, else its reference), which is exactly what allocate_bank_transaction and bulk_allocate_bank_transactions resolve. '
     + 'compact allocation is one of allocated | suggested | unallocated | excluded; an excluded row is returned by NEITHER allocation_filter=unallocated NOR =suggested, so never treat one as work to do.'
     + ' description_contains: case-insensitive substring matched against the statement description OR reference (a literal match — % and _ are not wildcards).'
-    + ' A full row is about 1.5 KB, so a 100-row page can pass 150 KB: to size or total a large window, use detail="summary" (counts and money in/out/net over the WHOLE filter set, no rows) and group_by=account|month|allocation (groups sum to the totals; allocation is allocated|suggested|unallocated|excluded). A summary takes no cursor.',
+    + ' A full row is 0.5 to 1 KB, so a 100-row page can approach or pass 90 KB: to size or total a large window, use detail="summary" (counts and money in/out/net over the WHOLE filter set, no rows) and group_by=account|month|allocation (groups sum to the totals; allocation is allocated|suggested|unallocated|excluded). A summary takes no cursor.',
   scope: 'read:bank-tx',
   write: false,
   inputSchema: {

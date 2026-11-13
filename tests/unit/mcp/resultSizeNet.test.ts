@@ -3,7 +3,7 @@
  * (only the ones the tool's own schema has), the exemptions (writes, allowLargeResult, an error result) and the
  * accounting of a refusal (audited as rejected, Flows refunded).
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 
 const savepointMock = vi.hoisted(() => vi.fn(async (_n: string, cb: () => unknown) => cb()));
 
@@ -31,6 +31,10 @@ const ctx: McpToolContext = {
   scopes: ['read:reports', 'write:invoices'], tokenJti: 'j', oauthAppId: null,
 };
 const HANDLE = { code: 'report.tb' as const, cost: 10 };
+// The full tool index is a heavy import: warm it once, outside any test's timeout.
+let registeredTools: McpTool[] = [];
+beforeAll(async () => { registeredTools = (await import('@/lib/mcp/toolIndex')).MCP_TOOLS; }, 120_000);
+
 const textOfBytes = (n: number): string => 'x'.repeat(n);
 
 function tool(over: Partial<McpTool> & { text?: string }): McpTool {
@@ -131,8 +135,7 @@ describe('oversized read results', () => {
     expect(res.content[0]!.text).toBe(textOfBytes(MAX_READ_RESULT_BYTES * 2));
   });
 
-  it('marks only get_document as allowed to be large, among the registered tools', async () => {
-    const { MCP_TOOLS } = await import('@/lib/mcp/toolIndex');
-    expect(MCP_TOOLS.filter((t) => t.allowLargeResult === true).map((t) => t.name)).toEqual(['get_document']);
+  it('marks only get_document as allowed to be large, among the registered tools', () => {
+    expect(registeredTools.filter((t) => t.allowLargeResult === true).map((t) => t.name)).toEqual(['get_document']);
   });
 });
