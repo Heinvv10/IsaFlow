@@ -53,6 +53,18 @@ async function expectAxeClean(page: Page): Promise<void> {
   expect(bad).toEqual([]);
 }
 
+/**
+ * goto, then reload (at most twice) when an employee profile answers "not found" for an id its own list just showed: the
+ * first request to that route on a dev server that is still compiling it does, and it is not what this spec tests.
+ */
+async function gotoScreen(page: Page, path: string): Promise<void> {
+  await page.goto(path);
+  for (let attempt = 0; attempt < 2 && (await page.getByText(/with identifier .* not found/i).count()) > 0; attempt++) {
+    await page.waitForTimeout(3_000);
+    await page.reload();
+  }
+}
+
 async function profilePath(page: Page): Promise<string> {
   await page.goto('/payroll/employees');
   const link = page.locator('main a[href^="/payroll/employees/"]:not([href$="/new"]):not([href$="/bulk-update"])').first();
@@ -105,10 +117,10 @@ for (const theme of THEMES) {
       const screens: Screen[] = [...SCREENS, { slug: 'employee-profile', path: await profilePath(page), ready: PROFILE_READY, fresh390: true }];
       for (const s of screens) {
         await page.setViewportSize({ width: 1568, height: 900 });
-        await page.goto(s.path);
+        await gotoScreen(page, s.path);
         await check(page, s, 1568);
         await page.setViewportSize({ width: 390, height: 900 });
-        if (s.fresh390) await page.goto(s.path);
+        if (s.fresh390) await gotoScreen(page, s.path);
         await check(page, s, 390);
       }
     });
@@ -123,7 +135,7 @@ for (const theme of THEMES) {
       await expect(page.getByRole('option')).toHaveCount(2);
       await page.getByRole('option', { name: /Golden Beta/ }).click();
       await expect(box).toContainText('Golden Beta');
-      await page.goto(await profilePath(page));
+      await gotoScreen(page, await profilePath(page));
       await settle(page);
       const cc = page.getByRole('combobox', { name: 'Cost centre', exact: true });
       await expect(cc).toBeVisible({ timeout: 30_000 });
@@ -145,7 +157,7 @@ for (const theme of THEMES) {
       await page.getByRole('combobox', { name: 'Cost Centre' }).click();
       await expect(page.getByText('No options')).toBeVisible({ timeout: 15_000 });
       expect(await nativeSelects(page)).toBe(0);
-      await page.goto(await profilePath(page));
+      await gotoScreen(page, await profilePath(page));
       await settle(page);
       await expect(page.getByText(/No active cost centres/i)).toBeVisible({ timeout: 30_000 });
       await page.getByRole('combobox', { name: 'Component', exact: true }).click();
