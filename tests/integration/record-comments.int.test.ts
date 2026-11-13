@@ -218,11 +218,13 @@ describe('mentions (in-app only)', () => {
     });
   });
 
-  it('getBankTransactionById: the company\'s own line, never another company\'s', async () => {
-    await as(A, manager, async () => {
-      expect((await getBankTransactionById(A, ids.bankA))?.id).toBe(ids.bankA);
-      expect(await getBankTransactionById(A, ids.bankB)).toBeNull();
-    });
+  it('getBankTransactionById: the company\'s own line, never another company\'s (also as the service pool, where RLS does not help)', async () => {
+    for (const role of ['app_user', 'app_service'] as const) {
+      await as(A, manager, async () => {
+        expect((await getBankTransactionById(A, ids.bankA))?.id).toBe(ids.bankA);
+        expect(await getBankTransactionById(A, ids.bankB), role).toBeNull();
+      }, undefined, role);
+    }
   });
 });
 
@@ -271,6 +273,27 @@ describe('limits', () => {
       expect(await sqlCode(h, ins, [A, ids.invA, '😀'.repeat(MAX_COMMENT_BODY)])).toBeUndefined();
       expect(await sqlCode(h, ins, [A, ids.invA, '😀'.repeat(MAX_COMMENT_BODY + 1)])).toBe('23514');
     });
+  });
+
+  it('10 members of the company can be mentioned, the 11th is refused by the cap itself (400), and the table takes 10', async () => {
+    const extra = Array.from({ length: 11 }, () => crypto.randomUUID());
+    for (const u of extra) await pool.query("INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'admin', true)", [u, `${u}@test.local`]);
+    await pool.query('INSERT INTO company_users (company_id, user_id, role) SELECT $1, u, \'viewer\' FROM unnest($2::text[]) u', [A, extra]);
+    try {
+      await as(A, manager, async (h) => {
+        const ok = await createComment(A, manager, 'customer_invoice', ids.invA, 'ten', extra.slice(0, 10));
+        expect(ok.mentions).toHaveLength(10);
+        await expect(createComment(A, manager, 'customer_invoice', ids.invA, 'eleven', extra)).rejects.toMatchObject({ status: 400, message: /at most 10/ });
+        expect(await count(h, A)).toBe(1);
+        expect(await sqlCode(h, "INSERT INTO record_comments (company_id, record_type, record_id, body, mentions) VALUES ($1, 'customer_invoice', $2, 'x', $3)",
+          [A, ids.invA, extra.slice(0, 10)])).toBeUndefined();
+      });
+    } finally {
+      await pool.query('DELETE FROM user_notifications WHERE company_id = $1', [A]);
+      await pool.query('DELETE FROM record_comments WHERE company_id = $1', [A]);
+      await pool.query('DELETE FROM company_users WHERE user_id = ANY($1::text[])', [extra]);
+      await pool.query('DELETE FROM users WHERE id = ANY($1::text[])', [extra]);
+    }
   });
 
   it('at most 10 people per comment: the service says 400 and writes nothing; the table refuses 11 (23514)', async () => {
@@ -347,6 +370,18 @@ describe('comments on a hard-deleted bank line', () => {
       expect(rows.find((r) => r.id === gone.id)!.deleted_at).not.toBeNull();
       expect(rows.find((r) => r.id === kept.id)!.deleted_at).toBeNull();
     });
+  });
+
+  it('the cleanup is company scoped even where RLS does not mask: as the service pool, company B\'s comment on the same id stays', async () => {
+    await as(A, manager, async (h) => {
+      await h.admin("ALTER TABLE record_comments DISABLE TRIGGER trg_record_comments_guard");
+      await h.admin("INSERT INTO record_comments (company_id, record_type, record_id, body, author_id) VALUES ($1, 'bank_transaction', $2, 'planted-b', $3)", [B, ids.bankA, bUser]);
+      await h.admin("INSERT INTO record_comments (company_id, record_type, record_id, body, author_id) VALUES ($1, 'bank_transaction', $2, 'own-a', $3)", [A, ids.bankA, manager]);
+      expect(await deleteTransactions(A, [ids.bankA])).toBe(1);
+      const rows = await h.admin<{ body: string; deleted_at: Date | null }>("SELECT body, deleted_at FROM record_comments WHERE body IN ('planted-b', 'own-a')");
+      expect(rows.find((r) => r.body === 'own-a')!.deleted_at).not.toBeNull();
+      expect(rows.find((r) => r.body === 'planted-b')!.deleted_at).toBeNull();
+    }, undefined, 'app_service');
   });
 
   it('another company\'s comments on the same ids are not touched (company scoped)', async () => {

@@ -80,7 +80,7 @@ describe('useFocusTrap with a Select open inside the overlay (M14 mention picker
     const close = vi.fn();
     render(<Overlay name="Drawer" onEscape={close} nested={<>
       <div role="combobox" aria-haspopup="listbox" aria-expanded="true" aria-label="Pick" tabIndex={0} />
-      <div role="listbox"><div role="option" aria-selected="false" tabIndex={0}>One</div></div>
+      <div role="listbox" data-select-listbox="true"><div role="option" aria-selected="false" tabIndex={0}>One</div></div>
     </>} />);
     screen.getByRole('combobox', { name: 'Pick' }).focus();
     fireEvent.keyDown(screen.getByRole('combobox', { name: 'Pick' }), { key: 'Escape' });
@@ -115,6 +115,16 @@ describe('useFocusTrap and a text box that holds a draft (M14 comment composer)'
     expect(close).not.toHaveBeenCalled();
     screen.getByLabelText('empty').focus();
     fireEvent.keyDown(screen.getByLabelText('empty'), { key: 'Escape' });
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useFocusTrap and a listbox that is not a Select', () => {
+  it('Escape inside a plain focusable listbox still closes the overlay', () => {
+    const close = vi.fn();
+    render(<Overlay name="Drawer" onEscape={close} nested={<div role="listbox" tabIndex={0} aria-label="plain"><div role="option" aria-selected="false" tabIndex={0}>One</div></div>} />);
+    screen.getByRole('option', { name: 'One' }).focus();
+    fireEvent.keyDown(screen.getByRole('option', { name: 'One' }), { key: 'Escape' });
     expect(close).toHaveBeenCalledTimes(1);
   });
 });

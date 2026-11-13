@@ -1,18 +1,28 @@
 /**
  * `?line=<id>` on the bank page (a comment mention's link): reads that one line, whatever tab or page it is on, so the
- * drawer can open on it. `clear` forgets it and drops the parameter. A line that cannot be read says so, in `error`.
+ * drawer can open on it. Takes the list's own drawer state and returns the one to render: the list's line, else the
+ * linked one. A line that cannot be read (a stale link) is a dismissible `error` beside the list, never instead of
+ * it, and `?line` is dropped from the URL.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { BankTx } from '@/components/accounting/BankTxTable';
 
-export function useBankLineDeepLink() {
+export function useBankLineDeepLink(listTx: BankTx | undefined, closeListDetail: () => void) {
   const router = useRouter();
   const lineId = typeof router.query.line === 'string' ? router.query.line : null;
   const [line, setLine] = useState<BankTx | undefined>();
   const [error, setError] = useState('');
+
+  const routerRef = useRef(router);
+  useEffect(() => { routerRef.current = router; });
+  const dropParam = useCallback(() => {
+    const r = routerRef.current;
+    const { line: _drop, ...rest } = r.query;
+    void r.replace({ pathname: r.pathname, query: rest }, undefined, { shallow: true });
+  }, []);
 
   useEffect(() => {
     if (!router.isReady || lineId === null) return undefined;
@@ -25,18 +35,17 @@ export function useBankLineDeepLink() {
         if (live) { setLine(json.data); setError(''); }
       } catch (err) {
         log.warn('Bank line deep link failed', { error: err }, 'bank-transactions');
-        if (live) { setLine(undefined); setError(apiErrorMessage(err, 'Could not open that bank line - try again')); }
+        if (live) { setLine(undefined); setError(apiErrorMessage(err, 'Could not open that bank line - try again')); dropParam(); }
       }
     })();
     return () => { live = false; };
-  }, [router.isReady, lineId]);
+  }, [router.isReady, lineId, dropParam]);
 
-  const clear = useCallback(() => {
+  const closeDetail = useCallback(() => {
+    closeListDetail();
     setLine(undefined);
-    if (lineId === null) return;
-    const { line: _drop, ...rest } = router.query;
-    void router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
-  }, [router, lineId]);
+    if (lineId !== null) dropParam();
+  }, [closeListDetail, lineId, dropParam]);
 
-  return { line, error, clear };
+  return { detailTx: listTx ?? line, closeDetail, error, dismissError: useCallback(() => setError(''), []) };
 }

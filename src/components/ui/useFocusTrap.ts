@@ -39,9 +39,10 @@ export function useFocusTrap(
         // must not also close the overlay under it. The listbox is portalled, so focus is on the trigger or the list.
         const a = document.activeElement;
         // A text box that holds something keeps its Escape (it cancels the edit or leaves the box; data-keeps-escape):
-        // the draft must not go with the overlay. An empty one lets Escape close the overlay as before.
+        // the draft must not go with the overlay. The attribute must be present ONLY while the field holds content:
+        // an empty one lets Escape close the overlay as before.
         if (a?.closest('[data-keeps-escape="true"]')) return;
-        if (a?.closest('[role="listbox"]') || a?.closest('[role="combobox"][aria-haspopup="listbox"][aria-expanded="true"]')) return;
+        if (a?.closest('[data-select-listbox="true"]') || a?.closest('[role="combobox"][aria-haspopup="listbox"][aria-expanded="true"]')) return;
         e.stopPropagation();
         escape.current();
         return;
