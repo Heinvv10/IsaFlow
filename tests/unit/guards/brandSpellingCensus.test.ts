@@ -16,10 +16,12 @@ const ROOT = process.cwd();
  * would make a probe repo list the real worktree's files instead of its own. */
 const ownRepoEnv = (): NodeJS.ProcessEnv => {
   const env = { ...process.env };
-  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY']) delete env[k];
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY',
+    'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_PREFIX', 'GIT_NAMESPACE', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS']) delete env[k];
   return env;
 };
-const listFiles = (root = ROOT): string[] => execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', 'src', 'pages', 'public'], {
+// A probe repo ignores the user's global excludes, so only the census's own flags decide what is listed.
+const listFiles = (root = ROOT): string[] => execFileSync('git', [...(root === ROOT ? [] : ['-c', 'core.excludesFile=']), 'ls-files', '--cached', '--others', '--exclude-standard', 'src', 'pages', 'public'], {
   cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...(root === ROOT ? {} : { env: ownRepoEnv() }),
 }).split('\n').filter((f) => /\.(tsx?|js|mjs|html|txt|json|webmanifest)$/.test(f));
 
@@ -76,5 +78,5 @@ describe('brand spelling', () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
-  });
+  }, 30_000); // git init + ls-files under a loaded box
 });
