@@ -14,6 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useCompany } from '@/contexts/CompanyContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
+import { useNavFlags } from '@/hooks/useNavFlags';
 import { PaletteOption } from '@/components/layout/CommandPaletteRows';
 import { buildSections, type PaletteRow } from '@/components/layout/paletteRank';
 import type { PaletteAction } from '@/components/layout/commandActions';
@@ -76,7 +77,8 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
 
   useFocusTrap(dialogRef, isOpen, onClose);
 
-  const index = useMemo(() => buildNavIndex(TABS, isRegistered), [isRegistered]);
+  const flags = useNavFlags();
+  const index = useMemo(() => buildNavIndex(TABS, isRegistered, flags), [isRegistered, flags]);
   const sections = useMemo(() => {
     const base = buildSections({ query, index, recent, server });
     // Typed text that is a question gets its own "Ask IsaFlow" row: first for a wh-question, last for a phrase that is also a page search.

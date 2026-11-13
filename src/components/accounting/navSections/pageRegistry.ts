@@ -54,11 +54,14 @@ export const EXTRA_PAGES: NavIndexEntry[] = [
  */
 const TITLE_MODULE: Record<string, string> = { '/accounting/opening-balances': 'accounting' };
 
-/** The nav index plus the cog pages, then EXTRA_PAGES (menu entries first, so they win). */
-export function buildPageIndex(isVatRegistered: boolean): NavIndexEntry[] {
-  const index = buildNavIndex([...TABS, settingsTab], isVatRegistered).map((e) => {
+/**
+ * The nav index plus the cog pages, then EXTRA_PAGES (menu entries first, so they win). `enabledFlags`: the company's
+ * nav flags (`useNavFlags`); a flagged page is titled by name only when its flag is on (default: none).
+ */
+export function buildPageIndex(isVatRegistered: boolean, enabledFlags?: ReadonlySet<string>): NavIndexEntry[] {
+  const index = buildNavIndex([...TABS, settingsTab], isVatRegistered, enabledFlags).map((e) => {
     const tab = MODULE_BY_ID[TITLE_MODULE[e.href] ?? ''];
-    const owner = tab && buildNavIndex([tab], isVatRegistered).find((o) => o.href === e.href);
+    const owner = tab && buildNavIndex([tab], isVatRegistered, enabledFlags).find((o) => o.href === e.href);
     return owner ? { ...e, label: owner.label, trail: owner.trail } : e;
   });
   return [...index, ...EXTRA_PAGES];

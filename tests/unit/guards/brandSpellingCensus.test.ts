@@ -7,11 +7,22 @@
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'child_process';
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 const ROOT = process.cwd();
-const listFiles = (): string[] => execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', 'src', 'pages', 'public'], {
-  cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+/** The environment without git's repository overrides: under a git hook GIT_DIR points at the real repo, which
+ * would make a probe repo list the real worktree's files instead of its own. */
+const ownRepoEnv = (): NodeJS.ProcessEnv => {
+  const env = { ...process.env };
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY',
+    'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_PREFIX', 'GIT_NAMESPACE', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS']) delete env[k];
+  return env;
+};
+// A probe repo ignores the user's global excludes, so only the census's own flags decide what is listed.
+const listFiles = (root = ROOT): string[] => execFileSync('git', [...(root === ROOT ? [] : ['-c', 'core.excludesFile=']), 'ls-files', '--cached', '--others', '--exclude-standard', 'src', 'pages', 'public'], {
+  cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...(root === ROOT ? {} : { env: ownRepoEnv() }),
 }).split('\n').filter((f) => /\.(tsx?|js|mjs|html|txt|json|webmanifest)$/.test(f));
 
 /** Spellings that stay: a company literally named "ISAFlow Demo", the OAuth realm, and the search alias in llms.txt. */
@@ -31,8 +42,8 @@ const ALLOWED = new Set([
 ]);
 
 const stripKept = (text: string): string => text.replace(KEEP, '');
-const hits = (files: string[]): string[] => files.filter((f) => !ALLOWED.has(f)).flatMap((f) =>
-  readFileSync(`${ROOT}/${f}`, 'utf8').split('\n')
+const hits = (files: string[], root = ROOT): string[] => files.filter((f) => !ALLOWED.has(f)).flatMap((f) =>
+  readFileSync(`${root}/${f}`, 'utf8').split('\n')
     .map((line, i) => (stripKept(line).includes('ISAFlow') ? `${f}:${i + 1}` : ''))
     .filter(Boolean));
 
@@ -55,13 +66,17 @@ describe('brand spelling', () => {
     expect(stripKept('Sign in to your IsaFlow account')).not.toContain('ISAFlow');
   });
 
-  it('finds a new file that uses the old spelling (written, scanned, removed)', () => {
-    const probe = 'pages/zzBrandProbe.tsx';
+  // In a throwaway git repo, never the real tree: a probe file under pages/ raced every other census that walks
+  // pages/ in parallel (ENOENT on zzBrandProbe.tsx when it was removed between their listing and their read).
+  it('finds a new, untracked file that uses the old spelling', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'brand-probe-'));
     try {
-      writeFileSync(`${ROOT}/${probe}`, "export const x = 'ISAFlow';\n");
-      expect(hits(listFiles())).toContain(`${probe}:1`);
+      execFileSync('git', ['init', '-q'], { cwd: repo, env: ownRepoEnv() });
+      mkdirSync(join(repo, 'pages'));
+      writeFileSync(join(repo, 'pages/zzBrandProbe.tsx'), "export const x = 'ISAFlow';\n");
+      expect(hits(listFiles(repo), repo)).toContain('pages/zzBrandProbe.tsx:1');
     } finally {
-      rmSync(`${ROOT}/${probe}`, { force: true });
+      rmSync(repo, { recursive: true, force: true });
     }
-  });
+  }, 30_000); // git init + ls-files under a loaded box
 });
