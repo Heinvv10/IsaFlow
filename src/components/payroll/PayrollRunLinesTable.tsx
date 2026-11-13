@@ -120,7 +120,7 @@ function GrossCell({ line: l }: { line: RunLineAmounts }) {
   const deemed = fund > 0 ? `, of which ${formatCurrency(fund)} is the employer's retirement fund contribution, also counted as the employee's retirement contribution` : '';
   return (
     <td className={`${num} text-[var(--ff-text-primary)]`}
-      title={`${formatCurrency(l.grossPay)} paid in cash, plus a ${formatCurrency(benefit)} non-cash benefit that is taxed (PAYE) and levied (SDL) but not paid${deemed}`}>
+      title={`${formatCurrency(l.grossPay)} paid in cash, plus a ${formatCurrency(benefit)} non-cash benefit that is taxed (PAYE), with UIF and SDL on it where they apply, but not paid${deemed}`}>
       {formatCurrency(l.grossPay)}
       <span className="block text-xs text-[var(--ff-text-tertiary)]">+ {formatCurrency(benefit)} non-cash</span>
     </td>

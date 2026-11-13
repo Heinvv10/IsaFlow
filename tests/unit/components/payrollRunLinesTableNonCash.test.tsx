@@ -27,6 +27,8 @@ describe('PayrollRunLinesTable — non-cash benefits', () => {
     render(<PayrollRunLinesTable lines={[line({ nonCashBenefits: 2_250, employerRetirement: 2_250 })]} />);
     const title = screen.getByText(/\+ R 2 250\.00 non-cash/).closest('td')!.getAttribute('title');
     expect(title).toMatch(/of which R\s2\s250\.00 is the employer's retirement fund contribution, also counted as the employee's retirement contribution/);
+    // A 3817 is levied UIF as well as SDL (UI Contributions Act s1): the tooltip must not say SDL alone.
+    expect(title).toMatch(/taxed \(PAYE\), with UIF and SDL on it where they apply/);
   });
 
   it('a non-cash benefit that is no fund contribution says nothing about retirement', () => {
