@@ -75,6 +75,17 @@ describeIfDisposable('list_bank_transactions summaries against real rows', () =>
     expect(body.totals.count).toBe(direct.rows[0].n);
   });
 
+  it('a removed feed line is in no summary, with or without a bank account named', async () => {
+    for (const account of [undefined, FX.acc.a1]) {
+      const direct = await pool.query(
+        `SELECT COUNT(*)::int AS n, COALESCE(SUM(amount), 0)::float AS net FROM bank_transactions
+         WHERE company_id = $1 AND feed_state <> 'removed' AND ($2::UUID IS NULL OR bank_account_id = $2::UUID)`, [FX.A, account ?? null]);
+      const body = await call({ detail: 'summary', ...(account ? { bank_account_id: account } : {}) });
+      expect(body.totals.count).toBe(direct.rows[0].n);
+      expect(body.totals.net).toBe(direct.rows[0].net);
+    }
+  });
+
   it('a default call is unchanged: transactions, total, next_cursor', async () => {
     const body = await call( { limit: 2 });
     expect(Object.keys(body).sort()).toEqual(['next_cursor', 'total', 'transactions']);
