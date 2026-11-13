@@ -22,6 +22,12 @@ describe('splitOverLegs', () => {
     expect(out).toEqual([2174, 6522, 1305]);
   });
 
+  it('rounds half up and leaves the rest on the largest leg — not floor, not largest-remainder', () => {
+    // 5c over 3/3/4: exact 1.5/1.5/2. Half-up gives 2/2 and the 4c leg takes 1; floor would give 1/1/3 and
+    // largest-remainder 2/1/2 (or 1/2/2). Only this rule gives [2, 2, 1].
+    expect(splitOverLegs(5, [3, 3, 4].map((c) => ({ cents: c, isVat: false })))).toEqual([2, 2, 1]);
+  });
+
   it('never drives a leg negative when rounding up overshoots (many tiny legs)', () => {
     const legs = [1, 1, 1, 1].map((cents) => ({ cents, isVat: false }));
     const out = splitOverLegs(2, legs);

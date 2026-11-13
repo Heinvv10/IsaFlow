@@ -17,7 +17,8 @@ import type { McpToolContext } from '@/lib/mcp/types';
 
 const COMPANY = 'cccccccc-0000-4000-8000-cccccccccccc';
 const SUP = '5a5a5a5a-0000-4000-8000-000000000001';
-const ctx = { companyId: COMPANY, userId: 'u-1' } as McpToolContext;
+const ctx = { companyId: COMPANY, userId: 'u-1', scopes: ['read:invoices', 'read:reports'] } as McpToolContext;
+const invoicesOnly = { ...ctx, scopes: ['read:invoices'] } as McpToolContext;
 const text = (r: { content: { text: string }[] }) => r.content[0]!.text;
 
 const BILL = {
@@ -78,5 +79,12 @@ describe('find_double_settlements', () => {
     });
     vi.mocked(findDoubleSettlements).mockResolvedValueOnce({ rows: [BILL] as never, total: 3 });
     expect(JSON.parse(text(await findDoubleSettlementsTool.handler({ limit: 2, offset: 2 }, ctx))).next_offset).toBeNull();
+  });
+
+  it('names the credited account only when the token can read reports', async () => {
+    vi.mocked(findDoubleSettlements).mockResolvedValueOnce({ rows: [BILL] as never, total: 1 });
+    const s = JSON.parse(text(await findDoubleSettlementsTool.handler({}, invoicesOnly))).bills[0].settlements[0];
+    expect(s).toEqual({ kind: 'contra', document_id: 'p-1', document_number: 'SP-2026-01861', date: '2026-09-17',
+      amount: 150, payment_method: 'contra' });
   });
 });

@@ -16,7 +16,10 @@ import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolled
 import type { McpToolContext, McpToolResult } from '../types';
 import { mcpPostingOpts } from '../mcpActor';
 import { insufficientScopeMessage } from '../scopeRemediation';
-import { guardCastableArgs, strArg, toolError } from './toolHelpers';
+import { guardCastableArgs, guardUuidList, hasWholeCents, strArg, toolError } from './toolHelpers';
+import type { ShareUndoChoices } from '@/modules/accounting/services/ap/shareUndoTypes';
+
+const MAX_UNDO_AMOUNTS = 500;
 
 export const UNDO_SHARE_PROPERTIES = {
   undo_share: {
@@ -31,6 +34,26 @@ export const UNDO_SHARE_PROPERTIES = {
       + 'CR expense + VAT Input) — e.g. the month\'s re-dated share journal. It must debit the clearing account and '
       + 'credit every account the undo debits by at least the amounts undone, or the call is refused.',
   },
+  undo_amounts: {
+    type: 'array',
+    maxItems: MAX_UNDO_AMOUNTS,
+    description: 'How much of each of this payment\'s bills the share journal reversed, when the share carries other '
+      + 'bills too (it debits the clearing account by more than this payment applied — then this is REQUIRED, because '
+      + 'the share\'s lines do not say which bill each amount belongs to). Each amount is at most what this payment '
+      + 'applied to that bill; a bill left out is not undone. Omit when the share covers exactly this payment\'s bills.',
+    items: {
+      type: 'object',
+      properties: { bill_id: { type: 'string' }, amount: { type: 'number', exclusiveMinimum: 0 } },
+      required: ['bill_id', 'amount'],
+      additionalProperties: false,
+    },
+  },
+  acknowledge_manual_undo: {
+    type: 'boolean',
+    description: 'The undo is refused when a journal on or after the share date already looks like a hand undo of a '
+      + 'bill\'s share (debits its accounts, credits the clearing account by its amount). Pass true only after checking '
+      + 'that journal is something else.',
+  },
   dry_run: {
     type: 'boolean',
     description: 'Run the whole void (and undo) and roll it back: answers what would change, or the refusal the live '
@@ -40,7 +63,25 @@ export const UNDO_SHARE_PROPERTIES = {
 
 export type VoidOutcome = VoidPaymentResult | VoidWithShareUndoResult | VoidRefusal;
 
-interface UndoArgs { undoShare: boolean; shareJournalId: string | null; dryRun: boolean }
+interface UndoArgs { undoShare: boolean; shareJournalId: string | null; dryRun: boolean; choices: ShareUndoChoices }
+
+/** `undo_amounts` as the service takes it, or the refusal. */
+function parseUndoAmounts(raw: unknown): ShareUndoChoices['undoAmounts'] | McpToolResult {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_UNDO_AMOUNTS) {
+    return toolError(`undo_amounts must be a list of 1 to ${MAX_UNDO_AMOUNTS} {bill_id, amount}`);
+  }
+  const out: { billId: string; amount: number }[] = [];
+  for (const [i, item] of raw.entries()) {
+    const it = (item ?? {}) as Record<string, unknown>;
+    const bad = guardUuidList([it.bill_id], () => `undo_amounts[${i}].bill_id`);
+    if (bad) return bad;
+    if (typeof it.amount !== 'number' || !Number.isFinite(it.amount) || it.amount <= 0 || !hasWholeCents(it.amount)) {
+      return toolError(`undo_amounts[${i}].amount must be a positive amount to the cent`);
+    }
+    out.push({ billId: String(it.bill_id), amount: it.amount });
+  }
+  return out;
+}
 
 /** The step-6 arguments, or the refusal — before any service call. */
 export function parseUndoArgs(args: Record<string, unknown>): UndoArgs | McpToolResult {
@@ -53,7 +94,19 @@ export function parseUndoArgs(args: Record<string, unknown>): UndoArgs | McpTool
   if (!undoShare && shareJournalId) return toolError('share_journal_id is only used with undo_share: true');
   const bad = guardCastableArgs(args, { uuid: ['share_journal_id'] });
   if (bad) return bad;
-  return { undoShare, shareJournalId, dryRun: args.dry_run === true };
+  if (!undoShare && (args.undo_amounts !== undefined || args.acknowledge_manual_undo !== undefined)) {
+    return toolError('undo_amounts and acknowledge_manual_undo are only used with undo_share: true');
+  }
+  if (args.acknowledge_manual_undo !== undefined && typeof args.acknowledge_manual_undo !== 'boolean') {
+    return toolError('acknowledge_manual_undo must be true or false');
+  }
+  const choices: ShareUndoChoices = { acknowledgeManualUndo: args.acknowledge_manual_undo === true };
+  if (args.undo_amounts !== undefined) {
+    const amounts = parseUndoAmounts(args.undo_amounts);
+    if (amounts && 'content' in amounts) return amounts;
+    choices.undoAmounts = amounts;
+  }
+  return { undoShare, shareJournalId, dryRun: args.dry_run === true, choices };
 }
 
 /**
@@ -72,7 +125,7 @@ export async function runVoidPayment(
 ): Promise<VoidOutcome> {
   const opts = { ...mcpPostingOpts(ctx, 'void_payment'), ...(reversalDate === undefined ? {} : { reversalDate }) };
   const run = (): Promise<VoidOutcome> => (a.undoShare
-    ? voidPaymentUndoingShare(ctx.companyId, paymentId, a.shareJournalId!, ctx.userId, opts)
+    ? voidPaymentUndoingShare(ctx.companyId, paymentId, a.shareJournalId!, ctx.userId, opts, a.choices)
     : voidPaymentDocument(ctx.companyId, 'supplier', paymentId, ctx.userId, opts));
   if (!a.dryRun) return run();
   const held: { out?: VoidOutcome } = {};
@@ -94,6 +147,7 @@ export function undoShareReply(r: VoidWithShareUndoResult, dryRun: boolean) {
     entry_date: plan.shareJournal.entryDate,
     clearing_account: plan.clearingAccount,
     total: plan.total,
+    allocated_total: plan.allocatedTotal,
     journal_entry_ids: dryRun ? [] : posted.map((p) => p.journalEntryId),
     journals: plan.journals.map((j) => ({
       bill_id: j.billId,

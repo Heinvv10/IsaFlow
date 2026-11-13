@@ -11,6 +11,13 @@ import type { PaymentKind } from './paymentVoidService';
 import { lockCustomerPaymentForUpdate, lockSupplierPaymentForUpdate } from './paymentLock';
 
 /**
+ * The statuses at which a statement line still settles the journal line it is matched to. ONE list, shared with
+ * `ap/settlementKind.ts` (a payment is a statement-line settlement exactly when this void would delegate to the bank
+ * path), so the two cannot disagree about which lines count.
+ */
+export const SETTLING_LINE_STATUSES: readonly string[] = ['allocated', 'matched', 'reconciled'];
+
+/**
  * The bank lines this journal settles.
  *
  * Matched through `gl_journal_lines`, because `matched_journal_line_id` names a
@@ -36,7 +43,7 @@ export async function findBankTransactions(
     JOIN gl_journal_lines jl ON jl.id = bt.matched_journal_line_id
     WHERE bt.company_id = ${companyId}::UUID
       AND jl.journal_entry_id = ${journalEntryId}::UUID
-      AND bt.status IN ('allocated', 'matched', 'reconciled')
+      AND bt.status = ANY(${[...SETTLING_LINE_STATUSES]}::TEXT[])
     ORDER BY bt.transaction_date, bt.id`) as DbRow[];
   return rows.map((r) => String(r.id));
 }

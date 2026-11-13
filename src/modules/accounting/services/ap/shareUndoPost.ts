@@ -13,7 +13,7 @@ import { postJournalEntry } from '../gl/journalEntryPostingService';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { isEnforced } from '../gl/approvalEnforcement';
 import { markManualJournal } from '../gl/manualJournalApproval';
-import type { ShareUndoPlan } from './shareUndoPlan';
+import type { ShareUndoPlan } from './shareUndoTypes';
 
 export interface PostedShareUndo {
   billId: string;
@@ -33,8 +33,9 @@ export async function postShareUndoJournals(
     // Sequential: one request client, one savepoint stack.
     const entry = await createJournalEntry(
       companyId,
+      // source_record_id = the share journal: the link `shareUndoGuards.assertShareCapacity` sums every live undo by.
       { entryDate: plan.shareJournal.entryDate, description: j.description, source: 'manual', reference: j.reference,
-        lines: j.lines },
+        sourceRecordId: plan.shareJournal.id, lines: j.lines },
       userId,
       // Stamped as the agent, or it lands as the token owner's own typing and drops out of list_agent_postings.
       actorMeta(actor),

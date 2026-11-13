@@ -64,9 +64,13 @@ import { lockBankLegOf, lockJournalAndUnmatch, type BankLeg } from '../ap/paymen
 import { underFlowLockBudget } from './rowLockBudget';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import type { VatLockRoll } from '../gl/journalEntryReversalVatRoll';
-import type { VoidingPayment } from '../ap/shareUndoPlan';
 
 export type PaymentKind = 'customer' | 'supplier';
+/** The payment as the void holds it, locked, when `beforeFirstWrite` runs. */
+export interface VoidingPayment {
+  id: string; paymentNumber: string | null; journalEntryId: string | null; settlesProvisionalJeId: string | null;
+  bankTransactionId: string | null;
+}
 /** `beforeFirstWrite` (void_payment undo_share, ap/voidPaymentUndoShare): runs with every lock held, before any write; a throw refuses. */
 export type VoidOpts = PostingActorOpts & { reversalDate?: string; beforeFirstWrite?: (p: VoidingPayment) => Promise<void> };
 const LABEL: Record<PaymentKind, string> = { customer: 'This receipt', supplier: 'This payment' };

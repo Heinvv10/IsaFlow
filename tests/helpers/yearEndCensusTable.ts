@@ -89,6 +89,10 @@ export const entries: Array<[string, Category, string?]> = [
   ['gl/controlAccountService.ts', 'SUBLEDGER'],
   // Step 6: the lines of ONE named journal (the payment's, a bill's, the share journal) to plan an undo-share; no figure.
   ['ap/shareUndoReads.ts', 'SUBLEDGER', 'jl.project_id, jl.cc1_id, jl.cc2_id, jl.bu_id'],
+  // Step 6 round 2: what the undo journals linked to ONE share already gave back (its capacity), and the search for a
+  // hand undo of one bill (credit on the clearing account by the bill's amount). Neither is a P&L or equity figure.
+  ['ap/shareUndoReads.ts', 'SUBLEDGER', 'SUM(jl.debit) AS debit, SUM(jl.credit) AS credit'],
+  ['ap/shareUndoReads.ts', 'SUBLEDGER', 'ABS(x.credit - amt) <= 0.01'],
   ['gl/glIntegrityService.ts', 'INTEGRITY'],
   ['gl/integrityChecks/accountChecks.ts', 'INTEGRITY'],
   ['gl/integrityChecks/dimensionChecks.ts', 'INTEGRITY'],

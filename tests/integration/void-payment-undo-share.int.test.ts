@@ -6,55 +6,28 @@
  *
  * Pinned: the undo mirrors the bill's own split (accounts, CC1, VAT code) on the share's date; the clearing account
  * nets to nil; the ledger balances; May's VAT201 input tax rises by the bill's VAT; AP control = the subledger; a dry
- * run writes nothing and leaves the idempotency key for the live call. Refusals (nothing written): a share journal
- * that is not the share, a payment that is not a contra, a second undo, a closed period, a VAT-locked period.
+ * run writes nothing and leaves the idempotency key for the live call; a share that carries other bills needs
+ * undo_amounts. The refusals are in void-payment-undo-share-refusals.int.test.ts; the breaker's repros in
+ * breaker6-undo.int.test.ts.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
-import { McpRegistry } from '@/lib/mcp/registry';
-import { voidPaymentTool } from '@/lib/mcp/tools/writeVoidPayments';
-import { settleByContraTool } from '@/lib/mcp/tools/writeSettleByContra';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
-import type { McpToolContext } from '@/lib/mcp/types';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropFixture, inTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, seedFixture, type Fixture } from './helpers/l1FifoFixture';
 import {
   apSubledger, billWithJournal, dropStepExtras, ledger, postedJournal, seedStepAccounts, type StepAccounts,
 } from './helpers/shareUndoFixture';
+import { text, undoShareKit } from './helpers/undoShareKit';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 type Row = Record<string, unknown>;
 let fx: Fixture;
 let a: StepAccounts;
-const registry = new McpRegistry();
-registry.register(voidPaymentTool);
-const ctx = (scopes = ['write:invoices', 'write:post', 'write:journals']): McpToolContext => ({
-  userId: fx.userId, companyId: fx.companyId, scopes, companyRole: 'owner', tokenJti: 'step6', oauthAppId: null,
-} as McpToolContext);
-const call = (args: Row, scopes?: string[]) => inTx(fx, () => registry.call('void_payment', args, ctx(scopes)));
-const text = (r: { content: { text: string }[] }) => r.content[0]!.text;
-
-async function contra(billId: string, amount: number): Promise<string> {
-  const r = await inTx(fx, () => settleByContraTool.handler({
-    subledger: 'ap', document_id: billId, contra_account_id: a.clearing, amount, reason: 'petty cash via paycards',
-    settlement_date: '2026-09-17', idempotency_key: crypto.randomUUID(),
-  }, ctx()));
-  expect(r.isError, text(r)).toBeFalsy();
-  return String(JSON.parse(text(r)).payment_id);
-}
-const payStatus = async (id: string) => String(((await sql`SELECT status FROM supplier_payments WHERE id = ${id}::UUID`) as Row[])[0]!.status);
+const { call, contra, payStatus, scenario } = undoShareKit(() => fx, () => a);
 const undoCount = async () => Number(((await sql`
   SELECT COUNT(*)::INT AS n FROM gl_journal_entries WHERE company_id = ${fx.companyId}::UUID AND reference LIKE 'undo-share:%'`) as Row[])[0]!.n);
 const inputTaxMay = async () => (await getVATReturn(fx.companyId, '2026-05-01', '2026-05-31')).totalInputTax;
-
-/** A bill of `total` (expense + 15% VAT), settled by a contra, and a share journal dated `shareDate` that carried it. */
-async function scenario(tag: string, shareDate: string, billDate = '2026-05-10', shareLegs?: (n: number, v: number) => Parameters<typeof postedJournal>[2]) {
-  const bill = await billWithJournal(fx, a, tag, billDate, [{ account: a.expense, debit: 1000 }, { account: a.vatInput, debit: 150, vatType: 'standard' }]);
-  const pay = await contra(bill.id, 1150);
-  const share = await postedJournal(fx, shareDate, shareLegs?.(1000, 150) ?? [
-    { account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 }, { account: a.vatInput, credit: 150, vatType: 'standard' }]);
-  return { bill, pay, share };
-}
 
 describe.skipIf(!DATABASE_URL)('void_payment undo_share — the share comes back out of the clearing account', () => {
   let billA: { id: string; total: number };
@@ -78,8 +51,6 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — the share comes back
   }, 120000);
 
   afterAll(async () => {
-    await sql`DELETE FROM approval_rules WHERE company_id = ${fx.companyId}::UUID AND name = 'step6 big journals'`;
-    await sql`DELETE FROM approval_enforcement WHERE company_id = ${fx.companyId}::UUID AND document_type = 'manual_journal'`;
     await dropStepExtras(fx);
     await dropFixture(fx);
   }, 120000);
@@ -88,8 +59,13 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — the share comes back
     const before = await ledger(fx);
     const vatBefore = await inputTaxMay();
     expect(before.by[a.clearing]).toBe(0);
+    // The May share carries bill B too (8,150 > the 8,000 this payment applied): without undo_amounts it is refused.
+    const bare = await call({ payment_id: payA, undo_share: true, share_journal_id: share, idempotency_key: crypto.randomUUID() });
+    expect(text(bare)).toMatch(/carries other bills too.*Pass undo_amounts/);
+    expect(await payStatus(payA)).toBe('processed');
     const key = crypto.randomUUID();
-    const args = { payment_id: payA, undo_share: true, share_journal_id: share, idempotency_key: key };
+    const args = { payment_id: payA, undo_share: true, share_journal_id: share, idempotency_key: key,
+      undo_amounts: [{ bill_id: billA.id, amount: 8000 }] };
 
     const dry = await call({ ...args, dry_run: true });
     expect(dry.isError, text(dry)).toBeFalsy();
@@ -166,32 +142,30 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — the share comes back
     expect(-(after.by[a.ap] ?? 0)).toBe(await apSubledger(fx));
   }, 120000);
 
-  it('refuses a share journal that is not the share, and one that misses a bill account — nothing written', async () => {
-    const s = await scenario('WRONG', '2026-05-31');
-    const notShare = await postedJournal(fx, '2026-05-31', [{ account: a.expense, debit: 1150 }, { account: a.bank, credit: 1150 }]);
-    expect(text(await call({ payment_id: s.pay, undo_share: true, share_journal_id: notShare, idempotency_key: crypto.randomUUID() })))
-      .toMatch(/does not debit .*1560731/);
-    const thin = await postedJournal(fx, '2026-05-31', [{ account: a.clearing, debit: 1150 }, { account: a.expense2, credit: 1000 },
-      { account: a.vatInput, credit: 150, vatType: 'standard' }]);
-    expect(text(await call({ payment_id: s.pay, undo_share: true, share_journal_id: thin, idempotency_key: crypto.randomUUID() })))
-      .toMatch(/does not credit account 6000/);
-    expect(text(await call({ payment_id: s.pay, undo_share: true, share_journal_id: crypto.randomUUID(), idempotency_key: crypto.randomUUID() })))
-      .toBe('share_journal_id is not a journal of this company.');
-    expect(await payStatus(s.pay)).toBe('processed');
+  it('a bill posted to a second AP account (any payable subtype) is mirrored', async () => {
+    const [ap2] = (await sql`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance, is_active)
+      VALUES (${fx.companyId}::UUID, '2110', ${`Creditors control ${fx.tag}`}, 'liability', 'payable', 'credit', true) RETURNING id`) as Row[];
+    const je = await postedJournal(fx, '2026-05-10', [{ account: a.expense, debit: 200 }, { account: String(ap2!.id), credit: 200 }]);
+    const [b] = (await sql`INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date, due_date, subtotal,
+        total_amount, amount_paid, status, created_by, gl_journal_entry_id)
+      VALUES (${fx.companyId}::UUID, ${fx.supplierId}::UUID, ${`AP2110-${fx.tag}`}, '2026-05-10', '2026-05-10', 200, 200, 0,
+              'approved', ${fx.userId}::UUID, ${je}::UUID) RETURNING id`) as Row[];
+    const pay = await contra(String(b!.id), 200);
+    const share2 = await postedJournal(fx, '2026-05-31', [{ account: a.clearing, debit: 200 }, { account: a.expense, credit: 200 }]);
+    const r = await call({ payment_id: pay, undo_share: true, share_journal_id: share2, idempotency_key: crypto.randomUUID() });
+    expect(r.isError, text(r)).toBeFalsy();
   }, 120000);
 
-  it('refuses a payment that is not a contra (it paid from the bank)', async () => {
-    const bill = await billWithJournal(fx, a, 'BANKPAID', '2026-05-10', [{ account: a.expense, debit: 100 }]);
-    const je = await postedJournal(fx, '2026-06-01', [{ account: a.ap, debit: 100 }, { account: a.bank, credit: 100 }]);
-    const [p] = (await sql`INSERT INTO supplier_payments (company_id, supplier_id, payment_date, total_amount, payment_method,
-        bank_account_id, status, created_by, gl_journal_entry_id)
-      VALUES (${fx.companyId}::UUID, ${fx.supplierId}::UUID, '2026-06-01', 100, 'eft', ${a.bank}::UUID, 'processed',
-              ${fx.userId}::UUID, ${je}::UUID) RETURNING id`) as Row[];
-    await sql`INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated) VALUES (${String(p!.id)}::UUID, ${bill.id}::UUID, 100)`;
-    await sql`UPDATE supplier_invoices SET amount_paid = 100, status = 'paid' WHERE id = ${bill.id}::UUID`;
-    expect(text(await call({ payment_id: String(p!.id), undo_share: true, share_journal_id: share, idempotency_key: crypto.randomUUID() })))
-      .toMatch(/is not a contra settlement/);
-    expect(await payStatus(String(p!.id))).toBe('processed');
+  it('the remainder cent never lands on a leg that moves a VAT201 figure — a coded base leg included', async () => {
+    // 500.35 of a 1,483.33 bill: the coded 1,000 leg and the VAT leg are rounded; the uncoded 333.33 leg takes the rest.
+    const s = await scenario('REMAINDER', '2026-05-31', '2026-05-10', [{ account: a.expense, debit: 1000, vatType: 'standard' },
+      { account: a.expense2, debit: 333.33 }, { account: a.vatInput, debit: 150, vatType: 'standard' }]);
+    const r = await call({ payment_id: s.pay, undo_share: true, share_journal_id: s.share, idempotency_key: crypto.randomUUID(),
+      undo_amounts: [{ bill_id: s.bill.id, amount: 500.35 }] });
+    expect(r.isError, text(r)).toBeFalsy();
+    const lines = JSON.parse(text(r)).undo_share.journals[0].lines as { account_id: string; debit: number }[];
+    expect(Object.fromEntries(lines.filter((l) => l.debit > 0).map((l) => [l.account_id, l.debit])))
+      .toEqual({ [a.expense]: 337.32, [a.expense2]: 112.43, [a.vatInput]: 50.6 });
   }, 120000);
 
   it('undo_share without write:journals is refused before the void, dry run and live alike', async () => {
@@ -206,57 +180,4 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — the share comes back
     expect(await ledger(fx)).toEqual(before);
   }, 120000);
 
-  it('refuses a contra whose journal also posted another payment document', async () => {
-    const je = await postedJournal(fx, '2026-09-17', [{ account: a.ap, debit: 200 }, { account: a.clearing, credit: 200 }]);
-    const ids: string[] = [];
-    for (const n of ['SIB1', 'SIB2']) {
-      const b = await billWithJournal(fx, a, n, '2026-05-10', [{ account: a.expense, debit: 100 }]);
-      const [p] = (await sql`INSERT INTO supplier_payments (company_id, supplier_id, payment_date, total_amount, payment_method,
-          bank_account_id, status, created_by, gl_journal_entry_id)
-        VALUES (${fx.companyId}::UUID, ${fx.supplierId}::UUID, '2026-09-17', 100, 'contra', ${a.clearing}::UUID, 'processed',
-                ${fx.userId}::UUID, ${je}::UUID) RETURNING id`) as Row[];
-      await sql`INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated) VALUES (${String(p!.id)}::UUID, ${b.id}::UUID, 100)`;
-      await sql`UPDATE supplier_invoices SET amount_paid = 100, status = 'paid' WHERE id = ${b.id}::UUID`;
-      ids.push(String(p!.id));
-    }
-    const sib = await postedJournal(fx, '2026-05-31', [{ account: a.clearing, debit: 200 }, { account: a.expense, credit: 200 }]);
-    expect(text(await call({ payment_id: ids[0], undo_share: true, share_journal_id: sib, idempotency_key: crypto.randomUUID() })))
-      .toMatch(/posted other payment documents too/);
-    expect(await payStatus(ids[0]!)).toBe('processed');
-  }, 120000);
-
-  it('refuses a second undo of the same bill and payment', async () => {
-    const s = await scenario('TWICE', '2026-05-31');
-    await postedJournal(fx, '2026-05-31', [{ account: a.expense, debit: 1 }, { account: a.clearing, credit: 1 }], `undo-share:${s.pay}:${s.bill.id}`);
-    expect(text(await call({ payment_id: s.pay, undo_share: true, share_journal_id: s.share, idempotency_key: crypto.randomUUID() })))
-      .toMatch(/was already undone by JE-/);
-    expect(await payStatus(s.pay)).toBe('processed');
-  }, 120000);
-
-  it('refuses (never rolls) a share date in a closed period or a locked VAT period', async () => {
-    await sql`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
-      VALUES (${fx.companyId}::UUID, ${`FY25 ${fx.tag}`}, 1, 2025, '2025-01-01', '2025-12-31', 'closed')`;
-    const closed = await scenario('CLOSED', '2025-12-31', '2025-11-10');
-    expect(text(await call({ payment_id: closed.pay, undo_share: true, share_journal_id: closed.share, idempotency_key: crypto.randomUUID() })))
-      .toMatch(/2025-12-31, which is not in an open fiscal period/);
-    expect(await payStatus(closed.pay)).toBe('processed');
-
-    const locked = await scenario('LOCKED', '2026-03-31', '2026-03-10');
-    await sql`INSERT INTO vat_period_locks (company_id, period_start, period_end, output_tax, input_tax, net_vat, posted_through, locked_by)
-      VALUES (${fx.companyId}::UUID, '2026-03-01', '2026-03-31', 0, 0, 0, NOW(), 'step6 test')`;
-    expect(text(await call({ payment_id: locked.pay, undo_share: true, share_journal_id: locked.share, idempotency_key: crypto.randomUUID() })))
-      .toMatch(/inside the locked VAT period 2026-03-01 to 2026-03-31/);
-    expect(await payStatus(locked.pay)).toBe('processed');
-  }, 120000);
-
-  it('R-035: under manual-journal enforcement a matching rule refuses the call, dry run and live alike', async () => {
-    const s = await scenario('R035', '2026-05-31');
-    await sql`INSERT INTO approval_enforcement (company_id, document_type, enabled_by) VALUES (${fx.companyId}::UUID, 'manual_journal', 'step6')`;
-    await sql`INSERT INTO approval_rules (company_id, name, document_type, condition_field, condition_operator, condition_value, approver_role, is_active)
-      VALUES (${fx.companyId}::UUID, 'step6 big journals', 'manual_journal', 'amount', 'greater_than', 1000, 'owner', true)`;
-    const args = { payment_id: s.pay, undo_share: true, share_journal_id: s.share, idempotency_key: crypto.randomUUID() };
-    expect(text(await call({ ...args, dry_run: true }))).toMatch(/Manual journals are enforced/);
-    expect(text(await call(args))).toMatch(/Manual journals are enforced/);
-    expect(await payStatus(s.pay)).toBe('processed');
-  }, 120000);
 });

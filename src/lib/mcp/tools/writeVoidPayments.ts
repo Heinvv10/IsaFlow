@@ -110,8 +110,11 @@ function voidTool(
           reverse_with: 'reverse_journal_entry, once per id in undo_share.journal_entry_ids',
         } : {}),
       });
-      // A dry run wrote nothing: the key stays free for the live call (registry, CONTRACTS §6).
-      if (dryRun) reply.wroteNothing = true;
+      // A dry run wrote nothing: the key stays free for the live call (registry, CONTRACTS §6), and it is not billed.
+      if (dryRun) {
+        reply.wroteNothing = true;
+        reply.billable = false;
+      }
       return reply;
     },
   };
@@ -169,7 +172,11 @@ export const voidPaymentTool = voidTool(
   + "journal's date (refused, never rolled, when that period is closed or VAT-locked), reference "
   + 'undo-share:<payment_id>:<bill_id>; a second undo of the same bill and payment is refused. Posted after the '
   + 'void in the same call; each is reversible with reverse_journal_entry. Refused unless the payment is a contra '
-  + "and the share journal really debits the clearing account and credits the bill's accounts. Under manual-journal "
+  + "and the share journal still HOLDS what is undone — cumulatively: its debit on the clearing account and its credit "
+  + 'on each bill account, less every earlier live undo of that share. A share that debits the clearing account by '
+  + 'more than this payment applied carries other bills: then undo_amounts (how much of each bill it reversed) is '
+  + 'required. Also refused: a late-claimed bill, a deactivated account, and a journal that already looks like a hand '
+  + "undo of the bill (unless acknowledge_manual_undo). Under manual-journal "
   + 'approval enforcement a matching rule refuses the call (a person must enter it). undo_share also needs the '
   + 'write:journals permission. '
   + 'Run with dry_run first: it performs the whole call and rolls it back, writing nothing.',
