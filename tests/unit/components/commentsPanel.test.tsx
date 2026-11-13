@@ -3,6 +3,7 @@
 import { fireEvent, render, screen, cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
+vi.unmock('@/components/accounting/comments/CommentsPanel'); // setup.ts stubs it for every other suite
 let role = 'manager';
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: role, activeCompany: { id: 'c1' } }) }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'me' } }) }));
