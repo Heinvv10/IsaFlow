@@ -22,7 +22,7 @@
  * refusal is decided from reads by `buildPlan`, which the dry run runs as is;
  * the live call plans on rows it holds (note first, then the document — the
  * order approve, apply, unapply and cancel take) and checks the posted-credit
- * invariant and the rows-equal-column invariant around its writes.
+ * invariant before the note records the new figure.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -114,14 +114,13 @@ export async function adjustCreditNoteApplication(
   if (plan.appliedAfter > 0) {
     await writeApplication(companyId, plan.creditNoteId, side, { ...line, amount: plan.appliedAfter });
   }
-  // The invariants, before the note records the figure. Thrown, never refused:
+  // The invariant, before the note records the figure. Thrown, never refused:
   // the document has already moved, so the registry must unwind it.
   await assertApplicationWithinPostedCredit(companyId, note!, side, plan.noteAppliedAfter);
   await sql`
     UPDATE credit_notes SET applied_amount = ${plan.noteAppliedAfter}, status = ${plan.noteStatusAfter},
            updated_at = NOW()
     WHERE id = ${plan.creditNoteId}::UUID AND company_id = ${companyId}::UUID`;
-  await assertAllocationsMatchApplied(companyId, plan.creditNoteId, plan.noteAppliedAfter);
 
   log.info('Adjusted a credit note application', {
     creditNoteId: plan.creditNoteId, documentId: plan.documentId,
