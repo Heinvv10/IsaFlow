@@ -5,7 +5,10 @@
  *  - a clean asset is deleted, company-scoped (another company's id reads Not found and survives);
  *  - EVERY footprint refuses and nothing is deleted or cascaded away;
  *  - two connections: a depreciation run holding the asset makes the delete wait and then refuse; a delete holding the
- *    asset makes the run wait and then find it gone, leaving no ledger row and no journal behind.
+ *    asset makes the run wait and then find it gone, leaving no ledger row and no journal behind;
+ *  - the same against a bank-line link and a fleet fuel / service insert, in both orders: no deadlock, and either the
+ *    link / insert wins and the delete refuses, or the delete wins and the write fails on the FK (nothing unlinked);
+ *  - everything runs as app_user with withAuth's claims and company, so RLS and the grants are in force.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
@@ -15,8 +18,10 @@ import { runDepreciation } from '@/modules/accounting/services/items/depreciatio
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
-import { dropFixture, inTx, runOn, seedBankTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, seedBankTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
 import { waitBlockedBy } from './helpers/numraceGate';
+import { dropRouteUser, seedRouteUser } from './helpers/vatLateClaimRoutes';
+import { inAppUserTx, openAppUserTx, runAsAppUser } from './helpers/appUserTx';
 
 type Row = Record<string, unknown>;
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -27,17 +32,17 @@ let other: Fixture;
 let seededCategories: string[] = [];
 let seq = 0;
 
-const ctxFor = (f: Fixture) => ({
-  companyId: f.companyId, userId: f.userId, scopes: ['write:journals'], companyRole: 'owner',
+const ctxFor = (f: Fixture, role = 'owner') => ({
+  companyId: f.companyId, userId: f.userId, scopes: ['write:journals'], companyRole: role,
   tokenJti: 'jti-del', oauthAppId: null,
 }) as unknown as McpToolContext;
 const text = (r: McpToolResult) => r.content[0]!.text;
-const del = (f: Fixture, assetId: string, extra: Record<string, unknown> = {}) =>
-  inTx(f, () => deleteFixedAssetTool.handler({ asset_id: assetId, idempotency_key: 'k', ...extra }, ctxFor(f)));
+const del = (f: Fixture, assetId: string, extra: Record<string, unknown> = {}, role = 'owner') =>
+  inAppUserTx(f, () => deleteFixedAssetTool.handler({ asset_id: assetId, idempotency_key: 'k', ...extra }, ctxFor(f, role)));
 
 /** An asset made by the real create tool: the thing this tool undoes. */
 async function make(f: Fixture, name = `Asset ${++seq}`): Promise<{ id: string; number: string }> {
-  const r = await inTx(f, () => createFixedAssetTool.handler({
+  const r = await inAppUserTx(f, () => createFixedAssetTool.handler({
     name, category: 'computers', purchase_date: '2026-01-10', cost: 12000, useful_life_years: 3, idempotency_key: 'k',
   }, ctxFor(f)));
   const o = JSON.parse(text(r)) as { asset_id: string; asset_number: string };
@@ -59,6 +64,8 @@ describeIfDb('delete_fixed_asset: real Postgres', () => {
     assertLocalFixtureDbUrl('DATABASE_URL', DATABASE_URL, ['isaflow_test', 'isaflow_schema_fixture']);
     fx = await seedFixture('DFA', DATABASE_URL!);
     other = await seedFixture('DFA-O', DATABASE_URL!);
+    await seedRouteUser(fx, 'dfa');
+    await seedRouteUser(other, 'dfa-o');
     const acct = async (code: string, type: string, subtype: string, normal: string) => sql`
       INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance,
         is_active, is_system_account)
@@ -82,8 +89,19 @@ describeIfDb('delete_fixed_asset: real Postgres', () => {
       await sql`DELETE FROM assets WHERE company_id = ${f.companyId}::UUID`;
     }
     await sql`DELETE FROM asset_categories WHERE code = ANY(${seededCategories}::TEXT[])`;
+    await dropRouteUser(fx);
+    await dropRouteUser(other);
     await dropFixture(fx);
     await dropFixture(other);
+  }, 60000);
+
+  it('the suite really runs as app_user: the role is app_user and RLS hides another company\'s assets', async () => {
+    const theirs = await make(other);
+    const seen = await inAppUserTx(fx, async () => ({
+      role: String(((await sql`SELECT current_user AS u`) as Row[])[0]!.u),
+      foreign: await count(sql`SELECT COUNT(*)::INT AS n FROM assets WHERE id = ${theirs.id}::UUID`),
+    }));
+    expect(seen).toEqual({ role: 'app_user', foreign: 0 });
   }, 60000);
 
   it('FK census: exactly the tables the delete service counts reference assets', async () => {
@@ -181,20 +199,38 @@ describeIfDb('delete_fixed_asset: real Postgres', () => {
     expect(await exists(a.id)).toBe(false);
   }, 60000);
 
-  describe('concurrency: two connections', () => {
+  it.each(['manager', 'viewer', 'storeman', null])(
+    'a %s-bound token is refused before anything is read, dry run alike; owner and admin reach the delete', async (role) => {
+      const a = await make(fx);
+      for (const dry of [false, true]) {
+        const r = await del(fx, a.id, dry ? { dry_run: true } : {}, role as string);
+        expect(r.isError).toBe(true);
+        expect(text(r)).toBe('Only an owner or admin can delete a fixed asset.');
+      }
+      expect(await exists(a.id)).toBe(true);
+    }, 60000);
+
+  it.each(['owner', 'admin'])('a %s-bound token deletes', async (role) => {
+    const a = await make(fx);
+    const r = await del(fx, a.id, {}, role);
+    expect(r.isError, text(r)).toBeUndefined();
+    expect(await exists(a.id)).toBe(false);
+  }, 60000);
+
+  describe('concurrency: two connections, both app_user', () => {
     const pidOf = async (c: { query: (q: string) => Promise<{ rows: Row[] }> }) =>
       Number((await c.query('SELECT pg_backend_pid() AS pid')).rows[0]!.pid);
+    const callDelete = (client: Awaited<ReturnType<typeof openAppUserTx>>, id: string) =>
+      runAsAppUser(fx, client, () => deleteFixedAssetTool.handler({ asset_id: id, idempotency_key: 'k' }, ctxFor(fx)));
 
     it('a depreciation run holding the asset: the delete waits, then sees the run\'s rows and refuses', async () => {
       const a = await make(fx);
-      const run = await fx.pool.connect();
-      const del1 = await fx.pool.connect();
+      const run = await openAppUserTx(fx);
+      const del1 = await openAppUserTx(fx);
       try {
-        await run.query('BEGIN');
-        const result = await runOn(fx, run, () => runDepreciation(fx.companyId, fx.userId, '2026-03-31'));
+        const result = await runAsAppUser(fx, run, () => runDepreciation(fx.companyId, fx.userId, '2026-03-31'));
         expect(result.processed, JSON.stringify(result)).toBeGreaterThanOrEqual(1);
-        await del1.query('BEGIN');
-        const pending = runOn(fx, del1, () => deleteFixedAssetTool.handler({ asset_id: a.id, idempotency_key: 'k' }, ctxFor(fx)));
+        const pending = callDelete(del1, a.id);
         await waitBlockedBy(fx.pool, await pidOf(run));
         await run.query('COMMIT');
         const r = await pending;
@@ -213,14 +249,12 @@ describeIfDb('delete_fixed_asset: real Postgres', () => {
 
     it('a delete holding the asset: the run waits, then finds it gone and writes nothing for it', async () => {
       const a = await make(fx, 'Raced asset');
-      const holder = await fx.pool.connect();
-      const run = await fx.pool.connect();
+      const holder = await openAppUserTx(fx);
+      const run = await openAppUserTx(fx);
       try {
-        await holder.query('BEGIN');
-        const r = await runOn(fx, holder, () => deleteFixedAssetTool.handler({ asset_id: a.id, idempotency_key: 'k' }, ctxFor(fx)));
+        const r = await callDelete(holder, a.id);
         expect(r.isError, text(r)).toBeUndefined();
-        await run.query('BEGIN');
-        const pending = runOn(fx, run, () => runDepreciation(fx.companyId, fx.userId, '2026-04-30'));
+        const pending = runAsAppUser(fx, run, () => runDepreciation(fx.companyId, fx.userId, '2026-04-30'));
         await waitBlockedBy(fx.pool, await pidOf(holder));
         await holder.query('COMMIT');
         const result = await pending;
@@ -235,6 +269,82 @@ describeIfDb('delete_fixed_asset: real Postgres', () => {
         await run.query('ROLLBACK').catch(() => undefined);
         holder.release();
         run.release();
+      }
+    }, 60000);
+
+    // The writers that take FOR KEY SHARE on the asset row (the brk-fleet B1 rule): a bank-line link and the
+    // composite-FK check of a fleet record. Each as an uncommitted write, in both orders against the delete.
+    type Writer = {
+      write: (c: Awaited<ReturnType<typeof openAppUserTx>>, assetId: string) => Promise<unknown>;
+      left: (assetId: string) => Promise<number>;
+    };
+    const writers: Array<[string, () => Promise<Writer>]> = [
+      ['a bank-line link', async () => {
+        const tx = await seedBankTx(fx, { date: '2026-02-01', amount: -100, description: `link ${++seq}` });
+        return {
+          write: (c, id) => c.query('UPDATE bank_transactions SET linked_asset_id = $1::UUID WHERE id = $2::UUID', [id, tx]),
+          left: async (id) => count(sql`SELECT COUNT(*)::INT AS n FROM bank_transactions WHERE id = ${tx}::UUID AND linked_asset_id = ${id}::UUID`),
+        };
+      }],
+      ['a fleet fuel insert', async () => ({
+        write: (c, id) => c.query(
+          "INSERT INTO fleet_fuel_transactions (company_id, asset_id, fill_date, litres, amount) VALUES ($1::UUID, $2::UUID, '2026-02-01'::DATE, 10, 100)",
+          [fx.companyId, id]),
+        left: async (id) => count(sql`SELECT COUNT(*)::INT AS n FROM fleet_fuel_transactions WHERE asset_id = ${id}::UUID`),
+      })],
+      ['a fleet service insert', async () => ({
+        write: (c, id) => c.query(
+          "INSERT INTO fleet_service_history (company_id, asset_id, service_date, description, amount) VALUES ($1::UUID, $2::UUID, '2026-02-01'::DATE, 'service', 100)",
+          [fx.companyId, id]),
+        left: async (id) => count(sql`SELECT COUNT(*)::INT AS n FROM fleet_service_history WHERE asset_id = ${id}::UUID`),
+      })],
+    ];
+
+    it.each(writers)('%s in flight first: the delete waits for it, then sees it and refuses; nothing is unlinked or lost', async (_n, mk) => {
+      const w = await mk();
+      const a = await make(fx);
+      const writer = await openAppUserTx(fx);
+      const deleter = await openAppUserTx(fx);
+      try {
+        await w.write(writer, a.id);
+        const pending = callDelete(deleter, a.id);
+        await waitBlockedBy(fx.pool, await pidOf(writer));
+        await writer.query('COMMIT');
+        const r = await pending;
+        await deleter.query('COMMIT');
+        expect(r.isError, text(r)).toBe(true);
+        expect(text(r)).toMatch(/cannot be deleted/);
+        expect(await exists(a.id)).toBe(true);
+        expect(await w.left(a.id)).toBe(1);
+      } finally {
+        await writer.query('ROLLBACK').catch(() => undefined);
+        await deleter.query('ROLLBACK').catch(() => undefined);
+        writer.release();
+        deleter.release();
+      }
+    }, 60000);
+
+    it.each(writers)('the delete in flight first: %s waits, then fails cleanly on the FK (23503), no deadlock', async (_n, mk) => {
+      const w = await mk();
+      const a = await make(fx);
+      const deleter = await openAppUserTx(fx);
+      const writer = await openAppUserTx(fx);
+      try {
+        const r = await callDelete(deleter, a.id);
+        expect(r.isError, text(r)).toBeUndefined();
+        const pending = w.write(writer, a.id).then(() => null, (err: { code?: string }) => err);
+        await waitBlockedBy(fx.pool, await pidOf(deleter));
+        await deleter.query('COMMIT');
+        const failure = await pending;
+        expect(failure?.code).toBe('23503');
+        await writer.query('ROLLBACK');
+        expect(await exists(a.id)).toBe(false);
+        expect(await w.left(a.id)).toBe(0);
+      } finally {
+        await deleter.query('ROLLBACK').catch(() => undefined);
+        await writer.query('ROLLBACK').catch(() => undefined);
+        deleter.release();
+        writer.release();
       }
     }, 60000);
   });

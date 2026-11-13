@@ -14,7 +14,7 @@
 import type { McpTool } from '../types';
 import { MUTATION_ARG_SCHEMA, type DryRunResult } from '../contracts';
 import {
-  assetCostAccountProblem,
+  glAssetAccountRefusal,
   findSimilarAssets,
   insertPlannedAsset,
   listActiveAssetCategories,
@@ -92,8 +92,8 @@ export const createFixedAssetTool: McpTool = {
       );
     }
     if (input.glAssetAccountId) {
-      const problem = await assetCostAccountProblem(ctx.companyId, input.glAssetAccountId);
-      if (problem) return toolError(`gl_asset_account_id invalid: ${problem}`);
+      const refusal = await glAssetAccountRefusal(ctx.companyId, input.glAssetAccountId);
+      if (refusal) return toolError(refusal);
     }
     const plan = await planAssetCreate(ctx.companyId, input);
     const possibleDuplicates = await findSimilarAssets(ctx.companyId, input.name, input.purchaseDate, input.cost);

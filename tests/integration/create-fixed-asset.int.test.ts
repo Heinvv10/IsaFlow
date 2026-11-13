@@ -18,7 +18,8 @@ import { createFixedAssetTool } from '@/lib/mcp/tools/writeCreateFixedAsset';
 import { loadDepreciationAssets, planDepreciationRun } from '@/modules/accounting/services/items/depreciationRunService';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
-import { dropFixture, inTx, runOn, seedFixture, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, seedFixture, type Fixture } from './helpers/l1FifoFixture';
+import { inAppUserTx, openAppUserTx, runAsAppUser } from './helpers/appUserTx';
 import { callRoute, dataOf, dropRouteUser, seedRouteUser } from './helpers/vatLateClaimRoutes';
 
 type Row = Record<string, unknown>;
@@ -45,8 +46,10 @@ const ARGS = {
   useful_life_years: 3, salvage_value: 500, depreciation_method: 'reducing_balance', location: 'Head office',
   idempotency_key: 'k',
 };
+const text = (r: McpToolResult) => r.content[0]!.text;
 const out = (r: McpToolResult) => JSON.parse(r.content[0]!.text) as Record<string, unknown>;
-const call = (f: Fixture, args: Record<string, unknown>) => inTx(f, () => createFixedAssetTool.handler(args, ctxFor(f)));
+/** Every tool call is one request transaction AS app_user with withAuth's claims and company (RLS and grants in force). */
+const call = (f: Fixture, args: Record<string, unknown>) => inAppUserTx(f, () => createFixedAssetTool.handler(args, ctxFor(f)));
 const assetsOf = async (f: Fixture) => (await sql`
   SELECT * FROM assets WHERE company_id = ${f.companyId}::UUID ORDER BY asset_number`) as Row[];
 const journals = async (f: Fixture) => Number(((await sql`
@@ -61,6 +64,7 @@ describeIfDb('create_fixed_asset: real Postgres', () => {
     fx = await seedFixture('CFA', DATABASE_URL!);
     other = await seedFixture('CFA-O', DATABASE_URL!);
     token = await seedRouteUser(fx, 'cfa');
+    await seedRouteUser(other, 'cfa-o');
     const acct = async (f: Fixture, code: string, type: string, subtype: string, normal: string, active = true) =>
       String(((await sql`
         INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance,
@@ -88,6 +92,7 @@ describeIfDb('create_fixed_asset: real Postgres', () => {
     }
     await sql`DELETE FROM asset_categories WHERE code = ANY(${seededCategories}::TEXT[])`;
     await dropRouteUser(fx);
+    await dropRouteUser(other);
     await dropFixture(fx);
     await dropFixture(other);
   }, 60000);
@@ -143,11 +148,12 @@ describeIfDb('create_fixed_asset: real Postgres', () => {
 
   it('refuses an inactive category, a future date and salvage above cost, writing nothing', async () => {
     const before = (await assetsOf(fx)).length;
-    const c = await fx.pool.connect();
+    const c = await openAppUserTx(fx);
     try {
-      await c.query('BEGIN');
+      await c.query('RESET ROLE');
       await c.query("UPDATE asset_categories SET is_active = false WHERE code = 'furniture'");
-      const inactive = await runOn(fx, c, () => createFixedAssetTool.handler({ ...ARGS, category: 'furniture' }, ctxFor(fx)));
+      await c.query('SET LOCAL ROLE app_user');
+      const inactive = await runAsAppUser(fx, c, () => createFixedAssetTool.handler({ ...ARGS, category: 'furniture' }, ctxFor(fx)));
       expect(inactive.isError).toBe(true);
       expect(inactive.content[0]!.text).toMatch(/Unknown fixed asset category "furniture"/);
     } finally {
@@ -162,11 +168,10 @@ describeIfDb('create_fixed_asset: real Postgres', () => {
   }, 60000);
 
   it('a request rolled back after the INSERT leaves no asset and no numbering gap', async () => {
-    const c = await fx.pool.connect();
+    const c = await openAppUserTx(fx);
     let minted = '';
     try {
-      await c.query('BEGIN');
-      const r = await runOn(fx, c, () => createFixedAssetTool.handler({ ...ARGS, name: 'Rolled back' }, ctxFor(fx)));
+      const r = await runAsAppUser(fx, c, () => createFixedAssetTool.handler({ ...ARGS, name: 'Rolled back' }, ctxFor(fx)));
       minted = String(out(r).asset_number);
     } finally {
       await c.query('ROLLBACK');
@@ -203,7 +208,7 @@ describeIfDb('create_fixed_asset: real Postgres', () => {
     for (const bad of [inactiveCostAccount, foreignCostAccount, bankAccountLeaf, crypto.randomUUID()]) {
       const r = await call(fx, { ...ARGS, gl_asset_account_id: bad });
       expect(r.isError, bad).toBe(true);
-      expect(r.content[0]!.text).toMatch(/^gl_asset_account_id invalid: /);
+      expect(r.content[0]!.text).toMatch(/^Fixed-asset cost account invalid: /);
       const dry = await call(fx, { ...ARGS, gl_asset_account_id: bad, dry_run: true });
       expect(dry.content[0]!.text).toBe(r.content[0]!.text);
     }
@@ -224,13 +229,66 @@ describeIfDb('create_fixed_asset: real Postgres', () => {
     expect((await assetsOf(fx)).length).toBe(before);
   }, 60000);
 
+  describe('POST /api/accounting/assets contract', () => {
+    const body = { name: 'Contract asset', category: 'furniture', sarsCategory: 'furniture', purchaseDate: '2026-01-10',
+      cost: 1000, usefulLifeYears: 3 };
+    const messageOf = (o: { body: unknown }) => (o.body as { error?: { message?: string } }).error?.message;
+
+    it('a body WITHOUT glAssetAccountId behaves as before: 201, the full row, no account, consecutive numbers', async () => {
+      const first = await callRoute(fx, token, assetsRoute as never, body);
+      const second = await callRoute(fx, token, assetsRoute as never, body);
+      expect(first.statusCode).toBe(201);
+      expect((first.body as { success: boolean }).success).toBe(true);
+      const cols = ((await sql`SELECT column_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'assets'`) as Row[]).map((r) => String(r.column_name)).sort();
+      expect(Object.keys(dataOf(first)).sort()).toEqual(cols);
+      expect(dataOf(first)).toMatchObject({ gl_asset_account_id: null, status: 'available', category: 'furniture', created_by: fx.userId });
+      const n = (o: { body: unknown }) => Number(dataOf<{ asset_number: string }>(o).asset_number.split('-')[1]);
+      expect(dataOf<{ asset_number: string }>(first).asset_number).toMatch(/^FURN-\d{4}$/);
+      expect(n(second)).toBe(n(first) + 1);
+    }, 60000);
+
+    it('an explicit null account is the same as none; an invalid body is still a validation error before any account check', async () => {
+      const nul = await callRoute(fx, token, assetsRoute as never, { ...body, glAssetAccountId: null });
+      expect(nul.statusCode).toBe(201);
+      expect(dataOf(nul).gl_asset_account_id).toBeNull();
+      const invalid = await callRoute(fx, token, assetsRoute as never, { ...body, cost: 0, glAssetAccountId: 'nope' });
+      expect(invalid.statusCode).toBe(422);
+    }, 60000);
+
+    it('trims the account id as the tool does', async () => {
+      const route = await callRoute(fx, token, assetsRoute as never, { ...body, glAssetAccountId: `  ${costAccount}  ` });
+      expect(route.statusCode, JSON.stringify(route.body)).toBe(201);
+      expect(dataOf(route).gl_asset_account_id).toBe(costAccount);
+      const tool = await call(fx, { ...ARGS, name: 'Trimmed', gl_asset_account_id: `  ${costAccount}  ` });
+      expect(tool.isError, text(tool)).toBeUndefined();
+      expect((out(tool).asset as Row).gl_asset_account_id).toBe(costAccount);
+    }, 60000);
+
+    it.each([
+      ['not a uuid', 'nope'], ['empty', ''], ['blank', '   '], ['a number', 12345], ['an object', { id: 'x' }],
+      ['inactive', 'INACTIVE'], ['foreign', 'FOREIGN'], ['wrong subtype', 'BANK'], ['unknown', 'UNKNOWN'],
+    ])('%s: the route answers 400 and the tool refuses with the SAME text; nothing is written', async (_n, raw) => {
+      const value = ({ INACTIVE: inactiveCostAccount, FOREIGN: foreignCostAccount, BANK: bankAccountLeaf,
+        UNKNOWN: '99999999-9999-4999-8999-999999999999' } as Record<string, string>)[raw as string] ?? raw;
+      const before = (await assetsOf(fx)).length;
+      const viaRoute = await callRoute(fx, token, assetsRoute as never, { ...body, glAssetAccountId: value });
+      const viaTool = await call(fx, { ...ARGS, gl_asset_account_id: value });
+      expect(viaRoute.statusCode).toBe(400);
+      expect(viaTool.isError).toBe(true);
+      expect(messageOf(viaRoute)).toBe(text(viaTool));
+      expect(messageOf(viaRoute)).toMatch(/^Fixed-asset cost account /);
+      expect((await assetsOf(fx)).length).toBe(before);
+    }, 60000);
+  });
+
   it('registers in a closed year (no ledger period is touched) and the next depreciation plan picks the asset up', async () => {
     await sql`UPDATE fiscal_periods SET status = 'closed' WHERE company_id = ${other.companyId}::UUID`;
     const closed = await call(other, { ...ARGS, name: 'Closed-year asset', purchase_date: '2025-06-01' });
     expect(closed.isError, closed.content[0]!.text).toBeUndefined();
     await sql`UPDATE fiscal_periods SET status = 'open' WHERE company_id = ${fx.companyId}::UUID`;
-    const assets = await inTx(fx, () => loadDepreciationAssets(fx.companyId));
-    const plan = await inTx(fx, () => planDepreciationRun(fx.companyId, '2026-03-31', assets));
+    const assets = await inAppUserTx(fx, () => loadDepreciationAssets(fx.companyId));
+    const plan = await inAppUserTx(fx, () => planDepreciationRun(fx.companyId, '2026-03-31', assets));
     const numbers = plan.rows.filter((row) => row.skipReason === null).map((row) => row.assetNumber);
     expect(numbers).toContain('COMP-0002');
   }, 60000);

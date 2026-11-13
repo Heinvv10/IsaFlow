@@ -10,13 +10,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/modules/accounting/services/items/assetCreateService', () => ({
   listActiveAssetCategories: vi.fn(),
   planAssetCreate: vi.fn(),
-  assetCostAccountProblem: vi.fn(),
+  glAssetAccountRefusal: vi.fn(),
   insertPlannedAsset: vi.fn(),
   findSimilarAssets: vi.fn(),
 }));
 
 import {
-  assetCostAccountProblem,
+  glAssetAccountRefusal,
   findSimilarAssets,
   insertPlannedAsset,
   listActiveAssetCategories,
@@ -49,7 +49,7 @@ beforeEach(() => {
     categoryId: 'cat-1', sarsRate: 33.33, taxLife: 3, categoryKey: 'computers', assetNumber: 'COMP-0004',
   });
   vi.mocked(findSimilarAssets).mockResolvedValue([]);
-  vi.mocked(assetCostAccountProblem).mockResolvedValue(null);
+  vi.mocked(glAssetAccountRefusal).mockResolvedValue(null);
   vi.mocked(insertPlannedAsset).mockResolvedValue({
     id: 'a1a1a1a1-0000-4000-8000-000000000001', asset_number: 'COMP-0004', purchase_date: '2026-03-02',
   });
@@ -113,31 +113,37 @@ describe('create_fixed_asset: registration', () => {
 
   it('stores a valid cost account, checking it against the TOKEN company first', async () => {
     const r = await createFixedAssetTool.handler({ ...GOOD, gl_asset_account_id: ACCT }, ctx);
-    expect(assetCostAccountProblem).toHaveBeenCalledWith(COMPANY, ACCT);
+    expect(glAssetAccountRefusal).toHaveBeenCalledWith(COMPANY, ACCT);
     expect(vi.mocked(insertPlannedAsset).mock.calls[0]![2]).toMatchObject({ glAssetAccountId: ACCT });
     expect((json(r).asset as Record<string, unknown>).gl_asset_account_id).toBe(ACCT);
   });
 
   it('without an account it checks nothing and stores none', async () => {
     const r = await createFixedAssetTool.handler(GOOD, ctx);
-    expect(assetCostAccountProblem).not.toHaveBeenCalled();
+    expect(glAssetAccountRefusal).not.toHaveBeenCalled();
     expect((json(r).asset as Record<string, unknown>).gl_asset_account_id).toBeNull();
   });
 
   it('refuses a bad cost account (inactive, foreign, wrong kind) before planning or inserting, dry run alike', async () => {
-    vi.mocked(assetCostAccountProblem).mockResolvedValue('Account not found');
+    vi.mocked(glAssetAccountRefusal).mockResolvedValue('Fixed-asset cost account invalid: Account not found');
     for (const dry of [false, true]) {
       const r = await createFixedAssetTool.handler({ ...GOOD, gl_asset_account_id: ACCT, ...(dry ? { dry_run: true } : {}) }, ctx);
       expect(r.isError).toBe(true);
-      expect(text(r)).toBe('gl_asset_account_id invalid: Account not found');
+      expect(text(r)).toBe('Fixed-asset cost account invalid: Account not found');
     }
     expect(planAssetCreate).not.toHaveBeenCalled();
     expect(insertPlannedAsset).not.toHaveBeenCalled();
   });
 
+  it('trims the account id before checking and storing it', async () => {
+    await createFixedAssetTool.handler({ ...GOOD, gl_asset_account_id: `  ${ACCT}  ` }, ctx);
+    expect(glAssetAccountRefusal).toHaveBeenCalledWith(COMPANY, ACCT);
+    expect(vi.mocked(insertPlannedAsset).mock.calls[0]![2]).toMatchObject({ glAssetAccountId: ACCT });
+  });
+
   it('refuses an account id that is not a uuid before any read', async () => {
     const r = await createFixedAssetTool.handler({ ...GOOD, gl_asset_account_id: 'not-a-uuid' }, ctx);
-    expect(text(r)).toBe('invalid gl_asset_account_id');
+    expect(text(r)).toBe('Fixed-asset cost account must be a UUID or null');
     expect(listActiveAssetCategories).not.toHaveBeenCalled();
   });
 

@@ -4,7 +4,7 @@
  * Extracted VERBATIM from `POST /api/accounting/assets` so the route and the MCP `create_fixed_asset` tool run ONE
  * implementation. It registers the asset on the subledger and posts NOTHING to the ledger: no capitalisation
  * journal, no dimension and no bill link. The cost account (`glAssetAccountId`, optional) is stored as given: the
- * caller checks it first with `assetCostAccountProblem`, the gate `PATCH .../gl-account` applies. Callers validate
+ * caller checks it first with `parseGlAssetAccountId` and `glAssetAccountRefusal`, the gate `PATCH .../gl-account` applies. Callers validate
  * with `assetService.validateAsset` first.
  *
  * Plan, then insert: `planAssetCreate` resolves the category and mints the number under the category's number lock
@@ -41,13 +41,14 @@ export async function listActiveAssetCategories(): Promise<AssetCategoryOption[]
 }
 
 /**
- * Why `accountId` cannot be the asset's cost account, or null when it can: the gate `PATCH .../gl-account` applies
- * (this company's, active, leaf, fixed-asset-cost subtype), so a created asset can later be disposed. A foreign and a
- * missing id read the same ('Account not found'). Call before any write.
+ * The refusal text for a cost account that cannot be stored on an asset, or null when it can: the gate
+ * `PATCH .../gl-account` applies (this company's, active, leaf, fixed-asset-cost subtype), so a created asset can later
+ * be disposed. A foreign and a missing id read the same ('Account not found'). The REST route and the MCP tool return
+ * this text verbatim. Call before any write.
  */
-export async function assetCostAccountProblem(companyId: string, accountId: string): Promise<string | null> {
+export async function glAssetAccountRefusal(companyId: string, accountId: string): Promise<string | null> {
   const check = await validateAssetCostAccount(accountId, companyId);
-  return check.ok ? null : check.reason;
+  return check.ok ? null : `Fixed-asset cost account invalid: ${check.reason}`;
 }
 
 /** Resolves the category and mints the next number. Takes the category's number lock; writes no asset row. */

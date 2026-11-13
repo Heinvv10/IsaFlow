@@ -16,7 +16,7 @@ import { sql } from '@/lib/neon';
 import { takeCompanyNumberLock } from '@/modules/accounting/services/core/numberLock';
 import { validateAssetCostAccount } from '@/modules/accounting/services/gl/leafAccountValidator';
 import {
-  assetCostAccountProblem,
+  glAssetAccountRefusal,
   createAsset,
   findSimilarAssets,
   insertPlannedAsset,
@@ -116,15 +116,15 @@ describe('listActiveAssetCategories / findSimilarAssets', () => {
   });
 });
 
-describe('assetCostAccountProblem', () => {
+describe('glAssetAccountRefusal', () => {
   it('is null for an account the cost-account gate accepts, checked for the given company', async () => {
     vi.mocked(validateAssetCostAccount).mockResolvedValue({ ok: true });
-    expect(await assetCostAccountProblem(COMPANY, 'acct-1')).toBeNull();
+    expect(await glAssetAccountRefusal(COMPANY, 'acct-1')).toBeNull();
     expect(validateAssetCostAccount).toHaveBeenCalledWith('acct-1', COMPANY);
   });
 
   it('is the gate\'s reason otherwise', async () => {
     vi.mocked(validateAssetCostAccount).mockResolvedValue({ ok: false, reason: 'Account not found' });
-    expect(await assetCostAccountProblem(COMPANY, 'acct-1')).toBe('Account not found');
+    expect(await glAssetAccountRefusal(COMPANY, 'acct-1')).toBe('Fixed-asset cost account invalid: Account not found');
   });
 });

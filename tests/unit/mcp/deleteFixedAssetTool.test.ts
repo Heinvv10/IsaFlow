@@ -20,7 +20,9 @@ import type { McpToolContext } from '@/lib/mcp/types';
 
 const COMPANY = 'cccccccc-0000-4000-8000-cccccccccccc';
 const ASSET = 'a1a1a1a1-0000-4000-8000-000000000001';
-const ctx = { companyId: COMPANY, userId: 'u-1', tokenJti: 'jti' } as unknown as McpToolContext;
+const ctxAs = (companyRole: string | null | undefined) =>
+  ({ companyId: COMPANY, userId: 'u-1', tokenJti: 'jti', companyRole }) as unknown as McpToolContext;
+const ctx = ctxAs('owner');
 const KEY = { idempotency_key: 'k-1' };
 const text = (r: { content: { text: string }[] }) => r.content[0]!.text;
 const clear = { assetId: ASSET, assetNumber: 'COMP-0004', name: 'Laptop', status: 'available', blockers: [] };
@@ -28,6 +30,25 @@ const clear = { assetId: ASSET, assetNumber: 'COMP-0004', name: 'Laptop', status
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(lockAndInspectAsset).mockResolvedValue(clear);
+});
+
+describe('delete_fixed_asset: role', () => {
+  it.each(['manager', 'viewer', 'storeman', 'technician', '', null, undefined])(
+    'a %j-bound token is refused before anything is read, dry run alike', async (role) => {
+      for (const extra of [{}, { dry_run: true }]) {
+        const r = await deleteFixedAssetTool.handler({ asset_id: ASSET, ...KEY, ...extra }, ctxAs(role));
+        expect(r.isError).toBe(true);
+        expect(text(r)).toBe('Only an owner or admin can delete a fixed asset.');
+      }
+      expect(lockAndInspectAsset).not.toHaveBeenCalled();
+      expect(deleteLockedAsset).not.toHaveBeenCalled();
+    });
+
+  it.each(['owner', 'admin'])('a %s-bound token reaches the delete', async (role) => {
+    const r = await deleteFixedAssetTool.handler({ asset_id: ASSET, ...KEY }, ctxAs(role));
+    expect(r.isError).toBeUndefined();
+    expect(deleteLockedAsset).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('delete_fixed_asset', () => {

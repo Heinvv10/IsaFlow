@@ -8,13 +8,14 @@
  */
 import type { McpTool } from '../types';
 import { MUTATION_ARG_SCHEMA, type DryRunResult } from '../contracts';
+import { canDeleteFixedAsset } from '@/lib/auth/writeRoles';
 import { deleteLockedAsset, lockAndInspectAsset } from '@/modules/accounting/services/items/assetDeleteService';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 export const deleteFixedAssetTool: McpTool = {
   name: 'delete_fixed_asset',
   description:
-    'Delete a fixed asset that has no footprint: the undo for create_fixed_asset when the asset was registered in error. '
+    'Delete a fixed asset that has no footprint: the undo for create_fixed_asset when the asset was registered in error. Owner or admin only. '
     + 'It posts nothing. It refuses, naming every reason, when the asset has been depreciated (any subledger or '
     + 'depreciation row, or accumulated depreciation), has a depreciation, disposal or expensing journal, was disposed, '
     + 'written off or expensed as below the capitalisation threshold, has fuel or service records, or has a bank '
@@ -34,6 +35,9 @@ export const deleteFixedAssetTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
+    // The registry's write fence admits owner/admin/manager; removing an assets row is owner/admin only. Before
+    // anything is read, and the dry run alike, so a manager is not shown a preview of a call that will be refused.
+    if (!canDeleteFixedAsset(ctx.companyRole)) return toolError('Only an owner or admin can delete a fixed asset.');
     const assetId = strArg(args, 'asset_id');
     if (!assetId) return toolError('asset_id is required');
     const bad = guardCastableArgs(args, { uuid: ['asset_id'] });

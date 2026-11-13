@@ -14,10 +14,22 @@
  * would silently unlink a bank line. `tests/integration/delete-fixed-asset.int.test.ts` pins the FK list, so a new
  * table that references `assets` fails that test until it is counted here.
  *
- * The row is locked FOR UPDATE under the 5 s budget BEFORE the footprint is read. Depreciation and disposal lock the
- * same row (FOR NO KEY UPDATE, which conflicts), so a run in flight either holds the lock first (the delete waits,
- * then sees its rows and refuses) or waits behind this transaction and finds the asset gone (its per-asset savepoint
- * rolls back: nothing written). Call both functions inside the request transaction.
+ * WHY FOR UPDATE, NOT FOR NO KEY UPDATE (pages/api/accounting/assets/.claude.md, brk-fleet B1, says asset writers take
+ * NO KEY UPDATE because FOR UPDATE conflicts with the FOR KEY SHARE a bank-line link, a fleet-record create and the
+ * composite-FK checks take). A DELETE is a key change, so it needs the FOR UPDATE-level lock at delete time whatever
+ * is taken first; the only question is whether the census is read before or after the KEY SHARE holders are out of
+ * the way. Under NO KEY UPDATE the census runs while a bank-line link in flight (uncommitted, holding KEY SHARE) is
+ * invisible: it reads clean, the DELETE then waits for that link to commit, and the FK's ON DELETE SET NULL silently
+ * unlinks the committed bank line. FOR UPDATE first makes the delete wait for (or fence out) every KEY SHARE holder
+ * BEFORE the census, so it sees what they committed and refuses. The B1 cycle needs a holder that keeps waiting on
+ * another resource after taking the asset lock; this one reads and deletes, and the wait for the lock is bounded
+ * (5 s, then RowLockTimeoutError: retry). `delete-fixed-asset.int.test.ts` runs the delete against a concurrent bank
+ * link and fleet fuel / service insert in both orders (no deadlock, no silent unlink), and fails if this is weakened.
+ *
+ * The depreciation run and disposal lock the same row FOR NO KEY UPDATE, which conflicts with FOR UPDATE, so a run in
+ * flight either holds the row first (the delete waits, then sees its rows and refuses) or waits behind this
+ * transaction and finds the asset gone (its per-asset savepoint rolls back: nothing written). Call both functions
+ * inside the request transaction.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
