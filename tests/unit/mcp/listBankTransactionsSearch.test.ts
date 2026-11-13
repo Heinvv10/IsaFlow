@@ -14,7 +14,8 @@ vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', () => 
 }));
 
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
-import { escapeLikeLiteral, listBankTransactionsTool } from '@/lib/mcp/tools/bank';
+import { listBankTransactionsTool } from '@/lib/mcp/tools/bank';
+import { escapeLikeLiteral } from '@/lib/sqlLikeLiteral';
 import type { McpToolContext } from '@/lib/mcp/types';
 
 const ctx: McpToolContext = {

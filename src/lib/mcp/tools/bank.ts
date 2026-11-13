@@ -45,14 +45,6 @@ export function allocationStateOf(tx: BankTransaction): AllocationState {
   return 'unallocated';
 }
 
-/**
- * The service wraps the term in %…% for ILIKE and escapes nothing, so an
- * agent's "50%" or "ref_123" would match as a wildcard pattern. The tool
- * escapes the three LIKE metacharacters (src/lib/sqlLikeLiteral) so the
- * argument means what its name says: a literal substring.
- */
-export { escapeLikeLiteral };
-
 function toCompact(tx: BankTransaction): CompactBankTx {
   return {
     id: tx.id,
@@ -141,6 +133,7 @@ export const listBankTransactionsTool: McpTool = {
         toDate: strArg(args, 'to_date'),
         limit: clampLimit(args, 50, 100),
         cursor: strArg(args, 'cursor'),
+        // The service wraps the term in %…% and escapes nothing: escape here so it is a literal substring.
         search: escapeLikeLiteral(strArg(args, 'description_contains')),
       });
       return ok({
