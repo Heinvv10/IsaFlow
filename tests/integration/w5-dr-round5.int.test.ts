@@ -132,4 +132,17 @@ describe('the narrow undo of a leaver exit', () => {
     expect((await patchDirective(two.f, two.d, { expiry_date: '2027-02-28' }, two.f.approver)).statusCode).toBe(400);
     expect(await undoRows(two.d)).toHaveLength(1);
   });
+
+  it('security: another run that taxed the employee inside the restored window (April, approved after the exit): 409 LEAVER_EXIT_WINDOW_TAKEN, nothing written', async () => {
+    const { f, d } = await exitTaken('DR r5 window taken');
+    const april = await createRunFor(f, 4);
+    await calculateRun(f, april);
+    // April approved, having taxed the employee without D (forged: e.g. a severance-only leaver line; the fixture's April has
+    // nobody else, so it cannot be approved through the route, and no route puts a leaver in it otherwise).
+    await pool.query("UPDATE payroll_run_headers SET status = 'approved', approved_at = now(), approved_taxed_employees = ARRAY[$2::uuid] WHERE id = $1",
+      [april, f.employee]);
+    const r = await refused(f, d, '2027-02-28', 409, f.approver);
+    expect(r.body.error?.details?.code).toBe('LEAVER_EXIT_WINDOW_TAKEN');
+    expect(r.body.error?.message).toMatch(/The 2026-04 payroll run taxed this employee inside the window/);
+  });
 });

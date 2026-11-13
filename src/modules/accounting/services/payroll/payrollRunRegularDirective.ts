@@ -157,7 +157,9 @@ const everApproved = (declarable: string[]) => sql`(h.status = ANY(${declarable}
   OR (h.approval_history IS NOT NULL AND NOT isempty(h.approval_history)))`;
 
 /** The first run ever approved (YYYY-MM) this employee was paid in whose judge date falls in [from, to], else null. */
-export async function declarableRunInWindow(companyId: string, employeeId: string, from: string, to: string): Promise<string | null> {
+export async function declarableRunInWindow(
+  companyId: string, employeeId: string, from: string, to: string, exceptPeriods: string[] = [],
+): Promise<string | null> {
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     SELECT h.period_year, h.period_month
@@ -169,6 +171,8 @@ export async function declarableRunInWindow(companyId: string, employeeId: strin
         OR (h.reopened_at IS NOT NULL AND h.approved_taxed_employees IS NULL)
         OR EXISTS (SELECT 1 FROM payroll_run_directive_uses u WHERE u.company_id = h.company_id AND u.run_id = h.id AND u.employee_id = ${employeeId}::uuid))
       AND COALESCE(h.run_date, (make_date(h.period_year, h.period_month, 1) + INTERVAL '1 month - 1 day')::date) BETWEEN ${from}::date AND ${to}::date
+      -- 'YYYY-MM' periods the caller owns (the leaver-exit undo: the reopened runs the exit named).
+      AND to_char(make_date(h.period_year, h.period_month, 1), 'YYYY-MM') <> ALL(${exceptPeriods}::text[])
     ORDER BY h.period_year, h.period_month
     LIMIT 1
   `) as DbRow[];

@@ -6,6 +6,9 @@
  *   - the restore is the one way to lengthen an expiry; any other later date stays refused (shorten-only, 400);
  *   - no exit in effect (none recorded, or the expiry is not the exit's any more): 400;
  *   - another date: 400; a named run not reopened: 409;
+ *   - any other run that taxed the employee (ever approved) inside the window the restore re-covers, from the day after the
+ *     exit's expiry to the restored end: 409 (LeaverExitWindowTakenError); a second directive overlapping it is refused by
+ *     the approved-directive overlap check in taxDirectiveRegularPayChange;
  *   - four eyes: the person who took the exit may not restore it while another owner / admin / manager in good standing
  *     exists (403, TaxDirectiveSelfApprovalError); a one-person company may, and the audit row says so.
  * The restore writes its own audit row (`leaverExitUndo`, old and new expiry, the exit's audit id). With the directive in
@@ -18,12 +21,21 @@ import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { otherApproverExists, TaxDirectiveSelfApprovalError } from './taxDirectiveApprover';
 import { TaxDirectiveWindowError } from './taxDirectiveOverlap';
+import { declarableRunInWindow } from './payrollRunRegularDirective';
 
 export class LeaverExitRunNotReopenedError extends Error {
   readonly code = 'LEAVER_EXIT_RUN_NOT_REOPENED';
   constructor(message: string) {
     super(message);
     this.name = 'LeaverExitRunNotReopenedError';
+  }
+}
+
+export class LeaverExitWindowTakenError extends Error {
+  readonly code = 'LEAVER_EXIT_WINDOW_TAKEN';
+  constructor(message: string) {
+    super(message);
+    this.name = 'LeaverExitWindowTakenError';
   }
 }
 
@@ -56,7 +68,7 @@ async function exitInEffect(companyId: string, directiveId: string, currentExpir
 
 /** Judge a request to lengthen the expiry to `requested` (see the header); returns the undo to write, or throws. */
 export async function judgeLeaverExitUndo(
-  companyId: string, directive: { id: string; expiryDate: string | null }, requested: string, actorId: string,
+  companyId: string, directive: { id: string; employeeId: string; expiryDate: string | null }, requested: string, actorId: string,
 ): Promise<LeaverExitUndo> {
   const exit = await exitInEffect(companyId, directive.id, directive.expiryDate);
   if (!exit) {
@@ -76,6 +88,13 @@ export async function judgeLeaverExitUndo(
   if (closed.length > 0) {
     const named = closed.map(r => `${String(r.period_year)}-${String(r.period_month).padStart(2, '0')}`).join(', ');
     throw new LeaverExitRunNotReopenedError(`Reopen the ${named} payroll run first: the leaver exit can be undone only while every run it changed is reopened.`);
+  }
+  // The window the restore re-covers: nothing in it may already be taxed other than the reopened runs the exit named.
+  const from = (await sql`SELECT (${directive.expiryDate}::date + 1)::text AS d`) as DbRow[];
+  const taken = await declarableRunInWindow(companyId, directive.employeeId, String(from[0]!.d), exit.oldEndsOn, exit.periods);
+  if (taken) {
+    throw new LeaverExitWindowTakenError(`The ${taken} payroll run taxed this employee inside the window the restore would cover again `
+      + `(${String(from[0]!.d)} to ${exit.oldEndsOn}): the leaver exit cannot be undone while it stands.`);
   }
   const self = exit.takenBy.toLowerCase() === actorId.toLowerCase();
   if (self && await otherApproverExists(companyId, actorId)) throw new TaxDirectiveSelfApprovalError();
