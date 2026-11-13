@@ -16,14 +16,16 @@ vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: (_name: string, fn: () => unknown) => fn() }));
 vi.mock('@/modules/accounting/services/gl/recurringJournalService', async (orig) => ({
   ...(await orig<object>()),
-  getRecurringJournalById: vi.fn(), updateRecurringJournalStatus: vi.fn(), runRecurringJournal: vi.fn(),
-  createRecurringJournal: vi.fn(), getRecurringJournals: vi.fn(),
+  updateRecurringJournalStatus: vi.fn(), runRecurringJournal: vi.fn(),
+  createRecurringJournal: vi.fn(), getRecurringJournals: vi.fn(), updateRecurringJournalTemplate: vi.fn(),
 }));
 
 import {
-  createRecurringJournal, getRecurringJournalById, runRecurringJournal, updateRecurringJournalStatus,
+  createRecurringJournal, runRecurringJournal, updateRecurringJournalStatus, updateRecurringJournalTemplate,
 } from '@/modules/accounting/services/gl/recurringJournalService';
-import { RecurringJournalStatusChangedError } from '@/modules/accounting/services/gl/recurringJournalGuards';
+import {
+  RecurringJournalNotFoundError, RecurringJournalRequestError,
+} from '@/modules/accounting/services/gl/recurringJournalGuards';
 import actionRoute from '../../../pages/api/accounting/recurring-journals-action';
 import createRoute from '../../../pages/api/accounting/recurring-journals';
 
@@ -44,38 +46,31 @@ function call(handler: Handler, body: unknown) {
   return Promise.resolve(handler(req, res as unknown as NextApiResponse)).then(() => res);
 }
 
-const template = (status: string) => vi.mocked(getRecurringJournalById).mockResolvedValue({ id: ID, status } as never);
-
 beforeEach(() => { vi.clearAllMocks(); });
 
-describe('recurring-journals-action resume', () => {
-  it('resumes a paused template, predicated on it still being paused', async () => {
-    template('paused');
-    const res = await call(actionRoute, { action: 'resume', id: ID });
+describe('recurring-journals-action status actions', () => {
+  it.each([['pause', 'paused'], ['resume', 'active'], ['cancel', 'cancelled']])('%s moves to %s', async (action, status) => {
+    vi.mocked(updateRecurringJournalStatus).mockResolvedValue({ changed: true });
+    const res = await call(actionRoute, { action, id: ID });
     expect(res.statusCode).toBe(200);
-    expect(updateRecurringJournalStatus).toHaveBeenCalledWith(COMPANY, ID, 'active', 'paused');
+    expect(updateRecurringJournalStatus).toHaveBeenCalledWith(COMPANY, ID, status);
   });
 
-  it.each(['completed', 'cancelled', 'active'])('refuses to resume a %s template with a 400, writing nothing', async (status) => {
-    template(status);
-    const res = await call(actionRoute, { action: 'resume', id: ID });
+  it.each([
+    ['pause', 'cancelled', 'This recurring journal is cancelled: it cannot be paused — only an active one can.'],
+    ['resume', 'completed', 'This recurring journal is completed: it cannot be resumed — only a paused one can.'],
+    ['resume', 'cancelled', 'This recurring journal is cancelled: it cannot be resumed — only a paused one can.'],
+    ['cancel', 'completed', 'This recurring journal is completed: it cannot be cancelled — only an active or paused one can.'],
+  ])('a refused %s of a %s template is a 400 with the reason', async (action, current, message) => {
+    vi.mocked(updateRecurringJournalStatus).mockResolvedValue({ changed: false, current: current as never });
+    const res = await call(actionRoute, { action, id: ID });
     expect(res.statusCode).toBe(400);
-    expect(JSON.stringify(res.sent)).toContain(`A ${status} recurring journal cannot be resumed`);
-    expect(updateRecurringJournalStatus).not.toHaveBeenCalled();
+    expect(JSON.stringify(res.sent)).toContain(message);
   });
 
   it('answers a missing (or another company\'s) template 404', async () => {
-    vi.mocked(getRecurringJournalById).mockResolvedValue(null);
+    vi.mocked(updateRecurringJournalStatus).mockRejectedValue(new RecurringJournalNotFoundError(ID));
     expect((await call(actionRoute, { action: 'resume', id: ID })).statusCode).toBe(404);
-    expect(updateRecurringJournalStatus).not.toHaveBeenCalled();
-  });
-
-  it('a status changed between the read and the update is a 400', async () => {
-    template('paused');
-    vi.mocked(updateRecurringJournalStatus).mockRejectedValueOnce(new RecurringJournalStatusChangedError(ID));
-    const res = await call(actionRoute, { action: 'resume', id: ID });
-    expect(res.statusCode).toBe(400);
-    expect(JSON.stringify(res.sent)).toContain('status changed concurrently');
   });
 });
 
@@ -107,5 +102,33 @@ describe('recurring-journals create: autoPost', () => {
     const res = await call(createRoute, autoPost === undefined ? body : { ...body, autoPost });
     expect(res.statusCode).toBe(200);
     expect(vi.mocked(createRecurringJournal).mock.calls[0]![1].autoPost).toBe(passed);
+  });
+});
+
+describe('recurring-journals edit (PUT)', () => {
+  const put = (body: unknown) => {
+    const req = { method: 'PUT', query: {}, body, companyId: COMPANY, user: { id: 'u-1' } } as unknown as NextApiRequest;
+    const res = {
+      statusCode: 0, sent: undefined as unknown,
+      setHeader() { return this; }, status(code: number) { this.statusCode = code; return this; },
+      json(payload: unknown) { this.sent = payload; return this; }, end() { return this; },
+    };
+    return Promise.resolve((createRoute as Handler)(req, res as unknown as NextApiResponse)).then(() => res);
+  };
+
+  it('edits through the service, which owns the next-run-date rules', async () => {
+    const res = await put({ id: ID, nextRunDate: '2026-12-15', templateName: 'Rent' });
+    expect(res.statusCode).toBe(200);
+    expect(updateRecurringJournalTemplate).toHaveBeenCalledWith(COMPANY, ID, 'u-1', {
+      templateName: 'Rent', frequency: undefined, nextRunDate: '2026-12-15', description: undefined,
+    });
+  });
+
+  it('answers the service\'s refusal with its reason, not "Update failed"', async () => {
+    vi.mocked(updateRecurringJournalTemplate).mockRejectedValueOnce(
+      new RecurringJournalRequestError('The run dated 2026-10-15 has already been generated from this template'));
+    const res = await put({ id: ID, nextRunDate: '2026-10-15' });
+    expect(res.statusCode).toBe(400);
+    expect(JSON.stringify(res.sent)).toContain('already been generated');
   });
 });

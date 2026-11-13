@@ -183,8 +183,8 @@ describe('run_recurring_journals over a real database', () => {
     expect(made.autoPost).toBe(true); // migration 989's default: the app never sends the field
 
     await pool.query("UPDATE recurring_journals SET status = 'cancelled' WHERE id = $1", [made.id]);
-    await expect(request(pool, co, user, () => updateRecurringJournalStatus(co.c, made.id, 'active', 'paused')))
-      .rejects.toThrow(/status changed concurrently/);
+    expect(await request(pool, co, user, () => updateRecurringJournalStatus(co.c, made.id, 'active', 'paused')))
+      .toEqual({ changed: false, current: 'cancelled' });
     expect((await templateState(pool, made.id)).status).toBe('cancelled');
   });
 });

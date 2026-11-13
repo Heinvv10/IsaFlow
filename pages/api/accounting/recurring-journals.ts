@@ -12,10 +12,11 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
 import {
   getRecurringJournals,
   createRecurringJournal,
+  updateRecurringJournalTemplate,
+  RecurringJournalRequestError,
 } from '@/modules/accounting/services/gl/recurringJournalService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -49,30 +50,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const { id, templateName, frequency, nextRunDate, description } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
     try {
-      // R-035 PR6: the name, description and next run date are what the
-      // template's journals carry (their description and date), so an edit
-      // that changes any of them — or the frequency, which dates every later
-      // run — makes its user an author of every journal the template mints
-      // (refused as their approver). Append-only; an edit changing nothing
-      // stamps nobody. Its creator is created_by.
-      await sql`
-        UPDATE recurring_journals SET
-          content_authors = CASE
-            WHEN (template_name, frequency, next_run_date, description) IS DISTINCT FROM
-                 (COALESCE(${templateName || null}, template_name), COALESCE(${frequency || null}, frequency),
-                  COALESCE(${nextRunDate || null}::DATE, next_run_date), COALESCE(${description || null}, description))
-            THEN approval_add_author(content_authors, ${req.user.id}::UUID) ELSE content_authors END,
-          template_name = COALESCE(${templateName || null}, template_name),
-          frequency = COALESCE(${frequency || null}, frequency),
-          next_run_date = COALESCE(${nextRunDate || null}, next_run_date),
-          description = COALESCE(${description || null}, description),
-          updated_at = NOW()
-        WHERE id = ${id}::UUID AND company_id = ${companyId} AND status IN ('active', 'paused')
-      `;
+      // R-035 PR6 authorship, and the next-run-date rules (not on or before the last run generated — that would
+      // generate it twice — nor after the end date), live in the service: recurringJournalEdits.
+      await updateRecurringJournalTemplate(companyId, id, req.user.id, { templateName, frequency, nextRunDate, description });
       log.info('Recurring journal updated', { id });
       return apiResponse.success(res, { updated: true });
     } catch (err) {
       if (respondIfLockTimeout(res, err)) return;
+      // Refused before the UPDATE wrote anything: the reason, not "Update failed".
+      if (err instanceof RecurringJournalRequestError) return apiResponse.badRequest(res, err.message);
       log.error('Recurring journal update failed', { error: err }, 'accounting-api');
       return apiResponse.badRequest(res, 'Update failed');
     }

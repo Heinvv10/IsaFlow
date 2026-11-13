@@ -81,15 +81,6 @@ export function templateEndedError(dueDate: string, endDate: unknown): Recurring
   return dueDate > String(endDate) ? new RecurringJournalEndedError(dueDate, String(endDate)) : null;
 }
 
-/** A predicated status change found the template no longer in the status the caller read: nothing was changed. */
-export class RecurringJournalStatusChangedError extends RecurringJournalRequestError {
-  override readonly code = 'RECURRING_JOURNAL_STATUS_CHANGED';
-  constructor(id: string) {
-    super(`Recurring journal ${id}: its status changed concurrently — re-read it and retry. Nothing was changed.`);
-    this.name = 'RecurringJournalStatusChangedError';
-  }
-}
-
 /** Postgres `lock_not_available` — the 5s `lock_timeout` elapsed on the template row. */
 const LOCK_NOT_AVAILABLE = '55P03';
 

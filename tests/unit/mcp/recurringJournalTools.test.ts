@@ -28,7 +28,7 @@ import {
   createRecurringJournal, getRecurringJournalById, updateRecurringJournalStatus,
 } from '@/modules/accounting/services/gl/recurringJournalService';
 import {
-  RecurringJournalRequestError, RecurringJournalStatusChangedError, assertTemplateLinesPostable,
+  RecurringJournalRequestError, assertTemplateLinesPostable,
 } from '@/modules/accounting/services/gl/recurringJournalGuards';
 import { HeaderAccountRefusal, assertNoHeaderAccountLines } from '@/modules/accounting/services/gl/headerAccountGuard';
 import { assertNewJournalDimensions } from '@/modules/accounting/services/gl/dimensions/dimensionPolicy';
@@ -55,6 +55,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(checkJournalLines).mockResolvedValue({ lines: LINES, warnings: [] });
   vi.mocked(createRecurringJournal).mockResolvedValue({ id: RJ, status: 'active' } as never);
+  vi.mocked(updateRecurringJournalStatus).mockResolvedValue({ changed: true });
 });
 
 describe('create_recurring_journal', () => {
@@ -201,10 +202,10 @@ describe('deactivate_recurring_journal', () => {
 
   it('a status changed since the read is answered as a refusal (nothing was written), anything else rethrows', async () => {
     template('active');
-    vi.mocked(updateRecurringJournalStatus).mockRejectedValueOnce(new RecurringJournalStatusChangedError(RJ));
+    vi.mocked(updateRecurringJournalStatus).mockResolvedValueOnce({ changed: false, current: 'cancelled' });
     const r = await deactivateRecurringJournalTool.handler({ recurring_journal_id: RJ, idempotency_key: 'k' }, ctx());
     expect(r.isError).toBe(true);
-    expect(text(r)).toContain('status changed concurrently — re-read it and retry');
+    expect(text(r)).toContain('status changed concurrently (now cancelled) — re-read it and retry');
     vi.mocked(updateRecurringJournalStatus).mockRejectedValueOnce(new Error('connection reset'));
     await expect(deactivateRecurringJournalTool.handler({ recurring_journal_id: RJ, idempotency_key: 'k' }, ctx()))
       .rejects.toThrow('connection reset');

@@ -14,7 +14,7 @@ import {
   createRecurringJournal, getRecurringJournalById, updateRecurringJournalStatus,
 } from '@/modules/accounting/services/gl/recurringJournalService';
 import {
-  RecurringJournalRequestError, RecurringJournalStatusChangedError, assertTemplateLinesPostable,
+  RecurringJournalRequestError, assertTemplateLinesPostable,
 } from '@/modules/accounting/services/gl/recurringJournalGuards';
 import { assertNoHeaderAccountLines, isHeaderAccountRefusal } from '@/modules/accounting/services/gl/headerAccountGuard';
 import { assertNewJournalDimensions } from '@/modules/accounting/services/gl/dimensions/dimensionPolicy';
@@ -161,11 +161,10 @@ export const deactivateRecurringJournalTool: McpTool = {
     if (args.dry_run === true) return { ...ok({ dry_run: true, ...answer }), wroteNothing: true };
     // Predicated on the status just read: a change that landed in between updates no row — nothing was written, so
     // the refusal may be answered (and the key stays free for the retry).
-    try {
-      await updateRecurringJournalStatus(ctx.companyId, id, target, rj.status);
-    } catch (err) {
-      if (err instanceof RecurringJournalStatusChangedError) return toolError(err.message);
-      throw err;
+    const change = await updateRecurringJournalStatus(ctx.companyId, id, target, rj.status);
+    if (!change.changed) {
+      return toolError(`Recurring journal ${id}: its status changed concurrently (now ${change.current}) — re-read it and `
+        + 'retry. Nothing was changed.');
     }
     return ok(answer);
   },

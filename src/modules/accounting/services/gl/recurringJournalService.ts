@@ -10,7 +10,6 @@ import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import {
   RecurringJournalRequestError,
   RecurringJournalNotFoundError,
-  RecurringJournalStatusChangedError,
   readTemplateForUpdate,
   templateEndedError,
   businessToday,
@@ -24,15 +23,15 @@ import { assertNewJournalDimensions } from './dimensions/dimensionPolicy';
 import { assertNoHeaderAccountLines } from './headerAccountGuard';
 import { templateAuthors } from './manualJournalAuthors';
 import type {
-  RecurringJournal, RecurringJournalCreateInput, RecurringStatus, JournalLineInput,
+  RecurringJournal, RecurringJournalCreateInput, JournalLineInput,
 } from '../../types/gl.types';
 import type { RecurringJournalRun, RecurringRunOptions } from '../../types/recurringJournal.types';
 import type { DbRow } from '@/types/db';
 
 export {
   RecurringJournalRequestError, RecurringJournalLockTimeoutError, RecurringJournalNotFoundError,
-  RecurringJournalStatusChangedError,
 } from './recurringJournalGuards';
+export { updateRecurringJournalStatus, updateRecurringJournalTemplate } from './recurringJournalEdits';
 
 export type { RecurringJournalRun, RecurringRunOptions } from '../../types/recurringJournal.types';
 
@@ -96,26 +95,6 @@ export async function getRecurringJournalById(companyId: string, id: string): Pr
     SELECT * FROM recurring_journals WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   return rows[0] ? mapRow(rows[0]) : null;
-}
-
-/**
- * `from`: change it only while it still has that status (a predicated UPDATE). Nothing is written when it does not:
- * RecurringJournalStatusChangedError when the template exists in another status, NotFound when it does not exist.
- */
-export async function updateRecurringJournalStatus(companyId: string,
-  id: string,
-  status: 'paused' | 'active' | 'cancelled',
-  from?: RecurringStatus,
-): Promise<void> {
-  const result = (await sql`
-    UPDATE recurring_journals SET status = ${status}, updated_at = NOW()
-    WHERE id = ${id} AND company_id = ${companyId} AND (${from ?? null}::TEXT IS NULL OR status = ${from ?? null})
-    RETURNING id`) as DbRow[];
-  if (result.length === 0) {
-    if (from && (await getRecurringJournalById(companyId, id))) throw new RecurringJournalStatusChangedError(id);
-    throw new RecurringJournalNotFoundError(id);
-  }
-  log.info('Updated recurring journal status', { id, status }, 'accounting');
 }
 
 /**
@@ -220,10 +199,11 @@ export async function runRecurringJournal(companyId: string,
   const posts = autoPost && !approval.held;
   const authors = await templateAuthors(companyId, { kind: 'recurring_journal', id });
 
+  // last_run_date records the run's own date (the occurrence): recurringJournalEdits refuses a next run on or before it.
   return withTransaction(async (tx) => {
     const claimed = (await tx`
       UPDATE recurring_journals
-      SET last_run_date = ${today}::DATE, next_run_date = ${nextDate}::DATE,
+      SET last_run_date = ${dueDate}::DATE, next_run_date = ${nextDate}::DATE,
           run_count = run_count + 1, status = ${newStatus}
       WHERE id = ${id} AND company_id = ${companyId}
         AND status = 'active' AND next_run_date = ${dueDate}::DATE
