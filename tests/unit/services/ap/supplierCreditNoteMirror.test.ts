@@ -64,6 +64,8 @@ describe('planMirroredNote', () => {
     const h = history({ vat_net_now: 160.87, vat_reversed: 100 }, [{ tie: 'reference_match', vat_amount: -100 }]);
     expect(planMirroredNote(h, 1739.13, false).ok).toBe(false);
     expect(planMirroredNote(h, 1739.13, true)).toMatchObject({ ok: true, plan: { taxAmount: 160.87 } });
+    // Part of the bill: the rate AS IT STANDS (160.87 / 1739.13 = 9.25%), not the 15% it was posted at.
+    expect(planMirroredNote(h, 1000, true)).toMatchObject({ ok: true, plan: { taxAmount: 92.5, billVatRateNow: 9.25 } });
   });
 
   it('refuses a bill with no posted base, one already fully credited, and a subtotal above what is left', () => {
