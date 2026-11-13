@@ -219,9 +219,9 @@ describe('applyCreditNote — the oldest-first walk', () => {
     expect(w.money.filter(([id]) => id === A)).toHaveLength(1);
   });
 
-  it('applies only to the linked document when auto_apply is "none"', async () => {
+  it('applies only to the linked document when auto_apply is "linked"', async () => {
     const w = wire([[B, 900]], { id: A, outstanding: 100 });
-    const out = await inRequest(() => applyCreditNote(args({ linkedInvoiceId: A, autoApply: 'none' })));
+    const out = await inRequest(() => applyCreditNote(args({ linkedInvoiceId: A, autoApply: 'linked' })));
     expect(w.money).toEqual([[A, 100]]);
     expect(out.remainder).toBe(400);
   });

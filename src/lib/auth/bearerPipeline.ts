@@ -39,6 +39,9 @@ export interface BearerAuthedRequest extends CompanyAuthedRequest {
   patId?: string;
   oauthAuthorisationId?: string;
   oauthAppId?: string;
+  /** ISO expiry of the presented token; OAuth also carries its refresh token's. */
+  tokenExpiresAt?: string | null;
+  refreshExpiresAt?: string | null;
 }
 
 let _pool: pg.Pool | null = null;
@@ -90,12 +93,14 @@ export async function runBearerRequest(
     patId?: string;
     oauthAuthorisationId?: string;
     oauthAppId?: string;
+    expiresAt: string | null;
+    refreshExpiresAt: string | null;
   }
   let ctx: NormalisedCtx | null = null;
 
   if (rawToken.startsWith('pat_')) {
     const pat = await validatePat(rawToken, ip);
-    if (pat) ctx = { ...pat, method: 'pat' };
+    if (pat) ctx = { ...pat, method: 'pat', refreshExpiresAt: null };
   } else if (rawToken.startsWith('oat_')) {
     const oauth: OauthAccessContext | null = await validateOauthAccessToken(rawToken, ip);
     if (oauth) ctx = {
@@ -105,6 +110,8 @@ export async function runBearerRequest(
       method: 'oauth',
       oauthAuthorisationId: oauth.authorisationId,
       oauthAppId: oauth.oauthAppId,
+      expiresAt: oauth.expiresAt,
+      refreshExpiresAt: oauth.refreshExpiresAt,
     };
   } else {
     opts.onAuthFailure?.(res);
@@ -197,6 +204,8 @@ export async function runBearerRequest(
     authedReq.companyRole = membership.rows[0]!.role;
     authedReq.scopes = ctx.scopes;
     authedReq.authMethod = ctx.method;
+    authedReq.tokenExpiresAt = ctx.expiresAt;
+    authedReq.refreshExpiresAt = ctx.refreshExpiresAt;
     if (ctx.method === 'pat') {
       authedReq.patId = ctx.patId;
     } else {
