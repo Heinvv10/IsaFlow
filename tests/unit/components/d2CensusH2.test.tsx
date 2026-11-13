@@ -3,6 +3,7 @@
  * view and an empty-body 500 threw "Unexpected end of JSON input". Each case answers one request with (1) the real
  * error envelope, (2) an empty-body 500, (3) a good 200 that must render. REAL assertOk / apiErrorMessage.
  */
+import { openKit } from '../../helpers/kitSelect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, render, screen } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -71,7 +72,8 @@ const CASES: Case[] = [
   { name: 'eliminations: company groups', page: () => <EliminationsPage />, fails: u => u.endsWith('/company-groups'),
     good: [{ id: 'g1', name: 'D2 Group Alpha' }], shows: text(/D2 Group Alpha/), plain: /Could not load company groups - try again/ },
   { name: 'journal entry: accounts', page: () => <NewJournalEntryPage />, fails: u => u.endsWith('/chart-of-accounts'),
-    good: [{ id: 'a1', accountCode: '1D2X', accountName: 'D2 Bank', isActive: true }], shows: text(/1D2X - D2 Bank/),
+    good: [{ id: 'a1', accountCode: '1D2X', accountName: 'D2 Bank', isActive: true }],
+    shows: async () => { openKit(await screen.findByRole('combobox', { name: 'Account, line 1' })); return screen.findByText(/1D2X - D2 Bank/); },
     plain: /Could not load accounts - try again/ },
   { name: 'recurring invoice: customers', page: () => <EditRecurringInvoicePage />, fails: u => u.endsWith('/customers'),
     good: [{ id: 'c1', company_name: 'D2 Customer Ltd' }], rest: u => (u.endsWith('/recurring-invoices') ? { items: [REC] } : []),

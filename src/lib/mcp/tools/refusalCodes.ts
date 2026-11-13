@@ -40,6 +40,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // raised (gl/approvalDocumentErrors). Names the caller's own document type
   // and id; nothing is written. No MCP tool raises requests (Q6).
   'APPROVAL_RULES_CHANGED',
+  // Budgets P6 three-way engine (budgets/threeWay/errors.ts): the assumptions document failed validation (field paths
+  // and fixed messages only). No MCP tool runs the engine today.
+  'ASSUMPTIONS_INVALID',
   // gl/paymentBankAccount: the UIF, SARS directive and loan payments found no usable bank account to credit (no active
   // bank-role holder, two claimants, or a supplied bankAccountId that is not an active bank account of the company). Names
   // only the company's own account codes and names; raised before any write. No MCP tool makes these payments today.
@@ -161,6 +164,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'LOAN_POST_LOCK_TIMEOUT',
   // R-035: enabling approval enforcement for a type not yet wired. Names only the type.
   'NOT_ENFORCEABLE',
+  // Budgets P6 three-way engine: the opening balance sheet does not balance (one fixed sentence with a cent figure).
+  'OPENING_UNBALANCED',
   'PAYMENT_LOCK_TIMEOUT',
   'PAYMENT_POSTED_DURING_VOID',
   // Edit dates / End waited 5s for the company's payroll-approval lock (payrollComponentPaidMonths).

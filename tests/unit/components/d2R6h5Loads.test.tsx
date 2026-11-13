@@ -3,6 +3,7 @@
  * message instead of a silent empty card, and the bank-account create flow reports a half-done create truthfully.
  * REAL assertOk / apiErrorMessage over a scripted apiFetch.
  */
+import { openKit } from '../../helpers/kitSelect';
 import { typeDate, dateFieldInputs } from '../helpers/dateFields';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -65,6 +66,7 @@ describe('ApplyPackageCard', () => {
   it('200 lists the packages', async () => {
     route(() => ok([{ id: 'p1', code: 'PKG1', name: 'D2 Package', isActive: true }]));
     render(<ApplyPackageCard employeeId="e-1" />);
+    openKit(await screen.findByRole('combobox'));
     expect(await screen.findByText('PKG1 — D2 Package')).toBeTruthy();
   });
 });

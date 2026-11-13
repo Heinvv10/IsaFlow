@@ -147,6 +147,9 @@ function truncateForMessage(value: unknown): string {
  */
 export const NOT_A_REFUSAL_CODES: ReadonlySet<string> = new Set([
   'CLAIM_OUTSIDE_TRANSACTION',
+  // Budgets P6 three-way engine: a posting whose debits and credits differ is an engine invariant
+  // breach (a bug), never a user's refusal.
+  'UNBALANCED_POSTING',
 ]);
 
 /**

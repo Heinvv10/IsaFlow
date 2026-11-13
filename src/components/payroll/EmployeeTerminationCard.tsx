@@ -5,6 +5,7 @@
  * payrollRunService.appendTerminationIfEndingThisPeriod) when the employee's
  * end_date falls in the run period and a reason is captured here.
  */
+import { Select } from '@/components/ui/Select';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
@@ -136,19 +137,9 @@ export function EmployeeTerminationCard({ employeeId, endDate }: Props) {
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="termination-reason" className={LABEL}>Reason</label>
-              <select
-                id="termination-reason"
-                className={INPUT}
-                value={details.reason ?? ''}
-                onChange={(e) => setDetails({ ...details, reason: (e.target.value || null) as Reason | null })}
-                disabled={!endDate}
-              >
-                <option value="">—</option>
-                {Object.entries(REASON_LABELS).map(([v, label]) => (
-                  <option key={v} value={v}>{label}</option>
-                ))}
-              </select>
+              <Select id="termination-reason" label="Reason" labelClassName={LABEL} placeholder="—" clearable disabled={!endDate}
+                value={details.reason ?? null} onChange={(v) => setDetails({ ...details, reason: (v || null) as Reason | null })}
+                options={Object.entries(REASON_LABELS).map(([v, label]) => ({ value: v, label }))} />
               <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">Severance only applies for retrenchment (BCEA s41).</p>
             </div>
             <div>
