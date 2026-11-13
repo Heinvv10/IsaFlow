@@ -160,9 +160,14 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
     setSaveError(null);
     const doc = mode === 'followBase' ? EMPTY_OVERRIDES : buildSaveDoc(view as AssumptionsView, edited as ThreeWayAssumptions, base);
     const mine = seq.current;
-    const r = await saveAssumptionsDoc(versionId, doc, token);
+    let r: Awaited<ReturnType<typeof saveAssumptionsDoc>>;
+    try {
+      r = await saveAssumptionsDoc(versionId, doc, token);
+    } finally {
+      // Never left saving (a throw included); a form that moved on was reset by its own load.
+      if (mine === seq.current) setSaving(false);
+    }
     if (mine !== seq.current) return; // the form moved on (another version, or re-read): this answer is not its
-    setSaving(false);
     if (r.ok) {
       setReplacing(false);
       setInvalidDoc(null);

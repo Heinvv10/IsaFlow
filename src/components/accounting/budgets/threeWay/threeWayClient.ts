@@ -42,10 +42,9 @@ export async function fetchAssumptions(versionId: string): Promise<ApiResult<Ass
   } catch {
     return { ok: false, kind: 'network', message: fallback };
   }
-  const text = await res.text();
-  let body: (ErrorBody & { data?: unknown }) | null;
-  try { body = JSON.parse(text) as ErrorBody & { data?: unknown }; } catch { body = null; } // an HTML page: no data
   if (!res.ok) {
+    let body: ErrorBody | null;
+    try { body = JSON.parse(await res.text()) as ErrorBody; } catch { body = null; } // an HTML error page: the fallback speaks
     const message = body?.error?.message || body?.message || fallback;
     const code = body?.error?.details?.code;
     if (res.status === 400 && code === 'BUDGET_ASSUMPTIONS_INVALID') return { ok: false, kind: 'invalidDoc', message, issues: issuesOf(body?.error?.details?.issues) };
@@ -53,7 +52,9 @@ export async function fetchAssumptions(versionId: string): Promise<ApiResult<Ass
     if (res.status === 404) return { ok: false, kind: 'notFound', message };
     return { ok: false, kind: 'failed', message, status: res.status };
   }
-  const data = body?.data as AssumptionsView | undefined;
+  let parsed: { data?: unknown } | null;
+  try { parsed = JSON.parse(await res.text()) as { data?: unknown }; } catch { parsed = null; } // a 2xx proxy page is not the view
+  const data = parsed?.data as AssumptionsView | undefined;
   return data && typeof data === 'object' && 'resolved' in data ? { ok: true, data } : { ok: false, kind: 'failed', message: fallback, status: res.status };
 }
 
@@ -109,10 +110,9 @@ export async function saveAssumptionsDoc(versionId: string, doc: Record<string, 
   } catch {
     return { ok: false, kind: 'network', message: fallback };
   }
-  const text = await res.text();
-  if (!res.ok) return saveFailure(res.status, text, fallback);
+  if (!res.ok) return saveFailure(res.status, await res.text(), fallback);
   let parsed: unknown;
-  try { parsed = JSON.parse(text); } catch { parsed = null; } // a 2xx proxy page is not the saved row
+  try { parsed = JSON.parse(await res.text()); } catch { parsed = null; } // a 2xx proxy page is not the saved row
   const data = (parsed as { data?: unknown } | null)?.data as SavedAssumptions | undefined;
   if (!data || typeof data.updatedAt !== 'string') return { ok: false, kind: 'failed', message: fallback };
   return { ok: true, data };

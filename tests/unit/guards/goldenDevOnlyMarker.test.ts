@@ -67,7 +67,7 @@ describe('golden dev-only marker', () => {
       'z5-employee-bank-details', 'z6-payrun-review-grid',
       'z7-undo-drawers', 'z8-budget-tracking', 'z9-employee-readiness', 'z10-payslips',
       'z11-kit-select', 'z12-bank-tx-selects', 'z13-invoice-preview-unsaved', 'z15-density', 'z16-return-lifecycle', 'z17-return-drill',
-      'z18-explain',
+      'z18-explain', 'z19-budgets-three-way',
     ].sort());
   });
 });

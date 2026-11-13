@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useCompany } from '@/contexts/CompanyContext';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { NAV_FLAGS } from '@/components/accounting/navSections/flagNav';
 
@@ -18,7 +18,7 @@ const inFlight = new Map<string, Promise<ReadonlySet<string>>>();
 
 async function checkFlag(code: string): Promise<boolean> {
   const res = await apiFetch(`/api/features/check?code=${encodeURIComponent(code)}`);
-  if (!res.ok) throw new Error(`feature check ${code} answered ${res.status}`);
+  await assertOk(res, 'Could not check which features are on for this company');
   const json = (await res.json()) as { data?: { enabled?: unknown } };
   return json.data?.enabled === true;
 }

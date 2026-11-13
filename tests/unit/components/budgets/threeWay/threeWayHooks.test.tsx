@@ -29,7 +29,7 @@ vi.mock('@/components/accounting/budgets/workspace/useWorkspaceVersions', () => 
 }));
 vi.mock('@/components/accounting/budgets/workspace/budgetWorkspaceClient', () => ({ listVersions: h.listVersions }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: h.company }) }));
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: h.apiFetch }));
+vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiFetch: h.apiFetch }));
 
 import { useThreeWay } from '@/components/accounting/budgets/threeWay/useThreeWay';
 import { useAssumptionsForm } from '@/components/accounting/budgets/threeWay/useAssumptionsForm';
@@ -111,6 +111,16 @@ describe('useAssumptionsForm', () => {
     expect(onSaved).not.toHaveBeenCalled();
     expect(result.current.view?.stored?.updatedAt).toBe('u2');
     expect(result.current.edited?.workingCapital.debtorDays.value).toBe(45);
+    expect(result.current.saving).toBe(false);
+  });
+
+  it('a save that throws never leaves the form saving (the finally resets it)', async () => {
+    h.fetchAssumptions.mockResolvedValue({ ok: true, data: assumptionsView({ updatedAt: 't1' }) });
+    h.saveAssumptionsDoc.mockRejectedValueOnce(new Error('boom'));
+    const { result } = renderHook(() => useAssumptionsForm(V1, false, vi.fn()));
+    await waitFor(() => expect(result.current.view).not.toBeNull());
+    act(() => result.current.update((d) => ({ ...d, minimumCash: { value: 1, source: 'manual' } })));
+    await act(async () => { await expect(result.current.save()).rejects.toThrow('boom'); });
     expect(result.current.saving).toBe(false);
   });
 
