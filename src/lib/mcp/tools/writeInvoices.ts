@@ -18,6 +18,7 @@ import { agentApprovalRefusal } from '@/modules/accounting/services/gl/approvalU
 import { createQuote, LineValidationError } from '@/modules/accounting/services/ar/quoteService';
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { mcpPostingOpts } from '../mcpActor';
+import { EXTERNAL_REF_CREATE_PROPS, createReplayOrLock, parseCreateRef, stampCreated } from './externalRef';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { CUSTOMER_INVOICE_LINE_SCHEMA, parseCustomerInvoiceInput } from './customerInvoiceCreateArgs';
 import { DIMENSION_LINE_PROPERTIES, itemsWithDimensions } from './dimensionArgs';
@@ -64,7 +65,8 @@ const LINE_ITEMS_SCHEMA = {
 export const createDraftInvoiceTool: McpTool = {
   name: 'create_draft_invoice',
   description:
-    'Create a customer invoice in DRAFT status (an invoice number is reserved). Does not post to the GL or send — use finalize_invoice (needs write:post) to approve.',
+    'Create a customer invoice in DRAFT status (an invoice number is reserved). Does not post to the GL or send — use finalize_invoice (needs write:post) to approve. '
+    + 'Pass external_system + external_ref (e.g. the Sage tax invoice id) to make the create idempotent: a live invoice already carrying them is returned instead (already_existed: true).',
   scope: 'write:invoices',
   write: true,
   inputSchema: {
@@ -77,6 +79,7 @@ export const createDraftInvoiceTool: McpTool = {
       due_date: { type: 'string', format: 'date', description: "When omitted: from the customer's payment terms (see list_customers), else the company's default terms" },
       tax_rate: { type: 'number', minimum: 0 },
       notes: { type: 'string' },
+      ...EXTERNAL_REF_CREATE_PROPS,
       idempotency_key: { type: 'string' },
     },
     required: ['customer_id', 'items', 'idempotency_key'],
@@ -85,14 +88,19 @@ export const createDraftInvoiceTool: McpTool = {
   handler: async (args, ctx) => {
     const parsed = parseCustomerInvoiceInput(args);
     if (typeof parsed === 'string') return toolError(parsed);
+    const xref = parseCreateRef(args);
+    if (typeof xref === 'string') return toolError(xref);
     // Ownership: the customer must belong to the token's company (a plain FK
     // would otherwise accept any company's customer id). Generic error — no
     // existence oracle for foreign ids.
     if (!(await customerBelongsToCompany(ctx.companyId, parsed.customerId))) return toolError(NOT_FOUND);
     const items = await itemsWithDimensions(ctx.companyId, parsed.items, parsed.dimensionRefs, (i) => `items[${i}]`);
     if (typeof items === 'string') return toolError(items);
+    const replay = await createReplayOrLock(ctx, 'customer_invoice', xref, { expect: { date: parsed.invoiceDate ?? null } });
+    if (replay) return replay;
+    let result: Awaited<ReturnType<typeof createDraftCustomerInvoice>>;
     try {
-      const result = await createDraftCustomerInvoice(ctx.companyId, ctx.userId, {
+      result = await createDraftCustomerInvoice(ctx.companyId, ctx.userId, {
         clientId: parsed.customerId,
         items,
         invoiceDate: parsed.invoiceDate,
@@ -101,7 +109,6 @@ export const createDraftInvoiceTool: McpTool = {
         notes: parsed.notes,
         projectId: parsed.projectId,
       }, mcpPostingOpts(ctx, 'create_draft_invoice'));
-      return ok(result);
     } catch (err) {
       // Pre-write only. InvoiceLineValidationError is raised while validating
       // the lines, before the first INSERT, so nothing was written.
@@ -116,6 +123,9 @@ export const createDraftInvoiceTool: McpTool = {
       if (err instanceof InvoiceLineValidationError) return toolError(err.message);
       throw err;
     }
+    // Outside the catch: a failed stamp reaches the registry's savepoint and unwinds the invoice.
+    await stampCreated(ctx, 'customer_invoice', result.id, xref);
+    return ok(xref ? { ...result, external_system: xref.system, external_ref: xref.ref } : result);
   },
 };
 

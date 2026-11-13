@@ -335,6 +335,9 @@ describe('bulk_allocate_bank_transactions — real ledger', async () => {
   it.skipIf(!reachable)('leaves the ledger untouched when line 3 fails mid-batch', async () => {
     await inRequestTx(async (f) => {
       const before = await countJournals(f.companyId);
+      const supplierId = String(((await sql`
+        INSERT INTO suppliers (company_id, name) VALUES (${f.companyId}::uuid, 'ISAFLOW BULK FIXTURE SUPPLIER')
+        RETURNING id`) as Array<{ id: string }>)[0]!.id);
 
       // The assertion below is only worth anything if the failing line posts
       // LAST — otherwise "no journals survived" is true because none were ever
@@ -348,19 +351,21 @@ describe('bulk_allocate_bank_transactions — real ledger', async () => {
         savepointNameFor(bulkAllocateBankTransactionsTool.name),
         () => bulkAllocateBankTransactionsTool.handler(
           {
-            allocations: f.txIds.map((id) => ({
-              transaction_id: id, contra_account_id: f.contraAccountId,
-            })),
+            allocations: f.txIds.map((id, i) => (i < 2
+              ? { transaction_id: id, contra_account_id: f.contraAccountId }
+              : { transaction_id: id, alloc_type: 'supplier', entity_id: supplierId })),
             idempotency_key: 'integration-rollback',
           },
           toolCtx(f),
         ),
       );
 
-      // Line 3 is a zero-amount transaction, so its journal has two zero lines
-      // and `validateJournalEntry` refuses it — a GENUINE fault, reached only
-      // after the pre-check passed the row as importable. (An already-allocated
-      // row is no longer a fault at all; it is skipped, see the test above.)
+      // Line 3 is money IN against a supplier holding no credit, so
+      // `allocateTransaction` refuses the refund (planSupplierRefund) — a
+      // GENUINE fault, reached only after the pre-check passed the row as
+      // importable and after lines 1-2 posted. (An already-allocated row is
+      // no longer a fault at all; it is skipped, see the test above. Neither
+      // is a zero-amount row: that is skipped as 'zero_amount'.)
       // The handler must let this reach the savepoint rather than dressing it
       // as a toolError — a returned envelope RELEASES the savepoint and keeps
       // the two journals lines 1-2 already posted.
@@ -389,6 +394,6 @@ describe('bulk_allocate_bank_transactions — real ledger', async () => {
         WHERE id = ANY(${f.txIds}::uuid[]) AND allocation_batch_id IS NOT NULL
       `) as Array<{ n: number }>;
       expect(stamped[0]!.n).toBe(0);
-    }, { status: 'imported', amount: 0 });
+    }, { status: 'imported', amount: 102 });
   });
 });

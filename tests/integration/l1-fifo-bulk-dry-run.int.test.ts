@@ -169,11 +169,11 @@ describeIfDb('L1 — the bulk dry run and the batch it previews', () => {
       date: '2026-08-10', amount: -200, description: 'ZERO-GOOD',
       id: '0f000000-0000-4000-8000-000000000001',
     });
-    // A zero-amount line: `createJournalEntry` refuses a line with neither a
-    // debit nor a credit, which reaches the batch as a genuine fault rather
-    // than a skip.
-    const zero = await seedBankTx(fx, {
-      date: '2026-08-10', amount: 0, description: 'ZERO-BAD',
+    // A money-IN line against a supplier holding no credit: planSupplierRefund refuses the refund inside
+    // `allocateTransaction`, AFTER the first line posted — a genuine fault, not a skip. (This used to be a zero-amount
+    // line; that is now skipped as 'zero_amount', see mcp-bulk-allocate-zero-amount.int.test.ts.)
+    const bad = await seedBankTx(fx, {
+      date: '2026-08-10', amount: 50, description: 'ZERO-BAD',
       id: '0f000000-0000-4000-8000-000000000002',
     });
 
@@ -181,12 +181,12 @@ describeIfDb('L1 — the bulk dry run and the batch it previews', () => {
       {
         allocations: [
           { transaction_id: good, alloc_type: 'supplier', entity_id: sup },
-          { transaction_id: zero, alloc_type: 'supplier', entity_id: sup },
+          { transaction_id: bad, alloc_type: 'supplier', entity_id: sup },
         ],
         idempotency_key: randomUUID(),
       },
       ctxFor(),
-    ))).rejects.toThrow(/line 1 .*non-zero debit or credit/);
+    ))).rejects.toThrow(/line 1 .*refund of 50\.00 exceeds/);
 
     // ALL OR NOTHING, and the new FIFO default widens what "all" means: the
     // first line had already posted its journal, minted a supplier payment and

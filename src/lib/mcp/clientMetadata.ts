@@ -14,7 +14,7 @@ export const MCP_AUTH_SERVER_METADATA_PATH = '/.well-known/oauth-authorization-s
 export const MCP_PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 
 /**
- * All MCP tool names — 78 read + 89 write = 167 (2026-11-08; docs/mcp-connect.md states
+ * All MCP tool names — 79 read + 91 write = 170 (2026-11-13; docs/mcp-connect.md states
  * the same counts and tests/unit/mcp/mcpConnectDocCounts.test.ts holds it to the registry). Drift-guarded against
  * toolIndex.ts by tests/unit/mcp/clientMetadata.test.ts, which compares the
  * ARRAY rather than this comment; the comment is the part that can rot, so it
@@ -25,6 +25,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'company_profile',
   'list_companies',
   'token_info',
+  'find_by_external_ref',
   'trial_balance',
   'profit_and_loss',
   'balance_sheet',
@@ -48,6 +49,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'vat_reconciliation',
   'vat201_export',
   'vat_exceptions',
+  'document_vat_history',
   'data_integrity_checks',
   'chart_of_accounts_health',
   'lock_vat_period',
