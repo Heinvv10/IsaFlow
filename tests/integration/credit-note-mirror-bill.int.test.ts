@@ -20,6 +20,7 @@ import { createJournalEntry, postJournalEntry } from '@/modules/accounting/servi
 import { getDocumentVatHistory } from '@/modules/accounting/services/reports/documentVatHistory';
 import { createCreditNoteTool } from '@/lib/mcp/tools/writeCreditNotes';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { dropFixture, inTx, seedFixture, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
 
@@ -125,7 +126,7 @@ describeIfDisposable('create_credit_note mirror_bill', () => {
     const refused = await create(b, 1739.13, { mirror_bill: true });
     expect(refused.isError).toBe(true);
     expect(text(refused)).toMatch(/^VAT_ALREADY_REVERSED/);
-    expect(text(refused)).toContain(`${manual} narration_match R-260.87`);
+    expect(text(refused)).toContain(`${manual} narration_match ${formatMoney(-260.87)}`);
     expect(await notesOn(b.id)).toBe(0);
 
     const r = await create(b, 1739.13, { mirror_bill: true, acknowledge_vat_already_reversed: true });

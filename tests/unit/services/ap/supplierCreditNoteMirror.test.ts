@@ -3,6 +3,7 @@
  * refusal — unless acknowledged — when the bill's VAT was already reversed out of proportion to its base.
  */
 import { describe, expect, it } from 'vitest';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { planMirroredNote } from '@/modules/accounting/services/ap/supplierCreditNoteMirror';
 import type { DocumentVatHistory, DocumentVatLine } from '@/modules/accounting/services/reports/documentVatHistory';
 
@@ -50,7 +51,7 @@ describe('planMirroredNote', () => {
     expect(r.ok).toBe(false);
     const reason = (r as { reason: string }).reason;
     expect(reason).toMatch(/^VAT_ALREADY_REVERSED/);
-    expect(reason).toContain('JE-2026-26788 narration_match R-260.87');
+    expect(reason).toContain(`JE-2026-26788 narration_match ${formatMoney(-260.87)}`);
     expect(reason).toContain('acknowledge_vat_already_reversed');
     expect(reason).toContain('heuristic');
   });
@@ -74,7 +75,7 @@ describe('planMirroredNote', () => {
     expect(planMirroredNote(history({ net_base_now: 0, vat_net_now: 0 }), 10, false))
       .toMatchObject({ ok: false, reason: expect.stringContaining('nothing to mirror') });
     expect(planMirroredNote(history({}), 1739.14, false))
-      .toMatchObject({ ok: false, reason: expect.stringContaining('more than the R1739.13') });
+      .toMatchObject({ ok: false, reason: expect.stringContaining(`more than the ${formatMoney(1739.13)}`) });
   });
 
   it('rounding of several earlier notes stays inside the tolerance', () => {

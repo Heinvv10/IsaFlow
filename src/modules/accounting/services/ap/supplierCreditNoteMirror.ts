@@ -25,10 +25,11 @@
  * The figure is fixed on the draft. Approval does not re-read it: a note or
  * journal posted against the bill between create and approve is not seen.
  */
+import { formatMoney } from '@/lib/money/formatMoney';
 import { getDocumentVatHistory, type DocumentVatHistory, type DocumentVatLine } from '../reports/documentVatHistory';
 
 const r2 = (n: number): number => Math.round(n * 100) / 100;
-const fmt = (n: number): string => `R${n.toFixed(2)}`;
+const fmt = (n: number): string => formatMoney(n);
 
 export interface MirrorPlan {
   taxAmount: number;
