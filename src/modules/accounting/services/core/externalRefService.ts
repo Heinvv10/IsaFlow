@@ -87,7 +87,8 @@ async function rowsFor(companyId: string, kind: ExternalRefKind, system: string,
     case 'bank_transaction':
       return (await sql`
         SELECT id, reference AS number, status, transaction_date AS date, amount AS total_amount, external_document_number,
-               TRUE AS live
+               -- A feed line the bank withdrew never posted: listed as superseded, never the live copy.
+               (feed_state IS DISTINCT FROM 'removed') AS live
         FROM bank_transactions
         WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
     case 'supplier':

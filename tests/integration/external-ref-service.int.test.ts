@@ -99,6 +99,24 @@ describeIfDb('externalRefService', () => {
     expect(cust).toMatchObject([{ id: customerNote, live: false, creditNoteType: 'customer' }]);
   });
 
+  it('a bank line the feed removed is not live', async () => {
+    const acct = (await sql`
+      INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance, is_active)
+      VALUES (${A}::UUID, ${`${TAG.slice(-6)}B`}, ${`${TAG} bank`}, 'asset', 'bank', 'debit', true) RETURNING id`) as { id: string }[];
+    const [feed] = (await sql`
+      INSERT INTO bank_feed_connections (company_id, bank_account_id, provider, status)
+      VALUES (${A}::UUID, ${acct[0]!.id}::UUID, 'extension', 'active') RETURNING id`) as { id: string }[];
+    const [line] = (await sql`
+      INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, external_system, external_ref,
+                                     feed_state, bank_feed_connection_id, provider_transaction_id)
+      VALUES (${A}::UUID, ${acct[0]!.id}::UUID, '2026-11-04', -50, ${TAG}, 'sage', ${`${TAG}-BANK`},
+              'removed', ${feed!.id}::UUID, ${`${TAG}-PTX`}) RETURNING id`) as { id: string }[];
+    expect((await findByExternalRef(A, 'bank_transaction', 'sage', `${TAG}-BANK`))).toMatchObject([{ id: line!.id, live: false }]);
+    await sql`DELETE FROM bank_transactions WHERE id = ${line!.id}::UUID`;
+    await sql`DELETE FROM bank_feed_connections WHERE id = ${feed!.id}::UUID`;
+    await sql`DELETE FROM gl_accounts WHERE id = ${acct[0]!.id}::UUID`;
+  });
+
   it('a reversed journal is not live', async () => {
     await stampExternalRef(A, 'journal', journal, { system: 'sage', ref: `${TAG}-JE` });
     expect((await findByExternalRef(A, 'journal', 'sage', `${TAG}-JE`))[0]).toMatchObject({ id: journal, live: true });
