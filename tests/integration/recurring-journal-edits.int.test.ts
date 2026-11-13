@@ -59,6 +59,9 @@ describe('recurring journal status moves', () => {
     expect(await move('paused')).toEqual({ changed: true });
     expect(await move('paused')).toEqual({ changed: false, current: 'paused' });
     expect(await move('active')).toEqual({ changed: true });
+    // `from` narrows the move to the status the caller read: active may be cancelled, but not by one who read paused.
+    expect(await request(pool, co, user, () => updateRecurringJournalStatus(co.c, t, 'cancelled', 'paused')))
+      .toEqual({ changed: false, current: 'active' });
     expect(await move('cancelled')).toEqual({ changed: true });
     expect((await templateState(pool, t)).status).toBe('cancelled');
   });
