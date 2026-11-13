@@ -63,7 +63,7 @@ describe('metering', () => {
   });
 
   it('an unrecognised, ambiguous, multi-period or unsupported-refinement question charges nothing', async () => {
-    const qs = ['what is the weather', 'total assets and liabilities', 'profit this year vs last year', 'profit before tax', 'net profit vs last month', 'gross profit and net profit'];
+    const qs = ['profit by customer', 'revenue from acme', 'profit fy2026x', 'what is the weather', 'total assets and liabilities', 'profit this year vs last year', 'profit before tax', 'net profit vs last month', 'gross profit and net profit'];
     for (const q of qs) await run(q);
     expect(m.deduct).not.toHaveBeenCalled();
     expect(m.answer).toHaveBeenCalledTimes(qs.length);
