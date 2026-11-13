@@ -166,6 +166,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'reapply_customer_payment_terms',
   'unapply_supplier_payment',
   'unapply_credit_note',
+  'adjust_credit_note_application',
   'reverse_journal_entry',
   'settle_by_contra',
   'create_customer',
