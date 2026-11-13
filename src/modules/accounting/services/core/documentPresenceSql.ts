@@ -11,11 +11,11 @@
  * 'grn_invoice_link': those are the order's paperwork, not the supplier's tax invoice, so a bill whose own scan is gone
  * is still missing its document (census of every document_links writer, 2026-11-13: no other reason exists).
  * A bill and a customer invoice also count their SOURCE captured document (source_document_id) when it is this
- * company's, still has stored bytes and is not rejected or discarded: an invoice created from a capture IS supported
+ * company's, still has stored bytes and is not rejected: an invoice created from a capture IS supported
  * by the scan, even though no procurement_documents row exists. A bare `source_document_id IS NOT NULL` is not
  * enough — a capture whose bytes were never stored, or that was rejected, supports nothing, and the flag used to say
- * it did. A NULL status is not a rejection (the predicate says so rather than leaning on NULL <> 'rejected');
- * 'failed' (extraction failed, bytes kept) still counts, because the file is there. For a CUSTOMER invoice
+ * it did. A NULL status is not a rejection (capturedDocUsableSql says so rather than leaning on NULL <> 'rejected'; 'rejected'
+ * is the only captured_documents status that disqualifies — 'failed' / 'discarded' are capture_events statuses). For a CUSTOMER invoice
  * source_document_id is the app's own PDF snapshot of the invoice it issued — that IS the issued document, so it counts.
  *
  * A bank line's definition is bank/bankLineDocumentSql (re-exported below); the VAT journal check is
@@ -26,13 +26,10 @@
  * no company_id, so the caller's own query must already be scoped to the company on `alias` (every caller selects
  * FROM the entity's own table WHERE company_id = …); the captured-source arm re-checks company_id itself.
  */
-import { hasBankLineDocumentSql } from '../bank/bankLineDocumentSql';
+import { capturedDocUsableSql, hasBankLineDocumentSql } from '../bank/bankLineDocumentSql';
 
 /** document_links.link_reason values that are a PO's or GRN's paperwork, not the entity's own supporting document. */
 export const ORDER_PAPERWORK_LINK_REASONS = ['po_invoice_link', 'grn_invoice_link'] as const;
-/** captured_documents.status values that are not a usable document. */
-export const UNUSABLE_CAPTURE_STATUSES = ['rejected', 'discarded'] as const;
-
 const sqlList = (values: readonly string[]): string => values.map((v) => `'${v}'`).join(', ');
 
 export type DocumentedEntityType =
@@ -72,7 +69,7 @@ export function entityStoreDocumentSql(entityType: DocumentedEntityType, alias: 
 export function sourceCapturedDocumentSql(alias: Alias): string {
   return `EXISTS (SELECT 1 FROM captured_documents scd WHERE scd.id = ${alias}.source_document_id`
     + ` AND scd.company_id = ${alias}.company_id AND NULLIF(scd.storage_path, '') IS NOT NULL`
-    + ` AND COALESCE(scd.status, '') NOT IN (${sqlList(UNUSABLE_CAPTURE_STATUSES)}))`;
+    + ` AND ${capturedDocUsableSql('scd')})`;
 }
 
 /** Boolean expression: the accounting document `alias` has at least one supporting document. */

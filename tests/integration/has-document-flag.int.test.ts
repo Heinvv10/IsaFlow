@@ -28,7 +28,7 @@ describeIfDb('hasDocument is computed from the document tables', () => {
     other = await seedFixture('HASDOCB', DATABASE_URL!);
     const bill = async (key: string) => { bills[key] = await seedBill(fx, { number: `B-${n()}`, date: '2026-06-10', total: 115 }); };
     for (const k of ['none', 'upload', 'linked', 'inactive', 'captured', 'capturedNoBytes', 'capturedRejected', 'foreignCapture',
-      'poLinkedOnly', 'grnLinkedOnly', 'capturedNullStatus', 'capturedDiscarded', 'capturedFailed']) await bill(k);
+      'poLinkedOnly', 'grnLinkedOnly', 'capturedNullStatus']) await bill(k);
     await procDoc('supplier_invoice', bills.upload!);
     const shared = await procDoc('supplier_invoice', bills.none!, { active: true, name: 'po-doc.pdf' });
     await sql`DELETE FROM procurement_documents WHERE id = ${shared}::UUID`;
@@ -44,8 +44,6 @@ describeIfDb('hasDocument is computed from the document tables', () => {
     await set(bills.capturedRejected!, await capturedDoc(fx.companyId, { status: 'rejected' }));
     await set(bills.foreignCapture!, await capturedDoc(other.companyId));
     await set(bills.capturedNullStatus!, await capturedDoc(fx.companyId, { status: null }));
-    await set(bills.capturedDiscarded!, await capturedDoc(fx.companyId, { status: 'discarded' }));
-    await set(bills.capturedFailed!, await capturedDoc(fx.companyId, { status: 'failed' }));
 
     const inv = async (key: string) => { invoices[key] = await seedInvoice(fx, { number: `I-${n()}`, date: '2026-06-10', total: 115 }); };
     for (const k of ['none', 'upload', 'captured', 'capturedNoBytes']) await inv(k);
@@ -67,7 +65,7 @@ describeIfDb('hasDocument is computed from the document tables', () => {
   const EXPECT_BILLS: Record<string, boolean> = {
     none: false, upload: true, linked: true, inactive: false, captured: true,
     capturedNoBytes: false, capturedRejected: false, foreignCapture: false,
-    poLinkedOnly: false, grnLinkedOnly: false, capturedNullStatus: true, capturedDiscarded: false, capturedFailed: true,
+    poLinkedOnly: false, grnLinkedOnly: false, capturedNullStatus: true,
   };
 
   it('list_supplier_invoices flag: an uploaded or cross-linked document counts; a capture with no bytes / rejected / another company\'s does not', async () => {

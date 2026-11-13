@@ -19,10 +19,24 @@
 
 type Alias = 'bt' | 'cd' | 'm' | 'bta' | 'x' | 'a' | 'cx';
 
+/**
+ * captured_documents.status values that make a capture not a document. Only `rejected` is a captured_documents status
+ * (the review screen sets it; there is no CHECK on the column and the writers use matched / pending / rejected /
+ * reviewed) — `failed` and `discarded` belong to capture_events. A NULL status is not a rejection.
+ */
+export const UNUSABLE_CAPTURE_STATUSES = ['rejected'] as const;
+
+const unusableList = UNUSABLE_CAPTURE_STATUSES.map((v) => `'${v}'`).join(', ');
+
+/** Captured document `alias` (a fixed code constant, never input) is not rejected: the one status test all arms share. */
+export function capturedDocUsableSql(alias: string): string {
+  return `COALESCE(${alias}.status, '') NOT IN (${unusableList})`;
+}
+
 /** captured document `cd` is a supporting document of bank line `bt` (before the copy check). */
 export function linkedCapturedDocSql(bt: Alias = 'bt', cd: Alias = 'cd'): string {
   return `${cd}.matched_bank_tx_id = ${bt}.id AND ${cd}.company_id = ${bt}.company_id`
-    + ` AND NULLIF(${cd}.storage_path, '') IS NOT NULL AND ${cd}.status IS DISTINCT FROM 'rejected'`;
+    + ` AND NULLIF(${cd}.storage_path, '') IS NOT NULL AND ${capturedDocUsableSql(cd)}`;
 }
 
 /** attachment row `m` is the copy of captured document `cd`. */
@@ -43,7 +57,7 @@ function copiedDocIdSql(x: Alias): string {
  */
 export function attachmentCountsSql(x: Alias, bt: Alias = 'bt'): string {
   return `NOT EXISTS (SELECT 1 FROM captured_documents cx WHERE cx.id = ${copiedDocIdSql(x)}`
-    + ` AND cx.company_id = ${bt}.company_id AND (cx.status = 'rejected' OR cx.matched_bank_tx_id IS DISTINCT FROM ${bt}.id))`;
+    + ` AND cx.company_id = ${bt}.company_id AND (NOT ${capturedDocUsableSql('cx')} OR cx.matched_bank_tx_id IS DISTINCT FROM ${bt}.id))`;
 }
 
 /** captured document `cd`, linked to bank line `bt`, has no copy on that line. */

@@ -175,6 +175,13 @@ describe('list_documents on a bank transaction', () => {
     expect(listBankAttachments).not.toHaveBeenCalled();
   });
 
+  it('the date-range bank listing needs read:bank-tx too, and reads nothing without it', async () => {
+    const res = await listDocumentsTool.handler({ from: '2026-11-01', to: '2026-11-30' }, ctx(['read:reports']));
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain('read:bank-tx');
+    expect(listBankAttachments).not.toHaveBeenCalled();
+  });
+
   it('reads another company\'s line as Not found without listing', async () => {
     vi.mocked(bankTxBelongsToCompany).mockResolvedValue(false);
     const res = await listDocumentsTool.handler({ entity_type: 'bank_transaction', entity_id: TX }, read);

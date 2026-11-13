@@ -61,7 +61,7 @@ export const listDocumentsTool: McpTool = {
   name: 'list_documents',
   description:
     'Supporting documents on file. THERE ARE TWO SEPARATE STORES and this reads whichever one you address. ' +
-    'Give from and to (and optionally bank_transaction_id) to list the receipts, slips and invoice scans attached to BANK TRANSACTIONS — the read side of attach_document. ' +
+    'Give from and to (and optionally bank_transaction_id) to list the receipts, slips and invoice scans attached to BANK TRANSACTIONS — the read side of attach_document (needs read:bank-tx as well as read:reports). ' +
     'Those rows carry store "bank_attachment" (an uploaded file) or "captured_document" (a captured document linked to the bank line that has no uploaded copy, e.g. one over 2 MB); both count as the line\'s supporting documents. ' +
     'Give entity_type and entity_id instead to list the documents filed against one accounting document (' + DOCUMENT_ENTITY_TYPES.join(', ') + '), including documents cross-linked from another entity, which come back with source "linked" and a link_reason. entity_type bank_transaction with the line\'s id lists that one line\'s documents from the bank store (rows as above, no date range needed; needs read:bank-tx as well), so a caller never has to know which store holds what. ' +
     'DOES NOT COVER: a company-wide listing of the entity store. Those rows carry no company id and are fenced by their parent document, so they can only be read one entity at a time — there is no "all documents for this company" query, and asking for one would silently cross tenants. ' +
@@ -138,6 +138,8 @@ export const listDocumentsTool: McpTool = {
     if (!from || !to) {
       return toolError('from and to are required (YYYY-MM-DD), or give entity_type + entity_id instead');
     }
+    // The date-range listing returns bank attachments: the same gate as the bank_transaction entity path.
+    if (!ctx.scopes.includes('read:bank-tx')) return toolError(insufficientScopeMessage('read:bank-tx'));
     const bad = guardCastableArgs(args, { date: ['from', 'to'], uuid: ['bank_transaction_id'] });
     if (bad) return bad;
     try {
