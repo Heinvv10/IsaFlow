@@ -1,4 +1,5 @@
 // D2 round 6 (h2): a failed load clears the stale state, a thrown error never leaves a flag set.
+import { pickKit } from '../../helpers/kitSelect';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -39,7 +40,7 @@ describe('OccupationalLevelCard', () => {
     const onChange = vi.fn();
     vi.mocked(apiFetch).mockImplementation(async (_u, init) => (init?.method === 'PATCH' ? bad400() : ok(LEVELS)));
     render(<OccupationalLevelCard employeeId="e1" currentLevelId={null} onChange={onChange} />);
-    fireEvent.change(await screen.findByRole('combobox'), { target: { value: 'l1' } });
+    await pickKit(await screen.findByRole('combobox'), 'Top management');
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText(MSG)).toBeTruthy();
     expect(onChange).not.toHaveBeenCalled();
@@ -47,7 +48,7 @@ describe('OccupationalLevelCard', () => {
   it('save transport error: a plain sentence and the button is usable again', async () => {
     vi.mocked(apiFetch).mockImplementation(async (_u, init) => { if (init?.method === 'PATCH') throw new TypeError('Failed to fetch'); return ok(LEVELS); });
     render(<OccupationalLevelCard employeeId="e1" currentLevelId={null} onChange={vi.fn()} />);
-    fireEvent.change(await screen.findByRole('combobox'), { target: { value: 'l1' } });
+    await pickKit(await screen.findByRole('combobox'), 'Top management');
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText(/Could not save the occupational level/)).toBeTruthy();
     await waitFor(() => expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(false));

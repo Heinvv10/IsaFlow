@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { Select } from '@/components/ui/Select';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Package, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
@@ -83,11 +84,9 @@ export function ApplyPackageCard({ employeeId }: Props) {
       ) : (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-            <select aria-label="Pay package" value={selected} onChange={e => setSelected(e.target.value)}
-              className="col-span-2 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]">
-              <option value="">Select package...</option>
-              {packages.map(p => <option key={p.id} value={p.id}>{p.code} — {p.name}</option>)}
-            </select>
+            <Select label="Pay package" labelClassName="sr-only" className="col-span-2" placeholder="Select package..." searchable
+              value={selected || null} onChange={v => setSelected(v ?? '')}
+              options={packages.map(p => ({ value: p.id, label: `${p.code} — ${p.name}` }))} />
             <DateField label="Effective from" required value={effectiveFrom || null}
               onChange={(iso, v) => { setFromRefused(!v.valid); if (v.valid) setEffectiveFrom(iso ?? ''); }} />
           </div>

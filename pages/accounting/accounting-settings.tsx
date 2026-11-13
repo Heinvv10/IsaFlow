@@ -3,6 +3,7 @@
  * Key-value configuration for the accounting module
  */
 
+import { Select } from '@/components/ui/Select';
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Settings, Loader2, AlertCircle, Save, Check } from 'lucide-react';
@@ -126,24 +127,28 @@ export default function AccountingSettingsPage() {
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
-                      <label className="block text-sm font-medium text-[var(--ff-text-primary)] mb-1">
-                        {setting.label}
-                      </label>
-                      <p className="text-xs text-[var(--ff-text-tertiary)] mb-3">{setting.description}</p>
                       {setting.type === 'select' ? (
-                        <select
-                          name={setting.key}
-                          value={setting.value}
-                          onChange={e => updateSetting(setting.key, e.target.value)}
-                          className="ff-select text-sm w-full max-w-xs"
-                        >
-                          <option value="">— Select —</option>
-                          {setting.options?.map(o => (
-                            <option key={o.value} value={o.value}>{o.label}</option>
-                          ))}
-                        </select>
+                        <Select
+                          id={`setting-${setting.key}`}
+                          label={setting.label}
+                          labelClassName="block text-sm font-medium text-[var(--ff-text-primary)] mb-1"
+                          className="max-w-xs"
+                          placeholder="— Select —"
+                          searchable
+                          describedBy={`setting-${setting.key}-desc`}
+                          value={setting.value || null}
+                          onChange={v => updateSetting(setting.key, v ?? '')}
+                          options={(setting.options ?? []).map(o => ({ value: o.value, label: o.label }))}
+                        />
                       ) : (
+                        <label htmlFor={`setting-${setting.key}`} className="block text-sm font-medium text-[var(--ff-text-primary)] mb-1">
+                          {setting.label}
+                        </label>
+                      )}
+                      <p id={`setting-${setting.key}-desc`} className="text-xs text-[var(--ff-text-tertiary)] mt-1 mb-3">{setting.description}</p>
+                      {setting.type !== 'select' && (
                         <input
+                          id={`setting-${setting.key}`}
                           type="text"
                           name={setting.key}
                           value={setting.value}
@@ -178,9 +183,9 @@ export default function AccountingSettingsPage() {
               {!apLoadErr && <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5 mt-6">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1">
-                    <label className="block text-sm font-medium text-[var(--ff-text-primary)] mb-1">
+                    <h2 className="block text-sm font-medium text-[var(--ff-text-primary)] mb-1">
                       Auto-post high-confidence transactions
-                    </label>
+                    </h2>
                     <p className="text-xs text-[var(--ff-text-tertiary)] mb-3">
                       Posts journal entries automatically. Transactions above the cap or below the
                       confidence threshold always go to review.
@@ -197,8 +202,9 @@ export default function AccountingSettingsPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4 mt-2">
                   <div>
-                    <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Min confidence (0–1)</label>
+                    <label htmlFor="ap-min-confidence" className="block text-xs text-[var(--ff-text-secondary)] mb-1">Min confidence (0–1)</label>
                     <input
+                      id="ap-min-confidence"
                       type="number" step="0.01" min="0.01" max="1"
                       className="ff-input text-sm w-full"
                       value={apDraft.minConfidence}
@@ -207,8 +213,9 @@ export default function AccountingSettingsPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Amount cap (R, 0 = none)</label>
+                    <label htmlFor="ap-amount-cap" className="block text-xs text-[var(--ff-text-secondary)] mb-1">Amount cap (R, 0 = none)</label>
                     <input
+                      id="ap-amount-cap"
                       type="number" step="1" min="0"
                       className="ff-input text-sm w-full"
                       value={apDraft.amountCap}
