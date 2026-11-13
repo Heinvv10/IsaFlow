@@ -75,7 +75,8 @@ export interface DerivedAssumptions {
   evidence: DeriveEvidence;
 }
 
-const RATE = SA_STANDARD_RATE_BP / 10_000;
+/** The SA standard VAT rate as a fraction (0.15). */
+const VAT_STANDARD = SA_STANDARD_RATE_BP / 10_000;
 const round = (v: number, dp: number): number => {
   const f = 10 ** dp;
   const r = Math.round(v * f) / f;
@@ -91,7 +92,7 @@ export function historyWindow(trailing: readonly ActualMonth[]): ActualMonth[] {
 
 function share(tax: number, base: number): number | null {
   if (base <= 0) return null;
-  return round(clamp(tax / (base * RATE), 0, 1), 4);
+  return round(clamp(tax / (base * VAT_STANDARD), 0, 1), 4);
 }
 
 /**

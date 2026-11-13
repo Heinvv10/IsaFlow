@@ -11,18 +11,18 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { hasFeature } from '@/modules/admin/services/featureFlagService';
 import { THREE_WAY_FEATURE } from '@/modules/accounting/services/budgets/threeWay/routeSchemas';
 
-/** Per user per minute: reads (a run each) and assumption saves. */
-export const THREE_WAY_LIMITS = { read: 60, save: 120 } as const;
-
 export async function passThreeWayGate(
-  res: NextApiResponse, companyId: string, userId: string, bucket: keyof typeof THREE_WAY_LIMITS,
+  res: NextApiResponse, companyId: string, userId: string, bucket: 'read' | 'save',
 ): Promise<boolean> {
   if (!(await hasFeature(companyId, THREE_WAY_FEATURE))) {
     apiResponse.forbidden(res, 'The balance sheet and cash budget is not enabled for this company');
     return false;
   }
-  const key = bucket === 'save' ? `budget-three-way-save:${userId}` : `budget-three-way:${userId}`;
-  if (!(await checkRateLimit(key, { max: THREE_WAY_LIMITS[bucket], windowSecs: 60 }))) {
+  // Per user per minute: 60 reads (each a full run), 120 saves (the grid save's limit). Literal keys and options: the R-175 census reads them.
+  const allowed = bucket === 'save'
+    ? await checkRateLimit(`budget-three-way-save:${userId}`, { max: 120, windowSecs: 60 })
+    : await checkRateLimit(`budget-three-way:${userId}`, { max: 60, windowSecs: 60 });
+  if (!allowed) {
     res.setHeader('Retry-After', '60');
     apiResponse.tooManyRequests(res, 'Too many budget requests; wait a minute and try again.');
     return false;
