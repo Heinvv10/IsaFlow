@@ -53,5 +53,6 @@ describe('list_bank_transactions description_contains', () => {
     const props = listBankTransactionsTool.inputSchema.properties as Record<string, unknown>;
     expect(props.description_contains).toBeDefined();
     expect(listBankTransactionsTool.description).toContain('not wildcards');
+    expect(listBankTransactionsTool.description).toContain('total counts only the matching lines');
   });
 });

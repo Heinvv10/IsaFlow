@@ -101,7 +101,7 @@ export const listBankTransactionsTool: McpTool = {
     'fields="compact" returns only id, date, amount, bank_reference and allocation (~10x smaller) — use it when you are scanning or bulk-allocating and do not need the full row. '
     + 'compact bank_reference is the statement reference from either column (the row\'s bank_reference, else its reference), which is exactly what allocate_bank_transaction and bulk_allocate_bank_transactions resolve. '
     + 'compact allocation is one of allocated | suggested | unallocated | excluded; an excluded row is returned by NEITHER allocation_filter=unallocated NOR =suggested, so never treat one as work to do.'
-    + ' description_contains: case-insensitive substring matched against the statement description OR reference (a literal match — % and _ are not wildcards).',
+    + ' description_contains: case-insensitive substring matched against the statement description OR reference (a literal match — % and _ are not wildcards). It combines with every other filter (bank_account_id, allocation_filter, dates) and with cursor paging, and total counts only the matching lines.',
   scope: 'read:bank-tx',
   write: false,
   inputSchema: {
