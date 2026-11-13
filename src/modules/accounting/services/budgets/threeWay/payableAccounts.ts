@@ -41,10 +41,43 @@ export function namedInDoc(doc: StoredAssumptionsDoc): { named: PayableAccounts;
   };
 }
 
-/** Refuses (AssumptionsDocError) a named account that is not a leaf liability of the company, or one named twice. */
+export interface PayableAccountConflict {
+  code: 'payable_account_conflict';
+  accountId: string;
+  kept: 'incomeTaxPayable';
+  ignored: 'dividendsPayable';
+}
+
+/**
+ * A RUN's rule for one account in both slots (a base edited after its scenario was saved): income tax
+ * keeps it, the dividends slot is ignored, and the conflict is warned. Pure; never mutates `named`.
+ */
+export function resolvePayableConflict(named: PayableAccounts): { named: PayableAccounts; warnings: PayableAccountConflict[] } {
+  const tax = named.incomeTaxPayable?.toLowerCase();
+  if (tax === undefined || tax !== named.dividendsPayable?.toLowerCase()) return { named: { ...named }, warnings: [] };
+  return {
+    named: { incomeTaxPayable: named.incomeTaxPayable },
+    warnings: [{ code: 'payable_account_conflict', accountId: tax, kept: 'incomeTaxPayable', ignored: 'dividendsPayable' }],
+  };
+}
+
+/** The issue message for one account in both slots; `own` = what the document being saved sets itself. */
+function conflictMessage(own: PayableAccounts | undefined): string {
+  if (own?.incomeTaxPayable && !own.dividendsPayable) return "Account already used by the base version's dividends payable";
+  if (own?.dividendsPayable && !own.incomeTaxPayable) return "Account already used by the base version's income-tax payable";
+  if (own && !own.incomeTaxPayable && !own.dividendsPayable) return 'Income tax and dividends payable must be different accounts (both named by the base version)';
+  return 'Income tax and dividends payable must be different accounts';
+}
+
+/**
+ * Refuses (AssumptionsDocError) a named account that is not a leaf liability of the company, or one named twice.
+ * `own` (a scenario save checking its resolved chain): the ids the saved override sets itself, so a clash with
+ * an id the base supplies says so.
+ */
 export async function assertPayableAccounts(
   companyId: string, named: PayableAccounts,
   paths: { incomeTaxPayable: string; dividendsPayable: string } = { incomeTaxPayable: 'incomeTax.payableAccountId', dividendsPayable: 'equity.dividendsPayableAccountId' },
+  own?: PayableAccounts,
 ): Promise<void> {
   const ids = [named.incomeTaxPayable, named.dividendsPayable].filter((x): x is string => typeof x === 'string').map((x) => x.toLowerCase());
   if (ids.length === 0) return;
@@ -68,7 +101,7 @@ export async function assertPayableAccounts(
       issues.push({ path: paths[key], message: 'Must be a liability account of this company that is not a header, AP, VAT, payroll, loan or credit-card account' });
     }
   }
-  if (ids.length === 2 && ids[0] === ids[1]) issues.push({ path: paths.dividendsPayable, message: 'Income tax and dividends payable must be different accounts' });
+  if (ids.length === 2 && ids[0] === ids[1]) issues.push({ path: paths.dividendsPayable, message: conflictMessage(own) });
   if (issues.length > 0) throw new AssumptionsDocError(issues);
 }
 

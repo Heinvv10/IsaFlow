@@ -10,7 +10,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { defaultAssumptions } from '@/modules/accounting/services/budgets/threeWay/assumptionsDefaults';
-import type { CompareView, DeriveView, ThreeWayView } from '@/modules/accounting/services/budgets/threeWay/threeWayViews';
+import type { AssumptionsView, CompareView, DeriveView, ThreeWayView } from '@/modules/accounting/services/budgets/threeWay/threeWayViews';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetThreeWayFixture, dataOf, details, type RouteOut, type ThreeWayCo } from './helpers/budgetThreeWayFixture';
 
@@ -93,7 +93,10 @@ describe('2: payable accounts of the resolved scenario chain', () => {
     expect((await fx.routes.put(S.owner, { version_id: base, doc: b, expected_updated_at: null })).status).toBe(200);
     const r = await fx.routes.put(S.owner, { version_id: s, doc: { schemaVersion: 1, overrides: { incomeTax: { payableAccountId: other } } }, expected_updated_at: null });
     expect(r.status, dump(r)).toBe(400);
-    expect(details(r)).toMatchObject({ code: 'BUDGET_ASSUMPTIONS_INVALID', issues: [expect.objectContaining({ path: 'equity.dividendsPayableAccountId' })] });
+    expect(details(r)).toMatchObject({
+      code: 'BUDGET_ASSUMPTIONS_INVALID',
+      issues: [{ path: 'equity.dividendsPayableAccountId', message: "Account already used by the base version's dividends payable" }],
+    });
     const st = await fx.state(s);
     expect(st.row).toBeNull();
     expect(st.audits).toHaveLength(0);
@@ -113,11 +116,27 @@ describe('2: payable accounts of the resolved scenario chain', () => {
     expect(r.status, dump(r)).toBe(200);
     const w = dataOf<ThreeWayView>(r);
     expect(w.opening.buckets).toMatchObject({ incomeTaxPayable: -800_000, dividendsPayable: 0 });
-    expect(w.warnings).toContainEqual({ code: 'payable_account_conflict', accountId: other, kept: 'incomeTaxPayable', ignored: 'dividendsPayable' });
+    const conflict = { code: 'payable_account_conflict', accountId: other, kept: 'incomeTaxPayable', ignored: 'dividendsPayable' };
+    expect(w.warnings).toContainEqual(conflict);
     const baseRun = dataOf<ThreeWayView>(await fx.routes.index(S.owner, { version_id: base }));
     expect(baseRun.opening.buckets).toMatchObject({ dividendsPayable: -800_000, incomeTaxPayable: 0 });
     const c = await fx.routes.compare(S.owner, `${base},${s}`);
     expect(c.status, dump(c)).toBe(200);
-    expect(dataOf<CompareView>(c).versions).toHaveLength(2);
+    const [cb, cs] = dataOf<CompareView>(c).versions;
+    expect(cs!.warnings).toContainEqual(conflict);
+    expect(cb!.warnings.map((x) => x.code)).not.toContain('payable_account_conflict');
+    // The assumptions view says so too.
+    const g = await fx.routes.getAssumptions(S.owner, s);
+    expect(g.status, dump(g)).toBe(200);
+    expect(dataOf<AssumptionsView>(g).warnings).toEqual([conflict]);
+    expect(dataOf<AssumptionsView>(await fx.routes.getAssumptions(S.owner, base)).warnings).toEqual([]);
+  });
+
+  it("compare carries each version's run warnings (a provisional opening)", async () => {
+    const a = await fx.version(S, { fy: 2028, kind: 'reforecast' });
+    const b = await fx.version(S, { fy: 2028, kind: 'reforecast' });
+    const c = await fx.routes.compare(S.owner, `${a},${b}`);
+    expect(c.status, dump(c)).toBe(200);
+    for (const v of dataOf<CompareView>(c).versions) expect(v.warnings.map((x) => x.code)).toContain('opening_provisional');
   });
 });

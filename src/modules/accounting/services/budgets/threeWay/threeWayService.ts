@@ -27,7 +27,7 @@ import { runThreeWay } from './engine';
 import { readLoanSchedules } from './loanInputs';
 import { addMonths } from './months';
 import { openingCashCheck, readOpening, type OpeningCashCheck, type OpeningRead } from './openingBalances';
-import { assertPayableAccounts, payableAccountsOf } from './payableAccounts';
+import { assertPayableAccounts, payableAccountsOf, resolvePayableConflict, type PayableAccountConflict } from './payableAccounts';
 import { applyPayableAccounts } from './threeWayFolds';
 import type { EngineOutput, LookbackMonth, UnmappedBalance } from './types';
 
@@ -54,12 +54,12 @@ export interface YearContext {
 /** Warnings the service adds to the engine's. */
 export type ServiceWarning =
   | { code: 'opening_cash_difference'; differenceCents: number; accounts: string[] }
-  | { code: 'payable_account_conflict'; accountId: string; kept: 'incomeTaxPayable'; ignored: 'dividendsPayable' };
+  | PayableAccountConflict;
 
 export interface VersionRun {
   output: EngineOutput;
   /** Service warnings of this run (the year's cash check is added by the view). */
-  warnings: ServiceWarning[];
+  warnings: PayableAccountConflict[];
   /** The opening's unmapped accounts after the named payable accounts moved out. */
   unmapped: UnmappedBalance[];
   assumptions: ThreeWayAssumptions;
@@ -117,13 +117,7 @@ export async function runVersion(companyId: string, ctx: YearContext, head: Vers
   const resolved = resolveAssumptions(head.id, versions, ctx.derived.assumptions);
   // The named payable accounts are re-checked on every run (retyped or re-parented since the save: 400).
   // One account in both slots (a base edited after its scenario was saved) is no 400: income tax keeps it.
-  const named = payableAccountsOf(resolved.assumptions);
-  const warnings: ServiceWarning[] = [];
-  const tax = named.incomeTaxPayable?.toLowerCase();
-  if (tax !== undefined && tax === named.dividendsPayable?.toLowerCase()) {
-    warnings.push({ code: 'payable_account_conflict', accountId: tax, kept: 'incomeTaxPayable', ignored: 'dividendsPayable' });
-    named.dividendsPayable = undefined;
-  }
+  const { named, warnings } = resolvePayableConflict(payableAccountsOf(resolved.assumptions));
   await assertPayableAccounts(companyId, named);
   const opening = applyPayableAccounts(ctx.opening, named);
   const pnl = await readVersionPnl(companyId, ctx.fiscalYear, head.id, ctx.months);

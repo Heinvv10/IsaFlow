@@ -16,7 +16,10 @@ import { agingEvidence, type AgingEvidence } from './deriveAssumptions';
 import type { OpeningCashCheck } from './openingBalances';
 import { threeWayInputError } from './serviceErrors';
 import type { OpeningTotals } from './threeWayFolds';
-import { loadYearContext, readVersionHeads, resolveHead, runVersion, type ServiceWarning, type VersionHead } from './threeWayService';
+import {
+  loadYearContext, readVersionHeads, resolveHead, runVersion, type ServiceWarning, type VersionHead, type VersionRun, type YearContext,
+} from './threeWayService';
+import { payableAccountsOf, resolvePayableConflict, type PayableAccountConflict } from './payableAccounts';
 import type {
   BalanceSheetSections, Buckets, CashFlowMonth, IndirectCashFlow, LookbackMonth, PnlMonth, Runway, TaxEvent, ThreeWayWarning, UnmappedBalance, VatSettlement,
 } from './types';
@@ -46,16 +49,22 @@ export interface ThreeWayView {
   assumptions: { resolved: ThreeWayAssumptions; chain: string[]; stored: StoredAssumptions | null };
 }
 
+/** A run's warnings: the engine's, the run's own (payable conflict) and the year's opening cash check. */
+function runWarnings(ctx: YearContext, run: VersionRun): Array<ThreeWayWarning | ServiceWarning> {
+  const warnings: Array<ThreeWayWarning | ServiceWarning> = [...run.output.warnings, ...run.warnings];
+  if (ctx.cashCheck.difference !== 0) {
+    warnings.push({ code: 'opening_cash_difference', differenceCents: ctx.cashCheck.difference, accounts: ctx.cashCheck.accounts.map((a) => a.accountCode) });
+  }
+  return warnings;
+}
+
 export async function getThreeWay(companyId: string, opts: { versionId?: string; fiscalYear?: number }, today: string): Promise<ThreeWayView> {
   const head = await resolveHead(companyId, opts, today);
   const ctx = await loadYearContext(companyId, head.fiscalYear, today);
   const run = await runVersion(companyId, ctx, head);
   const o = run.output;
   const unbalancedMonths = o.months.filter((m) => m.balanceSheet.check !== 0).map((m) => m.month);
-  const warnings: Array<ThreeWayWarning | ServiceWarning> = [...o.warnings, ...run.warnings];
-  if (ctx.cashCheck.difference !== 0) {
-    warnings.push({ code: 'opening_cash_difference', differenceCents: ctx.cashCheck.difference, accounts: ctx.cashCheck.accounts.map((a) => a.accountCode) });
-  }
+  const warnings = runWarnings(ctx, run);
   return {
     version: head,
     months: ctx.months,
@@ -88,6 +97,8 @@ export interface AssumptionsView {
   resolved: ThreeWayAssumptions;
   chain: string[];
   derived: { assumptions: ThreeWayAssumptions; evidence: DeriveEvidence };
+  /** The resolved chain's payable-account conflict, as a run reports it (the run keeps income tax). */
+  warnings: PayableAccountConflict[];
 }
 
 export async function getAssumptionsView(companyId: string, versionId: string, today: string): Promise<AssumptionsView> {
@@ -95,7 +106,8 @@ export async function getAssumptionsView(companyId: string, versionId: string, t
   const ctx = await loadYearContext(companyId, head.fiscalYear, today);
   const { versions, stored } = await readChain(companyId, head.id);
   const resolved = resolveAssumptions(head.id, versions, ctx.derived.assumptions);
-  return { version: head, stored, resolved: resolved.assumptions, chain: resolved.chain, derived: ctx.derived };
+  const { warnings } = resolvePayableConflict(payableAccountsOf(resolved.assumptions));
+  return { version: head, stored, resolved: resolved.assumptions, chain: resolved.chain, derived: ctx.derived, warnings };
 }
 
 export interface DeriveView {
@@ -114,8 +126,10 @@ export async function deriveView(companyId: string, versionId: string, today: st
   };
 }
 
-export interface CompareView extends CompareResult {
+export interface CompareView extends Omit<CompareResult, 'versions'> {
   fiscalYear: number;
+  /** Each version's KPIs and series, with its run's warnings (as GET /budget-three-way answers them). */
+  versions: Array<CompareResult['versions'][number] & { warnings: Array<ThreeWayWarning | ServiceWarning> }>;
 }
 
 export async function compareView(companyId: string, versionIds: readonly string[], today: string): Promise<CompareView> {
@@ -125,7 +139,8 @@ export async function compareView(companyId: string, versionIds: readonly string
   const fiscalYear = (heads[0] as VersionHead).fiscalYear;
   if (heads.some((h) => h.fiscalYear !== fiscalYear)) throw threeWayInputError('Compare versions of one financial year only');
   const ctx = await loadYearContext(companyId, fiscalYear, today);
-  const entries = [];
-  for (const h of heads) entries.push({ versionId: h.id, name: h.name, output: (await runVersion(companyId, ctx, h)).output });
-  return { fiscalYear, ...compareVersions(entries) };
+  const runs: VersionRun[] = [];
+  for (const h of heads) runs.push(await runVersion(companyId, ctx, h));
+  const result = compareVersions(heads.map((h, i) => ({ versionId: h.id, name: h.name, output: (runs[i] as VersionRun).output })));
+  return { fiscalYear, ...result, versions: result.versions.map((v, i) => ({ ...v, warnings: runWarnings(ctx, runs[i] as VersionRun) })) };
 }

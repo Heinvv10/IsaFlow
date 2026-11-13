@@ -133,6 +133,17 @@ export function sectionChanges(before: StoredAssumptionsDoc | null, after: Store
     .map((k) => ({ field: `threeWay.${k}`, old: text(b[k]), new: text(a[k]), label: `Three-way assumptions: ${k}` }));
 }
 
+/** The audit's copy of a replaced document that no longer validates: at most this many UTF-8 bytes. */
+export const MAX_BEFORE_RAW_BYTES = 16 * 1024;
+
+/** `{ beforeInvalid, beforeRaw[, beforeRawTruncated] }`: the stored text, cut on a character boundary. */
+export function rawBefore(raw: string): Record<string, string> {
+  if (Buffer.byteLength(raw, 'utf8') <= MAX_BEFORE_RAW_BYTES) return { beforeInvalid: 'true', beforeRaw: raw };
+  // Decoding a byte-cut buffer replaces a split last character with U+FFFD: drop it.
+  const cut = Buffer.from(raw, 'utf8').subarray(0, MAX_BEFORE_RAW_BYTES).toString('utf8').replace(/\uFFFD$/, '');
+  return { beforeInvalid: 'true', beforeRaw: cut, beforeRawTruncated: 'true' };
+}
+
 export interface SaveAssumptionsInput {
   versionId: string;
   doc: unknown;
@@ -155,11 +166,11 @@ export async function saveAssumptions(companyId: string, userId: string, input: 
         }
       }
       const cur = (await sql`
-        SELECT doc, ${tokenSql()} AS token FROM budget_three_way_assumptions
+        SELECT doc, doc::TEXT AS raw, ${tokenSql()} AS token FROM budget_three_way_assumptions
          WHERE company_id = ${companyId}::UUID AND version_id = ${versionId}::UUID
       `) as DbRow[];
       // A stored document that no longer validates (schema drift, a hand edit) never blocks its overwrite:
-      // the audit row records before = null and `before_invalid`.
+      // the audit row records before = null, `beforeInvalid` and the replaced document as stored (`beforeRaw`).
       let before: StoredAssumptionsDoc | null = null;
       let beforeInvalid = false;
       if (cur[0]) {
@@ -187,7 +198,8 @@ export async function saveAssumptions(companyId: string, userId: string, input: 
       if (!written[0]) throw new AssumptionsStaleError(currentToken);
       if (!isFullDoc(doc)) {
         // The RESOLVED chain's payable accounts (the base's and this override's together) must hold too.
-        await assertPayableAccounts(companyId, payableAccountsOf(await assertChainResolves(companyId, versionId, version.fiscalYear)));
+        // `named` (this override's own ids) words a clash with an id the base supplies.
+        await assertPayableAccounts(companyId, payableAccountsOf(await assertChainResolves(companyId, versionId, version.fiscalYear)), undefined, named);
       }
       await logAuditOrThrow({
         companyId, userId, action: cur[0] ? 'update' : 'create', entityType: 'budget', entityId: versionId,
@@ -197,7 +209,7 @@ export async function saveAssumptions(companyId: string, userId: string, input: 
           metadata: {
             threeWayAction: 'assumptions', fiscalYear: String(version.fiscalYear), versionStatus: version.status,
             document: isFullDoc(doc) ? 'full' : 'overrides',
-            ...(beforeInvalid ? { before_invalid: 'true' } : {}),
+            ...(beforeInvalid ? rawBefore(String(cur[0]?.raw ?? '')) : {}),
           },
         },
       });
