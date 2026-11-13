@@ -1,8 +1,8 @@
 /**
- * W2 H: Home asked /api/accounting/kpi-dashboard twice per load (the hero in
+ * W2 H: Home asked /api/accounting/kpi-dashboard twice per load (the page in
  * pages/accounting/index.tsx and OverviewTab each fetched it). The page now
  * loads it once and hands the result to OverviewTab; OverviewTab rendered on
- * its own still fetches for itself.
+ * its own still fetches for itself. The hero shows no figures (2026-11-12).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
@@ -17,10 +17,9 @@ vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, pu
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1', role: 'owner' }, loading: false }) }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: 'co-1', name: 'Co' }, companies: [{ companyId: 'co-1' }], loading: false }) }));
-vi.mock('@/components/accounting/dashboard/WorkbenchSection', () => ({ WorkbenchSection: () => null }));
-vi.mock('@/components/accounting/dashboard/TodoWidget', () => ({ TodoWidget: () => null }));
+vi.mock('@/components/accounting/dashboard/NeedsAttention', () => ({ NeedsAttention: () => null }));
 vi.mock('@/components/accounting/dashboard/DashboardHero', () => ({
-  DashboardHero: ({ stats }: { stats?: { outstandingInvoices: number } }) => <p>hero receivables {stats ? stats.outstandingInvoices : 'none'}</p>,
+  DashboardHero: ({ companyName }: { companyName: string }) => <p>hero {companyName}</p>,
 }));
 
 import { apiFetch } from '@/lib/apiFetch';
@@ -39,17 +38,18 @@ const KPIS = {
     receivables: { ...money, total: 4321 }, payables: money,
     activity: { invoicesIssued: 0, paymentsReceived: 0, journalsPosted: 0 } },
   revenueChart: [], cashFlowChart: [], arAging: [], apAging: [], topCustomers: [], topExpenses: [], hasBankAccount: true,
+  headline: { asAt: '2026-11-12', monthStart: '2026-11-01', cash: 0, receivables: { total: 4321, overdue: 0 }, payables: { total: 0, overdue: 0 }, revenueMtd: 0, profitMtd: 0, draftInvoices: 0, draftBills: 0, draftJournals: 0, billsDueNext7Days: 0, billsOverdue: 0 }, period: { from: '2025-10-01', to: '2026-11-12' },
 };
 const serve = () => script((u) => (u.includes('setup-checklist') ? ok(buildSetupProgress(ALL_FACTS))
   : u.includes('kpi-dashboard') ? ok(KPIS) : ok([])));
 const kpiCalls = () => vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u).includes('kpi-dashboard')).length;
 
 describe('Home loads the dashboard figures once', () => {
-  it('one kpi-dashboard request feeds the hero and the Overview tab', async () => {
+  it('one kpi-dashboard request feeds the Overview tab', async () => {
     vi.mocked(apiFetch).mockClear();
     serve();
     render(<AccountingPage />);
-    expect(await screen.findByText('hero receivables 4321')).toBeTruthy();
+    expect(await screen.findByText('hero Co')).toBeTruthy();
     // The Overview card shows the page's figures, not an empty load of its own.
     expect(await screen.findByText(formatMoney(4321).replace(/\s/g, ' '))).toBeTruthy();
     expect(kpiCalls()).toBe(1);
@@ -59,7 +59,7 @@ describe('Home loads the dashboard figures once', () => {
     vi.mocked(apiFetch).mockClear();
     serve();
     render(<OverviewTab />);
-    expect(await screen.findByText('Outstanding AR')).toBeTruthy();
+    expect(await screen.findByText('Receivables')).toBeTruthy();
     expect(kpiCalls()).toBe(1);
   });
 });

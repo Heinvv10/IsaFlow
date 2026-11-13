@@ -27,7 +27,7 @@ import {
 import { UUID } from '@/lib/schemas/common';
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { assertCustomerInCompany, assertSupplierInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
-import { assertJournalAnalysisDimensions } from '@/modules/accounting/services/gl/journalCostCentreValidation';
+import { saveBankTxDimensions, updateBankTxNotes } from '@/modules/accounting/services/bank/bankTxAnnotations';
 import {
   matchTransaction,
   unmatchTransaction,
@@ -190,16 +190,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       }
       case 'bulk_accept': {
         await refuseLinesInCompletedSession(companyId, body.bankTransactionIds); // D12: as delete
-        const accepted = await bulkAcceptTransactions(companyId, body.bankTransactionIds);
+        const accepted = await bulkAcceptTransactions(companyId, body.bankTransactionIds, userId);
         return apiResponse.success(res, { accepted });
       }
       case 'update_notes': {
-        await sql`
-          UPDATE bank_transactions
-          SET notes = ${body.notes || null}, updated_at = NOW()
-          WHERE id = ${body.bankTransactionId}::UUID AND company_id = ${companyId}
-        `;
-        log.info('Updated bank transaction notes', { bankTransactionId: body.bankTransactionId }, 'accounting-api');
+        await updateBankTxNotes(companyId, body.bankTransactionId, body.notes, userId);
         return apiResponse.success(res, { updated: true });
       }
       case 'save_selection': {
@@ -229,19 +224,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return apiResponse.success(res, { saved: true });
       }
       case 'save_dimensions': {
-        await assertJournalAnalysisDimensions(companyId, [{
-          cc1Id: body.cc1Id,
-          cc2Id: body.cc2Id,
-          buId: body.buId,
-        }]);
-        await sql`
-          UPDATE bank_transactions
-          SET cc1_id = ${body.cc1Id || null}::UUID,
-              cc2_id = ${body.cc2Id || null}::UUID,
-              bu_id = ${body.buId || null}::UUID,
-              updated_at = NOW()
-          WHERE id = ${body.bankTransactionId}::UUID AND company_id = ${companyId}
-        `;
+        const saved = await saveBankTxDimensions(companyId, body.bankTransactionId,
+          { cc1Id: body.cc1Id, cc2Id: body.cc2Id, buId: body.buId }, userId);
+        if (!saved) return apiResponse.notFound(res, 'Bank transaction', body.bankTransactionId);
         return apiResponse.success(res, { saved: true });
       }
       case 'reverse': {

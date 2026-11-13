@@ -4,7 +4,7 @@
  *
  * - No companies        → /onboarding
  * - Bureau member        → /bureau (firm users land on the cross-client cockpit)
- * - Direct client        → /home (companies but no bureau)
+ * - Direct client        → /accounting, the dashboard (companies but no bureau)
  */
 export interface LandingInput {
   hasCompanies: boolean;
@@ -14,5 +14,5 @@ export interface LandingInput {
 export function resolveDefaultLanding(input: LandingInput): string {
   if (!input.hasCompanies) return '/onboarding';
   if (input.isBureauMember) return '/bureau';
-  return '/home';
+  return '/accounting';
 }

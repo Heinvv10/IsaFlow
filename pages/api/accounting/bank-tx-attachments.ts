@@ -30,6 +30,7 @@ import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
 import { runAfterCommit } from '@/lib/afterCommit';
 import { listBankLineAttachments, unlinkCapturedDocFromBankTx } from '@/modules/accounting/services/capture/capturedAttachmentLinks';
 import { isCopyOfSql, linkedCapturedDocSql, uploadFileName } from '@/modules/accounting/services/bank/bankLineDocumentSql';
+import { documentRemovalRefused, RECONCILED_DOCUMENT_REMOVAL } from '@/modules/accounting/services/bank/reconciledCash';
 import { isValidUUID } from '@/lib/validation';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 
@@ -169,6 +170,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         || typeof bankTransactionId !== 'string' || !isValidUUID(bankTransactionId)) {
         return apiResponse.badRequest(res, 'documentId and bankTransactionId must be ids');
       }
+      if (await documentRemovalRefused(companyId, { bankTxId: bankTransactionId })) {
+        return apiResponse.conflict(res, RECONCILED_DOCUMENT_REMOVAL);
+      }
       let outcome: Awaited<ReturnType<typeof unlinkCapturedDocFromBankTx>>;
       try {
         outcome = await unlinkCapturedDocFromBankTx(companyId, documentId, bankTransactionId);
@@ -182,6 +186,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     if (!id || typeof id !== 'string' || !isValidUUID(id)) {
       return apiResponse.badRequest(res, 'id query param must be an attachment id');
+    }
+
+    if (await documentRemovalRefused(companyId, { attachmentId: id })) {
+      return apiResponse.conflict(res, RECONCILED_DOCUMENT_REMOVAL);
     }
 
     // Deleting only the copy of a linked captured document would bring the document back as uncopied on the next

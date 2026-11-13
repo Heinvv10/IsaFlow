@@ -23,6 +23,7 @@
 import { sql } from '@/lib/neon';
 import { applyTransferLinks, runLinkPasses, type TransferLinkPair, type TransferLinkResult } from './bankTransferLinkPasses';
 import { journalStandsUnbrokenFragment } from '../shared/journalInForceAsAt';
+import { lineHasUndoneLinkFragment, pairNotUndoneFragment, type TransferLinkTrigger } from './bankTransferLinkLog';
 
 export type { TransferLinkResult };
 
@@ -34,11 +35,13 @@ export type { TransferLinkResult };
 export async function autoLinkImportedBatchTransfers(
   companyId: string,
   batchId: string,
+  trigger: TransferLinkTrigger,
 ): Promise<TransferLinkResult> {
   return runLinkPasses(
     'Auto-linked transfer counterparts for import batch',
     'bank_import_autolink',
     { batchId },
+    trigger,
     async () => applyTransferLinks(companyId, (await sql`
       WITH new_txs AS (
         SELECT id, amount, transaction_date, bank_account_id
@@ -86,6 +89,9 @@ export async function autoLinkImportedBatchTransfers(
           WHERE bt_used.company_id              = ${companyId}::UUID
             AND bt_used.matched_journal_line_id = jl.id
         )
+          -- Migration 978: a pair the user undid is never offered again, here and not only in the apply, or a vetoed
+          -- pair could win the ranking, link nothing, end the loop and starve a valid runner-up.
+          AND ${pairNotUndoneFragment('n.id', 'jl.id', companyId)}
       ),
       ranked AS (
         SELECT *,
@@ -105,7 +111,7 @@ export async function autoLinkImportedBatchTransfers(
         ORDER BY new_tx_id, date_distance, je_line_id
       )
       SELECT new_tx_id, je_id, je_line_id, counterparty_bank_id, entity_name FROM winners
-    `) as TransferLinkPair[]),
+    `) as TransferLinkPair[], trigger),
   );
 }
 
@@ -122,11 +128,13 @@ export async function autoLinkImportedBatchTransfers(
 export async function relinkTransferCounterparts(
   companyId: string,
   bankAccountId: string,
+  trigger: TransferLinkTrigger,
 ): Promise<TransferLinkResult> {
   return runLinkPasses(
     'Re-linked transfer counterpart transactions',
     'relink_transfer_counterparts',
     { bankAccountId },
+    trigger,
     async () => applyTransferLinks(companyId, (await sql`
       WITH source_allocs AS (
         -- Allocated transactions on OTHER bank accounts whose JE has a line
@@ -164,8 +172,9 @@ export async function relinkTransferCounterparts(
         -- DISTINCT ON without an ORDER BY takes an arbitrary row: heap order,
         -- which moves under VACUUM or a plan change. A journal with two legs on
         -- this bank offers its lowest free line first; the repeat pass, which
-        -- sees the first claimed, then offers the next.
-        ORDER BY bt_src.id, jl_mine.id
+        -- sees the first claimed, then offers the next. Migration 978: a leg some line undid a link to sorts after
+        -- the journal's other legs, or the veto below would hide them from that line for good.
+        ORDER BY bt_src.id, ${lineHasUndoneLinkFragment('jl_mine.id', companyId)}, jl_mine.id
       ),
       candidates AS (
         -- Every compatible (imported row, free counterpart line) pair.
@@ -187,6 +196,8 @@ export async function relinkTransferCounterparts(
           AND bt_new.company_id      = ${companyId}::UUID
           AND bt_new.status          = 'imported'
           AND bt_new.feed_state      = 'posted'
+          -- Migration 978: never offer a pair the user undid (see the first pass).
+          AND ${pairNotUndoneFragment('bt_new.id', 'sa.target_je_line_id', companyId)}
       ),
       ranked AS (
         -- Rank each pair from both sides. N rows contending for N equally close
@@ -215,6 +226,6 @@ export async function relinkTransferCounterparts(
       )
       SELECT new_tx_id, target_je_id AS je_id, target_je_line_id AS je_line_id, counterparty_bank_id,
         allocated_entity_name AS entity_name FROM winners
-    `) as TransferLinkPair[]),
+    `) as TransferLinkPair[], trigger),
   );
 }

@@ -26,10 +26,13 @@ export function costPayeWithDonations(input: {
   const costed = (deductedDonations: number) => {
     const off = deductedDonations;
     const regularTaxable = Math.max(0, periodicTaxable - off);
-    const annualTaxable = Math.max(0, annualPayments - Math.max(0, off - periodicTaxable));
+    // The donation larger than periodic pay comes off the annual payments (exposed for the explanation).
+    const donationOffAnnual = Math.max(0, off - periodicTaxable);
+    const annualTaxable = Math.max(0, annualPayments - donationOffAnnual);
     return {
       regularTaxable,
       annualTaxable,
+      donationOffAnnual,
       ...calculateCumulativePaye({ ...payeInput, regularTaxable, annualPayments: annualTaxable, donations: deductedDonations }),
     };
   };

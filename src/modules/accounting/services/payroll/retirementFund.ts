@@ -66,8 +66,16 @@ export function isEmployerFundBenefitCode(code: string): boolean {
  * the cap. Annual figures in, annual figure out.
  */
 export function allowedRetirementDeduction(annualContributions: number, annualRemuneration: number, taxYear: number): number {
+  return retirementDeductionLimits(annualContributions, annualRemuneration, taxYear).allowed;
+}
+
+/** allowedRetirementDeduction with its three limits, for the explanation (payrollExplain), which never recomputes them. */
+export function retirementDeductionLimits(annualContributions: number, annualRemuneration: number, taxYear: number): {
+  contributions: number; shareOfRemuneration: number; cap: number; allowed: number;
+} {
   const cap = getTaxYearConfig(taxYear).retirementDeductionCap;
-  return Math.max(0, Math.min(annualContributions, RETIREMENT_DEDUCTION_RATE * Math.max(0, annualRemuneration), cap));
+  const shareOfRemuneration = RETIREMENT_DEDUCTION_RATE * Math.max(0, annualRemuneration);
+  return { contributions: annualContributions, shareOfRemuneration, cap, allowed: Math.max(0, Math.min(annualContributions, shareOfRemuneration, cap)) };
 }
 
 /** An employer-contribution component: not paid, not taxed, not deducted (PAYE 4b). Error level, so the run page shows it. */

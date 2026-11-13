@@ -4,8 +4,8 @@
  * Shown when the tenant has a non-zero cash position reported in the KPI
  * cards but no GL account with account_subtype = 'bank' exists.
  *
- * Sits adjacent to the Cash Position KPI tile; never inside WorkbenchSection
- * (that section is for exception cards only).
+ * Sits under the KPI row; never inside NeedsAttention (that list is for
+ * tasks only).
  */
 
 import Link from 'next/link';

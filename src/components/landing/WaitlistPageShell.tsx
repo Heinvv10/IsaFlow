@@ -10,7 +10,8 @@ const capabilities = [
   { label: 'Client work', icon: UsersRound },
 ];
 
-export function WaitlistPageShell({ children }: { children: ReactNode }) {
+/** `signup` shows the trial pitch; the shell also wraps /verify-email and the pending card. */
+export function WaitlistPageShell({ children, signup = false }: { children: ReactNode; signup?: boolean }) {
   return (
     <div
       className="relative min-h-screen overflow-hidden bg-slate-950 text-slate-900"
@@ -50,12 +51,13 @@ export function WaitlistPageShell({ children }: { children: ReactNode }) {
         <section className="max-w-2xl text-white">
           <div className="mb-5 h-1 w-16 rounded-full bg-teal-300 shadow-[0_0_22px_rgba(45,212,191,0.45)] sm:mb-7" />
           <h1 className="max-w-xl text-3xl font-extrabold leading-[1.06] tracking-normal text-white drop-shadow-2xl sm:text-5xl lg:text-[3.35rem]">
-            Be first in the flow.
+            {signup ? 'Start your 30-day free trial.' : 'Accounting and payroll in one place.'}
           </h1>
           <p className="mt-4 max-w-xl text-sm leading-6 text-white/85 drop-shadow-lg sm:mt-6 sm:text-lg sm:leading-7">
-            Join the early access list for a calmer way to manage accounting, compliance,
-            payroll and client work in one{' '}
-            <span className="font-semibold text-teal-200">intelligent platform.</span>
+            {signup
+              ? 'No credit card needed. Set up your company, import a bank statement and keep your books, VAT201 and payroll in '
+              : 'Keep your books, VAT201 and payroll for your company or your clients in '}
+            <span className="font-semibold text-teal-200">one place.</span>
           </p>
 
           <div className="mt-9 hidden max-w-xl grid-cols-2 gap-3 sm:grid">

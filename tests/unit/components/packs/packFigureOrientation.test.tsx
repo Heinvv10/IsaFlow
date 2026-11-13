@@ -11,6 +11,8 @@ import type { PackPage, PackPagesDocument } from '@/modules/accounting/services/
 import { stampFigureFits } from '@/modules/accounting/services/packs/pages/packFigureFitStamp';
 import { demoWithoutBudget, SCALE, withWidenedKpi, withWidenedTable } from '../../services/packs/fixtures/widenedFigures';
 
+/** The fit search renders and measures up to 30 widths: about 2s alone, over 5s when the box is loaded. */
+const SLOW = 30_000;
 const range = Array.from({ length: 30 }, (unused, i) => i + 4);
 const fitted = (doc: PackPagesDocument, page: PackPage, selector: string) => {
   const stamped = stampFigureFits({ ...doc, pages: [page] }).pages[0]!;
@@ -28,7 +30,7 @@ describe('a figure row on a landscape sheet', () => {
     const page = doc.pages[index]!;
     expect(fitted(doc, { ...page, orientation: 'portrait' }, '.pack-table')).toBe(true);
     expect(fitted(doc, { ...page, orientation: 'landscape' }, '.pack-table')).toBe(false);
-  });
+  }, SLOW);
 
   it('a KPI row fitted to a smaller size on portrait is left at the ordinary size on landscape', () => {
     const digits = range.find((d) => {
@@ -40,5 +42,5 @@ describe('a figure row on a landscape sheet', () => {
     const page = doc.pages[index]!;
     expect(fitted(doc, { ...page, orientation: 'portrait' }, '.pack-kpi-tiles')).toBe(true);
     expect(fitted(doc, { ...page, orientation: 'landscape' }, '.pack-kpi-tiles')).toBe(false);
-  });
+  }, SLOW);
 });

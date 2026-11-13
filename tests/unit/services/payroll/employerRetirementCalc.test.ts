@@ -153,3 +153,12 @@ describe('a pre-RF cash-kept row that is not taxable (round 1 M)', () => {
     expect(codes.map(([c]) => c)).not.toContain('RETIREMENT_BENEFIT_NOT_TAXABLE');
   });
 });
+
+describe('the explanation names the deemed contribution (RF after EX-core)', () => {
+  it('the 3817 earning step says it is also counted as the employee\'s retirement contribution', async () => {
+    const { earningStep } = await import('@/modules/accounting/services/payroll/earningExplain');
+    expect(earningStep('k', { name: 'Employer pension', code: '3817', amount: 3000, included: 3000, isNonCash: true } as never).label)
+      .toBe('Employer pension (3817), a non-cash benefit, also counted as your retirement contribution');
+    expect(earningStep('k', { name: 'Salary', code: '3601', amount: 3000, included: 3000 } as never).label).toBe('Salary (3601)');
+  });
+});

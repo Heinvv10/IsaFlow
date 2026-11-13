@@ -8,7 +8,7 @@ vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: company.role }) }));
 
 import { apiFetch } from '@/lib/apiFetch';
-import { useRelinkTransfers } from '@/components/accounting/bank-transactions/useRelinkTransfers';
+import { useRelinkTransfers, useRelinkTransfersWithTick } from '@/components/accounting/bank-transactions/useRelinkTransfers';
 
 const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
 
@@ -59,5 +59,32 @@ describe('useRelinkTransfers', () => {
     company.role = 'viewer';
     rerender();
     await waitFor(() => expect(result.current).toBe(false));
+  });
+
+  it('reports what a relink linked, and only when it linked something (migration 978)', async () => {
+    company.role = 'manager';
+    const onLinked = vi.fn();
+    vi.mocked(apiFetch).mockResolvedValueOnce(reply(200, { success: true, data: { linked: 3, failed: false, batchId: 'b-1' } }));
+    renderHook(() => useRelinkTransfers('bank-1', onLinked));
+    await waitFor(() => expect(onLinked).toHaveBeenCalledWith({ linked: 3, batchId: 'b-1' }));
+
+    const quiet = vi.fn();
+    vi.mocked(apiFetch).mockResolvedValueOnce(reply(200, { success: true, data: { linked: 0, failed: false, batchId: null } }));
+    renderHook(() => useRelinkTransfers('bank-2', quiet));
+    vi.mocked(apiFetch).mockResolvedValueOnce(reply(200, { success: true, data: { linked: 0, failed: true, batchId: null } }));
+    renderHook(() => useRelinkTransfers('bank-3', quiet));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(3));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(quiet).not.toHaveBeenCalled();
+  });
+
+  it('moves the tick and calls back when a relink linked something', async () => {
+    company.role = 'admin';
+    const onLinked = vi.fn();
+    vi.mocked(apiFetch).mockResolvedValueOnce(reply(200, { success: true, data: { linked: 1, failed: false, batchId: 'b-9' } }));
+    const { result } = renderHook(() => useRelinkTransfersWithTick('bank-1', onLinked));
+    expect(result.current).toEqual([false, 0]);
+    await waitFor(() => expect(result.current[1]).toBe(1));
+    expect(onLinked).toHaveBeenCalledWith({ linked: 1, batchId: 'b-9' });
   });
 });

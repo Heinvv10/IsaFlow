@@ -24,7 +24,6 @@ const ALLOWED = new Set([
   'pages/accounting/journal-entries/new.tsx',
   'pages/accounting/credit-notes/new.tsx',
   'pages/accounting/supplier-payments/new.tsx',
-  'pages/accounting/index.tsx',
   'src/lib/mcp/tools/writePayrollRun.ts',
   'src/lib/mcp/tools/writePayroll.ts',
   'src/modules/accounting/services/gl/chartOfAccountsImportService.ts',

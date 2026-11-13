@@ -29,7 +29,7 @@ import { ShellSkeleton } from '@/components/layout/ShellSkeleton';
 import { PwaInstallBanner, usePwaInstallPrompt } from '@/components/layout/PwaInstallBanner';
 import { useGlobalShortcuts } from '@/components/layout/useGlobalShortcuts';
 import { SHELL_HEIGHTS } from '@/components/layout/shellHeights';
-import { isPayrollPath } from '@/components/layout/shellRoutes';
+import { isDashboardPath, isPayrollPath } from '@/components/layout/shellRoutes';
 import { readShellPrefs, writeShellPrefs, type NavMode } from '@/components/layout/shellPrefs';
 
 
@@ -55,8 +55,9 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
   const hasModuleNav = !!MODULE_BY_ID[activeModuleId];
   const { user, loading } = useAuth();
   const { activeCompany, loading: companyLoading } = useCompany();
-  // Listens from the first render: beforeinstallprompt can fire during the session check.
-  const pwaInstall = usePwaInstallPrompt();
+  // Listens from the first render: beforeinstallprompt can fire during the session check. Dashboards only.
+  const onDashboard = isDashboardPath(router.pathname);
+  const pwaInstall = usePwaInstallPrompt(onDashboard);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   // Track page visits for usage-based quick actions
@@ -119,7 +120,7 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
   // The banner sits above both the skeleton and the shell, so it is not remounted when the session check ends.
   // D9: during an auth-service outage the skeleton's content area explains itself and offers Retry.
   return (
-    <div className="flex flex-col h-screen overflow-hidden" style={{ background: 'var(--ff-canvas-base)' }}>
+    <div data-app-shell className="flex flex-col h-screen overflow-hidden" style={{ background: 'var(--ff-canvas-base)' }}>
       <ImpersonationBanner />
       {loading ? <ShellSkeleton hasModuleNav={hasModuleNav} /> : (<>
       <div className="flex flex-1 min-h-0 overflow-hidden">

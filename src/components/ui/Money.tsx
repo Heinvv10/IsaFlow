@@ -19,6 +19,12 @@ type MoneyValue =
       cents: number;
       amount?: never;
       decimals?: never;
+    }
+  | {
+      /** Neither: a figure that did not load. Renders the placeholder, never R 0.00. */
+      amount?: undefined;
+      cents?: undefined;
+      decimals?: never;
     };
 
 export type MoneyProps = React.HTMLAttributes<HTMLSpanElement> & MoneyValue;

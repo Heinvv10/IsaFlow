@@ -71,7 +71,16 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 row 1
     return call(c, token, routes.tx, { action: 'auto_match', bankAccountId: s.bank });
   }), 60000);
 
-  it('bulk_accept', () => detaches((_s, line) => call(c, token, routes.tx, { action: 'bulk_accept', bankTransactionIds: [line] })), 60000);
+  // Mig 980: Review stamps reviewed_at and changes no status, and an unallocated line is not reviewable — so it cannot
+  // turn a stale-stamped line 'matched' (which would join it to the completed session). Nothing moves.
+  it('bulk_accept: reviews nothing on an unallocated stale line and joins nothing', async () => {
+    const s = await completedSession(c, token, { matched: 1, stale: 1 });
+    const line = s.stale[0]!;
+    const out = await call(c, token, routes.tx, { action: 'bulk_accept', bankTransactionIds: [line] });
+    expect(out.status, JSON.stringify(out)).toBe(200);
+    expect(await lineOf(line)).toMatchObject({ status: 'imported', rec: s.rec });
+    expect(await completedInvariant(c, s.bank, s.rec)).toBeNull();
+  }, 60000);
 
   // bank-match-asset and bank-match-fleet no longer turn a line `matched` (mig 853: a link is an annotation), so they
   // carry no stale-stamp fragment; d12-r2-links pins that they leave the stamp and status alone.

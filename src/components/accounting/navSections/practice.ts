@@ -33,7 +33,7 @@ export const practiceTab: Tab = {
       section: 'WIP & Billing',
       items: [
         { label: 'WIP Board', href: '/accounting/practice/wip' },
-        { label: 'Generate Invoice', href: '/accounting/practice/wip?action=invoice' },
+        { label: 'Generate Invoice', href: '/accounting/practice/generate-invoice' },
       ],
     },
     {

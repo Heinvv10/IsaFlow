@@ -21,11 +21,24 @@ export interface ComponentAccumulation {
   sdlLeviable: number;
   totalDeductions: number;
   medicalSchemeFees: number;
+  /** The employee's own medical scheme fees: the 4005 deductions (inside medicalSchemeFees, beside employerMedicalFees). */
+  employeeMedicalFees: number;
   loanInstalments: number;
   retirementContributions: number;
   donations: number;
+  /** The taxable periodic earnings periodicTaxable adds up (name, code, amount, non-cash), for the explanation. */
+  earningParts: EarningPart[];
   breakdown: ComponentBreakdownItem[];
   warnings: ValidationResult[];
+}
+
+/**
+ * One earning as the totals took it, for the explanation (payrollExplain): its amount, what PAYE, UIF and SDL took of it
+ * (`included`: a 3701 / 3802 at its PAYE share `rate`, else the amount), how PAYE treats it, and which totals it is in.
+ */
+export interface EarningPart {
+  name: string; code: string; amount: number; included: number; rate?: number;
+  isNonCash: boolean; taxable: boolean; uif: boolean; sdl: boolean; treatment: ReturnType<typeof payeTreatment>;
 }
 
 export function accumulateComponents(components: EmployeeComponent[]): ComponentAccumulation {
@@ -47,6 +60,7 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
   // 4005 (e@syFile 4005; BRS V25.3.0 p. 52-53, 101), plus the employer's contribution (the 3810 fringe
   // benefit), which is deemed paid by the employee (G21 p. 12, employerContributions.ts). They decide the 65+ additional medical expenses tax credit (payeEngine).
   let medicalSchemeFees = 0;
+  let employeeMedicalFees = 0;
   let loanInstalments = 0;
   // Retirement fund contributions: deductions coded 4001/4003/4006, plus the employer's non-cash 3817/3825/3828 benefit
   // deemed paid by the employee (G21 (2027) p. 10; employerContributions.ts), deducted before PAYE within section 11F
@@ -57,6 +71,7 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
 
   const breakdown: ComponentBreakdownItem[] = [];
   const warnings: ValidationResult[] = [];
+  const earningParts: ComponentAccumulation['earningParts'] = [];
   const employerMedicalFees = deemedMedicalFees(components);
   const employeeMedical4005 = components.filter((c) => c.component.componentType === 'deduction' && normaliseSarsCode(c.component.sarsSourceCode) === '4005').reduce((n, c) => n + c.amount, 0);
   medicalSchemeFees += employerMedicalFees;
@@ -96,6 +111,11 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
       // levied on "remuneration", which takes in a taxable 3701 / 3802 at its PAYE share. A non-taxable earning has no share.
       if (component.isUifApplicable) uifLeviable += included;
       if (component.isSdlApplicable) sdlLeviable += included;
+      earningParts.push({
+        name: component.name, code: component.sarsSourceCode, amount, included, ...(payeInclusionRate !== undefined ? { rate: payeInclusionRate } : {}),
+        isNonCash: isNonCash === true, taxable: component.isTaxable, uif: component.isUifApplicable, sdl: component.isSdlApplicable,
+        treatment: payeTreatment(component.sarsSourceCode),
+      });
       if (normaliseSarsCode(component.sarsSourceCode) === VEHICLE_CODE && !isNonCash) {
         warnings.push({ code: 'FRINGE_RECORD_MISSING', severity: 'warning',
           message: `${component.name} (code 3802, ${formatMoney(amount)}) is a hand-assigned vehicle earning: it is paid as cash and taxed in full (100%). `
@@ -163,7 +183,7 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
         // (PAYE-GEN-01-G21 (2027) Rev 1): any other deduction is paid from taxed pay, whatever its taxable flag.
         else if (amount !== 0) warnings.push(notPayeDeductibleWarning(component.name, component.sarsSourceCode, amount));
       }
-      if (normaliseSarsCode(component.sarsSourceCode) === '4005') medicalSchemeFees += amount;
+      if (normaliseSarsCode(component.sarsSourceCode) === '4005') { medicalSchemeFees += amount; employeeMedicalFees += amount; }
       if (normaliseSarsCode(component.sarsSourceCode) === 'LOAN') loanInstalments += amount;
     } else {
       // An employer's contribution (PAYE 4b): neither the fringe benefit nor the deemed contribution is computed.
@@ -173,6 +193,6 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
 
   return {
     grossPay, allEarnings, levyRemuneration, employerMedicalFees, periodicTaxable, annualPayments, directivePaye, uifLeviable, sdlLeviable,
-    totalDeductions, medicalSchemeFees, loanInstalments, retirementContributions, donations, breakdown, warnings,
+    totalDeductions, medicalSchemeFees, employeeMedicalFees, loanInstalments, retirementContributions, donations, earningParts, breakdown, warnings,
   };
 }

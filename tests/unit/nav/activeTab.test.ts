@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getActiveTabId, getActiveModuleId, mostSpecificActiveHref } from '@/components/accounting/navSections/activeTab';
+import { TABS } from '@/components/accounting/accountingNavConfig';
 
 const q = {} as Record<string, string | string[] | undefined>;
 
@@ -99,5 +100,62 @@ describe('mostSpecificActiveHref', () => {
 
   it('is null when nothing matches', () => {
     expect(mostSpecificActiveHref(['/x', '/y'], '/z')).toBeNull();
+  });
+});
+
+describe('pages outside a module light the module that lists them (app audit P2.5 item 10)', () => {
+  it.each(['/payroll/uif', '/payroll/emp501', '/payroll/irp5', '/payroll/tax-directives'])(
+    '%s is a Payroll page, not a Tax one', (path) => {
+      expect(getActiveModuleId(path, q)).toBe('payroll');
+      expect(getActiveTabId(path, q)).toBe('payroll');
+    });
+
+  it('keeps the SARS EMP201 filing page under Tax', () => {
+    expect(getActiveTabId('/accounting/sars/emp201', q)).toBe('tax');
+  });
+
+  it.each(['/accounting/audit-log', '/accounting/change-history'])('%s is a Reports page', (path) => {
+    expect(getActiveModuleId(path, q)).toBe('reports');
+    expect(getActiveTabId(path, q)).toBe('reports');
+  });
+
+  it('adjustments with no ?type= light Sales, as the page defaults to customer', () => {
+    expect(getActiveModuleId('/accounting/adjustments', q)).toBe('sales');
+    expect(getActiveModuleId('/accounting/adjustments', { type: 'customer' })).toBe('sales');
+    expect(getActiveModuleId('/accounting/adjustments', { type: 'supplier' })).toBe('purchases');
+  });
+
+  it.each([
+    '/accounting/user-access', '/accounting/webhooks', '/developer/personal-tokens', '/developer/oauth-apps',
+    '/accounting/settings/connected-apps', '/accounting/settings/integrations-mcp', '/accounting/settings/billing/flows',
+  ])('%s is a Settings page, not the Dashboard', (path) => {
+    expect(getActiveModuleId(path, q)).toBe('settings');
+  });
+
+  it.each(['/bureau', '/bureau/clients', '/bureau/clients/[companyId]', '/bureau/settings'])(
+    '%s is Bureau: no top tab lights, not the Dashboard', (path) => {
+      expect(getActiveModuleId(path, q)).toBe('bureau');
+      expect(getActiveTabId(path, q)).toBe('bureau');
+      expect(TABS.some((t) => t.id === 'bureau')).toBe(false);
+    });
+
+  it('does not claim a route that only starts with "bureau"', () => {
+    expect(getActiveModuleId('/bureaux', q)).toBe('dashboard');
+  });
+
+  it('keeps the accounting settings sub-pages under Accounting', () => {
+    expect(getActiveModuleId('/accounting/settings/currencies', q)).toBe('accounting');
+  });
+
+  it.each([
+    ['/accounting/bank/statements', 'banking'], ['/accounting/cashbook', 'banking'], ['/accounting/netcash', 'banking'],
+    ['/accounting/loans/new', 'library'], ['/accounting/expenses', 'purchases'], ['/accounting/delivery-notes', 'sales'],
+  ])('%s lights %s', (path, tab) => {
+    expect(getActiveTabId(path, q)).toBe(tab);
+  });
+
+  it('has no top tab for Settings: the top bar lights nothing there by design, the cog does', async () => {
+    const { TABS } = await import('@/components/accounting/accountingNavConfig');
+    expect(TABS.some((t) => t.id === 'settings')).toBe(false);
   });
 });

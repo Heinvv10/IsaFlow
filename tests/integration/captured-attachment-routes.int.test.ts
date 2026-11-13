@@ -52,6 +52,8 @@ const [t3, t4, t5, t6, d7, c7, d8, c8, d9] = [uuid(), uuid(), uuid(), uuid(), uu
 // C10: a copy of D1 left on T6, a line D1 is not linked to (as a relink before attach removed copies left behind).
 // D11: linked to T4 later, with a copy whose id prefix is upper-case.
 const [c10, d11, c11] = [uuid(), uuid(), uuid()];
+// Migration 980: TR a reconciled line holding D12 (with copy C12) and a plain upload UR.
+const [tR, d12, c12, uR] = [uuid(), uuid(), uuid(), uuid()];
 const [u1, c2, d1, d2, d3, d4, d5, d6, db] = [uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid()];
 const ATT = '/api/accounting/bank-tx-attachments';
 const FILE = '/api/accounting/captured-document-file';
@@ -113,7 +115,7 @@ describeIfDb('captured documents on a bank line, through the routes', () => {
 
   afterAll(async () => {
     try {
-      await pool.query('DELETE FROM bank_transaction_attachments WHERE bank_transaction_id = ANY($1::uuid[])', [[t1, t2, tb, t3, t4, t5, t6]]);
+      await pool.query('DELETE FROM bank_transaction_attachments WHERE bank_transaction_id = ANY($1::uuid[])', [[t1, t2, tb, t3, t4, t5, t6, tR]]);
       await pool.query('DELETE FROM captured_documents WHERE company_id = ANY($1::uuid[])', [companies]);
       await pool.query('DELETE FROM bank_transactions WHERE company_id = ANY($1::uuid[])', [companies]);
       await pool.query('DELETE FROM gl_accounts WHERE company_id = ANY($1::uuid[])', [companies]);
@@ -268,4 +270,25 @@ describeIfDb('captured documents on a bank line, through the routes', () => {
     }
     expect(await docState(d1)).toMatchObject({ matched_bank_tx_id: t1 });
   }, 30000);
+
+  it('a reconciled line keeps its documents: no delete by id, no unlink; adding stays allowed (mig 980)', async () => {
+    await pool.query(
+      `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status)
+       VALUES($1,$2,$3,'2026-06-03',-17000,'captured routes fixture','reconciled')`, [tR, company, bank]);
+    await doc(d12, company, tR, 'matched');
+    await pool.query(
+      `INSERT INTO bank_transaction_attachments(id, bank_transaction_id, file_url, file_name, file_size)
+       VALUES($1, $2, 'data:application/pdf;base64,JVBERi0=', $3, 5), ($4, $2, 'data:image/png;base64,iVBORw0KGgo=', 'slip.png', 8)`,
+      [c12, tR, `${d12}_scan.pdf`, uR]);
+    const del = await call('DELETE', { id: uR });
+    expect(del.state.statusCode).toBe(409);
+    expect(body(del).error?.message).toMatch(/reconciled, so its supporting documents cannot be removed/);
+    expect((await pool.query('SELECT 1 FROM bank_transaction_attachments WHERE id = $1', [uR])).rowCount).toBe(1);
+    const unlink = await call('DELETE', { documentId: d12, bankTransactionId: tR });
+    expect(unlink.state.statusCode).toBe(409);
+    expect(await docState(d12)).toMatchObject({ matched_bank_tx_id: tR });
+    expect((await pool.query('SELECT 1 FROM bank_transaction_attachments WHERE id = $1', [c12])).rowCount).toBe(1);
+    expect(await attachCapturedDocToBankTx(company, d12, t5, null)).toEqual({ ok: false, reason: 'previous_line_reconciled' });
+    expect(await docState(d12)).toMatchObject({ matched_bank_tx_id: tR });
+  });
 });

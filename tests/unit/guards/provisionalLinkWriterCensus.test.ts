@@ -80,6 +80,19 @@ const CLASSIFICATION: Record<string, { why: string; lines: string[] }> = {
       'WHERE provisional_je_id = ${root}::UUID AND company_id = ${companyId}::UUID AND id <> ${bankTxId}::UUID',
     ],
   },
+  'src/modules/accounting/services/bank/bankTransactionQueryService.ts': {
+    why: 'reads only: Review (bulkAcceptTransactions) stamps only a line a journal carries — mig 980; writes reviewed_at',
+    lines: ['AND (matched_journal_line_id IS NOT NULL OR provisional_je_id IS NOT NULL)'],
+  },
+  'scripts/migrations/sql/981_bank_tx_review_reset_on_rematch.sql': {
+    why: 'reads only: the review-reset trigger compares NEW/OLD and clears reviewed_at/by, never assigns the link; its data step filters on it',
+    lines: [
+      '-- moves: matched_journal_line_id or provisional_je_id changes, on any writer.',
+      'OR NEW.provisional_je_id IS DISTINCT FROM OLD.provisional_je_id)) THEN',
+      'BEFORE INSERT OR UPDATE OF status, matched_journal_line_id, provisional_je_id ON bank_transactions',
+      "WHERE status = 'matched' AND matched_journal_line_id IS NULL AND provisional_je_id IS NULL",
+    ],
+  },
   'src/modules/accounting/services/bank/feed/bankIngestionPersistence.ts': {
     why: 'reads only: IS NULL / IS NOT NULL predicates',
     lines: ['OR provisional_je_id IS NOT NULL) AS processed', 'AND provisional_je_id IS NULL'],

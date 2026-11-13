@@ -82,7 +82,7 @@ describe('S-07b: app_service\'s policies drop only forgeable predicates', () => 
                         'entity_changes', 'audit_snapshots', 'company_invitations', 'approval_requests',
                         'company_users', 'personal_access_tokens', 'oauth_apps', 'oauth_authorisation_codes',
                         'oauth_authorisations', 'waitlist_signups', 'portal_magic_links', 'portal_contacts',
-                        'share_links', 'audit_portal_sessions', 'capture_whatsapp_claims', 'capture_inboxes',
+                        'portal_access', 'share_links', 'audit_portal_sessions', 'capture_whatsapp_claims', 'capture_inboxes',
                         'bank_feed_connections', 'payroll_bank_details']) t`);
     expect(Object.fromEntries(r.rows.map((x) => [x.t, x.cmds]))).toEqual({
       users: 'rw',                    // 902: app_user selects and updates columns; no insert or delete
@@ -107,6 +107,7 @@ describe('S-07b: app_service\'s policies drop only forgeable predicates', () => 
       // bearer's use stamps, DELETE where it only removes access.
       portal_magic_links: '',         // no privilege at all
       portal_contacts: 'dr',
+      portal_access: 'dr',            // 977: under RLS; app_user keeps column SELECT and DELETE (937)
       share_links: 'drw',             // the view counter
       audit_portal_sessions: 'drw',   // the auditor's last use
       capture_whatsapp_claims: 'dr',

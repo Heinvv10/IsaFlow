@@ -109,6 +109,9 @@ const nextConfig = {
       // Nav menu roots — ensure clicking a top-level menu label never 404s
       { source: '/accounting/banking', destination: '/accounting/bank-accounts', permanent: false },
       { source: '/accounting/vat', destination: '/accounting/sars/vat201', permanent: false },
+      // One dashboard is home (app audit P2.5 item 5, 2026-11-12): /home was a second
+      // dashboard. Temporary, so a revert needs no cache flush; the query string carries over.
+      { source: '/home', destination: '/accounting', permanent: false },
       { source: '/payroll', destination: '/payroll/employees', permanent: false },
       { source: '/payroll/dashboard', destination: '/payroll/employees', permanent: false },
       { source: '/payroll/year-end', destination: '/accounting/year-end', permanent: false },
@@ -121,6 +124,12 @@ const nextConfig = {
       {
         source: '/:path*',
         headers: securityHeaders(process.env.NODE_ENV),
+      },
+      // River hero and South Africa band media (public/landing/river, public/landing/sa): a week in
+      // the browser. Without this Next serves public files with max-age=0. Rename a file to replace it.
+      {
+        source: '/landing/:dir(river|sa)/:file*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=604800' }],
       },
     ];
   },

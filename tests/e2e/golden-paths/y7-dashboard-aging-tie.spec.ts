@@ -148,9 +148,9 @@ test('on an empty company the setup checklist leads Home and nothing says "All c
   await page.goto('/accounting');
   const checklist = page.getByRole('region', { name: 'Finish setting up' });
   await expect(checklist).toBeVisible({ timeout: 90_000 });
-  await expect(page.getByRole('heading', { name: 'Action Items' })).toBeVisible({ timeout: 90_000 });
+  await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: 90_000 });
   const listBox = await checklist.boundingBox();
-  const heroBox = await page.getByRole('banner').filter({ hasText: 'Financial Overview' }).boundingBox();
+  const heroBox = await page.getByRole('region', { name: 'Dashboard overview' }).boundingBox();
   expect(listBox && heroBox && listBox.y < heroBox.y, 'checklist above the hero').toBe(true);
   expect(listBox!.y, 'checklist starts inside the first screen').toBeLessThan(800);
   await expect(page.getByText('All caught up!')).toHaveCount(0);

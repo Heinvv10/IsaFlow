@@ -6,28 +6,24 @@
  * its last day is today or later, past when it is before today. fiscal_periods
  * (whether the books are locked) is deliberately never read; do not wire it in.
  *
- * Sales, current period: the shared AR aggregate (getAROutstandingWithDebtors, the
- * figure the dashboard and the invoice-list tiles read), with the customer count
- * from the same population (debtorCount, same query). Ageing a current month "as at"
- * its future last day would count every invoice due between today and then as
- * overdue, a debt nobody can chase yet (dev Demo, Oct 2026: 32 invoices,
- * R 3 680.00 above the tile).
+ * Current period: the headline figure (reports/headlineFigures), the aged
+ * debtors / creditors open book as at TODAY (reports/dashboardOpenBook#getOpenBook),
+ * the figure /accounting and /home show. Ageing a current month "as at" its
+ * future last day would count every invoice due between today and then as
+ * overdue, a debt nobody can chase yet. `overdue` includes disputed balances, as
+ * the dashboard tile's does.
  *
- * Sales, past period: a historical fact the aggregate cannot answer, so the aged
- * debtors report rewound to the period end. That report is defined differently
- * from the aggregate (it takes open disputes out of the buckets and leaves out
- * invoices dated after the as-at date), so a past period can differ from what
- * the same card showed while the period was current. The card links to the aged
- * debtors report at the same date so the drill-down matches.
+ * Past period: a historical fact, so the aged report rewound to the period end.
+ * Its overdue leaves disputes out of the age buckets (sumAging). The card links
+ * to the aged report at the same date so the drill-down matches.
  *
- * Purchases equals the AP aging report as at today (or at the period end for a
- * past period), NOT the dashboard AP tile: no shared AP aggregate exists.
+ * `asAt` is the date the figures are stated at: today, or the period end.
  */
 
 import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
-import { getAROutstandingWithDebtors } from '@/modules/accounting/services/ar/arOutstandingService';
-import { asAtTodayStr } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { getOpenBook } from '@/modules/accounting/services/reports/dashboardOpenBook';
+import { todayInSast } from '@/lib/saDateParser';
 import type { AgingBucket } from '@/modules/accounting/types/ap.types';
 
 export interface SalesFigures {
@@ -37,6 +33,8 @@ export interface SalesFigures {
   parties: number;
   /** The period ended before today: the figures are the aging rewound to its end. */
   past: boolean;
+  /** YYYY-MM-DD the figures are stated at: today (current period) or the period end (past). */
+  asAt: string;
 }
 
 export function sumAging(buckets: AgingBucket[]): { total: number; overdue: number } {
@@ -53,17 +51,23 @@ export function sumAging(buckets: AgingBucket[]): { total: number; overdue: numb
   return { total, overdue };
 }
 
-export async function getSalesFigures(companyId: string, periodEnd: string, today: string = asAtTodayStr()): Promise<SalesFigures> {
-  if (periodEnd < today) {
-    const buckets = await getARAging(companyId, periodEnd);
-    return { ...sumAging(buckets), parties: buckets.length, past: true };
-  }
-  const summary = await getAROutstandingWithDebtors(companyId);
-  return { overdue: summary.overdueAmount, total: summary.outstanding, parties: summary.debtorCount, past: false };
+async function currentFigures(companyId: string, side: 'ar' | 'ap', today: string): Promise<SalesFigures> {
+  const book = await getOpenBook(companyId, side, today);
+  return { total: book.total, overdue: book.overdue, parties: book.parties, past: false, asAt: today };
 }
 
-export async function getPurchasesFigures(companyId: string, periodEnd: string, today: string = asAtTodayStr()): Promise<SalesFigures> {
-  const past = periodEnd < today;
-  const buckets = await getAPAging(companyId, past ? periodEnd : today);
-  return { ...sumAging(buckets), parties: buckets.length, past };
+export async function getSalesFigures(companyId: string, periodEnd: string, today: string = todayInSast()): Promise<SalesFigures> {
+  if (periodEnd < today) {
+    const buckets = await getARAging(companyId, periodEnd);
+    return { ...sumAging(buckets), parties: buckets.length, past: true, asAt: periodEnd };
+  }
+  return currentFigures(companyId, 'ar', today);
+}
+
+export async function getPurchasesFigures(companyId: string, periodEnd: string, today: string = todayInSast()): Promise<SalesFigures> {
+  if (periodEnd < today) {
+    const buckets = await getAPAging(companyId, periodEnd);
+    return { ...sumAging(buckets), parties: buckets.length, past: true, asAt: periodEnd };
+  }
+  return currentFigures(companyId, 'ap', today);
 }

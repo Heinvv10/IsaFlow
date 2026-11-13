@@ -19,12 +19,12 @@ const refusal = async (version: number | null) => {
   return (await recalculateRequiredRefusal('11111111-1111-4111-8111-111111111111', '33333333-3333-4333-8333-333333333333'))?.code ?? null;
 };
 
-describe('calculation version 9: employer retirement contributions and RFI (RF) on top of ETI by hours, the minimum wage and the ID document (ET) on top of fringe benefits (FB, 7), tax status (TS-b, 6) and hours and days (HD, 5)', () => {
+describe('calculation version 10: employer retirement contributions and RFI (RF) on top of explanations (EX-core, 9), ETI by hours (ET, 8), fringe benefits (FB, 7) and tax status (TS-b, 6)', () => {
   it('is the current version', () => {
-    expect(PAYROLL_CALCULATION_VERSION).toBe(9);
+    expect(PAYROLL_CALCULATION_VERSION).toBe(10);
   });
 
-  it('refuses a run calculated by version 8 or unstamped, approves one calculated by version 9', async () => {
-    expect([await refusal(8), await refusal(null), await refusal(9)]).toEqual(['recalculate_required', 'recalculate_required', null]);
+  it('refuses a run calculated by version 9 or unstamped, approves one calculated by version 10', async () => {
+    expect([await refusal(9), await refusal(null), await refusal(10)]).toEqual(['recalculate_required', 'recalculate_required', null]);
   });
 });

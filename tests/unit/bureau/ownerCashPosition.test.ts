@@ -1,12 +1,11 @@
 // tests/unit/bureau/ownerCashPosition.test.ts
 import { describe, it, expect } from 'vitest';
 import {
+  pickPayrollRun,
   shapePayrollAffordability,
-  shapeTopDebtors,
   shapeVatSetAside,
   type PayrollRunRow,
 } from '@/modules/bureau/services/ownerCashPositionService';
-import type { DebtorSummary } from '@/modules/accounting/services/ar/debtorsManagerService';
 
 const run = (over: Partial<PayrollRunRow> = {}): PayrollRunRow => ({
   id: 'run-1', period_month: 6, period_year: 2026, status: 'approved',
@@ -48,22 +47,31 @@ describe('shapePayrollAffordability', () => {
   });
 });
 
-describe('shapeTopDebtors', () => {
-  const d = (name: string, total: number, d30 = 0, d90p = 0): DebtorSummary => ({
-    clientId: `c-${name}`, clientName: name,
-    current: total - d30 - d90p, days30: d30, days60: 0, days90: 0, days90Plus: d90p,
-    totalOutstanding: total, invoiceCount: 1,
+describe('pickPayrollRun', () => {
+  const zero = { total_net: '0', total_paye: '0', total_uif: '0', total_sdl: '0', total_eti: '0' };
+  const prev = run({ id: 'prev', period_month: 5, total_net: '300', total_paye: '100', total_uif: '0', total_sdl: '0', total_eti: '0' });
+  const cur = run({ id: 'cur', period_month: 6, total_net: '4000', total_paye: '1000', total_uif: '0', total_sdl: '0', total_eti: '0' });
+
+  it('reports this month when last month is covered and this month is short', () => {
+    const p = pickPayrollRun([prev, cur], 1000);
+    expect(p).toMatchObject({ runId: 'cur', canPay: false, shortfall: 4000 });
   });
 
-  it('takes top 3 and sums overdue buckets', () => {
-    const out = shapeTopDebtors([d('A', 50000, 10000, 5000), d('B', 30000), d('C', 20000), d('D', 10)]);
-    expect(out.topDebtors).toHaveLength(3);
-    expect(out.topDebtors[0]).toEqual({ clientId: 'c-A', clientName: 'A', totalOutstanding: 50000, overdue: 15000 });
-    expect(out.arTotal).toBe(100010); // includes the 4th debtor
+  it('reports the earliest short run when both are short', () => {
+    expect(pickPayrollRun([prev, cur], 100)!.runId).toBe('prev');
   });
 
-  it('handles empty list', () => {
-    expect(shapeTopDebtors([])).toEqual({ topDebtors: [], arTotal: 0 });
+  it('a draft with no totals does not hide a shortfall on the other run', () => {
+    expect(pickPayrollRun([run({ id: 'draft', period_month: 5, ...zero }), cur], 1000)!.runId).toBe('cur');
+  });
+
+  it('when every run is covered, reports the latest run with totals', () => {
+    expect(pickPayrollRun([prev, run({ id: 'draft', ...zero })], 1000)).toMatchObject({ runId: 'prev', canPay: true });
+  });
+
+  it('falls back to the earliest run when none has totals, and null for none', () => {
+    expect(pickPayrollRun([run({ id: 'a', ...zero }), run({ id: 'b', ...zero })], 0)!.runId).toBe('a');
+    expect(pickPayrollRun([], 0)).toBeNull();
   });
 });
 

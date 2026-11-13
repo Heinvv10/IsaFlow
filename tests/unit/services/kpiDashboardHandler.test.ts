@@ -85,6 +85,20 @@ vi.mock('@/lib/neon', () => {
       }
       return Promise.resolve(out);
     }
+    // Month-to-date income (reports/mtdIncome): per (type, subtype), credit less debit, between its two dates.
+    if (text.includes("account_type IN ('revenue', 'expense')")) {
+      const [from, to] = values.filter((v): v is string => typeof v === 'string' && ISO.test(v));
+      const groups = new Map<string, { account_type: string; account_subtype: string; net_credit: number }>();
+      for (const [type, rows, sign] of [['revenue', h.revenue, 1], ['expense', h.expenses, -1]] as const) {
+        for (const r of rows.filter((x) => x.date >= from! && x.date <= to!)) {
+          const sub = r.subtype ?? (type === 'revenue' ? 'sales' : 'operating_expense');
+          const g = groups.get(`${type}/${sub}`) ?? { account_type: type, account_subtype: sub, net_credit: 0 };
+          g.net_credit += sign * r.amount;
+          groups.set(`${type}/${sub}`, g);
+        }
+      }
+      return Promise.resolve([...groups.values()]);
+    }
     // KPI expenses between the two bound dates.
     if (text.includes("account_type = 'expense'") && !text.includes('GROUP BY')) {
       const [from, to] = values.filter((v): v is string => typeof v === 'string' && ISO.test(v));
@@ -152,6 +166,11 @@ type Out = {
     receivables: { total: number; overdue: number; overdueDisputed: number };
     payables: { total: number; overdue: number };
   };
+  headline: {
+    asAt: string; monthStart: string; cash: number; revenueMtd: number; profitMtd: number;
+    receivables: { total: number; overdue: number }; payables: { total: number; overdue: number };
+  };
+  period: { from: string; to: string };
   revenueChart: { month: string; revenue: number; expenses: number }[];
   arAging: { name: string; value: number }[];
   apAging: { name: string; value: number }[];
@@ -251,6 +270,12 @@ describe('kpi-dashboard handler', () => {
     expect(h.apCalls).toBe(1);
   });
 
+  it('reads the month-to-date income once, for the tiles and the headline', async () => {
+    await call();
+    const mtd = h.queries.filter((q) => q.text.includes("account_type IN ('revenue', 'expense')") && !q.text.includes('generate_series'));
+    expect(mtd).toHaveLength(1);
+  });
+
   it('the Overdue tile is the overdue donut slices plus the overdue disputed share', async () => {
     const out = await call();
     const slice = (name: string) => out.arAging.find((b) => b.name === name)!.value;
@@ -260,5 +285,19 @@ describe('kpi-dashboard handler', () => {
     expect(out.kpis.receivables.overdueDisputed).toBe(250);
     expect(overdueSlices + out.kpis.receivables.overdueDisputed).toBe(out.kpis.receivables.overdue);
     expect(out.arAging.reduce((s, b) => s + b.value, 0)).toBe(out.kpis.receivables.total);
+  });
+
+  it('headline: the figures /home and Month-End read, as at the SAST day, beside the tiles that agree with them', async () => {
+    const out = await call();
+    expect(out.headline.asAt).toBe('2026-10-28');
+    expect(out.headline.monthStart).toBe('2026-10-01');
+    expect(out.period).toEqual({ from: '2025-10-01', to: '2026-10-28' });
+    expect(out.headline.revenueMtd).toBe(350);
+    expect(out.headline.revenueMtd).toBe(out.kpis.revenueMtd);
+    // October: turnover 350 + other income 40, less the October expense 100.
+    expect(out.headline.profitMtd).toBe(290);
+    expect(out.headline.receivables).toEqual({ total: 1500, overdue: 1000 });
+    expect(out.headline.receivables.total).toBe(out.kpis.receivables.total);
+    expect(out.headline.payables).toEqual({ total: out.kpis.payables.total, overdue: out.kpis.payables.overdue });
   });
 });

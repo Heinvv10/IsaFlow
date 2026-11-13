@@ -10,5 +10,5 @@ import { useVatRegistration } from '@/hooks/useVatRegistration';
 
 export function AccountingNav() {
   const { isRegistered } = useVatRegistration();
-  return <ModuleNav tabs={stripVatNav(TABS, isRegistered)} getActiveTabId={getActiveTabId} accentColor="teal" />;
+  return <ModuleNav tabs={stripVatNav(TABS, isRegistered)} getActiveTabId={getActiveTabId} accentColor="teal" ariaLabel="Main" />;
 }

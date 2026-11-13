@@ -12,6 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { SageReconciledLineError } from '@/modules/accounting/services/bank/reconciledCash';
 
 // The learning-loop log has its own suites (codingDecisionLog, coding-decision-paths); it is kept out of this
 // file's SQL sequence.
@@ -41,6 +42,7 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import { enterFakeRequestCtx } from '../helpers/requestCtx';
 import {
   matchTransaction,
@@ -131,16 +133,17 @@ describe('bank transaction status mutations — locked and guarded', () => {
       expect(vi.mocked(sql)).toHaveBeenCalledTimes(1);
     });
 
-    it(`${name} still allows a reconciled row`, async () => {
-      // `reconciled` is NOT an allocation. A row only reaches it through
-      // matchTransaction (bankReconciliationService promotes rows that are
-      // already `matched`), so its journal was written by something else and
-      // pre-dates the link — unmatching it orphans nothing. The bank table also
-      // still shows Undo on these, so refusing would be a 400 on a live button.
-      queue([row({ status: 'reconciled', matched_journal_line_id: JL_ID })], [row()]);
+    it(`${name} refuses a Sage-reconciled row (no session to reopen) before any write`, async () => {
+      // Hein 2026-11-12 (mig 980): a row reconciled in the Sage import carries no reconciliation_id, so no reopen can
+      // unlock it; match / unmatch / exclude would quietly take it out of reconciled. Refused on the locked read.
+      queue([row({ status: 'reconciled', matched_journal_line_id: JL_ID, reconciliation_id: null })], [row()]);
 
-      await expect(run()).resolves.toBeDefined();
-      expect(vi.mocked(sql)).toHaveBeenCalledTimes(totalCalls);
+      vi.mocked(log.error).mockClear(); vi.mocked(log.info).mockClear();
+      await expect(run()).rejects.toBeInstanceOf(SageReconciledLineError);
+      expect(vi.mocked(sql)).toHaveBeenCalledTimes(1);
+      // An expected refusal: logged at info, kept out of the error tracker (only this subclass is).
+      expect(vi.mocked(log.error)).not.toHaveBeenCalled();
+      expect(vi.mocked(log.info)).toHaveBeenCalledWith(expect.stringMatching(/^Failed to /), expect.anything(), 'accounting');
     });
 
     it(`${name} reports NOT_FOUND from the locked read`, async () => {

@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import Image from 'next/image';
-import { BookOpen, ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
+import { BookOpen, ChevronLeft, ChevronRight, LogOut, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCompany } from '@/contexts/CompanyContext';
 import { SidebarNav } from '@/components/layout/SidebarNav';
@@ -23,7 +23,8 @@ interface AppSidebarProps {
   menuButtonRef: RefObject<HTMLButtonElement>;
 }
 
-function SidebarContent({ collapsed, nav }: { collapsed: boolean; nav: ReactNode }) {
+/** `onClose`: the drawer's visible close button (the desktop sidebar has none). */
+function SidebarContent({ collapsed, nav, onClose }: { collapsed: boolean; nav: ReactNode; onClose?: () => void }) {
   const { user, logout } = useAuth();
   const { companyRole } = useCompany();
   const userInitials = user
@@ -33,13 +34,18 @@ function SidebarContent({ collapsed, nav }: { collapsed: boolean; nav: ReactNode
   return (
     <>
       {/* Logo */}
-      <div className={`flex items-center px-4 py-4 border-b border-gray-200 dark:border-gray-700 ${collapsed ? 'justify-center' : ''}`}>
+      <div className={`flex items-center px-4 py-4 border-b border-gray-200 dark:border-gray-700 ${collapsed ? 'justify-center' : ''} ${onClose ? 'justify-between' : ''}`}>
         {collapsed ? (
           <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center flex-shrink-0">
             <BookOpen className="w-4 h-4 text-white" />
           </div>
         ) : (
           <Image src="/logo.png" alt="IsaFlow" width={90} height={36} className="h-9 w-auto dark:brightness-0 dark:invert" />
+        )}
+        {onClose && (
+          <button type="button" onClick={onClose} aria-label="Close menu" className="lg:hidden p-2 -mr-2 rounded-lg text-ink-muted hover:text-ink hover:bg-slate-100 dark:hover:bg-white/5 transition-colors">
+            <X className="w-5 h-5" aria-hidden="true" />
+          </button>
         )}
       </div>
 
@@ -149,7 +155,7 @@ export function AppSidebar({ showSidebar, collapsed, onToggleCollapsed, mobileOp
         className={`fixed inset-y-0 left-0 z-50 w-64 flex flex-col lg:hidden duration-300 ${mobileOpen ? 'translate-x-0 visible transition-transform' : '-translate-x-full invisible transition-[transform,visibility]'}`}
         style={ASIDE_STYLE}
       >
-        <SidebarContent collapsed={false} nav={<DrawerNav />} />
+        <SidebarContent collapsed={false} nav={<DrawerNav />} onClose={() => { onCloseMobile(); menuButtonRef.current?.focus(); }} />
       </aside>
     </>
   );

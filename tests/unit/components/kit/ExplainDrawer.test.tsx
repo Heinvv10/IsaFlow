@@ -47,7 +47,9 @@ describe('ExplainDrawer', () => {
     expect(screen.getAllByRole('term').map((t) => t.textContent)).toEqual([
       'Annual taxable income', 'Tax on bracket', 'Primary rebate',
     ]);
-    expect(screen.getAllByRole('definition')).toHaveLength(3);
+    // Each term's value is the dd right after it; a line's formula, note and source sit in a second dd (dl content model).
+    expect(screen.getAllByRole('term').map((t) => t.nextElementSibling?.tagName)).toEqual(['DD', 'DD', 'DD']);
+    for (const dd of screen.getAllByRole('definition')) expect(dd.parentElement?.parentElement?.tagName).toBe('DL');
   });
 
   it('moves focus into the dialog on open', () => {

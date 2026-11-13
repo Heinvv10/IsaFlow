@@ -44,7 +44,7 @@ export interface UifLineBase {
 
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 
-/** Same rounding as uifEngine.calculateUIF. */
+/** Same rounding as uifEngine.uifWithLeviable. */
 function contributionOn(leviable: number): number {
   return Math.round(Math.min(leviable, UIF_MONTHLY_CEILING) * 0.01 * 100) / 100;
 }
