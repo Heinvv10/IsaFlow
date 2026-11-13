@@ -113,6 +113,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'finalize_invoice',
   'allocate_bank_transaction',
   'reverse_bank_allocation',
+  'reallocate_bank_transaction',
   'bulk_allocate_bank_transactions',
   'reverse_bank_allocation_batch',
   'post_reclassification_batch',

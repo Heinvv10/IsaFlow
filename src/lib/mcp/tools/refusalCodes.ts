@@ -205,6 +205,10 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'RECONCILIATION_COMPLETED',
   // Mig 980: completion refused while a line it would reconcile is unreviewed. Counts only, raised before any write.
   'RECONCILIATION_REVIEW_REQUIRED',
+  // reallocate_bank_transaction (bank/bankReallocationGuards): a reconciled line that cannot be re-pointed in place
+  // (not reconciled, stale expected journal, a shape v1 does not handle, a date that cannot be kept). Names only the
+  // caller's own line, journal id and dates; raised before any write, or inside the savepoint that rolls it back.
+  'REALLOCATION_REFUSED',
   'RECURRING_INVOICE_LOCK_TIMEOUT',
   'RECURRING_INVOICE_NOT_DUE',
   'RECURRING_INVOICE_TEMPLATE_INVALID',
