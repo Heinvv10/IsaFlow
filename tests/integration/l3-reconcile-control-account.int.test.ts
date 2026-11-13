@@ -246,7 +246,8 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     // and every bill in this fixture belongs to the one supplier — so the
     // default would let each note's remainder settle bills that other cases
     // here assert are open, and five cases would stop testing what they name.
-    // 'none' is the pre-FIFO behaviour these fixtures were written against;
+    // 'linked' (the linked document only; called 'none' before 13 Nov 2026) is
+    // the pre-FIFO behaviour these fixtures were written against;
     // the FIFO walk itself is pinned in l3b-credit-note-allocations.
     await inTx(() => approveCreditNote(COMPANY, scn, USER, { autoApply: 'linked' }));
 

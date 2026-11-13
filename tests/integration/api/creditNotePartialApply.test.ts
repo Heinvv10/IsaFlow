@@ -50,7 +50,7 @@ describe('partial application then cancel', () => {
   it('must not erase more than was applied', async () => {
     // standalone note (no link) for 115
     const cn = await inTx(() => createCreditNote(COMPANY, { type: 'customer', clientId: customer, creditDate: '2026-06-30', subtotal: 100, taxRate: 15 }, USER));
-    // auto_apply 'none' because approving now applies a note FIFO to the
+    // auto_apply 'linked' (no link here, so nothing) because approving applies a note FIFO to the
     // customer's open invoices (migration 677) — the default would consume this
     // very invoice at approval and leave the manual apply below nothing to do.
     // This test is about what a MANUAL apply consumes and what a cancel then
