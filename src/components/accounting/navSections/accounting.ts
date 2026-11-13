@@ -71,6 +71,7 @@ export const accountingTab: Tab = {
         { label: 'Budget Review', href: '/accounting/budgets/review' },
         { label: 'Budgets', href: '/accounting/budgets' },
         { label: 'Budget Controls', href: '/accounting/budgets/controls' },
+        { label: 'Three-Way Budget', href: '/accounting/budgets/three-way' },
       ],
     },
     {
