@@ -136,15 +136,13 @@ describe('create_supplier_invoice — external_ref (brief step 3)', () => {
     expect(stampExternalRef).not.toHaveBeenCalled();
   });
 
-  it('creates, then stamps the new bill with the reference', async () => {
+  it('creates the bill with the reference in its own INSERT (migration 986 uniqueness sees it), no stamp after', async () => {
     const r = parseOk(await createSupplierInvoiceTool.handler(createArgs(XREF), ctx()));
-    expect(stampExternalRef).toHaveBeenCalledWith(COMPANY, 'supplier_invoice', INVOICE, { system: 'sage', ref: '3629825983', documentNumber: 'SIV0003762' });
+    expect(vi.mocked(createSupplierInvoice).mock.calls[0]![1]).toMatchObject({
+      externalRef: { system: 'sage', ref: '3629825983', documentNumber: 'SIV0003762' },
+    });
+    expect(stampExternalRef).not.toHaveBeenCalled();
     expect(r).toMatchObject({ id: INVOICE, external_system: 'sage', external_ref: '3629825983' });
-  });
-
-  it('a failed stamp throws (the registry savepoint unwinds the bill) instead of becoming a tool error', async () => {
-    vi.mocked(stampExternalRef).mockRejectedValueOnce(new Error('boom'));
-    await expect(createSupplierInvoiceTool.handler(createArgs(XREF), ctx())).rejects.toThrow('boom');
   });
 
   it('refuses a reference with no system before any read', async () => {
@@ -154,6 +152,7 @@ describe('create_supplier_invoice — external_ref (brief step 3)', () => {
 
   it('without a reference, never touches the reference service', async () => {
     parseOk(await createSupplierInvoiceTool.handler(createArgs(), ctx()));
+    expect(vi.mocked(createSupplierInvoice).mock.calls[0]![1]).not.toHaveProperty('externalRef');
     expect(findByExternalRef).not.toHaveBeenCalled();
     expect(stampExternalRef).not.toHaveBeenCalled();
   });

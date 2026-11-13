@@ -37,7 +37,7 @@ import {
   toolError,
 } from './toolHelpers';
 import { ALLOW_LATE_INPUT_CLAIM_PROP, allowLateInputClaim, lateClaimResult } from './lateClaimArg';
-import { EXTERNAL_REF_CREATE_PROPS, createReplayOrLock, parseCreateRef, stampCreated } from './externalRef';
+import { EXTERNAL_REF_CREATE_PROPS, createReplayOrLock, parseCreateRef } from './externalRef';
 
 export const createSupplierInvoiceTool: McpTool = {
   name: 'create_supplier_invoice',
@@ -45,7 +45,8 @@ export const createSupplierInvoiceTool: McpTool = {
     'Create a DRAFT supplier invoice (bill / accounts payable document). Posts nothing to the ledger — use approve_supplier_invoice (needs write:post) to post DR Expense + DR VAT Input / CR Accounts Payable. ' +
     'Line amounts are NET of VAT: tax_rate is applied on top of quantity x unit_price. A line with no gl_account_id posts to the company\'s default expense account. ' +
     'Resolve supplier_id with list_suppliers and gl_account_id with list_gl_accounts first. '
-    + 'Pass external_system + external_ref (e.g. the Sage id) to make the create idempotent: a live bill already carrying them is returned instead (already_existed: true).',
+    + 'Pass external_system + external_ref (e.g. the Sage id) to make the create idempotent: a live bill already carrying them is returned instead (already_existed: true). '
+    + 'With an external_ref, a supplier\'s invoice_number may repeat an existing bill\'s (a supplier that reused its number on a different document); without one, a repeated number is refused.',
   scope: 'write:invoices',
   write: true,
   inputSchema: {
@@ -132,6 +133,8 @@ export const createSupplierInvoiceTool: McpTool = {
           reference: parsed.reference,
           notes: parsed.notes,
           items,
+          // Written by the INSERT, not stamped after: migration 986's uniqueness must see it.
+          ...(xref ? { externalRef: xref } : {}),
         },
         ctx.userId,
         mcpPostingOpts(ctx, 'create_supplier_invoice'),
@@ -142,8 +145,6 @@ export const createSupplierInvoiceTool: McpTool = {
       // a SQLSTATE generic-ifies rather than leaking schema.
       return toolError(safeErrorText(err, 'Failed to create supplier invoice.'));
     }
-    // Outside the catch: a failed stamp must reach the registry's savepoint and unwind the bill with it.
-    await stampCreated(ctx, 'supplier_invoice', invoice.id, xref);
     return ok({
       id: invoice.id,
       invoice_number: invoice.invoiceNumber,
