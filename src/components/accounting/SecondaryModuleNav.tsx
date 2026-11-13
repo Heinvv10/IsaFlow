@@ -7,20 +7,23 @@ import { useRouter } from 'next/router';
 import { ModuleNav } from '@/components/layout/ModuleNav';
 import { moduleSectionsToTabs, getActiveSectionId, MODULE_BY_ID } from './navSections/secondaryNav';
 import { stripVatNav } from './navSections/vatNav';
+import { stripFlagNav } from './navSections/flagNav';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
+import { useNavFlags } from '@/hooks/useNavFlags';
 
 /** `navPath`: highlight as if the page were at this path (the router's own when absent). */
 export function SecondaryModuleNav({ moduleId, navPath }: { moduleId: string; navPath?: string }) {
   const router = useRouter();
   const { isRegistered } = useVatRegistration();
+  const flags = useNavFlags();
   const moduleTab = MODULE_BY_ID[moduleId];
   if (!moduleTab) return null;
 
-  const tabs = stripVatNav(moduleSectionsToTabs(moduleTab), isRegistered);
+  const tabs = stripFlagNav(stripVatNav(moduleSectionsToTabs(moduleTab), isRegistered), flags);
   // Resolve the active section against the STRIPPED module, otherwise a
   // non-vendor on a direct VAT URL gets an id ('VAT') that no rendered tab
   // carries and nothing highlights.
-  const strippedModule = stripVatNav([moduleTab], isRegistered)[0] ?? moduleTab;
+  const strippedModule = stripFlagNav(stripVatNav([moduleTab], isRegistered), flags)[0] ?? moduleTab;
   const activeId = getActiveSectionId(strippedModule, navPath ?? router.asPath);
 
   return (

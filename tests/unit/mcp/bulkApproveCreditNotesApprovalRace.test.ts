@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { racedReason } from '@/lib/mcp/tools/writeBulkApproveCreditNotes';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
+import { MirroredNoteVatRefusal } from '@/modules/accounting/services/ap/supplierCreditNoteMirrorApprove';
 
 describe('bulk_approve_credit_notes racedReason', () => {
   it('maps an approval-gate refusal to an approval_required skip carrying the reason', () => {
@@ -18,6 +19,11 @@ describe('bulk_approve_credit_notes racedReason', () => {
     });
     expect(racedReason(err)).toBe(
       'approval_required: Supplier credit note CN-0001 changed after it was approved; submit it for approval again (rule: Owner signs).');
+  });
+
+  it('maps a mirror_bill VAT refusal (988, raised pre-write under the bill key) to a vat_already_reversed skip', () => {
+    expect(racedReason(new MirroredNoteVatRefusal('VAT_ALREADY_REVERSED: credit note CN-2 …')))
+      .toBe('vat_already_reversed: VAT_ALREADY_REVERSED: credit note CN-2 …');
   });
 
   it('still treats an unrecognised failure as a fault (null)', () => {
