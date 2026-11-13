@@ -29,7 +29,7 @@ function edit(from: string, to: string): string {
   return REAL.replace(from, to);
 }
 
-/** static, velo and golden-paths share their hosted setup steps: edit the nth (0 = static's, 1 = velo's) of exactly three (golden-paths' steps are not pinned by the rule). */
+/** static, velo and golden-chunks share their hosted setup steps: edit the nth (0 = static's, 1 = velo's) of exactly three (golden-chunks' steps are not pinned by the rule). */
 function editNth(from: string, to: string, nth: 0 | 1): string {
   const parts = REAL.split(from);
   expect(parts.length - 1, `fixture anchor must occur three times: ${from}`).toBe(3);
@@ -58,6 +58,7 @@ const GOLDEN_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n     
 const JOB_PERMS = '    permissions:\n      contents: read\n      actions: read\n      pull-requests: read\n';
 const QUALITY_PERMS = `merged PR and its CI run's jobs (CI_READ_TOKEN below).\n${JOB_PERMS}`;
 const GOLDEN_PERMS = `merge check below (as in quality).\n${JOB_PERMS}`;
+const Q = '    needs: [route, static, velo]\n';
 const VELO_PERMS = `# As in static (the merge check).\n${JOB_PERMS}`;
 const QUALITY_HEADER = '  quality:\n    name: Type Check, Lint & Test\n';
 const STATIC_HEADER = '  static:\n    name: Static gates\n';
@@ -65,7 +66,7 @@ const VELO_HEADER = '  velo:\n    name: Browser & integration\n';
 const AGGREGATE = '          [ "$ROUTE" = "success" ] && [ "$STATIC" = "success" ] && [ "$VELO" = "success" ]\n';
 const LIGHT = `\${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}`;
 const STATIC_RUNS_ON = `\${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}`;
-const GOLDEN_GROUP = "      group: ${{ vars.CI_HOSTED == 'off' && format('golden-paths-{0}{1}', github.ref, needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-hosted-{0}', github.run_id) }}\n";
+const GOLDEN_GROUP = "      group: ${{ vars.CI_HOSTED == 'off' && format('golden-paths-{0}{1}', github.ref, needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-hosted-{0}-{1}', github.run_id, matrix.chunk) }}\n";
 
 describe('the committed workflow', () => {
   it('passes', () => {
@@ -153,13 +154,38 @@ describe('refuses every way found to keep the job green while skipping gates', (
     expect(check(edit(from, line === null ? 'so 90.\n' : `so 90.\n    ${line}\n`)).length).toBeGreaterThan(0);
   });
 
+  const GOLDEN_TIMEOUT = "    timeout-minutes: ${{ vars.CI_HOSTED == 'off' && 90 || 35 }}\n    # Velo (CI_HOSTED=off): each runner owns";
   it.each([
-    ['the old 30-minute cap', 'timeout-minutes: 30'],
-    ['a cap just under the floor', 'timeout-minutes: 59'],
+    ['the old 60-minute cap for the whole suite on velo', "timeout-minutes: ${{ vars.CI_HOSTED == 'off' && 60 || 35 }}"],
+    ['a hosted chunk cap under the floor', "timeout-minutes: ${{ vars.CI_HOSTED == 'off' && 90 || 20 }}"],
+    ['a plain integer (velo and hosted share one cap)', 'timeout-minutes: 90'],
+    ['the branches swapped', "timeout-minutes: ${{ vars.CI_HOSTED == 'off' && 35 || 90 }}"],
     ['no timeout at all (key removed)', null],
-  ])('golden-paths with %s: every run is cut short and ends cancelled', (_label, line) => {
-    const from = '    timeout-minutes: 90\n    # Velo (CI_HOSTED=off): each runner owns';
+  ])('golden-chunks with %s: every run is cut short and ends cancelled', (_label, line) => {
     const to = line === null ? '    # Velo (CI_HOSTED=off): each runner owns' : `    ${line}\n    # Velo (CI_HOSTED=off): each runner owns`;
+    expect(check(edit(GOLDEN_TIMEOUT, to)).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['fail-fast on (one red chunk cancels the others)', 'fail-fast: false', 'fail-fast: true'],
+    ['fewer chunks (specs dropped)', "'[1,2,3,4,5,6]'", "'[1,2,3,4,5]'"],
+    ['velo matrix with a second entry', "'[0]'", "'[0,1]'"],
+    ['an extra matrix axis', 'matrix:\n        chunk:', 'matrix:\n        os: [x]\n        chunk:'],
+    ['continue-on-error on the chunks', '    strategy:\n', '    continue-on-error: true\n    strategy:\n'],
+  ])('golden-chunks matrix: %s', (_label, from, to) => {
+    expect(check(edit(from, to)).length).toBeGreaterThan(0);
+  });
+
+  const GOLDEN_AGG = '    needs: golden-chunks\n    if: ${{ always() }}\n';
+  it.each([
+    ['aggregate skipped when a chunk fails (if: success())', GOLDEN_AGG, '    needs: golden-chunks\n    if: ${{ success() }}\n'],
+    ['aggregate if removed', GOLDEN_AGG, '    needs: golden-chunks\n'],
+    ['aggregate not waiting for the chunks', GOLDEN_AGG, '    needs: golden-lane\n    if: ${{ always() }}\n'],
+    ['aggregate passing on a red chunk', '[ "$CHUNKS" = "success" ]\n', '[ "$CHUNKS" = "success" ] || true\n'],
+    ['aggregate accepting skipped', '[ "$CHUNKS" = "success" ]\n', '[ "$CHUNKS" = "success" ] || [ "$CHUNKS" = "skipped" ]\n'],
+    ['aggregate reading another result', 'CHUNKS: ${{ needs.golden-chunks.result }}', 'CHUNKS: ${{ needs.golden-lane.result }}'],
+    ['aggregate with continue-on-error', '    name: Golden Paths E2E (blocking)\n', '    name: Golden Paths E2E (blocking)\n    continue-on-error: true\n'],
+  ])('%s', (_label, from, to) => {
     expect(check(edit(from, to)).length).toBeGreaterThan(0);
   });
 
@@ -189,24 +215,30 @@ describe('refuses every way found to keep the job green while skipping gates', (
     expect(check(edit(GOLDEN_GROUP, '      group: golden-paths-${{ github.ref }}\n')).length).toBeGreaterThan(0);
   });
 
-  it('golden-paths hosted runs on a group shared across runs (they would queue behind each other)', () => {
+  it('golden-chunks hosted runs on a group shared across runs (they would queue behind each other)', () => {
     expect(check(edit(GOLDEN_GROUP, GOLDEN_GROUP.replace('github.run_id', 'github.ref'))).length).toBeGreaterThan(0);
+  });
+
+  it('golden-chunks hosted chunks sharing one group per run (a group holds one running and one pending job: the rest are cancelled)', () => {
+    expect(check(edit(GOLDEN_GROUP, GOLDEN_GROUP.replace("'golden-paths-hosted-{0}-{1}', github.run_id, matrix.chunk", "'golden-paths-hosted-{0}', github.run_id"))).length).toBeGreaterThan(0);
   });
 
   it.each([
     ['velo only (the hosted lane is gone)', '[self-hosted, linux, velo]'],
     ['a label no runner has', 'ubuntu-latest-xl'],
     ['hosted only (CI_HOSTED=off no longer reaches velo)', 'ubuntu-24.04'],
-  ])('golden-paths runs-on %s', (_label, runsOn) => {
-    const from = `    name: Golden Paths E2E (blocking)\n    runs-on: ${LIGHT}\n`;
-    expect(check(edit(from, `    name: Golden Paths E2E (blocking)\n    runs-on: ${runsOn}\n`)).length).toBeGreaterThan(0);
+  ])('golden-chunks and golden-paths runs-on %s', (_label, runsOn) => {
+    const chunks = `    runs-on: ${LIGHT}\n    strategy:\n`;
+    expect(check(edit(chunks, `    runs-on: ${runsOn}\n    strategy:\n`)).length).toBeGreaterThan(0);
+    const agg = `    if: \${{ always() }}\n    runs-on: ${LIGHT}\n    timeout-minutes: 5\n    steps:\n      - name: Every golden`;
+    expect(check(edit(agg, agg.replace(LIGHT, runsOn))).length).toBeGreaterThan(0);
   });
 
   it('golden-lane taking a concurrency group (the ci- one would cancel quality)', () => {
     expect(check(edit('    name: Golden Paths lane\n', '    name: Golden Paths lane\n    concurrency:\n      group: ci-${{ github.ref }}\n')).length).toBeGreaterThan(0);
   });
 
-  it('golden-paths concurrency removed or set to cancel', () => {
+  it('golden-chunks concurrency removed or set to cancel', () => {
     expect(check(edit(`    concurrency:\n${GOLDEN_GROUP}      cancel-in-progress: false\n`, '')).length).toBeGreaterThan(0);
     expect(check(edit('      cancel-in-progress: false\n', '      cancel-in-progress: true\n')).length).toBeGreaterThan(0);
   });
@@ -215,11 +247,11 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['the old fixed group, which serialises every ref onto one slot', 'golden-paths-dev-demo'],
     ['a per-sha group, which a fallback push would not share with PR runs', 'golden-paths-${{ github.sha }}'],
     ['a per-runner group, which queues a job on a busy runner instead of an idle one', 'golden-paths-${{ runner.name }}'],
-  ])('golden-paths group set to %s', (_label, group) => {
+  ])('golden-chunks group set to %s', (_label, group) => {
     expect(check(edit(GOLDEN_GROUP, `      group: ${group}\n`)).length).toBeGreaterThan(0);
   });
 
-  it('golden-paths concurrency given an extra key', () => {
+  it('golden-chunks concurrency given an extra key', () => {
     expect(check(edit(`${GOLDEN_GROUP}      cancel-in-progress: false\n`, `${GOLDEN_GROUP}      cancel-in-progress: false\n      queue: max\n`)).length).toBeGreaterThan(0);
   });
 
@@ -230,7 +262,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it.each([
-    ['golden-paths', GOLDEN_PERMS],
+    ['golden-chunks', GOLDEN_PERMS],
     ['static', QUALITY_PERMS],
     ['velo', VELO_PERMS],
   ])('%s widening its own token', (_job, from) => {
@@ -247,7 +279,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
   it.each([
     ['static', QUALITY_CHECKOUT],
     ['velo', VELO_CHECKOUT],
-    ['golden-paths', GOLDEN_CHECKOUT],
+    ['golden-chunks', GOLDEN_CHECKOUT],
   ])('%s leaving its read token in .git/config (persist-credentials dropped or true)', (_job, from) => {
     expect(check(edit(from, from.replace('          persist-credentials: false\n', ''))).length).toBeGreaterThan(0);
     expect(check(edit(from, from.replace('persist-credentials: false', 'persist-credentials: true'))).length).toBeGreaterThan(0);
@@ -266,7 +298,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
     expect(check(edit(`${VELO_HEADER}    needs: route\n    runs-on: ${STATIC_RUNS_ON}\n`, `${VELO_HEADER}    needs: route\n    runs-on: [nonexistent-label]\n`)).length).toBeGreaterThan(0);
     expect(check(edit(`    needs: route\n    runs-on: ${STATIC_RUNS_ON}\n    # Hosted: 40`, `    needs: route\n    runs-on: [nonexistent-label]\n    # Hosted: 40`)).length).toBeGreaterThan(0);
     expect(check(edit(`  route:\n    name: CI route\n    runs-on: ${LIGHT}\n`, '  route:\n    name: CI route\n    runs-on: [nonexistent-label]\n')).length).toBeGreaterThan(0);
-    expect(check(edit(`    if: \${{ always() }}\n    runs-on: ${LIGHT}\n`, '    if: ${{ always() }}\n    runs-on: [nonexistent-label]\n')).length).toBeGreaterThan(0);
+    expect(check(edit(`${Q}    if: \${{ always() }}\n    runs-on: ${LIGHT}\n`, `${Q}    if: \${{ always() }}\n    runs-on: [nonexistent-label]\n`)).length).toBeGreaterThan(0);
   });
 
   it('the quality job removed or renamed', () => {
@@ -277,9 +309,9 @@ describe('refuses every way found to keep the job green while skipping gates', (
 
 describe('the required check passes only when both gate groups passed', () => {
   const cases: Array<[string, string]> = [
-    ['aggregator skipped when a group fails (if: success())', edit("    if: ${{ always() }}\n", '    if: ${{ success() }}\n')],
-    ['aggregator without if (skipped, which counts as passing)', edit("    if: ${{ always() }}\n", '')],
-    ['aggregator if: !cancelled() (a cancelled run skips the required check)', edit("    if: ${{ always() }}\n", '    if: ${{ !cancelled() }}\n')],
+    ['aggregator skipped when a group fails (if: success())', edit(Q + "    if: ${{ always() }}\n", Q + '    if: ${{ success() }}\n')],
+    ['aggregator without if (skipped, which counts as passing)', edit(Q + "    if: ${{ always() }}\n", Q)],
+    ['aggregator if: !cancelled() (a cancelled run skips the required check)', edit(Q + "    if: ${{ always() }}\n", Q + '    if: ${{ !cancelled() }}\n')],
     ['aggregator stops waiting for velo', edit('    needs: [route, static, velo]\n', '    needs: [route, static]\n')],
     ['aggregator ignores the velo result', edit(AGGREGATE, AGGREGATE.replace(' && [ "$VELO" = "success" ]', ''))],
     ['aggregator accepts any static result', edit(AGGREGATE, AGGREGATE.replace(' && [ "$STATIC" = "success" ]', ''))],
