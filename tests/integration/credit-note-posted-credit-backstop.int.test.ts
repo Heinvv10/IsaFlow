@@ -20,6 +20,7 @@ vi.mock('@/modules/accounting/services/shared/creditNotePostedCredit', async (im
 });
 
 import { sql } from '@/lib/neon';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { applyCreditNoteToDocument } from '@/modules/accounting/services/shared/creditNoteDocumentApply';
 import { adjustCreditNoteApplication } from '@/modules/accounting/services/shared/creditNoteApplicationAdjust';
 import { CreditNotePostedCreditError } from '@/modules/accounting/services/shared/creditNotePostedCredit';
@@ -65,7 +66,7 @@ describeIfDb('posted-credit invariant backstop', () => {
     const err = await thrown(inTx(fx, () => applyCreditNoteToDocument(
       fx.companyId, { creditNoteId: note, invoiceId: bill }, fx.userId)));
 
-    expect(err.message).toContain('R99.99');
+    expect(err.message).toContain(formatMoney(99.99));
     expect(await state(note, bill)).toEqual({ rows: 0, applied: 0, paid: 0 });
   });
 

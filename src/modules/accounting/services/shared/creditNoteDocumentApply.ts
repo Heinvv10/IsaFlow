@@ -23,6 +23,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
 import { invoiceFloor, round2 } from './autoAllocateStrategy';
 import { APPLICABLE_CREDIT_NOTE_STATUSES } from './autoApplyBackfillApply';
@@ -261,8 +262,8 @@ async function buildPlan(
   const postedLeft = round2(posted - appliedBefore);
   if (postedLeft <= invoiceFloor(side)) {
     throw new CreditNoteApplyRefusal(
-      `Credit note ${number}'s journal put R${posted.toFixed(2)} on the control account and R${appliedBefore.toFixed(2)} `
-      + `is already applied; R${round2(total - posted).toFixed(2)} of its R${total.toFixed(2)} total was never posted, so it cannot be applied.`,
+      `Credit note ${number}'s journal put ${formatMoney(posted)} on the control account and ${formatMoney(appliedBefore)} `
+      + `is already applied; ${formatMoney(round2(total - posted))} of its ${formatMoney(total)} total was never posted, so it cannot be applied.`,
     );
   }
 

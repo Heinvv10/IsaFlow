@@ -27,6 +27,8 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { hasWholeCents } from '@/lib/money/wholeCents';
 import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
 import { EPS, invoiceFloor, round2 } from './autoAllocateStrategy';
@@ -78,7 +80,6 @@ export interface CreditNoteAdjustResult {
 /** The statuses a note can carry applications in. A draft has none; a cancelled note gave them back. */
 const ADJUSTABLE_NOTE = new Set(['approved', 'partially_applied', 'applied']);
 const HALF_CENT = 0.005;
-const money = (n: number) => `R${n.toFixed(2)}`;
 
 /** Every guard, from reads alone. The dry run returns this. */
 export async function planCreditNoteApplicationAdjust(
@@ -142,7 +143,7 @@ function checkNote(note: DbRow | null, input: CreditNoteAdjustInput): { note: Db
     throw new CreditNoteAdjustRefusal(`Credit note ${number} is ${status}; its applications cannot be adjusted.`);
   }
   const n = input.newAmount;
-  if (!Number.isFinite(n) || n < 0 || Number(n.toFixed(2)) !== n) {
+  if (n < 0 || !hasWholeCents(n)) {
     throw new CreditNoteAdjustRefusal('new_amount must be zero or a positive amount in whole cents.');
   }
   return { note, side: note.type === 'supplier' ? 'supplier' : 'customer' };
@@ -187,7 +188,7 @@ async function buildPlan(
   const change = round2(appliedAfter - appliedBefore);
   if (Math.abs(change) < HALF_CENT) {
     throw new CreditNoteAdjustRefusal(
-      `Credit note ${number} already has ${money(appliedBefore)} applied to document ${docNumber}; nothing to change.`,
+      `Credit note ${number} already has ${formatMoney(appliedBefore)} applied to document ${docNumber}; nothing to change.`,
     );
   }
 
@@ -202,13 +203,13 @@ async function buildPlan(
   const paid = round2(Number(doc.amount_paid));
   if (appliedBefore > 0 && paid + EPS < appliedBefore) {
     throw new CreditNoteAdjustRefusal(
-      `Document ${docNumber} shows ${money(paid)} settled, less than the ${money(appliedBefore)} credit note ${number} `
+      `Document ${docNumber} shows ${formatMoney(paid)} settled, less than the ${formatMoney(appliedBefore)} credit note ${number} `
       + 'applied to it; its balance and the allocation disagree. Reconcile it by hand.',
     );
   }
   if (appliedAfter > 0 && appliedAfter <= invoiceFloor(side)) {
     throw new CreditNoteAdjustRefusal(
-      `The smallest amount that can stay applied is ${money(invoiceFloor(side) + 0.01)}; pass 0 to take it all back.`,
+      `The smallest amount that can stay applied is ${formatMoney(invoiceFloor(side) + 0.01)}; pass 0 to take it all back.`,
     );
   }
 
@@ -218,18 +219,18 @@ async function buildPlan(
     const postedLeft = round2(posted - noteAppliedBefore);
     if (change > remainder + HALF_CENT) {
       throw new CreditNoteAdjustRefusal(
-        `Credit note ${number} has only ${money(Math.max(0, remainder))} unapplied; ${money(change)} more cannot be applied.`,
+        `Credit note ${number} has only ${formatMoney(Math.max(0, remainder))} unapplied; ${formatMoney(change)} more cannot be applied.`,
       );
     }
     if (change > postedLeft + HALF_CENT) {
       throw new CreditNoteAdjustRefusal(
-        `Credit note ${number}'s journal put ${money(posted)} on the control account and ${money(noteAppliedBefore)} is `
-        + `applied; ${money(change)} more would apply credit that was never posted.`,
+        `Credit note ${number}'s journal put ${formatMoney(posted)} on the control account and ${formatMoney(noteAppliedBefore)} is `
+        + `applied; ${formatMoney(change)} more would apply credit that was never posted.`,
       );
     }
     if (change > outstanding + HALF_CENT) {
       throw new CreditNoteAdjustRefusal(
-        `Document ${docNumber} has only ${money(outstanding)} outstanding; ${money(change)} more cannot be applied.`,
+        `Document ${docNumber} has only ${formatMoney(outstanding)} outstanding; ${formatMoney(change)} more cannot be applied.`,
       );
     }
   }

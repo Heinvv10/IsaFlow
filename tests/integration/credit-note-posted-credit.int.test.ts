@@ -13,6 +13,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from '@/lib/neon';
+import { formatMoney } from '@/lib/money/formatMoney';
 import {
   applyCreditNoteToDocument, planCreditNoteToDocument, CreditNoteApplyRefusal,
 } from '@/modules/accounting/services/shared/creditNoteDocumentApply';
@@ -67,7 +68,7 @@ describeIfDb('credit-note applications are backed by the posted journal', () => 
     await dropFixture(fx);
   }, 120000);
 
-  it('a note approved in ISAFlow posts its whole total and still applies in full', async () => {
+  it('a note approved in IsaFlow posts its whole total and still applies in full', async () => {
     const bill = await seedBill(fx, { number: 'OK1', date: '2026-02-01', total: 500 });
     const created = await inTx(fx, () => createCreditNote(fx.companyId, {
       type: 'supplier', supplierId: fx.supplierId, creditDate: '2026-03-01', subtotal: 100, taxRate: 15,
@@ -108,7 +109,7 @@ describeIfDb('credit-note applications are backed by the posted journal', () => 
     expect(r.amount).toBe(49.99);
 
     const msg = await refusal(apply({ creditNoteId: note, invoiceId: inv2 }));
-    expect(msg).toContain('R49.99');
+    expect(msg).toContain(formatMoney(49.99));
     expect(await refusal(plan({ creditNoteId: note, invoiceId: inv2 }))).toBe(msg);
     expect(await allocated(note)).toBe(49.99);
   });
@@ -132,7 +133,7 @@ describeIfDb('credit-note applications are backed by the posted journal', () => 
     const err = await inTx(fx, () => assertApplicationWithinPostedCredit(fx.companyId, row[0]!, 'supplier', 100))
       .then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(CreditNotePostedCreditError);
-    expect((err as Error).message).toContain('R99.99');
+    expect((err as Error).message).toContain(formatMoney(99.99));
 
     const okay = await inTx(fx, () => assertApplicationWithinPostedCredit(fx.companyId, row[0]!, 'supplier', 99.99));
     expect(okay.posted).toBe(99.99);

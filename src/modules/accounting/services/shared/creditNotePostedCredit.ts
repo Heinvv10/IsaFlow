@@ -19,10 +19,11 @@
  * receivable, a supplier note DEBITS the payable, on accounts typed by subtype.
  * An approval posts its control leg through `getSystemAccount('receivable' |
  * 'payable')`, which resolves by that same subtype, so a note approved in
- * ISAFlow always reads its full total here.
+ * IsaFlow always reads its full total here.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { PAYABLE_SUBTYPES, RECEIVABLE_SUBTYPES } from '../gl/accountSubtypes';
 import { round2 } from './autoAllocateStrategy';
 import type { CreditNoteSide } from './creditNoteFifo';
@@ -105,8 +106,8 @@ export async function assertApplicationWithinPostedCredit(
   const credit = await readNotePostedCredit(companyId, note, side);
   if (round2(appliedAfter) > credit.posted + HALF_CENT) {
     throw new CreditNotePostedCreditError(
-      `Credit note ${String(note.credit_note_number ?? '')} would have R${round2(appliedAfter).toFixed(2)} applied, `
-      + `but its journal put only R${credit.posted.toFixed(2)} on the control account. An application must be `
+      `Credit note ${String(note.credit_note_number ?? '')} would have ${formatMoney(round2(appliedAfter))} applied, `
+      + `but its journal put only ${formatMoney(credit.posted)} on the control account. An application must be `
       + 'backed by the posted amount; nothing was recorded.',
     );
   }

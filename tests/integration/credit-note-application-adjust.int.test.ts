@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from '@/lib/neon';
+import { formatMoney } from '@/lib/money/formatMoney';
 import {
   adjustCreditNoteApplication, planCreditNoteApplicationAdjust, CreditNoteAdjustRefusal,
   type CreditNoteAdjustInput,
@@ -137,8 +138,8 @@ describeIfDb('adjust a credit note application, over a real ledger', () => {
     const short = await seedPostedNote(fx, { side: 'supplier', number: 'NB2', total: 100, posted: 99.99 });
 
     for (const run of [plan, adjust]) {
-      expect(await refusal(run({ creditNoteId: note, documentId: small, newAmount: 60 }))).toContain('only R50.00 outstanding');
-      expect(await refusal(run({ creditNoteId: note, documentId: big, newAmount: 100.01 }))).toContain('only R100.00 unapplied');
+      expect(await refusal(run({ creditNoteId: note, documentId: small, newAmount: 60 }))).toContain(`only ${formatMoney(50)} outstanding`);
+      expect(await refusal(run({ creditNoteId: note, documentId: big, newAmount: 100.01 }))).toContain(`only ${formatMoney(100)} unapplied`);
       expect(await refusal(run({ creditNoteId: short, documentId: big, newAmount: 100 }))).toContain('never posted');
     }
     expect((await adjust({ creditNoteId: short, documentId: big, newAmount: 99.99 })).noteAppliedAfter).toBe(99.99);
