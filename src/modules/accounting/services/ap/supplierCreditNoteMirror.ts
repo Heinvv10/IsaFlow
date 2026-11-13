@@ -22,10 +22,16 @@
  * credit note for the same base — because that is the double reversal, and the
  * journals that did it are found partly by heuristic.
  *
- * The figure is fixed on the draft. Approval does not re-read it: a note or
- * journal posted against the bill between create and approve is not seen.
+ * Drafts count: every other live, unposted (draft) note on the bill is taken off
+ * the base and VAT first, under the bill's credit-note key, so two mirrored
+ * drafts cannot each take the whole remaining VAT. The figure is then fixed on
+ * the draft; approval does not re-read it — a NON-mirrored note or a journal
+ * posted against the bill after this create is not seen (open: needs a marker
+ * on the note to re-check only mirrored notes at approve).
  */
+import { sql } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { lockInvoiceCreditNotes } from '../ar/creditNotePostingChecks';
 import { getDocumentVatHistory, type DocumentVatHistory, type DocumentVatLine } from '../reports/documentVatHistory';
 
 const r2 = (n: number): number => Math.round(n * 100) / 100;
@@ -44,6 +50,9 @@ export interface MirrorPlan {
   adjustingJournals: { entry_number: string | null; tie: string; vat_amount: number }[];
 }
 
+/** A live note on the bill that has not posted yet (a draft): it will take its subtotal and VAT when approved. */
+export interface UnpostedNote { id: string; credit_note_number: string | null; subtotal: number; tax_amount: number }
+
 export type MirrorDecision =
   | { ok: true; plan: MirrorPlan; acknowledged: boolean }
   | { ok: false; reason: string };
@@ -60,20 +69,31 @@ function adjusting(lines: readonly DocumentVatLine[]): MirrorPlan['adjustingJour
 }
 
 /** Pure: the mirrored note's VAT, or why it cannot be mirrored. */
-export function planMirroredNote(h: DocumentVatHistory, subtotal: number, acknowledged: boolean): MirrorDecision {
-  const { vat_posted: vatPosted, vat_net_now: vatNetNow, net_base_posted: basePosted, net_base_now: baseNow } = h.totals;
+export function planMirroredNote(
+  h: DocumentVatHistory, subtotal: number, acknowledged: boolean, unposted: readonly UnpostedNote[] = [],
+): MirrorDecision {
+  const { vat_posted: vatPosted, net_base_posted: basePosted } = h.totals;
+  // What the bill carries once every unposted draft on it is approved: two drafts must not each take the same VAT.
+  const baseNow = r2(h.totals.net_base_now - unposted.reduce((s, n) => s + n.subtotal, 0));
+  const vatNetNow = r2(h.totals.vat_net_now - unposted.reduce((s, n) => s + n.tax_amount, 0));
   const bill = h.document_number;
+  // A retry of a mirrored create meets its own first draft here: say so, rather than only "nothing left".
+  const same = unposted.find((n) => Math.abs(n.subtotal - subtotal) <= 0.005);
+  const retryHint = same
+    ? ` Draft credit note ${same.credit_note_number ?? same.id} (id ${same.id}) for the same subtotal is already open on this bill: if this is a retry, approve that one with approve_credit_note.`
+    : '';
   if (basePosted <= 0) {
     return { ok: false, reason: `Bill ${bill} has no posted journal with an expense base to mirror (status ${h.document_status}). Approve it first, or raise the note without mirror_bill.` };
   }
   if (baseNow <= 0.005) {
-    return { ok: false, reason: `Bill ${bill} carries nothing any more: its credit notes and reversals have taken its whole base (${fmt(basePosted)}). There is nothing to mirror.` };
+    return { ok: false, reason: `Bill ${bill} carries nothing any more: its credit notes (draft ones included) and reversals take its whole base (${fmt(basePosted)}). There is nothing to mirror.${retryHint}` };
   }
   if (subtotal > baseNow + 0.005) {
-    return { ok: false, reason: `subtotal ${fmt(subtotal)} is more than the ${fmt(baseNow)} bill ${bill} still carries after its credit notes and reversals. A mirrored note cannot credit more than the bill has left; lower the subtotal, or raise the note without mirror_bill.` };
+    return { ok: false, reason: `subtotal ${fmt(subtotal)} is more than the ${fmt(baseNow)} bill ${bill} still carries after its credit notes (draft ones included) and reversals. A mirrored note cannot credit more than the bill has left; lower the subtotal, or raise the note without mirror_bill.${retryHint}` };
   }
   const postedRate = vatPosted / basePosted;
-  const adjustingJournals = adjusting(h.lines);
+  const adjustingJournals = [...adjusting(h.lines), ...unposted.filter((n) => n.tax_amount !== 0)
+    .map((n) => ({ entry_number: n.credit_note_number, tie: 'draft_credit_note', vat_amount: r2(-n.tax_amount) }))];
   const tolerance = 0.01 * (1 + adjustingJournals.length);
   const outOfProportion = r2(baseNow * postedRate - vatNetNow);
   const rateNow = Math.max(0, vatNetNow) / baseNow;
@@ -100,10 +120,26 @@ export function planMirroredNote(h: DocumentVatHistory, subtotal: number, acknow
   return { ok: true, plan, acknowledged };
 }
 
+/** Every live supplier note linked to the bill that has not posted (status draft), in creation order. */
+export async function readUnpostedBillNotes(companyId: string, billId: string): Promise<UnpostedNote[]> {
+  const rows = (await sql`
+    SELECT cn.id, cn.credit_note_number, cn.subtotal, cn.tax_amount FROM credit_notes cn
+    WHERE cn.company_id = ${companyId}::UUID AND cn.supplier_invoice_id = ${billId}::UUID
+      AND cn.type = 'supplier' AND cn.status = 'draft'
+    ORDER BY cn.created_at, cn.id`) as { id: string; credit_note_number: string | null; subtotal: unknown; tax_amount: unknown }[];
+  return rows.map((r) => ({ id: String(r.id), credit_note_number: r.credit_note_number, subtotal: Number(r.subtotal), tax_amount: Number(r.tax_amount ?? 0) }));
+}
+
+/**
+ * Call inside the request transaction that then creates the note: the bill's credit-note key
+ * (`lockInvoiceCreditNotes`, the key approveCreditNote takes after its note row) is held until it
+ * commits, so two mirrored creates on one bill are serialised and the second sees the first's draft.
+ */
 export async function planMirroredSupplierNote(
   companyId: string, supplierInvoiceId: string, subtotal: number, acknowledged: boolean,
 ): Promise<MirrorDecision> {
+  await lockInvoiceCreditNotes(supplierInvoiceId);
   const history = await getDocumentVatHistory(companyId, 'supplier_invoice', supplierInvoiceId);
   if (!history) return { ok: false, reason: 'Not found' };
-  return planMirroredNote(history, subtotal, acknowledged);
+  return planMirroredNote(history, subtotal, acknowledged, await readUnpostedBillNotes(companyId, supplierInvoiceId));
 }

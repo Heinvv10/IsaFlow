@@ -84,3 +84,28 @@ describe('planMirroredNote', () => {
     expect(planMirroredNote(h, 579.71, false)).toMatchObject({ ok: true, plan: { taxAmount: 86.94 } });
   });
 });
+
+describe('planMirroredNote — unposted drafts on the bill count', () => {
+  const clean = () => history({ vat_posted: 150, vat_net_now: 150, net_base_posted: 1000, net_base_now: 1000 });
+  const draft = (subtotal: number, tax: number, n = 'CN-9') => ({ id: `id-${n}`, credit_note_number: n, subtotal, tax_amount: tax });
+
+  it('a second mirrored draft gets only what the first left: base and VAT less the open draft', () => {
+    expect(planMirroredNote(clean(), 500, false, [draft(500, 75)]))
+      .toMatchObject({ ok: true, plan: { taxAmount: 75, netBaseNow: 500, vatNetNow: 75 } });
+    expect(planMirroredNote(clean(), 600, false, [draft(500, 75)]))
+      .toMatchObject({ ok: false, reason: expect.stringContaining(`more than the ${formatMoney(500)}`) });
+  });
+
+  it('a retry that meets its own first draft is told to approve that draft', () => {
+    const r = planMirroredNote(clean(), 1000, false, [draft(1000, 150, 'CN-7')]);
+    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('nothing to mirror') });
+    expect((r as { reason: string }).reason).toContain('CN-7 (id id-CN-7) for the same subtotal is already open');
+  });
+
+  it('a draft at 15% on a zero-rated bill is VAT out of proportion: refused, named, and acknowledged mirrors none', () => {
+    const zero = history({ vat_posted: 0, vat_net_now: 0, net_base_posted: 1000, net_base_now: 1000 });
+    const r = planMirroredNote(zero, 500, false, [draft(500, 75, 'CN-8')]);
+    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining(`CN-8 draft_credit_note ${formatMoney(-75)}`) });
+    expect(planMirroredNote(zero, 500, true, [draft(500, 75, 'CN-8')])).toMatchObject({ ok: true, plan: { taxAmount: 0 } });
+  });
+});
