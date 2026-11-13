@@ -109,8 +109,10 @@ describe('refusals', () => {
     expect(createComment).not.toHaveBeenCalled();
   });
   it('maps the service errors: 404, 403, 400', async () => {
-    vi.mocked(createComment).mockRejectedValueOnce(new CommentError(404, 'Record not found'));
-    expect((await run('POST', 'owner', POST)).status).toBe(404);
+    vi.mocked(createComment).mockRejectedValueOnce(new CommentError(404, 'Record'));
+    const nf = await run('POST', 'owner', POST);
+    expect(nf.status).toBe(404);
+    expect((nf.body as { error?: { message?: string } }).error?.message).toBe('Record not found');
     vi.mocked(editComment).mockRejectedValueOnce(new CommentError(403, 'not yours'));
     expect((await run('PUT', 'owner', { query: { id: ID }, body: { body: 'x' } })).status).toBe(403);
     vi.mocked(deleteComment).mockRejectedValueOnce(new CommentError(400, 'bad'));

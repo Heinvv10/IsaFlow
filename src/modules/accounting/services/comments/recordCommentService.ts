@@ -55,7 +55,7 @@ const SELECT_ONE = (companyId: string, id: string) => sql`
  */
 export async function listComments(companyId: string, userId: string, type: CommentRecordType, recordId: string, canComment: boolean):
 Promise<{ comments: RecordComment[]; mentionable: Mentionable[]; olderHidden: number }> {
-  if (!(await findCommentRecord(companyId, type, recordId))) throw new CommentError(404, 'Record not found');
+  if (!(await findCommentRecord(companyId, type, recordId))) throw new CommentError(404, 'Record');
   // The newest MAX_COMMENTS_PER_RECORD, shown oldest first; `olderHidden` counts any beyond that.
   const rows = (await sql`
     SELECT * FROM (
@@ -113,7 +113,7 @@ export async function createComment(
 ): Promise<RecordComment> {
   await assertNotImpersonating(); // first, before any read or write
   const record = await findCommentRecord(companyId, type, recordId);
-  if (!record) throw new CommentError(404, 'Record not found');
+  if (!record) throw new CommentError(404, 'Record');
   const body = cleanCommentBody(rawBody);
   const mentions = cleanMentions(rawMentions, userId);
   await assertMembers(companyId, mentions);
@@ -134,7 +134,7 @@ export async function createComment(
 /** The caller's own live comment, or the CommentError that explains why not (404 absent/deleted/other company, 403 not theirs). */
 async function ownLiveComment(companyId: string, userId: string, id: string): Promise<DbRow> {
   const row = ((await SELECT_ONE(companyId, id)) as DbRow[])[0];
-  if (!row || row.deleted_at != null) throw new CommentError(404, 'Comment not found');
+  if (!row || row.deleted_at != null) throw new CommentError(404, 'Comment');
   if (String(row.author_id) !== userId) throw new CommentError(403, 'You can change only your own comments');
   return row;
 }

@@ -11,7 +11,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const id = UUID.safeParse(req.query.id);
   if (!id.success) return apiResponse.badRequest(res, 'id is required');
   const line = await getBankTransactionById(req.companyId, id.data);
-  return line ? apiResponse.success(res, line) : apiResponse.notFound(res, 'Bank line not found');
+  return line ? apiResponse.success(res, line) : apiResponse.notFound(res, 'Bank line');
 }
 
 export default withAuth(withErrorHandler(withWriteAccess(handler)));
