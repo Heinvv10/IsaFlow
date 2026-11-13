@@ -15,6 +15,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { runRecurringJournalsTool } from '@/lib/mcp/tools/writeRunRecurringJournals';
 import { createRecurringJournalTool, deactivateRecurringJournalTool } from '@/lib/mcp/tools/writeRecurringJournals';
+import {
+  createRecurringJournal, updateRecurringJournalStatus,
+} from '@/modules/accounting/services/gl/recurringJournalService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupPr6 } from './r035-pr6.helpers';
 import { backendPid, waitUntilBlocked } from './helpers/lockWait';
@@ -163,5 +166,19 @@ describe('run_recurring_journals over a real database', () => {
        ORDER BY debit DESC`, [co.c])).rows;
     expect(lines.map((l) => [l.gl_account_id, Number(l.dr), Number(l.cr)]))
       .toEqual([[co.exp, 99.99, 0], [co.accrual, 0, 99.99]]);
+  });
+
+  it('the app\'s create still makes posting templates; a status change is predicated on the status read', async () => {
+    const co = await company(pool, user, [cal.prev, cal.cur], companies);
+    const made = await request(pool, co, user, () => createRecurringJournal(co.c, {
+      templateName: 'UI', frequency: 'monthly', nextRunDate: day(cal.cur, 1),
+      lines: [{ glAccountId: co.exp, debit: 10, credit: 0 }, { glAccountId: co.accrual, debit: 0, credit: 10 }],
+    }, user));
+    expect(made.autoPost).toBe(true); // migration 989's default: the app never sends the field
+
+    await pool.query("UPDATE recurring_journals SET status = 'cancelled' WHERE id = $1", [made.id]);
+    await expect(request(pool, co, user, () => updateRecurringJournalStatus(co.c, made.id, 'active', 'paused')))
+      .rejects.toThrow(/not found/);
+    expect((await templateState(pool, made.id)).status).toBe('cancelled');
   });
 });
