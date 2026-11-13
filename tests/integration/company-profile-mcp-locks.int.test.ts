@@ -122,4 +122,36 @@ describe('lock order against a concurrent post and a concurrent VAT lock', () =>
     expect(text(r)).toContain('vat_period_lock 2026-09-01..2026-10-31');
     expect(await row()).toMatchObject({ vat_period_alignment: 'odd' });
   }, 30000);
+  it('a path holding the shared VAT key that then UPDATEs the company row is not deadlocked either (the order itself, whatever the row-lock mode)', async () => {
+    const p = await pool.connect();
+    try {
+      await p.query('BEGIN');
+      await asClient(p, () => takeVatLockShared(company));
+      const tool = startTool({ vat_category: 'B' });
+      await toolIsWaiting();
+      await p.query(`SET LOCAL lock_timeout = '2s'`);
+      await p.query(`UPDATE companies SET website = 'https://example.invalid' WHERE id = $1`, [company]);
+      await p.query('COMMIT');
+      expect((await tool).isError).toBeUndefined();
+    } finally {
+      await p.query('ROLLBACK').catch(() => undefined);
+      p.release();
+    }
+  }, 30000);
+
+  it('the row lock is FOR NO KEY UPDATE: a concurrent FK KEY SHARE on the company does not make a number-only change wait', async () => {
+    const p = await pool.connect();
+    try {
+      await p.query('BEGIN');
+      await p.query('SELECT id FROM companies WHERE id = $1 FOR KEY SHARE', [company]);
+      const tool = startTool({ income_tax_number: '9123456789' });
+      const first = await Promise.race([tool, new Promise<'waited'>((res) => setTimeout(() => res('waited'), 3000))]);
+      expect(first).not.toBe('waited');
+      await p.query('COMMIT');
+      await tool;
+    } finally {
+      await p.query('ROLLBACK').catch(() => undefined);
+      p.release();
+    }
+  }, 30000);
 });
