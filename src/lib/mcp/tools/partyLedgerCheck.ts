@@ -17,6 +17,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import {
   partyLedgerCheck,
   documentSortKey,
+  PartyTooLargeError,
 } from '@/modules/accounting/services/reconciliation/partyLedgerCheckService';
 import type { PartyDocument, PartyType } from '@/modules/accounting/services/reconciliation/partyLedgerTypes';
 import {
@@ -41,6 +42,8 @@ export const partyLedgerCheckTool: McpTool = {
     'REASON CLASSES (statement_vs_gl): document_not_linked_to_journal (an invoice/bill with no journal link), settlement_with_no_journal (a payment, credit note or write-off that reduces the balance but posted nothing), journal_not_posted (linked journal is draft or missing), journal_dated_after_as_at, reversed_journal_live_document (journal reversed while the document is live), excluded_document_has_live_journal (statement leaves it off, e.g. cancelled, but its journal still stands), posted_to_non_control_account (the value went to accounts not typed as the control account; postedTo names them), journal_amount_differs, write_off_not_on_statement (statements do not list write-offs, so the invoice still shows as owed), unclassified_difference (nothing above explains it). SUBLEDGER-TRAIL classes: amount_paid_differs_from_allocations and applied_differs_from_allocations -- the document says it is settled by an amount its allocation rows do not support (a bank-match confirmation writes amount_paid with no allocation row). ' +
     'TOTALS: statementBalance (the statement service), agedNet (the open documents aged_debtors/aged_creditors list for this party, disputes not taken out), glControlNet (sum of the documents\' own journals on the control accounts), statementMinusGl, classifiedDifference (what the named classes carry), unexplainedResidual (the rest), and agedBridge, which accounts for agedNet minus statementBalance with unapplied cash, unapplied credit and write-offs. ' +
     'READ THIS BEFORE RELYING ON IT. unexplainedResidual of 0.00 is necessary and NOT sufficient: it says every difference has a name, not that the names are right. Check the invariants block (each {name, holds, detail}); a failing one means a statement line has no document row or the two readers disagree about which documents are open. A bare journal names no party, so journals no document claims cannot be attributed to this party: `unattributed` counts them COMPANY-WIDE and they are outside this party\'s totals -- if the party has a gap no document explains, look there (reconcile_subledger itemises them). ' +
+    'SHARED JOURNALS. One journal can carry several documents (a split bank allocation naming several contacts; a supplier batch posts one journal for all its members). Journal lines name no party, so a document\'s own leg is counted only when provable: the journal\'s control lines match its documents\' amounts one to one, or the batch total equals the control line. Otherwise the documents get class shared_journal_unattributable, carry no GL view, and are left OUT of statementMinusGl (totals.sharedJournalUnattributable counts them), so the gap is never silently smaller. gl.attribution says which rule applied. ' +
+    'COST. Every document of the party is read and compared before detail or limit apply, so summary costs the same as full (a few queries plus one journal-chain walk per document). A party with more than 20,000 documents on or before as_at is refused with the count; use an earlier as_at. ' +
     'detail: "summary" = totals, control accounts, invariants and the party only (small); "standard" (default) = only the FLAGGED documents; "full" = every document, clean ones included. standard and full are paginated: call again with cursor until next_cursor is null. Follow an id with get_invoice, get_supplier_invoice, get_credit_note, list_supplier_payments or list_journals. Read-only; needs read:reports like the statement tools.',
   scope: 'read:reports',
   write: false,
@@ -80,7 +83,14 @@ export const partyLedgerCheckTool: McpTool = {
     }
 
     // companyId from ctx ONLY. A party in another tenant reads exactly like a miss.
-    const check = await partyLedgerCheck(ctx.companyId, partyType as PartyType, partyId, asAt);
+    let check;
+    try {
+      check = await partyLedgerCheck(ctx.companyId, partyType as PartyType, partyId, asAt);
+    } catch (err) {
+      // Refused before any comparison ran; the message is the count and the way out.
+      if (err instanceof PartyTooLargeError) return toolError(err.message);
+      throw err;
+    }
     if (!check) return toolError(NOT_FOUND);
 
     const pool: PartyDocument[] = detail === 'full'

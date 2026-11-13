@@ -31,9 +31,16 @@ export type MismatchClass =
   | 'write_off_not_on_statement'
   | 'amount_paid_differs_from_allocations'
   | 'applied_differs_from_allocations'
-  | 'unclassified_difference';
+  | 'unclassified_difference'
+  | 'shared_journal_unattributable';
 
-export type FlagBridge = 'statement_vs_gl' | 'subledger_trail';
+/**
+ * statement_vs_gl      attributes the document's statement-minus-GL difference.
+ * subledger_trail      a settlement the document records that its allocation rows do not support.
+ * shared_journal       the document's journal is shared and its own leg cannot be told apart;
+ *                      OUTSIDE every difference and the residual.
+ */
+export type FlagBridge = 'statement_vs_gl' | 'subledger_trail' | 'shared_journal';
 
 export interface PartyFlag {
   class: MismatchClass;
@@ -89,8 +96,18 @@ export interface PartyDocument {
   gl: {
     journalId: string | null;
     journalStatus: string | null;
+    /** The document's OWN leg: the whole chain for a journal it alone claims, its attributed share of a shared one. */
     controlNet: number;
     reversalsInForce: number;
+    /**
+     * own             the journal is this document's alone.
+     * line_match      shared; the journal's control lines match its documents' amounts one to one.
+     * batch_total     shared by the members of one payment batch whose total equals the journal's control leg.
+     * unattributable  shared and neither holds: no leg is counted for it, and nothing it did is compared.
+     */
+    attribution: 'own' | 'line_match' | 'batch_total' | 'unattributable';
+    /** Ids of the other documents (any party) that carry the same journal. */
+    sharedWith: string[];
   };
   /** statement.effect minus gl.controlNet, to the cent. Null when the company has no control account to compare against. */
   difference: number | null;
@@ -116,7 +133,7 @@ export interface PartyLedgerTotals {
   agedNet: number;
   /** Net of the party's documents' own journals on the control accounts. Null when no control account exists. */
   glControlNet: number | null;
-  /** statementBalance - glControlNet. */
+  /** statementBalance less the documents on an unattributable shared journal, less glControlNet. */
   statementMinusGl: number | null;
   /** The part of it carried by a named class. */
   classifiedDifference: number | null;
@@ -131,6 +148,8 @@ export interface PartyLedgerTotals {
     amountPaidWithoutAllocation: number;
     unexplained: number;
   };
+  /** Documents whose journal is shared and cannot be split: their statement effect is out of statementMinusGl. */
+  sharedJournalUnattributable: { documents: number; statementEffect: number };
   documents: { total: number; flagged: number };
   byClass: FlagClassTotal[];
 }

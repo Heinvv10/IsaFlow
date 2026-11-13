@@ -19,7 +19,7 @@ reconciling items carrying document ids. Read-only. Consumed by the
 - `unappliedCreditNoteService.ts` — approved credit no document has consumed. AP has no credit-note leg in its subledger at all.
 - `reconciliationInvariants.ts` — what the reconciliation asserts about its own output. Returned, never thrown.
 - `reconcilingWarnings.ts` — `excludedRows` that are deliberately NOT items.
-- `partyLedgerCheckService.ts` (+ `partyLedgerInvoiceQuery`, `partyLedgerSettlementQueries`, `partyLedgerJournalLateral`, `partyLedgerClassify`, `partyLedgerTotals`, `partyLedgerTypes`) — ONE party's statement vs aged vs GL, per document (`party_ledger_check`). Joins the existing readers; adds only each document's own journal chain on the control accounts.
+- `partyLedgerCheckService.ts` (+ `partyLedgerInvoiceQuery`, `partyLedgerSettlementQueries`, `partyLedgerJournalLateral`, `partyLedgerClassify`, `partyLedgerTotals`, `partyLedgerTypes`, `partyLedgerSharedJournals` + `partyLedgerSharedAttribution` (the rule for a journal several documents carry: provable leg or unattributable), `partyLedgerStatementView`, `partyLedgerSize` (the 20,000-document cap)) — ONE party's statement vs aged vs GL, per document (`party_ledger_check`). Joins the existing readers; adds only each document's own journal chain on the control accounts.
 - `reconcilingItemTypes.ts`, `unappliedCashTypes.ts`, `reconciliationMath.ts` — shapes and the two shared arithmetic helpers.
 
 ## Caller contract

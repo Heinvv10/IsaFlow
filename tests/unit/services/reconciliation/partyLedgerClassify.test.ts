@@ -99,6 +99,32 @@ describe('buildDocument', () => {
   });
 });
 
+describe('shared journals', () => {
+  it('an unattributable document carries no GL view and its own flag, and no statement-vs-GL flag', () => {
+    const d = buildDocument(input(
+      { kind: 'payment', statementEffect: -100, total: 100, checkTrail: false, attribution: 'unattributable', sharedWith: ['x', 'y'] },
+      { controlNet: 0, controlLines: 0 },
+    ));
+    expect(d.difference).toBeNull();
+    expect(d.flags.map((f) => [f.class, f.bridge, f.amount])).toEqual([['shared_journal_unattributable', 'shared_journal', -100]]);
+    expect(d.gl).toMatchObject({ attribution: 'unattributable', sharedWith: ['x', 'y'] });
+  });
+
+  it('is left out of the gap on both sides and counted apart', () => {
+    const ok = buildDocument(input({ id: 'a' }));
+    const shared = buildDocument(input(
+      { id: 'b', kind: 'payment', statementEffect: -40, total: 40, checkTrail: false, attribution: 'unattributable', sharedWith: ['z'] },
+      { controlNet: 0, controlLines: 0 },
+    ));
+    const t = buildTotals({ documents: [ok, shared], statementBalance: 60, agedNet: 60, glAvailable: true });
+    expect(t).toMatchObject({
+      glControlNet: 100, statementMinusGl: 0, classifiedDifference: 0, unexplainedResidual: 0,
+      sharedJournalUnattributable: { documents: 1, statementEffect: -40 },
+    });
+    expect(t.byClass).toEqual([{ class: 'shared_journal_unattributable', count: 1, amount: -40 }]);
+  });
+});
+
 describe('totals and invariants', () => {
   const clean = buildDocument(input({ id: 'a' }));
   const noJournal = buildDocument(input({ id: 'b', total: 50, statementEffect: 50 }, { journalId: null, status: null, entryDate: null, controlNet: 0, controlLines: 0 }));

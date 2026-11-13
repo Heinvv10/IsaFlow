@@ -24,8 +24,14 @@ function sum(values: Iterable<number>): number {
 }
 
 export function buildTotals({ documents, statementBalance, agedNet, glAvailable }: TotalsInput): PartyLedgerTotals {
+  // A document on an unattributable shared journal has no leg of its own: it leaves the
+  // comparison on BOTH sides, and is counted apart so the gap is never silently smaller.
+  const unattributable = documents.filter((d) => d.gl.attribution === 'unattributable');
+  const unattributableEffect = sum(unattributable.map((d) => d.statement.effect));
   const glControlNet = glAvailable ? sum(documents.map((d) => d.gl.controlNet)) : null;
-  const statementMinusGl = glControlNet === null ? null : round2(statementBalance - glControlNet);
+  const statementMinusGl = glControlNet === null
+    ? null
+    : round2(statementBalance - unattributableEffect - glControlNet);
   const classified = glAvailable
     ? sum(documents.flatMap((d) => d.flags)
         .filter((f) => f.bridge === 'statement_vs_gl' && f.class !== 'unclassified_difference')
@@ -73,6 +79,7 @@ export function buildTotals({ documents, statementBalance, agedNet, glAvailable 
         agedMinusStatement - (unappliedCash + unappliedCredit + writeOffs + amountPaidWithoutAllocation),
       ),
     },
+    sharedJournalUnattributable: { documents: unattributable.length, statementEffect: unattributableEffect },
     documents: { total: documents.length, flagged: documents.filter((d) => d.flags.length > 0).length },
     byClass: totalsByClass(documents),
   };

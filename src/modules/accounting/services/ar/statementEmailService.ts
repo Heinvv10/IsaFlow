@@ -9,6 +9,7 @@ import { fmtDate as fmtDbDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
+import { paymentJournalJoin, paymentStoodAsAtColumn } from '../shared/paymentStoodAsAt';
 import { classifyStatementInvoice } from '../shared/statementInvoiceExclusion';
 import { creditNoteAppliedAmount } from '../shared/creditNoteAppliedAmount';
 import { sendEmail } from '../core/emailService';
@@ -102,9 +103,12 @@ export async function fetchStatementData(
     // overstating what they owe. Allocation is an internal matching detail; the
     // statement is an account-level document.
     sql`
+      -- live_at_as_at: cancelled SINCE the as-at date (shared/paymentStoodAsAt).
       SELECT cp.id, cp.payment_number, cp.payment_date, cp.status,
-        cp.total_amount AS amount_received
+        cp.total_amount AS amount_received,
+        ${paymentStoodAsAtColumn('cp', companyId, asAtDate)} AS live_at_as_at
       FROM customer_payments cp
+      ${paymentJournalJoin('cp', companyId, asAtDate)}
       WHERE cp.client_id = ${customerId}::UUID
         AND cp.company_id = ${companyId}::UUID
         AND cp.payment_date <= ${asAtDate}::DATE
@@ -151,7 +155,7 @@ export async function fetchStatementData(
   const LIVE_CREDIT_NOTE_STATUSES = new Set(['approved', 'partially_applied', 'applied']);
 
   for (const pmt of payments) {
-    const status = String(pmt.status ?? '');
+    const status = pmt.live_at_as_at === true ? 'confirmed' : String(pmt.status ?? '');
     if (!SETTLING_PAYMENT_STATUSES.has(status)) {
       excluded.push({
         id: String(pmt.id),

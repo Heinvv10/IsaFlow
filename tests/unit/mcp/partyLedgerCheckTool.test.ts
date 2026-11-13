@@ -11,10 +11,13 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 // Every fixture document is an invoice, so the kind alone is a faithful sort component.
 vi.mock('@/modules/accounting/services/reconciliation/partyLedgerCheckService', () => ({
   partyLedgerCheck: vi.fn(),
+  PartyTooLargeError: class PartyTooLargeError extends Error {
+    constructor(message: string) { super(message); }
+  },
   documentSortKey: (d: { date: string; kind: string; id: string }) => [d.date, d.kind, d.id],
 }));
 
-import { partyLedgerCheck } from '@/modules/accounting/services/reconciliation/partyLedgerCheckService';
+import { partyLedgerCheck, PartyTooLargeError } from '@/modules/accounting/services/reconciliation/partyLedgerCheckService';
 import { partyLedgerCheckTool } from '@/lib/mcp/tools/partyLedgerCheck';
 import { assertEnvelopeSound } from '@/lib/mcp/contracts';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
@@ -91,6 +94,17 @@ describe('party_ledger_check tool', () => {
   it('ignores a company id smuggled into the arguments', async () => {
     await run({ company_id: '99999999-9999-4999-8999-999999999999', companyId: '99999999-9999-4999-8999-999999999999' });
     expect(vi.mocked(partyLedgerCheck).mock.calls[0]![0]).toBe(CTX.companyId);
+  });
+
+  it('a party over the document cap is refused with the service\'s message, not a 500', async () => {
+    vi.mocked(partyLedgerCheck).mockRejectedValue(new PartyTooLargeError('30000 documents; use an earlier as_at'));
+    const res = await run({});
+    expect(res).toMatchObject({ isError: true, content: [{ text: '30000 documents; use an earlier as_at' }] });
+  });
+
+  it('any other failure still propagates (the registry audits it as an error)', async () => {
+    vi.mocked(partyLedgerCheck).mockRejectedValue(new Error('boom'));
+    await expect(run({})).rejects.toThrow('boom');
   });
 
   it('a party the company does not own reads exactly like a miss', async () => {

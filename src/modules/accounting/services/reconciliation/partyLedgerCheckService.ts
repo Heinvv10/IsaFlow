@@ -20,9 +20,8 @@
  * documents.
  */
 import { log } from '@/lib/logger';
+import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
-import { fetchStatementData } from '../ar/statementEmailService';
-import { fetchSupplierStatementData } from '../ap/supplierStatementService';
 import { fetchARAgingInvoices } from '../ar/arAgingInvoices';
 import { fetchAPAgingInvoices } from '../ap/apAgingInvoices';
 import { getControlAccountBalances } from '../gl/controlAccountService';
@@ -36,6 +35,9 @@ import {
   readPartyWriteOffs,
   type RawSettlement,
 } from './partyLedgerSettlementQueries';
+import { resolveSharedJournals, type JournalHolder } from './partyLedgerSharedJournals';
+import { readStatement, statementFields } from './partyLedgerStatementView';
+import { assertPartySize } from './partyLedgerSize';
 import { readOrphanControlPostings } from './orphanControlPostings';
 import { dropCancelledReversalPairs } from './orphanReversalPairs';
 import { round2 } from './reconciliationMath';
@@ -47,6 +49,8 @@ import type {
   UnattributedControlPostings,
 } from './partyLedgerTypes';
 
+export { PartyTooLargeError } from './partyLedgerSize';
+
 const EPOCH = '1970-01-01T00:00:00.000Z';
 const KIND_ORDER: Record<PartyDocKind, string> = { invoice: '0', credit_note: '1', payment: '2', write_off: '3' };
 
@@ -54,53 +58,17 @@ export function documentSortKey(d: Pick<PartyDocument, 'date' | 'kind' | 'id'>):
   return [d.date, KIND_ORDER[d.kind], d.id];
 }
 
-interface StatementView {
-  name: string;
-  balance: number;
-  effects: Map<string, number>;
-  excluded: Map<string, string>;
-}
-
-async function readStatement(
-  companyId: string,
-  partyType: PartyType,
-  partyId: string,
-  asAt: string,
-): Promise<StatementView | null> {
-  const isCustomer = partyType === 'customer';
-  const data = isCustomer
-    ? await fetchStatementData(companyId, partyId, asAt)
-    : await fetchSupplierStatementData(companyId, partyId, asAt);
-  if (!data) return null;
-  const effects = new Map<string, number>();
-  for (const t of data.transactions) {
-    if (!t.documentId) continue;
-    // Customer: invoices are debits, receipts and credit notes credits. Supplier: the mirror.
-    const effect = isCustomer ? t.debit - t.credit : t.credit - t.debit;
-    effects.set(t.documentId, (effects.get(t.documentId) ?? 0) + effect);
-  }
-  return {
-    name: 'customer' in data ? data.customer.name : data.supplier.name,
-    balance: data.summary.balance,
-    effects,
-    excluded: new Map(data.excluded.map((e) => [e.id, e.reason])),
-  };
-}
-
-function statementFields(view: StatementView, id: string, noStatementReason: string) {
-  const effect = view.effects.get(id);
-  if (effect !== undefined) return { statementEffect: effect, onStatement: true, excludedReason: null };
-  return { statementEffect: 0, onStatement: false, excludedReason: view.excluded.get(id) ?? noStatementReason };
-}
-
 async function readUnattributed(
-  companyId: string,
-  side: 'ar' | 'ap',
-  asAt: string,
-  ids: string[],
+  companyId: string, side: 'ar' | 'ap', asAt: string, ids: string[],
 ): Promise<UnattributedControlPostings> {
   if (ids.length === 0) return { scope: 'company', count: 0, net: 0 };
-  const rows = dropCancelledReversalPairs(await readOrphanControlPostings(companyId, side === 'ar', asAt, ids));
+  // A batch's journal is claimed by its member payments (processBatch writes it on the
+  // batch row only), so it is not a journal "no document" carries.
+  const batchJournals = new Set(((await sql`
+    SELECT gl_journal_entry_id AS id FROM supplier_payment_batches
+    WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id IS NOT NULL`) as Array<{ id: string }>).map((r) => String(r.id)));
+  const rows = dropCancelledReversalPairs(await readOrphanControlPostings(companyId, side === 'ar', asAt, ids))
+    .filter((r) => !batchJournals.has(String(r.id)));
   // control_credit is what must be ADDED to the control balance to reach the subledger,
   // so the journal's own movement in the statement orientation is its negation.
   return { scope: 'company', count: rows.length, net: round2(-rows.reduce((s, r) => s + Number(r.control_credit ?? 0), 0)) };
@@ -115,6 +83,7 @@ export async function partyLedgerCheck(
   try {
     const side = partyType === 'customer' ? 'ar' : 'ap';
     // SEQUENTIAL: every read runs on the one pg client the request's transaction holds.
+    await assertPartySize(side, companyId, partyId, asAtDate);
     const view = await readStatement(companyId, partyType, partyId, asAtDate);
     if (!view) return null;
 
@@ -135,12 +104,18 @@ export async function partyLedgerCheck(
     const payments = await readPartyPayments(side, q);
     const writeOffs = side === 'ar' ? await readPartyWriteOffs(q) : [];
 
+    // A journal several documents carry is split to each one's provable leg, or left out.
+    const holders: JournalHolder[] = [...invoices, ...notes, ...payments, ...writeOffs]
+      .map((r) => ({ id: r.id, journal: r.journal }));
+    const shared = await resolveSharedJournals(side, companyId, asAtDate, controlIds, holders);
+    const own = (id: string) => shared.get(id)!;
+
     const base = { asAt: asAtDate, glAvailable };
     const inputs: DocumentInput[] = [];
     for (const r of invoices) {
       inputs.push({
         ...base, kind: 'invoice', id: r.id, number: r.number, date: r.date, status: r.status,
-        total: r.total, journal: r.journal,
+        total: r.total, journal: own(r.id).journal, attribution: own(r.id).attribution, sharedWith: own(r.id).sharedWith,
         ...statementFields(view, r.id, 'not_in_statement'),
         settled: r.effectivePaid, outstanding: agedById.get(r.id) ?? 0,
         allocated: r.allocated, unapplied: null, checkTrail: r.inPopulation,
@@ -148,15 +123,16 @@ export async function partyLedgerCheck(
     }
     const settlement = (kind: PartyDocKind, r: RawSettlement, noStatement: string): DocumentInput => {
       const st = statementFields(view, r.id, noStatement);
-      const allocated = kind === 'write_off' ? null : r.allocated;
       let unapplied: number | null = null;
       if (st.onStatement && kind === 'payment') unapplied = r.total - r.allocated;
       if (st.onStatement && kind === 'credit_note') unapplied = -st.statementEffect - r.allocated;
       return {
         ...base, kind, id: r.id, number: r.number, date: r.date, status: r.status,
-        total: r.total, journal: r.journal, ...st,
+        total: r.total, journal: own(r.id).journal, attribution: own(r.id).attribution, sharedWith: own(r.id).sharedWith, ...st,
         settled: kind === 'credit_note' ? r.applied : null, outstanding: null,
-        allocated, unapplied, checkTrail: kind === 'credit_note',
+        allocated: kind === 'write_off' ? null : r.allocated,
+        trailAllocated: kind === 'credit_note' ? r.trailAllocated : undefined,
+        unapplied, checkTrail: kind === 'credit_note',
       };
     };
     for (const r of notes) inputs.push(settlement('credit_note', r, 'not_in_statement'));

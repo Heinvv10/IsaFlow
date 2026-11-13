@@ -57,14 +57,14 @@ export async function bill(
 }
 
 export async function invoice(
-  customer: string, n: string, total: number, journalId: string | null, paid = 0,
+  customer: string, n: string, total: number, journalId: string | null, paid = 0, date = DOC_DATE,
 ): Promise<string> {
   return ((await sql`
     INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date,
       due_date, status, subtotal, tax_rate, tax_amount, total_amount, amount_paid,
       gl_journal_entry_id, created_by)
-    VALUES (${COMPANY}::UUID, ${customer}::UUID, ${customer}::UUID, ${TAG + n}, ${DOC_DATE}::date,
-      ${DOC_DATE}::date, 'approved', ${total}, 0, 0, ${total}, ${paid}, ${journalId}::UUID, ${USER}::UUID)
+    VALUES (${COMPANY}::UUID, ${customer}::UUID, ${customer}::UUID, ${TAG + n}, ${date}::date,
+      ${date}::date, 'approved', ${total}, 0, 0, ${total}, ${paid}, ${journalId}::UUID, ${USER}::UUID)
     RETURNING id`) as { id: string }[])[0]!.id;
 }
 

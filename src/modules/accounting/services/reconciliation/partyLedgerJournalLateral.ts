@@ -23,7 +23,12 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { JournalFacts } from './partyLedgerTypes';
 
 /** The closed set of document aliases whose journal link this may correlate on. */
-export type JournalLinkColumn = 'ci.gl_journal_entry_id' | 'si.gl_journal_entry_id' | 'd.gl_journal_entry_id';
+export type JournalLinkColumn =
+  | 'ci.gl_journal_entry_id'
+  | 'si.gl_journal_entry_id'
+  | 'd.gl_journal_entry_id'
+  /** A payment's EFFECTIVE journal: its own, else its batch's (see readPartyPayments). */
+  | 'pj.jid';
 
 const MAX_CHAIN_DEPTH = 25;
 

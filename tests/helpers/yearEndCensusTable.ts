@@ -138,6 +138,7 @@ export const COMPOSED: Array<[string, Category]> = [
   ['payroll/payrollJournalChain.ts', 'SUBLEDGER'],
   ['reports/customReportFieldDefs.ts', 'RAW'],
   ['shared/journalInForceAsAt.ts', 'FRAGMENT'],
+  ['shared/paymentStoodAsAt.ts', 'FRAGMENT'],
   ['shared/softDeleteLedgerPresence.ts', 'FRAGMENT'],
 ];
 

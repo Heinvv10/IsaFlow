@@ -135,3 +135,36 @@ describe('fetchStatementData — money fields are exact to the cent', () => {
     }
   });
 });
+
+describe('fetchStatementData — a receipt cancelled AFTER the as-at date stood on it', () => {
+  const INV = { id: 'i1', invoice_number: 'INV1', invoice_date: '2026-01-10', total_amount: 1000, status: 'approved' };
+  const RCT = (live: boolean) => ({
+    id: 'p1', payment_number: 'RCT1', payment_date: '2026-02-01', amount_received: 400,
+    status: 'cancelled', live_at_as_at: live,
+  });
+
+  it('counts it when the cancellation (its journal reversal) is not yet in force', async () => {
+    routeMock({ invoices: [INV], payments: [RCT(true)] });
+    const p = (await fetchStatementData(COMPANY, CUSTOMER, '2026-03-31'))!;
+    expect(p.transactions.some((t) => t.reference === 'RCT1' && t.type === 'payment')).toBe(true);
+    expect(p.summary.balance).toBe(600);
+    expect(p.excluded.find((e) => e.id === 'p1')).toBeUndefined();
+  });
+
+  it('leaves it off, named, when the cancellation is already in force', async () => {
+    routeMock({ invoices: [INV], payments: [RCT(false)] });
+    const p = (await fetchStatementData(COMPANY, CUSTOMER, '2026-03-31'))!;
+    expect(p.summary.balance).toBe(1000);
+    expect(p.excluded.find((e) => e.id === 'p1')).toMatchObject({ reason: 'payment_not_confirmed', amount: 400 });
+  });
+
+  it('asks the question of the receipt\'s journal chain, bound to the as-at date and the company', async () => {
+    routeMock();
+    await fetchStatementData(COMPANY, CUSTOMER, '2026-03-31');
+    const q = sqlCalls.find((c) => c.sql.includes('FROM customer_payments'))!;
+    expect(q.sql).toContain("cp.status = 'cancelled'");
+    expect(q.sql).toContain('reversal_of_id');
+    expect(q.values).toContain('2026-03-31');
+    expect(q.values).toContain(COMPANY);
+  });
+});

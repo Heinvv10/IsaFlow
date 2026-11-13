@@ -42,10 +42,14 @@ export interface DocumentInput {
   settled: number | null;
   outstanding: number | null;
   allocated: number | null;
+  /** What `settled` is tested against, when that is not the as-at `allocated` (credit notes: every row, undated). */
+  trailAllocated?: number | null;
   /** Total less allocations, for payments and credit notes. */
   unapplied: number | null;
   /** Compare `settled` with `allocated` (invoices, credit notes). */
   checkTrail: boolean;
+  attribution?: PartyDocument['gl']['attribution'];
+  sharedWith?: string[];
 }
 
 const MONEY_EPSILON = 0.005;
@@ -118,14 +122,15 @@ function statementVsGl(input: DocumentInput, diff: number): PartyFlag {
 function trailFlags(input: DocumentInput): PartyFlag[] {
   const out: PartyFlag[] = [];
   const j = input.journal;
-  if (input.checkTrail && input.settled !== null && input.allocated !== null && !sameMoney(input.settled, input.allocated)) {
+  const trail = input.trailAllocated ?? input.allocated;
+  if (input.checkTrail && input.settled !== null && trail !== null && !sameMoney(input.settled, trail)) {
     const cls: MismatchClass = input.kind === 'invoice' ? 'amount_paid_differs_from_allocations' : 'applied_differs_from_allocations';
     const settledWord = input.kind === 'invoice' ? 'amount_paid' : 'applied_amount';
     out.push({
       class: cls,
       bridge: 'subledger_trail',
-      amount: round2(input.settled - input.allocated),
-      detail: `${settledWord} says ${round2(input.settled)} but its allocation rows support ${round2(input.allocated)}.`,
+      amount: round2(input.settled - trail),
+      detail: `${settledWord} says ${round2(input.settled)} but its allocation rows support ${round2(trail)}.`,
     });
   }
   if (
@@ -144,9 +149,22 @@ function trailFlags(input: DocumentInput): PartyFlag[] {
 
 export function buildDocument(input: DocumentInput): PartyDocument {
   const j = input.journal;
-  const difference = input.glAvailable ? round2(input.statementEffect - j.controlNet) : null;
+  const attribution = input.attribution ?? 'own';
+  const sharedWith = input.sharedWith ?? [];
+  const unattributable = attribution === 'unattributable';
+  // An unattributable shared journal has no leg that is this document's: comparing
+  // the statement with 0 would invent a difference the ledger never stated.
+  const difference = input.glAvailable && !unattributable ? round2(input.statementEffect - j.controlNet) : null;
   const flags: PartyFlag[] = [];
   if (difference !== null && difference !== 0) flags.push(statementVsGl(input, difference));
+  if (unattributable) {
+    flags.push({
+      class: 'shared_journal_unattributable',
+      bridge: 'shared_journal',
+      amount: round2(input.statementEffect),
+      detail: `Journal ${j.journalId} is carried by ${sharedWith.length + 1} documents and its control lines cannot be matched to them one to one (or to one batch total), so this document's own leg is unknown. It is left out of the statement-versus-GL comparison; sharing documents: ${sharedWith.join(', ')}.`,
+    });
+  }
   flags.push(...trailFlags(input));
   return {
     kind: input.kind,
@@ -171,6 +189,8 @@ export function buildDocument(input: DocumentInput): PartyDocument {
       journalStatus: j.status,
       controlNet: round2(j.controlNet),
       reversalsInForce: j.reversalsInForce,
+      attribution,
+      sharedWith,
     },
     difference,
     flags,
