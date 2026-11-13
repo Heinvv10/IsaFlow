@@ -67,27 +67,32 @@ for (const theme of THEMES) {
   test.describe(`${theme} theme`, () => {
     test.beforeEach(async ({ page }) => { await seedTheme(page, theme); });
 
-    for (const width of [1568, 390]) {
-      test(`screens at ${width}px: 0 native selects, no sideways scroll, axe clean`, async ({ page }) => {
-        await page.setViewportSize({ width, height: 900 });
-        const paths = [...SCREENS, { slug: 'employee-profile', path: await profilePath(page), ready: PROFILE_READY }];
-        for (const s of paths) {
-          await page.goto(s.path);
-          await settle(page);
+    // One load per screen, checked at 1568 then resized to 390 (as z4 does): two loads per screen pushed the hosted
+    // suite past its job timeout and the dev server toward its memory restart. Every check still runs at both widths.
+    test('screens at 1568 and 390px: 0 native selects, no sideways scroll at 390, axe clean at both', async ({ page }) => {
+      test.setTimeout(480_000); // the budget the two per-width tests had between them
+      const paths = [...SCREENS, { slug: 'employee-profile', path: await profilePath(page), ready: PROFILE_READY }];
+      for (const s of paths) {
+        await page.setViewportSize({ width: 1568, height: 900 });
+        await page.goto(s.path);
+        await settle(page);
+        for (const width of [1568, 390]) {
+          if (width !== 1568) { await page.setViewportSize({ width, height: 900 }); await settle(page); }
+          const at = `${s.slug} at ${width}`;
           if (s.slug === 'employee-profile') {
             for (const { picker, empty } of PROFILE_EITHER) {
-              await expect(page.getByRole('combobox', { name: picker, exact: true }).or(page.getByText(empty)).first(), `employee-profile: "${picker}" picker or its empty text`).toBeVisible({ timeout: 30_000 });
+              await expect(page.getByRole('combobox', { name: picker, exact: true }).or(page.getByText(empty)).first(), `${at}: "${picker}" picker or its empty text`).toBeVisible({ timeout: 30_000 });
             }
           }
-          for (const name of s.ready) await expect(page.getByRole('combobox', { name, exact: true }), `${s.slug}: kit combobox "${name}" rendered`).toBeVisible({ timeout: 30_000 });
+          for (const name of s.ready) await expect(page.getByRole('combobox', { name, exact: true }), `${at}: kit combobox "${name}" rendered`).toBeVisible({ timeout: 30_000 });
           if (s.slug === 'journal-new') await expect(page.getByRole('heading', { name: 'Balance Summary' })).toBeVisible();
-          expect(await nativeSelects(page), `${s.slug}: native selects`).toBe(0);
-          if (width === 390) expect(await overflowX(page), `${s.slug}: sideways overflow`).toBeLessThanOrEqual(0);
+          expect(await nativeSelects(page), `${at}: native selects`).toBe(0);
+          if (width === 390) expect(await overflowX(page), `${at}: sideways overflow`).toBeLessThanOrEqual(0);
           await expectAxeClean(page);
           await snap(page, s.slug, theme, width);
         }
-      });
-    }
+      }
+    });
 
     test('a chosen P&L cost centre stays in its trigger', async ({ page }) => {
       await page.goto('/accounting/reports/income-statement');
