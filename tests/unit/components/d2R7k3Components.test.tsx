@@ -1,4 +1,5 @@
 // D2 round 7 (k3): aging panel, payroll cards, practice time entry, onboarding company check.
+import { pickKit } from '../../helpers/kitSelect';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -83,7 +84,7 @@ describe('PayScaleCard', () => {
   const pick = async (patch: () => Response, onChange = vi.fn()) => {
     script((_u, m) => (m === 'PATCH' ? patch() : ok([SCALE])));
     render(<PayScaleCard employeeId="e1" currentPayScaleId={null} onChange={onChange} />);
-    fireEvent.change(await screen.findByRole('combobox'), { target: { value: 's1' } });
+    await pickKit(await screen.findByRole('combobox'), /D2 Scale/);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     return onChange;
   };

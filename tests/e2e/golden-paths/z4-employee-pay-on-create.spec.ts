@@ -221,7 +221,7 @@ test('the profile: the Pay Components card at 390 and 1280, button contrast, hel
   await expect(card.getByRole('button', { name: 'Assign' })).toBeVisible();
   const frame = await box(card);
   const inside = [
-    card.locator('select').first(), card.getByLabel('Effective from'), card.getByRole('button', { name: 'Assign' }),
+    card.getByRole('combobox', { name: 'Component', exact: true }), card.getByLabel('Effective from'), card.getByRole('button', { name: 'Assign' }),
     card.getByRole('button', { name: /Recurring \(every/ }), card.getByRole('button', { name: /Once-off \(this/ }),
   ];
   for (const control of inside) {

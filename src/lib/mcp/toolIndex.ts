@@ -66,6 +66,7 @@ import {
 import { autoApplyUnappliedTool } from './tools/writeAutoApplyUnapplied';
 import { applyCreditNoteTool } from './tools/writeApplyCreditNote';
 import { cancelSupplierInvoiceTool } from './tools/writeCancelSupplierInvoice';
+import { cancelCustomerInvoiceTool } from './tools/writeCancelCustomerInvoice';
 import { updateSupplierInvoiceTool } from './tools/writeUpdateSupplierInvoice';
 import { reapplyPaymentTermsTool } from './tools/writeReapplyPaymentTerms';
 import { reapplyCustomerPaymentTermsTool } from './tools/writeReapplyCustomerPaymentTerms';
@@ -264,6 +265,7 @@ export const MCP_TOOLS = [
   autoApplyUnappliedTool,
   applyCreditNoteTool,
   cancelSupplierInvoiceTool,
+  cancelCustomerInvoiceTool,
   updateSupplierInvoiceTool,
   reapplyPaymentTermsTool,
   reapplyCustomerPaymentTermsTool,
