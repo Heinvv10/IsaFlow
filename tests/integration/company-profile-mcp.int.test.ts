@@ -44,6 +44,10 @@ async function reset(id: string, over: Partial<Record<'vat_period' | 'vat_period
   await pool.query(`DELETE FROM vat_period_locks WHERE company_id = $1`, [id]);
   await pool.query(`DELETE FROM vat_returns WHERE company_id = $1`, [id]);
   await pool.query(`DELETE FROM mcp_tool_calls WHERE company_id = $1`, [id]);
+  await pool.query(`DELETE FROM sars_submissions WHERE company_id = $1`, [id]);
+  await pool.query(`DELETE FROM audit_log WHERE company_id = $1`, [id]);
+  await pool.query(`DELETE FROM sars_submissions WHERE company_id = $1`, [id]);
+  await pool.query(`DELETE FROM audit_log WHERE company_id = $1`, [id]);
   await pool.query(`UPDATE companies SET vat_number = NULL, tax_number = NULL, vat_period = $2, vat_period_alignment = $3,
     vat_system_type = $4 WHERE id = $1`, [id, over.vat_period ?? 'bi-monthly', over.vat_period_alignment ?? 'odd', over.vat_system_type ?? 'invoice']);
 }
@@ -122,6 +126,31 @@ describe('update_company_profile as app_user', () => {
     expect((await call({ dry_run: false, idempotency_key: key(), income_tax_number: '9123456789' })).isError).toBe(false);
   });
 
+  it('a real change leaves one audit_log row (old and new values, actor, token) and a dry run leaves none', async () => {
+    const args = { vat_number: '4123456789', income_tax_number: '9123456789', vat_category: 'B' };
+    await call({ ...args, dry_run: true, idempotency_key: key() });
+    expect((await pool.query('SELECT 1 FROM audit_log WHERE company_id = $1', [company])).rowCount).toBe(0);
+    await call({ ...args, dry_run: false, idempotency_key: key() });
+    const rows = (await pool.query(`SELECT user_id, action, entity_type, entity_id::text AS entity_id, changes FROM audit_log WHERE company_id = $1`, [company])).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ user_id: user, action: 'update', entity_type: 'company', entity_id: company });
+    expect(rows[0].changes.fields).toEqual([
+      { field: 'vat_number', label: 'VAT number', old: null, new: '4123456789' },
+      { field: 'income_tax_number', label: 'Income tax number', old: null, new: '9123456789' },
+      { field: 'vat_category', label: 'VAT category', old: 'A', new: 'B' },
+    ]);
+    expect(rows[0].changes.metadata).toMatchObject({ area: 'company_vat_profile', periodsMoved: 'true' });
+  });
+
+  it('a refused or unchanged call leaves no audit row, and the reply says an empty number cannot be undone', async () => {
+    await call({ dry_run: false, idempotency_key: key(), vat_number: '3123456789' });
+    await call({ dry_run: false, idempotency_key: key(), vat_category: 'A' });
+    expect((await pool.query('SELECT 1 FROM audit_log WHERE company_id = $1', [company])).rowCount).toBe(0);
+    const r = await call({ dry_run: false, idempotency_key: key(), vat_number: '4123456789' });
+    expect(r.body!.undo_arguments).toEqual({});
+    expect(r.body!.undo_limitations).toEqual([expect.stringContaining('vat_number was empty')]);
+  });
+
   it('a dry run rolls its write back, reports the after values, and leaves the key free for the live call', async () => {
     const k = key();
     const args = { idempotency_key: k, vat_number: '4123456789', vat_category: 'B' };
@@ -165,6 +194,9 @@ describe('moving the VAT period boundaries over filed history', () => {
   const sources: [string, (id: string) => Promise<unknown>][] = [
     ['an active VAT period lock', (id) => lock(id)],
     ['a lock since unlocked for an amendment', (id) => lock(id, true)],
+    ['a legacy VAT201 submission (sars_submissions only: no lock, no vat_returns)', (id) => pool.query(`INSERT INTO sars_submissions
+      (company_id, form_type, period_start, period_end, status, submission_reference, submitted_at)
+      VALUES ($1, 'VAT201', '2026-09-01', '2026-10-31', 'submitted', 'REF1', now())`, [id])],
     ['a submitted VAT return', (id) => pool.query(`INSERT INTO vat_returns (company_id, period_start, period_end, total_output_tax, total_input_tax, net_vat)
       VALUES ($1, '2026-09-01', '2026-10-31', 100, 40, 60)`, [id])],
   ];
@@ -203,6 +235,29 @@ describe('moving the VAT period boundaries over filed history', () => {
     expect(r.isError, r.text).toBe(false);
     expect(await row()).toMatchObject({ tax_number: '9123456789', vat_period_alignment: 'odd' });
   });
+
+  it('a draft VAT201 submission does not gate a category change', async () => {
+    await pool.query(`INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status)
+      VALUES ($1, 'VAT201', '2026-09-01', '2026-10-31', 'draft')`, [company]);
+    const r = await call({ dry_run: false, idempotency_key: key(), vat_category: 'B' });
+    expect(r.isError, r.text).toBe(false);
+  });
+
+  it('waits at most 5s for the VAT lock key and refuses, writing nothing, while a post holds it', async () => {
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT pg_advisory_xact_lock_shared(hashtextextended($1::text, 570))', [company]);
+      const r = await call({ dry_run: false, idempotency_key: key(), vat_category: 'B' });
+      expect(r.isError).toBe(true);
+      expect(r.text).toContain('Journals are being posted');
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    expect(await row()).toMatchObject({ vat_period_alignment: 'odd' });
+    expect((await call({ dry_run: false, idempotency_key: key(), vat_category: 'B' })).isError).toBe(false);
+  }, 30000);
 
   it("the footprint query scopes itself: another company's lock does not gate this one even without RLS (table owner)", async () => {
     await lock(other);

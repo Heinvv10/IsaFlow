@@ -4,19 +4,27 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const h = vi.hoisted(() => ({ rows: [] as unknown[][], sqlCalls: [] as string[] }));
+const h = vi.hoisted(() => ({ rows: [] as unknown[][], sqlCalls: [] as string[], order: [] as string[] }));
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async (strings: TemplateStringsArray) => {
-    h.sqlCalls.push(strings.join('?'));
+    const text = strings.join('?');
+    h.sqlCalls.push(text);
+    h.order.push(text.includes('vat_returns') ? 'footprint' : text.includes('FOR UPDATE') ? 'company-lock' : 'sql');
     return h.rows.shift() ?? [];
   }),
 }));
 vi.mock('@/modules/accounting/services/core/companyService', () => ({ getCompany: vi.fn(), updateCompany: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', () => ({
+  takeVatLockExclusive: vi.fn(async () => { h.order.push('vat-lock'); }),
+}));
+vi.mock('@/modules/accounting/services/core/auditTrailService', () => ({ logAuditOrThrow: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/core/rolledBackSavepoint', () => ({
   inRolledBackSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => { await fn(); }),
 }));
 
 import { getCompany, updateCompany } from '@/modules/accounting/services/core/companyService';
+import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
+import { takeVatLockExclusive } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolledBackSavepoint';
 import { changeCompanyVatProfile } from '@/modules/accounting/services/core/companyVatProfileService';
 
@@ -26,7 +34,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   vatNumber: '4123456789', taxNumber: '9123456789', vatPeriod: 'bi-monthly', vatSystemType: 'invoice', vatPeriodAlignment: 'odd', ...over,
 });
 const FILED = { source: 'vat_period_lock', period_start: '2026-09-01', period_end: '2026-10-31', unlocked: false };
-const opts = (over: Record<string, unknown> = {}) => ({ dryRun: false, acknowledgePeriodChange: false, asOf: NOV_13, ...over });
+const opts = (over: Record<string, unknown> = {}) => ({ dryRun: false, acknowledgePeriodChange: false, asOf: NOV_13, userId: 'user-1', tokenJti: 'jti-1', ...over });
 
 /** Queue the rows the service reads: the FOR UPDATE lock, then the filing footprint. */
 function world(company: Record<string, unknown> | null, filed: unknown[] = []) {
@@ -37,6 +45,7 @@ function world(company: Record<string, unknown> | null, filed: unknown[] = []) {
 beforeEach(() => {
   h.rows = [];
   h.sqlCalls = [];
+  h.order = [];
   vi.clearAllMocks();
   vi.mocked(updateCompany).mockImplementation(async (_id, patch) => ({ ...row(), ...(patch as object) }) as never);
 });
@@ -145,5 +154,83 @@ describe('the write', () => {
     world(row());
     vi.mocked(updateCompany).mockRejectedValue(new Error('boom'));
     await expect(changeCompanyVatProfile(CO, { category: 'B' }, opts())).rejects.toThrow('boom');
+  });
+});
+
+describe('serialisation with a concurrent VAT lock', () => {
+  it('takes the exclusive VAT lock key after the company row and before reading the filing footprint', async () => {
+    world(row());
+    await changeCompanyVatProfile(CO, { category: 'B' }, opts());
+    expect(takeVatLockExclusive).toHaveBeenCalledWith(CO);
+    expect(h.order.slice(0, 3)).toEqual(['company-lock', 'vat-lock', 'footprint']);
+  });
+
+  it('does not take it for a change that moves no periods', async () => {
+    world(row());
+    await changeCompanyVatProfile(CO, { incomeTaxNumber: '9000000001' }, opts());
+    expect(takeVatLockExclusive).not.toHaveBeenCalled();
+  });
+
+  it('a lock timeout propagates and nothing is written', async () => {
+    world(row());
+    vi.mocked(takeVatLockExclusive).mockRejectedValueOnce(new Error('VAT lock busy'));
+    await expect(changeCompanyVatProfile(CO, { category: 'B' }, opts())).rejects.toThrow('VAT lock busy');
+    expect(updateCompany).not.toHaveBeenCalled();
+  });
+});
+
+describe('the legacy VAT201 submission is part of the footprint', () => {
+  it('queries sars_submissions for the company, VAT201, any status but draft', async () => {
+    world(row());
+    await changeCompanyVatProfile(CO, { category: 'B' }, opts());
+    const q = h.sqlCalls.find((t) => t.includes('sars_submissions')) ?? '';
+    expect(q).toContain('company_id = ?::UUID');
+    expect(q).toContain("form_type = 'VAT201'");
+    expect(q).toContain("status <> 'draft'");
+  });
+  it('a submission alone gates a category change', async () => {
+    world(row(), [{ source: 'sars_vat201_submission', period_start: '2026-09-01', period_end: '2026-10-31', unlocked: false }]);
+    const r = await changeCompanyVatProfile(CO, { category: 'B' }, opts());
+    expect(r).toMatchObject({ refused: expect.stringContaining('sars_vat201_submission 2026-09-01..2026-10-31') });
+  });
+});
+
+describe('audit and undo limits', () => {
+  it('a real change writes one audit_log row with old and new values, the actor and the token', async () => {
+    world(row({ taxNumber: null }));
+    await changeCompanyVatProfile(CO, { category: 'B', incomeTaxNumber: '9123456789' }, opts());
+    expect(logAuditOrThrow).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(logAuditOrThrow).mock.calls[0]![0]).toMatchObject({
+      companyId: CO, userId: 'user-1', action: 'update', entityType: 'company', entityId: CO,
+      changes: {
+        fields: [
+          { field: 'income_tax_number', old: null, new: '9123456789' },
+          { field: 'vat_category', old: 'A', new: 'B' },
+        ],
+        metadata: { tokenJti: 'jti-1', periodsMoved: 'true', acknowledgedPeriodChange: 'false' },
+      },
+    });
+  });
+  it('a dry run and a no-op write no audit row', async () => {
+    world(row());
+    await changeCompanyVatProfile(CO, { category: 'B' }, opts({ dryRun: true }));
+    world(row());
+    await changeCompanyVatProfile(CO, { category: 'A' }, opts());
+    expect(logAuditOrThrow).not.toHaveBeenCalled();
+  });
+  it('a failing audit write propagates (the change rolls back with the request)', async () => {
+    world(row());
+    vi.mocked(logAuditOrThrow).mockRejectedValueOnce(new Error('audit down'));
+    await expect(changeCompanyVatProfile(CO, { category: 'B' }, opts())).rejects.toThrow('audit down');
+  });
+  it('says a previously empty number cannot be restored', async () => {
+    world(row({ taxNumber: null, vatNumber: null }));
+    const r = await changeCompanyVatProfile(CO, { incomeTaxNumber: '9123456789', vatNumber: '4123456789' }, opts());
+    expect(r).toMatchObject({ undoArguments: {}, undoLimitations: [expect.stringContaining('vat_number was empty'), expect.stringContaining('income_tax_number was empty')] });
+  });
+  it('has no limitation when every changed number had a value', async () => {
+    world(row());
+    const r = await changeCompanyVatProfile(CO, { incomeTaxNumber: '9000000001' }, opts());
+    expect(r).toMatchObject({ undoLimitations: [] });
   });
 });

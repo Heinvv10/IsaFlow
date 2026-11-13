@@ -14,6 +14,8 @@
 import { sql } from '@/lib/neon';
 import { getCompany, updateCompany } from './companyService';
 import { inRolledBackSavepoint } from './rolledBackSavepoint';
+import { logAuditOrThrow } from './auditTrailService';
+import { takeVatLockExclusive } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import {
   categoryOf, compactNumber, isValidSaVatNumber, periodImpact, resolveDesired, stateFromColumns,
   type PeriodImpact, type VatCategory, type VatProfileRequest, type VatProfileState,
@@ -30,7 +32,7 @@ export interface ProfileView {
 }
 
 export interface FilingRecord {
-  source: 'vat_return' | 'vat_period_lock';
+  source: 'vat_return' | 'vat_period_lock' | 'sars_vat201_submission';
   period_start: string;
   period_end: string;
   /** A lock that has since been unlocked for an amendment: still history cut on the old boundaries. */
@@ -46,9 +48,17 @@ export type ProfileChange =
     periodImpact: PeriodImpact | null; footprint: FilingFootprint;
     /** Arguments that put the company back: the before value of every field that changed. */
     undoArguments: Record<string, string>;
+    /** What the undo cannot do (a field that was empty before cannot be emptied again). */
+    undoLimitations: string[];
   };
 
-export interface ChangeOptions { dryRun: boolean; acknowledgePeriodChange: boolean; asOf: Date }
+export interface ChangeOptions {
+  dryRun: boolean; acknowledgePeriodChange: boolean; asOf: Date;
+  /** The acting user, recorded in the audit_log row of a real change. */
+  userId: string;
+  /** The MCP token that made the call, recorded with it. */
+  tokenJti?: string | null;
+}
 
 const FOOTPRINT_LIST_CAP = 24;
 
@@ -61,8 +71,10 @@ export function profileView(s: VatProfileState): ProfileView {
 }
 
 /**
- * Every VAT return and VAT period lock (any state) the company has, newest period first. A VAT201 version
- * (tax_return_versions) always references its period's lock row, which is never deleted, so a version adds nothing.
+ * Every VAT return, VAT period lock (any state) and legacy VAT201 submission (sars_submissions, any status but draft:
+ * the VAT201 page's mark-submitted writes only that row, no lock and no vat_returns) the company has, newest period
+ * first. A VAT201 version (tax_return_versions) always references its period's lock row, which is never deleted, so a
+ * version adds nothing.
  */
 export async function vatFilingFootprint(companyId: string): Promise<FilingFootprint> {
   const rows = (await sql`
@@ -73,6 +85,9 @@ export async function vatFilingFootprint(companyId: string): Promise<FilingFootp
         UNION ALL
         SELECT 'vat_period_lock', period_start, period_end, unlocked_at IS NOT NULL
           FROM vat_period_locks WHERE company_id = ${companyId}::UUID
+        UNION ALL
+        SELECT 'sars_vat201_submission', period_start, period_end, false
+          FROM sars_submissions WHERE company_id = ${companyId}::UUID AND form_type = 'VAT201' AND status <> 'draft'
       ) f
      ORDER BY period_end DESC, source
   `) as { source: FilingRecord['source']; period_start: string; period_end: string; unlocked: boolean }[];
@@ -117,6 +132,9 @@ export async function changeCompanyVatProfile(
 
   const wantsCycle = req.category !== undefined || req.alignment !== undefined;
   const impact = wantsCycle ? periodImpact(current, desired, opts.asOf) : null;
+  // A VAT lock or return being written right now must be seen (or must wait for this change): the same exclusive
+  // per-company key lockVatPeriod takes, bounded to 5s (VatLockTimeoutError, VAT_LOCK_TIMEOUT), before the footprint is read.
+  if (impact?.changes_periods) await takeVatLockExclusive(companyId);
   const footprint = await vatFilingFootprint(companyId);
 
   const patch: Record<string, string> = {};
@@ -140,7 +158,7 @@ export async function changeCompanyVatProfile(
 
   const before = profileView(current);
   if (changed.length === 0) {
-    return { before, after: before, changed, nothingChanged: true, periodImpact: impact, footprint, undoArguments: {} };
+    return { before, after: before, changed, nothingChanged: true, periodImpact: impact, footprint, undoArguments: {}, undoLimitations: [] };
   }
   if (impact?.changes_periods && footprint.total > 0 && !opts.acknowledgePeriodChange) {
     return { refused: periodChangeRefusal(footprint, impact) };
@@ -153,9 +171,11 @@ export async function changeCompanyVatProfile(
   if (opts.dryRun) await inRolledBackSavepoint('mcp_company_profile_dry_run', write);
   else await write();
   if (written.state === null) throw new Error('update_company_profile: the company update returned no row');
+  const after = profileView(written.state);
+  if (!opts.dryRun) await auditChange(companyId, opts, before, after, changed, impact?.changes_periods === true);
   return {
-    before, after: profileView(written.state), changed, nothingChanged: false, periodImpact: impact, footprint,
-    undoArguments: undo,
+    before, after, changed, nothingChanged: false, periodImpact: impact, footprint,
+    undoArguments: undo, undoLimitations: undoLimitations(before, changed),
   };
 }
 
@@ -168,4 +188,35 @@ function periodChangeRefusal(footprint: FilingFootprint, impact: PeriodImpact): 
     + `Periods that would move at ${impact.as_of} - ${move('current', impact.current)}; ${move('next', impact.next)}. `
     + 'Filed periods are NOT re-cut and the change cannot be undone for them. Confirm SARS has moved the vendor to the new category, '
     + 'then repeat the call (dry_run first) with acknowledge_period_change: true.';
+}
+
+const AUDIT_LABELS: Record<string, string> = {
+  vat_number: 'VAT number', income_tax_number: 'Income tax number', vat_category: 'VAT category',
+};
+
+/** One audit_log row (same transaction, so it commits or rolls back with the change) with each field's old and new value. */
+async function auditChange(
+  companyId: string, opts: ChangeOptions, before: ProfileView, after: ProfileView, changed: string[], periodsMoved: boolean,
+): Promise<void> {
+  const view = before as unknown as Record<string, string | null>;
+  const next = after as unknown as Record<string, string | null>;
+  await logAuditOrThrow({
+    companyId, userId: opts.userId, action: 'update', entityType: 'company', entityId: companyId,
+    entityRef: 'VAT and tax registration',
+    changes: {
+      fields: changed.map((field) => ({ field, label: AUDIT_LABELS[field] ?? field, old: view[field] ?? null, new: next[field] ?? null })),
+      metadata: {
+        area: 'company_vat_profile', source: 'mcp:update_company_profile:v1',
+        ...(opts.tokenJti ? { tokenJti: opts.tokenJti } : {}),
+        periodsMoved: String(periodsMoved), acknowledgedPeriodChange: String(opts.acknowledgePeriodChange),
+      },
+    },
+  });
+}
+
+/** The fields the undo arguments cannot restore: updateCompany keeps the stored value when given an empty one. */
+function undoLimitations(before: ProfileView, changed: string[]): string[] {
+  return changed
+    .filter((f) => (f === 'vat_number' || f === 'income_tax_number') && before[f] === null)
+    .map((f) => `${f} was empty before this change and cannot be emptied again through this tool; undo_arguments has no entry for it.`);
 }

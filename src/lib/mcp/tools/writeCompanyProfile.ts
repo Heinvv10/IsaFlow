@@ -35,10 +35,11 @@ export const updateCompanyProfileTool: McpTool = {
     + 'vat_category sent with it. A company that is not VAT registered takes no VAT number or category (register it in Settings first). '
     + 'A value cannot be cleared here. Owner or admin only; acts on the company your token is bound to. '
     + 'CHANGING THE CATEGORY MOVES VAT PERIOD BOUNDARIES: if the company already has VAT returns, VAT period locks (even unlocked ones) '
-    + 'or VAT201 versions, the call is refused until you send acknowledge_period_change: true — filed periods are not re-cut and cannot be '
+    + 'or VAT201 versions or a submitted legacy VAT201, the call is refused until you send acknowledge_period_change: true — filed periods are not re-cut and cannot be '
     + 'restored by changing the category back. dry_run is required: true runs every check and the write and rolls it back, returning '
     + 'before/after, the current and next VAT periods under the old and new cycle (period_impact) and the returns on file; false changes it. '
-    + 'The reply carries before and after and undo_arguments (the before value of each changed field; calling again with them puts it back).',
+    + 'The reply carries before and after and undo_arguments (the before value of each changed field; calling again with them puts it back) '
+    + 'and undo_limitations: a number that was EMPTY before cannot be emptied again, so it has no undo entry. A real change writes an audit_log row.',
   scope: 'read:vat',
   requiresScope: 'write:company',
   write: true,
@@ -70,6 +71,7 @@ export const updateCompanyProfileTool: McpTool = {
 
     const outcome = await changeCompanyVatProfile(ctx.companyId, parsed.request, {
       dryRun: parsed.dryRun, acknowledgePeriodChange: parsed.acknowledgePeriodChange, asOf: new Date(),
+      userId: ctx.userId, tokenJti: ctx.tokenJti,
     });
     if ('refused' in outcome) return toolError(outcome.refused);
 
@@ -89,6 +91,7 @@ export const updateCompanyProfileTool: McpTool = {
       period_impact: outcome.periodImpact,
       vat_filing_records: outcome.footprint,
       undo_arguments: undo,
+      undo_limitations: outcome.undoLimitations,
       ...(warnings.length > 0 ? { warnings } : {}),
     };
     if (parsed.dryRun) return wroteNothing(data);

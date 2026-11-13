@@ -29,7 +29,7 @@ const IMPACT = {
 const FOOT = { total: 0, records: [], truncated: false };
 const changed = (over: Record<string, unknown> = {}) => ({
   before: VIEW_A, after: VIEW_B, changed: ['vat_category'], nothingChanged: false, periodImpact: IMPACT, footprint: FOOT,
-  undoArguments: { vat_category: 'A' }, ...over,
+  undoArguments: { vat_category: 'A' }, undoLimitations: [], ...over,
 });
 
 beforeEach(() => { vi.clearAllMocks(); });
@@ -106,6 +106,13 @@ describe('the call', () => {
     const body = JSON.parse(text(r));
     expect(body.undo_arguments).toEqual({ vat_category: 'A', acknowledge_period_change: true });
     expect(body.warnings).toHaveLength(1);
+  });
+
+  it('passes the acting user and token to the service and returns undo_limitations', async () => {
+    vi.mocked(changeCompanyVatProfile).mockResolvedValue(changed({ undoLimitations: ['vat_number was empty before'] }) as never);
+    const r = await tool.handler({ ...base, dry_run: false, vat_category: 'B' }, OWNER);
+    expect(changeCompanyVatProfile).toHaveBeenCalledWith('company-1', expect.anything(), expect.objectContaining({ userId: 'user-1', tokenJti: 'jti' }));
+    expect(JSON.parse(text(r)).undo_limitations).toEqual(['vat_number was empty before']);
   });
 
   it('a request that changes nothing frees the key', async () => {
