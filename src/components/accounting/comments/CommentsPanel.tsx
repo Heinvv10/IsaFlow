@@ -56,6 +56,7 @@ export function CommentsPanel({ recordType, recordId }: { recordType: CommentRec
     } catch (err) {
       log.warn('Comment post failed', { recordType, error: err }, 'comments');
       setPostError(apiErrorMessage(err, 'Could not post the comment - try again'));
+      setFocusTick((t) => t + 1);
     } finally {
       setBusy(false);
     }

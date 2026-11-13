@@ -26,6 +26,9 @@ export function CommentItem({ comment, mine, people, onChanged }: Props) {
   const [error, setError] = useState('');
   const editButton = useRef<HTMLButtonElement | null>(null);
   const returnFocus = useRef(false);
+  const keepButton = useRef<HTMLButtonElement | null>(null);
+  // The confirm opens on the safe choice.
+  useEffect(() => { if (mode === 'confirm') keepButton.current?.focus(); }, [mode]);
   // Back from the edit box (saved or cancelled): focus lands on this comment's Edit button, not on the page.
   useEffect(() => {
     if (mode === 'view' && returnFocus.current) { returnFocus.current = false; editButton.current?.focus(); }
@@ -80,7 +83,7 @@ export function CommentItem({ comment, mine, people, onChanged }: Props) {
           <Button size="sm" variant="danger" disabled={busy} onClick={() => void run(() => removeComment(comment.id), 'Could not delete the comment - try again', true)}>
             {busy ? 'Deleting…' : 'Delete'}
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => { returnFocus.current = true; setMode('view'); setError(''); }}>Keep</Button>
+          <Button ref={keepButton} size="sm" variant="secondary" onClick={() => { returnFocus.current = true; setMode('view'); setError(''); }}>Keep</Button>
         </div>
       )}
       {mode !== 'edit' && error && <p role="alert" className="mt-1 text-sm text-red-600 dark:text-red-400">{error}</p>}

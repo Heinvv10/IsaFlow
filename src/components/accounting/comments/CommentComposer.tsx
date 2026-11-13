@@ -66,7 +66,8 @@ export function CommentComposer({ label, initial = '', initialMentions = [], peo
           if (e.key !== 'Escape' || text === '') return;
           e.preventDefault();
           e.stopPropagation();
-          if (onCancel) onCancel(); else e.currentTarget.blur();
+          // The add box keeps focus (the draft stays where the person is typing); the edit box cancels, and the item moves focus.
+          if (onCancel) onCancel();
         }}
         rows={3}
         className="w-full resize-y rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] p-2 text-sm text-[var(--ff-text-primary)] ff-focus-ring"

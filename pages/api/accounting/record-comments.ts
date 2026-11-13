@@ -28,6 +28,10 @@ const Mentions = z.array(z.string().min(1).max(255)).max(MAX_MENTIONS).optional(
 const Body = z.string().max(MAX_COMMENT_BODY * 4);
 const Create = z.object({ recordType: z.enum(COMMENT_RECORD_TYPES), recordId: UUID, body: Body, mentions: Mentions }).strict();
 const Edit = z.object({ body: Body, mentions: Mentions }).strict();
+/** The specific sentence, not zod's generic 422, for a comment naming too many people. */
+const tooManyMentions = (body: unknown): boolean =>
+  Array.isArray((body as { mentions?: unknown } | null)?.mentions) && (body as { mentions: unknown[] }).mentions.length > MAX_MENTIONS;
+const TOO_MANY = `A comment mentions at most ${MAX_MENTIONS} people`;
 const ListQuery = z.object({ recordType: z.enum(COMMENT_RECORD_TYPES), recordId: UUID });
 
 const MENTION_LIMIT_MESSAGE = 'You have mentioned a lot of people this hour. Try again later.';
@@ -56,6 +60,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.tooManyRequests(res, 'You are commenting too fast. Wait a minute and try again.');
     }
     if (req.method === 'POST') {
+      if (tooManyMentions(req.body)) return apiResponse.badRequest(res, TOO_MANY);
       const b = Create.safeParse(req.body);
       if (!b.success) return apiResponse.zodValidationError(res, b.error);
       if (!(await mentionBudget(companyId, userId, b.data.mentions))) return apiResponse.tooManyRequests(res, MENTION_LIMIT_MESSAGE);
@@ -64,6 +69,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     const id = UUID.safeParse(req.query.id);
     if (!id.success) return apiResponse.badRequest(res, 'id is required');
     if (req.method === 'PUT') {
+      if (tooManyMentions(req.body)) return apiResponse.badRequest(res, TOO_MANY);
       const b = Edit.safeParse(req.body);
       if (!b.success) return apiResponse.zodValidationError(res, b.error);
       if (!(await mentionBudget(companyId, userId, b.data.mentions))) return apiResponse.tooManyRequests(res, MENTION_LIMIT_MESSAGE);

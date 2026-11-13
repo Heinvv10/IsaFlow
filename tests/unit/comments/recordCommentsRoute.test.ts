@@ -87,8 +87,11 @@ describe('rate limits', () => {
   });
   it('more than 10 people in one comment is refused before any charge', async () => {
     const many = Array.from({ length: 11 }, (_, i) => `u${i}`);
-    expect((await run('POST', 'owner', { body: { ...POST.body, mentions: many } })).status).toBe(422);
-    expect(vi.mocked(checkRateLimit).mock.calls.map((c) => c[0])).toEqual(['comments:write:co1:u1']);
+    const out = await run('POST', 'owner', { body: { ...POST.body, mentions: many } });
+    expect(out.status).toBe(400);
+    expect(JSON.stringify(out.body)).toContain('A comment mentions at most 10 people');
+    expect((await run('PUT', 'owner', { query: { id: ID }, body: { body: 'x', mentions: many } })).status).toBe(400);
+    expect(vi.mocked(checkRateLimit).mock.calls.map((c) => c[0])).toEqual(['comments:write:co1:u1', 'comments:write:co1:u1']);
     expect(createComment).not.toHaveBeenCalled();
   });
 });

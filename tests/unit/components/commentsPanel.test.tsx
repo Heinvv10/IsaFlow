@@ -129,7 +129,7 @@ it('says how many older comments are not shown', async () => {
 });
 
 describe('Escape in the composer', () => {
-  it('a box with a draft keeps its Escape (the draft is not lost) and leaves the box', async () => {
+  it('a box with a draft keeps its Escape and its focus (the draft is not lost)', async () => {
     render(<CommentsPanel recordType="customer_invoice" recordId="r1" />);
     const box = await screen.findByLabelText('Add a comment') as HTMLTextAreaElement;
     expect(box.getAttribute('data-keeps-escape')).toBeNull();
@@ -139,7 +139,7 @@ describe('Escape in the composer', () => {
     const notPrevented = fireEvent.keyDown(box, { key: 'Escape' });
     expect(notPrevented).toBe(false);
     expect(box.value).toBe('draft');
-    expect(document.activeElement).not.toBe(box);
+    expect(document.activeElement).toBe(box); // never BODY
   });
 
   it('editing: Escape cancels the edit, keeps the comment, and focus lands on its Edit button', async () => {
@@ -178,5 +178,25 @@ describe('focus after each action (never BODY)', () => {
     fireEvent.click((await screen.findAllByRole('button', { name: 'Delete' }))[0]!);
     fireEvent.click(within(screen.getByRole('group', { name: 'Confirm delete' })).getByRole('button', { name: 'Delete' }));
     await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Add a comment')));
+  });
+});
+
+describe('focus in the remaining places', () => {
+  it('Delete opens the confirm on Keep, the safe choice', async () => {
+    render(<CommentsPanel recordType="customer_invoice" recordId="r1" />);
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Delete' }))[0]!);
+    expect(document.activeElement).toBe(within(screen.getByRole('group', { name: 'Confirm delete' })).getByRole('button', { name: 'Keep' }));
+  });
+
+  it('a refused post (429) leaves focus on the add box, with the text', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (_u: string, init?: RequestInit) =>
+      init?.method ? new Response(JSON.stringify({ success: false, error: { message: 'Slow down' } }), { status: 429 }) : ok(READ));
+    render(<CommentsPanel recordType="customer_invoice" recordId="r1" />);
+    const box = await screen.findByLabelText('Add a comment') as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: 'keep me' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Comment' }));
+    await screen.findByRole('alert');
+    await vi.waitFor(() => expect(document.activeElement).toBe(box));
+    expect(box.value).toBe('keep me');
   });
 });
