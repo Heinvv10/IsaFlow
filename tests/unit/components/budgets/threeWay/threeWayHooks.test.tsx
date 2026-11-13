@@ -114,14 +114,15 @@ describe('useAssumptionsForm', () => {
     expect(result.current.saving).toBe(false);
   });
 
-  it('a save that throws never leaves the form saving (the finally resets it)', async () => {
+  it('a save that throws resolves, shows the error and never leaves the form saving', async () => {
     h.fetchAssumptions.mockResolvedValue({ ok: true, data: assumptionsView({ updatedAt: 't1' }) });
     h.saveAssumptionsDoc.mockRejectedValueOnce(new Error('boom'));
     const { result } = renderHook(() => useAssumptionsForm(V1, false, vi.fn()));
     await waitFor(() => expect(result.current.view).not.toBeNull());
     act(() => result.current.update((d) => ({ ...d, minimumCash: { value: 1, source: 'manual' } })));
-    await act(async () => { await expect(result.current.save()).rejects.toThrow('boom'); });
+    await act(async () => { await expect(result.current.save()).resolves.toBeUndefined(); });
     expect(result.current.saving).toBe(false);
+    expect(result.current.saveError).toEqual({ message: 'The assumptions were not saved: boom', issues: [] });
   });
 
   it('a derive in flight when the version changes never replaces the new form (L6)', async () => {

@@ -163,6 +163,10 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
     let r: Awaited<ReturnType<typeof saveAssumptionsDoc>>;
     try {
       r = await saveAssumptionsDoc(versionId, doc, token);
+    } catch (err) {
+      // A network failure or a bad body: shown on the form, never an unhandled rejection from the button.
+      if (mine === seq.current) setSaveError({ message: `The assumptions were not saved: ${err instanceof Error ? err.message : String(err)}`, issues: [] });
+      return;
     } finally {
       // Never left saving (a throw included); a form that moved on was reset by its own load.
       if (mine === seq.current) setSaving(false);
