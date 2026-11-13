@@ -57,7 +57,7 @@ it('restores late-hydrated BU state and keeps an unavailable selection visible',
   route.isReady = true;
   view.rerender(<IncomeStatementPage />);
 
-  expect(await screen.findByDisplayValue('Selected Business Unit (unavailable)')).toBeInTheDocument();
+  expect(await screen.findByRole('combobox', { name: 'Business Unit' })).toHaveTextContent('Selected Business Unit (unavailable)');
   await waitFor(() => expect(reportParams().at(-1)?.get('business_unit_id'))
     .toBe('20000000-0000-4000-8000-000000000001'));
 });

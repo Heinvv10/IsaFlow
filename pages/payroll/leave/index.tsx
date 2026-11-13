@@ -2,6 +2,7 @@
  * Leave Management — request list.
  * Route: /payroll/leave
  */
+import { Select } from '@/components/ui/Select';
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { CalendarOff, Loader2, AlertCircle, Plus, Filter } from 'lucide-react';
@@ -100,28 +101,12 @@ export default function LeaveIndexPage() {
           {/* Filters */}
           <div className="flex items-center gap-3 mb-6">
             <Filter className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
-            <select
-              aria-label="Filter by status"
-              value={filterStatus}
-              onChange={e => setFilterStatus(e.target.value)}
-              className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
-            >
-              <option value="">All Statuses</option>
-              <option value="pending">Pending</option>
-              <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-            <select
-              aria-label="Filter by month"
-              value={filterMonth}
-              onChange={e => setFilterMonth(e.target.value)}
-              className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
-            >
-              {MONTHS.map((m, i) => (
-                <option key={m} value={i === 0 ? '' : String(i)}>{m}</option>
-              ))}
-            </select>
+            <Select label="Filter by status" labelClassName="sr-only" className="w-44" size="sm" placeholder="All Statuses" clearable
+              value={filterStatus || null} onChange={v => setFilterStatus(v ?? '')}
+              options={['pending', 'approved', 'rejected', 'cancelled'].map(st => ({ value: st, label: st.charAt(0).toUpperCase() + st.slice(1) }))} />
+            <Select label="Filter by month" labelClassName="sr-only" className="w-40" size="sm" placeholder="All months" clearable
+              value={filterMonth || null} onChange={v => setFilterMonth(v ?? '')}
+              options={MONTHS.slice(1).map((m, i) => ({ value: String(i + 1), label: m }))} />
             {!isLoading && (
               <span className="text-sm text-[var(--ff-text-secondary)]">{requests.length} request{requests.length !== 1 ? 's' : ''}</span>
             )}

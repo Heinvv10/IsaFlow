@@ -52,7 +52,9 @@ describe('CustomerInvoiceTable Outstanding', () => {
 describe('CustomerInvoiceTable row', () => {
   it('a plain click on a cell opens the drawer', () => {
     fireEvent.click(cell());
-    expect(onOpen).toHaveBeenCalledWith('inv-1');
+    // The row itself (the click landed on a td): not e.target, which the drawer's focus return could not use.
+    expect(onOpen).toHaveBeenCalledWith('inv-1', cell().closest('tr'));
+    expect(onOpen.mock.calls[0]![1].tagName).toBe('TR');
     expect(openTab).not.toHaveBeenCalled();
   });
 
@@ -92,5 +94,15 @@ describe('CustomerInvoiceTable row', () => {
   it('the right button does nothing', () => {
     fireEvent(cell(), new MouseEvent('auxclick', { bubbles: true, button: 2 }));
     expect(openTab).not.toHaveBeenCalled();
+  });
+});
+
+describe('CustomerInvoiceTable 90+ bucket contrast', () => {
+  it('the 90+ days label uses the theme-mapped red-400 (readable on dark), not the unmapped red-600 (3.69:1 on #0f172a)', () => {
+    cleanup();
+    render(<CustomerInvoiceTable invoices={[{ ...INV, status: 'overdue', aging_bucket: '90+' }]} page={1} limit={25} total={1} onPage={vi.fn()} onOpen={onOpen} />);
+    const label = screen.getByText('90+ days');
+    expect(label.className).toContain('text-red-400');
+    expect(label.className).not.toContain('text-red-600');
   });
 });

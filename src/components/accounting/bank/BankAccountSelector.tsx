@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Landmark, Loader2 } from 'lucide-react';
+import { Select, type SelectOption } from '@/components/ui/Select';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { groupBankAccountOptions } from './groupBankOptions';
 
@@ -75,49 +75,31 @@ export function BankAccountSelector(props: BankAccountSelectorProps) {
     }
   }, [initialValue, value, options, onChange]);
 
-  function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const id = e.target.value;
+  function handleChange(id: string | null) {
     const option = options.find(o => o.id === id);
-    if (option) onChange(id, option);
+    if (id && option) onChange(id, option);
   }
 
   const grouped = useMemo(() => groupBankAccountOptions(options), [options]);
+  const selectOptions = useMemo<SelectOption[]>(() => [
+    ...grouped.primaries.map(o => ({ value: o.id, label: o.label })),
+    ...grouped.groups.flatMap(g => g.children.map(o => ({ value: o.id, label: o.label, group: g.umbrella.label }))),
+  ], [grouped]);
+  const placeholder = loading ? 'Loading bank accounts…' : options.length === 0 ? 'No bank accounts found' : 'Select a bank account';
 
   return (
     <div className="space-y-1.5">
-      <label className="flex items-center gap-2 text-sm font-medium text-[var(--ff-text-primary)]">
-        <Landmark className="h-4 w-4" />
-        Bank account
-      </label>
-      <div className="relative">
-        <select
-          value={value ?? ''}
-          onChange={handleChange}
-          disabled={disabled || loading || options.length === 0}
-          className="w-full rounded-lg border border-[var(--ff-border)] bg-[var(--ff-bg-secondary)] px-3 py-2 text-sm text-[var(--ff-text-primary)] focus:border-[var(--ff-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--ff-accent)] disabled:opacity-60"
-        >
-          <option value="" disabled>
-            {loading ? 'Loading bank accounts…' : options.length === 0 ? 'No bank accounts found' : 'Select a bank account'}
-          </option>
-          {grouped.primaries.map(o => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-          {grouped.groups.map(g => (
-            <optgroup key={g.umbrella.id} label={g.umbrella.label}>
-              {g.children.map(o => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-        {loading && (
-          <Loader2 className="pointer-events-none absolute right-9 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-[var(--ff-text-muted)]" />
-        )}
-      </div>
+      <Select
+        label="Bank account"
+        labelClassName="mb-0 flex items-center gap-2 text-sm font-medium text-[var(--ff-text-primary)]"
+        options={selectOptions}
+        value={value}
+        onChange={handleChange}
+        placeholder={placeholder}
+        disabled={disabled || loading || options.length === 0}
+        loading={loading}
+        emptyText="No bank accounts found"
+      />
       {error && <p className="text-xs text-rose-600 dark:text-rose-400">{error}</p>}
       {helpText && !error && <p className="text-xs text-[var(--ff-text-muted)]">{helpText}</p>}
       {!loading && options.length === 0 && !error && (

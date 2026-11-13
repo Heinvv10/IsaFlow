@@ -5,6 +5,7 @@
  * Each case types a refused date ("zz" + blur, or "zz" + Enter), tries to save, and expects no write; then fixes the
  * date and expects the write.
  */
+import { pickKit } from '../../helpers/kitSelect';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -68,10 +69,8 @@ const cases: Case[] = [
     data: (u) => (u.includes('chart-of-accounts') ? [{ id: 'a1', accountCode: '1000', accountName: 'Bank', isActive: true }, { id: 'a2', accountCode: '2000', accountName: 'Loan', isActive: true }] : undefined),
     save: () => { fireEvent.submit(document.querySelector('form')!); },
     ready: async () => {
-      await screen.findAllByRole('option', { name: /1000 - Bank/ });
-      const accts = screen.getAllByLabelText('Account');
-      fireEvent.change(accts[0]!, { target: { value: 'a1' } });
-      fireEvent.change(accts[1]!, { target: { value: 'a2' } });
+      await pickKit(await screen.findByRole('combobox', { name: 'Account, line 1' }), /1000 - Bank/);
+      await pickKit(screen.getByRole('combobox', { name: 'Account, line 2' }), /2000 - Loan/);
       const amounts = screen.getAllByPlaceholderText('0.00');
       fireEvent.change(amounts[0]!, { target: { value: '10' } });
       fireEvent.change(amounts[3]!, { target: { value: '10' } });
