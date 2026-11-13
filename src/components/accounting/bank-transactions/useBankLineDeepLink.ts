@@ -22,10 +22,10 @@ export function useBankLineDeepLink() {
         const res = await apiFetch(`/api/accounting/bank-transaction-line?id=${lineId}`);
         await assertOk(res, 'Could not open that bank line - try again');
         const json = await res.json() as { data: BankTx };
-        if (live) setLine(json.data);
+        if (live) { setLine(json.data); setError(''); }
       } catch (err) {
         log.warn('Bank line deep link failed', { error: err }, 'bank-transactions');
-        if (live) setError(apiErrorMessage(err, 'Could not open that bank line - try again'));
+        if (live) { setLine(undefined); setError(apiErrorMessage(err, 'Could not open that bank line - try again')); }
       }
     })();
     return () => { live = false; };
