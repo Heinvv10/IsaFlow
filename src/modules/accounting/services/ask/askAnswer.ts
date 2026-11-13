@@ -96,7 +96,7 @@ async function bank(intent: AskIntent, companyId: string): Promise<AskAnswer> {
   }
   const total = r2(accounts.reduce((s, a) => s + a.balance, 0));
   return reply(`The bank accounts hold ${rand(total)} in total.`, total,
-    accounts.map((a) => ({ label: a.accountName, value: r2(a.balance) })), '/accounting/bank-accounts', 'Open bank accounts');
+    accounts.map((a) => ({ label: a.isActive === false ? `${a.accountName} (inactive)` : a.accountName, value: r2(a.balance) })), '/accounting/bank-accounts', 'Open bank accounts');
 }
 
 /** Answers `question` for `companyId`. `today` is the South African date (YYYY-MM-DD). */
