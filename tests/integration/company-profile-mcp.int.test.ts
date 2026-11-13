@@ -261,6 +261,8 @@ describe('moving the VAT period boundaries over filed history', () => {
 
   it("the footprint query scopes itself: another company's lock does not gate this one even without RLS (table owner)", async () => {
     await lock(other);
+    await pool.query(`INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status)
+      VALUES ($1, 'VAT201', '2026-09-01', '2026-10-31', 'submitted')`, [other]);
     const r: McpToolResult = await asOwner(company, user, () => registry.call('update_company_profile',
       { dry_run: false, idempotency_key: key(), vat_category: 'B' },
       { userId: user, companyId: company, scopes: ['read:vat', 'write:company'], companyRole: 'owner', tokenJti: null, oauthAppId: null }));

@@ -184,7 +184,7 @@ describe('the legacy VAT201 submission is part of the footprint', () => {
     world(row());
     await changeCompanyVatProfile(CO, { category: 'B' }, opts());
     const q = h.sqlCalls.find((t) => t.includes('sars_submissions')) ?? '';
-    expect(q).toContain('company_id = ?::UUID');
+    expect(q).toMatch(/FROM sars_submissions WHERE company_id = \?::UUID AND form_type/);
     expect(q).toContain("form_type = 'VAT201'");
     expect(q).toContain("status <> 'draft'");
   });
