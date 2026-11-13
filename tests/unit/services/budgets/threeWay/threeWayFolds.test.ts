@@ -3,7 +3,7 @@
  * actuals per month, the lookback, opening buckets and per-type totals).
  */
 import { describe, expect, it } from 'vitest';
-import { foldActuals, foldOpening, foldPnl, toLookback, type OpeningAccountRow } from '@/modules/accounting/services/budgets/threeWay/threeWayFolds';
+import { applyPayableAccounts, foldActuals, foldOpening, foldPnl, toLookback, type OpeningAccountRow } from '@/modules/accounting/services/budgets/threeWay/threeWayFolds';
 import { bucketSum } from '@/modules/accounting/services/budgets/threeWay/balanceSheet';
 
 describe('foldPnl', () => {
@@ -70,5 +70,29 @@ describe('foldPnl range', () => {
   it('a figure beyond NUMERIC(15,2) is the engine’s typed RANGE refusal, never a bare RangeError', () => {
     expect(() => foldPnl([{ accountType: 'revenue', accountSubtype: null, month: '2026-03', amount: 1e14 }], ['2026-03']))
       .toThrow(expect.objectContaining({ name: 'EngineInputError', code: 'RANGE' }));
+  });
+});
+
+describe('applyPayableAccounts', () => {
+  const rows: OpeningAccountRow[] = [
+    { accountId: 'bank', accountCode: '1000', accountType: 'asset', accountSubtype: 'bank', netDebit: 80000 },
+    { accountId: 'tax', accountCode: '2300', accountType: 'liability', accountSubtype: null, netDebit: -30000 },
+    { accountId: 'div', accountCode: '2400', accountType: 'liability', accountSubtype: 'current_liability', netDebit: -20000 },
+    { accountId: 'cap', accountCode: '3000', accountType: 'equity', accountSubtype: 'equity', netDebit: -30000 },
+  ];
+  const f = foldOpening(rows, 0, new Set(), null);
+
+  it('moves the named balances out of other current liabilities, the unmapped one off the unmapped list', () => {
+    expect(f.buckets.otherCurrentLiabilities).toBe(-50000);
+    const out = applyPayableAccounts(f, { incomeTaxPayable: 'TAX', dividendsPayable: 'div' });
+    expect(out.buckets).toMatchObject({ otherCurrentLiabilities: 0, incomeTaxPayable: -30000, dividendsPayable: -20000, cash: 80000 });
+    expect(bucketSum(out.buckets)).toBe(0);
+    expect(out.unmapped).toEqual([]);
+    expect(f.buckets.incomeTaxPayable).toBe(0); // the year's opening is not mutated
+  });
+
+  it('nothing named, or an account with no posted balance, moves nothing', () => {
+    expect(applyPayableAccounts(f, {}).buckets).toEqual(f.buckets);
+    expect(applyPayableAccounts(f, { incomeTaxPayable: 'nope' }).buckets).toEqual(f.buckets);
   });
 });

@@ -59,7 +59,7 @@ export async function getThreeWay(companyId: string, opts: { versionId?: string;
     months: ctx.months,
     opening: {
       asAt: o.opening.asAt, provisional: o.opening.provisional, buckets: o.opening.buckets, balanceSheet: o.opening.balanceSheet,
-      totals: ctx.opening.totals, equity: ctx.opening.equity, unmapped: ctx.opening.unmapped,
+      totals: ctx.opening.totals, equity: ctx.opening.equity, unmapped: run.unmapped,
     },
     pnl: o.months.map((m) => ({ month: m.month, ...m.pnl })),
     balanceSheet: o.months.map((m) => ({ month: m.month, closing: m.closing, sections: m.balanceSheet })),

@@ -13,7 +13,8 @@
  *     of P1's pre-lock UPDATE, but its `updated_at` is NOT bumped, so open grid
  *     tabs are not staled; it serialises assumption writers and means the lock
  *     trigger's FOR SHARE can never upgrade-deadlock) → 404 / 409 LOCKED before
- *     any write → the document validated (full, or overrides on a scenario) →
+ *     any write → the document validated (full, or overrides on a scenario; a named
+ *     payable account must be a leaf liability of the company) →
  *     compare-and-set on the ROW's own `updated_at` (the
  *     client's `expectedUpdatedAt`; null = "no row yet") → INSERT or UPDATE →
  *     (overrides) the chain resolved AS WRITTEN → one audit row (entity 'budget',
@@ -34,6 +35,7 @@ import { defaultAssumptions } from './assumptionsDefaults';
 import { isFullDoc, type StoredAssumptionsDoc } from './assumptionsSchema';
 import { AssumptionChainError } from './errors';
 import { addMonths } from './months';
+import { assertPayableAccounts, namedInDoc } from './payableAccounts';
 import { AssumptionsStaleError } from './serviceErrors';
 
 export interface StoredAssumptions {
@@ -145,6 +147,8 @@ export async function saveAssumptions(companyId: string, userId: string, input: 
     return await withSavepoint('budget_three_way_save', async () => {
       const version = await lockVersionRow(companyId, versionId);
       const doc = parseStoredDoc(input.doc);
+      const { named, paths } = namedInDoc(doc);
+      await assertPayableAccounts(companyId, named, paths);
       if (!isFullDoc(doc)) {
         if (version.kind !== 'scenario') {
           throw new AssumptionChainError('OVERRIDES_ON_NON_SCENARIO', 'Only a scenario version stores overrides; send a full document', [versionId]);

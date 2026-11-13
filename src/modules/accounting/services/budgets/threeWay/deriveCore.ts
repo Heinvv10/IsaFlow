@@ -16,6 +16,10 @@
  *   the clamp to 0..1 is the guard), 4 dp. Not registered or no base: 1.
  * - statutoryShare = (PAYE net of ETI + UIF + SDL) of the last 3 months ÷ the
  *   payroll expense of the same months; no payroll → 0.
+ * - Payable accounts (spec §5): when exactly ONE active leaf liability account's name matches
+ *   /income tax|provisional tax|SARS.*tax/i it is proposed as `incomeTax.payableAccountId`
+ *   (/dividend/i: `equity.dividendsPayableAccountId`); none or several: none proposed. The
+ *   fields carry no provenance, so the basis text is in `evidence.payableAccounts`.
  * - VAT settings come from the company row, already normalised by the
  *   adapter (`vatPeriodHelper`); a NULL/blank `vat_period` defaults to
  *   bi-monthly and says so (§13.11).
@@ -26,6 +30,7 @@ import type { Prov, ThreeWayAssumptions } from './assumptionsSchema';
 import { derivedDays } from './daysMethod';
 import { daysInMonth } from './months';
 import { SA_STANDARD_RATE_BP, toPpm, vatOnNet } from './ratios';
+import type { LiabilityAccount } from './payableAccounts';
 import type { ActualMonth } from './threeWayFolds';
 import type { VatAlignment, VatCadence } from './vatSchedule';
 
@@ -58,6 +63,13 @@ export interface DeriveInputs {
   vatTotals: { outputTax: number; inputTax: number } | null;
   /** EMP201 PAYE (net of ETI) + UIF + SDL over the last STATUTORY_MONTHS trailing months, cents. */
   statutory: number;
+  /** Active leaf liability accounts of the company (candidates for the payable accounts). */
+  liabilities: readonly LiabilityAccount[];
+}
+
+export interface PayableProposal {
+  account: LiabilityAccount | null;
+  basis: string;
 }
 
 export interface DeriveEvidence {
@@ -68,6 +80,7 @@ export interface DeriveEvidence {
   statutory: number;
   opening: { receivables: number; payables: number; inventory: number };
   insufficientHistory: boolean;
+  payableAccounts: { incomeTaxPayable: PayableProposal; dividendsPayable: PayableProposal };
 }
 
 export interface DerivedAssumptions {
@@ -83,6 +96,24 @@ const round = (v: number, dp: number): number => {
   return r === 0 ? 0 : r;
 };
 const clamp = (x: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, x));
+
+export const INCOME_TAX_ACCOUNT_NAME = /income tax|provisional tax|SARS.*tax/i;
+export const DIVIDENDS_ACCOUNT_NAME = /dividend/i;
+
+/** The one active liability account whose name matches, or none (with the reason). */
+export function proposePayable(accounts: readonly LiabilityAccount[], name: RegExp, label: string): PayableProposal {
+  const hits = accounts.filter((a) => name.test(a.accountName));
+  if (hits.length === 1) {
+    const a = hits[0] as LiabilityAccount;
+    return { account: a, basis: `the only active liability account named like ${label}: ${a.accountCode} ${a.accountName}` };
+  }
+  return {
+    account: null,
+    basis: hits.length === 0
+      ? `no active liability account named like ${label}; synthetic line (choose an account)`
+      : `${hits.length} active liability accounts named like ${label} (${hits.map((h) => h.accountCode).join(', ')}); choose one`,
+  };
+}
 
 /** The history window: trailing months from the first one with posted activity. */
 export function historyWindow(trailing: readonly ActualMonth[]): ActualMonth[] {
@@ -150,6 +181,11 @@ export function deriveCore(x: DeriveInputs): DerivedAssumptions {
     ? derived(round(clamp(x.statutory / statutoryPayroll, 0, 1), 4), `EMP201 PAYE + UIF + SDL ÷ payroll, last ${lastMonths.length} months`)
     : derived(0, 'no payroll expense in the last 3 months');
 
+  const tax = proposePayable(x.liabilities, INCOME_TAX_ACCOUNT_NAME, 'income tax');
+  const dividends = proposePayable(x.liabilities, DIVIDENDS_ACCOUNT_NAME, 'dividends');
+  if (tax.account) a.incomeTax.payableAccountId = tax.account.id;
+  if (dividends.account && dividends.account.id !== tax.account?.id) a.equity.dividendsPayableAccountId = dividends.account.id;
+
   return {
     assumptions: a,
     evidence: {
@@ -160,6 +196,7 @@ export function deriveCore(x: DeriveInputs): DerivedAssumptions {
       statutory: x.statutory,
       opening: { receivables: x.opening.receivables, payables: x.opening.payables, inventory: x.opening.inventory },
       insufficientHistory,
+      payableAccounts: { incomeTaxPayable: tax, dividendsPayable: dividends },
     },
   };
 }

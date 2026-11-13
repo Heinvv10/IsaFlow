@@ -61,9 +61,14 @@ export const VatAssumptionsSchema = z.object({
 
 export const PayrollAssumptionsSchema = z.object({ statutoryShare: prov(Share) }).strict();
 
+/** A GL account id (the DB service checks it is a leaf liability of the company). */
+const AccountId = z.guid('Must be an account id');
+
 export const IncomeTaxAssumptionsSchema = z.object({
   mode: prov(z.enum(['provisional', 'off'])),
   topUpMonthOffset: prov(z.union([z.literal(6), z.literal(7)])),
+  /** The liability account holding income tax payable (spec §5): its opening balance is `incomeTaxPayable`. Absent = synthetic line. */
+  payableAccountId: AccountId.optional(),
 }).strict();
 
 const CapexItem = z.object({
@@ -103,6 +108,8 @@ export const LoansAssumptionsSchema = z.object({
 export const EquityAssumptionsSchema = z.object({
   shareIssues: uniqueList(ShareIssue, s => s.id),
   dividends: uniqueList(Dividend, d => d.id),
+  /** The liability account holding dividends payable (spec §5): its opening balance is `dividendsPayable`. Absent = synthetic line. */
+  dividendsPayableAccountId: AccountId.optional(),
 }).strict();
 const MinimumCash = prov(Cents);
 

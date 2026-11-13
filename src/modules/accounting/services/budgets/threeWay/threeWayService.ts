@@ -4,7 +4,8 @@
  *   months        `versionMonths` (the version's registry year, 'YYYY-MM');
  *   pnl           the version's stored amounts via `readTrackingBudgets`, by canonical subtype (§13.6);
  *   lookback      `readTrackingActuals`, the 12 months before the first month (§13.8);
- *   opening       `readOpening` (bucketed, decision 10a) + the `getCashBalance` check (I7);
+ *   opening       `readOpening` (bucketed, decision 10a) + the `getCashBalance` check (I7), then per version
+ *                 the named income-tax / dividends payable accounts moved into their buckets (§5);
  *   assumptions   the stored document resolved up the scenario chain over the derived defaults (§13.21);
  *   loanSchedules `previewSchedule` / `amortise` (R6).
  * Everything that depends only on the company and fiscal year (`YearContext`)
@@ -26,7 +27,9 @@ import { runThreeWay } from './engine';
 import { readLoanSchedules } from './loanInputs';
 import { addMonths } from './months';
 import { openingCashCheck, readOpening, type OpeningCashCheck, type OpeningRead } from './openingBalances';
-import type { EngineOutput, LookbackMonth } from './types';
+import { assertPayableAccounts, payableAccountsOf } from './payableAccounts';
+import { applyPayableAccounts } from './threeWayFolds';
+import type { EngineOutput, LookbackMonth, UnmappedBalance } from './types';
 
 export interface VersionHead {
   id: string;
@@ -50,6 +53,8 @@ export interface YearContext {
 
 export interface VersionRun {
   output: EngineOutput;
+  /** The opening's unmapped accounts after the named payable accounts moved out. */
+  unmapped: UnmappedBalance[];
   assumptions: ThreeWayAssumptions;
   chain: string[];
   stored: StoredAssumptions | null;
@@ -103,6 +108,10 @@ export async function runVersion(companyId: string, ctx: YearContext, head: Vers
   if (head.fiscalYear !== ctx.fiscalYear) throw new Error(`runVersion: version is FY${head.fiscalYear}, context FY${ctx.fiscalYear}`);
   const { versions, stored } = await readChain(companyId, head.id);
   const resolved = resolveAssumptions(head.id, versions, ctx.derived.assumptions);
+  // The named payable accounts are re-checked on every run (retyped or re-parented since the save: 400).
+  const named = payableAccountsOf(resolved.assumptions);
+  await assertPayableAccounts(companyId, named);
+  const opening = applyPayableAccounts(ctx.opening, named);
   const pnl = await readVersionPnl(companyId, ctx.fiscalYear, head.id, ctx.months);
   const loanSchedules = await readLoanSchedules(companyId, resolved.assumptions);
   const output = runThreeWay({
@@ -110,9 +119,9 @@ export async function runVersion(companyId: string, ctx: YearContext, head: Vers
     entityType: ctx.profile.entityType,
     pnl,
     lookback: ctx.lookback,
-    opening: { asAt: ctx.opening.asAt, provisional: ctx.opening.provisional, buckets: ctx.opening.buckets, unmapped: ctx.opening.unmapped },
+    opening: { asAt: ctx.opening.asAt, provisional: ctx.opening.provisional, buckets: opening.buckets, unmapped: opening.unmapped },
     assumptions: resolved.assumptions,
     loanSchedules,
   });
-  return { output, assumptions: resolved.assumptions, chain: resolved.chain, stored };
+  return { output, unmapped: opening.unmapped, assumptions: resolved.assumptions, chain: resolved.chain, stored };
 }

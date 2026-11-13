@@ -7,7 +7,8 @@
  * VAT totals are `getVat201Report`'s (the owner of vat.output.v1 / vat.input.v1:
  * nothing else may re-derive them) over the history window; the statutory figure
  * is `generateEMP201`'s payePayable (PAYE net of ETI, §13.12) + UIF + SDL over
- * the last three trailing months. `deriveEvidence` adds the aged AR / AP totals
+ * the last three trailing months; the payable-account candidates are the active leaf liabilities.
+ * `agingEvidence` adds the aged AR / AP totals
  * (shown beside the days, never used to compute them).
  */
 import { sql, type DbRow } from '@/lib/neon';
@@ -19,6 +20,7 @@ import { getVat201Report } from '@/modules/accounting/services/reports/vat201Rep
 import { isVatRegistered, normalizeVatAlignment, normalizeVatBasis, normalizeVatSetting } from '@/modules/bureau/services/vatPeriodHelper';
 import { deriveCore, historyWindow, STATUTORY_MONTHS, type DeriveCompanyVat, type DerivedAssumptions } from './deriveCore';
 import type { OpeningRead } from './openingBalances';
+import { readActiveLeafLiabilities } from './payableAccounts';
 import { monthLastDay, type ActualMonth } from './threeWayFolds';
 
 export interface CompanyProfile {
@@ -90,6 +92,7 @@ export async function deriveAssumptions(companyId: string, s: DeriveSources): Pr
     trailing: s.trailing,
     vatTotals: s.profile.vat.registered ? await vatTotals(companyId, window) : null,
     statutory: await statutory(companyId, s.trailing),
+    liabilities: await readActiveLeafLiabilities(companyId),
   });
 }
 

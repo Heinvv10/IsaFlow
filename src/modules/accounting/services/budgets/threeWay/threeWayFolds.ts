@@ -21,7 +21,7 @@ import { EngineInputError } from './errors';
 import { checkedAdd } from './ratios';
 import { bucketOf, pnlBandOf, type BalanceSheetType } from './bucketMap';
 import { addMonths, daysInMonth } from './months';
-import { emptyBuckets, emptyPnl, type Buckets, type LookbackMonth, type PnlMonth, type UnmappedBalance, type UnmappedBucket } from './types';
+import { emptyBuckets, emptyPnl, type BucketKey, type Buckets, type LookbackMonth, type PnlMonth, type UnmappedBalance, type UnmappedBucket } from './types';
 
 export interface PnlRow {
   accountType: 'revenue' | 'expense';
@@ -95,12 +95,22 @@ export interface OpeningTotals {
   equity: number;
 }
 
+export interface FoldedAccount {
+  accountCode: string;
+  bucket: BucketKey;
+  mapped: boolean;
+  /** Debit-positive cents. */
+  balance: number;
+}
+
 export interface FoldedOpening {
   buckets: Buckets;
   unmapped: UnmappedBalance[];
   totals: OpeningTotals;
   /** Cash-bucket balance per account id (for the `getCashBalance` parity check). */
   cashAccounts: Map<string, { accountCode: string; balance: number }>;
+  /** Every leaf account with a posted balance, by id: where it was bucketed. */
+  accounts: Map<string, FoldedAccount>;
 }
 
 /**
@@ -118,6 +128,7 @@ export function foldOpening(
   const unmapped: UnmappedBalance[] = [];
   const totals: OpeningTotals = { assets: 0, liabilities: 0, equity: derivedRetainedEarnings };
   const cashAccounts = new Map<string, { accountCode: string; balance: number }>();
+  const accounts = new Map<string, FoldedAccount>();
   for (const r of rows) {
     const choice = bucketOf(r.accountType, r.accountSubtype, {
       isLoanAccount: loanAccountIds.has(r.accountId),
@@ -126,6 +137,7 @@ export function foldOpening(
     buckets[choice.bucket] += r.netDebit;
     if (!choice.mapped) unmapped.push({ accountCode: r.accountCode, bucket: choice.bucket as UnmappedBucket, balance: r.netDebit });
     if (choice.bucket === 'cash') cashAccounts.set(r.accountId, { accountCode: r.accountCode, balance: r.netDebit });
+    accounts.set(r.accountId, { accountCode: r.accountCode, bucket: choice.bucket, mapped: choice.mapped, balance: r.netDebit });
     if (r.accountType === 'asset') totals.assets += r.netDebit;
     else if (r.accountType === 'liability') totals.liabilities -= r.netDebit;
     else totals.equity -= r.netDebit;
@@ -133,7 +145,34 @@ export function foldOpening(
   buckets.retainedEarnings -= derivedRetainedEarnings;
   // -0 (a credit of 0 subtracted) reads as 0 on the wire.
   for (const k of Object.keys(buckets) as Array<keyof Buckets>) if (buckets[k] === 0) buckets[k] = 0;
-  return { buckets, unmapped, totals, cashAccounts };
+  return { buckets, unmapped, totals, cashAccounts, accounts };
+}
+
+/** The accounts the assumptions name for the payables that have no subtype (spec §5, §13.10). */
+export interface PayableAccounts {
+  incomeTaxPayable?: string;
+  dividendsPayable?: string;
+}
+
+/**
+ * The opening with each named account's balance moved from the bucket it was folded into (usually
+ * `otherCurrentLiabilities`) into `incomeTaxPayable` / `dividendsPayable`; an account that was unmapped
+ * leaves the unmapped list. An account with no posted balance moves nothing. Pure; never mutates `o`.
+ */
+export function applyPayableAccounts(
+  o: Pick<FoldedOpening, 'buckets' | 'unmapped' | 'accounts'>, named: PayableAccounts,
+): { buckets: Buckets; unmapped: UnmappedBalance[] } {
+  const buckets = { ...o.buckets };
+  let unmapped = [...o.unmapped];
+  for (const [target, id] of [['incomeTaxPayable', named.incomeTaxPayable], ['dividendsPayable', named.dividendsPayable]] as const) {
+    const acc = id ? o.accounts.get(id.toLowerCase()) : undefined;
+    if (!acc || acc.bucket === target) continue;
+    buckets[acc.bucket] -= acc.balance;
+    buckets[target] += acc.balance;
+    if (buckets[acc.bucket] === 0) buckets[acc.bucket] = 0;
+    if (!acc.mapped) unmapped = unmapped.filter((u) => u.accountCode !== acc.accountCode);
+  }
+  return { buckets, unmapped };
 }
 
 /** 'YYYY-MM-DD' of the month's last day. */

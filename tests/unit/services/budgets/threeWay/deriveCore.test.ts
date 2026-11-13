@@ -28,7 +28,7 @@ function base(over: Partial<DeriveInputs> = {}): DeriveInputs {
     asAt: '2026-02-28', priorYearEnd: '2026-02', entityType: 'pty_ltd', vat: vatOff,
     opening: { receivables: R(45000), payables: -R(24000), inventory: R(12000), holdsInventory: true },
     trailing: lb.map((m) => actual(m, { turnover: 1000 * daysInMonth(m), costOfSales: 600 * daysInMonth(m), otherOpex: 200 * daysInMonth(m) })),
-    vatTotals: null, statutory: 0, ...over,
+    vatTotals: null, statutory: 0, liabilities: [], ...over,
   };
 }
 
@@ -105,6 +105,40 @@ describe('deriveCore: VAT shares, statutory share, company VAT settings', () => 
     expect(deriveCore(base({ entityType: 'trust' })).assumptions.incomeTax.mode.value).toBe('off');
     expect(deriveCore(base()).assumptions.incomeTax.topUpMonthOffset.value).toBe(7);
     expect(deriveCore(base({ priorYearEnd: '2026-06' })).assumptions.incomeTax.topUpMonthOffset.value).toBe(6);
+  });
+});
+
+describe('deriveCore: payable accounts (spec §5)', () => {
+  const acct = (id: string, accountCode: string, accountName: string) => ({ id, accountCode, accountName });
+  const liabilities = [
+    acct('t', '2300', 'SARS - Provisional Tax'), acct('d', '2400', 'Dividends payable'),
+    acct('v', '2200', 'VAT control'), acct('p', '2100', 'PAYE payable'),
+  ];
+
+  it('exactly one name match is proposed, with the basis in the evidence', () => {
+    const d = deriveCore(base({ liabilities }));
+    expect(d.assumptions.incomeTax.payableAccountId).toBe('t');
+    expect(d.assumptions.equity.dividendsPayableAccountId).toBe('d');
+    expect(d.evidence.payableAccounts.incomeTaxPayable.basis).toBe('the only active liability account named like income tax: 2300 SARS - Provisional Tax');
+  });
+
+  it.each(['Income Tax payable', 'provisional tax 2027', 'SARS income tax'])('%s matches the income-tax pattern', (name) => {
+    expect(deriveCore(base({ liabilities: [acct('x', '1', name)] })).assumptions.incomeTax.payableAccountId).toBe('x');
+  });
+
+  it('none or several matches: nothing proposed, the evidence says why', () => {
+    const none = deriveCore(base({ liabilities: [acct('v', '2200', 'VAT control'), acct('p', '2100', 'PAYE payable')] }));
+    expect(none.assumptions.incomeTax.payableAccountId).toBeUndefined();
+    expect(none.evidence.payableAccounts.incomeTaxPayable).toEqual({ account: null, basis: 'no active liability account named like income tax; synthetic line (choose an account)' });
+    const two = deriveCore(base({ liabilities: [acct('a', '2300', 'Income tax 2026'), acct('b', '2301', 'Income tax 2027')] }));
+    expect(two.assumptions.incomeTax.payableAccountId).toBeUndefined();
+    expect(two.evidence.payableAccounts.incomeTaxPayable.basis).toBe('2 active liability accounts named like income tax (2300, 2301); choose one');
+  });
+
+  it('one account matching both patterns is proposed for income tax only', () => {
+    const d = deriveCore(base({ liabilities: [acct('x', '2500', 'SARS dividends tax')] }));
+    expect(d.assumptions.incomeTax.payableAccountId).toBe('x');
+    expect(d.assumptions.equity.dividendsPayableAccountId).toBeUndefined();
   });
 });
 
