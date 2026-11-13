@@ -34,6 +34,7 @@ import {
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import { agentApprovalRefusals } from '@/modules/accounting/services/gl/approvalUnattended';
 import { creditNoteApprovalType } from '@/modules/accounting/services/gl/approvalDocumentTypes';
+import { MirroredNoteVatRefusal, mirroredVatRefusals } from '@/modules/accounting/services/ap/supplierCreditNoteMirrorApprove';
 import { type DocumentState, partitionDocuments, postPartitionedDocuments } from './bulkApproveRunner';
 import { TOOL, buildAdapter } from './bulkApproveCreditNotesAdapter';
 import {
@@ -66,6 +67,8 @@ const NOT_FOUND_REFUSAL = /^Credit note \S+ not found$/;
 export function racedReason(err: unknown): string | null {
   // R-035: the gate refuses under the row lock, before any write — a skip.
   if (err instanceof ApprovalRequiredError) return `approval_required: ${err.message}`;
+  // 988: a mirror_bill note its bill can no longer carry, refused before any write — a skip.
+  if (err instanceof MirroredNoteVatRefusal) return `vat_already_reversed: ${err.message}`;
   if (!(err instanceof Error)) return null;
   const status = STATUS_REFUSAL.exec(err.message)?.[1];
   if (status) return `status became ${status} before it could be approved`;
@@ -91,6 +94,12 @@ async function approvalRefusals(companyId: string, ids: readonly string[],
     }
   }
   return refusals;
+}
+
+/** The order the live call posts in: by linked invoice (the lock group), then note id — see the handler. */
+function liveOrder<T extends { id: string }>(items: readonly T[], states: Map<string, DocumentState>): (T & { group: string })[] {
+  return items.map((p) => ({ ...p, group: states.get(p.id)?.lockGroup ?? '' }))
+    .sort((a, b) => (a.group !== b.group ? (a.group < b.group ? -1 : 1) : (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)));
 }
 
 export const bulkApproveCreditNotesTool: McpTool = {
@@ -149,7 +158,11 @@ export const bulkApproveCreditNotesTool: McpTool = {
     const { states } = partitioned;
     // R-035 (Q6): gated by an enforced approval rule — skipped, never submitted.
     // Read, not written, so the dry run and the live call decide it alike.
-    const refusals = await approvalRefusals(ctx.companyId, partitioned.postable.map((p) => p.id), states);
+    const approvalRefused = await approvalRefusals(ctx.companyId, partitioned.postable.map((p) => p.id), states);
+    // 988: a mirror_bill note its bill could not carry when its turn comes, judged in the live posting order.
+    const unrefused = partitioned.postable.filter((p) => !approvalRefused.has(p.id));
+    const vatRefused = await mirroredVatRefusals(ctx.companyId, liveOrder(unrefused, states).map((p) => p.id));
+    const refusals = new Map([...approvalRefused, ...[...vatRefused].map(([id, why]) => [id, `vat_already_reversed: ${why}`] as const)]);
     const postable = partitioned.postable.filter((p) => !refusals.has(p.id));
     const skipped = [...partitioned.skipped, ...partitioned.postable.filter((p) => refusals.has(p.id))
       .map((p) => ({ index: p.index, document_id: p.id, reason: refusals.get(p.id)! }))]
@@ -209,11 +222,7 @@ export const bulkApproveCreditNotesTool: McpTool = {
     // construction. Sorting the batch by linked invoice remains worth doing for
     // the note-to-first-document leg. Standalone notes sort under '' and are
     // mutually unconstrained.
-    const ordered = [...postable]
-      .map((p) => ({ ...p, group: states.get(p.id)?.lockGroup ?? '', entryDate: states.get(p.id)?.entryDate }))
-      .sort((a, b) => (a.group !== b.group
-        ? (a.group < b.group ? -1 : 1)
-        : (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)));
+    const ordered = liveOrder(postable, states).map((p) => ({ ...p, entryDate: states.get(p.id)?.entryDate }));
     const { posted, raced } = await postPartitionedDocuments(ctx, ordered, adapter, racedReason);
 
     const byId = new Map(ordered.map((o) => [o.id, o.index]));

@@ -36,6 +36,7 @@ import { ApprovalRequiredError, describeApprovalGate } from '@/modules/accountin
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { CreditNoteDimensionRefusal } from '@/modules/accounting/services/ar/creditNoteHeaderTags';
+import { MirroredNoteVatRefusal } from '@/modules/accounting/services/ap/supplierCreditNoteMirrorApprove';
 import { BillLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -213,8 +214,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (err instanceof VatPeriodLockedError || err instanceof ReversalBeforeOriginalError || isDimensionRefusal(err)) {
         return apiResponse.badRequest(res, err.message);
       }
-      // 892: 'post' re-checks the note's own account and its header tags under the row lock, before any write.
-      if (err instanceof BillLineAccountRefusal || err instanceof CreditNoteDimensionRefusal) {
+      // 892: 'post' re-checks the note's own account and its header tags under the row lock, before any write;
+      // 988: and a mirror_bill note against its bill's standing VAT, under the bill's key, before any write.
+      if (err instanceof BillLineAccountRefusal || err instanceof CreditNoteDimensionRefusal || err instanceof MirroredNoteVatRefusal) {
         return apiResponse.badRequest(res, err.message, { code: err.code });
       }
       // 'reverse' runs under the credit-note cancel's flow lock budget (D8 round 10): 503 + Retry-After.

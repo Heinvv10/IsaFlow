@@ -40,6 +40,7 @@ import { chartOfAccountsHealthTool, dataIntegrityChecksTool } from './tools/inte
 import { lockVatPeriodTool, vat201ExportTool, vatReconciliationTool } from './tools/vatReports';
 import { markVatDeclaredElsewhereTool } from './tools/vatDeclaredElsewhere';
 import { vatExceptionsTool } from './tools/vatExceptions';
+import { documentVatHistoryTool } from './tools/documentVatHistory';
 import { linkDocumentToJournalTool } from './tools/journalDocumentLink';
 import { listAgentPostingsTool } from './tools/agentActivity';
 import { auditTrailTool } from './tools/auditTrail';
@@ -192,6 +193,8 @@ export const MCP_TOOLS = [
   vatReconciliationTool,
   vat201ExportTool,
   vatExceptionsTool,
+  // Brief step 5a: every VAT line tied to one document, and what it carries now.
+  documentVatHistoryTool,
   dataIntegrityChecksTool,
   chartOfAccountsHealthTool,
   listAgentPostingsTool,

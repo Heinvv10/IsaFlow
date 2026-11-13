@@ -14,7 +14,9 @@ import {
   validateCreditNoteLinks,
   findOpenDuplicateDraft,
 } from '@/modules/accounting/services/ar/creditNoteLinkService';
+import { planMirroredSupplierNote } from '@/modules/accounting/services/ap/supplierCreditNoteMirror';
 import { mcpPostingOpts } from '../mcpActor';
+import { MIRROR_ARG_SCHEMA, mirrorReply, readMirrorArgs } from './creditNoteMirrorArgs';
 import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const TYPES = ['customer', 'supplier'] as const;
@@ -27,7 +29,8 @@ export const createCreditNoteTool: McpTool = {
     'subtotal is NET of VAT and must be positive — tax_rate (default 15) is applied on top, and total = subtotal + VAT. ' +
     'Optionally link the note to the invoice it corrects with customer_invoice_id / supplier_invoice_id; a LINKED note is AUTO-APPLIED at approve, reducing that invoice\'s outstanding balance by up to its outstanding amount. Leave the link out to raise standalone credit. ' +
     'An identical open draft (same counterparty, linked invoice, date and amount) is REFUSED and its id returned — retrying with a new idempotency_key will not create a second one. ' +
-    'When it is genuinely a SECOND credit (two returns on one day for one amount), call again with duplicate_of set to the id the refusal named.',
+    'When it is genuinely a SECOND credit (two returns on one day for one amount), call again with duplicate_of set to the id the refusal named. ' +
+    'A supplier note linked to a bill credits that bill\'s own expense accounts and CC1/CC2/BU pro rata at approve; mirror_bill also takes its VAT from the bill as it stands now (see document_vat_history).',
   scope: 'write:invoices',
   write: true,
   inputSchema: {
@@ -52,6 +55,7 @@ export const createCreditNoteTool: McpTool = {
         type: 'string',
         description: 'Only after a refusal: the id of the identical open draft it named, confirming this is a second, separate credit.',
       },
+      ...MIRROR_ARG_SCHEMA,
       idempotency_key: { type: 'string' },
     },
     required: ['type', 'credit_date', 'subtotal', 'idempotency_key'],
@@ -119,6 +123,16 @@ export const createCreditNoteTool: McpTool = {
     });
     if (linkError) return toolError(linkError);
 
+    // mirror_bill (brief step 5b): the note's VAT from the bill as it stands now, refused — unless
+    // acknowledged — when the bill's VAT was already reversed out of proportion. Reads only; before any write.
+    const mirrorArgs = readMirrorArgs(args, type, supplierInvoiceId);
+    if ('error' in mirrorArgs) return toolError(mirrorArgs.error);
+    const mirror = mirrorArgs.mirror
+      ? await planMirroredSupplierNote(ctx.companyId, supplierInvoiceId!, subtotal, mirrorArgs.ack)
+      : null;
+    if (mirror && !mirror.ok) return toolError(mirror.reason);
+    const mirrored = mirror?.ok ? mirror.plan : null;
+
     // Natural-key dedupe, agent-boundary only.
     //
     // The registry replays only on the SAME idempotency key, and an agent whose
@@ -147,7 +161,9 @@ export const createCreditNoteTool: McpTool = {
     // about the second.
     const duplicateOf = strArg(args, 'duplicate_of');
     const taxRateForTotal = taxRate ?? 15;
-    const total = Math.round(subtotal * (1 + taxRateForTotal / 100) * 100) / 100;
+    const total = mirrored
+      ? Math.round((subtotal + mirrored.taxAmount) * 100) / 100
+      : Math.round(subtotal * (1 + taxRateForTotal / 100) * 100) / 100;
     const duplicate = await findOpenDuplicateDraft(
       ctx.companyId,
       {
@@ -186,7 +202,9 @@ export const createCreditNoteTool: McpTool = {
         creditDate,
         reason: strArg(args, 'reason'),
         subtotal,
-        taxRate,
+        taxRate: mirrored ? mirrored.taxRate : taxRate,
+        ...(mirrored ? { taxAmount: mirrored.taxAmount, vatBasis: mirrored.basis } : {}),
+        ...(mirrored?.basis === 'mirror_bill_ack' ? { vatAckMatches: mirrored.ackMatches } : {}),
         glAccountId,
       },
       ctx.userId,
@@ -204,6 +222,7 @@ export const createCreditNoteTool: McpTool = {
       tax_rate: note.taxRate,
       tax_amount: note.taxAmount,
       total_amount: note.totalAmount,
+      ...(mirrored ? { mirror: mirrorReply(mirrored) } : {}),
     });
   },
 };
