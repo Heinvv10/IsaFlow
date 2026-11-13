@@ -87,3 +87,6 @@ describe('supplier invoice detail page — save refusal', () => {
     expect(screen.queryByText('Save')).toBeNull();
   });
 });
+
+// M14: this suite does not provide the auth context or the comments route; the panel has its own tests (commentsPanel, commentsMounts).
+vi.mock('@/components/accounting/comments/CommentsPanel', () => ({ CommentsPanel: () => null }));

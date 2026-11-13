@@ -49,8 +49,11 @@ const SELECT_ONE = (companyId: string, id: string) => sql`
          public.approval_company_member_name(c.company_id, c.author_id) AS author_name
     FROM record_comments c WHERE c.company_id = ${companyId}::UUID AND c.id = ${id}::UUID`;
 
-/** The record's live comments, oldest first, and the colleagues a comment can mention. */
-export async function listComments(companyId: string, userId: string, type: CommentRecordType, recordId: string):
+/**
+ * The record's live comments, oldest first, and the colleagues a comment can mention: only for a caller who can
+ * comment (`canComment`); a read-only role gets an empty list, not the company's roster.
+ */
+export async function listComments(companyId: string, userId: string, type: CommentRecordType, recordId: string, canComment: boolean):
 Promise<{ comments: RecordComment[]; mentionable: Mentionable[] }> {
   if (!(await findCommentRecord(companyId, type, recordId))) throw new CommentError(404, 'Record not found');
   const rows = (await sql`
@@ -62,7 +65,7 @@ Promise<{ comments: RecordComment[]; mentionable: Mentionable[] }> {
        AND c.deleted_at IS NULL
      ORDER BY c.created_at, c.id
      LIMIT 500`) as DbRow[];
-  const people = (await sql`
+  const people = !canComment ? [] : (await sql`
     SELECT m.user_id AS id, public.approval_company_member_name(${companyId}::UUID, m.user_id) AS name
       FROM public.approval_company_other_members(${companyId}::UUID, ${userId}) m
      WHERE m.is_active IS NOT FALSE AND m.status IS DISTINCT FROM 'suspended' AND m.suspended_at IS NULL

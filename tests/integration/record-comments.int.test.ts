@@ -12,6 +12,7 @@ import { als } from '@/lib/als';
 import { createComment, deleteComment, editComment, listComments } from '@/modules/accounting/services/comments/recordCommentService';
 import { CommentError, MAX_COMMENT_BODY } from '@/modules/accounting/services/comments/commentText';
 import { ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
+import { getBankTransactionById } from '@/modules/accounting/services/bank/bankTxSingleLine';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 assertDisposable();
@@ -106,7 +107,7 @@ describe('create', () => {
         const c = await createComment(A, manager, t, id, `note on ${t}`);
         expect(c.authorId).toBe(manager);
         expect(c.authorName).toBe('Mandla Tester');
-        expect((await listComments(A, manager, t, id)).comments.map((x) => x.body)).toEqual([`note on ${t}`]);
+        expect((await listComments(A, manager, t, id, true)).comments.map((x) => x.body)).toEqual([`note on ${t}`]);
       }
       expect(await count(h, A)).toBe(3);
     });
@@ -124,7 +125,7 @@ describe('create', () => {
     await as(A, manager, async (h) => {
       for (const [t, id] of [['customer_invoice', ids.invB], ['bank_transaction', ids.bankB]] as const) {
         await expect(createComment(A, manager, t, id, 'sneaky')).rejects.toMatchObject({ status: 404 });
-        await expect(listComments(A, manager, t, id)).rejects.toMatchObject({ status: 404 });
+        await expect(listComments(A, manager, t, id, true)).rejects.toMatchObject({ status: 404 });
       }
       expect(await count(h, A)).toBe(0);
       expect(await count(h, B)).toBe(0);
@@ -176,8 +177,46 @@ describe('mentions (in-app only)', () => {
 
   it('the mention list names the colleagues but not the caller or another company\'s people', async () => {
     await as(A, manager, async () => {
-      const { mentionable } = await listComments(A, manager, 'customer_invoice', ids.invA);
+      const { mentionable } = await listComments(A, manager, 'customer_invoice', ids.invA, true);
       expect(mentionable.map((m) => m.id).sort()).toEqual([owner, viewer, admin].sort());
+    });
+  });
+  it('a person added on a later edit is told once; people already told are not told again (read state kept)', async () => {
+    await as(A, manager, async (h) => {
+      const c = await createComment(A, manager, 'customer_invoice', ids.invA, '@Olive', [owner]);
+      await h.admin("UPDATE user_notifications SET read_at = now() WHERE company_id = $1 AND dedupe_key = $2 AND user_id = $3", [A, `comment:${c.id}`, owner]);
+      await editComment(A, manager, c.id, '@Olive @Vera', [owner, viewer]);
+      await editComment(A, manager, c.id, '@Olive @Vera again', [owner, viewer]);
+      const n = await h.admin<{ user_id: string; read_at: Date | null }>('SELECT user_id, read_at FROM user_notifications WHERE company_id = $1 AND dedupe_key = $2 ORDER BY user_id', [A, `comment:${c.id}`]);
+      expect(n.map((r) => r.user_id).sort()).toEqual([owner, viewer].sort());
+      expect(n.find((r) => r.user_id === owner)!.read_at, 'owner was not notified again').not.toBeNull();
+      expect(n.find((r) => r.user_id === viewer)!.read_at).toBeNull();
+    });
+  });
+
+  it('a bank line mention links to that line (account and line in the URL)', async () => {
+    await as(A, manager, async (h) => {
+      const c = await createComment(A, manager, 'bank_transaction', ids.bankA, 'look at this', [owner]);
+      const acct = (await h.admin<{ bank_account_id: string }>('SELECT bank_account_id FROM bank_transactions WHERE id = $1', [ids.bankA]))[0]!.bank_account_id;
+      const n = await h.admin<{ href: string }>('SELECT href FROM user_notifications WHERE company_id = $1 AND dedupe_key = $2', [A, `comment:${c.id}`]);
+      expect(n[0]!.href).toBe(`/accounting/bank-transactions?account_id=${acct}&line=${ids.bankA}`);
+    });
+  });
+
+  it('a read-only caller gets the thread but not the colleague list', async () => {
+    await as(A, viewer, async () => {
+      const out = await listComments(A, viewer, 'customer_invoice', ids.invA, false);
+      expect(out.mentionable).toEqual([]);
+    });
+    await as(A, manager, async () => {
+      expect((await listComments(A, manager, 'customer_invoice', ids.invA, true)).mentionable.length).toBeGreaterThan(0);
+    });
+  });
+
+  it('getBankTransactionById: the company\'s own line, never another company\'s', async () => {
+    await as(A, manager, async () => {
+      expect((await getBankTransactionById(A, ids.bankA))?.id).toBe(ids.bankA);
+      expect(await getBankTransactionById(A, ids.bankB)).toBeNull();
     });
   });
 });
@@ -203,7 +242,7 @@ describe('author only, soft delete', () => {
       expect(e.body).toBe('second');
       expect(e.editedAt).not.toBeNull();
       await deleteComment(A, manager, c.id);
-      expect((await listComments(A, manager, 'customer_invoice', ids.invA)).comments).toEqual([]);
+      expect((await listComments(A, manager, 'customer_invoice', ids.invA, true)).comments).toEqual([]);
       await expect(editComment(A, manager, c.id, 'again')).rejects.toMatchObject({ status: 404 });
       await expect(deleteComment(A, manager, c.id)).rejects.toMatchObject({ status: 404 });
       expect(await sqlCode(h, 'UPDATE record_comments SET deleted_at = NULL WHERE id = $1', [c.id])).toBe('23514');

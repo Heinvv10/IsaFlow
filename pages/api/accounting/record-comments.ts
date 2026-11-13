@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
+import { canWrite } from '@/lib/auth/writeRoles';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { checkRateLimit } from '@/lib/rateLimit';
@@ -36,7 +37,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (req.method === 'GET') {
       const q = ListQuery.safeParse(req.query);
       if (!q.success) return apiResponse.zodValidationError(res, q.error);
-      return apiResponse.success(res, await listComments(companyId, userId, q.data.recordType, q.data.recordId));
+      return apiResponse.success(res, await listComments(companyId, userId, q.data.recordType, q.data.recordId, canWrite(req.companyRole)));
     }
     if (req.method !== 'POST' && req.method !== 'PUT' && req.method !== 'DELETE') {
       return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['GET', 'POST', 'PUT', 'DELETE']);

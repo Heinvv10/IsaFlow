@@ -5,6 +5,7 @@
  */
 import { useId, useState } from 'react';
 import { Button } from '@/components/ui';
+import { Select } from '@/components/ui/Select';
 import { MAX_COMMENT_BODY } from '@/modules/accounting/services/comments/commentText';
 import type { Mentionable } from './commentsApi';
 
@@ -31,7 +32,6 @@ export function CommentComposer({ label, initial = '', initialMentions = [], peo
   const mentions = picked.filter((id) => nameOf(id) === '' || text.includes(`@${nameOf(id)}`));
 
   function pick(id: string) {
-    if (id === '') return;
     const name = nameOf(id);
     setText((t) => `${t}${t === '' || /\s$/.test(t) ? '' : ' '}@${name} `);
     setPicked((p) => (p.includes(id) ? p : [...p, id]));
@@ -52,15 +52,16 @@ export function CommentComposer({ label, initial = '', initialMentions = [], peo
       />
       <div className="flex flex-wrap items-center justify-between gap-2">
         {people.length > 0 ? (
-          <select
-            aria-label="Mention a colleague"
-            value=""
-            onChange={(e) => pick(e.target.value)}
-            className="min-w-0 max-w-full rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] px-2 py-1 text-sm text-[var(--ff-text-primary)]"
-          >
-            <option value="">Mention…</option>
-            {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          <Select
+            label="Mention a colleague"
+            labelClassName="sr-only"
+            size="sm"
+            className="w-48 max-w-full"
+            placeholder="Mention…"
+            options={people.map((p) => ({ value: p.id, label: p.name }))}
+            value={null}
+            onChange={(id) => { if (id) pick(id); }}
+          />
         ) : <span />}
         <span className={`text-xs tabular-nums ${over ? 'text-red-600 dark:text-red-400' : 'text-[var(--ff-text-secondary)]'}`}>
           {length} / {MAX_COMMENT_BODY}

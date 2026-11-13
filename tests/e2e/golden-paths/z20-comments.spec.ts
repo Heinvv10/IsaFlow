@@ -4,7 +4,7 @@
  *
  *  - Invoice drawer: a comment whose body is markup is shown as TEXT (no element is made from it), can be edited
  *    ("(edited)") and deleted (it leaves the thread, and the server's list agrees).
- *  - Bill page and bank line drawer: the panel is there and a comment posts and shows.
+ *  - Bill page and bank line drawer: the panel is there and a comment posts and shows; `?line=<id>` (a mention's link) opens that line.
  *  - axe reports 0 critical and 0 serious with the panel open, in both themes; nothing scrolls sideways at 390.
  *  - Nothing is emailed: no mail route is called, and a mention needs a second member the sandbox does not have (the
  *    mention path is proved against real Postgres in tests/integration/record-comments.int.test.ts).
@@ -147,6 +147,15 @@ for (const theme of THEMES) {
       await settle(page);
       await expectNoSeriousA11yViolations(page, { baseline: NOTHING_EXCUSED });
       await snap(page, `bank-line-comments-${theme}`);
+
+      // A mention's link: the line opens in the drawer from `?line=`, whichever tab it sits on, and drops the parameter on close.
+      await page.goto(`/accounting/bank-transactions?account_id=${bankAccountId}&line=${lineId}`, { waitUntil: 'domcontentloaded' });
+      const linked = page.getByRole('dialog', { name: 'Bank line' });
+      await expect(linked.getByTestId('comment-body').filter({ hasText: 'Line note from z20' })).toBeVisible({ timeout: 60_000 });
+      await snap(page, `bank-line-deeplink-${theme}`);
+      await page.keyboard.press('Escape');
+      await expect(linked).toHaveCount(0);
+      expect(page.url()).not.toContain('line=');
     } finally {
       await cleanup(api, 'supplier_invoice', bill.id);
       await cleanup(api, 'bank_transaction', lineId);

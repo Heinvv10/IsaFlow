@@ -32,7 +32,7 @@ export async function findCommentRecord(companyId: string, type: CommentRecordTy
                        WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
     return rows[0] ? { label: `bill ${String(rows[0].label)}`, href: `/accounting/supplier-invoices/${id}` } : null;
   }
-  rows = (await sql`SELECT COALESCE(NULLIF(btrim(description), ''), 'bank line') AS label FROM bank_transactions
+  rows = (await sql`SELECT COALESCE(NULLIF(btrim(description), ''), 'bank line') AS label, bank_account_id::TEXT AS account_id FROM bank_transactions
                      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
-  return rows[0] ? { label: `bank line "${String(rows[0].label).slice(0, 60)}"`, href: '/accounting/bank-transactions' } : null;
+  return rows[0] ? { label: `bank line "${String(rows[0].label).slice(0, 60)}"`, href: `/accounting/bank-transactions?account_id=${String(rows[0].account_id)}&line=${id}` } : null;
 }

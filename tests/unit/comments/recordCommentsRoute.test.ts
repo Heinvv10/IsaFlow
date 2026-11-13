@@ -57,7 +57,11 @@ describe('who may write', () => {
   it('a viewer may read the thread', async () => {
     const out = await run('GET', 'viewer', { query: { recordType: 'bank_transaction', recordId: ID } });
     expect(out.status).toBe(200);
-    expect(listComments).toHaveBeenCalledWith('co1', 'u1', 'bank_transaction', ID);
+    expect(listComments).toHaveBeenCalledWith('co1', 'u1', 'bank_transaction', ID, false);
+  });
+  it.each([['owner', true], ['admin', true], ['manager', true], ['storeman', false], ['technician', false]])('%s reads with the colleague list allowed = %s', async (role, allowed) => {
+    await run('GET', role, { query: { recordType: 'bank_transaction', recordId: ID } });
+    expect(listComments).toHaveBeenCalledWith('co1', 'u1', 'bank_transaction', ID, allowed);
   });
 });
 
