@@ -34,7 +34,7 @@ const TB = { groupName: 'D2 Group', periodStart: '2026-10-01', periodEnd: '2026-
 runSiteCases([
   { name: 'accounting settings: load', ui: () => <AccountingSettingsPage />,
     hit: (u) => u.includes('accounting-settings?key='), okData: { value: 'EUR' }, other: () => ({ settings: AUTO_POST }),
-    plain: /Could not load settings/, okCheck: () => screen.findByDisplayValue(/EUR/) },
+    plain: /Could not load settings/, okCheck: () => screen.findByText(/EUR — Euro/) }, // the kit Select trigger shows the option label
   { name: 'accounting settings: save auto-post', ui: () => <AccountingSettingsPage />,
     hit: (u, init) => u.includes('bank-auto-post') && init?.method === 'PUT', okData: { settings: { ...AUTO_POST, enabled: true } },
     other: (u) => (u.includes('bank-auto-post') ? { settings: AUTO_POST } : { value: 'ZAR' }),

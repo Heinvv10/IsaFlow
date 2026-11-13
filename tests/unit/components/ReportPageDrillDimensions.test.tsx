@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { pickKit } from '../../helpers/kitSelect';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
@@ -54,8 +55,15 @@ it.each([
   // than merely unlikely, matching R-085's per-test isolation fix.
   const startCallIndex = vi.mocked(apiFetch).mock.calls.length;
   render(<Page />);
-  await screen.findByRole('option', {name:'PROJECT — Project'});
-  fireEvent.change(screen.getByDisplayValue('All Cost Centres'), {target:{value:'centre-a'}});
+  if (kind === 'is') await pickKit(await screen.findByRole('combobox', {name:'Cost Centre'}), 'PROJECT — Project');
+  else {
+    // Trial balance and balance sheet keep a NATIVE select (UXN moved the income statement only): assert it, so the day
+    // they move to the kit this branch fails and is converted instead of silently going stale.
+    await screen.findByRole('option', {name:'PROJECT — Project'});
+    const native = screen.getByDisplayValue('All Cost Centres');
+    expect(native.tagName).toBe('SELECT');
+    fireEvent.change(native, {target:{value:'centre-a'}});
+  }
   if (kind === 'is') fireEvent.click(await screen.findByRole('button', {name:'5000 Expense'}));
   else {
     const link = await screen.findByRole('link', {name:'Expense'});
@@ -88,8 +96,7 @@ it('income statement carries a selected business unit through report, exports, t
   // Wait for the OPTION, not the select: 'All Business Units' shows before the
   // business-units fetch lands, and changing a select to a value it has no
   // option for leaves it at '' — no BU is ever selected (R-138).
-  await screen.findByRole('option', {name:'OPS — Operations'});
-  fireEvent.change(screen.getByDisplayValue('All Business Units'), {target:{value:'business-a'}});
+  await pickKit(await screen.findByRole('combobox', {name:'Business Unit'}), 'OPS — Operations');
   const request = (fragment: string) => vi.mocked(apiFetch).mock.calls
     .slice(startCallIndex).filter(([url]) => String(url).includes(fragment)).at(-1)?.[0];
   await waitFor(() => expect(String(request('reports-income-statement'))).toContain('business_unit_id=business-a'));
@@ -133,7 +140,9 @@ it('balance sheet carries a selected business unit through report, exports, link
 
   const startCallIndex = vi.mocked(apiFetch).mock.calls.length;
   render(<BalanceSheetPage />);
+  // The balance sheet keeps a NATIVE business-unit select (see the note on the first test).
   await screen.findByRole('option', {name:'OPS — Operations'});
+  expect(screen.getByDisplayValue('All Business Units').tagName).toBe('SELECT');
   fireEvent.change(screen.getByDisplayValue('All Business Units'), {target:{value:'business-a'}});
   const request = (fragment: string) => vi.mocked(apiFetch).mock.calls
     .slice(startCallIndex).filter(([url]) => String(url).includes(fragment)).at(-1)?.[0];

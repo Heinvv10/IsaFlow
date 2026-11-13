@@ -21,6 +21,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { ARFilterBar } from '@/components/accounting/customer-invoices/ARFilterBar';
 import { CustomerInvoiceTable, type CustomerInvoiceRow } from '@/components/accounting/customer-invoices/CustomerInvoiceTable';
+import { useRestoreRowFocus } from '@/components/accounting/customer-invoices/useRestoreRowFocus';
 import { InvoiceDrawerBody } from '@/components/accounting/customer-invoices/InvoiceDrawerBody';
 import { useCustomerInvoiceListState } from '@/components/accounting/customer-invoices/useCustomerInvoiceListState';
 import { arFiltersToApiParams } from '@/components/accounting/customer-invoices/listQuery';
@@ -42,6 +43,7 @@ export default function CustomerInvoicesPage() {
   const [foreignOpen, setForeignOpen] = useState(0);
   const [drawerInvoiceId, setDrawerInvoiceId] = useState<string | null>(null);
   const haveSummary = useRef(false);
+  const rememberRow = useRestoreRowFocus(drawerInvoiceId);
   const filtersActive = filters.status !== 'all' || !!(filters.search || filters.customerId || filters.from || filters.to) || filters.aging.length > 0;
 
   useEffect(() => {
@@ -140,7 +142,7 @@ export default function CustomerInvoicesPage() {
               }}
             />
           ) : (
-            <CustomerInvoiceTable invoices={invoices} page={filters.page} limit={LIMIT} total={total} onPage={state.setPage} onOpen={setDrawerInvoiceId} />
+            <CustomerInvoiceTable invoices={invoices} page={filters.page} limit={LIMIT} total={total} onPage={state.setPage} onOpen={(id, row) => { rememberRow(row); setDrawerInvoiceId(id); }} />
           )}
         </div>
       </div>
