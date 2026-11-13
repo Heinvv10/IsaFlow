@@ -24,9 +24,9 @@ const key = () => randomUUID();
 
 interface Reply { isError: boolean; text: string; body: Record<string, unknown> | null }
 
-async function call(args: Record<string, unknown>, role = 'owner', companyId = company): Promise<Reply> {
+async function call(args: Record<string, unknown>, role = 'owner', companyId = company, scopes = ['read:vat', 'write:company']): Promise<Reply> {
   const r: McpToolResult = await asApp(companyId, user, () => registry.call('update_company_profile', args, {
-    userId: user, companyId, scopes: ['read:vat', 'write:vat'], companyRole: role, tokenJti: null, oauthAppId: null,
+    userId: user, companyId, scopes, companyRole: role, tokenJti: null, oauthAppId: null,
   }));
   const text = r.content[0]!.text;
   let body: Record<string, unknown> | null = null;
@@ -98,6 +98,13 @@ describe('update_company_profile as app_user', () => {
     const r = await call({ dry_run: false, idempotency_key: key(), company_id: other, vat_number: '4123456789' });
     expect(r.isError).toBe(true);
     expect(await row(other)).toMatchObject({ vat_number: null });
+    expect(await row()).toMatchObject({ vat_number: null });
+  });
+
+  it('refuses a token with write:vat but not write:company, and writes nothing', async () => {
+    const r = await call({ dry_run: false, idempotency_key: key(), vat_number: '4123456789' }, 'owner', company, ['read:vat', 'write:vat', 'write:post']);
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain('write:company');
     expect(await row()).toMatchObject({ vat_number: null });
   });
 
@@ -201,7 +208,7 @@ describe('moving the VAT period boundaries over filed history', () => {
     await lock(other);
     const r: McpToolResult = await asOwner(company, user, () => registry.call('update_company_profile',
       { dry_run: false, idempotency_key: key(), vat_category: 'B' },
-      { userId: user, companyId: company, scopes: ['read:vat', 'write:vat'], companyRole: 'owner', tokenJti: null, oauthAppId: null }));
+      { userId: user, companyId: company, scopes: ['read:vat', 'write:company'], companyRole: 'owner', tokenJti: null, oauthAppId: null }));
     expect(r.isError, r.content[0]!.text).toBeUndefined();
     expect(await row()).toMatchObject({ vat_period_alignment: 'even' });
   });

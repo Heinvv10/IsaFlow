@@ -124,11 +124,11 @@ describe('the call', () => {
 });
 
 describe('registration', () => {
-  it('is a write tool on write:vat, in the manifest, the client list, free of Flow charges, and classified', () => {
+  it('is a write tool on write:company, in the manifest, the client list, free of Flow charges, and classified', () => {
     expect(MCP_TOOLS.some((t) => t.name === 'update_company_profile')).toBe(true);
     expect(CLIENT_MCP_TOOL_NAMES).toContain('update_company_profile');
     expect(flowOperationFor('update_company_profile')).toBeNull();
-    expect(tool).toMatchObject({ write: true, scope: 'read:vat', requiresScope: 'write:vat' });
+    expect(tool).toMatchObject({ write: true, scope: 'read:vat', requiresScope: 'write:company' });
     expect(tool.requiresPost).toBeUndefined();
     expect(toolAnnotationsFor(tool).destructiveHint).toBe(true);
   });
@@ -137,4 +137,23 @@ describe('registration', () => {
     expect(props).not.toContain('company_id');
     expect(tool.inputSchema.required).toEqual(['dry_run', 'idempotency_key']);
   });
+});
+
+// The allowed case (read:vat + write:company reaches the handler) runs in the integration suite on a real registry.
+describe('the write:company scope, through the registry fence', () => {
+  const callWith = async (scopes: string[]) => {
+    const { McpRegistry } = await import('@/lib/mcp/registry');
+    const reg = new McpRegistry();
+    reg.register(tool);
+    return reg.call('update_company_profile', { ...base, dry_run: false, vat_category: 'B' },
+      { companyId: 'company-1', userId: 'user-1', tokenJti: null, oauthAppId: null, companyRole: 'owner', scopes } as never);
+  };
+
+  it.each([[['read:vat']], [['read:vat', 'write:vat']], [['read:vat', 'write:vat', 'write:post']]])(
+    'refuses a token holding %j before the handler', async (scopes) => {
+      const r = await callWith(scopes);
+      expect(r.isError).toBe(true);
+      expect(text(r)).toContain('write:company');
+      expect(changeCompanyVatProfile).not.toHaveBeenCalled();
+    });
 });

@@ -130,7 +130,7 @@ as well as the read one, and they say so on the consent screen:
 - `mark_vat_declared_elsewhere` (`read:vat` + `write:vat`, owner/admin only) marks
   documents whose VAT was declared outside IsaFlow. It posts nothing and changes no VAT201
   figure.
-- `update_company_profile` (`read:vat` + `write:vat`, owner/admin only) changes the company's
+- `update_company_profile` (`read:vat` + `write:company`, owner/admin only) changes the company's
   VAT number, income tax number and SARS VAT category (A, B or C). It posts nothing. Moving the
   category moves VAT period boundaries, so it is refused when VAT returns, period locks or VAT201
   versions exist unless `acknowledge_period_change: true`; `dry_run` reports the periods that

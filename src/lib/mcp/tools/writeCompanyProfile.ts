@@ -40,7 +40,7 @@ export const updateCompanyProfileTool: McpTool = {
     + 'before/after, the current and next VAT periods under the old and new cycle (period_impact) and the returns on file; false changes it. '
     + 'The reply carries before and after and undo_arguments (the before value of each changed field; calling again with them puts it back).',
   scope: 'read:vat',
-  requiresScope: 'write:vat',
+  requiresScope: 'write:company',
   write: true,
   inputSchema: {
     type: 'object',
