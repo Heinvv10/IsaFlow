@@ -74,3 +74,25 @@ it('a dialog opened inside the trapped one owns its keys too', () => {
   fireEvent.keyDown(button('Inner'), { key: 'Escape' });
   expect(outer).not.toHaveBeenCalled();
 });
+
+describe('useFocusTrap with a Select open inside the overlay (M14 mention picker in a drawer)', () => {
+  it('Escape on an expanded combobox, or inside its listbox, closes the list and leaves the overlay open', () => {
+    const close = vi.fn();
+    render(<Overlay name="Drawer" onEscape={close} nested={<>
+      <div role="combobox" aria-expanded="true" aria-label="Pick" tabIndex={0} />
+      <div role="listbox"><div role="option" aria-selected="false" tabIndex={0}>One</div></div>
+    </>} />);
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Pick' }), { key: 'Escape' });
+    screen.getByRole('option', { name: 'One' }).focus();
+    fireEvent.keyDown(screen.getByRole('option', { name: 'One' }), { key: 'Escape' });
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it('Escape on a closed combobox still closes the overlay', () => {
+    const close = vi.fn();
+    render(<Overlay name="Drawer" onEscape={close} nested={<div role="combobox" aria-expanded="false" aria-label="Pick" tabIndex={0} />} />);
+    screen.getByRole('combobox', { name: 'Pick' }).focus();
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Pick' }), { key: 'Escape' });
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+});

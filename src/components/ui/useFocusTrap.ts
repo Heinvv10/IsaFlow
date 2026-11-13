@@ -35,6 +35,10 @@ export function useFocusTrap(
       const holder = document.activeElement?.closest('[role="dialog"]');
       if (holder && !holder.contains(container)) return;
       if (e.key === 'Escape') {
+        // An open Select inside the overlay (M14's mention picker in a drawer) closes its own list first: Escape
+        // must not also close the overlay under it. The listbox is portalled, so focus is on the trigger or the list.
+        const a = document.activeElement;
+        if (a?.closest('[role="listbox"]') || a?.closest('[role="combobox"][aria-expanded="true"]')) return;
         e.stopPropagation();
         escape.current();
         return;
