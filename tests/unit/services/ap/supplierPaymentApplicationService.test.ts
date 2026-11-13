@@ -184,7 +184,7 @@ describe('the bill read locks what it is about to decide from', () => {
 
   // 40P01, not 55P03: a DEADLOCK is the other contention SQLSTATE and it must
   // reach the caller as the same retryable refusal. The canonical lock order
-  // (`bank/.claude.md`) is what makes one unlikely; this is what stops the one
+  // (`bank/AGENTS.md`) is what makes one unlikely; this is what stops the one
   // that still happens from being answered as a 500 on a money path.
     await expect(
       planSupplierPaymentApplication(COMPANY, PAYMENT, [{ invoiceId: BILL_A, amount: 100 }]),

@@ -130,7 +130,7 @@ export interface ResolvedActorType {
  * falls back to `defaultHumanMeta(userId)` whenever a caller does not pass the
  * meta, which stamps `human:<userId>` on postings an agent actually made — the
  * same defect that hides them from `list_agent_postings` today
- * (`src/lib/mcp/.claude.md`). So an `mcp:` stamp proves an agent, but a
+ * (`src/lib/mcp/AGENTS.md`). So an `mcp:` stamp proves an agent, but a
  * `human:` stamp proves nothing: it means "not stamped as an agent", which is
  * a weaker claim and includes an unknown number of agent postings.
  *

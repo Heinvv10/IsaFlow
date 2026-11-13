@@ -66,7 +66,7 @@ export async function attachEvidenceAndSettleApproved(
     // Budgets P5-2 (census finding 1): this is the auto-approval the budget check must see. The routes
     // already hold the captured document, its events, the posted-content key and the new bill, so the
     // company budget lock cannot come first: lock-free (`none`), refusing an over-budget bill in block
-    // mode. Named residual race (ap/.claude.md): two such postings racing in block mode can both pass.
+    // mode. Named residual race (ap/AGENTS.md): two such postings racing in block mode can both pass.
     await withSavepoint('provisional_settle', () => postSupplierInvoiceToGL(companyId, invoiceId, input.userId, {
       budget: { channel: 'system', lock: 'none' },
     }));

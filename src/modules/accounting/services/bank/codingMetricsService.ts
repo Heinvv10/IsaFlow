@@ -6,7 +6,7 @@
  *  - the company endpoint passes [req.companyId] (withAuth: membership-checked, and under app_user the RLS
  *    policies bind the active company too);
  *  - the bureau endpoint passes the bureau's bureau_companies after the caller's bureau_users membership
- *    check, on the RLS-bypassing pool (bureau/services/.claude.md, "TENANT SAFETY").
+ *    check, on the RLS-bypassing pool (bureau/services/AGENTS.md, "TENANT SAFETY").
  *
  * Headline semantics, as the code stands (verified 2026-10-21):
  *  - "coded" = feed_state 'posted' and status provisional / allocated / matched / reconciled, by the line's

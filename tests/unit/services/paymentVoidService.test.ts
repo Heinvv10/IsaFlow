@@ -214,7 +214,7 @@ describe('voidPaymentDocument', () => {
   // through `unwindOnePayment`'s `UPDATE …_payments`. Locking the payment first
   // was the inverse order, so a `void_receipt` on P racing a
   // `reverse_bank_allocation` on the line P settles held one row each and
-  // deadlocked (40P01 → 500). Canonical order: `bank/.claude.md`.
+  // deadlocked (40P01 → 500). Canonical order: `bank/AGENTS.md`.
   it('locks the bank line BEFORE the payment — the canonical order', async () => {
     const order: string[] = [];
     vi.mocked(lockBankTransactionForUpdate).mockImplementation(async () => {

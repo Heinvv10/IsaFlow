@@ -3,7 +3,7 @@
  * payable pool, where a new batch pays them again while the first file is still with Netcash. So both refuse while
  * the batch has a netcash_submissions row that is not 'failed' (submitted, processing, completed, pending or
  * unknown): only a DEFINITE rejection frees the batch. An owner/admin who has checked Netcash and knows the batch was
- * not paid releases the row with POST /api/accounting/netcash/resolve (pages/api/accounting/netcash/.claude.md).
+ * not paid releases the row with POST /api/accounting/netcash/resolve (pages/api/accounting/netcash/AGENTS.md).
  *
  * Call it with the batch row ALREADY locked by this transaction (cancelBatch: FOR NO KEY UPDATE; the reversal: FOR
  * UPDATE). netcash/submit holds that row FOR SHARE from before it claims until it commits, so a submit in flight is

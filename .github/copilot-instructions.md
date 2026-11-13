@@ -36,4 +36,4 @@
 - `bun run ci` — full CI gate (required before any PR)
 
 ## Module-level rules
-49 sibling `.claude.md` / `AGENTS.md` files exist under `src/modules/*` and `pages/api/accounting/*`. Read the relevant one before editing a module.
+49 sibling `AGENTS.md` files exist under `src/modules/*` and `pages/api/accounting/*`. Read the relevant one before editing a module.

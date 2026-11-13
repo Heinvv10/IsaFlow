@@ -1,7 +1,7 @@
 /**
  * K-061 lock order. A merge re-parents every bank line, receipt and invoice of
  * the source, so it contends with any settlement running for that customer.
- * Settlement paths lock each set ORDER BY id (bank/.claude.md). A merge that
+ * Settlement paths lock each set ORDER BY id (bank/AGENTS.md). A merge that
  * took the same rows in heap order would hold the higher id while waiting on
  * the lower one — and a settlement holding the lower id and then asking for
  * the higher one deadlocks against it (40P01 → one side 500s).

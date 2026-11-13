@@ -113,7 +113,6 @@ run_step "raw-input-allowlist" bun scripts/ci/check-raw-input-allowlist.ts
 # Raw muted text greys (text-gray/slate-400/500) are what styles/themeContrast.css exists to paper
 # over; their count may only fall (scripts/ci/raw-muted-text-stops.baseline.json).
 run_step "raw-muted-text-stops" bun scripts/ci/check-raw-muted-text-stops.ts
-run_step "agent-docs"        bun run agent-docs:check
 run_step "security-guards"   bash scripts/ci/check-internal-apis.sh
 # User identity is a string in this schema (users.id varchar,
 # company_users.user_id text). A ::UUID cast on either throws at RUNTIME, not

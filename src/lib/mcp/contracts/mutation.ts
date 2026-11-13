@@ -7,7 +7,7 @@
  * from an irreversible batch into a review step.
  *
  * The idempotency contract is already settled and enforced by the registry
- * (`src/lib/mcp/registry.ts`, documented in `src/lib/mcp/.claude.md`). Nothing
+ * (`src/lib/mcp/registry.ts`, documented in `src/lib/mcp/AGENTS.md`). Nothing
  * here re-opens it. Two of its rules bind every new write tool:
  *
  *   1. A SUCCESS THAT WROTE NOTHING must set `wroteNothing: true` on the result,

@@ -16,7 +16,7 @@
  * to its own typed refusal, and the route answers 409.
  *
  * A deadlock should not HAPPEN — the canonical lock order recorded in
- * `bank/.claude.md` exists to make it impossible on the paths we control. This
+ * `bank/AGENTS.md` exists to make it impossible on the paths we control. This
  * is the second line: an order violation introduced by a path we do not (a
  * migration, a psql session, a future caller) is answered as contention instead
  * of as a fault. Mapping it here is not a licence to stop ordering locks.

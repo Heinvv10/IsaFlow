@@ -203,7 +203,7 @@ export async function applyCreditNoteToInvoice(
     throw new Error('Credit note must be approved before applying');
   }
   if (String(cn.type) !== 'customer') throw new Error('Only customer credit notes can be applied to invoices');
-  // Next lock after the note row, before the invoice's: approveCreditNote's order (ar/.claude.md), so the
+  // Next lock after the note row, before the invoice's: approveCreditNote's order (ar/AGENTS.md), so the
   // allocation rows an approval of another note on this invoice reads cannot change under it.
   await lockInvoiceCreditNotes(invoiceId);
 

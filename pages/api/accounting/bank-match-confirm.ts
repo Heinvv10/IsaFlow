@@ -89,7 +89,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // this map deliberately — they tie a line to a journal that already exists
     // and settle no document. (The picker offers them only this bank's lines in this
     // line's direction — bankMatchDbQueries — but this route does not re-check a
-    // hand-crafted id: a stated residual in bank/.claude.md.)
+    // hand-crafted id: a stated residual in bank/AGENTS.md.)
     const signedAmount = Number(txRows[0]!.amount);
     const settles: Partial<Record<typeof candidateType, SettlementKind>> = {
       supplier_invoice: 'supplier',

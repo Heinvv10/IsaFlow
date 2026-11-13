@@ -141,7 +141,7 @@ export async function planReclassification(
   // then issues `RELEASE SAVEPOINT` on its normal-return path, which raises
   // 25P02 — so the agent received GENERIC_FAILURE and the retry wording was
   // discarded. Only a savepoint rollback restores the transaction. Same shape
-  // as `snapshotInvoicePdf` (mcp/.claude.md), and the reason is identical.
+  // as `snapshotInvoicePdf` (mcp/AGENTS.md), and the reason is identical.
   let lockedLineIds: ReadonlySet<string> | undefined;
   if (input.lockCandidateLines) {
     const locked = await withSavepoint(

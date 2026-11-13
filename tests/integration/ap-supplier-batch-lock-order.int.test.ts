@@ -5,7 +5,7 @@
  * detail edit), the take-on overwrite and both supplier merges took the
  * supplier FIRST and then the batches: the opposite order, so the two
  * transactions could deadlock (40P01) and Postgres aborted one of them.
- * One order now (bank/.claude.md): batches, in id order, then suppliers.
+ * One order now (bank/AGENTS.md): batches, in id order, then suppliers.
  *
  * Judged by OUTCOME, interleaved deterministically: the real eft-generate route
  * is parked while it holds the batch row, the supplier writer is started and

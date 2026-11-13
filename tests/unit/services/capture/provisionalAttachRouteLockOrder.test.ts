@@ -1,7 +1,7 @@
 /**
  * POST /api/accounting/provisional/[jeId]/attach takes the BANK LINE before the
  * PRE-EXISTING journal — the canonical lock order in
- * `src/modules/accounting/services/bank/.claude.md` — and the captured document
+ * `src/modules/accounting/services/bank/AGENTS.md` — and the captured document
  * last (R-107), after the journal, which is the order `reverseJournalEntry`
  * takes them in (journal, then the release of the document). The capture post
  * paths take the slip FIRST and the bank line after it (the automatic attach);

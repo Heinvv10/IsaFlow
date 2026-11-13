@@ -4,7 +4,7 @@
  *
  * A link is an ANNOTATION ONLY (Hein, 2026-10-05): the UPDATE writes the three link columns and `updated_at`, never
  * `status`, `matched_journal_line_id` or `reconciliation_id`, and nothing is posted. The line is allocated the normal
- * way. So a link is outside D12's "a completed reconciliation is immutable" (bank/.claude.md) — a reconciled line of a
+ * way. So a link is outside D12's "a completed reconciliation is immutable" (bank/AGENTS.md) — a reconciled line of a
  * completed session may still be annotated — and needs no stale-stamp handling, because the status never turns.
  *
  * Order, all BEFORE the write:

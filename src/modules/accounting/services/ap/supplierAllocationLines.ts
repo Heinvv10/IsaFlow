@@ -128,7 +128,7 @@ export async function planSupplierAllocationLines(
  * other pre-write refusal here. The AR mirror is `receiptAllocationLines.ts`.)
  * A DEADLOCK (40P01) is
  * answered the same way, via `isLockContention` — see the canonical lock order
- * in `bank/.claude.md` for why one should not arise here at all.
+ * in `bank/AGENTS.md` for why one should not arise here at all.
  */
 export async function fetchBillCandidates(
   companyId: string,

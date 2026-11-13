@@ -8,7 +8,7 @@
  * then refuses the now-inactive account. Expense-claim lines and PO lines had
  * no such check, so a line coded while a merge ran — or simply coded to an
  * already-deactivated account — landed on an inactive account with nothing to
- * catch it (`gl/.claude.md`, "Known limit", 2026-09-24).
+ * catch it (`gl/AGENTS.md`, "Known limit", 2026-09-24).
  *
  * Scope is deliberately narrow: inactive, or another company's account. NOT
  * control/VAT/header rules — those bill-line-only refusals do not apply here

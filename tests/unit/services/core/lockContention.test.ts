@@ -5,7 +5,7 @@
  * settlement lock. A DEADLOCK was not — it reached `withAuth` as a bare pg
  * error and was answered 500, on the money path, to a user whose only mistake
  * was arriving at the same instant as somebody else. The canonical lock order
- * in `bank/.claude.md` is what makes a deadlock unlikely; this is what stops
+ * in `bank/AGENTS.md` is what makes a deadlock unlikely; this is what stops
  * the one that still happens from being reported as a server fault.
  *
  * Both SQLSTATEs abort the transaction, so nothing either request wrote

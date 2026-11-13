@@ -62,7 +62,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // with it the payee's bank details (R-035 PR5): the merging user becomes
       // an author of every payment it moves, and of each batch they belong to.
       // Their batches are locked first: batch before members, the order
-      // approveBatch / processBatch take (bank/.claude.md lock order).
+      // approveBatch / processBatch take (bank/AGENTS.md lock order).
       const batchIds = await lockBatchesPayingSupplier(companyId, source_id, null);
       await tx`
         UPDATE supplier_payments
@@ -74,7 +74,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       await stampBatchesOfMovedPayments(companyId, batchIds, user.id);
 
       // 3. Re-parent supplier_invoices — AFTER the payments, as every payment
-      // writer takes a payment and then its bills (bank/.claude.md lock order;
+      // writer takes a payment and then its bills (bank/AGENTS.md lock order;
       // bills first deadlocked a concurrent process, 2026-10-24). supplier_id is
       // approval content (R-035): the merging user becomes an author of every
       // bill it moves.

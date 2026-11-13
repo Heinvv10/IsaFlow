@@ -70,7 +70,7 @@ export async function listEmployeeHistory(
   // plain join to `users`: app_user can only SELECT its own row there
   // (users_self_read, FORCE RLS), so a join resolved a name only when the
   // caller happened to be the one who made the change themselves — everyone
-  // else's history entries showed a blank name. See gl/.claude.md.
+  // else's history entries showed a blank name. See gl/AGENTS.md.
   const rows = (await sql`
     SELECT h.id,
            h.field_name,

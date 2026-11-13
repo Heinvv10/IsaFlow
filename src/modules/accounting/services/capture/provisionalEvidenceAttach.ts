@@ -11,7 +11,7 @@
  * rejected.
  *
  * Lock order is bank line → journal → document. The first pair is the
- * canonical order in `services/bank/.claude.md` (a pre-existing journal after
+ * canonical order in `services/bank/AGENTS.md` (a pre-existing journal after
  * its bank line); the document comes last to match `reverseJournalEntry`, which
  * takes the journal and then releases the document. Two paths take the SAME
  * rows the other way round — `capture/[id]/post` (via `capturePostFollowUps`)

@@ -21,7 +21,7 @@
  * leave the rest of the line describing a claim the code denies.
  *
  * Every refusal is answered from reads before the service call; after it,
- * failures propagate to the registry's savepoint (see the MCP .claude.md).
+ * failures propagate to the registry's savepoint (see the MCP AGENTS.md).
  */
 import type { McpTool } from '../types';
 import { splitAllocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';

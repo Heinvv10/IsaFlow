@@ -1,6 +1,6 @@
 /**
  * CC1 / CC2 / BU on purchase-order lines (budgets P5-3; columns from migration 954), under the bill lines' rules
- * (`gl/dimensions/.claude.md`), reads only, before the first write:
+ * (`gl/dimensions/AGENTS.md`), reads only, before the first write:
  *   - a value sent sets the slot, null (or '') clears it; on an update a slot LEFT OUT keeps the value every stored
  *     line shares, and is refused when they differ (`keepStoredDimensions`, the draft-edit rule);
  *   - CC1 is derived from the CC2's FNO; a CC1 the project contradicts is refused (`deriveLineDimensions`);

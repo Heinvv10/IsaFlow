@@ -95,7 +95,7 @@ export async function processSupplierPayment(
     // ONCE, at the end. A second write of a row this transaction already wrote re-runs its foreign-key checks, and
     // the supplier FK's FOR KEY SHARE on `suppliers`, taken after the payment, crossed updateSupplier (supplier FOR
     // UPDATE, then the supplier's payments in recordBankDetailsSetter): 40P01. Written once, this path locks no
-    // supplier row at all (ap/.claude.md, 2026-10-24).
+    // supplier row at all (ap/AGENTS.md, 2026-10-24).
     const apAccount = await getSystemAccount('payable', companyId);
     const bankAccount = payment.bankAccountId
       ? ((await sql`SELECT * FROM gl_accounts WHERE id = ${payment.bankAccountId}::UUID AND company_id = ${companyId}::UUID`) as Row[])[0]
@@ -194,7 +194,7 @@ async function voidSupplierPaymentInner(
     // (2) THEN THE PAYMENT. This used to open with the unlocked
     // `getSupplierPaymentById` and take `gl_journal_entries` before
     // `supplier_invoices` before `supplier_payments` — the exact inverse of the
-    // canonical order in `bank/.claude.md`, and a reachable cycle against
+    // canonical order in `bank/AGENTS.md`, and a reachable cycle against
     // `voidPaymentDocument` (which takes payment → invoices → GL) on the very
     // same supplier payment. Two agents voiding one payment from its two
     // entrances held a row each and Postgres killed one with 40P01.

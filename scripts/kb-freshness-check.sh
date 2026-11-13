@@ -11,20 +11,20 @@ echo "=== ISAFlow KB Freshness Check ==="
 echo "Threshold: ${THRESHOLD} days"
 echo ""
 
-# Check module .claude.md files
+# Check module AGENTS.md files
 echo "Module Context Files:"
 for dir in src/modules/*/; do
   name=$(basename "$dir")
-  if [ -f "$dir/.claude.md" ]; then
-    age=$(( ( $(date +%s) - $(stat -c %Y "$dir/.claude.md") ) / 86400 ))
+  if [ -f "$dir/AGENTS.md" ]; then
+    age=$(( ( $(date +%s) - $(stat -c %Y "$dir/AGENTS.md") ) / 86400 ))
     if [ "$age" -gt "$THRESHOLD" ]; then
-      echo "  ⚠️  $name/.claude.md — ${age} days old (stale)"
+      echo "  ⚠️  $name/AGENTS.md — ${age} days old (stale)"
       STALE=$((STALE+1))
     else
-      echo "  ✅ $name/.claude.md — ${age} days old"
+      echo "  ✅ $name/AGENTS.md — ${age} days old"
     fi
   else
-    echo "  ❌ $name — MISSING .claude.md"
+    echo "  ❌ $name — MISSING AGENTS.md"
     STALE=$((STALE+1))
   fi
 done

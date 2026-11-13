@@ -2,7 +2,7 @@
  * One document, one claim, at the GL write side.
  *
  * `captured_documents.posted_at` already fences the CAPTURE posting routes
- * (see `capture/.claude.md`), but `gl_journal_entries.source_document_id` has
+ * (see `capture/AGENTS.md`), but `gl_journal_entries.source_document_id` has
  * writers outside that fence — the manual `POST /api/accounting/journal-entries`
  * route, and the two evidence-attach paths that stamp it onto a PRE-EXISTING
  * bank-first provisional journal after the fact. This is the lower-level

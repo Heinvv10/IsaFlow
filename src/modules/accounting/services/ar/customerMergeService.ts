@@ -78,7 +78,7 @@ async function refuseOrLock(tx: TxSql, companyId: string, sourceId: string, targ
 }
 
 /**
- * The canonical lock order (bank/.claude.md): bank lines, then receipts, then
+ * The canonical lock order (bank/AGENTS.md): bank lines, then receipts, then
  * invoices ORDER BY id. A merge re-parents every one of a customer's documents,
  * so it contends with any settlement running for that customer; taking them
  * in any other order deadlocks against it (40P01 → 500).

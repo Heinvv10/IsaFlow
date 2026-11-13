@@ -18,7 +18,7 @@ export type BudgetDocumentType = 'supplier_invoice' | 'purchase_order';
  * - `none`: the caller already holds document locks, so it cannot take the company lock first
  *   (capture auto-approve, recurring auto-post; census T2 exceptions). The check runs lock-free:
  *   in `block` mode it still refuses an over-budget document, but two such approvals racing each
- *   other can both pass (named residual race, documented in `ap/.claude.md`).
+ *   other can both pass (named residual race, documented in `ap/AGENTS.md`).
  */
 export type BudgetLockMode = 'take' | 'held' | 'none';
 

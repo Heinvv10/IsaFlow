@@ -50,7 +50,7 @@ async function dismissInner(companyId: string, jeId: string, userId: string): Pr
   // At its reversal-chain HEAD (D8): a provisional reversed and re-reversed is
   // back in the ledger through the second contra and stamped reversed; one
   // whose chain is already out reverses nothing and only frees its bank line.
-  // (1) THE BANK LINE FIRST, then the head: the canonical order (`bank/.claude.md`) both evidence attaches take
+  // (1) THE BANK LINE FIRST, then the head: the canonical order (`bank/AGENTS.md`) both evidence attaches take
   // — head first deadlocked against the automatic attach (D8 round 6, brk-d8b).
   const lines = (await sql`
     SELECT id FROM bank_transactions

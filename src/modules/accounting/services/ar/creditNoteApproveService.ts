@@ -68,7 +68,7 @@ export async function approveCreditNote(
     // refuses here instead.
     const cn = await lockCreditNoteForUpdate(companyId, id);
     if (!cn) throw new Error(`Credit note ${id} not found`);
-    // Next statement after the row read: one approval at a time per linked invoice (lock order: ar/.claude.md).
+    // Next statement after the row read: one approval at a time per linked invoice (lock order: ar/AGENTS.md).
     // A supplier note's bill takes the same key (892): two notes on one bill must not take one leg twice.
     const lockedDocument = cn.customer_invoice_id ?? cn.supplier_invoice_id;
     if (lockedDocument) await lockInvoiceCreditNotes(String(lockedDocument));

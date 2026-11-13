@@ -1,0 +1,39 @@
+# neon.ts
+
+## Purpose
+`pg.Pool`-backed tagged-template SQL client — the canonical DB entry point for the whole app. Preserves the public surface of the former Neon driver while running against vanilla Postgres (self-hosted Supabase via Supavisor on `:6543`). The legacy filename is kept so existing `@/lib/neon` imports across 300+ call sites don't need changing.
+
+`neon.ts` is a barrel (R-184); the code is in `src/lib/neon/`. Which module holds what, and which owns each piece of state, is in `src/lib/neon/AGENTS.md`.
+
+## Key exports
+- `type DbRow = Record<string, any>`
+- `const sql: SqlFunction` — tagged template (`` sql`SELECT ...` ``) returning a `LazyQuery<T>` which is awaitable as `T[]`
+  - `sql.transaction(queries | (tx) => queries, options?)` — array- or callback-form batched transaction; `options.isolationLevel` supported
+  - `sql.unsafe<T>(text, values?)` — raw SQL fragment; interpolatable into another `` sql`...` `` or awaitable alone
+  - `sql.query<T>(text, values?)` — alias for `unsafe`
+- `transaction(queriesFn)` — callback form with `ReadCommitted` default isolation (back-compat helper)
+- `withTransaction<T>(fn: (tx: TxSql) => Promise<T>)` — sequential-imperative transaction helper; full BEGIN/COMMIT/ROLLBACK
+- `withSavepoint<T>(name, fn)` — runs inside a SAVEPOINT on the request-scoped ALS transaction so one failed query doesn't poison the whole request tx; degrades to plain `fn()` when no outer tx
+- `fmtDate(val: unknown): string` — formats a DB date column as `YYYY-MM-DD` robust to Date/string
+- `type TxSql`
+- `buildQuery(strings, values)` — the tagged template to `{ text, values }` with `$N` placeholders (S-07e: `migrationAdminSqlTx` builds its `TxSql` with it; app code uses `sql`/`withTransaction`)
+- default export: `sql`
+
+## Dependencies
+- `pg` — node-postgres Pool
+- `@/lib/als` (static import) — AsyncLocalStorage for request-scoped tx client; enables RLS GUC persistence inside `withAuth`
+- `@/lib/logger`
+
+## Critical notes
+- **Import `@/lib/neon` only — never `@/lib/neon/<module>`.** Tests `vi.mock('@/lib/neon', factory)` with partial factories; a module that imported `src/lib/neon/sql.ts` directly would get the real `sql` under those tests. Only the barrel and its sibling modules may import the modules (`tests/unit/lib/neonModuleShape.test.ts`).
+- **NEVER string-concat SQL**. Always use the tagged template: `` sql`SELECT ... WHERE id = ${id}` ``. Values become `$N` parameters automatically; `LazyQuery` values spliced in are renumbered so nested `` sql`...` `` fragments compose safely.
+- **Multi-tenant**: every query must include `company_id = ${companyId}` or route through an RLS-aware policy. RLS is enforced via `set_config('request.jwt.claims', $claims, true)` inside the request tx; `withAuth` applies this before the handler runs. A missing `company_id = $X` predicate is an IDOR — the pentest skill greps for this.
+- **ALS-aware**: if an outer `withAuth` transaction is in progress (ALS store has a `client`), `sql` awaited outside a savepoint runs ON that transaction client, so RLS GUCs are honoured. If you bypass `sql` and use your own pool, RLS sees no claims.
+- **withSavepoint**: inside a `withAuth` request, a single failed query poisons the whole request tx ("current transaction is aborted …"). Wrap defensive reads in `withSavepoint('name', async () => { ... })` so a savepoint rollback keeps the outer tx alive. Savepoint name must match `/^[a-zA-Z_][a-zA-Z0-9_]{0,30}$/`.
+- **Date handling**: `row.some_date` can be `Date` or `string` depending on the column type (`date` → Date via pg, `timestamptz` → Date). Callers normalise via `fmtDate()` or `String(row.col).slice(0, 10)`.
+- **`any` in DbRow**: kept to match the old Neon shape so `row.status` type-checks without casting. Prefer explicit casts at the mapping boundary (`String(row.status) as Loan['status']`). Tighten per-row by parameterising `sql<Row>\`...\``.
+- **SSL**: `DATABASE_SSL=strict` enforces CA verification; `disable` turns SSL off; default is `{ rejectUnauthorized: false }` for self-hosted Supabase's self-signed cert.
+- **Login role (S-07b)**: the pool reads `serviceDatabaseUrl()` (`@/lib/serviceDatabaseUrl`, shared with the rate-limit pool): `SERVICE_DATABASE_URL`, falling back to `DATABASE_URL`. In production that is `isaflow_service` (migration 915): it inherits `app_service` (app_user's grants, a row-admitting policy per command an app_user policy admits), owns nothing, has no BYPASSRLS. It may not write `users.email` or touch `auth_email_verification_tokens`, whose payload verify-email turns into one (migration 918): change-email, the POPIA erasure and `emailVerificationService` run on `migrationAdminPool()` (`@/lib/auth/migrationAdminPool`). It may not read any materialized view (they have no RLS; 919, checked on every deploy by 920): the AR view summary's old name is a `security_invoker` view over the company-filtered definer `current_company_invoice_view_summary()`. Anything that needs the owner (DDL, REFRESH MATERIALIZED VIEW) goes through a SECURITY DEFINER function that takes no steering input; one whose lock a caller could hold to the end of its own transaction is executable by migration_admin only, as `refresh_customer_invoice_view_summary_if_due()` is (930, which the cron calls on that pool). No app role may INSERT or UPDATE a credential or membership table (PATs, capture API keys, the OAuth tables, invitations, `company_users` (930; its role and removal too since 937), and the portal, share-link, audit-portal, capture-routing and bank-feed tables (937)), TRUNCATE one, and every SECURITY DEFINER function must have a reviewed row in `public.app_definer_reviews` (signature, what it writes, md5 of its body): a migration that creates or changes a definer, trigger functions included, inserts or updates its row, or `s07c-credential-writes.migration.int.test.ts` fails in CI and every deploy refuses the code switch, read or write the password-reset tokens or the impersonation stash, or read `waitlist_signups` (930, checked on every deploy by `app_pool_reach_violations()`): those writes run on `migrationAdminPool()`. A new RLS table gets its `app_service_<cmd>` policies from `public.app_service_sync_policies()`, which every migration run calls (and which drops a mirror whose source is gone; a policy for app_service under any other name stops the deploy). A new app_user predicate that is not a forgeable claim must be reviewed into `s07b-app-pool-login-role.policies.int.test.ts`.
+- **Pool lifetime**: Singleton — `_pool` is lazily created on first `getPool()` call and reused. `PG_POOL_MAX` env (default 10) controls size; read through `poolSizeFromEnv` (`@/lib/limits/poolLimits`), so only a whole number 2-100 is honoured (a `1` is raised to 2, because `withTransaction` outside a request holds one connection and a bare `sql` in its callback needs a second; a floor, not a safe size). Anything else gives `min(default, ceil(Number(text)))` when `Number(text)` is finite and above 0, else `min(default, 10)`, never below 2, with one warning (R-182). Do not call `pool.end()` from app code.
+- **File is `neon.ts` but is NOT Neon**: don't trust the name. `@neondatabase/serverless` is not on the hot path anymore.
+- `sql.transaction` array-form queries execute sequentially inside one BEGIN; callback-form receives a `tx`-bound `SqlFunction` so you can build the list from earlier row data.

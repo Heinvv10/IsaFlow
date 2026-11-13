@@ -1,6 +1,6 @@
 /**
  * `confirmCustomerPayment` / `cancelCustomerPayment` — the AR half of the
- * canonical lock order in `src/modules/accounting/services/bank/.claude.md`:
+ * canonical lock order in `src/modules/accounting/services/bank/AGENTS.md`:
  * (1) bank_transactions, (2) customer_payments, (3) customer_invoices,
  * (4) gl_journal_entries.
  *

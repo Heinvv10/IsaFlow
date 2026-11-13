@@ -19,8 +19,8 @@ Update the ISAFlow knowledge base by scanning modules, services, API routes, and
 2. **Scan Services** - Find all service files in `src/modules/*/services/`
 3. **Scan API Routes** - Count and categorize `pages/api/accounting/` routes
 4. **Scan Pages** - Count and categorize `pages/accounting/` pages
-5. **Check Coverage** - Identify modules/services missing `.claude.md`
-6. **Generate Context** - Create `.claude.md` for missing modules
+5. **Check Coverage** - Identify modules/services missing `AGENTS.md`
+6. **Generate Context** - Create `AGENTS.md` for missing modules
 7. **Consolidate Learnings** - Move `.claude-learnings.md` entries to permanent KB
 8. **Update Memory** - Sync findings to `.claude/projects/*/memory/`
 
@@ -46,20 +46,20 @@ ls scripts/migrations/sql/*.sql | wc -l
 
 ### Step 2: Check Module Coverage
 ```bash
-# List modules with .claude.md
-find src/modules -maxdepth 2 -name ".claude.md" | wc -l
+# List modules with AGENTS.md
+find src/modules -maxdepth 2 -name "AGENTS.md" | wc -l
 
-# List modules WITHOUT .claude.md
+# List modules WITHOUT AGENTS.md
 for dir in src/modules/*/; do
   name=$(basename "$dir")
-  if [ ! -f "$dir/.claude.md" ]; then
+  if [ ! -f "$dir/AGENTS.md" ]; then
     echo "MISSING: $name"
   fi
 done
 ```
 
 ### Step 3: For Each Missing Module
-Generate `.claude.md` using the template at `.claude/templates/module-claude-md.template`:
+Generate `AGENTS.md` using the template at `.claude/templates/module-agents-md.template`:
 - Extract purpose from code structure
 - List key service files with their exported functions
 - Identify API endpoints from `pages/api/`
@@ -78,7 +78,7 @@ Check for `.claude-learnings.md` files:
 ```bash
 find src/modules -name ".claude-learnings.md" -exec echo "Found: {}" \;
 ```
-Move entries >7 days old to module's `.claude.md` under "## Learnings" section.
+Move entries >7 days old to module's `AGENTS.md` under "## Learnings" section.
 
 ### Step 6: Update Memory Index
 Sync key findings to the auto-memory system at:
@@ -96,11 +96,11 @@ Update `project_modules.md` with current module/service/API/page counts.
 ║ API Routes:              N                                   ║
 ║ Pages:                   N                                   ║
 ║ DB Migrations:           N                                   ║
-║ With .claude.md:         N / N (XX%)                         ║
+║ With AGENTS.md:         N / N (XX%)                         ║
 ║ Learnings consolidated:  N                                   ║
 ║                                                              ║
 ║ Coverage gaps:                                               ║
-║   ❌ [module] — missing .claude.md                           ║
+║   ❌ [module] — missing AGENTS.md                           ║
 ║   ⚠️  [service] — missing company_id scoping                ║
 ║                                                              ║
 ║ Sage parity status:                                          ║
@@ -115,9 +115,9 @@ Update `project_modules.md` with current module/service/API/page counts.
 
 | File | Purpose |
 |------|---------|
-| `src/modules/*/.claude.md` | Module context files |
+| `src/modules/*/AGENTS.md` | Module context files |
 | `src/modules/*/.claude-learnings.md` | Auto-captured learnings |
-| `.claude/templates/module-claude-md.template` | Module doc template |
+| `.claude/templates/module-agents-md.template` | Module doc template |
 | `.claude/projects/*/memory/project_sage_gaps.md` | Sage parity tracking |
 | `.claude/projects/*/memory/project_sage_full_audit.md` | Full feature audit |
 | `.claude/projects/*/memory/project_modules.md` | Module inventory |

@@ -1,7 +1,7 @@
 /**
  * Label-case census (master plan wave 4, VC). A field label is sentence case in the kit's `text-sm font-medium`;
  * uppercase is for eyebrows and table headers. The old label class (`uppercase tracking-wider mb-1.5`) must not come
- * back in code. Reads `git ls-files` for ts/tsx only: `.claude.md` and `AGENTS.md` quote the pattern on purpose.
+ * back in code. Reads `git ls-files` for ts/tsx only: `AGENTS.md` quotes the pattern on purpose.
  */
 import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';

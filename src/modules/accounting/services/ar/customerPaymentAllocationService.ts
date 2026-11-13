@@ -178,7 +178,7 @@ async function cancelCustomerPaymentInner(
   reason?: string,
 ): Promise<CustomerPayment> {
   try {
-    // (1) THE BANK LINE, then (2) THE PAYMENT — the canonical order in `bank/.claude.md`, as `voidSupplierPayment`
+    // (1) THE BANK LINE, then (2) THE PAYMENT — the canonical order in `bank/AGENTS.md`, as `voidSupplierPayment`
     // takes it; the line is freed below (D8 round 6: it stayed allocated/matched to a journal the cancel took out).
     const { journalId, leg } = await lockReceiptBankLeg(companyId, id);
     if (!(await lockCustomerPaymentForUpdate(companyId, id))) throw new Error(`Payment ${id} not found`);

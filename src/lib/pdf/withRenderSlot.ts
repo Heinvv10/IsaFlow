@@ -26,7 +26,7 @@
 // withAuth's open transaction, for up to the 30s print-ready gate plus
 // transport overhead. Bounded by the concurrency bound (2 at the defaults), that is that many idle-in-
 // transaction connections at worst, which the pool carries. See
-// src/lib/pdf/.claude.md.
+// src/lib/pdf/AGENTS.md.
 
 import type { NextApiHandler } from 'next';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';

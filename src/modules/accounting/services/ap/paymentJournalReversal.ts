@@ -9,7 +9,7 @@
  * know BEFORE the first write that the contra can post — single void used to
  * discover a closed period inside `reverseJournalEntry` and answer 500.
  *
- * LOCK ORDER is the canonical one (`bank/.claude.md`): bank line → payment /
+ * LOCK ORDER is the canonical one (`bank/AGENTS.md`): bank line → payment /
  * batch → bills → journal. So the caller runs `lockBankLegOf` FIRST, from an
  * unlocked peek of the journal id (as `voidPaymentDocument` does), then locks
  * its document and bills, and calls `lockJournalAndUnmatch` last, just before

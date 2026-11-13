@@ -49,7 +49,7 @@ vi.mock('@/lib/auth', () => ({
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 // Both confirm arms now take the bank line's row lock FIRST — the canonical
-// order (`bank/.claude.md`) — and `lockBankTransactionForUpdate` refuses to run
+// order (`bank/AGENTS.md`) — and `lockBankTransactionForUpdate` refuses to run
 // outside a request transaction. Stand in for the withAuth-bound client so the
 // route reaches its arms, and queue the lock's own read where it now falls.
 const { mockTx } = vi.hoisted(() => ({

@@ -135,7 +135,7 @@ export interface ReportEnvelope<TRow> {
    * account for the universe the report drew from.
    *
    * This is NOT thrown, deliberately. A read tool runs with no savepoint
-   * (`src/lib/mcp/.claude.md`), so a throw after the query has run aborts the
+   * (`src/lib/mcp/AGENTS.md`), so a throw after the query has run aborts the
    * whole request transaction; the registry's own refund and audit writes then
    * fail with 25P02 and the caller gets a 500 with the Flow debit unrefunded.
    * The module already eliminated that failure mode once, by validating casts

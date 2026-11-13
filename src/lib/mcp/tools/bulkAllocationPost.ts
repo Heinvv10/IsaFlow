@@ -81,7 +81,7 @@ function racedStatus(err: unknown): string | null {
 /**
  * How much of a failure's own message may reach the agent.
  *
- * The registry's `.claude.md` invariant is that a handler error surfaces NO SQL
+ * The registry's `AGENTS.md` invariant is that a handler error surfaces NO SQL
  * and no internals; `BulkAllocationLineError` is the one exception to
  * GENERIC_FAILURE, and it would smuggle the whole class back in if it passed
  * `err.message` through verbatim. A pg error's message names the table, column

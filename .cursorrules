@@ -32,4 +32,4 @@ Tests FIRST, implementation second. Vitest in `tests/unit/`, Playwright in `test
 
 ## Module docs
 
-49 sibling `.claude.md` / `AGENTS.md` files give per-module rules under `src/modules/*` and `pages/api/accounting/*`.
+49 sibling `AGENTS.md` files give per-module rules under `src/modules/*` and `pages/api/accounting/*`.

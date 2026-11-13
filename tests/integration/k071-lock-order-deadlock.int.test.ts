@@ -16,7 +16,7 @@
  * The peer here is a raw pool client taking the two rows in the order every
  * other path takes them. Standing in for `allocateTransaction` rather than
  * calling it keeps the test about the ORDER — which is what the rule in
- * `bank/.claude.md` is about — instead of about auto-allocation config.
+ * `bank/AGENTS.md` is about — instead of about auto-allocation config.
  *
  * Both directions are asserted: the confirm now blocks on the bank line and
  * SETTLES once the peer lets go (no deadlock, no 500), and a peer that holds

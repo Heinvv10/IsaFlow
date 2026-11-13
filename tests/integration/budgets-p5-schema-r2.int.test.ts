@@ -97,7 +97,7 @@ describe('954 r2: a notification goes to a member of the company only', () => {
   });
 
   it.each(['app_service', 'isaflow_service'])('the cron\'s role %s (no claims) inserts for a member and is refused for a non-member', async (role) => {
-    // isaflow_service is the service pool's login (915; src/lib/neon.claude.md): it inherits app_service.
+    // isaflow_service is the service pool's login (915; src/lib/neon.AGENTS.md): it inherits app_service.
     await asRole(role, null, async (q) => {
       expect(await note(q, A.user)).toBe('ok');
       expect(await note(q, outsider)).toBe('23503');

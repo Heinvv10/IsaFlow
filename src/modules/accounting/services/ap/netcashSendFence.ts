@@ -9,7 +9,7 @@
  * on and this one has not, so a suspend of the machine is outside what the fence covers. Taken before the claim, the
  * fence's origin is never later than the claim's created_at, which is what resolve measures the window from.
  *
- * Residual (netcash/.claude.md): a pause AFTER the fence passes and before the request's bytes leave the socket.
+ * Residual (netcash/AGENTS.md): a pause AFTER the fence passes and before the request's bytes leave the socket.
  */
 import { SEND_START_DEADLINE_MS } from './netcashTimeouts';
 

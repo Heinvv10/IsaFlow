@@ -1,6 +1,6 @@
 /**
  * The guard `billLineAccountRefusal` gave supplier-bill lines, extended to the
- * three OTHER document-line writers with no such check (gl/.claude.md, "Known
+ * three OTHER document-line writers with no such check (gl/AGENTS.md, "Known
  * limit", 2026-09-24): expense-claim lines (create + add-line), the PATCH
  * route that recodes an existing line, and purchase-order line replacement.
  * Each must refuse an inactive or foreign account before its first write, and

@@ -3,7 +3,7 @@
  *
  * Counts bank transactions still in `imported` or `matched` status for the
  * given period.  Lifecycle per bankReconciliationService.ts and
- * src/modules/accounting/services/bank/.claude.md:
+ * src/modules/accounting/services/bank/AGENTS.md:
  *   imported → matched → allocated → reconciled
  * `reconciled` is the terminal done-state.  `excluded` transactions are
  * intentionally skipped.  Anything still in `imported` or `matched` has not

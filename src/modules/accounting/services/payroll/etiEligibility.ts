@@ -4,7 +4,7 @@
  * seeker permit (Refugees Act s22(1)) or a refugee identity document (Refugees Act s30) (SARS Guide to the Employment
  * Tax Incentive, Issue 5, §3.2.2 p. 25). Possession is shown by a valid South African ID number, or by the employee's
  * recorded document (migration 976). s6(c) connected persons and s6(d) domestic workers are not captured: the line
- * carries an approval warning instead (payrollLineEti), named in payroll/.claude.md.
+ * carries an approval warning instead (payrollLineEti), named in payroll/AGENTS.md.
  */
 import type { PayrollEmployee } from './payrollTypes';
 

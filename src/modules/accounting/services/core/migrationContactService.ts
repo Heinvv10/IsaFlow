@@ -139,7 +139,7 @@ export async function importSuppliers(
   `) as DbRow[];
   const existing = existingRows.map(r => ({ id: String(r.id), name: String(r.name) }));
 
-  // Batch before supplier, for the WHOLE import (bank/.claude.md): a row's supplier lock is held to the end of the
+  // Batch before supplier, for the WHOLE import (bank/AGENTS.md): a row's supplier lock is held to the end of the
   // request, so locking the next row's batches or supplier after it would take one while holding another, and two
   // imports with their rows in opposite orders would deadlock. Every overwritten supplier, bank column or not, is
   // locked up front in id order; the batches of those that may change a bank detail first.

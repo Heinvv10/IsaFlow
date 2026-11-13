@@ -4,7 +4,7 @@
  * The bank-file gate (`batchBankFileGate`, `supplierBankVerificationGate`: eft-generate, eft-file-release,
  * netcash/submit) holds the batch and then share-locks its payee suppliers. A writer that took a supplier and then
  * a batch (updateSupplier's bank-detail stamp, the take-on overwrite, both supplier merges) closed a 40P01 cycle
- * with it. Those writers go through `lockBatchesBeforeSuppliers` (bank/.claude.md, ap/.claude.md).
+ * with it. Those writers go through `lockBatchesBeforeSuppliers` (bank/AGENTS.md, ap/AGENTS.md).
  * Since migration 923 the gate then share-locks the batch's paying gl_accounts row too (batch -> supplier ->
  * gl_accounts, batchApprovedDigest.lockBatchPayees). No writer of gl_accounts reaches a batch or supplier row
  * (2026-10-23 census of `UPDATE gl_accounts`): one that does must lock in that order.
@@ -12,7 +12,7 @@
  * (`recordBankDetailsSetter`). A payment writer must not reach the supplier after the payment: a second write of a
  * supplier-referencing row re-runs its FK check (KEY SHARE on the supplier), so processSupplierPayment writes the
  * payment once (2026-10-24), and applying, unapplying and the back-fill write each bill once (2026-10-25,
- * `moveSupplierBillPaid`; a bill written twice in one transaction elsewhere is still OPEN, ap/.claude.md).
+ * `moveSupplierBillPaid`; a bill written twice in one transaction elsewhere is still OPEN, ap/AGENTS.md).
  * Full order: batch -> supplier -> payments -> bills -> gl_accounts. The supplier credit key
  * (`supplierCreditLock`) is tried, never waited on, so it has no place in this order.
  */

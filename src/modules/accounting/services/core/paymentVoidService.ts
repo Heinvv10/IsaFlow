@@ -34,7 +34,7 @@
  * `unwindOnePayment`'s `UPDATE …_payments`; locking the payment first here is
  * the inverse, so a `void_receipt` on P racing a `reverse_bank_allocation` on
  * the line P settles would hold one row each and deadlock. The line is
- * therefore locked FIRST, off an UNLOCKED read. Order: `bank/.claude.md`.
+ * therefore locked FIRST, off an UNLOCKED read. Order: `bank/AGENTS.md`.
  *
  * Two consequences of resolving the line before the document, both deliberate.
  * `not_found` is decided from that unlocked peek — a row that does not exist

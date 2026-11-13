@@ -107,7 +107,7 @@ export async function attachEvidenceToProvisional(
       if ((await findJournalChainHead(companyId, jeId))?.kind === 'broken') return nothing;
 
       // (1) THE BANK LINE FIRST, then (4) the journal — the canonical order in
-      // `bank/.claude.md`, and the twin of the same reorder in
+      // `bank/AGENTS.md`, and the twin of the same reorder in
       // `pages/api/accounting/provisional/[jeId]/attach.ts`. Reversed, these two
       // writes invert every settlement path that holds a bank line and then
       // reaches a PRE-EXISTING journal. Both statements address a row by id and

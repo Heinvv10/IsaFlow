@@ -52,7 +52,7 @@ export async function confirmSupplierInvoiceMatch(
   userId: string,
   paymentAmount: number,
 ): Promise<ConfirmSupplierMatchOutcome> {
-  // BANK LINE FIRST — THE CANONICAL LOCK ORDER (`bank/.claude.md`).
+  // BANK LINE FIRST — THE CANONICAL LOCK ORDER (`bank/AGENTS.md`).
   //
   // Every other write path takes `bank_transactions` before the document it
   // settles: `allocateTransaction`, `splitAllocateTransaction` and

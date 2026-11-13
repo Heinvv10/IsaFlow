@@ -7,7 +7,7 @@
  * `confirmCustomerPayment` adds to `amount_paid` with no cap; an invoice
  * cancelled mid-flight still took its allocation.
  *
- * LOCK ORDER of a settlement (ar/.claude.md, R-181): the request row (the webhook
+ * LOCK ORDER of a settlement (ar/AGENTS.md, R-181): the request row (the webhook
  * and verify UPDATE it), then an explicit-amount `portal_payment_links` row
  * (`spendPaymentLinkOfRequest`), then the receipt's own new `customer_payments`
  * row, then this invoice. `customerMergeService` takes invoice then link, the

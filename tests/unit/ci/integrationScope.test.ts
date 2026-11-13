@@ -14,7 +14,7 @@ const B = 'b'.repeat(40);
 
 describe('decideScope', () => {
   it('skips when every changed file is Markdown', () => {
-    expect(decideScope(['CHANGELOG.md', 'docs/x/README.md', 'src/modules/ar/.claude.md', 'AGENTS.md']).run).toBe(false);
+    expect(decideScope(['CHANGELOG.md', 'docs/x/README.md', 'src/modules/ar/AGENTS.md', 'AGENTS.md']).run).toBe(false);
   });
 
   it.each([

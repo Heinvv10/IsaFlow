@@ -245,7 +245,7 @@ describe('confirmSupplierInvoiceMatch', () => {
   // `withAuth` answers 500.
   //
   // Asserted on the SQL the arm issues, in order, because that is what the
-  // canonical order in `bank/.claude.md` is a rule about. A mock of the lock
+  // canonical order in `bank/AGENTS.md` is a rule about. A mock of the lock
   // helper would have passed with the call left where it was.
   it('locks the bank line BEFORE it reads the bill — the canonical order', async () => {
     bill(600);

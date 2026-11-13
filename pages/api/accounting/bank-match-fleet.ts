@@ -7,7 +7,7 @@
  *         { bankTransactionId, fleetEntityType, fleetEntityId: null } — clear that kind's link.
  *
  * An ANNOTATION ONLY (mig 853, Hein 2026-10-05): writes the link columns, never the line's status, journal link or
- * reconciliation stamp, and posts nothing — so it is outside D12's completed-reconciliation rule (`bank/.claude.md`).
+ * reconciliation stamp, and posts nothing — so it is outside D12's completed-reconciliation rule (`bank/AGENTS.md`).
  * Before any write: the line in this company (404), the record in this company (404 — one answer for missing and
  * another company's), the line posted at the bank (409). See `bankAssetLinkService`.
  */

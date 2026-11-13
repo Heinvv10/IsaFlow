@@ -111,9 +111,9 @@ SOURCE_GLOBS = [
     ("docs/prd/*.md",                                   "prd"),
     ("CLAUDE.md",                                       "root-claude"),
     (".claude/commands/*.md",                           "claude-commands"),
-    ("src/lib/*.claude.md",                             "lib-context"),
-    ("src/modules/accounting/services/**/.claude.md",   "service-group-context"),
-    ("pages/api/accounting/**/.claude.md",              "api-group-context"),
+    ("src/lib/*.AGENTS.md",                             "lib-context"),
+    ("src/modules/accounting/services/**/AGENTS.md",   "service-group-context"),
+    ("pages/api/accounting/**/AGENTS.md",              "api-group-context"),
 ]
 
 

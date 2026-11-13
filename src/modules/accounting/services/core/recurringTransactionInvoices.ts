@@ -254,7 +254,7 @@ export async function mintRecurringSupplierInvoice(
     const { approveSupplierInvoice } = await import('../ap/supplierInvoiceWorkflowService');
     // Budgets P5-2: unattended (channel system). The template row, its accounts and the document number
     // are already locked, so the company budget lock cannot come first: lock-free (`none`), a named
-    // residual race in block mode (ap/.claude.md). Over budget under block, the bill is left a DRAFT
+    // residual race in block mode (ap/AGENTS.md). Over budget under block, the bill is left a DRAFT
     // (as the approval gate leaves one, above), the refusal recorded and reported; the schedule advances.
     try {
       const approved = await approveSupplierInvoice(companyId, entityId, userId, { budget: { channel: 'system', lock: 'none' } });

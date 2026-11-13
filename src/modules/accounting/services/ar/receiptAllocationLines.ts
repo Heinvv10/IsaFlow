@@ -165,7 +165,7 @@ export async function planAllocationLines(
  * answers with is COMMITted over an already-rolled-back transaction — which
  * writes nothing, the same as every other pre-write refusal here.) A DEADLOCK
  * (40P01) is answered the same way, via `isLockContention` — see the canonical
- * lock order in `bank/.claude.md` for why one should not arise here at all.
+ * lock order in `bank/AGENTS.md` for why one should not arise here at all.
  */
 async function fetchInvoiceCandidates(
   companyId: string,

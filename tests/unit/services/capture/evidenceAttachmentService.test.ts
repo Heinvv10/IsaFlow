@@ -17,7 +17,7 @@
  *   6. UPDATE gl_journal_entries (flip to evidenced)
  *
  * CALLS 5 AND 6 ARE IN THAT ORDER ON PURPOSE — the canonical lock order in
- * `bank/.claude.md` is bank line before a PRE-EXISTING journal, and reversed
+ * `bank/AGENTS.md` is bank line before a PRE-EXISTING journal, and reversed
  * these two writes invert every settlement path that holds a bank line and then
  * reaches a journal. This docblock said 3=GL, 4=bank until round 10 — after the
  * service had already been reordered — which is an instruction to the next

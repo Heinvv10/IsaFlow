@@ -170,7 +170,7 @@ describe('processSupplierPayment — bank account tenant isolation', () => {
   });
 
   it('locks the payment before it touches supplier_invoices', async () => {
-    // Canonical order (bank/.claude.md): payment (2) -> invoices (3). This path
+    // Canonical order (bank/AGENTS.md): payment (2) -> invoices (3). This path
     // used to write the invoice loop first and flip the payment last, the
     // inverse of `planSupplierPaymentApplication`, which locks the payment and
     // THEN the bills through `fetchBillCandidates`.

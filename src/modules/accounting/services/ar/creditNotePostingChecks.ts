@@ -25,7 +25,7 @@ import { ArPostingAfterWriteError } from './arErrors';
  * scoped, so it is released with the request; namespaced, so no other advisory
  * lock key collides with it. Only approveCreditNote takes it, as the first
  * statement after the note row is read — the lock-order census is in
- * ar/.claude.md ("Credit-note approval lock order").
+ * ar/AGENTS.md ("Credit-note approval lock order").
  */
 export async function lockInvoiceCreditNotes(invoiceId: string): Promise<void> {
   await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`isaflow.credit_note_approve.invoice:${invoiceId.toLowerCase()}`}, 0))`;

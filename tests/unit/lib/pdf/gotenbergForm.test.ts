@@ -88,7 +88,7 @@ describe('buildGotenbergFields', () => {
   });
 
   /**
-   * The residual documented in gotenbergForm.ts and src/lib/pdf/.claude.md:
+   * The residual documented in gotenbergForm.ts and src/lib/pdf/AGENTS.md:
    * Gotenberg's cookie object requires `domain` and exposes no host-only or
    * `url` form, so a bare hostname is the tightest scope expressible. What
    * this pins is that it stays the tightest one — a leading dot or a wildcard

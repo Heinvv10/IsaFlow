@@ -31,7 +31,7 @@
  * branch); a replay that holds it first makes the cancel wait, and the cancel then follows the fee.
  * A wait past the budget is `RowLockTimeoutError`: the webhook answers 500 and Paystack redelivers;
  * verify answers `pending`. The lock is taken BEFORE the payment link is spent, so a settlement takes
- * receipt -> link as `customerMergeService` takes receipts -> invoices -> link (see ar/.claude.md).
+ * receipt -> link as `customerMergeService` takes receipts -> invoices -> link (see ar/AGENTS.md).
  */
 
 import { sql } from '@/lib/neon';

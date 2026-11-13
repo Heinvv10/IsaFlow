@@ -132,7 +132,7 @@ describeIfDb('L1 — the bulk dry run and the batch it previews', () => {
     // where both lines succeed. The reverse order is a real hazard of the FIFO
     // default — the FIFO line takes the bill the named line was going to pay,
     // that line then refuses, and the batch rolls back whole (all-or-nothing,
-    // loudly, nothing mis-posted). It is noted in bank/.claude.md.
+    // loudly, nothing mis-posted). It is noted in bank/AGENTS.md.
     const named = await seedBankTx(fx, {
       date: '2026-07-10', amount: -100, description: 'NAMED',
       id: '0e000000-0000-4000-8000-000000000001',

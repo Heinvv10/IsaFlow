@@ -1,6 +1,6 @@
 /**
  * D12 on the asset / fleet LINK routes, now that migration 853 owns their schema. A link is an ANNOTATION
- * (bank/.claude.md: outside "a completed reconciliation is immutable"), so:
+ * (bank/AGENTS.md: outside "a completed reconciliation is immutable"), so:
  *   · a RECONCILED line of a COMPLETED session may be linked and unlinked — its status, journal line and stamp, and
  *     the session's header, are unchanged;
  *   · a STALE stamp (an imported line a completed session claimed) is left as it is — the link no longer turns a line

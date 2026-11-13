@@ -289,7 +289,7 @@ describe('R1 breaker 1: the later-month warning is per employee and per month', 
     ok(await approveRun(f, jan));
   });
 
-  // Named limits, pinned so a change to them is deliberate (judgeYearToDateStale's comment, the module .claude.md).
+  // Named limits, pinned so a change to them is deliberate (judgeYearToDateStale's comment, the module AGENTS.md).
   const asPreCumulative = (runId: string) => pool.query(
     `UPDATE payroll_run_lines SET periodic_taxable = NULL, annual_taxable = NULL, validation_results = '[]'::jsonb WHERE run_id = $1`, [runId]);
 

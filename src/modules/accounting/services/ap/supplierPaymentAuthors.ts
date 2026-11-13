@@ -18,7 +18,7 @@
  * that moves that value is a bank-detail change here too ('appended').
  * Who changed the account money is paid FROM: ./payingAccountAuthors.
  *
- * Lock order (bank/.claude.md): batches (id order), then suppliers, then member
+ * Lock order (bank/AGENTS.md): batches (id order), then suppliers, then member
  * payments. The bank-file gate (eft-generate, netcash/submit) holds the batch
  * row and then share-locks its payee suppliers, and approveBatch / processBatch
  * take batch then members, so every writer here takes the batches BEFORE the

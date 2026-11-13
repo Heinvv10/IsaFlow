@@ -158,7 +158,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // AP-01: a poll never moves a live submission to 'failed'. 'failed' leaves the unique index that closes the batch
   // (migration 898), and free text does not prove Netcash dropped what it accepted. The row stays as it is, the poll
-  // is kept as a hint, and an operator checks Netcash and resolves it (netcash/resolve, see .claude.md).
+  // is kept as a hint, and an operator checks Netcash and resolves it (netcash/resolve, see AGENTS.md).
   const flagged = mapped === 'failed';
   const current = String(submission.status);
   const newStatus = flagged || (PROGRESS[mapped] ?? 0) < (PROGRESS[current] ?? 0) ? current : mapped;

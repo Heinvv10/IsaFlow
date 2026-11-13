@@ -43,7 +43,7 @@ export class SupplierMergeRefusal extends Error {
 export async function assertSupplierMergeKeepsDrcFlag(
   companyId: string, a: string, b: string, movedFromId: string,
 ): Promise<void> {
-  // Batch before supplier (bank/.claude.md): the batches carrying the payments the merge re-points are locked before
+  // Batch before supplier (bank/AGENTS.md): the batches carrying the payments the merge re-points are locked before
   // either supplier row, the order the bank-file gate takes them in. `movedFromId` is the supplier being merged away.
   const rows = await lockBatchesBeforeSuppliers(companyId, [movedFromId], null, async () => (await sql`
     SELECT name, COALESCE(subject_to_drc_vat, false) AS drc FROM suppliers
@@ -103,7 +103,7 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
   // above — the AP twin of the same inversion.
   // supplier_id is approval content, and with it the payee's bank details
   // (R-035 PR5): the merging user becomes an author of every moved payment and
-  // its batch — the batches locked first, batch before members (bank/.claude.md).
+  // its batch — the batches locked first, batch before members (bank/AGENTS.md).
   const batchIds = await lockBatchesPayingSupplier(companyId, duplicateId, null);
   const r1 = await sql`
     UPDATE supplier_payments SET supplier_id = ${primaryId}::UUID,

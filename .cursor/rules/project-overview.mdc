@@ -34,4 +34,4 @@ scripts/migrations/sql/  # 260+ migrations (latest: 478)
 tests/{unit,e2e}/
 ```
 
-49 sibling `.claude.md` / `AGENTS.md` files give per-module rules.
+49 sibling `AGENTS.md` files give per-module rules.
