@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { Select } from '@/components/ui/Select';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Building2, Loader2, AlertCircle, Plus, X } from 'lucide-react';
 
@@ -193,17 +194,9 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
 
           {mode === 'single' ? (
             <div className="flex items-center gap-3">
-              <select
-                aria-label="Cost centre"
-                value={selected}
-                onChange={e => setSelected(e.target.value)}
-                className="flex-1 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]"
-              >
-                <option value="">(Unassigned)</option>
-                {centres.map(c => (
-                  <option key={c.id} value={c.id}>{c.code} — {c.name}</option>
-                ))}
-              </select>
+              <Select label="Cost centre" labelClassName="sr-only" className="flex-1" placeholder="(Unassigned)" clearable searchable
+                value={selected || null} onChange={v => setSelected(v ?? '')}
+                options={centres.map(c => ({ value: c.id, label: `${c.code} — ${c.name}` }))} />
               <button
                 onClick={saveSingle}
                 disabled={!singleDirty || saving}
@@ -216,16 +209,9 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
             <div className="space-y-2">
               {allocations.map((a, idx) => (
                 <div key={idx} className="flex items-center gap-2">
-                  <select
-                    aria-label={`Cost centre ${idx + 1}`}
-                    value={a.costCentreId}
-                    onChange={e => updateRow(idx, { costCentreId: e.target.value })}
-                    className="flex-1 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]"
-                  >
-                    {centres.map(c => (
-                      <option key={c.id} value={c.id}>{c.code} — {c.name}</option>
-                    ))}
-                  </select>
+                  <Select label={`Cost centre ${idx + 1}`} labelClassName="sr-only" className="flex-1" searchable
+                    value={a.costCentreId || null} onChange={v => updateRow(idx, { costCentreId: v ?? '' })}
+                    options={centres.map(c => ({ value: c.id, label: `${c.code} — ${c.name}` }))} />
                   <input
                     aria-label={`Percentage for cost centre ${idx + 1}`}
                     type="number"

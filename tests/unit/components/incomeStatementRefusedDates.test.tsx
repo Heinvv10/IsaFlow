@@ -1,4 +1,5 @@
 // P&L refused dates: what the page does while a From/To shows refused text, and how that refusal ends.
+import { pickKit } from '../../helpers/kitSelect';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -74,9 +75,8 @@ it('after refused text, a changed cost centre hides the report instead of re-hea
     ? response({ items: [{ id: 'cc1', code: 'C1', name: 'One' }] }) : base!(url, ...rest));
   render(<IncomeStatementPage />);
   await waitFor(() => expect(heading()).not.toBeNull());
-  await screen.findByRole('option', { name: /One/ });
   typeDate(screen.getByRole('textbox', { name: 'To' }), 'zz');
-  fireEvent.change(screen.getByRole('combobox', { name: 'Cost Centre' }), { target: { value: 'cc1' } });
+  await pickKit(screen.getByRole('combobox', { name: 'Cost Centre' }), /One/);
   await settle();
   expect(heading()).toBeNull();
   expect(screen.getByText('Fix the date to run the report.')).toBeTruthy();

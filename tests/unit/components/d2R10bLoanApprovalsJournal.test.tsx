@@ -2,6 +2,7 @@
 //   loan-rate-curves -> data RateCurve[]; POST loans -> 201 data { id }; practice/time-entries -> data { entries, total };
 //   practice/users -> data CompanyUserSummary[]; time-entries/approve and /write-off -> data { count };
 //   chart-of-accounts -> data GLAccount[] (camelCase); POST journal-entries -> data entry.
+import { pickKit, openKit } from '../../helpers/kitSelect';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -172,8 +173,9 @@ describe('journal-entries/new', () => {
   it('load: lists the active accounts as "code - name" and hides inactive ones', async () => {
     serve(on('GET', 'chart-of-accounts', () => ok(accounts)));
     render(<NewJournalPage />);
-    expect((await screen.findAllByText('1100 - D2 Bank')).length).toBe(2);
-    expect(screen.getAllByText('4100 - D2 Sales').length).toBe(2);
+    openKit(await screen.findByRole('combobox', { name: 'Account, line 1' }));
+    expect(await screen.findByRole('option', { name: '1100 - D2 Bank' })).toBeDefined();
+    expect(screen.getByRole('option', { name: '4100 - D2 Sales' })).toBeDefined();
     expect(screen.queryByText('9999 - D2 Dormant')).toBeNull();
   });
   it('load: a 400 refusal shows the server message; an empty 500 shows the sentence; no accounts', async () => {
@@ -188,9 +190,8 @@ describe('journal-entries/new', () => {
   });
   async function fillAndPost() {
     render(<NewJournalPage />);
-    await screen.findAllByText('1100 - D2 Bank');
-    const sel = Array.from(document.querySelectorAll('select[name="accountId"]')) as HTMLSelectElement[];
-    fireEvent.change(sel[0]!, { target: { value: 'a1' } }); fireEvent.change(sel[1]!, { target: { value: 'a2' } });
+    await pickKit(await screen.findByRole('combobox', { name: 'Account, line 1' }), '1100 - D2 Bank');
+    await pickKit(screen.getByRole('combobox', { name: 'Account, line 2' }), '4100 - D2 Sales');
     const amt = screen.getAllByPlaceholderText('0.00');
     fireEvent.change(amt[0]!, { target: { value: '100' } }); fireEvent.change(amt[3]!, { target: { value: '100' } });
     submit();
@@ -207,6 +208,16 @@ describe('journal-entries/new', () => {
     await fillAndPost();
     expect(await screen.findByText(/^Could not create (the )?journal entry - try again$/)).toBeDefined();
     expect(route.push).not.toHaveBeenCalled(); expectNoJargon();
+  });
+  it('write: a line with an amount and no account is refused, not dropped (the kit Select has no browser "required")', async () => {
+    routes(() => ok({ id: 'je-x' }));
+    render(<NewJournalPage />);
+    await pickKit(await screen.findByRole('combobox', { name: 'Account, line 1' }), '1100 - D2 Bank');
+    const amt = screen.getAllByPlaceholderText('0.00');
+    fireEvent.change(amt[0]!, { target: { value: '100' } }); fireEvent.change(amt[3]!, { target: { value: '100' } });
+    submit();
+    expect(await screen.findByText('Choose an account for every line that has an amount')).toBeDefined();
+    expect(writeCalls('POST', 'journal-entries')).toBe(0);
   });
   it('write: success posts the balanced lines, confirms, then opens the entry id the route returned', async () => {
     routes(() => ok({ id: 'je-d2-3' }));

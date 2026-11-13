@@ -1,6 +1,7 @@
 /** /payroll/leave: the two list filters carry accessible names (axe select-name, critical). */
+import { pickKit } from '../../helpers/kitSelect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok } from '../helpers/d2CensusG4';
 
@@ -19,8 +20,8 @@ describe('leave list filters', () => {
   it('are named, and the named controls still drive the filter', async () => {
     vi.mocked(apiFetch).mockImplementation(async () => ok([]));
     render(<LeaveIndexPage />);
-    fireEvent.change(screen.getByRole('combobox', { name: 'Filter by status' }), { target: { value: 'approved' } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Filter by month' }), { target: { value: '3' } });
+    await pickKit(screen.getByRole('combobox', { name: 'Filter by status' }), 'Approved');
+    await pickKit(screen.getByRole('combobox', { name: 'Filter by month' }), 'Mar');
     await waitFor(() => expect(vi.mocked(apiFetch).mock.lastCall?.[0]).toContain('status=approved&month=3'));
   });
 });
