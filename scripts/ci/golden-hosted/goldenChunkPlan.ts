@@ -115,11 +115,17 @@ export function chunkSeconds(chunk: Item[]): number {
   return chunk.reduce((s, i) => s + i.seconds, 0);
 }
 
-/** The plan for chunk `k` (1-based) of `n`, from the specs on disk under `root`. */
-export function planChunk(root: string, k: number, n: number): { items: Item[]; invocations: Invocation[] } {
+/**
+ * The plan for piece `piece` (1-based) of `pieces` of chunk `k` (1-based) of `n`, from the specs on disk under `root`.
+ * A chunk is cut into contiguous pieces by seconds like the suite is cut into chunks; the job restarts its dev server
+ * between pieces. pieces = 1 is the whole chunk.
+ */
+export function planChunk(root: string, k: number, n: number, piece = 1, pieces = 1): { items: Item[]; invocations: Invocation[] } {
   if (!Number.isInteger(k) || k < 1 || k > n) throw new Error(`golden chunk plan: chunk ${k} is outside 1..${n}`);
+  if (!Number.isInteger(piece) || !Number.isInteger(pieces) || piece < 1 || piece > pieces) throw new Error(`golden chunk plan: piece ${piece} is outside 1..${pieces}`);
   const dir = path.join(root, SPEC_DIR);
   const files = readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name);
-  const items = splitItems(planItems(files, readFileSync(path.join(dir, CONTRAST_FILE), 'utf8')), n)[k - 1]!;
+  const chunk = splitItems(planItems(files, readFileSync(path.join(dir, CONTRAST_FILE), 'utf8')), n)[k - 1]!;
+  const items = splitItems(chunk, pieces)[piece - 1]!;
   return { items, invocations: toInvocations(items) };
 }

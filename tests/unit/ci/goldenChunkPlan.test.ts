@@ -52,6 +52,28 @@ describe('golden chunk plan against the real specs', () => {
   });
 });
 
+describe('golden chunk plan pieces (a dev server per piece)', () => {
+  const PIECES = 3;
+  const piece = (k: number, p: number) => planChunk(ROOT, k, N, p, PIECES).items;
+
+  it('cuts every chunk into pieces that together are exactly the chunk, in order, none empty', () => {
+    for (let k = 1; k <= N; k++) {
+      const parts = Array.from({ length: PIECES }, (_, i) => piece(k, i + 1));
+      expect(parts.every((x) => x.length > 0)).toBe(true);
+      expect(parts.flat()).toEqual(planChunk(ROOT, k, N).items);
+    }
+  });
+
+  it('keeps every piece to about 3 minutes of measured test time (the dev server stays under its memory threshold)', () => {
+    for (let k = 1; k <= N; k++) for (let p = 1; p <= PIECES; p++) expect(chunkSeconds(piece(k, p))).toBeLessThan(5 * 60);
+  });
+
+  it('refuses a piece outside 1..pieces', () => {
+    expect(() => planChunk(ROOT, 1, N, 4, 3)).toThrow(/piece 4 is outside 1..3/);
+    expect(() => planChunk(ROOT, 1, N, 0, 3)).toThrow(/outside/);
+  });
+});
+
 describe('golden chunk plan mechanics', () => {
   const items = planItems(['b.spec.ts', 'a.spec.ts', 'readme.md', CONTRAST_FILE], "const SCREENS = [\n  { slug: 'x-1', path: '/x' },\n  { slug: 'y', path: '/y' },\n] as const;");
 

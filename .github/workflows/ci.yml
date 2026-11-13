@@ -501,15 +501,19 @@ jobs:
           # Hosted: the app's own URL is this server (velo's file names one).
           if [ "$HOSTED" = true ]; then export NEXT_PUBLIC_APP_URL="http://localhost:$GOLDEN_PORT"; fi
           # Hosted: this job runs ONE of six chunks of the suite (matrix.chunk;
-          # see goldenChunkPlan.ts), on a dev server it boots itself. Next 15's
-          # dev server restarts itself once its heap passes 80% of its limit
-          # (next/dist/server/lib/start-server.js, "Server is approaching the
-          # used memory threshold, restarting..."), which refuses or drops the
-          # request in flight: 1-3 specs of ~200 failed in about 40% of the runs
-          # that used one server (run 41342946225; it grows ~6 GB in the first
-          # 10 minutes and reaches the threshold at ~21 min). A chunk lives
-          # ~10 minutes, well under that. Velo (CI_HOSTED=off) keeps one
+          # see goldenChunkPlan.ts), in PIECES=3 contiguous pieces, each on a
+          # freshly started dev server. Next 15's dev server restarts itself once
+          # its heap passes 80% of its limit (next/dist/server/lib/start-server.js,
+          # "Server is approaching the used memory threshold, restarting..."),
+          # which refuses or drops the request in flight. The size follows the
+          # pages visited, not the clock: PR 1348's first run with a six-chunk
+          # matrix had next-server at 7.5-8.2 GB (max-old-space-size 8192, so
+          # the threshold is ~6.5 GB of heap) within 4-10 min in every chunk, and
+          # chunks 4 and 5 hit the restart (ERR_CONNECTION_REFUSED mid-spec). A
+          # piece is ~3 min of tests, and the server also starts clean after the
+          # seed, which compiles the API routes. Velo (CI_HOSTED=off) keeps one
           # server and one run.
+          PIECES=3
           # boot_dev: start next dev on $GOLDEN_PORT and wait until it, and
           # nothing else, answers.
           boot_dev() {
@@ -533,6 +537,16 @@ jobs:
             # The answer must come from OUR server, not whatever took the port.
             kill -0 "$DEVPID" 2>/dev/null || { echo "dev server exited after boot; refusing to test whatever answers on port $GOLDEN_PORT"; exit 1; }
           }
+          # stop_dev: stop the server by its process group and wait for the port
+          # to be free again; its log is kept (golden-dev.all.log) for the report.
+          stop_dev() {
+            kill -- -"$DEVPID" 2>/dev/null || true
+            for i in $(seq 1 30); do
+              curl -s -o /dev/null "http://localhost:$GOLDEN_PORT/" || break
+              sleep 1
+            done
+            cat golden-dev.log >> golden-dev.all.log
+          }
           boot_dev
           trap 'kill -- -$DEVPID 2>/dev/null || true; if [ -n "${WATCHPID:-}" ]; then kill $WATCHPID 2>/dev/null || true; fi' EXIT
           # Hosted: nothing in this job's environment is a real secret (random
@@ -550,13 +564,18 @@ jobs:
           # red chunk lists every red spec of that chunk.
           rc=0
           if [ "$HOSTED" = true ]; then
-            BASE_URL="http://localhost:$GOLDEN_PORT" bun scripts/ci/golden-hosted/run-chunk.ts "$GOLDEN_CHUNK" 6 || rc=$?
+            for piece in $(seq 1 "$PIECES"); do
+              echo "::group::chunk $GOLDEN_CHUNK, piece $piece of $PIECES: fresh dev server"; echo "piece $piece of $PIECES"; echo "::endgroup::"
+              stop_dev; boot_dev
+              BASE_URL="http://localhost:$GOLDEN_PORT" bun scripts/ci/golden-hosted/run-chunk.ts "$GOLDEN_CHUNK" 6 "$piece" "$PIECES" || rc=$?
+            done
           else
             # Only this command sees the slot's login, in its own subshell.
             ( export GOLDEN_SLOT_NUMBER GOLDEN_COMPANY_ID GOLDEN_USER_EMAIL GOLDEN_USER_PASSWORD; BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden ) || rc=$?
           fi
           if [ "$HOSTED" = true ]; then
-            bash scripts/ci/golden-hosted/dev-watch.sh report golden-samples.log golden-dev.log 1
+            cat golden-dev.log >> golden-dev.all.log
+            bash scripts/ci/golden-hosted/dev-watch.sh report golden-samples.log golden-dev.all.log "$((PIECES + 1))"
           fi
           if [ "$rc" -ne 0 ] && [ "$HOSTED" = true ]; then
             echo "::group::golden-dev.log (tail)"; tail -n 80 golden-dev.log; echo "::endgroup::"
