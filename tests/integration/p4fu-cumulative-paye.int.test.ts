@@ -16,7 +16,7 @@ import type { Route } from './w3-01-payroll.helpers';
 import createRun from '../../pages/api/payroll/runs';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import { getIrp5EmployeeTotals } from '@/modules/accounting/services/payroll/irp5DataService';
-import { calculateUIF } from '@/modules/accounting/services/payroll/uifEngine';
+import { uifWithLeviable } from '@/modules/accounting/services/payroll/uifEngine';
 import {
   approveRun, cleanSeveranceFixtures, reopenRun, runLine, type SeveranceFixture,
 } from './p3-severance.helpers';
@@ -75,7 +75,7 @@ describe('G4: cumulative PAYE, month by month', () => {
     // UIF, SDL and ETI are untouched: UIF from its own engine, nil SDL (R380 000 a year is under the
     // R500 000 threshold) and nil ETI (born 1980).
     for (const { line } of lines) {
-      expect(line.uif_employee).toBe(calculateUIF(line.gross, 2027).employeeContribution);
+      expect(line.uif_employee).toBe(uifWithLeviable(line.gross, 2027).uif.employeeContribution);
       expect(line.sdl).toBe(0);
     }
     expect((await pool.query('SELECT SUM(eti)::float8 AS eti FROM payroll_run_lines WHERE employee_id = $1', [f.employee])).rows[0]!.eti).toBe(0);

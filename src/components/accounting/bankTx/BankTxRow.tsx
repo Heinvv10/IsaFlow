@@ -9,6 +9,7 @@ import { Clock } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { Select, type SelectOption as KitOption } from '@/components/ui/Select';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { BankTxReviewBadge } from './BankTxReviewBadge';
 import type { RowProps } from '../useBankTxKeyboardNav';
 import { isPendingFeedRow, PendingFeedBadge } from '../bank-transactions/pendingFeedRow';
 import type { AllocType, BankTx, BankTxTableProps } from './bankTxTypes';
@@ -134,6 +135,7 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
           <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>
         )}
         {isPendingFeedRow(tx) && <PendingFeedBadge />}
+        <BankTxReviewBadge tx={tx} />
         {tx.status === 'provisional' && (
           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 ml-1"
             title="Posted by AI — needs evidence">

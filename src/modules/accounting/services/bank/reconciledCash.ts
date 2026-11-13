@@ -18,7 +18,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { ReconciliationCompletedError } from './reconciliationSessionLock';
+import { ReconciliationCompletedError, refuseLinesInCompletedSession } from './reconciliationSessionLock';
 import { lockBankTransactionsInIdOrder } from './bankTxLock';
 import { findChainCashLines } from './chainBankLines';
 import { RowLockTimeoutError } from '../core/rowLockBudget';
@@ -31,6 +31,9 @@ export class ReconciledCashError extends Error {
     this.name = 'ReconciledCashError';
   }
 }
+
+/** Mig 980: a match / unmatch / exclude of a line reconciled in the Sage import — an expected refusal, not a fault. */
+export class SageReconciledLineError extends ReconciledCashError {}
 
 export type LineLock =
   | { kind: 'completed'; accountName: string | null; statementDate: unknown }
@@ -159,4 +162,47 @@ export async function refuseReversingCompletedCash(
   if (lockedLines && ids.some((id) => !lockedLines.includes(id))) {
     throw new RowLockTimeoutError('A bank line of this journal');
   }
+}
+
+export const RECONCILED_DOCUMENT_REMOVAL =
+  'This line is reconciled, so its supporting documents cannot be removed. You can still add documents; '
+  + 'reopen its bank reconciliation to remove one.';
+
+type LineRef = { bankTxId: string } | { attachmentId: string };
+
+async function lineStatusOf(companyId: string, ref: LineRef): Promise<{ id: string; status: string } | undefined> {
+  const rows = ('bankTxId' in ref
+    ? await sql`
+      SELECT bt.id::TEXT AS id, bt.status FROM bank_transactions bt
+      WHERE bt.id = ${ref.bankTxId}::UUID AND bt.company_id = ${companyId}::UUID`
+    : await sql`
+      SELECT bt.id::TEXT AS id, bt.status FROM bank_transaction_attachments bta
+      JOIN bank_transactions bt ON bt.id = bta.bank_transaction_id AND bt.company_id = ${companyId}::UUID
+      WHERE bta.id = ${ref.attachmentId}::UUID`) as Array<{ id: string; status: string }>;
+  return rows[0];
+}
+
+/**
+ * Hein 2026-11-12: a reconciled line keeps its supporting documents. A plain read, for a caller that already holds
+ * the line's locks in its own order (the captured-document relink holds the target line and the document; locking
+ * the previous line or its session there could invert against a completion). Residual: a completion committing
+ * between this read and the caller's write is not seen.
+ */
+export async function isReconciledLine(companyId: string, ref: LineRef): Promise<boolean> {
+  return (await lineStatusOf(companyId, ref))?.status === 'reconciled';
+}
+
+/**
+ * The same question for a caller holding no lock yet (removing an upload, unlinking a document): the line's stamped
+ * session is taken FOR SHARE first (the shared session -> line order, 5 s budget, held -> 503), so that session cannot
+ * complete before the caller's write commits; a line in a completed session is the shared 409. A line with NO stamp
+ * locks nothing: a session started and completed meanwhile can reconcile it first, which leaves the same state as a
+ * removal made just before the reconciliation. True when the line is reconciled without a session (the Sage import):
+ * the caller refuses with RECONCILED_DOCUMENT_REMOVAL.
+ */
+export async function documentRemovalRefused(companyId: string, ref: LineRef): Promise<boolean> {
+  const line = await lineStatusOf(companyId, ref);
+  if (!line) return false;
+  await refuseLinesInCompletedSession(companyId, [line.id]);
+  return line.status === 'reconciled';
 }

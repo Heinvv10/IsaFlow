@@ -34,6 +34,7 @@
  * client into the client bundle.
  */
 
+import type { LineExplanationRead } from '@/modules/accounting/services/payroll/payrollLineExplanation';
 import type { Currency } from '@/modules/accounting/services/core/currencyService';
 import type { MigrationSession } from '@/modules/accounting/services/core/migrationService';
 import type { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
@@ -198,6 +199,8 @@ interface DynamicRoutes extends BudgetDynamicRoutes {
   // Wave 5 UXP. GET only; null (404) never reaches the caller.
   '/api/payroll/employees/{}/has-final-run': { hasFinalRun: boolean };
   '/api/payroll/employees/{}/fringe-benefits': FringeBenefit[];
+  // Wave 5 EX-core. GET only (?employeeId=); a 404 never reaches the caller.
+  '/api/payroll/runs/{}/explanation': LineExplanationRead;
   // Fleet records (mig 853): GET the list, POST the new record, DELETE `{ deleted, id }` — the list and the item of
   // one resource, so a union (see above). The bank-links read is GET only; null (404) never reaches the caller.
   '/api/accounting/assets/{}/fuel': FuelRecord[] | FuelRecord | { deleted: true; id: string };

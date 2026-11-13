@@ -32,6 +32,8 @@ export interface ModuleNavProps {
   accentColor: AccentColor;
   /** Mark the open menu's items as if the page were at this path (the router's own when absent): see AppLayout's navPath. */
   navPath?: string;
+  /** The landmark's name ("Main", "Sales sections"): two unnamed nav landmarks on one page cannot be told apart. */
+  ariaLabel?: string;
 }
 
 const hasMenu = (t: Tab) => (t.items?.length ?? 0) > 0;
@@ -47,7 +49,7 @@ const isHoverPointer = (e: { pointerType: string }) => e.pointerType === 'mouse'
  * @param getActiveTabId  Route-to-tab resolver for the owning module
  * @param accentColor     Tailwind color token used for active-state highlights
  */
-export function ModuleNav({ tabs, getActiveTabId, accentColor, navPath }: ModuleNavProps) {
+export function ModuleNav({ tabs, getActiveTabId, accentColor, navPath, ariaLabel }: ModuleNavProps) {
   const router = useRouter();
   const [openTab, setOpenTab] = useState<string | null>(null);
   const navRef = useRef<HTMLElement>(null);
@@ -137,7 +139,7 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor, navPath }: Module
   };
 
   return (
-    <nav ref={navRef} className="bg-white dark:bg-gray-900 border-b border-gray-300 dark:border-gray-700 relative z-30">
+    <nav ref={navRef} aria-label={ariaLabel} className="bg-white dark:bg-gray-900 border-b border-gray-300 dark:border-gray-700 relative z-30">
       <div className="flex items-center gap-0 px-2">
         {(tabs ?? []).map(t => {
           const menu = hasMenu(t);

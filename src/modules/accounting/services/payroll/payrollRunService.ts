@@ -238,7 +238,7 @@ export async function calculatePayrollRun(
       donationReceipted: line.donationReceipted, donationBase: line.donationBase, donationDeduction: line.donationDeduction,
       eti: line.eti.monthlyEti,
       netPay: line.netPay,
-      componentBreakdown: JSON.stringify(line.componentBreakdown),
+      componentBreakdown: JSON.stringify(line.componentBreakdown), explanation: line.explanations,
       validationResults: JSON.stringify([
         ...empValidation, ...lineValidation, ...validateEti(employee, line.eti),
         ...line.validationResults, ...terminationWarnings, ...(withheldResults.get(employee.id) ?? []), ...(fringeWarnings.has(employee.id) ? [fringeWarnings.get(employee.id)!] : []),

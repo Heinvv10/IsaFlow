@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { tabStatusCond } from '@/modules/accounting/services/bank/bankTxTabCond';
 
 vi.mock('@/lib/neon', async (importOriginal) => {
   // fmtDate is the REAL implementation: the timezone test below proves the row
@@ -232,9 +233,9 @@ describe('getBankTransactions — bankAccountId + status branch (backwards compa
     expect(result.transactions).toHaveLength(2);
     expect(result.total).toBe(2);
 
-    // Status AND bankAccountId must both appear in sql values
-    const allValues = flatSqlValues(vi.mocked(sql));
-    expect(allValues).toContain('imported');
+    // Mig 980: the tab's status is a fixed condition (bankTxTabCond), inlined through sql.unsafe in BOTH queries.
+    expect(sqlTextOf(0)).toContain(tabStatusCond('imported'));
+    expect(sqlTextOf(1)).toContain(tabStatusCond('imported'));
   });
 
   it('returns all transactions for an account when only bankAccountId is given', async () => {

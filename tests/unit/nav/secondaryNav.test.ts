@@ -84,3 +84,26 @@ describe('getActiveSectionId when two sections both match the path', () => {
     expect(getActiveSectionId(salesTab, '/accounting/customers/42')).toBe('Customers');
   });
 });
+
+describe('settings sections (the cog panel marks the current one)', () => {
+  it('lights the right Settings section', async () => {
+    const { settingsTab } = await import('@/components/accounting/navSections/settings');
+    expect(getActiveSectionId(settingsTab, '/accounting/user-access')).toBe('Company');
+    expect(getActiveSectionId(settingsTab, '/developer/personal-tokens')).toBe('Developer');
+  });
+});
+
+describe('payroll statutory regroup (app audit c.4)', () => {
+  it('puts UIF under Payroll > Statutory', () => {
+    expect(getActiveSectionId(payrollTab, '/payroll/uif')).toBe('Statutory');
+  });
+
+  it('leaves no payroll page and no repeated href inside a Tax section', async () => {
+    const { taxTab } = await import('@/components/accounting/navSections/tax');
+    for (const tab of moduleSectionsToTabs(taxTab)) {
+      const hrefs = (tab.items ?? []).flatMap((i) => ('href' in i ? [i.href] : []));
+      expect(hrefs.filter((h) => h.startsWith('/payroll/')), tab.label).toEqual([]);
+      expect(new Set(hrefs).size, tab.label).toBe(hrefs.length);
+    }
+  });
+});

@@ -11,6 +11,7 @@ import {
 import { DateField } from '@/components/ui/DateField';
 import { BankTxExportButtons } from './BankTxExportButtons';
 import { BankTxFilterSelects } from './BankTxFilterSelects';
+import type { ReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
 
 type Tab = 'new' | 'reviewed' | 'excluded';
 
@@ -35,6 +36,7 @@ export interface BankTxFiltersProps {
   txType: 'all' | 'spent' | 'received';
   allocType: 'all' | 'account' | 'supplier' | 'customer' | 'transfer';
   hasSuggestion: 'all' | 'yes' | 'no';
+  reconFilter: ReconFilter;
   onRefresh: () => void;
   onBulkAccept: () => void;
   onBatchAccept: () => void;
@@ -54,6 +56,7 @@ export interface BankTxFiltersProps {
   onTxTypeChange: (v: 'all' | 'spent' | 'received') => void;
   onAllocTypeChange: (v: 'all' | 'account' | 'supplier' | 'customer' | 'transfer') => void;
   onHasSuggestionChange: (v: 'all' | 'yes' | 'no') => void;
+  onReconFilterChange: (v: ReconFilter) => void;
   onToggleCC: () => void;
   onToggleBU: () => void;
 }
@@ -62,12 +65,12 @@ export function BankTxFilters({
   tab, page, total, pageSize, selectedCount, selectedBank, smartRunning,
   showCC, showBU,
   searchTerm, fromDate, toDate, fromAmount, toAmount,
-  sortOrder, allocationFilter, txType, allocType, hasSuggestion,
+  sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter,
   onRefresh, onBulkAccept, onBatchAccept, onBatchDelete, onToggleBatchEdit,
   onExport, onExportAll, onApplyRules, onDownloadReport,
   onSearchChange, onFromDateChange, onToDateChange, onFromAmountChange, onToAmountChange,
   onSortOrderChange, onAllocationFilterChange, onTxTypeChange, onAllocTypeChange,
-  onHasSuggestionChange, onToggleCC, onToggleBU,
+  onHasSuggestionChange, onReconFilterChange, onToggleCC, onToggleBU,
 }: BankTxFiltersProps) {
   const amountDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -189,6 +192,7 @@ export function BankTxFilters({
 
       <BankTxFilterSelects
         tab={tab} sortOrder={sortOrder} allocationFilter={allocationFilter} txType={txType} allocType={allocType} hasSuggestion={hasSuggestion}
+        reconFilter={reconFilter} onReconFilterChange={onReconFilterChange}
         onSortOrderChange={onSortOrderChange} onAllocationFilterChange={onAllocationFilterChange} onTxTypeChange={onTxTypeChange}
         onAllocTypeChange={onAllocTypeChange} onHasSuggestionChange={onHasSuggestionChange}
       />

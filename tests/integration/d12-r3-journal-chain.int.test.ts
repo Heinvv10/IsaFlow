@@ -25,7 +25,7 @@ import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { teardown, type Ctx } from './d8-r4-helpers';
 import { clearExtras, setupWithUser } from './d10-helpers';
 import {
-  call, cleanup, completedInvariant, completedSession, heldWork, lineOf, matchInto, newBank, routes, seedLine, seedPair,
+  call, cleanup, completedInvariant, completedSession, heldWork, lineOf, markReviewed, matchInto, newBank, routes, seedLine, seedPair,
   settledWithin, snapshot, startSession, STATEMENT_DATE, type Route,
 } from './d12-helpers';
 
@@ -101,6 +101,7 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     const att = await call(c, token, provisionalAttach as Route, { capturedDocumentId: await newDoc() }, { jeId: x });
     expect(att.status, att.body).toBe(200);
     expect(await lineOf(line)).toMatchObject({ status: 'matched', rec, jl: null });
+    await markReviewed([line]); // mig 980: completion needs the line reviewed
     expect((await call(c, token, routes.recon, { action: 'complete', reconciliationId: rec })).status).toBe(200);
     const before = await snapshot(c, bank, rec);
     await refused(await reverse(x), { bank, rec }, x, before);
@@ -112,6 +113,7 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     const rec = await startSession(c, token, bank);
     const b = await heldWork(c, async () => {
       await matchTransaction(c.fx.companyId, p.bt, p.jl, rec);
+      await markReviewed([p.bt]); // mig 980: completion needs the line reviewed
       await completeReconciliation(c.fx.companyId, rec, c.fx.userId);
     });
     expect(b.error, String(b.error)).toBeNull();

@@ -1,3 +1,4 @@
+import type { EtiBand, EtiTable } from './etiTables';
 export interface EtiInput {
   dateOfBirth: Date;
   employmentStartDate: Date;
@@ -50,4 +51,8 @@ export interface EtiResult {
   monthsEmployed: number;
   employmentYear: 1 | 2 | null;
   monthlyEti: number;
+  /** On an eligible result: the table the engine applied and the remuneration it applied it to (EX-core explanation). */
+  applied?: {
+    table: EtiTable; remuneration: number; hours: number | null; tabled: number; share: number; band: EtiBand; yearOne: number;
+  };
 }

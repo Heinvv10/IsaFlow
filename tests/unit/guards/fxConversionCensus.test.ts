@@ -68,7 +68,7 @@ const NOT_EXCHANGE_RATES: Record<string, { sites: number; why: string }> = {
   'src/modules/accounting/services/core/timeTrackingService.ts': { sites: 1, why: 'hourly billing rate' },
   'src/modules/accounting/services/expense/expenseClaimService.ts': { sites: 1, why: 'mileage rate per km' },
   'src/modules/accounting/services/items/depreciationMethods.ts': { sites: 1, why: 'depreciation rate' },
-  'src/modules/accounting/services/payroll/taxTables.ts': { sites: 2, why: 'PAYE bracket rates' },
+  'src/modules/accounting/services/payroll/taxTables.ts': { sites: 1, why: 'PAYE bracket rates (computeAnnualTax, one site since bracketFor)' },
   'src/modules/accounting/services/practice/wipInvoiceGuards.ts': { sites: 1, why: 'hourly billing rate' },
   'src/modules/accounting/services/reports/beeComplianceService.ts': { sites: 1, why: 'B-BBEE spend percentage' },
   'src/modules/accounting/services/reports/timeTrackingReportService.ts': { sites: 1, why: 'hourly billing rate' },

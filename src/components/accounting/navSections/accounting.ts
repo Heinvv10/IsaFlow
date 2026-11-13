@@ -35,12 +35,10 @@ export const accountingTab: Tab = {
       ],
     },
     {
-      section: 'Trial Balance & Audit',
+      section: 'Balances',
       items: [
         { label: 'Trial Balance', href: '/accounting/trial-balance' },
         { label: 'Opening Balances', href: '/accounting/opening-balances' },
-        { label: 'Audit Trail', href: '/accounting/audit-log' },
-        { label: 'Change History', href: '/accounting/change-history' },
       ],
     },
     {

@@ -3,7 +3,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 const mocks = vi.hoisted(() => ({
   assertJournalAnalysisDimensions: vi.fn(),
-  sql: vi.fn(async () => []),
+  sql: vi.fn(async () => [{ id: '22222222-2222-4222-8222-222222222222' }]),
+  refuseLinesInCompletedSession: vi.fn(async () => undefined),
 }));
 
 vi.mock('@/lib/neon', () => ({ sql: mocks.sql }));
@@ -18,6 +19,10 @@ vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (handler: unknown)
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (handler: unknown) => handler }));
 vi.mock('@/modules/accounting/services/gl/journalCostCentreValidation', () => ({
   assertJournalAnalysisDimensions: mocks.assertJournalAnalysisDimensions,
+}));
+// Mig 980: save_dimensions refuses a line in a completed reconciliation first (the shared D12 check).
+vi.mock('@/modules/accounting/services/bank/reconciliationSessionLock', async (orig) => ({
+  ...(await orig<object>()), refuseLinesInCompletedSession: mocks.refuseLinesInCompletedSession,
 }));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   assertCustomerInCompany: vi.fn(),
