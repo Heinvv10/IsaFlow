@@ -32,6 +32,7 @@
 import { sql } from '@/lib/neon';
 import type { JournalLineInput } from '../../types/gl.types';
 import { canonicalSubtype } from '../gl/accountSubtypes';
+import { LATE_CLAIM_CLEARING_SUBTYPE } from '../gl/accountSubtypeVocabulary';
 import { reportingClassFor } from '../gl/accountReportingClass';
 import {
   allocateCreditNote, NO_TAGS, type CreditNoteAllocation, type LegTags, type RevenueLeg,
@@ -64,10 +65,16 @@ export interface BillJournalLegRow {
   net: number | string;
 }
 
-/** The bill journal's AP and VAT legs, by role. Everything else is what the bill expensed. */
+/**
+ * The bill journal's AP and VAT legs, by role. Everything else is what the bill expensed. The s16(3) late-claim
+ * clearing leg (a bill approved into a locked VAT period: its input VAT moved there until the companion claims it) is
+ * VAT, not expense — crediting it would be refused by lateClaimClearingGuard, so before 2026-11-13 a linked note on a
+ * late-claimed bill could not be approved at all (found by the step 5 architecture review, A1).
+ */
 export function isBillExpenseLeg(row: Pick<BillJournalLegRow, 'gl_account_id' | 'account_subtype'>,
   roleAccountIds: ReadonlySet<string>): boolean {
   if (roleAccountIds.has(String(row.gl_account_id).toLowerCase())) return false;
+  if (canonicalSubtype(row.account_subtype) === LATE_CLAIM_CLEARING_SUBTYPE) return false;
   const canonical = canonicalSubtype(row.account_subtype);
   if (canonical === 'payable' || canonical === 'receivable') return false;
   return reportingClassFor(row.account_subtype) !== 'vat';
