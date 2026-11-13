@@ -210,6 +210,7 @@ describe.each(Object.keys(cases))('%s', (name) => {
     const k = c(); arm(k);
     k.summary.mockResolvedValue(SUMMARY);
     const body = parse(await k.tool.handler({ ...k.args, group_by: k.group }, ctx));
+    expect(body.detail).toBe('summary');
     expect(body.group_by).toBe(k.group);
     expect(body.groups).toEqual([{ key: 'k', label: null, count: 4 }]);
     expect(body.groups_total).toBe(1);
