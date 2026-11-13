@@ -4,7 +4,7 @@
  * FIFO (approval, auto_apply_unapplied) takes the oldest open document. A Sage
  * import's credit note usually belongs to one specific invoice, so the agent
  * must be able to name it. The engine can do that (`linkedInvoiceId` with
- * `autoApply: 'none'`), but it SKIPS a closed linked document silently — right
+ * `autoApply: 'linked'`), but it SKIPS a closed linked document silently — right
  * for an approval, wrong for an explicit instruction. These cases pin the
  * instruction semantics: the named document or a refusal, never a silent no-op,
  * never a different document, never a journal.
@@ -270,7 +270,7 @@ describeIfDb('credit note → one named document, over a real ledger', () => {
     const created = await inTx(fx, () => createCreditNote(fx.companyId, {
       type: 'customer', clientId: fx.customerId, creditDate: '2026-03-01', subtotal: 60, taxRate: 0,
     }, fx.userId));
-    await inTx(fx, () => approveCreditNote(fx.companyId, created.id, fx.userId, { autoApply: 'none' }));
+    await inTx(fx, () => approveCreditNote(fx.companyId, created.id, fx.userId, { autoApply: 'linked' }));
     const note = created.id;
     expect(await noteState(note)).toEqual({ status: 'approved', applied: 0 });
 

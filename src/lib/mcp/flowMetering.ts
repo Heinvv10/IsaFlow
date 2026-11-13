@@ -58,6 +58,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // ── Reads the UI does not meter ──────────────────────────────────────────
   company_profile: null,
   list_companies: null,
+  token_info: null,
   search_gl: null,
   list_gl_accounts: null,
   list_invoices: null,
@@ -139,6 +140,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   vat_reconciliation: null,
   vat201_export: null,
   vat_exceptions: null,
+  document_vat_history: null,
   // The integrity suite is free for the same reason list_agent_postings is:
   // it is a control surface. Putting a price on the call that finds a
   // R1,058,000 invoice missing from the aging is the wrong incentive, and it
@@ -245,6 +247,9 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
 
   // ── Corrections ──────────────────────────────────────────────────────────
   reverse_bank_allocation: null,
+  // Corrects where a reconciled line was allocated (a reversal and its re-allocation, same date): a correction, free
+  // like reverse_bank_allocation — pricing it would favour leaving a wrong allocation in a signed-off reconciliation.
+  reallocate_bank_transaction: null,
   // Free like every other correction: pricing the undo of a mis-captured
   // receipt puts a toll on the control that keeps the subledger honest.
   void_receipt: null,

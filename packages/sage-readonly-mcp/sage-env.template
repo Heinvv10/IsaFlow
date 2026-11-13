@@ -1,0 +1,18 @@
+# Sage read-only MCP: copy to ~/.config/isaflow-sage-mcp/sage.env and `chmod 600` it.
+# The server refuses a file that other users can read.
+#
+# Use a DEDICATED Sage integration user (not a person's login), with the least access Sage allows.
+# The server only ever sends GET requests, and stops after 3 failed logins in an hour
+# (Sage locks the user at 20).
+
+SAGE_USERNAME=
+SAGE_PASSWORD=
+# API key from Sage (Settings > API, or your Sage partner account).
+SAGE_API_KEY=
+# Numeric company id, e.g. from Company/Get.
+SAGE_COMPANY_ID=
+
+# Optional
+# SAGE_BASE_URL=https://accounting.sageone.co.za/api/2.0.0
+# SAGE_DOWNLOAD_DIR=/home/you/.config/isaflow-sage-mcp/downloads
+# SAGE_STATE_DIR=/home/you/.config/isaflow-sage-mcp

@@ -13,6 +13,7 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { buildPageIndex } from '@/components/accounting/navSections/pageRegistry';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
+import { useNavFlags } from '@/hooks/useNavFlags';
 import { documentTitle, PRODUCT_TITLE } from '@/components/layout/shellRoutes';
 
 const TitleHead = memo(function TitleHead({ title }: { title: string }) {
@@ -22,7 +23,8 @@ const TitleHead = memo(function TitleHead({ title }: { title: string }) {
 export function ShellTitle() {
   const router = useRouter();
   const { isRegistered } = useVatRegistration();
-  const pageIndex = useMemo(() => buildPageIndex(isRegistered), [isRegistered]);
+  const flags = useNavFlags();
+  const pageIndex = useMemo(() => buildPageIndex(isRegistered, flags), [isRegistered, flags]);
   // The route pattern is the fallback for a visible URL the index does not know (the admin host can serve
   // /admin/* pages without the prefix: unverified, hence a fallback and not the first choice).
   const byUrl = documentTitle(router.asPath, pageIndex);
