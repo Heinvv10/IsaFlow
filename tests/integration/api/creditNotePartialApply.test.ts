@@ -55,7 +55,7 @@ describe('partial application then cancel', () => {
     // very invoice at approval and leave the manual apply below nothing to do.
     // This test is about what a MANUAL apply consumes and what a cancel then
     // gives back, so the automatic walk is switched off to isolate it.
-    await inTx(() => approveCreditNote(COMPANY, cn.id, USER, { autoApply: 'none' }));
+    await inTx(() => approveCreditNote(COMPANY, cn.id, USER, { autoApply: 'linked' }));
     const applied = await inTx(() => applyCreditNoteToInvoice(COMPANY, cn.id, invoice, USER));
     // 'partially_applied', not 'applied': only 50 of the 115 was consumed, and
     // since migration 677 the status is DERIVED from that rather than set to

@@ -248,7 +248,7 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     // here assert are open, and five cases would stop testing what they name.
     // 'none' is the pre-FIFO behaviour these fixtures were written against;
     // the FIFO walk itself is pinned in l3b-credit-note-allocations.
-    await inTx(() => approveCreditNote(COMPANY, scn, USER, { autoApply: 'none' }));
+    await inTx(() => approveCreditNote(COMPANY, scn, USER, { autoApply: 'linked' }));
 
     // A bill PAID and then the payment VOIDED. Voiding posts a reversal and
     // deletes the allocations, so the control account nets to zero and the bill
@@ -272,7 +272,7 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
       VALUES (${COMPANY}::UUID, 'supplier', ${supplier}::UUID, ${notedBill}::UUID,
         ${TAG + '-CCN'}, ${SETTLE_DATE}::date, ${SUB}, ${VAT}, ${GROSS}, 'draft', 0, ${USER}::UUID)
       RETURNING id`) as { id: string }[])[0]!.id;
-    await inTx(() => approveCreditNote(COMPANY, cancelledNote, USER, { autoApply: 'none' }));
+    await inTx(() => approveCreditNote(COMPANY, cancelledNote, USER, { autoApply: 'linked' }));
     await inTx(() => cancelCreditNote(COMPANY, cancelledNote, USER));
 
     // A bill carrying TWO full-value credit notes: one APPLIED (it relieved
@@ -284,9 +284,9 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
     // R5,740.22 was double-counted.
     doubleNotedBill = await bill('-DOUBLE');
     const noteA = await linkedNote('-CNA', doubleNotedBill);
-    await inTx(() => approveCreditNote(COMPANY, noteA, USER, { autoApply: 'none' }));
+    await inTx(() => approveCreditNote(COMPANY, noteA, USER, { autoApply: 'linked' }));
     const noteB = await linkedNote('-CNB', doubleNotedBill);
-    await inTx(() => approveCreditNote(COMPANY, noteB, USER, { autoApply: 'none' }));
+    await inTx(() => approveCreditNote(COMPANY, noteB, USER, { autoApply: 'linked' }));
     // approveCreditNote marks a linked note 'applied' and sets applied_amount,
     // but applyCreditNoteToInvoice refuses supplier notes, so on AP it never
     // moves the bill's amount_paid. The production rows carry the relief on the
