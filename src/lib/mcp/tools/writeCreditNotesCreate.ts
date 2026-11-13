@@ -128,7 +128,7 @@ export const createCreditNoteTool: McpTool = {
     const mirrorArgs = readMirrorArgs(args, type, supplierInvoiceId);
     if ('error' in mirrorArgs) return toolError(mirrorArgs.error);
     const mirror = mirrorArgs.mirror
-      ? await planMirroredSupplierNote(ctx.companyId, supplierInvoiceId!, subtotal, mirrorArgs.acknowledged)
+      ? await planMirroredSupplierNote(ctx.companyId, supplierInvoiceId!, subtotal, mirrorArgs.ack)
       : null;
     if (mirror && !mirror.ok) return toolError(mirror.reason);
     const mirrored = mirror?.ok ? mirror.plan : null;
@@ -203,7 +203,7 @@ export const createCreditNoteTool: McpTool = {
         reason: strArg(args, 'reason'),
         subtotal,
         taxRate: mirrored ? mirrored.taxRate : taxRate,
-        ...(mirrored ? { taxAmount: mirrored.taxAmount, vatBasis: 'mirror_bill' as const } : {}),
+        ...(mirrored ? { taxAmount: mirrored.taxAmount, vatBasis: mirrored.basis } : {}),
         glAccountId,
       },
       ctx.userId,
@@ -221,7 +221,7 @@ export const createCreditNoteTool: McpTool = {
       tax_rate: note.taxRate,
       tax_amount: note.taxAmount,
       total_amount: note.totalAmount,
-      ...(mirrored && mirror?.ok ? { mirror: mirrorReply(mirrored, mirror.acknowledged) } : {}),
+      ...(mirrored ? { mirror: mirrorReply(mirrored) } : {}),
     });
   },
 };

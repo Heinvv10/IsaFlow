@@ -15,7 +15,8 @@ vi.mock('@/modules/accounting/services/reports/documentVatHistory', () => ({
     order.push('history');
     return {
       document_number: 'SIV1', document_status: 'approved', lines: [],
-      totals: { vat_posted: 150, vat_net_now: 150, net_base_posted: 1000, net_base_now: 1000 },
+      totals: { vat_posted: 150, vat_net_now: 150, vat_derivable_now: 150, vat_heuristic: 0, net_base_posted: 1000, net_base_now: 1000 },
+      heuristic: { searched: true, truncated: false, limit: 100 },
     };
   }),
 }));
@@ -24,11 +25,11 @@ vi.mock('@/lib/neon', () => ({
 }));
 
 import { sql } from '@/lib/neon';
-import { planMirroredSupplierNote } from '@/modules/accounting/services/ap/supplierCreditNoteMirror';
+import { NO_ACK, planMirroredSupplierNote } from '@/modules/accounting/services/ap/supplierCreditNoteMirror';
 
 describe('planMirroredSupplierNote', () => {
   it('locks the bill first, then reads its VAT and its open drafts (company-scoped), and nets the drafts off', async () => {
-    const r = await planMirroredSupplierNote('co-1', 'bill-1', 600, false);
+    const r = await planMirroredSupplierNote('co-1', 'bill-1', 600, NO_ACK);
     expect(order).toEqual(['lock:bill-1', 'history', 'drafts']);
     const q = (vi.mocked(sql).mock.calls[0]![0] as unknown as string[]).join('?');
     expect(q).toMatch(/cn\.company_id = \?::UUID/);

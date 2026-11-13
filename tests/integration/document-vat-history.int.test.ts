@@ -9,7 +9,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
-import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { approveSupplierInvoice, cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteApproveService';
 import { cancelCreditNote } from '@/modules/accounting/services/ar/creditNoteCancelService';
@@ -108,14 +108,14 @@ describeIfDisposable('document_vat_history — every VAT line tied to a document
 
     const h = await history('supplier_invoice', b);
     expect(h.lines.map((l) => [l.tie, l.vat_amount, l.net_base])).toEqual([
-      ['posting', 150, 1000], ['narration_match', -150, null], ['credit_note', -60, -400],
+      ['posting', 150, 1000], ['credit_note', -60, -400], ['narration_match', -150, null],
     ]);
     const m = h.lines.find((l) => l.tie === 'narration_match')!;
     expect(m).toMatchObject({ journal_entry_id: manual, matched_in: 'narration,line_narration', source: 'manual', status: 'posted', reversed: false });
     expect(h.lines.find((l) => l.tie === 'credit_note')!.tied_via).toBe(cn.number);
     expect(h.totals).toEqual({
-      vat_posted: 150, vat_reversed: 210, vat_net_now: -60,
-      vat_by_tie: { posting: 150, reversal: 0, credit_note: -60, reference_match: 0, narration_match: -150 },
+      vat_posted: 150, vat_reversed: 210, vat_net_now: -60, vat_derivable_now: 90, vat_heuristic: -150,
+      vat_by_tie: { posting: 150, late_claim: 0, reversal: 0, credit_note: -60, reference_match: 0, narration_match: -150 },
       net_base_posted: 1000, net_base_now: 600,
     });
     expect(h.heuristic).toMatchObject({ tokens: [num], journals_matched: 1, truncated: false });
@@ -137,7 +137,8 @@ describeIfDisposable('document_vat_history — every VAT line tied to a document
     expect(h.lines.filter((l) => l.tie !== 'posting').map((l) => [l.journal_entry_id, l.tie, l.vat_amount, l.matched_in]))
       .toEqual([[ref, 'reference_match', 4, 'reference']]);
     expect(h.heuristic.journals_matched).toBe(1);
-    expect(h.totals.vat_net_now).toBe(34);
+    // A heuristic match that ADDS VAT is reported but never raises what the bill carries (review round 1).
+    expect(h.totals).toMatchObject({ vat_heuristic: 4, vat_derivable_now: 30, vat_net_now: 30 });
   });
 
   it('a reversed hand-made journal nets out through its chain; a cancelled note nets out too', async () => {
@@ -166,6 +167,15 @@ describeIfDisposable('document_vat_history — every VAT line tied to a document
     const foreign = await documentVatHistoryTool.handler({ entity_type: 'supplier_invoice', entity_id: b }, ctx);
     expect(foreign.isError).toBe(true);
     expect(foreign.content[0]!.text).toBe('Not found');
+  });
+
+  it('a cancelled bill no longer names its posting: the reply says so instead of showing nothing silently (A7)', async () => {
+    const b = await bill(number(), 300);
+    await inTx(fx, () => cancelSupplierInvoice(fx.companyId, b, fx.userId));
+    const h = await history('supplier_invoice', b);
+    expect(h.lines).toEqual([]);
+    expect(h.notes.join(' ')).toContain('This document is cancelled');
+    expect(h.heuristic.searched).toBe(false);
   });
 
   it('a customer invoice: output VAT is positive in its own direction', async () => {

@@ -98,7 +98,10 @@ describeIfDisposable('mirror_bill notes are re-checked at approve (988)', () => 
     const before = await journals();
     const err = await approve(m).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(MirroredNoteVatRefusal);
-    expect(thrownToolErrorText('approve_credit_note', err)).toMatch(/^VAT_ALREADY_REVERSED: credit note .* reverses R.150\.00 of VAT, but bill .* now carries only R.0\.00/);
+    const text = thrownToolErrorText('approve_credit_note', err);
+    expect(text).toMatch(/^VAT_ALREADY_REVERSED: credit note \S+ was raised with mirror_bill on bill \S+, which has changed since/);
+    expect(text).toMatch(/JE-\d{4}-\d+ narration_match/);
+    expect(text).toContain('Cancel this draft with cancel_credit_note');
     expect(await note(m)).toMatchObject({ status: 'draft', gl_journal_entry_id: null });
     expect(await journals()).toBe(before);
 

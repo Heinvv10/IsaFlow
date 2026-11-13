@@ -131,11 +131,12 @@ export interface CreditNoteCreateInput {
    */
   glAccountId?: string;
   /**
-   * Migration 988. 'mirror_bill' only from MCP create_credit_note with mirror_bill (a SUPPLIER note
-   * linked to a bill, its VAT taken from the bill as it stood): approveCreditNote re-checks it against
-   * the bill's standing VAT. Omitted: 'rate'. The REST routes never forward it.
+   * Migration 988. 'mirror_bill' / 'mirror_bill_ack' only from MCP create_credit_note with mirror_bill (a
+   * SUPPLIER note linked to a bill, its VAT taken from the bill as it stood; _ack = the caller acknowledged
+   * VAT already reversed and stated the amount): approveCreditNote re-checks it against the bill. Omitted:
+   * 'rate'. The REST routes never forward it.
    */
-  vatBasis?: 'rate' | 'mirror_bill';
+  vatBasis?: 'rate' | 'mirror_bill' | 'mirror_bill_ack';
 }
 
 // ── Customer Write-Offs ──────────────────────────────────────────────────────

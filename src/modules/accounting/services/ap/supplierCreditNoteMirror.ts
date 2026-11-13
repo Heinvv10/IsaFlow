@@ -2,33 +2,28 @@
  * `mirror_bill` for a SUPPLIER credit note (MCP `create_credit_note`; brief step 5b, 2026-11-13).
  *
  * What already exists, and is NOT rebuilt here: at approval a note LINKED to a
- * bill credits that bill's own expense legs — account, job, CC1, CC2, BU — pro
- * rata, each capped at what earlier notes left it (migration 892,
- * supplierCreditNoteExpenseLines.ts). The 5100 (default_expense) fallback now
- * bites only for an unlinked note with no `gl_account_id`, a linked bill with
- * no journal, and whatever exceeds the legs.
+ * bill credits that bill's own expense legs pro rata, capped by earlier notes
+ * (migration 892, supplierCreditNoteExpenseLines.ts). What did not exist: the
+ * note's VAT, which was subtotal x the note's own rate (15% default), blind to
+ * the bill. SIV3762: JE-2026-26788 reversed its input VAT by hand, CN-557 (15%)
+ * reversed it again, JE-2026-31949 put R260.87 back.
  *
- * What did not exist: the note's VAT. Approval credits VAT input with the
- * note's own `tax_amount`, which `create_credit_note` computed as subtotal x
- * tax_rate (default 15%) — blind to the bill's own rate and to VAT a journal
- * had already reversed. SIV3762: JE-2026-26788 reversed its input VAT by hand,
- * CN-557 (15% default) reversed it again, JE-2026-31949 put R260.87 back.
+ * The note's VAT comes from the bill's DERIVABLE ties only (posting, late-claim
+ * companion, reversals, credit notes — review round 1, A2): subtotal x the VAT
+ * the bill still carries / the base it still carries, the exact remainder when
+ * the note takes the whole remaining base. Every other open draft on the bill is
+ * netted off first, under the bill's credit-note key (two drafts cannot each
+ * take the whole VAT).
  *
- * So a mirrored note takes its VAT from the bill AS IT STANDS NOW
- * (`getDocumentVatHistory`): tax = subtotal x vat_net_now / net_base_now, the
- * whole remaining VAT when the note takes the whole remaining base. And it is
- * REFUSED, unless acknowledged, when the bill's VAT no longer stands in
- * proportion to its base — VAT reversed (or added) by something other than a
- * credit note for the same base — because that is the double reversal, and the
- * journals that did it are found partly by heuristic.
+ * It REFUSES, unless acknowledged, when (a) the derivable VAT no longer stands in
+ * proportion to the base, (b) a heuristic match (a hand journal naming the bill)
+ * moved its VAT, or (c) the heuristic search was cut at its limit. A heuristic
+ * never WRITES: acknowledged, the caller must state `vat_amount` itself (at most
+ * the derivable figure); the refusal suggests one. The tolerance is one cent per
+ * adjusting journal or open draft, plus one: each note rounds its VAT to the cent.
  *
- * Drafts count: every other live, unposted (draft) note on the bill is taken off
- * the base and VAT first, under the bill's credit-note key, so two mirrored
- * drafts cannot each take the whole remaining VAT. The figure is then fixed on
- * the draft, marked `vat_basis = 'mirror_bill'` (migration 988), and approval
- * re-checks it against the bill's standing VAT (supplierCreditNoteMirrorApprove),
- * so a note or journal posted against the bill after this create cannot make
- * the approval reverse VAT twice.
+ * The draft is marked `vat_basis` 'mirror_bill' or 'mirror_bill_ack' (migration
+ * 988) and approval re-runs this planner (supplierCreditNoteMirrorApprove).
  */
 import { sql } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
@@ -38,47 +33,56 @@ import { getDocumentVatHistory, type DocumentVatHistory, type DocumentVatLine } 
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 const fmt = (n: number): string => formatMoney(n);
 
+export type MirrorBasis = 'mirror_bill' | 'mirror_bill_ack';
+export interface MirrorAck { acknowledged: boolean; vatAmount: number | null }
+export const NO_ACK: MirrorAck = { acknowledged: false, vatAmount: null };
+
+export interface AdjustingJournal { entry_number: string | null; tie: string; vat_amount: number }
+
 export interface MirrorPlan {
   taxAmount: number;
+  basis: MirrorBasis;
   /** Display only (numeric(5,2)); the amount above is what posts. */
   taxRate: number;
   billVatRateNow: number;
+  /** Derivable VAT the bill still carries, net of open drafts. */
   vatNetNow: number;
   netBaseNow: number;
-  /** The bill's VAT at its posted rate on what it still carries, less what it carries: > 0 = already reversed. */
+  /** The derivable VAT at the posted rate on what the bill still carries, less what it carries (> 0 = reversed). */
   vatOutOfProportion: number;
-  /** Non-posting journals that moved the bill's VAT. */
-  adjustingJournals: { entry_number: string | null; tie: string; vat_amount: number }[];
+  /** Heuristic matches' VAT on the bill's VAT accounts (< 0 = they reversed some). */
+  vatHeuristic: number;
+  /** The VAT the bill carries if the heuristic matches are about it: what an acknowledged call should state. */
+  suggestedVatAmount: number;
+  heuristicSearched: boolean;
+  adjustingJournals: AdjustingJournal[];
 }
 
 /** A live note on the bill that has not posted yet (a draft): it will take its subtotal and VAT when approved. */
 export interface UnpostedNote { id: string; credit_note_number: string | null; subtotal: number; tax_amount: number }
 
-export type MirrorDecision =
-  | { ok: true; plan: MirrorPlan; acknowledged: boolean }
-  | { ok: false; reason: string };
+export type MirrorDecision = { ok: true; plan: MirrorPlan } | { ok: false; reason: string };
 
-function adjusting(lines: readonly DocumentVatLine[]): MirrorPlan['adjustingJournals'] {
-  const byJournal = new Map<string, MirrorPlan['adjustingJournals'][number]>();
+function adjusting(lines: readonly DocumentVatLine[], unposted: readonly UnpostedNote[]): AdjustingJournal[] {
+  const byJournal = new Map<string, AdjustingJournal>();
   for (const l of lines) {
-    if (l.tie === 'posting') continue;
+    if (l.tie === 'posting' || l.tie === 'late_claim') continue;
     const e = byJournal.get(l.journal_entry_id) ?? { entry_number: l.entry_number, tie: l.tie, vat_amount: 0 };
     e.vat_amount = r2(e.vat_amount + l.vat_amount);
     byJournal.set(l.journal_entry_id, e);
   }
-  return [...byJournal.values()].filter((e) => e.vat_amount !== 0);
+  return [...byJournal.values(), ...unposted.map((n) => ({ entry_number: n.credit_note_number, tie: 'draft_credit_note', vat_amount: r2(-n.tax_amount) }))]
+    .filter((e) => e.vat_amount !== 0);
 }
 
 /** Pure: the mirrored note's VAT, or why it cannot be mirrored. */
 export function planMirroredNote(
-  h: DocumentVatHistory, subtotal: number, acknowledged: boolean, unposted: readonly UnpostedNote[] = [],
+  h: DocumentVatHistory, subtotal: number, ack: MirrorAck, unposted: readonly UnpostedNote[] = [],
 ): MirrorDecision {
-  const { vat_posted: vatPosted, net_base_posted: basePosted } = h.totals;
-  // What the bill carries once every unposted draft on it is approved: two drafts must not each take the same VAT.
+  const { vat_posted: vatPosted, net_base_posted: basePosted, vat_heuristic: vatHeuristic } = h.totals;
   const baseNow = r2(h.totals.net_base_now - unposted.reduce((s, n) => s + n.subtotal, 0));
-  const vatNetNow = r2(h.totals.vat_net_now - unposted.reduce((s, n) => s + n.tax_amount, 0));
+  const vatNow = r2(h.totals.vat_derivable_now - unposted.reduce((s, n) => s + n.tax_amount, 0));
   const bill = h.document_number;
-  // A retry of a mirrored create meets its own first draft here: say so, rather than only "nothing left".
   const same = unposted.find((n) => Math.abs(n.subtotal - subtotal) <= 0.005);
   const retryHint = same
     ? ` Draft credit note ${same.credit_note_number ?? same.id} (id ${same.id}) for the same subtotal is already open on this bill: if this is a retry, approve that one with approve_credit_note.`
@@ -92,33 +96,41 @@ export function planMirroredNote(
   if (subtotal > baseNow + 0.005) {
     return { ok: false, reason: `subtotal ${fmt(subtotal)} is more than the ${fmt(baseNow)} bill ${bill} still carries after its credit notes (draft ones included) and reversals. A mirrored note cannot credit more than the bill has left; lower the subtotal, or raise the note without mirror_bill.${retryHint}` };
   }
-  const postedRate = vatPosted / basePosted;
-  const adjustingJournals = [...adjusting(h.lines), ...unposted.filter((n) => n.tax_amount !== 0)
-    .map((n) => ({ entry_number: n.credit_note_number, tie: 'draft_credit_note', vat_amount: r2(-n.tax_amount) }))];
-  const tolerance = 0.01 * (1 + adjustingJournals.length);
-  const outOfProportion = r2(baseNow * postedRate - vatNetNow);
-  const rateNow = Math.max(0, vatNetNow) / baseNow;
   const whole = Math.abs(subtotal - baseNow) <= 0.005;
-  const taxAmount = whole ? Math.max(0, vatNetNow) : Math.min(Math.max(0, vatNetNow), r2(subtotal * rateNow));
-  const plan: MirrorPlan = {
-    taxAmount: r2(taxAmount), taxRate: Math.min(100, r2(rateNow * 100)), billVatRateNow: r2(rateNow * 100),
-    vatNetNow, netBaseNow: baseNow, vatOutOfProportion: outOfProportion, adjustingJournals,
-  };
-  if (Math.abs(outOfProportion) > tolerance && !acknowledged) {
-    const named = adjustingJournals.map((j) => `${j.entry_number ?? '(unnumbered)'} ${j.tie} ${fmt(j.vat_amount)}`).join('; ');
-    const direction = outOfProportion > 0 ? `already reversed ${fmt(outOfProportion)} more of its VAT` : `gained ${fmt(-outOfProportion)} of VAT`;
-    return {
-      ok: false,
-      reason: `VAT_ALREADY_REVERSED: bill ${bill} posted ${fmt(vatPosted)} VAT on ${fmt(basePosted)}; it still carries `
-        + `${fmt(baseNow)} of base but only ${fmt(vatNetNow)} of VAT, so later journals have ${direction} than its credit notes `
-        + `account for (${named || 'none named'}). A note at the bill's posted rate would reverse that VAT a second time — a `
-        + `VAT201 misstatement. Matches by reference or narration are heuristic: check them with document_vat_history. `
-        + `A mirrored note would carry ${fmt(plan.taxAmount)} VAT (${plan.billVatRateNow}% of its subtotal, the bill's VAT as it `
-        + 'stands now). To create it with that VAT, call again with acknowledge_vat_already_reversed: true; if the matched '
-        + 'journals are not about this bill, raise the note without mirror_bill.',
-    };
+  const share = (vat: number) => (whole ? Math.max(0, vat) : Math.min(Math.max(0, vat), r2(subtotal * Math.max(0, vat) / baseNow)));
+  const derivableTax = r2(share(vatNow));
+  const suggested = r2(Math.min(derivableTax, share(r2(vatNow + Math.min(0, vatHeuristic)))));
+  const adjustingJournals = adjusting(h.lines, unposted);
+  const tolerance = 0.01 * (1 + adjustingJournals.length);
+  const outOfProportion = r2(baseNow * (vatPosted / basePosted) - vatNow);
+  const issues = [
+    Math.abs(outOfProportion) > tolerance
+      ? `its credit notes and reversals leave ${fmt(vatNow)} of VAT on ${fmt(baseNow)} of base, ${fmt(Math.abs(outOfProportion))} ${outOfProportion > 0 ? 'less' : 'more'} than its posted rate gives` : null,
+    Math.abs(vatHeuristic) > 0.01 ? `journals naming the bill moved ${fmt(vatHeuristic)} of its VAT (matched by narration or reference: heuristic)` : null,
+    h.heuristic.truncated ? `more than ${h.heuristic.limit} journals name the bill, so the search is incomplete` : null,
+  ].filter((s): s is string => s !== null);
+  const rateOf = (tax: number) => Math.min(100, r2(tax / subtotal * 100));
+  const plan = (taxAmount: number, basis: MirrorBasis): MirrorPlan => ({
+    taxAmount, basis, taxRate: rateOf(taxAmount), billVatRateNow: r2(Math.max(0, vatNow) / baseNow * 100),
+    vatNetNow: vatNow, netBaseNow: baseNow, vatOutOfProportion: outOfProportion, vatHeuristic, suggestedVatAmount: suggested,
+    heuristicSearched: h.heuristic.searched, adjustingJournals,
+  });
+  if (ack.acknowledged && ack.vatAmount !== null) {
+    if (ack.vatAmount > derivableTax + 0.01) {
+      return { ok: false, reason: `vat_amount ${fmt(ack.vatAmount)} is more than the ${fmt(derivableTax)} of VAT bill ${bill} still carries on this share of its base (its posting, reversals and credit notes). A mirrored note cannot reverse more VAT than the bill carries.` };
+    }
+    return { ok: true, plan: plan(r2(ack.vatAmount), 'mirror_bill_ack') };
   }
-  return { ok: true, plan, acknowledged };
+  if (issues.length === 0) return { ok: true, plan: plan(derivableTax, 'mirror_bill') };
+  const named = adjustingJournals.map((j) => `${j.entry_number ?? '(unnumbered)'} ${j.tie} ${fmt(j.vat_amount)}`).join('; ');
+  return {
+    ok: false,
+    reason: `VAT_ALREADY_REVERSED: bill ${bill} posted ${fmt(vatPosted)} VAT on ${fmt(basePosted)}, and ${issues.join('; ')} `
+      + `(${named || 'no journal named'}). A note at the bill's rate could reverse VAT a second time — a VAT201 misstatement. `
+      + 'Check the journals with document_vat_history. If they are about this bill, call again with '
+      + `acknowledge_vat_already_reversed: true and vat_amount: ${suggested} (the VAT the bill carries on this share once they `
+      + `count; at most ${derivableTax}). If a match is about another document, a person must decide — do not acknowledge it.`,
+  };
 }
 
 /** Every live supplier note linked to the bill that has not posted (status draft), in creation order. */
@@ -137,10 +149,10 @@ export async function readUnpostedBillNotes(companyId: string, billId: string): 
  * commits, so two mirrored creates on one bill are serialised and the second sees the first's draft.
  */
 export async function planMirroredSupplierNote(
-  companyId: string, supplierInvoiceId: string, subtotal: number, acknowledged: boolean,
+  companyId: string, supplierInvoiceId: string, subtotal: number, ack: MirrorAck,
 ): Promise<MirrorDecision> {
   await lockInvoiceCreditNotes(supplierInvoiceId);
   const history = await getDocumentVatHistory(companyId, 'supplier_invoice', supplierInvoiceId);
   if (!history) return { ok: false, reason: 'Not found' };
-  return planMirroredNote(history, subtotal, acknowledged, await readUnpostedBillNotes(companyId, supplierInvoiceId));
+  return planMirroredNote(history, subtotal, ack, await readUnpostedBillNotes(companyId, supplierInvoiceId));
 }

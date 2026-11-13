@@ -79,7 +79,7 @@ export async function approveCreditNote(
     await assertApprovalCleared(companyId, creditNoteApprovalType(String(cn.type)), id);
     // 988: a mirror_bill note is re-checked against the VAT its bill still carries (under the bill's key, pre-write).
     await assertMirroredNoteVatStands(companyId, {
-      id, number: String(cn.credit_note_number), type: String(cn.type), taxAmount: Number(cn.tax_amount),
+      id, number: String(cn.credit_note_number), type: String(cn.type), subtotal: Number(cn.subtotal), taxAmount: Number(cn.tax_amount),
       billId: cn.supplier_invoice_id ? String(cn.supplier_invoice_id) : null, vatBasis: String(cn.vat_basis ?? 'rate'),
     });
     // A customer note's header job / CC1 / CC2 / BU: refused on a linked note, posted on an unlinked one.

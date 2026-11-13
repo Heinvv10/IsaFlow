@@ -1,24 +1,30 @@
 /**
  * The approval-time half of `mirror_bill` (migration 988; brief step 5b, Hein 2026-11-13 option A).
  *
- * A mirrored supplier note's VAT was fixed at create from the bill as it stood then
- * (supplierCreditNoteMirror). A note or a hand-made journal posted against the bill since can leave the
- * bill carrying less VAT than the draft would reverse; approving it would reverse that VAT twice. So
- * approveCreditNote, under the bill's credit-note key it already holds, refuses a `vat_basis =
- * 'mirror_bill'` note whose tax_amount exceeds the VAT the bill still carries (cent tolerance) — before
- * any write. Notes at their own rate (`vat_basis = 'rate'`) are not checked: unchanged.
+ * A mirrored supplier note's VAT was fixed at create from the bill as it stood then. A note or a journal posted
+ * against the bill since can make approving it reverse VAT twice. So approveCreditNote, under the bill's credit-note
+ * key it already holds and before any write, RE-RUNS the create planner (supplierCreditNoteMirror.planMirroredNote)
+ * for this note's subtotal against the bill as it stands now (review round 1, A3). Other open DRAFTS are not netted
+ * off here, unlike at create: they have not posted, so they cannot make this posting a double reversal, and netting
+ * them would let two drafts that together over-commit the bill block each other for ever. The first to be approved
+ * wins; the next is judged against the bill with the first posted.
+ *   'mirror_bill'      refused when the planner refuses, or when the note's tax exceeds what it would now give
+ *                      (by more than a cent);
+ *   'mirror_bill_ack'  refused when the planner refuses the acknowledged amount (more than the bill's derivable VAT
+ *                      on this share, or no base left). The heuristic matches that were acknowledged at create are
+ *                      not judged again.
+ * 'rate' notes are not checked: unchanged.
  *
- * `mirroredVatRefusals` is the same rule for a batch, read before anything posts, so the
- * bulk_approve_credit_notes dry run and its live call skip the same notes: it walks the batch in the
- * order the live call posts it and lets each supplier note that would post take its VAT off the bill.
+ * `mirroredVatRefusals` is the same judgement for a batch, read before anything posts, so the
+ * bulk_approve_credit_notes dry run and its live call skip the same notes: it walks the batch in the live order, and
+ * every supplier note on the bill that would post takes its subtotal and VAT off the bill for the notes after it.
  */
 import { sql, type DbRow } from '@/lib/neon';
-import { formatMoney } from '@/lib/money/formatMoney';
-import { getDocumentVatHistory } from '../reports/documentVatHistory';
+import { getDocumentVatHistory, type DocumentVatHistory } from '../reports/documentVatHistory';
+import { NO_ACK, planMirroredNote } from './supplierCreditNoteMirror';
 
 export const VAT_TOLERANCE = 0.01;
-/** More VAT than the bill carries, past a cent (rounded first: 75 - 74.99 is 0.010000000000005 in floating point). */
-const exceeds = (tax: number, standing: number): boolean => Math.round((tax - standing) * 100) / 100 > VAT_TOLERANCE;
+const r2 = (n: number): number => Math.round(n * 100) / 100;
 
 export class MirroredNoteVatRefusal extends Error {
   readonly code = 'VAT_ALREADY_REVERSED';
@@ -33,67 +39,78 @@ export interface MirroredNoteState {
   number: string;
   type: string;
   billId: string | null;
+  subtotal: number;
   taxAmount: number;
   vatBasis: string;
 }
 
-/** What the bill still carries, never below zero; null when the bill is not this company's. */
-export async function billVatStanding(companyId: string, billId: string): Promise<{ number: string; standing: number } | null> {
-  const h = await getDocumentVatHistory(companyId, 'supplier_invoice', billId);
-  return h ? { number: h.document_number, standing: Math.max(0, h.totals.vat_net_now) } : null;
-}
+const isMirrored = (n: MirroredNoteState): boolean =>
+  (n.vatBasis === 'mirror_bill' || n.vatBasis === 'mirror_bill_ack') && n.type === 'supplier' && n.billId !== null;
 
-export function mirroredNoteRefusalText(note: Pick<MirroredNoteState, 'number' | 'taxAmount'>, bill: string, standing: number): string {
-  return `VAT_ALREADY_REVERSED: credit note ${note.number} was raised with mirror_bill and reverses ${formatMoney(note.taxAmount)} `
-    + `of VAT, but bill ${bill} now carries only ${formatMoney(standing)}: a note or journal posted against the bill since `
-    + 'the draft was created has already reversed the rest. Approving it would reverse that VAT twice (a VAT201 misstatement). '
-    + 'Check the bill with document_vat_history, cancel this draft with cancel_credit_note, and raise it again with mirror_bill.';
+const REMEDY = 'Nothing was posted. Cancel this draft with cancel_credit_note. If the journals named above are about this '
+  + 'bill, raise it again with mirror_bill, acknowledge_vat_already_reversed: true and the vat_amount the refusal '
+  + 'suggests; if a match is about another document, a person must decide (document_vat_history lists each journal and its tie).';
+
+/** Pure: why this mirrored note may not be approved against the bill as `h` stands (posted journals only), or null. */
+export function judgeMirroredApproval(h: DocumentVatHistory, note: MirroredNoteState): string | null {
+  const acknowledged = note.vatBasis === 'mirror_bill_ack';
+  const d = planMirroredNote(h, note.subtotal, acknowledged ? { acknowledged, vatAmount: note.taxAmount } : NO_ACK);
+  const head = `VAT_ALREADY_REVERSED: credit note ${note.number} was raised with mirror_bill on bill ${h.document_number}, which has changed since. `;
+  if (!d.ok) return `${head}${d.reason.replace(/^VAT_ALREADY_REVERSED: /, '')} ${REMEDY}`;
+  if (!acknowledged && r2(note.taxAmount - d.plan.taxAmount) > VAT_TOLERANCE) {
+    const named = d.plan.adjustingJournals.map((j) => `${j.entry_number ?? '(unnumbered)'} ${j.tie} ${j.vat_amount}`).join('; ');
+    return `${head}It would reverse ${note.taxAmount} of VAT; the bill now gives ${d.plan.taxAmount} on this subtotal `
+      + `(${named || 'no journal named'}). ${REMEDY}`;
+  }
+  return null;
 }
 
 /** Throws MirroredNoteVatRefusal for a mirrored note the bill can no longer carry. Call under the bill's key, pre-write. */
 export async function assertMirroredNoteVatStands(companyId: string, note: MirroredNoteState): Promise<void> {
-  if (note.vatBasis !== 'mirror_bill' || note.type !== 'supplier' || !note.billId) return;
-  const bill = await billVatStanding(companyId, note.billId);
-  if (!bill) return;
-  if (exceeds(note.taxAmount, bill.standing)) {
-    throw new MirroredNoteVatRefusal(mirroredNoteRefusalText(note, bill.number, bill.standing));
-  }
+  if (!isMirrored(note)) return;
+  const h = await getDocumentVatHistory(companyId, 'supplier_invoice', note.billId!);
+  if (!h) return;
+  const why = judgeMirroredApproval(h, note);
+  if (why) throw new MirroredNoteVatRefusal(why);
 }
 
 /** The notes of a batch, keyed by id (company-scoped). */
 export async function readMirrorStates(companyId: string, ids: readonly string[]): Promise<Map<string, MirroredNoteState>> {
   const rows = (await sql`
-    SELECT id, credit_note_number, type, supplier_invoice_id, tax_amount, vat_basis FROM credit_notes
+    SELECT id, credit_note_number, type, supplier_invoice_id, subtotal, tax_amount, vat_basis FROM credit_notes
     WHERE company_id = ${companyId}::UUID AND id = ANY(${[...ids]}::UUID[])`) as DbRow[];
   return new Map(rows.map((r) => [String(r.id), {
     id: String(r.id), number: String(r.credit_note_number ?? r.id), type: String(r.type),
     billId: r.supplier_invoice_id == null ? null : String(r.supplier_invoice_id),
-    taxAmount: Number(r.tax_amount ?? 0), vatBasis: String(r.vat_basis ?? 'rate'),
+    subtotal: Number(r.subtotal ?? 0), taxAmount: Number(r.tax_amount ?? 0), vatBasis: String(r.vat_basis ?? 'rate'),
   }]));
 }
 
-/**
- * id → refusal text for each mirrored note of `orderedIds` (the live posting order) that the bill could not
- * carry when its turn comes. Bills with no mirrored note in the batch are not read.
- */
+/** The bill as it will stand once `n` has posted: its base and VAT less the note's. */
+function afterPosting(h: DocumentVatHistory, n: MirroredNoteState): DocumentVatHistory {
+  const t = h.totals;
+  return { ...h, totals: { ...t, net_base_now: r2(t.net_base_now - n.subtotal),
+    vat_derivable_now: r2(t.vat_derivable_now - n.taxAmount), vat_net_now: r2(t.vat_net_now - n.taxAmount) } };
+}
+
+/** id → refusal text for each mirrored note of `orderedIds` (the live posting order) the bill cannot carry at its turn. */
 export async function mirroredVatRefusals(companyId: string, orderedIds: readonly string[]): Promise<Map<string, string>> {
   const states = await readMirrorStates(companyId, orderedIds);
   const notes = orderedIds.map((id) => states.get(id)).filter((n): n is MirroredNoteState => Boolean(n));
-  const bills = new Set(notes.filter((n) => n.vatBasis === 'mirror_bill' && n.type === 'supplier' && n.billId).map((n) => n.billId!));
-  const standing = new Map<string, { number: string; standing: number }>();
-  for (const billId of bills) {
-    const b = await billVatStanding(companyId, billId);
-    if (b) standing.set(billId, b);
+  const bills = new Map<string, { h: DocumentVatHistory }>();
+  for (const billId of new Set(notes.filter(isMirrored).map((n) => n.billId!))) {
+    const h = await getDocumentVatHistory(companyId, 'supplier_invoice', billId);
+    if (h) bills.set(billId, { h });
   }
   const refusals = new Map<string, string>();
   for (const n of notes) {
-    const bill = n.type === 'supplier' && n.billId ? standing.get(n.billId) : undefined;
+    const bill = n.type === 'supplier' && n.billId ? bills.get(n.billId) : undefined;
     if (!bill) continue;
-    if (n.vatBasis === 'mirror_bill' && exceeds(n.taxAmount, bill.standing)) {
-      refusals.set(n.id, mirroredNoteRefusalText(n, bill.number, bill.standing));
-      continue;
+    if (isMirrored(n)) {
+      const why = judgeMirroredApproval(bill.h, n);
+      if (why) { refusals.set(n.id, why); continue; }
     }
-    bill.standing = Math.max(0, Math.round((bill.standing - n.taxAmount) * 100) / 100);
+    bill.h = afterPosting(bill.h, n);
   }
   return refusals;
 }

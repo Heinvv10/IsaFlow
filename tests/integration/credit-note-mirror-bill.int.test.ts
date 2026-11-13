@@ -118,7 +118,7 @@ describeIfDisposable('create_credit_note mirror_bill', () => {
     expect(h.totals).toMatchObject({ vat_posted: 260.87, vat_net_now: -260.87 });
   });
 
-  it('mirror_bill refuses it, names the journal and writes nothing; acknowledged, the note carries no VAT and the bill nets to 0', async () => {
+  it('mirror_bill refuses it, names the journal and writes nothing; acknowledged with vat_amount 0, the note carries no VAT and the bill nets to 0', async () => {
     const num = `SIVB${String(Date.now()).slice(-6)}`;
     const b = await bill(num, [{ amount: 1739.13, glAccountId: acct.cos! }]);
     const manual = await reverseVatByHand(num, 260.87);
@@ -129,9 +129,12 @@ describeIfDisposable('create_credit_note mirror_bill', () => {
     expect(text(refused)).toContain(`${manual} narration_match ${formatMoney(-260.87)}`);
     expect(await notesOn(b.id)).toBe(0);
 
-    const r = await create(b, 1739.13, { mirror_bill: true, acknowledge_vat_already_reversed: true });
+    // A heuristic never writes: acknowledged, the caller states the VAT itself (the refusal suggested 0).
+    expect(text(refused)).toContain('vat_amount: 0 ');
+    expect(text(await create(b, 1739.13, { mirror_bill: true, acknowledge_vat_already_reversed: true }))).toMatch(/^VAT_ALREADY_REVERSED/);
+    const r = await create(b, 1739.13, { mirror_bill: true, acknowledge_vat_already_reversed: true, vat_amount: 0 });
     expect(r.isError, text(r)).toBeFalsy();
-    expect(JSON.parse(text(r))).toMatchObject({ tax_amount: 0, total_amount: 1739.13, mirror: { acknowledged_vat_already_reversed: true, vat_out_of_proportion: 260.87 } });
+    expect(JSON.parse(text(r))).toMatchObject({ tax_amount: 0, total_amount: 1739.13, mirror: { acknowledged_vat_already_reversed: true, vat_basis: 'mirror_bill_ack', vat_heuristic: -260.87 } });
     await approve(noteId(r));
     expect(await noteJournal(noteId(r))).toEqual({ '2100': -1739.13, '5010': 1739.13 });
     const h = (await getDocumentVatHistory(fx.companyId, 'supplier_invoice', b.id))!;

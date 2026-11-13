@@ -2,24 +2,29 @@
  * The reads behind `getDocumentVatHistory` (documentVatHistory.ts): which
  * journals a document is tied to, and every line of those journals.
  *
- * Three reads, all scoped by company:
- *  1. the document row (its number(s) and its posting journal);
- *  2. the ROOT journals: its own posting (`gl_journal_entry_id`, plus any
- *     journal sourced from it via `source_record_id` — DRC VAT), the posting
- *     journals of the credit notes LINKED to it, and — the heuristic — posted
- *     VAT-bearing journals whose reference, narration or a line narration
- *     names one of its numbers as a whole token, bounded to MATCH_LIMIT;
- *  3. every root's reversal CHAIN (reversal_of_id, posted, cycle-guarded) and
- *     every line of every journal reached, with the VAT201 member-line rule
- *     (`vatEntryMemberLineSql`) evaluated per line, so "a VAT line" means here
- *     exactly what it means on the return.
+ *  1. the document row (number(s), date, status, posting journal);
+ *  2. the DERIVABLE roots: its own posting (`gl_journal_entry_id`, plus any
+ *     journal sourced from it via `source_record_id` — DRC VAT) and the posting
+ *     journals of the credit notes LINKED to it;
+ *  3. every root's CHAIN: posted reversals (`reversal_of_id`) and s16(3)
+ *     late-claim companions (`late_claim_of_id`, vat201Service's tie), cycle-
+ *     guarded, with every line and the VAT201 member-line rule evaluated per
+ *     line — plus the late-claim clearing leg, which holds the VAT a locked
+ *     period moved off VAT Input until its companion claims it;
+ *  4. the HEURISTIC roots (review round 1, breaker REPRO 1/2/4): posted journals
+ *     dated on or after the document, from a hand-journal source, that are no
+ *     document's own posting and no reversal or companion, that carry a line on
+ *     one of the document's OWN VAT accounts, and whose reference / narration /
+ *     a line narration names one of its numbers as a whole token. MATCH_LIMIT + 1
+ *     at most. Every filter but the regex runs first; the regex reads only the survivors and their lines.
  *
- * Only POSTED journals are read, as the VAT201 reads them; a legacy
- * `status = 'reversed'` header is not posted and is left out the same way. The
- * VAT submission clearing journal and the year-end closing journal are never a
- * document's VAT and are excluded through their shared markers.
+ * Only POSTED journals are read, as the VAT201 reads them. The VAT submission
+ * clearing journal and the year-end closing journal are excluded through their
+ * shared markers. A posted journal dated in the future counts (it is in the
+ * ledger and will reach the return for its period).
  */
 import { sql, type DbRow } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { MAX_CHAIN_DEPTH } from '../shared/journalChainHead';
 import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import { YEAR_END_JOURNAL_SOURCE } from '../gl/yearEndJournalSource';
@@ -27,10 +32,14 @@ import { vatEntryMemberLineSql, vatEntrySourceAdmitsSql } from './vatEntryMember
 
 export const DOCUMENT_VAT_ENTITY_TYPES = ['supplier_invoice', 'customer_invoice', 'credit_note'] as const;
 export type DocumentVatEntityType = (typeof DOCUMENT_VAT_ENTITY_TYPES)[number];
-export type DocumentVatTie = 'posting' | 'reversal' | 'credit_note' | 'narration_match' | 'reference_match';
+export type DocumentVatTie = 'posting' | 'late_claim' | 'reversal' | 'credit_note' | 'narration_match' | 'reference_match';
 
 /** Most heuristic matches read per call; one more is fetched to say the list was cut. */
 export const MATCH_LIMIT = 100;
+/** The late-claim clearing account's subtype (migration 701): VAT, not base. */
+export const LATE_CLAIM_CLEARING_SUBTYPE = 'vat_input_late_claim';
+/** Journal sources a person (or an import of a person's journals) writes; every auto_* document posting is out. */
+export const HAND_JOURNAL_SOURCES = ['manual', 'auto_gl_import', 'auto_migration', 'auto_recurring', 'auto_adjustment', 'auto_vat_adjustment'] as const;
 
 export interface DocumentRow {
   id: string;
@@ -38,6 +47,8 @@ export interface DocumentRow {
   externalNumber: string | null;
   postingJournalId: string | null;
   status: string;
+  /** invoice_date / credit_date, YYYY-MM-DD. */
+  documentDate: string;
   /** credit_note only: 'customer' | 'supplier'. */
   noteType: string | null;
 }
@@ -45,7 +56,7 @@ export interface DocumentRow {
 export interface RootJournal {
   journalId: string;
   tie: DocumentVatTie;
-  /** The credit note number for a credit_note tie, the matched token for a heuristic one, else null. */
+  /** The credit note number for a credit_note tie, else null. */
   via: string | null;
   /** Heuristic ties only: where the token was found. */
   matchedIn: string | null;
@@ -81,20 +92,24 @@ export async function readDocument(
 ): Promise<DocumentRow | null> {
   const rows = entityType === 'supplier_invoice'
     ? (await sql`
-        SELECT id, invoice_number AS number, external_document_number, gl_journal_entry_id, status, NULL AS note_type
+        SELECT id, invoice_number AS number, external_document_number, gl_journal_entry_id, status, invoice_date AS doc_date,
+          NULL AS note_type
         FROM supplier_invoices WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[]
     : entityType === 'customer_invoice'
       ? (await sql`
-          SELECT id, invoice_number AS number, external_document_number, gl_journal_entry_id, status, NULL AS note_type
+          SELECT id, invoice_number AS number, external_document_number, gl_journal_entry_id, status, invoice_date AS doc_date,
+            NULL AS note_type
           FROM customer_invoices WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[]
       : (await sql`
-          SELECT id, credit_note_number AS number, external_document_number, gl_journal_entry_id, status, type AS note_type
+          SELECT id, credit_note_number AS number, external_document_number, gl_journal_entry_id, status, credit_date AS doc_date,
+            type AS note_type
           FROM credit_notes WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
   const r = rows[0];
   if (!r) return null;
   return {
     id: String(r.id), number: String(r.number ?? ''), externalNumber: str(r.external_document_number),
-    postingJournalId: str(r.gl_journal_entry_id), status: String(r.status ?? ''), noteType: str(r.note_type),
+    postingJournalId: str(r.gl_journal_entry_id), status: String(r.status ?? ''), documentDate: fmtDate(r.doc_date),
+    noteType: str(r.note_type),
   };
 }
 
@@ -128,35 +143,49 @@ export async function readTiedRoots(
 }
 
 /**
- * Posted VAT-bearing journals, not already tied, whose reference / narration / line narration matches
- * `pattern` (a case-insensitive whole-token regex built by documentVatHistory.tokenPattern). Ordered by
- * date and number; MATCH_LIMIT + 1 rows at most.
+ * Hand journals naming the document (see the header, step 4). `vatAccountIds` are the accounts the document's own
+ * VAT legs sit on; `fromDate` the earlier of its date and its posting's.
  */
 export async function readNarrationMatches(
-  companyId: string, pattern: string, excludeJournalIds: readonly string[],
+  companyId: string, pattern: string, scope: { vatAccountIds: readonly string[]; fromDate: string; excludeJournalIds: readonly string[] },
 ): Promise<(RootJournal & { entryNumber: string | null })[]> {
+  if (scope.vatAccountIds.length === 0) return [];
+  // Driven from the HAND journals dated on or after the document (company + date index), each probed for a line on the
+  // document's VAT accounts (company + journal index); the regexes then read only those journals and their lines.
   const rows = (await sql`
-    WITH line_hits AS (
-      SELECT DISTINCT jl.journal_entry_id AS id
-      FROM gl_journal_lines jl
-      WHERE jl.company_id = ${companyId}::UUID AND jl.description ~* ${pattern}
+    WITH cand AS MATERIALIZED (
+      SELECT je.id, je.entry_number, je.entry_date, je.reference, je.description
+      FROM gl_journal_entries je
+      WHERE je.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.entry_date >= ${scope.fromDate}::DATE
+        AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
+        AND ${vatEntrySourceAdmitsSql(sql`je.source`)}
+        AND (je.source IS NULL OR je.source = ANY(${HAND_JOURNAL_SOURCES as unknown as string[]}::TEXT[]))
+        AND je.reversal_of_id IS NULL AND je.late_claim_of_id IS NULL
+        AND NOT (je.id = ANY(${scope.excludeJournalIds as string[]}::UUID[]))
+        -- OFFSET 0 keeps each probe a per-journal index lookup (company_id, journal_entry_id), never a scan
+        -- of the company's lines; the NOT IN lists are each read once and hashed (they hold no NULLs).
+        AND EXISTS (SELECT 1 FROM gl_journal_lines jl
+                    WHERE jl.company_id = ${companyId}::UUID AND jl.journal_entry_id = je.id
+                      AND jl.gl_account_id = ANY(${scope.vatAccountIds as string[]}::UUID[]) OFFSET 0)
+        AND je.id NOT IN (SELECT d.gl_journal_entry_id FROM supplier_invoices d
+                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id IS NOT NULL)
+        AND je.id NOT IN (SELECT d.gl_journal_entry_id FROM customer_invoices d
+                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id IS NOT NULL)
+        AND je.id NOT IN (SELECT d.gl_journal_entry_id FROM credit_notes d
+                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id IS NOT NULL)
+    ),
+    line_hits AS MATERIALIZED (
+      SELECT c.id FROM cand c
+      WHERE EXISTS (SELECT 1 FROM gl_journal_lines l
+                    WHERE l.company_id = ${companyId}::UUID AND l.journal_entry_id = c.id AND l.description ~* ${pattern} OFFSET 0)
     )
-    SELECT je.id, je.entry_number,
-      COALESCE(je.reference ~* ${pattern}, FALSE) AS in_reference,
-      COALESCE(je.description ~* ${pattern}, FALSE) AS in_description,
-      (je.id IN (SELECT id FROM line_hits)) AS in_line
-    FROM gl_journal_entries je
-    WHERE je.company_id = ${companyId}::UUID AND je.status = 'posted'
-      AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
-      AND ${vatEntrySourceAdmitsSql(sql`je.source`)}
-      AND NOT (je.id = ANY(${excludeJournalIds as string[]}::UUID[]))
-      AND (je.reference ~* ${pattern} OR je.description ~* ${pattern} OR je.id IN (SELECT id FROM line_hits))
-      AND EXISTS (
-        SELECT 1 FROM gl_journal_lines jl
-        JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
-        WHERE jl.company_id = ${companyId}::UUID AND jl.journal_entry_id = je.id AND ${vatEntryMemberLineSql()}
-      )
-    ORDER BY je.entry_date, je.entry_number, je.id
+    SELECT c.id, c.entry_number,
+      COALESCE(c.reference ~* ${pattern}, FALSE) AS in_reference,
+      COALESCE(c.description ~* ${pattern}, FALSE) AS in_description,
+      (c.id IN (SELECT id FROM line_hits)) AS in_line
+    FROM cand c
+    WHERE c.reference ~* ${pattern} OR c.description ~* ${pattern} OR c.id IN (SELECT id FROM line_hits)
+    ORDER BY c.entry_date, c.entry_number, c.id
     LIMIT ${MATCH_LIMIT + 1}`) as DbRow[];
   return rows.map((r) => {
     const inReference = r.in_reference === true;
@@ -170,9 +199,9 @@ export async function readNarrationMatches(
 }
 
 /**
- * Every line of every root journal and of every posted journal in a root's reversal chain. A chain
- * member inherits its root's tie — except a reversal of the document's own posting, which is
- * 'reversal' — and names the journal it reverses.
+ * Every line of every root journal and of every posted journal in its chain. A reversal of the document's own
+ * posting (or of its late-claim companion) is 'reversal'; the companion of the posting is 'late_claim'; every
+ * other chain member inherits its root's tie.
  */
 export async function readChainLines(companyId: string, roots: readonly RootJournal[]): Promise<JournalLineRow[]> {
   if (roots.length === 0) return [];
@@ -187,8 +216,12 @@ export async function readChainLines(companyId: string, roots: readonly RootJour
     chain AS (
       SELECT r.id, r.tie, r.via, r.matched_in, NULL::UUID AS reverses, ARRAY[r.id] AS path FROM roots r
       UNION ALL
-      SELECT j.id, CASE WHEN c.tie = 'posting' THEN 'reversal' ELSE c.tie END, c.via, c.matched_in, c.id, c.path || j.id
-      FROM gl_journal_entries j JOIN chain c ON j.reversal_of_id = c.id
+      SELECT j.id,
+        CASE WHEN j.late_claim_of_id = c.id AND c.tie = 'posting' THEN 'late_claim'
+             WHEN j.reversal_of_id = c.id AND c.tie IN ('posting', 'late_claim') THEN 'reversal'
+             ELSE c.tie END,
+        c.via, c.matched_in, CASE WHEN j.reversal_of_id = c.id THEN c.id END, c.path || j.id
+      FROM gl_journal_entries j JOIN chain c ON (j.reversal_of_id = c.id OR j.late_claim_of_id = c.id)
       WHERE j.company_id = ${companyId}::UUID AND j.status = 'posted'
         AND j.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND NOT j.id = ANY(c.path) AND cardinality(c.path) < ${MAX_CHAIN_DEPTH}
@@ -198,7 +231,7 @@ export async function readChainLines(companyId: string, roots: readonly RootJour
       ${journalStandsFragment('je.id', companyId)} AS stands,
       jl.id AS line_id, jl.gl_account_id, ga.account_code, ga.account_name, ga.account_subtype,
       jl.vat_type, jl.debit, jl.credit, jl.description AS line_description,
-      ${vatEntryMemberLineSql()} AS is_vat
+      (${vatEntryMemberLineSql()} OR ga.account_subtype = ${LATE_CLAIM_CLEARING_SUBTYPE}) AS is_vat
     FROM chain ch
     JOIN gl_journal_entries je ON je.id = ch.id AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
       AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE} AND ${notClearing}

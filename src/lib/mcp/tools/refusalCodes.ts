@@ -246,13 +246,14 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'UIF_DECLARATION_NOT_SUBMITTED', // uifPaymentService: names only the declaration's status; raised before any write (route answers 409)
   // VAT adjustment approve/cancel refusals (reports/vatAdjustmentService): not found, not draft, contended.
   'VAT_ADJUSTMENT_REFUSED', 'JOURNAL_DATE_REFUSED', // latter: outside 1900..2199; the registry savepoint rolls back
+  // 988: approving a mirror_bill credit note the bill can no longer carry (ap/supplierCreditNoteMirrorApprove). Names the
+  // note's own number, the bill's number, VAT figures and the journals that moved them (this company's, the caller's own
+  // bill); raised under the bill's key, before any write.
+  'VAT_ALREADY_REVERSED',
   // Mark/unmark "VAT declared outside IsaFlow" refused: not owner/admin,
   // blank reason, document not found, or not currently marked (unmark) —
   // reports/vatDeclaredElsewhereService. Names no id/amount/table beyond the
   // caller's own document, scoped by company_id. Pre-write.
-  // 988: approving a mirror_bill credit note whose bill no longer carries its VAT (ap/supplierCreditNoteMirrorApprove).
-  // Names the note's own number, its VAT and the bill's standing VAT; raised under the bill's key, before any write.
-  'VAT_ALREADY_REVERSED',
   'VAT_DECLARED_ELSEWHERE_FORBIDDEN',
   'VAT_DECLARED_ELSEWHERE_REFUSED',
   // R-032 L5: an approve/post/file/close act refused to a platform-admin

@@ -16,17 +16,18 @@ export const documentVatHistoryTool: McpTool = {
   name: 'document_vat_history',
   description:
     'EVERY VAT LINE TIED TO ONE DOCUMENT, AND THE VAT IT CARRIES NOW. entity_type supplier_invoice, customer_invoice or '
-    + 'credit_note; entity_id from list_supplier_invoices / list_invoices / list_credit_notes. Returns one row per VAT line '
-    + '(journal id, number, date, source, status, reversed, GL account, vat_type, vat_amount signed in the document\'s own '
-    + 'direction — positive = the way its posting moved VAT — and net_base where derivable) with tie: posting (its own '
-    + 'journal), reversal (that journal\'s reversal chain), credit_note (a LINKED note\'s journal and its cancel), and the '
-    + 'HEURISTIC reference_match / narration_match: a posted journal with a VAT line whose reference or narration names the '
-    + 'document\'s number as a whole token — e.g. a hand-made journal reversing a bill\'s input VAT. Totals: vat_posted, '
-    + 'vat_reversed (everything after the posting; negative when VAT was put back), vat_net_now, vat_by_tie, '
-    + 'net_base_posted, net_base_now. Check heuristic matches before relying on them: a match may be about another '
-    + 'document, and a journal that never names the document is not found. Only posted journals are read, as the VAT201 '
-    + 'reads them. Use before crediting a bill (create_credit_note mirror_bill reads the same figures) to avoid reversing '
-    + 'its VAT twice.',
+    + 'credit_note; entity_id from list_supplier_invoices / list_invoices / list_credit_notes. One row per VAT line (journal '
+    + 'id, number, date, source, status, reversed, GL account, vat_type, vat_amount signed in the document\'s own direction — '
+    + 'positive = the way its posting moved VAT — and net_base where derivable) with tie: posting (its own journal), '
+    + 'late_claim (its s16(3) late-claim companion), reversal (the posting\'s reversal chain), credit_note (a LINKED note\'s '
+    + 'journal and its cancel), and the HEURISTIC reference_match / narration_match: a posted HAND journal (not any document\'s '
+    + 'own posting), dated on or after the document, with a line on one of its own VAT accounts, whose reference or narration '
+    + 'names its number as a whole token; only its lines on those accounts count. Totals: vat_posted, vat_derivable_now (what '
+    + 'the posting, companion, reversals and credit notes leave), vat_heuristic, vat_net_now (derivable, reduced — never '
+    + 'raised — by heuristic matches), vat_reversed, vat_by_tie, net_base_posted, net_base_now. heuristic.searched says '
+    + 'whether a search ran; notes explains gaps (a cancelled document no longer names its posting). Check heuristic matches '
+    + 'before relying on them. Only posted journals count, as the VAT201 reads them, future-dated ones included. Use before '
+    + 'crediting a bill (create_credit_note mirror_bill reads the same figures) to avoid reversing its VAT twice.',
   scope: 'read:vat',
   requiresScope: 'read:invoices',
   write: false,

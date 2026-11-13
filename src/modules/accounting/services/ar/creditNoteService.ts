@@ -135,7 +135,8 @@ export async function createCreditNote(companyId: string,
       throw new CreditNoteLinkError('glAccountId can only be set on a supplier credit note');
     }
     const vatBasis = input.vatBasis ?? 'rate';
-    if (vatBasis !== 'rate' && (vatBasis !== 'mirror_bill' || input.type !== 'supplier' || !input.supplierInvoiceId)) {
+    if (vatBasis !== 'rate' && ((vatBasis !== 'mirror_bill' && vatBasis !== 'mirror_bill_ack')
+      || input.type !== 'supplier' || !input.supplierInvoiceId)) {
       throw new CreditNoteLinkError('vatBasis mirror_bill needs a supplier credit note linked to a bill');
     }
     if (input.type === 'supplier') {

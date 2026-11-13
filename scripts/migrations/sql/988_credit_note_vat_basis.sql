@@ -8,16 +8,21 @@
 -- imports, MCP without mirror_bill) keeps today's behaviour (Hein, 2026-11-13, option A). Nothing on
 -- the row could tell the two apart: external_system is the source-system identity (migration 530).
 --
--- WHAT. vat_basis TEXT NOT NULL DEFAULT 'rate', CHECK in ('rate', 'mirror_bill').
---   'rate'        tax_amount = subtotal x tax_rate, or as the caller gave it — every existing row and
---                 every path except the one below;
---   'mirror_bill' set only by createCreditNote when the MCP tool passes mirror_bill.
+-- WHAT. vat_basis TEXT NOT NULL DEFAULT 'rate', CHECK in ('rate', 'mirror_bill', 'mirror_bill_ack').
+--   'rate'            tax_amount = subtotal x tax_rate, or as the caller gave it — every existing row
+--                     and every path except the two below;
+--   'mirror_bill'     set only by the MCP create with mirror_bill: the VAT the bill's posting, reversals
+--                     and credit notes left on this share;
+--   'mirror_bill_ack' the same, after the caller acknowledged that VAT was already reversed and stated
+--                     the amount itself (review round 1): approval re-checks the amount against the bill's
+--                     derivable VAT but does not judge the acknowledged journals again.
 -- Fixed at create: no path updates it, so the approval digest (R-035) needs no new element, as 892
 -- reasoned for gl_account_id. Table-level grants on credit_notes already cover the column.
 --
--- LOCKS. A constant default is catalogue-only on PG 11+ (no rewrite); ADD COLUMN still takes ACCESS
--- EXCLUSIVE briefly, bounded below. The CHECK is added NOT VALID (no scan under that lock) and then
--- VALIDATEd, which scans under SHARE UPDATE EXCLUSIVE only (every existing row is 'rate').
+-- LOCKS. A constant default is catalogue-only on PG 11+ (no rewrite). ADD COLUMN takes ACCESS EXCLUSIVE
+-- on credit_notes and HOLDS it to the end of this migration's transaction, so the VALIDATE below still
+-- runs under it: the scan of credit_notes (every existing row is 'rate') blocks readers and writers of
+-- the table for its length, bounded by statement_timeout. Acquiring the lock is bounded by lock_timeout.
 --
 -- Rollback (down SQL), safe at any time; code before this migration never reads the column, and code
 -- after it treats a missing value as 'rate' on read but INSERTs it, so roll the code back first:
@@ -36,11 +41,11 @@ BEGIN
     WHERE conname = 'credit_notes_vat_basis_check' AND conrelid = 'public.credit_notes'::regclass
   ) THEN
     ALTER TABLE public.credit_notes ADD CONSTRAINT credit_notes_vat_basis_check
-      CHECK (vat_basis IN ('rate', 'mirror_bill')) NOT VALID;
+      CHECK (vat_basis IN ('rate', 'mirror_bill', 'mirror_bill_ack')) NOT VALID;
   END IF;
 END $$;
 
 ALTER TABLE public.credit_notes VALIDATE CONSTRAINT credit_notes_vat_basis_check;
 
 COMMENT ON COLUMN public.credit_notes.vat_basis IS
-  'How tax_amount was set: rate (subtotal x tax_rate, or as given) or mirror_bill (MCP create_credit_note mirror_bill: the bill''s VAT as it stood). approveCreditNote re-checks mirror_bill notes against the bill''s standing VAT.';
+  'How tax_amount was set: rate (subtotal x tax_rate, or as given), mirror_bill (MCP create_credit_note mirror_bill: the bill''s VAT as it stood) or mirror_bill_ack (the same, the caller having acknowledged VAT already reversed and stated the amount). approveCreditNote re-checks mirror_bill notes against the bill.';
