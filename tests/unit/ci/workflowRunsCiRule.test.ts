@@ -158,7 +158,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['a cap just under the floor', 'timeout-minutes: 59'],
     ['no timeout at all (key removed)', null],
   ])('golden-paths with %s: every run is cut short and ends cancelled', (_label, line) => {
-    const from = '    timeout-minutes: 60\n    # Velo (CI_HOSTED=off): each runner owns';
+    const from = '    timeout-minutes: 90\n    # Velo (CI_HOSTED=off): each runner owns';
     const to = line === null ? '    # Velo (CI_HOSTED=off): each runner owns' : `    ${line}\n    # Velo (CI_HOSTED=off): each runner owns`;
     expect(check(edit(from, to)).length).toBeGreaterThan(0);
   });
