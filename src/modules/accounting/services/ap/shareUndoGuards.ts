@@ -5,9 +5,9 @@
  * ── CAPACITY IS CUMULATIVE (review round 1, breaker REPRO 1 + 4) ────────────
  * A share journal took a FIXED amount out of the clearing account X: its debit on X, and its credits on each expense
  * and VAT account. Every undo gives some of that back — the ones void_payment linked to it (`source_record_id`) AND
- * every hand undo attributed to it (rounds 2-3: a journal in the share's month crediting X and debiting the share's
- * accounts, netted over its reversal chain; `shareUndoHandUndos.ts` says which). So an undo is allowed only while the
- * share still holds it:
+ * every hand undo that could be of it (rounds 2-4: a journal in the share's month or a bill's month crediting X and
+ * debiting the share's accounts, netted over its reversal chain; `shareUndoHandUndos.ts`). So an undo is allowed only
+ * while the share still holds it:
  *     share DR X  −  Σ earlier undos' CR X  −  this undo's total  ≥ 0, and the same per expense / VAT account.
  * Without it one share could be undone by two different contras, by the same bill's next contra after a void, or by
  * void_payment on top of a person's hand undo. Nothing is refused for LOOKING like a hand undo (round 1 did that, and
@@ -28,10 +28,10 @@ const cents = (n: number) => toCents(n);
 /** The share still holds every amount this undo gives back (header: cumulative). */
 export async function assertShareCapacity(
   companyId: string, share: JournalHead, shareLines: readonly JournalLineRow[], x: JournalLineRow,
-  journals: readonly ShareUndoJournalPlan[],
+  journals: readonly ShareUndoJournalPlan[], billDates: readonly string[],
 ): Promise<void> {
   const name = share.entryNumber ?? share.id;
-  const { byAccount: consumed, handUndos } = await readShareConsumption(companyId, share.id, x.glAccountId);
+  const { byAccount: consumed, handUndos } = await readShareConsumption(companyId, share.id, x.glAccountId, billDates);
   const named = handUndos.slice(0, 10).join(', ') + (handUndos.length > 10 ? ` and ${handUndos.length - 10} more` : '');
   const byHand = handUndos.length > 0 ? ` (including hand journal${handUndos.length === 1 ? '' : 's'} ${named})` : '';
   const sum = (account: string, side: 'debit' | 'credit') =>

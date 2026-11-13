@@ -26,6 +26,7 @@ const contra = async (billId: string, amount: number) => {
   return String(JSON.parse(text(r)).payment_id);
 };
 const vatMay = async () => (await getVATReturn(fx.companyId, '2026-05-01', '2026-05-31')).totalInputTax;
+const vat07 = async () => (await getVATReturn(fx.companyId, '2026-07-01', '2026-07-31')).totalInputTax;
 const legs = () => [{ account: a.expense, debit: 1000 }, { account: a.vatInput, debit: 150, vatType: 'standard' }];
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -100,24 +101,28 @@ describe.skipIf(!DATABASE_URL)('breaker6 undo_share', () => {
     expect({ refused: r.isError === true, vatDelta }).toEqual({ refused: true, vatDelta: 150 });
   }, 120000);
 
+  // Round 4: moved to 2026-07 — every same-month hand undo on these accounts now counts against a share
+  // (refusing-side limit), and an earlier repro in this file leaves one in May.
   it('REPRO 4: void -> new contra on the same bill -> undo again with the SAME share', async () => {
-    const vat0 = await vatMay();
-    const D = await billWithJournal(fx, a, 'R4D', '2026-05-10', legs());
+    const vat0 = await vat07();
+    const D = await billWithJournal(fx, a, 'R4D', '2026-07-10', legs());
     const p1 = await contra(D.id, 1150);
-    const share = await postedJournal(fx, '2026-05-31', [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
+    const share = await postedJournal(fx, '2026-07-31', [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
       { account: a.vatInput, credit: 150, vatType: 'standard' }], 'SHARE-D');
     const r1 = await call({ payment_id: p1, undo_share: true, share_journal_id: share, idempotency_key: crypto.randomUUID() });
     expect(r1.isError, text(r1)).toBeFalsy();
     const p2 = await contra(D.id, 1150);
     const r2c = await call({ payment_id: p2, undo_share: true, share_journal_id: share, idempotency_key: crypto.randomUUID() });
-    const vatDelta = r2(await vatMay() - vat0);
+    const vatDelta = r2(await vat07() - vat0);
     expect({ refused: r2c.isError === true, vatDelta }).toEqual({ refused: true, vatDelta: 150 });
   }, 120000);
 
+  // Round 4: moved to 2026-07 — every same-month hand undo on these accounts now counts against a share
+  // (refusing-side limit), and an earlier repro in this file leaves one in May.
   it('REPRO 5: dry run leaves no trace (numbers, status, undo count)', async () => {
-    const E = await billWithJournal(fx, a, 'R5E', '2026-05-10', legs());
+    const E = await billWithJournal(fx, a, 'R5E', '2026-07-10', legs());
     const pE = await contra(E.id, 1150);
-    const share = await postedJournal(fx, '2026-05-31', [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
+    const share = await postedJournal(fx, '2026-07-31', [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
       { account: a.vatInput, credit: 150, vatType: 'standard' }], 'SHARE-E');
     const snap = async () => (await sql`SELECT
       (SELECT COUNT(*)::INT FROM gl_journal_entries WHERE company_id = ${fx.companyId}::UUID) AS je,
@@ -134,16 +139,18 @@ describe.skipIf(!DATABASE_URL)('breaker6 undo_share', () => {
     expect(live.isError, text(live)).toBeFalsy();
     expect(s1).toEqual(s0);
   }, 120000);
+  // Round 4: moved to 2026-07 — every same-month hand undo on these accounts now counts against a share
+  // (refusing-side limit), and an earlier repro in this file leaves one in May.
   it('REPRO 7: share VAT line without a vat_type — the undo restores VAT the share never took out of the VAT201', async () => {
-    const F = await billWithJournal(fx, a, 'R7F', '2026-05-10', legs());
+    const F = await billWithJournal(fx, a, 'R7F', '2026-07-10', legs());
     const pF = await contra(F.id, 1150);
-    const v0 = await vatMay();
-    const share = await postedJournal(fx, '2026-05-31', [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
+    const v0 = await vat07();
+    const share = await postedJournal(fx, '2026-07-31', [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
       { account: a.vatInput, credit: 150 }], 'SHARE-F-NOVATTYPE');
-    const vShare = r2(await vatMay() - v0);
+    const vShare = r2(await vat07() - v0);
     const r = await call({ payment_id: pF, undo_share: true, share_journal_id: share, idempotency_key: crypto.randomUUID() });
     expect(r.isError, text(r)).toBeFalsy();
-    const vUndo = r2(await vatMay() - v0);
+    const vUndo = r2(await vat07() - v0);
     // The undo must restore exactly what the share took out of the VAT201: net zero.
     expect({ vShare, vUndo }).toEqual({ vShare, vUndo: 0 });
   }, 120000);

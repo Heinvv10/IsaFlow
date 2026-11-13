@@ -27,6 +27,7 @@ const contra = async (billId: string, amount: number) => {
   return String(JSON.parse(text(r)).payment_id);
 };
 const vatMay = async () => (await getVATReturn(fx.companyId, '2026-05-01', '2026-05-31')).totalInputTax;
+const vat07 = async () => (await getVATReturn(fx.companyId, '2026-07-01', '2026-07-31')).totalInputTax;
 const legs = () => [{ account: a.expense, debit: 1000 }, { account: a.vatInput, debit: 150, vatType: 'standard' }];
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -88,11 +89,13 @@ describe.skipIf(!DATABASE_URL)('breaker6 round 3', () => {
     expect({ refused: r.isError === true, vatDelta: r2(await vatMay() - vat0) }).toEqual({ refused: true, vatDelta: 19.57 });
   }, 120000);
 
+  // Round 4: moved to 2026-07 — every same-month hand undo on these accounts now counts against a share
+  // (refusing-side limit), and an earlier repro in this file leaves one in May.
   it('CHECK 15: undo -> reverse undo -> reverse share -> re-post share -> new contra -> undo again nets once', async () => {
-    const vat0 = await vatMay();
-    const b = await billWithJournal(fx, a, 'R15', '2026-05-10', fuel());
+    const vat0 = await vat07();
+    const b = await billWithJournal(fx, a, 'R15', '2026-07-10', fuel());
     const p = await contra(b.id, 150);
-    const s = await shareOn('2026-05-31', 'SHARE-15');
+    const s = await shareOn('2026-07-31', 'SHARE-15');
     const u = await undo(p, s);
     expect(u.isError, text(u)).toBeFalsy();
     let shareRevRefusedWhileLive = false;
@@ -100,11 +103,11 @@ describe.skipIf(!DATABASE_URL)('breaker6 round 3', () => {
     await rev(JSON.parse(text(u)).undo_share.journal_entry_ids[0]);
     let shareRevError: string | null = null;
     try { await rev(s); } catch (e) { shareRevError = (e as Error).message; }
-    const s2 = await shareOn('2026-05-31', 'SHARE-15-REDATED');
+    const s2 = await shareOn('2026-07-31', 'SHARE-15-REDATED');
     const p2 = await contra(b.id, 150);
     const u2 = await undo(p2, s2);
     const l = await ledger(fx);
-    expect({ shareRevRefusedWhileLive, shareRevError, u2: u2.isError ? text(u2) : 'ok', vatDelta: r2(await vatMay() - vat0), balanced: l.balanced })
+    expect({ shareRevRefusedWhileLive, shareRevError, u2: u2.isError ? text(u2) : 'ok', vatDelta: r2(await vat07() - vat0), balanced: l.balanced })
       .toEqual({ shareRevRefusedWhileLive: true, shareRevError: null, u2: 'ok', vatDelta: 19.57, balanced: true });
   }, 120000);
 });

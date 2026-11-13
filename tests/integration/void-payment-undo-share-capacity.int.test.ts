@@ -50,14 +50,16 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — cumulative share cap
       .toMatch(/does not hold the R\s?1\s?000\.00 the bills posted to account 6000/);
   }, 120000);
 
+  // Round 4: in its own month — a hand undo now counts against EVERY share of its month on these accounts
+  // (refusing-side limit), so it must not share a month with this file's other shares.
   it('a hand undo crediting the clearing account in two lines is summed, not matched line by line', async () => {
     const fuel = [{ account: a.expense2, debit: 130.43 }, { account: a.vatInput, debit: 19.57, vatType: 'standard' }];
-    const b = await billWithJournal(fx, a, 'TWOLINE', '2026-05-10', fuel);
+    const b = await billWithJournal(fx, a, 'TWOLINE', '2026-10-10', fuel);
     const p = await contra(b.id, 150);
     // The clearing account is the tight side (225); the accounts have room for two bills.
-    const share = await postedJournal(fx, '2026-05-31', [{ account: a.clearing, debit: 225 }, { account: a.bank, debit: 75 },
+    const share = await postedJournal(fx, '2026-10-31', [{ account: a.clearing, debit: 225 }, { account: a.bank, debit: 75 },
       { account: a.expense2, credit: 260.86 }, { account: a.vatInput, credit: 39.14, vatType: 'standard' }]);
-    await postedJournal(fx, '2026-05-31', [...fuel, { account: a.clearing, credit: 75 }, { account: a.clearing, credit: 75 }], 'hand undo, two lines');
+    await postedJournal(fx, '2026-10-31', [...fuel, { account: a.clearing, credit: 75 }, { account: a.clearing, credit: 75 }], 'hand undo, two lines');
     expect(text(await undo(p, share, { undo_amounts: [{ bill_id: b.id, amount: 150 }] })))
       .toMatch(/does not hold the R\s?150\.00 being undone on 1560731/);
   }, 120000);

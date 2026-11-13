@@ -97,9 +97,11 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — refusals write nothi
     expect(await payStatus(s.pay)).toBe('processed');
   }, 120000);
 
+  // Round 4: in its own month — a hand undo now counts against EVERY share of its month on these accounts
+  // (refusing-side limit), so it must not share a month with this file's other shares.
   it('a hand undo of the share uses its capacity: the undo is refused, naming the hand journal', async () => {
-    const s = await scenario('HAND', '2026-05-31');
-    const [hand] = (await sql`SELECT entry_number FROM gl_journal_entries WHERE id = ${await postedJournal(fx, '2026-05-31', [
+    const s = await scenario('HAND', '2026-11-30', '2026-11-10');
+    const [hand] = (await sql`SELECT entry_number FROM gl_journal_entries WHERE id = ${await postedJournal(fx, '2026-11-30', [
       { account: a.expense, debit: 1000 }, { account: a.vatInput, debit: 150, vatType: 'standard' },
       { account: a.clearing, credit: 1150 }], 'undo share by hand')}::UUID`) as Row[];
     expect(text(await undo(s.pay, s.share))).toMatch(new RegExp(`does not hold .*including hand journal ${String(hand!.entry_number)}`));

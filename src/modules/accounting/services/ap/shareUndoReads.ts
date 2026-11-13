@@ -40,6 +40,7 @@ export interface BillRow {
   id: string;
   invoiceNumber: string;
   totalAmount: number;
+  invoiceDate: string;
   journalEntryId: string | null;
 }
 
@@ -108,11 +109,11 @@ export async function readPaymentAllocations(paymentId: string): Promise<{ billI
 
 export async function readBills(companyId: string, billIds: readonly string[]): Promise<Map<string, BillRow>> {
   const rows = (await sql`
-    SELECT id, invoice_number, total_amount, gl_journal_entry_id FROM supplier_invoices
+    SELECT id, invoice_number, total_amount, invoice_date, gl_journal_entry_id FROM supplier_invoices
     WHERE company_id = ${companyId}::UUID AND id = ANY(${[...billIds]}::UUID[])`) as DbRow[];
   return new Map(rows.map((r) => [String(r.id), {
     id: String(r.id), invoiceNumber: String(r.invoice_number), totalAmount: money(r.total_amount),
-    journalEntryId: str(r.gl_journal_entry_id),
+    invoiceDate: fmtDate(r.invoice_date as string | Date), journalEntryId: str(r.gl_journal_entry_id),
   }]));
 }
 
@@ -160,7 +161,7 @@ export interface ShareConsumption {
  * (`shareUndoHandUndos.readHandUndoConsumption`, which says how).
  */
 export async function readShareConsumption(
-  companyId: string, shareJournalId: string, clearingId: string,
+  companyId: string, shareJournalId: string, clearingId: string, billDates: readonly string[],
 ): Promise<ShareConsumption> {
   const rows = (await sql`
     SELECT jl.gl_account_id, SUM(jl.debit) AS debit, SUM(jl.credit) AS credit
@@ -175,7 +176,7 @@ export async function readShareConsumption(
       debit: Math.round(Number(r.debit ?? 0) * 100), credit: Math.round(Number(r.credit ?? 0) * 100),
     });
   }
-  const hand = await readHandUndoConsumption(companyId, shareJournalId, clearingId);
+  const hand = await readHandUndoConsumption(companyId, shareJournalId, clearingId, billDates);
   for (const [account, net] of hand.byAccount) {
     const cur = byAccount.get(account) ?? { debit: 0, credit: 0 };
     byAccount.set(account, { debit: cur.debit + net.debit, credit: cur.credit + net.credit });

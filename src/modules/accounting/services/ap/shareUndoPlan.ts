@@ -115,18 +115,20 @@ export async function planShareUndo(
   const amounts = undoAmounts(label, allocations, choices, shareOnX, allocatedCents, name);
   const journals: ShareUndoJournalPlan[] = [];
   const legsByAccount = new Map<string, JournalLineRow>();
+  const billDates: string[] = [];
   for (const a of allocations) {
     const want = amounts.get(a.billId);
     if (!want) continue;
     const bill = bills.get(a.billId);
     if (!bill) throw new ShareUndoRefusal(`${label} is applied to a bill this company does not hold.`);
-    const { journal, legs } = await billUndo(companyId, label, payment.id, bill, want, x);
+    const { journal, legs, postedOn } = await billUndo(companyId, label, payment.id, bill, want, x);
     for (const l of legs) legsByAccount.set(l.glAccountId, l);
+    billDates.push(bill.invoiceDate, postedOn);
     journals.push(journal);
   }
   legsByAccount.set(x.glAccountId, x);
 
-  await assertShareCapacity(companyId, share, shareLines, x, journals);
+  await assertShareCapacity(companyId, share, shareLines, x, journals, billDates);
   await assertDateOpen(companyId, share.entryDate, journals);
   await assertAccountsPostable(companyId, legsByAccount, journals);
   const prior = await findPriorUndos(companyId, journals.map((j) => j.reference));
@@ -175,7 +177,7 @@ function undoAmounts(
 
 async function billUndo(
   companyId: string, label: string, paymentId: string, bill: BillRow, amountCents: number, x: JournalLineRow,
-): Promise<{ journal: ShareUndoJournalPlan; legs: JournalLineRow[] }> {
+): Promise<{ journal: ShareUndoJournalPlan; legs: JournalLineRow[]; postedOn: string }> {
   const notPlain = `Bill ${bill.invoiceNumber}'s journal is not a plain posting (DR expense + VAT Input / CR Accounts `
     + 'Payable of its total) — undo its share by hand.';
   const head = bill.journalEntryId ? await readJournalHead(companyId, bill.journalEntryId) : null;
@@ -210,6 +212,7 @@ async function billUndo(
   }] : []));
   return {
     legs,
+    postedOn: head!.entryDate,
     journal: {
       billId: bill.id, billNumber: bill.invoiceNumber, amount: amountCents / 100,
       reference: undoShareReference(paymentId, bill.id), description: memo,
