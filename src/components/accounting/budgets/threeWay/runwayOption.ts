@@ -65,6 +65,8 @@ export function buildRunwayOption(input: RunwayInput, palette: ChartPalette): EC
   };
   const all = [...shown.flatMap((s) => s.cents), input.minimumCashCents].map(rands);
   return {
+    // No draw-in animation: the figures are the point, and a half-drawn line reads as a short year.
+    animation: false,
     grid: { left: 8, right: 8, top: 32, bottom: 8, containLabel: true },
     legend: { top: 0, textStyle: { color: palette.axisLabel }, data: [...shown.map((s) => s.name), MIN_CASH_SERIES] },
     tooltip: {
