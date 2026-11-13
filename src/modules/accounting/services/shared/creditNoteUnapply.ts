@@ -35,6 +35,8 @@ export interface CreditNoteUnapplyResult {
   side: CreditNoteSide;
   amountUnapplied: number;
   lines: UnapplyLine[];
+  /** `applied_amount` before, as recorded (a note a cent apart reads its rows' sum less what was taken back after). */
+  noteAppliedBefore: number;
   noteAppliedAfter: number;
   noteStatusAfter: string;
 }
@@ -80,8 +82,8 @@ export async function unapplyCreditNote(
            updated_at = NOW()
     WHERE id = ${plan.creditNoteId}::UUID AND company_id = ${companyId}::UUID`;
   // What the documents moved must equal what the note records (brief step 7); thrown — the documents have moved.
-  assertApplicationRecorded(plan.creditNoteNumber,
-    { appliedBefore: round2(plan.noteAppliedAfter + plan.amountUnapplied), appliedAfter: plan.noteAppliedAfter, paidMoved });
+  await assertApplicationRecorded(companyId, plan.creditNoteId, plan.creditNoteNumber,
+    { rowsMoved: -plan.amountUnapplied, paidMoved, appliedAfter: plan.noteAppliedAfter });
 
   log.info('Unapplied credit note', {
     creditNoteId: plan.creditNoteId, lines: plan.lines.length, amount: plan.amountUnapplied, userId,
@@ -107,8 +109,11 @@ async function buildPlan(
 
   // The rows and the column must agree, or undoing rows leaves the rest of
   // applied_amount credited to a document nothing names.
+  // A take-back: the one-cent tolerance (a note a cent apart can always be corrected), and the note's figure after
+  // is re-derived from the ROWS that remain, which is what brings such a note back into line.
+  let rowsBefore: number;
   try {
-    await assertAllocationsMatchApplied(companyId, input.creditNoteId, appliedBefore);
+    rowsBefore = await assertAllocationsMatchApplied(companyId, input.creditNoteId, appliedBefore, 'decrease');
   } catch (err) {
     throw new UnapplyRefusal(err instanceof Error ? err.message : String(err));
   }
@@ -168,13 +173,14 @@ async function buildPlan(
   }
 
   const amountUnapplied = round2(lines.reduce((s, l) => s + l.amount, 0));
-  const appliedAfter = round2(appliedBefore - amountUnapplied);
+  const appliedAfter = round2(rowsBefore - amountUnapplied);
   return {
     creditNoteId: input.creditNoteId,
     creditNoteNumber: number,
     side,
     amountUnapplied,
     lines,
+    noteAppliedBefore: appliedBefore,
     noteAppliedAfter: appliedAfter,
     noteStatusAfter: deriveCreditNoteStatus(appliedAfter, total, side),
   };

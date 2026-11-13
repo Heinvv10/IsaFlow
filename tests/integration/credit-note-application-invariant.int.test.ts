@@ -193,25 +193,4 @@ describeIfDb('CN-388: a document never moves apart from the note that credits it
     expect(await paid('supplier_invoices', bill)).toBe(100.01);
     expect(await noteApplied(created.id)).toEqual({ applied: 100, rows: 100 });
   });
-
-  it('a note ALREADY a cent apart (R490.44 recorded, R490.45 credited) is refused by name before any write', async () => {
-    const bill = await seedBill(fx, { number: 'J388', date: '2026-02-09', total: 490.45 });
-    const other = await seedBill(fx, { number: 'K388', date: '2026-02-10', total: 100 });
-    const note = await seedPostedNote(fx, { side: 'supplier', number: 'NJ', total: 490.45, posted: 490.45, status: 'applied' });
-    await sql`INSERT INTO credit_note_allocations (company_id, credit_note_id, invoice_id, amount_allocated)
-              VALUES (${fx.companyId}::UUID, ${note}::UUID, ${bill}::UUID, 490.45)`;
-    await sql`UPDATE supplier_invoices SET amount_paid = 490.45 WHERE id = ${bill}::UUID`;
-    await sql`UPDATE credit_notes SET applied_amount = 490.44 WHERE id = ${note}::UUID`;
-
-    for (const call of [
-      () => unapplyCreditNote(fx.companyId, { creditNoteId: note }, fx.userId),
-      () => adjustCreditNoteApplication(fx.companyId, { creditNoteId: note, documentId: bill, newAmount: 0 }, fx.userId),
-      () => adjustCreditNoteApplication(fx.companyId, { creditNoteId: note, documentId: other, newAmount: 0.01 }, fx.userId),
-    ]) {
-      const err = await inTx(fx, call).then(() => null, (e: unknown) => e as Error);
-      expect(err?.message).toContain('allocation rows totalling 490.45');
-    }
-    expect(await paid('supplier_invoices', bill)).toBe(490.45);
-    expect(await noteApplied(note)).toEqual({ applied: 490.44, rows: 490.45 });
-  });
 });

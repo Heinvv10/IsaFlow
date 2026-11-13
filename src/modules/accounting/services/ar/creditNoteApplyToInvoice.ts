@@ -146,5 +146,5 @@ async function assertApplicationRecordedOrDrift(
     if (err instanceof CreditNotePostedCreditError) throw new CreditNoteApplicationDriftError(err.message);
     throw err;
   }
-  assertApplicationRecorded(number, { appliedBefore: before, appliedAfter: after, paidMoved });
+  await assertApplicationRecorded(companyId, String(cn.id), number, { rowsMoved: round2(after - before), paidMoved, appliedAfter: after });
 }

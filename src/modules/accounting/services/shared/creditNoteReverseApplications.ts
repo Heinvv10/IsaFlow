@@ -26,7 +26,8 @@ export async function reverseCreditNoteApplications(
   // Refuses a note whose column and rows disagree — restoring only the rows
   // would leave the rest of `applied_amount` credited to a document nothing
   // names. Same guard, same reasoning, as on the way in.
-  await assertAllocationsMatchApplied(companyId, creditNoteId, appliedAmount);
+  // A take-back: the one-cent tolerance, so a note already a cent apart can still be cancelled (and ends at 0 / 0).
+  await assertAllocationsMatchApplied(companyId, creditNoteId, appliedAmount, 'decrease');
 
   // Locked in id order, in ONE statement, exactly as the apply path takes them.
   await lockInvoicesForUpdate('cancelCreditNote', companyId, side, lines.map((l) => l.invoiceId));

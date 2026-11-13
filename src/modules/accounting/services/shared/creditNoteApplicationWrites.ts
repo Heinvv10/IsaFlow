@@ -219,11 +219,19 @@ export async function undoApplication(
  *
  * There is no safe automatic repair, because nothing records where the original
  * credit went. So the note is refused and named, and a person reconciles it.
+ *
+ * `direction` (brief step 7): an INCREASE (apply, adjust up, auto-apply, the
+ * approval walk, the REST apply) needs the two EXACT — extending a note a cent
+ * apart carries the cent into the new figure. A DECREASE (unapply, adjust down,
+ * cancel) keeps the old one-cent tolerance, so a note already a cent apart can
+ * always be taken back; it then re-derives `applied_amount` from the rows that
+ * remain, which is what brings it back into line. Returns the rows' sum.
  */
 export async function assertAllocationsMatchApplied(
   companyId: string,
   creditNoteId: string,
   appliedAmount: number,
+  direction: 'increase' | 'decrease' = 'increase',
 ): Promise<number> {
   const rows = (await sql`
     SELECT COALESCE(SUM(amount_allocated), 0) AS allocated
@@ -232,9 +240,10 @@ export async function assertAllocationsMatchApplied(
   `) as DbRow[];
   const allocated = round2(Number(rows[0]?.allocated ?? 0));
   const applied = round2(appliedAmount);
-  // EXACT (half a cent), not a cent: both columns are NUMERIC(15,2), so a one-cent gap is a real gap
-  // (CN-388: R490.44 recorded on the note, R490.45 credited to its bill; a cent tolerance hides that shape).
-  if (Math.abs(allocated - applied) < HALF_CENT) return allocated;
+  // An increase is EXACT (half a cent): both columns are NUMERIC(15,2), so a one-cent gap is a real gap (CN-388:
+  // R490.44 recorded on the note, R490.45 credited to its bill). A decrease tolerates the cent so it can correct it.
+  const tolerance = direction === 'increase' ? HALF_CENT : 0.01 + HALF_CENT;
+  if (Math.abs(allocated - applied) < tolerance) return allocated;
 
   // A note with NO rows and a non-zero column is the legacy shape: approved
   // before migration 677 with no link, so the backfill had nothing to attribute

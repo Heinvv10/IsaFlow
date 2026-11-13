@@ -94,10 +94,9 @@ async function cancelCreditNoteInner(
     // say which. reverseCreditNoteApplications restores each document,
     // recomputes its status and deletes the rows, refusing loudly when a row
     // cannot absorb the reversal.
-    const { lines: restored, paidMoved: rowsMoved } = await reverseCreditNoteApplications(
+    const { lines: restored, paidMoved: restoredPaid } = await reverseCreditNoteApplications(
       companyId, id, side, Number(cn.applied_amount ?? 0),
     );
-    let paidMoved = rowsMoved;
 
     // LEGACY FALLBACK. A note approved before migration 677 whose backfill could
     // not name a document — `applied_amount > 0` with no link — has no rows to
@@ -128,7 +127,6 @@ async function cancelCreditNoteInner(
           );
         }
         await recomputeInvoiceStatus(companyId, 'customer', String(invoiceTable));
-        paidMoved = round2(paidMoved - unapply);
       } else if (side === 'supplier' && invoiceTable) {
         const done = await withSupplierInvoiceLock(
           'cancelCreditNote',
@@ -149,7 +147,6 @@ async function cancelCreditNoteInner(
         // The supplier branch previously recomputed nothing, so a cancelled
         // supplier credit left the bill showing 'paid' on a restored balance.
         await recomputeInvoiceStatus(companyId, 'supplier', String(invoiceTable));
-        paidMoved = round2(paidMoved - unapply);
       }
     }
 
@@ -162,10 +159,12 @@ async function cancelCreditNoteInner(
     `) as Record<string, unknown>[];
     const updated = cancelledRows[0];
     if (!updated) throw new Error(`Credit note ${id} vanished while being cancelled.`);
-    // A legacy note with no rows and no link moved no document: nothing to compare (its column was a claim only).
-    if (restored.length > 0 || paidMoved !== 0) {
-      assertApplicationRecorded(String(cn.credit_note_number),
-        { appliedBefore: Number(cn.applied_amount ?? 0), appliedAfter: 0, paidMoved });
+    // Rows moved what they held; the legacy fallback (no rows) moves a document by the column alone and has no
+    // rows to compare, so it is checked only for its own arithmetic above.
+    if (restored.length > 0) {
+      await assertApplicationRecorded(companyId, id, String(cn.credit_note_number), {
+        rowsMoved: -restored.reduce((t, l) => round2(t + l.amount), 0), paidMoved: restoredPaid, appliedAfter: 0,
+      });
     }
 
     log.info('Cancelled credit note', {

@@ -123,8 +123,8 @@ export async function adjustCreditNoteApplication(
     UPDATE credit_notes SET applied_amount = ${plan.noteAppliedAfter}, status = ${plan.noteStatusAfter},
            updated_at = NOW()
     WHERE id = ${plan.creditNoteId}::UUID AND company_id = ${companyId}::UUID`;
-  assertApplicationRecorded(plan.creditNoteNumber,
-    { appliedBefore: plan.noteAppliedBefore, appliedAfter: plan.noteAppliedAfter, paidMoved });
+  await assertApplicationRecorded(companyId, plan.creditNoteId, plan.creditNoteNumber,
+    { rowsMoved: plan.change, paidMoved, appliedAfter: plan.noteAppliedAfter });
 
   log.info('Adjusted a credit note application', {
     creditNoteId: plan.creditNoteId, documentId: plan.documentId,
@@ -173,14 +173,6 @@ async function buildPlan(
 
   // Outside the catch below: a reversal-lock timeout is retryable and must reach the registry as itself.
   const { journalId, posted } = await readPostedCreditOrRefuse(companyId, note, side, (m) => new CreditNoteAdjustRefusal(m));
-  try {
-    await assertAllocationsMatchApplied(companyId, input.creditNoteId, noteAppliedBefore);
-    await assertStoredDocumentSettleable(companyId, 'credit_note', input.creditNoteId);
-    await assertStoredDocumentSettleable(companyId, side === 'customer' ? 'customer_invoice' : 'supplier_invoice', input.documentId);
-  } catch (err) {
-    throw new CreditNoteAdjustRefusal(err instanceof Error ? err.message : String(err));
-  }
-
   const prior = (await sql`
     SELECT amount_allocated FROM credit_note_allocations
     WHERE credit_note_id = ${input.creditNoteId}::UUID AND invoice_id = ${input.documentId}::UUID
@@ -188,6 +180,19 @@ async function buildPlan(
   const appliedBefore = prior.length > 0 ? round2(Number(prior[0]!.amount_allocated)) : 0;
   const appliedAfter = round2(input.newAmount);
   const change = round2(appliedAfter - appliedBefore);
+
+  // Rows vs column: EXACT to raise what is applied, a cent of tolerance to lower it — so a note already a cent
+  // apart is refused more credit by name but can always be brought down (to 0), and its figure after is re-derived
+  // from the rows (`rowsBefore + change`), which is what puts it back in line.
+  let rowsBefore: number;
+  try {
+    rowsBefore = await assertAllocationsMatchApplied(
+      companyId, input.creditNoteId, noteAppliedBefore, change > 0 ? 'increase' : 'decrease');
+    await assertStoredDocumentSettleable(companyId, 'credit_note', input.creditNoteId);
+    await assertStoredDocumentSettleable(companyId, side === 'customer' ? 'customer_invoice' : 'supplier_invoice', input.documentId);
+  } catch (err) {
+    throw new CreditNoteAdjustRefusal(err instanceof Error ? err.message : String(err));
+  }
   if (Math.abs(change) < HALF_CENT) {
     throw new CreditNoteAdjustRefusal(
       `Credit note ${number} already has ${formatMoney(appliedBefore)} applied to document ${docNumber}; nothing to change.`,
@@ -236,7 +241,7 @@ async function buildPlan(
     }
   }
 
-  const noteAppliedAfter = round2(noteAppliedBefore + change);
+  const noteAppliedAfter = round2(rowsBefore + change);
   return {
     creditNoteId: input.creditNoteId,
     creditNoteNumber: number,
