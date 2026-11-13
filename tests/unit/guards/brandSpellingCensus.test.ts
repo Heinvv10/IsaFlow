@@ -12,8 +12,15 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 const ROOT = process.cwd();
+/** The environment without git's repository overrides: under a git hook GIT_DIR points at the real repo, which
+ * would make a probe repo list the real worktree's files instead of its own. */
+const ownRepoEnv = (): NodeJS.ProcessEnv => {
+  const env = { ...process.env };
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY']) delete env[k];
+  return env;
+};
 const listFiles = (root = ROOT): string[] => execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', 'src', 'pages', 'public'], {
-  cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+  cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...(root === ROOT ? {} : { env: ownRepoEnv() }),
 }).split('\n').filter((f) => /\.(tsx?|js|mjs|html|txt|json|webmanifest)$/.test(f));
 
 /** Spellings that stay: a company literally named "ISAFlow Demo", the OAuth realm, and the search alias in llms.txt. */
@@ -62,7 +69,7 @@ describe('brand spelling', () => {
   it('finds a new, untracked file that uses the old spelling', () => {
     const repo = mkdtempSync(join(tmpdir(), 'brand-probe-'));
     try {
-      execFileSync('git', ['init', '-q'], { cwd: repo });
+      execFileSync('git', ['init', '-q'], { cwd: repo, env: ownRepoEnv() });
       mkdirSync(join(repo, 'pages'));
       writeFileSync(join(repo, 'pages/zzBrandProbe.tsx'), "export const x = 'ISAFlow';\n");
       expect(hits(listFiles(repo), repo)).toContain('pages/zzBrandProbe.tsx:1');
