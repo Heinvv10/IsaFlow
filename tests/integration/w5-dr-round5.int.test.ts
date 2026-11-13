@@ -164,4 +164,24 @@ describe('the narrow undo of a leaver exit', () => {
     expect((await patchDirective(f, d, { expiry_date: '2027-02-28' }, f.admin)).statusCode).toBe(200);
     expect((await undoRows(d))[0].changes.metadata.selfApproval).toBe('sole_approver');
   });
+
+  it('rev2 L1: a hand-inserted exit-shaped audit row whose actor is not a payroll approver is ignored: 400 no exit in effect', async () => {
+    const { f, d } = await exitTaken('DR r5 forged exit');
+    // The real exit's row copied (newer, so it is the one read) with a viewer as its actor.
+    await pool.query("UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [f.company, f.approver]);
+    await pool.query(`INSERT INTO audit_log (company_id, user_id, action, entity_type, entity_id, entity_ref, changes, created_at)
+      SELECT company_id, $2, action, entity_type, entity_id, entity_ref, changes, now() + interval '1 second' FROM audit_log
+      WHERE entity_id = $1 AND changes->'metadata'->>'leaverExit' = 'true'`, [d, f.approver]);
+    const r = await refused(f, d, '2027-02-28', 400, f.admin);
+    expect(r.body.error?.message).toMatch(/none is in effect/);
+  });
+
+  it('rev2 L1: an exit-shaped row naming runs the directive has no recorded use in is ignored: 400', async () => {
+    const { f, d } = await exitTaken('DR r5 forged runs');
+    await pool.query(`INSERT INTO audit_log (company_id, user_id, action, entity_type, entity_id, entity_ref, changes, created_at)
+      SELECT company_id, user_id, action, entity_type, entity_id, entity_ref, jsonb_set(changes, '{metadata,runs}', '"2026-05"'),
+             now() + interval '1 second' FROM audit_log
+      WHERE entity_id = $1 AND changes->'metadata'->>'leaverExit' = 'true'`, [d]);
+    await refused(f, d, '2027-02-28', 400, f.approver);
+  });
 });

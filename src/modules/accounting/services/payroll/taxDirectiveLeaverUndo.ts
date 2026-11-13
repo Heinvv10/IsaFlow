@@ -23,6 +23,9 @@ import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailSe
 import { anotherApproverBlocks, TaxDirectiveSelfApprovalError } from './taxDirectiveApprover';
 import { TaxDirectiveWindowError } from './taxDirectiveOverlap';
 import { declarableRunInWindow } from './payrollRunRegularDirective';
+import { regularDirectiveUsesAfter } from './payrollRunDirectiveUses';
+import { DEFAULT_WRITE_ROLES } from '@/lib/auth/writeRoles';
+import { isActiveUserAccount } from '@/lib/auth/userAccountStatus';
 
 export class LeaverExitRunNotReopenedError extends Error {
   readonly code = 'LEAVER_EXIT_RUN_NOT_REOPENED';
@@ -42,8 +45,31 @@ export class LeaverExitWindowTakenError extends Error {
 
 export interface LeaverExitUndo { exitAuditId: string; oldExpiry: string | null; oldEndsOn: string; periods: string[]; selfApproval: boolean }
 
-/** The exit in effect on this directive (its latest leaver-exit row, if the expiry is still that exit's and not undone), else null. */
-async function exitInEffect(companyId: string, directiveId: string, currentExpiry: string | null) {
+/** Whether `userId` is an owner / admin / manager in good standing of the company (the actor's own row, or another's via the R-035 definer). */
+async function isPayrollApprover(companyId: string, userId: string, actorId: string): Promise<boolean> {
+  type Member = { user_id: string; role: string; is_active: boolean | null; status: string | null; suspended_at: string | null };
+  const members = (userId.toLowerCase() === actorId.toLowerCase()
+    ? await sql`
+        SELECT cu.user_id, cu.role, TRUE AS is_active, NULL::text AS status, NULL::timestamptz AS suspended_at
+        FROM company_users cu WHERE cu.company_id = ${companyId}::uuid AND lower(cu.user_id) = ${userId.toLowerCase()}
+      `
+    : await sql`
+        SELECT m.user_id, m.role, m.is_active, m.status, m.suspended_at FROM approval_company_other_members(${companyId}::uuid, ${actorId}::text) m
+      `) as Member[];
+  const writers: readonly string[] = DEFAULT_WRITE_ROLES;
+  return members.some(m => String(m.user_id).toLowerCase() === userId.toLowerCase() && writers.includes(String(m.role)) && isActiveUserAccount(m));
+}
+
+/**
+ * The exit in effect on this directive (its latest leaver-exit row, if the expiry is still that exit's and not undone), else null.
+ * TRUST BOUNDARY (#1266 rev2 L1): the exit is read from audit_log, which only the leaver-exit path
+ * (taxDirectiveRegularPayChange.auditLeaverExit) writes with `leaverExit` metadata; no route lets a caller choose audit
+ * metadata. app_user can still INSERT audit_log rows under tenant RLS, so a row is accepted only when it is this company's
+ * and this directive's, its newExpiry is the directive's expiry now, its runs are exactly the directive's recorded uses after
+ * that expiry (payroll_run_directive_uses), and its actor is a payroll approver (owner / admin / manager in good standing)
+ * today. Named limit: an exit whose taker has since lost that role is not undoable (another approver takes no new exit).
+ */
+async function exitInEffect(companyId: string, directiveId: string, currentExpiry: string | null, actorId: string) {
   const r = ((await sql`
     SELECT a.id::text AS id, a.user_id, a.changes
     FROM audit_log a
@@ -60,11 +86,15 @@ async function exitInEffect(companyId: string, directiveId: string, currentExpir
   if (!r) return null;
   const meta = ((r.changes as { metadata?: Record<string, string> } | null)?.metadata ?? {});
   const field = ((r.changes as { fields?: Array<{ field: string; old: string | null }> } | null)?.fields ?? []).find(f => f.field === 'expiry_date');
-  if (meta.newExpiry !== currentExpiry) return null;
+  if (meta.newExpiry !== currentExpiry || currentExpiry == null) return null;
+  const periods = String(meta.runs ?? '').split(',').filter(Boolean);
+  const uses = (await regularDirectiveUsesAfter(companyId, directiveId, currentExpiry)).map(u => u.period);
+  if (uses.length === 0 || uses.join(',') !== [...periods].sort().join(',')) return null;
+  if (!await isPayrollApprover(companyId, String(r.user_id), actorId)) return null;
   return {
     id: String(r.id), takenBy: String(r.user_id), oldExpiry: field?.old ?? null, oldEndsOn: String(meta.oldEndsOn),
     approversAtExit: String(meta.approversAtExit ?? '').split(',').filter(Boolean),
-    periods: String(meta.runs ?? '').split(',').filter(Boolean),
+    periods,
   };
 }
 
@@ -72,7 +102,7 @@ async function exitInEffect(companyId: string, directiveId: string, currentExpir
 export async function judgeLeaverExitUndo(
   companyId: string, directive: { id: string; employeeId: string; expiryDate: string | null }, requested: string, actorId: string,
 ): Promise<LeaverExitUndo> {
-  const exit = await exitInEffect(companyId, directive.id, directive.expiryDate);
+  const exit = await exitInEffect(companyId, directive.id, directive.expiryDate, actorId);
   if (!exit) {
     throw new TaxDirectiveWindowError('An expiry date can only shorten the directive (SARS issues a new directive for a longer period). '
       + 'It can be lengthened only to undo a leaver exit, and none is in effect on this directive.');
