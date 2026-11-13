@@ -141,7 +141,7 @@ describeIfDisposable('document_vat_history — every VAT line tied to a document
     expect(h.totals).toMatchObject({ vat_heuristic: 4, vat_derivable_now: 30, vat_net_now: 30 });
   });
 
-  it('journals in or after the bill\'s fiscal period, on its own VAT accounts, of any source but an invoice/bill/note posting, match (rounds 1-3)', async () => {
+  it('journals in or after the bill\'s fiscal period, with a VAT line, of any source but an invoice/bill/note posting, match (rounds 1-5)', async () => {
     const num = number();
     const b = await bill(num, 1000);
     // Another supplier's bill with the same number, its posting stamped as a migration import (a hand-journal source).
@@ -164,13 +164,13 @@ describeIfDisposable('document_vat_history — every VAT line tied to a document
         await postJournalEntry(fx.companyId, je.id, fx.userId);
       });
     }
-    // A hand journal naming the bill whose VAT sits on another VAT account (output VAT), not the bill's.
+    // A hand journal naming the bill whose VAT sits on output VAT: still a VAT201 line, so it matches (round 5).
     await vatOut(fx, acct.vatOut!, acct.cos!, 13, { description: `Output adj ${num}` });
 
     const h = await history('supplier_invoice', b);
-    expect(h.heuristic.matches.map((m) => [m.vat_amount, m.source])).toEqual([[-7, 'manual'], [-11, 'auto_payment']]);
+    expect(h.heuristic.matches.map((m) => [m.vat_amount, m.source])).toEqual([[-7, 'manual'], [-11, 'auto_payment'], [-13, 'manual']]);
     expect(h.heuristic.from_date).toBe('2026-01-01');
-    expect(h.totals).toMatchObject({ vat_posted: 150, vat_net_now: 132, vat_heuristic: -18 });
+    expect(h.totals).toMatchObject({ vat_posted: 150, vat_net_now: 119, vat_heuristic: -31 });
   });
 
   it('a reversed hand-made journal nets out through its chain; a cancelled note nets out too', async () => {

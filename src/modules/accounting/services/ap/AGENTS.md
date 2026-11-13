@@ -65,6 +65,7 @@ Invoked by `withAuth`-wrapped API routes in `pages/api/accounting/ap/*`. Every p
 - `scripts/migrations/sql/*supplier_invoice*`, `*purchase_order*`, `*supplier_payment*`.
 
 ## Recent changes
+- 2026-11-13 (step 5 review round 5): `judgeMirroredApproval` refuses a `mirror_bill_ack` note when `heuristic.truncated`.
 - 2026-11-13 (step 5 review round 4): `MirrorPlan.ackMatches` (the VAT-moving matches, for 'mirror_bill_ack') is stored as `credit_notes.vat_ack_matches`; `judgeMirroredApproval` refuses an acknowledged note when a VAT-moving match is not in that set or its VAT differs by more than a cent, before the posted-time check.
 - 2026-11-13 (step 5 review round 3): the planner's refusal names each moving match with its source and says it may be another document's own posting naming the number (clear it with acknowledge + vat_amount after checking). The ack re-check compares each match's `last_written_at` (created or posted, whichever is later) with the note's created_at.
 - 2026-11-13 (step 5 review round 2): the planner raises an issue when ANY single heuristic match moves the bill's VAT by more than a cent (either direction) and suggests derivable + Σ each match's negative net. `judgeMirroredApproval` also refuses a `mirror_bill_ack` note when such a match was written (created_at) after the note. `isBillExpenseLeg` reads the clearing subtype through `canonicalSubtype` and the shared `LATE_CLAIM_CLEARING_SUBTYPE` (gl/accountSubtypeVocabulary).

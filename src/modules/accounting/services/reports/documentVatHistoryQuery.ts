@@ -16,7 +16,8 @@
  *     back-dated before it), of ANY source, that are not the posting journal of
  *     a supplier invoice, customer invoice or credit note (their reversals and
  *     companions are never roots either), that carry a line on one of the
- *     accounts of the document's VAT SIDE (readVatSideAccountIds), and whose reference / narration / a line
+ *     VAT line — the VAT201's own member rule (vatEntryMemberLineSql) or the late-claim clearing account, as every
+ *     VAT line is counted (review round 5) — and whose reference / narration / a line
  *     narration names one of its numbers as a whole token. MATCH_LIMIT + 1 at
  *     most. Every filter but the regex runs first; the regex reads only the
  *     survivors and their lines. No source is trusted (round 3): a supplier
@@ -125,26 +126,6 @@ export async function readDocument(
   };
 }
 
-/** The VAT control subtypes of each side (review round 4, R4-2): input VAT includes the s16(3) clearing account. */
-export const VAT_SIDE_SUBTYPES = {
-  input: ['vat_input', LATE_CLAIM_CLEARING_SUBTYPE],
-  output: ['vat_output'],
-} as const;
-
-/**
- * Every account on the document's VAT SIDE: this company's accounts of that side's control subtypes, plus the
- * document's own VAT accounts (a VAT-coded account with no VAT subtype, such as a "VAT Payable" a bill posted to).
- * A hand reversal on a second input-VAT account ("Input VAT branch") is the same VAT201 input box, so it is searched.
- */
-export async function readVatSideAccountIds(
-  companyId: string, side: keyof typeof VAT_SIDE_SUBTYPES, ownAccountIds: readonly string[],
-): Promise<string[]> {
-  const rows = (await sql`
-    SELECT id FROM gl_accounts
-    WHERE company_id = ${companyId}::UUID AND account_subtype = ANY(${[...VAT_SIDE_SUBTYPES[side]] as string[]}::TEXT[])`) as DbRow[];
-  return [...new Set([...rows.map((r) => String(r.id)), ...ownAccountIds])];
-}
-
 /** The start of the fiscal period holding `date` (this company's), or null when none does. */
 export async function readPeriodStart(companyId: string, date: string): Promise<string | null> {
   const rows = (await sql`
@@ -184,15 +165,13 @@ export async function readTiedRoots(
 }
 
 /**
- * Hand journals naming the document (see the header, step 4). `vatAccountIds` are the accounts the document's own
- * VAT legs sit on; `fromDate` the earlier of its date and its posting's.
+ * Journals naming the document (see the header, step 4); `fromDate` the start of its fiscal period.
  */
 export async function readNarrationMatches(
-  companyId: string, pattern: string, scope: { vatAccountIds: readonly string[]; fromDate: string; excludeJournalIds: readonly string[] },
+  companyId: string, pattern: string, scope: { fromDate: string; excludeJournalIds: readonly string[] },
 ): Promise<(RootJournal & { entryNumber: string | null })[]> {
-  if (scope.vatAccountIds.length === 0) return [];
-  // Driven from the HAND journals dated on or after the document (company + date index), each probed for a line on the
-  // document's VAT accounts (company + journal index); the regexes then read only those journals and their lines.
+  // Driven from the company's posted journals from `fromDate` (company + date), each probed for a VAT line
+  // (company + journal index); the regexes then read only those journals and their lines.
   const rows = (await sql`
     WITH cand AS MATERIALIZED (
       SELECT je.id, je.entry_number, je.entry_date, je.reference, je.description
@@ -205,8 +184,9 @@ export async function readNarrationMatches(
         -- OFFSET 0 keeps each probe a per-journal index lookup (company_id, journal_entry_id), never a scan
         -- of the company's lines; the NOT IN lists are each read once and hashed (they hold no NULLs).
         AND EXISTS (SELECT 1 FROM gl_journal_lines jl
+                    JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
                     WHERE jl.company_id = ${companyId}::UUID AND jl.journal_entry_id = je.id
-                      AND jl.gl_account_id = ANY(${scope.vatAccountIds as string[]}::UUID[]) OFFSET 0)
+                      AND (${vatEntryMemberLineSql()} OR ga.account_subtype = ${LATE_CLAIM_CLEARING_SUBTYPE}) OFFSET 0)
         AND je.id NOT IN (SELECT d.gl_journal_entry_id FROM supplier_invoices d
                           WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id IS NOT NULL)
         AND je.id NOT IN (SELECT d.gl_journal_entry_id FROM customer_invoices d

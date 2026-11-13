@@ -33,7 +33,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { MissingSystemAccountError } from '../gl/systemAccountKeys';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import {
-  MATCH_LIMIT, readChainLines, readDocument, readNarrationMatches, readPeriodStart, readTiedRoots, readVatSideAccountIds,
+  MATCH_LIMIT, readChainLines, readDocument, readNarrationMatches, readPeriodStart, readTiedRoots,
   type DocumentVatEntityType, type RootJournal,
 } from './documentVatHistoryQuery';
 import {
@@ -47,9 +47,9 @@ export type { DocumentVatLine, DocumentVatTotals, HeuristicMatch } from './docum
 export const HEURISTIC_NOTE =
   'reference_match and narration_match are HEURISTIC: a posted journal of any source that is not the posting of an '
   + 'invoice, bill or credit note (nor a reversal or late-claim companion), dated in or after this '
-  + 'document\'s fiscal period, with a line on one of its own VAT accounts, whose reference or '
+  + 'document\'s fiscal period, with a VAT line (the VAT201\'s member rule, or the late-claim clearing account), whose reference or '
   + 'narration names one of its numbers as a whole token (case-insensitive; numbers shorter than 4 characters, longer '
-  + 'than 64 or with no digit are not searched). Only its lines on this document\'s VAT accounts count; each match is '
+  + 'than 64 or with no digit are not searched). Every VAT line of a match counts, in this document\'s direction; each match is '
   + 'judged on its own and can only reduce vat_net_now. A match may be about a different document, and a journal that adjusts this one '
   + 'without naming it is not found. Check each one before relying on it.';
 
@@ -96,10 +96,8 @@ export async function getDocumentVatHistory(
   const tied = await readTiedRoots(companyId, entityType, doc);
   const tiedRows = await readChainLines(companyId, tied);
   const direction = documentDirection(entityType, doc.noteType);
-  const ownVatAccountIds = documentVatAccountIds(tiedRows);
-  // Input VAT for a bill and a supplier note, output VAT for an invoice and a customer note.
-  const side = (entityType === 'supplier_invoice') || (entityType === 'credit_note' && doc.noteType === 'supplier') ? 'input' : 'output';
-  const vatAccountIds = ownVatAccountIds.length > 0 ? await readVatSideAccountIds(companyId, side, ownVatAccountIds) : [];
+  // A document whose posting carries no VAT line has none to reverse: no search.
+  const hasPostedVat = documentVatAccountIds(tiedRows).length > 0;
   const postingDates = tiedRows.filter((r) => r.root_tie === 'posting')
     .map((r) => fmtDate(r.entry_date));
   const earliest = [doc.documentDate, ...postingDates].filter(Boolean).sort()[0] ?? doc.documentDate;
@@ -109,17 +107,17 @@ export async function getDocumentVatHistory(
   const candidates = [...new Set([doc.number, doc.externalNumber]
     .filter((t): t is string => Boolean(t && t.trim())).map((t) => t.trim()))];
   const tokens = candidates.filter(isSearchableToken);
-  const searched = tokens.length > 0 && vatAccountIds.length > 0;
+  const searched = tokens.length > 0 && hasPostedVat;
   const matched = searched
     ? await readNarrationMatches(companyId, tokenPattern(tokens), {
-      vatAccountIds, fromDate, excludeJournalIds: [...new Set(tiedRows.map((r) => r.journal_entry_id))],
+      fromDate, excludeJournalIds: [...new Set(tiedRows.map((r) => r.journal_entry_id))],
     })
     : [];
   const truncated = matched.length > MATCH_LIMIT;
   const kept: RootJournal[] = matched.slice(0, MATCH_LIMIT)
     .map(({ journalId, tie, matchedIn }) => ({ journalId, tie, via: null, matchedIn }));
   const rows = [...tiedRows, ...await readChainLines(companyId, kept)];
-  const { lines, totals, matches } = summariseVatLines(rows, direction, await roleAccountIds(companyId), new Set(vatAccountIds));
+  const { lines, totals, matches } = summariseVatLines(rows, direction, await roleAccountIds(companyId));
 
   const notes: string[] = [];
   if (doc.status === 'cancelled' && !doc.postingJournalId && entityType !== 'credit_note') {
@@ -127,7 +125,7 @@ export async function getDocumentVatHistory(
       + 'its reversal is tied here; find them with general_ledger or audit_trail.');
   }
   if (!searched) {
-    notes.push(vatAccountIds.length === 0
+    notes.push(!hasPostedVat
       ? 'No heuristic search ran: the document has no posted VAT leg to search on.'
       : `No heuristic search ran: no number of this document is searchable (${candidates.join(', ') || 'none'}).`);
   }

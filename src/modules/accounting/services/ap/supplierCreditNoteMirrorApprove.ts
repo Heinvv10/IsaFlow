@@ -73,6 +73,10 @@ export function judgeMirroredApproval(h: DocumentVatHistory, note: MirroredNoteS
   const d = planMirroredNote(h, note.subtotal, acknowledged ? { acknowledged, vatAmount: note.taxAmount } : NO_ACK);
   const head = `VAT_ALREADY_REVERSED: credit note ${note.number} was raised with mirror_bill on bill ${h.document_number}, which has changed since. `;
   if (!d.ok) return `${head}${d.reason.replace(/^VAT_ALREADY_REVERSED: /, '')} ${REMEDY}`;
+  if (acknowledged && h.heuristic.truncated) {
+    // A match past MATCH_LIMIT is invisible to the acknowledged-set check below (review round 5).
+    return `${head}More than ${h.heuristic.limit} journals name the bill, so the acknowledged journals cannot be checked against them. ${REMEDY}`;
+  }
   if (acknowledged) {
     // In place (review round 4, R4-1): an account merge or a VAT-code edit can bring a journal into the match set, or
     // change what a known one moves, without touching any timestamp — so the acknowledged set itself is compared.

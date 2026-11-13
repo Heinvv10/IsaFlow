@@ -107,7 +107,7 @@ describe('summariseVatLines', () => {
     });
   });
 
-  it('a heuristic match never RAISES vat_net_now (clamp), and counts only on the document\'s own VAT accounts', () => {
+  it('a heuristic match never RAISES vat_net_now (clamp), and every VAT line of a match counts (round 5)', () => {
     const rows = [
       ...billJournal(),
       vat({ journal_entry_id: 'je-re', root_tie: 'reference_match', debit: 150 }),
@@ -115,8 +115,8 @@ describe('summariseVatLines', () => {
       vat({ journal_entry_id: 'je-other', root_tie: 'narration_match', gl_account_id: 'vat-other', credit: 40 }),
     ];
     const { lines, totals } = summariseVatLines(rows, 1, NO_ROLES);
-    expect(totals).toMatchObject({ vat_derivable_now: 150, vat_heuristic: 150, vat_heuristic_reducing: 0, vat_net_now: 150 });
-    expect(lines.some((l) => l.journal_entry_id === 'je-other')).toBe(false);
+    expect(totals).toMatchObject({ vat_derivable_now: 150, vat_heuristic: 110, vat_heuristic_reducing: -40, vat_net_now: 110 });
+    expect(lines.filter((l) => l.journal_entry_id === 'je-other').map((l) => l.vat_amount)).toEqual([-40]);
   });
 
   it('each match is judged on its own: an unrelated +150 does not cancel a real -150 (review round 2, R2-1)', () => {

@@ -5,8 +5,8 @@
  * DERIVABLE vs HEURISTIC (review round 1, A2). posting, late_claim, reversal and credit_note are ties the data
  * states; reference_match and narration_match are guesses from narration. The derivable figures
  * (`vat_derivable_now`, `net_base_now`) are what a mirrored credit note may WRITE; a heuristic match can only
- * reduce the reported `vat_net_now` (never raise it) and can only make mirror_bill refuse. A matched journal's VAT
- * counts only on the document's own VAT accounts. Each match (a matched journal with its reversal chain) is judged
+ * reduce the reported `vat_net_now` (never raise it) and can only make mirror_bill refuse. Every VAT line of a
+ * matched journal counts (the VAT201's member rule). Each match (a matched journal with its reversal chain) is judged
  * ON ITS OWN (review round 2, R2-1): an unrelated journal that names the same number and ADDS VAT must not cancel a
  * real hand reversal, so `vat_net_now` = derivable + the sum of each match's NEGATIVE net only.
  *
@@ -118,12 +118,7 @@ export function documentVatAccountIds(rows: readonly JournalLineRow[]): string[]
  * Pure: the lines and totals from the journal rows (each journal counted once, under its strongest tie).
  * `roleAccountIds`: the payable / receivable / VAT system accounts, as 892 reads them.
  */
-export function summariseVatLines(
-  rows: readonly JournalLineRow[], direction: 1 | -1, roleAccountIds: ReadonlySet<string>,
-  /** The document's VAT-side accounts (readVatSideAccountIds); default: its own VAT accounts. */
-  sideAccountIds?: ReadonlySet<string>,
-) {
-  const ownVat = sideAccountIds ?? new Set(documentVatAccountIds(rows));
+export function summariseVatLines(rows: readonly JournalLineRow[], direction: 1 | -1, roleAccountIds: ReadonlySet<string>) {
   const tieOf = new Map<string, JournalLineRow>();
   for (const r of rows) {
     const seen = tieOf.get(r.journal_entry_id);
@@ -149,8 +144,9 @@ export function summariseVatLines(
     const head = tieOf.get(journalId)!;
     const derivable = DERIVABLE_TIES.has(head.root_tie);
     const signed = (r: JournalLineRow) => direction * (Number(r.debit) - Number(r.credit));
-    // A heuristic match counts only its lines on the document's VAT side (A2; R4-2: every account of that side).
-    const vatLines = jl.filter((r) => r.is_vat === true && (derivable || ownVat.has(String(r.gl_account_id))));
+    // Every VAT line counts — the VAT201's member rule or the late-claim clearing leg (is_vat), for heuristic ties too
+    // (review round 5: a reversal on a generic-tax or VAT-coded balance-sheet account is the same VAT201 figure).
+    const vatLines = jl.filter((r) => r.is_vat === true);
     const base = derivable
       ? r2(jl.filter((r) => r.is_vat !== true && isBillExpenseLeg(r, roleAccountIds)).reduce((s, r) => s + signed(r), 0))
       : null;

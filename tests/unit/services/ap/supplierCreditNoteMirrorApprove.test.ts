@@ -82,6 +82,12 @@ describe('judgeMirroredApproval', () => {
     expect(judgeMirroredApproval(bill(150, -75), ack(ACKED))).toBeNull();
   });
 
+  it('an acknowledged note is refused when the heuristic search was truncated (round 5)', () => {
+    const h = bill(150, -75);
+    (h.heuristic as { truncated: boolean }).truncated = true;
+    expect(judgeMirroredApproval(h, note({ vatBasis: 'mirror_bill_ack', taxAmount: 0, ackMatches: ACKED }))).toMatch(/More than 100 journals name the bill/);
+  });
+
   it('other open drafts do NOT block this approval (the first approved wins)', () => {
     expect(judgeMirroredApproval(bill(), note({ subtotal: 600, taxAmount: 90 }))).toBeNull();
   });
