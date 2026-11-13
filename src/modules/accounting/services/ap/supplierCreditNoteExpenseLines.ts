@@ -32,6 +32,7 @@
 import { sql } from '@/lib/neon';
 import type { JournalLineInput } from '../../types/gl.types';
 import { canonicalSubtype } from '../gl/accountSubtypes';
+import { LATE_CLAIM_CLEARING_SUBTYPE } from '../gl/accountSubtypeVocabulary';
 import { reportingClassFor } from '../gl/accountReportingClass';
 import {
   allocateCreditNote, NO_TAGS, type CreditNoteAllocation, type LegTags, type RevenueLeg,
@@ -73,7 +74,7 @@ export interface BillJournalLegRow {
 export function isBillExpenseLeg(row: Pick<BillJournalLegRow, 'gl_account_id' | 'account_subtype'>,
   roleAccountIds: ReadonlySet<string>): boolean {
   if (roleAccountIds.has(String(row.gl_account_id).toLowerCase())) return false;
-  if (row.account_subtype === 'vat_input_late_claim') return false;
+  if (canonicalSubtype(row.account_subtype) === LATE_CLAIM_CLEARING_SUBTYPE) return false;
   const canonical = canonicalSubtype(row.account_subtype);
   if (canonical === 'payable' || canonical === 'receivable') return false;
   return reportingClassFor(row.account_subtype) !== 'vat';

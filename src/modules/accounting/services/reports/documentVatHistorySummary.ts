@@ -6,7 +6,9 @@
  * states; reference_match and narration_match are guesses from narration. The derivable figures
  * (`vat_derivable_now`, `net_base_now`) are what a mirrored credit note may WRITE; a heuristic match can only
  * reduce the reported `vat_net_now` (never raise it) and can only make mirror_bill refuse. A matched journal's VAT
- * counts only on the document's own VAT accounts.
+ * counts only on the document's own VAT accounts. Each match (a matched journal with its reversal chain) is judged
+ * ON ITS OWN (review round 2, R2-1): an unrelated journal that names the same number and ADDS VAT must not cancel a
+ * real hand reversal, so `vat_net_now` = derivable + the sum of each match's NEGATIVE net only.
  *
  * Base (A5): a leg is base when 892's `isBillExpenseLeg` says the approval would credit it AND it is not VAT —
  * the VAT201 member rule, or the s16(3) late-claim clearing leg, which 892 still reads as an expense leg.
@@ -24,6 +26,8 @@ export const MAX_TOKEN_LENGTH = 64;
 
 export interface DocumentVatLine {
   journal_entry_id: string;
+  /** The root of this journal's chain: the matched journal for a heuristic tie, the posting / note journal otherwise. */
+  root_journal_id: string;
   entry_number: string | null;
   entry_date: string;
   source: string | null;
@@ -48,6 +52,17 @@ export interface DocumentVatLine {
   description: string | null;
 }
 
+/** One heuristic match: a matched journal and its reversal chain, netted. */
+export interface HeuristicMatch {
+  journal_entry_id: string;
+  entry_number: string | null;
+  tie: DocumentVatTie;
+  /** Its chain's VAT on the document's own VAT accounts, in the document's direction. */
+  vat_amount: number;
+  /** The latest created_at (when written, not dated) in its chain, ISO. */
+  last_created_at: string;
+}
+
 export interface DocumentVatTotals {
   /** The document's own VAT: its posting and its late-claim companion. */
   vat_posted: number;
@@ -56,8 +71,10 @@ export interface DocumentVatTotals {
   vat_net_now: number;
   /** posting + late_claim + reversal + credit_note: what the data itself says the document carries. */
   vat_derivable_now: number;
-  /** The heuristic ties' VAT on the document's own VAT accounts (signed; < 0 reduces). */
+  /** The heuristic ties' VAT on the document's own VAT accounts, all matches netted (signed). */
   vat_heuristic: number;
+  /** The sum of each match's net where it is negative: what the heuristic takes off (<= 0). */
+  vat_heuristic_reducing: number;
   vat_by_tie: Record<DocumentVatTie, number>;
   net_base_posted: number;
   /** Derivable ties only. */
@@ -120,6 +137,8 @@ export function summariseVatLines(rows: readonly JournalLineRow[], direction: 1 
   let basePosted = 0;
   let baseNow = 0;
   const lines: DocumentVatLine[] = [];
+  const matches = new Map<string, HeuristicMatch>();
+  const iso = (v: Date | string) => (v instanceof Date ? v.toISOString() : new Date(String(v)).toISOString());
   for (const [journalId, jl] of byJournal) {
     const head = tieOf.get(journalId)!;
     const derivable = DERIVABLE_TIES.has(head.root_tie);
@@ -131,11 +150,19 @@ export function summariseVatLines(rows: readonly JournalLineRow[], direction: 1 
       : null;
     if (base !== null) baseNow += base;
     if (base !== null && head.root_tie === 'posting') basePosted += base;
+    if (!derivable) {
+      const root = String(head.root_journal_id);
+      const m = matches.get(root) ?? { journal_entry_id: root, entry_number: null, tie: head.root_tie, vat_amount: 0, last_created_at: iso(head.created_at) };
+      if (journalId === root) m.entry_number = head.entry_number;
+      if (iso(head.created_at) > m.last_created_at) m.last_created_at = iso(head.created_at);
+      m.vat_amount = r2(m.vat_amount + vatLines.reduce((s, r) => s + signed(r), 0));
+      matches.set(root, m);
+    }
     for (const r of vatLines) {
       const vat = r2(signed(r));
       vatByTie[head.root_tie] += vat;
       lines.push({
-        journal_entry_id: journalId, entry_number: head.entry_number, entry_date: fmtDate(head.entry_date),
+        journal_entry_id: journalId, root_journal_id: String(head.root_journal_id), entry_number: head.entry_number, entry_date: fmtDate(head.entry_date),
         source: head.source, status: head.status, reversed: head.stands !== true, reverses_journal_id: head.reverses,
         tie: head.root_tie, tied_via: head.via, matched_in: head.matched_in,
         gl_account_id: String(r.gl_account_id), account_code: r.account_code, account_name: r.account_name,
@@ -148,10 +175,12 @@ export function summariseVatLines(rows: readonly JournalLineRow[], direction: 1 
   const vatPosted = r2(vatByTie.posting + vatByTie.late_claim);
   const derivableNow = r2(vatPosted + vatByTie.reversal + vatByTie.credit_note);
   const heuristic = r2(vatByTie.reference_match + vatByTie.narration_match);
-  const netNow = r2(derivableNow + Math.min(0, heuristic));
+  const reducing = r2([...matches.values()].reduce((s, m) => s + Math.min(0, m.vat_amount), 0));
+  const netNow = r2(derivableNow + reducing);
   const totals: DocumentVatTotals = {
     vat_posted: vatPosted, vat_reversed: r2(vatPosted - netNow), vat_net_now: netNow, vat_derivable_now: derivableNow,
-    vat_heuristic: heuristic, vat_by_tie: vatByTie, net_base_posted: r2(basePosted), net_base_now: r2(baseNow),
+    vat_heuristic: heuristic, vat_heuristic_reducing: reducing, vat_by_tie: vatByTie,
+    net_base_posted: r2(basePosted), net_base_now: r2(baseNow),
   };
-  return { lines, totals };
+  return { lines, totals, matches: [...matches.values()] };
 }

@@ -114,7 +114,7 @@ describeIfDisposable('document_vat_history — every VAT line tied to a document
     expect(m).toMatchObject({ journal_entry_id: manual, matched_in: 'narration,line_narration', source: 'manual', status: 'posted', reversed: false });
     expect(h.lines.find((l) => l.tie === 'credit_note')!.tied_via).toBe(cn.number);
     expect(h.totals).toEqual({
-      vat_posted: 150, vat_reversed: 210, vat_net_now: -60, vat_derivable_now: 90, vat_heuristic: -150,
+      vat_posted: 150, vat_reversed: 210, vat_net_now: -60, vat_derivable_now: 90, vat_heuristic: -150, vat_heuristic_reducing: -150,
       vat_by_tie: { posting: 150, late_claim: 0, reversal: 0, credit_note: -60, reference_match: 0, narration_match: -150 },
       net_base_posted: 1000, net_base_now: 600,
     });
@@ -141,7 +141,7 @@ describeIfDisposable('document_vat_history — every VAT line tied to a document
     expect(h.totals).toMatchObject({ vat_heuristic: 4, vat_derivable_now: 30, vat_net_now: 30 });
   });
 
-  it('only HAND journals dated on or after the bill, on its own VAT accounts and no document\'s posting, can match (round 1)', async () => {
+  it('only journals in or after the bill\'s fiscal period, on its own VAT accounts and no document posting, can match (rounds 1-2)', async () => {
     const num = number();
     const b = await bill(num, 1000);
     // Another supplier's bill with the same number, its posting stamped as a migration import (a hand-journal source).
@@ -151,18 +151,25 @@ describeIfDisposable('document_vat_history — every VAT line tied to a document
     // A document-sourced journal naming the bill (an automatic payment), on the bill's VAT account.
     const auto = await vatOut(fx, acct.vatIn!, acct.cos!, 11, { description: `Payment ${num}` });
     await sql`UPDATE gl_journal_entries SET source = 'auto_payment' WHERE id = ${auto}::UUID AND company_id = ${fx.companyId}::UUID`;
-    // A hand journal naming the bill, dated BEFORE it.
-    await inTx(fx, async () => {
-      const je = await createJournalEntry(fx.companyId, { entryDate: '2026-05-20', source: 'manual', description: `Pre-bill ${num}`, lines: [
-        { glAccountId: acct.cos!, debit: 7, credit: 0 }, { glAccountId: acct.vatIn!, debit: 0, credit: 7, vatType: 'standard' }] }, fx.userId);
-      await postJournalEntry(fx.companyId, je.id, fx.userId);
-    });
+    // Hand journals naming the bill, dated BEFORE it: in its fiscal period (a back-dated correction: found, B4) and in
+    // the period before (not searched).
+    await sql`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
+      SELECT ${fx.companyId}::UUID, ${`FY25 ${fx.tag}`}, 1, 2025, '2025-01-01', '2025-12-31', 'open'
+      WHERE NOT EXISTS (SELECT 1 FROM fiscal_periods WHERE company_id = ${fx.companyId}::UUID AND fiscal_year = 2025)`;
+    for (const [date, amount] of [['2026-05-20', 7], ['2025-12-20', 9]] as const) {
+      await inTx(fx, async () => {
+        const je = await createJournalEntry(fx.companyId, { entryDate: date, source: 'manual', description: `Pre-bill ${num}`, lines: [
+          { glAccountId: acct.cos!, debit: amount, credit: 0 }, { glAccountId: acct.vatIn!, debit: 0, credit: amount, vatType: 'standard' }] }, fx.userId);
+        await postJournalEntry(fx.companyId, je.id, fx.userId);
+      });
+    }
     // A hand journal naming the bill whose VAT sits on another VAT account (output VAT), not the bill's.
     await vatOut(fx, acct.vatOut!, acct.cos!, 13, { description: `Output adj ${num}` });
 
     const h = await history('supplier_invoice', b);
-    expect(h.heuristic.journals_matched).toBe(0);
-    expect(h.totals).toMatchObject({ vat_posted: 150, vat_net_now: 150, vat_heuristic: 0 });
+    expect(h.heuristic.matches.map((m) => m.vat_amount)).toEqual([-7]);
+    expect(h.heuristic.from_date).toBe('2026-01-01');
+    expect(h.totals).toMatchObject({ vat_posted: 150, vat_net_now: 143, vat_heuristic: -7 });
   });
 
   it('a reversed hand-made journal nets out through its chain; a cancelled note nets out too', async () => {

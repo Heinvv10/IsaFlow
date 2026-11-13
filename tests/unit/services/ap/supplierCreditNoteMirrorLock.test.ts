@@ -15,8 +15,8 @@ vi.mock('@/modules/accounting/services/reports/documentVatHistory', () => ({
     order.push('history');
     return {
       document_number: 'SIV1', document_status: 'approved', lines: [],
-      totals: { vat_posted: 150, vat_net_now: 150, vat_derivable_now: 150, vat_heuristic: 0, net_base_posted: 1000, net_base_now: 1000 },
-      heuristic: { searched: true, truncated: false, limit: 100 },
+      totals: { vat_posted: 150, vat_net_now: 150, vat_derivable_now: 150, vat_heuristic: 0, vat_heuristic_reducing: 0, net_base_posted: 1000, net_base_now: 1000 },
+      heuristic: { searched: true, truncated: false, limit: 100, matches: [] },
     };
   }),
 }));

@@ -37,7 +37,7 @@ import { POST_AS_STORED, assertPostsStoredDimensions } from '../gl/dimensions/di
 import {
   assertSupplierNoteHeaderTags, creditNoteExpenseJournalLines, recordCreditNoteExpenseAllocations,
 } from '../ap/supplierCreditNoteExpenseLines';
-import { assertMirroredNoteVatStands } from '../ap/supplierCreditNoteMirrorApprove';
+import { assertMirroredNoteVatStands, isoOf } from '../ap/supplierCreditNoteMirrorApprove';
 
 /**
  * `autoApply` defaults to 'fifo': a credit note exists to reduce what the
@@ -81,6 +81,7 @@ export async function approveCreditNote(
     await assertMirroredNoteVatStands(companyId, {
       id, number: String(cn.credit_note_number), type: String(cn.type), subtotal: Number(cn.subtotal), taxAmount: Number(cn.tax_amount),
       billId: cn.supplier_invoice_id ? String(cn.supplier_invoice_id) : null, vatBasis: String(cn.vat_basis ?? 'rate'),
+      createdAt: isoOf(cn.created_at),
     });
     // A customer note's header job / CC1 / CC2 / BU: refused on a linked note, posted on an unlinked one.
     const headerTags = String(cn.type) === 'customer' ? await creditNoteHeaderTags(companyId, creditNoteHeaderOf(cn)) : null;

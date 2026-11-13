@@ -50,7 +50,7 @@ export interface MirrorPlan {
   netBaseNow: number;
   /** The derivable VAT at the posted rate on what the bill still carries, less what it carries (> 0 = reversed). */
   vatOutOfProportion: number;
-  /** Heuristic matches' VAT on the bill's VAT accounts (< 0 = they reversed some). */
+  /** What the heuristic matches take off the bill's VAT: each match's negative net, summed (<= 0). */
   vatHeuristic: number;
   /** The VAT the bill carries if the heuristic matches are about it: what an acknowledged call should state. */
   suggestedVatAmount: number;
@@ -79,7 +79,7 @@ function adjusting(lines: readonly DocumentVatLine[], unposted: readonly Unposte
 export function planMirroredNote(
   h: DocumentVatHistory, subtotal: number, ack: MirrorAck, unposted: readonly UnpostedNote[] = [],
 ): MirrorDecision {
-  const { vat_posted: vatPosted, net_base_posted: basePosted, vat_heuristic: vatHeuristic } = h.totals;
+  const { vat_posted: vatPosted, net_base_posted: basePosted, vat_heuristic_reducing: vatHeuristic } = h.totals;
   const baseNow = r2(h.totals.net_base_now - unposted.reduce((s, n) => s + n.subtotal, 0));
   const vatNow = r2(h.totals.vat_derivable_now - unposted.reduce((s, n) => s + n.tax_amount, 0));
   const bill = h.document_number;
@@ -99,14 +99,17 @@ export function planMirroredNote(
   const whole = Math.abs(subtotal - baseNow) <= 0.005;
   const share = (vat: number) => (whole ? Math.max(0, vat) : Math.min(Math.max(0, vat), r2(subtotal * Math.max(0, vat) / baseNow)));
   const derivableTax = r2(share(vatNow));
-  const suggested = r2(Math.min(derivableTax, share(r2(vatNow + Math.min(0, vatHeuristic)))));
+  const suggested = r2(Math.min(derivableTax, share(r2(vatNow + vatHeuristic))));
+  // Each match on its own (review round 2, R2-1): one that ADDS VAT must not hide one that took it away.
+  const moved = h.heuristic.matches.filter((m) => Math.abs(m.vat_amount) > 0.01);
   const adjustingJournals = adjusting(h.lines, unposted);
   const tolerance = 0.01 * (1 + adjustingJournals.length);
   const outOfProportion = r2(baseNow * (vatPosted / basePosted) - vatNow);
   const issues = [
     Math.abs(outOfProportion) > tolerance
       ? `its credit notes and reversals leave ${fmt(vatNow)} of VAT on ${fmt(baseNow)} of base, ${fmt(Math.abs(outOfProportion))} ${outOfProportion > 0 ? 'less' : 'more'} than its posted rate gives` : null,
-    Math.abs(vatHeuristic) > 0.01 ? `journals naming the bill moved ${fmt(vatHeuristic)} of its VAT (matched by narration or reference: heuristic)` : null,
+    moved.length > 0
+      ? `${moved.length} journal(s) naming the bill moved its VAT (${moved.map((m) => `${m.entry_number ?? m.journal_entry_id} ${fmt(m.vat_amount)}`).join(', ')}; matched by narration or reference: heuristic)` : null,
     h.heuristic.truncated ? `more than ${h.heuristic.limit} journals name the bill, so the search is incomplete` : null,
   ].filter((s): s is string => s !== null);
   const rateOf = (tax: number) => Math.min(100, r2(tax / subtotal * 100));

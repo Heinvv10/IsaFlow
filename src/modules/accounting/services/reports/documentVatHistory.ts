@@ -17,8 +17,9 @@
  *   credit_note      a LINKED credit note's journal, its companion and its
  *                    reversal chain (a cancelled note's contra);
  *   reference_match  HEURISTIC (documentVatHistoryQuery.readNarrationMatches:
- *   narration_match  hand journals only, on the document's own VAT accounts,
- *                    dated on or after it, naming its number as a whole token).
+ *   narration_match  any journal but a document posting, on the document's own
+ *                    VAT accounts, dated in or after its fiscal period, naming
+ *                    its number as a whole token; each judged on its own).
  * Credit applied by FIFO from a note NOT linked to the document carries no VAT
  * tie to it and is not read. A CANCELLED invoice or bill no longer names its
  * posting journal (the cancel nulls the link), so neither its posting nor its
@@ -31,23 +32,24 @@ import { fmtDate } from '@/lib/fmtDate';
 import { MissingSystemAccountError } from '../gl/systemAccountKeys';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import {
-  MATCH_LIMIT, readChainLines, readDocument, readNarrationMatches, readTiedRoots,
+  MATCH_LIMIT, readChainLines, readDocument, readNarrationMatches, readPeriodStart, readTiedRoots,
   type DocumentVatEntityType, type RootJournal,
 } from './documentVatHistoryQuery';
 import {
   documentDirection, documentVatAccountIds, isSearchableToken, summariseVatLines, tokenPattern,
-  type DocumentVatLine, type DocumentVatTotals,
+  type DocumentVatLine, type DocumentVatTotals, type HeuristicMatch,
 } from './documentVatHistorySummary';
 
 export { DOCUMENT_VAT_ENTITY_TYPES, type DocumentVatEntityType, type DocumentVatTie } from './documentVatHistoryQuery';
-export type { DocumentVatLine, DocumentVatTotals } from './documentVatHistorySummary';
+export type { DocumentVatLine, DocumentVatTotals, HeuristicMatch } from './documentVatHistorySummary';
 
 export const HEURISTIC_NOTE =
-  'reference_match and narration_match are HEURISTIC: a posted hand journal (not any document\'s own posting, not a '
-  + 'reversal), dated on or after this document, with a line on one of its own VAT accounts, whose reference or '
+  'reference_match and narration_match are HEURISTIC: a posted journal that is no document\'s own posting (any '
+  + 'source but invoice, bill, credit-note, payment and payroll postings; not a reversal), dated in or after this '
+  + 'document\'s fiscal period, with a line on one of its own VAT accounts, whose reference or '
   + 'narration names one of its numbers as a whole token (case-insensitive; numbers shorter than 4 characters, longer '
-  + 'than 64 or with no digit are not searched). Only its lines on this document\'s VAT accounts count, and a match '
-  + 'can only reduce vat_net_now. A match may be about a different document, and a journal that adjusts this one '
+  + 'than 64 or with no digit are not searched). Only its lines on this document\'s VAT accounts count; each match is '
+  + 'judged on its own and can only reduce vat_net_now. A match may be about a different document, and a journal that adjusts this one '
   + 'without naming it is not found. Check each one before relying on it.';
 
 export interface DocumentVatHistory {
@@ -62,6 +64,10 @@ export interface DocumentVatHistory {
     /** False when no search ran: no searchable number, or the document has no VAT account to search on. */
     searched: boolean;
     tokens: string[]; skipped_tokens: string[]; journals_matched: number; truncated: boolean; limit: number; note: string;
+    /** Each match with its chain's net VAT on the document's VAT accounts; judged one by one, never netted together. */
+    matches: HeuristicMatch[];
+    /** The earliest date searched: the start of the document's fiscal period (or its date). */
+    from_date: string;
   };
   notes: string[];
 }
@@ -91,7 +97,9 @@ export async function getDocumentVatHistory(
   const vatAccountIds = documentVatAccountIds(tiedRows);
   const postingDates = tiedRows.filter((r) => r.root_tie === 'posting')
     .map((r) => fmtDate(r.entry_date));
-  const fromDate = [doc.documentDate, ...postingDates].filter(Boolean).sort()[0] ?? doc.documentDate;
+  const earliest = [doc.documentDate, ...postingDates].filter(Boolean).sort()[0] ?? doc.documentDate;
+  // A same-period correction may be back-dated before the bill (review round 2, B4): search from its fiscal period.
+  const fromDate = (await readPeriodStart(companyId, earliest)) ?? earliest;
 
   const candidates = [...new Set([doc.number, doc.externalNumber]
     .filter((t): t is string => Boolean(t && t.trim())).map((t) => t.trim()))];
@@ -106,7 +114,7 @@ export async function getDocumentVatHistory(
   const kept: RootJournal[] = matched.slice(0, MATCH_LIMIT)
     .map(({ journalId, tie, matchedIn }) => ({ journalId, tie, via: null, matchedIn }));
   const rows = [...tiedRows, ...await readChainLines(companyId, kept)];
-  const { lines, totals } = summariseVatLines(rows, documentDirection(entityType, doc.noteType), await roleAccountIds(companyId));
+  const { lines, totals, matches } = summariseVatLines(rows, documentDirection(entityType, doc.noteType), await roleAccountIds(companyId));
 
   const notes: string[] = [];
   if (doc.status === 'cancelled' && !doc.postingJournalId && entityType !== 'credit_note') {
@@ -124,7 +132,7 @@ export async function getDocumentVatHistory(
     external_document_number: doc.externalNumber, document_status: doc.status, lines, totals,
     heuristic: {
       searched, tokens, skipped_tokens: candidates.filter((t) => !tokens.includes(t)),
-      journals_matched: kept.length, truncated, limit: MATCH_LIMIT, note: HEURISTIC_NOTE,
+      journals_matched: kept.length, truncated, limit: MATCH_LIMIT, note: HEURISTIC_NOTE, matches, from_date: fromDate,
     },
     notes,
   };
