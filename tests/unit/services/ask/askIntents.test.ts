@@ -205,6 +205,15 @@ describe('every content word is accounted for, or the question is refused', () =
   });
 });
 
+describe('the refusal quotes the words as the person typed them', () => {
+  it('doesn\'t, not "not"', () => {
+    const p = parseQuestion("who doesn't owe me");
+    expect(p.kind === 'leftover' && p.words).toEqual(["doesn't"]);
+    const q = parseQuestion('revenue from acme');
+    expect(q.kind === 'leftover' && q.words).toEqual(['from', 'acme']);
+  });
+});
+
 describe('numeric dates are part of a window, not leftover words', () => {
   it.each([['total assets as at 2026-10-15', 10, 15, 2026], ['total assets as at 15/10/2026', 10, 15, 2026], ['who owes me money on 15-10-2026', 10, 15, 2026]])('%s', (q, month, day, year) => {
     const p = parseQuestion(q);

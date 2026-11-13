@@ -8,24 +8,33 @@
  */
 
 const FILLER = ['what', 'whats', 'is', 'are', 'was', 'were', 'my', 'our', 'mine', 'i', 'we', 'me', 'us', 'you', 'your', 'the', 'a', 'an', 'for', 'in', 'of', 'on', 'at', 'as',
-  'to', 'do', 'does', 'did', 'can', 'could', 'would', 'how', 'much', 'many', 'please', 'show', 'tell', 'give', 'list', 'it', 'its', 'there', 'been', 'be', 'have', 'has', 'had',
+  'to', 'do', 'does', 'did', 'can', 'could', 'how', 'much', 'many', 'please', 'show', 'tell', 'give', 'list', 'it', 'its', 'there', 'been', 'be', 'have', 'has', 'had',
   'any', 'all', 'still', 'yet', 'need', 'needs', 'so', 'far', 'right', 'just', 'kindly', 'roughly', 'approximately', 'about', 'around', 'which', 'when', 'who', 'whom', 'with',
   'and', 'or', 'plus', 'vs', 'versus', 'than', 'due', 'now', 'currently', 'total', 'totals', 'number', 'count', 'get', 'got', 'pay', 'paid', 'owed', 'amount', 'figure', 'overall', 'company', 'business', 'thanks', 'thank', 'moment', 'return', 'sheet', 'statement', 'account', 'accounts',
-  'am', 'not', 'will', 'shall', 'should', 'might', 'make', 'made', 'making', 'earn', 'earned', 'earning', 'earnings', 'see', 'look', 'check', 'also', 'really', 'actually', 'ever',
-  'already', 'doing', 'done', 'being', 'period', 'periods', 'little', 'bit', 'quick', 'quickly', 'vendor', 'vendors', 'end', 'looking', 'looks', 'own', 'owns'];
+  'am', 'make', 'made', 'making', 'earn', 'earned', 'earning', 'earnings', 'see', 'look', 'check', 'also', 'really', 'actually',
+  'doing', 'done', 'being', 'little', 'bit', 'quick', 'quickly', 'vendor', 'vendors', 'looking', 'looks'];
 
 const INTENT_WORDS = ['owe', 'owes', 'owing', 'money', 'cash', 'bank', 'banks', 'balance', 'balances', 'hand', 'position', 'debtor', 'debtors', 'receivable', 'receivables',
   'customer', 'customers', 'outstanding', 'creditor', 'creditors', 'payable', 'payables', 'supplier', 'suppliers', 'transaction', 'transactions', 'line', 'lines', 'code',
-  'coded', 'coding', 'unallocated', 'unmatched', 'asset', 'assets', 'vat', 'emp', '201', 'emp201', 'paye', 'sdl', 'uif', 'sars', 'payroll', 'run', 'runs', 'cost', 'costs', 'costofsales',
+  'coded', 'coding', 'waiting', 'needing', 'uncategorised', 'uncoded', 'unallocated', 'unmatched', 'asset', 'assets', 'vat', 'emp', '201', 'emp201', 'paye', 'sdl', 'uif', 'sars', 'payroll', 'run', 'runs', 'cost', 'costs', 'costofsales',
   'expense', 'expenses', 'spend', 'spending', 'spent', 'profit', 'loss', 'net', 'gross', 'operating', 'income', 'revenue', 'sales', 'turnover', 'purchases', 'purchase',
   'input', 'output', 'latest', 'last', 'recent', 'margin'];
 
 /** Phrases whose preposition belongs to the question ("outstanding from customers"), removed before the scan. */
+/**
+ * Window phrases the parser reads (askIntents parsePeriod): only inside these do "year", "month", "financial", "period" and "date"
+ * carry no leftover. Alone ("year end", "for the period", "last period") they are refinements we do not understand.
+ */
+const WINDOW_PHRASES = /\bthe\s+end\s+of\s+(?:this|last|previous|prior)\s+(?:financial\s+|fiscal\s+)?(?:year|month)\b|\b(?:this|last|previous|prior|current)\s+(?:financial\s+|fiscal\s+)?(?:year|month)\b|\b(?:year|month)\s+to\s+date\b|\b(?:financial|fiscal)\s+year\s+(?:19|20)\d{2}\b|\b(?:19|20)\d{2}\s+(?:financial|fiscal)\s+year\b/g;
+const CURRENT_PERIOD = /\b(?:this|current)\s+period\b/g;
+/** Negation is meaning, never filler. Its one real use: bank lines that have not been allocated. */
+const NOT_ALLOCATED = /\b(?:(?:have|has|had|are|is|were|was)\s+)?not\s+(?:yet\s+)?(?:been\s+)?(?:allocated|categorised|coded|matched)\b/g;
+
 const PHRASES = /\b(?:outstanding|owed|owing)\s+(?:from|by)\s+(?:customers?|debtors?)\b|\b(?:owe|owed|owing|outstanding|payable)\s+(?:to|from)\s+(?:suppliers?|creditors?|vendors?)\b/g;
 
 const INTENT_STEMS = [/^allocat/, /^categoris/, /^match/, /^liabilit/];
 
-const PERIOD_WORDS = ['month', 'months', 'year', 'years', 'this', 'previous', 'prior', 'current', 'financial', 'fiscal', 'ytd', 'date', 'fy',
+const PERIOD_WORDS = ['this', 'previous', 'prior', 'current', 'ytd', 'mtd', 'fy',
   'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 
 export const FILLER_WORDS: readonly string[] = FILLER;
@@ -39,9 +48,11 @@ export const isKnownWord = (w: string): boolean => KNOWN.has(w) || WINDOW_TOKEN.
 const WINDOW_TOKEN = /^(?:(?:19|20)\d{2}|fy(?:19|20)\d{2})$/;
 
 /** The words of an already-normalised question that no pattern or window accounts for (days of a date are removed by the caller). */
-export function leftoverWords(normalised: string): string[] {
+export function leftoverWords(normalised: string, vat = false): string[] {
   const out: string[] = [];
-  for (const w of normalised.replace(PHRASES, ' ').split(' ')) {
+  let text = normalised.replace(PHRASES, ' ').replace(WINDOW_PHRASES, ' ').replace(NOT_ALLOCATED, ' ');
+  if (vat) text = text.replace(CURRENT_PERIOD, ' '); // the current VAT period is the VAT intent's own window
+  for (const w of text.split(' ')) {
     if (!w || KNOWN.has(w) || WINDOW_TOKEN.test(w) || INTENT_STEMS.some((re) => re.test(w))) continue;
     if (!out.includes(w)) out.push(w);
   }

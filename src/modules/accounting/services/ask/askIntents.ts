@@ -66,7 +66,7 @@ export const PATTERNS: ReadonlyArray<readonly [AskIntentId, RegExp]> = [
   ['owed_to_me', /\b(who|what)\b.*\b(owes?|owing)\s+(me|us)\b|\b(debtors?|receivables?)\b|\bcustomers?\b.*\b(owe|owing|outstanding)\b|\bowed\s+to\s+(me|us)\b|\b(?:am|are)\s+(?:i|we)\s+owed\b|\boutstanding\b.*\b(?:customers?|debtors?)\b/],
   ['i_owe', /\bwho\s+do\s+(i|we)\s+owe\b|\b(creditors?|payables?)\b|\b(?:owe|owing)\b.*\b(?:suppliers?|creditors?|vendors?)\b|\bsuppliers?\b.*\b(owed|outstanding)\b|\boutstanding\b.*\b(?:suppliers?|creditors?|vendors?)\b|\b(?:how\s+much|what)\s+(?:do|did|are)\s+(?:i|we)\s+owe\b(?!.*\b(?:sars|vat|paye|sdl|uif|tax|payroll)\b)/],
   ['cash', /\b(cash|money)\b.*\b(bank|have|hand)\b|\bbank\s+balances?\b|\bbalances?\b.*\bbank\b|\b(?:account|statement)\s+balances?\b|\bcash\s+(balance|position)\b/],
-  ['bank_to_allocate', /\bbank\b.*\b(transactions?|lines?)\b.*\b(allocat|categoris|cod(?:e|ed|ing)|match)|\b(transactions?|lines?)\b.*\bbank\b.*\b(allocat|categoris|cod(?:e|ed|ing)|match)|\b(unallocated|unmatched)\b.*\bbank\b/],
+  ['bank_to_allocate', /\bbank\b.*\b(?:transactions?|lines?)\b.*\b(?:need|needs|needing|waiting|to\s+be)\b.*\b(?:allocat|categoris|cod(?:e|ed|ing)|match)|\b(?:transactions?|lines?)\b.*\bbank\b.*\b(?:need|needs|needing|waiting|to\s+be)\b.*\b(?:allocat|categoris|cod(?:e|ed|ing)|match)|\b(?:unallocated|unmatched|uncategorised|uncoded)\b.*\bbank\b|\bbank\b.*\b(?:unallocated|unmatched|uncategorised|uncoded)\b|\bbank\b.*\bnot\s+(?:yet\s+)?(?:been\s+)?(?:allocated|categorised|coded|matched)\b/],
   ['assets', /\btotal\s+(?:balance\s+sheet\s+)?assets\b|\bwhat\s+(do|are)\s+(i|we|my|our)\b.*\bassets\b/],
   ['liabilities', /\bliabilit/],
   ['emp201', /\b(emp\s?201|paye|sdl|uif)\b|\bsars\b.*\bpayroll\b|\bpayroll\b.*\bsars\b|\bpayroll\s+liabilit/],
@@ -85,10 +85,13 @@ const ABBREVIATED: Readonly<Record<string, string>> = { jan: 'january', feb: 'fe
 /** "what's" -> "what is", "didn't" -> "did not": the apostrophe must not leave a stray "s" or "t" behind. */
 const expandContractions = (q: string): string => q.replace(/[\u2018\u2019]/g, "'")
   .replace(/\b(won)'t\b/g, 'will not').replace(/\b(can)'t\b/g, 'can not').replace(/n't\b/g, ' not')
-  .replace(/'re\b/g, ' are').replace(/'ve\b/g, ' have').replace(/'m\b/g, ' am').replace(/'ll\b/g, ' will').replace(/'d\b/g, ' would').replace(/'s\b/g, ' is');
+  .replace(/'re\b/g, ' are').replace(/'ve\b/g, ' have').replace(/'m\b/g, ' am').replace(/'ll\b/g, ' will').replace(/'d\b/g, ' would').replace(/\b(what|who|how|that|it|there|here|where|when|he|she)'s\b/g, '$1 is').replace(/'s\b/g, '');
+
+/** Politeness openers: a recognised unit, not loose words ("would", "want" and "know" keep their meaning everywhere else). */
+const OPENERS = /\b(?:i\s+would\s+like\s+to\s+(?:know|see)|i\s+want\s+to\s+(?:know|see)|i\s+need\s+to\s+know|(?:can|could|would)\s+you\s+(?:please\s+)?(?:tell|show)\s+me|(?:please\s+)?(?:tell|show)\s+me|let\s+me\s+know|do\s+you\s+know)\b/g;
 
 const normalise = (question: string): string =>
-  expandContractions(question.toLowerCase()).replace(/\bcost\s+of\s+sales\b/g, 'costofsales').replace(/\b(jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\b/g, (a) => ABBREVIATED[a]!).replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  expandContractions(question.toLowerCase()).replace(/\bcost\s+of\s+sales\b/g, 'costofsales').replace(/\b(jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\b/g, (a) => ABBREVIATED[a]!).replace(/[^a-z0-9\s]/g, ' ').replace(OPENERS, ' ').replace(/\s+/g, ' ').trim();
 
 const QUARTER = /\b(q[1-4]|(?:first|second|third|fourth|1st|2nd|3rd|4th)\s+quarter|h[12]|half\s*year(?:ly)?|quarter(?:ly)?)\b/;
 /** A number is a year only with year context, and never after a comparison word ("more than 2000" is an amount). */
@@ -151,7 +154,7 @@ export function parsePeriod(raw: string): AskPeriod | null {
   const odd = UNSUPPORTED_WINDOW.exec(q);
   if (odd) return { kind: 'unsupported', said: odd[0]! };
   if (/\blast\s+month\b/.test(q)) return { kind: 'last_month' };
-  if (/\bthis\s+month\b|\b(?:this|current)\s+period\b/.test(q)) return { kind: 'this_month' };
+  if (/\bthis\s+month\b|\b(?:this|current)\s+period\b|\bmonth\s+to\s+date\b|\bmtd\b/.test(q)) return { kind: 'this_month' };
   if (/\b(last|previous|prior)\s+(financial\s+|fiscal\s+)?year\b/.test(q)) return { kind: 'last_year' };
   if (/\b(this|current)\s+(financial\s+|fiscal\s+)?year\b|\byear\s+to\s+date\b|\bytd\b/.test(q)) return { kind: 'this_year' };
   const named = new RegExp(`\\b(${MONTH_RE})(?:\\s+(20\\d{2}))?\\b`).exec(q)
@@ -243,6 +246,10 @@ function keysOf(clause: string): Key[] {
 /** Clauses joined by and / & / , / plus / vs: each may ask for something different, and silently answering one drops the other. */
 const JOINERS = /[,;&]|\b(?:and|plus|vs\.?|versus)\b|\bas\s+well\s+as\b/;
 
+const LENDER = /\b(?:bank|banks|loan|loans|overdraft|credit\s+card|lender|lenders|mortgage|finance)\b/;
+/** The books hold what happened: a question about the future is refused, not answered with the present figure. */
+const FORECAST = /\b(?:will|shall|going\s+to|forecast|predict|predicted|projected|projection|expected)\b/;
+
 const AMOUNT_FILTER = /\b(?:more than|less than|greater than|fewer than|over|under|above|below|exceeding|at least|at most)\s+(?:r\s?)?\d+\s*([a-z]*)/;
 const DURATION_UNIT = /^(?:days?|weeks?|months?|years?)$/;
 /** "over 90 days", "overdue", "buckets": a refinement by age, which the plain total does not honour. */
@@ -251,6 +258,16 @@ const COMPARISON = /\b(?:vs|versus|compared\s+(?:to|with)|compare|comparison|aga
 const TAX_BASIS = /\b(?:before|after|pre|post|net\s+of|less|excluding|including|incl|excl|ex)\s+tax\b/;
 /** "excluding VAT" modifies a figure; it is not a VAT question, so it is cut out before the intents are read. */
 const VAT_BASIS = /\b(?:excluding|including|incl|excl|ex|net\s+of|before|after|less)\s+vat\b/g;
+
+/** The leftover tokens as the person typed them ("doesn't", not the expanded "not"), in question order. */
+function originalWords(question: string, leftover: string[]): string[] {
+  const out: string[] = [];
+  for (const raw of question.split(/\s+/)) {
+    const word = raw.replace(/^[^\w']+|[^\w']+$/g, '');
+    if (word && normalise(word).split(' ').some((t) => leftover.includes(t)) && !out.includes(word)) out.push(word);
+  }
+  return out.length > 0 ? out : leftover;
+}
 
 export function parseQuestion(question: string): ParsedQuestion {
   const full = normalise(question);
@@ -265,6 +282,8 @@ export function parseQuestion(question: string): ParsedQuestion {
   if (keys.length === 0) return { kind: 'none' };
   if (keys.length > 1) return { kind: 'ambiguous', ids: [...new Set(keys.map((k) => k.id))], examples: keys.map((k) => exampleForKey(k, windowPhrases(q)[0] ?? null)) };
   const { id, qualifier } = keys[0]!;
+  if (id === 'i_owe' && LENDER.test(q)) return { kind: 'unsupported', id, said: 'what is owed to the bank or lenders' };
+  if (FORECAST.test(q)) return { kind: 'unsupported', id, said: 'forecasts' };
   if ((id === 'owed_to_me' || id === 'i_owe') && AGING_BUCKET.test(q)) return { kind: 'unsupported', id, said: 'by aging bucket' };
   const amount = AMOUNT_FILTER.exec(q);
   if (amount && !DURATION_UNIT.test(amount[1] ?? '')) return { kind: 'unsupported', id, said: 'amount filters ("more than R2 000")' };
@@ -279,8 +298,8 @@ export function parseQuestion(question: string): ParsedQuestion {
   const period = parsePeriod(q);
   // Every remaining content word is something we did not understand: refuse rather than answer the plain figure without it.
   if (period?.kind !== 'unsupported') {
-    const words = leftoverWords(stripDates(q));
-    if (words.length > 0) return { kind: 'leftover', id, words };
+    const left = leftoverWords(stripDates(q), id === 'vat');
+    if (left.length > 0) return { kind: 'leftover', id, words: originalWords(question, left) };
   }
   return { kind: 'intent', intent: { id, period, qualifier } };
 }
