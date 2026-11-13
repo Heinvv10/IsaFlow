@@ -7,16 +7,23 @@ import { isInAppPath } from '@/lib/inAppPath';
 
 const ROOT = resolve(__dirname, '../../..');
 const ID = '11111111-1111-4111-8111-111111111111';
-const CASES: Array<[CommentRecordType, string, string, string]> = [
-  ['customer_invoice', commentRecordHref('customer_invoice', ID), 'pages/accounting/customer-invoices/[invoiceId].tsx', 'recordType="customer_invoice"'],
-  ['supplier_invoice', commentRecordHref('supplier_invoice', ID), 'pages/accounting/supplier-invoices/[invoiceId].tsx', 'recordType="supplier_invoice"'],
-  ['bank_transaction', commentRecordHref('bank_transaction', ID, 'acct-1'), 'pages/accounting/bank-transactions/index.tsx', 'useBankLineDeepLink'],
+/** The page file Next serves for `href`: the id segment is the dynamic [invoiceId] file, otherwise the folder's index. */
+function pageFileOf(href: string): string {
+  const path = new URL(href, 'http://x').pathname.replace(ID, '[invoiceId]');
+  const direct = `pages${path}.tsx`;
+  return existsSync(resolve(ROOT, direct)) ? direct : `pages${path}/index.tsx`;
+}
+const CASES: Array<[CommentRecordType, string, string]> = [
+  ['customer_invoice', commentRecordHref('customer_invoice', ID), 'recordType="customer_invoice"'],
+  ['supplier_invoice', commentRecordHref('supplier_invoice', ID), 'recordType="supplier_invoice"'],
+  ['bank_transaction', commentRecordHref('bank_transaction', ID, 'acct-1'), 'useBankLineDeepLink'],
 ];
 
-describe.each(CASES)('%s link', (type, href, pageFile, marker) => {
+describe.each(CASES)('%s link', (type, href, marker) => {
   it('is an in-app path to a page that exists and carries the panel (or the deep link into the drawer that does)', () => {
     expect(isInAppPath(href)).toBe(true);
-    expect(existsSync(resolve(ROOT, pageFile))).toBe(true);
+    const pageFile = pageFileOf(href);
+    expect(existsSync(resolve(ROOT, pageFile)), pageFile).toBe(true);
     expect(readFileSync(resolve(ROOT, pageFile), 'utf8')).toContain(marker);
   });
   it('names the record', () => expect(href).toContain(ID));
