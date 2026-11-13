@@ -119,4 +119,17 @@ describe('the narrow undo of a leaver exit', () => {
     const { f, d } = await exitTaken('DR r5 four eyes');
     await refused(f, d, '2027-02-28', 403, f.admin);
   });
+
+  it('the exit in effect follows the expiry, and an undone exit is spent (forged states no route reaches): 400 each', async () => {
+    // The expiry is no longer the exit's.
+    const one = await exitTaken('DR r5 stale exit');
+    await pool.query("UPDATE tax_directives SET expiry_date = '2026-03-05' WHERE id = $1", [one.d]);
+    expect((await patchDirective(one.f, one.d, { expiry_date: '2027-02-28' }, one.f.approver)).statusCode).toBe(400);
+    // The exit was undone; the expiry forged back to the exit's date does not make it undoable twice.
+    const two = await exitTaken('DR r5 spent exit');
+    expect((await patchDirective(two.f, two.d, { expiry_date: '2027-02-28' }, two.f.approver)).statusCode).toBe(200);
+    await pool.query("UPDATE tax_directives SET expiry_date = '2026-03-01' WHERE id = $1", [two.d]);
+    expect((await patchDirective(two.f, two.d, { expiry_date: '2027-02-28' }, two.f.approver)).statusCode).toBe(400);
+    expect(await undoRows(two.d)).toHaveLength(1);
+  });
 });
