@@ -101,6 +101,25 @@ test('a full question typed into Ctrl+K gets an Ask IsaFlow row, and Enter answe
   await expect(page.getByTestId('ask-text')).toContainText(/customers owe you/i, { timeout: 60_000 });
 });
 
+test('reopening Ctrl+K after an answer keeps focus in the search box, every time', async ({ page }) => {
+  await page.setViewportSize({ width: 1568, height: 1000 });
+  await page.goto('/accounting', { waitUntil: 'domcontentloaded' });
+  await settle(page);
+  for (let round = 0; round < 2; round++) {
+    await page.keyboard.press('Control+k');
+    await page.getByRole('combobox').fill('cash in bank');
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('ask-text')).toBeVisible({ timeout: 60_000 });
+    await page.keyboard.press('Escape');
+    await expect(page.locator(DIALOG)).toBeHidden();
+    await page.keyboard.press('Control+k');
+    await expect(page.getByRole('combobox')).toBeFocused();
+    await page.keyboard.type('xyz');
+    await expect(page.getByRole('combobox')).toHaveValue('xyz');
+    await page.keyboard.press('Escape');
+  }
+});
+
 test('an unknown question says so and suggests questions that work; axe clean', async ({ page }) => {
   await page.setViewportSize({ width: 1568, height: 1000 });
   await page.goto('/accounting', { waitUntil: 'domcontentloaded' });

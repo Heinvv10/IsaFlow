@@ -107,6 +107,25 @@ describe('Explain this figure', () => {
   });
 });
 
+describe('reopening the palette after Ask', () => {
+  it('shows the search box, focused and empty, on the first frame of every open', () => {
+    apiJson.mockResolvedValue({ understood: true, text: 'ok', figure: 1, lines: [], link: null, suggestions: [] });
+    const { rerender } = render(<CommandPalette isOpen onClose={() => undefined} />);
+    for (let round = 0; round < 3; round += 1) {
+      fireEvent.click(screen.getByText('Ask IsaFlow'));
+      expect(screen.getByTestId('ask-panel')).toBeTruthy();
+      rerender(<CommandPalette isOpen={false} onClose={() => undefined} />);
+      rerender(<CommandPalette isOpen onClose={() => undefined} />);
+      expect(screen.queryByTestId('ask-panel')).toBeNull();
+      expect(document.activeElement).toBe(screen.getByRole('combobox'));
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'xyz' } });
+      expect((screen.getByRole('combobox') as HTMLInputElement).value).toBe('xyz');
+      rerender(<CommandPalette isOpen={false} onClose={() => undefined} />);
+      rerender(<CommandPalette isOpen onClose={() => undefined} />);
+    }
+  });
+});
+
 describe('a typed question', () => {
   const type = (v: string) => fireEvent.change(screen.getByRole('combobox'), { target: { value: v } });
   const answerOnce = () => apiJson.mockResolvedValue({ understood: true, text: 'Customers owe you R 5.00.', figure: 5, lines: [], link: null, suggestions: [] });

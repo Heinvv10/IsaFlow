@@ -14,7 +14,7 @@ import { periodRefusal, rand, reply, type AskAnswer } from './askTypes';
 export const r2 = (n: number): number => Math.round(n * 100) / 100;
 const num = (v: unknown): number => (typeof v === 'number' ? v : Number(v) || 0);
 const dayBefore = (iso: string): string => new Date(Date.parse(`${iso}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
-const AS_AT_HELP = 'Name a month, "this month" or "last month" and I will give the position as at its end.';
+const AS_AT_HELP = 'Name a month, "this month", "last month" or an exact day ("as at 15 October") and I will give the position as at that date.';
 
 export async function aging(side: 'ar' | 'ap', intent: AskIntent, companyId: string, today: string): Promise<AskAnswer> {
   const href = side === 'ar' ? '/accounting/ar-aging' : '/accounting/ap-aging';

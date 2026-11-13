@@ -62,11 +62,11 @@ describe('metering', () => {
     expect(m.deduct).not.toHaveBeenCalled();
   });
 
-  it('an unrecognised, an ambiguous and a free-text question charge nothing', async () => {
-    await run('what is the weather');
-    await run('total assets and liabilities');
+  it('an unrecognised, ambiguous, multi-period or unsupported-refinement question charges nothing', async () => {
+    const qs = ['what is the weather', 'total assets and liabilities', 'profit this year vs last year', 'profit before tax', 'net profit vs last month', 'gross profit and net profit'];
+    for (const q of qs) await run(q);
     expect(m.deduct).not.toHaveBeenCalled();
-    expect(m.answer).toHaveBeenCalledTimes(2);
+    expect(m.answer).toHaveBeenCalledTimes(qs.length);
   });
 
   it('a metered question that still returns no figure is refunded', async () => {
@@ -98,7 +98,7 @@ describe('metering', () => {
     expect(m.answer).toHaveBeenCalledTimes(1);
   });
 
-  it.each([['what is my profit for 2025'], ['what is my profit in q3'], ['what are my total assets last year'], ['what are my total assets last quarter'], ['what are my expenses today']])(
+  it.each([['what is my profit for 2025'], ['what is my profit in q3'], ['what are my total assets last year'], ['what are my total assets last quarter'], ['what are my expenses today'], ['what are my total assets as at 15 october 2027'], ['what is my profit on 15 october']])(
     'a refused window (%s) is decided before any debit: no charge, no refund, no 402 path',
     async (q) => {
       m.deduct.mockRejectedValue(new InsufficientFlowsError(0, 10)); // a dry wallet must not matter

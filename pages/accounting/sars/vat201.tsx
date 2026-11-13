@@ -73,9 +73,12 @@ export default function VAT201Page() {
   }, [from, to]);
 
   // A link from Ask IsaFlow lands on the figure it quoted: Generate is a read, so it runs once the link's period and the VAT settings are in.
-  const autoRan = useRef(false);
+  const autoRanFor = useRef('');
   useEffect(() => {
-    if (link && !autoRan.current && settingsReady && from === link.from && to === link.to) { autoRan.current = true; void generate(); }
+    if (!link || !settingsReady || from !== link.from || to !== link.to) return;
+    if (autoRanFor.current === `${link.from}|${link.to}`) return;
+    autoRanFor.current = `${link.from}|${link.to}`;
+    void generate();
   }, [link, settingsReady, from, to, generate]);
 
   const saveDraft = async () => {

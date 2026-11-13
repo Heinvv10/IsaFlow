@@ -5,7 +5,7 @@ import { getDeclarablePayRun } from '@/modules/accounting/services/payroll/payro
 import { getCompanyVatCycle, type VatCycle } from '@/modules/accounting/services/reports/companyVatCycle';
 import { defaultVatQuickPeriod } from '@/modules/bureau/services/vatPeriodHelper';
 import type { AskIntent } from './askIntents';
-import { describePeriod, monthOf, MONTH_NAMES } from './askPeriod';
+import { describePeriod, isMonthWindow, monthOf, MONTH_NAMES } from './askPeriod';
 import { periodRefusal, rand, reply, type AskAnswer } from './askTypes';
 
 const r2 = (n: number): number => Math.round(n * 100) / 100;
@@ -22,7 +22,7 @@ export async function vat(intent: AskIntent, companyId: string, today: string): 
   const href = '/accounting/sars/vat201';
   const label = 'Open the VAT201';
   const p = intent.period;
-  if (p && (p.kind === 'unsupported' || p.kind === 'this_year' || p.kind === 'last_year')) {
+  if (!isMonthWindow(p)) {
     return periodRefusal('VAT', describePeriod(p), 'VAT is filed by VAT period. Name a month, "this month" or "last month", or leave the period out for your current one.', href, label);
   }
   const settings = await getCompanyVatCycle(companyId);
@@ -43,7 +43,7 @@ export async function emp201(intent: AskIntent, companyId: string, today: string
   const href = '/accounting/sars/emp201';
   const label = 'Open the EMP201';
   const p = intent.period;
-  if (p && (p.kind === 'unsupported' || p.kind === 'this_year' || p.kind === 'last_year')) {
+  if (!isMonthWindow(p)) {
     return periodRefusal('the EMP201', describePeriod(p), 'An EMP201 is one month. Name a month, "this month" or "last month", or leave it out for last month.', href, label);
   }
   const t = monthOf(p, today, 'last')!;
@@ -60,7 +60,7 @@ export async function emp201(intent: AskIntent, companyId: string, today: string
 export async function lastPayRun(intent: AskIntent, companyId: string, today: string): Promise<AskAnswer> {
   const href = '/payroll/runs';
   const p = intent.period;
-  if (p && (p.kind === 'unsupported' || p.kind === 'this_year' || p.kind === 'last_year')) {
+  if (!isMonthWindow(p)) {
     return periodRefusal('a pay run', describePeriod(p), 'Name a month, "this month" or "last month", or leave it out for the latest run.', href, 'Open pay runs');
   }
   const t = p ? monthOf(p, today, 'this') : null;

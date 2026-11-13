@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { parseQuestion, parsePeriod, INTENT_EXAMPLES, type AskIntentId, type ParsedQuestion } from '@/modules/accounting/services/ask/askIntents';
 import { resolveWindow, resolveAsAt, monthOf } from '@/modules/accounting/services/ask/askPeriod';
 
-const idOf = (p: ParsedQuestion): string => (p.kind === 'intent' ? p.intent.id : p.kind === 'ambiguous' ? `ambiguous:${[...p.ids].sort().join('+')}` : 'none');
+const idOf = (p: ParsedQuestion): string => (p.kind === 'intent' ? p.intent.id : p.kind === 'ambiguous' ? `ambiguous:${[...p.ids].sort().join('+')}` : p.kind === 'unsupported' ? `unsupported:${p.id}` : p.kind === 'periods' ? `periods:${p.id}` : 'none');
 
 describe('parseQuestion', () => {
   it.each(INTENT_EXAMPLES.map((i) => [i.id, i.example]))('%s understands its own example', (id, example) => {
@@ -38,7 +38,25 @@ describe('parseQuestion', () => {
     ['profit and loss', 'profit'],
     ['PAYE, UIF and SDL', 'emp201'],
     ['VAT on my sales and purchases', 'vat'],
-    ['who owes me more than 2000', 'owed_to_me'],
+    ['who owes me more than 2000', 'unsupported:owed_to_me'],
+    ['who owes me more than R2000', 'unsupported:owed_to_me'],
+    ['customers owing more than 2000', 'unsupported:owed_to_me'],
+    ['who owes me under 500', 'unsupported:owed_to_me'],
+    ['How much cash, roughly, is in the bank?', 'cash'],
+    ['what is my profit, roughly, this month', 'profit'],
+    ['net profit vs last month', 'unsupported:profit'],
+    ['profit compared to last month', 'unsupported:profit'],
+    ['profit before tax', 'unsupported:profit'],
+    ['profit after tax', 'unsupported:profit'],
+    ['revenue excluding vat', 'unsupported:vat'],
+    ['profit this year vs last year', 'periods:profit'],
+    ['profit this month vs last month', 'periods:profit'],
+    ['profit last month and this month', 'periods:profit'],
+    ['vat for october and november', 'periods:vat'],
+    ['gross profit and net profit', 'ambiguous:profit'],
+    ['gross profit and operating profit', 'ambiguous:profit'],
+    ['cost of sales and expenses', 'ambiguous:expenses'],
+    ['cost of sales and revenue', 'ambiguous:expenses+revenue'],
   ])('%s -> %s', (q, expected) => expect(idOf(parseQuestion(q))).toBe(expected));
 
   it.each<[string, AskIntentId]>([
@@ -84,6 +102,34 @@ describe('parsePeriod', () => {
   });
 });
 
+describe('ambiguous and multi-window replies offer the choices', () => {
+  it('two figures of one intent offer one question each', () => {
+    const p = parseQuestion('gross profit and net profit');
+    expect(p.kind === 'ambiguous' && p.examples).toEqual(['What is my gross profit this month?', 'What is my profit this month?']);
+    const q = parseQuestion('cost of sales and expenses');
+    expect(q.kind === 'ambiguous' && q.examples).toEqual(['What is my cost of sales this month?', 'What are my expenses last month?']);
+  });
+  it('several windows offer one question per window', () => {
+    const p = parseQuestion('profit this year vs last year');
+    expect(p.kind === 'periods' && p.examples).toEqual(['What is my profit last year?', 'What is my profit this year?']);
+    const q = parseQuestion('what vat do I owe for october and november');
+    expect(q.kind === 'periods' && q.examples).toEqual(['What VAT do I owe October?', 'What VAT do I owe November?']);
+  });
+});
+
+describe('exact days', () => {
+  it('reads a day with its month (and year)', () => {
+    expect(parsePeriod('as at 15 october')).toEqual({ kind: 'day', day: 15, month: 10, year: null });
+    expect(parsePeriod('on the 3rd of march 2026')).toEqual({ kind: 'day', day: 3, month: 3, year: 2026 });
+    expect(parsePeriod('as at october 15th')).toEqual({ kind: 'day', day: 15, month: 10, year: null });
+    expect(parsePeriod('as at 2026-10-15')).toEqual({ kind: 'day', day: 15, month: 10, year: 2026 });
+  });
+  it('an impossible day is refused, never turned into its month', () => {
+    expect(parsePeriod('as at 31 april')).toEqual({ kind: 'unsupported', said: '31 april' });
+    expect(parsePeriod('as at 30 february 2026')).toEqual({ kind: 'unsupported', said: '30 february 2026' });
+  });
+});
+
 describe('qualifiers', () => {
   it('gross and operating profit and cost of sales are carried as qualifiers', () => {
     const q = (t: string) => { const p = parseQuestion(t); return p.kind === 'intent' ? [p.intent.id, p.intent.qualifier] : p.kind; };
@@ -91,6 +137,15 @@ describe('qualifiers', () => {
     expect(q('operating profit last month')).toEqual(['profit', 'operating']);
     expect(q('cost of sales this year')).toEqual(['expenses', 'cost_of_sales']);
     expect(q('what is my profit')).toEqual(['profit', undefined]);
+  });
+});
+
+describe('askPeriod days', () => {
+  it('as-at honours the exact day; a day without a year is the latest one not after today; the future is refused', () => {
+    expect(resolveAsAt({ kind: 'day', day: 15, month: 10, year: null }, '2026-11-13')?.date).toBe('2026-10-15');
+    expect(resolveAsAt({ kind: 'day', day: 15, month: 12, year: null }, '2026-11-13')?.date).toBe('2025-12-15');
+    expect(resolveAsAt({ kind: 'day', day: 15, month: 10, year: 2027 }, '2026-11-13')).toBeNull();
+    expect(resolveWindow({ kind: 'day', day: 15, month: 10, year: null }, '2026-11-13', null)).toBeNull();
   });
 });
 

@@ -69,7 +69,9 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
       document.removeEventListener('pointerdown', point, true);
     };
   }, []);
-  useEffect(() => { if (isOpen) { setAsking(false); setAskText(''); setExplainNote(''); } }, [isOpen]);
+  // Reset while CLOSED, during render: an effect on open runs after the focus trap has placed focus, and the first open frame would
+  // still show the Ask panel (no search input), leaving focus on the body.
+  if (!isOpen && (asking || askText || explainNote)) { setAsking(false); setAskText(''); setExplainNote(''); }
   const { query, setQuery, server, loading, error, recent } = usePaletteSearch(isOpen, scope);
 
   useFocusTrap(dialogRef, isOpen, onClose);

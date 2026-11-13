@@ -95,7 +95,8 @@ export async function seedAskScope(pool: Pool, s: AskScope): Promise<void> {
     const e = emp.rows[0].id as string;
     await payRun(pool, co, 9, 'approved', a.sepGross, e, '2026-09-20T10:00:00Z');
     await payRun(pool, co, 10, 'approved', a.gross, e, '2026-10-20T10:00:00Z');
-    await payRun(pool, co, 11, 'draft', a.gross * 7, e, '2026-11-05T10:00:00Z'); // a later, undeclared month: never "the last run"
+    await payRun(pool, co, 11, 'draft', a.gross * 7, e, '2026-11-05T10:00:00Z'); // later, undeclared months: never "the last run"
+    await payRun(pool, co, 12, 'calculated', a.gross * 9, e, '2026-11-08T10:00:00Z');
   }
 }
 

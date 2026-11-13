@@ -18,7 +18,13 @@ export async function answerQuestion(companyId: string, question: string, today:
   const parsed = parseQuestion(question);
   if (parsed.kind === 'none') return NOT_UNDERSTOOD;
   if (parsed.kind === 'ambiguous') {
-    return { understood: false, text: 'That could mean more than one thing. Which did you mean?', figure: null, lines: [], link: null, suggestions: parsed.ids.map(exampleFor) };
+    return { understood: false, text: 'That could mean more than one thing. Which did you mean?', figure: null, lines: [], link: null, suggestions: parsed.examples };
+  }
+  if (parsed.kind === 'periods') {
+    return { understood: false, text: 'I can answer one period at a time. Which did you mean?', figure: null, lines: [], link: null, suggestions: parsed.examples };
+  }
+  if (parsed.kind === 'unsupported') {
+    return { understood: false, text: `I can't answer ${parsed.said} yet. I can give the plain figure:`, figure: null, lines: [], link: null, suggestions: [exampleFor(parsed.id)] };
   }
   const { intent } = parsed;
   switch (intent.id) {

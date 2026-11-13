@@ -48,7 +48,7 @@ async function route(req: NextApiRequest, res: NextApiResponse) {
   const intent = parsed?.kind === 'intent' ? parsed.intent : null;
   const op = intent ? meteredOperation(intent.id) : null;
   // A window we would refuse is decided before any debit: it costs nothing, and a short wallet never sees a 402 for it.
-  if (intent && op && !periodIsHonoured(intent.id, intent.period)) return handler(req, res);
+  if (intent && op && !periodIsHonoured(intent.id, intent.period, todayInSast())) return handler(req, res);
   return (op === 'report.pnl' ? pnl : op === 'report.bs' ? bs : handler)(req, res);
 }
 

@@ -36,6 +36,12 @@ export function resolveWindow(period: AskPeriod | null, today: string, fy: Fisca
 /** The as-at date for point-in-time figures (balances, aging). Null for a window with no single date. */
 export function resolveAsAt(period: AskPeriod | null, today: string): { date: string; label: string } | null {
   if (!period || period.kind === 'this_month' || period.kind === 'this_year') return { date: today, label: today };
+  if (period.kind === 'day') {
+    const y = Number(today.slice(0, 4));
+    const year = period.year ?? (`${pad(period.month)}-${pad(period.day)}` <= today.slice(5) ? y : y - 1);
+    const date = `${year}-${pad(period.month)}-${pad(period.day)}`;
+    return date > today ? null : { date, label: date };
+  }
   if (period.kind === 'last_month' || period.kind === 'month') {
     const t = monthOf(period, today, 'this')!;
     const end = wholeMonth(t.y, t.m).to;
@@ -54,17 +60,21 @@ export function describePeriod(p: AskPeriod | null): string {
     case 'last_month': return 'last month';
     case 'this_month': return 'this month';
     case 'month': return `${MONTH_NAMES[p.month - 1]}${p.year ? ` ${p.year}` : ''}`;
+    case 'day': return `${p.day} ${MONTH_NAMES[p.month - 1]}${p.year ? ` ${p.year}` : ''}`;
   }
 }
 
+/** A window one calendar month long (or none named): what a return or a pay run is for. */
+export function isMonthWindow(p: AskPeriod | null): boolean {
+  return !p || p.kind === 'this_month' || p.kind === 'last_month' || p.kind === 'month';
+}
+
 /**
- * Whether a metered intent can honour the window the question named, decided from the question alone (pure). The route asks this
- * BEFORE charging, so a refused window never debits, never meets a 402 and never triggers an auto top-up.
+ * Whether a metered intent can honour the window the question named, decided from the question and today alone (pure). The route
+ * asks this BEFORE charging, so a refused window never debits, never meets a 402 and never triggers an auto top-up.
  */
-export function periodIsHonoured(id: AskIntentId, period: AskPeriod | null): boolean {
-  if (!period) return true;
-  if (period.kind === 'unsupported') return false;
-  // Statements take months and financial years; positions take a month or today, and have no single date for a year.
-  if (id === 'assets' || id === 'liabilities') return period.kind !== 'last_year';
-  return true;
+export function periodIsHonoured(id: AskIntentId, period: AskPeriod | null, today: string): boolean {
+  if (id === 'assets' || id === 'liabilities') return resolveAsAt(period, today) !== null;
+  // Statements take a month, a financial year, or nothing (month to date).
+  return !period || period.kind !== 'unsupported' && period.kind !== 'day';
 }

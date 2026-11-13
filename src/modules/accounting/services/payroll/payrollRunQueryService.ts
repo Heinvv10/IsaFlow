@@ -109,8 +109,8 @@ export function payRunCursorParts(run: { periodYear: number; periodMonth: number
 }
 
 /**
- * The pay run a statutory figure would be taken from: only the statuses an EMP201 declares, the latest period first, and
- * within a period the latest created. `month` narrows to one calendar month; null is the latest run overall.
+ * The pay run a statutory figure would be taken from: only the statuses an EMP201 declares, the latest period first. A company has
+ * one run per (year, month) (unique constraint), so that order is total. `month` narrows to one calendar month; null is the latest.
  */
 export async function getDeclarablePayRun(
   companyId: string,
@@ -124,7 +124,7 @@ export async function getDeclarablePayRun(
     WHERE company_id = ${companyId}::UUID
       AND status = ANY(${statuses}::TEXT[])
       AND (${year}::INT IS NULL OR (period_year = ${year}::INT AND period_month = ${m}::INT))
-    ORDER BY period_year DESC, period_month DESC, created_at DESC, id DESC
+    ORDER BY period_year DESC, period_month DESC
     LIMIT 1
   `) as Row[];
   return rows[0] ? { ...mapRunRow(rows[0]) } : null;

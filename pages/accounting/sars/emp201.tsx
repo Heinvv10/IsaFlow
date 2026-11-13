@@ -60,9 +60,11 @@ export default function EMP201Page() {
   }, [from, to]);
 
   // A link from Ask IsaFlow lands on the figure it quoted: Generate is a read, so it runs once for the link's period.
-  const autoRan = useRef(false);
+  const autoRanFor = useRef('');
   useEffect(() => {
-    if (link && !autoRan.current && from === link.from && to === link.to) { autoRan.current = true; void generate(); }
+    if (!link || from !== link.from || to !== link.to || autoRanFor.current === `${link.from}|${link.to}`) return;
+    autoRanFor.current = `${link.from}|${link.to}`;
+    void generate();
   }, [link, from, to, generate]);
 
   const saveDraft = async () => {

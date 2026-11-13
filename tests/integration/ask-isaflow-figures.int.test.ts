@@ -68,6 +68,14 @@ describeIfDb('Ask IsaFlow answers equal the services behind the pages, per tenan
     expect((await ask(S.A, 'what are my total liabilities last month')).figure).toBe(lastMonth.totalLiabilities);
   });
 
+  it('total assets as at a mid-month day is that day, not the month end', async () => {
+    const day = await getBalanceSheet(S.A, '2026-10-11');
+    const monthEnd = await getBalanceSheet(S.A, '2026-10-31');
+    expect(day.totalAssets).not.toBe(monthEnd.totalAssets);
+    expect((await ask(S.A, 'what are my total assets as at 11 october')).figure).toBe(day.totalAssets);
+    expect((await ask(S.A, 'what are my total assets as at 31 october')).figure).toBe(monthEnd.totalAssets);
+  });
+
   it('VAT: October is the Sep-Oct period; with no month it is the current Nov-Dec period; each equals the VAT201 report', async () => {
     const sepOct = await getVat201Report(S.A, '2026-09-01', '2026-10-31', { detail: 'summary' });
     const novDec = await getVat201Report(S.A, '2026-11-01', '2026-12-31', { detail: 'summary' });
@@ -87,7 +95,7 @@ describeIfDb('Ask IsaFlow answers equal the services behind the pages, per tenan
     }
   });
 
-  it('the last pay run is the latest approved month, not the later draft; a named month is that month', async () => {
+  it('the last pay run is the latest DECLARABLE month: a later approved run beats an earlier one, later draft and calculated runs are ignored; a named month is that month', async () => {
     expect((await ask(S.A, 'what did the last pay run cost')).figure).toBe(A.gross);
     expect((await ask(S.A, 'what did payroll cost last month')).figure).toBe(A.gross);
     expect((await ask(S.A, 'what did payroll cost for september')).figure).toBe(A.sepGross);

@@ -15,6 +15,8 @@ export type AskIntentId =
 export type AskPeriod =
   | { kind: 'this_month' } | { kind: 'last_month' } | { kind: 'this_year' } | { kind: 'last_year' }
   | { kind: 'month'; year: number | null; month: number }
+  /** An exact day ("as at 15 October"): honoured for positions, refused for everything else, never rounded to a month end. */
+  | { kind: 'day'; day: number; month: number; year: number | null }
   | { kind: 'unsupported'; said: string };
 
 /** A narrower figure of the same intent: gross/operating profit, cost of sales. Answered as that figure, labelled as it, never as the plain one. */
@@ -24,7 +26,12 @@ export interface AskIntent { id: AskIntentId; period: AskPeriod | null; qualifie
 
 export type ParsedQuestion =
   | { kind: 'intent'; intent: AskIntent }
-  | { kind: 'ambiguous'; ids: AskIntentId[] }
+  /** Two or more figures asked for (different intents, or a plain and a narrower figure of one): `examples` are the questions to choose from. */
+  | { kind: 'ambiguous'; ids: AskIntentId[]; examples: string[] }
+  /** One intent, but several windows ("this year vs last year"): one period at a time, `examples` one per window. */
+  | { kind: 'periods'; id: AskIntentId; examples: string[] }
+  /** A recognised refinement we cannot honour (an amount filter, a comparison, before/after tax): said, never answered with a broader figure. */
+  | { kind: 'unsupported'; id: AskIntentId; said: string }
   | { kind: 'none' };
 
 export interface IntentDoc { id: AskIntentId; example: string }
@@ -74,6 +81,8 @@ const QUARTER = /\b(q[1-4]|(?:first|second|third|fourth|1st|2nd|3rd|4th)\s+quart
 /** A number is a year only with year context, and never after a comparison word ("more than 2000" is an amount). */
 const NOT_A_YEAR_AFTER = new Set(['than', 'over', 'under', 'above', 'below', 'exceeding', 'exceeds', 'least', 'most', 'about', 'around', 'rand', 'r']);
 const YEAR_CONTEXT = new Set(['in', 'for', 'during', 'fy', 'year', 'of', 'since']);
+const MONTH_RE = MONTHS.filter((m) => m !== 'may').join('|');
+const ORD = '(?:st|nd|rd|th)?';
 
 function bareYear(q: string): string | null {
   const words = q.split(' ');
@@ -86,15 +95,37 @@ function bareYear(q: string): string | null {
   return null;
 }
 
+const validDay = (d: number, m: number, y: number | null): boolean => d >= 1 && m >= 1 && m <= 12 && d <= new Date(Date.UTC(y ?? 2024, m, 0)).getUTCDate();
+
+/** An exact day: "15 october [2026]", "october 15th", "2026 10 15" (an ISO date once its dashes are gone). */
+function dayIn(q: string): AskPeriod | null {
+  const dm = new RegExp(`\\b(\\d{1,2})${ORD}\\s+(?:of\\s+)?(${MONTHS.join('|')})(?:\\s+(20\\d{2}))?\\b`).exec(q);
+  if (dm) {
+    const day = Number(dm[1]); const month = MONTHS.indexOf(dm[2]!) + 1; const year = dm[3] ? Number(dm[3]) : null;
+    return validDay(day, month, year) ? { kind: 'day', day, month, year } : { kind: 'unsupported', said: dm[0]! };
+  }
+  const md = new RegExp(`\\b(${MONTHS.join('|')})\\s+(\\d{1,2})${ORD}(?:\\s+(20\\d{2}))?\\b`).exec(q);
+  if (md) {
+    const day = Number(md[2]); const month = MONTHS.indexOf(md[1]!) + 1; const year = md[3] ? Number(md[3]) : null;
+    return validDay(day, month, year) ? { kind: 'day', day, month, year } : { kind: 'unsupported', said: md[0]! };
+  }
+  const iso = /\b(20\d{2}) (\d{1,2}) (\d{1,2})\b/.exec(q);
+  if (iso && validDay(Number(iso[3]), Number(iso[2]), Number(iso[1]))) return { kind: 'day', day: Number(iso[3]), month: Number(iso[2]), year: Number(iso[1]) };
+  return null;
+}
+
 /** The window named, or null when none was. A window we recognise but cannot honour is `unsupported`, never dropped. */
-export function parsePeriod(q: string): AskPeriod | null {
+export function parsePeriod(raw: string): AskPeriod | null {
+  const q = normalise(raw);
   const quarter = QUARTER.exec(q);
   if (quarter) return { kind: 'unsupported', said: quarter[1]! };
+  const day = dayIn(q);
+  if (day) return day;
   if (/\blast\s+month\b/.test(q)) return { kind: 'last_month' };
   if (/\bthis\s+month\b/.test(q)) return { kind: 'this_month' };
   if (/\b(last|previous|prior)\s+(financial\s+|fiscal\s+)?year\b/.test(q)) return { kind: 'last_year' };
   if (/\b(this|current)\s+(financial\s+|fiscal\s+)?year\b|\byear\s+to\s+date\b|\bytd\b/.test(q)) return { kind: 'this_year' };
-  const named = new RegExp(`\\b(${MONTHS.filter((m) => m !== 'may').join('|')})(?:\\s+(20\\d{2}))?\\b`).exec(q)
+  const named = new RegExp(`\\b(${MONTH_RE})(?:\\s+(20\\d{2}))?\\b`).exec(q)
     ?? /\b(?:(?:for|in|of|during|since)\s+(may)(?:\s+(20\d{2}))?|(may)\s+(20\d{2}))\b/.exec(q);
   if (named) {
     const m = named[1] ?? named[3];
@@ -107,15 +138,38 @@ export function parsePeriod(q: string): AskPeriod | null {
   return year ? { kind: 'unsupported', said: year } : null;
 }
 
-/** The intents one clause asks for: every pattern that matched, the plain words stepping aside for a specific one. */
-function intentsOf(clause: string): AskIntentId[] {
-  const hits = PATTERNS.filter(([, re]) => re.test(clause)).map(([id]) => id);
-  const specific = hits.filter((id) => !GENERIC.has(id));
-  return specific.length > 0 ? specific : hits;
+/** Every distinct window a question names, as the words to put after a stem. Two or more is "one period at a time". */
+function windowPhrases(q: string): string[] {
+  const found = new Set<string>();
+  for (const [re, phrase] of [[/\blast\s+month\b/, 'last month'], [/\bthis\s+month\b/, 'this month'],
+    [/\b(last|previous|prior)\s+(financial\s+|fiscal\s+)?year\b/, 'last year'],
+    [/\b(this|current)\s+(financial\s+|fiscal\s+)?year\b|\byear\s+to\s+date\b|\bytd\b/, 'this year']] as const) {
+    if (re.test(q)) found.add(phrase);
+  }
+  const months = new RegExp(`\\b(${MONTH_RE})(?:\\s+(20\\d{2}))?\\b|\\b(?:for|in|of|during|since)\\s+(may)(?:\\s+(20\\d{2}))?\\b|\\b(may)\\s+(20\\d{2})\\b`, 'g');
+  for (const m of q.matchAll(months)) {
+    const name = m[1] ?? m[3] ?? m[5];
+    const year = m[2] ?? m[4] ?? m[6];
+    if (name) found.add(`${name[0]!.toUpperCase()}${name.slice(1)}${year ? ` ${year}` : ''}`);
+  }
+  return [...found];
 }
 
-/** Clauses joined by and / & / , / plus / vs: each may ask for something different, and silently answering one drops the other. */
-const JOINERS = /[,;&]|\b(?:and|plus|vs\.?|versus)\b|\bas\s+well\s+as\b/;
+const STEMS: Readonly<Record<AskIntentId, string>> = {
+  owed_to_me: 'Who owes me money', i_owe: 'Who do I owe', cash: 'How much cash is in the bank', profit: 'What is my profit',
+  revenue: 'What is my revenue', expenses: 'What are my expenses', assets: 'What are my total assets', liabilities: 'What are my total liabilities',
+  vat: 'What VAT do I owe', emp201: 'What do I owe SARS for payroll', last_pay_run: 'What did payroll cost', bank_to_allocate: 'How many bank transactions need allocating',
+};
+
+/** One intent with its refinement, as the question that asks exactly that. */
+interface Key { id: AskIntentId; qualifier?: AskQualifier }
+const keyName = (k: Key): string => `${k.id}:${k.qualifier ?? ''}`;
+function exampleForKey(k: Key): string {
+  if (k.id === 'profit' && k.qualifier === 'gross') return 'What is my gross profit this month?';
+  if (k.id === 'profit' && k.qualifier === 'operating') return 'What is my operating profit this month?';
+  if (k.id === 'expenses' && k.qualifier === 'cost_of_sales') return 'What is my cost of sales this month?';
+  return exampleFor(k.id);
+}
 
 function qualifierOf(q: string, id: AskIntentId): AskQualifier | undefined {
   if (id === 'profit' && /\bgross\s+(profit|margin)\b/.test(q)) return 'gross';
@@ -124,18 +178,37 @@ function qualifierOf(q: string, id: AskIntentId): AskQualifier | undefined {
   return undefined;
 }
 
+/** The intents one clause asks for: every pattern that matched, the plain words stepping aside for a specific one. */
+function keysOf(clause: string): Key[] {
+  const hits = PATTERNS.filter(([, re]) => re.test(clause)).map(([id]) => id);
+  const specific = hits.filter((id) => !GENERIC.has(id));
+  return (specific.length > 0 ? specific : hits).map((id) => ({ id, qualifier: qualifierOf(clause, id) }));
+}
+
+/** Clauses joined by and / & / , / plus / vs: each may ask for something different, and silently answering one drops the other. */
+const JOINERS = /[,;&]|\b(?:and|plus|vs\.?|versus)\b|\bas\s+well\s+as\b/;
+
+const AMOUNT_FILTER = /\b(?:more than|less than|greater than|fewer than|over|under|above|below|exceeding|at least|at most)\s+(?:r\s?)?\d/;
+const COMPARISON = /\b(?:vs|versus|compared\s+(?:to|with)|compare|comparison|against)\b/;
+const TAX_BASIS = /\b(?:before|after|pre|post)\s+tax\b|\b(?:excluding|including|incl|excl|ex)\s+vat\b/;
+
 export function parseQuestion(question: string): ParsedQuestion {
   const q = normalise(question);
   if (q.length < 3) return { kind: 'none' };
-  const found = new Set<AskIntentId>();
-  for (const clause of question.toLowerCase().split(JOINERS)) {
-    for (const id of intentsOf(normalise(clause))) found.add(id);
-  }
-  const chosen = [...found];
-  if (chosen.length === 0) return { kind: 'none' };
-  if (chosen.length > 1) return { kind: 'ambiguous', ids: chosen };
-  const id = chosen[0]!;
-  return { kind: 'intent', intent: { id, period: parsePeriod(q), qualifier: qualifierOf(q, id) } };
+  // The whole question first (a comma inside a clause must not split "cash, roughly, in the bank"), then each clause: a question
+  // joining clauses that ask for different things is ambiguous, and clauses that match nothing are ignored.
+  const found = new Map<string, Key>();
+  for (const k of [...keysOf(q), ...question.toLowerCase().split(JOINERS).flatMap((c) => keysOf(normalise(c)))]) found.set(keyName(k), k);
+  const keys = [...found.values()];
+  if (keys.length === 0) return { kind: 'none' };
+  if (keys.length > 1) return { kind: 'ambiguous', ids: [...new Set(keys.map((k) => k.id))], examples: keys.map(exampleForKey) };
+  const { id, qualifier } = keys[0]!;
+  if (AMOUNT_FILTER.test(q)) return { kind: 'unsupported', id, said: 'amount filters ("more than R2 000")' };
+  if (TAX_BASIS.test(q)) return { kind: 'unsupported', id, said: 'figures before or after tax' };
+  const windows = windowPhrases(q);
+  if (windows.length > 1) return { kind: 'periods', id, examples: windows.map((w) => `${STEMS[id]} ${w}?`) };
+  if (COMPARISON.test(q)) return { kind: 'unsupported', id, said: 'comparisons' };
+  return { kind: 'intent', intent: { id, period: parsePeriod(q), qualifier } };
 }
 
 /**

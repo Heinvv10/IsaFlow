@@ -244,8 +244,52 @@ describe('the pre-charge window check agrees with the answers', () => {
       const parsed = parseQuestion(q);
       if (parsed.kind !== 'intent') throw new Error(`${q} did not parse to one intent`);
       const a = await ask(q);
-      expect(a.figure === null, q).toBe(!periodIsHonoured(parsed.intent.id, parsed.intent.period));
+      expect(a.figure === null, q).toBe(!periodIsHonoured(parsed.intent.id, parsed.intent.period, TODAY));
     }
+  });
+});
+
+describe('exact days', () => {
+  it('aging and the balance sheet are as at that exact day, and the text says it', async () => {
+    const a = await ask('who owes me money as at 15 october');
+    expect(m.ar).toHaveBeenLastCalledWith(CO, '2026-10-15');
+    expect(a.text).toContain('2026-10-15');
+    await ask('total assets as at 15 october');
+    expect(m.sheet).toHaveBeenLastCalledWith(CO, '2026-10-15');
+    await ask('who do I owe as at 3 march 2026');
+    expect(m.ap).toHaveBeenLastCalledWith(CO, '2026-03-03');
+  });
+  it('a day is never rounded: figures that are not positions refuse it', async () => {
+    for (const q of ['profit on 15 october', 'what vat do I owe on 15 october', 'emp201 on 15 october', 'last pay run cost on 15 october', 'cash in the bank on 15 october']) {
+      const a = await ask(q);
+      expect(a.figure, q).toBeNull();
+      expect(a.text, q).toMatch(/can't answer/);
+    }
+    for (const fn of [m.income, m.vat, m.emp, m.run, m.bank]) expect(fn).not.toHaveBeenCalled();
+  });
+  it('a day in the future is refused for a position', async () => {
+    const a = await ask('total assets as at 15 october 2027');
+    expect(a.figure).toBeNull();
+    expect(m.sheet).not.toHaveBeenCalled();
+  });
+});
+
+describe('refinements we cannot honour are said, never answered with the broader figure', () => {
+  it.each([['who owes me more than 2000'], ['net profit vs last month'], ['profit before tax'], ['profit this year vs last year']])('%s', async (q) => {
+    const a = await ask(q);
+    expect(a.understood).toBe(false);
+    expect(a.figure).toBeNull();
+    expect(a.suggestions.length).toBeGreaterThan(0);
+    for (const fn of [m.ar, m.income, m.sheet]) expect(fn).not.toHaveBeenCalled();
+  });
+  it('the reply names what it cannot do', async () => {
+    expect((await ask('who owes me more than 2000')).text).toContain('amount filters');
+    expect((await ask('net profit vs last month')).text).toContain('comparisons');
+    expect((await ask('profit before tax')).text).toContain('before or after tax');
+    expect((await ask('profit this year vs last year')).text).toContain('one period at a time');
+  });
+  it('a comma inside a clause still answers', async () => {
+    expect((await ask('How much cash, roughly, is in the bank?')).figure).toBe(5200.3);
   });
 });
 
