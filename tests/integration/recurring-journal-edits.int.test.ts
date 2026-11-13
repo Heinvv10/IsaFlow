@@ -3,16 +3,18 @@
  *
  *  - STATUS: only active -> paused, paused -> active, active | paused -> cancelled. A cancelled or completed template
  *    stays so on every path — a cancelled one paused and then resumed used to come back to life and generate.
- *  - NEXT RUN DATE (the page's PUT): never on or before the last run generated (`last_run_date`, which the claim now
- *    sets to the run's own date) — that generated the run a second time — nor after the end date.
+ *  - NEXT RUN DATE (the page's PUT): never into a frequency period already generated (`last_run_date`'s month or
+ *    week, the claim now records the run's own date) — moving back, or merely later in the same month, generated it a
+ *    second time — unless within or after the current next run's period; nor after the end date.
  *
  * ci-integration-skip: none — every case runs on the throwaway cluster.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { runRecurringJournalsTool } from '@/lib/mcp/tools/writeRunRecurringJournals';
+import { frequencyPeriodLabel } from '@/modules/accounting/services/gl/recurringSchedule';
 import {
-  updateRecurringJournalStatus, updateRecurringJournalTemplate,
+  runRecurringJournal, updateRecurringJournalStatus, updateRecurringJournalTemplate,
 } from '@/modules/accounting/services/gl/recurringJournalService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupPr6 } from './r035-pr6.helpers';
@@ -68,24 +70,45 @@ describe('recurring journal status moves', () => {
 });
 
 describe('recurring journal next run date edits', () => {
-  it('cannot move the next run back onto a run already generated; re-running that month generates nothing', async () => {
+  it('monthly: no next run anywhere in a month already generated; re-running that month generates nothing', async () => {
     const co = await company(pool, user, [cal.prev, cal.cur], companies);
     const t = await plantTemplate(pool, co, user, { name: 'Rent', frequency: 'monthly', next: day(cal.prev, 15) });
     await run(co, cal.prev.period);
     expect((await pool.query('SELECT last_run_date::TEXT AS d FROM recurring_journals WHERE id = $1', [t])).rows[0].d)
       .toBe(day(cal.prev, 15)); // the run's own date, not the day it was generated
 
-    for (const back of [day(cal.prev, 15), day(cal.prev, 1)]) {
+    // Back onto the run, before it, and LATER in the same month (ran the 15th, moved to the 16th) — all that month.
+    for (const back of [day(cal.prev, 15), day(cal.prev, 1), day(cal.prev, 16)]) {
       await expect(request(pool, co, user, () => updateRecurringJournalTemplate(co.c, t, user, { nextRunDate: back })))
-        .rejects.toThrow(`The run dated ${day(cal.prev, 15)} has already been generated`);
+        .rejects.toThrow(`This template last generated on ${day(cal.prev, 15)}: ${frequencyPeriodLabel(back, 'monthly')} `
+          + 'has already been generated for this template — choose a date in a later month (post a manual journal for a '
+          + 'second run).');
     }
     expect((await templateState(pool, t)).next).toBe(day(cal.cur, 15));
     expect(parsed(await run(co, cal.prev.period)).generated).toEqual([]);
     expect(await journals(pool, co)).toHaveLength(1);
 
-    // Forward of the last run is an ordinary edit.
-    await request(pool, co, user, () => updateRecurringJournalTemplate(co.c, t, user, { nextRunDate: day(cal.prev, 16) }));
-    expect((await templateState(pool, t)).next).toBe(day(cal.prev, 16));
+    // Any date in a later month is an ordinary edit — earlier in the next month than the schedule had it, too.
+    await request(pool, co, user, () => updateRecurringJournalTemplate(co.c, t, user, { nextRunDate: day(cal.cur, 1) }));
+    expect((await templateState(pool, t)).next).toBe(day(cal.cur, 1));
+  });
+
+  it('weekly: no next run in an ISO week already generated; the next week is fine', async () => {
+    const co = await company(pool, user, [cal.prev, cal.cur, cal.next], companies);
+    // The first Monday of last month, so its ISO week is wholly inside the month.
+    const first = new Date(`${cal.prev.start}T00:00:00Z`);
+    first.setUTCDate(first.getUTCDate() + ((8 - first.getUTCDay()) % 7));
+    const iso = (offset: number) => new Date(first.getTime() + offset * 86400000).toISOString().slice(0, 10);
+    const t = await plantTemplate(pool, co, user, { name: 'Wk', frequency: 'weekly', next: iso(0) });
+    await request(pool, co, user, () => runRecurringJournal(co.c, t, user));
+    expect(await templateState(pool, t)).toMatchObject({ next: iso(7), runs: 1 });
+
+    await expect(request(pool, co, user, () => updateRecurringJournalTemplate(co.c, t, user, { nextRunDate: iso(3) })))
+      .rejects.toThrow(`This template last generated on ${iso(0)}: The week of ${iso(0)} has already been generated for this `
+        + 'template — choose a date in a later week');
+    await request(pool, co, user, () => updateRecurringJournalTemplate(co.c, t, user, { nextRunDate: iso(9) }));
+    expect((await templateState(pool, t)).next).toBe(iso(9));
+    expect(await journals(pool, co)).toHaveLength(1);
   });
 
   it('cannot move the next run past the end date; a template with no run yet may move anywhere before it', async () => {

@@ -7,7 +7,7 @@
  * reached the general ledger rather than only the schedule.
  */
 import { describe, expect, it } from 'vitest';
-import { advanceDate } from '@/modules/accounting/services/gl/recurringSchedule';
+import { advanceDate, frequencyPeriodLabel, frequencyPeriodUnit } from '@/modules/accounting/services/gl/recurringSchedule';
 
 describe('advanceDate — monthly', () => {
   it('clamps 31 January to the last day of February, in a non-leap year', () => {
@@ -149,5 +149,20 @@ describe('advanceDate — month ends around #1106', () => {
     ['quarterly', '2027-11-30', '2028-02-29'],
   ])('%s from %s is %s', (frequency, from, to) => {
     expect(advanceDate(from, frequency)).toBe(to);
+  });
+});
+
+describe('frequencyPeriodLabel — the period a run belongs to, as the edit refusal names it', () => {
+  it('names the month, quarter, year, and the ISO week by its Monday', () => {
+    expect(frequencyPeriodLabel('2026-10-20', 'monthly')).toBe('October 2026');
+    expect(frequencyPeriodLabel('2026-11-03', 'quarterly')).toBe('Q4 2026');
+    expect(frequencyPeriodLabel('2026-03-31', 'quarterly')).toBe('Q1 2026');
+    expect(frequencyPeriodLabel('2026-06-30', 'annually')).toBe('2026');
+    expect(frequencyPeriodLabel('2026-11-15', 'weekly')).toBe('The week of 2026-11-09'); // a Sunday: its Monday before
+    expect(frequencyPeriodLabel('2026-11-09', 'weekly')).toBe('The week of 2026-11-09');
+    expect(frequencyPeriodLabel('2027-01-01', 'weekly')).toBe('The week of 2026-12-28'); // across the year
+  });
+  it('maps each frequency to its period unit', () => {
+    expect(['weekly', 'monthly', 'quarterly', 'annually'].map(frequencyPeriodUnit)).toEqual(['week', 'month', 'quarter', 'year']);
   });
 });

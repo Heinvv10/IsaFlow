@@ -8,18 +8,26 @@
  * generated again, and a completed one's next run is past its end date. The rule lives HERE, not in each caller, so
  * every path — the page's actions, the MCP tool, anything later — is held to it.
  *
- * NEXT RUN DATE. A run is claimed by advancing `next_run_date`, and `last_run_date` records the date of the last run
- * generated (the occurrence, set by the claim in recurringJournalService). Moving the next run back onto or before it
- * would generate that run a second time — run_recurring_journals sweeps every template, so the duplicate is not
- * hypothetical. Templates last run before that change recorded the day of generation instead, which is on or after
- * the occurrence: the check is then stricter than it needs to be, never weaker. A next run after the end date would
- * never generate anything (the run refuses an ended template), so it is refused too.
+ * NEXT RUN DATE. A template generates at most one run per frequency period (week, month, quarter, year:
+ * `frequencyPeriodUnit`, the frequency the edit leaves). A run is claimed by advancing `next_run_date`, and
+ * `last_run_date` records the date of the last run generated (the occurrence, set by the claim). So a new next run
+ * whose period is not after last_run_date's period would generate that period a second time — moving back onto the
+ * run, or merely later within its month (ran 10 Oct, next moved to 20 Oct) — and run_recurring_journals sweeps every
+ * template, so the duplicate is not hypothetical. Refused — UNLESS the new date's period is not before the CURRENT
+ * next run's period. That exception is what keeps a legacy row correctable: templates last run before the claim
+ * recorded the occurrence hold the day of GENERATION in last_run_date (journals carry no template id, so it cannot be
+ * backfilled), which can sit in a later period than the run itself — even after next_run_date. A next run that only
+ * moves within or after its current period moves away from what was generated, never onto it: the current next run
+ * is always in a period after the last run's (every claim and every allowed edit keeps it so). Refusals cite "last
+ * generated on <last_run_date>", true under both meanings. A next run after the end date would never generate
+ * anything (the run refuses an ended template), so it is refused too.
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import type { RecurringStatus } from '../../types/recurringJournal.types';
 import { RecurringJournalNotFoundError, RecurringJournalRequestError } from './recurringJournalGuards';
+import { frequencyPeriodLabel, frequencyPeriodUnit } from './recurringSchedule';
 
 export type RecurringStatusTarget = 'paused' | 'active' | 'cancelled';
 
@@ -71,14 +79,22 @@ export interface RecurringTemplateEdit {
  * what the journals carry (name, description, date) or when they fall (frequency) makes `userId` an author of every
  * journal the template mints (refused as their approver); an edit changing nothing stamps nobody.
  *
- * Refuses (RecurringJournalRequestError, nothing written) a next run date on or before the last run generated, or
- * after the end date. A template that is not active or paused is left unchanged, as before.
+ * Refuses (RecurringJournalRequestError, nothing written) a next run date in a period already generated (see the
+ * header), or after the end date. A template that is not active or paused is left unchanged, as before.
  */
 export async function updateRecurringJournalTemplate(
   companyId: string, id: string, userId: string, edit: RecurringTemplateEdit,
 ): Promise<void> {
   const { templateName, frequency, nextRunDate, description } = edit;
   const next = nextRunDate || null;
+  // The period unit of the frequency the edit leaves, for date_trunc ('week' is the ISO week, Monday first).
+  const unit = sql`(CASE COALESCE(${frequency || null}, frequency) WHEN 'weekly' THEN 'week' WHEN 'monthly' THEN 'month'
+    WHEN 'quarterly' THEN 'quarter' ELSE 'year' END)`;
+  // The new next run falls in a period already generated: not after last_run_date's, and before the current next
+  // run's (the legacy exception, see the header). Read from the row as it stands, in the UPDATE and in the refusal.
+  const generatedPeriod = sql`(last_run_date IS NOT NULL
+    AND date_trunc(${unit}, ${next}::DATE) <= date_trunc(${unit}, last_run_date)
+    AND date_trunc(${unit}, ${next}::DATE) < date_trunc(${unit}, next_run_date))`;
   const updated = (await sql`
     UPDATE recurring_journals SET
       content_authors = CASE
@@ -92,22 +108,25 @@ export async function updateRecurringJournalTemplate(
       description = COALESCE(${description || null}, description),
       updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId} AND status IN ('active', 'paused')
-      AND (${next}::DATE IS NULL OR (
-        (last_run_date IS NULL OR ${next}::DATE > last_run_date) AND (end_date IS NULL OR ${next}::DATE <= end_date)))
+      AND (${next}::DATE IS NULL OR (NOT ${generatedPeriod} AND (end_date IS NULL OR ${next}::DATE <= end_date)))
     RETURNING id
   `) as DbRow[];
   if (updated.length > 0 || next === null) return;
 
   const rows = (await sql`
-    SELECT status, last_run_date::TEXT AS last_run, end_date::TEXT AS end_date FROM recurring_journals
+    SELECT status, last_run_date::TEXT AS last_run, end_date::TEXT AS end_date,
+           COALESCE(${frequency || null}, frequency) AS frequency, ${generatedPeriod} AS generated_period
+    FROM recurring_journals
     WHERE id = ${id}::UUID AND company_id = ${companyId}
   `) as DbRow[];
   const row = rows[0];
   if (!row || !['active', 'paused'].includes(String(row.status))) return; // not editable: unchanged, as before
-  if (row.last_run !== null && next <= String(row.last_run)) {
+  if (row.generated_period === true) {
+    const freq = String(row.frequency);
     throw new RecurringJournalRequestError(
-      `The run dated ${String(row.last_run)} has already been generated from this template, so the next run date must `
-      + `be after it (got ${next}). Moving it back would generate that run a second time.`,
+      `This template last generated on ${String(row.last_run)}: ${frequencyPeriodLabel(next, freq)} has already been `
+      + `generated for this template — choose a date in a later ${frequencyPeriodUnit(freq)} (post a manual journal `
+      + 'for a second run).',
     );
   }
   if (row.end_date !== null && next > String(row.end_date)) {
