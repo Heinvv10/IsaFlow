@@ -16,6 +16,8 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { PaletteOption } from '@/components/layout/CommandPaletteRows';
 import { buildSections, type PaletteRow } from '@/components/layout/paletteRank';
+import { AskPanel } from '@/components/layout/AskPanel';
+import { findExplainTrigger, NOTHING_TO_EXPLAIN } from '@/components/layout/explainTarget';
 import { saveRecentItem, usePaletteSearch } from '@/components/layout/usePaletteSearch';
 
 export type { SearchResult } from '@/components/layout/paletteRank';
@@ -48,6 +50,18 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
   const uid = useId();
   const listId = `${uid}-list`;
   const [selected, setSelected] = useState(0);
+  const [asking, setAsking] = useState(false);
+  const [explainNote, setExplainNote] = useState('');
+  // The element the person was on before the palette took focus: "Explain this figure" explains that one.
+  const origin = useRef<Element | null>(null);
+  useEffect(() => {
+    const track = (e: FocusEvent): void => {
+      if (e.target instanceof Element && !e.target.closest('[role="dialog"][aria-label="Command palette"]')) origin.current = e.target;
+    };
+    document.addEventListener('focusin', track);
+    return () => document.removeEventListener('focusin', track);
+  }, []);
+  useEffect(() => { if (isOpen) { setAsking(false); setExplainNote(''); } }, [isOpen]);
   const { query, setQuery, server, loading, error, recent } = usePaletteSearch(isOpen, scope);
 
   useFocusTrap(dialogRef, isOpen, onClose);
@@ -77,6 +91,14 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
     }
     const { action } = row;
     if (action.kind === 'shortcuts') { showShortcuts(); return; }
+    if (action.kind === 'ask') { setAsking(true); return; }
+    if (action.kind === 'explain') {
+      const trigger = findExplainTrigger(origin.current);
+      if (!trigger) { setExplainNote(NOTHING_TO_EXPLAIN); return; }
+      onClose();
+      trigger.click();
+      return;
+    }
     onClose();
     if (action.kind === 'theme') toggleTheme();
     else if (action.url) void router.push(action.url);
@@ -110,6 +132,7 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
         className="w-full max-w-xl mx-4 bg-surface border border-line rounded-xl shadow-2xl flex flex-col overflow-hidden max-h-[70vh]"
         onClick={(e) => e.stopPropagation()}
       >
+        {asking ? <AskPanel onClose={onClose} onBack={() => setAsking(false)} /> : (<>
         <div className="flex items-center gap-3 px-4 border-b border-line">
           <Search className="w-5 h-5 text-ink-muted flex-shrink-0" aria-hidden="true" />
           <input
@@ -156,9 +179,11 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
           ))}
         </div>
 
+        {explainNote && <p role="alert" data-testid="explain-note" className="px-4 py-3 text-sm text-ink border-t border-line">{explainNote}</p>}
         {error && <p role="alert" className="px-4 py-3 text-sm text-ink border-t border-line">{error}</p>}
         {showEmpty && <p className="px-4 py-8 text-center text-sm text-ink-muted">No results for &ldquo;{query}&rdquo;</p>}
         <p className="sr-only" role="status" aria-live="polite">{query.trim() ? `${rows.length} results` : ''}</p>
+        </>)}
 
         <div className="border-t border-line px-4 py-2 flex items-center gap-4 text-xs text-ink-muted">
           {[['↑↓', 'navigate'], ['↵', 'open'], ['Esc', 'close']].map(([key, label]) => (

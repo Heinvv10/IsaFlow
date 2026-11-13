@@ -39,7 +39,7 @@ export function FormRow({
           {amount === null ? '—' : fmt(amount)}
         </span>
         {onDrill && amount !== null && amount !== 0 && (
-          <button type="button" onClick={onDrill} data-testid="vat201-field-drill" aria-label={`Show the lines behind field ${field}`}
+          <button type="button" onClick={onDrill} data-testid="vat201-field-drill" data-explain-trigger aria-label={`Show the lines behind field ${field}`}
             className="min-h-[24px] text-xs text-teal-700 underline dark:text-teal-400">Lines</button>
         )}
       </div>

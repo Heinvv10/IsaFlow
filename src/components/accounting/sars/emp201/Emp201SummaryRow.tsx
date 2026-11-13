@@ -18,7 +18,7 @@ export function SummaryRow({
       </span>
       <span className="flex items-center gap-3">
         {onDrill && (
-          <button type="button" onClick={onDrill} data-testid="emp201-drill-link" aria-label={`Show the lines behind ${label}`}
+          <button type="button" onClick={onDrill} data-testid="emp201-drill-link" data-explain-trigger aria-label={`Show the lines behind ${label}`}
             className="min-h-[24px] text-xs text-teal-700 underline dark:text-teal-400">Lines</button>
         )}
         <span data-testid="emp201-value" className={`text-sm font-medium ${bold ? 'text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]'}`}>
