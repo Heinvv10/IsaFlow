@@ -9,12 +9,13 @@ vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async (strings: TemplateStringsArray) => {
     const text = strings.join('?');
     h.sqlCalls.push(text);
-    h.order.push(text.includes('vat_returns') ? 'footprint' : text.includes('FOR UPDATE') ? 'company-lock' : 'sql');
+    h.order.push(text.includes('vat_returns') ? 'footprint' : text.includes('FOR NO KEY UPDATE') ? 'company-lock' : 'sql');
     return h.rows.shift() ?? [];
   }),
 }));
 vi.mock('@/modules/accounting/services/core/companyService', () => ({ getCompany: vi.fn(), updateCompany: vi.fn() }));
-vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', () => ({
+vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/gl/journalVatLockGuard')>()),
   takeVatLockExclusive: vi.fn(async () => { h.order.push('vat-lock'); }),
 }));
 vi.mock('@/modules/accounting/services/core/auditTrailService', () => ({ logAuditOrThrow: vi.fn(async () => undefined) }));
@@ -98,7 +99,7 @@ describe('the write', () => {
   it('locks the company row first and writes only the changed fields to the caller\'s company', async () => {
     world(row(), [FILED]);
     const r = await changeCompanyVatProfile(CO, { category: 'B', vatNumber: '4999999999' }, opts({ acknowledgePeriodChange: true }));
-    expect(h.sqlCalls[0]).toContain('FOR UPDATE');
+    expect(h.sqlCalls[0]).toContain('FOR NO KEY UPDATE');
     expect(updateCompany).toHaveBeenCalledTimes(1);
     expect(updateCompany).toHaveBeenCalledWith(CO, { vatNumber: '4999999999', vatPeriod: 'bi-monthly', vatPeriodAlignment: 'even' });
     expect(r).toMatchObject({
@@ -158,14 +159,33 @@ describe('the write', () => {
 });
 
 describe('serialisation with a concurrent VAT lock', () => {
-  it('takes the exclusive VAT lock key after the company row and before reading the filing footprint', async () => {
+  it('takes the exclusive VAT lock key BEFORE the company row (posting and lock_vat_period take it in that order) and before the footprint', async () => {
     world(row());
     await changeCompanyVatProfile(CO, { category: 'B' }, opts());
     expect(takeVatLockExclusive).toHaveBeenCalledWith(CO);
-    expect(h.order.slice(0, 3)).toEqual(['company-lock', 'vat-lock', 'footprint']);
+    expect(h.order.slice(0, 3)).toEqual(['vat-lock', 'company-lock', 'footprint']);
   });
 
-  it('does not take it for a change that moves no periods', async () => {
+  it.each([[{ alignment: 'even' as const }], [{ category: 'A' as const }]])('takes it for %j, even when the periods turn out not to move', async (req) => {
+    world(row());
+    await changeCompanyVatProfile(CO, req, opts());
+    expect(h.order[0]).toBe('vat-lock');
+  });
+
+  it('a deadlock victim in the lock steps answers the retryable VAT-lock refusal, not a fault', async () => {
+    world(row());
+    vi.mocked(takeVatLockExclusive).mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+    await expect(changeCompanyVatProfile(CO, { category: 'B' }, opts())).rejects.toMatchObject({ code: 'VAT_LOCK_TIMEOUT' });
+    world(row());
+    h.rows = [];
+    vi.mocked(getCompany).mockResolvedValue(row() as never);
+    const sqlMod = await import('@/lib/neon');
+    vi.mocked(sqlMod.sql).mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+    await expect(changeCompanyVatProfile(CO, { incomeTaxNumber: '9000000001' }, opts())).rejects.toMatchObject({ code: 'VAT_LOCK_TIMEOUT' });
+    expect(updateCompany).not.toHaveBeenCalled();
+  });
+
+  it('does not take it for a number-only change', async () => {
     world(row());
     await changeCompanyVatProfile(CO, { incomeTaxNumber: '9000000001' }, opts());
     expect(takeVatLockExclusive).not.toHaveBeenCalled();

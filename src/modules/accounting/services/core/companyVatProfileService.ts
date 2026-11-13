@@ -14,8 +14,9 @@
 import { sql } from '@/lib/neon';
 import { getCompany, updateCompany } from './companyService';
 import { inRolledBackSavepoint } from './rolledBackSavepoint';
+import { isDeadlockDetected } from './lockContention';
 import { logAuditOrThrow } from './auditTrailService';
-import { takeVatLockExclusive } from '@/modules/accounting/services/gl/journalVatLockGuard';
+import { VatLockTimeoutError, takeVatLockExclusive } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import {
   categoryOf, compactNumber, isValidSaVatNumber, periodImpact, resolveDesired, stateFromColumns,
   type PeriodImpact, type VatCategory, type VatProfileRequest, type VatProfileState,
@@ -97,9 +98,31 @@ export async function vatFilingFootprint(companyId: string): Promise<FilingFootp
   return { total: rows.length, records, truncated: rows.length > records.length };
 }
 
+/**
+ * FOR NO KEY UPDATE, not FOR UPDATE: a journal insert takes FOR KEY SHARE on its company (the FK) while holding the
+ * shared VAT key, and FOR UPDATE would conflict with it. This lock still excludes another profile change and any
+ * UPDATE of the row, which is all it is for.
+ */
 async function lockCompanyRow(companyId: string): Promise<boolean> {
-  const rows = (await sql`SELECT id FROM companies WHERE id = ${companyId}::UUID FOR UPDATE`) as unknown[];
+  const rows = (await sql`SELECT id FROM companies WHERE id = ${companyId}::UUID FOR NO KEY UPDATE`) as unknown[];
   return rows.length > 0;
+}
+
+/**
+ * The locks, in the repo's order: the VAT advisory key FIRST (posting and lock_vat_period take it before anything
+ * on the company, companyService.updateCompany documents "advisory first, company row after"), then the company row.
+ * The key is taken whenever the request names a category or alignment, before the row is read, so it is held
+ * whether or not the periods turn out to move. A deadlock victim answers the retryable VAT-lock refusal, not a fault.
+ * Returns false when the company does not exist.
+ */
+async function lockForChange(companyId: string, req: VatProfileRequest): Promise<boolean> {
+  try {
+    if (req.category !== undefined || req.alignment !== undefined) await takeVatLockExclusive(companyId);
+    return await lockCompanyRow(companyId);
+  } catch (err) {
+    if (isDeadlockDetected(err)) throw new VatLockTimeoutError();
+    throw err;
+  }
 }
 
 function validateNumbers(req: VatProfileRequest, current: VatProfileState): string | null {
@@ -120,7 +143,7 @@ function validateNumbers(req: VatProfileRequest, current: VatProfileState): stri
 export async function changeCompanyVatProfile(
   companyId: string, req: VatProfileRequest, opts: ChangeOptions,
 ): Promise<ProfileChange> {
-  if (!(await lockCompanyRow(companyId))) return { refused: 'Not found' };
+  if (!(await lockForChange(companyId, req))) return { refused: 'Not found' };
   const company = await getCompany(companyId);
   if (!company) return { refused: 'Not found' };
   const current = stateFromColumns(company);
@@ -132,9 +155,8 @@ export async function changeCompanyVatProfile(
 
   const wantsCycle = req.category !== undefined || req.alignment !== undefined;
   const impact = wantsCycle ? periodImpact(current, desired, opts.asOf) : null;
-  // A VAT lock or return being written right now must be seen (or must wait for this change): the same exclusive
-  // per-company key lockVatPeriod takes, bounded to 5s (VatLockTimeoutError, VAT_LOCK_TIMEOUT), before the footprint is read.
-  if (impact?.changes_periods) await takeVatLockExclusive(companyId);
+  // The exclusive VAT key (lockForChange) is already held, so a VAT lock or return being written right now has
+  // finished or is waiting for this change: the footprint below is complete.
   const footprint = await vatFilingFootprint(companyId);
 
   const patch: Record<string, string> = {};
