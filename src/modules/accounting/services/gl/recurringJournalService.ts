@@ -17,6 +17,7 @@ import {
   assertPostablePeriod,
 } from './recurringJournalGuards';
 import { advanceDate } from './recurringSchedule';
+import { assertPeriodNotGenerated } from './recurringJournalPeriods';
 import { agentNewManualJournalsRefusal, newManualJournalGate, settleUnattendedJournal } from './manualJournalApproval';
 import { placeCostCentres } from './dimensions/costCentrePick';
 import { assertNewJournalDimensions } from './dimensions/dimensionPolicy';
@@ -174,6 +175,9 @@ export async function runRecurringJournal(companyId: string,
       `Recurring journal is not due until ${dueDate}. Change the next run date to generate it earlier.`,
     );
   }
+  // One run per period of the template's frequency: refused when a live journal it generated is dated in this run's
+  // period (recurringJournalPeriods), whatever edits led here. A read, under the template lock, before any write.
+  await assertPeriodNotGenerated(companyId, id, dueDate, rj);
 
   const stored: JournalLineInput[] = Array.isArray(rj.lines) ? rj.lines as JournalLineInput[] : JSON.parse(typeof rj.lines === 'string' ? rj.lines : '[]');
   // A template line's costCenterId is a pick: into its CC1 / CC2 slot, before the claim (the first write).
@@ -221,6 +225,7 @@ export async function runRecurringJournal(companyId: string,
       entryDate: dueDate,
       description: rj.description ? String(rj.description) : String(rj.template_name),
       source: 'auto_recurring',
+      sourceRecordId: id, // the link the one-run-per-period rule reads (recurringJournalPeriods)
       lines,
     }, userId, opts.meta);
     await settleUnattendedJournal(companyId, je.id, userId, settleGate, authors);

@@ -38,9 +38,10 @@ import {
   RecurringJournalRequestError, businessToday, readTemplateForUpdate, templateEndedError,
 } from './recurringJournalGuards';
 import { runRecurringJournal, type RecurringRunOptions } from './recurringJournalService';
+import { RecurringJournalPeriodGeneratedError } from './recurringJournalPeriods';
 
 export type RecurringSkipReason =
-  'not_yet_due' | 'behind_schedule' | 'ended' | 'needs_write_post' | 'refused' | 'contended';
+  'not_yet_due' | 'behind_schedule' | 'ended' | 'period_already_generated' | 'needs_write_post' | 'refused' | 'contended';
 
 export interface RecurringPeriodGenerated {
   templateId: string;
@@ -94,6 +95,7 @@ export function refusalSkip(err: unknown): { reason: RecurringSkipReason; messag
   if (err instanceof RecurringJournalNotFoundError) return null;
   if (err instanceof RecurringJournalLockTimeoutError) return { reason: 'contended', message: err.message };
   if (err instanceof RecurringJournalEndedError) return { reason: 'ended', message: err.message };
+  if (err instanceof RecurringJournalPeriodGeneratedError) return { reason: 'period_already_generated', message: err.message };
   if (err instanceof RecurringJournalRequestError || err instanceof ClosedFiscalPeriodError
     || err instanceof VatPeriodLockedError || isDimensionRefusal(err) || isHeaderAccountRefusal(err)
     || isJournalDateRefused(err)) {

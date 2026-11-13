@@ -20,6 +20,7 @@ import {
   RecurringJournalEndedError, RecurringJournalLockTimeoutError, RecurringJournalNotFoundError, RecurringJournalRequestError,
 } from '@/modules/accounting/services/gl/recurringJournalGuards';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
+import { RecurringJournalPeriodGeneratedError } from '@/modules/accounting/services/gl/recurringJournalPeriods';
 import { runRecurringJournalsTool } from '@/lib/mcp/tools/writeRunRecurringJournals';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
@@ -50,6 +51,8 @@ describe('refusalSkip: which generator throws are a skip, and which', () => {
     expect(refusalSkip(new Error('connection reset'))).toBeNull();
     expect(refusalSkip(new RecurringJournalLockTimeoutError('t-1'))?.reason).toBe('contended');
     expect(refusalSkip(new RecurringJournalEndedError('2026-10-20', '2026-10-10'))?.reason).toBe('ended');
+    expect(refusalSkip(new RecurringJournalPeriodGeneratedError('October 2026 has already been generated'))?.reason)
+      .toBe('period_already_generated');
     expect(refusalSkip(new RecurringJournalRequestError('not active'))).toEqual({ reason: 'refused', message: 'not active' });
     expect(refusalSkip(new VatPeriodLockedError('2026-10-10', { id: 'l', periodStart: '2026-09-01', periodEnd: '2026-10-31' }))?.reason)
       .toBe('refused');
