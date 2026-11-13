@@ -1,0 +1,122 @@
+/**
+ * Wave 5 DR, #1266 round 5 (Hein's ruling on adv2 L2, the narrow undo of a leaver exit): while the run that took a leaver
+ * exit is reopened, a payroll approver may restore the directive's expiry to EXACTLY its value before the exit, and to
+ * nothing else. Recalculating then puts the employee back in the run. The restore is audited (old and new expiry) and is
+ * four-eyes: the person who took the exit may not restore it while another approver exists.
+ * Refused: another date (400), no exit taken (400), the run not reopened (409), the exit's own taker (403); a refusal
+ * writes nothing.
+ */
+import { afterAll, describe, expect, it } from 'vitest';
+import { Pool } from 'pg';
+import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import employeeRoute from '../../pages/api/payroll/employees/[id]';
+import calculateRoute from '../../pages/api/payroll/runs/[id]/calculate';
+import type { Route } from './w3-01-payroll.helpers';
+import {
+  approveRun, calculateRun, cleanSeveranceFixtures, createRunFor, reopenRun, runLine, type SeveranceFixture,
+} from './p3-severance.helpers';
+import { drFixture, patchDirective, PCT, postDirective } from './w5-dr.helpers';
+
+assertDisposable();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
+const made: SeveranceFixture[] = [];
+afterAll(async () => {
+  try {
+    await pool.query("DELETE FROM audit_log WHERE company_id = ANY($1) AND entity_type = 'tax_directive'", [made.map(f => f.company)]);
+    await cleanSeveranceFixtures(pool, made);
+  } finally { await pool.end(); }
+});
+
+const patchEmployee = (f: SeveranceFixture, body: Record<string, unknown>) =>
+  f.call(employeeRoute as Route, 'PATCH', `/api/payroll/employees/${f.employee}`, f.employee, { body, user: f.approver });
+const recalc = (f: SeveranceFixture, run: string) => f.call(calculateRoute as Route, 'POST', `/api/payroll/runs/${run}/calculate`, run);
+
+/** D approved, March taxed under it and approved, reopened; the employee left 02-28 and f.admin took the exit (03-01). */
+async function exitTaken(name: string, window: { effective_date?: string; expiry_date?: string } = {}, exitTo = '2026-03-01') {
+  const f = await drFixture(pool, name);
+  made.push(f);
+  const d = String((await postDirective(f, { ...PCT, ...window })).body.data!.id);
+  expect((await patchDirective(f, d, { status: 'approved' })).statusCode).toBe(200);
+  const march = await createRunFor(f, 3);
+  await calculateRun(f, march);
+  expect((await approveRun(f, march)).statusCode).toBe(200);
+  expect((await reopenRun(f, march)).statusCode).toBe(200);
+  expect((await patchEmployee(f, { endDate: '2026-02-28' })).statusCode).toBe(200);
+  expect((await patchDirective(f, d, { expiry_date: exitTo })).statusCode).toBe(200);
+  expect((await recalc(f, march)).statusCode).toBe(200);
+  expect(await runLine(pool, march, f.employee)).toBeUndefined();
+  return { f, d, march };
+}
+
+const expiryOf = async (d: string) => (await pool.query('SELECT expiry_date::text AS e FROM tax_directives WHERE id = $1', [d])).rows[0]!.e as string | null;
+const undoRows = async (d: string) => (await pool.query(
+  "SELECT user_id, changes FROM audit_log WHERE entity_type = 'tax_directive' AND entity_id = $1 AND changes->'metadata'->>'leaverExitUndo' = 'true'", [d])).rows;
+
+/** A refused restore: the status, and nothing written (expiry still the exit's, no undo row). */
+async function refused(f: SeveranceFixture, d: string, expiry: string, status: number, user?: string) {
+  const r = await patchDirective(f, d, { expiry_date: expiry }, user);
+  expect(r.statusCode, JSON.stringify(r.body)).toBe(status);
+  expect(await expiryOf(d)).toBe('2026-03-01');
+  expect(await undoRows(d)).toHaveLength(0);
+  return r;
+}
+
+describe('the narrow undo of a leaver exit', () => {
+  it('round trip: restored by another approver to exactly 2027-02-28 (no expiry), audited; the end date moves and March has the employee back under D', async () => {
+    const { f, d, march } = await exitTaken('DR r5 round trip');
+    // The end date is still held by the exit, and the 409 names the undo path.
+    const held = await patchEmployee(f, { endDate: '2026-06-30' });
+    expect(held.statusCode).toBe(409);
+    expect(held.body.error?.message).toMatch(/restore the directive's expiry to what it was before the exit, then change the end date and recalculate/);
+    const r = await patchDirective(f, d, { expiry_date: '2027-02-28' }, f.approver);
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(200);
+    expect(await expiryOf(d)).toBeNull();
+    const rows = await undoRows(d);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].user_id).toBe(f.approver);
+    expect(rows[0].changes.fields).toEqual([expect.objectContaining({ field: 'expiry_date', old: '2026-03-01', new: null })]);
+    const exitId = (await pool.query(
+      "SELECT id::text FROM audit_log WHERE entity_id = $1 AND changes->'metadata'->>'leaverExit' = 'true'", [d])).rows[0]!.id;
+    expect(rows[0].changes.metadata).toEqual(expect.objectContaining({
+      exitAuditId: exitId, employeeId: f.employee, runs: '2026-03', restoredEndsOn: '2027-02-28',
+    }));
+    expect(rows[0].changes.metadata.selfApproval).toBeUndefined();
+    expect((await patchEmployee(f, { endDate: '2026-06-30' })).statusCode).toBe(200);
+    expect((await recalc(f, march)).statusCode).toBe(200);
+    expect((await runLine(pool, march, f.employee))?.paye).toBe(4000);
+  });
+
+  it('a stated expiry is restored as that date (2026-12-31)', async () => {
+    const { f, d } = await exitTaken('DR r5 stated expiry', { expiry_date: '2026-12-31' });
+    expect((await patchDirective(f, d, { expiry_date: '2026-12-31' }, f.approver)).statusCode).toBe(200);
+    expect(await expiryOf(d)).toBe('2026-12-31');
+  });
+
+  it('another date: 400, nothing written', async () => {
+    const { f, d } = await exitTaken('DR r5 other date');
+    const r = await refused(f, d, '2026-12-31', 400, f.approver);
+    expect(r.body.error?.message).toMatch(/exactly 2027-02-28/);
+  });
+
+  it('no exit taken (a plain lengthening): 400, nothing written', async () => {
+    const f = await drFixture(pool, 'DR r5 no exit');
+    made.push(f);
+    const d = String((await postDirective(f, { ...PCT, expiry_date: '2026-03-01' })).body.data!.id);
+    expect((await patchDirective(f, d, { status: 'approved' })).statusCode).toBe(200);
+    const r = await refused(f, d, '2027-02-28', 400, f.approver);
+    expect(r.body.error?.message).toMatch(/none is in effect/);
+  });
+
+  it('the run not reopened (approved again): 409 LEAVER_EXIT_RUN_NOT_REOPENED, nothing written', async () => {
+    const { f, d, march } = await exitTaken('DR r5 not reopened');
+    await pool.query("UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1", [march]);
+    const r = await refused(f, d, '2027-02-28', 409, f.approver);
+    expect(r.body.error?.details?.code).toBe('LEAVER_EXIT_RUN_NOT_REOPENED');
+    expect(r.body.error?.message).toMatch(/Reopen the 2026-03 payroll run first/);
+  });
+
+  it('four eyes: the person who took the exit may not restore it while another approver exists: 403, nothing written', async () => {
+    const { f, d } = await exitTaken('DR r5 four eyes');
+    await refused(f, d, '2027-02-28', 403, f.admin);
+  });
+});

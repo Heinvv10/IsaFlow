@@ -240,7 +240,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'TAX_DIRECTIVE_NOT_APPROVED',
   'TAX_DIRECTIVE_WITHOUT_EMPLOYEE',
   'PAYROLL_RUN_DIRECTIVE_USE',
-  'EMPLOYEE_END_DATE_DIRECTIVE', // an end date that would un-explain a directive ended at the leave date: refused before the write // an ever-approved run would lose a directive it was approved with: refused before any write
+  'EMPLOYEE_END_DATE_DIRECTIVE',
+  'LEAVER_EXIT_RUN_NOT_REOPENED', // undoing a leaver exit while a run it changed is approved or paid: refused before the write // an end date that would un-explain a directive ended at the leave date: refused before the write // an ever-approved run would lose a directive it was approved with: refused before any write
   'TAX_DIRECTIVE_SELF_APPROVAL', // four eyes: the person who captured a directive may not approve it while another member could
   'TAX_DIRECTIVE_NOT_LUMP_SUM', // a regular-pay directive (IRP3(b)/(c)) is applied by each run, never paid as a lump sum
   'TAX_DIRECTIVE_SPLIT_CHANGED', // raised before any write; retrying reads the new cost-centre split

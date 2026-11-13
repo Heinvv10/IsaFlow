@@ -132,6 +132,7 @@ export async function assertEndDateKeepsDirectiveExits(db: TxSql, companyId: str
   throw new EmployeeEndDateDirectiveError(
     `SARS directive ${String(r.directive_number ?? r.directive_id)} was ended on ${String(r.ends_on)}, before the `
     + `${String(r.period_year)}-${String(r.period_month).padStart(2, '0')} payroll run it taxed, because this employee left before that period. `
-    + 'That end date cannot change now: the run would no longer be explained. Keep the end date, or ask your accountant how to correct the leave.',
+    + 'To correct the leave date: with that run reopened, have a payroll approver restore the directive\'s expiry to what it was '
+    + 'before the exit, then change the end date and recalculate the run.',
   );
 }

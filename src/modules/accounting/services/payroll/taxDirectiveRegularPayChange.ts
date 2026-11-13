@@ -31,6 +31,7 @@ import { REGULAR_PAY_DIRECTIVE_TYPES } from './taxDirectiveKinds';
 import { payrollApprovalLockScope } from './payrollRunLock';
 import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
+import { judgeLeaverExitUndo, type LeaverExitUndo } from './taxDirectiveLeaverUndo';
 
 export interface RegularDirectiveRow {
   id: string; employeeId: string; effectiveDate: string; expiryDate: string | null; status: string; number: string | null;
@@ -103,9 +104,10 @@ export async function lockForRegularChange(companyId: string, row: RegularDirect
 
 /** Under the employee's lock and the row's: refuse the change before the write (see the header). Says when the leaver exit was taken. */
 export async function judgeRegularDirectiveChange(
-  companyId: string, row: RegularDirectiveRow, change: { status?: string; expiry_date?: string },
-): Promise<{ leaverExitPeriods: string[] | null }> {
+  companyId: string, row: RegularDirectiveRow, change: { status?: string; expiry_date?: string }, actorId: string | null = null,
+): Promise<{ leaverExitPeriods: string[] | null; undo: LeaverExitUndo | null }> {
   let leaverExitPeriods: string[] | null = null;
+  let undo: LeaverExitUndo | null = null;
   const used = await regularDirectiveLatestUse(companyId, row.id);
   const label = `SARS directive ${row.number?.trim() || row.id}`;
   if (change.status !== undefined && change.status !== 'approved' && row.status === 'approved' && used) {
@@ -117,9 +119,8 @@ export async function judgeRegularDirectiveChange(
   if (change.expiry_date !== undefined) {
     const current = directiveEndsOn(row.effectiveDate, row.expiryDate);
     if (change.expiry_date < row.effectiveDate) throw new TaxDirectiveWindowError(`expiry_date must be on or after the effective date ${row.effectiveDate}`);
-    if (change.expiry_date > current) {
-      throw new TaxDirectiveWindowError(`An expiry date can only shorten the directive: it runs to ${current} now. SARS issues a new directive for a longer period.`);
-    }
+    // Lengthening is only the narrow undo of a leaver exit (Hein, #1266 L2): taxDirectiveLeaverUndo judges it or refuses.
+    if (change.expiry_date > current) undo = await judgeLeaverExitUndo(companyId, row, change.expiry_date, actorId ?? '');
     // Before a run it taxed only to end it at the leave date of an employee who left BEFORE every such run's period (a
     // legitimate leaver, round 4 L2; end date read under the company payroll lock and the employee lock, as the employee
     // update takes the same company lock): the recalculation guard then lets those runs drop the leaver.
@@ -142,7 +143,7 @@ export async function judgeRegularDirectiveChange(
       await assertNoApprovedRunInWindow(companyId, row.employeeId, row.effectiveDate, endsOn);
     }
   }
-  return { leaverExitPeriods };
+  return { leaverExitPeriods, undo };
 }
 
 /**

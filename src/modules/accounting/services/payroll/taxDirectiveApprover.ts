@@ -78,3 +78,12 @@ export async function approversAtCreate(companyId: string, creatorId: string): P
   const writers: readonly string[] = DEFAULT_WRITE_ROLES;
   return members.filter(m => writers.includes(String(m.role)) && isActiveUserAccount(m)).map(m => String(m.user_id)).sort();
 }
+
+/** Whether the company has another owner / admin / manager in good standing besides `userId` (the R-035 definer, in a request). */
+export async function otherApproverExists(companyId: string, userId: string): Promise<boolean> {
+  const others = (await sql`
+    SELECT m.role, m.is_active, m.status, m.suspended_at FROM approval_company_other_members(${companyId}::uuid, ${userId}::text) m
+  `) as Array<{ role: string; is_active: boolean | null; status: string | null; suspended_at: string | null }>;
+  const writers: readonly string[] = DEFAULT_WRITE_ROLES;
+  return others.some(m => writers.includes(String(m.role)) && isActiveUserAccount(m));
+}

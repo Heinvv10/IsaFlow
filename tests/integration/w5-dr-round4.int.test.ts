@@ -132,15 +132,4 @@ describe('the leaver exit cannot be borrowed', () => {
     }));
     expect(rows[0].changes.fields).toEqual([expect.objectContaining({ field: 'expiry_date', old: null, new: '2026-03-01' })]);
   });
-
-  it('adv2 L2: once the exit is taken it does not unwind: the expiry cannot be lengthened again, and the end date stays (named limit)', async () => {
-    const { f, d, march } = await marchUnderDReopened('DR r4 L2 unwind');
-    expect((await patchEmployee(f, { endDate: '2026-02-28' })).statusCode).toBe(200);
-    expect((await patchDirective(f, d, { expiry_date: '2026-03-01' })).statusCode).toBe(200);
-    expect((await recalc(f, march)).statusCode).toBe(200);
-    // The run (still reopened) no longer pays the leaver. Restoring the directive's window is refused (shorten-only: SARS issues a new directive for a longer period) ...
-    expect((await patchDirective(f, d, { expiry_date: '2027-02-28' })).statusCode).toBe(400);
-    // ... and so the end date cannot move past the taxed period.
-    expect((await patchEmployee(f, { endDate: '2026-06-30' })).statusCode).toBe(409);
-  });
 });

@@ -15,6 +15,7 @@ import { regularDirectiveLatestUse } from './payrollRunDirectiveUses';
 import {
   auditLeaverExit, judgeRegularDirectiveChange, judgeRegularDirectiveCreate, lockForRegularChange, regularDirectiveRow,
 } from './taxDirectiveRegularPayChange';
+import { auditLeaverExitUndo } from './taxDirectiveLeaverUndo';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { approversAtCreate, auditDirectiveApproval, judgeDirectiveApprover } from './taxDirectiveApprover';
 import { mapRow, type DirectiveStatus, type TaxDirective, type TaxDirectiveCreateInput, type ListTaxDirectivesFilter } from './taxDirectiveModel';
@@ -175,7 +176,9 @@ export async function updateTaxDirective(
   }
   // Judged on the row as it is under both locks (status and expiry may have moved since the unlocked read).
   const fresh = regular ? await regularDirectiveRow(companyId, id) : null;
-  const judged = fresh ? await judgeRegularDirectiveChange(companyId, fresh, change) : null;
+  const judged = fresh ? await judgeRegularDirectiveChange(companyId, fresh, change, actorUserId ?? null) : null;
+  // The undo of a leaver exit restores the expiry it had, which may be none (taxDirectiveLeaverUndo).
+  const restoreNull = judged?.undo != null && judged.undo.oldExpiry == null;
   // Four eyes (Hein, #1266 round 2): judged before the write; the audit row follows it in the same transaction.
   const approving = change.status === 'approved' && locked[0].status !== 'approved' && approvedByUserId != null;
   const approval = approving ? await judgeDirectiveApprover(companyId, id, approvedByUserId!) : null;
@@ -186,7 +189,7 @@ export async function updateTaxDirective(
     SET
       status = COALESCE(${change.status ?? null}::text, status),
       issued_date = CASE WHEN ${setIssued}::boolean THEN ${change.issued_date ?? null}::date ELSE issued_date END,
-      expiry_date = COALESCE(${change.expiry_date ?? null}::date, expiry_date),
+      expiry_date = CASE WHEN ${restoreNull}::boolean THEN NULL ELSE COALESCE(${judged?.undo?.oldExpiry ?? change.expiry_date ?? null}::date, expiry_date) END,
       approved_by = CASE
         WHEN ${approvedByUserId ?? null}::uuid IS NOT NULL THEN ${approvedByUserId ?? null}::uuid
         ELSE approved_by
@@ -198,6 +201,7 @@ export async function updateTaxDirective(
   `;
 
   if (approval && rows.length) await auditDirectiveApproval(companyId, id, approvedByUserId!, approval.selfApproval);
+  if (fresh && judged?.undo && rows.length && actorUserId) await auditLeaverExitUndo(companyId, fresh, judged.undo, actorUserId);
   if (fresh && judged?.leaverExitPeriods && rows.length && actorUserId) {
     await auditLeaverExit(companyId, fresh, change.expiry_date!, judged.leaverExitPeriods, actorUserId);
   }
