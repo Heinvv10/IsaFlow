@@ -167,6 +167,7 @@ describe('5. #684 follow-ups: the GL reversal, Dismiss and the match writers', (
       [`${MCP}writeJournalReverse.ts`]: 'MCP reverse_journal_entry: lockJournalCashForGlReversal first, dry run included',
       [`${B}bankAllocationService.ts`]: 'the choke point itself (assertMayReverse, audited)',
       [`${B}bankChainLineReversal.ts`]: "the choke point's document arm, called from it only",
+      [`${B}bankReallocationService.ts`]: 'reallocate a reconciled line: agentReversalRefusal + assertMayReverse under the line lock, audited',
       [`${B}autoPostUndoService.ts`]: "undoRow's provisional/hand-reversed arms, behind assertMayUndoRun",
       [`${B}provisionalDismissService.ts`]: 'Dismiss: assertMayReverse per line under the line locks, audited',
       'src/modules/accounting/services/core/paymentVoidService.ts': 'void: a bank-linked payment goes through the choke point',
@@ -190,6 +191,9 @@ describe('5. #684 follow-ups: the GL reversal, Dismiss and the match writers', (
     expect(filesMatching(/\brefuseJournalCashOfCompletedReconciliation\(/).sort()).toEqual([`${B}bankReversalGate.ts`, `${B}reconciledCash.ts`]);
     before(`${B}provisionalDismissService.ts`, 'await assertMayReverse(companyId, line, jeId, userId)', 'reverseJournalEntry(companyId, head, userId)');
     before(`${B}provisionalDismissService.ts`, 'await lockBankTransactionsInIdOrder(', 'await assertMayReverse(');
+    before(`${B}bankReallocationService.ts`, 'const tx = await lockBankTransactionForUpdate(companyId, bankTxId)', 'const clearance = await assertMayReverse(companyId, tx,');
+    before(`${B}bankReallocationService.ts`, 'const clearance = await assertMayReverse(companyId, tx,', 'const reversal = await reverseJournalEntry(');
+    before(`${B}bankReallocationService.ts`, 'const reversal = await reverseJournalEntry(', 'await auditedReversal(companyId, bankTxId, userId, clearance');
     const settle = 'src/modules/accounting/services/ap/provisionalSettlementVoid.ts';
     before(settle, 'await lockBankTransactionForUpdate(companyId, bankTransactionId)', 'clearance = await assertMayReverse(companyId, tx,');
     before(settle, 'clearance = await assertMayReverse(companyId, tx,', 'UPDATE supplier_payments SET status = \'cancelled\'');

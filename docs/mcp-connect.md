@@ -117,7 +117,7 @@ both stay in the audit trail.
 
 ## Tools
 
-As of 13 November 2026 the server offers **173 tools** (79 read-only, 94 that change data; 40 of those also need `write:post`).
+As of 13 November 2026 the server offers **174 tools** (79 read-only, 95 that change data; 41 of those also need `write:post`).
 The authoritative list is what your client gets from `tools/list` once connected; each
 tool's description says what it does, what it needs and whether it has a `dry_run`.
 (These counts are checked against the server in `tests/unit/mcp/mcpConnectDocCounts.test.ts`.)
@@ -134,10 +134,6 @@ as well as the read one, and they say so on the consent screen:
   sealed, append-only snapshot of the ledger at a cutoff. It cannot be deleted afterwards.
 - `run_depreciation` (`write:journals` + **`write:post`**) **posts** the month's
   depreciation journals to the general ledger. Run it with `dry_run: true` first.
-- `create_recurring_journal`, `run_recurring_journals` and `deactivate_recurring_journal`
-  (`write:journals`) manage recurring journal templates and generate a month's due journals,
-  each run once. A template that posts its journals (`auto_post: true`) also needs
-  **`write:post`**, to create, resume or run it; without it, runs are left as drafts or reported.
 
 Two **read** tools are the review loop around the writes: `get_match_candidates`
 (`read:bank-tx`) shows the scored shortlist for one bank transaction before anything is
