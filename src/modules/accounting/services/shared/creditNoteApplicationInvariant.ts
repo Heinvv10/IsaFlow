@@ -7,6 +7,12 @@
  *      rows moved, to the cent;
  *   2. the note's `applied_amount` now equals its allocation rows, to the cent.
  *
+ * WHICH CHECK CATCHES WHAT. (1) can only fire when something REWRITES the
+ * figure the writer put on the document — a trigger, a rounding rule, a sub-cent
+ * amount Postgres rounds differently from the row — because each writer moves
+ * the row and `amount_paid` by the same line. (2) is the drift detector: a
+ * caller that records an `applied_amount` its rows do not add up to.
+ *
  * CN-388 (Velocity, Nov 2026) ended with R490.44 recorded on the note and
  * R490.45 credited to its bill: R0.01 counted as used on the document with no
  * application behind it on the note. Comparing MOVEMENTS (1) is what lets a

@@ -19,7 +19,8 @@ import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
 import { deriveCreditNoteStatus, type CreditNoteSide } from './creditNoteFifo';
 import { assertAllocationsMatchApplied, lockInvoicesForUpdate, undoApplication } from './creditNoteApplicationWrites';
-import { UnapplyRefusal, assertSourceJournalLive } from './unapplyRefusal';
+import { UnapplyRefusal } from './unapplyRefusal';
+import { readPostedCreditOrRefuse } from './creditNotePostedCredit';
 import { assertApplicationRecorded } from './creditNoteApplicationInvariant';
 import type { UnapplyLine } from '../ap/supplierPaymentUnapply';
 
@@ -102,8 +103,11 @@ async function buildPlan(
   if (!UNAPPLIABLE_NOTE.has(status)) {
     throw new UnapplyRefusal(`Credit note ${number} is ${status} and has no application to take back.`);
   }
-  await assertSourceJournalLive(sql, companyId, note.gl_journal_entry_id, `Credit note ${number}`);
   const side: CreditNoteSide = note.type === 'supplier' ? 'supplier' : 'customer';
+  // KEPT DELIBERATELY (09-21): a note whose journal chain is not standing has no credit in the GL, and taking its
+  // applications back would mint on-account credit that auto_apply_unapplied and the refund ceiling then spend.
+  // Read through the chain (O <- R <- R2 stands), not O's own reversed_at — the same read the apply paths use.
+  await readPostedCreditOrRefuse(companyId, note, side, (m) => new UnapplyRefusal(m));
   const total = round2(Number(note.total_amount));
   const appliedBefore = round2(Number(note.applied_amount ?? 0));
 

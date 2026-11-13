@@ -22,6 +22,7 @@ import { autoApplyUnapplied } from '@/modules/accounting/services/shared/autoApp
 import { applyCreditNoteToInvoice } from '@/modules/accounting/services/ar/creditNoteApplyToInvoice';
 import { CreditNotePostedCreditError } from '@/modules/accounting/services/shared/creditNotePostedCredit';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { dropFixture, inTx, seedBill, seedFixture, seedInvoice, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
 import { seedPostedNote } from './helpers/creditNoteJournalFixture';
@@ -74,7 +75,8 @@ describeIfDb('posted-credit rule: review edges', () => {
       const down = { creditNoteId: note, documentId: a, newAmount: 300 };
 
       const planned = await plan(down);
-      expect(planned).toMatchObject({ noteAppliedBefore: 1000, noteAppliedAfter: 700, notePosted: 500 });
+      // A decrease never reads the posted credit (null): it needs none.
+      expect(planned).toMatchObject({ noteAppliedBefore: 1000, noteAppliedAfter: 700, notePosted: null });
       expect(await adjust(down)).toEqual(planned);
 
       expect(await refusal(plan({ ...down, newAmount: 350 }))).toContain('never posted');
@@ -119,8 +121,12 @@ describeIfDb('posted-credit rule: review edges', () => {
     await other.connect();
     try {
       await other.query('BEGIN');
-      // What a reversal's claim does first (gl/journalEntryReversalClaim): stamp reversed_at, uncommitted.
+      // What a reversal does (gl/journalEntryReversalClaim), uncommitted: claim O by stamping reversed_at…
       await other.query('UPDATE gl_journal_entries SET reversed_at = NOW() WHERE id = $1', [je]);
+      // …and posts its contra R (reversal_of_id = O), which is what takes the chain out of the ledger.
+      await other.query(`INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, status, created_by,
+                           posted_at, reversal_of_id) SELECT company_id, entry_number || '-R', entry_date, 'reversal', 'posted',
+                           created_by, NOW(), id FROM gl_journal_entries WHERE id = $1`, [je]);
 
       let settled = false;
       const applying = inTx(fx, () => applyCreditNoteToDocument(fx.companyId, { creditNoteId: note, invoiceId: bill }, fx.userId))
@@ -165,5 +171,35 @@ describeIfDb('posted-credit rule: review edges', () => {
       CreditNotePostedCreditError)).toContain(formatMoney(49.99));
     expect(await refusal(inTx(fx, () => applyCreditNoteToInvoice(fx.companyId, gone, inv, fx.userId)),
       CreditNotePostedCreditError)).toContain('reversed');
+  });
+  it('the back-fill reads the chain: a note reversed and re-reversed (O <- R <- R2) is planned and applied, dry run = live', async () => {
+    const sup = await seedSupplier(fx, 'CNR7-CH');
+    const bill = await seedBill(fx, { number: 'CH1', date: '2026-02-08', total: 500, supplierId: sup });
+    const note = await seedPostedNote(fx, { side: 'supplier', number: 'NCH1', total: 60, posted: 60, counterpartyId: sup });
+    const o = String(((await sql`SELECT gl_journal_entry_id FROM credit_notes WHERE id = ${note}::UUID`) as Record<string, unknown>[])[0]!.gl_journal_entry_id);
+    await inTx(fx, () => reverseJournalEntry(fx.companyId, o, fx.userId));
+    const r = String(((await sql`SELECT id FROM gl_journal_entries WHERE reversal_of_id = ${o}::UUID`) as Record<string, unknown>[])[0]!.id);
+    await inTx(fx, () => reverseJournalEntry(fx.companyId, r, fx.userId));
+    const run = { companyId: fx.companyId, userId: fx.userId, subledger: 'ap' as const, entityId: sup };
+    const lines = (p: Awaited<ReturnType<typeof autoApplyUnapplied>>) =>
+      p.applications.map((a) => ({ id: a.payment_id, lines: a.lines.map((l) => [l.document_id, l.amount]) }));
+
+    const dry = await inTx(fx, () => autoApplyUnapplied({ ...run, dryRun: true }));
+    const live = await inTx(fx, () => autoApplyUnapplied({ ...run, dryRun: false, idempotencyKey: 'cnr7-ch' }));
+
+    expect(lines(dry)).toEqual([{ id: note, lines: [[bill, 60]] }]);
+    expect(lines(live)).toEqual(lines(dry));
+  });
+
+  it('a decrease needs no posted credit: adjust down / to 0 works on a note whose journal is reversed', async () => {
+    const bill = await seedBill(fx, { number: 'DN', date: '2026-02-09', total: 500 });
+    const note = await seedPostedNote(fx, { side: 'supplier', number: 'NDN', total: 80, posted: 80 });
+    await adjust({ creditNoteId: note, documentId: bill, newAmount: 80 });
+    const o = String(((await sql`SELECT gl_journal_entry_id FROM credit_notes WHERE id = ${note}::UUID`) as Record<string, unknown>[])[0]!.gl_journal_entry_id);
+    await inTx(fx, () => reverseJournalEntry(fx.companyId, o, fx.userId));
+
+    expect(await refusal(adjust({ creditNoteId: note, documentId: bill, newAmount: 90 }))).toContain('reversed');
+    expect((await adjust({ creditNoteId: note, documentId: bill, newAmount: 30 })).noteAppliedAfter).toBe(30);
+    expect((await adjust({ creditNoteId: note, documentId: bill, newAmount: 0 })).noteAppliedAfter).toBe(0);
   });
 });

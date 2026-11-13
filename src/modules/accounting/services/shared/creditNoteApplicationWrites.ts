@@ -39,9 +39,10 @@ import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
 import { withCustomerInvoiceLock } from '../ar/customerInvoiceLock';
 import { withSupplierInvoiceLock } from '../ap/supplierInvoiceLock';
 import { round2 } from './autoAllocateStrategy';
-
-const HALF_CENT = 0.005;
 import type { CreditNoteApplicationLine, CreditNoteSide } from './creditNoteFifo';
+
+/** Half a cent: money compared to the cent, exactly. */
+const HALF_CENT = 0.005;
 
 /**
  * Statuses that cannot take a credit, per side.
@@ -137,11 +138,26 @@ export async function writeApplication(
   creditNoteId: string,
   side: CreditNoteSide,
   line: CreditNoteApplicationLine,
+  /**
+   * The FIFO walk (approval, auto_apply_unapplied) passes `addToExisting`: a note can already hold part of a
+   * document it walks to (applied by name, or adjusted down), and the walk must ADD to that row — inserting a
+   * second one hits UNIQUE (credit_note_id, invoice_id), 23505, and the back-fill reported the note as failed.
+   * The named-document callers keep the plain insert, so a second application of one pair stays refused.
+   */
+  opts: { addToExisting?: boolean } = {},
 ): Promise<number> {
-  await sql`
-    INSERT INTO credit_note_allocations (company_id, credit_note_id, invoice_id, amount_allocated)
-    VALUES (${companyId}::UUID, ${creditNoteId}::UUID, ${line.invoiceId}::UUID, ${line.amount})
-  `;
+  if (opts.addToExisting) {
+    await sql`
+      INSERT INTO credit_note_allocations (company_id, credit_note_id, invoice_id, amount_allocated)
+      VALUES (${companyId}::UUID, ${creditNoteId}::UUID, ${line.invoiceId}::UUID, ${line.amount})
+      ON CONFLICT (credit_note_id, invoice_id)
+      DO UPDATE SET amount_allocated = credit_note_allocations.amount_allocated + EXCLUDED.amount_allocated`;
+  } else {
+    await sql`
+      INSERT INTO credit_note_allocations (company_id, credit_note_id, invoice_id, amount_allocated)
+      VALUES (${companyId}::UUID, ${creditNoteId}::UUID, ${line.invoiceId}::UUID, ${line.amount})
+    `;
+  }
   // `moved` is MEASURED (the stored figure after less before), not the amount
   // asked for: the caller's invariant compares it with what the note records.
   const applied = (side === 'customer'

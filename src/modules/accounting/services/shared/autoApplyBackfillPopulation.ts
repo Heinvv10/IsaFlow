@@ -36,7 +36,7 @@ import {
   basisSources, markCreditCeilingSkips, SKIP_JOURNAL_NOT_LIVE, SKIP_NO_FISCAL_PERIOD, SKIP_NO_JOURNAL,
   SKIP_POSTED_CREDIT_USED,
 } from './autoApplyBackfillSkips';
-import { notePostedCreditLateral } from './creditNotePostedCredit';
+import { notePostedCreditLateral, notesJournalStanding } from './creditNotePostedCredit';
 import type { SimulationDocument } from './autoApplySimulation';
 import type { BackfillSource, Subledger } from './autoApplyBackfillPlan';
 
@@ -67,7 +67,7 @@ async function readCreditNotes(
         SELECT cn.id, cn.credit_note_number, cn.credit_date, cn.gl_journal_entry_id,
                cn.supplier_id AS entity_id, s.name AS entity_name,
                (cn.total_amount - COALESCE(cn.applied_amount, 0)) AS remainder,
-               COALESCE(cn.applied_amount, 0) AS applied, pc.live, pc.posted
+               COALESCE(cn.applied_amount, 0) AS applied, pc.posted
         FROM credit_notes cn
         JOIN suppliers s ON s.id = cn.supplier_id
          AND s.company_id = cn.company_id AND s.deleted_at IS NULL
@@ -84,7 +84,7 @@ async function readCreditNotes(
         SELECT cn.id, cn.credit_note_number, cn.credit_date, cn.gl_journal_entry_id,
                cn.client_id AS entity_id, c.name AS entity_name,
                (cn.total_amount - COALESCE(cn.applied_amount, 0)) AS remainder,
-               COALESCE(cn.applied_amount, 0) AS applied, pc.live, pc.posted
+               COALESCE(cn.applied_amount, 0) AS applied, pc.posted
         FROM credit_notes cn
         JOIN customers c ON c.id = cn.client_id
          AND c.company_id = cn.company_id AND c.deleted_at IS NULL
@@ -99,12 +99,13 @@ async function readCreditNotes(
         LIMIT ${limit}`) as DbRow[];
 
   const floor = invoiceFloor(isAp ? 'supplier' : 'customer');
+  const standing = await notesJournalStanding(companyId, rows.filter((r) => r.gl_journal_entry_id).map((r) => String(r.gl_journal_entry_id)));
   return rows.map((r) => {
     // Brief step 7: never more than the note's journal POSTED — the cap `applyOneCreditNote` takes under lock.
     const postedLeft = round2(Number(r.posted ?? 0) - Number(r.applied));
     const remainder = round2(Math.min(Number(r.remainder), postedLeft));
     const skippedReason = !r.gl_journal_entry_id ? null // SKIP_NO_JOURNAL, below
-      : r.live !== true ? SKIP_JOURNAL_NOT_LIVE
+      : !standing.has(String(r.gl_journal_entry_id)) ? SKIP_JOURNAL_NOT_LIVE
         : remainder <= floor ? SKIP_POSTED_CREDIT_USED : null;
     return {
       kind: 'credit_note' as const,

@@ -60,8 +60,8 @@ export interface CreditNoteAdjustResult {
   creditNoteId: string;
   creditNoteNumber: string;
   side: CreditNoteSide;
-  /** The journal that carries the note's credit. An adjustment posts none of its own. */
-  creditNoteJournalId: string;
+  /** The journal that carries the note's credit (null on a legacy note without one). An adjustment posts none. */
+  creditNoteJournalId: string | null;
   documentId: string;
   documentNumber: string;
   /** What the note had applied to this document, and has after. */
@@ -71,7 +71,8 @@ export interface CreditNoteAdjustResult {
   documentOutstandingBefore: number;
   documentOutstandingAfter: number;
   noteTotal: number;
-  notePosted: number;
+  /** What the note's journal posted to the control account; read for an increase only, null on a decrease. */
+  notePosted: number | null;
   noteAppliedBefore: number;
   noteAppliedAfter: number;
   noteRemainderAfter: number;
@@ -118,7 +119,9 @@ export async function adjustCreditNoteApplication(
     paidMoved += await writeApplication(companyId, plan.creditNoteId, side, { ...line, amount: plan.appliedAfter });
   }
   // The invariants. Thrown, never refused: the document has already moved, so the registry must unwind it.
-  await assertApplicationWithinPostedCredit(companyId, note!, side, plan.noteAppliedBefore, plan.noteAppliedAfter);
+  if (plan.change > 0) {
+    await assertApplicationWithinPostedCredit(companyId, note!, side, plan.noteAppliedBefore, plan.noteAppliedAfter);
+  }
   await sql`
     UPDATE credit_notes SET applied_amount = ${plan.noteAppliedAfter}, status = ${plan.noteStatusAfter},
            updated_at = NOW()
@@ -171,8 +174,6 @@ async function buildPlan(
     throw new CreditNoteAdjustRefusal(`Document ${docNumber} belongs to a different ${side} than credit note ${number}.`);
   }
 
-  // Outside the catch below: a reversal-lock timeout is retryable and must reach the registry as itself.
-  const { journalId, posted } = await readPostedCreditOrRefuse(companyId, note, side, (m) => new CreditNoteAdjustRefusal(m));
   const prior = (await sql`
     SELECT amount_allocated FROM credit_note_allocations
     WHERE credit_note_id = ${input.creditNoteId}::UUID AND invoice_id = ${input.documentId}::UUID
@@ -180,6 +181,13 @@ async function buildPlan(
   const appliedBefore = prior.length > 0 ? round2(Number(prior[0]!.amount_allocated)) : 0;
   const appliedAfter = round2(input.newAmount);
   const change = round2(appliedAfter - appliedBefore);
+  // The direction decides what the ledger must show. Only an INCREASE needs posted credit (the cap, and a live
+  // journal); a decrease never does — taking credit back off a document is always allowed. Outside the catch
+  // below: a journal-lock timeout is retryable and must reach the registry as itself.
+  const credit = change > 0
+    ? await readPostedCreditOrRefuse(companyId, note, side, (m) => new CreditNoteAdjustRefusal(m))
+    : null;
+  const posted = credit?.posted ?? 0;
 
   // Rows vs column: EXACT to raise what is applied, a cent of tolerance to lower it — so a note already a cent
   // apart is refused more credit by name but can always be brought down (to 0), and its figure after is re-derived
@@ -246,7 +254,7 @@ async function buildPlan(
     creditNoteId: input.creditNoteId,
     creditNoteNumber: number,
     side,
-    creditNoteJournalId: journalId,
+    creditNoteJournalId: note.gl_journal_entry_id ? String(note.gl_journal_entry_id) : null,
     documentId: input.documentId,
     documentNumber: docNumber,
     appliedBefore,
@@ -255,7 +263,7 @@ async function buildPlan(
     documentOutstandingBefore: outstanding,
     documentOutstandingAfter: round2(outstanding - change),
     noteTotal: total,
-    notePosted: posted,
+    notePosted: credit ? posted : null,
     noteAppliedBefore,
     noteAppliedAfter,
     noteRemainderAfter: round2(total - noteAppliedAfter),

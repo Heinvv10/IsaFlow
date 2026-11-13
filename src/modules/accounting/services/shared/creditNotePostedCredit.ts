@@ -27,8 +27,8 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { withRowLockBudget } from '../core/rowLockBudget';
 import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
+import { findJournalChainHead, findJournalChainRoot, shareLockChainHeadOf } from './journalChainHead';
 import { PAYABLE_SUBTYPES, RECEIVABLE_SUBTYPES } from '../gl/accountSubtypes';
 import { round2 } from './autoAllocateStrategy';
 import type { CreditNoteSide } from './creditNoteFifo';
@@ -38,6 +38,18 @@ export class CreditNotePostedCreditError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'CreditNotePostedCreditError';
+  }
+}
+
+/**
+ * The note's journal chain is held by another request (a reversal or a cancel). Same code and class as the
+ * reversal claim's timeout, so every caller already answers it as retryable (REST 503 + Retry-After, MCP retry).
+ */
+export class CreditNoteJournalLockTimeoutError extends JournalReversalLockTimeoutError {
+  constructor(entryId: string) {
+    super(entryId);
+    this.name = 'CreditNoteJournalLockTimeoutError';
+    this.message = "The note's journal is locked by another request (a reversal or cancel) — retry in a moment.";
   }
 }
 
@@ -59,11 +71,14 @@ export const controlSubtypes = (side: CreditNoteSide): string[] =>
  * The note's live journal and what it put on the control account. Throws when
  * the note has no posted, unreversed journal: nothing it applies is backed.
  *
- * The journal row is taken FOR SHARE first. A reversal claims the row with an
- * UPDATE of `reversed_at` (`gl/journalEntryReversalClaim`), so a reversal in
- * flight makes this wait (bounded: `JournalReversalLockTimeoutError`, retryable)
- * and one that commits first is then read here and refused; once this holds the
- * lock, no reversal can commit before the application does.
+ * Liveness is the note journal's REVERSAL CHAIN, not its own `reversed_at`: after
+ * O <- R <- R2 the ledger carries O's credit again through R2 while O stays
+ * stamped (`shared/journalChainHead`), so the question is whether the chain is
+ * STANDING. Its head is share-locked (`shareLockChainHeadOf`, the lock a
+ * reversal's claim conflicts with), so a reversal in flight is waited for
+ * (bounded; `CreditNoteJournalLockTimeoutError`, retryable) and then seen, and
+ * none can commit before the application does. The amount is O's own control
+ * movement — what the standing chain carries.
  */
 export async function readNotePostedCredit(
   companyId: string,
@@ -77,14 +92,17 @@ export async function readNotePostedCredit(
       `${label} has no posted journal behind it, so no credit is in the ledger to apply. Reconcile it by hand.`,
     );
   }
-  const [je] = await withRowLockBudget(async () => (await sql`
-    SELECT status, reversed_at FROM gl_journal_entries
-    WHERE id = ${journalId}::UUID AND company_id = ${companyId}::UUID
-    FOR SHARE`) as DbRow[], () => new JournalReversalLockTimeoutError(journalId));
-  if (!je || String(je.status) !== 'posted') {
+  let head: { id: string; standing: boolean } | null;
+  try {
+    head = await shareLockChainHeadOf(companyId, journalId, (m) => new CreditNotePostedCreditError(`${label}: ${m}`));
+  } catch (err) {
+    if (err instanceof JournalReversalLockTimeoutError) throw new CreditNoteJournalLockTimeoutError(journalId);
+    throw err;
+  }
+  if (!head) {
     throw new CreditNotePostedCreditError(`${label}'s journal is not posted, so no credit is in the ledger to apply.`);
   }
-  if (je.reversed_at != null) {
+  if (!head.standing) {
     throw new CreditNotePostedCreditError(
       `${label}'s journal has been reversed, so the ledger no longer carries its credit. Reconcile it by hand.`,
     );
@@ -107,20 +125,32 @@ export async function readNotePostedCredit(
 }
 
 /**
- * The same figure for MANY notes in one statement, as a LATERAL to join on a `credit_notes cn` row: `pc.live` (the
- * journal is posted and unreversed; NULL when there is none) and `pc.posted`. The auto-apply back-fill's population
- * reads it, so its dry run caps exactly as the live path's `readNotePostedCredit` does. No lock: a population read.
+ * The same figure for MANY notes in one statement, as a LATERAL to join on a `credit_notes cn` row: `pc.posted`, the
+ * note journal's own control movement (0 when it is not posted). Whether its chain STANDS is a recursive walk per
+ * note — `notesJournalStanding` below. The auto-apply back-fill's population reads both, so its dry run caps exactly
+ * as the live path's `readNotePostedCredit` does. No lock: a population read.
  */
 export function notePostedCreditLateral(side: CreditNoteSide) {
   const movement = side === 'customer' ? sql`jl.credit - jl.debit` : sql`jl.debit - jl.credit`;
   return sql`LEFT JOIN LATERAL (
-      SELECT (je.status = 'posted' AND je.reversed_at IS NULL) AS live,
-             COALESCE((SELECT SUM(${movement}) FROM gl_journal_lines jl
+      SELECT COALESCE((SELECT SUM(${movement}) FROM gl_journal_lines jl
                        JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
                        WHERE jl.journal_entry_id = je.id AND jl.company_id = je.company_id
                          AND ga.account_subtype = ANY(${controlSubtypes(side)}::TEXT[])), 0) AS posted
-      FROM gl_journal_entries je WHERE je.id = cn.gl_journal_entry_id AND je.company_id = cn.company_id
+      FROM gl_journal_entries je
+      WHERE je.id = cn.gl_journal_entry_id AND je.company_id = cn.company_id AND je.status = 'posted'
     ) pc ON TRUE`;
+}
+
+/** For each journal id: does its reversal chain stand (O, or O <- R <- R2)? Unlocked — a population read. */
+export async function notesJournalStanding(companyId: string, journalIds: readonly string[]): Promise<Set<string>> {
+  const standing = new Set<string>();
+  for (const id of new Set(journalIds)) {
+    const root = (await findJournalChainRoot(companyId, id)) ?? id;
+    const head = await findJournalChainHead(companyId, root);
+    if (head?.kind === 'head' && head.standing) standing.add(id);
+  }
+  return standing;
 }
 
 /**

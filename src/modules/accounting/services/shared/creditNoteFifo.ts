@@ -226,7 +226,7 @@ export async function applyCreditNote(args: {
   // ── 4. WRITE ──────────────────────────────────────────────────────────────
   let paidMoved = 0;
   for (const line of lines) {
-    paidMoved = round2(paidMoved + await writeApplication(companyId, creditNoteId, side, line));
+    paidMoved = round2(paidMoved + await writeApplication(companyId, creditNoteId, side, line, { addToExisting: true }));
   }
 
   return {
