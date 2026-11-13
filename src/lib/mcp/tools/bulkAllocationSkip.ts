@@ -49,6 +49,13 @@ export interface SkippedLine {
 /** The one reason string every skip path uses for an allocated row. */
 export const ALREADY_ALLOCATED = 'already allocated';
 
+/**
+ * A R0.00 statement line (a waived fee, a bank memo line). It has no money to move and so no journal to post:
+ * `createJournalEntry` refuses a line with no debit or credit, which rolled back the whole batch beside it. Skipped
+ * like any other row-state fact; the row stays 'imported' for a person to exclude or leave.
+ */
+export const ZERO_AMOUNT = 'zero_amount';
+
 /** The statuses that mean the transaction is already represented in the ledger. */
 const ALLOCATED_STATUSES: readonly string[] = ['allocated', 'reconciled', 'matched'];
 
@@ -85,7 +92,11 @@ export function skipReasonFor(state: BankTransactionAllocationState): string | n
   // which would unwind every good line beside it (A-4).
   if (state.feedState === 'pending') return 'pending at the bank';
   if (state.feedState === 'removed') return 'removed by the bank';
-  if (state.status === 'imported' && state.matchedJournalLineId === null) return null;
+  // After the feed-state checks and BEFORE the row is declared postable; a zero row that is also allocated or
+  // excluded keeps the more informative reason below.
+  if (state.status === 'imported' && state.matchedJournalLineId === null) {
+    return state.amount === 0 ? ZERO_AMOUNT : null;
+  }
   if (state.matchedJournalLineId !== null) {
     // An excluded row that ALSO carries a journal is a contradiction someone
     // needs to see: it is in the ledger and marked as kept out of it. Reporting
