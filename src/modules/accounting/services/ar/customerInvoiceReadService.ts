@@ -13,6 +13,7 @@ import { sql } from '@/lib/neon';
 import { invoiceDigests } from './invoicePdfModel';
 import { EXPORT_ROW_CEILING } from '@/lib/pagination';
 import { linkExpiredSql } from './portalLinkCharge';
+import { hasEntityDocumentSql } from '../core/documentPresenceSql';
 import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { arOverdueFragment } from './arOutstandingService';
 import { asAtTodayStr } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
@@ -120,6 +121,7 @@ export async function listCustomerInvoices(
   const effDue = sql.unsafe('COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date)::date');
   const openStatuses = Array.from(AR_OPEN_STATUSES);
   const balance = sql.unsafe('(COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0))');
+  const hasDoc = sql.unsafe(hasEntityDocumentSql('customer_invoice', 'ci'));
 
   const [invoices, countResult] = await Promise.all([
     sql`
@@ -139,6 +141,7 @@ export async function listCustomerInvoices(
         ci.exchange_rate,
         ci.functional_total,
         c.name AS client_name,
+        ${hasDoc} AS has_document,
         vs.last_viewed_at,
         COALESCE(vs.view_count, 0) AS view_count,
         CASE
@@ -229,6 +232,7 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
              WHERE te.invoice_id = ci.id AND te.company_id = ci.company_id
                AND NOT EXISTS (SELECT 1 FROM customer_invoice_items x WHERE x.invoice_id = ci.id AND x.time_entry_id = te.id)
            ) AS unlinked_time_entries,
+           ${sql.unsafe(hasEntityDocumentSql('customer_invoice', 'ci'))} AS has_document,
            c.name AS client_name, c.email AS client_email
     FROM customer_invoices ci
     LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id

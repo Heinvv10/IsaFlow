@@ -12,6 +12,7 @@ import type {
   SupplierInvoiceStatus,
   InvoiceMatchStatus,
 } from '../../types/ap.types';
+import { hasEntityDocumentSql } from '../core/documentPresenceSql';
 import { mapInvoiceRow } from './supplierInvoiceMapper';
 import {
   buildInvoiceWhere,
@@ -78,7 +79,7 @@ const INVOICE_COLUMNS = `
   si.created_at, si.updated_at,
   s.name AS supplier_name, NULL::text AS po_number,
   -- Accountant signals
-  (si.source_document_id IS NOT NULL) AS has_document,
+  ${hasEntityDocumentSql('supplier_invoice', 'si')} AS has_document,
   (si.purchase_order_id IS NOT NULL)  AS has_po,
   EXISTS (
     SELECT 1 FROM supplier_invoices dup

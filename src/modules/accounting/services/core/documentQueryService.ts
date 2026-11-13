@@ -22,6 +22,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { hasBankLineDocumentSql } from '../bank/bankLineDocumentSql';
+import { entityTableName, hasEntityDocumentSql } from './documentPresenceSql';
 import type { AccountingEntityType, LinkedDocument } from '@/types/procurement/document.types';
 import {
   VALID_ENTITY_TYPES,
@@ -87,11 +88,10 @@ export async function listEntityDocuments(
 }
 
 /**
- * Which of `ids` carry at least one active document in the entity store,
- * directly or through document_links. ONE query for a whole export page.
- * The fence is the `owned` CTE: an id counts only when it is a row of the
- * table `entityType` names AND belongs to `companyId`, so a foreign or
- * mistyped id never reads procurement_documents.
+ * Which of `ids` carry at least one supporting document (core/documentPresenceSql: the entity store, directly or
+ * through document_links, plus a bill's or invoice's source captured document). ONE query for a whole export page.
+ * The fence is the entity's own table: an id counts only when it is a row of `entityType`'s table AND belongs to
+ * `companyId`, so a foreign or mistyped id never reads procurement_documents.
  */
 export async function entityIdsWithDocuments(
   companyId: string,
@@ -100,18 +100,9 @@ export async function entityIdsWithDocuments(
 ): Promise<Set<string>> {
   if (ids.length === 0) return new Set();
   const rows = (await sql`
-    WITH owned AS (
-      SELECT id FROM supplier_invoices WHERE ${entityType} = 'supplier_invoice' AND company_id = ${companyId}::uuid AND id = ANY(${ids as string[]}::uuid[])
-      UNION ALL SELECT id FROM customer_invoices WHERE ${entityType} = 'customer_invoice' AND company_id = ${companyId}::uuid AND id = ANY(${ids as string[]}::uuid[])
-      UNION ALL SELECT id FROM supplier_payments WHERE ${entityType} = 'supplier_payment' AND company_id = ${companyId}::uuid AND id = ANY(${ids as string[]}::uuid[])
-      UNION ALL SELECT id FROM customer_payments WHERE ${entityType} = 'customer_payment' AND company_id = ${companyId}::uuid AND id = ANY(${ids as string[]}::uuid[])
-      UNION ALL SELECT id FROM credit_notes WHERE ${entityType} = 'credit_note' AND company_id = ${companyId}::uuid AND id = ANY(${ids as string[]}::uuid[])
-    )
-    SELECT o.id FROM owned o
-    WHERE EXISTS (SELECT 1 FROM procurement_documents pd
-                  WHERE pd.entity_type = ${entityType} AND pd.entity_id = o.id AND pd.is_active = true)
-       OR EXISTS (SELECT 1 FROM document_links dl JOIN procurement_documents pd ON pd.id = dl.document_id
-                  WHERE dl.linked_entity_type = ${entityType} AND dl.linked_entity_id = o.id AND pd.is_active = true)
+    SELECT e.id FROM ${sql.unsafe(entityTableName(entityType))} e
+    WHERE e.company_id = ${companyId}::uuid AND e.id = ANY(${ids as string[]}::uuid[])
+      AND ${sql.unsafe(hasEntityDocumentSql(entityType, 'e'))}
   `) as DbRow[];
   return new Set(rows.map((r) => String(r.id)));
 }

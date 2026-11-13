@@ -52,6 +52,9 @@ function compact(inv: SupplierInvoice): Record<string, unknown> {
     // from one that only looks approved — it is the only proof it reached the
     // ledger, and aged_creditors reads the subledger, not the GL.
     gl_journal_entry_id: inv.glJournalEntryId ?? null,
+    // Computed from the document tables on every read (core/documentPresenceSql), the same test as
+    // list_missing_documents: an uploaded or cross-linked document, or a stored source scan.
+    has_document: inv.hasDocument === true,
   };
 }
 
