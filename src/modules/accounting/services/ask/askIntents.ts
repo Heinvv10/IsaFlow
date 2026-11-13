@@ -63,10 +63,10 @@ export const exampleFor = (id: AskIntentId): string => INTENT_EXAMPLES.find((i) 
 const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 
 export const PATTERNS: ReadonlyArray<readonly [AskIntentId, RegExp]> = [
-  ['owed_to_me', /\b(who|what)\b.*\b(owes?|owing)\s+(me|us)\b|\b(debtors?|receivables?)\b|\bcustomers?\b.*\b(owe|owing|outstanding)\b|\bowed\s+to\s+(me|us)\b/],
-  ['i_owe', /\bwho\s+do\s+(i|we)\s+owe\b|\b(creditors?|payables?)\b|\bwhat\s+do\s+(i|we)\s+owe\s+(my\s+|our\s+)?suppliers?\b|\bsuppliers?\b.*\b(owed|outstanding)\b/],
-  ['cash', /\b(cash|money)\b.*\b(bank|have|hand)\b|\bbank\s+balances?\b|\b(?:account|statement)\s+balances?\b|\bcash\s+(balance|position)\b/],
-  ['bank_to_allocate', /\bbank\b.*\b(transactions?|lines?)\b.*\b(allocat|categoris|code|match)|\b(unallocated|unmatched)\b.*\bbank\b/],
+  ['owed_to_me', /\b(who|what)\b.*\b(owes?|owing)\s+(me|us)\b|\b(debtors?|receivables?)\b|\bcustomers?\b.*\b(owe|owing|outstanding)\b|\bowed\s+to\s+(me|us)\b|\b(?:am|are)\s+(?:i|we)\s+owed\b|\boutstanding\b.*\b(?:customers?|debtors?)\b/],
+  ['i_owe', /\bwho\s+do\s+(i|we)\s+owe\b|\b(creditors?|payables?)\b|\b(?:owe|owing)\b.*\b(?:suppliers?|creditors?|vendors?)\b|\bsuppliers?\b.*\b(owed|outstanding)\b|\boutstanding\b.*\b(?:suppliers?|creditors?|vendors?)\b|\b(?:how\s+much|what)\s+(?:do|did|are)\s+(?:i|we)\s+owe\b(?!.*\b(?:sars|vat|paye|sdl|uif|tax|payroll)\b)/],
+  ['cash', /\b(cash|money)\b.*\b(bank|have|hand)\b|\bbank\s+balances?\b|\bbalances?\b.*\bbank\b|\b(?:account|statement)\s+balances?\b|\bcash\s+(balance|position)\b/],
+  ['bank_to_allocate', /\bbank\b.*\b(transactions?|lines?)\b.*\b(allocat|categoris|cod(?:e|ed|ing)|match)|\b(transactions?|lines?)\b.*\bbank\b.*\b(allocat|categoris|cod(?:e|ed|ing)|match)|\b(unallocated|unmatched)\b.*\bbank\b/],
   ['assets', /\btotal\s+(?:balance\s+sheet\s+)?assets\b|\bwhat\s+(do|are)\s+(i|we|my|our)\b.*\bassets\b/],
   ['liabilities', /\bliabilit/],
   ['emp201', /\b(emp\s?201|paye|sdl|uif)\b|\bsars\b.*\bpayroll\b|\bpayroll\b.*\bsars\b|\bpayroll\s+liabilit/],
@@ -82,8 +82,13 @@ const GENERIC: ReadonlySet<AskIntentId> = new Set<AskIntentId>(['profit', 'reven
 
 const ABBREVIATED: Readonly<Record<string, string>> = { jan: 'january', feb: 'february', mar: 'march', apr: 'april', jun: 'june', jul: 'july', aug: 'august', sep: 'september', sept: 'september', oct: 'october', nov: 'november', dec: 'december' };
 
+/** "what's" -> "what is", "didn't" -> "did not": the apostrophe must not leave a stray "s" or "t" behind. */
+const expandContractions = (q: string): string => q.replace(/[\u2018\u2019]/g, "'")
+  .replace(/\b(won)'t\b/g, 'will not').replace(/\b(can)'t\b/g, 'can not').replace(/n't\b/g, ' not')
+  .replace(/'re\b/g, ' are').replace(/'ve\b/g, ' have').replace(/'m\b/g, ' am').replace(/'ll\b/g, ' will').replace(/'d\b/g, ' would').replace(/'s\b/g, ' is');
+
 const normalise = (question: string): string =>
-  question.toLowerCase().replace(/\bcost\s+of\s+sales\b/g, 'costofsales').replace(/\b(jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\b/g, (a) => ABBREVIATED[a]!).replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  expandContractions(question.toLowerCase()).replace(/\bcost\s+of\s+sales\b/g, 'costofsales').replace(/\b(jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\b/g, (a) => ABBREVIATED[a]!).replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 
 const QUARTER = /\b(q[1-4]|(?:first|second|third|fourth|1st|2nd|3rd|4th)\s+quarter|h[12]|half\s*year(?:ly)?|quarter(?:ly)?)\b/;
 /** A number is a year only with year context, and never after a comparison word ("more than 2000" is an amount). */
@@ -146,7 +151,7 @@ export function parsePeriod(raw: string): AskPeriod | null {
   const odd = UNSUPPORTED_WINDOW.exec(q);
   if (odd) return { kind: 'unsupported', said: odd[0]! };
   if (/\blast\s+month\b/.test(q)) return { kind: 'last_month' };
-  if (/\bthis\s+month\b/.test(q)) return { kind: 'this_month' };
+  if (/\bthis\s+month\b|\b(?:this|current)\s+period\b/.test(q)) return { kind: 'this_month' };
   if (/\b(last|previous|prior)\s+(financial\s+|fiscal\s+)?year\b/.test(q)) return { kind: 'last_year' };
   if (/\b(this|current)\s+(financial\s+|fiscal\s+)?year\b|\byear\s+to\s+date\b|\bytd\b/.test(q)) return { kind: 'this_year' };
   const named = new RegExp(`\\b(${MONTH_RE})(?:\\s+(20\\d{2}))?\\b`).exec(q)
