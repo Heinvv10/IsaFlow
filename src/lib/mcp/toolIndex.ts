@@ -61,6 +61,7 @@ import { proposeReclassificationTool } from './tools/reclassificationPropose';
 import { postReclassificationBatchTool } from './tools/writeReclassification';
 import { suggestBankAllocationTool } from './tools/writeBank';
 import { allocateBankTransactionTool, reverseBankAllocationTool } from './tools/writeBankAllocate';
+import { reallocateBankTransactionTool } from './tools/writeBankReallocate';
 import { importBankStatementTool, undoBankImportTool } from './tools/writeBankImport';
 import {
   bulkAllocateBankTransactionsTool,
@@ -266,6 +267,7 @@ export const MCP_TOOLS = [
   bulkFinalizeInvoicesTool,
   allocateBankTransactionTool,
   reverseBankAllocationTool,
+  reallocateBankTransactionTool,
   bulkAllocateBankTransactionsTool,
   autoApplyUnappliedTool,
   applyCreditNoteTool,

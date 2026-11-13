@@ -247,6 +247,9 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
 
   // ── Corrections ──────────────────────────────────────────────────────────
   reverse_bank_allocation: null,
+  // Corrects where a reconciled line was allocated (a reversal and its re-allocation, same date): a correction, free
+  // like reverse_bank_allocation — pricing it would favour leaving a wrong allocation in a signed-off reconciliation.
+  reallocate_bank_transaction: null,
   // Free like every other correction: pricing the undo of a mis-captured
   // receipt puts a toll on the control that keeps the subledger honest.
   void_receipt: null,

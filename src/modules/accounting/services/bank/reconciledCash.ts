@@ -110,6 +110,9 @@ export function refuseLockedCash(lock: LineLock, subject: string): void {
  * D12: the ONE check that a (locked) line is IN a completed reconciliation — the shared 409, raised before the
  * caller's own status refusal, by every writer of one line (match/unmatch/exclude, allocate, split, both
  * bank-match-confirm settlement arms). Reads only; `null` (line not found) passes for the caller to answer.
+ * The one writer that skips it is `allocateTransaction` under `opts.reallocation` (reallocate_bank_transaction):
+ * the D12 exception in reconciliationSessionLock.ts — same session lock, the line re-checked on its own locked row,
+ * the bank leg asserted unchanged.
  */
 export async function refuseLineOfCompletedReconciliation(companyId: string, row: DbRow | null | undefined): Promise<void> {
   if (!row) return;
