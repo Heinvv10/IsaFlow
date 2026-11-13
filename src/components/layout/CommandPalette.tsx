@@ -55,11 +55,13 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
   // The element the person was on before the palette took focus: "Explain this figure" explains that one.
   const origin = useRef<Element | null>(null);
   useEffect(() => {
-    const track = (e: FocusEvent): void => {
-      if (e.target instanceof Element && !e.target.closest('[role="dialog"][aria-label="Command palette"]')) origin.current = e.target;
-    };
+    const outside = (t: EventTarget | null): t is Element => t instanceof Element && !t.closest('[role="dialog"][aria-label="Command palette"]');
+    const track = (e: FocusEvent): void => { if (outside(e.target)) origin.current = e.target; };
+    // Focus leaving the page to nothing (a click on blank space) means no figure is focused any more.
+    const lose = (e: FocusEvent): void => { if (outside(e.target) && !e.relatedTarget) origin.current = null; };
     document.addEventListener('focusin', track);
-    return () => document.removeEventListener('focusin', track);
+    document.addEventListener('focusout', lose);
+    return () => { document.removeEventListener('focusin', track); document.removeEventListener('focusout', lose); };
   }, []);
   useEffect(() => { if (isOpen) { setAsking(false); setExplainNote(''); } }, [isOpen]);
   const { query, setQuery, server, loading, error, recent } = usePaletteSearch(isOpen, scope);

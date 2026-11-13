@@ -95,7 +95,7 @@ async function bank(intent: AskIntent, companyId: string): Promise<AskAnswer> {
     return reply(`${n} bank transactions are not allocated yet.`, n, [], '/accounting/bank-transactions', 'Open bank transactions');
   }
   const total = r2(accounts.reduce((s, a) => s + a.balance, 0));
-  return reply(`The bank accounts hold ${rand(total)} in total.`, total,
+  return reply(`The bank accounts hold ${rand(total)} in total, from their bank transactions (the ledger's cash figure can differ).`, total,
     accounts.map((a) => ({ label: a.isActive === false ? `${a.accountName} (inactive)` : a.accountName, value: r2(a.balance) })), '/accounting/bank-accounts', 'Open bank accounts');
 }
 

@@ -48,6 +48,17 @@ describe('Explain this figure', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it('forgets the figure once focus left the page for nothing (a click on blank space)', () => {
+    const onExplain = vi.fn();
+    render(<><button data-explain-trigger onClick={onExplain}>i</button><CommandPalette isOpen onClose={() => undefined} /></>);
+    const trigger = screen.getByText('i');
+    fireEvent.focusIn(trigger);
+    fireEvent.focusOut(trigger, { relatedTarget: null });
+    fireEvent.click(screen.getByText('Explain this figure'));
+    expect(onExplain).not.toHaveBeenCalled();
+    expect(screen.getByTestId('explain-note')).toBeTruthy();
+  });
+
   it('refuses to guess between two figures', () => {
     const a = vi.fn(); const b = vi.fn();
     render(<><div><span aria-label="row" tabIndex={0} /><button data-explain-trigger onClick={a}>1</button><button data-explain-trigger onClick={b}>2</button></div><CommandPalette isOpen onClose={() => undefined} /></>);
