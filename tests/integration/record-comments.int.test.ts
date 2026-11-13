@@ -308,20 +308,27 @@ describe('concurrency', () => {
     await pool.query(`INSERT INTO record_comments (company_id, record_type, record_id, body, author_id)
       SELECT $1, 'customer_invoice', $2, 'c' || g, $3 FROM generate_series(1, 499) g`, [A, ids.invA, manager]);
     try {
-      const run = async () => {
+      const open = async () => {
         const c: PoolClient = await pool.connect();
-        try {
-          await c.query('BEGIN');
-          await c.query('SET LOCAL ROLE app_user');
-          await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: manager })]);
-          await c.query("SELECT set_config('app.current_company_id', $1, true)", [A]);
-          const r = await als.run({ client: c, companyId: A, userId: manager, claims: { sub: manager } },
-            () => createComment(A, manager, 'customer_invoice', ids.invA, 'race').then(() => 'ok', (e: unknown) => (e as { status?: number }).status));
-          await c.query('COMMIT');
-          return r;
-        } finally { c.release(); }
+        await c.query('BEGIN');
+        await c.query('SET LOCAL ROLE app_user');
+        await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: manager })]);
+        await c.query("SELECT set_config('app.current_company_id', $1, true)", [A]);
+        return c;
       };
-      const out = await Promise.all([run(), run()]);
+      const create = (c: PoolClient) => als.run({ client: c, companyId: A, userId: manager, claims: { sub: manager } },
+        () => createComment(A, manager, 'customer_invoice', ids.invA, 'race').then(() => 'ok', (e: unknown) => (e as { status?: number }).status));
+      // First creator inserts and holds its transaction open; the second starts meanwhile and must wait for it.
+      const c1 = await open();
+      const c2 = await open();
+      const first = await create(c1);
+      const second = create(c2);
+      await new Promise((r) => setTimeout(r, 400));
+      await c1.query('COMMIT');
+      const out = [first, await second];
+      await c2.query('COMMIT');
+      c1.release();
+      c2.release();
       expect(out.filter((x) => x === 'ok')).toHaveLength(1);
       expect(out.filter((x) => x === 400)).toHaveLength(1);
       expect((await pool.query('SELECT count(*)::int AS n FROM record_comments WHERE company_id = $1', [A])).rows[0].n).toBe(500);
