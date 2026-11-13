@@ -37,10 +37,16 @@ export function resolveWindow(period: AskPeriod | null, today: string, fy: Fisca
 export function resolveAsAt(period: AskPeriod | null, today: string): { date: string; label: string } | null {
   if (!period || period.kind === 'this_month' || period.kind === 'this_year') return { date: today, label: today };
   if (period.kind === 'day') {
-    const y = Number(today.slice(0, 4));
-    const year = period.year ?? (`${pad(period.month)}-${pad(period.day)}` <= today.slice(5) ? y : y - 1);
-    const date = `${year}-${pad(period.month)}-${pad(period.day)}`;
-    return date > today ? null : { date, label: date };
+    // The day must exist in the year it lands in ("29 February" is not a day in 2026). With no year: the latest such day not after today.
+    const exists = (y: number): boolean => period.day <= lastDay(y, period.month);
+    const y0 = Number(today.slice(0, 4));
+    const candidates = period.year !== null ? [period.year] : Array.from({ length: 9 }, (_, i) => y0 - i);
+    for (const y of candidates) {
+      const date = `${y}-${pad(period.month)}-${pad(period.day)}`;
+      if (exists(y) && date <= today) return { date, label: date };
+      if (period.year !== null) return null;
+    }
+    return null;
   }
   if (period.kind === 'last_month' || period.kind === 'month') {
     const t = monthOf(period, today, 'this')!;

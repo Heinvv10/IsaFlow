@@ -150,7 +150,7 @@ function windowPhrases(q: string): string[] {
   for (const m of q.matchAll(months)) {
     const name = m[1] ?? m[3] ?? m[5];
     const year = m[2] ?? m[4] ?? m[6];
-    if (name) found.add(`${name[0]!.toUpperCase()}${name.slice(1)}${year ? ` ${year}` : ''}`);
+    if (name) found.add(`in ${name[0]!.toUpperCase()}${name.slice(1)}${year ? ` ${year}` : ''}`);
   }
   return [...found];
 }
@@ -164,10 +164,11 @@ const STEMS: Readonly<Record<AskIntentId, string>> = {
 /** One intent with its refinement, as the question that asks exactly that. */
 interface Key { id: AskIntentId; qualifier?: AskQualifier }
 const keyName = (k: Key): string => `${k.id}:${k.qualifier ?? ''}`;
-function exampleForKey(k: Key): string {
-  if (k.id === 'profit' && k.qualifier === 'gross') return 'What is my gross profit this month?';
-  if (k.id === 'profit' && k.qualifier === 'operating') return 'What is my operating profit this month?';
-  if (k.id === 'expenses' && k.qualifier === 'cost_of_sales') return 'What is my cost of sales this month?';
+const QUALIFIER_STEMS: Readonly<Record<AskQualifier, string>> = { gross: 'What is my gross profit', operating: 'What is my operating profit', cost_of_sales: 'What is my cost of sales' };
+/** The question that asks exactly this figure, in the window the person named (or the intent's own example when they named none). */
+function exampleForKey(k: Key, window: string | null): string {
+  if (window) return `${k.qualifier ? QUALIFIER_STEMS[k.qualifier] : STEMS[k.id]} ${window}?`;
+  if (k.qualifier) return `${QUALIFIER_STEMS[k.qualifier]} this month?`;
   return exampleFor(k.id);
 }
 
@@ -188,7 +189,10 @@ function keysOf(clause: string): Key[] {
 /** Clauses joined by and / & / , / plus / vs: each may ask for something different, and silently answering one drops the other. */
 const JOINERS = /[,;&]|\b(?:and|plus|vs\.?|versus)\b|\bas\s+well\s+as\b/;
 
-const AMOUNT_FILTER = /\b(?:more than|less than|greater than|fewer than|over|under|above|below|exceeding|at least|at most)\s+(?:r\s?)?\d/;
+const AMOUNT_FILTER = /\b(?:more than|less than|greater than|fewer than|over|under|above|below|exceeding|at least|at most)\s+(?:r\s?)?\d+\s*([a-z]*)/;
+const DURATION_UNIT = /^(?:days?|weeks?|months?|years?)$/;
+/** "over 90 days", "overdue", "buckets": a refinement by age, which the plain total does not honour. */
+const AGING_BUCKET = /\b\d+\s+days?\b|\boverdue\b|\bbuckets?\b|\bolder\s+than\b/;
 const COMPARISON = /\b(?:vs|versus|compared\s+(?:to|with)|compare|comparison|against)\b/;
 const TAX_BASIS = /\b(?:before|after|pre|post)\s+tax\b|\b(?:excluding|including|incl|excl|ex)\s+vat\b/;
 
@@ -201,9 +205,11 @@ export function parseQuestion(question: string): ParsedQuestion {
   for (const k of [...keysOf(q), ...question.toLowerCase().split(JOINERS).flatMap((c) => keysOf(normalise(c)))]) found.set(keyName(k), k);
   const keys = [...found.values()];
   if (keys.length === 0) return { kind: 'none' };
-  if (keys.length > 1) return { kind: 'ambiguous', ids: [...new Set(keys.map((k) => k.id))], examples: keys.map(exampleForKey) };
+  if (keys.length > 1) return { kind: 'ambiguous', ids: [...new Set(keys.map((k) => k.id))], examples: keys.map((k) => exampleForKey(k, windowPhrases(q)[0] ?? null)) };
   const { id, qualifier } = keys[0]!;
-  if (AMOUNT_FILTER.test(q)) return { kind: 'unsupported', id, said: 'amount filters ("more than R2 000")' };
+  if ((id === 'owed_to_me' || id === 'i_owe') && AGING_BUCKET.test(q)) return { kind: 'unsupported', id, said: 'by aging bucket' };
+  const amount = AMOUNT_FILTER.exec(q);
+  if (amount && !DURATION_UNIT.test(amount[1] ?? '')) return { kind: 'unsupported', id, said: 'amount filters ("more than R2 000")' };
   if (TAX_BASIS.test(q)) return { kind: 'unsupported', id, said: 'figures before or after tax' };
   const windows = windowPhrases(q);
   if (windows.length > 1) return { kind: 'periods', id, examples: windows.map((w) => `${STEMS[id]} ${w}?`) };
