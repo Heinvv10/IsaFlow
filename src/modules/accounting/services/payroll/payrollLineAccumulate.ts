@@ -1,6 +1,6 @@
 import { formatMoney } from '@/lib/money/formatMoney';
 import { normaliseSarsCode, payeTreatment } from './payeAnnualPayment';
-import { deemedMedicalFees, deemedRetirementContributions, isEmployerMedicalFringeCode } from './employerContributions';
+import { deemedMedicalFees, deemedRetirementContributions, isEmployerMedicalFringeCode, mixedFundTreatmentResult } from './employerContributions';
 import { effectiveInclusionRate, includedInPaye, VEHICLE_CODE } from './fringeBenefits';
 import { notPayeDeductibleWarning } from './payrollLinePaye';
 import { employerContributionWarning, employerFundBenefitWarning, isEmployerFundBenefitCode, isRetirementContributionCode, employerFundKeptAsCashWarning, retirementBenefitNotTaxableWarning } from './retirementFund';
@@ -71,6 +71,8 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
 
   const breakdown: ComponentBreakdownItem[] = [];
   const warnings: ValidationResult[] = [];
+  const mixedFund = mixedFundTreatmentResult(components);
+  if (mixedFund) warnings.push(mixedFund);
   const earningParts: ComponentAccumulation['earningParts'] = [];
   const employerMedicalFees = deemedMedicalFees(components);
   const employeeMedical4005 = components.filter((c) => c.component.componentType === 'deduction' && normaliseSarsCode(c.component.sarsSourceCode) === '4005').reduce((n, c) => n + c.amount, 0);

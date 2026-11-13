@@ -33,7 +33,7 @@
  */
 import { normaliseSarsCode } from './payeAnnualPayment';
 import { isEmployerFundBenefitCode } from './retirementFund';
-import type { EmployeeComponent } from './payrollTypes';
+import type { EmployeeComponent, ValidationResult } from './payrollTypes';
 
 export const EMPLOYER_MEDICAL_FRINGE_CODE = '3810';
 
@@ -85,4 +85,18 @@ const isFundBenefitEarning = (c: EmployeeComponent): boolean =>
 export function deemedRetirementContributions(components: readonly EmployeeComponent[]): number {
   return Math.round(components.filter((c) => isFundBenefitEarning(c) && c.component.isTaxable && c.isNonCash === true)
     .reduce((s, c) => s + c.amount, 0) * 100) / 100;
+}
+
+/**
+ * A line with an employer fund row kept as cash from before RF (migration 975) AND one under the RF treatment (e.g. a once-off
+ * 3817 beside the kept recurring one): each is treated as its row says, which is easy to miss. Said, as information (RF round 2).
+ */
+export function mixedFundTreatmentResult(components: readonly EmployeeComponent[]): ValidationResult | null {
+  const rows = components.filter(isFundBenefitEarning);
+  if (!rows.some((c) => c.employerFundAsCash === true) || !rows.some((c) => c.employerFundAsCash !== true)) return null;
+  return {
+    code: 'EMPLOYER_FUND_MIXED_TREATMENT', severity: 'info',
+    message: 'This line has an employer retirement fund contribution kept as cash from before RF and another one treated as the employer\'s non-cash '
+      + 'contribution deemed paid by the employee. Each is taxed as its own row says. To treat them alike, end the kept-as-cash assignment and re-assign it.',
+  };
 }

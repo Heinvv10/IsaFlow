@@ -162,3 +162,12 @@ describe('the explanation names the deemed contribution (RF after EX-core)', () 
     expect(earningStep('k', { name: 'Salary', code: '3601', amount: 3000, included: 3000 } as never).label).toBe('Salary (3601)');
   });
 });
+
+describe('a kept-as-cash row beside an RF-treated one (round 2 adv L3)', () => {
+  it('says so, as information; one kind alone says nothing', () => {
+    const mixed = run([salary(20_000), { component: comp('3817'), amount: 1_000, employerFundAsCash: true }, { component: comp('3817'), amount: 500 }]);
+    expect(mixed.validationResults.find((v) => v.code === 'EMPLOYER_FUND_MIXED_TREATMENT')?.severity).toBe('info');
+    const one = run([salary(20_000), { component: comp('3817'), amount: 1_000, employerFundAsCash: true }]);
+    expect(one.validationResults.map((v) => v.code)).not.toContain('EMPLOYER_FUND_MIXED_TREATMENT');
+  });
+});
