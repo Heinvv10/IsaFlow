@@ -17,6 +17,8 @@ import type { SaveCellsResult } from '@/modules/accounting/services/budgets/grid
 import type { SeedResult } from '@/modules/accounting/services/budgets/seedVersion';
 import type { ImportPreview } from '@/modules/accounting/services/budgets/budgetImportDiff';
 import type { DriverHeadcountResponse, DriverOverrideResponse, DriversResponse, PlannedHiresResponse, ReforecastResponse } from '@/modules/accounting/services/budgets/drivers/driverApiTypes';
+import type { StoredAssumptions } from '@/modules/accounting/services/budgets/threeWay/assumptionsRepo';
+import type { AssumptionsView, CompareView, DeriveView, ThreeWayView } from '@/modules/accounting/services/budgets/threeWay/threeWayViews';
 
 export interface BudgetStaticRoutes {
   // Budget versions (mig 947): GET the list, POST the new draft (the list and the item of one resource, a union).
@@ -45,6 +47,11 @@ export interface BudgetStaticRoutes {
   // Budgets P5-6: GET the slices (owner/admin every one, others their own); POST assigns a holder and answers the
   // slice; DELETE unassigns one (`{ removed, sliceDeleted }`).
   '/api/accounting/budgets/holders': { slices: SliceReview[] } | SliceReview | { removed: true; sliceDeleted: boolean };
+  // Budgets P6 (three-way, flag budgets_three_way): the run, assumptions GET (view) / PUT (the saved row), derive, compare.
+  '/api/accounting/budget-three-way': ThreeWayView;
+  '/api/accounting/budget-three-way/assumptions': AssumptionsView | (StoredAssumptions & { versionId: string });
+  '/api/accounting/budget-three-way/derive': DeriveView;
+  '/api/accounting/budget-three-way/compare': CompareView;
 }
 
 export interface BudgetDynamicRoutes {

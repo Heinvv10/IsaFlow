@@ -98,7 +98,7 @@ export const bulkApproveCreditNotesTool: McpTool = {
   description:
     'Approve and POST up to 100 DRAFT credit notes in ONE call. Requires the write:post permission. '
     + 'Customer note: DR Revenue + DR VAT Output / CR Accounts Receivable. Supplier note: DR Accounts Payable / CR Expense + CR VAT Input. Both types may be mixed in one call. '
-    + 'Approving also APPLIES each note: its linked document first, capped at that document\'s outstanding balance, then the REMAINDER FIFO across the same entity\'s other open documents, oldest first. auto_apply "none" applies only to the linked document. '
+    + 'Approving also APPLIES each note: its linked document first, capped at that document\'s outstanding balance, then the REMAINDER FIFO across the same entity\'s other open documents, oldest first. auto_apply "linked" applies only to the linked document; "none" applies nothing, not even to the linked document. '
     + 'The status is DERIVED — "approved", "partially_applied" or "applied" — and each row reports applied_amount and applied_to_invoice_ids; do NOT apply those documents again. '
     + 'A note that cannot be approved is SKIPPED, not a failure: not found, not a draft, or dated in a CLOSED fiscal period — each is listed in "skipped" with its reason and the rest of the batch still posts. '
     + 'ALL OR NOTHING for real faults: if a note genuinely fails to post, the whole batch is rolled back, nothing is posted, and the error names the element. '
@@ -121,7 +121,7 @@ export const bulkApproveCreditNotesTool: McpTool = {
         type: 'string',
         enum: [...CREDIT_NOTE_AUTO_APPLY],
         description:
-          '"fifo" (default) applies each note\'s remainder to its entity\'s open documents oldest first; "none" applies only to the linked document.',
+          '"fifo" (default) applies each note\'s remainder to its entity\'s open documents oldest first; "linked" applies only to the linked document; "none" applies nothing (the credit stays on account).',
       },
       dry_run: {
         type: 'boolean',
