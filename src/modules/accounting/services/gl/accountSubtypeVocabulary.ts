@@ -185,3 +185,9 @@ export const SUBTYPE_ALIASES: Record<string, CanonicalSubtype> = {
   other_expense: 'other_expense',
   other_expenses: 'other_expense',
 };
+
+/**
+ * The s16(3) late-claim clearing account (migration 701): VAT parked off VAT Input until its companion claims it.
+ * VAT, not expense or base — read through `canonicalSubtype` (supplierCreditNoteExpenseLines, documentVatHistory).
+ */
+export const LATE_CLAIM_CLEARING_SUBTYPE: CanonicalSubtype = 'vat_input_late_claim';
