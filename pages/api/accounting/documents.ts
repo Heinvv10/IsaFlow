@@ -34,26 +34,34 @@ import {
   listBankLineDocuments,
 } from '@/modules/accounting/services/core/bankLineDocumentRouting';
 import { ATTACHMENT_MIME_TYPES, addBankTxAttachment, type AttachmentMime } from '@/modules/accounting/services/bank/bankTxAttachmentService';
+import { scheduleAttachmentExtraction } from '@/modules/accounting/services/bank/bankTxAttachmentExtraction';
 import { magicBytesMatchMime } from '@/lib/fileMagic';
 import { parsePagination } from '@/lib/pagination';
 import { isValidUUID } from '@/lib/validation';
 
 /** A bank line's file cap — the same 2 MB as /api/accounting/bank-tx-attachments. */
 const MAX_BANK_FILE_BYTES = 2 * 1024 * 1024;
+/** The same cap as attach_entity_document; the stored name gains at most the 7-character upload_ prefix. */
+const MAX_BANK_FILE_NAME = 200;
 
 export const config = {
   api: { bodyParser: false },
 };
 
-function parseForm(req: NextApiRequest): Promise<{ fields: formidable.Fields; files: formidable.Files }> {
+/**
+ * `bank` is known from the QUERY (?entity_type=bank_transaction): a bank line's limits (2 MB, PDF/JPEG/PNG) then apply
+ * BEFORE anything is buffered. When the type arrives only in the form body the post-parse checks in handlePost apply.
+ */
+function parseForm(req: NextApiRequest, bank: boolean): Promise<{ fields: formidable.Fields; files: formidable.Files }> {
+  const allowed: readonly string[] = bank ? ATTACHMENT_MIME_TYPES : ALLOWED_MIME_TYPES;
   return new Promise((resolve, reject) => {
     const form = formidable({
-      maxFileSize: MAX_FILE_SIZE,
+      maxFileSize: bank ? MAX_BANK_FILE_BYTES : MAX_FILE_SIZE,
       keepExtensions: true,
       // Reject parts with no MIME or an unrecognised MIME before buffering to disk — H13.
       filter: (part) => {
         const mime = part.mimetype || '';
-        return !!mime && ALLOWED_MIME_TYPES.includes(mime);
+        return !!mime && allowed.includes(mime);
       },
     });
     form.parse(req, (err, fields, files) => {
@@ -118,7 +126,7 @@ async function handlePost(
   let tempFilePath: string | null = null;
 
   try {
-    const { fields, files } = await parseForm(req);
+    const { fields, files } = await parseForm(req, isBankEntityType(req.query.entity_type));
 
     const entityType = (Array.isArray(fields.entity_type) ? fields.entity_type[0] : fields.entity_type) as string;
     const entityId = (Array.isArray(fields.entity_id) ? fields.entity_id[0] : fields.entity_id) as string;
@@ -169,9 +177,13 @@ async function handlePost(
       if (!(ATTACHMENT_MIME_TYPES as readonly string[]).includes(mime)) {
         return apiResponse.badRequest(res, `A bank transaction takes ${ATTACHMENT_MIME_TYPES.join(', ')}; got ${mime}`);
       }
+      const fileName = file.originalFilename || `document_${Date.now()}`;
+      if (fileName.length > MAX_BANK_FILE_NAME) {
+        return apiResponse.badRequest(res, `File name exceeds ${MAX_BANK_FILE_NAME} characters`);
+      }
       const stored = await addBankTxAttachment(companyId, {
         bankTransactionId: entityId,
-        fileName: file.originalFilename || `document_${Date.now()}`,
+        fileName,
         mimeType: mime as AttachmentMime,
         bytes: buffer,
         maxBytes: MAX_BANK_FILE_BYTES,
@@ -182,6 +194,8 @@ async function handlePost(
           ? apiResponse.forbidden(res, 'Entity does not belong to your company')
           : apiResponse.badRequest(res, `Attachment refused: ${stored.reason}`);
       }
+      // The old /bank-tx-attachments POST extracts after commit; so does this one.
+      scheduleAttachmentExtraction(buffer, mime, stored.attachment.id, companyId);
       log.info('Bank line document uploaded', { data: { entityId } }, 'accounting-docs');
       return apiResponse.created(res, fromStoredAttachment(stored.attachment));
     }
@@ -202,9 +216,13 @@ async function handlePost(
 
     return apiResponse.created(res, doc);
   } catch (error) {
-    const errMsg = error instanceof Error ? error.message : String(error);
     log.error('Accounting document upload error', { error }, 'accounting-docs');
-    return apiResponse.internalError(res, error, `Failed to upload document: ${errMsg}`);
+    // A file over the size limit is the caller's, not a server fault; nothing else of the error (a Postgres message,
+    // a path) goes to the client — it is in the log above.
+    if (error instanceof Error && 'httpCode' in error && error.httpCode === 413) {
+      return apiResponse.badRequest(res, 'File too large');
+    }
+    return apiResponse.internalError(res, error, 'Failed to upload document');
   } finally {
     if (tempFilePath) {
       await fs.promises.unlink(tempFilePath).catch((e) =>

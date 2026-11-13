@@ -25,8 +25,8 @@ import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { magicBytesMatchMime, decodeUploadPayload } from '@/lib/fileMagic';
-import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/core/ocrService';
 import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
+import { extractAttachmentData } from '@/modules/accounting/services/bank/bankTxAttachmentExtraction';
 import { runAfterCommit } from '@/lib/afterCommit';
 import { listBankLineAttachments, unlinkCapturedDocFromBankTx } from '@/modules/accounting/services/capture/capturedAttachmentLinks';
 import { isCopyOfSql, linkedCapturedDocSql, uploadFileName } from '@/modules/accounting/services/bank/bankLineDocumentSql';
@@ -225,46 +225,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'DELETE']);
 }
 
-/**
- * Background VLM extraction for bank tx attachments.
- *
- * Runs after the request COMMITs, on the pool's role with no RLS (R-075), so
- * the UPDATE carries the tenant predicate itself. bank_transaction_attachments
- * has no company_id column; it is scoped through its parent transaction, so
- * this reproduces the table's own RLS WITH CHECK.
- */
-export async function extractAttachmentData(dataUrl: string, mime: string, attachmentId: string, companyId: string) {
-  const base64Part = dataUrl.split(',')[1];
-  if (!base64Part) return;
+// Moved to the bank service so /api/accounting/documents (entity_type bank_transaction) shares it.
+export { extractAttachmentData };
 
-  const buffer = Buffer.from(base64Part, 'base64');
-  const isPdf = mime === 'application/pdf';
-
-  const extracted = isPdf
-    ? await extractFromPdf(buffer)
-    : await extractFromImage(buffer, mime);
-
-  if (extracted && extracted.confidence > 0) {
-    const stored = await sql`
-      UPDATE bank_transaction_attachments
-      SET extracted_data = ${JSON.stringify(extracted)}::jsonb
-      WHERE id = ${attachmentId}::uuid
-        AND EXISTS (
-          SELECT 1 FROM bank_transactions bt
-          WHERE bt.id = bank_transaction_attachments.bank_transaction_id
-            AND bt.company_id = ${companyId}::uuid
-        )
-      RETURNING id
-    `;
-    // By outcome: the fence can match nothing, and a success log there would be
-    // the same false "extraction complete" R-075 itself produced.
-    if (stored.length === 0) {
-      log.warn('VLM extraction discarded — attachment is not this company\'s', { attachmentId, companyId }, 'bank-tx-attachments');
-    } else {
-      log.info('VLM extraction stored for bank tx attachment', { attachmentId, confidence: extracted.confidence }, 'bank-tx-attachments');
-    }
-  }
-}
-
- 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

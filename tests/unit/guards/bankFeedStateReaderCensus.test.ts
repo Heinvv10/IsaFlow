@@ -82,6 +82,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'pages/api/accounting/bank-transactions-bulk-preview.ts': "filtered (final review A-16: the dedup hash set excludes feed_state = 'removed', same rule as bulk-commit)",
   'pages/api/accounting/bank-transactions-import-classified.ts': "filtered (final gate fix item 4: the dedup hash set excludes feed_state = 'removed', same rule as bulk-commit/bulk-preview); exempt: writer (Task 3) — dedup pre-check inside the import writer",
   'pages/api/accounting/bank-tx-attachments.ts': 'exempt: attachment CRUD ownership check, not a financial total',
+  'src/modules/accounting/services/bank/bankTxAttachmentExtraction.ts': 'exempt: tenant fence of the extraction UPDATE on one named attachment (moved out of the bank-tx-attachments route), not a total',
   'pages/api/accounting/dashboard-stats.ts': 'filtered',
   'pages/api/accounting/dashboard-todos.ts': 'filtered',
   'pages/api/accounting/nl-query.ts': "filtered (final review A-15: bank lines are exposed to the LLM only as the bank_transactions_posted view from migration 675; the base table is off nlQueryValidationService's ALLOWED_TABLES, so generated SQL cannot read a pending/removed row)",

@@ -27,18 +27,25 @@ describeIfDb('hasDocument is computed from the document tables', () => {
     fx = await seedFixture('HASDOC', DATABASE_URL!);
     other = await seedFixture('HASDOCB', DATABASE_URL!);
     const bill = async (key: string) => { bills[key] = await seedBill(fx, { number: `B-${n()}`, date: '2026-06-10', total: 115 }); };
-    for (const k of ['none', 'upload', 'linked', 'inactive', 'captured', 'capturedNoBytes', 'capturedRejected', 'foreignCapture']) await bill(k);
+    for (const k of ['none', 'upload', 'linked', 'inactive', 'captured', 'capturedNoBytes', 'capturedRejected', 'foreignCapture',
+      'poLinkedOnly', 'grnLinkedOnly', 'capturedNullStatus', 'capturedDiscarded', 'capturedFailed']) await bill(k);
     await procDoc('supplier_invoice', bills.upload!);
     const shared = await procDoc('supplier_invoice', bills.none!, { active: true, name: 'po-doc.pdf' });
     await sql`DELETE FROM procurement_documents WHERE id = ${shared}::UUID`;
     const crossDoc = await procDoc('supplier_invoice', bills.upload!, { name: 'other-bill.pdf' });
     await crossLink(crossDoc, 'supplier_invoice', bills.linked!);
     await procDoc('supplier_invoice', bills.inactive!, { active: false });
+    // autoLinkSupplierInvoice: the PO's and GRN's own documents are linked to the bill — the order's paperwork, not its invoice.
+    await crossLink(await procDoc('purchase_order', randomUUID()), 'supplier_invoice', bills.poLinkedOnly!, 'po_invoice_link');
+    await crossLink(await procDoc('goods_receipt_note', randomUUID()), 'supplier_invoice', bills.grnLinkedOnly!, 'grn_invoice_link');
     const set = (id: string, doc: string) => sql`UPDATE supplier_invoices SET source_document_id = ${doc}::UUID WHERE id = ${id}::UUID`;
     await set(bills.captured!, await capturedDoc(fx.companyId));
     await set(bills.capturedNoBytes!, await capturedDoc(fx.companyId, { stored: false }));
     await set(bills.capturedRejected!, await capturedDoc(fx.companyId, { status: 'rejected' }));
     await set(bills.foreignCapture!, await capturedDoc(other.companyId));
+    await set(bills.capturedNullStatus!, await capturedDoc(fx.companyId, { status: null }));
+    await set(bills.capturedDiscarded!, await capturedDoc(fx.companyId, { status: 'discarded' }));
+    await set(bills.capturedFailed!, await capturedDoc(fx.companyId, { status: 'failed' }));
 
     const inv = async (key: string) => { invoices[key] = await seedInvoice(fx, { number: `I-${n()}`, date: '2026-06-10', total: 115 }); };
     for (const k of ['none', 'upload', 'captured', 'capturedNoBytes']) await inv(k);
@@ -60,6 +67,7 @@ describeIfDb('hasDocument is computed from the document tables', () => {
   const EXPECT_BILLS: Record<string, boolean> = {
     none: false, upload: true, linked: true, inactive: false, captured: true,
     capturedNoBytes: false, capturedRejected: false, foreignCapture: false,
+    poLinkedOnly: false, grnLinkedOnly: false, capturedNullStatus: true, capturedDiscarded: false, capturedFailed: true,
   };
 
   it('list_supplier_invoices flag: an uploaded or cross-linked document counts; a capture with no bytes / rejected / another company\'s does not', async () => {

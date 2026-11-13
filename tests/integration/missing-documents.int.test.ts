@@ -21,7 +21,7 @@ import {
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { inTx, seedBankTx, seedBill, seedInvoice } from './helpers/l1FifoFixture';
 import { dropLateFixture, seedLateFixture, type LateFixture } from './helpers/vatLateClaimFixture';
-import { bankUpload, capturedDoc, dropDocuments, procDoc } from './helpers/documentFixture';
+import { bankUpload, capturedDoc, crossLink, dropDocuments, procDoc } from './helpers/documentFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -73,6 +73,8 @@ describeIfDb('list_missing_documents service', () => {
     await bill('billDraft', 200, '2026-06-14', 'draft');
     await bill('billCancelled', 90, '2026-06-15', 'cancelled');
     await bill('billOutside', 2000, '2026-05-10');
+    await bill('billPoOnly', 40, '2026-06-18');
+    await crossLink(await procDoc('purchase_order', randomUUID()), 'supplier_invoice', id.billPoOnly!, 'po_invoice_link');
     await procDoc('supplier_invoice', id.billUpload!);
     await sql`UPDATE supplier_invoices SET source_document_id = ${await capturedDoc(fx.companyId)}::UUID WHERE id = ${id.billCaptured!}::UUID`;
     await bill('otherCompanyBill', 9999, '2026-06-10');
@@ -101,7 +103,9 @@ describeIfDb('list_missing_documents service', () => {
     await tx('txTransfer', -400);
     await tx('txOutside', -3000, '2026-05-20');
     await tx('txForged', -333);
+    await tx('txNullStatusDoc', -222); // its linked capture has a NULL status: not a rejection, so it documents the line
     await bankUpload(id.txUpload!);
+    await capturedDoc(fx.companyId, { matchedBankTx: id.txNullStatusDoc!, status: null });
     await capturedDoc(fx.companyId, { matchedBankTx: id.txCaptured! });
     await capturedDoc(other.companyId, { matchedBankTx: id.txForged! }); // another company's document, forged onto our line
     await sql`UPDATE bank_transactions SET status = 'excluded', excluded_reason = 'test' WHERE id = ${id.txExcluded!}::UUID`;
@@ -141,9 +145,10 @@ describeIfDb('list_missing_documents service', () => {
       'bank_transaction:txForged', // R333 — its only "document" is another company's
       'credit_note:cnMissing', // R100
       'supplier_invoice:billSmall', // R50
+      'supplier_invoice:billPoOnly', // R40 — only its PO's paperwork is linked
       'vat_journal:vatMissing', // R15 input VAT
     ]);
-    expect(page.rows.map((r) => r.cents)).toEqual([115000, 80000, 57500, 57500, 33300, 10000, 5000, 1500]);
+    expect(page.rows.map((r) => r.cents)).toEqual([115000, 80000, 57500, 57500, 33300, 10000, 5000, 4000, 1500]);
     expect(page.next).toBeNull();
   });
 
@@ -151,7 +156,7 @@ describeIfDb('list_missing_documents service', () => {
     const got = named((await list()).rows);
     for (const k of ['billUpload', 'billCaptured', 'billDraft', 'billCancelled', 'billOutside', 'otherCompanyBill',
       'invDoc', 'cnDoc', 'cnDraft', 'txUpload', 'txCaptured', 'txIncome', 'txExcluded', 'txTransfer', 'txOutside',
-      'vatDoc', 'vatOutside']) {
+      'vatDoc', 'vatOutside', 'txNullStatusDoc']) {
       expect(got.filter((g) => g.endsWith(`:${k}`)), k).toEqual([]);
     }
   });
@@ -159,10 +164,10 @@ describeIfDb('list_missing_documents service', () => {
   it('summarises every type over the whole range with candidates, documented and missing amounts', async () => {
     const { summary } = await list({ limit: 1 });
     const by = Object.fromEntries(summary.map((s) => [s.entityType, s]));
-    expect(by.supplier_invoice).toEqual({ entityType: 'supplier_invoice', candidates: 4, withDocument: 2, missing: 2, missingAmount: 1200 });
+    expect(by.supplier_invoice).toEqual({ entityType: 'supplier_invoice', candidates: 5, withDocument: 2, missing: 3, missingAmount: 1240 });
     expect(by.customer_invoice).toEqual({ entityType: 'customer_invoice', candidates: 2, withDocument: 1, missing: 1, missingAmount: 575 });
     expect(by.credit_note).toEqual({ entityType: 'credit_note', candidates: 2, withDocument: 1, missing: 1, missingAmount: 100 });
-    expect(by.bank_transaction).toEqual({ entityType: 'bank_transaction', candidates: 5, withDocument: 2, missing: 3, missingAmount: 1708 });
+    expect(by.bank_transaction).toEqual({ entityType: 'bank_transaction', candidates: 6, withDocument: 3, missing: 3, missingAmount: 1708 });
     expect(by.vat_journal).toEqual({ entityType: 'vat_journal', candidates: null, withDocument: null, missing: 1, missingAmount: 15 });
   });
 

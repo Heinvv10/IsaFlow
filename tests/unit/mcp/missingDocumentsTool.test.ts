@@ -88,6 +88,16 @@ describe('list_missing_documents', () => {
     expect(listMissingDocuments).not.toHaveBeenCalled();
   });
 
+  it('refuses a range wider than 24 months, and serves exactly 24', async () => {
+    const wide = await listMissingDocumentsTool.handler({ from: '2024-06-29', to: '2026-06-30' }, ctx()) as { isError?: boolean; content: { text: string }[] };
+    expect(wide.isError).toBe(true);
+    expect(wide.content[0]!.text).toContain('24 months');
+    expect(listMissingDocuments).not.toHaveBeenCalled();
+    const edge = await listMissingDocumentsTool.handler({ from: '2024-06-30', to: '2026-06-30' }, ctx()) as { isError?: boolean };
+    expect(edge.isError).toBeFalsy();
+    expect(listMissingDocuments).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses an uncastable date instead of aborting the transaction', async () => {
     const res = await listMissingDocumentsTool.handler({ from: '2026-13-45' }, ctx()) as { isError?: boolean };
     expect(res.isError).toBe(true);

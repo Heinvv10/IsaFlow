@@ -20,21 +20,21 @@ export async function procDoc(
     RETURNING id`) as Row[])[0]!.id);
 }
 
-export async function crossLink(documentId: string, entityType: string, entityId: string): Promise<void> {
+export async function crossLink(documentId: string, entityType: string, entityId: string, reason = 'fixture'): Promise<void> {
   await sql`
     INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
-    VALUES (${documentId}::UUID, ${entityType}, ${entityId}::UUID, 'fixture')`;
+    VALUES (${documentId}::UUID, ${entityType}, ${entityId}::UUID, ${reason})`;
 }
 
-/** A captured document of `companyId`; `stored: false` leaves storage_path empty, `status` defaults to reviewed. */
+/** A captured document of `companyId`; `stored: false` leaves storage_path empty, `status` defaults to reviewed (null = a NULL status). */
 export async function capturedDoc(
-  companyId: string, opts: { stored?: boolean; status?: string; matchedBankTx?: string | null } = {},
+  companyId: string, opts: { stored?: boolean; status?: string | null; matchedBankTx?: string | null } = {},
 ): Promise<string> {
   const stored = opts.stored ?? true;
   return String(((await sql`
     INSERT INTO captured_documents (company_id, file_name, file_type, status, document_type, storage_bucket, storage_path,
       matched_bank_tx_id)
-    VALUES (${companyId}::UUID, 'scan.pdf', 'application/pdf', ${opts.status ?? 'reviewed'}, 'supplier_invoice',
+    VALUES (${companyId}::UUID, 'scan.pdf', 'application/pdf', ${opts.status === undefined ? 'reviewed' : opts.status}, 'supplier_invoice',
       ${stored ? 'captured-documents' : null}, ${stored ? `${companyId}/scan-${randomUUID()}.pdf` : null},
       ${opts.matchedBankTx ?? null}::UUID)
     RETURNING id`) as Row[])[0]!.id);
@@ -51,9 +51,12 @@ export async function dropDocuments(fx: Fixture): Promise<void> {
   const c = fx.companyId;
   const parents = `SELECT id FROM supplier_invoices WHERE company_id = $1
     UNION SELECT id FROM customer_invoices WHERE company_id = $1 UNION SELECT id FROM credit_notes WHERE company_id = $1`;
-  await fx.pool.query(`DELETE FROM document_links WHERE linked_entity_id IN (${parents})
-    OR document_id IN (SELECT id FROM procurement_documents WHERE entity_id IN (${parents}))`, [c]);
-  await fx.pool.query(`DELETE FROM procurement_documents WHERE entity_id IN (${parents})`, [c]);
+  // A PO's document linked to one of our bills lives under the PO's id, so it is found through the link.
+  await fx.pool.query(`WITH gone AS (
+      DELETE FROM document_links WHERE linked_entity_id IN (${parents})
+        OR document_id IN (SELECT id FROM procurement_documents WHERE entity_id IN (${parents}))
+      RETURNING document_id)
+    DELETE FROM procurement_documents WHERE id IN (SELECT document_id FROM gone) OR entity_id IN (${parents})`, [c]);
   await fx.pool.query(
     `DELETE FROM bank_transaction_attachments WHERE bank_transaction_id IN (SELECT id FROM bank_transactions WHERE company_id = $1)`, [c]);
   await fx.pool.query(`UPDATE captured_documents SET matched_bank_tx_id = NULL WHERE company_id = $1`, [c]);

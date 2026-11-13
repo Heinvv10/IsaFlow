@@ -17,6 +17,7 @@ import {
   DOCUMENT_ENTITY_TYPES, bankTxBelongsToCompany, isBankEntityType,
 } from '@/modules/accounting/services/core/bankLineDocumentRouting';
 import { buildEnvelope } from '../contracts';
+import { insufficientScopeMessage } from '../scopeRemediation';
 import {
   NOT_FOUND, clampLimit, guardCastableArgs, ok, safeErrorText, strArg, toolError,
 } from './toolHelpers';
@@ -62,7 +63,7 @@ export const listDocumentsTool: McpTool = {
     'Supporting documents on file. THERE ARE TWO SEPARATE STORES and this reads whichever one you address. ' +
     'Give from and to (and optionally bank_transaction_id) to list the receipts, slips and invoice scans attached to BANK TRANSACTIONS — the read side of attach_document. ' +
     'Those rows carry store "bank_attachment" (an uploaded file) or "captured_document" (a captured document linked to the bank line that has no uploaded copy, e.g. one over 2 MB); both count as the line\'s supporting documents. ' +
-    'Give entity_type and entity_id instead to list the documents filed against one accounting document (' + DOCUMENT_ENTITY_TYPES.join(', ') + '), including documents cross-linked from another entity, which come back with source "linked" and a link_reason. entity_type bank_transaction with the line\'s id lists that one line\'s documents from the bank store (rows as above, no date range needed), so a caller never has to know which store holds what. ' +
+    'Give entity_type and entity_id instead to list the documents filed against one accounting document (' + DOCUMENT_ENTITY_TYPES.join(', ') + '), including documents cross-linked from another entity, which come back with source "linked" and a link_reason. entity_type bank_transaction with the line\'s id lists that one line\'s documents from the bank store (rows as above, no date range needed; needs read:bank-tx as well), so a caller never has to know which store holds what. ' +
     'DOES NOT COVER: a company-wide listing of the entity store. Those rows carry no company id and are fenced by their parent document, so they can only be read one entity at a time — there is no "all documents for this company" query, and asking for one would silently cross tenants. ' +
     'Nor does it return file bytes; use get_document for a single file. ' +
     'To find what has NO document, use list_unsupported_transactions — an empty page here means nothing was found for what you asked, not that nothing exists.',
@@ -90,7 +91,11 @@ export const listDocumentsTool: McpTool = {
       if (!entityType || !entityId) return toolError('entity_type and entity_id must be given together');
       const bad = guardCastableArgs(args, { uuid: ['entity_id'] });
       if (bad) return bad;
-      if (isBankEntityType(entityType)) return listBankLineEntity(entityId, limit, ctx.companyId);
+      if (isBankEntityType(entityType)) {
+        // Same read scope as list_missing_documents' bank_transaction type.
+        if (!ctx.scopes.includes('read:bank-tx')) return toolError(insufficientScopeMessage('read:bank-tx'));
+        return listBankLineEntity(entityId, limit, ctx.companyId);
+      }
       const offset = Number.isFinite(Number(args.offset)) ? Math.max(0, Math.floor(Number(args.offset))) : 0;
       try {
         const result = await listEntityDocuments(ctx.companyId, entityType, entityId, limit, offset);

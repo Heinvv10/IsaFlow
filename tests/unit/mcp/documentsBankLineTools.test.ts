@@ -148,7 +148,7 @@ describe('attach_entity_document on a bank transaction', () => {
 });
 
 describe('list_documents on a bank transaction', () => {
-  const read = ctx(['read:reports']);
+  const read = ctx(['read:reports', 'read:bank-tx']);
   const bankPage = {
     rows: [{
       id: 'a1', store: 'bank_attachment' as const, bankTransactionId: TX, fileName: 'slip.png', fileSize: 8, uploadedBy: null,
@@ -165,6 +165,14 @@ describe('list_documents on a bank transaction', () => {
     expect(listEntityDocuments).not.toHaveBeenCalled();
     const body = JSON.parse(text(res)) as { rows: Record<string, unknown>[] };
     expect(body.rows[0]).toMatchObject({ store: 'bank_attachment', id: 'a1', entity_type: 'bank_transaction', entity_id: TX, file_name: 'slip.png' });
+  });
+
+  it('needs read:bank-tx for a bank line, like list_missing_documents, and reads nothing without it', async () => {
+    const res = await listDocumentsTool.handler({ entity_type: 'bank_transaction', entity_id: TX }, ctx(['read:reports']));
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain('read:bank-tx');
+    expect(bankTxBelongsToCompany).not.toHaveBeenCalled();
+    expect(listBankAttachments).not.toHaveBeenCalled();
   });
 
   it('reads another company\'s line as Not found without listing', async () => {

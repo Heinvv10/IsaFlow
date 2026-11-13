@@ -4,9 +4,25 @@
 //   T1 (company A) holds an upload U1 and a linked captured document D1 (no copy)
 //   T2 (company A) holds nothing
 //   TB (company B) holds an upload — never visible to, or writable by, company A
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Readable } from 'node:stream';
 import { Pool } from 'pg';
+// The after-commit extraction is only RECORDED here: running it would call the VLM.
+const scheduled = vi.hoisted(() => [] as string[]);
+vi.mock('@/modules/accounting/services/bank/vlmService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/bank/vlmService')>()),
+  isVlmAvailable: () => true,
+}));
+vi.mock('@/lib/afterCommit', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/afterCommit')>();
+  return {
+    ...real,
+    runAfterCommit: (label: string, fn: () => Promise<unknown>) => {
+      if (label === 'bank tx attachment extraction') scheduled.push(label);
+      else real.runAfterCommit(label, fn);
+    },
+  };
+});
 import documentsRoute from '../../pages/api/accounting/documents';
 import attachmentsRoute from '../../pages/api/accounting/bank-tx-attachments';
 import { callRoute, createUser, newCompany } from './r035-approval.helpers';
@@ -34,7 +50,9 @@ const get = (query: Record<string, string>, co = company) =>
   callRoute(documentsRoute as never, tokens[user]!, co, 'GET', undefined, `${DOCS}?${new URLSearchParams(query)}`, query);
 
 /** A real multipart request: the route parses its body with formidable, which reads the stream. */
-async function post(fields: Record<string, string>, file: { name: string; mime: string; bytes: Buffer }, co = company) {
+async function post(
+  fields: Record<string, string>, file: { name: string; mime: string; bytes: Buffer }, co = company, query: Record<string, string> = {},
+) {
   const boundary = `----fixture${uuid()}`;
   const parts = Object.entries(fields).map(([k, v]) =>
     Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`));
@@ -43,7 +61,7 @@ async function post(fields: Record<string, string>, file: { name: string; mime: 
   const payload = Buffer.concat(parts);
   const base = request({ 'sb-access-token': tokens[user]!, active_company_id: co }, 'POST') as never as Record<string, unknown>;
   const req = Object.assign(Readable.from([payload]), base, {
-    url: DOCS, query: {},
+    url: DOCS, query,
     headers: { ...(base.headers as Record<string, string>), 'content-type': `multipart/form-data; boundary=${boundary}`,
       'content-length': String(payload.length) },
   });
@@ -55,6 +73,8 @@ const attachmentCount = async (tx: string) =>
   Number((await pool.query('SELECT count(*) AS n FROM bank_transaction_attachments WHERE bank_transaction_id = $1', [tx])).rows[0].n);
 
 describeIfDb('/documents with a bank line as the entity', () => {
+  beforeEach(() => { scheduled.length = 0; });
+
   beforeAll(async () => {
     user = await createUser(pool, tokens);
     outsider = await createUser(pool, tokens);
@@ -128,6 +148,38 @@ describeIfDb('/documents with a bank line as the entity', () => {
     const old = await callRoute(attachmentsRoute as never, tokens[user]!, company, 'GET', undefined,
       '/api/accounting/bank-tx-attachments', { bankTransactionId: t2 });
     expect((body(old).data as { file_name: string }[]).map((x) => x.file_name)).toEqual(['receipt.png']);
+  });
+
+  it('POST schedules the same after-commit extraction as the old endpoint — once, and only for a stored file', async () => {
+    const ok = await post({ entity_type: 'bank_transaction', entity_id: t2 }, { name: 'extract.png', mime: 'image/png', bytes: PNG });
+    expect(ok.state.statusCode).toBe(201);
+    expect(scheduled).toHaveLength(1);
+    scheduled.length = 0;
+    const refused = await post({ entity_type: 'bank_transaction', entity_id: tb }, { name: 'x.png', mime: 'image/png', bytes: PNG });
+    expect(refused.state.statusCode).toBe(403);
+    expect(scheduled).toHaveLength(0);
+  });
+
+  it('POST refuses a file name over 200 characters and stores nothing', async () => {
+    const before = await attachmentCount(t2);
+    const r = await post({ entity_type: 'bank_transaction', entity_id: t2 }, { name: `${'a'.repeat(201)}.png`, mime: 'image/png', bytes: PNG });
+    expect(r.state.statusCode).toBe(400);
+    expect(await attachmentCount(t2)).toBe(before);
+    expect(scheduled).toHaveLength(0);
+  });
+
+  it('with ?entity_type=bank_transaction a too-big or wrong-type file is refused before it is buffered', async () => {
+    const before = await attachmentCount(t2);
+    const query = { entity_type: 'bank_transaction' };
+    const fields = { entity_type: 'bank_transaction', entity_id: t2 };
+    // 3 MB of valid PNG: only the query-time 2 MB limit says "File too large" (the post-parse check says "refused").
+    const big = await post(fields, { name: 'big.png', mime: 'image/png', bytes: Buffer.concat([PNG, Buffer.alloc(3 * 1024 * 1024)]) }, company, query);
+    expect(big.state.statusCode).toBe(400);
+    expect(body(big).error?.message).toContain('File too large');
+    const docx = await post(fields, { name: 'x.docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', bytes: DOCX }, company, query);
+    expect(docx.state.statusCode).toBe(400);
+    expect(body(docx).error?.message).toContain('No file uploaded');
+    expect(await attachmentCount(t2)).toBe(before);
   });
 
   it('POST refuses a type a bank line cannot hold, a body that is not that type, and another company\'s line', async () => {

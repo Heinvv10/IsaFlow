@@ -23,6 +23,8 @@ import { UUID_RE } from '@/lib/validation';
 import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const MAX_LIMIT = 200;
+/** Every page re-runs the scan, so the range is bounded. */
+const MAX_RANGE_YEARS = 2;
 
 const TYPE_SCOPE: Record<MissingDocumentType, string> = {
   supplier_invoice: 'read:invoices',
@@ -56,7 +58,8 @@ export const listMissingDocumentsTool: McpTool = {
     'Accounting documents with NO supporting document on file: supplier bills, customer invoices, credit notes, bank SPEND lines and journals that claim input VAT. The audit test "what is undocumented?" in one call, largest first. ' +
     'Whether a document exists is computed from the document tables on every call, never read from a cached flag, and uses the same tests as the bill has_document flag, the bills "Missing document" filter, list_unsupported_transactions and the pre-filing VAT input warnings, so they agree. ' +
     'entity_types (default: every type this token may read): ' + MISSING_DOCUMENT_TYPES.join(', ') + '. Reading bills, invoices and credit notes needs read:invoices, bank lines read:bank-tx, VAT journals read:vat; types the token lacks the scope for come back in skipped_entity_types. ' +
-    'from / to bound the document date (YYYY-MM-DD); default is the last 12 months to today, echoed back. min_amount is a materiality threshold on the absolute amount (default 0). ' +
+    'from / to bound the document date (YYYY-MM-DD) and may span at most 24 months; default is the last 12 months to today, echoed back. min_amount is a materiality threshold on the absolute amount (default 0). ' +
+    'A customer invoice counts as documented through the app\'s own PDF snapshot of the invoice it issued (its source document) as well as an uploaded file; a bill needs an uploaded file or a stored source scan, and a link to the bill\'s purchase order or goods receipt paperwork does not count. ' +
     'amount is the gross total for bills, invoices and credit notes, the absolute amount for a bank line, and the input VAT claimed for a vat_journal. ' +
     'summary gives, per type, candidates (rows checked), with_document, missing and missing_amount over the WHOLE range, not just the page; vat_journal has no candidates count because the VAT check reports only its exceptions. ' +
     'Draft and cancelled bills, invoices and credit notes are not checked; bank lines that are not spend, are excluded, or are own-account transfers are not either. A bank line whose receipt was filed against the related bill is still reported on the line (the two stores are not linked), and a VAT journal built from an undocumented bank line is reported under both types, so the per-type figures overlap and are not summed. ' +
@@ -82,6 +85,9 @@ export const listMissingDocumentsTool: McpTool = {
     const to = strArg(args, 'to') ?? todayInSast();
     const from = strArg(args, 'from') ?? shiftYearISO(to, -1);
     if (from > to) return toolError('from must not be after to');
+    if (from < shiftYearISO(to, -MAX_RANGE_YEARS)) {
+      return toolError(`from and to may span at most ${MAX_RANGE_YEARS * 12} months (every page re-checks the whole range); narrow from, or work year by year`);
+    }
 
     const raw = args.min_amount;
     if (raw !== undefined && (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0)) {

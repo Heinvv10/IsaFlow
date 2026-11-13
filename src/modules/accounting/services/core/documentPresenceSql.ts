@@ -5,11 +5,18 @@
  * every read — never from a cached flag.
  *
  * The entity store (procurement_documents, written by POST /api/accounting/documents and attach_entity_document)
- * counts an ACTIVE row filed directly on the entity or cross-linked to it through document_links. A bill and a
- * customer invoice also count their SOURCE captured document (source_document_id) when it is this company's, still
- * has stored bytes and is not rejected: an invoice created from a capture IS supported by the scan, even though no
- * procurement_documents row exists. A bare `source_document_id IS NOT NULL` is not enough — a capture whose bytes
- * were never stored, or that was rejected, supports nothing, and the flag used to say it did.
+ * counts an ACTIVE row filed directly on the entity or cross-linked to it through document_links — EXCEPT a link
+ * made for a purchase order or goods receipt. The only document_links writer is autoLinkSupplierInvoice
+ * (documentStorageService), which links a bill to its PO's and GRN's documents with link_reason 'po_invoice_link' /
+ * 'grn_invoice_link': those are the order's paperwork, not the supplier's tax invoice, so a bill whose own scan is gone
+ * is still missing its document (census of every document_links writer, 2026-11-13: no other reason exists).
+ * A bill and a customer invoice also count their SOURCE captured document (source_document_id) when it is this
+ * company's, still has stored bytes and is not rejected or discarded: an invoice created from a capture IS supported
+ * by the scan, even though no procurement_documents row exists. A bare `source_document_id IS NOT NULL` is not
+ * enough — a capture whose bytes were never stored, or that was rejected, supports nothing, and the flag used to say
+ * it did. A NULL status is not a rejection (the predicate says so rather than leaning on NULL <> 'rejected');
+ * 'failed' (extraction failed, bytes kept) still counts, because the file is there. For a CUSTOMER invoice
+ * source_document_id is the app's own PDF snapshot of the invoice it issued — that IS the issued document, so it counts.
  *
  * A bank line's definition is bank/bankLineDocumentSql (re-exported below); the VAT journal check is
  * reports/vatInputSupport. The two stores are not linked: a bank line whose receipt was filed against the related
@@ -20,6 +27,13 @@
  * FROM the entity's own table WHERE company_id = …); the captured-source arm re-checks company_id itself.
  */
 import { hasBankLineDocumentSql } from '../bank/bankLineDocumentSql';
+
+/** document_links.link_reason values that are a PO's or GRN's paperwork, not the entity's own supporting document. */
+export const ORDER_PAPERWORK_LINK_REASONS = ['po_invoice_link', 'grn_invoice_link'] as const;
+/** captured_documents.status values that are not a usable document. */
+export const UNUSABLE_CAPTURE_STATUSES = ['rejected', 'discarded'] as const;
+
+const sqlList = (values: readonly string[]): string => values.map((v) => `'${v}'`).join(', ');
 
 export type DocumentedEntityType =
   | 'supplier_invoice' | 'customer_invoice' | 'credit_note' | 'supplier_payment' | 'customer_payment';
@@ -50,13 +64,15 @@ export function entityStoreDocumentSql(entityType: DocumentedEntityType, alias: 
   return `(EXISTS (SELECT 1 FROM procurement_documents pd`
     + ` WHERE pd.entity_type = '${entityType}' AND pd.entity_id = ${alias}.id AND pd.is_active = true)`
     + ` OR EXISTS (SELECT 1 FROM document_links dl JOIN procurement_documents pd ON pd.id = dl.document_id`
-    + ` WHERE dl.linked_entity_type = '${entityType}' AND dl.linked_entity_id = ${alias}.id AND pd.is_active = true))`;
+    + ` WHERE dl.linked_entity_type = '${entityType}' AND dl.linked_entity_id = ${alias}.id AND pd.is_active = true`
+    + ` AND COALESCE(dl.link_reason, '') NOT IN (${sqlList(ORDER_PAPERWORK_LINK_REASONS)})))`;
 }
 
 /** The entity's source_document_id names this company's captured document, with stored bytes, not rejected. */
 export function sourceCapturedDocumentSql(alias: Alias): string {
   return `EXISTS (SELECT 1 FROM captured_documents scd WHERE scd.id = ${alias}.source_document_id`
-    + ` AND scd.company_id = ${alias}.company_id AND NULLIF(scd.storage_path, '') IS NOT NULL AND scd.status <> 'rejected')`;
+    + ` AND scd.company_id = ${alias}.company_id AND NULLIF(scd.storage_path, '') IS NOT NULL`
+    + ` AND COALESCE(scd.status, '') NOT IN (${sqlList(UNUSABLE_CAPTURE_STATUSES)}))`;
 }
 
 /** Boolean expression: the accounting document `alias` has at least one supporting document. */

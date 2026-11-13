@@ -26,7 +26,7 @@ describeIfDb('MCP document tools: a bank line is an entity type', () => {
   const ctxFor = (f: Fixture, scopes: string[]): McpToolContext =>
     ({ userId: f.userId, companyId: f.companyId, scopes, tokenJti: 'j', oauthAppId: null });
   const writer = () => ctxFor(fx, ['write:invoices', 'write:bank-tx']);
-  const reader = () => ctxFor(fx, ['read:reports']);
+  const reader = () => ctxFor(fx, ['read:reports', 'read:bank-tx']);
   const json = (r: { content: { text: string }[] }) => JSON.parse(r.content[0]!.text) as Record<string, unknown>;
   const attach = (over: Record<string, unknown> = {}, ctx = writer()) => attachEntityDocumentTool.handler({
     entity_type: 'bank_transaction', entity_id: tx, file_name: 'receipt.png', mime_type: 'image/png',
@@ -99,7 +99,7 @@ describeIfDb('MCP document tools: a bank line is an entity type', () => {
     expect(read.content[0]!.text).toBe('Not found');
     expect(Number((await sql`SELECT count(*) AS n FROM bank_transaction_attachments WHERE bank_transaction_id = ${txOther}::UUID`)[0]!.n)).toBe(0);
     // And company B's token does not see company A's line either.
-    const theirs = await listDocumentsTool.handler({ entity_type: 'bank_transaction', entity_id: tx }, ctxFor(other, ['read:reports']));
+    const theirs = await listDocumentsTool.handler({ entity_type: 'bank_transaction', entity_id: tx }, ctxFor(other, ['read:reports', 'read:bank-tx']));
     expect(theirs.content[0]!.text).toBe('Not found');
   });
 

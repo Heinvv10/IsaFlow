@@ -22,7 +22,7 @@ type Alias = 'bt' | 'cd' | 'm' | 'bta' | 'x' | 'a' | 'cx';
 /** captured document `cd` is a supporting document of bank line `bt` (before the copy check). */
 export function linkedCapturedDocSql(bt: Alias = 'bt', cd: Alias = 'cd'): string {
   return `${cd}.matched_bank_tx_id = ${bt}.id AND ${cd}.company_id = ${bt}.company_id`
-    + ` AND NULLIF(${cd}.storage_path, '') IS NOT NULL AND ${cd}.status <> 'rejected'`;
+    + ` AND NULLIF(${cd}.storage_path, '') IS NOT NULL AND ${cd}.status IS DISTINCT FROM 'rejected'`;
 }
 
 /** attachment row `m` is the copy of captured document `cd`. */
