@@ -16,7 +16,7 @@ const CORPUS: ReadonlyArray<readonly [string, Outcome]> = [
   ['who owes me money as at 15 October', 'owed_to_me'], ['who owes me money at the end of last month', 'owed_to_me'],
   // Money we owe
   ['Who do I owe?', 'i_owe'], ['how much do we owe suppliers', 'i_owe'], ["what do we owe our suppliers", 'i_owe'], ["what's owing to creditors", 'i_owe'], ['how much do we owe vendors?', 'i_owe'],
-  ['show me my creditors', 'i_owe'], ['what are my payables', 'i_owe'], ['how much do I owe', 'i_owe'], ['what do we owe', 'i_owe'], ['suppliers outstanding', 'i_owe'],
+  ['show me my creditors', 'i_owe'], ['are we still owing our suppliers', 'i_owe'], ['what are my payables', 'i_owe'], ['how much do I owe', 'i_owe'], ['what do we owe', 'i_owe'], ['suppliers outstanding', 'i_owe'],
   // Bank and cash
   ['How much cash is in the bank?', 'cash'], ["what's our bank balance", 'cash'], ["what's the bank balance right now", 'cash'], ['how much money do we have in the bank', 'cash'],
   ['how much cash do we have', 'cash'], ["what's my cash position", 'cash'], ['cash balance please', 'cash'], ['how much money is in our bank accounts', 'cash'],

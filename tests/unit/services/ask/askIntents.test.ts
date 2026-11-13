@@ -257,6 +257,13 @@ describe('a day range on a statement is refused, never offered as "as at"', () =
   });
 });
 
+describe('"this period"', () => {
+  it('is the current month window, so the VAT answer takes the company\'s current period', () => {
+    expect(parsePeriod('vat for this period')).toEqual({ kind: 'this_month' });
+    expect(parsePeriod('vat for the current period')).toEqual({ kind: 'this_month' });
+  });
+});
+
 describe('exact days', () => {
   it('reads a day with its month (and year)', () => {
     expect(parsePeriod('as at 15 october')).toEqual({ kind: 'day', day: 15, month: 10, year: null });
