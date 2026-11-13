@@ -16,6 +16,10 @@ import {
   getGeneralLedgerLines,
   type GeneralLedgerCursor,
 } from '@/modules/accounting/services/gl/generalLedgerStreamService';
+import {
+  GENERAL_LEDGER_GROUP_BY,
+  summariseGeneralLedger,
+} from '@/modules/accounting/services/gl/generalLedgerSummaryService';
 import { GL_ACCOUNT_TYPES } from '@/modules/accounting/types/gl.types';
 import { UUID_RE } from '@/lib/validation';
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
@@ -27,6 +31,7 @@ import {
   type DetailLevel,
 } from '@/lib/mcp/contracts';
 import { clampLimit, guardCastableArgs, nulArgError, ok, strArg, toolError } from './toolHelpers';
+import { groupBySchema, groupFields, parseSummaryRequest } from './summaryMode';
 
 /** A read that consumed no ledger row has no `posted_through`. */
 const NO_LEDGER_READ = '1970-01-01T00:00:00.000Z';
@@ -64,7 +69,8 @@ export const generalLedgerTool: McpTool = {
     'RE-BF: an UNFILTERED read adds an openingBalances key RE-BF, the retained earnings brought forward — the profit earned before that fiscal-year start, credit positive (negative is an accumulated loss), omitted when under 1 cent. It is derived, not a posted account: it has no lines and is not counted in accountCount. A filtered read never carries it. ' +
     'Paging: call again with cursor set and every other argument unchanged until next_cursor is null. Every line is served exactly once. ' +
     'COMPLETENESS: universeTotal is the UNFILTERED posted line count for the period, so rowsTotal below it means you are holding an extract and excludedTotal says how many lines your filters removed. An unfiltered call has excludedTotal 0 and rowsTotal equal to universeTotal. ' +
-    'detail: "summary" returns totals only; "standard" (default) and "full" return lines.',
+    'detail: "summary" returns totals only; "standard" (default) and "full" return lines. ' +
+    'group_by=account|month|source|account_type adds groups (line_count, total_debit, total_credit per group, over the same filtered lines as the totals; they sum to the totals; at most 200 groups, the rest summed in other) to the summary and implies detail "summary"; it takes no cursor. A page of 1000 lines passes 90 KB: use the grouped summary first, then page only the account you need.',
   scope: 'read:reports',
   write: false,
   inputSchema: {
@@ -97,6 +103,7 @@ export const generalLedgerTool: McpTool = {
         description: 'Case-insensitive substring of the entry number or description. SUPPRESSES runningBalance.',
       },
       detail: { type: 'string', enum: ['summary', 'standard', 'full'] },
+      group_by: groupBySchema(GENERAL_LEDGER_GROUP_BY),
       limit: { type: 'integer', minimum: 1, maximum: 1000, description: 'Default 200, max 1000.' },
       cursor: { type: 'string', description: 'next_cursor from the previous page.' },
     },
@@ -135,6 +142,9 @@ export const generalLedgerTool: McpTool = {
       return toolError(`invalid account_types — expected one of: ${GL_ACCOUNT_TYPES.join(', ')}`);
     }
 
+    // `detail` keeps its existing reading here (an unknown value is "standard"); only group_by is new.
+    const wanted = parseSummaryRequest(args, GENERAL_LEDGER_GROUP_BY, true);
+    if (!wanted.ok) return wanted.error;
     const rawCursor = strArg(args, 'cursor');
     let after: GeneralLedgerCursor | null = null;
     if (rawCursor !== undefined) {
@@ -152,7 +162,7 @@ export const generalLedgerTool: McpTool = {
     }
 
     const rawDetail = strArg(args, 'detail');
-    const detail: DetailLevel = isDetailLevel(rawDetail) ? rawDetail : 'standard';
+    const detail: DetailLevel = wanted.groupBy !== null ? 'summary' : isDetailLevel(rawDetail) ? rawDetail : 'standard';
     // A summary serves totals, so it fetches ONE row rather than a page it will
     // discard — the aggregates ride on any row. Asking for 200 and throwing
     // them away would read a page of a 21,871-line ledger to answer a question
@@ -204,8 +214,21 @@ export const generalLedgerTool: McpTool = {
       excludedTotal,
     });
 
+    const grouped = wanted.groupBy === null ? null : await summariseGeneralLedger({
+      companyId: ctx.companyId,
+      periodStart,
+      periodEnd,
+      accountCodes: strArrayArg(args, 'account_codes'),
+      accountIds,
+      accountTypes,
+      sources: strArrayArg(args, 'sources'),
+      minAmount: numArg(args, 'min_amount'),
+      search: strArg(args, 'search'),
+    }, wanted.groupBy);
+
     return ok({
       ...envelope,
+      ...(grouped === null || wanted.groupBy === null ? {} : groupFields(grouped, wanted.groupBy)),
       period_start: periodStart,
       period_end: periodEnd,
       totalDebit: page.totalDebit,

@@ -71,6 +71,24 @@ export function clampPage(limit: number): number {
 }
 
 /**
+ * `FROM … WHERE …` for the lines an export window selects (tenant, date window, posted-only). The page CTE (which adds
+ * its keyset), the window summary and the MCP `export_gl_lines` group_by summary all splice THIS fragment, so rowCount
+ * is the number of rows paging to exhaustion yields and a group total cannot describe another set.
+ */
+export function glLineExportScope(companyId: string, opts: GlLineExportOptions) {
+  const from = opts.dateFrom ?? null;
+  const to = opts.dateTo ?? null;
+  const postedOnly = (opts.status ?? 'all') === 'posted';
+  return sql`FROM gl_journal_lines jl
+      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+      WHERE je.company_id = ${companyId}::UUID
+        AND jl.company_id = ${companyId}::UUID
+        AND (${from}::DATE IS NULL OR je.entry_date >= ${from}::DATE)
+        AND (${to}::DATE IS NULL OR je.entry_date <= ${to}::DATE)
+        AND (NOT ${postedOnly}::BOOLEAN OR je.status = 'posted')`;
+}
+
+/**
  * One keyset page of export rows, ordered (Txn_Date, entry id, line id) — a
  * total order, so paging to exhaustion visits every line exactly once.
  */
@@ -80,9 +98,6 @@ export async function fetchGlLineExportPage(
   cursor: GlLineExportCursor | null,
   limit: number,
 ): Promise<DbRow[]> {
-  const from = opts.dateFrom ?? null;
-  const to = opts.dateTo ?? null;
-  const postedOnly = (opts.status ?? 'all') === 'posted';
   const cDate = cursor?.entryDate ?? null;
   const cEntry = cursor?.entryId ?? null;
   const cLine = cursor?.lineId ?? null;
@@ -93,13 +108,7 @@ export async function fetchGlLineExportPage(
       SELECT jl.id AS line_id, jl.journal_entry_id AS entry_id, je.entry_date,
              jl.gl_account_id, jl.debit, jl.credit, jl.vat_type, jl.description AS line_description,
              jl.cc1_id, jl.cc2_id, jl.bu_id
-      FROM gl_journal_lines jl
-      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      WHERE je.company_id = ${companyId}::UUID
-        AND jl.company_id = ${companyId}::UUID
-        AND (${from}::DATE IS NULL OR je.entry_date >= ${from}::DATE)
-        AND (${to}::DATE IS NULL OR je.entry_date <= ${to}::DATE)
-        AND (NOT ${postedOnly}::BOOLEAN OR je.status = 'posted')
+      ${glLineExportScope(companyId, opts)}
         AND (${cDate}::DATE IS NULL
              OR (je.entry_date, jl.journal_entry_id, jl.id) > (${cDate}::DATE, ${cEntry}::UUID, ${cLine}::UUID))
       ORDER BY je.entry_date, jl.journal_entry_id, jl.id
@@ -245,21 +254,12 @@ export async function getGlLineExportSummary(
   companyId: string,
   opts: GlLineExportOptions,
 ): Promise<GlLineExportSummary> {
-  const from = opts.dateFrom ?? null;
-  const to = opts.dateTo ?? null;
-  const postedOnly = (opts.status ?? 'all') === 'posted';
   // The SAME predicate as fetchGlLineExportPage's `page` CTE, so rowCount is
   // the number of rows paging to exhaustion yields.
   const [row] = (await sql`
     WITH lines AS (
       SELECT jl.journal_entry_id, je.status, je.entry_date, jl.debit, jl.credit
-      FROM gl_journal_lines jl
-      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      WHERE je.company_id = ${companyId}::UUID
-        AND jl.company_id = ${companyId}::UUID
-        AND (${from}::DATE IS NULL OR je.entry_date >= ${from}::DATE)
-        AND (${to}::DATE IS NULL OR je.entry_date <= ${to}::DATE)
-        AND (NOT ${postedOnly}::BOOLEAN OR je.status = 'posted')
+      ${glLineExportScope(companyId, opts)}
     ),
     txn AS (
       SELECT journal_entry_id, SUM(debit - credit) AS net
