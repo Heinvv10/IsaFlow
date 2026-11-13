@@ -82,7 +82,7 @@ describe('MCP write-tool role fence (S-01)', () => {
     'aged_creditors', 'aged_debtors', 'asset_register', 'audit_snapshots',
     'audit_trail', 'balance_sheet', 'bank_accounts_status', 'bank_statement_coverage',
     'budget_variance', 'chart_of_accounts_health', 'company_profile', 'compare_audit_snapshot',
-    'customer_statement', 'data_integrity_checks', 'due_by_date', 'emp201_status', 'entity_history',
+    'customer_statement', 'data_integrity_checks', 'document_vat_history', 'due_by_date', 'emp201_status', 'entity_history',
     'export_gl_lines', 'general_ledger', 'get_bank_rule', 'get_credit_note',
     'get_document', 'get_employee', 'get_fiscal_period', 'get_invoice',
     'get_match_candidates', 'get_opening_balances', 'get_supplier_invoice', 'irp5_data',
