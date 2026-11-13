@@ -11,7 +11,7 @@ vi.mock('@/modules/accounting/services/reports/balanceSheetService', () => ({ ge
 vi.mock('@/modules/accounting/services/reports/vat201ReportService', () => ({ getVat201Report: m.vat }));
 vi.mock('@/modules/accounting/services/reports/emp201Service', () => ({ generateEMP201: m.emp }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunQueryService', () => ({ listPayRunsPage: m.runs }));
-vi.mock('@/modules/accounting/services/gl/fiscalYearBasis', () => ({ getFiscalYearStartMonth: m.fy, DEFAULT_FY_START_MONTH: 3 }));
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', () => ({ fiscalYearForDate: m.fy }));
 
 import { answerQuestion } from '@/modules/accounting/services/ask/askAnswer';
 import { rand } from '@/modules/accounting/services/ask/askTypes';
@@ -32,7 +32,7 @@ beforeEach(() => {
   m.vat.mockResolvedValue({ totals: { outputTax: 150, inputTax: 60, netVat: 90 } });
   m.emp.mockResolvedValue({ payePayable: 1000, totalUIF: 100, totalSDL: 50 });
   m.runs.mockResolvedValue({ rows: [{ id: 'run1', periodYear: 2026, periodMonth: 10, status: 'paid', totalGross: 50000, totalNet: 40000, totalPaye: 6000 }] });
-  m.fy.mockResolvedValue(3);
+  m.fy.mockResolvedValue({ startDate: '2026-03-01' });
 });
 
 describe('answerQuestion: figure equals the service figure', () => {
@@ -69,6 +69,12 @@ describe('answerQuestion: figure equals the service figure', () => {
     await answerQuestion('other-co', 'who owes me money', TODAY);
     expect(m.ar).toHaveBeenLastCalledWith('other-co', TODAY);
     expect(m.ar).not.toHaveBeenCalledWith(CO, TODAY);
+  });
+
+  it('year to date runs from the registry year start, scoped to the company', async () => {
+    await answerQuestion(CO, 'what is my revenue this year', TODAY);
+    expect(m.fy).toHaveBeenCalledWith(CO, TODAY);
+    expect(m.figures).toHaveBeenCalledWith(CO, '2026-03-01', TODAY);
   });
 
   it('asks the VAT service for the month named', async () => {

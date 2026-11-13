@@ -33,19 +33,19 @@ describe('parseIntent', () => {
 
 describe('resolvePeriod', () => {
   it('names a month without a year as the latest one not after today', () => {
-    expect(resolvePeriod({ kind: 'month', month: 10, year: null }, '2026-11-13', 'month_to_date', 3)).toMatchObject({ from: '2026-10-01', to: '2026-10-31' });
-    expect(resolvePeriod({ kind: 'month', month: 12, year: null }, '2026-11-13', 'month_to_date', 3)).toMatchObject({ from: '2025-12-01', to: '2025-12-31' });
+    expect(resolvePeriod({ kind: 'month', month: 10, year: null }, '2026-11-13', 'month_to_date', '2026-03-01')).toMatchObject({ from: '2026-10-01', to: '2026-10-31' });
+    expect(resolvePeriod({ kind: 'month', month: 12, year: null }, '2026-11-13', 'month_to_date', '2026-03-01')).toMatchObject({ from: '2025-12-01', to: '2025-12-31' });
   });
   it('last month crosses the year end; February has 28 or 29 days', () => {
-    expect(resolvePeriod({ kind: 'last_month' }, '2026-01-05', 'month_to_date', 3)).toMatchObject({ from: '2025-12-01', to: '2025-12-31' });
-    expect(resolvePeriod({ kind: 'month', month: 2, year: 2024 }, '2026-11-13', 'month_to_date', 3).to).toBe('2024-02-29');
+    expect(resolvePeriod({ kind: 'last_month' }, '2026-01-05', 'month_to_date', '2026-03-01')).toMatchObject({ from: '2025-12-01', to: '2025-12-31' });
+    expect(resolvePeriod({ kind: 'month', month: 2, year: 2024 }, '2026-11-13', 'month_to_date', '2026-03-01').to).toBe('2024-02-29');
   });
-  it('year to date starts at the financial year start', () => {
-    expect(resolvePeriod({ kind: 'this_year' }, '2026-11-13', 'month_to_date', 3).from).toBe('2026-03-01');
-    expect(resolvePeriod({ kind: 'this_year' }, '2026-02-13', 'month_to_date', 3).from).toBe('2025-03-01');
+  it('year to date starts where the registry says the financial year holding today starts', () => {
+    expect(resolvePeriod({ kind: 'this_year' }, '2026-11-13', 'month_to_date', '2026-03-01')).toMatchObject({ from: '2026-03-01', to: '2026-11-13' });
+    expect(resolvePeriod({ kind: 'this_year' }, '2026-02-13', 'month_to_date', '2025-03-01').from).toBe('2025-03-01');
   });
   it('defaults: month to date, or last month for the monthly EMP201', () => {
-    expect(resolvePeriod(null, '2026-11-13', 'month_to_date', 3)).toMatchObject({ from: '2026-11-01', to: '2026-11-13' });
-    expect(resolvePeriod(null, '2026-11-13', 'last_month', 3)).toMatchObject({ from: '2026-10-01', to: '2026-10-31' });
+    expect(resolvePeriod(null, '2026-11-13', 'month_to_date', '2026-03-01')).toMatchObject({ from: '2026-11-01', to: '2026-11-13' });
+    expect(resolvePeriod(null, '2026-11-13', 'last_month', '2026-03-01')).toMatchObject({ from: '2026-10-01', to: '2026-10-31' });
   });
 });

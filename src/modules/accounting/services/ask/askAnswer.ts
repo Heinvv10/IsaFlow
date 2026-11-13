@@ -7,7 +7,7 @@ import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { getFinancialFigures } from '@/modules/accounting/services/gl/financialFiguresService';
 import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSheetService';
-import { getFiscalYearStartMonth, DEFAULT_FY_START_MONTH } from '@/modules/accounting/services/gl/fiscalYearBasis';
+import { fiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { getVat201Report } from '@/modules/accounting/services/reports/vat201ReportService';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import { listPayRunsPage } from '@/modules/accounting/services/payroll/payrollRunQueryService';
@@ -39,8 +39,7 @@ async function aging(side: 'ar' | 'ap', companyId: string, today: string): Promi
 }
 
 async function figures(intent: AskIntent, companyId: string, today: string): Promise<AskAnswer> {
-  const fy = intent.period?.kind === 'this_year'
-    ? await getFiscalYearStartMonth(companyId, { fallback: DEFAULT_FY_START_MONTH }) : DEFAULT_FY_START_MONTH;
+  const fy = intent.period?.kind === 'this_year' ? (await fiscalYearForDate(companyId, today)).startDate : today;
   const p = resolvePeriod(intent.period, today, 'month_to_date', fy);
   const f = await getFinancialFigures(companyId, p.from, p.to);
   const href = `/accounting/reports/income-statement?period_start=${p.from}&period_end=${p.to}`;
@@ -63,7 +62,7 @@ async function balanceSheet(intent: AskIntent, companyId: string, today: string)
 }
 
 async function vat(intent: AskIntent, companyId: string, today: string): Promise<AskAnswer> {
-  const p = resolvePeriod(intent.period, today, 'month_to_date', DEFAULT_FY_START_MONTH);
+  const p = resolvePeriod(intent.period, today, 'month_to_date', today);
   const { totals } = await getVat201Report(companyId, p.from, p.to, { detail: 'summary' });
   const net = r2(totals.netVat);
   return reply(`VAT for ${p.label}: ${net >= 0 ? `${rand(net)} payable to SARS` : `${rand(-net)} refundable`}. This is the period you named, not a filed VAT period.`,
@@ -72,7 +71,7 @@ async function vat(intent: AskIntent, companyId: string, today: string): Promise
 }
 
 async function emp201(intent: AskIntent, companyId: string, today: string): Promise<AskAnswer> {
-  const p = resolvePeriod(intent.period, today, 'last_month', DEFAULT_FY_START_MONTH);
+  const p = resolvePeriod(intent.period, today, 'last_month', today);
   const d = await generateEMP201(companyId, p.from, p.to);
   const total = r2(d.payePayable + d.totalUIF + d.totalSDL);
   return reply(`The EMP201 for ${p.label} comes to ${rand(total)} (PAYE after ETI, UIF and SDL).`, total,

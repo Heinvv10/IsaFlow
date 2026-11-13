@@ -12,11 +12,12 @@ function wholeMonth(y: number, m: number): ResolvedPeriod {
 }
 
 /**
+ * `fyStart` is the registry's start date for the year holding `today`; only "this year" reads it.
  * `dflt` says what to use when the question named no window. A month named without a year is the latest such
  * month not after `today`'s month (so "October" asked in November means this October, in January last October).
  */
 export function resolvePeriod(
-  period: AskPeriod | null, today: string, dflt: 'month_to_date' | 'last_month', fyStartMonth: number,
+  period: AskPeriod | null, today: string, dflt: 'month_to_date' | 'last_month', fyStart: string,
 ): ResolvedPeriod {
   const y = Number(today.slice(0, 4));
   const m = Number(today.slice(5, 7));
@@ -24,8 +25,8 @@ export function resolvePeriod(
   if (p.kind === 'last_month') return m === 1 ? wholeMonth(y - 1, 12) : wholeMonth(y, m - 1);
   if (p.kind === 'this_month') return { from: `${y}-${pad(m)}-01`, to: today, label: `${MONTH_NAMES[m - 1]} ${y} to date` };
   if (p.kind === 'this_year') {
-    const startYear = m >= fyStartMonth ? y : y - 1;
-    return { from: `${startYear}-${pad(fyStartMonth)}-01`, to: today, label: `this financial year to date` };
+    // `fyStart` is the start date of the financial year holding `today`, from the fiscal-year registry.
+    return { from: fyStart, to: today, label: 'this financial year to date' };
   }
   const year = p.year ?? (p.month <= m ? y : y - 1);
   return wholeMonth(year, p.month);
