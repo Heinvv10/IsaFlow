@@ -182,6 +182,7 @@ describe('withBearerAuth — strict Bearer only', () => {
   it('valid pat_ → handler runs with scopes attached and GUCs set (shared pipeline)', async () => {
     vi.mocked(validatePat).mockResolvedValue({
       patId: PAT_ID, userId: USER_ID, companyId: COMPANY_ID, scopes: ['read:reports'],
+      expiresAt: '2027-01-01T00:00:00.000Z',
     });
     const handler = vi.fn(async (_req: unknown, res: FakeRes) => { res.status(200).json({ ok: true } as never); });
     const req = makeReq({ authorization: `Bearer ${RAW}` });
@@ -192,6 +193,9 @@ describe('withBearerAuth — strict Bearer only', () => {
     expect(req.companyId).toBe(COMPANY_ID);
     expect(req.scopes).toEqual(['read:reports']);
     expect(req.authMethod).toBe('pat');
+    // token_info reads these off the request (a PAT has no refresh token).
+    expect(req.tokenExpiresAt).toBe('2027-01-01T00:00:00.000Z');
+    expect(req.refreshExpiresAt).toBeNull();
     const stmts = h.clientQuery.mock.calls.map((c) => String(c[0]));
     expect(stmts.some((s) => s.includes('request.jwt.claims'))).toBe(true);
     expect(stmts.some((s) => s.includes('app.current_company_id'))).toBe(true);

@@ -101,9 +101,9 @@ export async function applyCreditNoteToDocument(
     totalAmount: plan.amount,
     linkedInvoiceId: plan.invoiceId,
     // Belt and braces: `totalAmount` is already capped at the document's
-    // outstanding balance, so no remainder is ever left for a walk. 'none' says
+    // outstanding balance, so no remainder is ever left for a walk. 'linked' says
     // the intent anyway, should that cap ever move.
-    autoApply: 'none',
+    autoApply: 'linked',
     alreadyApplied: plan.noteAppliedBefore,
   });
   // Unreachable by construction: the document is locked and the plan refuses
