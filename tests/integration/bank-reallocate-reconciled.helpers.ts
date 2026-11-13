@@ -66,13 +66,14 @@ export async function bankGl(c: Ctx, bank: string, asAt: string): Promise<number
  */
 export async function reconciledLine(c: Ctx, o: {
   amount: number; date: string; statementDate: string; alloc: AllocationType; contra?: string; entity?: string;
+  autoApply?: 'fifo' | 'none';
 }) {
   const bank = await newBank(c);
   const bt = String(((await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount,
       description, status) VALUES (${c.fx.companyId}::UUID, ${bank}::UUID, ${o.date}::DATE, ${o.amount},
       ${`Realloc ${++c.seq}`}, 'imported') RETURNING id`) as Row[])[0]!.id);
   const posted = await inTx(c.fx, () => allocateTransaction(c.fx.companyId, bt, o.contra ?? null, c.fx.userId, undefined,
-    o.alloc, o.entity, 'none'));
+    o.alloc, o.entity, 'none', undefined, undefined, undefined, undefined, o.autoApply ? { autoApply: o.autoApply } : undefined));
   const balance = await bankGl(c, bank, o.statementDate);
   const rec = await inTx(c.fx, () => startReconciliation(c.fx.companyId, bank, o.statementDate, balance, c.fx.userId));
   await sql`UPDATE bank_transactions SET reviewed_at = ${REVIEWED_AT}::TIMESTAMPTZ, reviewed_by = ${c.fx.userId}::UUID
@@ -143,4 +144,18 @@ export async function apControlAndSubledger(c: Ctx): Promise<{ control: number; 
 export async function entry(je: string) {
   return ((await sql`SELECT entry_date::TEXT AS d, reversed_at IS NOT NULL AS reversed, posting_agent, reversal_of_id::TEXT AS of
     FROM gl_journal_entries WHERE id = ${je}::UUID`) as Row[])[0]!;
+}
+
+/** AR control (debit-normal, posted) and the AR subledger (open invoices less unapplied receipt credit), company-wide. */
+export async function arControlAndSubledger(c: Ctx): Promise<{ control: number; subledger: number }> {
+  const control = Number(((await sql`SELECT COALESCE(SUM(l.debit - l.credit), 0)::float8 AS n FROM gl_journal_lines l
+    JOIN gl_journal_entries e ON e.id = l.journal_entry_id
+    WHERE l.company_id = ${c.fx.companyId}::UUID AND e.status = 'posted' AND l.gl_account_id = ${c.acct.ar}::UUID`) as Row[])[0]!.n);
+  const inv = Number(((await sql`SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0)::float8 AS n
+    FROM customer_invoices WHERE company_id = ${c.fx.companyId}::UUID AND status <> 'cancelled' AND gl_journal_entry_id IS NOT NULL`) as Row[])[0]!.n);
+  const unapplied = Number(((await sql`SELECT COALESCE(SUM(p.total_amount - COALESCE((SELECT SUM(a.amount_allocated)
+      FROM customer_payment_allocations a WHERE a.payment_id = p.id), 0)), 0)::float8 AS n
+    FROM customer_payments p WHERE p.company_id = ${c.fx.companyId}::UUID AND p.status NOT IN ('cancelled', 'draft')
+      AND p.gl_journal_entry_id IS NOT NULL`) as Row[])[0]!.n);
+  return { control: Math.round(control * 100) / 100, subledger: Math.round((inv - unapplied) * 100) / 100 };
 }

@@ -103,10 +103,13 @@ export const reallocateBankTransactionTool: McpTool = {
     + 'reverse_bank_allocation then allocate_bank_transaction), one in an in-progress session or reconciled in the '
     + 'Sage import, a closed or locked fiscal period or a VAT-locked period on that date (the date is never moved), '
     + 'transfers, splits, payment batches, provisional lines, matched (not allocated) lines, journals with reversal '
-    + 'history, an invoice target, and a bank account as target. The same target, VAT code and dimensions answers '
-    + 'nothing_changed. A vat_type of standard on an account where no supply can arise is coerced as '
-    + 'allocate_bank_transaction does and reported in vat_coerced. dry_run is required: true runs the whole '
-    + 'reallocation and rolls it back (the ids it returns are not kept), false does it.',
+    + 'history, an invoice target, a bank account as target, and a customer receipt whose on-account remainder a '
+    + 'refund has already paid out. The same target, VAT code and dimensions (and, for a contact, the same outcome '
+    + 'of auto_apply) answers nothing_changed. On a gl_account_id target, omitting vat_type means NO VAT, as '
+    + 'allocate_bank_transaction does — send vat_type to keep a VAT claim. A vat_type of standard on an account where '
+    + 'no supply can arise is coerced as allocate does and reported in vat_coerced. dry_run is required: true runs the '
+    + 'whole reallocation and rolls it back — every id it returns (journals, lines, payment) is rolled back and does '
+    + 'not exist afterwards; false does it.',
   scope: 'write:bank-tx',
   write: true,
   requiresPost: true,
@@ -162,8 +165,9 @@ export const reallocateBankTransactionTool: McpTool = {
     if (typeof cos === 'string') return toolError(cos);
     const { effectiveVatCode, vatCoerced } = await resolveLineVatCode(ctx.companyId, txId, line, NAME);
 
+    const dryRun = args.dry_run === true;
     const run = () => reallocateReconciledTransaction(ctx.companyId, txId, ctx.userId, target, {
-      ...mcpPostingOpts(ctx, NAME), expectedJournalEntryId: expected, autoApply: line.autoApply,
+      ...mcpPostingOpts(ctx, NAME), expectedJournalEntryId: expected, autoApply: line.autoApply, dryRun,
       ...(effectiveVatCode === undefined ? {} : { vatType: effectiveVatCode }),
       ...(line.dimIds ? { dims: line.dimIds } : {}),
     });
@@ -172,10 +176,11 @@ export const reallocateBankTransactionTool: McpTool = {
       ...(cos.warnings.length > 0 ? { dimension_warnings: cos.warnings } : {}),
     };
     // No try/catch from here: every throw must reach the registry's savepoint (see the header).
-    if (args.dry_run) {
+    if (dryRun) {
       let preview: ReallocationResult | null = null;
       await inRolledBackSavepoint('mcp_realloc_dry_run', async () => { preview = await run(); });
-      return wroteNothing(answer(preview!, { ...extra, dry_run: true }));
+      if (preview === null) throw new Error('reallocate_bank_transaction dry run produced no result');
+      return wroteNothing(answer(preview, { ...extra, dry_run: true }));
     }
     const result = await run();
     if (result.outcome === 'nothing_changed') return wroteNothing(answer(result, extra));

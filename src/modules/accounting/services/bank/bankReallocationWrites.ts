@@ -5,11 +5,15 @@
  * before it), so a refusal leaves nothing written.
  */
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
+import { logAuditOrThrow } from '../core/auditTrailService';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { assertReversalDatePostable } from './reversalDatePostable';
-import { BankReallocationRefusal, type OldJournalLine, type ReallocationTarget } from './bankReallocationGuards';
+import {
+  BankReallocationRefusal, type OldJournalLine, type ReallocationPlan, type ReallocationTarget,
+} from './bankReallocationGuards';
 
 /**
  * Both journals carry the ORIGINAL entry date, or nothing is written: a rolled date would move the bank GL balance
@@ -59,7 +63,9 @@ export function assertBankLegKept(old: OldJournalLine, entryDate: string, now: B
 /**
  * Back to 'reconciled' on its own reconciliation, matched to the new bank leg, with the ORIGINAL review stamp (Hein:
  * keep the reviewer). Migration 981's trigger cleared it when allocateTransaction moved matched_journal_line_id; this
- * UPDATE leaves the link alone, so the trigger keeps the stamp written here.
+ * UPDATE leaves the link alone, so the trigger keeps the stamp written here. The auto-post run tag is cleared: the
+ * line's journal is no longer the run's posting, and an undo of that run must not reverse the new one (the audit row
+ * records the run id).
  */
 export async function restoreReconciled(
   companyId: string, bankTxId: string, reconciliationId: string, newLineId: string,
@@ -68,7 +74,8 @@ export async function restoreReconciled(
   const rows = (await sql`
     UPDATE bank_transactions
     SET status = 'reconciled', reviewed_at = ${reviewed.at ?? null}::TIMESTAMPTZ,
-        reviewed_by = ${reviewed.by == null ? null : String(reviewed.by)}::UUID, updated_at = NOW()
+        reviewed_by = ${reviewed.by == null ? null : String(reviewed.by)}::UUID, auto_post_run_id = NULL,
+        updated_at = NOW()
     WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID
       AND reconciliation_id = ${reconciliationId}::UUID AND matched_journal_line_id = ${newLineId}::UUID
       AND status = 'allocated'
@@ -95,4 +102,38 @@ export async function newDocumentOf(
         WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id = ${journalId}::UUID AND status <> 'cancelled' LIMIT 1`
   ) as DbRow[];
   return { kind, paymentId: r ? String(r.id) : null };
+}
+
+const stamp = (v: unknown): string => (v == null ? '' : v instanceof Date ? v.toISOString() : String(v));
+
+/**
+ * The audit row of a reallocation (audit_log's CHECK has no 'reallocate' action: an `update` with
+ * `operation: reallocate`). It carries the ORIGINAL review stamp, so the restored stamp is told apart from a fresh
+ * review, and the auto-post run the line left. A dry run writes it too (rolled back with everything) and logs as one.
+ */
+export async function auditReallocation(a: {
+  companyId: string; userId: string; bankTxId: string; target: ReallocationTarget; plan: ReallocationPlan;
+  reviewed: { at: unknown; by: unknown }; autoPostRunId: string | null; newLineId: string; newJournalEntryId: string;
+  reversalJournalEntryId: string; postingAgent: string; dryRun: boolean;
+}): Promise<void> {
+  const t = a.target;
+  await logAuditOrThrow({
+    companyId: a.companyId, userId: a.userId, action: 'update', entityType: 'bank_transaction', entityId: a.bankTxId,
+    changes: {
+      fields: [{ field: 'matched_journal_line_id', old: a.plan.bankLeg.lineId, new: a.newLineId, label: 'Allocation journal line' }],
+      metadata: {
+        operation: 'reallocate', reconciliationId: a.plan.reconciliationId, originalJournalEntryId: a.plan.journalId,
+        reversalJournalEntryId: a.reversalJournalEntryId, newJournalEntryId: a.newJournalEntryId, targetKind: t.kind,
+        targetId: t.kind === 'account' ? t.glAccountId : t.kind === 'supplier' ? t.supplierId : t.customerId,
+        entryDate: a.plan.entryDate, postingAgent: a.postingAgent,
+        originalReviewedAt: stamp(a.reviewed.at), originalReviewedBy: stamp(a.reviewed.by),
+        clearedAutoPostRunId: a.autoPostRunId ?? '',
+      },
+    },
+  });
+  log.info(a.dryRun ? 'Reallocation dry run (rolled back)' : 'Reallocated reconciled bank transaction', {
+    companyId: a.companyId, bankTxId: a.bankTxId, reconciliationId: a.plan.reconciliationId,
+    originalJournalEntryId: a.plan.journalId, newJournalEntryId: a.newJournalEntryId,
+    reversalJournalEntryId: a.reversalJournalEntryId, dryRun: a.dryRun,
+  }, 'accounting');
 }

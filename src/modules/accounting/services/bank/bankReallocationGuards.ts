@@ -11,15 +11,13 @@
  * transfer, split, provisional, payment batch, reversal history or second bank line. Matched lines (cash matched to an
  * existing journal) are refused: reversing that journal is not undoing this line's allocation.
  */
-import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
 import type { DimensionIds } from '../gl/dimensions/dimensionTypes';
 import { isBankSubtype } from '../gl/accountSubtypes';
 import { reconciliationLockOf, type LineLock } from './reconciledCash';
-import { findChainCashLines } from './chainBankLines';
-import { peekReversalTarget } from './reversalDatePostable';
 import { SPLIT_ALLOCATION_NAME } from './splitJournalDocuments';
+import { isControlSubtype, planAllocationDimensions } from './bankAllocationDimensions';
+import type { AutoApplyMode } from '../shared/autoAllocateStrategy';
 import type { LineChain } from './bankChainLineReversal';
 
 /** Raised before any write (the service's refusals) or inside its savepoint (the re-checks): always caller-facing. */
@@ -55,12 +53,22 @@ export interface ReallocationFacts {
   /** peekReversalTarget of the chain root: the root itself while it stands with no reversal history. */
   reversalTarget: string | null;
   journal: { id: string; entryDate: string; lines: OldJournalLine[] } | null;
-  documents: { supplierIds: string[]; customerIds: string[]; batch: boolean };
+  /**
+   * The old journal's live payments / receipts: their contacts, whether one is a payment batch, and (positive documents
+   * only — a refund is never applied) how much of them is applied and how much is still on account.
+   */
+  documents: { supplierIds: string[]; customerIds: string[]; batch: boolean; applied: number; unapplied: number };
+  /** The bank account's (card's) default dimensions — what allocate stamps on a contra line that names none. */
+  bankDefaults: DimensionIds;
   /** The target GL account (account targets only); null when it is not this company's. */
   targetAccount: { subtype: string | null } | null;
 }
 
-export interface ReallocationRequest { expectedJournalEntryId: string; vatType?: string; dims?: DimensionIds }
+export interface ReallocationRequest {
+  expectedJournalEntryId: string; vatType?: string; dims?: DimensionIds;
+  /** Supplier / customer targets: 'fifo' (default) applies the new document, 'none' leaves it on account. */
+  autoApply?: AutoApplyMode;
+}
 
 export type ReallocationPlan =
   | { kind: 'nothing_changed'; reconciliationId: string; journalId: string; entryDate: string; bankLeg: OldJournalLine }
@@ -116,19 +124,45 @@ function refuseV1Shapes(f: ReallocationFacts): void {
   }
 }
 
+/**
+ * The same contact is the same allocation only when the new document would end where the old one stands: 'fifo'
+ * over a document with nothing left on account, 'none' over one with nothing applied. Otherwise the reallocation
+ * re-applies (or un-applies) the cash, which is a real change.
+ */
+function sameContactOutcome(f: ReallocationFacts, req: ReallocationRequest): boolean {
+  const cents = (n: number) => Math.round(n * 100);
+  return (req.autoApply ?? 'fifo') === 'none' ? cents(f.documents.applied) === 0 : cents(f.documents.unapplied) === 0;
+}
+
+/**
+ * The dimensions allocate would stamp on the contra line: none on a control account; otherwise what the caller named,
+ * with the bank card's defaults filling the rest (bankAllocationDimensions.planAllocationDimensions). Null when allocate
+ * would refuse the request (dimensions named on a control account), which is then not "the same".
+ */
+function stampedDims(f: ReallocationFacts, explicit: DimensionIds): DimensionIds | null {
+  const control = isControlSubtype(f.targetAccount?.subtype ?? null);
+  const named = Boolean(explicit.cc1Id || explicit.cc2Id || explicit.buId);
+  if (control) return named ? null : {};
+  return planAllocationDimensions({ settlement: false, contraIsControl: false, explicit, bankDefaults: f.bankDefaults });
+}
+
 /** Is the new target the one the line is on now? Then nothing is written. */
 function sameTarget(f: ReallocationFacts, bankLegId: string, target: ReallocationTarget, req: ReallocationRequest): boolean {
   const type = f.line.allocationType;
-  if (target.kind === 'supplier') return type === 'supplier' && f.documents.supplierIds.includes(target.supplierId);
-  if (target.kind === 'customer') return type === 'customer' && f.documents.customerIds.includes(target.customerId);
+  if (target.kind === 'supplier') {
+    return type === 'supplier' && f.documents.supplierIds.includes(target.supplierId) && sameContactOutcome(f, req);
+  }
+  if (target.kind === 'customer') {
+    return type === 'customer' && f.documents.customerIds.includes(target.customerId) && sameContactOutcome(f, req);
+  }
   if (type !== 'account') return false;
   const contra = (f.journal?.lines ?? []).filter((l) => l.lineId !== bankLegId && l.glAccountId === target.glAccountId);
   if (contra.length !== 1) return false;
   const old = contra[0]!;
   const vat = (v: string | null | undefined) => (v === 'standard' || v === 'zero_rated' || v === 'exempt' ? v : 'none');
   if (vat(old.vatType) !== vat(req.vatType)) return false;
-  const d = req.dims;
-  if (!d) return true;
+  const d = stampedDims(f, req.dims ?? {});
+  if (!d) return false;
   return (d.cc1Id ?? null) === old.cc1Id && (d.cc2Id ?? null) === old.cc2Id && (d.buId ?? null) === old.buId;
 }
 
@@ -153,8 +187,9 @@ export function planReallocation(f: ReallocationFacts, target: ReallocationTarge
       + 'the new allocation could not keep the journal\'s date. Reopen the reconciliation and reverse it instead.');
   }
   if (target.kind === 'account') {
-    if (!f.targetAccount) refuse('Not found');
-    if (target.glAccountId === f.line.bankAccountId || isBankSubtype(f.targetAccount!.subtype)) {
+    const account = f.targetAccount;
+    if (!account) return refuse('Not found');
+    if (target.glAccountId === f.line.bankAccountId || isBankSubtype(account.subtype)) {
       refuse('The target is a bank account (a transfer); reallocating to a bank account is not supported.');
     }
   }
@@ -162,70 +197,13 @@ export function planReallocation(f: ReallocationFacts, target: ReallocationTarge
   if (!bankLeg || bankLeg.glAccountId !== f.line.bankAccountId) {
     return refuse('This bank line\'s journal line is not on its bank account; it cannot be reallocated. Contact support.');
   }
-  const base = { reconciliationId: f.line.reconciliationId!, journalId: journal.id, entryDate: journal.entryDate, bankLeg };
+  const reconciliationId = f.line.reconciliationId;
+  if (!reconciliationId) return refuse(UNRECONCILED); // refuseUnlessCompleted already demands one
+  const base = { reconciliationId, journalId: journal.id, entryDate: journal.entryDate, bankLeg };
   return sameTarget(f, bankLeg.lineId, target, req) ? { kind: 'nothing_changed', ...base } : { kind: 'reallocate', ...base };
 }
 
 const str = (v: unknown): string | null => (v == null ? null : String(v));
-
-/** Every fact `planReallocation` decides on. Reads only; the line (`tx`) and its chain's lines are already locked. */
-export async function loadReallocationFacts(
-  companyId: string, tx: DbRow, chain: LineChain | null, target: ReallocationTarget,
-): Promise<ReallocationFacts> {
-  const txId = String(tx.id);
-  const root = chain?.rootId ?? null;
-  const journalId = chain?.journalId ?? null;
-  const [je] = journalId ? (await sql`
-    SELECT entry_date FROM gl_journal_entries
-    WHERE id = ${journalId}::UUID AND company_id = ${companyId}::UUID AND status = 'posted'`) as DbRow[]
-    : [];
-  const lines = je ? (await sql`
-    SELECT jl.id::TEXT AS id, jl.gl_account_id::TEXT AS account, a.account_subtype, jl.debit::float8 AS debit,
-           jl.credit::float8 AS credit, jl.vat_type, jl.cc1_id::TEXT AS cc1, jl.cc2_id::TEXT AS cc2, jl.bu_id::TEXT AS bu
-    FROM gl_journal_lines jl
-    LEFT JOIN gl_accounts a ON a.id = jl.gl_account_id AND a.company_id = jl.company_id
-    WHERE jl.journal_entry_id = ${journalId}::UUID AND jl.company_id = ${companyId}::UUID
-    ORDER BY jl.id`) as DbRow[] : [];
-  const docs = root ? (await sql`
-    SELECT 'supplier' AS kind, supplier_id::TEXT AS contact FROM supplier_payments
-      WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id = ${root}::UUID AND status <> 'cancelled'
-    UNION ALL
-    SELECT 'customer', client_id::TEXT FROM customer_payments
-      WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id = ${root}::UUID AND status <> 'cancelled'
-    UNION ALL
-    SELECT 'batch', NULL FROM supplier_payment_batches
-      WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id = ${root}::UUID`) as DbRow[] : [];
-  const [acct] = target.kind === 'account' ? (await sql`
-    SELECT account_subtype FROM gl_accounts WHERE id = ${target.glAccountId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[]
-    : [];
-  return {
-    txId,
-    line: {
-      status: String(tx.status ?? ''), reconciliationId: str(tx.reconciliation_id), allocationType: str(tx.allocation_type),
-      allocatedEntityName: str(tx.allocated_entity_name), provisionalJeId: str(tx.provisional_je_id),
-      counterpartyAccountId: str(tx.counterparty_account_id), transferJournalEntryId: str(tx.transfer_journal_entry_id),
-      matchedLineId: str(tx.matched_journal_line_id), bankAccountId: String(tx.bank_account_id),
-      transactionDate: fmtDate(tx.transaction_date as string | Date), amount: Number(tx.amount),
-    },
-    lock: await reconciliationLockOf(companyId, tx),
-    chain,
-    chainCashLineIds: journalId ? await findChainCashLines(companyId, journalId) : [],
-    reversalTarget: root ? await peekReversalTarget(companyId, root) : null,
-    journal: je && journalId ? {
-      id: journalId, entryDate: fmtDate(je.entry_date as string | Date),
-      lines: lines.map((l) => ({
-        lineId: String(l.id), glAccountId: String(l.account), subtype: str(l.account_subtype), debit: Number(l.debit),
-        credit: Number(l.credit), vatType: str(l.vat_type), cc1Id: str(l.cc1), cc2Id: str(l.cc2), buId: str(l.bu),
-      })),
-    } : null,
-    documents: {
-      supplierIds: docs.filter((d) => d.kind === 'supplier').map((d) => String(d.contact)),
-      customerIds: docs.filter((d) => d.kind === 'customer').map((d) => String(d.contact)),
-      batch: docs.some((d) => d.kind === 'batch'),
-    },
-    targetAccount: target.kind === 'account' ? (acct ? { subtype: str(acct.account_subtype) } : null) : null,
-  };
-}
 
 /**
  * allocateTransaction's `opts.reallocation` gate, on ITS locked row: the line must still be reconciled on exactly the
@@ -233,9 +211,9 @@ export async function loadReallocationFacts(
  * 'imported' requirement be set aside — for this line, by this caller.
  */
 export async function assertReallocatableRow(
-  companyId: string, tx: DbRow, reallocation: { reconciliationId: string },
+  companyId: string, tx: DbRow, kept: { reconciliationId: string },
 ): Promise<void> {
-  if (tx.status !== 'reconciled' || str(tx.reconciliation_id) !== reallocation.reconciliationId) {
+  if (tx.status !== 'reconciled' || str(tx.reconciliation_id) !== kept.reconciliationId) {
     refuse('This bank line is no longer reconciled on the reconciliation being kept — re-read it and retry.');
   }
   const lock = await reconciliationLockOf(companyId, tx);

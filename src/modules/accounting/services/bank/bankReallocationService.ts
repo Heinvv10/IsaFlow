@@ -6,7 +6,8 @@
  * and the line is re-linked to the new journal's bank leg, which carries the same account and amount. So the bank GL
  * balance as at every date is unchanged, the line still has exactly one live bank leg, and the reconciliation row —
  * its figures frozen at completion — is untouched. Anything that cannot keep that date or shape is refused before
- * any write (bankReallocationGuards); the date is never rolled.
+ * any write (bankReallocationGuards); the date is never rolled. This is the ONE writer allowed to move a completed
+ * reconciliation's line to another journal line (the D12 exception, reconciliationSessionLock.ts).
  *
  * ORDER IS LOAD-BEARING. Old documents unwound (payment -> bills/invoices, before the journal, as every reversal
  * does) -> old journal head locked -> NEW journal posted and the line re-linked to it (allocateTransaction under
@@ -15,19 +16,21 @@
  * cash on the old journal and passes — no exemption exists or is added. Then the line goes back to 'reconciled' with
  * its original review stamp, and the bank leg is asserted unchanged. Every write is in one savepoint.
  *
- * Lock order (reconciliationSessionLock.ts): the chain's lines in id order -> the line's session FOR SHARE -> the
- * line -> the documents (unwind) -> the old journal head -> the VAT shared key / numbering lock of the posts; all
- * under one flow lock budget.
+ * LOCK ORDER (bank/.claude.md, CANONICAL LOCK ORDER), all under one flow lock budget: the chain's lines in id order
+ * (each line's session FOR SHARE first, inside the line lock) -> the line -> [the VAT shared key, the date check] ->
+ * the refund contacts -> the old payments -> the old AND new bills, then invoices, ONE id-ordered pass each
+ * (bankReallocationLocks) -> the old journal head -> the journal number lock of the two posts. The unwind, the FIFO
+ * fetch and the payment plans re-take rows already held.
  */
 import { withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
-import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import type { DimensionIds } from '../gl/dimensions/dimensionTypes';
 import type { AutoApplyMode } from '../shared/autoAllocateStrategy';
 import { reverseJournalEntry } from '../gl/journalEntryPostingService';
-import { logAuditOrThrow } from '../core/auditTrailService';
 import { underFlowLockBudget } from '../core/rowLockBudget';
+import { customerVoidCreditShortfall } from '../ar/customerVoidCredit';
 import { allocateTransaction } from './bankAllocationService';
 import type { AllocationApplicationResult } from './bankAllocationTypes';
 import { unwindBankAllocationApplication, type BankAllocationUnwindResult } from './bankAllocationUnwind';
@@ -36,11 +39,12 @@ import { lockChainLines, peekLineChain, refuseStaleUndo } from './bankChainLineR
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { agentReversalRefusal, assertMayReverse, auditedReversal } from './bankReversalGate';
 import { lockPeekedReversalTarget } from './reversalDatePostable';
+import { BankReallocationRefusal, planReallocation, type ReallocationTarget } from './bankReallocationGuards';
+import { loadReallocationFacts } from './bankReallocationFacts';
+import { lockReallocationDocuments } from './bankReallocationLocks';
 import {
-  BankReallocationRefusal, loadReallocationFacts, planReallocation, type ReallocationTarget,
-} from './bankReallocationGuards';
-import {
-  assertBankLegKept, assertOriginalDateKept, newDocumentOf, readBankLeg, restoreReconciled, type NewDocumentKind,
+  assertBankLegKept, assertOriginalDateKept, auditReallocation, newDocumentOf, readBankLeg, restoreReconciled,
+  type NewDocumentKind,
 } from './bankReallocationWrites';
 
 export type ReallocationOpts = PostingActorOpts & {
@@ -50,6 +54,8 @@ export type ReallocationOpts = PostingActorOpts & {
   /** The VAT code to post with (already coerced by the caller's VAT guard, as allocate's is). */
   vatType?: string;
   dims?: DimensionIds;
+  /** The caller will roll this back (an MCP dry run): logged as such. */
+  dryRun?: boolean;
 };
 
 export interface ReallocationResult {
@@ -91,6 +97,11 @@ async function reallocateInner(
     transactionId: bankTxId, reconciliationId: plan.reconciliationId, originalJournalEntryId: plan.journalId,
     entryDate: plan.entryDate,
   };
+  // The reversal half is a reversal: an agent under enforcement may not make it, nor its allocator (step 2). The plan
+  // refuses a line whose chain root is not its own journal, so the root is plan.journalId.
+  const agentRefusal = await agentReversalRefusal(companyId, [bankTxId]);
+  if (agentRefusal) throw agentRefusal;
+  const clearance = await assertMayReverse(companyId, tx, plan.journalId, userId);
   if (plan.kind === 'nothing_changed') {
     return {
       ...base, outcome: 'nothing_changed', reversalJournalEntryId: null, newJournalEntryId: null,
@@ -98,11 +109,18 @@ async function reallocateInner(
       unwound: NOTHING_UNWOUND, newDocument: { kind: 'none', paymentId: null },
     };
   }
-  // The reversal half is a reversal: an agent under enforcement may not make it, nor its allocator (step 2).
-  const agentRefusal = await agentReversalRefusal(companyId, [bankTxId]);
-  if (agentRefusal) throw agentRefusal;
-  const clearance = await assertMayReverse(companyId, tx, chain!.rootId, userId);
   await assertOriginalDateKept(companyId, plan.journalId, plan.entryDate);
+  const old = await lockReallocationDocuments(companyId,
+    { journalId: plan.journalId, target, spent: amount < 0, autoApply: opts.autoApply });
+  // Cancelling the old receipt must not leave the customer owing a refund nobody can cover (the AP twin refuses in
+  // the unwind: ap/supplierVoidCredit). Decided under the customer's refund lock, before any write.
+  const shortfall = await customerVoidCreditShortfall(companyId, old.customerPaymentIds);
+  if (shortfall) {
+    throw new BankReallocationRefusal(`Reallocating this line would cancel its receipt and leave ${shortfall.customerName} `
+      + `owing the company: it takes ${formatMoney(shortfall.lowers)} of unapplied cash off the customer's account, and `
+      + `only ${formatMoney(Math.max(shortfall.credit, 0))} is still on account — a refund has already returned the rest. `
+      + 'Reverse the refund first, then reallocate.');
+  }
   const reviewed = { at: tx.reviewed_at, by: tx.reviewed_by };
   const actor: PostingActorOpts = {
     ...(opts.postingAgent === undefined ? {} : { postingAgent: opts.postingAgent }),
@@ -131,22 +149,12 @@ async function reallocateInner(
   });
 
   await auditedReversal(companyId, bankTxId, userId, clearance, null);
-  await logAuditOrThrow({
-    companyId, userId, action: 'update', entityType: 'bank_transaction', entityId: bankTxId,
-    changes: {
-      fields: [{ field: 'matched_journal_line_id', old: plan.bankLeg.lineId, new: done.newLineId, label: 'Allocation journal line' }],
-      metadata: {
-        operation: 'reallocate', reconciliationId: plan.reconciliationId, originalJournalEntryId: plan.journalId,
-        reversalJournalEntryId: done.reversalId, newJournalEntryId: done.posted.journalEntryId, targetKind: target.kind,
-        targetId: target.kind === 'account' ? target.glAccountId : target.kind === 'supplier' ? target.supplierId : target.customerId,
-        entryDate: plan.entryDate, postingAgent: opts.postingAgent ?? '',
-      },
-    },
+  await auditReallocation({
+    companyId, userId, bankTxId, target, plan, reviewed, dryRun: opts.dryRun === true,
+    autoPostRunId: tx.auto_post_run_id == null ? null : String(tx.auto_post_run_id),
+    newLineId: done.newLineId, newJournalEntryId: done.posted.journalEntryId, reversalJournalEntryId: done.reversalId,
+    postingAgent: opts.postingAgent ?? '',
   });
-  log.info('Reallocated reconciled bank transaction', {
-    companyId, bankTxId, reconciliationId: plan.reconciliationId, originalJournalEntryId: plan.journalId,
-    newJournalEntryId: done.posted.journalEntryId, reversalJournalEntryId: done.reversalId,
-  }, 'accounting');
   return {
     ...base, outcome: 'reallocated', reversalJournalEntryId: done.reversalId, newJournalEntryId: done.posted.journalEntryId,
     bankLeg: { accountId: plan.bankLeg.glAccountId, amount, oldLineId: plan.bankLeg.lineId, newLineId: done.newLineId },

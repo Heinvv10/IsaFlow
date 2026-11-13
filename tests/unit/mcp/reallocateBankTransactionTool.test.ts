@@ -32,6 +32,10 @@ import { resolveLineVatCode } from '@/lib/mcp/tools/allocationVatGuard';
 import { dimensionWarningsOrRefusal } from '@/lib/mcp/tools/dimensionArgs';
 import { reallocateBankTransactionTool as tool } from '@/lib/mcp/tools/writeBankReallocate';
 import { isRefusalCoded } from '@/lib/mcp/tools/toolHelpers';
+import { attachLineDimensionIds } from '@/lib/mcp/tools/dimensionArgs';
+import { flowOperationFor } from '@/lib/mcp/flowMetering';
+import { CLIENT_MCP_TOOL_NAMES } from '@/lib/mcp/clientMetadata';
+import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 
 const ctx = { companyId: 'company-1', userId: 'user-1', tokenJti: 'jti', oauthAppId: null } as never;
 const TX = '045ef594-d81d-4f21-84d6-1151ed71260d';
@@ -87,11 +91,35 @@ describe('reallocate_bank_transaction', () => {
     expect(reallocateReconciledTransaction).not.toHaveBeenCalled();
   });
 
-  it('a target of another company is the generic not-found, before the service', async () => {
-    vi.mocked(suppliersBelongToCompany).mockResolvedValue(false);
-    const r = await tool.handler({ ...base, dry_run: false, target: { supplier_id: SUP } }, ctx);
+  it('is registered, listed for clients and free (a correction, like reverse_bank_allocation)', () => {
+    expect(MCP_TOOLS).toContain(tool);
+    expect(CLIENT_MCP_TOOL_NAMES).toContain('reallocate_bank_transaction');
+    expect(flowOperationFor('reallocate_bank_transaction', {})).toBeNull();
+  });
+
+  it.each([
+    ['supplier', { supplier_id: SUP }, suppliersBelongToCompany],
+    ['customer', { customer_id: SUP }, customersBelongToCompany],
+    ['account', { gl_account_id: ACCT }, accountsBelongToCompany],
+  ])('a %s target of another company is the generic not-found, before the service', async (_k, target, owned) => {
+    vi.mocked(owned).mockResolvedValue(false);
+    const r = await tool.handler({ ...base, dry_run: false, target }, ctx);
     expect(text(r)).toBe('Not found');
     expect(reallocateReconciledTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a dimension that does not resolve is refused before the service; resolved ones reach it', async () => {
+    vi.mocked(attachLineDimensionIds).mockResolvedValueOnce('reallocation.cc2 "P9" does not exist in this company');
+    const bad = await tool.handler({ ...base, dry_run: false, target: { gl_account_id: ACCT }, cc2: 'P9' }, ctx);
+    expect(text(bad)).toMatch(/does not exist/);
+    expect(reallocateReconciledTransaction).not.toHaveBeenCalled();
+    vi.mocked(attachLineDimensionIds).mockImplementationOnce(async (_c, lines) => {
+      (lines[0] as { dimIds?: unknown }).dimIds = { cc1Id: 'cc1-id', cc2Id: 'cc2-id', buId: 'bu-id' };
+      return null;
+    });
+    await tool.handler({ ...base, dry_run: false, target: { gl_account_id: ACCT }, cc2: 'P1', bu: 'MAINT' }, ctx);
+    expect(vi.mocked(reallocateReconciledTransaction).mock.calls[0]![4]).toMatchObject(
+      { dims: { cc1Id: 'cc1-id', cc2Id: 'cc2-id', buId: 'bu-id' }, dryRun: false });
   });
 
   it('live: tenant and actor from ctx, stamped mcp:reallocate_bank_transaction:v1, and answers every id', async () => {
@@ -136,7 +164,11 @@ describe('reallocate_bank_transaction', () => {
     const live = await tool.handler({ ...args, dry_run: false }, ctx);
     expect(live.isError).toBeUndefined();
     const [dryCall, liveCall] = vi.mocked(reallocateReconciledTransaction).mock.calls;
-    expect(dryCall).toEqual(liveCall);
+    // The same call but for the flag that labels the log line.
+    expect(dryCall![4]).toMatchObject({ dryRun: true });
+    expect(liveCall![4]).toMatchObject({ dryRun: false });
+    expect({ ...dryCall![4], dryRun: false }).toEqual(liveCall![4]);
+    expect(dryCall!.slice(0, 4)).toEqual(liveCall!.slice(0, 4));
   });
 
   it('dry run and live meet the same refusal, thrown (never caught into a tool error after the write)', async () => {

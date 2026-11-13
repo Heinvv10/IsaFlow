@@ -43,7 +43,8 @@ function facts(over: Partial<ReallocationFacts> = {}, line: Partial<Reallocation
         { lineId: 'x', glAccountId: EXPENSE, subtype: 'default_expense', debit: 100, credit: 0, vatType: null, cc1Id: null, cc2Id: null, buId: null },
       ],
     },
-    documents: { supplierIds: [], customerIds: [], batch: false },
+    documents: { supplierIds: [], customerIds: [], batch: false, applied: 0, unapplied: 0 },
+    bankDefaults: {},
     targetAccount: { subtype: 'default_expense' },
     ...over,
   };
@@ -102,10 +103,11 @@ describe('planReallocation', () => {
   it('v1 refuses transfers, chains with another bank line, splits, provisional lines and payment batches', () => {
     expect(refusal(() => planReallocation(facts({}, { allocationType: 'transfer' }), toOther, req))).toMatch(/transfer/);
     expect(refusal(() => planReallocation(facts({}, { counterpartyAccountId: OTHER }), toOther, req))).toMatch(/transfer/);
+    expect(refusal(() => planReallocation(facts({}, { transferJournalEntryId: OTHER }), toOther, req))).toMatch(/transfer/);
     expect(refusal(() => planReallocation(facts({ chainCashLineIds: [TX, OTHER] }), toOther, req))).toMatch(/more than one bank line/);
     expect(refusal(() => planReallocation(facts({}, { allocatedEntityName: 'Split allocation' }), toOther, req))).toMatch(/split/);
     expect(refusal(() => planReallocation(facts({}, { provisionalJeId: OTHER }), toOther, req))).toMatch(/provisional/);
-    expect(refusal(() => planReallocation(facts({ documents: { supplierIds: [], customerIds: [], batch: true } }), toOther, req)))
+    expect(refusal(() => planReallocation(facts({ documents: { supplierIds: [], customerIds: [], batch: true, applied: 0, unapplied: 0 } }), toOther, req)))
       .toMatch(/payment batch/);
   });
 
@@ -132,10 +134,48 @@ describe('planReallocation', () => {
     // Same account, a different project: a real change.
     expect(planReallocation(facts(), { kind: 'account', glAccountId: EXPENSE }, { ...req, dims: { cc2Id: OTHER } }).kind)
       .toBe('reallocate');
-    const sup = facts({ documents: { supplierIds: [SUP], customerIds: [], batch: false } }, { allocationType: 'supplier' });
+    const sup = facts({ documents: { supplierIds: [SUP], customerIds: [], batch: false, applied: 100, unapplied: 0 } }, { allocationType: 'supplier' });
     expect(planReallocation(sup, { kind: 'supplier', supplierId: SUP }, req).kind).toBe('nothing_changed');
     expect(planReallocation(sup, { kind: 'supplier', supplierId: OTHER }, req).kind).toBe('reallocate');
     expect(planReallocation(sup, toOther, req).kind).toBe('reallocate');
+  });
+});
+
+describe('planReallocation: what counts as the same allocation', () => {
+  const doc = (applied: number, unapplied: number) => facts(
+    { documents: { supplierIds: [SUP], customerIds: [], batch: false, applied, unapplied } }, { allocationType: 'supplier' });
+  const same = { kind: 'supplier', supplierId: SUP } as const;
+  it('the same contact with auto_apply fifo over a payment that left money on account re-applies it: a real change', () => {
+    expect(planReallocation(doc(60, 40), same, req).kind).toBe('reallocate');
+    expect(planReallocation(doc(60, 40), same, { ...req, autoApply: 'fifo' }).kind).toBe('reallocate');
+    expect(planReallocation(doc(100, 0), same, { ...req, autoApply: 'fifo' }).kind).toBe('nothing_changed');
+  });
+  it("auto_apply none over a payment that applied something un-applies it: a real change; over nothing applied, the same", () => {
+    expect(planReallocation(doc(60, 40), same, { ...req, autoApply: 'none' }).kind).toBe('reallocate');
+    expect(planReallocation(doc(0, 100), same, { ...req, autoApply: 'none' }).kind).toBe('nothing_changed');
+  });
+  it('omitted dimensions mean what allocate would stamp: the bank card defaults', () => {
+    const withCard = facts({ bankDefaults: { cc2Id: OTHER } });
+    // Old line carries no CC2, a new allocation would stamp the card's: not the same.
+    expect(planReallocation(withCard, { kind: 'account', glAccountId: EXPENSE }, req).kind).toBe('reallocate');
+    const stamped = facts({ bankDefaults: { cc2Id: OTHER }, journal: { ...facts().journal!, lines: facts().journal!.lines
+      .map((l) => (l.glAccountId === EXPENSE ? { ...l, cc2Id: OTHER } : l)) } });
+    expect(planReallocation(stamped, { kind: 'account', glAccountId: EXPENSE }, req).kind).toBe('nothing_changed');
+    // A control-account contra carries none, and dims named on one are never "the same" (allocate refuses them).
+    const control = facts({ targetAccount: { subtype: 'vat_input' }, bankDefaults: { cc2Id: OTHER } });
+    expect(planReallocation(control, { kind: 'account', glAccountId: EXPENSE }, req).kind).toBe('nothing_changed');
+    expect(planReallocation(control, { kind: 'account', glAccountId: EXPENSE }, { ...req, dims: { cc2Id: OTHER } }).kind)
+      .toBe('reallocate');
+  });
+  it('two lines on the target account is not "the same" (it is not one contra line)', () => {
+    const two = facts({ journal: { ...facts().journal!, lines: [...facts().journal!.lines,
+      { lineId: 'y', glAccountId: EXPENSE, subtype: 'default_expense', debit: 0, credit: 0, vatType: null, cc1Id: null, cc2Id: null, buId: null }] } });
+    expect(planReallocation(two, { kind: 'account', glAccountId: EXPENSE }, req).kind).toBe('reallocate');
+  });
+  it("refuses when the line's journal line is not on the line's bank account", () => {
+    const off = facts({ journal: { ...facts().journal!, lines: facts().journal!.lines
+      .map((l) => (l.lineId === LEG ? { ...l, glAccountId: OTHER } : l)) } });
+    expect(refusal(() => planReallocation(off, toOther, req))).toMatch(/not on its bank account/);
   });
 });
 

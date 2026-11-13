@@ -18,7 +18,7 @@ import { postedInvoice, teardown, type Ctx } from './d8-r4-helpers';
 import { clearExtras } from './d10-helpers';
 import { cleanup } from './d12-helpers';
 import {
-  REVIEWED_AT, TOOL, apControlAndSubledger, bankGl, entry, lineRow, mcp, newBank, newSupplier, postedBill,
+  REVIEWED_AT, TOOL, apControlAndSubledger, arControlAndSubledger, bankGl, entry, lineRow, mcp, newBank, newSupplier, postedBill,
   reconciledLine, recRow, setupCompany, snapshot, trialBalanceGap,
 } from './bank-reallocate-reconciled.helpers';
 
@@ -122,6 +122,8 @@ describe('reallocate_bank_transaction: a reconciled line, re-pointed in place', 
     expect(await bankGl(c, s.bank, '2026-06-30')).toBeCloseTo(gl0, 2);
     expect(await lineRow(s.bt)).toMatchObject({ status: 'reconciled', rec: s.rec, allocation_type: 'account' });
     expect(Math.abs(await trialBalanceGap(c))).toBeLessThan(0.005);
+    const ar = await arControlAndSubledger(c);
+    expect(ar.control).toBe(ar.subledger);
   }, 120000);
 
   it('a stale expected_journal_entry_id is refused, dry run and live alike, nothing written', async () => {
@@ -215,7 +217,7 @@ describe('reallocate_bank_transaction: a reconciled line, re-pointed in place', 
     expect((await lineRow(imported)).status).toBe('imported');
   }, 120000);
 
-  it('a line of an in-progress session, and a line reconciled in the Sage import, are refused', async () => {
+  it('an allocated line (not reconciled) in an open session, and a line reconciled in the Sage import, are refused', async () => {
     const bank = await newBank(c);
     const bt = String(((await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description,
       status) VALUES (${c.fx.companyId}::UUID, ${bank}::UUID, '2026-06-16', -30, 'Realloc open session', 'imported') RETURNING id`) as Row[])[0]!.id);
