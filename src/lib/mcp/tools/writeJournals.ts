@@ -154,7 +154,7 @@ export const createDraftJournalTool: McpTool = {
         );
       }
     }
-    const replay = await createReplayOrLock(ctx, 'journal', xref);
+    const replay = await createReplayOrLock(ctx, 'journal', xref, { expect: { date: entryDate } });
     if (replay) return replay;
     let entry: Awaited<ReturnType<typeof createJournalEntry>>;
     try {

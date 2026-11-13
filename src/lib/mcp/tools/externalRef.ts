@@ -55,26 +55,47 @@ const matchOut = (m: ExternalRefMatch) => ({
   ...(m.creditNoteType ? { credit_note_type: m.creditNoteType } : {}),
 });
 
+/** What the request says, compared with the stored record on a replay (only the fields known before the create). */
+export interface ReplayExpectation { number?: string | null; date?: string | null; totalAmount?: number | null }
+
+function differences(m: ExternalRefMatch, expect: ReplayExpectation): Array<{ field: string; existing: unknown; requested: unknown }> {
+  const out: Array<{ field: string; existing: unknown; requested: unknown }> = [];
+  if (expect.number != null && m.number !== expect.number) out.push({ field: 'number', existing: m.number, requested: expect.number });
+  if (expect.date != null && m.date !== expect.date) out.push({ field: 'date', existing: m.date, requested: expect.date });
+  if (expect.totalAmount != null && m.totalAmount != null && Math.abs(m.totalAmount - expect.totalAmount) >= 0.005) {
+    out.push({ field: 'total_amount', existing: m.totalAmount, requested: expect.totalAmount });
+  }
+  return out;
+}
+
 /**
  * Lock the reference and return the replay result when a live row already has it.
- * Returns null when the caller should go on and create.
+ * Returns null when the caller should go on and create. A replay whose request differs from the
+ * stored record says so (payload_differs + differences): the source document may have been
+ * corrected, and nothing here changes the stored one.
  */
 export async function createReplayOrLock(
   ctx: McpToolContext, kind: ExternalRefKind, ref: ParsedCreateRef | null,
-  opts: { creditNoteType?: 'supplier' | 'customer' } = {},
+  opts: { creditNoteType?: 'supplier' | 'customer'; expect?: ReplayExpectation } = {},
 ): Promise<McpToolResult | null> {
   if (!ref) return null;
   await lockExternalRef(ctx.companyId, kind, ref.system, ref.ref);
-  const live = (await findByExternalRef(ctx.companyId, kind, ref.system, ref.ref, opts)).filter((m) => m.live);
+  const live = (await findByExternalRef(ctx.companyId, kind, ref.system, ref.ref, { creditNoteType: opts.creditNoteType }))
+    .filter((m) => m.live);
   if (live.length === 0) return null;
+  const diff = differences(live[0]!, opts.expect ?? {});
   return {
     ...ok({
       already_existed: true,
+      payload_differs: diff.length > 0,
+      ...(diff.length > 0 ? { differences: diff } : {}),
       ...matchOut(live[0]!),
       external_system: ref.system,
       external_ref: ref.ref,
       ...(live.length > 1 ? { other_live_ids: live.slice(1).map((m) => m.id) } : {}),
-      note: 'A record with this external reference already exists; nothing was created.',
+      note: diff.length > 0
+        ? 'A record with this external reference already exists and DIFFERS from this request (see differences); nothing was created or changed. If the source document was corrected, correct the existing record.'
+        : 'A record with this external reference already exists; nothing was created.',
     }),
     wroteNothing: true,
   };

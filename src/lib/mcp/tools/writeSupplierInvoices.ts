@@ -116,7 +116,9 @@ export const createSupplierInvoiceTool: McpTool = {
     ]);
 
     // A live bill already carrying this external reference is returned, not created again.
-    const replay = await createReplayOrLock(ctx, 'supplier_invoice', xref);
+    const replay = await createReplayOrLock(ctx, 'supplier_invoice', xref, {
+      expect: { number: parsed.invoiceNumber, date: parsed.invoiceDate },
+    });
     if (replay) return replay;
 
     let invoice: Awaited<ReturnType<typeof createSupplierInvoice>>;

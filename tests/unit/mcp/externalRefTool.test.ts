@@ -61,6 +61,26 @@ describe('createReplayOrLock', () => {
     expect(parse(r!)).toMatchObject({ already_existed: true, id: 'bill-1', number: 'INV0663', external_ref: '42' });
   });
 
+  it('says when the request differs from the stored record (a corrected source document)', async () => {
+    vi.mocked(findByExternalRef).mockResolvedValue([match({ number: 'INV0663', date: '2026-10-01', totalAmount: 115 })]);
+    const out = parse((await createReplayOrLock(ctx(), 'supplier_invoice', ref, {
+      expect: { number: 'INV0663', date: '2026-10-02', totalAmount: 120 },
+    }))!);
+    expect(out.payload_differs).toBe(true);
+    expect(out.differences).toEqual([
+      { field: 'date', existing: '2026-10-01', requested: '2026-10-02' },
+      { field: 'total_amount', existing: 115, requested: 120 },
+    ]);
+    expect(out.note).toMatch(/DIFFERS/);
+  });
+
+  it('a matching replay says payload_differs: false', async () => {
+    vi.mocked(findByExternalRef).mockResolvedValue([match()]);
+    const out = parse((await createReplayOrLock(ctx(), 'supplier_invoice', ref, { expect: { number: 'INV0663', date: '2026-10-01' } }))!);
+    expect(out.payload_differs).toBe(false);
+    expect(out.differences).toBeUndefined();
+  });
+
   it('goes on to create when only superseded rows carry the reference', async () => {
     vi.mocked(findByExternalRef).mockResolvedValue([match({ live: false })]);
     expect(await createReplayOrLock(ctx(), 'supplier_invoice', ref)).toBeNull();

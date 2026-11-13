@@ -76,6 +76,12 @@ describeIfDb('externalRefService', () => {
     expect(found[0]).toMatchObject({ number: `${TAG}-1`, status: 'draft', date: '2026-11-01', totalAmount: 115, externalDocumentNumber: 'SIV0001' });
   });
 
+  it('finds a reference whatever case its system was stored in', async () => {
+    await sql`UPDATE supplier_invoices SET external_system = 'Sage' WHERE id = ${bill}::UUID`;
+    expect((await findByExternalRef(A, 'supplier_invoice', 'sage', `${TAG}-SIV`))[0]?.id).toBe(bill);
+    await sql`UPDATE supplier_invoices SET external_system = 'sage' WHERE id = ${bill}::UUID`;
+  });
+
   it('is company-scoped both ways: another company neither sees nor stamps the row', async () => {
     await expect(findByExternalRef(B, 'supplier_invoice', 'sage', `${TAG}-SIV`)).resolves.toEqual([]);
     await expect(stampExternalRef(B, 'supplier_invoice', bill, { system: 'sage', ref: `${TAG}-X` }))

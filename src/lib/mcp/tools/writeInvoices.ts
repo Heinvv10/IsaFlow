@@ -96,7 +96,7 @@ export const createDraftInvoiceTool: McpTool = {
     if (!(await customerBelongsToCompany(ctx.companyId, parsed.customerId))) return toolError(NOT_FOUND);
     const items = await itemsWithDimensions(ctx.companyId, parsed.items, parsed.dimensionRefs, (i) => `items[${i}]`);
     if (typeof items === 'string') return toolError(items);
-    const replay = await createReplayOrLock(ctx, 'customer_invoice', xref);
+    const replay = await createReplayOrLock(ctx, 'customer_invoice', xref, { expect: { date: parsed.invoiceDate ?? null } });
     if (replay) return replay;
     let result: Awaited<ReturnType<typeof createDraftCustomerInvoice>>;
     try {

@@ -65,43 +65,43 @@ async function rowsFor(companyId: string, kind: ExternalRefKind, system: string,
         SELECT id, invoice_number AS number, status, invoice_date AS date, total_amount, external_document_number,
                (deleted_at IS NULL AND status IS DISTINCT FROM 'cancelled') AS live
         FROM supplier_invoices
-        WHERE company_id = ${companyId}::UUID AND external_system = ${system} AND external_ref = ${ref}`) as DbRow[];
+        WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
     case 'customer_invoice':
       return (await sql`
         SELECT id, invoice_number AS number, status, invoice_date AS date, total_amount, external_document_number,
                (deleted_at IS NULL AND status IS DISTINCT FROM 'cancelled') AS live
         FROM customer_invoices
-        WHERE company_id = ${companyId}::UUID AND external_system = ${system} AND external_ref = ${ref}`) as DbRow[];
+        WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
     case 'credit_note':
       return (await sql`
         SELECT id, credit_note_number AS number, status, credit_date AS date, total_amount, external_document_number,
                type AS credit_note_type, (status IS DISTINCT FROM 'cancelled') AS live
         FROM credit_notes
-        WHERE company_id = ${companyId}::UUID AND external_system = ${system} AND external_ref = ${ref}`) as DbRow[];
+        WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
     case 'journal':
       return (await sql`
         SELECT id, entry_number AS number, status, entry_date AS date, NULL::NUMERIC AS total_amount, external_document_number,
                (status IS DISTINCT FROM 'reversed' AND reversed_at IS NULL) AS live
         FROM gl_journal_entries
-        WHERE company_id = ${companyId}::UUID AND external_system = ${system} AND external_ref = ${ref}`) as DbRow[];
+        WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
     case 'bank_transaction':
       return (await sql`
         SELECT id, reference AS number, status, transaction_date AS date, amount AS total_amount, external_document_number,
                TRUE AS live
         FROM bank_transactions
-        WHERE company_id = ${companyId}::UUID AND external_system = ${system} AND external_ref = ${ref}`) as DbRow[];
+        WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
     case 'supplier':
       return (await sql`
         SELECT id, name AS number, NULL::TEXT AS status, NULL::DATE AS date, NULL::NUMERIC AS total_amount, external_document_number,
                (deleted_at IS NULL) AS live
         FROM suppliers
-        WHERE company_id = ${companyId}::UUID AND external_system = ${system} AND external_ref = ${ref}`) as DbRow[];
+        WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
     case 'customer':
       return (await sql`
         SELECT id, name AS number, NULL::TEXT AS status, NULL::DATE AS date, NULL::NUMERIC AS total_amount, external_document_number,
                (deleted_at IS NULL) AS live
         FROM customers
-        WHERE company_id = ${companyId}::UUID AND external_system = ${system} AND external_ref = ${ref}`) as DbRow[];
+        WHERE company_id = ${companyId}::UUID AND lower(external_system) = lower(${system}) AND external_ref = ${ref}`) as DbRow[];
   }
 }
 
