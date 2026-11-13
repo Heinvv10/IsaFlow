@@ -97,11 +97,24 @@ describeIfDb('party_ledger_check', () => {
     await receipt(customer, 'R3', 200, await journal('KR3', PAY_DATE, [[bank, 200, 0], [sundryDebtors, 0, 200]]));
     await creditNote('customer', customer, 'CN1', 100, await journal('KCN1', PAY_DATE, [[sales, 100, 0], [receivable, 0, 100]]));
 
+    // ── NOT this party's: a second supplier and customer of the same company, and another
+    // company's bill that names OUR supplier (supplier_id is a bare FK). None may appear.
+    const rival = ((await sql`INSERT INTO suppliers (company_id, name) VALUES (${COMPANY}::UUID, ${'rival ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
+    await bill(rival, 'RB', 7777, await clean('JRB', 7777));
+    const rivalCust = ((await sql`INSERT INTO customers (company_id, name) VALUES (${COMPANY}::UUID, ${'rival ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
+    await invoice(rivalCust, 'RI', 8888, await cj('KRI', 8888));
+    await sql`
+      INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date, due_date, status,
+        subtotal, tax_amount, total_amount, amount_paid, created_by)
+      VALUES (${OTHER}::UUID, ${supplier}::UUID, ${TAG + 'XB'}, ${DOC_DATE}::date, ${DOC_DATE}::date, 'approved',
+        5555, 0, 5555, 0, ${USER}::UUID)`;
+
     sup = (await partyLedgerCheck(COMPANY, 'supplier', supplier, AS_AT))!;
     cus = (await partyLedgerCheck(COMPANY, 'customer', customer, AS_AT))!;
   }, 120000);
 
   afterAll(async () => {
+    await sql`DELETE FROM supplier_invoices WHERE company_id = ${OTHER}::UUID`;
     await sql`DELETE FROM suppliers WHERE company_id = ${OTHER}::UUID`;
     await sql`DELETE FROM companies WHERE id = ${OTHER}::UUID`;
     await cleanup();
@@ -187,6 +200,11 @@ describeIfDb('party_ledger_check', () => {
     // B1 and B9 were settled after the date: rewound, and allocations dated after it are not counted.
     expect(doc(early, 'B1').subledger).toMatchObject({ settled: 0, allocated: 0 });
     expect(doc(early, 'B1').flags).toEqual([]);
+  });
+
+  it('another party\'s documents, and another company\'s bill naming this supplier, are not in the check', () => {
+    expect(sup.documents.some((d) => d.number === TAG + 'RB' || d.number === TAG + 'XB')).toBe(false);
+    expect(cus.documents.some((d) => d.number === TAG + 'RI')).toBe(false);
   });
 
   it('a party in another company is indistinguishable from a miss', async () => {
