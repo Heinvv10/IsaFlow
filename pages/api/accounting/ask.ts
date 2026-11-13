@@ -8,6 +8,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { todayInSast } from '@/lib/saDateParser';
+import { resolveProvider } from '@/modules/accounting/services/ask/askProvider';
 import { answerQuestion } from '@/modules/accounting/services/ask/askAnswer';
 
 const MAX_QUESTION = 300;
@@ -19,6 +20,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!q) return apiResponse.badRequest(res, 'q is required');
   if (q.length > MAX_QUESTION) return apiResponse.badRequest(res, `q must be at most ${MAX_QUESTION} characters`);
   res.setHeader('Cache-Control', 'no-store');
+  if (req.query.mode === 'free') {
+    const provider = resolveProvider();
+    if (!provider) return apiResponse.badRequest(res, 'Free-text questions are not enabled');
+    return apiResponse.success(res, await provider.answer(companyId, q));
+  }
   return apiResponse.success(res, await answerQuestion(companyId, q, todayInSast()));
 }
 
