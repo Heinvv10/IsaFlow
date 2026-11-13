@@ -1,5 +1,6 @@
 // D2 round 12c (1): commentary refresh clears stale rows for changed params and generate's own sentence;
 // CurrencyList toggle shows the server's message; usePackDownload drops a stale error; Retry on the two payroll cards.
+import { openKit } from '../../helpers/kitSelect';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, renderHook, act, screen, waitFor } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -95,6 +96,7 @@ describe('Retry on a failed load', () => {
     render(<ApplyPackageCard employeeId="e1" />);
     expect(await screen.findByText(MSG)).toBeDefined();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    openKit(await screen.findByRole('combobox'));
     expect(await screen.findByText(/D2 Package/)).toBeDefined();
     expect(screen.queryByText(MSG)).toBeNull();
   });
@@ -107,6 +109,7 @@ describe('Retry on a failed load', () => {
     render(<CostCentreAssignmentCard employeeId="e1" currentCostCentreId={null} onChange={vi.fn()} />);
     expect(await screen.findByText(MSG)).toBeDefined();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    openKit(await screen.findByRole('combobox'));
     expect(await screen.findByText(/D2 Centre/)).toBeDefined();
     expect(screen.queryByText(MSG)).toBeNull();
   });

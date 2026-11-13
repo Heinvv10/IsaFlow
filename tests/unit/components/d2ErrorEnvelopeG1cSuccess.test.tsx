@@ -2,6 +2,7 @@
  * D2 (group 1c) SUCCESS paths: a 200 `{ success:true, data }` envelope is rendered / completes the action on the
  * journal-entry pages and the loan pages / tabs. The real apiJson / assertOk / apiErrorMessage run on the mocked apiFetch.
  */
+import { pickKit } from '../../helpers/kitSelect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -58,10 +59,8 @@ describe('D2 success envelope is honoured (group 1c)', () => {
         { id: 'a1', accountCode: '1000', accountName: 'Bank', isActive: true },
         { id: 'a2', accountCode: '4000', accountName: 'Sales', isActive: true }]));
     render(<NewJournalEntryPage />);
-    await screen.findAllByRole('option', { name: /1000 - Bank/ });
-    const [s1, s2] = screen.getAllByRole('combobox');
-    fireEvent.change(s1!, { target: { value: 'a1' } });
-    fireEvent.change(s2!, { target: { value: 'a2' } });
+    await pickKit(await screen.findByRole('combobox', { name: 'Account, line 1' }), /1000 - Bank/);
+    await pickKit(screen.getByRole('combobox', { name: 'Account, line 2' }), /4000 - Sales/);
     const amounts = screen.getAllByPlaceholderText('0.00'); // debit0, credit0, debit1, credit1
     fireEvent.change(amounts[0]!, { target: { value: '100' } });
     fireEvent.change(amounts[3]!, { target: { value: '100' } });

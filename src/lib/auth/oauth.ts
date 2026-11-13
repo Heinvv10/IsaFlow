@@ -13,6 +13,7 @@
  *   - Client secret:       cls_<32 base62>     (shown once at app registration)
  */
 
+import { isoOrNull } from './tokenExpiry';
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { mayDecorate } from '@/lib/auth/consentAppView';
 import { isReservedClientName } from '@/lib/auth/reservedClientName';
@@ -514,6 +515,9 @@ export interface OauthAccessContext {
   userId: string;
   companyId: string;
   scopes: string[];
+  /** ISO expiry of this access token, and of the refresh token behind it (token_info). */
+  expiresAt: string | null;
+  refreshExpiresAt: string | null;
 }
 
 export async function validateOauthAccessToken(
@@ -526,7 +530,7 @@ export async function validateOauthAccessToken(
   // On the service pool, before the request transaction: a hash-keyed read
   // that app_service's SELECT policy admits.
   const rows = (await sql`
-    SELECT id, oauth_app_id, user_id, company_id, scopes, access_token_expires_at
+    SELECT id, oauth_app_id, user_id, company_id, scopes, access_token_expires_at, refresh_token_expires_at
     FROM oauth_authorisations
     WHERE access_token_hash = ${hash}
       AND revoked_at IS NULL
@@ -551,6 +555,8 @@ export async function validateOauthAccessToken(
     userId: r.user_id as string,
     companyId: r.company_id as string,
     scopes: Array.isArray(r.scopes) ? (r.scopes as string[]) : [],
+    expiresAt: isoOrNull(r.access_token_expires_at),
+    refreshExpiresAt: isoOrNull(r.refresh_token_expires_at),
   };
 }
 

@@ -2,6 +2,7 @@
  * D2 round 3 (a1): accounting settings (a failed load must not render blank editable values),
  * the two-factor panel (an unknown status must never show "Enable"), company document upload.
  */
+import { expectKitTrigger } from '../../helpers/kitSelect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -60,14 +61,17 @@ describe('accounting settings', () => {
   });
   it('renders the loaded value and saves it', async () => {
     open(KEY);
-    const select = (await screen.findByDisplayValue(/USD/)) as HTMLSelectElement;
-    expect(select.value).toBe('USD');
+    const select = await screen.findByRole('combobox', { name: 'Reporting Currency' });
+    expectKitTrigger(select);
+    await waitFor(() => expect(select.textContent).toContain('USD'));
+    // Reporting currency is required: the server refuses an empty value, so the picker offers no way to clear it.
+    expect(screen.queryByRole('button', { name: 'Clear selection' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Reporting Currency updated'));
   });
   it('a refused save shows the server message, not a generic failure', async () => {
     open((m) => (m === 'GET' ? ok({ value: 'USD' }) : bad()));
-    await screen.findByDisplayValue(/USD/);
+    await waitFor(async () => expect((await screen.findByRole('combobox', { name: 'Reporting Currency' })).textContent).toContain('USD'));
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(MSG));
     expect(toast.success).not.toHaveBeenCalled();
@@ -91,7 +95,7 @@ describe('accounting settings', () => {
   });
   it('an empty 500 save shows a plain sentence', async () => {
     open((m) => (m === 'GET' ? ok({ value: 'USD' }) : empty500()));
-    await screen.findByDisplayValue(/USD/);
+    await waitFor(async () => expect((await screen.findByRole('combobox', { name: 'Reporting Currency' })).textContent).toContain('USD'));
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Could not save the setting - try again'));
   });

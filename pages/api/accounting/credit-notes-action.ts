@@ -27,8 +27,8 @@ import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/appr
 
 const CreditNoteActionSchema = z.discriminatedUnion('action', [
   // autoApply defaults to 'fifo' — approving a note applies its remainder to the
-  // customer's open invoices oldest first. A form that wants the old
-  // linked-document-only behaviour sends 'none'.
+  // customer's open invoices oldest first. 'linked' applies to the linked
+  // document only; 'none' applies nothing (the credit stays on account).
   z.object({
     action: z.literal('approve'),
     creditNoteId: UUID,

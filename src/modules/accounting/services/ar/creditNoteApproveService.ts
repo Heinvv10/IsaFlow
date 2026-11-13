@@ -203,7 +203,10 @@ export async function approveCreditNote(
     // never be applied again; it now settles the next open document, and
     // whatever is still left is on-account credit the aged reports net.
     const side = String(cn.type) === 'customer' ? 'customer' as const : 'supplier' as const;
-    const application: CreditNoteApplication = !settles
+    // auto_apply 'none' applies NOTHING — not even the linked document; the
+    // credit stays on account for an explicit apply_credit_note. See creditNoteFifo.
+    const autoApply = opts?.autoApply ?? 'fifo';
+    const application: CreditNoteApplication = !settles || autoApply === 'none'
       ? { appliedAmount: 0, lines: [], remainder: Number(cn.total_amount) }
       : await afterJournalWritten(noteNumber, () => applyCreditNote({
       companyId,
@@ -216,7 +219,7 @@ export async function approveCreditNote(
       linkedInvoiceId: side === 'customer'
         ? (cn.customer_invoice_id ? String(cn.customer_invoice_id) : null)
         : (cn.supplier_invoice_id ? String(cn.supplier_invoice_id) : null),
-      autoApply: opts?.autoApply ?? 'fifo',
+      autoApply,
     }));
     const appliedAmount = application.appliedAmount;
 
