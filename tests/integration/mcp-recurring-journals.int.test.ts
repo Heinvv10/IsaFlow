@@ -11,8 +11,9 @@
  *
  * ci-integration-skip: none — every case runs on the throwaway cluster.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
+import { log } from '@/lib/logger';
 import { runRecurringJournalsTool } from '@/lib/mcp/tools/writeRunRecurringJournals';
 import { createRecurringJournalTool, deactivateRecurringJournalTool } from '@/lib/mcp/tools/writeRecurringJournals';
 import {
@@ -125,8 +126,11 @@ describe('run_recurring_journals over a real database', () => {
     const { monthly } = await twoTemplates(co);
     const periodsBefore = Number((await pool.query('SELECT COUNT(*) AS n FROM fiscal_periods WHERE company_id = $1', [co.c])).rows[0].n);
 
+    const info = vi.spyOn(log, 'info');
+    const generatedLogs = () => info.mock.calls.filter((c) => c[0] === 'Generated journal from recurring').length;
     const dry = await run(co, { dry_run: true });
     expect(dry.wroteNothing).toBe(true);
+    expect(generatedLogs()).toBe(0); // no log line for a journal the rollback removes
     const would = (parsed(dry).would_generate as { recurring_journal_id: string; run_date: string; status: string }[])
       .map((g) => [g.recurring_journal_id, g.run_date, g.status]);
     expect(would).toHaveLength(1 + weeklyDays(cal.prev).length);
@@ -136,6 +140,8 @@ describe('run_recurring_journals over a real database', () => {
       .toBe(periodsBefore);
 
     const live = await run(co, {});
+    expect(generatedLogs()).toBe(1 + weeklyDays(cal.prev).length);
+    info.mockRestore();
     expect((parsed(live).generated as { recurring_journal_id: string; run_date: string; status: string }[])
       .map((g) => [g.recurring_journal_id, g.run_date, g.status])).toEqual(would);
   });
