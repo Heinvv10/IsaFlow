@@ -41,8 +41,19 @@ describe('ci.yml dev-server port and process clean-up', () => {
   });
 
   it('gives the slot login only to the velo test command, never to the hosted one', () => {
-    expect(step).toMatch(/\( export GOLDEN_SLOT_NUMBER GOLDEN_COMPANY_ID GOLDEN_USER_EMAIL GOLDEN_USER_PASSWORD; BASE_URL="http:\/\/localhost:\$GOLDEN_PORT" bun run test:e2e:golden \$SHARD \)/);
-    expect(step).toMatch(/if \[ "\$HOSTED" = true \]; then\n\s+# shellcheck disable=SC2086\n\s+BASE_URL="http:\/\/localhost:\$GOLDEN_PORT" bun run test:e2e:golden \$SHARD/);
+    expect(step).toMatch(/\( export GOLDEN_SLOT_NUMBER GOLDEN_COMPANY_ID GOLDEN_USER_EMAIL GOLDEN_USER_PASSWORD; BASE_URL="http:\/\/localhost:\$GOLDEN_PORT" bun run test:e2e:golden \) \|\| rc=\$\?/);
+    expect(step).toMatch(/if \[ "\$HOSTED" = true \]; then\n\s+for piece in[^\n]*\n[^\n]*\n\s+stop_dev; boot_dev\n\s+BASE_URL="http:\/\/localhost:\$GOLDEN_PORT" bun scripts\/ci\/golden-hosted\/run-chunk\.ts "\$GOLDEN_CHUNK" 6 "\$piece" "\$PIECES" \|\| rc=\$\?\n\s+done\n\s+else/);
+  });
+
+  it('restarts the dev server before every piece of a hosted chunk, and keeps its logs for the report', () => {
+    expect(step).toMatch(/PIECES=3\n/);
+    expect(step).toMatch(/for piece in \$\(seq 1 "\$PIECES"\); do\n[^\n]*\n\s+stop_dev; boot_dev\n/);
+    expect(step).toMatch(/dev-watch\.sh report golden-samples\.log golden-dev\.all\.log "\$\(\(PIECES \+ 1\)\)"/);
+  });
+
+  it('runs the chunk number the matrix gives, on every hosted chunk of the six', () => {
+    expect(CI).toContain('GOLDEN_CHUNK: ${{ matrix.chunk }}');
+    expect(CI).toContain("chunk: ${{ fromJSON(vars.CI_HOSTED == 'off' && '[0]' || '[1,2,3,4,5,6]') }}");
   });
 
   it('never kills by pattern', () => {

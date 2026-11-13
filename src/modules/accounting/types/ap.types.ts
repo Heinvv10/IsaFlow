@@ -115,6 +115,12 @@ export interface SupplierInvoiceCreateInput {
   currencyCode?: string;
   /** Rate to convert currencyCode → ZAR. 1.0 for ZAR invoices. */
   exchangeRate?: number;
+  /**
+   * The source system's identity for this bill (migration 530 columns), written by the INSERT itself so the
+   * (supplier, invoice_number) uniqueness of migration 986 sees it: a supplier that reused a number on a different
+   * source document is two bills. Set by the MCP create tool only; the REST route never forwards it.
+   */
+  externalRef?: { system: string; ref: string; documentNumber?: string | null };
 }
 
 /**

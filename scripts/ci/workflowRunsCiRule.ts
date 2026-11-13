@@ -47,9 +47,9 @@
  *     node_modules between install and the gate, which --ignore-scripts does
  *     not cover. A PR that changes package.json/bun.lock controls that code at
  *     gate time anyway (the tests import it), so this adds no capability.
- *   - It does not pin golden-paths' steps or golden-lane's runs-on.
+ *   - It does not pin golden-chunks' steps or golden-lane's runs-on.
  *   - It cannot protect the runner. The self-hosted runner persists between
- *     jobs and its user owns ~/.bun/bin, so any job (golden-paths, another
+ *     jobs and its user owns ~/.bun/bin, so any job (golden-chunks, another
  *     workflow) could replace bun for every later run. A bunfig.toml preload
  *     is refused by run-ci.sh's `no-bunfig` step, in bash, not here.
  */
@@ -84,6 +84,10 @@ const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true 
  * chosen by golden-lane; a per-run one when hosted), and no other job takes
  * one. A new workflow or job means changing this rule in review.
  *
+ * golden-chunks is the job that takes the group (a matrix: hosted six chunks, each with the chunk number in
+ * its group, because a group holds one running and one pending job and chunks sharing one would cancel each
+ * other; velo the single entry 0). golden-paths, the required check, only aggregates the chunks.
+ *
  * On velo the golden group is per ref, not one group for every ref: the suite
  * writes to a Golden Paths slot company (ci.yml maps the runner to one, and a
  * runner runs one job at a time), so runs of different refs may overlap on
@@ -91,14 +95,14 @@ const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true 
  * running at once. It must stay clear of the `ci-` prefix and never cancel.
  */
 export const WORKFLOW_FILES = ['ci.yml'];
-const JOBS = ['route', 'static', 'velo', QUALITY_JOB, 'golden-lane', 'golden-paths'];
+const JOBS = ['route', 'static', 'velo', QUALITY_JOB, 'golden-lane', 'golden-chunks', 'golden-paths'];
 /**
  * On velo (CI_HOSTED=off) the slot companies need the per-ref groups; on a
  * hosted runner the run has a database of its own and takes a group of its own
  * (the run id), so hosted runs neither wait for each other nor cancel each other.
  */
 const GOLDEN_PATHS_CONCURRENCY = {
-  group: "${{ vars.CI_HOSTED == 'off' && format('golden-paths-{0}{1}', github.ref, needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-hosted-{0}', github.run_id) }}",
+  group: "${{ vars.CI_HOSTED == 'off' && format('golden-paths-{0}{1}', github.ref, needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-hosted-{0}-{1}', github.run_id, matrix.chunk) }}",
   'cancel-in-progress': false,
 };
 /**
@@ -107,8 +111,20 @@ const GOLDEN_PATHS_CONCURRENCY = {
  * set exactly JOB_PERMISSIONS and nothing else.
  */
 const PERMISSIONS = { contents: 'read' };
-/** Golden Paths: ~29 min of test time for 187 tests, so a 30 cap cancelled every run (run 40962446042). */
-const MIN_GOLDEN_TIMEOUT_MINUTES = 60;
+/**
+ * Golden chunks' timeout, an expression of exactly this shape: [velo] when CI_HOSTED=off, else [hosted]. Velo runs
+ * the whole suite in one job: 43-58 min on green runs (2026-11-13), and 60 cancelled merge-queue batches, so its
+ * floor is 90. A hosted chunk is ~2.5 min of setup and ~10 min of tests, so its floor is 30. A job that cannot
+ * finish ends cancelled, never red.
+ */
+const GOLDEN_TIMEOUT_SHAPE = /^\$\{\{ vars\.CI_HOSTED == 'off' && (\d+) \|\| (\d+) \}\}$/;
+const MIN_GOLDEN_VELO_TIMEOUT = 90;
+const MIN_GOLDEN_HOSTED_TIMEOUT = 30;
+const GOLDEN_CHUNKS_NAME = "${{ matrix.chunk == 0 && 'Golden Paths (whole suite)' || format('Golden chunk {0} of 6', matrix.chunk) }}";
+const GOLDEN_STRATEGY = { 'fail-fast': false, matrix: { chunk: "${{ fromJSON(vars.CI_HOSTED == 'off' && '[0]' || '[1,2,3,4,5,6]') }}" } };
+/** The required check only aggregates the chunks; skipped, or passing on a red chunk, it would let a red suite merge. */
+const GOLDEN_AGG_ENV = { CHUNKS: '${{ needs.golden-chunks.result }}' };
+const GOLDEN_AGG_RUN = ['echo "golden-chunks=$CHUNKS"', '[ "$CHUNKS" = "success" ]'].join('\n');
 /**
  * Every job's name, exactly. The merge queue and mq-merge-already-tested.ts
  * read the two required checks by NAME (a later run of the same name wins), and
@@ -122,6 +138,7 @@ const JOB_NAMES: Record<string, string> = {
   velo: 'Browser & integration',
   [QUALITY_JOB]: QUALITY_NAME,
   'golden-lane': 'Golden Paths lane',
+  'golden-chunks': GOLDEN_CHUNKS_NAME,
   'golden-paths': 'Golden Paths E2E (blocking)',
 };
 
@@ -135,6 +152,46 @@ function checkTrigger(on: Obj, event: string, errors: string[]): void {
   if (extra.length) errors.push(`on.${event} sets ${extra.join(', ')}; only \`branches\` is allowed (paths/types filters skip the gate)`);
   // Exactly [master]: GitHub reads a later '!master' as excluding it again.
   if (!sameList(t.branches, ['master'])) errors.push(`on.${event}.branches must be exactly [master]`);
+}
+
+function checkGoldenChunks(gc: unknown, errors: string[]): void {
+  const job = isObj(gc) ? gc : {};
+  const extra = extraKeys(job, ['name', 'needs', 'if', 'runs-on', 'strategy', 'timeout-minutes', 'concurrency', 'permissions', 'steps']);
+  if (extra.length) errors.push(`jobs.golden-chunks sets ${extra.join(', ')}; continue-on-error/env/defaults can report a red chunk as a success`);
+  const gpc = job.concurrency;
+  if (!isObj(gpc) || extraKeys(gpc, Object.keys(GOLDEN_PATHS_CONCURRENCY)).length
+    || gpc.group !== GOLDEN_PATHS_CONCURRENCY.group || gpc['cancel-in-progress'] !== GOLDEN_PATHS_CONCURRENCY['cancel-in-progress']) {
+    errors.push(`jobs.golden-chunks.concurrency must be exactly ${JSON.stringify(GOLDEN_PATHS_CONCURRENCY)}; taking the workflow's own group deadlocks and cancels the run`);
+  }
+  // Hosted unless CI_HOSTED=off, like golden-lane: a label set no runner has queues forever and never goes red.
+  if (job['runs-on'] !== LIGHT_RUNS_ON) {
+    errors.push(`jobs.golden-chunks.runs-on must be exactly ${LIGHT_RUNS_ON}; any other label set can queue forever and never go red`);
+  }
+  const strategy = job.strategy;
+  const matrix = isObj(strategy) ? strategy.matrix : undefined;
+  if (!isObj(strategy) || extraKeys(strategy, Object.keys(GOLDEN_STRATEGY)).length || strategy['fail-fast'] !== false
+    || !isObj(matrix) || extraKeys(matrix, ['chunk']).length || matrix.chunk !== GOLDEN_STRATEGY.matrix.chunk) {
+    errors.push(`jobs.golden-chunks.strategy must be exactly ${JSON.stringify(GOLDEN_STRATEGY)}; another matrix drops chunks, and fail-fast cancels the rest`);
+  }
+  const m = typeof job['timeout-minutes'] === 'string' ? GOLDEN_TIMEOUT_SHAPE.exec(job['timeout-minutes']) : null;
+  if (!m || Number(m[1]) < MIN_GOLDEN_VELO_TIMEOUT || Number(m[2]) < MIN_GOLDEN_HOSTED_TIMEOUT) {
+    errors.push(`jobs.golden-chunks.timeout-minutes must be \${{ vars.CI_HOSTED == 'off' && N || M }} with N >= ${MIN_GOLDEN_VELO_TIMEOUT} (velo runs the whole suite, 43-58 min) and M >= ${MIN_GOLDEN_HOSTED_TIMEOUT} (a hosted chunk); a job that cannot finish ends cancelled, never red`);
+  }
+}
+
+function checkGoldenAggregate(gp: unknown, errors: string[]): void {
+  const job = isObj(gp) ? gp : {};
+  const extra = extraKeys(job, ['name', 'needs', 'if', 'runs-on', 'timeout-minutes', 'steps']);
+  if (extra.length) errors.push(`jobs.golden-paths sets ${extra.join(', ')}; continue-on-error/env/permissions/strategy can turn a red suite green`);
+  if (job.needs !== 'golden-chunks') errors.push('jobs.golden-paths.needs must be exactly `golden-chunks`');
+  if (job.if !== '${{ always() }}') errors.push('jobs.golden-paths.if must be exactly ${{ always() }}; skipped, the required check counts as passed');
+  if (job['runs-on'] !== LIGHT_RUNS_ON) errors.push(`jobs.golden-paths.runs-on must be exactly ${LIGHT_RUNS_ON}`);
+  const steps = job.steps;
+  const step = Array.isArray(steps) && steps.length === 1 ? (steps[0] as unknown) : undefined;
+  if (!isObj(step) || extraKeys(step, ['name', 'env', 'run']).length || typeof step.run !== 'string'
+    || step.run.trim() !== GOLDEN_AGG_RUN || !sameMap(step.env, GOLDEN_AGG_ENV)) {
+    errors.push(`jobs.golden-paths.steps must be exactly one step: env ${JSON.stringify(GOLDEN_AGG_ENV)}, run:\n${GOLDEN_AGG_RUN}`);
+  }
 }
 
 /**
@@ -192,28 +249,16 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
         && !(isObj(s.with) && s.with['persist-credentials'] === false)))
       .map(([name]) => name);
     if (persisting.length) errors.push(`jobs ${persisting.join(', ')} set permissions but check out without \`persist-credentials: false\`; the token would sit in .git/config for every later step`);
-    const gp = jobs['golden-paths'];
-    const gpc = isObj(gp) ? gp.concurrency : undefined;
-    if (!isObj(gpc) || extraKeys(gpc, Object.keys(GOLDEN_PATHS_CONCURRENCY)).length
-      || gpc.group !== GOLDEN_PATHS_CONCURRENCY.group || gpc['cancel-in-progress'] !== GOLDEN_PATHS_CONCURRENCY['cancel-in-progress']) {
-      errors.push(`jobs.golden-paths.concurrency must be exactly ${JSON.stringify(GOLDEN_PATHS_CONCURRENCY)}; taking the workflow's own group deadlocks and cancels the run`);
-    }
-    // Hosted unless CI_HOSTED=off, like golden-lane: a label set no runner has queues forever and never goes red.
-    if (!isObj(gp) || gp['runs-on'] !== LIGHT_RUNS_ON) {
-      errors.push(`jobs.golden-paths.runs-on must be exactly ${LIGHT_RUNS_ON}; any other label set can queue forever and never go red`);
-    }
-    const gpt = isObj(gp) ? gp['timeout-minutes'] : undefined;
-    if (!Number.isInteger(gpt) || (gpt as number) < MIN_GOLDEN_TIMEOUT_MINUTES) {
-      errors.push(`jobs.golden-paths.timeout-minutes must be an integer >= ${MIN_GOLDEN_TIMEOUT_MINUTES}; the suite needs ~30 min of test time and the floor leaves 2x headroom; a job that cannot finish ends cancelled, never red`);
-    }
+    checkGoldenChunks(jobs['golden-chunks'], errors);
+    checkGoldenAggregate(jobs['golden-paths'], errors);
     for (const [id, j] of Object.entries(jobs)) {
       const want = JOB_NAMES[id];
       if (want !== undefined && !(isObj(j) && j.name === want)) {
         errors.push(`jobs.${id}.name must be exactly "${want}"; required checks go by name`);
       }
     }
-    const grouped = Object.entries(jobs).filter(([name, j]) => name !== 'golden-paths' && isObj(j) && 'concurrency' in j).map(([name]) => name);
-    if (grouped.length) errors.push(`jobs ${grouped.join(', ')} set concurrency; only golden-paths may take a group (the ci- group would cancel the gates)`);
+    const grouped = Object.entries(jobs).filter(([name, j]) => name !== 'golden-chunks' && isObj(j) && 'concurrency' in j).map(([name]) => name);
+    if (grouped.length) errors.push(`jobs ${grouped.join(', ')} set concurrency; only golden-chunks may take a group (the ci- group would cancel the gates)`);
   }
   if (!isObj(jobs)) return [...errors, 'ci.yml has no `jobs` mapping'];
   errors.push(...checkGateJobs(jobs));
