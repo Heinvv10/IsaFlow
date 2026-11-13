@@ -185,7 +185,7 @@ function windowPhrases(raw: string): string[] {
       if (validDay(d, mo, y)) found.add(`as at ${d} ${MONTH_LABEL[mo - 1]} ${y}`);
     }
   }
-  q = stripDates(q);
+  q = q.replace(DAY_RE, ' '); // numeric dates carry no month name, so the month scan below cannot see them
   const fy = FY.exec(q);
   if (fy) { found.add(`for FY${fy[1] ?? fy[2] ?? fy[3]}`); q = q.replace(FY, ' '); }
   for (const [re, phrase] of [[/\blast\s+month\b/, 'last month'], [/\bthis\s+month\b/, 'this month'],
