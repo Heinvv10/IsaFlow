@@ -19,6 +19,7 @@ import { resolveLineVatCode } from './allocationVatGuard';
 import { NOT_FOUND, guardCastableArgs, guardUuidList, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 import { DIMENSION_LINE_PROPERTIES, dimensionWarningsOrRefusal, itemsWithDimensions, parseDimensionRefs } from './dimensionArgs';
 import type { DimensionRefs } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { EXTERNAL_REF_CREATE_PROPS, createReplayOrLock, parseCreateRef, stampCreated } from './externalRef';
 
 /**
  * The VAT treatments a manual line may carry — the same set an allocation
@@ -67,7 +68,8 @@ function parseLines(raw: unknown): { lines: JournalLineInput[]; dims: (Dimension
 export const createDraftJournalTool: McpTool = {
   name: 'create_draft_journal',
   description:
-    'Create an UNPOSTED (draft) GL journal entry. Lines use account_id (GL account UUID) with debit/credit amounts; total debits must equal total credits. A line may carry vat_type (standard, zero_rated, exempt, …) so a correcting journal on VAT Input/Output is coded for the VAT201 like an allocation. Does not post — use post_journal (needs write:post) to post.',
+    'Create an UNPOSTED (draft) GL journal entry. Lines use account_id (GL account UUID) with debit/credit amounts; total debits must equal total credits. A line may carry vat_type (standard, zero_rated, exempt, …) so a correcting journal on VAT Input/Output is coded for the VAT201 like an allocation. Does not post — use post_journal (needs write:post) to post. '
+    + 'Pass external_system + external_ref (e.g. the Sage journal id) to make the create idempotent: a live (unreversed) journal already carrying them is returned instead (already_existed: true).',
   scope: 'write:journals',
   write: true,
   inputSchema: {
@@ -99,6 +101,7 @@ export const createDraftJournalTool: McpTool = {
           additionalProperties: false,
         },
       },
+      ...EXTERNAL_REF_CREATE_PROPS,
       idempotency_key: { type: 'string' },
       allow_late_input_claim: ALLOW_LATE_INPUT_CLAIM_PROP,
     },
@@ -110,6 +113,8 @@ export const createDraftJournalTool: McpTool = {
     if (!entryDate) return toolError('date is required (YYYY-MM-DD)');
     const badDate = guardCastableArgs(args, { date: ['date'] });
     if (badDate) return badDate;
+    const xref = parseCreateRef(args);
+    if (typeof xref === 'string') return toolError(xref);
     const parsedLines = parseLines(args.lines);
     if (typeof parsedLines === 'string') return toolError(parsedLines);
     if (!parsedLines) return toolError('lines must be a non-empty array of {account_id, debit, credit}');
@@ -149,6 +154,8 @@ export const createDraftJournalTool: McpTool = {
         );
       }
     }
+    const replay = await createReplayOrLock(ctx, 'journal', xref);
+    if (replay) return replay;
     let entry: Awaited<ReturnType<typeof createJournalEntry>>;
     try {
       // Stamp the agent. Without meta, createJournalEntry falls back to
@@ -173,7 +180,12 @@ export const createDraftJournalTool: McpTool = {
     // (still only a draft). Outside the catch: a failure here must reach the
     // registry's savepoint, not commit an unmarked draft behind a tool error.
     await markCreatedManualJournal(ctx.companyId, entry.id);
-    return ok(cos.warnings.length > 0 ? { ...entry, dimension_warnings: cos.warnings } : entry);
+    await stampCreated(ctx, 'journal', entry.id, xref);
+    return ok({
+      ...entry,
+      ...(cos.warnings.length > 0 ? { dimension_warnings: cos.warnings } : {}),
+      ...(xref ? { external_system: xref.system, external_ref: xref.ref } : {}),
+    });
   },
 };
 

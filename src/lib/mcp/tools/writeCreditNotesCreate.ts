@@ -10,6 +10,7 @@
  */
 import type { McpTool } from '../types';
 import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
+import { EXTERNAL_REF_CREATE_PROPS, createReplayOrLock, parseCreateRef, stampCreated } from './externalRef';
 import {
   validateCreditNoteLinks,
   findOpenDuplicateDraft,
@@ -27,7 +28,8 @@ export const createCreditNoteTool: McpTool = {
     'subtotal is NET of VAT and must be positive — tax_rate (default 15) is applied on top, and total = subtotal + VAT. ' +
     'Optionally link the note to the invoice it corrects with customer_invoice_id / supplier_invoice_id; a LINKED note is AUTO-APPLIED at approve, reducing that invoice\'s outstanding balance by up to its outstanding amount. Leave the link out to raise standalone credit. ' +
     'An identical open draft (same counterparty, linked invoice, date and amount) is REFUSED and its id returned — retrying with a new idempotency_key will not create a second one. ' +
-    'When it is genuinely a SECOND credit (two returns on one day for one amount), call again with duplicate_of set to the id the refusal named.',
+    'When it is genuinely a SECOND credit (two returns on one day for one amount), call again with duplicate_of set to the id the refusal named. '
+    + 'Pass external_system + external_ref (e.g. the Sage RTN id) to make the create idempotent: a live note already carrying them is returned instead (already_existed: true).',
   scope: 'write:invoices',
   write: true,
   inputSchema: {
@@ -52,6 +54,7 @@ export const createCreditNoteTool: McpTool = {
         type: 'string',
         description: 'Only after a refusal: the id of the identical open draft it named, confirming this is a second, separate credit.',
       },
+      ...EXTERNAL_REF_CREATE_PROPS,
       idempotency_key: { type: 'string' },
     },
     required: ['type', 'credit_date', 'subtotal', 'idempotency_key'],
@@ -64,6 +67,8 @@ export const createCreditNoteTool: McpTool = {
     }
     const creditDate = strArg(args, 'credit_date');
     if (!creditDate) return toolError('credit_date is required (YYYY-MM-DD)');
+    const xref = parseCreateRef(args);
+    if (typeof xref === 'string') return toolError(xref);
 
     const bad = guardCastableArgs(args, {
       uuid: ['client_id', 'supplier_id', 'customer_invoice_id', 'supplier_invoice_id', 'duplicate_of', 'gl_account_id'],
@@ -148,6 +153,10 @@ export const createCreditNoteTool: McpTool = {
     const duplicateOf = strArg(args, 'duplicate_of');
     const taxRateForTotal = taxRate ?? 15;
     const total = Math.round(subtotal * (1 + taxRateForTotal / 100) * 100) / 100;
+    // Before the duplicate-draft check: re-sending the same source note returns it, rather than a refusal.
+    const replay = await createReplayOrLock(ctx, 'credit_note', xref, { creditNoteType: type as (typeof TYPES)[number] });
+    if (replay) return replay;
+
     const duplicate = await findOpenDuplicateDraft(
       ctx.companyId,
       {
@@ -194,6 +203,7 @@ export const createCreditNoteTool: McpTool = {
       // the actor can be recorded until approval (migration 531).
       mcpPostingOpts(ctx, 'create_credit_note'),
     );
+    await stampCreated(ctx, 'credit_note', note.id, xref);
 
     return ok({
       id: note.id,
@@ -204,6 +214,7 @@ export const createCreditNoteTool: McpTool = {
       tax_rate: note.taxRate,
       tax_amount: note.taxAmount,
       total_amount: note.totalAmount,
+      ...(xref ? { external_system: xref.system, external_ref: xref.ref } : {}),
     });
   },
 };

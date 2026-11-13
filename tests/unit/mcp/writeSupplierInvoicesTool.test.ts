@@ -50,6 +50,13 @@ vi.mock('@/modules/accounting/services/core/paymentTermsResolver', () => ({
   contactTerms: vi.fn(async () => ({ days: null, type: null, companyDefault: { days: 30, type: 'invoice_days' } })),
 }));
 
+vi.mock('@/modules/accounting/services/core/externalRefService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/core/externalRefService')>()),
+  findByExternalRef: vi.fn(async () => []),
+  lockExternalRef: vi.fn(async () => undefined),
+  stampExternalRef: vi.fn(async () => undefined),
+}));
+
 import {
   createSupplierInvoice,
   getSupplierInvoiceById,
@@ -64,6 +71,7 @@ import {
   approveSupplierInvoiceTool,
 } from '@/lib/mcp/tools/writeSupplierInvoices';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
+import { findByExternalRef, stampExternalRef } from '@/modules/accounting/services/core/externalRefService';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const SUPPLIER = '55555555-5555-4555-8555-555555555555';
@@ -111,6 +119,44 @@ beforeEach(() => {
     invoiceDate: '2026-06-30', subtotal: 1000, taxAmount: 150,
     totalAmount: 1150, status: 'draft',
   } as never);
+});
+
+describe('create_supplier_invoice — external_ref (brief step 3)', () => {
+  const XREF = { external_system: 'sage', external_ref: '3629825983', external_document_number: 'SIV0003762' };
+
+  it('returns the live bill already carrying the reference and creates nothing', async () => {
+    vi.mocked(findByExternalRef).mockResolvedValueOnce([{
+      entityType: 'supplier_invoice', id: 'existing', number: 'INV-9001', status: 'approved', date: '2026-06-30',
+      totalAmount: 1150, live: true, externalDocumentNumber: 'SIV0003762',
+    }]);
+    const r = await createSupplierInvoiceTool.handler(createArgs(XREF), ctx());
+    expect(r.wroteNothing).toBe(true);
+    expect(parseOk(r)).toMatchObject({ already_existed: true, id: 'existing' });
+    expect(createSupplierInvoice).not.toHaveBeenCalled();
+    expect(stampExternalRef).not.toHaveBeenCalled();
+  });
+
+  it('creates, then stamps the new bill with the reference', async () => {
+    const r = parseOk(await createSupplierInvoiceTool.handler(createArgs(XREF), ctx()));
+    expect(stampExternalRef).toHaveBeenCalledWith(COMPANY, 'supplier_invoice', INVOICE, { system: 'sage', ref: '3629825983', documentNumber: 'SIV0003762' });
+    expect(r).toMatchObject({ id: INVOICE, external_system: 'sage', external_ref: '3629825983' });
+  });
+
+  it('a failed stamp throws (the registry savepoint unwinds the bill) instead of becoming a tool error', async () => {
+    vi.mocked(stampExternalRef).mockRejectedValueOnce(new Error('boom'));
+    await expect(createSupplierInvoiceTool.handler(createArgs(XREF), ctx())).rejects.toThrow('boom');
+  });
+
+  it('refuses a reference with no system before any read', async () => {
+    expect(errText(await createSupplierInvoiceTool.handler(createArgs({ external_ref: '1' }), ctx()))).toMatch(/external_system/);
+    expect(findByExternalRef).not.toHaveBeenCalled();
+  });
+
+  it('without a reference, never touches the reference service', async () => {
+    parseOk(await createSupplierInvoiceTool.handler(createArgs(), ctx()));
+    expect(findByExternalRef).not.toHaveBeenCalled();
+    expect(stampExternalRef).not.toHaveBeenCalled();
+  });
 });
 
 describe('create_supplier_invoice', () => {
