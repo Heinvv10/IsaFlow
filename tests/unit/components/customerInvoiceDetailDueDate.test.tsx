@@ -63,3 +63,6 @@ describe('the due-date editor on the customer invoice page', () => {
     expect(calls('customer-invoices-detail?id=inv-1', 'GET').length).toBeGreaterThanOrEqual(2); // loaded, then reloaded after the save
   });
 });
+
+// M14: this suite does not provide the auth context or the comments route; the panel has its own tests (commentsPanel, commentsMounts).
+vi.mock('@/components/accounting/comments/CommentsPanel', () => ({ CommentsPanel: () => null }));

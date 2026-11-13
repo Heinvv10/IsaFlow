@@ -38,6 +38,9 @@ export function useFocusTrap(
         // An open Select (a combobox with a popup list) inside the overlay (M14's mention picker in a drawer) closes its own list first: Escape
         // must not also close the overlay under it. The listbox is portalled, so focus is on the trigger or the list.
         const a = document.activeElement;
+        // A text box that holds something keeps its Escape (it cancels the edit or leaves the box; data-keeps-escape):
+        // the draft must not go with the overlay. An empty one lets Escape close the overlay as before.
+        if (a?.closest('[data-keeps-escape="true"]')) return;
         if (a?.closest('[role="listbox"]') || a?.closest('[role="combobox"][aria-haspopup="listbox"][aria-expanded="true"]')) return;
         e.stopPropagation();
         escape.current();

@@ -21,6 +21,10 @@ export function CommentsPanel({ recordType, recordId }: { recordType: CommentRec
   const [busy, setBusy] = useState(false);
   const [postError, setPostError] = useState('');
   const [composerKey, setComposerKey] = useState(0);
+  const composer = useRef<HTMLTextAreaElement | null>(null);
+  const [focusTick, setFocusTick] = useState(0);
+  // After a post or a delete the focus goes to the add box, not to the page.
+  useEffect(() => { if (focusTick > 0) composer.current?.focus(); }, [focusTick]);
   const seq = useRef(0);
 
   // A response for a record the panel has left (or an older request) is dropped.
@@ -48,6 +52,7 @@ export function CommentsPanel({ recordType, recordId }: { recordType: CommentRec
       await addComment(recordType, recordId, body, mentions);
       setComposerKey((k) => k + 1);
       await load();
+      setFocusTick((t) => t + 1);
     } catch (err) {
       log.warn('Comment post failed', { recordType, error: err }, 'comments');
       setPostError(apiErrorMessage(err, 'Could not post the comment - try again'));
@@ -62,16 +67,19 @@ export function CommentsPanel({ recordType, recordId }: { recordType: CommentRec
       <h3 id={`comments-${recordId}`} className="text-sm font-semibold text-[var(--ff-text-primary)]">Comments</h3>
       {loadError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{loadError}</p>}
       {!read && !loadError && <p className="text-sm text-[var(--ff-text-secondary)]">Loading comments…</p>}
+      {read && read.olderHidden > 0 && (
+        <p className="text-xs text-[var(--ff-text-secondary)]">{read.olderHidden} older comments are not shown.</p>
+      )}
       {read && read.comments.length === 0 && <p className="text-sm text-[var(--ff-text-secondary)]">No comments yet.</p>}
       {read && read.comments.length > 0 && (
         <ul className="space-y-2">
           {read.comments.map((c) => (
-            <CommentItem key={c.id} comment={c} mine={c.authorId === user?.id && canWrite(companyRole)} people={people} onChanged={() => void load()} />
+            <CommentItem key={c.id} comment={c} mine={c.authorId === user?.id && canWrite(companyRole)} people={people} onChanged={(deleted) => { void load().then(() => { if (deleted) setFocusTick((t) => t + 1); }); }} />
           ))}
         </ul>
       )}
       {read && canWrite(companyRole) && (
-        <CommentComposer key={composerKey} label="Add a comment" people={people} submitLabel="Comment" busy={busy}
+        <CommentComposer key={composerKey} textareaRef={(el) => { composer.current = el; }} label="Add a comment" people={people} submitLabel="Comment" busy={busy}
           error={postError} onSubmit={(body, mentions) => void post(body, mentions)} />
       )}
     </section>

@@ -11,7 +11,7 @@ import type { DbRow } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { notifyUsers } from '@/modules/accounting/services/notifications/userNotificationService';
 import { findCommentRecord, type CommentRecordType } from './commentRecords';
-import { CommentError, cleanCommentBody, cleanMentions, mentionSnippet } from './commentText';
+import { CommentError, MAX_COMMENTS_PER_RECORD, cleanCommentBody, cleanMentions, mentionSnippet } from './commentText';
 
 export interface RecordComment {
   id: string;
@@ -54,17 +54,21 @@ const SELECT_ONE = (companyId: string, id: string) => sql`
  * comment (`canComment`); a read-only role gets an empty list, not the company's roster.
  */
 export async function listComments(companyId: string, userId: string, type: CommentRecordType, recordId: string, canComment: boolean):
-Promise<{ comments: RecordComment[]; mentionable: Mentionable[] }> {
+Promise<{ comments: RecordComment[]; mentionable: Mentionable[]; olderHidden: number }> {
   if (!(await findCommentRecord(companyId, type, recordId))) throw new CommentError(404, 'Record not found');
+  // The newest MAX_COMMENTS_PER_RECORD, shown oldest first; `olderHidden` counts any beyond that.
   const rows = (await sql`
-    SELECT c.id::TEXT AS id, c.record_type, c.record_id::TEXT AS record_id, c.body, c.author_id, c.mentions,
-           c.created_at, c.edited_at,
-           public.approval_company_member_name(c.company_id, c.author_id) AS author_name
-      FROM record_comments c
-     WHERE c.company_id = ${companyId}::UUID AND c.record_type = ${type} AND c.record_id = ${recordId}::UUID
-       AND c.deleted_at IS NULL
-     ORDER BY c.created_at, c.id
-     LIMIT 500`) as DbRow[];
+    SELECT * FROM (
+      SELECT c.id::TEXT AS id, c.record_type, c.record_id::TEXT AS record_id, c.body, c.author_id, c.mentions,
+             c.created_at, c.edited_at,
+             public.approval_company_member_name(c.company_id, c.author_id) AS author_name
+        FROM record_comments c
+       WHERE c.company_id = ${companyId}::UUID AND c.record_type = ${type} AND c.record_id = ${recordId}::UUID
+         AND c.deleted_at IS NULL
+       ORDER BY c.created_at DESC, c.id DESC
+       LIMIT ${MAX_COMMENTS_PER_RECORD}) newest
+    ORDER BY created_at, id`) as DbRow[];
+  const total = await liveCount(companyId, type, recordId);
   const people = !canComment ? [] : (await sql`
     SELECT m.user_id AS id, public.approval_company_member_name(${companyId}::UUID, m.user_id) AS name
       FROM public.approval_company_other_members(${companyId}::UUID, ${userId}) m
@@ -72,8 +76,16 @@ Promise<{ comments: RecordComment[]; mentionable: Mentionable[] }> {
      ORDER BY 2`) as DbRow[];
   return {
     comments: rows.map(toComment),
+    olderHidden: Math.max(0, total - rows.length),
     mentionable: people.map((p) => ({ id: String(p.id), name: String(p.name ?? p.id) })),
   };
+}
+
+async function liveCount(companyId: string, type: CommentRecordType, recordId: string): Promise<number> {
+  const r = (await sql`SELECT count(*)::INT AS n FROM record_comments
+                        WHERE company_id = ${companyId}::UUID AND record_type = ${type} AND record_id = ${recordId}::UUID
+                          AND deleted_at IS NULL`) as DbRow[];
+  return Number(r[0]?.n ?? 0);
 }
 
 /** Members among `ids`, as the table's recipient rule sees them. A non-member is a 400, before any write. */
@@ -105,6 +117,9 @@ export async function createComment(
   const body = cleanCommentBody(rawBody);
   const mentions = cleanMentions(rawMentions, userId);
   await assertMembers(companyId, mentions);
+  if ((await liveCount(companyId, type, recordId)) >= MAX_COMMENTS_PER_RECORD) {
+    throw new CommentError(400, `This record already has ${MAX_COMMENTS_PER_RECORD} comments, the most it can hold. Delete one to add another.`);
+  }
   const ins = (await sql`
     INSERT INTO record_comments (company_id, record_type, record_id, body, mentions)
     VALUES (${companyId}::UUID, ${type}, ${recordId}::UUID, ${body}, ${mentions}::TEXT[])

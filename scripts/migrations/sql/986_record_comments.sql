@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS record_comments (
   -- users.id is TEXT (character varying): never a UUID cast.
   author_id VARCHAR(255) NOT NULL DEFAULT auth.uid() CHECK (btrim(author_id) <> ''),
   mentions TEXT[] NOT NULL DEFAULT '{}' CHECK (array_ndims(mentions) IS NULL OR (array_ndims(mentions) = 1
-    AND cardinality(mentions) <= 20 AND array_position(mentions, NULL) IS NULL)),
+    AND cardinality(mentions) <= 10 AND array_position(mentions, NULL) IS NULL)),
   created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
   edited_at TIMESTAMPTZ,
   deleted_at TIMESTAMPTZ
@@ -39,9 +39,30 @@ CREATE TABLE IF NOT EXISTS record_comments (
 CREATE INDEX IF NOT EXISTS idx_record_comments_record
   ON record_comments (company_id, record_type, record_id, created_at);
 
--- Stamps are the clock's and the session's. On INSERT: created_at is now, edited/deleted are empty.
--- On UPDATE: only the author edits (a session user; the service pool with no user is the server's
--- own code); a deleted comment is final; an edit stamps edited_at; a delete stamps deleted_at.
+-- Whether the record a comment names exists in ITS company (invoker: an app session sees only its active
+-- company's rows through RLS, and the company is named anyway, so the service pool's open mirrors cannot
+-- match another company's record either).
+CREATE OR REPLACE FUNCTION public.record_comments_record_exists(p_type text, p_record uuid, p_company uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT CASE p_type
+    WHEN 'customer_invoice' THEN EXISTS (SELECT 1 FROM customer_invoices r WHERE r.id = p_record AND r.company_id = p_company)
+    WHEN 'supplier_invoice' THEN EXISTS (SELECT 1 FROM supplier_invoices r WHERE r.id = p_record AND r.company_id = p_company)
+    WHEN 'bank_transaction' THEN EXISTS (SELECT 1 FROM bank_transactions r WHERE r.id = p_record AND r.company_id = p_company)
+    ELSE false END
+$$;
+REVOKE ALL ON FUNCTION public.record_comments_record_exists(text, uuid, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.record_comments_record_exists(text, uuid, uuid) TO app_user;
+
+-- Stamps are the clock's and the session's. On INSERT: the record exists in the comment's company (23503),
+-- created_at is now, edited/deleted are empty. On UPDATE: only the author edits (a session user; the service
+-- pool with no user is the server's own code), except that anyone may soft-delete a comment whose record is
+-- gone (a hard-deleted bank line: deleteTransactions does it in the same transaction); a deleted comment is
+-- final; an edit stamps edited_at; a delete stamps deleted_at.
 CREATE OR REPLACE FUNCTION public.record_comments_guard()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -50,12 +71,17 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
+    IF NOT public.record_comments_record_exists(NEW.record_type, NEW.record_id, NEW.company_id) THEN
+      RAISE EXCEPTION 'record % of type % does not exist in company %', NEW.record_id, NEW.record_type, NEW.company_id USING ERRCODE = '23503';
+    END IF;
     NEW.created_at := clock_timestamp();
     NEW.edited_at := NULL;
     NEW.deleted_at := NULL;
     RETURN NEW;
   END IF;
-  IF auth.uid() IS NOT NULL AND OLD.author_id IS DISTINCT FROM auth.uid() THEN
+  IF auth.uid() IS NOT NULL AND OLD.author_id IS DISTINCT FROM auth.uid()
+     AND NOT (NEW.deleted_at IS NOT NULL AND NEW.body IS NOT DISTINCT FROM OLD.body AND NEW.mentions IS NOT DISTINCT FROM OLD.mentions
+              AND NOT public.record_comments_record_exists(OLD.record_type, OLD.record_id, OLD.company_id)) THEN
     RAISE EXCEPTION 'only the author may change comment %', OLD.id USING ERRCODE = '42501';
   END IF;
   IF OLD.deleted_at IS NOT NULL THEN

@@ -4,7 +4,7 @@ import type { CommentRecordType } from '@/modules/accounting/services/comments/c
 import type { Mentionable, RecordComment } from '@/modules/accounting/services/comments/recordCommentService';
 
 export type { CommentRecordType, Mentionable, RecordComment };
-export interface CommentsRead { comments: RecordComment[]; mentionable: Mentionable[] }
+export interface CommentsRead { comments: RecordComment[]; mentionable: Mentionable[]; olderHidden: number }
 
 const BASE = '/api/accounting/record-comments';
 const JSON_HEADERS = { 'Content-Type': 'application/json' };

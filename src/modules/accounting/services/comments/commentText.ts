@@ -4,7 +4,9 @@
  * table's CHECK does (code points).
  */
 export const MAX_COMMENT_BODY = 4000;
-export const MAX_MENTIONS = 20;
+export const MAX_MENTIONS = 10
+/** Live comments one record can hold (the list shows the newest of them). */
+export const MAX_COMMENTS_PER_RECORD = 500;
 
 export class CommentError extends Error {
   constructor(readonly status: 400 | 403 | 404, message: string) {

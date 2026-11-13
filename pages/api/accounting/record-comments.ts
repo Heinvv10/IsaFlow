@@ -21,14 +21,22 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { COMMENT_RECORD_TYPES } from '@/modules/accounting/services/comments/commentRecords';
-import { CommentError, MAX_COMMENT_BODY } from '@/modules/accounting/services/comments/commentText';
+import { CommentError, MAX_COMMENT_BODY, MAX_MENTIONS } from '@/modules/accounting/services/comments/commentText';
 import { createComment, deleteComment, editComment, listComments } from '@/modules/accounting/services/comments/recordCommentService';
 
-const Mentions = z.array(z.string().min(1).max(255)).max(20).optional();
+const Mentions = z.array(z.string().min(1).max(255)).max(MAX_MENTIONS).optional();
 const Body = z.string().max(MAX_COMMENT_BODY * 4);
 const Create = z.object({ recordType: z.enum(COMMENT_RECORD_TYPES), recordId: UUID, body: Body, mentions: Mentions }).strict();
 const Edit = z.object({ body: Body, mentions: Mentions }).strict();
 const ListQuery = z.object({ recordType: z.enum(COMMENT_RECORD_TYPES), recordId: UUID });
+
+const MENTION_LIMIT_MESSAGE = 'You have mentioned a lot of people this hour. Try again later.';
+
+/** Mentions are notifications, so they are budgeted per sender too: a comment can name up to MAX_MENTIONS people. */
+async function mentionBudget(companyId: string, userId: string, mentions: readonly string[] | undefined): Promise<boolean> {
+  if (!mentions || mentions.length === 0) return true;
+  return checkRateLimit(`comments:mentions:${companyId}:${userId}`, { max: 100, windowSecs: 3600, cost: mentions.length });
+}
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
@@ -50,6 +58,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (req.method === 'POST') {
       const b = Create.safeParse(req.body);
       if (!b.success) return apiResponse.zodValidationError(res, b.error);
+      if (!(await mentionBudget(companyId, userId, b.data.mentions))) return apiResponse.tooManyRequests(res, MENTION_LIMIT_MESSAGE);
       return apiResponse.created(res, await createComment(companyId, userId, b.data.recordType, b.data.recordId, b.data.body, b.data.mentions));
     }
     const id = UUID.safeParse(req.query.id);
@@ -57,6 +66,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (req.method === 'PUT') {
       const b = Edit.safeParse(req.body);
       if (!b.success) return apiResponse.zodValidationError(res, b.error);
+      if (!(await mentionBudget(companyId, userId, b.data.mentions))) return apiResponse.tooManyRequests(res, MENTION_LIMIT_MESSAGE);
       return apiResponse.success(res, await editComment(companyId, userId, id.data, b.data.body, b.data.mentions));
     }
     await deleteComment(companyId, userId, id.data);

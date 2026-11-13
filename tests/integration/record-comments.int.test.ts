@@ -12,6 +12,8 @@ import { als } from '@/lib/als';
 import { createComment, deleteComment, editComment, listComments } from '@/modules/accounting/services/comments/recordCommentService';
 import { CommentError, MAX_COMMENT_BODY } from '@/modules/accounting/services/comments/commentText';
 import { ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
+import { findCommentRecord } from '@/modules/accounting/services/comments/commentRecords';
+import { deleteTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
 import { getBankTransactionById } from '@/modules/accounting/services/bank/bankTxSingleLine';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
@@ -20,7 +22,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const [A, B] = [crypto.randomUUID(), crypto.randomUUID()];
 const [owner, manager, viewer, bUser, admin] = [1, 2, 3, 4, 5].map(() => crypto.randomUUID());
 const LOGIN_AS = `m14-${crypto.randomUUID()}`;
-const ids = { invA: '', invB: '', billA: '', bankA: '', bankB: '' };
+const ids = { invA: '', invB: '', billA: '', billB: '', bankA: '', bankB: '' };
 
 async function one(sql: string, params: unknown[]): Promise<string> {
   return (await pool.query<{ id: string }>(sql, params)).rows[0]!.id;
@@ -45,6 +47,9 @@ beforeAll(async () => {
   ids.invB = await inv(B, custB, `M14-B-${B.slice(0, 6)}`);
   ids.billA = await one(`INSERT INTO supplier_invoices (company_id, invoice_number, supplier_id, invoice_date, subtotal, total_amount, created_by, status)
     VALUES ($1, $2, $3, CURRENT_DATE, 100, 115, $4, 'draft') RETURNING id`, [A, `M14-BILL-${A.slice(0, 6)}`, supA, owner]);
+  const supB = await one('INSERT INTO suppliers (company_id, name) VALUES ($1, $2) RETURNING id', [B, 'M14 sup B']);
+  ids.billB = await one(`INSERT INTO supplier_invoices (company_id, invoice_number, supplier_id, invoice_date, subtotal, total_amount, created_by, status)
+    VALUES ($1, $2, $3, CURRENT_DATE, 100, 115, $4, 'draft') RETURNING id`, [B, `M14-BILL-${B.slice(0, 6)}`, supB, owner]);
   const bank = (co: string, tag: string) => one(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
     VALUES ($1, $2, 'M14 bank', 'asset', 'debit', 3) RETURNING id`, [co, `M14${tag}`]).then((acct) =>
     one(`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description)
@@ -71,17 +76,17 @@ afterAll(async () => {
 });
 
 /** One rolled-back request as app_user: claims for `user` (and `session` when Login-as) in `co`. `admin()` runs as the fixture's superuser. */
-async function as<T>(co: string, user: string, fn: (c: { admin: <R>(q: string, p?: unknown[]) => Promise<R[]>; raw: (q: string, p?: unknown[]) => Promise<unknown> }) => Promise<T>, session?: string): Promise<T> {
+async function as<T>(co: string, user: string, fn: (c: { admin: <R>(q: string, p?: unknown[]) => Promise<R[]>; raw: (q: string, p?: unknown[]) => Promise<unknown> }) => Promise<T>, session?: string, role: 'app_user' | 'app_service' = 'app_user'): Promise<T> {
   const client: PoolClient = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('SET LOCAL ROLE app_user');
+    await client.query(`SET LOCAL ROLE ${role}`);
     await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: user, ...(session ? { session_id: session } : {}) })]);
     await client.query("SELECT set_config('app.current_company_id', $1, true)", [co]);
     const helpers = {
       admin: async <R,>(q: string, p: unknown[] = []) => {
         await client.query('SAVEPOINT adm'); await client.query('RESET ROLE');
-        try { return (await client.query(q, p)).rows as R[]; } finally { await client.query('SET LOCAL ROLE app_user'); await client.query('RELEASE SAVEPOINT adm'); }
+        try { return (await client.query(q, p)).rows as R[]; } catch (e) { await client.query('ROLLBACK TO SAVEPOINT adm'); throw e; } finally { await client.query(`SET LOCAL ROLE ${role}`); await client.query('RELEASE SAVEPOINT adm'); }
       },
       raw: (q: string, p: unknown[] = []) => client.query(q, p),
     };
@@ -217,6 +222,110 @@ describe('mentions (in-app only)', () => {
     await as(A, manager, async () => {
       expect((await getBankTransactionById(A, ids.bankA))?.id).toBe(ids.bankA);
       expect(await getBankTransactionById(A, ids.bankB)).toBeNull();
+    });
+  });
+});
+
+describe('the table and the service hold the record to its company', () => {
+  it('a phantom record id, another company\'s record id and a wrong record type are refused by the table (23503)', async () => {
+    await as(A, manager, async (h) => {
+      const ins = "INSERT INTO record_comments (company_id, record_type, record_id, body) VALUES ($1, $2, $3, 'x')";
+      expect(await sqlCode(h, ins, [A, 'customer_invoice', crypto.randomUUID()])).toBe('23503');
+      expect(await sqlCode(h, ins, [A, 'customer_invoice', ids.invB])).toBe('23503');
+      expect(await sqlCode(h, ins, [A, 'bank_transaction', ids.invA])).toBe('23503');
+      expect(await sqlCode(h, ins, [A, 'customer_invoice', ids.invA])).toBeUndefined();
+      expect(await count(h, A)).toBe(1);
+    });
+  });
+
+  it('findCommentRecord scopes by company itself: as the service pool (open mirror policies) another company\'s record is still not found', async () => {
+    await as(A, manager, async () => {
+      for (const [t, mine, theirs] of [['customer_invoice', ids.invA, ids.invB], ['supplier_invoice', ids.billA, ids.billB], ['bank_transaction', ids.bankA, ids.bankB]] as const) {
+        expect(await findCommentRecord(A, t, mine), t).not.toBeNull();
+        expect(await findCommentRecord(A, t, theirs), `${t} of company B`).toBeNull();
+      }
+    }, undefined, 'app_service');
+  });
+
+  it('a removed bank line is not a record: 404 to comment on, and not found by the drawer\'s lookup', async () => {
+    await as(A, manager, async (h) => {
+      // A posted line cannot become removed (migration 675) and a pending one needs a feed connection: drop that CHECK (rolled back) to plant one.
+      await h.admin('ALTER TABLE bank_transactions DROP CONSTRAINT bank_tx_feed_identity_required');
+      const gone = (await h.admin<{ id: string }>(`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, feed_state)
+        SELECT company_id, bank_account_id, CURRENT_DATE, 9, 'removed line', 'pending' FROM bank_transactions WHERE id = $1 RETURNING id`, [ids.bankA]))[0]!.id;
+      await h.admin("UPDATE bank_transactions SET feed_state = 'removed' WHERE id = $1", [gone]);
+      await expect(createComment(A, manager, 'bank_transaction', gone, 'x')).rejects.toMatchObject({ status: 404 });
+      expect(await getBankTransactionById(A, gone)).toBeNull();
+      expect(await count(h, A)).toBe(0);
+    });
+  });
+});
+
+describe('limits', () => {
+  it('multibyte text: 4000 emoji pass (service and table), 4001 are refused by both', async () => {
+    await as(A, manager, async (h) => {
+      const c = await createComment(A, manager, 'customer_invoice', ids.invA, '😀'.repeat(MAX_COMMENT_BODY));
+      expect(Array.from(c.body)).toHaveLength(MAX_COMMENT_BODY);
+      await expect(createComment(A, manager, 'customer_invoice', ids.invA, '😀'.repeat(MAX_COMMENT_BODY + 1))).rejects.toMatchObject({ status: 400 });
+      const ins = "INSERT INTO record_comments (company_id, record_type, record_id, body) VALUES ($1, 'customer_invoice', $2, $3)";
+      expect(await sqlCode(h, ins, [A, ids.invA, '😀'.repeat(MAX_COMMENT_BODY)])).toBeUndefined();
+      expect(await sqlCode(h, ins, [A, ids.invA, '😀'.repeat(MAX_COMMENT_BODY + 1)])).toBe('23514');
+    });
+  });
+
+  it('at most 10 people per comment: the service says 400 and writes nothing; the table refuses 11 (23514)', async () => {
+    await as(A, manager, async (h) => {
+      const many = Array.from({ length: 11 }, (_, i) => `u${i}`);
+      await expect(createComment(A, manager, 'customer_invoice', ids.invA, 'x', many)).rejects.toMatchObject({ status: 400 });
+      expect(await count(h, A)).toBe(0);
+      expect(await sqlCode(h, "INSERT INTO record_comments (company_id, record_type, record_id, body, mentions) VALUES ($1, 'customer_invoice', $2, 'x', $3)",
+        [A, ids.invA, many])).toBe('23514');
+    });
+  });
+
+  it('500 live comments per record: the 501st is a 400 with no row; the list shows the NEWEST 500, oldest first, and counts the rest', async () => {
+    await as(A, manager, async (h) => {
+      await h.admin(`INSERT INTO record_comments (company_id, record_type, record_id, body, author_id)
+        SELECT $1, 'customer_invoice', $2, 'c' || lpad(g::text, 4, '0'), $3 FROM generate_series(1, 500) g`, [A, ids.invA, manager]);
+      await expect(createComment(A, manager, 'customer_invoice', ids.invA, 'one too many')).rejects.toMatchObject({ status: 400 });
+      expect(await count(h, A)).toBe(500);
+      // A 501st that got in some other way (a race, a service-pool write): the list still shows the newest 500.
+      await h.admin("INSERT INTO record_comments (company_id, record_type, record_id, body, author_id) VALUES ($1, 'customer_invoice', $2, 'c0501', $3)", [A, ids.invA, manager]);
+      const out = await listComments(A, manager, 'customer_invoice', ids.invA, true);
+      expect(out.comments).toHaveLength(500);
+      expect(out.olderHidden).toBe(1);
+      expect(out.comments[0]!.body).toBe('c0002');
+      expect(out.comments.at(-1)!.body).toBe('c0501');
+      // A deleted comment frees a place.
+      await deleteComment(A, manager, out.comments[0]!.id);
+      expect((await listComments(A, manager, 'customer_invoice', ids.invA, true)).olderHidden).toBe(0);
+    });
+  });
+});
+
+describe('comments on a hard-deleted bank line', () => {
+  it('are soft-deleted in the same transaction, by whoever deletes the line, and only for that line', async () => {
+    await as(A, manager, async (h) => {
+      const gone = await createComment(A, manager, 'bank_transaction', ids.bankA, 'on the doomed line');
+      const kept = await createComment(A, manager, 'customer_invoice', ids.invA, 'on an invoice');
+      await h.raw("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: admin })]);
+      expect(await deleteTransactions(A, [ids.bankA])).toBe(1);
+      const rows = await h.admin<{ id: string; deleted_at: Date | null }>('SELECT id, deleted_at FROM record_comments WHERE company_id = $1', [A]);
+      expect(rows.find((r) => r.id === gone.id)!.deleted_at).not.toBeNull();
+      expect(rows.find((r) => r.id === kept.id)!.deleted_at).toBeNull();
+    });
+  });
+
+  it('another company\'s comments on the same ids are not touched (company scoped)', async () => {
+    await as(B, bUser, async (h) => {
+      // A comment row of company B that names company A's line id is impossible through the table (23503), so plant it as the owner.
+      await h.admin("ALTER TABLE record_comments DISABLE TRIGGER trg_record_comments_guard");
+      await h.admin("INSERT INTO record_comments (company_id, record_type, record_id, body, author_id) VALUES ($1, 'bank_transaction', $2, 'planted', $3)", [B, ids.bankA, bUser]);
+      await h.raw("SELECT set_config('app.current_company_id', $1, true)", [A]);
+      await h.raw("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: manager })]);
+      await deleteTransactions(A, [ids.bankA]);
+      const row = (await h.admin<{ deleted_at: Date | null }>("SELECT deleted_at FROM record_comments WHERE body = 'planted'"))[0]!;
+      expect(row.deleted_at).toBeNull();
     });
   });
 });

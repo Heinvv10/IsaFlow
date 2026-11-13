@@ -4,6 +4,8 @@
  *
  *  - Invoice drawer: a comment whose body is markup is shown as TEXT (no element is made from it), can be edited
  *    ("(edited)") and deleted (it leaves the thread, and the server's list agrees).
+ *  - The full invoice page (a mention's link) carries the panel too.
+ *  - Escape in a box with a draft keeps the drawer open and the draft; focus is on the add box after a post.
  *  - Bill page and bank line drawer: the panel is there and a comment posts and shows; `?line=<id>` (a mention's link) opens that line.
  *  - axe reports 0 critical and 0 serious with the panel open, in both themes; nothing scrolls sideways at 390.
  *  - Nothing is emailed: no mail route is called, and a mention needs a second member the sandbox does not have (the
@@ -78,7 +80,16 @@ for (const theme of THEMES) {
         await expect(drawer.getByTestId('comments-panel')).toBeVisible();
         await expect(drawer.getByText('No comments yet.')).toBeVisible();
 
+        // Escape in a box that holds a draft keeps the drawer open and the draft (it only leaves the box).
+        const box = drawer.getByLabel('Add a comment');
+        await box.fill('a draft that must survive');
+        await box.focus();
+        await page.keyboard.press('Escape');
+        await expect(drawer).toBeVisible();
+        await expect(box).toHaveValue('a draft that must survive');
+
         await post(page, XSS);
+        await expect(box).toBeFocused(); // after a post focus is on the add box, not BODY
         const body = drawer.getByTestId('comment-body').first();
         await expect(body).toHaveText(XSS);
         expect(await drawer.locator('[data-testid="comments-panel"] img, [data-testid="comments-panel"] b').count()).toBe(0);
@@ -126,7 +137,16 @@ for (const theme of THEMES) {
     });
     const q = new URLSearchParams({ bank_account_id: bankAccountId, status: 'imported', search: ref });
     const lineId = (await api.get<{ transactions: { id: string }[] }>(`/api/accounting/bank-transactions?${q}`)).transactions[0]!.id;
+    const created = await api.post<{ id?: string; invoiceId?: string }>('/api/accounting/customer-invoices-create', {
+      clientId: await api.fixtureCustomer(), invoiceDate: today(), dueDate: today(), taxRate: 15, notes: gpRef('CMTP'),
+      items: [{ description: gpRef('CMTP'), quantity: 1, unitPrice: 100 }],
+    });
+    const pageInvoiceId = (created.id ?? created.invoiceId)!;
     try {
+      // A mention's invoice link opens the full invoice page, which carries the panel for that invoice.
+      await page.goto(`/accounting/customer-invoices/${pageInvoiceId}`, { waitUntil: 'domcontentloaded' });
+      await expect(page.getByTestId('comments-panel')).toBeVisible({ timeout: 60_000 });
+      await post(page, 'Invoice page note from z20');
       await page.goto(`/accounting/supplier-invoices/${bill.id}`, { waitUntil: 'domcontentloaded' });
       await expect(page.getByTestId('comments-panel')).toBeVisible({ timeout: 60_000 });
       await post(page, 'Bill note from z20');
@@ -157,6 +177,7 @@ for (const theme of THEMES) {
       await expect(linked).toHaveCount(0);
       expect(page.url()).not.toContain('line=');
     } finally {
+      await cleanup(api, 'customer_invoice', pageInvoiceId);
       await cleanup(api, 'supplier_invoice', bill.id);
       await cleanup(api, 'bank_transaction', lineId);
       await api.post('/api/accounting/bank-transactions-action', { action: 'delete', bankTransactionIds: [lineId] });

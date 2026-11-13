@@ -111,3 +111,72 @@ it('no colleague list (a read-only role, or nobody else): no picker at all', asy
   await screen.findByLabelText('Add a comment');
   expect(screen.queryByRole('combobox', { name: 'Mention a colleague' })).toBeNull();
 });
+
+it('over the limit: a sentence tied to the box says so, and Comment is disabled', async () => {
+  render(<CommentsPanel recordType="customer_invoice" recordId="r1" />);
+  const box = await screen.findByLabelText('Add a comment');
+  fireEvent.change(box, { target: { value: 'x'.repeat(4001) } });
+  const note = screen.getByText(/Comment is too long — 4000 characters max\./);
+  expect(box.getAttribute('aria-describedby')).toBe(note.id);
+  expect(box.getAttribute('aria-invalid')).toBe('true');
+  expect((screen.getByRole('button', { name: 'Comment' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('says how many older comments are not shown', async () => {
+  vi.mocked(apiFetch).mockImplementation(async () => ok({ ...READ, olderHidden: 7 }));
+  render(<CommentsPanel recordType="customer_invoice" recordId="r1" />);
+  expect(await screen.findByText('7 older comments are not shown.')).toBeTruthy();
+});
+
+describe('Escape in the composer', () => {
+  it('a box with a draft keeps its Escape (the draft is not lost) and leaves the box', async () => {
+    render(<CommentsPanel recordType="customer_invoice" recordId="r1" />);
+    const box = await screen.findByLabelText('Add a comment') as HTMLTextAreaElement;
+    expect(box.getAttribute('data-keeps-escape')).toBeNull();
+    fireEvent.change(box, { target: { value: 'draft' } });
+    expect(box.getAttribute('data-keeps-escape')).toBe('true');
+    box.focus();
+    const notPrevented = fireEvent.keyDown(box, { key: 'Escape' });
+    expect(notPrevented).toBe(false);
+    expect(box.value).toBe('draft');
+    expect(document.activeElement).not.toBe(box);
+  });
+
+  it('editing: Escape cancels the edit, keeps the comment, and focus lands on its Edit button', async () => {
+    render(<CommentsPanel recordType="customer_invoice" recordId="r1" />);
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Edit' }))[0]!);
+    const edit = screen.getByLabelText('Edit your comment') as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(edit);
+    fireEvent.keyDown(edit, { key: 'Escape' });
+    expect(screen.queryByLabelText('Edit your comment')).toBeNull();
+    expect(screen.getAllByTestId('comment-body')[0]!.textContent).toBe(XSS);
+    expect(document.activeElement).toBe(screen.getAllByRole('button', { name: 'Edit' })[0]);
+  });
+});
+
+describe('focus after each action (never BODY)', () => {
+  it('post: the add box', async () => {
+    render(<CommentsPanel recordType="customer_invoice" recordId="r1" />);
+    const box = await screen.findByLabelText('Add a comment');
+    fireEvent.change(box, { target: { value: 'hello' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Comment' }));
+    await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Add a comment')));
+    expect((document.activeElement as HTMLTextAreaElement).value).toBe('');
+  });
+
+  it('edit: the edit box; save: that comment\'s Edit button', async () => {
+    render(<CommentsPanel recordType="customer_invoice" recordId="r1" />);
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Edit' }))[0]!);
+    expect(document.activeElement).toBe(screen.getByLabelText('Edit your comment'));
+    fireEvent.change(screen.getByLabelText('Edit your comment'), { target: { value: 'changed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await vi.waitFor(() => expect(document.activeElement).toBe(screen.getAllByRole('button', { name: 'Edit' })[0]));
+  });
+
+  it('delete: the add box', async () => {
+    render(<CommentsPanel recordType="customer_invoice" recordId="r1" />);
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Delete' }))[0]!);
+    fireEvent.click(within(screen.getByRole('group', { name: 'Confirm delete' })).getByRole('button', { name: 'Delete' }));
+    await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Add a comment')));
+  });
+});

@@ -65,6 +65,34 @@ describe('who may write', () => {
   });
 });
 
+describe('rate limits', () => {
+  it('writes: one bucket per company and user, 30 a minute', async () => {
+    await run('POST', 'owner', POST);
+    expect(checkRateLimit).toHaveBeenCalledWith('comments:write:co1:u1', { max: 30, windowSecs: 60 });
+  });
+  it('mentions are budgeted per sender: 100 an hour, charged one unit per person named; none named, no charge', async () => {
+    await run('POST', 'owner', POST);
+    expect(vi.mocked(checkRateLimit).mock.calls.map((c) => c[0])).toEqual(['comments:write:co1:u1']);
+    vi.mocked(checkRateLimit).mockClear();
+    await run('POST', 'owner', { body: { ...POST.body, mentions: ['a', 'b', 'c'] } });
+    expect(checkRateLimit).toHaveBeenCalledWith('comments:mentions:co1:u1', { max: 100, windowSecs: 3600, cost: 3 });
+  });
+  it('an exhausted mention budget is a 429 and nothing is written (create and edit)', async () => {
+    vi.mocked(checkRateLimit).mockImplementation(async (k: string) => !k.startsWith('comments:mentions'));
+    expect((await run('POST', 'owner', { body: { ...POST.body, mentions: ['a'] } })).status).toBe(429);
+    expect((await run('PUT', 'owner', { query: { id: ID }, body: { body: 'x', mentions: ['a'] } })).status).toBe(429);
+    expect(createComment).not.toHaveBeenCalled();
+    expect(editComment).not.toHaveBeenCalled();
+    expect((await run('POST', 'owner', POST)).status).toBe(201);
+  });
+  it('more than 10 people in one comment is refused before any charge', async () => {
+    const many = Array.from({ length: 11 }, (_, i) => `u${i}`);
+    expect((await run('POST', 'owner', { body: { ...POST.body, mentions: many } })).status).toBe(422);
+    expect(vi.mocked(checkRateLimit).mock.calls.map((c) => c[0])).toEqual(['comments:write:co1:u1']);
+    expect(createComment).not.toHaveBeenCalled();
+  });
+});
+
 describe('refusals', () => {
   it('Login-as is a 403 IMPERSONATION_FORBIDDEN', async () => {
     vi.mocked(createComment).mockRejectedValueOnce(new ImpersonationForbiddenError());

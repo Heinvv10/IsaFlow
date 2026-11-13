@@ -3,7 +3,7 @@
  * by choosing them in the list: "@Name " goes into the text and their id into the mentions; a name deleted
  * from the text drops the mention.
  */
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Button } from '@/components/ui';
 import { Select } from '@/components/ui/Select';
 import { MAX_COMMENT_BODY } from '@/modules/accounting/services/comments/commentText';
@@ -19,12 +19,23 @@ interface Props {
   error: string;
   onSubmit: (body: string, mentions: string[]) => void;
   onCancel?: () => void;
+  /** Focus the box when it mounts (an edit box always; the add box after a post). */
+  focusOnMount?: boolean;
+  /** The panel keeps hold of the add box to put focus back after a post or a delete. */
+  textareaRef?: (el: HTMLTextAreaElement | null) => void;
 }
 
-export function CommentComposer({ label, initial = '', initialMentions = [], people, submitLabel, busy, error, onSubmit, onCancel }: Props) {
+export function CommentComposer({ label, initial = '', initialMentions = [], people, submitLabel, busy, error, onSubmit, onCancel, focusOnMount, textareaRef }: Props) {
   const [text, setText] = useState(initial);
   const [picked, setPicked] = useState<string[]>(initialMentions);
   const inputId = useId();
+  const limitId = `${inputId}-limit`;
+  const own = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => { if (focusOnMount) own.current?.focus(); }, [focusOnMount]);
+  const setRefs = (el: HTMLTextAreaElement | null) => {
+    own.current = el;
+    textareaRef?.(el);
+  };
   const length = Array.from(text).length;
   const over = length > MAX_COMMENT_BODY;
   const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? '';
@@ -45,8 +56,18 @@ export function CommentComposer({ label, initial = '', initialMentions = [], peo
       <label htmlFor={inputId} className="block text-sm font-medium text-[var(--ff-text-primary)]">{label}</label>
       <textarea
         id={inputId}
+        ref={setRefs}
         value={text}
         onChange={(e) => setText(e.target.value)}
+        aria-invalid={over || undefined}
+        aria-describedby={over ? limitId : undefined}
+        data-keeps-escape={text !== '' ? 'true' : undefined}
+        onKeyDown={(e) => {
+          if (e.key !== 'Escape' || text === '') return;
+          e.preventDefault();
+          e.stopPropagation();
+          if (onCancel) onCancel(); else e.currentTarget.blur();
+        }}
         rows={3}
         className="w-full resize-y rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] p-2 text-sm text-[var(--ff-text-primary)] ff-focus-ring"
       />
@@ -67,6 +88,7 @@ export function CommentComposer({ label, initial = '', initialMentions = [], peo
           {length} / {MAX_COMMENT_BODY}
         </span>
       </div>
+      {over && <p id={limitId} className="text-sm text-red-600 dark:text-red-400">Comment is too long — {MAX_COMMENT_BODY} characters max.</p>}
       {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
       <div className="flex gap-2">
         <Button type="submit" size="sm" disabled={busy || over || text.trim() === ''}>{busy ? 'Saving…' : submitLabel}</Button>

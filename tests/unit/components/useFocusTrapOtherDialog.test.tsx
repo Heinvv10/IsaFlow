@@ -105,3 +105,16 @@ describe('useFocusTrap with a Select open inside the overlay (M14 mention picker
     expect(close).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('useFocusTrap and a text box that holds a draft (M14 comment composer)', () => {
+  it('Escape in a box marked data-keeps-escape does not close the overlay; in one without the mark it does', () => {
+    const close = vi.fn();
+    render(<Overlay name="Drawer" onEscape={close} nested={<><textarea aria-label="kept" data-keeps-escape="true" /><textarea aria-label="empty" /></>} />);
+    screen.getByLabelText('kept').focus();
+    fireEvent.keyDown(screen.getByLabelText('kept'), { key: 'Escape' });
+    expect(close).not.toHaveBeenCalled();
+    screen.getByLabelText('empty').focus();
+    fireEvent.keyDown(screen.getByLabelText('empty'), { key: 'Escape' });
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+});
