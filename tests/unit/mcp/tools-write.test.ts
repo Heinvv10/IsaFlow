@@ -530,6 +530,8 @@ describe('write-tool manifest invariants', () => {
       // A reclassification posts real journals to the ledger, so it needs the
       // same explicit opt-in every other posting path does.
       'post_reclassification_batch',
+      // Reverses a reconciled line's allocation journal and posts its replacement (same date).
+      'reallocate_bank_transaction',
       // Undoes a bank reconciliation sign-off, like reopen_fiscal_period undoes a close.
       'reopen_bank_reconciliation',
       'reopen_fiscal_period',
@@ -652,6 +654,8 @@ describe('write-tool manifest invariants', () => {
       set_opening_balance: { ...KEY },
       // Refuses on the missing month before touching a service; behaviour is in bookEtiForMonthTool.test.ts.
       book_eti_for_month: { ...KEY },
+      // Refuses on the missing transaction_id before any lookup; behaviour in reallocateBankTransactionTool.test.ts.
+      reallocate_bank_transaction: { ...KEY },
       // Refuses on the missing file_name before any lookup; behaviour in attachDocumentTool.test.ts.
       attach_document: { ...KEY },
       // Refuses on the missing entity_type before any lookup; behaviour in attachEntityDocumentTool.test.ts.
