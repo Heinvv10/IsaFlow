@@ -18,6 +18,7 @@
   "tests/integration/brkr-c5-locks.int.test.ts": 29,
   "tests/integration/brkr-c6c8-refusals-tenant-role.int.test.ts": 6,
   "tests/integration/brkr-p2a-recalc-marker.int.test.ts": 4,
+  "tests/integration/cancel-customer-invoice-tool.int.test.ts": 8,
   "tests/integration/d10-bank-reversal-chain.int.test.ts": 7,
   "tests/integration/d10-bank-reversal-interleave.int.test.ts": 145,
   "tests/integration/d10-mcp-void.int.test.ts": 51,
