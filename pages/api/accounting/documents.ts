@@ -1,6 +1,10 @@
 /**
  * Accounting Documents API
  * GET  /api/accounting/documents?entity_type=...&entity_id=...  — List documents
+ *
+ * entity_type is a bill, invoice, credit note, payment — or a BANK LINE (`bank_transaction`, entity_id = the line's id),
+ * routed internally to the bank-tx attachment storage, so one endpoint serves every entity type. The old
+ * /api/accounting/bank-tx-attachments keeps working on the same rows.
  * POST /api/accounting/documents  (multipart form-data)          — Upload document
  * DELETE /api/accounting/documents?id=...                        — Soft-delete document
  */
@@ -14,18 +18,28 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import type { AccountingEntityType } from '@/types/procurement/document.types';
 import { listEntityDocuments } from '@/modules/accounting/services/core/documentQueryService';
 import {
-  VALID_ENTITY_TYPES,
   VALID_DOCUMENT_TYPES,
   ALLOWED_MIME_TYPES,
   MAX_FILE_SIZE,
   verifyEntityOwnership,
   uploadDocument,
 } from '@/modules/accounting/services/core/documentStorageService';
+import {
+  DOCUMENT_ENTITY_TYPES,
+  bankTxBelongsToCompany,
+  fromStoredAttachment,
+  isBankEntityType,
+  listBankLineDocuments,
+} from '@/modules/accounting/services/core/bankLineDocumentRouting';
+import { ATTACHMENT_MIME_TYPES, addBankTxAttachment, type AttachmentMime } from '@/modules/accounting/services/bank/bankTxAttachmentService';
 import { magicBytesMatchMime } from '@/lib/fileMagic';
 import { parsePagination } from '@/lib/pagination';
+import { isValidUUID } from '@/lib/validation';
+
+/** A bank line's file cap — the same 2 MB as /api/accounting/bank-tx-attachments. */
+const MAX_BANK_FILE_BYTES = 2 * 1024 * 1024;
 
 export const config = {
   api: { bodyParser: false },
@@ -69,6 +83,10 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse, companyId: s
     return apiResponse.badRequest(res, 'Missing required query params: entity_type, entity_id');
   }
 
+  if (isBankEntityType(entityType) && !isValidUUID(entityId)) {
+    return apiResponse.badRequest(res, 'entity_id must be the bank transaction id');
+  }
+
   // P3.4: entity-scoped, so normally small — the cap is insurance against a
   // single entity accumulating unbounded attachments. Applied per query; the
   // merged response is at most 2xlimit.
@@ -76,10 +94,12 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse, companyId: s
 
   // The query itself lives in documentQueryService so audit_trail's companion
   // MCP tools read the same rows through the same ownership fence.
-  const result = await listEntityDocuments(companyId, entityType, entityId, limit, offset);
+  const result = isBankEntityType(entityType)
+    ? await listBankLineDocuments(companyId, entityId, limit, offset)
+    : await listEntityDocuments(companyId, entityType, entityId, limit, offset);
   if (!result.ok) {
     return result.reason === 'invalid_entity_type'
-      ? apiResponse.badRequest(res, `Invalid entity_type. Allowed: ${VALID_ENTITY_TYPES.join(', ')}`)
+      ? apiResponse.badRequest(res, `Invalid entity_type. Allowed: ${DOCUMENT_ENTITY_TYPES.join(', ')}`)
       : apiResponse.forbidden(res, 'Entity does not belong to your company');
   }
 
@@ -108,14 +128,19 @@ async function handlePost(
     if (!entityType || !entityId) {
       return apiResponse.badRequest(res, 'Missing required fields: entity_type, entity_id');
     }
-    if (!VALID_ENTITY_TYPES.includes(entityType as AccountingEntityType)) {
-      return apiResponse.badRequest(res, `Invalid entity_type. Allowed: ${VALID_ENTITY_TYPES.join(', ')}`);
+    if (!(DOCUMENT_ENTITY_TYPES as readonly string[]).includes(entityType)) {
+      return apiResponse.badRequest(res, `Invalid entity_type. Allowed: ${DOCUMENT_ENTITY_TYPES.join(', ')}`);
     }
     if (!VALID_DOCUMENT_TYPES.includes(documentType as typeof VALID_DOCUMENT_TYPES[number])) {
       return apiResponse.badRequest(res, `Invalid document_type. Allowed: ${VALID_DOCUMENT_TYPES.join(', ')}`);
     }
 
-    const owned = await verifyEntityOwnership(entityId, companyId);
+    if (isBankEntityType(entityType) && !isValidUUID(entityId)) {
+      return apiResponse.badRequest(res, 'entity_id must be the bank transaction id');
+    }
+    const owned = isBankEntityType(entityType)
+      ? await bankTxBelongsToCompany(companyId, entityId)
+      : await verifyEntityOwnership(entityId, companyId);
     if (!owned) return apiResponse.forbidden(res, 'Entity does not belong to your company');
 
     const fileField = files.file;
@@ -136,6 +161,29 @@ async function handlePost(
     // from masquerading as image/jpeg by passing the allowlist check alone.
     if (!magicBytesMatchMime(buffer, file.mimetype || '')) {
       return apiResponse.badRequest(res, 'File content does not match declared type');
+    }
+
+    // A bank line's files live in their own store; document_type and notes have no column there and are not kept.
+    if (isBankEntityType(entityType)) {
+      const mime = file.mimetype || '';
+      if (!(ATTACHMENT_MIME_TYPES as readonly string[]).includes(mime)) {
+        return apiResponse.badRequest(res, `A bank transaction takes ${ATTACHMENT_MIME_TYPES.join(', ')}; got ${mime}`);
+      }
+      const stored = await addBankTxAttachment(companyId, {
+        bankTransactionId: entityId,
+        fileName: file.originalFilename || `document_${Date.now()}`,
+        mimeType: mime as AttachmentMime,
+        bytes: buffer,
+        maxBytes: MAX_BANK_FILE_BYTES,
+        uploadedBy: user.id,
+      });
+      if (!stored.ok) {
+        return stored.reason === 'bank_tx_not_found'
+          ? apiResponse.forbidden(res, 'Entity does not belong to your company')
+          : apiResponse.badRequest(res, `Attachment refused: ${stored.reason}`);
+      }
+      log.info('Bank line document uploaded', { data: { entityId } }, 'accounting-docs');
+      return apiResponse.created(res, fromStoredAttachment(stored.attachment));
     }
 
     const doc = await uploadDocument({

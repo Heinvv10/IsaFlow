@@ -5,8 +5,10 @@
  * supplier_payment or customer_payment. Posts nothing, so no requiresPost.
  *
  * This is the entity store (procurement_documents, what the bill and invoice
- * screens show and list_documents reads with entity_type/entity_id), NOT the
- * bank-transaction store attach_document writes. The two are not linked.
+ * screens show and list_documents reads with entity_type/entity_id). A BANK
+ * LINE is an entity type here too (entity_type "bank_transaction"), routed to
+ * the bank-transaction store attach_document writes (writeAttachBankLineDocument),
+ * so a caller never has to know the second store. The two stores are not linked.
  *
  * Bytes travel base64 in the args, as for attach_document. The cap is 2 MB of
  * file bytes: base64 makes that ~2.7 MB, inside the endpoint's 3 MB body.
@@ -18,14 +20,17 @@ import type { McpTool } from '../types';
 import {
   ALLOWED_MIME_TYPES,
   VALID_DOCUMENT_TYPES,
-  VALID_ENTITY_TYPES,
   findActiveDuplicate,
   storeDocumentBytes,
   verifyEntityOwnershipTyped,
 } from '@/modules/accounting/services/core/documentStorageService';
 import type { AccountingEntityType } from '@/types/procurement/document.types';
 import { decodeUploadPayload, magicBytesMatchMime } from '@/lib/fileMagic';
+import { DOCUMENT_ENTITY_TYPES, isBankEntityType } from '@/modules/accounting/services/core/bankLineDocumentRouting';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import {
+  BANK_LINE_MIME_REFUSAL, attachToBankLine, bankLineAcceptsMime, bankLineScopeError,
+} from './writeAttachBankLineDocument';
 
 export const ATTACH_ENTITY_MAX_BYTES = 2 * 1024 * 1024;
 const MAX_FILE_NAME = 200;
@@ -34,8 +39,8 @@ const MAX_NOTES = 1000;
 export const attachEntityDocumentTool: McpTool = {
   name: 'attach_entity_document',
   description:
-    'Attach a supporting document to an accounting document: entity_type supplier_invoice, customer_invoice, credit_note, supplier_payment or customer_payment, named by entity_id. ' +
-    'Use this for a supplier\'s tax invoice on a bill, a remittance on a receipt, a credit note scan. For a slip on a BANK TRANSACTION use attach_document — the two stores are separate. ' +
+    'Attach a supporting document to ANY accounting document, named by entity_type and entity_id: supplier_invoice, customer_invoice, credit_note, supplier_payment, customer_payment, or bank_transaction (a bank line). ' +
+    'Use this for a supplier\'s tax invoice on a bill, a remittance on a receipt, a credit note scan, a slip on a bank line. A bank transaction is routed to its own store for you (it needs write:bank-tx as well as write:invoices, takes PDF, JPEG or PNG only, and keeps no document_type or notes); attach_document does the same for a bank line named by its statement reference. ' +
     'content is the file as base64 (a data: URL is also accepted). Accepts PDF, JPEG, PNG, DOCX, XLSX; maximum 2 MB of file bytes per call. ' +
     'The declared mime_type is checked against the file\'s real bytes and refused on mismatch. ' +
     'If the entity already holds an active document with the same file name and size, nothing is stored and that document comes back with duplicate: true, so a bulk back-fill can be re-run safely. ' +
@@ -45,8 +50,8 @@ export const attachEntityDocumentTool: McpTool = {
   inputSchema: {
     type: 'object',
     properties: {
-      entity_type: { type: 'string', enum: [...VALID_ENTITY_TYPES] },
-      entity_id: { type: 'string', description: 'UUID of the bill, invoice, credit note or payment.' },
+      entity_type: { type: 'string', enum: [...DOCUMENT_ENTITY_TYPES] },
+      entity_id: { type: 'string', description: 'UUID of the bill, invoice, credit note, payment or bank transaction.' },
       document_type: {
         type: 'string', enum: [...VALID_DOCUMENT_TYPES],
         description: 'Default "invoice" for invoices and bills, "credit_note_doc" for credit notes, "proof_of_payment" for payments.',
@@ -64,15 +69,20 @@ export const attachEntityDocumentTool: McpTool = {
   handler: async (args, ctx) => {
     const entityType = strArg(args, 'entity_type');
     // enum is advisory — the transport does not validate against inputSchema.
-    if (!entityType || !(VALID_ENTITY_TYPES as readonly string[]).includes(entityType)) {
-      return toolError(`invalid entity_type — expected one of: ${VALID_ENTITY_TYPES.join(', ')}`);
+    if (!entityType || !(DOCUMENT_ENTITY_TYPES as readonly string[]).includes(entityType)) {
+      return toolError(`invalid entity_type — expected one of: ${DOCUMENT_ENTITY_TYPES.join(', ')}`);
+    }
+    const bank = isBankEntityType(entityType);
+    if (bank) {
+      const scopeRefusal = bankLineScopeError(ctx);
+      if (scopeRefusal) return scopeRefusal;
     }
     const entityId = strArg(args, 'entity_id');
     if (!entityId) return toolError('entity_id is required');
     const bad = guardCastableArgs(args, { uuid: ['entity_id'] });
     if (bad) return bad;
 
-    const documentType = strArg(args, 'document_type') ?? defaultDocumentType(entityType as AccountingEntityType);
+    const documentType = strArg(args, 'document_type') ?? (bank ? 'other' : defaultDocumentType(entityType as AccountingEntityType));
     if (!(VALID_DOCUMENT_TYPES as readonly string[]).includes(documentType)) {
       return toolError(`invalid document_type — expected one of: ${VALID_DOCUMENT_TYPES.join(', ')}`);
     }
@@ -89,6 +99,8 @@ export const attachEntityDocumentTool: McpTool = {
       return toolError(`invalid mime_type — expected one of: ${ALLOWED_MIME_TYPES.join(', ')}`);
     }
 
+    if (bank && !bankLineAcceptsMime(mimeType)) return toolError(`invalid mime_type — ${BANK_LINE_MIME_REFUSAL}`);
+
     const content = typeof args.content === 'string' ? args.content : '';
     if (!content) return toolError('content is required');
     const bytes = decodeUploadPayload(content);
@@ -98,6 +110,10 @@ export const attachEntityDocumentTool: McpTool = {
     }
     if (!magicBytesMatchMime(bytes, mimeType)) {
       return toolError(`File contents do not match mime_type ${mimeType}`);
+    }
+
+    if (bank) {
+      return attachToBankLine(ctx, { bankTxId: entityId, fileName, mimeType, bytes, maxBytes: ATTACH_ENTITY_MAX_BYTES });
     }
 
     // Typed: the id must be a row of the declared kind, not merely ours.
