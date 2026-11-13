@@ -25,7 +25,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { fetchARAgingInvoices } from '../ar/arAgingInvoices';
 import { fetchAPAgingInvoices } from '../ap/apAgingInvoices';
 import { getControlAccountBalances } from '../gl/controlAccountService';
-import { getLedgerPostedThrough } from '../reports/postedThroughService';
+import { getLedgerPostedThroughOrNull } from '../reports/postedThroughService';
 import { buildDocument, type DocumentInput } from './partyLedgerClassify';
 import { buildTotals, checkPartyInvariants } from './partyLedgerTotals';
 import { readPartyInvoices, type PartyQueryArgs } from './partyLedgerInvoiceQuery';
@@ -51,7 +51,6 @@ import type {
 
 export { PartyTooLargeError } from './partyLedgerSize';
 
-const EPOCH = '1970-01-01T00:00:00.000Z';
 const KIND_ORDER: Record<PartyDocKind, string> = { invoice: '0', credit_note: '1', payment: '2', write_off: '3' };
 
 export function documentSortKey(d: Pick<PartyDocument, 'date' | 'kind' | 'id'>): string[] {
@@ -152,7 +151,7 @@ export async function partyLedgerCheck(
       .reduce((s, r) => s + Math.max(r.total - r.effectivePaid, 0), 0);
     const invariants = checkPartyInvariants({ documents, totals, invoiceOpenFromRows, glAvailable });
     const unattributed = await readUnattributed(companyId, side, asAtDate, controlIds);
-    const ledger = await getLedgerPostedThrough(companyId, asAtDate);
+    const postedThrough = await getLedgerPostedThroughOrNull(companyId, asAtDate);
 
     return {
       partyType,
@@ -165,7 +164,7 @@ export async function partyLedgerCheck(
       documents,
       invariants,
       unattributed,
-      postedThrough: ledger === EPOCH ? null : ledger,
+      postedThrough,
     };
   } catch (err) {
     log.error('Failed to run the party ledger check', { partyType, error: err }, 'accounting');

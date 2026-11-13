@@ -12,6 +12,8 @@ import { assertPartySize, PartyTooLargeError } from '@/modules/accounting/servic
 import { fetchStatementData } from '@/modules/accounting/services/ar/statementEmailService';
 import { fetchSupplierStatementData } from '@/modules/accounting/services/ap/supplierStatementService';
 import { fmtDate } from '@/lib/fmtDate';
+import { randomUUID } from 'crypto';
+import { getLedgerPostedThrough, getLedgerPostedThroughOrNull } from '@/modules/accounting/services/reports/postedThroughService';
 import { partyLedgerCheckTool } from '@/lib/mcp/tools/partyLedgerCheck';
 import type { McpToolContext } from '@/lib/mcp/types';
 import {
@@ -215,5 +217,17 @@ describeIfDb('party_ledger_check edges', () => {
     expect(c.totals).toMatchObject({ statementBalance: 600, glControlNet: 150, statementMinusGl: 450, unexplainedResidual: 0 });
     const r = (await partyLedgerCheck(COMPANY, 'customer', voidCustomer, AS_AT))!;
     expect(r.documents.flatMap((d) => d.flags.map((f) => f.class))).toEqual(['cancelled_payment_journal_stands']);
+  });
+
+  it('posted_through is the real watermark, and null (never the epoch) when no ledger row was consumed', async () => {
+    const c = (await partyLedgerCheck(COMPANY, 'customer', pager, AS_AT))!;
+    expect(c.postedThrough).toMatch(/^20\d\d-\d\d-\d\dT/);
+    const none = randomUUID();
+    expect(await getLedgerPostedThroughOrNull(none, AS_AT)).toBeNull();
+    expect((await getLedgerPostedThroughOrNull(COMPANY, '2000-01-01'))).toBeNull();
+    // The legacy reader keeps its sentinel for its scheduled callers.
+    expect(await getLedgerPostedThrough(none, AS_AT)).toBe('1970-01-01T00:00:00.000Z');
+    const early = (await partyLedgerCheck(COMPANY, 'customer', pager, '2000-01-01'))!;
+    expect(early.postedThrough).toBeNull();
   });
 });
