@@ -90,15 +90,25 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — refusals write nothi
     expect(await payStatus(ids[0]!)).toBe('processed');
   }, 120000);
 
+  // Round 5: in its own month — an unlinked journal with an undo-share reference is now a hand undo of every share
+  // of its month on these accounts (refusing-side limit), so it must not share a month with this file's other shares.
   it('a live journal already carrying this bill and payment\'s undo reference (belt and braces)', async () => {
-    const s = await scenario('TWICE', '2026-05-31');
-    await postedJournal(fx, '2026-05-31', [{ account: a.expense, debit: 1 }, { account: a.clearing, credit: 1 }], `undo-share:${s.pay}:${s.bill.id}`);
+    const s = await scenario('TWICE', '2026-12-31', '2026-12-10');
+    await postedJournal(fx, '2026-12-31', [{ account: a.expense, debit: 1 }, { account: a.clearing, credit: 1 }], `undo-share:${s.pay}:${s.bill.id}`);
     expect(text(await undo(s.pay, s.share))).toMatch(/was already undone by JE-/);
     expect(await payStatus(s.pay)).toBe('processed');
   }, 120000);
 
   // Round 4: in its own month — a hand undo now counts against EVERY share of its month on these accounts
   // (refusing-side limit), so it must not share a month with this file's other shares.
+  it('round 5: an undo LINKED to the share for the bill (another payment) is a prior undo, by the link', async () => {
+    const s = await scenario('LINKED', '2026-05-31');
+    expect((await undo(s.pay, s.share)).isError).toBeFalsy();
+    const p2 = await contra(s.bill.id, 1150);
+    expect(text(await undo(p2, s.share))).toMatch(/was already undone by JE-/);
+    expect(await payStatus(p2)).toBe('processed');
+  }, 120000);
+
   it('a hand undo of the share uses its capacity: the undo is refused, naming the hand journal', async () => {
     const s = await scenario('HAND', '2026-11-30', '2026-11-10');
     const [hand] = (await sql`SELECT entry_number FROM gl_journal_entries WHERE id = ${await postedJournal(fx, '2026-11-30', [

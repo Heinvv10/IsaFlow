@@ -28,12 +28,15 @@ export class ShareHasLiveUndosError extends Error {
   }
 }
 
-/** The live undo journals linked to `journalId` (empty for every journal that is not a share). */
+/**
+ * The live undo journals linked to `journalId` by `source_record_id` — the link, whatever the reference says (round 5).
+ * Empty for every journal that is not a share: nothing else sets a journal's id as another journal's source record.
+ */
 export async function liveUndoSharesOf(companyId: string, journalId: string): Promise<string[]> {
   const rows = (await sql`
     SELECT COALESCE(entry_number, id::TEXT) AS n FROM gl_journal_entries
     WHERE company_id = ${companyId}::UUID AND source_record_id = ${journalId}::UUID
-      AND reference LIKE 'undo-share:%' AND status IN ('draft', 'posted') AND reversed_at IS NULL
+      AND status IN ('draft', 'posted') AND reversed_at IS NULL
     ORDER BY entry_number`) as DbRow[];
   return rows.map((r) => String(r.n));
 }

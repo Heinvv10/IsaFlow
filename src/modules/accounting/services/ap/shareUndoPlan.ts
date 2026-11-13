@@ -21,6 +21,8 @@
  *     back — cumulatively across every live undo of it, linked or by hand (`shareUndoGuards.ts`);
  *   - a share that debits X by more than this payment applied (it carries other bills, and its lines do not say how
  *     much of each) unless `undo_amounts` says how much of each bill it reversed;
+ *   - another REVERSED share of the same shape in the share's or the bills' months — a re-dated share whose reversal
+ *     may already have restored the bill (round 5, `shareUndoHandUndos.findRedatedShares`);
  *   - a share date in a period that is not open, or in a locked VAT period — no roll;
  *   - an undo account that is deactivated or a header;
  *   - a live journal already carrying `undo-share:<payment>:<bill>`. Belt and braces: a voided payment is refused
@@ -48,6 +50,7 @@ import {
   ShareUndoRefusal, undoShareReference, type ShareUndoChoices, type ShareUndoJournalPlan, type ShareUndoPlan,
 } from './shareUndoTypes';
 import { assertAccountsPostable, assertDateOpen, assertShareCapacity } from './shareUndoGuards';
+import { SHARE_SOURCES, findRedatedShares } from './shareUndoHandUndos';
 import {
   countSiblingPayments, findPriorUndos, hasLateClaimCompanion, lockShareJournal, readBills, readJournalHead,
   readJournalLines, readPaymentAllocations, readPaymentKind, type BillRow, type JournalLineRow,
@@ -58,12 +61,7 @@ export { ShareUndoRefusal } from './shareUndoTypes';
 const standing = (h: { status: string; reversed: boolean } | null) => h !== null && h.status === 'posted' && !h.reversed;
 const cents = (n: number) => toCents(n);
 const isAp = (l: JournalLineRow) => canonicalSubtype(l.accountSubtype) === 'payable';
-/**
- * The manual-journal family (the R-035 manual-journal paths: entered in the UI or by MCP, GL import, recurring
- * journal). Only these can be a share; a document's posting (bill, payment, reversal of a document…) never is — so a
- * share with live undos, which `gl/shareUndoReversalGuard` refuses to reverse, is never a document's journal.
- */
-const SHARE_SOURCES: readonly string[] = ['manual', 'auto_gl_import', 'auto_recurring'];
+
 
 export async function planShareUndo(
   companyId: string, payment: VoidingPayment, shareJournalId: string, choices: ShareUndoChoices = {},
@@ -128,14 +126,24 @@ export async function planShareUndo(
   }
   legsByAccount.set(x.glAccountId, x);
 
-  await assertShareCapacity(companyId, share, shareLines, x, journals, billDates);
-  await assertDateOpen(companyId, share.entryDate, journals);
-  await assertAccountsPostable(companyId, legsByAccount, journals);
-  const prior = await findPriorUndos(companyId, journals.map((j) => j.reference));
+  const prior = await findPriorUndos(companyId, share.id, journals);
   for (const j of journals) {
-    const by = prior.get(j.reference);
+    const by = prior.get(j.billId);
     if (by) throw new ShareUndoRefusal(`The share of ${j.billNumber} for ${label} was already undone by ${by}.`);
   }
+  await assertShareCapacity(companyId, share, shareLines, x, journals, billDates);
+  // Round 5: a share reversed and re-posted in the window may have left this bill out; its reversal already
+  // restored it. Indistinguishable from a re-post that kept it, so refused outright.
+  const redated = await findRedatedShares(companyId, share.id, x.glAccountId, billDates);
+  if (redated.length > 0) {
+    throw new ShareUndoRefusal(`Share journal${redated.length === 1 ? '' : 's'} ${redated.slice(0, 10).join(', ')}`
+      + `${redated.length > 10 ? ` and ${redated.length - 10} more` : ''} of the same shape (clearing account `
+      + `${x.accountCode ?? x.glAccountId}, the same accounts, the same months) ${redated.length === 1 ? 'was' : 'were'} `
+      + 'reversed — a share re-dated by reverse-and-repost, whose reversal may already have restored this bill. '
+      + 'Undo the share by hand after checking which bills the re-posted share carries.');
+  }
+  await assertDateOpen(companyId, share.entryDate, journals);
+  await assertAccountsPostable(companyId, legsByAccount, journals);
   return {
     paymentId: payment.id, paymentNumber: payment.paymentNumber,
     clearingAccount: { id: x.glAccountId, code: x.accountCode, name: x.accountName },

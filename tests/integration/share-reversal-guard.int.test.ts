@@ -60,7 +60,8 @@ describe.skipIf(!DATABASE_URL || !process.env.JWT_SECRET)('reversing a share jou
   afterAll(async () => { await dropRouteUser(fx); await dropStepExtras(fx); await dropFixture(fx); }, 120000);
 
   it('is refused by MCP (dry and live) and REST with nothing written; after the undo is reversed, the share reverses', async () => {
-    const s = await scenario('SHREV', '2026-05-31');
+    // Round 5: own month — its reversed share is a re-date fingerprint for every same-shape share of its month.
+    const s = await scenario('SHREV', '2026-08-31', '2026-08-10');
     const u = await call({ payment_id: s.pay, undo_share: true, share_journal_id: s.share, idempotency_key: crypto.randomUUID() });
     expect(u.isError, text(u)).toBeFalsy();
     const before = await ledger(fx);
@@ -113,12 +114,17 @@ describe.skipIf(!DATABASE_URL || !process.env.JWT_SECRET)('reversing a share jou
   it('an ordinary journal is unaffected: MCP and REST reverse it as before', async () => {
     const j1 = await postedJournal(fx, '2026-06-10', [{ account: a.expense, debit: 10 }, { account: a.bank, credit: 10 }]);
     const j2 = await postedJournal(fx, '2026-06-11', [{ account: a.expense, debit: 20 }, { account: a.bank, credit: 20 }]);
-    // A journal that names j1 as its causing record but is not an undo-share journal does not block j1's reversal.
-    const j3 = await postedJournal(fx, '2026-06-12', [{ account: a.expense, debit: 5 }, { account: a.bank, credit: 5 }]);
-    await sql`UPDATE gl_journal_entries SET source_record_id = ${j1}::UUID WHERE id = ${j3}::UUID AND company_id = ${fx.companyId}::UUID`;
     const r = await reverseTool(j1);
     expect(r.isError, text(r)).toBeFalsy();
     expect((await callRoute(fx, token, journalEntriesAction, { id: j2, action: 'reverse' })).statusCode).toBe(200);
     expect([await reversedAt(j1), await reversedAt(j2)].every((v) => v != null)).toBe(true);
+  }, 120000);
+
+  it('round 5: the LINK decides — a live journal naming a share as its source record blocks it, whatever its reference', async () => {
+    const j1 = await postedJournal(fx, '2026-06-13', [{ account: a.expense, debit: 10 }, { account: a.bank, credit: 10 }]);
+    const j3 = await postedJournal(fx, '2026-06-14', [{ account: a.expense, debit: 5 }, { account: a.bank, credit: 5 }], 'not an undo-share reference');
+    await sql`UPDATE gl_journal_entries SET source_record_id = ${j1}::UUID WHERE id = ${j3}::UUID AND company_id = ${fx.companyId}::UUID`;
+    expect(text(await reverseTool(j1))).toMatch(/is the share journal of undo-share journal/);
+    expect(await reversedAt(j1)).toBeNull();
   }, 120000);
 });

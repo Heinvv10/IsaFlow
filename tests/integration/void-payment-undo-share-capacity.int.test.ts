@@ -64,20 +64,28 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — cumulative share cap
       .toMatch(/does not hold the R\s?150\.00 being undone on 1560731/);
   }, 120000);
 
-  it('another share\'s linked undo, or the reversal of another share, is not a hand undo of this one', async () => {
-    const shareOf = () => postedJournal(fx, '2026-05-31', [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
+  // Round 5: split, each half in its own month. The linked-undo half is unchanged; the reversed-share half is now the
+  // re-date fingerprint, refused outright (was: allowed), so it must not share a month with this file's other shares.
+  it('another share\'s linked undo is not a hand undo of this one', async () => {
+    const shareOf = () => postedJournal(fx, '2026-11-30', [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
       { account: a.vatInput, credit: 150, vatType: 'standard' }]);
-    const [b1, b2, b3] = [await billWithJournal(fx, a, 'OTHER1', '2026-05-10', legs()),
-      await billWithJournal(fx, a, 'OTHER2', '2026-05-11', legs()), await billWithJournal(fx, a, 'OTHER3', '2026-05-12', legs())];
+    const [b1, b2] = [await billWithJournal(fx, a, 'OTHER1', '2026-11-10', legs()), await billWithJournal(fx, a, 'OTHER2', '2026-11-11', legs())];
     const [p1, p2] = [await contra(b1.id, 1150), await contra(b2.id, 1150)];
-    await contra(b3.id, 1150);
-    const [s1, s2, s3] = [await shareOf(), await shareOf(), await shareOf()];
-    // An undo linked to s1, created after s2 and s3, on the same accounts: not s2's.
+    const [s1, s2] = [await shareOf(), await shareOf()];
+    // An undo linked to s1, created after s2, on the same accounts: counted against s1 (its link), not s2.
     expect((await undo(p1, s1)).isError).toBeFalsy();
-    // s3 reversed (no undos of it): its reversal debits the accounts and credits the clearing account — not s2's either.
-    await inTx(fx, () => reverseJournalEntry(fx.companyId, s3, fx.userId));
     const r = await undo(p2, s2);
     expect(r.isError, text(r)).toBeFalsy();
+  }, 120000);
+
+  it('another REVERSED share of the same shape in the window refuses (the re-date fingerprint)', async () => {
+    const shareOf = () => postedJournal(fx, '2026-12-31', [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
+      { account: a.vatInput, credit: 150, vatType: 'standard' }]);
+    const b = await billWithJournal(fx, a, 'FPRINT', '2026-12-10', legs());
+    const p = await contra(b.id, 1150);
+    const [s, other] = [await shareOf(), await shareOf()];
+    await inTx(fx, () => reverseJournalEntry(fx.companyId, other, fx.userId));
+    expect(text(await undo(p, s))).toMatch(/was reversed — a share re-dated by reverse-and-repost/);
   }, 120000);
 
   it('Velocity-shaped: monthly shares on the same accounts — a June hand undo does not refuse a May undo', async () => {

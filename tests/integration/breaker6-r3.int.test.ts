@@ -107,7 +107,10 @@ describe.skipIf(!DATABASE_URL)('breaker6 round 3', () => {
     const p2 = await contra(b.id, 150);
     const u2 = await undo(p2, s2);
     const l = await ledger(fx);
-    expect({ shareRevRefusedWhileLive, shareRevError, u2: u2.isError ? text(u2) : 'ok', vatDelta: r2(await vat07() - vat0), balanced: l.balanced })
-      .toEqual({ shareRevRefusedWhileLive: true, shareRevError: null, u2: 'ok', vatDelta: 19.57, balanced: true });
+    expect({ shareRevRefusedWhileLive, shareRevError,
+      u2: u2.isError && /a share re-dated by reverse-and-repost/.test(text(u2)) ? 'refused: re-date fingerprint' : text(u2), vatDelta: r2(await vat07() - vat0), balanced: l.balanced })
+      // Round 5 (rule change, breaker REPRO 20): the reversed share s in the window is the re-date fingerprint, so the
+      // undo against s2 is refused outright (was: 'ok', delta 19.57). Refused, b's share stays taken by s2: delta 0.
+      .toEqual({ shareRevRefusedWhileLive: true, shareRevError: null, u2: 'refused: re-date fingerprint', vatDelta: 0, balanced: true });
   }, 120000);
 });

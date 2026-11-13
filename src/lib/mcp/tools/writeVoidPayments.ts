@@ -176,10 +176,13 @@ export const voidPaymentTool = voidTool(
   + 'on each bill account, less every earlier live undo of that share. A share that debits the clearing account by '
   + 'more than this payment applied carries other bills: then undo_amounts (how much of each bill it reversed, from '
   + "the share's own working) is required. Hand undos count against what the share holds, like an earlier undo: ANY "
-  + "journal dated in the share's month or a bill's month that credits the clearing account and debits the share's "
-  + 'accounts (netted with its reversals) — even one that undid a different share or bill, so a legitimate undo can be '
-  + 'refused; then post that undo by hand. A hand undo dated outside both months is not seen. Only a manual journal '
-  + '(entered, imported or recurring) can be a share. Also '
+  + "journal not linked to a share, dated in the share's month or a bill's month, that credits the clearing account "
+  + "and debits the share's accounts — counted GROSS (a correction netting the clearing account to nil still counts), "
+  + 'netted only with its own reversals — even one that undid a different share or bill. Another REVERSED share of the '
+  + 'same shape in those months (a share re-dated by reverse-and-repost) refuses the undo outright. Either can refuse a '
+  + 'legitimate undo; then post that undo by hand. A hand undo dated outside both months is not seen. Only a manual '
+  + 'journal (entered, imported or recurring) can be a share, and an undo is linked to its share by source record, '
+  + 'not by its reference text. Also '
   + 'refused: a late-claimed bill and a deactivated account. A share with live undos cannot be reversed (re-dating a '
   + 'share by reverse-and-repost): reverse its undos first. The undo journals carry no source document, so the '
   + 'pre-filing VAT input check lists their VAT Input lines as no_document; the bill is the evidence. Under manual-journal '

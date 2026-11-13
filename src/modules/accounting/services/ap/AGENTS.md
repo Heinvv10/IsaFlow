@@ -65,6 +65,7 @@ Invoked by `withAuth`-wrapped API routes in `pages/api/accounting/ap/*`. Every p
 - `scripts/migrations/sql/*supplier_invoice*`, `*purchase_order*`, `*supplier_payment*`.
 
 ## Recent changes
+- 2026-11-13 (step 6, review round 5): `shareUndoHandUndos` counts hand undos gross with depth-signed chains, excludes only journals linked to a journal, and adds `findRedatedShares` (the re-date fingerprint, refused in `planShareUndo`); `SHARE_SOURCES` lives there; `findPriorUndos(companyId, shareId, journals)` keys on the link.
 - 2026-11-13 (step 6, review round 4): `shareUndoHandUndos.readHandUndoConsumption` takes the undone bills' dates (from `planShareUndo`) and counts every hand-undo chain in the share's month ∪ the bills' months, with no attribution; `BillRow.invoiceDate` added.
 - 2026-11-13 (step 6, review round 3): `shareUndoHandUndos.ts` — the hand-undo read split out of `shareUndoReads.readShareConsumption` (month window, attribution, signed chain netting); `planShareUndo` accepts only a manual-family journal as a share.
 - 2026-11-13 (step 6, review round 2): share capacity counts hand undos (`readShareConsumption`, no more refusal for a hand-undo look-alike; `findManualUndo` / `assertNoManualUndo` / `acknowledgeManualUndo` removed); `gl/shareUndoReversalGuard` refuses reversing a share with live undo journals; `multiple_sources` requires a contra kind ≥ half.

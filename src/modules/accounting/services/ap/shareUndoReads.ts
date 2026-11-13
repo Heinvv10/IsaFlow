@@ -124,14 +124,23 @@ export async function readAccountCode(companyId: string, accountId: string): Pro
   return rows[0]?.account_code == null ? accountId : String(rows[0].account_code);
 }
 
-/** Live (draft or posted, not reversed) journals already carrying one of these undo references. */
-export async function findPriorUndos(companyId: string, references: readonly string[]): Promise<Map<string, string>> {
+/**
+ * A live (draft or posted, not reversed) earlier undo of each bill, keyed by bill id: one carrying this payment's
+ * exact reference, or any undo LINKED to this share (`source_record_id`) whose reference names the bill
+ * (`undo-share:<any payment>:<bill>`) — round 5: the link, not the reference text, says what is an undo of the share.
+ */
+export async function findPriorUndos(
+  companyId: string, shareJournalId: string, journals: readonly { billId: string; reference: string }[],
+): Promise<Map<string, string>> {
   const rows = (await sql`
-    SELECT reference, entry_number FROM gl_journal_entries
-    WHERE company_id = ${companyId}::UUID AND reference = ANY(${[...references]}::TEXT[])
-      AND status IN ('draft', 'posted') AND reversed_at IS NULL
-    ORDER BY reference, entry_number`) as DbRow[];
-  return new Map(rows.map((r) => [String(r.reference), String(r.entry_number ?? '(unnumbered)')]));
+    SELECT b.bill_id, je.entry_number
+    FROM UNNEST(${journals.map((j) => j.billId)}::TEXT[], ${journals.map((j) => j.reference)}::TEXT[]) AS b(bill_id, ref)
+    JOIN gl_journal_entries je ON je.company_id = ${companyId}::UUID
+      AND je.status IN ('draft', 'posted') AND je.reversed_at IS NULL
+      AND (je.reference = b.ref
+           OR (je.source_record_id = ${shareJournalId}::UUID AND je.reference LIKE 'undo-share:%:' || b.bill_id))
+    ORDER BY b.bill_id, je.entry_number`) as DbRow[];
+  return new Map(rows.map((r) => [String(r.bill_id), String(r.entry_number ?? '(unnumbered)')]));
 }
 
 /**
@@ -157,7 +166,7 @@ export interface ShareConsumption {
 
 /**
  * What has already come back out of this share, per account, in cents: the LINKED undos (`source_record_id` = the
- * share, reference `undo-share:…`, live — what void_payment writes) plus the HAND undos attributed to it
+ * share, live, whatever their reference — what void_payment writes) plus every HAND undo in its window
  * (`shareUndoHandUndos.readHandUndoConsumption`, which says how).
  */
 export async function readShareConsumption(
@@ -168,7 +177,7 @@ export async function readShareConsumption(
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = ${companyId}::UUID
     WHERE jl.company_id = ${companyId}::UUID AND je.source_record_id = ${shareJournalId}::UUID
-      AND je.reference LIKE 'undo-share:%' AND je.status IN ('draft', 'posted') AND je.reversed_at IS NULL
+      AND je.status IN ('draft', 'posted') AND je.reversed_at IS NULL
     GROUP BY jl.gl_account_id`) as DbRow[];
   const byAccount = new Map<string, { debit: number; credit: number }>();
   for (const r of rows) {
