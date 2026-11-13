@@ -9,9 +9,9 @@
  * than silently trusted.
  */
 import type { SageClient } from './client';
-import { PAGE_SIZE } from './client';
+import { PAGE_SIZE, SageRequestError } from './client';
 import type { SageResourceName } from './endpoints';
-import { fail, ok, odataDate, type ToolResult } from './result';
+import { fail, isRealDateTime, localToday, ok, odataDate, type ToolResult } from './result';
 
 const MAX_PAGES = 50;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -37,16 +37,29 @@ const PLAN: Record<Party, { record: SageResourceName; idField: string; parts: Ar
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
-async function sumTotals(client: SageClient, resource: SageResourceName, filter: string): Promise<{ count: number; total: number }> {
+async function sumTotals(
+  client: SageClient, resource: SageResourceName, filter: string, idField: string, partyId: number,
+): Promise<{ count: number; total: number }> {
   let count = 0;
   let total = 0;
   for (let page = 0; page < MAX_PAGES; page++) {
     const p = await client.list(resource, { filter, page });
-    for (const r of p.results) total += Number(r.Total ?? 0);
+    for (const r of p.results) {
+      // A row for another party means Sage ignored the filter field: refuse rather than sum every party.
+      if (Number(r[idField]) !== partyId) {
+        throw new SageRequestError(`${resource}: Sage returned a document of another party for ${idField} eq ${partyId}; balance not computed`, null);
+      }
+      // A missing or non-numeric Total is refused, never counted as 0.
+      const amount = typeof r.Total === 'number' ? r.Total : Number.NaN;
+      if (!Number.isFinite(amount)) {
+        throw new SageRequestError(`${resource} ${String(r.ID ?? '?')}: no numeric Total; balance not computed`, null);
+      }
+      total += amount;
+    }
     count += p.results.length;
     if (p.results.length === 0 || (page + 1) * PAGE_SIZE >= p.totalResults) return { count, total: round2(total) };
   }
-  throw new Error(`${resource}: more than ${MAX_PAGES * PAGE_SIZE} documents; narrow the date`);
+  throw new SageRequestError(`${resource}: more than ${MAX_PAGES * PAGE_SIZE} documents; balance not computed`, null);
 }
 
 async function resolveParty(client: SageClient, party: Party, args: Record<string, unknown>): Promise<Record<string, unknown> | ToolResult> {
@@ -65,7 +78,9 @@ async function resolveParty(client: SageClient, party: Party, args: Record<strin
 export async function partyBalance(args: Record<string, unknown>, client: SageClient, today = new Date()): Promise<ToolResult> {
   const party = args.party;
   if (party !== 'supplier' && party !== 'customer') return fail('party must be "supplier" or "customer"');
-  if (args.as_at !== undefined && (typeof args.as_at !== 'string' || !DAY.test(args.as_at))) return fail('as_at must be YYYY-MM-DD');
+  if (args.as_at !== undefined && (typeof args.as_at !== 'string' || !DAY.test(args.as_at) || !isRealDateTime(args.as_at))) {
+    return fail('as_at must be a real date, YYYY-MM-DD');
+  }
 
   const rec = await resolveParty(client, party, args);
   if ('content' in rec && Array.isArray(rec.content)) return rec as ToolResult;
@@ -83,16 +98,18 @@ export async function partyBalance(args: Record<string, unknown>, client: SageCl
   const components: Array<Record<string, unknown>> = [];
   let computed = 0;
   for (const part of plan.parts) {
-    const s = await sumTotals(client, part.resource, filter);
+    const s = await sumTotals(client, part.resource, filter, plan.idField, Number(id));
     components.push({ resource: part.resource, documents: s.count, total: s.total, counted: part.sign !== 0, sign: part.sign });
     computed += part.sign * s.total;
   }
-  const todayIso = today.toISOString().slice(0, 10);
+  const todayIso = localToday(today);
   const current = asAt >= todayIso && Number.isFinite(sageBalance);
   return ok({
     ...head,
     as_at: asAt,
-    balance: round2(computed),
+    // Not called `balance`: it leaves out adjustments and opening balances, so it is not the ledger balance.
+    documents_balance: round2(computed),
+    incomplete: true,
     method: 'computed_from_documents',
     components,
     not_counted: ['adjustments (listed above, sign unverified)', 'opening balances'],

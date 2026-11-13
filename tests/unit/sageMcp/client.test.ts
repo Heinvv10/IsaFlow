@@ -3,7 +3,7 @@
  * 401 is recorded and never retried, nothing secret leaks into an error.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SageClient, SageRequestError, assertSafeFilter, scrub, type FetchLike } from '../../../packages/sage-readonly-mcp/src/client';
@@ -88,6 +88,18 @@ describe('SageClient requests', () => {
   });
 });
 
+describe('request hardening (review round 1)', () => {
+  it('never follows a redirect (the api key is in the query string)', async () => {
+    await client.list('Supplier');
+    expect((fetchMock.mock.calls[0]![1] as { redirect: string }).redirect).toBe('error');
+  });
+
+  it('refuses an attachment over the size cap', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('x', { status: 200, headers: { 'content-length': String(60 * 1024 * 1024) } }));
+    await expect(client.download(1)).rejects.toThrow(/larger than/);
+  });
+});
+
 describe('login failures and the lockout guard', () => {
   it('records a 401, does not retry it, and stops sending once MAX_FAILURES are in the hour', async () => {
     fetchMock.mockResolvedValue(json({}, 401));
@@ -113,5 +125,40 @@ describe('login failures and the lockout guard', () => {
     expect(() => ledger.assertMayAttempt()).toThrow(SageLockoutGuardError);
     now += 60 * 60 * 1000 + 1;
     expect(() => ledger.assertMayAttempt()).not.toThrow();
+  });
+});
+
+describe('the ledger fails closed (review round 1)', () => {
+  it('a state dir that is a file fails closed before any request', async () => {
+    const notDir = join(dir, 'file');
+    writeFileSync(notDir, 'x');
+    const c = new SageClient(config(notDir), fetchMock as unknown as FetchLike);
+    await expect(c.list('Supplier')).rejects.toThrow(/cannot be read/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('a corrupt ledger stops every request', async () => {
+    writeFileSync(join(dir, 'auth-failures.log'), '{"not":"a timestamp"}\n');
+    await expect(client.list('Supplier')).rejects.toThrow(/corrupt/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('an unwritable state dir still counts the failure, and then refuses everything', async () => {
+    // A directory that can be read (no ledger yet) but not written: the failure cannot be recorded.
+    const blocked = join(dir, 'readonly');
+    mkdirSync(blocked, { mode: 0o500 });
+    const stuck = new SageClient(config(blocked), fetchMock as unknown as FetchLike);
+    fetchMock.mockResolvedValue(json({}, 401));
+    await expect(stuck.list('Supplier')).rejects.toThrow(/login refused/);
+    await expect(stuck.list('Supplier')).rejects.toThrow(/could not be written/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('two processes appending to one ledger both count', () => {
+    const a = new LoginFailureLedger(dir);
+    const b = new LoginFailureLedger(dir);
+    a.recordFailure(); b.recordFailure(); a.recordFailure();
+    expect(() => b.assertMayAttempt()).toThrow(SageLockoutGuardError);
+    expect(readFileSync(join(dir, 'auth-failures.log'), 'utf8').trim().split('\n')).toHaveLength(3);
   });
 });

@@ -64,7 +64,8 @@ export type PullKind = keyof typeof PULL_KINDS;
 
 /** Document types sage_get_document accepts: the short kinds plus every resource name. */
 export function resolveResource(type: string): SageResourceName | null {
-  if (type in PULL_KINDS) return PULL_KINDS[type as PullKind];
+  // Own keys only: `in` would also accept inherited names such as "constructor".
+  if (Object.prototype.hasOwnProperty.call(PULL_KINDS, type)) return PULL_KINDS[type as PullKind];
   return (RESOURCE_NAMES as string[]).includes(type) ? (type as SageResourceName) : null;
 }
 

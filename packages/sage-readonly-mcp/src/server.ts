@@ -8,6 +8,7 @@
  * the configuration error, so the agent can tell the operator what to fix instead of failing to
  * connect with no reason given.
  */
+import { realpathSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { SageClient } from './client';
 import { loadConfig, SageConfigError } from './config';
@@ -46,6 +47,8 @@ export async function handleMessage(msg: RpcRequest, deps: Deps): Promise<RpcRes
         tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: READ_ONLY })),
       });
     case 'tools/call': {
+      // A notification gets no reply, so it must not run a tool (a Sage request) either.
+      if (isNotification) return null;
       const name = msg.params?.name;
       if (typeof name !== 'string') return error(msg.id, -32602, 'tools/call needs params.name');
       const args = (msg.params?.arguments ?? {}) as Record<string, unknown>;
@@ -83,19 +86,36 @@ async function main(): Promise<void> {
   const rl = createInterface({ input: process.stdin });
   for await (const line of rl) {
     if (!line.trim()) continue;
-    let msg: RpcRequest;
+    let parsed: unknown;
     try {
-      msg = JSON.parse(line) as RpcRequest;
+      parsed = JSON.parse(line);
     } catch {
       process.stdout.write(`${JSON.stringify(error(null, -32700, 'Parse error'))}\n`);
       continue;
     }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      process.stdout.write(`${JSON.stringify(error(null, -32600, 'Invalid request: expected one JSON-RPC object per line'))}\n`);
+      continue;
+    }
+    const msg = parsed as RpcRequest;
     const res = await handleMessage(msg, deps);
     if (res) process.stdout.write(`${JSON.stringify(res)}\n`);
   }
 }
 
-if (process.argv[1] && /sage-readonly-mcp\/src\/server\.ts$/.test(process.argv[1])) {
+/** True when this file is the entry point, however it was reached (symlink, relative path). */
+function isEntryPoint(): boolean {
+  const argv1 = process.argv[1];
+  if (!argv1) return false;
+  try {
+    return /sage-readonly-mcp\/src\/server\.ts$/.test(realpathSync(argv1));
+  } catch {
+    // argv[1] is not a readable path (e.g. an inline eval): not this file.
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   main().catch((err: unknown) => {
     process.stderr.write(`sage-mcp: fatal ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);

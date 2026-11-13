@@ -3,13 +3,13 @@
  * credential, a URL or a company (the company is the one in the env file).
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PAGE_SIZE, SageClient, SageRequestError } from './client';
 import { SageLockoutGuardError } from './lockout';
 import { PULL_KINDS, RESOURCE_NAMES, resolveResource, type PullKind } from './endpoints';
 import { partyBalance } from './partyBalance';
-import { fail, odataDate, ok, type ToolResult } from './result';
+import { fail, isRealDateTime, odataDate, ok, type ToolResult } from './result';
 
 export type { ToolResult } from './result';
 
@@ -20,7 +20,6 @@ export interface SageTool {
   handler(args: Record<string, unknown>, deps: { client: SageClient; downloadDir: string }): Promise<ToolResult>;
 }
 
-const DATE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?$/;
 const MAX_PULL_PAGES = 10;
 
 function intArg(v: unknown, def: number, min: number, max: number): number | null {
@@ -53,7 +52,7 @@ const pullSince: SageTool = {
     const out: Record<string, unknown> = {};
     for (const kind of kinds) {
       const since = args[kind];
-      if (typeof since !== 'string' || !DATE.test(since)) return fail(`${kind}: date must be YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS`);
+      if (typeof since !== 'string' || !isRealDateTime(since)) return fail(`${kind}: date must be YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS`);
       const first = intArg(starts[kind], 0, 0, 100_000);
       if (first === null) return fail(`page_start.${kind} must be a non-negative integer`);
       const resource = PULL_KINDS[kind];
@@ -63,7 +62,8 @@ const pullSince: SageTool = {
       let page = first;
       let done = false;
       while (page < first + maxPages) {
-        const p = await client.list(resource, { filter, orderBy: 'Modified', page });
+        // ID breaks ties, so rows sharing a Modified time cannot move between pages.
+        const p = await client.list(resource, { filter, orderBy: 'Modified,ID', page });
         total = p.totalResults;
         items.push(...p.results);
         page++;
@@ -137,7 +137,10 @@ const download: SageTool = {
     const safe = (typeof args.file_name === 'string' ? args.file_name : 'attachment').replace(/[^A-Za-z0-9._-]/g, '_').replace(/\.{2,}/g, '.').slice(0, 120);
     mkdirSync(downloadDir, { recursive: true, mode: 0o700 });
     const path = join(downloadDir, `${String(args.id)}-${safe.replace(/^\.+/, '') || 'attachment'}`);
-    writeFileSync(path, bytes, { mode: 0o600 });
+    // Replace, never write through: an existing path (or a symlink planted there) is removed first and
+    // the file is created fresh (wx), so it always gets mode 600 and lands in the download folder.
+    rmSync(path, { force: true });
+    writeFileSync(path, bytes, { mode: 0o600, flag: 'wx' });
     return ok({ path, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), content_type: contentType });
   },
 };
@@ -146,7 +149,7 @@ const balance: SageTool = {
   name: 'sage_party_balance',
   description:
     'A supplier\'s or customer\'s balance in Sage, by numeric id or exact name. Without as_at it is Sage\'s own Balance '
-    + 'field. With as_at (YYYY-MM-DD) it is COMPUTED from the documents dated on or before it (invoices less returns '
+    + 'field (balance). With as_at (YYYY-MM-DD) it is documents_balance, flagged incomplete: true, COMPUTED from the documents dated on or before it (invoices less returns '
     + 'less payments/receipts; adjustments and opening balances are listed but NOT counted), with the components; when as_at is today '
     + 'or later, Sage\'s own figure and the difference are returned too. Read-only.',
   inputSchema: {

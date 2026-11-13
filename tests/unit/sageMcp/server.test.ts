@@ -32,6 +32,13 @@ describe('sage mcp server', () => {
     expect(r!.result).toEqual({ content: [{ type: 'text', text: 'No Sage env file at /x. Copy sage-env.template there and fill it in.' }], isError: true });
   });
 
+  it('a tools/call without an id is a notification: no reply and no Sage request', async () => {
+    const get = vi.mocked(client.get);
+    get.mockClear();
+    expect(await handleMessage({ jsonrpc: '2.0', method: 'tools/call', params: { name: 'sage_get_document', arguments: { type: 'siv', id: 1 } } }, deps)).toBeNull();
+    expect(get).not.toHaveBeenCalled();
+  });
+
   it('a notification gets no reply; an unknown request gets -32601', async () => {
     expect(await handleMessage({ jsonrpc: '2.0', method: 'notifications/initialized' }, deps)).toBeNull();
     expect(await handleMessage({ jsonrpc: '2.0', id: 5, method: 'resources/list' }, deps)).toMatchObject({ error: { code: -32601 } });

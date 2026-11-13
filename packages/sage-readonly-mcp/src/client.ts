@@ -10,12 +10,15 @@
  * - Error messages carry the status and resource only: never the URL (it holds the api key), the
  *   username or the Authorization header.
  * - Any field whose name mentions delete is dropped from replies (brief: never expose delete urls).
+ * - Redirects are refused, so the api key in the query string never reaches another host.
+ * - An attachment larger than MAX_DOWNLOAD_BYTES is refused rather than buffered.
  */
 import type { SageConfig } from './config';
 import { LoginFailureLedger } from './lockout';
 import { ATTACHMENT_DOWNLOAD_PATH, RESOURCES, type SageResourceName } from './endpoints';
 
 export const PAGE_SIZE = 100;
+export const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024;
 const TIMEOUT_MS = 30_000;
 const MAX_FILTER_LENGTH = 1000;
 
@@ -31,7 +34,10 @@ export interface SageListPage<T = Record<string, unknown>> {
   results: T[];
 }
 
-export type FetchLike = (url: string, init: { method: 'GET'; headers: Record<string, string>; signal: AbortSignal }) => Promise<Response>;
+export type FetchLike = (
+  url: string,
+  init: { method: 'GET'; headers: Record<string, string>; signal: AbortSignal; redirect: 'error' },
+) => Promise<Response>;
 
 export function assertSafeFilter(filter: string): void {
   if (filter.length > MAX_FILTER_LENGTH) throw new SageRequestError(`filter is longer than ${MAX_FILTER_LENGTH} characters`, null);
@@ -81,6 +87,8 @@ export class SageClient {
         method: 'GET',
         headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' },
         signal: AbortSignal.timeout(TIMEOUT_MS),
+        // Never follow a redirect: the api key is in the query string and would go with it.
+        redirect: 'error',
       });
     } catch (err) {
       const reason = err instanceof Error && err.name === 'TimeoutError' ? 'timed out' : 'could not be reached';
@@ -131,6 +139,12 @@ export class SageClient {
   /** Raw bytes of one attachment, with the content type Sage sent. */
   async download(id: string | number): Promise<{ bytes: Buffer; contentType: string | null }> {
     const res = await this.send(`${ATTACHMENT_DOWNLOAD_PATH}/${assertId(id)}`, {}, `attachment ${id}`);
-    return { bytes: Buffer.from(await res.arrayBuffer()), contentType: res.headers.get('content-type') };
+    const declared = Number(res.headers.get('content-length') ?? NaN);
+    if (Number.isFinite(declared) && declared > MAX_DOWNLOAD_BYTES) {
+      throw new SageRequestError(`Sage attachment ${id}: larger than ${MAX_DOWNLOAD_BYTES} bytes`, res.status);
+    }
+    const bytes = Buffer.from(await res.arrayBuffer());
+    if (bytes.length > MAX_DOWNLOAD_BYTES) throw new SageRequestError(`Sage attachment ${id}: larger than ${MAX_DOWNLOAD_BYTES} bytes`, res.status);
+    return { bytes, contentType: res.headers.get('content-type') };
   }
 }

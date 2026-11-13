@@ -13,7 +13,7 @@ is stripped from replies.
 | Tool | What it returns |
 |---|---|
 | `sage_pull_since({bank?, siv?, ti?, ret?, cret?, max_pages?, page_start?})` | Records modified on or after each date, 100 per page, with a `next_page` cursor per kind |
-| `sage_party_balance({party, id? \| name?, as_at?})` | Sage's own balance; with `as_at`, a balance computed from the documents dated on or before it, with the parts listed |
+| `sage_party_balance({party, id? \| name?, as_at?})` | Sage's own `balance`; with `as_at`, `documents_balance` (flagged `incomplete`) computed from the documents dated on or before it, with the parts listed |
 | `sage_get_document({type, id})` | One record (`type` = siv, ti, ret, cret, bank or a resource name) |
 | `sage_download_attachment({id, file_name?})` | Saves the file locally (mode 600) and returns path, size, sha256, content type |
 | `sage_list({service, filter?, order_by?, page?})` | One page of any listed resource, with an OData `$filter` / `$orderby` |
@@ -42,9 +42,14 @@ the username.
 ## Failed logins
 
 Sage locks a user after 20 failed logins in an hour. A 401 or 403 is never retried, and each one is
-recorded in `~/.config/isaflow-sage-mcp/auth-failures.json`. After **3** in a rolling hour the server
-sends no further requests until the oldest one is an hour old, even across restarts. A wrong password
-therefore costs at most 3 of Sage's 20.
+appended (one line, atomic across processes) to `~/.config/isaflow-sage-mcp/auth-failures.log`. After
+**3** in a rolling hour the server sends no further requests until the oldest one is an hour old, even
+across restarts. A wrong password therefore costs at most 3 of Sage's 20.
+
+It fails closed: a ledger that cannot be read or holds anything but timestamps stops every request
+(check the Sage login is not locked, then delete the file), and a failure that cannot be written down
+stops the process until it is restarted with a writable state directory. Redirects are refused (the
+api key is in the URL) and attachments over 50 MB are refused.
 
 ## Not yet verified against a live company
 

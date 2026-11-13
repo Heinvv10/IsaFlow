@@ -51,7 +51,7 @@ describe('sage_pull_since', () => {
   it('filters on Modified per kind, ordered, and pages until done', async () => {
     stub.list.mockImplementation(async (_r, o) => (o!.page === 0 ? page([{ ID: 1 }], 150) : page([{ ID: 2 }], 150)));
     const out = data(await call('sage_pull_since', { siv: '2026-11-01', max_pages: 5 }));
-    expect(stub.list).toHaveBeenCalledWith('SupplierInvoice', { filter: "Modified ge datetime'2026-11-01T00:00:00'", orderBy: 'Modified', page: 0 });
+    expect(stub.list).toHaveBeenCalledWith('SupplierInvoice', { filter: "Modified ge datetime'2026-11-01T00:00:00'", orderBy: 'Modified,ID', page: 0 });
     expect(stub.list).toHaveBeenCalledTimes(2);
     expect(out.siv).toMatchObject({ resource: 'SupplierInvoice', total: 150, returned: 2, next_page: null });
   });
@@ -118,10 +118,12 @@ describe('sage_party_balance', () => {
     const totals: Record<string, number[]> = {
       SupplierInvoice: [1000, 200], SupplierReturn: [100], SupplierPayment: [400], SupplierAdjustment: [50],
     };
-    stub.list.mockImplementation(async (r) => page((totals[r] ?? []).map((t) => ({ Total: t }))));
+    stub.list.mockImplementation(async (r) => page((totals[r] ?? []).map((t) => ({ Total: t, SupplierId: 5 }))));
     const out = data(await partyBalance({ party: 'supplier', id: 5, as_at: '2026-11-13' }, client, new Date('2026-11-13T10:00:00Z')));
     expect(stub.list).toHaveBeenCalledWith('SupplierInvoice', { filter: "SupplierId eq 5 and Date le datetime'2026-11-13T23:59:59'", page: 0 });
-    expect(out.balance).toBe(700);
+    expect(out.documents_balance).toBe(700);
+    expect(out.incomplete).toBe(true);
+    expect(out.balance).toBeUndefined();
     expect(out.components.find((c: Row) => c.resource === 'SupplierAdjustment')).toMatchObject({ total: 50, counted: false });
     expect(out).toMatchObject({ method: 'computed_from_documents', sage_balance_field: 700, difference: 0 });
   });
@@ -132,5 +134,49 @@ describe('sage_party_balance', () => {
     const out = data(await partyBalance({ party: 'supplier', id: 5, as_at: '2026-01-31' }, client, new Date('2026-11-13T10:00:00Z')));
     expect(out.sage_balance_field).toBeUndefined();
     expect((await partyBalance({ party: 'supplier', id: 5, as_at: '31/01/2026' }, client)).isError).toBe(true);
+  });
+});
+
+describe('review hardening (round 1)', () => {
+  it('a missing or non-numeric Total is refused, never summed as 0', async () => {
+    stub.get.mockResolvedValue({ ID: 5, Balance: 1 });
+    stub.list.mockResolvedValue(page([{ ID: 9, SupplierId: 5 }]));
+    const r = await call('sage_party_balance', { party: 'supplier', id: 5, as_at: '2026-01-31' });
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toMatch(/no numeric Total/);
+  });
+
+  it('a row of another party (Sage ignored the filter) is refused', async () => {
+    stub.get.mockResolvedValue({ ID: 5, Balance: 1 });
+    stub.list.mockResolvedValue(page([{ ID: 9, SupplierId: 6, Total: 10 }]));
+    const r = await call('sage_party_balance', { party: 'supplier', id: 5, as_at: '2026-01-31' });
+    expect(r.content[0]!.text).toMatch(/another party/);
+  });
+
+  it('impossible dates are refused before any request', async () => {
+    expect((await call('sage_pull_since', { siv: '2026-02-30' })).isError).toBe(true);
+    expect((await call('sage_pull_since', { siv: '2026-11-01T25:00' })).isError).toBe(true);
+    expect((await call('sage_party_balance', { party: 'supplier', id: 5, as_at: '2026-99-99' })).isError).toBe(true);
+    expect(stub.list).not.toHaveBeenCalled();
+  });
+
+  it('an inherited property name is not a document type', async () => {
+    for (const type of ['constructor', 'toString', '__proto__']) {
+      expect((await call('sage_get_document', { type, id: 1 })).isError).toBe(true);
+      expect((await call('sage_list', { service: type })).isError).toBe(true);
+    }
+    expect(stub.get).not.toHaveBeenCalled();
+  });
+
+  it('download replaces a planted symlink instead of writing through it', async () => {
+    const { symlinkSync, lstatSync, writeFileSync: w, mkdirSync: mk, readFileSync: rd } = await import('node:fs');
+    mk(downloadDir, { recursive: true });
+    const victim = join(downloadDir, '..', 'victim.txt');
+    w(victim, 'original');
+    symlinkSync(victim, join(downloadDir, '55-attachment'));
+    stub.download.mockResolvedValue({ bytes: Buffer.from('new'), contentType: null });
+    const out = data(await call('sage_download_attachment', { id: 55 }));
+    expect(lstatSync(out.path).isSymbolicLink()).toBe(false);
+    expect(rd(victim, 'utf8')).toBe('original');
   });
 });
