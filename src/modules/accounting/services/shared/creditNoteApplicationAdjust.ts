@@ -71,8 +71,8 @@ export interface CreditNoteAdjustResult {
   documentOutstandingBefore: number;
   documentOutstandingAfter: number;
   noteTotal: number;
-  /** What the note's journal posted to the control account; read for an increase only, null on a decrease. */
-  notePosted: number | null;
+  /** What the note's journal posted to the control account (an increase is capped at it). */
+  notePosted: number;
   noteAppliedBefore: number;
   noteAppliedAfter: number;
   noteRemainderAfter: number;
@@ -181,13 +181,12 @@ async function buildPlan(
   const appliedBefore = prior.length > 0 ? round2(Number(prior[0]!.amount_allocated)) : 0;
   const appliedAfter = round2(input.newAmount);
   const change = round2(appliedAfter - appliedBefore);
-  // The direction decides what the ledger must show. Only an INCREASE needs posted credit (the cap, and a live
-  // journal); a decrease never does — taking credit back off a document is always allowed. Outside the catch
-  // below: a journal-lock timeout is retryable and must reach the registry as itself.
-  const credit = change > 0
-    ? await readPostedCreditOrRefuse(companyId, note, side, (m) => new CreditNoteAdjustRefusal(m))
-    : null;
-  const posted = credit?.posted ?? 0;
+  // Both directions need the note's journal chain STANDING — the check unapply makes, through the same helper: a
+  // decrease on a note whose chain is out would turn credit the GL no longer carries into on-account credit, which
+  // getUnappliedCreditNotes then lists and auto-apply spends. cancel_credit_note is the only way out for such a note.
+  // Only an INCREASE is then held to the posted amount (the cap, below). Outside the catch below: a journal-lock
+  // timeout is retryable and must reach the registry as itself.
+  const { posted } = await readPostedCreditOrRefuse(companyId, note, side, (m) => new CreditNoteAdjustRefusal(m));
 
   // Rows vs column: EXACT to raise what is applied, a cent of tolerance to lower it — so a note already a cent
   // apart is refused more credit by name but can always be brought down (to 0), and its figure after is re-derived
@@ -263,7 +262,7 @@ async function buildPlan(
     documentOutstandingBefore: outstanding,
     documentOutstandingAfter: round2(outstanding - change),
     noteTotal: total,
-    notePosted: credit ? posted : null,
+    notePosted: posted,
     noteAppliedBefore,
     noteAppliedAfter,
     noteRemainderAfter: round2(total - noteAppliedAfter),

@@ -75,8 +75,7 @@ describeIfDb('posted-credit rule: review edges', () => {
       const down = { creditNoteId: note, documentId: a, newAmount: 300 };
 
       const planned = await plan(down);
-      // A decrease never reads the posted credit (null): it needs none.
-      expect(planned).toMatchObject({ noteAppliedBefore: 1000, noteAppliedAfter: 700, notePosted: null });
+      expect(planned).toMatchObject({ noteAppliedBefore: 1000, noteAppliedAfter: 700, notePosted: 500 });
       expect(await adjust(down)).toEqual(planned);
 
       expect(await refusal(plan({ ...down, newAmount: 350 }))).toContain('never posted');
@@ -191,15 +190,19 @@ describeIfDb('posted-credit rule: review edges', () => {
     expect(lines(live)).toEqual(lines(dry));
   });
 
-  it('a decrease needs no posted credit: adjust down / to 0 works on a note whose journal is reversed', async () => {
+  it('a decrease is never capped, but a note whose chain is OUT is refused every adjustment, like unapply', async () => {
     const bill = await seedBill(fx, { number: 'DN', date: '2026-02-09', total: 500 });
     const note = await seedPostedNote(fx, { side: 'supplier', number: 'NDN', total: 80, posted: 80 });
     await adjust({ creditNoteId: note, documentId: bill, newAmount: 80 });
     const o = String(((await sql`SELECT gl_journal_entry_id FROM credit_notes WHERE id = ${note}::UUID`) as Record<string, unknown>[])[0]!.gl_journal_entry_id);
     await inTx(fx, () => reverseJournalEntry(fx.companyId, o, fx.userId));
 
-    expect(await refusal(adjust({ creditNoteId: note, documentId: bill, newAmount: 90 }))).toContain('reversed');
-    expect((await adjust({ creditNoteId: note, documentId: bill, newAmount: 30 })).noteAppliedAfter).toBe(30);
-    expect((await adjust({ creditNoteId: note, documentId: bill, newAmount: 0 })).noteAppliedAfter).toBe(0);
+    for (const newAmount of [90, 30, 0]) {
+      expect(await refusal(plan({ creditNoteId: note, documentId: bill, newAmount }))).toContain('reversed');
+      expect(await refusal(adjust({ creditNoteId: note, documentId: bill, newAmount }))).toContain('reversed');
+    }
+    const [row] = (await sql`SELECT applied_amount FROM credit_notes WHERE id = ${note}::UUID`) as Record<string, unknown>[];
+    expect(Number(row!.applied_amount)).toBe(80);
   });
+
 });
