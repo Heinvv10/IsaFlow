@@ -27,12 +27,18 @@ export function ThreeWayPage() {
   const q = router.query.version_id;
   const data = useThreeWay(typeof q === 'string' ? q : null);
   const [tab, setTab] = useState<TabId>('bs');
-  const { run } = data;
+  // A run is drawn only for the version selected (review M2): never the old figures under a new name.
+  const run = data.run && data.run.version.id === data.versionId ? data.run : null;
   const bs = useMemo(() => (run ? balanceSheetModel(run) : null), [run]);
   const cf = useMemo(() => (run ? cashFlowModel(run) : null), [run]);
   const ind = useMemo(() => (run ? indirectModel(run) : null), [run]);
   const locked = run?.version.status === 'locked';
   const current = data.versions.find((v) => v.id === data.versionId);
+  /** Select a version and keep it in the URL (?version_id=, shallow: no page reload; review L8). */
+  const selectVersion = (id: string) => {
+    data.select(id);
+    void router.replace({ pathname: router.pathname, query: { ...router.query, version_id: id } }, undefined, { shallow: true });
+  };
 
   return (
     <div className="mx-auto w-full max-w-[100rem] min-w-0 space-y-4 p-4 sm:p-6" data-testid="three-way-page">
@@ -52,11 +58,15 @@ export function ThreeWayPage() {
       {!data.loading && !data.error && data.versions.length === 0 && (
         <p className="text-sm text-[var(--ff-text-secondary)]">This year has no budget version yet. Create one on the budget page first.</p>
       )}
-      {!run && data.errorCode === 'BUDGET_ASSUMPTIONS_INVALID' && data.versionId && (
+      {!run && data.versionId && data.versions.length > 0 && (
+        // While loading or after a refused run the switcher stays, so another version can be opened (review M3).
+        <select aria-label="Budget version" className={SELECT} value={data.versionId} disabled={data.loading}
+          onChange={(e) => selectVersion(e.target.value)} data-testid="three-way-version-fallback">
+          {data.versions.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+        </select>
+      )}
+      {!run && !data.loading && data.errorCode === 'BUDGET_ASSUMPTIONS_INVALID' && data.versionId && (
         <div className="space-y-3" data-testid="three-way-replace">
-          <select aria-label="Budget version" className={SELECT} value={data.versionId} onChange={(e) => data.select(e.target.value)}>
-            {data.versions.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
           <AssumptionsPanel versionId={data.versionId} locked={current?.status === 'locked'} onSaved={data.reload}
             scenarioWithBase={current?.kind === 'scenario' && current.basedOnVersionId !== null} />
         </div>
@@ -64,7 +74,7 @@ export function ThreeWayPage() {
       {data.loading && !run && <p className="text-sm text-[var(--ff-text-secondary)]">Projecting the balance sheet and cash flow…</p>}
       {run && data.versionId && (
         <>
-          <ThreeWayHeader view={run} versions={data.versions} selectedId={data.versionId} onSelect={data.select} disabled={data.loading} />
+          <ThreeWayHeader view={run} versions={data.versions} selectedId={data.versionId} onSelect={selectVersion} disabled={data.loading} />
           <RunwayChart view={run} />
           <div role="tablist" aria-label="Three-way views" className="flex flex-wrap gap-1 border-b border-[var(--ff-border-light)]">
             {TABS.map((t) => (

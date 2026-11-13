@@ -3,7 +3,7 @@
  * their closing cash overlaid on the runway chart and a KPI table whose Δ (version − first) takes its ink from
  * `varianceColor` alone, Δ = 0 neutral, Δ% "—" when the first is 0.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatStatementFigure } from '@/lib/format/money';
 import { ChartFrame, useChartPalette } from '@/components/accounting/charts/ChartFrame';
 import type { BudgetVersion } from '@/components/accounting/budgets/workspace/types';
@@ -23,17 +23,18 @@ export interface CompareTabProps {
 
 export function CompareTab({ versions, currentId }: CompareTabProps) {
   const palette = useChartPalette();
-  const [picked, setPicked] = useState<string[]>([]);
+  // The picks belong to the version they were made on: a change of the version on screen empties them in the SAME
+  // render, so no compare ever pairs the new version with the old picks (review M1).
+  const [picks, setPicks] = useState<{ for: string; ids: string[] }>({ for: currentId, ids: [] });
+  const picked = useMemo(() => (picks.for === currentId ? picks.ids : []), [picks, currentId]);
   const [data, setData] = useState<CompareView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const seq = useRef(0);
 
-  useEffect(() => { setPicked([]); setData(null); setError(null); }, [currentId]);
-
   useEffect(() => {
     const mine = ++seq.current;
-    if (picked.length === 0) { setData(null); setError(null); return; }
+    if (picked.length === 0) { setData(null); setError(null); setLoading(false); return; }
     setLoading(true);
     void fetchCompare([currentId, ...picked]).then((r) => {
       if (mine !== seq.current) return;
@@ -42,7 +43,10 @@ export function CompareTab({ versions, currentId }: CompareTabProps) {
     });
   }, [currentId, picked]);
 
-  const toggle = (id: string, on: boolean) => setPicked((p) => (on ? [...p, id] : p.filter((x) => x !== id)));
+  const toggle = (id: string, on: boolean) => setPicks((p) => {
+    const ids = p.for === currentId ? p.ids : [];
+    return { for: currentId, ids: on ? [...ids, id] : ids.filter((x) => x !== id) };
+  });
   const full = picked.length + 1 >= MAX_RUNWAY_SERIES;
   const chart = useCallback(() => (data ? buildRunwayOption({
     months: data.months, series: data.versions.map((v) => ({ name: v.name, cents: v.cashSeries })), minimumCashCents: 0,
@@ -65,7 +69,7 @@ export function CompareTab({ versions, currentId }: CompareTabProps) {
       </fieldset>
       {error && <p role="alert" className="text-sm text-error-700 dark:text-error-400">{error}</p>}
       {picked.length === 0 && <p className="text-sm text-[var(--ff-text-secondary)]">Pick a version to compare.</p>}
-      {data && (
+      {picked.length > 0 && data && (
         <>
           <ChartFrame title="Closing cash by version" unit="R, month end" height={260}>{chart}</ChartFrame>
           <div className="overflow-x-auto rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">

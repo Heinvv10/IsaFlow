@@ -102,12 +102,38 @@ export function savesOverrides(view: AssumptionsView): boolean {
   return view.stored === null || 'overrides' in view.stored.doc;
 }
 
-export function buildSaveDoc(view: AssumptionsView, edited: Doc): Record<string, unknown> {
+/** Equal for an override: a `Prov` by its value (an edit back to the base's figure is the base's), the rest whole. */
+function sameAsBase(a: unknown, b: unknown): boolean {
+  const isProv = (x: unknown): x is ProvValue => typeof x === 'object' && x !== null && 'value' in x && 'source' in x;
+  if (isProv(a) && isProv(b)) return same(a.value, b.value);
+  return same(a, b);
+}
+
+/**
+ * `base`: the base version's resolved document. With it the overrides are exactly what differs from the base, so a
+ * field edited back to the base's value DROPS its override (review L7). Without it (the base could not be read) the
+ * stored overrides are kept and each field changed since the read is added, whole.
+ */
+export function buildSaveDoc(view: AssumptionsView, edited: Doc, base: Doc | null = null): Record<string, unknown> {
   if (!savesOverrides(view)) return edited as unknown as Record<string, unknown>;
+  const now = edited as unknown as Loose;
+  if (base) {
+    const b = base as unknown as Loose;
+    const overrides: Loose = {};
+    for (const s of OBJECT_SECTIONS) {
+      const mine = now[s] as Loose;
+      const theirs = b[s] as Loose;
+      for (const key of Object.keys(mine)) {
+        if (mine[key] === undefined || sameAsBase(mine[key], theirs[key])) continue;
+        overrides[s] = { ...((overrides[s] as Loose | undefined) ?? {}), [key]: mine[key] };
+      }
+    }
+    for (const s of ['capex', 'minimumCash'] as const) if (!sameAsBase(now[s], b[s])) overrides[s] = now[s];
+    return { schemaVersion: 1, overrides };
+  }
   const stored = view.stored && 'overrides' in view.stored.doc ? (view.stored.doc.overrides as Loose) : {};
   const overrides: Loose = JSON.parse(JSON.stringify(stored)) as Loose;
   const loaded = view.resolved as unknown as Loose;
-  const now = edited as unknown as Loose;
   for (const s of OBJECT_SECTIONS) {
     const a = loaded[s] as Loose;
     const b = now[s] as Loose;

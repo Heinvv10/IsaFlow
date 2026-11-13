@@ -15,12 +15,16 @@
  *   A SCENARIO over a base (`scenarioWithBase`) is reset instead (`resetToBase`): it stores EMPTY overrides, so it
  *   follows its base again, through the same no-token / confirm / one-retry save, then re-reads.
  * - The payable pickers offer only the accounts the server accepts (`eligiblePayableAccounts`).
+ * - A scenario's save compares with its BASE's resolved document (read beside it), so a field edited back to the
+ *   base's value drops its override (review L7).
+ * - Every answer (read, save, derive) is checked against `seq`: one in flight when the version changes or the row
+ *   is re-read never writes into the new form (review L6).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ThreeWayAssumptions } from '@/modules/accounting/services/budgets/threeWay/assumptionsSchema';
 import type { AssumptionsView } from '@/modules/accounting/services/budgets/threeWay/threeWayViews';
 import { fetchAssumptions, fetchChartOfAccounts, fetchDerive, fetchLoans, saveAssumptionsDoc, type LoanOption } from './threeWayClient';
-import { buildSaveDoc, eligiblePayableAccounts, type CoaAccount } from './assumptionsModel';
+import { buildSaveDoc, eligiblePayableAccounts, savesOverrides, type CoaAccount } from './assumptionsModel';
 
 /** A scenario's reset: no overrides, so it resolves to its base. */
 export const EMPTY_OVERRIDES = { schemaVersion: 1, overrides: {} } as const;
@@ -75,6 +79,7 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
   const [replaceToken, setReplaceToken] = useState<string | null>(null);
   const seq = useRef(0);
   const replaceMode = useRef<SaveMode>('form');
+  const [base, setBase] = useState<ThreeWayAssumptions | null>(null);
 
   useEffect(() => {
     const mine = ++seq.current;
@@ -82,6 +87,8 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
     setInvalidDoc(null);
     setReplacing(false);
     setReplaceToken(null);
+    setSaving(false);
+    setBase(null);
     void fetchAssumptions(versionId).then((r) => {
       if (mine !== seq.current) return;
       if (!r.ok) {
@@ -93,6 +100,10 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
       }
       setView(r.data);
       setEdited(r.data.resolved);
+      const baseId = r.data.version.basedOnVersionId;
+      if (savesOverrides(r.data) && baseId) {
+        void fetchAssumptions(baseId).then((b) => { if (mine === seq.current && b.ok) setBase(b.data.resolved); });
+      }
       setGeneration((g) => g + 1);
       setStale(false);
       setSaveError(null);
@@ -127,8 +138,10 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
     if (readOnly || (mode === 'form' && (!view || !edited))) return;
     setSaving(true);
     setSaveError(null);
-    const doc = mode === 'followBase' ? EMPTY_OVERRIDES : buildSaveDoc(view as AssumptionsView, edited as ThreeWayAssumptions);
+    const doc = mode === 'followBase' ? EMPTY_OVERRIDES : buildSaveDoc(view as AssumptionsView, edited as ThreeWayAssumptions, base);
+    const mine = seq.current;
     const r = await saveAssumptionsDoc(versionId, doc, token);
+    if (mine !== seq.current) return; // the form moved on (another version, or re-read): this answer is not its
     setSaving(false);
     if (r.ok) {
       setReplacing(false);
@@ -146,7 +159,7 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
     }
     if (r.kind === 'locked') { setLockedOnSave(true); return; }
     setSaveError({ message: r.message, issues: r.kind === 'invalid' ? r.issues : [] });
-  }, [view, edited, readOnly, versionId, onSaved, replacing]);
+  }, [view, edited, readOnly, versionId, onSaved, replacing, base]);
 
   const save = useCallback(() => send(replacing ? null : view?.stored?.updatedAt ?? null, false, 'form'), [send, replacing, view]);
 
@@ -163,7 +176,9 @@ export function useAssumptionsForm(versionId: string, locked: boolean, onSaved: 
 
   const replaceWithDerived = useCallback(async () => {
     if (readOnly) return;
+    const mine = seq.current;
     const r = await fetchDerive(versionId);
+    if (mine !== seq.current) return;
     if (!r.ok) { setInvalidDoc((d) => (d ? { ...d, replaceError: r.message } : d)); return; }
     const { version, assumptions, evidence } = r.data;
     setView({ version, stored: null, resolved: assumptions, chain: [version.id], derived: { assumptions, evidence }, warnings: [] });

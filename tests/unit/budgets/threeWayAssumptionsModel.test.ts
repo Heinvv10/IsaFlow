@@ -92,3 +92,26 @@ describe('eligiblePayableAccounts (the server rule: leaf liability, would sit in
     expect(eligiblePayableAccounts(accounts, new Set(['loan'])).map((a) => a.id)).toEqual(['ok', 'child']);
   });
 });
+
+describe('buildSaveDoc with the base resolved (review L7): an override equal to the base is dropped', () => {
+  it('editing a field back to the base value DROPS its stored override; other overrides stay', () => {
+    const v = scenario('overrides'); // stores creditorDays 10
+    const base = v.resolved; // the base: creditorDays 30 (the defaults)
+    const loaded = setManual(setManual(base, field('workingCapital.creditorDays'), 10), field('minimumCash'), 7_00);
+    v.resolved = loaded;
+    v.stored = { doc: { schemaVersion: 1, overrides: { workingCapital: { creditorDays: { value: 10, source: 'manual' } }, minimumCash: { value: 7_00, source: 'manual' } } }, updatedAt: 't1', updatedBy: 'u' };
+    const edited = setManual(loaded, field('workingCapital.creditorDays'), 30);
+    expect(buildSaveDoc(v, edited, base)).toEqual({ schemaVersion: 1, overrides: { minimumCash: { value: 7_00, source: 'manual' } } });
+  });
+  it('a list edited back to the base list is dropped; a new change is kept whole', () => {
+    const v = scenario('none');
+    const base = v.resolved;
+    const capex = [{ id: 'c1', month: '2026-04', amountExVat: 100_00, vatClaimable: true, description: 'Van' }];
+    expect(buildSaveDoc(v, { ...base, capex }, base)).toEqual({ schemaVersion: 1, overrides: { capex } });
+    expect(buildSaveDoc(v, { ...base, capex: [] }, base)).toEqual({ schemaVersion: 1, overrides: {} });
+  });
+  it('nothing differs from the base: empty overrides (follows the base)', () => {
+    const v = scenario('none');
+    expect(buildSaveDoc(v, v.resolved, v.resolved)).toEqual({ schemaVersion: 1, overrides: {} });
+  });
+});

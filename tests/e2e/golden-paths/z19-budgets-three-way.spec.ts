@@ -9,8 +9,12 @@
  * cash in month 3 drops by exactly R30 000 (30 more days × R1 000) → a "Worst" scenario copied from it, debtor
  * days 90 saved as an OVERRIDE through the UI, and a "Best" scenario (15 days, API) → Compare shows the three
  * versions with Δ closing cash −R30 000 and +R45 000 → screenshots light/dark × 1280/390 (at 390 only the grid
- * scrolls sideways). Prechecks (flag, owner/admin role, a turnover line) skip with a reason; sweeps stale `GP-`
+ * scrolls sideways) → flag OFF: the page shows its note, the Management Accounting menu has no link, the tab is
+ * titled by its parent. Prechecks (flag, owner/admin role, a turnover line) skip with a reason; sweeps stale `GP-`
  * versions; a route guard aborts any budget write outside its own versions; deletes them by id in afterAll.
+ * The flag is written only on up.sh's disposable stack (helpers/hostedFeatureFlag.ts, its guards): there it is turned
+ * on when off, turned off for the flag-off step, and put back as it was in afterAll. Elsewhere the flag-off step is
+ * skipped with an annotation and a flag that is off skips the spec.
  */
 import { mkdirSync } from 'fs';
 import { test, expect, type Page, type Route } from '@playwright/test';
@@ -18,6 +22,7 @@ import { Api, gpRef } from './_api';
 import type { BudgetYearsAnswer } from '../helpers/budgetWorkspace';
 import type { ThreeWayAssumptions } from '@/modules/accounting/services/budgets/threeWay/assumptionsSchema';
 import { cleanUp, created, sweep, type GridAccount, type Version } from '../helpers/budgetDrivers';
+import { hostedFlagAvailable, setHostedFlag } from './helpers/hostedFeatureFlag';
 
 const PAGE = '/accounting/budgets/three-way';
 const PER_DAY = 1_000;
@@ -31,12 +36,27 @@ async function shoot(page: Page, name: string): Promise<void> {
   if (EVIDENCE_DIR) { mkdirSync(EVIDENCE_DIR, { recursive: true }); await page.screenshot({ path: `${EVIDENCE_DIR}/three-way-${name}.png`, fullPage: true }); }
 }
 
-interface Plan { fiscalYear: number; months: string[]; sales: GridAccount }
+interface Plan { fiscalYear: number; months: string[]; sales: GridAccount; companyId: string }
+
+const FLAG = 'budgets_three_way';
+/** The flag override as it was before this run wrote it (undefined: never written). */
+let flagBefore: { companyId: string; enabled: boolean | null } | undefined;
+
+/** The Management Accounting menu's links on the secondary (Accounting) nav, opened by hover. */
+async function managementLinks(page: Page): Promise<number> {
+  await page.getByRole('navigation', { name: 'Accounting sections' }).getByText('Management Accounting', { exact: true }).hover();
+  await expect(page.getByRole('link', { name: 'Budget Controls' }).first()).toBeVisible();
+  return page.locator(`a[href="${PAGE}"]`).count();
+}
 
 async function precheck(api: Api): Promise<Plan | string> {
-  const flag = await api.get<{ enabled: boolean }>('/api/features/check?code=budgets_three_way');
-  if (!flag.enabled) return 'the budgets_three_way flag is off for this company';
   const companies = await api.get<{ items: { companyId: string; role: string }[]; activeCompanyId: string | null }>('/api/accounting/companies?action=user-companies');
+  const companyId = companies.activeCompanyId ?? '';
+  const flag = await api.get<{ enabled: boolean }>(`/api/features/check?code=${FLAG}`);
+  if (!flag.enabled) {
+    if (!hostedFlagAvailable()) return `the ${FLAG} flag is off for this company`;
+    flagBefore = { companyId, enabled: await setHostedFlag(companyId, FLAG, true) };
+  }
   const role = companies.items.find((c) => c.companyId === companies.activeCompanyId)?.role ?? null;
   if (role !== 'owner' && role !== 'admin') return `the session's role is ${role ?? 'none'}; deleting its versions needs owner/admin`;
   const years = await api.get<BudgetYearsAnswer>('/api/accounting/budgets?years_only=1');
@@ -44,7 +64,7 @@ async function precheck(api: Api): Promise<Plan | string> {
   const sales = grid.accounts.find((a) => a.isActive && !a.isHeader && a.band === 'turnover');
   if (!sales) return `${years.fiscalYear}: no active turnover line`;
   if (grid.year.monthKeys.length < 3) return `${years.fiscalYear}: fewer than 3 months`;
-  return { fiscalYear: years.fiscalYear, months: grid.year.monthKeys, sales };
+  return { fiscalYear: years.fiscalYear, months: grid.year.monthKeys, sales, companyId };
 }
 
 /**
@@ -91,6 +111,7 @@ async function openTab(page: Page, tab: 'bs' | 'cf' | 'assumptions' | 'compare')
 }
 
 test.afterAll(async ({}, testInfo) => {
+  if (flagBefore) { await setHostedFlag(flagBefore.companyId, FLAG, flagBefore.enabled); flagBefore = undefined; }
   if (created.size === 0) return;
   const api = await Api.login(testInfo.project.use.baseURL!);
   try {
@@ -212,6 +233,26 @@ test('three-way: balances, debtor days move cash, a scenario override, compare, 
         await shoot(page, `compare-${theme}-${width}`);
       }
     }
+
+    // 6. Flag OFF (disposable stack only): the page's note, no menu link, the tab titled by its parent.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${PAGE}?version_id=${base.id}`);
+    await expect(page.getByTestId('balances-chip')).toHaveText('Balances ✓', { timeout: 120_000 });
+    expect(await managementLinks(page), 'flag on: the menu links the page').toBeGreaterThan(0);
+    await expect(page).toHaveTitle('Three-Way Budget · Accounting · IsaFlow');
+    if (!hostedFlagAvailable()) {
+      test.info().annotations.push({ type: 'flag-off', description: 'skipped: the flag can only be switched on the disposable stack' });
+      return;
+    }
+    const was = await setHostedFlag(plan.companyId, FLAG, false);
+    flagBefore ??= { companyId: plan.companyId, enabled: was };
+    await page.goto(`${PAGE}?version_id=${base.id}`);
+    await expect(page.getByTestId('three-way-not-enabled')).toBeVisible({ timeout: 120_000 });
+    expect(await managementLinks(page), 'flag off: no menu link').toBe(0);
+    await expect(page).toHaveTitle(/^Budgets · /);
+    expect((await api.getRaw(`/api/accounting/budget-three-way?version_id=${base.id}`)).status, 'flag off: the API refuses').toBe(403);
+    await shoot(page, 'flag-off-light-1280');
+    await setHostedFlag(plan.companyId, FLAG, true);
   } finally {
     await api.dispose();
   }

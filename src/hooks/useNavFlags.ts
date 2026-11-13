@@ -63,12 +63,14 @@ function useActiveCompanyIdOrNull(): string | null {
 
 export function useNavFlags(): ReadonlySet<string> {
   const companyId = useActiveCompanyIdOrNull();
-  const [flags, setFlags] = useState<ReadonlySet<string>>(() => (companyId ? resolved.get(companyId) ?? NONE : NONE));
+  // Re-render when this company's answer lands; the flags themselves are read for the company on screen NOW, so a
+  // company switch never shows the previous company's flags while the new check is in flight (review M4).
+  const [, setAnswered] = useState(0);
   useEffect(() => {
-    if (!companyId) { setFlags(NONE); return; }
+    if (!companyId || resolved.has(companyId)) return;
     let gone = false;
-    void loadNavFlags(companyId).then((set) => { if (!gone) setFlags(set); });
+    void loadNavFlags(companyId).then(() => { if (!gone) setAnswered((n) => n + 1); });
     return () => { gone = true; };
   }, [companyId]);
-  return flags;
+  return companyId ? resolved.get(companyId) ?? NONE : NONE;
 }

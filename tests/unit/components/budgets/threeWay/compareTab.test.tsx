@@ -79,3 +79,20 @@ describe('CompareTab', () => {
     expect(screen.queryByTestId('compare-kpis')).toBeNull();
   });
 });
+
+describe('CompareTab across a change of the version on screen (review M1)', () => {
+  it('drops the old picks and their answer, never compares [new, ...old picks], never leaves the boxes disabled', async () => {
+    let late: (v: unknown) => void = () => undefined;
+    h.fetchCompare.mockImplementationOnce(() => new Promise((r) => { late = r; }));
+    const { rerender } = render(<CompareTab versions={versions} currentId={V1} />);
+    fireEvent.click(screen.getByLabelText('Worst'));
+    await waitFor(() => expect(h.fetchCompare).toHaveBeenCalledTimes(1));
+    rerender(<CompareTab versions={versions} currentId={V3} />);
+    await waitFor(() => expect((screen.getByLabelText('Worst') as HTMLInputElement).disabled).toBe(false));
+    expect((screen.getByLabelText('Worst') as HTMLInputElement).checked).toBe(false);
+    expect(h.fetchCompare.mock.calls.map((c) => (c[0] as string[])[0])).toEqual([V1]);
+    late({ ok: true, data: answer });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByTestId('compare-kpis')).toBeNull();
+  });
+});

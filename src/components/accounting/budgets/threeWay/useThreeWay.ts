@@ -60,18 +60,19 @@ export function useThreeWay(initialVersionId: string | null): ThreeWayData {
     setLoading(true);
     void listVersions(fiscalYear).then((r) => {
       if (mine !== listSeq.current) return;
-      if (!r.ok) { setVersions([]); setVersionId(null); setRun(null); setError(r.message); setLoading(false); return; }
+      if (!r.ok) { runSeq.current++; setVersions([]); setVersionId(null); setRun(null); setError(r.message); setLoading(false); return; }
       setVersions(r.data);
       const id = pickVersion(r.data, wanted.current);
       wanted.current = null;
       setVersionId(id);
-      if (id === null) { setRun(null); setError(null); setLoading(false); }
+      // No version: any run still in flight is for a year the user left (review L5).
+      if (id === null) { runSeq.current++; setRun(null); setError(null); setErrorCode(null); setLoading(false); }
     });
   }, [fiscalYear]);
 
   useEffect(() => {
-    if (versionId === null) return;
     const mine = ++runSeq.current;
+    if (versionId === null) return;
     setLoading(true);
     void fetchThreeWay(versionId).then((r) => {
       if (mine !== runSeq.current) return;
@@ -83,9 +84,17 @@ export function useThreeWay(initialVersionId: string | null): ThreeWayData {
     });
   }, [versionId, bump]);
 
-  const select = useCallback((id: string) => setVersionId(id), []);
+  /** A switch drops the old run at once: the new name is never drawn over the old figures (review M2). */
+  const select = useCallback((id: string) => {
+    runSeq.current++;
+    setRun(null);
+    setError(null);
+    setErrorCode(null);
+    setLoading(true);
+    setVersionId(id);
+  }, []);
   const reload = useCallback(() => setBump((n) => n + 1), []);
-  const changeYear = useCallback((y: number) => { setFiscalYear(y); setRun(null); }, []);
+  const changeYear = useCallback((y: number) => { runSeq.current++; setFiscalYear(y); setRun(null); }, []);
 
   return { years: years.years, fiscalYear, setFiscalYear: changeYear, versions, versionId, select, run, error, errorCode, loading, reload };
 }
