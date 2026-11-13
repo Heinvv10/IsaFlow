@@ -5,6 +5,7 @@
  * back.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { sql } from '@/lib/neon';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { dropFixture, inTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
@@ -78,10 +79,12 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — cumulative share cap
     expect(r.isError, text(r)).toBeFalsy();
   }, 120000);
 
+  // Round 6: moved to an early month — a reversed same-shape share now refuses every undo dated on or before it (no
+  // upper bound), so this test's reversed share must be dated before the other tests' bills.
   it('another REVERSED share of the same shape in the window refuses (the re-date fingerprint)', async () => {
-    const shareOf = () => postedJournal(fx, '2026-12-31', [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
+    const shareOf = () => postedJournal(fx, '2026-02-28', [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
       { account: a.vatInput, credit: 150, vatType: 'standard' }]);
-    const b = await billWithJournal(fx, a, 'FPRINT', '2026-12-10', legs());
+    const b = await billWithJournal(fx, a, 'FPRINT', '2026-02-10', legs());
     const p = await contra(b.id, 1150);
     const [s, other] = [await shareOf(), await shareOf()];
     await inTx(fx, () => reverseJournalEntry(fx.companyId, other, fx.userId));
@@ -103,15 +106,17 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — cumulative share cap
     expect(r.isError, text(r)).toBeFalsy();
   }, 120000);
 
+  // Round 6: moved to an early month — a reversed same-shape share now refuses every undo dated on or before it (no
+  // upper bound), so this test's reversed share must be dated before the other tests' bills.
   it('a hand undo made before a share was re-dated (reverse-and-repost) counts against the re-posted share', async () => {
-    const b = await billWithJournal(fx, a, 'REDATE', '2026-07-10', legs());
+    const b = await billWithJournal(fx, a, 'REDATE', '2026-01-10', legs());
     const p = await contra(b.id, 1150);
     const shareLegs = [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
       { account: a.vatInput, credit: 150, vatType: 'standard' }];
-    const old = await postedJournal(fx, '2026-07-31', shareLegs);
-    await postedJournal(fx, '2026-07-31', [...legs(), { account: a.clearing, credit: 1150 }], 'hand undo REDATE');
+    const old = await postedJournal(fx, '2026-01-31', shareLegs);
+    await postedJournal(fx, '2026-01-31', [...legs(), { account: a.clearing, credit: 1150 }], 'hand undo REDATE');
     await inTx(fx, () => reverseJournalEntry(fx.companyId, old, fx.userId));
-    const reposted = await postedJournal(fx, '2026-07-31', shareLegs);
+    const reposted = await postedJournal(fx, '2026-01-31', shareLegs);
     expect(text(await undo(p, reposted))).toMatch(/does not hold .*including hand journal JE-/);
   }, 120000);
 
@@ -135,6 +140,30 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — cumulative share cap
     }
     const msg = text(await undo(p, share, { undo_amounts: [{ bill_id: b.id, amount: 150 }] }));
     expect(msg).toMatch(/including hand journals (JE-\d{4}-\d+, ){9}JE-\d{4}-\d+ and 1 more\)/);
+  }, 120000);
+
+  // Round 6: early months, like the other fingerprint tests (a reversed share refuses every undo dated on or before it).
+  it('the fingerprint reaches back to the earliest bill: a share reversed between the bill and the re-posted share', async () => {
+    const shareLegs = [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
+      { account: a.vatInput, credit: 150, vatType: 'standard' }];
+    const b = await billWithJournal(fx, a, 'BETWEEN', '2026-03-05', legs());
+    const p = await contra(b.id, 1150);
+    const old = await postedJournal(fx, '2026-03-15', shareLegs);
+    await inTx(fx, () => reverseJournalEntry(fx.companyId, old, fx.userId));
+    const reposted = await postedJournal(fx, '2026-03-31', shareLegs);
+    expect(text(await undo(p, reposted))).toMatch(/was reversed — a share re-dated by reverse-and-repost/);
+  }, 120000);
+
+  it('the fingerprint takes a reversed same-shape journal of ANY source (e.g. a reclassification batch)', async () => {
+    const shareLegs = [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
+      { account: a.vatInput, credit: 150, vatType: 'standard' }];
+    const b = await billWithJournal(fx, a, 'ANYSRC', '2026-04-05', legs());
+    const p = await contra(b.id, 1150);
+    const old = await postedJournal(fx, '2026-04-30', shareLegs);
+    await sql`UPDATE gl_journal_entries SET source = 'auto_adjustment' WHERE id = ${old}::UUID AND company_id = ${fx.companyId}::UUID`;
+    await inTx(fx, () => reverseJournalEntry(fx.companyId, old, fx.userId));
+    const reposted = await postedJournal(fx, '2026-04-30', shareLegs);
+    expect(text(await undo(p, reposted))).toMatch(/was reversed — a share re-dated by reverse-and-repost/);
   }, 120000);
 
   it('a reversed undo gives its capacity back: the next contra on the bill can be undone against the same share', async () => {

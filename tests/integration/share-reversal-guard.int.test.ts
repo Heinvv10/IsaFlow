@@ -59,9 +59,11 @@ describe.skipIf(!DATABASE_URL || !process.env.JWT_SECRET)('reversing a share jou
   }, 120000);
   afterAll(async () => { await dropRouteUser(fx); await dropStepExtras(fx); await dropFixture(fx); }, 120000);
 
+  // Round 6: moved to an early month — a reversed same-shape share now refuses every undo dated on or before it (no
+  // upper bound), so this test's reversed share must be dated before the other tests' bills.
   it('is refused by MCP (dry and live) and REST with nothing written; after the undo is reversed, the share reverses', async () => {
     // Round 5: own month — its reversed share is a re-date fingerprint for every same-shape share of its month.
-    const s = await scenario('SHREV', '2026-08-31', '2026-08-10');
+    const s = await scenario('SHREV', '2026-01-31', '2026-01-10');
     const u = await call({ payment_id: s.pay, undo_share: true, share_journal_id: s.share, idempotency_key: crypto.randomUUID() });
     expect(u.isError, text(u)).toBeFalsy();
     const before = await ledger(fx);

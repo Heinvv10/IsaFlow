@@ -22,14 +22,15 @@
  * reversal takes back the mirror (its gross debit on X, its gross credit on the accounts), a re-reversal gives back
  * again — so a reversed hand undo counts nothing and a re-reversed one counts again (REPRO 13).
  *
- * RE-DATE FINGERPRINT (round 5, REPRO 20): another REVERSED share-shaped manual journal in the window (it debited X
- * and credited the share's accounts) means a share was reversed and re-posted. Its reversal restored every bill it
+ * RE-DATE FINGERPRINT (rounds 5-6, REPRO 20/21): another REVERSED share-shaped journal (it debited X and credited the
+ * share's accounts; any source) dated on or after the earlier of the earliest undone bill date and the share's date —
+ * NO month window, no upper bound — means a share was reversed and re-posted. Its reversal restored every bill it
  * carried, and the re-posted share may leave one out, so the undo is refused outright (`findRedatedShares`).
  *
  * Named limits:
  *   - REFUSING side: any gross X credit on the share's accounts in the share's or the bills' months counts,
- *     including one that undid a different share or bill; and any reversed share of the same shape in those months
- *     refuses — then post the undo by hand;
+ *     including one that undid a different share or bill; and any reversed share of the same shape dated on or after
+ *     the earliest undone bill (or the share, if earlier) refuses, whatever it covered — then post the undo by hand;
  *   - UNSAFE side: a hand undo dated outside both the share's month and the bills' months is not seen.
  */
 import { sql } from '@/lib/neon';
@@ -107,12 +108,20 @@ export async function readHandUndoConsumption(
   return { byAccount, handUndos: [...handUndos].sort() };
 }
 
-/** Other REVERSED share-shaped manual journals in the window — a share reversed and re-posted (header). */
+/**
+ * Other REVERSED share-shaped journals — a share reversed and re-posted (header). NO month window (round 6, REPRO 21:
+ * a share dated in September covering August bills, re-dated INTO August, leaves its reversed original outside every
+ * month the undo looks at): any reversed journal of ANY source dated on or after the earlier of the earliest undone
+ * bill date and the share's date, that debits X and credits an account this share credits.
+ */
 export async function findRedatedShares(
   companyId: string, shareJournalId: string, clearingId: string, billDates: readonly string[],
 ): Promise<string[]> {
   const rows = (await sql`
-    WITH months AS (${windowSql(companyId, shareJournalId, billDates)}),
+    WITH since AS (
+      SELECT LEAST(entry_date, ${[...billDates].sort()[0] ?? null}::DATE) AS d FROM gl_journal_entries
+      WHERE id = ${shareJournalId}::UUID AND company_id = ${companyId}::UUID
+    ),
     credited AS (
       SELECT DISTINCT gl_account_id FROM gl_journal_lines
       WHERE journal_entry_id = ${shareJournalId}::UUID AND company_id = ${companyId}::UUID AND credit > 0
@@ -120,8 +129,7 @@ export async function findRedatedShares(
     SELECT COALESCE(o.entry_number, o.id::TEXT) AS n FROM gl_journal_entries o
     WHERE o.company_id = ${companyId}::UUID AND o.id <> ${shareJournalId}::UUID AND o.status = 'posted'
       AND o.reversed_at IS NOT NULL AND o.reversal_of_id IS NULL
-      AND o.source = ANY(${[...SHARE_SOURCES]}::TEXT[])
-      AND date_trunc('month', o.entry_date)::DATE IN (SELECT month FROM months)
+      AND o.entry_date >= (SELECT d FROM since)
       AND (SELECT COALESCE(SUM(ox.debit - ox.credit), 0) FROM gl_journal_lines ox
            WHERE ox.journal_entry_id = o.id AND ox.company_id = ${companyId}::UUID
              AND ox.gl_account_id = ${clearingId}::UUID) > 0

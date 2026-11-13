@@ -178,8 +178,9 @@ export const voidPaymentTool = voidTool(
   + "the share's own working) is required. Hand undos count against what the share holds, like an earlier undo: ANY "
   + "journal not linked to a share, dated in the share's month or a bill's month, that credits the clearing account "
   + "and debits the share's accounts — counted GROSS (a correction netting the clearing account to nil still counts), "
-  + 'netted only with its own reversals — even one that undid a different share or bill. Another REVERSED share of the '
-  + 'same shape in those months (a share re-dated by reverse-and-repost) refuses the undo outright. Either can refuse a '
+  + 'netted only with its own reversals — even one that undid a different share or bill. Another REVERSED journal of the '
+  + "share's shape (debits the clearing account, credits the share's accounts; any source) dated on or after the "
+  + 'earliest undone bill or the share — a share re-dated by reverse-and-repost — refuses the undo outright. Either can refuse a '
   + 'legitimate undo; then post that undo by hand. A hand undo dated outside both months is not seen. Only a manual '
   + 'journal (entered, imported or recurring) can be a share, and an undo is linked to its share by source record, '
   + 'not by its reference text. Also '

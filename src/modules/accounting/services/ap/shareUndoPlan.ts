@@ -21,8 +21,8 @@
  *     back — cumulatively across every live undo of it, linked or by hand (`shareUndoGuards.ts`);
  *   - a share that debits X by more than this payment applied (it carries other bills, and its lines do not say how
  *     much of each) unless `undo_amounts` says how much of each bill it reversed;
- *   - another REVERSED share of the same shape in the share's or the bills' months — a re-dated share whose reversal
- *     may already have restored the bill (round 5, `shareUndoHandUndos.findRedatedShares`);
+ *   - another REVERSED share of the same shape (any source) dated on or after the earliest undone bill or the share —
+ *     a re-dated share whose reversal may already have restored the bill (rounds 5-6, `findRedatedShares`);
  *   - a share date in a period that is not open, or in a locked VAT period — no roll;
  *   - an undo account that is deactivated or a header;
  *   - a live journal already carrying `undo-share:<payment>:<bill>`. Belt and braces: a voided payment is refused
@@ -138,7 +138,7 @@ export async function planShareUndo(
   if (redated.length > 0) {
     throw new ShareUndoRefusal(`Share journal${redated.length === 1 ? '' : 's'} ${redated.slice(0, 10).join(', ')}`
       + `${redated.length > 10 ? ` and ${redated.length - 10} more` : ''} of the same shape (clearing account `
-      + `${x.accountCode ?? x.glAccountId}, the same accounts, the same months) ${redated.length === 1 ? 'was' : 'were'} `
+      + `${x.accountCode ?? x.glAccountId}, the same accounts, dated on or after these bills) ${redated.length === 1 ? 'was' : 'were'} `
       + 'reversed — a share re-dated by reverse-and-repost, whose reversal may already have restored this bill. '
       + 'Undo the share by hand after checking which bills the re-posted share carries.');
   }
