@@ -23,7 +23,8 @@ import {
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import {
-  UNDO_SHARE_PROPERTIES, hasUndoShare, parseUndoArgs, runVoidPayment, undoShareReply, type VoidOutcome,
+  UNDO_SHARE_PROPERTIES, hasUndoShare, parseUndoArgs, runVoidPayment, undoShareReply, undoShareScopeRefusal,
+  type VoidOutcome,
 } from './writeVoidPaymentUndoShare';
 
 const REVERSAL_DATE_PROPERTY = {
@@ -67,6 +68,8 @@ function voidTool(
       const reversalDate = strArg(args, 'reversal_date');
       const undo = kind === 'supplier' ? parseUndoArgs(args) : null;
       if (undo && 'content' in undo) return undo;
+      const scopeRefusal = undo ? undoShareScopeRefusal(ctx, undo) : null;
+      if (scopeRefusal) return scopeRefusal;
 
       // No catch. Every refusal below is answered from a READ, before the first
       // write; anything that throws after that must reach the registry's
@@ -167,6 +170,7 @@ export const voidPaymentTool = voidTool(
   + 'undo-share:<payment_id>:<bill_id>; a second undo of the same bill and payment is refused. Posted after the '
   + 'void in the same call; each is reversible with reverse_journal_entry. Refused unless the payment is a contra '
   + "and the share journal really debits the clearing account and credits the bill's accounts. Under manual-journal "
-  + 'approval enforcement a matching rule refuses the call (a person must enter it). '
+  + 'approval enforcement a matching rule refuses the call (a person must enter it). undo_share also needs the '
+  + 'write:journals permission. '
   + 'Run with dry_run first: it performs the whole call and rolls it back, writing nothing.',
 );

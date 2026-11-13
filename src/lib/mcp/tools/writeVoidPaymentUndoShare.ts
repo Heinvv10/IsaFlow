@@ -15,6 +15,7 @@ import { voidPaymentUndoingShare, type VoidWithShareUndoResult } from '@/modules
 import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolledBackSavepoint';
 import type { McpToolContext, McpToolResult } from '../types';
 import { mcpPostingOpts } from '../mcpActor';
+import { insufficientScopeMessage } from '../scopeRemediation';
 import { guardCastableArgs, strArg, toolError } from './toolHelpers';
 
 export const UNDO_SHARE_PROPERTIES = {
@@ -53,6 +54,16 @@ export function parseUndoArgs(args: Record<string, unknown>): UndoArgs | McpTool
   const bad = guardCastableArgs(args, { uuid: ['share_journal_id'] });
   if (bad) return bad;
   return { undoShare, shareJournalId, dryRun: args.dry_run === true };
+}
+
+/**
+ * undo_share posts manual-shaped journals, so it also needs the journal scope (write:post the registry already asks
+ * of void_payment). The tool's static scope stays write:invoices — a plain void needs nothing more — so this is
+ * checked here, from the token alone, before the void runs, dry run or live.
+ */
+export function undoShareScopeRefusal(ctx: McpToolContext, a: UndoArgs): McpToolResult | null {
+  if (!a.undoShare || ctx.scopes.includes('write:journals')) return null;
+  return toolError(`${insufficientScopeMessage('write:journals')} (undo_share posts journals; a plain void does not need it.)`);
 }
 
 /** Run the void (with the undo when asked), for real or inside a rolled-back savepoint. */

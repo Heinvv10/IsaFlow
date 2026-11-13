@@ -31,7 +31,8 @@ const USER = '44444444-4444-4444-8444-444444444444';
 const PAY = '77777777-7777-4777-8777-777777777777';
 const SHARE = '99999999-9999-4999-8999-999999999999';
 const KEY = { idempotency_key: 'k1' };
-const ctx = { userId: USER, companyId: COMPANY, scopes: ['write:invoices', 'write:post'], tokenJti: 'jti', oauthAppId: null } as McpToolContext;
+const ctx = { userId: USER, companyId: COMPANY, scopes: ['write:invoices', 'write:post', 'write:journals'], tokenJti: 'jti', oauthAppId: null } as McpToolContext;
+const noJournals = { ...ctx, scopes: ['write:invoices', 'write:post'] } as McpToolContext;
 
 const VOIDED = {
   paymentId: PAY, paymentNumber: 'SP-2026-01861', kind: 'supplier' as const, invoicesReopened: 1, amountUnapplied: 7990,
@@ -79,6 +80,27 @@ describe('void_payment undo_share / dry_run', () => {
       .toBe('invalid share_journal_id');
     expect(voidPaymentDocument).not.toHaveBeenCalled();
     expect(voidPaymentUndoingShare).not.toHaveBeenCalled();
+  });
+
+  it('undo_share needs write:journals (it posts a manual-shaped journal): refused before the void, dry or live', async () => {
+    for (const dry of [false, true]) {
+      const r = await voidPaymentTool.handler(
+        { payment_id: PAY, undo_share: true, share_journal_id: SHARE, ...(dry ? { dry_run: true } : {}), ...KEY }, noJournals);
+      expect(err(r)).toMatch(/requires write:journals/);
+      expect(r.wroteNothing).toBeUndefined();
+    }
+    expect(voidPaymentUndoingShare).not.toHaveBeenCalled();
+    expect(voidPaymentDocument).not.toHaveBeenCalled();
+    expect(inRolledBackSavepoint).not.toHaveBeenCalled();
+    // A plain void (and its dry run) still needs only write:invoices + write:post.
+    expect(body(await voidPaymentTool.handler({ payment_id: PAY, ...KEY }, noJournals)).voided).toBe(true);
+    expect(body(await voidPaymentTool.handler({ payment_id: PAY, dry_run: true, ...KEY }, noJournals)).dryRun).toBe(true);
+  });
+
+  it('with write:journals the undo proceeds', async () => {
+    const r = await voidPaymentTool.handler({ payment_id: PAY, undo_share: true, share_journal_id: SHARE, ...KEY }, ctx);
+    expect(r.isError).toBeFalsy();
+    expect(voidPaymentUndoingShare).toHaveBeenCalledTimes(1);
   });
 
   it('a plain void still goes straight to the void, with no hook', async () => {

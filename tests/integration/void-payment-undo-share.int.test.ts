@@ -28,11 +28,10 @@ let fx: Fixture;
 let a: StepAccounts;
 const registry = new McpRegistry();
 registry.register(voidPaymentTool);
-const ctx = (): McpToolContext => ({
-  userId: fx.userId, companyId: fx.companyId, scopes: ['write:invoices', 'write:post'], companyRole: 'owner',
-  tokenJti: 'step6', oauthAppId: null,
+const ctx = (scopes = ['write:invoices', 'write:post', 'write:journals']): McpToolContext => ({
+  userId: fx.userId, companyId: fx.companyId, scopes, companyRole: 'owner', tokenJti: 'step6', oauthAppId: null,
 } as McpToolContext);
-const call = (args: Row) => inTx(fx, () => registry.call('void_payment', args, ctx()));
+const call = (args: Row, scopes?: string[]) => inTx(fx, () => registry.call('void_payment', args, ctx(scopes)));
 const text = (r: { content: { text: string }[] }) => r.content[0]!.text;
 
 async function contra(billId: string, amount: number): Promise<string> {
@@ -193,6 +192,18 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — the share comes back
     expect(text(await call({ payment_id: String(p!.id), undo_share: true, share_journal_id: share, idempotency_key: crypto.randomUUID() })))
       .toMatch(/is not a contra settlement/);
     expect(await payStatus(String(p!.id))).toBe('processed');
+  }, 120000);
+
+  it('undo_share without write:journals is refused before the void, dry run and live alike', async () => {
+    const s = await scenario('NOSCOPE', '2026-05-31');
+    const before = await ledger(fx);
+    for (const dry of [true, false]) {
+      const r = await call({ payment_id: s.pay, undo_share: true, share_journal_id: s.share, dry_run: dry,
+        idempotency_key: crypto.randomUUID() }, ['write:invoices', 'write:post']);
+      expect(text(r)).toMatch(/requires write:journals/);
+    }
+    expect(await payStatus(s.pay)).toBe('processed');
+    expect(await ledger(fx)).toEqual(before);
   }, 120000);
 
   it('refuses a contra whose journal also posted another payment document', async () => {
