@@ -100,7 +100,10 @@ export async function seedSummaryFixture(pool: Pool): Promise<void> {
       tx.push([A, acc.a1, d, -3.33, `MSL excluded ${i}`, { status: 'excluded' }]);
       tx.push([A, acc.a2, d, 12.1, `MSL typed ${i}`, { allocationType: 'account' }]);
     });
-    tx.push([A, acc.a1, '2026-02-02', 999, 'MSL removed', { removed: true }]);
+    // Excluded AFTER being suggested / allocated: the state ladder is matched > excluded > suggested.
+  tx.push([A, acc.a1, '2026-02-03', -61, 'MSL excluded but suggested', { status: 'excluded', suggestGl: true }]);
+  tx.push([A, acc.a2, '2026-03-03', 62, 'MSL excluded but matched', { status: 'excluded', matched: true }]);
+  tx.push([A, acc.a1, '2026-02-02', 999, 'MSL removed', { removed: true }]);
     tx.push([B, acc.b1, '2026-02-02', 4242, 'MSL B SECRET', {}]);
     for (const [co, ba, date, amount, desc, o] of tx) {
       await q(`INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description, status, feed_state,
