@@ -12,7 +12,7 @@ Plain-text comments with in-app @mentions on a customer invoice, a supplier invo
 - Mentions: `notifyUsers` kind `comment_mention`, `ref_id` = the record, `href` = the record's page, dedupe key `comment:<id>` (an edit notifies only people not yet told). In-app only; NO email. Names come from 714's `approval_company_member_name`; the mention list from 708's `approval_company_other_members`.
 - Plain text everywhere: stored byte for byte (NUL dropped, trimmed, 1-4000 characters), rendered by React as text with `whitespace-pre-wrap`. Never add `dangerouslySetInnerHTML`.
 - The table holds the rest: tenant RLS (FORCE), author and stamps are the session's and the clock's (column grants), only the author updates (42501), deleted is final (23514), no DELETE privilege.
-- Writes are rate limited per company and user (30 a minute, `COMMENT_WRITE_LIMIT`).
+- Writes are rate limited per company and user (30 a minute, literal at the call site so the rate-limit key census reads it).
 
 ## Recent changes
 - 2026-11-13 (M14): module created.

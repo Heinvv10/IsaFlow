@@ -9,23 +9,22 @@ export interface CommentsRead { comments: RecordComment[]; mentionable: Mentiona
 const BASE = '/api/accounting/record-comments';
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
-async function data<T>(res: Response, failure: string): Promise<T> {
-  await assertOk(res, failure);
-  return ((await res.json()) as { data: T }).data;
-}
-
 export async function readComments(type: CommentRecordType, recordId: string): Promise<CommentsRead> {
-  return data(await apiFetch(`${BASE}?recordType=${type}&recordId=${recordId}`), 'Could not load the comments - try again');
+  const res = await apiFetch(`${BASE}?recordType=${type}&recordId=${recordId}`);
+  await assertOk(res, 'Could not load the comments - try again');
+  return ((await res.json()) as { data: CommentsRead }).data;
 }
 
 export async function addComment(type: CommentRecordType, recordId: string, body: string, mentions: string[]): Promise<RecordComment> {
   const res = await apiFetch(BASE, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ recordType: type, recordId, body, mentions }) });
-  return data(res, 'Could not post the comment - try again');
+  await assertOk(res, 'Could not post the comment - try again');
+  return ((await res.json()) as { data: RecordComment }).data;
 }
 
 export async function saveComment(id: string, body: string, mentions: string[]): Promise<RecordComment> {
   const res = await apiFetch(`${BASE}?id=${id}`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ body, mentions }) });
-  return data(res, 'Could not save the comment - try again');
+  await assertOk(res, 'Could not save the comment - try again');
+  return ((await res.json()) as { data: RecordComment }).data;
 }
 
 export async function removeComment(id: string): Promise<void> {

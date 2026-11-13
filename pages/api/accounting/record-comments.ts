@@ -23,9 +23,6 @@ import { COMMENT_RECORD_TYPES } from '@/modules/accounting/services/comments/com
 import { CommentError, MAX_COMMENT_BODY } from '@/modules/accounting/services/comments/commentText';
 import { createComment, deleteComment, editComment, listComments } from '@/modules/accounting/services/comments/recordCommentService';
 
-/** Writes per company and user per minute: far above typing speed, far below a script. */
-export const COMMENT_WRITE_LIMIT = { max: 30, windowSecs: 60 } as const;
-
 const Mentions = z.array(z.string().min(1).max(255)).max(20).optional();
 const Body = z.string().max(MAX_COMMENT_BODY * 4);
 const Create = z.object({ recordType: z.enum(COMMENT_RECORD_TYPES), recordId: UUID, body: Body, mentions: Mentions }).strict();
@@ -44,7 +41,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (req.method !== 'POST' && req.method !== 'PUT' && req.method !== 'DELETE') {
       return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['GET', 'POST', 'PUT', 'DELETE']);
     }
-    if (!(await checkRateLimit(`comments:write:${companyId}:${userId}`, COMMENT_WRITE_LIMIT))) {
+    // Per company and user per minute: far above typing speed, far below a script.
+    if (!(await checkRateLimit(`comments:write:${companyId}:${userId}`, { max: 30, windowSecs: 60 }))) {
       log.warn('Comment write rate limit exceeded', { companyId }, 'record-comments');
       return apiResponse.tooManyRequests(res, 'You are commenting too fast. Wait a minute and try again.');
     }
