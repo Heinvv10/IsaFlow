@@ -1,0 +1,14 @@
+import { describe, it, expect } from 'vitest';
+import { askRowPlacement } from '@/components/layout/askQuery';
+
+describe('askRowPlacement', () => {
+  it.each(['who owes me money', 'what was profit last month', 'How much cash do I have?', 'is my vat due', 'how many bank transactions need allocating', 'what is the weather', 'cash in the bank?'])('%s: a question, its row first', (q) => {
+    expect(askRowPlacement(q)).toBe('first');
+  });
+  it.each(['profit loss', 'aged debtors', 'vat return', 'cash in the bank'])('%s: an intent phrase that is also a page search, its row last', (q) => {
+    expect(askRowPlacement(q)).toBe('last');
+  });
+  it.each(['vat', 'ab', 'new invoice', 'employee thandi', ''])('%s: a page search, no row', (q) => {
+    expect(askRowPlacement(q)).toBeNull();
+  });
+});
