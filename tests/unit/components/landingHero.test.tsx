@@ -6,7 +6,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { HERO_PLAYBACK_RATE, LandingHero } from '@/components/landing/LandingHero';
+import { LandingHero } from '@/components/landing/LandingHero';
 import { changeRiverEnv, setRiverEnv, stubMediaPlayback } from './landingRiverMocks';
 
 afterEach(() => {
@@ -125,28 +125,13 @@ describe('LandingHero media', () => {
     expect(hero(container).getAttribute('data-hero-phase')).toBe('intro');
   });
 
-  it('plays the intro and the loop at the slowed readout rate', async () => {
-    const { intro, loop } = await renderDesktop();
-    expect(HERO_PLAYBACK_RATE).toBe(0.65);
-    expect(intro.playbackRate).toBe(HERO_PLAYBACK_RATE);
-    expect(loop.playbackRate).toBe(HERO_PLAYBACK_RATE);
-    // Some browsers reset playbackRate when metadata loads; the handler must put it back.
-    intro.playbackRate = 1;
-    fireEvent.loadedMetadata(intro);
-    expect(intro.playbackRate).toBe(HERO_PLAYBACK_RATE);
-    loop.playbackRate = 1;
-    fireEvent.loadedMetadata(loop);
-    expect(loop.playbackRate).toBe(HERO_PLAYBACK_RATE);
-  });
-
-  it('warms the loop only in the last three wall-clock seconds of the intro', async () => {
+  it('warms the loop only in the last three seconds of the intro', async () => {
     const { intro, loop } = await renderDesktop();
     Object.defineProperty(intro, 'duration', { value: 10.5, configurable: true });
-    // Media-time lead is 3s * 0.65 = 1.95s, so 8.0s (2.5s remaining) is still too early.
-    Object.defineProperty(intro, 'currentTime', { value: 8, configurable: true, writable: true });
+    Object.defineProperty(intro, 'currentTime', { value: 2, configurable: true, writable: true });
     fireEvent.timeUpdate(intro);
     expect(loop.getAttribute('preload')).toBe('metadata');
-    Object.defineProperty(intro, 'currentTime', { value: 8.6, configurable: true, writable: true });
+    Object.defineProperty(intro, 'currentTime', { value: 8, configurable: true, writable: true });
     fireEvent.timeUpdate(intro);
     expect(loop.getAttribute('preload')).toBe('auto');
   });
