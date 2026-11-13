@@ -10,7 +10,9 @@ import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import {
   RecurringJournalRequestError,
   RecurringJournalNotFoundError,
+  RecurringJournalStatusChangedError,
   readTemplateForUpdate,
+  templateEndedError,
   businessToday,
   assertTemplateLinesPostable,
   assertPostablePeriod,
@@ -21,33 +23,18 @@ import { placeCostCentres } from './dimensions/costCentrePick';
 import { assertNewJournalDimensions } from './dimensions/dimensionPolicy';
 import { assertNoHeaderAccountLines } from './headerAccountGuard';
 import { templateAuthors } from './manualJournalAuthors';
-import type { JournalEntryMeta } from './journalEntryMeta';
 import type {
   RecurringJournal, RecurringJournalCreateInput, RecurringStatus, JournalLineInput,
 } from '../../types/gl.types';
+import type { RecurringJournalRun, RecurringRunOptions } from '../../types/recurringJournal.types';
 import type { DbRow } from '@/types/db';
 
-export { RecurringJournalRequestError, RecurringJournalLockTimeoutError, RecurringJournalNotFoundError } from './recurringJournalGuards';
+export {
+  RecurringJournalRequestError, RecurringJournalLockTimeoutError, RecurringJournalNotFoundError,
+  RecurringJournalStatusChangedError,
+} from './recurringJournalGuards';
 
-/** One run: the journal it minted, and — R-035 PR6 — the journals approval holds as drafts (it or nothing). */
-export interface RecurringJournalRun {
-  journalId: string;
-  heldForApproval: string[];
-  /** A template line's cost-centre pick the run dropped (dimensions/costCentrePick); absent when none. */
-  warnings?: string[];
-  /** False when the journal was left a draft: the template does not auto-post (migration 989), or approval holds it. */
-  posted: boolean;
-}
-
-/**
- * Who is running it. `meta` stamps the journal (an MCP run is an agent's, not the token owner's own work).
- * `agent`: an agent may neither raise nor decide an approval (R-035 Q6), so a journal approval would hold is refused
- * before the claim when the template posts, and a draft-only template's journal is marked but raises no request.
- */
-export interface RecurringRunOptions {
-  meta?: JournalEntryMeta;
-  agent?: boolean;
-}
+export type { RecurringJournalRun, RecurringRunOptions } from '../../types/recurringJournal.types';
 
 export async function getRecurringJournals(companyId: string, filters?: {
   status?: string;
@@ -111,7 +98,10 @@ export async function getRecurringJournalById(companyId: string, id: string): Pr
   return rows[0] ? mapRow(rows[0]) : null;
 }
 
-/** `from`: change it only while it still has that status (a predicated UPDATE); otherwise NotFound, nothing written. */
+/**
+ * `from`: change it only while it still has that status (a predicated UPDATE). Nothing is written when it does not:
+ * RecurringJournalStatusChangedError when the template exists in another status, NotFound when it does not exist.
+ */
 export async function updateRecurringJournalStatus(companyId: string,
   id: string,
   status: 'paused' | 'active' | 'cancelled',
@@ -121,7 +111,10 @@ export async function updateRecurringJournalStatus(companyId: string,
     UPDATE recurring_journals SET status = ${status}, updated_at = NOW()
     WHERE id = ${id} AND company_id = ${companyId} AND (${from ?? null}::TEXT IS NULL OR status = ${from ?? null})
     RETURNING id`) as DbRow[];
-  if (result.length === 0) throw new RecurringJournalNotFoundError(id);
+  if (result.length === 0) {
+    if (from && (await getRecurringJournalById(companyId, id))) throw new RecurringJournalStatusChangedError(id);
+    throw new RecurringJournalNotFoundError(id);
+  }
   log.info('Updated recurring journal status', { id, status }, 'accounting');
 }
 
@@ -194,6 +187,8 @@ export async function runRecurringJournal(companyId: string,
   if (rj.status !== 'active') throw new RecurringJournalRequestError('Recurring journal is not active');
 
   const dueDate = String(rj.next_run_date);
+  const ended = templateEndedError(dueDate, rj.end_date); // an edit moved the next run past the end date
+  if (ended) throw ended;
   const today = await businessToday();
   if (dueDate > today) {
     throw new RecurringJournalRequestError(
@@ -251,10 +246,12 @@ export async function runRecurringJournal(companyId: string,
     await settleUnattendedJournal(companyId, je.id, userId, settleGate, authors);
     if (posts) await postJournalEntry(companyId, je.id, userId);
 
-    log.info('Generated journal from recurring',
-      { recurringId: id, journalId: je.id, runDate: dueDate, heldForApproval: settleGate.held, posted: posts }, 'accounting');
+    if (!opts.preview) {
+      log.info('Generated journal from recurring',
+        { recurringId: id, journalId: je.id, runDate: dueDate, heldForApproval: settleGate.held, posted: posts }, 'accounting');
+    }
     return {
-      journalId: je.id, heldForApproval: settleGate.held ? [je.id] : [], posted: posts,
+      journalId: je.id, entryNumber: je.entryNumber, heldForApproval: settleGate.held ? [je.id] : [], posted: posts,
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   });

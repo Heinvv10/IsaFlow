@@ -28,7 +28,7 @@ import {
   createRecurringJournal, getRecurringJournalById, updateRecurringJournalStatus,
 } from '@/modules/accounting/services/gl/recurringJournalService';
 import {
-  RecurringJournalRequestError, assertTemplateLinesPostable,
+  RecurringJournalRequestError, RecurringJournalStatusChangedError, assertTemplateLinesPostable,
 } from '@/modules/accounting/services/gl/recurringJournalGuards';
 import { HeaderAccountRefusal, assertNoHeaderAccountLines } from '@/modules/accounting/services/gl/headerAccountGuard';
 import { assertNewJournalDimensions } from '@/modules/accounting/services/gl/dimensions/dimensionPolicy';
@@ -197,6 +197,17 @@ describe('deactivate_recurring_journal', () => {
     expect(r.isError).toBe(true);
     expect(text(r)).toContain(`A ${status} recurring journal cannot be resumed`);
     expect(updateRecurringJournalStatus).not.toHaveBeenCalled();
+  });
+
+  it('a status changed since the read is answered as a refusal (nothing was written), anything else rethrows', async () => {
+    template('active');
+    vi.mocked(updateRecurringJournalStatus).mockRejectedValueOnce(new RecurringJournalStatusChangedError(RJ));
+    const r = await deactivateRecurringJournalTool.handler({ recurring_journal_id: RJ, idempotency_key: 'k' }, ctx());
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain('status changed concurrently — re-read it and retry');
+    vi.mocked(updateRecurringJournalStatus).mockRejectedValueOnce(new Error('connection reset'));
+    await expect(deactivateRecurringJournalTool.handler({ recurring_journal_id: RJ, idempotency_key: 'k' }, ctx()))
+      .rejects.toThrow('connection reset');
   });
 
   it('dry run checks the same and writes nothing', async () => {

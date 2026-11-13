@@ -178,7 +178,7 @@ describe('run_recurring_journals over a real database', () => {
 
     await pool.query("UPDATE recurring_journals SET status = 'cancelled' WHERE id = $1", [made.id]);
     await expect(request(pool, co, user, () => updateRecurringJournalStatus(co.c, made.id, 'active', 'paused')))
-      .rejects.toThrow(/not found/);
+      .rejects.toThrow(/status changed concurrently/);
     expect((await templateState(pool, made.id)).status).toBe('cancelled');
   });
 });

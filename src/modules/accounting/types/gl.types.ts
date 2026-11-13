@@ -91,40 +91,10 @@ export const GL_ENTRY_SOURCES = [
 
 export type GLEntrySource = (typeof GL_ENTRY_SOURCES)[number];
 
-// ── Recurring Journals ────────────────────────────────────────────────────────
-
-export type RecurringFrequency = 'weekly' | 'monthly' | 'quarterly' | 'annually';
-export type RecurringStatus = 'active' | 'paused' | 'completed' | 'cancelled';
-
-export interface RecurringJournal {
-  id: string;
-  templateName: string;
-  description?: string;
-  frequency: RecurringFrequency;
-  nextRunDate: string;
-  endDate?: string;
-  lastRunDate?: string;
-  runCount: number;
-  status: RecurringStatus;
-  lines: JournalLineInput[];
-  totalAmount: number;
-  /** A run posts its journal (true) or leaves it a draft (migration 989). */
-  autoPost: boolean;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface RecurringJournalCreateInput {
-  templateName: string;
-  description?: string;
-  frequency: RecurringFrequency;
-  nextRunDate: string;
-  endDate?: string;
-  lines: JournalLineInput[];
-  /** Omitted: true, as the app's create route has always behaved. */
-  autoPost?: boolean;
-}
+// ── Recurring Journals (recurringJournal.types.ts) ───────────────────────────
+export type {
+  RecurringFrequency, RecurringStatus, RecurringJournal, RecurringJournalCreateInput,
+} from './recurringJournal.types';
 
 // ── VAT Adjustments ──────────────────────────────────────────────────────────
 

@@ -4,6 +4,7 @@
  *
  *  - a CLOSED fiscal period: the run is skipped with the reason; no journal, the schedule unmoved, no key consumed;
  *  - a locked (filed) VAT period: a template that moves a VAT figure is skipped; one that moves none still posts;
+ *  - a template whose next run is past its end_date has ENDED — for the MCP run and the UI's Generate alike;
  *  - not yet due, behind an earlier month, and a posting template without write:post: reported, nothing written;
  *  - manual-journal approval (R-035 Q6): an agent raises nothing — a posting template approval would hold is
  *    skipped; a draft-only one is generated, marked, with no request raised.
@@ -13,6 +14,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { runRecurringJournalsTool } from '@/lib/mcp/tools/writeRunRecurringJournals';
+import { runRecurringJournal } from '@/modules/accounting/services/gl/recurringJournalService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupPr6 } from './r035-pr6.helpers';
 import {
@@ -120,5 +122,27 @@ describe('run_recurring_journals refusals', () => {
     ]);
     const requests = (await pool.query('SELECT COUNT(*) AS n FROM approval_requests WHERE company_id = $1', [co.c])).rows[0];
     expect(Number(requests.n)).toBe(0);
+  });
+
+  it('a next run past the end date has ended: the MCP run skips it, the UI Generate refuses it, nothing written', async () => {
+    const co = await company(pool, user, [cal.prev, cal.cur], companies);
+    // The state the UI PUT reaches: next_run_date moved past end_date, status still active.
+    const t = await plantTemplate(pool, co, user, {
+      name: 'Ended', frequency: 'monthly', next: day(cal.prev, 20), endDate: day(cal.prev, 10),
+    });
+    // Asked before "not due": a template that has ended says so whatever month is run.
+    const later = await plantTemplate(pool, co, user, {
+      name: 'EndedLater', frequency: 'monthly', next: day(cal.next, 5), endDate: day(cal.prev, 10),
+    });
+    const prev = parsed(await run(co, cal.prev));
+    expect(prev.generated).toEqual([]);
+    expect(prev.skipped).toMatchObject([{ recurring_journal_id: t, reason: 'ended', run_date: day(cal.prev, 20) }]);
+    expect((prev.skipped as Skip[])[0]!.message).toContain(`ended on ${day(cal.prev, 10)}`);
+    const reasons = Object.fromEntries((parsed(await run(co, cal.next)).skipped as Skip[]).map((x) => [x.recurring_journal_id, x.reason]));
+    expect(reasons).toEqual({ [t]: 'ended', [later]: 'ended' }); // not behind_schedule / not_yet_due
+
+    await expect(request(pool, co, user, () => runRecurringJournal(co.c, t, user))).rejects.toThrow(/ended on/);
+    expect(await journals(pool, co)).toEqual([]);
+    expect(await templateState(pool, t)).toMatchObject({ next: day(cal.prev, 20), runs: 0, status: 'active' });
   });
 });

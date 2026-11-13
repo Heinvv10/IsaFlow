@@ -34,6 +34,7 @@ import { getCompanyPlan } from '@/lib/billing/getCompanyPlan';
 import { isDynamicOauthApp } from '@/lib/auth/oauthDynamicClients';
 import { MAX_INVOICES } from './tools/writeBulkInvoices';
 import { partitionSupplierInvoiceBatch } from './tools/bulkInvoiceDuplicateSkip';
+import { RECURRING_JOURNAL_FLOW_OPERATIONS } from './tools/recurringJournalToolSet';
 import {
   getFlowCost,
   type FlowOperationCode,
@@ -339,10 +340,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   cancel_supplier_invoice: null,
   // Cancelling a duplicate draft: a correction, never a new document.
   cancel_customer_invoice: null,
-  // Recurring journals: the app meters neither the template routes nor Generate (recurring-journals*.ts).
-  create_recurring_journal: null,
-  run_recurring_journals: null,
-  deactivate_recurring_journal: null,
+  ...RECURRING_JOURNAL_FLOW_OPERATIONS,
   // Editing a draft bill: the create already paid for the document.
   update_supplier_invoice: null,
   // Re-dating existing bills to the suppliers' terms: a correction, the bills already paid for.

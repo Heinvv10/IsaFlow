@@ -12,6 +12,7 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
+  getRecurringJournalById,
   updateRecurringJournalStatus,
   runRecurringJournal,
   RecurringJournalRequestError,
@@ -42,17 +43,30 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       case 'pause':
         await updateRecurringJournalStatus(companyId, id, 'paused');
         return apiResponse.success(res, { status: 'paused' });
-      case 'resume':
-        await updateRecurringJournalStatus(companyId, id, 'active');
+      case 'resume': {
+        // Only a PAUSED template resumes (the page offers Resume on paused only). A completed one's next run is past
+        // its end date and a cancelled one is finished; reactivating either generated runs it should never have.
+        // Predicated on 'paused', so a status changed since the read is refused too (400), nothing written.
+        const rj = await getRecurringJournalById(companyId, id);
+        if (!rj) throw new RecurringJournalNotFoundError(id);
+        if (rj.status !== 'paused') {
+          return apiResponse.badRequest(res, `A ${rj.status} recurring journal cannot be resumed — only a paused one can.`);
+        }
+        await updateRecurringJournalStatus(companyId, id, 'active', 'paused');
         return apiResponse.success(res, { status: 'active' });
+      }
       case 'cancel':
         await updateRecurringJournalStatus(companyId, id, 'cancelled');
         return apiResponse.success(res, { status: 'cancelled' });
       case 'generate': {
-        // heldForApproval (R-035 PR6): the journal left a draft awaiting approval, or nothing.
+        // heldForApproval (R-035 PR6): the journal left a draft awaiting approval, or nothing. posted false (a
+        // draft-only template, migration 989, or a hold): the page says the journal is a draft and names it.
         const run = await withJournalDateRefusal(res, () => runRecurringJournal(companyId, id, userId));
         if (run === JOURNAL_DATE_REFUSED) return;
-        return apiResponse.success(res, { journalId: run.journalId, heldForApproval: run.heldForApproval, ...(run.warnings ? { warnings: run.warnings } : {}) });
+        return apiResponse.success(res, {
+          journalId: run.journalId, entryNumber: run.entryNumber, posted: run.posted, heldForApproval: run.heldForApproval,
+          ...(run.warnings ? { warnings: run.warnings } : {}),
+        });
       }
       default:
         return apiResponse.badRequest(res, `Unknown action: ${action}`);

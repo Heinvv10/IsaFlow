@@ -12,7 +12,9 @@
  *
  * ONE OCCURRENCE AT A TIME, IN ORDER. A run is due on `next_run_date`; a template whose next run falls before the
  * month is behind and is reported, not skipped forward (the earlier month is generated first). A run after today is
- * not due yet, as the UI says. A template that posts needs `canPost` (write:post); without it it is reported.
+ * not due yet, as the UI says. One whose next run is after its end date has ENDED (`templateEndedError`, the
+ * generator's own refusal) and is reported. A template that posts needs `canPost` (write:post); without it it is
+ * reported.
  *
  * REFUSALS. Each occurrence runs in its own savepoint. A refusal the generator raises (a caller-fixable state:
  * closed period, VAT lock, deactivated account, approval needed…) rolls back that occurrence only — the fiscal year
@@ -32,11 +34,13 @@ import { isHeaderAccountRefusal } from './headerAccountGuard';
 import { ClosedFiscalPeriodError } from './journalEntryPostingGuards';
 import { VatPeriodLockedError } from './journalVatLockGuard';
 import {
-  RecurringJournalLockTimeoutError, RecurringJournalRequestError, businessToday, readTemplateForUpdate,
+  RecurringJournalEndedError, RecurringJournalLockTimeoutError, RecurringJournalNotFoundError,
+  RecurringJournalRequestError, businessToday, readTemplateForUpdate, templateEndedError,
 } from './recurringJournalGuards';
 import { runRecurringJournal, type RecurringRunOptions } from './recurringJournalService';
 
-export type RecurringSkipReason = 'not_yet_due' | 'behind_schedule' | 'needs_write_post' | 'refused' | 'contended';
+export type RecurringSkipReason =
+  'not_yet_due' | 'behind_schedule' | 'ended' | 'needs_write_post' | 'refused' | 'contended';
 
 export interface RecurringPeriodGenerated {
   templateId: string;
@@ -82,12 +86,18 @@ export function periodBounds(period: string): { start: string; end: string } | n
   return { start: `${period}-01`, end: `${period}-${String(lastDay).padStart(2, '0')}` };
 }
 
-/** The generator's refusal text when `err` is one a caller can act on; null for anything else (rethrown). */
-function refusalMessage(err: unknown): string | null {
+/**
+ * The skip for a generator refusal a caller can act on; null for anything else (rethrown). The subclasses go first:
+ * `instanceof` the parent would match them too. A template that vanished under its own lock is not a refusal.
+ */
+function refusalSkip(err: unknown): { reason: RecurringSkipReason; message: string } | null {
+  if (err instanceof RecurringJournalNotFoundError) return null;
+  if (err instanceof RecurringJournalLockTimeoutError) return { reason: 'contended', message: err.message };
+  if (err instanceof RecurringJournalEndedError) return { reason: 'ended', message: err.message };
   if (err instanceof RecurringJournalRequestError || err instanceof ClosedFiscalPeriodError
     || err instanceof VatPeriodLockedError || isDimensionRefusal(err) || isHeaderAccountRefusal(err)
     || isJournalDateRefused(err)) {
-    return err.message;
+    return { reason: 'refused', message: err.message };
   }
   return null;
 }
@@ -129,6 +139,11 @@ async function execute(
         throw new Error(`Recurring journal ${templateId} did not advance past ${previous}`);
       }
       if (runDate > bounds.end) break;
+      const ended = templateEndedError(runDate, row.end_date); // the generator's own refusal, asked first
+      if (ended) {
+        skip(runDate, 'ended', ended.message);
+        break;
+      }
       if (runDate < bounds.start) {
         skip(runDate, 'behind_schedule', `Its next run is ${runDate}, before ${period}. Runs are generated in order: `
           + `run ${runDate.slice(0, 7)} first.`);
@@ -151,10 +166,10 @@ async function execute(
           ...(run.warnings ? { warnings: run.warnings } : {}),
         });
       } catch (err) {
-        const message = refusalMessage(err);
-        if (message === null) throw err;
+        const refusal = refusalSkip(err);
+        if (refusal === null) throw err;
         assertTxUsable(); // the savepoint rolled back cleanly, or this rethrows
-        skip(runDate, 'refused', message);
+        skip(runDate, refusal.reason, refusal.message);
         break;
       }
       previous = runDate;
@@ -172,7 +187,7 @@ export async function runRecurringJournalsForPeriod(
   if (!opts.dryRun) return execute(companyId, userId, period, bounds, opts);
   let preview: RecurringPeriodRun | undefined;
   await inRolledBackSavepoint('recurring_period_dry_run', async () => {
-    preview = await execute(companyId, userId, period, bounds, opts);
+    preview = await execute(companyId, userId, period, bounds, { ...opts, run: { ...opts.run, preview: true } });
   });
   const result = preview!;
   return { ...result, generated: result.generated.map((g) => ({ ...g, journalId: null })) };

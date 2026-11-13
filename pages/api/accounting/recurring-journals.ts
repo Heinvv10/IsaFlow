@@ -1,7 +1,8 @@
 /**
  * Recurring Journals API
  * GET  — list recurring journals
- * POST — create recurring journal
+ * POST — create recurring journal. `autoPost` (migration 989) is optional and boolean only: omitted, the template
+ *        posts each run as it always has; false generates drafts. Anything else is a 400.
  */
 
 import type { NextApiResponse } from 'next';
@@ -32,8 +33,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     const userId = req.user.id;
+    const autoPost: unknown = req.body?.autoPost;
+    if (autoPost !== undefined && typeof autoPost !== 'boolean') return apiResponse.badRequest(res, 'autoPost must be true or false');
     try {
-      const item = await createRecurringJournal(companyId, req.body, userId);
+      const item = await createRecurringJournal(companyId, { ...req.body, autoPost }, userId);
       return apiResponse.success(res, item);
     } catch (err) {
       if (respondIfLockTimeout(res, err)) return;

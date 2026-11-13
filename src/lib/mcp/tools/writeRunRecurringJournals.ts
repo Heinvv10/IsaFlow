@@ -25,8 +25,8 @@ export const runRecurringJournalsTool: McpTool = {
     + 'template — each run exactly once: re-running a month generates nothing new. Each journal is dated its run date. '
     + 'A template with auto_post posts its journal (needs write:post; without it the template is skipped); otherwise '
     + 'it is left a draft. Runs after today, in a closed fiscal period, in a locked VAT period, needing approval, or '
-    + 'on a deactivated account are skipped with the reason, as is a template still behind an earlier month (run that '
-    + 'month first). Returns generated[] with journal_id per run, and skipped[]. dry_run: true lists what would be '
+    + 'on a deactivated account are skipped with the reason, as is a template past its end_date (ended) or still '
+    + 'behind an earlier month (run that month first). Returns generated[] with journal_id per run, and skipped[]. dry_run: true lists what would be '
     + 'generated and writes nothing. Undo a posted journal with reverse_journal_entry.',
   scope: 'write:journals',
   write: true,

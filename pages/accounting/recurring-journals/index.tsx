@@ -16,7 +16,7 @@ import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 interface RecurringJournal {
   id: string; templateName: string; description?: string; frequency: string;
   nextRunDate: string; lastRunDate?: string; runCount: number; status: string;
-  totalAmount: number; lines: Line[];
+  totalAmount: number; lines: Line[]; autoPost?: boolean;
 }
 interface Line { glAccountId: string; debit: number; credit: number; description?: string }
 interface Account { id: string; accountCode: string; accountName: string }
@@ -91,10 +91,16 @@ export default function RecurringJournalsPage() {
         credentials: 'include', body: JSON.stringify({ action, id }),
       });
       await assertOk(res, fallback);
-      const body = action === 'generate' ? await res.json() as { data?: { heldForApproval?: string[]; warnings?: string[] } } : null;
+      const body = action === 'generate' ? await res.json() as {
+        data?: { heldForApproval?: string[]; warnings?: string[]; posted?: boolean; entryNumber?: string };
+      } : null;
       const n = body?.data?.heldForApproval?.length ?? 0;
+      // A draft-only template (or a hold) leaves the run a DRAFT and the schedule still moves on: say so, or the month
+      // silently stays out of the ledger. Only an explicit false: an older response carries no flag.
+      const draft = n === 0 && body?.data?.posted === false
+        ? [`Created as a DRAFT — post it from Journals: ${body.data.entryNumber ?? 'the new journal'}.`] : [];
       // The same notice carries a template cost centre the run did not apply (the journal was generated without it).
-      const notices = [...(n > 0 ? [`${n} journal held for approval — left as a draft until approved.`] : []), ...postingWarningsIn(body)];
+      const notices = [...(n > 0 ? [`${n} journal held for approval — left as a draft until approved.`] : []), ...draft, ...postingWarningsIn(body)];
       if (notices.length > 0) setHeld(notices.join(' '));
       await load();
     } catch (err) {
@@ -258,7 +264,8 @@ export default function RecurringJournalsPage() {
                 {!loading && filteredItems.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">{statusFilter ? 'No matching journals' : 'No recurring journals'}</td></tr>}
                 {filteredItems.map(item => (
                   <tr key={item.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
-                    <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{item.templateName}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{item.templateName}
+                      {item.autoPost === false && <span className="ml-2 px-2 py-0.5 rounded text-xs font-medium bg-amber-500/10 text-amber-500" title="Each run is created as a draft journal for you to post">Draft only</span>}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)] capitalize">{item.frequency}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(item.nextRunDate)}</td>
                     <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(item.totalAmount)}</td>
