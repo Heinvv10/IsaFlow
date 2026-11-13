@@ -1,6 +1,6 @@
 # P6 — Balance-sheet & cash budgets (three-way) + scenarios — spec
 
-**Date:** 2026-10-26 · **Status:** Draft, not started · **Parent:** `docs/plans/2026-10-26-budgets-next-level.md` §5 P6
+**Date:** 2026-10-26 (refreshed 2026-11-13) · **Status:** In build · **Parent:** `docs/plans/2026-10-26-budgets-next-level.md` §5 P6
 **Contract:** `docs/plans/budgets/00-shared-contract.md` (obeyed exactly; canonical names from P1).
 **Precondition:** P1–P4 merged on `origin/master` (checks: contract "Preconditions"). Decision 10 answered at the phase-start gate (§1).
 **Refresh before building:** re-read this spec against what the MVP (P0–P3) taught us on Demo. Anything
@@ -18,9 +18,12 @@ hand-computed fixtures and exact-cent invariants, and nothing client-visible unt
 |---|---|
 | 10 | Cash timing from **actual** debtor/creditor/inventory days, derived at the opening date and editable per version. VAT and PAYE paid on **SARS due dates**. Figures **not client-visible** until Hein reviews on ISAFlow Demo (feature flag `budgets_three_way`, off for every company except Demo). |
 | 10a | Opening balance sheet = actual BS (`getBalanceSheet`) as at the day before the version's first month. If that day is in the future, use the latest actual date ≤ today and show a "provisional opening (as at …)" banner. |
-| 10b | Provisional tax (companies only, `entity_type` company/pty/cc): IRP6 #1 = 50 % of the version's FY budgeted tax expense in month 6 of the financial year; #2 = balance of FY tax in month 12; opening tax payable (prior year) settled in the top-up month (6 months after a February year end, else 7). Non-companies: off. |
+| 10b | Provisional tax (companies only, `entity_type` company/pty/cc): IRP6 #1 = 50 % of the version's FY budgeted tax expense in month 6 of the financial year; #2 = balance of FY tax in month 12; opening tax payable (prior year) settled in the top-up month (**7 months after a February year end, else 6** — SARS; Hein override 2026-11-13). Non-companies: off. |
 | 10c | The P&L budget is the only authority for P&L figures. Depreciation, interest and tax come from the budgeted P&L lines; asset register / loan schedules are **checks** (warning when they differ by > 5 %), never overrides. |
 | 10d | Negative cash is shown, never auto-funded by an overdraft plug. |
+
+**Hein's answer (2026-11-13, phase-start gate):** "decision 10 and 10a-10d = ALL the pre-filled defaults in spec section 1, no overrides." Source check then found 10b's top-up month reversed against SARS (SARS FAQ: Feb year end → 30 Sep, seven months; any other year end → six months). Hein ruled the same day: **follow SARS**. The 10b row above is the corrected rule.
+Source check, VAT: SARS Category A = two-month periods ending Jan/Mar/May/Jul/Sep/Nov, Category B ending Feb/Apr/…/Dec, Category C monthly. This matches `vatPeriodHelper` ('odd' = A = periods *ending* in odd months); `sarsTaxPeriodsService` disagrees (R2).
 
 **Verify before coding (LOW→MEDIUM confidence facts):** SARS VAT category ↔ alignment (repo helpers
 disagree — see §11 R2) and the IRP6 top-up month. At monthly grain both the 25th and "last business day"
@@ -253,12 +256,12 @@ Golden: `tests/e2e/golden-paths/<next free letter>-budgets-three-way.spec.ts` (N
 - **F3b** Bi-monthly, period Apr–May. Turnover 10 000 Apr and May, nothing else; opening VAT payable 2 000 (period ended Mar). Apr pays 2 000; May accrues 3 000 total; June pays 3 000. Payment-basis variant with D = 31: VAT accrues on receipts.
 - **F4** Payroll 100 000/month, p = 0.30, opening payroll liability 25 000. Month 1 cash out 95 000, liability close 30 000; month 2 out 100 000.
 - **F5** COGS 60 000 in a 31-day month, I = 31, opening inventory 50 000, C = 0, no VAT. Close inventory 60 000; purchases paid 70 000.
-- **F6** FY Mar–Feb, tax 12 000/month (FY 144 000), opening tax payable 30 000, Feb YE. Aug: 72 000 + 30 000 top-up; Feb: 72 000. Non-Feb YE variant: top-up month 7.
+- **F6** FY Mar–Feb, tax 12 000/month (FY 144 000), opening tax payable 30 000, Feb YE. Aug (month 6): 72 000; Sep (7 months after the prior Feb YE): 30 000 top-up; Feb: 72 000. Non-Feb YE variant (FY Jul–Jun): top-up in Dec (6 months after the prior June YE), same month as IRP6 #1.
 - **F7** Capex Apr 100 000 ex VAT claimable (cash 115 000, VAT asset 15 000); depreciation 2 000/m; loan drawdown 100 000 Apr, principal 5 000/m from May; interest 1 000/m. Investing −115 000 Apr; financing +100 000 Apr, −5 000 May.
 
 **Invariants:** I1 `check = 0` every month (cents) · I2 opening cash + Σ net CF = closing cash · I3 direct operating = indirect operating · I4 every posting Σdr = Σcr · I5 Σ ΔRE from NP = version NP from P3's reader · I6 derive-then-flat P&L keeps AR/AP/Inv constant · I7 opening buckets = `getBalanceSheet` totals and cash = `getCashBalance` (real PG) · I8 empty override = base · I9 locked version refuses assumption writes as app_user · I10 other tenant's version → 404, no data.
 
-**Mutations (each must turn a named test red; record in PR body):** M1 receipts use close instead of open AR (F1) · M2 VAT paid in period-end month (F3) · M3 alignment flipped (F3b, T3 table) · M4 depreciation credited to cash (I3, F7) · M5 statutory share ignored (F4) · M6 shallow merge of overrides (scenario test) · M7 drop `company_id` predicate in assumptions read (I10) · M8 drop lock trigger (I9) · M9 drop cent-residue carry (I1 property) · M10 IRP6 #1 in month 7 (F6).
+**Mutations (each must turn a named test red; record in PR body):** M1 receipts use close instead of open AR (F1) · M2 VAT paid in period-end month (F3) · M3 alignment flipped (F3b, T3 table) · M4 depreciation credited to cash (I3, F7) · M5 statutory share ignored (F4) · M6 shallow merge of overrides (scenario test) · M7 drop `company_id` predicate in assumptions read (I10) · M8 drop lock trigger (I9) · M9 drop cent-residue carry (I1 property) · M10 IRP6 #1 in month 7 (F6) · M11 top-up month reversed to 6/7 (F6).
 
 **Playwright acceptance (dev, Demo-equivalent company, flag on):** open three-way for the primary version → "Balances ✓" chip, runway chart renders; edit debtor days 30 → 60 and save → closing cash month 3 drops by the hand-checked amount; create scenario "Worst" from base, override debtor days 90 → compare shows three lines and Δ cash; screenshots dark/light 1280/390.
 
@@ -284,4 +287,36 @@ before the flag is widened.
 
 ## 13. Changes after MVP feedback
 
-(empty — fill at phase start)
+Refreshed 2026-11-13 against origin/master `ed4297cfc0` and the P0–P5 handoffs. **Where this section and an earlier section disagree, this section wins.**
+
+**Gate rulings**
+1. Decision 10, 10a, 10c, 10d: defaults (Hein 2026-11-13). 10b: default, except that the top-up month follows SARS (7 months after a February year end, else 6), Hein 2026-11-13. F6 corrected; mutation M11 added.
+2. 10b entity codes (`src/lib/entityTypes.ts`): provisional tax **on** for `pty_ltd`, `ltd`, `cc`, `npc`; **off** for `sole_proprietor`, `partnership`, `trust`, `other` (the spec's "non-companies off"). An NPC that budgets no tax pays nothing, so including it is harmless.
+3. 10b in a transition year (1–15 months, `fiscalYearRegistry.ts:43`): IRP6 #1 in month 6 only when the year has more than 6 months; IRP6 #2 (the balance) in the year's last month; top-up as in 1, if that month is inside the version.
+
+**Names and shapes that changed on master**
+4. Months are `'YYYY-MM'` strings end to end (programme convention: drivers, tracking, grid save), taken from `versionMonths(companyId, fiscalYear)` (`drivers/driverRecomputeService.ts:79`). Not `YYYY-MM-01`.
+5. `primaryVersionScope` is gone: use `resolvePrimaryVersion` / `readVersion` (`budgetVersionScope.ts`). Locked is **409** `BUDGET_VERSION_LOCKED` (BV001 via `mapBudgetDbError`), never 423. Responses through `respondBudgetVersionError`.
+6. P&L input = the version's stored `budget_month_amounts` (P4 drivers write their results there; there is no separate "after drivers" reader), read through `readTrackingBudgets`. Engine bands are split by **canonical subtype** (grid bands have no payroll/depreciation/tax split): `sales`/`revenue` → turnover, `other_income` → otherIncome, `cost_of_sales`, `payroll_expense`, `depreciation_expense`, `finance_cost`, `tax_expense`, everything else expense → otherOpex. Counting rule = the grid's (leaves plus a legacy header's own amounts, never a roll-up; decision 18).
+7. I5 oracle = grid `deriveTotals(...).months.netProfit` over `readTrackingBudgets` (parity-tested against `aggregateFigures`). `buildBudgetTrackingReport` has no per-month NP and goes null under R9.
+8. Lookback turnover/COGS/purchases through `readTrackingActuals` (contract: P6 reads actuals only through it). Opening buckets need P6's own read that copies `getBalanceSheet`'s predicates (leaf filter, `<= asAt`, year-end journal excluded, derived RE added to the system RE line) or I7 fails. Opening cash check: `getCashBalance(co, firstMonthStart, { exclusive: true })`, rands at 2 dp; its account set (cash subtypes at every level) differs from the BS leaf filter — I7 compares like with like and reports the difference.
+9. R4: equity balances by construction (derived RE fills the gap), so `OpeningUnbalancedError` fires only on a broken trial balance or dropped header-level postings. Show posted vs derived RE (`getEquityBases`) on the opening chip.
+10. Buckets: `CashGroup` real names (`cash_received_from_customers`, `cash_paid_to_suppliers`, `cash_paid_to_employees`, `other_operating`, `investing`, `financing`). `vat_input_late_claim` is not VAT control (→ otherAssets); `eti_refund_receivable` → otherAssets, not receivables; a liability spelled bank/cash is a credit card (financing, → otherLiabilities, not cash). No subtype exists for income-tax payable, dividends payable or loans: loans = `long_term_liability`/`non_current_liability` plus `loans.gl_account_id` / `current_portion_account_id`; tax and dividends payable are synthetic lines unless an account is chosen.
+11. VAT: a NULL/empty `vat_period` normalises to bi-monthly `'odd'`; derived cadence then carries `basis: 'defaulted — not configured'`. `companyMapper.vatPeriodAlignment` is raw — always `normalizeVatAlignment`. T3's oracle is `vatQuickPeriods` (pure strings); `expectedVatPeriodAsOf` needs a `Date`.
+12. EMP201 `payePayable` is PAYE net of ETI; `statutoryShare` uses it.
+13. Feature flag: `withFeature` is used by no route and answers a non-envelope 403 "upgrade". P6 routes call `hasFeature` in the handler and answer `apiResponse.forbidden` (precedent `pages/api/mcp/index.ts:138`). `FeatureGate` gets a neutral fallback (its default is UpgradePrompt). Enabling Demo is a platform-admin write (945 made flag tables read-only to app roles).
+14. Nav: no flag filter exists. Add a pure `stripFlagNav` beside `stripVatNav` at all five call sites (`AccountingNav.tsx`, `layout/DrawerNav.tsx`, `layout/SidebarNav.tsx`, `accounting/SecondaryModuleNav.tsx`, `navSections/navIndex.ts`), link in the "Management Accounting" section. Existing code → Hein reads PR D's diff.
+15. Chart: `CashPositionChart` is four category bars and cannot draw a runway or overlay. New option builder under `threeWay/` on `EChart` + `ibcs` + `escapeHtml`.
+16. Golden: no hand-kept regex. The spec is `tests/e2e/golden-paths/z19-budgets-three-way.spec.ts` with `// golden:dev-only` in its first 15 lines (`helpers/devOnlySpecs.ts`). The contract's golden-spec rule text is stale the same way.
+
+**Migration (§6) — copy 949/954, not 944**
+17. Composite FK `(company_id, version_id) REFERENCES budget_versions (company_id, id) ON DELETE CASCADE` instead of a company-match trigger. Forced RLS, `tenant_isolation` FOR ALL TO app_user (the 949 predicate). `REVOKE INSERT, UPDATE, DELETE`, then per-column `GRANT INSERT`/`UPDATE` (never id, never company_id on UPDATE, never stamps). Stamps by trigger (`updated_by = auth.uid()`, `updated_at = clock`). `budget_month_amounts_refuse_locked()` attached `ENABLE ALWAYS` exactly as 949. New functions SECURITY INVOKER, `REVOKE ALL … FROM PUBLIC` (no 930 registry row). End with `SELECT public.app_service_sync_policies();`. Prefix: head is 982 → 983 at refresh time; re-check at commit.
+
+**Write path and rulings made at refresh (no Hein decision needed)**
+18. Assumptions writes follow `runDriverWrite`: `holdYearRegistry` → one savepoint → lock the version row → write → one audit row (`logAuditOrThrow`, `entity='budget'`, entity_id = version id, before/after `fields`). Concurrency token = the **assumptions row's own `updated_at`** (409 STALE `{code, currentUpdatedAt}`), so a save does not bump the version token and stale open grid tabs (`lockVersionForWrite` bumps it; the version is pre-locked without the bump).
+19. Write access = the grid's (`withCsrf(withWriteAccess(...))` + per-user rate limit). P5 holders are a work scope, not ACL. Submitted/approved P5 slices do **not** freeze company-level assumptions; only a locked version does.
+20. Year-end change: P6 changes no re-home code. Assumption entries dated outside the version's current `versionMonths` are ignored by the engine and reported as a warning.
+21. Scenario base: overrides merge only over a base in the same company and fiscal year. Base null (deleted), cross-year (P2 cross-year seeds set `based_on_version_id`), chain > 5 or a cycle → typed refusal; the scenario can still store a full doc. P6 never edits `based_on_version_id` (immutable after insert) and never sets primary.
+22. Compare: Δ = version − first; `favourable` separate (cash higher = favourable), colour only via `varianceColor`; Δ% = Δ / |first| × 100, "—" when first is 0 (contract).
+23. Demo: primary FY2027 is "P5 acceptance FY2027" (sparse); the populated versions are non-primary ("FY2027 Operating Plan", reforecast, "Upside +8%", "Downside −5%"). Acceptance on Demo opens a named version, not the primary. The dev golden seeds its own non-primary `GP-<runId>` scenario, sweeps stale `GP-%`, deletes by id in `afterAll`. P2's `v-budget-workspace` and P4's `z-budget-drivers` run in prod verify: any versions-bar change must keep them green.
+24. §3 Out, added: no GL writes, so no R-035 digest impact.
