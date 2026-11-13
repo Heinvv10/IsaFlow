@@ -80,7 +80,7 @@ export async function unapplyCreditNote(
            updated_at = NOW()
     WHERE id = ${plan.creditNoteId}::UUID AND company_id = ${companyId}::UUID`;
   // What the documents moved must equal what the note records (brief step 7); thrown — the documents have moved.
-  await assertApplicationRecorded(companyId, plan.creditNoteId, plan.creditNoteNumber,
+  assertApplicationRecorded(plan.creditNoteNumber,
     { appliedBefore: round2(plan.noteAppliedAfter + plan.amountUnapplied), appliedAfter: plan.noteAppliedAfter, paidMoved });
 
   log.info('Unapplied credit note', {

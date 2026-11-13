@@ -34,7 +34,7 @@ vi.mock('@/modules/accounting/services/shared/creditNotePostedCredit', async (im
 }));
 vi.mock('@/modules/accounting/services/shared/creditNoteApplicationInvariant', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/shared/creditNoteApplicationInvariant')>()),
-  assertApplicationRecorded: async () => undefined,
+  assertApplicationRecorded: () => undefined,
 }));
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');

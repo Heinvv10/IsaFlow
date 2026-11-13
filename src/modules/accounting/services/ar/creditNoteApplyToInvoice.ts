@@ -127,7 +127,7 @@ export async function applyCreditNoteToInvoice(
   const updated = appliedRows[0];
   if (!updated) throw new Error(`Credit note ${creditNoteId} vanished while being applied.`);
   // After the writes: any failure here is a defect, raised as one so the route answers 5xx and rolls them back.
-  await assertApplicationRecordedOrDrift(companyId, cn, creditNoteId, alreadyApplied, nowApplied, paidMoved);
+  await assertApplicationRecordedOrDrift(companyId, cn, alreadyApplied, nowApplied, paidMoved);
   // A note unlinked until now took nothing from this invoice's legs: record so, or it would be replayed.
   await recordLateLinkExcess(companyId, cn, invoiceId);
 
@@ -137,7 +137,7 @@ export async function applyCreditNoteToInvoice(
 
 /** Both application invariants after the REST apply's writes; every failure is a `CreditNoteApplicationDriftError`. */
 async function assertApplicationRecordedOrDrift(
-  companyId: string, cn: Record<string, unknown>, id: string, before: number, after: number, paidMoved: number,
+  companyId: string, cn: Record<string, unknown>, before: number, after: number, paidMoved: number,
 ): Promise<void> {
   const number = String(cn.credit_note_number);
   try {
@@ -146,5 +146,5 @@ async function assertApplicationRecordedOrDrift(
     if (err instanceof CreditNotePostedCreditError) throw new CreditNoteApplicationDriftError(err.message);
     throw err;
   }
-  await assertApplicationRecorded(companyId, id, number, { appliedBefore: before, appliedAfter: after, paidMoved });
+  assertApplicationRecorded(number, { appliedBefore: before, appliedAfter: after, paidMoved });
 }

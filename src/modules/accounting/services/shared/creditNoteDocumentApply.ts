@@ -130,7 +130,7 @@ export async function applyCreditNoteToDocument(
     UPDATE credit_notes
     SET applied_amount = ${appliedAfter}, status = ${statusAfter}, updated_at = NOW()
     WHERE id = ${plan.creditNoteId}::UUID AND company_id = ${companyId}::UUID`;
-  await assertApplicationRecorded(companyId, plan.creditNoteId, plan.creditNoteNumber,
+  assertApplicationRecorded(plan.creditNoteNumber,
     { appliedBefore: plan.noteAppliedBefore, appliedAfter, paidMoved: application.paidMoved });
 
   log.info('Credit note applied to a named document', {

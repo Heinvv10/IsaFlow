@@ -232,7 +232,7 @@ export async function applyOneCreditNote(
         updated_at = NOW()
     WHERE id = ${source.paymentId}::UUID AND company_id = ${ctx.companyId}::UUID
   `;
-  await assertApplicationRecorded(ctx.companyId, source.paymentId, source.paymentNumber,
+  assertApplicationRecorded(source.paymentNumber,
     { appliedBefore, appliedAfter, paidMoved: application.paidMoved });
 
   log.info('Back-fill applied credit note remainder', {

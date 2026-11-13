@@ -164,7 +164,7 @@ async function cancelCreditNoteInner(
     if (!updated) throw new Error(`Credit note ${id} vanished while being cancelled.`);
     // A legacy note with no rows and no link moved no document: nothing to compare (its column was a claim only).
     if (restored.length > 0 || paidMoved !== 0) {
-      await assertApplicationRecorded(companyId, id, String(cn.credit_note_number),
+      assertApplicationRecorded(String(cn.credit_note_number),
         { appliedBefore: Number(cn.applied_amount ?? 0), appliedAfter: 0, paidMoved });
     }
 

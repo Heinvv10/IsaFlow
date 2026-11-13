@@ -241,7 +241,7 @@ export async function approveCreditNote(
     // The application invariants (brief step 7), still inside the posting: what the documents moved equals what the
     // note records, and the note never applies more than its own journal put on the control account.
     await afterJournalWritten(noteNumber, async () => {
-      await assertApplicationRecorded(companyId, id, noteNumber, { appliedBefore: 0, appliedAfter: appliedAmount, paidMoved: application.paidMoved });
+      assertApplicationRecorded(noteNumber, { appliedBefore: 0, appliedAfter: appliedAmount, paidMoved: application.paidMoved });
       await assertApplicationWithinPostedCredit(companyId, { gl_journal_entry_id: je.id, credit_note_number: noteNumber }, side, 0, appliedAmount);
     });
 

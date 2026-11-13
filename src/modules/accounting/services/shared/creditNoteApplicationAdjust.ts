@@ -123,7 +123,7 @@ export async function adjustCreditNoteApplication(
     UPDATE credit_notes SET applied_amount = ${plan.noteAppliedAfter}, status = ${plan.noteStatusAfter},
            updated_at = NOW()
     WHERE id = ${plan.creditNoteId}::UUID AND company_id = ${companyId}::UUID`;
-  await assertApplicationRecorded(companyId, plan.creditNoteId, plan.creditNoteNumber,
+  assertApplicationRecorded(plan.creditNoteNumber,
     { appliedBefore: plan.noteAppliedBefore, appliedAfter: plan.noteAppliedAfter, paidMoved });
 
   log.info('Adjusted a credit note application', {
