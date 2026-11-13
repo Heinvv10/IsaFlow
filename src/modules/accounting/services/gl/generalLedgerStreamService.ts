@@ -45,7 +45,6 @@ import { sql, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import {
   BALANCE_TOLERANCE, EMPTY_TOTALS,
-  type GeneralLedgerCursor,
   type GeneralLedgerPage,
   type GeneralLedgerQuery,
   type StreamTotals,
