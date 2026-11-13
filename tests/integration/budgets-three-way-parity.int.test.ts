@@ -12,7 +12,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { localISODate } from '@/lib/dateUtils';
-import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSheetService';
+import { getBalanceSheet, getEquityBases } from '@/modules/accounting/services/reports/balanceSheetService';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
 import { readTrackingBudgets } from '@/modules/accounting/services/budgets/tracking/trackingBudgetRead';
 import { bandOf, bandSums, deriveTotals, type Band } from '@/modules/accounting/services/budgets/grid/subtotals';
@@ -128,11 +128,13 @@ describe('I7: the opening against getBalanceSheet and getCashBalance', () => {
     expect(view.opening.totals).toEqual({ assets: 22500000, liabilities: 1200000, equity: 21300000 });
   });
 
-  it('the buckets balance, derived RE in retained earnings (posted vs derived shown)', () => {
+  it('the buckets balance, derived RE in retained earnings (posted vs derived shown)', async () => {
     expect(view.opening.balanceSheet.check).toBe(0);
     expect(view.opening.buckets).toMatchObject({ cash: 20100000, receivables: 2400000, payables: -1200000, shareCapital: -10500000, retainedEarnings: -10800000 });
     // getEquityBases counts equity accounts at every level: the header's 1 500 is in `posted`, not in the leaf buckets.
     expect(view.opening.equity).toEqual({ posted: 10650000, derivedRetainedEarnings: 10800000 });
+    const bases = await fx.direct(A, () => getEquityBases(A.id, '2026-02-28'));
+    expect(view.opening.equity).toEqual({ posted: Math.round(bases.posted * 100), derivedRetainedEarnings: Math.round(bases.derivedRetainedEarnings * 100) });
   });
 
   it('opening cash: like with like per account; the account-set difference is reported, not forced', async () => {
@@ -166,6 +168,19 @@ describe('derive (T11) through the route, and a provisional opening (10a)', () =
   it('the run uses the derived days when the version stores none', () => {
     expect(view.assumptions.stored).toBeNull();
     expect(view.assumptions.resolved.workingCapital.debtorDays.value).toBe(36.5);
+  });
+
+  it('a provisional opening: postings dated after the as-at never enter the lookback', async () => {
+    // FY2031 (Mar 2030 - Feb 2031): its lookback Mar 2029 - Feb 2030 lies wholly after today.
+    await pool.query(`INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date, kind) VALUES ($1, 2031, '2030-03-01', '2031-02-28', 'normal')`, [A.id]);
+    await fx.journal(A, '2029-06-15', [{ acct: A.ar, debit: 55555 }, { acct: A.acct.sales, credit: 55555 }]);
+    const v = await fx.version(A, { fy: 2031, kind: 'original', name: 'TW far' });
+    const r = await fx.routes.index(A.owner, { version_id: v });
+    expect(r.status, JSON.stringify(r.body).slice(0, 300)).toBe(200);
+    const w = dataOf<ThreeWayView>(r);
+    expect(w.opening.provisional).toBe(true);
+    expect(w.lookback.map((m) => m.month)).toEqual(monthsFrom('2029-03'));
+    expect(w.lookback.every((m) => m.turnover === 0 && m.costOfSales === 0 && m.supplierPurchases === 0)).toBe(true);
   });
 
   it('a version of a future year opens at today, provisional, with the banner warning', async () => {

@@ -51,8 +51,15 @@ export interface YearContext {
   derived: DerivedAssumptions;
 }
 
+/** Warnings the service adds to the engine's. */
+export type ServiceWarning =
+  | { code: 'opening_cash_difference'; differenceCents: number; accounts: string[] }
+  | { code: 'payable_account_conflict'; accountId: string; kept: 'incomeTaxPayable'; ignored: 'dividendsPayable' };
+
 export interface VersionRun {
   output: EngineOutput;
+  /** Service warnings of this run (the year's cash check is added by the view). */
+  warnings: ServiceWarning[];
   /** The opening's unmapped accounts after the named payable accounts moved out. */
   unmapped: UnmappedBalance[];
   assumptions: ThreeWayAssumptions;
@@ -109,7 +116,14 @@ export async function runVersion(companyId: string, ctx: YearContext, head: Vers
   const { versions, stored } = await readChain(companyId, head.id);
   const resolved = resolveAssumptions(head.id, versions, ctx.derived.assumptions);
   // The named payable accounts are re-checked on every run (retyped or re-parented since the save: 400).
+  // One account in both slots (a base edited after its scenario was saved) is no 400: income tax keeps it.
   const named = payableAccountsOf(resolved.assumptions);
+  const warnings: ServiceWarning[] = [];
+  const tax = named.incomeTaxPayable?.toLowerCase();
+  if (tax !== undefined && tax === named.dividendsPayable?.toLowerCase()) {
+    warnings.push({ code: 'payable_account_conflict', accountId: tax, kept: 'incomeTaxPayable', ignored: 'dividendsPayable' });
+    named.dividendsPayable = undefined;
+  }
   await assertPayableAccounts(companyId, named);
   const opening = applyPayableAccounts(ctx.opening, named);
   const pnl = await readVersionPnl(companyId, ctx.fiscalYear, head.id, ctx.months);
@@ -123,5 +137,5 @@ export async function runVersion(companyId: string, ctx: YearContext, head: Vers
     assumptions: resolved.assumptions,
     loanSchedules,
   });
-  return { output, unmapped: opening.unmapped, assumptions: resolved.assumptions, chain: resolved.chain, stored };
+  return { output, unmapped: opening.unmapped, warnings, assumptions: resolved.assumptions, chain: resolved.chain, stored };
 }

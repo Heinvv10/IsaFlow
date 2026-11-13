@@ -16,16 +16,18 @@ import { agingEvidence, type AgingEvidence } from './deriveAssumptions';
 import type { OpeningCashCheck } from './openingBalances';
 import { threeWayInputError } from './serviceErrors';
 import type { OpeningTotals } from './threeWayFolds';
-import { loadYearContext, readVersionHeads, resolveHead, runVersion, type VersionHead } from './threeWayService';
+import { loadYearContext, readVersionHeads, resolveHead, runVersion, type ServiceWarning, type VersionHead } from './threeWayService';
 import type {
-  BalanceSheetSections, Buckets, CashFlowMonth, IndirectCashFlow, PnlMonth, Runway, TaxEvent, ThreeWayWarning, UnmappedBalance, VatSettlement,
+  BalanceSheetSections, Buckets, CashFlowMonth, IndirectCashFlow, LookbackMonth, PnlMonth, Runway, TaxEvent, ThreeWayWarning, UnmappedBalance, VatSettlement,
 } from './types';
 
-export type ServiceWarning = { code: 'opening_cash_difference'; differenceCents: number; accounts: string[] };
+export type { ServiceWarning } from './threeWayService';
 
 export interface ThreeWayView {
   version: VersionHead;
   months: string[];
+  /** The engine's lookback (actual months before the first month, ex VAT, cents): the days-method evidence. */
+  lookback: LookbackMonth[];
   opening: {
     asAt: string; provisional: boolean; buckets: Buckets; balanceSheet: BalanceSheetSections; totals: OpeningTotals;
     equity: { posted: number; derivedRetainedEarnings: number }; unmapped: UnmappedBalance[];
@@ -50,13 +52,14 @@ export async function getThreeWay(companyId: string, opts: { versionId?: string;
   const run = await runVersion(companyId, ctx, head);
   const o = run.output;
   const unbalancedMonths = o.months.filter((m) => m.balanceSheet.check !== 0).map((m) => m.month);
-  const warnings: Array<ThreeWayWarning | ServiceWarning> = [...o.warnings];
+  const warnings: Array<ThreeWayWarning | ServiceWarning> = [...o.warnings, ...run.warnings];
   if (ctx.cashCheck.difference !== 0) {
     warnings.push({ code: 'opening_cash_difference', differenceCents: ctx.cashCheck.difference, accounts: ctx.cashCheck.accounts.map((a) => a.accountCode) });
   }
   return {
     version: head,
     months: ctx.months,
+    lookback: ctx.lookback,
     opening: {
       asAt: o.opening.asAt, provisional: o.opening.provisional, buckets: o.opening.buckets, balanceSheet: o.opening.balanceSheet,
       totals: ctx.opening.totals, equity: ctx.opening.equity, unmapped: run.unmapped,

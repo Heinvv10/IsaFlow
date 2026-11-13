@@ -122,6 +122,28 @@ describe('the token is the DB text to the microsecond (never a JS Date)', () => 
   });
 });
 
+describe('a stored document that no longer validates does not block an overwrite', () => {
+  it('PUT with its token is 200: the row is replaced, the audit row says before = null and before_invalid', async () => {
+    const v = await fx.version(A, { kind: 'reforecast' });
+    await pool.query(`INSERT INTO budget_three_way_assumptions (company_id, version_id, doc) VALUES ($1, $2, '{"schemaVersion": 1, "junk": true}')`, [A.id, v]);
+    const token = (await fx.state(v)).row.token;
+    const r = await fx.routes.put(A.owner, { version_id: v, doc: fullDoc(12), expected_updated_at: token });
+    expect(r.status, dump(r)).toBe(200);
+    const s = await fx.state(v);
+    expect(s.row.doc.workingCapital.debtorDays.value).toBe(12);
+    expect(s.audits).toHaveLength(1);
+    expect(s.audits[0]!.action).toBe('update');
+    expect(s.audits[0]!.changes.metadata).toMatchObject({ before_invalid: 'true' });
+    expect(s.audits[0]!.changes.fields.every((f) => f.old === null)).toBe(true);
+    // The CAS still holds over an invalid row: a null token is stale.
+    const v2 = await fx.version(A, { kind: 'reforecast' });
+    await pool.query(`INSERT INTO budget_three_way_assumptions (company_id, version_id, doc) VALUES ($1, $2, '{"schemaVersion": 1}')`, [A.id, v2]);
+    const stale = await fx.routes.put(A.owner, { version_id: v2, doc: fullDoc(), expected_updated_at: null });
+    expect(stale.status).toBe(409);
+    expect(code(stale)).toBe('BUDGET_ASSUMPTIONS_STALE');
+  });
+});
+
 describe('I9: a locked version refuses assumption writes', () => {
   it('409 BUDGET_VERSION_LOCKED, nothing written, no audit row', async () => {
     const v = await fx.version(A, { kind: 'reforecast', status: 'locked' });
@@ -192,6 +214,9 @@ describe('scenarios (§13.21)', () => {
 });
 
 describe('concurrency', () => {
+  // The racing pair is serialised by the version row lock before the token is compared; the SQL
+  // compare-and-set itself (`UPDATE … WHERE updated_at = $token::TIMESTAMPTZ`) is exercised by the
+  // microsecond-token test above ("a millisecond-truncated token is 409 STALE").
   it('two saves with one token: one 200, one 409 STALE, never a 5xx; one row, one audit row', async () => {
     const v = await fx.version(A, { kind: 'reforecast' });
     const results = await Promise.all([
