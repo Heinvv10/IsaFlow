@@ -10,7 +10,7 @@ import { displayValue, getProv, parseInput, setManual, withDerived, type ProvFie
 import type { LiabilityOption } from './useAssumptionsForm';
 
 export const INPUT = 'w-full min-w-0 rounded-md border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] px-2 py-1 text-sm text-[var(--ff-text-primary)] disabled:opacity-60';
-const CHIP = 'inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium';
+const CHIP = 'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium';
 
 type Doc = ThreeWayAssumptions;
 
