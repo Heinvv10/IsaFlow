@@ -105,6 +105,7 @@ export const entries: Array<[string, Category, string?]> = [
   ['payroll/payrollJournalChain.ts', 'SUBLEDGER'],
   ['reconciliation/creditNoteRelief.ts', 'SUBLEDGER'],
   ['reconciliation/orphanControlPostings.ts', 'SUBLEDGER'],
+  ['reconciliation/partyLedgerJournalLateral.ts', 'SUBLEDGER'], // one document's own journal chain on the control accounts (party_ledger_check)
   ['reconciliation/unappliedPaymentCash.ts', 'SUBLEDGER'],
   ['reconciliation/unpostedDocumentQueries.ts', 'SUBLEDGER'],
   ['reports/cashFlowForecastDataService.ts', 'CASH'],

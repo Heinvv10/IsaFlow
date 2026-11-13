@@ -33,6 +33,8 @@ import { RunningBalance, toMoney } from '@/lib/money/decimalSum';
 type Row = DbRow;
 
 export interface SupplierStatementTransaction {
+  /** The bill / payment / credit note row behind this line — lets a caller join it to the document. */
+  documentId?: string;
   date: string;
   /**
    * `'refund'` (migration 681) is cash the supplier sent BACK. It rides in the
@@ -165,6 +167,7 @@ export async function fetchSupplierStatementData(
       continue;
     }
     transactions.push({
+      documentId: String(inv.id),
       date: fmtDate(inv.invoice_date),
       type: 'invoice',
       reference: String(inv.invoice_number ?? ''),
@@ -186,6 +189,7 @@ export async function fetchSupplierStatementData(
       continue;
     }
     transactions.push({
+      documentId: String(pmt.id),
       date: fmtDate(pmt.payment_date),
       // From the METHOD, never from the sign of the amount. The constraint
       // added in 681 pins the two together, so they cannot disagree — but a
@@ -215,6 +219,7 @@ export async function fetchSupplierStatementData(
       continue;
     }
     transactions.push({
+      documentId: String(cn.id),
       date: fmtDate(cn.credit_date),
       type: 'credit_note',
       reference: String(cn.credit_note_number ?? ''),

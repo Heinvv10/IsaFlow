@@ -130,6 +130,7 @@ export async function fetchStatementData(
       continue;
     }
     transactions.push({
+      documentId: String(inv.id),
       date: toISODate(inv.invoice_date),
       type: 'invoice',
       reference: String(inv.invoice_number ?? ''),
@@ -162,6 +163,7 @@ export async function fetchStatementData(
       continue;
     }
     transactions.push({
+      documentId: String(pmt.id),
       date: toISODate(pmt.payment_date),
       type: 'payment',
       reference: String(pmt.payment_number ?? ''),
@@ -183,6 +185,7 @@ export async function fetchStatementData(
       continue;
     }
     transactions.push({
+      documentId: String(cn.id),
       date: toISODate(cn.credit_date),
       type: 'credit_note',
       reference: String(cn.credit_note_number ?? ''),
