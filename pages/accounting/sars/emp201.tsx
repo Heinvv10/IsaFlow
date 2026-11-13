@@ -10,6 +10,7 @@ import { Loader2, Save, Send, AlertTriangle } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Emp201DirectivePayments } from '@/components/payroll/Emp201DirectivePayments';
 import { exportEmp201Csv, getDefaultPeriod, type EMP201Data } from '@/components/accounting/sars/emp201/emp201Types';
+import { useReturnDeepLink } from '@/components/accounting/sars/useReturnDeepLink';
 import { Emp201PageHeader } from '@/components/accounting/sars/emp201/Emp201PageHeader';
 import { Emp201PeriodSelector } from '@/components/accounting/sars/emp201/Emp201PeriodSelector';
 import { Emp201ReturnForm } from '@/components/accounting/sars/emp201/Emp201ReturnForm';
@@ -24,6 +25,7 @@ export default function EMP201Page() {
   const defaults = getDefaultPeriod();
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
+  useReturnDeepLink(setFrom, setTo);
   const [data, setData] = useState<EMP201Data | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);

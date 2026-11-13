@@ -23,7 +23,7 @@ export function FormRow({
   onDrill?: () => void;
 }) {
   return (
-    <div data-testid={`vat201-field-${field}`} className={`px-4 py-3 flex items-center justify-between ${highlight ? 'bg-[var(--ff-bg-primary)]/30' : ''}`}>
+    <div data-testid={`vat201-field-${field}`} data-explain-scope className={`px-4 py-3 flex items-center justify-between ${highlight ? 'bg-[var(--ff-bg-primary)]/30' : ''}`}>
       <div className="flex items-center gap-3">
         <span data-testid="vat201-field-number" className="text-sm font-mono text-[var(--ff-text-tertiary)] w-10">{field}</span>
         <div>

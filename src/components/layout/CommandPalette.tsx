@@ -59,9 +59,15 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
     const track = (e: FocusEvent): void => { if (outside(e.target)) origin.current = e.target; };
     // Focus leaving the page to nothing (a click on blank space) means no figure is focused any more.
     const lose = (e: FocusEvent): void => { if (outside(e.target) && !e.relatedTarget) origin.current = null; };
+    // A click on a figure's text focuses nothing, so the pointer counts as the person's position too.
+    const point = (e: PointerEvent): void => { origin.current = outside(e.target) ? e.target : origin.current; };
     document.addEventListener('focusin', track);
     document.addEventListener('focusout', lose);
-    return () => { document.removeEventListener('focusin', track); document.removeEventListener('focusout', lose); };
+    document.addEventListener('pointerdown', point, true);
+    return () => {
+      document.removeEventListener('focusin', track); document.removeEventListener('focusout', lose);
+      document.removeEventListener('pointerdown', point, true);
+    };
   }, []);
   useEffect(() => { if (isOpen) { setAsking(false); setExplainNote(''); } }, [isOpen]);
   const { query, setQuery, server, loading, error, recent } = usePaletteSearch(isOpen, scope);

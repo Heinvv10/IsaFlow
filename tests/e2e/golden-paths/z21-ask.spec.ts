@@ -5,6 +5,7 @@
  *
  *  - "Who owes me money?" gives the AR aging page's Total card, to the cent, with a link to that page.
  *  - "How much cash is in the bank?" lists each account with the Net Balance its card on the bank accounts page shows.
+ *  - Click a payroll line's figure, Ctrl+K, "Explain this figure": that figure's explanation drawer opens.
  *  - A question outside the twelve says so and suggests questions that work.
  *  - The panel passes axe at 1568 and 390, light and dark, with no sideways scroll at 390.
  * ASK_EVIDENCE_DIR=<dir> saves a screenshot per width and theme. Nothing is written.
@@ -61,13 +62,30 @@ test('cash in the bank equals each account card on the bank accounts page', asyn
   let checked = 0;
   for (let i = 0; i < n; i++) {
     const [name, amount] = (await rows.nth(i).locator('span').allTextContents()) as [string, string];
-    if (name.endsWith('(inactive)')) continue; // the page lists active accounts only
+    if (name.includes('(inactive') || name.startsWith('Ledger cash')) continue; // the page lists active accounts only, on the statement basis
     const card = page.locator('main').getByText(name, { exact: true }).first().locator('xpath=ancestor::*[.//p[text()="Net Balance"]][1]');
     const shown = money((await card.locator('p.text-2xl').first().textContent()) ?? '');
     expect(money(amount), `${name}`).toBeCloseTo(shown, 2);
     checked++;
   }
   expect(checked, 'no active account to compare').toBeGreaterThan(0);
+});
+
+test('click a payroll figure, Ctrl+K, Explain this figure opens its explanation', async ({ page }) => {
+  await page.setViewportSize({ width: 1568, height: 1000 });
+  const res = await page.request.get('/api/payroll/runs');
+  expect(res.ok()).toBe(true);
+  const body = (await res.json()) as { data: unknown };
+  const list = (Array.isArray(body.data) ? body.data : ((body.data as { runs?: unknown[] }).runs ?? [])) as Array<{ id: string; status: string }>;
+  const run = list.find((r) => r.status === 'approved' || r.status === 'paid');
+  test.skip(!run, 'this company has no approved pay run');
+  await page.goto(`/payroll/runs/${run!.id}`, { waitUntil: 'domcontentloaded' });
+  const cell = page.locator('td[data-explain-scope]').first();
+  await expect(cell).toBeVisible({ timeout: 60_000 });
+  await cell.click({ position: { x: 4, y: 4 } }); // the figure's own cell, not its button: a click focuses nothing
+  await page.keyboard.press('Control+k');
+  await page.getByRole('option', { name: /Explain this figure/ }).click();
+  await expect(page.getByRole('dialog').filter({ hasText: /was calculated/ })).toBeVisible({ timeout: 30_000 });
 });
 
 test('an unknown question says so and suggests questions that work; axe clean', async ({ page }) => {

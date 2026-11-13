@@ -12,7 +12,7 @@ export function SummaryRow({
   onDrill?: () => void;
 }) {
   return (
-    <div className={`px-4 py-3 flex items-center justify-between ${bold ? 'bg-[var(--ff-bg-primary)]/30' : ''}`}>
+    <div data-explain-scope className={`px-4 py-3 flex items-center justify-between ${bold ? 'bg-[var(--ff-bg-primary)]/30' : ''}`}>
       <span className={`text-sm ${bold ? 'font-semibold text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]'}`}>
         {label}
       </span>

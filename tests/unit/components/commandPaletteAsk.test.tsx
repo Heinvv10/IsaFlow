@@ -26,20 +26,39 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Explain this figure', () => {
+  const figure = (onExplain: () => void) => (
+    <table><tbody><tr><td data-explain-scope><span aria-label="paye text" tabIndex={0}>R 1.00</span><button data-explain-trigger onClick={onExplain}>i</button></td>
+      <td data-explain-scope><span aria-label="other text" tabIndex={0}>R 2.00</span></td></tr></tbody></table>
+  );
+
   it('clicks the explanation button of the figure that had focus, and closes the palette', () => {
     const onExplain = vi.fn();
     const onClose = vi.fn();
-    render(<>
-      <table><tbody><tr><td><input aria-label="paye cell" /><button data-explain-trigger onClick={onExplain}>i</button></td></tr></tbody></table>
-      <CommandPalette isOpen onClose={onClose} />
-    </>);
-    fireEvent.focusIn(screen.getByLabelText('paye cell'));
+    render(<>{figure(onExplain)}<CommandPalette isOpen onClose={onClose} /></>);
+    fireEvent.focusIn(screen.getByLabelText('paye text'));
     fireEvent.click(screen.getByText('Explain this figure'));
     expect(onExplain).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('says so, and stays open, when focus is not on an explainable figure', () => {
+  it('a click on the figure counts although it focuses nothing', () => {
+    const onExplain = vi.fn();
+    render(<>{figure(onExplain)}<CommandPalette isOpen onClose={() => undefined} /></>);
+    fireEvent.pointerDown(screen.getByText('R 1.00'));
+    fireEvent.click(screen.getByText('Explain this figure'));
+    expect(onExplain).toHaveBeenCalledTimes(1);
+  });
+
+  it('a figure with no explanation next to an explainable one does not borrow its button', () => {
+    const onExplain = vi.fn();
+    render(<>{figure(onExplain)}<CommandPalette isOpen onClose={() => undefined} /></>);
+    fireEvent.pointerDown(screen.getByText('R 2.00'));
+    fireEvent.click(screen.getByText('Explain this figure'));
+    expect(onExplain).not.toHaveBeenCalled();
+    expect(screen.getByTestId('explain-note')).toBeTruthy();
+  });
+
+  it('says so, and stays open, when the position is not on an explainable figure', () => {
     const onClose = vi.fn();
     render(<><input aria-label="plain" /><CommandPalette isOpen onClose={onClose} /></>);
     fireEvent.focusIn(screen.getByLabelText('plain'));
@@ -50,23 +69,31 @@ describe('Explain this figure', () => {
 
   it('forgets the figure once focus left the page for nothing (a click on blank space)', () => {
     const onExplain = vi.fn();
-    render(<><button data-explain-trigger onClick={onExplain}>i</button><CommandPalette isOpen onClose={() => undefined} /></>);
-    const trigger = screen.getByText('i');
-    fireEvent.focusIn(trigger);
-    fireEvent.focusOut(trigger, { relatedTarget: null });
+    render(<>{figure(onExplain)}<CommandPalette isOpen onClose={() => undefined} /></>);
+    const text = screen.getByLabelText('paye text');
+    fireEvent.focusIn(text);
+    fireEvent.focusOut(text, { relatedTarget: null });
     fireEvent.click(screen.getByText('Explain this figure'));
     expect(onExplain).not.toHaveBeenCalled();
     expect(screen.getByTestId('explain-note')).toBeTruthy();
   });
 
-  it('refuses to guess between two figures', () => {
+  it('refuses to guess when a scope holds two figures\' buttons', () => {
     const a = vi.fn(); const b = vi.fn();
-    render(<><div><span aria-label="row" tabIndex={0} /><button data-explain-trigger onClick={a}>1</button><button data-explain-trigger onClick={b}>2</button></div><CommandPalette isOpen onClose={() => undefined} /></>);
+    render(<><div data-explain-scope><span aria-label="row" tabIndex={0} /><button data-explain-trigger onClick={a}>1</button><button data-explain-trigger onClick={b}>2</button></div><CommandPalette isOpen onClose={() => undefined} /></>);
     fireEvent.focusIn(screen.getByLabelText('row'));
     fireEvent.click(screen.getByText('Explain this figure'));
     expect(a).not.toHaveBeenCalled();
     expect(b).not.toHaveBeenCalled();
     expect(screen.getByTestId('explain-note')).toBeTruthy();
+  });
+
+  it('does not walk out of a figure to a lone button elsewhere on the page', () => {
+    const onExplain = vi.fn();
+    render(<><input aria-label="unrelated" /><button data-explain-trigger onClick={onExplain}>i</button><CommandPalette isOpen onClose={() => undefined} /></>);
+    fireEvent.focusIn(screen.getByLabelText('unrelated'));
+    fireEvent.click(screen.getByText('Explain this figure'));
+    expect(onExplain).not.toHaveBeenCalled();
   });
 });
 
