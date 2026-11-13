@@ -56,6 +56,8 @@ import {
   finalizeInvoiceTool,
 } from './tools/writeInvoices';
 import { createDraftJournalTool, postJournalTool } from './tools/writeJournals';
+import { createRecurringJournalTool, deactivateRecurringJournalTool } from './tools/writeRecurringJournals';
+import { runRecurringJournalsTool } from './tools/writeRunRecurringJournals';
 import { proposeReclassificationTool } from './tools/reclassificationPropose';
 import { postReclassificationBatchTool } from './tools/writeReclassification';
 import { suggestBankAllocationTool } from './tools/writeBank';
@@ -268,6 +270,9 @@ export const MCP_TOOLS = [
   applyCreditNoteTool,
   cancelSupplierInvoiceTool,
   cancelCustomerInvoiceTool,
+  createRecurringJournalTool,
+  runRecurringJournalsTool,
+  deactivateRecurringJournalTool,
   updateSupplierInvoiceTool,
   reapplyPaymentTermsTool,
   reapplyCustomerPaymentTermsTool,

@@ -1,0 +1,16 @@
+-- 989: recurring_journals.auto_post — whether a run POSTS the journal it mints
+-- or leaves it a DRAFT (MCP brief step 7, create_recurring_journal /
+-- run_recurring_journals).
+--
+-- WHY. A run has always posted (createJournalEntry + postJournalEntry). The
+-- connector's tools let an agent create a template that only drafts, so a
+-- token holding write:journals but not write:post can generate the period's
+-- journals for a person to review and post. The same column already exists on
+-- recurring_transaction_templates (same name, same meaning).
+--
+-- DEFAULT TRUE so every existing template, and every template the app's own
+-- create route makes (it does not send the field), keeps posting exactly as
+-- before. Only the MCP create tool writes FALSE (its default).
+--
+-- ADD COLUMN with a constant default is a catalogue-only change (no rewrite).
+ALTER TABLE recurring_journals ADD COLUMN IF NOT EXISTS auto_post BOOLEAN NOT NULL DEFAULT TRUE;

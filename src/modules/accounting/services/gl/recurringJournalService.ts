@@ -16,12 +16,15 @@ import {
   assertPostablePeriod,
 } from './recurringJournalGuards';
 import { advanceDate } from './recurringSchedule';
-import { newManualJournalGate, settleUnattendedJournal } from './manualJournalApproval';
+import { agentNewManualJournalsRefusal, newManualJournalGate, settleUnattendedJournal } from './manualJournalApproval';
 import { placeCostCentres } from './dimensions/costCentrePick';
 import { assertNewJournalDimensions } from './dimensions/dimensionPolicy';
 import { assertNoHeaderAccountLines } from './headerAccountGuard';
 import { templateAuthors } from './manualJournalAuthors';
-import type { RecurringJournal, RecurringJournalCreateInput, JournalLineInput } from '../../types/gl.types';
+import type { JournalEntryMeta } from './journalEntryMeta';
+import type {
+  RecurringJournal, RecurringJournalCreateInput, RecurringStatus, JournalLineInput,
+} from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
 
 export { RecurringJournalRequestError, RecurringJournalLockTimeoutError, RecurringJournalNotFoundError } from './recurringJournalGuards';
@@ -32,6 +35,18 @@ export interface RecurringJournalRun {
   heldForApproval: string[];
   /** A template line's cost-centre pick the run dropped (dimensions/costCentrePick); absent when none. */
   warnings?: string[];
+  /** False when the journal was left a draft: the template does not auto-post (migration 989), or approval holds it. */
+  posted: boolean;
+}
+
+/**
+ * Who is running it. `meta` stamps the journal (an MCP run is an agent's, not the token owner's own work).
+ * `agent`: an agent may neither raise nor decide an approval (R-035 Q6), so a journal approval would hold is refused
+ * before the claim when the template posts, and a draft-only template's journal is marked but raises no request.
+ */
+export interface RecurringRunOptions {
+  meta?: JournalEntryMeta;
+  agent?: boolean;
 }
 
 export async function getRecurringJournals(companyId: string, filters?: {
@@ -77,11 +92,11 @@ export async function createRecurringJournal(companyId: string,
   const rows = (await sql`
     INSERT INTO recurring_journals (
       company_id, template_name, description, frequency, next_run_date,
-      end_date, lines, total_amount, created_by
+      end_date, lines, total_amount, created_by, auto_post
     ) VALUES (
       ${companyId}, ${input.templateName}, ${input.description || null}, ${input.frequency},
       ${input.nextRunDate}, ${input.endDate || null},
-      ${JSON.stringify(input.lines)}::JSONB, ${totalDebit}, ${userId}::UUID
+      ${JSON.stringify(input.lines)}::JSONB, ${totalDebit}, ${userId}::UUID, ${input.autoPost !== false}
     ) RETURNING *
   `) as DbRow[];
 
@@ -89,11 +104,23 @@ export async function createRecurringJournal(companyId: string,
   return mapRow(rows[0]!);
 }
 
+export async function getRecurringJournalById(companyId: string, id: string): Promise<RecurringJournal | null> {
+  const rows = (await sql`
+    SELECT * FROM recurring_journals WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  return rows[0] ? mapRow(rows[0]) : null;
+}
+
+/** `from`: change it only while it still has that status (a predicated UPDATE); otherwise NotFound, nothing written. */
 export async function updateRecurringJournalStatus(companyId: string,
   id: string,
-  status: 'paused' | 'active' | 'cancelled'
+  status: 'paused' | 'active' | 'cancelled',
+  from?: RecurringStatus,
 ): Promise<void> {
-  const result = (await sql`UPDATE recurring_journals SET status = ${status} WHERE id = ${id} AND company_id = ${companyId} RETURNING id`) as DbRow[];
+  const result = (await sql`
+    UPDATE recurring_journals SET status = ${status}, updated_at = NOW()
+    WHERE id = ${id} AND company_id = ${companyId} AND (${from ?? null}::TEXT IS NULL OR status = ${from ?? null})
+    RETURNING id`) as DbRow[];
   if (result.length === 0) throw new RecurringJournalNotFoundError(id);
   log.info('Updated recurring journal status', { id, status }, 'accounting');
 }
@@ -151,7 +178,8 @@ export async function updateRecurringJournalStatus(companyId: string,
  */
 export async function runRecurringJournal(companyId: string,
   id: string,
-  userId: string
+  userId: string,
+  opts: RecurringRunOptions = {},
 ): Promise<RecurringJournalRun> {
   if (!als.getStore()?.client) {
     throw new Error(
@@ -186,6 +214,14 @@ export async function runRecurringJournal(companyId: string,
   const endDate = rj.end_date ? String(rj.end_date) : null;
   const newStatus = endDate && nextDate > endDate ? 'completed' : 'active';
   const approval = await newManualJournalGate(companyId, lines);
+  const autoPost = rj.auto_post !== false; // absent before migration 989: every template posted
+  if (opts.agent && autoPost && approval.held) {
+    throw new RecurringJournalRequestError(await agentNewManualJournalsRefusal(companyId, [lines])
+      ?? 'This journal needs approval before it can be posted, and this connector cannot raise or decide approvals.');
+  }
+  // An agent raises no request (Q6): its draft is marked under enforcement, and a person submits it.
+  const settleGate = opts.agent ? { enforced: approval.enforced, held: false } : approval;
+  const posts = autoPost && !approval.held;
   const authors = await templateAuthors(companyId, { kind: 'recurring_journal', id });
 
   return withTransaction(async (tx) => {
@@ -210,13 +246,16 @@ export async function runRecurringJournal(companyId: string,
       description: rj.description ? String(rj.description) : String(rj.template_name),
       source: 'auto_recurring',
       lines,
-    }, userId);
-    await settleUnattendedJournal(companyId, je.id, userId, approval, authors);
-    if (!approval.held) await postJournalEntry(companyId, je.id, userId);
+    }, userId, opts.meta);
+    await settleUnattendedJournal(companyId, je.id, userId, settleGate, authors);
+    if (posts) await postJournalEntry(companyId, je.id, userId);
 
     log.info('Generated journal from recurring',
-      { recurringId: id, journalId: je.id, runDate: dueDate, heldForApproval: approval.held }, 'accounting');
-    return { journalId: je.id, heldForApproval: approval.held ? [je.id] : [], ...(warnings.length > 0 ? { warnings } : {}) };
+      { recurringId: id, journalId: je.id, runDate: dueDate, heldForApproval: settleGate.held, posted: posts }, 'accounting');
+    return {
+      journalId: je.id, heldForApproval: settleGate.held ? [je.id] : [], posted: posts,
+      ...(warnings.length > 0 ? { warnings } : {}),
+    };
   });
 }
 
@@ -238,6 +277,7 @@ function mapRow(row: DbRow): RecurringJournal {
     status: String(row.status) as RecurringJournal['status'],
     lines: Array.isArray(row.lines) ? row.lines as JournalLineInput[] : JSON.parse(typeof row.lines === 'string' ? row.lines : '[]'),
     totalAmount: Number(row.total_amount),
+    autoPost: row.auto_post !== false,
     createdBy: String(row.created_by),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),

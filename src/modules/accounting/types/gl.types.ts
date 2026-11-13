@@ -108,6 +108,8 @@ export interface RecurringJournal {
   status: RecurringStatus;
   lines: JournalLineInput[];
   totalAmount: number;
+  /** A run posts its journal (true) or leaves it a draft (migration 989). */
+  autoPost: boolean;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -120,6 +122,8 @@ export interface RecurringJournalCreateInput {
   nextRunDate: string;
   endDate?: string;
   lines: JournalLineInput[];
+  /** Omitted: true, as the app's create route has always behaved. */
+  autoPost?: boolean;
 }
 
 // ── VAT Adjustments ──────────────────────────────────────────────────────────
