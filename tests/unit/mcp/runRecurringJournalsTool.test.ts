@@ -13,7 +13,13 @@ vi.mock('@/modules/accounting/services/gl/recurringJournalPeriodRun', async (ori
   runRecurringJournalsForPeriod: vi.fn(),
 }));
 
-import { periodBounds, runRecurringJournalsForPeriod } from '@/modules/accounting/services/gl/recurringJournalPeriodRun';
+import {
+  periodBounds, refusalSkip, runRecurringJournalsForPeriod,
+} from '@/modules/accounting/services/gl/recurringJournalPeriodRun';
+import {
+  RecurringJournalEndedError, RecurringJournalLockTimeoutError, RecurringJournalNotFoundError, RecurringJournalRequestError,
+} from '@/modules/accounting/services/gl/recurringJournalGuards';
+import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { runRecurringJournalsTool } from '@/lib/mcp/tools/writeRunRecurringJournals';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
@@ -35,6 +41,18 @@ describe('periodBounds', () => {
   });
   it.each(['2026-13', '2026-1', '2026-10-01', 'October'])('refuses %s', (p) => {
     expect(periodBounds(p)).toBeNull();
+  });
+});
+
+describe('refusalSkip: which generator throws are a skip, and which', () => {
+  it('classifies the subclasses before their parent; a vanished template and a crash rethrow', () => {
+    expect(refusalSkip(new RecurringJournalNotFoundError('t-1'))).toBeNull();
+    expect(refusalSkip(new Error('connection reset'))).toBeNull();
+    expect(refusalSkip(new RecurringJournalLockTimeoutError('t-1'))?.reason).toBe('contended');
+    expect(refusalSkip(new RecurringJournalEndedError('2026-10-20', '2026-10-10'))?.reason).toBe('ended');
+    expect(refusalSkip(new RecurringJournalRequestError('not active'))).toEqual({ reason: 'refused', message: 'not active' });
+    expect(refusalSkip(new VatPeriodLockedError('2026-10-10', { id: 'l', periodStart: '2026-09-01', periodEnd: '2026-10-31' }))?.reason)
+      .toBe('refused');
   });
 });
 

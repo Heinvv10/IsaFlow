@@ -90,7 +90,7 @@ export function periodBounds(period: string): { start: string; end: string } | n
  * The skip for a generator refusal a caller can act on; null for anything else (rethrown). The subclasses go first:
  * `instanceof` the parent would match them too. A template that vanished under its own lock is not a refusal.
  */
-function refusalSkip(err: unknown): { reason: RecurringSkipReason; message: string } | null {
+export function refusalSkip(err: unknown): { reason: RecurringSkipReason; message: string } | null {
   if (err instanceof RecurringJournalNotFoundError) return null;
   if (err instanceof RecurringJournalLockTimeoutError) return { reason: 'contended', message: err.message };
   if (err instanceof RecurringJournalEndedError) return { reason: 'ended', message: err.message };
