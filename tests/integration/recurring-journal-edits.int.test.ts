@@ -88,6 +88,10 @@ describe('recurring journal next run date edits', () => {
     expect(parsed(await run(co, cal.prev.period)).generated).toEqual([]);
     expect(await journals(pool, co)).toHaveLength(1);
 
+    // Switching to weekly in the same edit does not open the month up: the period is the coarser frequency's.
+    await expect(request(pool, co, user, () => updateRecurringJournalTemplate(co.c, t, user,
+      { frequency: 'weekly', nextRunDate: day(cal.prev, 22) }))).rejects.toThrow('choose a date in a later month');
+    expect(await templateState(pool, t)).toMatchObject({ next: day(cal.cur, 15) });
     // Any date in a later month is an ordinary edit — earlier in the next month than the schedule had it, too.
     await request(pool, co, user, () => updateRecurringJournalTemplate(co.c, t, user, { nextRunDate: day(cal.cur, 1) }));
     expect((await templateState(pool, t)).next).toBe(day(cal.cur, 1));
@@ -106,6 +110,9 @@ describe('recurring journal next run date edits', () => {
     await expect(request(pool, co, user, () => updateRecurringJournalTemplate(co.c, t, user, { nextRunDate: iso(3) })))
       .rejects.toThrow(`This template last generated on ${iso(0)}: The week of ${iso(0)} has already been generated for this `
         + 'template — choose a date in a later week');
+    // Nor does switching to monthly: a monthly run in a month that already has a weekly one is refused.
+    await expect(request(pool, co, user, () => updateRecurringJournalTemplate(co.c, t, user,
+      { frequency: 'monthly', nextRunDate: iso(9) }))).rejects.toThrow(`${frequencyPeriodLabel(iso(9), 'monthly')} has already`);
     await request(pool, co, user, () => updateRecurringJournalTemplate(co.c, t, user, { nextRunDate: iso(9) }));
     expect((await templateState(pool, t)).next).toBe(iso(9));
     expect(await journals(pool, co)).toHaveLength(1);

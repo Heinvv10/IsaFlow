@@ -9,7 +9,7 @@
  * every path — the page's actions, the MCP tool, anything later — is held to it.
  *
  * NEXT RUN DATE. A template generates at most one run per frequency period (week, month, quarter, year:
- * `frequencyPeriodUnit`, the frequency the edit leaves). A run is claimed by advancing `next_run_date`, and
+ * `frequencyPeriodUnit` — of the coarser of the stored frequency and the one the edit leaves). A run is claimed by advancing `next_run_date`, and
  * `last_run_date` records the date of the last run generated (the occurrence, set by the claim). So a new next run
  * whose period is not after last_run_date's period would generate that period a second time — moving back onto the
  * run, or merely later within its month (ran 10 Oct, next moved to 20 Oct) — and run_recurring_journals sweeps every
@@ -87,14 +87,26 @@ export async function updateRecurringJournalTemplate(
 ): Promise<void> {
   const { templateName, frequency, nextRunDate, description } = edit;
   const next = nextRunDate || null;
-  // The period unit of the frequency the edit leaves, for date_trunc ('week' is the ISO week, Monday first).
-  const unit = sql`(CASE COALESCE(${frequency || null}, frequency) WHEN 'weekly' THEN 'week' WHEN 'monthly' THEN 'month'
+  // The period is the COARSER of the stored frequency (the one the runs were generated under) and the one the edit
+  // leaves: a monthly template switched to weekly must not add weekly runs to a month it already generated, nor a
+  // weekly one switched to monthly add a monthly run to it. Ranked week < month < quarter < year.
+  const rank = (f: ReturnType<typeof sql>) => sql`(CASE ${f} WHEN 'weekly' THEN 1 WHEN 'monthly' THEN 2
+    WHEN 'quarterly' THEN 3 ELSE 4 END)`;
+  const storedRank = rank(sql`frequency`);
+  const editedRank = rank(sql`COALESCE(${frequency || null}, frequency)`);
+  const periodFrequency = sql`(CASE GREATEST(${storedRank}, ${editedRank})
+    WHEN 1 THEN 'weekly' WHEN 2 THEN 'monthly' WHEN 3 THEN 'quarterly' ELSE 'annually' END)`;
+  // Its date_trunc unit ('week' is the ISO week, Monday first).
+  const unit = sql`(CASE ${periodFrequency} WHEN 'weekly' THEN 'week' WHEN 'monthly' THEN 'month'
     WHEN 'quarterly' THEN 'quarter' ELSE 'year' END)`;
   // The new next run falls in a period already generated: not after last_run_date's, and before the current next
-  // run's (the legacy exception, see the header). Read from the row as it stands, in the UPDATE and in the refusal.
+  // run's (the legacy exception, see the header). The exception rests on the current next run being in a later period
+  // than the last run's — true in the STORED frequency's periods only, so it does not apply to an edit that coarsens
+  // the frequency (weekly to monthly: next week can still be this month). Read from the row as it stands, in the
+  // UPDATE and in the refusal.
   const generatedPeriod = sql`(last_run_date IS NOT NULL
     AND date_trunc(${unit}, ${next}::DATE) <= date_trunc(${unit}, last_run_date)
-    AND date_trunc(${unit}, ${next}::DATE) < date_trunc(${unit}, next_run_date))`;
+    AND (${editedRank} > ${storedRank} OR date_trunc(${unit}, ${next}::DATE) < date_trunc(${unit}, next_run_date)))`;
   const updated = (await sql`
     UPDATE recurring_journals SET
       content_authors = CASE
@@ -115,14 +127,14 @@ export async function updateRecurringJournalTemplate(
 
   const rows = (await sql`
     SELECT status, last_run_date::TEXT AS last_run, end_date::TEXT AS end_date,
-           COALESCE(${frequency || null}, frequency) AS frequency, ${generatedPeriod} AS generated_period
+           ${periodFrequency} AS period_frequency, ${generatedPeriod} AS generated_period
     FROM recurring_journals
     WHERE id = ${id}::UUID AND company_id = ${companyId}
   `) as DbRow[];
   const row = rows[0];
   if (!row || !['active', 'paused'].includes(String(row.status))) return; // not editable: unchanged, as before
   if (row.generated_period === true) {
-    const freq = String(row.frequency);
+    const freq = String(row.period_frequency);
     throw new RecurringJournalRequestError(
       `This template last generated on ${String(row.last_run)}: ${frequencyPeriodLabel(next, freq)} has already been `
       + `generated for this template — choose a date in a later ${frequencyPeriodUnit(freq)} (post a manual journal `
