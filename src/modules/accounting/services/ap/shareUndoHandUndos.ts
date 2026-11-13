@@ -127,8 +127,9 @@ export async function findRedatedShares(
       WHERE journal_entry_id = ${shareJournalId}::UUID AND company_id = ${companyId}::UUID AND credit > 0
     )
     SELECT COALESCE(o.entry_number, o.id::TEXT) AS n FROM gl_journal_entries o
-    WHERE o.company_id = ${companyId}::UUID AND o.id <> ${shareJournalId}::UUID AND o.status = 'posted'
-      AND o.reversed_at IS NOT NULL AND o.reversal_of_id IS NULL
+    WHERE o.company_id = ${companyId}::UUID AND o.id <> ${shareJournalId}::UUID
+      -- Reversed by stamp, or a legacy row whose status was flipped to 'reversed' with no stamp (round 7).
+      AND ((o.status = 'posted' AND o.reversed_at IS NOT NULL) OR o.status = 'reversed') AND o.reversal_of_id IS NULL
       AND o.entry_date >= (SELECT d FROM since)
       AND (SELECT COALESCE(SUM(ox.debit - ox.credit), 0) FROM gl_journal_lines ox
            WHERE ox.journal_entry_id = o.id AND ox.company_id = ${companyId}::UUID

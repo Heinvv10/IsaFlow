@@ -166,6 +166,19 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — cumulative share cap
     expect(text(await undo(p, reposted))).toMatch(/was reversed — a share re-dated by reverse-and-repost/);
   }, 120000);
 
+  it('the fingerprint takes a legacy share whose status was flipped to reversed with no reversed_at stamp', async () => {
+    const shareLegs = [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
+      { account: a.vatInput, credit: 150, vatType: 'standard' }];
+    const b = await billWithJournal(fx, a, 'LEGACYREV', '2026-04-06', legs());
+    const p = await contra(b.id, 1150);
+    const old = await postedJournal(fx, '2026-04-29', shareLegs);
+    await sql`UPDATE gl_journal_entries SET status = 'reversed', reversed_at = NULL WHERE id = ${old}::UUID AND company_id = ${fx.companyId}::UUID`;
+    const reposted = await postedJournal(fx, '2026-04-30', shareLegs);
+    const [row] = (await sql`SELECT entry_number FROM gl_journal_entries WHERE id = ${old}::UUID`) as { entry_number: string }[];
+    // Named among the reversed shares (another test's reversed share is dated later in this file's months too).
+    expect(text(await undo(p, reposted))).toMatch(new RegExp(`${row!.entry_number}[^]*(was|were) reversed — a share re-dated`));
+  }, 120000);
+
   it('a reversed undo gives its capacity back: the next contra on the bill can be undone against the same share', async () => {
     const b = await billWithJournal(fx, a, 'REVERSED', '2026-05-10', legs());
     const p1 = await contra(b.id, 1150);
