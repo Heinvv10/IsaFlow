@@ -5,8 +5,8 @@ describe('askRowPlacement: auxiliary-verb openers', () => {
   it.each(['are my total assets high', 'do I owe any vat', 'can I see my profit this month'])('%s: a real question, first', (q) => {
     expect(askRowPlacement(q)).toBe('first');
   });
-  it.each(['do not', 'is', 'can reports', 'does nothing', 'are we there'])('%s: could be a page search, last', (q) => {
-    expect(askRowPlacement(q)).not.toBe('first');
+  it.each(['do not', 'is it', 'can we', 'can reports', 'does nothing', 'are we there'])('%s: no intent, so no Ask row at all', (q) => {
+    expect(askRowPlacement(q)).toBeNull();
   });
 });
 
