@@ -10,6 +10,7 @@
  */
 import type { CashGroup } from '@/modules/accounting/services/afs/cashFlowClassification';
 import { UnbalancedPostingError } from './errors';
+import { checkedAdd } from './ratios';
 import type { BucketKey, Buckets, Posting, PostingLine, PostingStep } from './types';
 
 export function post(month: string, step: PostingStep, cashGroup: CashGroup | null, lines: readonly PostingLine[]): Posting {
@@ -17,7 +18,7 @@ export function post(month: string, step: PostingStep, cashGroup: CashGroup | nu
   let sum = 0;
   for (const l of kept) {
     if (!Number.isSafeInteger(l.amount)) throw new UnbalancedPostingError(step, month, Number.NaN);
-    sum += l.amount;
+    sum = checkedAdd(sum, l.amount);
   }
   if (sum !== 0) throw new UnbalancedPostingError(step, month, sum);
   if (cashGroup === null && kept.some(l => l.account === 'cash')) {
@@ -30,7 +31,7 @@ export function post(month: string, step: PostingStep, cashGroup: CashGroup | nu
 export function applyPosting(b: Buckets, p: Posting): void {
   for (const l of p.lines) {
     const key: BucketKey = l.account.startsWith('pnl.') ? 'retainedEarnings' : (l.account as BucketKey);
-    b[key] += l.amount;
+    b[key] = checkedAdd(b[key], l.amount);
   }
 }
 

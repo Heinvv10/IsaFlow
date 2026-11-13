@@ -76,7 +76,7 @@ function caseFor(seed: number): EngineInput {
   });
   const loanSchedules = [...a.loans.planned.map(p => p.id), 'e0', 'e1']
     .filter(() => rnd() < 0.85)
-    .map(loanId => ({ loanId, lines: Array.from({ length: int(0, n + 3) }, (_, i) => ({ month: at(i - 1), principal: money(2_000_000), interest: money(500_000) })) }));
+    .map(loanId => ({ loanId, lines: Array.from({ length: int(0, n) }, (_, i) => ({ month: at(i + int(-1, 1)), principal: money(2_000_000), interest: money(500_000) })) }));
   return {
     months, entityType: a.incomeTax.mode.value === 'off' ? 'pty_ltd' : pick(ENTITY_TYPE_CODES), pnl, lookback,
     opening: { asAt: '2000-01-01', provisional: rnd() < 0.2, buckets: opening }, assumptions: a, loanSchedules,

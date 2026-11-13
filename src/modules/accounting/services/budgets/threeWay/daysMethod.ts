@@ -10,7 +10,7 @@
  * warns via `walksPastStart`). Days are held in hundredths, so a fractional D
  * is exact too.
  */
-import { mulDiv, toHundredths } from './ratios';
+import { checkedAdd, mulDiv, toHundredths } from './ratios';
 
 /**
  * Closing balance at index `m` of `flows` (cents, oldest first: lookback then
@@ -23,10 +23,10 @@ export function closingFromDays(days: number, flows: readonly number[], daysInMo
     const d = (daysInMonth[k] ?? 0) * 100;
     const flow = flows[k] ?? 0;
     if (remaining >= d) {
-      closing += flow;
+      closing = checkedAdd(closing, flow);
       remaining -= d;
     } else {
-      closing += mulDiv(flow, remaining, d);
+      closing = checkedAdd(closing, mulDiv(flow, remaining, d));
       remaining = 0;
     }
   }

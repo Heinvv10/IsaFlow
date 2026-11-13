@@ -3,7 +3,8 @@
  *
  * One validated document per version. Every scalar carries provenance
  * (`Prov`: derived from actuals or entered by hand). Money is integer CENTS
- * (`amountExVat`, `principal`, `amount`, `minimumCash`); months are 'YYYY-MM'.
+ * (`amountExVat`, `principal`, `amount`, `minimumCash`; each ≤ MAX_VALUE_CENTS);
+ * months are 'YYYY-MM'; day counts take at most 2 decimals.
  *
  * A scenario version stores `{ schemaVersion: 1, overrides }` instead: a sparse
  * override whose sections are partial but whose `Prov` values and lists are
@@ -12,17 +13,20 @@
  * never a silently ignored field.
  */
 import { z } from 'zod';
-import { MAX_CENTS } from '@/modules/accounting/services/budgets/grid/cents';
+import { MAX_VALUE_CENTS } from './ratios';
 
 export const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
 const Month = z.string().regex(MONTH_PATTERN, "Month must be 'YYYY-MM'");
 const IsoDate = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, "Date must be 'YYYY-MM-DD'");
 const Id = z.string().min(1).max(64);
 const Text = z.string().max(200);
-/** Cents, the budget range (NUMERIC(15,2)). */
-const Cents = z.number().int().min(-MAX_CENTS).max(MAX_CENTS);
-const PositiveCents = z.number().int().min(1).max(MAX_CENTS);
-const NonNegativeCents = z.number().int().min(0).max(MAX_CENTS);
+/** Cents, within the engine's per-value cap (MAX_VALUE_CENTS, 1e13). */
+const Cents = z.number().int().min(-MAX_VALUE_CENTS).max(MAX_VALUE_CENTS);
+const PositiveCents = z.number().int().min(1).max(MAX_VALUE_CENTS);
+const NonNegativeCents = z.number().int().min(0).max(MAX_VALUE_CENTS);
+/** Days to at most 2 decimals (the engine computes in hundredths of a day, exactly). */
+const Days = (max: number) => z.number().min(0).max(max)
+  .refine(d => Math.abs(d * 100 - Math.round(d * 100)) < 1e-6, { message: 'Days take at most 2 decimals' });
 const Share = z.number().min(0).max(1);
 /** Up to 5 years of lists per kind: far beyond a 15-month version, small enough to bound a request. */
 export const MAX_LIST_ITEMS = 200;
@@ -40,9 +44,9 @@ export function prov<T extends z.ZodType>(value: T) {
 }
 
 export const WorkingCapitalSchema = z.object({
-  debtorDays: prov(z.number().min(0).max(365)),
-  creditorDays: prov(z.number().min(0).max(365)),
-  inventoryDays: prov(z.number().min(0).max(730)),
+  debtorDays: prov(Days(365)),
+  creditorDays: prov(Days(365)),
+  inventoryDays: prov(Days(730)),
 }).strict();
 
 export const VatAssumptionsSchema = z.object({

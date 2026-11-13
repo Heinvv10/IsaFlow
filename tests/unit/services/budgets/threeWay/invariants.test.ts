@@ -106,6 +106,6 @@ describe('warnings', () => {
     expect(out.warnings).toContainEqual({ code: 'interest_check', budgeted: R(200), check: R(212) });
     expect(out.warnings.some(w => w.code === 'depreciation_check')).toBe(false);
     expect(out.warnings).toContainEqual({ code: 'loan_schedule_missing', loanIds: ['L2'] });
-    expect(out.warnings).toContainEqual({ code: 'outside_months', entries: [{ list: 'capex', id: 'late' }] });
+    expect(out.warnings).toContainEqual({ code: 'outside_months', entries: [{ list: 'capex', id: 'late', skipped: 'entry', detail: 'capex late dated 2027-01, outside 2026-03..2026-04: skipped' }] });
   });
 });

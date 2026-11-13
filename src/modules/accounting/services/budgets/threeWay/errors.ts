@@ -14,7 +14,9 @@ export class OpeningUnbalancedError extends Error {
 }
 
 export type EngineInputErrorCode =
-  | 'MONTHS' | 'PNL' | 'LOOKBACK' | 'OPENING' | 'LOAN_SCHEDULE' | 'CHECKS' | 'AMOUNT';
+  | 'MONTHS' | 'PNL' | 'LOOKBACK' | 'OPENING' | 'LOAN_SCHEDULE' | 'CHECKS' | 'ENTITY'
+  /** A value above MAX_VALUE_CENTS, a total above MAX_TOTAL_CENTS, or a sum that left the safe-integer range. */
+  | 'RANGE';
 
 /** The engine input is malformed (a caller bug, not a user error). */
 export class EngineInputError extends Error {
