@@ -91,7 +91,12 @@ export class SageClient {
         redirect: 'error',
       });
     } catch (err) {
-      const reason = err instanceof Error && err.name === 'TimeoutError' ? 'timed out' : 'could not be reached';
+      const cause = err instanceof Error && err.cause instanceof Error ? err.cause.message : '';
+      const reason = err instanceof Error && err.name === 'TimeoutError'
+        ? 'timed out'
+        : /redirect/i.test(`${cause} ${err instanceof Error ? err.message : ''}`)
+          ? 'answered with a redirect, which is refused (the api key is in the URL)'
+          : 'could not be reached';
       throw new SageRequestError(`Sage ${label}: ${reason}`, null);
     }
     if (res.status === 401 || res.status === 403) {

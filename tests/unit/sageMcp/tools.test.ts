@@ -153,6 +153,13 @@ describe('review hardening (round 1)', () => {
     expect(r.content[0]!.text).toMatch(/another party/);
   });
 
+  it('rows without the party field say the filter cannot be confirmed', async () => {
+    stub.get.mockResolvedValue({ ID: 5, Balance: 1 });
+    stub.list.mockResolvedValue(page([{ ID: 9, Total: 10 }]));
+    const r = await call('sage_party_balance', { party: 'supplier', id: 5, as_at: '2026-01-31' });
+    expect(r.content[0]!.text).toMatch(/no SupplierId field/);
+  });
+
   it('impossible dates are refused before any request', async () => {
     expect((await call('sage_pull_since', { siv: '2026-02-30' })).isError).toBe(true);
     expect((await call('sage_pull_since', { siv: '2026-11-01T25:00' })).isError).toBe(true);

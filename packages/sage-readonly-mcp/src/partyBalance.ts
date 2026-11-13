@@ -45,6 +45,10 @@ async function sumTotals(
   for (let page = 0; page < MAX_PAGES; page++) {
     const p = await client.list(resource, { filter, page });
     for (const r of p.results) {
+      // The party field is not verified against a live company: say so rather than blame another party.
+      if (r[idField] === undefined) {
+        throw new SageRequestError(`${resource}: Sage rows carry no ${idField} field, so the party filter cannot be confirmed; balance not computed`, null);
+      }
       // A row for another party means Sage ignored the filter field: refuse rather than sum every party.
       if (Number(r[idField]) !== partyId) {
         throw new SageRequestError(`${resource}: Sage returned a document of another party for ${idField} eq ${partyId}; balance not computed`, null);

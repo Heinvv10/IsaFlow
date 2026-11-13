@@ -94,6 +94,11 @@ describe('request hardening (review round 1)', () => {
     expect((fetchMock.mock.calls[0]![1] as { redirect: string }).redirect).toBe('error');
   });
 
+  it('a refused redirect is named as such', async () => {
+    fetchMock.mockRejectedValueOnce(Object.assign(new TypeError('fetch failed'), { cause: new Error('unexpected redirect') }));
+    await expect(client.list('Supplier')).rejects.toThrow(/redirect, which is refused/);
+  });
+
   it('refuses an attachment over the size cap', async () => {
     fetchMock.mockResolvedValueOnce(new Response('x', { status: 200, headers: { 'content-length': String(60 * 1024 * 1024) } }));
     await expect(client.download(1)).rejects.toThrow(/larger than/);
