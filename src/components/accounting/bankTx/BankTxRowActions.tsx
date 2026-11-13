@@ -1,10 +1,10 @@
 /**
  * The Actions cell of a bank transaction row: accept, find-match, split, rule, link, attach, ask
- * and exclude on a new row; undo / reverse on an allocated or reconciled one; the reason on an
- * excluded one.
+ * and exclude on a new row; undo on an allocated or reviewed one (none on a reconciled one: it is locked until its
+ * reconciliation is reopened); the reason on an excluded one.
  */
 
-import { Check, X, Undo2, Scissors, SearchCheck, RotateCcw, BookmarkPlus, MessageCircle } from 'lucide-react';
+import { Check, X, Undo2, Scissors, SearchCheck, BookmarkPlus, MessageCircle } from 'lucide-react';
 import { isPendingFeedRow, PendingFeedNotice } from '../bank-transactions/pendingFeedRow';
 import { BankTxLinkAction } from '../bank-transactions/BankTxLinkAction';
 import { BankTxAttachmentButton } from './BankTxAttachmentButton';
@@ -108,14 +108,11 @@ export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExclude
             </>
           ) : (
             <>
-              <button onClick={() => onUnmatch(tx.id)} title="Undo allocation" aria-label={`Undo allocation, ${label}`}
-                className="p-1 rounded hover:bg-amber-500/10 text-amber-400">
-                <Undo2 className="h-3.5 w-3.5" />
-              </button>
-              {onReverse && tx.status === 'reconciled' && (
-                <button onClick={() => onReverse(tx.id)} title="Reverse reconciled" aria-label={`Reverse reconciled, ${label}`}
-                  className="p-1 rounded hover:bg-red-500/10 text-red-400">
-                  <RotateCcw className="h-3.5 w-3.5" />
+              {/* A reconciled line is locked: undo needs its reconciliation reopened first (the server refuses it too). */}
+              {tx.status !== 'reconciled' && (
+                <button onClick={() => onUnmatch(tx.id)} title="Undo allocation" aria-label={`Undo allocation, ${label}`}
+                  className="p-1 rounded hover:bg-amber-500/10 text-amber-400">
+                  <Undo2 className="h-3.5 w-3.5" />
                 </button>
               )}
               {onLink && <BankTxLinkAction link={tx.link} rowName={label} onOpen={() => onLink(tx)} />}

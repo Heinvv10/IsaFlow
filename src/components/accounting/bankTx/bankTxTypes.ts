@@ -28,6 +28,11 @@ export interface BankTx {
   excludeReason?: string;
   /** User-editable memo field from bank_transactions.notes */
   notes?: string;
+  /** Review stamp (mig 980; no reviewedByName = reviewer unknown) and the reconciliation the line sits in. */
+  reviewedAt?: string;
+  reviewedByName?: string;
+  reconciliationId?: string;
+  reconStatementDate?: string;
   /** Suggestion fields — populated by rules or classified import */
   suggestedGlAccountId?: string;
   suggestedGlAccountName?: string;

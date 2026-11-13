@@ -93,11 +93,11 @@ describe('BankTxTable: the names, row by row', () => {
     }
   });
 
-  it('names the undo / reverse buttons on reviewed rows', () => {
+  it('names the undo button on reviewed rows; a reconciled row offers none', () => {
     render(<BankTxTable {...tableProps({ tab: 'reviewed' })} />);
     expect(screen.getByRole('button', { name: `Undo allocation, ${row('d')}` })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: `Undo allocation, ${row('e')}` })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: `Reverse reconciled, ${row('e')}` })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: `Undo allocation, ${row('e')}` })).toBeNull();
+    expect(screen.queryByRole('button', { name: `Reverse reconciled, ${row('e')}` })).toBeNull();
   });
 
   it('a linked row names its chip by the link and the row', () => {

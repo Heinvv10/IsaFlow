@@ -1,6 +1,7 @@
 /** The query string of GET /api/accounting/bank-transactions for the page's tab, filters and page. */
 
 import type { BankTxTab } from './BankTxTabs';
+import type { ReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
 
 export interface BankTxQuery {
   bankAccountId: string; tab: BankTxTab; page: number; pageSize: number;
@@ -10,6 +11,8 @@ export interface BankTxQuery {
   txType: 'all' | 'spent' | 'received';
   allocType: 'all' | 'account' | 'supplier' | 'customer' | 'transfer';
   hasSuggestion: 'all' | 'yes' | 'no';
+  /** Reviewed tab only; ignored on New and Excluded. */
+  reconFilter: ReconFilter;
 }
 
 export function tabToStatus(tab: BankTxTab): string {
@@ -30,5 +33,6 @@ export function bankTxQueryParams(q: BankTxQuery): URLSearchParams {
   if (q.txType !== 'all') params.set('tx_type', q.txType);
   if (q.allocType !== 'all') params.set('alloc_type', q.allocType);
   if (q.hasSuggestion !== 'all') params.set('has_suggestion', q.hasSuggestion);
+  if (q.tab === 'reviewed' && q.reconFilter !== 'all') params.set('recon_filter', q.reconFilter);
   return params;
 }

@@ -25,7 +25,14 @@ vi.mock('@/modules/accounting/services/capture/captureRowLock', async (orig) => 
   ...(await orig<object>()), lockCapturedDocumentForUpdate: m.lockDoc, lockPostableCaptureEventIds: m.lockEvents,
 }));
 vi.mock('@/modules/accounting/services/capture/captureLifecycleGate', () => ({ releaseClaimForLifecycleAction: m.releaseClaim }));
-vi.mock('@/modules/accounting/services/capture/captureBankTxAttachService', () => ({ attachCapturedDocToBankTx: m.attachBank }));
+// The real reject service by default (its SQL runs through m.sql); one case below stubs its reconciled-line refusal.
+vi.mock('@/modules/accounting/services/capture/captureRejectService', async (orig) => {
+  const actual = await orig<typeof import('@/modules/accounting/services/capture/captureRejectService')>();
+  return { ...actual, rejectCapturedDocument: vi.fn(actual.rejectCapturedDocument) };
+});
+vi.mock('@/modules/accounting/services/capture/captureBankTxAttachService', () => ({
+  attachCapturedDocToBankTx: m.attachBank, PREVIOUS_LINE_RECONCILED: 'supports a reconciled bank line',
+}));
 
 import pipeline from '../../../pages/api/accounting/ai-invoice-pipeline';
 import receipt from '../../../pages/api/accounting/receipt-to-journal';
@@ -128,6 +135,14 @@ describe('document-capture-action', () => {
     expect(JSON.stringify(r.sent)).toContain('"otherClaim"');
   });
 
+  it('match_bank_tx: 409 when the move would strip the document from a reconciled line (mig 980)', async () => {
+    m.attachBank.mockResolvedValue({ ok: false, reason: 'previous_line_reconciled' });
+    m.sql.mockResolvedValue([row({ read_state: 'done' })]);
+    const r = await call(action, { id: ID, action: 'match_bank_tx', data: { bankTxId: ID } });
+    expect(r.statusCode).toBe(409);
+    expect(JSON.stringify(r.sent)).toContain('supports a reconciled bank line');
+  });
+
   it('match_bank_tx: 503, retryable, when the bank line or document lock is held', async () => {
     const { BankTransactionLockTimeoutError } = await import('@/modules/accounting/services/bank/bankTxLock');
     m.attachBank.mockRejectedValue(new BankTransactionLockTimeoutError(ID));
@@ -141,5 +156,14 @@ describe('document-capture-action', () => {
     const r = await call(action, { id: ID, action: 'reject' });
     expect(r.statusCode).toBe(200);
     expect(m.releaseClaim).toHaveBeenCalledWith('c', ID, 'reject');
+  });
+
+  it('reject: 409, nothing written, when the document supports a reconciled bank line (mig 980)', async () => {
+    const { rejectCapturedDocument } = await import('@/modules/accounting/services/capture/captureRejectService');
+    vi.mocked(rejectCapturedDocument).mockResolvedValueOnce({ refused: 'reconciled_line' });
+    m.releaseClaim.mockResolvedValue('ok');
+    const r = await call(action, { id: ID, action: 'reject' });
+    expect(r.statusCode).toBe(409);
+    expect(JSON.stringify(r.sent)).toContain('supports a reconciled bank line, so it cannot be rejected');
   });
 });

@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { MSG, bad400, empty500, okRes, rawJsonError, router } from '../helpers/d2CensusH4';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
-import { formatMoney } from '@/lib/money/formatMoney';
 
 configure({ asyncUtilTimeout: 4000 });
 const routerState = vi.hoisted(() => ({ query: {} as Record<string, string> }));
@@ -18,7 +17,10 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1', role: 'super_admin', name: 'D2 User' }, loading: false }) }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: 'co-1', name: 'D2 Co' }, companies: [{ id: 'co-1' }], loading: false }) }));
 vi.mock('@/contexts/ThemeContext', () => ({ useTheme: () => ({ theme: 'dark', toggleTheme: vi.fn() }) }));
-vi.mock('@/components/accounting/dashboard/OverviewTab', () => ({ OverviewTab: () => null }));
+// The page's one load reaches the Overview tab: the figures are read through it.
+vi.mock('@/components/accounting/dashboard/OverviewTab', () => ({
+  OverviewTab: ({ kpiLoad }: { kpiLoad?: { data: { headline?: { revenueMtd: number } } | null } }) => <p>tab revenue {kpiLoad?.data?.headline?.revenueMtd ?? 'none'}</p>,
+}));
 vi.mock('@/components/accounting/dashboard/ChartOfAccountsTab', () => ({ ChartOfAccountsTab: () => null }));
 vi.mock('@/components/accounting/dashboard/JournalEntriesTab', () => ({ JournalEntriesTab: () => null }));
 vi.mock('@/components/accounting/dashboard/FiscalPeriodsTab', () => ({ FiscalPeriodsTab: () => null }));
@@ -40,7 +42,7 @@ const noRawJson = () => expect(document.body.textContent ?? '').not.toMatch(rawJ
 beforeEach(() => { routerState.query = {}; toastMock.error.mockReset(); });
 afterEach(() => { cleanup(); });
 
-describe('Accounting dashboard hero figures', () => {
+describe('Accounting dashboard figures', () => {
   const SITE = 'kpi-dashboard';
   it('shows the server message on a 400', async () => { script([[SITE, bad400]]); render(<AccountingPage />); expect(await screen.findByText(MSG)).toBeTruthy(); });
   it('shows a plain sentence on an empty 500', async () => {
@@ -48,8 +50,8 @@ describe('Accounting dashboard hero figures', () => {
     expect(await screen.findByText('Could not load the dashboard figures - try again')).toBeTruthy(); noRawJson();
   });
   it('shows the figures on success', async () => {
-    script([[SITE, () => okRes({ kpis: { revenue: { total: 999999 }, revenueMtd: 123456, receivables: { total: 5 }, cash: { total: 7 } } })]]); render(<AccountingPage />);
-    expect(await screen.findByText(formatMoney(123456).replace(/\s/g, ' '))).toBeTruthy();
+    script([[SITE, () => okRes({ kpis: { revenue: { total: 999999 }, revenueMtd: 123456, receivables: { total: 5 }, cash: { total: 7 } }, headline: { asAt: '2026-11-12', monthStart: '2026-11-01', cash: 7, receivables: { total: 5, overdue: 0 }, payables: { total: 0, overdue: 0 }, revenueMtd: 123456, profitMtd: 0, draftInvoices: 0, draftBills: 0, draftJournals: 0, billsDueNext7Days: 0, billsOverdue: 0 }, period: { from: '2025-10-01', to: '2026-11-12' } })]]); render(<AccountingPage />);
+    expect(await screen.findByText('tab revenue 123456')).toBeTruthy();
   });
 });
 

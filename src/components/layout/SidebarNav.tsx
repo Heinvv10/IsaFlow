@@ -88,7 +88,7 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
 
   return (
     <>
-      <nav className="flex-1 overflow-y-auto py-2">
+      <nav aria-label="Main" className="flex-1 overflow-y-auto py-2">
         {tabs.map(tab => {
           const active = activeTabId === tab.id;
           const hasItems = !!(tab.items?.length);

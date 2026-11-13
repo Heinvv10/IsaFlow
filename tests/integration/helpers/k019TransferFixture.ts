@@ -132,3 +132,13 @@ export async function cleanup(pool: Pool, companyIds: string[], userId: string):
   await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])', [companyIds]);
   await pool.query('DELETE FROM users WHERE id=$1', [userId]);
 }
+
+/** A fresh page-load link trigger (migration 978: every pass names its batch). */
+export function pageLoad(): { source: 'page_load'; linkBatchId: string } {
+  return { source: 'page_load', linkBatchId: crypto.randomUUID() };
+}
+
+/** A fresh import link trigger for one import batch. */
+export function importTrigger(importBatchId: string): { source: 'import'; linkBatchId: string; importBatchId: string } {
+  return { source: 'import', linkBatchId: crypto.randomUUID(), importBatchId };
+}

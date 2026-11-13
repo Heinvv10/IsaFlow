@@ -115,7 +115,7 @@ export function SignupForm() {
   if (submittedEmail) return <SignupPendingCard email={submittedEmail} />;
 
   return (
-    <WaitlistPageShell>
+    <WaitlistPageShell signup>
       <div className="mx-auto w-full max-w-md lg:-mt-10">
         <div className="mb-5 text-center text-white lg:text-left">
           <h2 className="text-2xl font-bold tracking-normal">Create your account</h2>

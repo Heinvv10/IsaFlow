@@ -196,7 +196,23 @@ describe('AppLayout', () => {
     act(() => { window.dispatchEvent(new Event('beforeinstallprompt', { cancelable: true })); });
     h.auth.loading = false;
     rerender(page());
-    expect(screen.getByText('Install IsaFlow for a faster, app-like experience')).toBeTruthy();
+    expect(screen.getByText('Install IsaFlow on this device')).toBeTruthy();
+  });
+
+  it('shows no install prompt off the dashboard', () => {
+    go('/accounting/customers');
+    render(page());
+    act(() => { window.dispatchEvent(new Event('beforeinstallprompt', { cancelable: true })); });
+    expect(screen.queryByText('Install IsaFlow on this device')).toBeNull();
+  });
+
+  it('an install offered on the dashboard disappears when the user moves to another page within the 10s', () => {
+    const { rerender } = render(page());
+    act(() => { window.dispatchEvent(new Event('beforeinstallprompt', { cancelable: true })); });
+    expect(screen.getByText('Install IsaFlow on this device')).toBeTruthy();
+    go('/accounting/customer-invoices');
+    rerender(page());
+    expect(screen.queryByText('Install IsaFlow on this device')).toBeNull();
   });
 });
 
@@ -214,6 +230,20 @@ describe('document title precedence (real next/head)', () => {
     <HeadManagerContext.Provider value={headManager as never}><ShellTitle />{pageTree}</HeadManagerContext.Provider>
   );
   const own = <Head><title>Own Title</title></Head>;
+
+  it('falls back to the route pattern when the visible URL is unknown to the index', () => {
+    h.router.pathname = '/accounting/customer-invoices';
+    h.router.asPath = '/no-such-visible-url';
+    render(app(page()));
+    expect(title).toBe('Tax Invoices · Sales · IsaFlow');
+  });
+
+  it('stays the bare product name when neither the URL nor the route pattern is known', () => {
+    h.router.pathname = '/no-such-route';
+    h.router.asPath = '/no-such-visible-url';
+    render(<HeadManagerContext.Provider value={headManager as never}><ShellTitle /></HeadManagerContext.Provider>);
+    expect(title).toBe('IsaFlow');
+  });
 
   beforeEach(() => { title = ''; headManager.mountedInstances.clear(); go('/accounting/customer-invoices'); });
 

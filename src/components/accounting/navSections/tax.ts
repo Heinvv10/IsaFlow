@@ -23,12 +23,6 @@ export const taxTab: Tab = {
         { label: 'VAT201', href: '/accounting/sars/vat201' },
         { label: 'VAT Period Locks', href: '/accounting/sars/vat-locks' },
         { label: 'EMP201 Filing', href: '/accounting/sars/emp201' },
-        { label: 'EMP201 / SDL (Payroll)', href: '/accounting/sars/emp201' },
-        { label: 'Year-End Workflow', href: '/payroll/year-end' },
-        { label: 'EMP501 Reconciliation', href: '/payroll/emp501' },
-        { label: 'IRP5 Readiness', href: '/payroll/irp5' },
-        { label: 'UIF Declaration', href: '/payroll/uif' },
-        { label: 'Tax Directives', href: '/payroll/tax-directives' },
       ],
     },
     {

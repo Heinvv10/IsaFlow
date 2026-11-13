@@ -20,6 +20,7 @@ import {
   autoLinkImportedBatchTransfers, relinkTransferCounterparts,
 } from '@/modules/accounting/services/bank/bankTransferLinkService';
 import { findMatchingTxs } from '@/modules/accounting/services/bank/bankRulesMatchingHelpers';
+import { importTrigger, pageLoad } from './helpers/k019TransferFixture';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -130,7 +131,7 @@ describe('autoLinkImportedBatchTransfers — pending candidate excluded', () => 
     const batchId = crypto.randomUUID();
     const { postedId, pendingId } = await seedCandidatePair(targetBank, batchId);
 
-    const { linked, failed } = await inRequest(() => autoLinkImportedBatchTransfers(company, batchId));
+    const { linked, failed } = await inRequest(() => autoLinkImportedBatchTransfers(company, batchId, importTrigger(batchId)));
 
     expect(failed).toBe(false);
     expect(linked).toBe(1);
@@ -147,7 +148,7 @@ describe('relinkTransferCounterparts — pending candidate excluded', () => {
     await seedAllocatedTransfer(targetBank, 1); // a second, independent free line
     const { postedId, pendingId } = await seedCandidatePair(targetBank, null);
 
-    const { linked, failed } = await inRequest(() => relinkTransferCounterparts(company, targetBank));
+    const { linked, failed } = await inRequest(() => relinkTransferCounterparts(company, targetBank, pageLoad()));
 
     expect(failed).toBe(false);
     expect(linked).toBe(1);

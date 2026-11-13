@@ -1,6 +1,6 @@
 /**
- * ShellTitle — the fallback document title, "Tax Invoices · Sales · IsaFlow" (shellRoutes.documentTitle). A page's
- * own <Head><title> always wins over it.
+ * ShellTitle: the fallback document title, "Tax Invoices · Sales · IsaFlow" (shellRoutes.documentTitle over
+ * pageRegistry.buildPageIndex). A page's own <Head><title> always wins over it.
  *
  * next/head keeps one ordered list of mounted <Head>s and the LAST title in it wins; a Head moves to the end of the
  * list whenever it mounts or re-renders. So this one is rendered by _app, before the page, where it mounts once and
@@ -11,10 +11,9 @@
 import { memo, useMemo } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { TABS } from '@/components/accounting/accountingNavConfig';
-import { buildNavIndex } from '@/components/accounting/navSections/navIndex';
+import { buildPageIndex } from '@/components/accounting/navSections/pageRegistry';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
-import { documentTitle } from '@/components/layout/shellRoutes';
+import { documentTitle, PRODUCT_TITLE } from '@/components/layout/shellRoutes';
 
 const TitleHead = memo(function TitleHead({ title }: { title: string }) {
   return <Head><title>{title}</title></Head>;
@@ -23,6 +22,10 @@ const TitleHead = memo(function TitleHead({ title }: { title: string }) {
 export function ShellTitle() {
   const router = useRouter();
   const { isRegistered } = useVatRegistration();
-  const navIndex = useMemo(() => buildNavIndex(TABS, isRegistered), [isRegistered]);
-  return <TitleHead title={documentTitle(router.asPath, navIndex)} />;
+  const pageIndex = useMemo(() => buildPageIndex(isRegistered), [isRegistered]);
+  // The route pattern is the fallback for a visible URL the index does not know (the admin host can serve
+  // /admin/* pages without the prefix: unverified, hence a fallback and not the first choice).
+  const byUrl = documentTitle(router.asPath, pageIndex);
+  const title = byUrl === PRODUCT_TITLE ? documentTitle(router.pathname, pageIndex) : byUrl;
+  return <TitleHead title={title} />;
 }

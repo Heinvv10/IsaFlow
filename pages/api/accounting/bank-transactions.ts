@@ -9,6 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { parseReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -25,7 +26,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       from_date, fromDate, to_date, toDate,
       from_amount, fromAmount, to_amount, toAmount,
       search, limit, offset,
-      sort_order, allocation_filter, tx_type, alloc_type, has_suggestion,
+      sort_order, allocation_filter, tx_type, alloc_type, has_suggestion, recon_filter,
     } = req.query;
     const pick = (a?: unknown, b?: unknown) => (a ?? b) as string | undefined;
     const result = await getBankTransactions(companyId, {
@@ -44,6 +45,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       txType:           tx_type            ? String(tx_type)           as 'all' | 'spent' | 'received'       : undefined,
       allocType:        alloc_type         ? String(alloc_type)        as 'all' | 'account' | 'supplier' | 'customer' : undefined,
       hasSuggestion:    has_suggestion     ? String(has_suggestion)    as 'all' | 'yes' | 'no'              : undefined,
+      reconFilter:      parseReconFilter(recon_filter),
     });
     return apiResponse.success(res, result);
   } catch (err) {

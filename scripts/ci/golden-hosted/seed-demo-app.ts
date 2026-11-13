@@ -52,7 +52,7 @@ function parseEnvelope(text: string): Envelope | null {
 }
 
 /** A logged-in client of the dev server: cookie jar, CSRF double-submit, {success,data} unwrapping. */
-class Client {
+export class Client {
   private readonly jar = new Map<string, string>();
   constructor(private readonly base: string) {}
 
@@ -104,7 +104,7 @@ function say(msg: string): void {
   process.stdout.write(`[golden-seed] ${msg}\n`);
 }
 
-async function seedPeople(api: Client): Promise<void> {
+export async function seedPeople(api: Client): Promise<void> {
   for (let k = 1; k <= COUNTS.customers; k++) {
     await api.post('/api/accounting/customers', { name: `Demo Customer ${k}`, email: `demo-customer-${k}@example.test` });
   }
@@ -115,6 +115,54 @@ async function seedPeople(api: Client): Promise<void> {
   });
   await api.post(`/api/payroll/employees/${employee.id}/components`, { componentId: component.id, amount: 25000, effectiveFrom: '2025-03-01' });
   say(`${COUNTS.customers} customers, 1 employee`);
+}
+
+/**
+ * Months the golden e2e specs own, never given a seeded pay run: 2027-02 is PAYROLL_SANDBOX_MONTH
+ * (tests/e2e/golden-paths/_api.ts), which h-payroll-run.spec.ts fails on when it already holds an approved run. The
+ * close-agent specs choose the first open 2027-2029 period that is not that month, which is 2027-01 while January is open;
+ * reserving it is the conservative choice. Keep this in step with those specs:
+ * the unit test in tests/unit/ci/goldenHostedSeed.test.ts fails when PAYROLL_SANDBOX_MONTH leaves this list.
+ */
+export const RESERVED_PAYROLL_MONTHS: readonly string[] = ['2027-01', '2027-02'];
+
+/**
+ * One approved pay run for the newest past month, outside RESERVED_PAYROLL_MONTHS, whose tax year is loaded (create,
+ * calculate, approve with the sole-approver clearance: the seed's admin is the company's only member). It gives the EMP201 something to sum, so the
+ * z17 EMP201 drill has data on GitHub's hosted Demo, as dev's Demo has. Best effort, never fatal to the seed: a month
+ * calculate refuses (tax tables not loaded for its year) is skipped for an older one. Once a month has calculated it is
+ * the one: an approval failure is logged loudly and the seed stops there, so no older month gets a second run and the
+ * calculated run is not left to look like a fallback. If no month calculates this logs and the seed carries on, and the
+ * z17 EMP201 test then fails by name in CI.
+ */
+export async function seedPayRun(api: Client, months: string[]): Promise<void> {
+  for (const ym of [...months].reverse()) {
+    if (RESERVED_PAYROLL_MONTHS.includes(ym)) continue;
+    const [year, month] = ym.split('-').map(Number) as [number, number];
+    let runId: string;
+    try {
+      const run = await api.post<{ id: string }>('/api/payroll/runs', { month, year });
+      runId = run.id;
+      await api.post(`/api/payroll/runs/${runId}/calculate`);
+    } catch (err) {
+      say(`pay run for ${ym} not seeded: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`);
+      continue;
+    }
+    try {
+      const request = await api.post<{ id: string; documentDigest: string }>('/api/accounting/approval-requests', {
+        action: 'request', documentType: 'pay_run', documentId: runId,
+      });
+      await api.post('/api/accounting/approval-requests', { action: 'approve', requestId: request.id, expectedDigest: request.documentDigest });
+      const plan = await api.get<{ planHash: string }>(`/api/payroll/runs/${runId}/journal-plan`);
+      await api.post(`/api/payroll/runs/${runId}/approve`, { expectedPlanHash: plan.planHash });
+      say(`1 approved pay run (${ym})`);
+    } catch (err) {
+      say(`WARNING: the ${ym} pay run calculated but could not be approved (${err instanceof Error ? err.message.slice(0, 200) : String(err)}); `
+        + 'it is left calculated and no other month is tried. The z17 EMP201 drill test will fail in CI.');
+    }
+    return;
+  }
+  say('WARNING: no pay run seeded; the z17 EMP201 drill test will fail in CI');
 }
 
 async function seedSuppliersAndInvoices(api: Client, months: string[]): Promise<void> {
@@ -210,6 +258,7 @@ async function main(): Promise<void> {
   const months = seedMonths(now);
   await seedLongStandingUser(api, now);
   await seedPeople(api);
+  await seedPayRun(api, months);
   await seedSuppliersAndInvoices(api, months);
   await seedJournals(api, months);
   await seedBankRows(api, months, now.toISOString().slice(0, 10));

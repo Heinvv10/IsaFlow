@@ -46,6 +46,7 @@ import {
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { bankGlAccountBelongsToCompany } from '@/modules/accounting/services/bank/bankStatementImportService';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
+import { isReconciliationReviewRequired } from '@/modules/accounting/services/bank/reconciliationReviewGate';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -208,8 +209,15 @@ export const performBankReconciliationTool: McpTool = {
     // An allocated line matched to its own journal line IS a match: before
     // they counted, books allocated through the feed could never complete.
     const provedSomething = matchedCount > 0;
+    // Hein 2026-11-12: completion refuses while a line it covers is unreviewed — a person reviews, not the agent.
+    // Refused inside completion's own savepoint before any write, so the session stays in progress, as for !balanced.
+    let unreviewed = 0;
     const completed = complete && balanced && provedSomething
-      ? await completeReconciliation(ctx.companyId, started.id, ctx.userId)
+      ? await completeReconciliation(ctx.companyId, started.id, ctx.userId).catch((err: unknown) => {
+        if (!isReconciliationReviewRequired(err)) throw err;
+        unreviewed = err.unreviewed;
+        return null;
+      })
       : null;
 
     return ok({
@@ -247,7 +255,15 @@ export const performBankReconciliationTool: McpTool = {
               + 'balances trivially and would prove nothing. Allocate or import the '
               + 'transactions first, or cancel_bank_reconciliation to release the session.',
           }
-          : {}),
+          : unreviewed > 0
+            ? {
+              note:
+                `Not completed: ${unreviewed} transaction(s) in this session are not reviewed yet. A person must `
+                + 'review them on the Bank Transactions New tab, then complete the reconciliation in the app. The '
+                + 'session is still in progress with its matches intact.',
+              unreviewed,
+            }
+            : {}),
     });
   },
 };

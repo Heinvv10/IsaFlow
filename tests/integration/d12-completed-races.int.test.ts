@@ -20,7 +20,7 @@ import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { teardown, type Ctx } from './d8-r4-helpers';
 import { clearExtras, setupWithUser } from './d10-helpers';
 import {
-  call, cleanup, completedInvariant, heldWork, holdSession, lineOf, matchInto, newBank, routes, seedLine, seedPair,
+  call, cleanup, completedInvariant, heldWork, holdSession, lineOf, markReviewed, matchInto, newBank, routes, seedLine, seedPair,
   settledWithin, startSession, type Call,
 } from './d12-helpers';
 
@@ -103,8 +103,10 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 races
 
   it('match first (held): the completion waits, then reconciles that line too', async () => {
     const s = await scenario();
-    const { early, out } = await bFirst(() => matchTransaction(c.fx.companyId, s.f.bt, s.f.jl, s.rec),
-      () => call(c, token, routes.recon, { action: 'complete', reconciliationId: s.rec }));
+    const { early, out } = await bFirst(async () => {
+      await matchTransaction(c.fx.companyId, s.f.bt, s.f.jl, s.rec);
+      await markReviewed([s.f.bt]); // mig 980: reviewed in the same held work
+    }, () => call(c, token, routes.recon, { action: 'complete', reconciliationId: s.rec }));
     expect(early, 'the completion waited for the match').toBe(false);
     expect(out.status, out.body).toBe(200);
     expect((await lineOf(s.f.bt)).status).toBe('reconciled');
@@ -113,8 +115,10 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 races
 
   it('auto_match first (held): the completion waits, then reconciles what it matched', async () => {
     const s = await scenario();
-    const { early, out } = await bFirst(() => autoMatchTransactions(c.fx.companyId, s.bank, s.rec, c.fx.userId),
-      () => call(c, token, routes.recon, { action: 'complete', reconciliationId: s.rec }));
+    const { early, out } = await bFirst(async () => {
+      await autoMatchTransactions(c.fx.companyId, s.bank, s.rec, c.fx.userId);
+      await markReviewed([s.f.bt]); // mig 980: reviewed in the same held work
+    }, () => call(c, token, routes.recon, { action: 'complete', reconciliationId: s.rec }));
     expect(early).toBe(false);
     expect(out.status, out.body).toBe(200);
     expect((await lineOf(s.f.bt)).status).toBe('reconciled');

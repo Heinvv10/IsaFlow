@@ -1,3 +1,4 @@
+import type { LineExplanations } from './payrollExplainTypes';
 import type { EtiResult } from './payrollTypesEti';
 import type { PayeYearToDate } from './payrollTypesYtd';
 export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
@@ -260,4 +261,6 @@ export interface PayrollLineResult {
   validationResults: ValidationResult[];
   /** Hours worked on this run (HD): hours, or days x hours per day. Null when not recorded or not determinable, never 0. */
   hours: number | null;
+  /** "How was this calculated?" for PAYE, UIF, SDL and ETI (EX-core; payrollExplain), stored as payroll_run_lines.explanation. */
+  explanations: LineExplanations;
 }

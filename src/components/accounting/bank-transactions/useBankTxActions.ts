@@ -216,7 +216,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       await assertOk(res, 'Could not mark the transactions as reviewed - try again');
       const json = await res.json();
       const accepted: number = json.data?.accepted ?? toAccept.length;
-      if (accepted < toAccept.length) notify.warning(`${accepted} of ${toAccept.length} transaction(s) marked as reviewed`, `${toAccept.length - accepted} were already reviewed or no longer eligible`);
+      if (accepted < toAccept.length) notify.warning(`${accepted} of ${toAccept.length} transaction(s) marked as reviewed`, `${toAccept.length - accepted} were already reviewed or have no journal yet - allocate the line (Undo it first if it shows as matched) before reviewing it`);
       else notify.success(`${accepted} transaction(s) marked as reviewed`);
       setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
     } catch (e) { notify.error(apiErrorMessage(e, 'Could not mark as reviewed - try again')); }

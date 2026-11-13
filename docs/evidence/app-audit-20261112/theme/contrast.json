@@ -1,0 +1,117 @@
+{
+  "walker": "tests/e2e/helpers/themeContrast.ts auditContrast, local dev server, Demo company, 12 Nov 2026 (retaken after review round 2 fixes)",
+  "results": {
+    "dashboard-desktop-light": {
+      "url": "/accounting",
+      "appShell": true,
+      "total": 197,
+      "worst": 5.47,
+      "failing": []
+    },
+    "dashboard-desktop-dark": {
+      "url": "/accounting",
+      "appShell": true,
+      "total": 197,
+      "worst": 5.42,
+      "failing": []
+    },
+    "dashboard-phone-light": {
+      "url": "/accounting",
+      "appShell": true,
+      "total": 178,
+      "worst": 5.47,
+      "failing": []
+    },
+    "dashboard-phone-dark": {
+      "url": "/accounting",
+      "appShell": true,
+      "total": 178,
+      "worst": 5.42,
+      "failing": []
+    },
+    "invoice-list-desktop-light": {
+      "url": "/accounting/customer-invoices",
+      "appShell": true,
+      "total": 274,
+      "worst": 5.47,
+      "failing": []
+    },
+    "invoice-list-desktop-dark": {
+      "url": "/accounting/customer-invoices",
+      "appShell": true,
+      "total": 274,
+      "worst": 5.47,
+      "failing": []
+    },
+    "invoice-list-phone-light": {
+      "url": "/accounting/customer-invoices",
+      "appShell": true,
+      "total": 255,
+      "worst": 5.47,
+      "failing": []
+    },
+    "invoice-list-phone-dark": {
+      "url": "/accounting/customer-invoices",
+      "appShell": true,
+      "total": 255,
+      "worst": 5.47,
+      "failing": []
+    },
+    "bank-transactions-desktop-light": {
+      "url": "/accounting/bank-transactions",
+      "appShell": true,
+      "total": 332,
+      "worst": 5.08,
+      "failing": []
+    },
+    "bank-transactions-desktop-dark": {
+      "url": "/accounting/bank-transactions",
+      "appShell": true,
+      "total": 332,
+      "worst": 5.47,
+      "failing": []
+    },
+    "bank-transactions-phone-light": {
+      "url": "/accounting/bank-transactions",
+      "appShell": true,
+      "total": 318,
+      "worst": 5.08,
+      "failing": []
+    },
+    "bank-transactions-phone-dark": {
+      "url": "/accounting/bank-transactions",
+      "appShell": true,
+      "total": 318,
+      "worst": 5.47,
+      "failing": []
+    },
+    "invoice-new-desktop-light": {
+      "url": "/accounting/customer-invoices/new",
+      "appShell": true,
+      "total": 77,
+      "worst": 5.47,
+      "failing": []
+    },
+    "invoice-new-desktop-dark": {
+      "url": "/accounting/customer-invoices/new",
+      "appShell": true,
+      "total": 77,
+      "worst": 5.47,
+      "failing": []
+    },
+    "invoice-new-phone-light": {
+      "url": "/accounting/customer-invoices/new",
+      "appShell": true,
+      "total": 59,
+      "worst": 5.47,
+      "failing": []
+    },
+    "invoice-new-phone-dark": {
+      "url": "/accounting/customer-invoices/new",
+      "appShell": true,
+      "total": 59,
+      "worst": 5.47,
+      "failing": []
+    }
+  }
+}

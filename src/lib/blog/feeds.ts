@@ -11,8 +11,8 @@ import { isPublished } from './visibility';
 
 /** Public marketing pages on isaflow.co.za (the app host is never in the sitemap). */
 export const MARKETING_PAGES = [
-  '/', '/pricing', '/contact', '/privacy', '/terms',
-  '/compare/sage', '/compare/xero', '/compare/quickbooks',
+  '/', '/pricing', '/features', '/about', '/contact', '/privacy', '/terms',
+  '/compare/sage', '/compare/xero', '/compare/quickbooks', '/compare/simplepay', '/compare/payspace',
 ] as const;
 
 export const postUrl = (slug: string): string => `${BLOG_URL}/${slug}`;

@@ -15,15 +15,19 @@ import { anchoredMenuStyle } from '@/components/layout/menuPosition';
 import { settingsTab } from '@/components/accounting/accountingNavConfig';
 import { isFlyout } from '@/components/accounting/navSections/types';
 import type { DropdownItem } from '@/components/accounting/navSections/types';
+import { getActiveModuleId, activeHrefAmong } from '@/components/accounting/navSections/activeTab';
 
 interface PanelProps {
   anchorRect: DOMRect;
   onSelect: (href: string) => void;
   panelRef: React.RefObject<HTMLDivElement>;
+  /** The current page: its entry is marked as the current one. */
+  asPath: string;
 }
 
-function Panel({ anchorRect, onSelect, panelRef }: PanelProps) {
+function Panel({ anchorRect, onSelect, panelRef, asPath }: PanelProps) {
   const sections = (settingsTab.items ?? []).filter(isFlyout);
+  const current = activeHrefAmong(sections.flatMap((s) => s.items), asPath);
 
   return createPortal(
     <div
@@ -52,8 +56,12 @@ function Panel({ anchorRect, onSelect, panelRef }: PanelProps) {
                 <li key={item.href}>
                   <button
                     role="menuitem"
+                    aria-current={item.href === current ? 'page' : undefined}
                     onClick={() => onSelect(item.href)}
-                    className="w-full text-left px-2 py-1.5 text-sm rounded-md text-gray-700 dark:text-gray-200 hover:bg-teal-50 dark:hover:bg-teal-900/20 hover:text-teal-700 dark:hover:text-teal-300 transition-colors"
+                    className={cn(
+                      'w-full text-left px-2 py-1.5 text-sm rounded-md hover:bg-teal-50 dark:hover:bg-teal-900/20 hover:text-teal-700 dark:hover:text-teal-300 transition-colors',
+                      item.href === current ? 'font-medium text-teal-700 dark:text-teal-300' : 'text-gray-700 dark:text-gray-200',
+                    )}
                   >
                     {item.label}
                   </button>
@@ -74,6 +82,8 @@ export function SettingsMenu() {
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  // A settings page has no top tab, so the cog itself shows where the user is.
+  const active = getActiveModuleId(router.pathname, router.query as Record<string, string | string[] | undefined>) === 'settings';
 
   const openMenu = useCallback(() => {
     if (buttonRef.current) {
@@ -137,19 +147,20 @@ export function SettingsMenu() {
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label="Settings"
+          aria-current={active ? 'true' : undefined}
           onClick={() => open ? closeMenu() : openMenu()}
           className={cn(
             'p-2 rounded-lg transition-colors',
-            open
-              ? 'bg-white/10 text-teal-400'
-              : 'text-slate-500 dark:text-slate-400 hover:text-slate-100 hover:bg-white/5',
+            open || active
+              ? 'bg-teal-500/[0.08] text-teal-700 dark:text-teal-300'
+              : 'text-ink-muted hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5',
           )}
         >
           <SettingsIcon className="w-4 h-4" />
         </button>
       </Tooltip>
 
-      {open && anchorRect && <Panel anchorRect={anchorRect} onSelect={navigate} panelRef={panelRef} />}
+      {open && anchorRect && <Panel anchorRect={anchorRect} onSelect={navigate} panelRef={panelRef} asPath={router.asPath} />}
     </>
   );
 }

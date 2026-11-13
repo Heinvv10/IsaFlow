@@ -25,6 +25,7 @@ import { mimeForCapturedFileType } from './capturedFileTypes';
 import { findOtherVatClaim, type OtherVatClaim } from './bankAttachClaimConflict';
 import { lockCapturedDocumentForUpdate } from './captureRowLock';
 import { lockBankTransactionForUpdate } from '../bank/bankTxLock';
+import { isReconciledLine } from '../bank/reconciledCash';
 
 export { mimeForCapturedFileType };
 
@@ -32,8 +33,11 @@ const MAX_MIRROR_BYTES = 2 * 1024 * 1024;
 
 export type AttachToBankTxResult =
   | { ok: true; mirrored: boolean }
-  | { ok: false; reason: 'document_not_found' | 'bank_tx_not_found' }
+  | { ok: false; reason: 'document_not_found' | 'bank_tx_not_found' | 'previous_line_reconciled' }
   | { ok: false; reason: 'document_backs_other_claim'; otherClaim: OtherVatClaim };
+
+export const PREVIOUS_LINE_RECONCILED = 'This document supports a reconciled bank line, so it cannot be moved to '
+  + 'another line. Reopen that bank reconciliation first.';
 
 type Row = Record<string, unknown>;
 
@@ -68,6 +72,11 @@ export async function attachCapturedDocToBankTx(
     SELECT matched_bank_tx_id FROM captured_documents WHERE id = ${documentId}::uuid AND company_id = ${companyId}::uuid
   `) as Row[];
   const previous = held?.matched_bank_tx_id ? String(held.matched_bank_tx_id) : null;
+  // Hein 2026-11-12: a reconciled line keeps its supporting documents; moving this one would strip it from that line.
+  // Refused before any write; a plain read (isReconciledLine says why it takes no lock here).
+  if (previous && previous !== bankTxId && await isReconciledLine(companyId, { bankTxId: previous })) {
+    return { ok: false, reason: 'previous_line_reconciled' };
+  }
 
   // Crash-recovery: UPDATE-then-mirror ordering means a crash between the two
   // heals on a retry — the re-UPDATE is idempotent and the dup-check misses,

@@ -17,7 +17,7 @@ import { BankTxFilters } from '@/components/accounting/bank-transactions/BankTxF
 import { BankTxBatchPanel, type RulePrompt } from '@/components/accounting/bank-transactions/BankTxBatchPanel';
 import { BankTxModals } from '@/components/accounting/bank-transactions/BankTxModals';
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
-import { useRelinkTransfers } from '@/components/accounting/bank-transactions/useRelinkTransfers';
+import { useRelinkTransfersWithTick, TransferLinkNotice } from '@/components/accounting/bank-transactions/transferLinks';
 import { useBankTxRefData } from '@/components/accounting/bank-transactions/useBankTxRefData';
 import { useBankTxColumnPrefs } from '@/components/accounting/bank-transactions/useBankTxColumnPrefs';
 import { useBankLineDetail } from '@/components/accounting/bank-transactions/useBankLineDetail';
@@ -30,8 +30,9 @@ import { useBankTxOutcome } from '@/components/accounting/bank-transactions/useB
 import { BankTxPagination, BankTxReviewBar } from '@/components/accounting/bank-transactions/BankTxPagination';
 import { BankTxTabs, type BankTxTab as Tab } from '@/components/accounting/bank-transactions/BankTxTabs';
 import { useLlmResultPoll } from '@/components/accounting/bank-transactions/useLlmResultPoll';
-import { suggestedRowSelections } from '@/components/accounting/bank-transactions/suggestedRowSelections';
+import { useSeedRowSelections } from '@/components/accounting/bank-transactions/useSeedRowSelections';
 import { bankTxQueryParams } from '@/components/accounting/bank-transactions/bankTxQuery';
+import type { ReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
 import { BankTxListFrame, BANK_TX_PAGE_SIZE as PAGE_SIZE } from '@/components/accounting/bank-transactions/BankTxListFrame';
 import { bankTxPastEnd, usePageClamp } from '@/components/accounting/bank-transactions/usePageClamp';
 import { exportAllBankTx, exportLoadedBankTx } from '@/components/accounting/bank-transactions/bankTxExport';
@@ -81,6 +82,7 @@ export default function BankTransactionsPage() {
   const [txType, setTxType] = useState<'all' | 'spent' | 'received'>('all');
   const [allocType, setAllocType] = useState<'all' | 'account' | 'supplier' | 'customer' | 'transfer'>('all');
   const [hasSuggestion, setHasSuggestion] = useState<'all' | 'yes' | 'no'>('all');
+  const [reconFilter, setReconFilter] = useState<ReconFilter>('all');
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Selection / UI
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -118,7 +120,7 @@ export default function BankTransactionsPage() {
     setIsLoading(true); setError('');
     try {
       const params = bankTxQueryParams({ bankAccountId: selectedBank, tab, page, pageSize: PAGE_SIZE, fromDate, toDate, fromAmount, toAmount,
-        search: debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion });
+        search: debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter });
       const res = await apiFetch(`/api/accounting/bank-transactions?${params}`); await assertOk(res, 'Could not load transactions - try again');
       const json = await res.json();
       if (!latest()) return;
@@ -126,7 +128,7 @@ export default function BankTransactionsPage() {
       setTransactions(data.transactions || []); setLoaded({ page, total: data.total || 0 });
     } catch (err) { if (latest()) { setTransactions([]); setLoaded({ page, total: 0 }); setError(apiErrorMessage(err, 'Could not load transactions - try again')); } }
     finally { if (latest()) setIsLoading(false); }
-  }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion]);
+  }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter]);
 
   useEffect(() => { void loadTransactions(); }, [loadTransactions]);
   // A toast's Undo outlives the render that offered it: an old loadTransactions would put that view's rows on this one.
@@ -137,26 +139,14 @@ export default function BankTransactionsPage() {
   // AI background poll — picks up late-arriving LLM suggestions after smart-categorize
   const { aiPolling, pollForLlmResults } = useLlmResultPoll(transactions, loadTransactions);
 
-  const relinkFailed = useRelinkTransfers(selectedBank);
+  const [relinkFailed, linkTick] = useRelinkTransfersWithTick(selectedBank, () => void loadLatest.current());
 
-  // ---- Seed rowSelections from DB suggestion fields ----
-  useEffect(() => {
-    if (transactions.length === 0) return;
-    const initial = suggestedRowSelections(transactions, rowSelections);
-    if (Object.keys(initial).length > 0) {
-      setRowSelections(prev => {
-        const merged = { ...prev };
-        for (const [id, sel] of Object.entries(initial)) { if (!merged[id]?.entityId) merged[id] = sel; }
-        return merged;
-      });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactions]);
+  useSeedRowSelections(transactions, rowSelections, setRowSelections); // rowSelections from DB suggestion fields
 
   // ---- Reset filters when bank or tab changes ----
   useEffect(() => {
     setPage(1); setSelectedIds(new Set()); setRowSelections({});
-    setAllocationFilter('all'); setTxType('all'); setAllocType('all'); setHasSuggestion('all');
+    setAllocationFilter('all'); setTxType('all'); setAllocType('all'); setHasSuggestion('all'); setReconFilter('all');
   }, [selectedBank, tab]);
 
   // ---- Build action handlers ----
@@ -209,6 +199,7 @@ export default function BankTransactionsPage() {
           showBatchEdit={showBatchEdit} searchTerm={searchTerm} fromDate={fromDate} toDate={toDate}
           fromAmount={fromAmount} toAmount={toAmount} sortOrder={sortOrder}
           allocationFilter={allocationFilter} txType={txType} allocType={allocType} hasSuggestion={hasSuggestion}
+          reconFilter={reconFilter}
           onRefresh={loadTransactions} onBulkAccept={actions.handleBulkAccept}
           onBatchAccept={actions.handleBatchAccept} onBatchDelete={actions.handleBatchDelete}
           onToggleBatchEdit={() => { setShowBatchEdit(s => !s); setBatchSearch(''); }}
@@ -221,6 +212,7 @@ export default function BankTransactionsPage() {
           onSortOrderChange={withReset(setSortOrder)} onAllocationFilterChange={withReset(setAllocationFilter)}
           onTxTypeChange={withReset(setTxType)} onAllocTypeChange={withReset(setAllocType)}
           onHasSuggestionChange={withReset(setHasSuggestion)}
+          onReconFilterChange={withReset(setReconFilter)}
           onToggleCC={toggleCC} onToggleBU={toggleBU}
         />
 
@@ -242,6 +234,7 @@ export default function BankTransactionsPage() {
         <div className="px-4 py-2">
           <CodingMetricsStrip />
           <AutoPostRunsPanel onUndone={loadTransactions} />
+          <TransferLinkNotice bankAccountId={selectedBank} refreshKey={linkTick} onChanged={loadTransactions} />
           <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading} error={error}
             empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab}
             detailTx={detailTx} onDetailClose={closeDetail}>

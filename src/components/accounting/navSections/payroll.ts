@@ -4,7 +4,8 @@ import type { Tab } from './types';
  * VIP-style mental model:
  *   • "Current Period" — daily payroll work for the open run.
  *   • "Employees" — the master roster + bulk admin actions.
- *   • "Reports" — statutory + operational read-only outputs.
+ *   • "Statutory": the SARS and UIF outputs (IRP5, EMP501, UIF, directives, year-end).
+ *   • "Reports": operational and equity read-only outputs.
  *   • "Setup" — rare configuration (components, leave types, period roll).
  *
  * isSetting=true marks items that belong in the "rare config" group at the
@@ -42,16 +43,21 @@ export const payrollTab: Tab = {
       ],
     },
     {
+      section: 'Statutory',
+      items: [
+        { label: 'IRP5 Readiness',         href: '/payroll/irp5' },
+        { label: 'EMP501 Reconciliation',  href: '/payroll/emp501' },
+        { label: 'UIF Declarations',       href: '/payroll/uif' },
+        { label: 'Tax Directives',         href: '/payroll/tax-directives' },
+        { label: 'Year-End Workflow',      href: '/payroll/year-end' },
+      ],
+    },
+    {
       section: 'Reports',
       items: [
         { label: 'Parallel Run Comparison', href: '/payroll/parallel-run' },
-        { label: 'IRP5 Readiness',         href: '/payroll/irp5' },
-        { label: 'EMP501 Reconciliation',  href: '/payroll/emp501' },
-        { label: 'Tax Directives',         href: '/payroll/tax-directives' },
-        { label: 'UIF Declarations',       href: '/payroll/uif' },
         { label: 'EEA2 (Employment Equity)', href: '/payroll/equity/eea2' },
         { label: 'WSP / ATR',              href: '/payroll/training/wsp-atr' },
-        { label: 'Year-End Workflow',      href: '/payroll/year-end' },
         { label: 'Compliance',             href: '/payroll/compliance' },
       ],
     },

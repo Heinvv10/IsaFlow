@@ -28,7 +28,8 @@ const nil = (r: EtiResult, ineligibilityReason: string): EtiResult => ({
   ...r, isEligible: false, isDeterminable: true, missingInputs: [], monthlyEti: 0, ineligibilityReason,
 });
 
-export function costLineEti(input: LineEtiInput): { eti: EtiResult; warnings: ValidationResult[] } {
+/** `hoursAssumed`: the hours are R-B's assumed 40 a week for the part of the month employed (none recorded), for the explanation. */
+export function costLineEti(input: LineEtiInput): { eti: EtiResult; warnings: ValidationResult[]; hoursAssumed: boolean } {
   const { employee, components, period, periodDate } = input;
   const warnings: ValidationResult[] = [];
   const name = `${employee.firstName} ${employee.lastName}`.trim();
@@ -46,9 +47,9 @@ export function costLineEti(input: LineEtiInput): { eti: EtiResult; warnings: Va
     priorMonths: employee.etiPriorMonths ?? 0,
   });
   if (input.notEmployedInPeriod) {
-    return { eti: nil(resolved, 'Not employed in this period (paid after leaving): ETI is apportioned by hours employed, none here.'), warnings };
+    return { eti: nil(resolved, 'Not employed in this period (paid after leaving): ETI is apportioned by hours employed, none here.'), warnings, hoursAssumed: false };
   }
-  if (!input.etiApplies) return { eti: nil(resolved, 'Independent contractor: not an employee, so no ETI.'), warnings };
+  if (!input.etiApplies) return { eti: nil(resolved, 'Independent contractor: not an employee, so no ETI.'), warnings, hoursAssumed: false };
 
   // Hours that cannot be told are never a full month. A monthly employee keeps the unapportioned figure; an hourly or
   // daily one, whose pay is the hours, claims none (HD's nil). R-B assumed hours apportion, and still warn.
@@ -103,5 +104,5 @@ export function costLineEti(input: LineEtiInput): { eti: EtiResult; warnings: Va
         + '(Income Tax Act s1) and not a domestic worker (BCEA s1): neither qualifies (ETI Act s6(c), s6(d)), and IsaFlow does not record either yet.',
     });
   }
-  return { eti, warnings };
+  return { eti, warnings, hoursAssumed: h?.assumed === true };
 }

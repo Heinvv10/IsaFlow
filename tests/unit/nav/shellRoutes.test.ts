@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { documentTitle, isPayrollPath } from '@/components/layout/shellRoutes';
+import { documentTitle, isPayrollPath, isDashboardPath } from '@/components/layout/shellRoutes';
 import { buildNavIndex } from '@/components/accounting/navSections/navIndex';
 import { TABS } from '@/components/accounting/accountingNavConfig';
 
@@ -46,5 +46,14 @@ describe('isPayrollPath', () => {
     expect(isPayrollPath('/payrollx')).toBe(false);
     expect(isPayrollPath('/payroll-settings')).toBe(false);
     expect(isPayrollPath('/accounting/payroll')).toBe(false);
+  });
+});
+
+describe('isDashboardPath', () => {
+  it('is true on the two dashboards only', () => {
+    expect(isDashboardPath('/accounting')).toBe(true);
+    expect(isDashboardPath('/home')).toBe(true);
+    expect(isDashboardPath('/accounting/customers')).toBe(false);
+    expect(isDashboardPath('/homepage')).toBe(false);
   });
 });

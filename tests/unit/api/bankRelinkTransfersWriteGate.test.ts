@@ -24,10 +24,12 @@ vi.mock('@/modules/accounting/services/bank/bankTransferLinkService', () => ({ r
 import handler from '../../../pages/api/accounting/bank-relink-transfers';
 
 const BANK = '22222222-2222-4222-8222-222222222222';
+let lastRes: { json: ReturnType<typeof vi.fn> } | null = null;
 async function post(role: string) {
   mocks.role = role;
   const res = { statusCode: 0, status(c: number) { this.statusCode = c; return this; }, json: vi.fn(), setHeader: vi.fn() };
   await handler({ method: 'POST', companyId: '11111111-1111-4111-8111-111111111111', body: { bankAccountId: BANK } } as unknown as NextApiRequest, res as unknown as NextApiResponse);
+  lastRes = res;
   return res.statusCode;
 }
 
@@ -42,5 +44,16 @@ describe('bank-relink-transfers write gate', () => {
   it('lets a manager through', async () => {
     expect(await post('manager')).toBe(200);
     expect(mocks.relink).toHaveBeenCalledTimes(1);
+  });
+
+  it('names each page load as a page_load link batch and returns its batch id (migration 978)', async () => {
+    mocks.relink.mockImplementation(async (_c: string, _b: string, trigger: { linkBatchId: string }) =>
+      ({ linked: 2, failed: false, passes: 1, batchId: trigger.linkBatchId }));
+    expect(await post('manager')).toBe(200);
+    const [, bank, trigger] = mocks.relink.mock.calls[0] as [string, string, { source: string; linkBatchId: string }];
+    expect(bank).toBe(BANK);
+    expect(trigger.source).toBe('page_load');
+    expect(trigger.linkBatchId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(lastRes?.json.mock.calls[0][0]).toMatchObject({ data: { linked: 2, failed: false, batchId: trigger.linkBatchId } });
   });
 });

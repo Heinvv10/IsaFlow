@@ -10,7 +10,7 @@ import { getPoolForTests } from '@/lib/neon';
 import { relinkTransferCounterparts } from '@/modules/accounting/services/bank/bankTransferLinkService';
 import { insertPreConstraintRow } from './helpers/preConstraintRow';
 import {
-  AMOUNT, DAY, addAccount, addSecondLegToJournal, cleanup, rowsOn, seedScenario,
+  AMOUNT, DAY, addAccount, addSecondLegToJournal, cleanup, rowsOn, seedScenario, pageLoad,
 } from './helpers/k019TransferFixture';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -59,7 +59,7 @@ describe('K-019 relinkTransferCounterparts', () => {
   it('binds one bank line per GL movement and leaves the runner-up imported', async () => {
     const s = await seedScenario(pool, company, user, 1, 2);
 
-    const { linked, failed } = await inRequest(() => relinkTransferCounterparts(company, s.targetBank));
+    const { linked, failed } = await inRequest(() => relinkTransferCounterparts(company, s.targetBank, pageLoad()));
     expect(failed).toBe(false);
     expect(linked).toBe(1);
 
@@ -82,7 +82,7 @@ describe('K-019 relinkTransferCounterparts', () => {
   it('links BOTH legs in one call when two free lines exist', async () => {
     const s = await seedScenario(pool, company, user, 2, 2);
 
-    const { linked } = await inRequest(() => relinkTransferCounterparts(company, s.targetBank));
+    const { linked } = await inRequest(() => relinkTransferCounterparts(company, s.targetBank, pageLoad()));
     expect(linked).toBe(2);
 
     const rows = await rowsOn(pool, company, s.targetBank);
@@ -97,7 +97,7 @@ describe('K-019 relinkTransferCounterparts', () => {
     const s = await seedScenario(pool, company, user, 1, 2);
     const secondLeg = await addSecondLegToJournal(pool, company, s.journals[0], s.targetBank);
 
-    const { linked } = await inRequest(() => relinkTransferCounterparts(company, s.targetBank));
+    const { linked } = await inRequest(() => relinkTransferCounterparts(company, s.targetBank, pageLoad()));
     expect(linked).toBe(2);
 
     const rows = await rowsOn(pool, company, s.targetBank);
@@ -122,7 +122,7 @@ describe('K-019 relinkTransferCounterparts', () => {
       );
     }
 
-    const { linked } = await inRequest(() => relinkTransferCounterparts(company, s.targetBank));
+    const { linked } = await inRequest(() => relinkTransferCounterparts(company, s.targetBank, pageLoad()));
     expect(linked).toBe(1);
 
     const claimed = (await rowsOn(pool, company, s.targetBank))
@@ -153,7 +153,7 @@ describe('K-019 relinkTransferCounterparts', () => {
     try {
       await client.query('BEGIN');
       const { linked, passes } = await als.run(ctxFor(recording, company), () =>
-        relinkTransferCounterparts(company, s.targetBank),
+        relinkTransferCounterparts(company, s.targetBank, pageLoad()),
       );
       expect(linked).toBe(5);
       expect(passes).toBe(1);
@@ -212,7 +212,7 @@ describe('K-019 relinkTransferCounterparts', () => {
       );
     }
 
-    const { linked } = await inRequest(() => relinkTransferCounterparts(company, targetBank));
+    const { linked } = await inRequest(() => relinkTransferCounterparts(company, targetBank, pageLoad()));
     expect(linked).toBe(2);
 
     const rows = await rowsOn(pool, company, targetBank);
@@ -225,10 +225,10 @@ describe('K-019 relinkTransferCounterparts', () => {
 
   it('is idempotent: a second pass claims nothing already claimed', async () => {
     const s = await seedScenario(pool, company, user, 1, 2);
-    expect((await inRequest(() => relinkTransferCounterparts(company, s.targetBank))).linked).toBe(1);
+    expect((await inRequest(() => relinkTransferCounterparts(company, s.targetBank, pageLoad()))).linked).toBe(1);
 
     const before = await rowsOn(pool, company, s.targetBank);
-    const { linked } = await inRequest(() => relinkTransferCounterparts(company, s.targetBank));
+    const { linked } = await inRequest(() => relinkTransferCounterparts(company, s.targetBank, pageLoad()));
     const after = await rowsOn(pool, company, s.targetBank);
 
     expect(linked).toBe(0);
@@ -270,7 +270,7 @@ describe('K-019 relinkTransferCounterparts', () => {
       [theirTx, other, theirBank, theirSrcLine, theirJe],
     );
 
-    const { linked } = await inRequest(() => relinkTransferCounterparts(company, s.targetBank));
+    const { linked } = await inRequest(() => relinkTransferCounterparts(company, s.targetBank, pageLoad()));
     expect(linked).toBe(0);
 
     const rows = await rowsOn(pool, company, s.targetBank);
@@ -288,7 +288,7 @@ describe('K-019 relinkTransferCounterparts', () => {
       [crypto.randomUUID(), other, s.targetBank, s.freeLines[0]],
     );
 
-    const { linked } = await inRequest(() => relinkTransferCounterparts(company, s.targetBank));
+    const { linked } = await inRequest(() => relinkTransferCounterparts(company, s.targetBank, pageLoad()));
     expect(linked).toBe(1);
 
     const claimed = (await rowsOn(pool, company, s.targetBank))
@@ -304,9 +304,9 @@ describe('K-019 relinkTransferCounterparts', () => {
       // A non-UUID bank account makes the ::UUID cast fail (22P02) inside the
       // service. Without its own savepoint the whole request tx aborts.
       const result = await als.run(ctxFor(client, company), () =>
-        relinkTransferCounterparts(company, 'not-a-uuid'),
+        relinkTransferCounterparts(company, 'not-a-uuid', pageLoad()),
       );
-      expect(result).toEqual({ linked: 0, passes: 0, failed: true });
+      expect(result).toEqual({ linked: 0, passes: 0, failed: true, batchId: null });
 
       // The transaction is still usable: this would raise 25P02 otherwise.
       const res = await client.query('SELECT 1 AS ok');

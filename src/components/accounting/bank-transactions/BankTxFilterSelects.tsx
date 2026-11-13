@@ -1,6 +1,6 @@
 /**
  * BankTxFilterSelects — the bank transactions toolbar's sort and filter selects (sort order, allocation status,
- * spent/received, category, suggestion). Kit Selects at the compact size; each label is visually hidden, the
+ * spent/received, category, suggestion, and on Reviewed the reconciled filter). Kit Selects at the compact size; each label is visually hidden, the
  * trigger shows the current choice ("All Status").
  */
 
@@ -8,8 +8,9 @@ import { Select, type SelectOption } from '@/components/ui/Select';
 import type { BankTxFiltersProps } from './BankTxFilters';
 
 type Props = Pick<BankTxFiltersProps,
-  'tab' | 'sortOrder' | 'allocationFilter' | 'txType' | 'allocType' | 'hasSuggestion'
-  | 'onSortOrderChange' | 'onAllocationFilterChange' | 'onTxTypeChange' | 'onAllocTypeChange' | 'onHasSuggestionChange'>;
+  'tab' | 'sortOrder' | 'allocationFilter' | 'txType' | 'allocType' | 'hasSuggestion' | 'reconFilter'
+  | 'onSortOrderChange' | 'onAllocationFilterChange' | 'onTxTypeChange' | 'onAllocTypeChange' | 'onHasSuggestionChange'
+  | 'onReconFilterChange'>;
 
 const SORT: SelectOption[] = [{ value: 'desc', label: 'Newest First' }, { value: 'asc', label: 'Oldest First' }];
 const STATUS: SelectOption[] = [
@@ -21,6 +22,10 @@ const CATEGORY: SelectOption[] = [
   { value: 'all', label: 'All Categories' }, { value: 'account', label: 'Account' }, { value: 'supplier', label: 'Supplier' },
   { value: 'customer', label: 'Customer' }, { value: 'transfer', label: 'Transfer' },
 ];
+const RECON: SelectOption[] = [
+  { value: 'all', label: 'All Reviewed' }, { value: 'unreconciled', label: 'Not Reconciled' },
+  { value: 'reconciled', label: 'Reconciled' },
+];
 const SUGGESTION: SelectOption[] = [{ value: 'all', label: 'All Suggestions' }, { value: 'yes', label: 'Has Suggestion' }, { value: 'no', label: 'No Suggestion' }];
 
 /** A filter always holds a value: the kit's clear (null) never reaches the page. */
@@ -29,8 +34,9 @@ function pick<T extends string>(on: (v: T) => void) {
 }
 
 export function BankTxFilterSelects({
-  tab, sortOrder, allocationFilter, txType, allocType, hasSuggestion,
+  tab, sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter,
   onSortOrderChange, onAllocationFilterChange, onTxTypeChange, onAllocTypeChange, onHasSuggestionChange,
+  onReconFilterChange,
 }: Props) {
   return (
     <>
@@ -39,6 +45,10 @@ export function BankTxFilterSelects({
       {tab === 'new' && (
         <Select label="Allocation status" labelClassName="sr-only" size="sm" className="w-32"
           options={STATUS} value={allocationFilter} onChange={pick(onAllocationFilterChange)} />
+      )}
+      {tab === 'reviewed' && (
+        <Select label="Reconciliation" labelClassName="sr-only" size="sm" className="w-36"
+          options={RECON} value={reconFilter} onChange={pick(onReconFilterChange)} />
       )}
       <Select label="Spent or received" labelClassName="sr-only" size="sm" className="w-28"
         options={TX_TYPE} value={txType} onChange={pick(onTxTypeChange)} />

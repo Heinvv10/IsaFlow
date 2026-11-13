@@ -27,9 +27,11 @@ vi.mock('@/components/accounting/time-tracking/TimeFilters', () => ({
   TimeFilters: ({ customers }: { customers: { id: string; companyName: string }[] }) => <ul>{customers.map(c => <li key={c.id}>{c.companyName}</li>)}</ul>,
 }));
 vi.mock('@/components/accounting/dashboard/OverviewTables', () => ({ OverviewTables: () => null }));
-vi.mock('@/components/accounting/dashboard/TodoWidget', () => ({ TodoWidget: () => null }));
 vi.mock('@/components/accounting/dashboard/ModuleSetupChecklist', () => ({ ModuleSetupChecklist: () => null }));
-vi.mock('@/components/accounting/dashboard/WorkbenchSection', () => ({ WorkbenchSection: () => null }));
+// The list itself is pinned elsewhere; here it shows the two rows the Overview tab adds to it.
+vi.mock('@/components/accounting/dashboard/NeedsAttention', () => ({
+  NeedsAttention: ({ extra = [] }: { extra?: Array<{ key: string; label: string }> }) => <ul>{extra.map((e) => <li key={e.key}>{e.label}</li>)}</ul>,
+}));
 vi.mock('@/components/accounting/banking/NoBankAccountWarning', () => ({ NoBankAccountWarning: () => null }));
 vi.mock('@/lib/auth/portalJwt', () => ({ verifyPortalToken: async () => ({ role: 'client_admin' }) }));
 // The session is in standing (company live, contact active): standing itself is pinned by portalAuthStanding.
@@ -61,7 +63,8 @@ const SETTINGS = { maintenance_mode: false, registration_enabled: true, max_comp
 const KPI = { kpis: { revenue: { total: 0, priorTotal: 0, changePercent: 0 }, expenses: { total: 0, priorTotal: 0 }, grossProfit: { amount: 0, margin: 0 },
   netProfit: { amount: 0, margin: 0 }, cash: { total: 0, priorTotal: 0, change: 0 }, receivables: { total: 0, overdue: 0, avgDebtorDays: 0 },
   payables: { total: 0, overdue: 0, avgCreditorDays: 0 }, activity: { invoicesIssued: 0, paymentsReceived: 0, journalsPosted: 0 } },
-  revenueChart: [], cashFlowChart: [], arAging: [], apAging: [], topCustomers: [], topExpenses: [], hasBankAccount: true };
+  revenueChart: [], cashFlowChart: [], arAging: [], apAging: [], topCustomers: [], topExpenses: [], hasBankAccount: true,
+  headline: { asAt: '2026-11-12', monthStart: '2026-11-01', cash: 0, receivables: { total: 0, overdue: 0 }, payables: { total: 0, overdue: 0 }, revenueMtd: 0, profitMtd: 0, draftInvoices: 0, draftBills: 0, draftJournals: 0, billsDueNext7Days: 0, billsOverdue: 0 }, period: { from: '2025-10-01', to: '2026-11-12' } };
 const PERIOD = { yyyymm: '202601', periodDate: '2026-01-31', policyCost: 1000, policyOpeningAccDep: 0, policyCurrentDep: 10, policyClosingAccDep: 10,
   policyCarryingAmount: 990, taxCost: 1000, taxOpeningAccDep: 0, taxCurrentDep: 20, taxClosingAccDep: 20, taxCarryingAmount: 980, deferredTax: 1,
   disposalProceeds: null, policyProfitLoss: null, taxProfitLoss: null };
@@ -84,9 +87,9 @@ const sites: Site[] = [
   { name: 'admin settings: alert settings', ui: () => <AdminSettingsPage />, fails: '/api/admin/alert-settings', rest: settingsRest, good: ALERT,
     shows: async () => screen.findByDisplayValue('d2-alerts@example.test'), plain: /Could not load the alert settings - try again/ },
   { name: 'dashboard: provisional count', ui: () => <OverviewTab />, fails: 'provisional/outstanding', rest: u => ok(u.includes('kpi-dashboard') ? KPI : []),
-    good: [{ id: 'p1' }, { id: 'p2' }], shows: text(/Provisional entries awaiting evidence: 2/), plain: /Could not load the provisional entry count - try again/ },
+    good: [{ id: 'p1' }, { id: 'p2' }], shows: text(/^2 provisional entries awaiting evidence$/), plain: /Could not load the provisional entry count - try again/ },
   { name: 'dashboard: missing invoice alerts', ui: () => <OverviewTab />, fails: 'expected-invoice-alerts', rest: u => ok(u.includes('kpi-dashboard') ? KPI : []),
-    good: [{ id: 'm1' }], shows: text(/Missing invoices overdue: 1/), plain: /Could not load the missing invoice alerts - try again/ },
+    good: [{ id: 'm1' }], shows: text(/^1 expected supplier invoice not received$/), plain: /Could not load the missing invoice alerts - try again/ },
   { name: 'asset dual-track panel', ui: () => <AssetDualTrackPanel assetId="a1" />, fails: '/period-ledger', good: [PERIOD], shows: text(/Policy \(IAS 16\)/),
     plain: /Could not load the depreciation periods - try again/ },
 ];
