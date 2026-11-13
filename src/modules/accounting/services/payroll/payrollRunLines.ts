@@ -283,9 +283,9 @@ export async function getPayrollRunLines(
   }));
 }
 
-/** RF: the line's non-cash 3817 / 3825 / 3828 items (the employer's fund contributions), to the cent; 0 for none or an unreadable breakdown. */
+/** RF: the line's taxable non-cash 3817 / 3825 / 3828 items (the employer's fund contributions, as deemed), to the cent; 0 for none or an unreadable breakdown. */
 export function employerRetirementOf(breakdown: unknown): number {
   if (!Array.isArray(breakdown)) return 0;
-  return Math.round((breakdown as Array<{ isNonCash?: boolean; sarsSourceCode?: unknown; amount?: unknown }>)
-    .reduce((s, i) => s + (i?.isNonCash === true && isEmployerFundBenefitCode(String(i.sarsSourceCode ?? '')) ? Number(i.amount) || 0 : 0), 0) * 100) / 100;
+  return Math.round((breakdown as Array<{ isNonCash?: boolean; isTaxable?: boolean; sarsSourceCode?: unknown; amount?: unknown }>)
+    .reduce((s, i) => s + (i?.isNonCash === true && i.isTaxable === true && isEmployerFundBenefitCode(String(i.sarsSourceCode ?? '')) ? Number(i.amount) || 0 : 0), 0) * 100) / 100;
 }

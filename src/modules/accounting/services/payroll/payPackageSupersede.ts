@@ -4,6 +4,7 @@
  * after it), marked superseded_at (migration 953) and audited, in the apply's transaction under the company lock.
  * Refused (EmployeeComponentRefused, nothing written) when a cut would change what a paid run read.
  */
+import { judgeFundAssignment } from './payrollComponentRfi';
 import { formatPercent } from './rfi';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -186,6 +187,7 @@ export async function foreignOnceOffsOf(
 export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Promise<number> {
   const { companyId, packageId, employeeId, componentId, effectiveFrom, paid, actor } = input;
   const cutTo = dayBefore(effectiveFrom);
+  await judgeFundAssignment(tx, companyId, componentId); // RF: the apply inserts a row of this component next
   // Supersede every assignment this apply overlaps, not only the
   // open-ended ones. A once-off row is inserted already closed, so an
   // `effective_to IS NULL` predicate would step over the previous apply's

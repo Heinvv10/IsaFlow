@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { applyPackageToEmployee } from '@/modules/accounting/services/payroll/payPackageService';
+import { addBatchLines, createBatch, postBatch, validateBatch } from '@/modules/accounting/services/payroll/payrollBatchService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -15,6 +16,8 @@ const company = crypto.randomUUID();
 const user = crypto.randomUUID();
 const pkg = crypto.randomUUID();
 const er = crypto.randomUUID();
+const untaxed = crypto.randomUUID();
+const pkgUntaxed = crypto.randomUUID();
 const emp: Record<string, string> = {};
 
 async function employee(key: string, amount: number, pct: number | null, asCash: boolean) {
@@ -39,14 +42,21 @@ beforeAll(async () => {
   await employee('cash', 1500, null, true);
   await employee('pct', 0, 0.075, false);
   await employee('plain', 1500, null, false);
+  // A pre-RF employer RA component that is not taxable (round 2 adv L2): no writer may add a new row of it.
+  await pool.query("INSERT INTO payroll_components(id,company_id,name,sars_source_code,component_type,is_taxable) VALUES($1,$2,'Old employer RA','3828','earning',false)", [untaxed, company]);
+  await pool.query("INSERT INTO pay_packages(id,company_id,code,name) VALUES($1,$2,'RF-PKG-U','Untaxed RA package')", [pkgUntaxed, company]);
+  await pool.query('INSERT INTO pay_package_components(package_id,component_id,amount,is_recurring) VALUES($1,$2,500,true)', [pkgUntaxed, untaxed]);
+  await employee('fresh', 1500, null, false);
 });
 
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM audit_log WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM payroll_employee_components WHERE employee_id IN (SELECT id FROM payroll_employees WHERE company_id=$1)', [company]);
-    await pool.query('DELETE FROM pay_package_components WHERE package_id=$1', [pkg]);
-    await pool.query('DELETE FROM pay_packages WHERE id=$1', [pkg]);
+    await pool.query('DELETE FROM pay_package_components WHERE package_id = ANY($1::uuid[])', [[pkg, pkgUntaxed]]);
+    await pool.query('DELETE FROM pay_packages WHERE id = ANY($1::uuid[])', [[pkg, pkgUntaxed]]);
+    await pool.query('DELETE FROM payroll_batch_lines WHERE batch_id IN (SELECT id FROM payroll_batches WHERE company_id=$1)', [company]);
+    await pool.query('DELETE FROM payroll_batches WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM payroll_components WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM payroll_employees WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM companies WHERE id=$1', [company]);
@@ -71,5 +81,22 @@ describe('a package apply over an RF row', () => {
       { amount: 1500, pct: null, cash: false, t: '2026-05-31' },
       { amount: 1000, pct: null, cash: false, t: null },
     ]);
+  });
+});
+
+describe('every writer refuses a new row of a non-taxable employer fund component (round 2 adv L2)', () => {
+  it('a package apply: refused, nothing written', async () => {
+    const before = await rows('fresh');
+    await expect(applyPackageToEmployee(company, pkgUntaxed, emp.fresh!, '2026-07-01', user)).rejects.toThrow(/not taxable/);
+    expect(await rows('fresh')).toEqual(before);
+  });
+  it('a batch post: refused, nothing written', async () => {
+    const before = await rows('fresh');
+    const batch = await createBatch({ companyId: company, batchType: 'component_values', componentId: untaxed, description: 'RF untaxed RA',
+      periodYear: 2026, periodMonth: 7, isRecurring: true, userId: user });
+    await addBatchLines(company, batch.id, [{ employeeId: emp.fresh!, value: 500, effectiveFrom: new Date('2026-07-01') }]);
+    await validateBatch(company, batch.id);
+    await expect(postBatch(company, batch.id, user)).rejects.toThrow(/not taxable/);
+    expect(await rows('fresh')).toEqual(before);
   });
 });

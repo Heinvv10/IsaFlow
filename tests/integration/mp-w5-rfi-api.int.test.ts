@@ -209,6 +209,16 @@ describe('the run grid never writes an amount onto a percent row (round 1 L)', (
     const after = (await pool.query<{ amount: string }>('SELECT amount FROM payroll_employee_components WHERE id = $1', [row])).rows[0]!;
     expect(Number(after.amount)).toBe(0);
   });
+  it('July: the run grid cannot insert a row of a non-taxable employer fund component (round 2 adv L2)', async () => {
+    const runId = (await pool.query<{ id: string }>('SELECT id FROM payroll_run_headers WHERE company_id = $1 AND period_month = 7', [companyA])).rows[0]!.id;
+    const untaxed = (await pool.query<{ id: string }>("SELECT id FROM payroll_components WHERE company_id = $1 AND name = 'Old employer RA'", [companyA])).rows[0]!.id;
+    const before = await assignmentRows();
+    await expect(writeRunRow({
+      companyId: companyA, runId, employeeId: empA, componentId: untaxed, componentType: 'earning', period: { year: 2026, month: 7 },
+      rowId: null, amount: 100, clear: false, quantity: null, actor: { userId: owner, channel: 'service' },
+    })).rejects.toMatchObject({ status: 400 });
+    expect(await assignmentRows()).toBe(before);
+  });
 });
 
 describe('the gate refuses a non-taxable employer fund benefit (round 1 TDD M)', () => {

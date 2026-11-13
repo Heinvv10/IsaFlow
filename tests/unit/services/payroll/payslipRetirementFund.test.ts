@@ -26,6 +26,16 @@ describe('itemisePayslip', () => {
     expect(slip.benefits).toEqual([{ label: `Employer pension (${DEEMED_FUND_NOTE})`, code: '3817', amount: 2250 }]);
     expect(slip.retirementFund).toEqual({ own: 1500, employerDeemed: 2250 });
   });
+  it('a cash 3817 (kept as cash) or a non-taxable non-cash one is not called deemed (round 2: as the calculator deems)', () => {
+    const cash = { ...breakdown[2], isNonCash: undefined };
+    const untaxed = { ...breakdown[2], isTaxable: false };
+    for (const item of [cash, untaxed]) {
+      const slip = itemisePayslip({ ...stored, breakdown: [breakdown[0], breakdown[1], item] }, types);
+      expect(slip.retirementFund).toEqual({ own: 1500, employerDeemed: 0 });
+      expect(JSON.stringify(slip)).not.toContain(DEEMED_FUND_NOTE);
+    }
+  });
+
   it('no retirement section without contributions', () => {
     expect(itemisePayslip({ ...stored, breakdown: [breakdown[0]] , netPay: 30000 - 4681 - 177.12 }, types).retirementFund).toBeNull();
   });
@@ -47,6 +57,6 @@ describe('the payslip PDF', () => {
     expect(text).toContain('also counted as your retirement contribution');
     expect(text).toContain('Retirement fund contributions (counted for your tax)');
     expect(text).toMatch(/Employer contribution, counted as yours R ?2[  ]?250\.00/);
-    expect(text).toMatch(/Total counted for the retirement fund deduction R ?3[  ]?750\.00/);
+    expect(text).toMatch(/Contributions \(before the s11F limit\) R ?3[  ]?750\.00/);
   });
 });

@@ -58,8 +58,10 @@ describe('employerRetirementOf (the run lines\' Gross tooltip figure)', () => {
   it('sums the non-cash 3817 / 3825 / 3828 items only (trimmed), to the cent', async () => {
     const { employerRetirementOf } = await import('@/modules/accounting/services/payroll/payrollRunLines');
     expect(employerRetirementOf([
-      { sarsSourceCode: '3817', amount: 1000.005, isNonCash: true }, { sarsSourceCode: ' 3828 ', amount: 500, isNonCash: true },
-      { sarsSourceCode: '3817', amount: 700 }, { sarsSourceCode: '3810', amount: 900, isNonCash: true },
+      { sarsSourceCode: '3817', amount: 1000.005, isNonCash: true, isTaxable: true }, { sarsSourceCode: ' 3828 ', amount: 500, isNonCash: true, isTaxable: true },
+      { sarsSourceCode: '3817', amount: 700, isTaxable: true }, { sarsSourceCode: '3810', amount: 900, isNonCash: true, isTaxable: true },
+      // Not taxable: the calculator deems nothing of it (RETIREMENT_BENEFIT_NOT_TAXABLE), so neither does the tooltip figure.
+      { sarsSourceCode: '3825', amount: 400, isNonCash: true, isTaxable: false },
     ])).toBe(1500.01);
     expect(employerRetirementOf('not an array')).toBe(0);
   });

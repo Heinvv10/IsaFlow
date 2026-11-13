@@ -106,7 +106,8 @@ export function itemisePayslip(line: StoredPayslipLine, componentTypes: Readonly
     const item = itemOf(raw);
     if (item.amount === 0) continue;
     if (raw.retirementContribution === true) own += item.amount;
-    if (raw.isNonCash === true && FUND_BENEFIT_CODES.has(item.code)) {
+    // Deemed only as the calculator deems it: a taxable non-cash 3817 / 3825 / 3828 (employerContributions.deemedRetirementContributions).
+    if (raw.isNonCash === true && raw.isTaxable === true && FUND_BENEFIT_CODES.has(item.code)) {
       employerDeemed += item.amount;
       item.label = `${item.label} (${DEEMED_FUND_NOTE})`;
     }

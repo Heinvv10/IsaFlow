@@ -1,6 +1,7 @@
 /**
  * The write of one once-off row of the pay-run grid (amount, or HD's hours and days), moved out of payrollRunPeriodInputs.ts.
  */
+import { judgeFundAssignment } from './payrollComponentRfi';
 import { withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
@@ -61,6 +62,7 @@ export async function writeRunRow(w: RunRowWrite): Promise<void> {
       await auditComponentChange(tx, companyId, rowId, window, window, 'run_input', actor);
     } else if (!clear) {
       try {
+        await judgeFundAssignment(tx, companyId, componentId);
         await refuseAssignmentWrite(tx, companyId, { employeeId, componentId, ...window });
       } catch (err) {
         if (err instanceof EmployeeComponentRefused) throw new PayrollRunInputRefusedError(400, err.message);

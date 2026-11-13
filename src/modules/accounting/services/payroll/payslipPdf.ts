@@ -142,7 +142,7 @@ function slipPage(doc: JsPdfDoc, autoTable: AutoTable, run: PayslipRun, slip: Pa
     const r = slip.retirementFund;
     y = table(doc, autoTable, y, 'Retirement fund contributions (counted for your tax)', [
       ['Your own contributions', money(r.own)], ['Employer contribution, counted as yours', money(r.employerDeemed)],
-    ], ['Total counted for the retirement fund deduction', round2(r.own + r.employerDeemed)]);
+    ], ['Contributions (before the s11F limit)', round2(r.own + r.employerDeemed)]);
   }
   y = table(doc, autoTable, y, 'Employer contributions (not deducted from your pay)', [
     ['UIF (employer)', money(slip.uifEmployer)], ['Skills development levy', money(slip.sdl)],
