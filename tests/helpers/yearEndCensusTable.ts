@@ -27,6 +27,7 @@ export const CATEGORIES = {
   CORRELATED: 'a scalar subselect over the lines of ONE entry that the enclosing query already filtered (correlated on its id)',
   CHAIN: 'reversal-chain walk to a journal\'s root: reads headers, no amounts',
   RECLASS: 'reclassification candidates: the close stays in the universe and is a typed skip (is_year_end_close), never movable',
+  RECURRING: "one recurring template's own generated journals (source auto_recurring, never the close): their dates, no amounts",
 } as const;
 export type Category = keyof typeof CATEGORIES;
 
@@ -75,6 +76,7 @@ export const entries: Array<[string, Category, string?]> = [
   ['dashboard/workbenchService.ts', 'VAT'],
   ['gl/accountMergeFigures.ts', 'GUARD'],
   ['gl/reclassification/candidates.ts', 'RECLASS'],
+  ['gl/recurringJournalPeriods.ts', 'RECURRING'],
   ['afs/noteGenerators/notes26to30.ts', 'CORRELATED', 'SELECT COALESCE(SUM(l.debit)'],
   ['reports/unusualJournalsService.ts', 'CHAIN', 'SELECT r.id, r.reversal_of_id'],
   ['reports/unusualJournalsService.ts', 'CHAIN', 'SELECT p.id, p.reversal_of_id'],
