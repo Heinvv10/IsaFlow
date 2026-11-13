@@ -13,12 +13,13 @@
  *     of P1's pre-lock UPDATE, but its `updated_at` is NOT bumped, so open grid
  *     tabs are not staled; it serialises assumption writers and means the lock
  *     trigger's FOR SHARE can never upgrade-deadlock) → 404 / 409 LOCKED before
- *     any write → the document validated (full, or overrides on a scenario whose
- *     chain resolves) → compare-and-set on the ROW's own `updated_at` (the
+ *     any write → the document validated (full, or overrides on a scenario) →
+ *     compare-and-set on the ROW's own `updated_at` (the
  *     client's `expectedUpdatedAt`; null = "no row yet") → INSERT or UPDATE →
- *     one audit row (entity 'budget', the version; before/after per section).
+ *     (overrides) the chain resolved AS WRITTEN → one audit row (entity 'budget',
+ *     the version; before/after per section).
  * withAuth COMMITs a 4xx, so every refusal is thrown inside the savepoint and
- * rolls it back. Database refusals (BV001 the lock trigger) map through
+ * rolls it back: the chain refusal comes after the write and relies on it. Database refusals (BV001 the lock trigger) map through
  * `mapBudgetDbError`.
  */
 import { sql, withSavepoint, type DbRow } from '@/lib/neon';
@@ -101,11 +102,14 @@ async function lockVersionRow(companyId: string, versionId: string): Promise<Loc
   return { fiscalYear: Number(v.fiscal_year), kind: String(v.kind) as BudgetVersionKind, status: String(v.status) as BudgetVersionStatus };
 }
 
-/** Overrides must merge over a resolvable base: the chain is checked with the new document in place (structure only). */
-async function assertChainResolves(companyId: string, versionId: string, fiscalYear: number, doc: StoredAssumptionsDoc): Promise<void> {
+/**
+ * Overrides must merge over a resolvable base (§13.21): the chain is read AS WRITTEN (this transaction
+ * sees its own write) and resolved over a defaults document, which checks structure only (the derived
+ * figures share the shape). Throws AssumptionChainError / AssumptionsDocError, after the write: the
+ * savepoint takes the write back.
+ */
+async function assertChainResolves(companyId: string, versionId: string, fiscalYear: number): Promise<void> {
   const { versions } = await readChain(companyId, versionId);
-  const target = versions.get(versionId) as ChainVersion;
-  versions.set(versionId, { ...target, doc });
   const months = await versionMonths(companyId, fiscalYear);
   const shape = defaultAssumptions({
     priorYearEnd: addMonths(months[0] as string, -1), entityType: 'pty_ltd',
@@ -145,12 +149,10 @@ export async function saveAssumptions(companyId: string, userId: string, input: 
         if (version.kind !== 'scenario') {
           throw new AssumptionChainError('OVERRIDES_ON_NON_SCENARIO', 'Only a scenario version stores overrides; send a full document', [versionId]);
         }
-        await assertChainResolves(companyId, versionId, version.fiscalYear, doc);
       }
       const cur = (await sql`
         SELECT doc, ${tokenSql()} AS token FROM budget_three_way_assumptions
          WHERE company_id = ${companyId}::UUID AND version_id = ${versionId}::UUID
-         FOR UPDATE
       `) as DbRow[];
       const before = cur[0] ? parseStoredDoc(cur[0].doc) : null;
       const currentToken = cur[0] ? String(cur[0].token) : null;
@@ -168,6 +170,7 @@ export async function saveAssumptions(companyId: string, userId: string, input: 
             VALUES (${companyId}::UUID, ${versionId}::UUID, 1, ${json}::JSONB)
             RETURNING ${tokenSql()} AS token, updated_by`) as DbRow[];
       if (!written[0]) throw new AssumptionsStaleError(currentToken);
+      if (!isFullDoc(doc)) await assertChainResolves(companyId, versionId, version.fiscalYear);
       await logAuditOrThrow({
         companyId, userId, action: before ? 'update' : 'create', entityType: 'budget', entityId: versionId,
         entityRef: `FY${version.fiscalYear} budget`,
