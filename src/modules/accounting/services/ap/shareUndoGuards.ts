@@ -4,10 +4,14 @@
  *
  * ── CAPACITY IS CUMULATIVE (review round 1, breaker REPRO 1 + 4) ────────────
  * A share journal took a FIXED amount out of the clearing account X: its debit on X, and its credits on each expense
- * and VAT account. Every undo linked to it (`source_record_id` = the share, reference `undo-share:…`, live = draft or
- * posted and not reversed) gives some of that back. So an undo is allowed only while the share still holds it:
- *     share DR X  −  Σ live undos' CR X  −  this undo's total  ≥ 0, and the same per expense / VAT account.
- * Without it one share could be undone by two different contras, or by the same bill's next contra after a void.
+ * and VAT account. Every undo gives some of that back — the ones void_payment linked to it (`source_record_id`) AND
+ * every hand undo of it (round 2: any live journal created after the share that credits X and debits the share's
+ * accounts, whole journal summed; `shareUndoReads.readShareConsumption`). So an undo is allowed only while the share
+ * still holds it:
+ *     share DR X  −  Σ earlier undos' CR X  −  this undo's total  ≥ 0, and the same per expense / VAT account.
+ * Without it one share could be undone by two different contras, by the same bill's next contra after a void, or by
+ * void_payment on top of a person's hand undo. Nothing is refused for LOOKING like a hand undo (round 1 did that, and
+ * same-shape bills made it refuse the wrong one): a hand undo simply uses capacity.
  * The share head is locked FOR UPDATE first (`lockShareJournal`), so two undos against one share serialise.
  */
 import { formatMoney } from '@/lib/money/formatMoney';
@@ -17,9 +21,7 @@ import { findActiveVatLock, journalMovesVatFigure } from '../gl/journalVatLockGu
 import { assertNoHeaderAccountLines } from '../gl/headerAccountGuard';
 import { toCents } from './billAllocatable';
 import { ShareUndoRefusal, type ShareUndoJournalPlan } from './shareUndoTypes';
-import {
-  findManualUndo, readAccountCode, readShareConsumption, type JournalHead, type JournalLineRow,
-} from './shareUndoReads';
+import { readAccountCode, readShareConsumption, type JournalHead, type JournalLineRow } from './shareUndoReads';
 
 const cents = (n: number) => toCents(n);
 
@@ -29,7 +31,8 @@ export async function assertShareCapacity(
   journals: readonly ShareUndoJournalPlan[],
 ): Promise<void> {
   const name = share.entryNumber ?? share.id;
-  const consumed = await readShareConsumption(companyId, share.id);
+  const { byAccount: consumed, handUndos } = await readShareConsumption(companyId, share.id, x.glAccountId);
+  const byHand = handUndos.length > 0 ? ` (including hand journal${handUndos.length === 1 ? '' : 's'} ${handUndos.join(', ')})` : '';
   const sum = (account: string, side: 'debit' | 'credit') =>
     shareLines.filter((l) => l.glAccountId === account).reduce((s, l) => s + cents(l[side]), 0);
   const total = journals.reduce((s, j) => s + cents(j.amount), 0);
@@ -38,7 +41,8 @@ export async function assertShareCapacity(
     throw new ShareUndoRefusal(`Share journal ${name} does not hold the ${formatMoney(total / 100)} being undone on `
       + `${x.accountCode ?? x.glAccountId} ${x.accountName ?? ''} (the account this payment credits): it debited `
       + `${formatMoney(sum(x.glAccountId, 'debit') / 100)} there and earlier undos gave back `
-      + `${formatMoney((consumed.get(x.glAccountId)?.credit ?? 0) / 100)} — it is not (or no longer) the share of these bills.`);
+      + `${formatMoney((consumed.get(x.glAccountId)?.credit ?? 0) / 100)}${byHand} — it is not (or no longer) the share of `
+      + 'these bills.');
   }
   const need = new Map<string, number>();
   for (const l of journals.flatMap((j) => j.lines)) if (l.debit > 0) need.set(l.glAccountId, (need.get(l.glAccountId) ?? 0) + cents(l.debit));
@@ -47,8 +51,8 @@ export async function assertShareCapacity(
     if (left < want) {
       throw new ShareUndoRefusal(`Share journal ${name} does not hold the ${formatMoney(want / 100)} the bills posted to `
         + `account ${await readAccountCode(companyId, account)}: it credited ${formatMoney(sum(account, 'credit') / 100)} `
-        + `there and earlier undos gave back ${formatMoney((consumed.get(account)?.debit ?? 0) / 100)} — it is not (or `
-        + 'no longer) the share of these bills.');
+        + `there and earlier undos gave back ${formatMoney((consumed.get(account)?.debit ?? 0) / 100)}${byHand} — it is `
+        + 'not (or no longer) the share of these bills.');
     }
   }
 }
@@ -82,19 +86,4 @@ export async function assertAccountsPostable(
     }
   }
   await assertNoHeaderAccountLines(companyId, journals.flatMap((j) => j.lines));
-}
-
-/** A person already undid this bill's share by hand (breaker REPRO 3) — unless the caller acknowledged it. */
-export async function assertNoManualUndo(companyId: string, q: {
-  share: JournalHead; clearingId: string; journal: ShareUndoJournalPlan; legAccounts: readonly string[]; billTotal: number;
-}): Promise<void> {
-  const found = await findManualUndo(companyId, {
-    shareJournalId: q.share.id, shareDate: q.share.entryDate, clearingId: q.clearingId, legAccounts: q.legAccounts,
-    amounts: [q.journal.amount, q.billTotal],
-  });
-  if (found) {
-    throw new ShareUndoRefusal(`${found} already looks like an undo of ${q.journal.billNumber}'s share (it debits the `
-      + 'bill\'s accounts and credits the clearing account by its amount, on or after the share date). Reverse it first, '
-      + 'or pass acknowledge_manual_undo: true if it is something else.');
-  }
 }

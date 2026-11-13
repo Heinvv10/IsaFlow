@@ -40,19 +40,15 @@ export const UNDO_SHARE_PROPERTIES = {
     description: 'How much of each of this payment\'s bills the share journal reversed, when the share carries other '
       + 'bills too (it debits the clearing account by more than this payment applied — then this is REQUIRED, because '
       + 'the share\'s lines do not say which bill each amount belongs to). Each amount is at most what this payment '
-      + 'applied to that bill; a bill left out is not undone. Omit when the share covers exactly this payment\'s bills.',
+      + 'applied to that bill; a bill left out is not undone. Omit when the share covers exactly this payment\'s bills. '
+      + 'The figures are TRUSTED: they must come from the share journal\'s own working (which bills it reversed, and how '
+      + 'much of each) — the share\'s lines do not say, and only its per-account totals can be checked.',
     items: {
       type: 'object',
       properties: { bill_id: { type: 'string' }, amount: { type: 'number', exclusiveMinimum: 0 } },
       required: ['bill_id', 'amount'],
       additionalProperties: false,
     },
-  },
-  acknowledge_manual_undo: {
-    type: 'boolean',
-    description: 'The undo is refused when a journal on or after the share date already looks like a hand undo of a '
-      + 'bill\'s share (debits its accounts, credits the clearing account by its amount). Pass true only after checking '
-      + 'that journal is something else.',
   },
   dry_run: {
     type: 'boolean',
@@ -94,13 +90,8 @@ export function parseUndoArgs(args: Record<string, unknown>): UndoArgs | McpTool
   if (!undoShare && shareJournalId) return toolError('share_journal_id is only used with undo_share: true');
   const bad = guardCastableArgs(args, { uuid: ['share_journal_id'] });
   if (bad) return bad;
-  if (!undoShare && (args.undo_amounts !== undefined || args.acknowledge_manual_undo !== undefined)) {
-    return toolError('undo_amounts and acknowledge_manual_undo are only used with undo_share: true');
-  }
-  if (args.acknowledge_manual_undo !== undefined && typeof args.acknowledge_manual_undo !== 'boolean') {
-    return toolError('acknowledge_manual_undo must be true or false');
-  }
-  const choices: ShareUndoChoices = { acknowledgeManualUndo: args.acknowledge_manual_undo === true };
+  if (!undoShare && args.undo_amounts !== undefined) return toolError('undo_amounts is only used with undo_share: true');
+  const choices: ShareUndoChoices = {};
   if (args.undo_amounts !== undefined) {
     const amounts = parseUndoAmounts(args.undo_amounts);
     if (amounts && 'content' in amounts) return amounts;

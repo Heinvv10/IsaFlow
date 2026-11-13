@@ -103,22 +103,20 @@ describe('void_payment undo_share / dry_run', () => {
     expect(voidPaymentUndoingShare).toHaveBeenCalledTimes(1);
   });
 
-  it('validates undo_amounts and acknowledge_manual_undo before any service call, and passes them through', async () => {
+  it('validates undo_amounts before any service call, and passes it through', async () => {
     const base = { payment_id: PAY, undo_share: true, share_journal_id: SHARE, ...KEY };
     expect(err(await voidPaymentTool.handler({ ...base, undo_amounts: [] }, ctx))).toMatch(/undo_amounts must be a list/);
     expect(err(await voidPaymentTool.handler({ ...base, undo_amounts: [{ bill_id: 'x', amount: 1 }] }, ctx)))
       .toMatch(/invalid undo_amounts\[0\]\.bill_id/);
     expect(err(await voidPaymentTool.handler({ ...base, undo_amounts: [{ bill_id: SHARE, amount: 1.005 }] }, ctx)))
       .toMatch(/undo_amounts\[0\]\.amount must be a positive amount to the cent/);
-    expect(err(await voidPaymentTool.handler({ ...base, acknowledge_manual_undo: 'yes' }, ctx)))
-      .toBe('acknowledge_manual_undo must be true or false');
-    expect(err(await voidPaymentTool.handler({ payment_id: PAY, acknowledge_manual_undo: true, ...KEY }, ctx)))
-      .toMatch(/only used with undo_share: true/);
+    expect(err(await voidPaymentTool.handler({ payment_id: PAY, undo_amounts: [{ bill_id: SHARE, amount: 1 }], ...KEY }, ctx)))
+      .toBe('undo_amounts is only used with undo_share: true');
     expect(voidPaymentUndoingShare).not.toHaveBeenCalled();
-    await voidPaymentTool.handler({ ...base, undo_amounts: [{ bill_id: SHARE, amount: 575 }], acknowledge_manual_undo: true }, ctx);
-    expect(vi.mocked(voidPaymentUndoingShare).mock.calls[0]![5]).toEqual({
-      acknowledgeManualUndo: true, undoAmounts: [{ billId: SHARE, amount: 575 }],
-    });
+    await voidPaymentTool.handler({ ...base, undo_amounts: [{ bill_id: SHARE, amount: 575 }] }, ctx);
+    expect(vi.mocked(voidPaymentUndoingShare).mock.calls[0]![5]).toEqual({ undoAmounts: [{ billId: SHARE, amount: 575 }] });
+    // acknowledge_manual_undo was removed (round 2): a hand undo now uses the share's capacity instead.
+    expect(Object.keys(voidPaymentTool.inputSchema.properties as object)).not.toContain('acknowledge_manual_undo');
   });
 
   it('a plain void still goes straight to the void, with no hook', async () => {

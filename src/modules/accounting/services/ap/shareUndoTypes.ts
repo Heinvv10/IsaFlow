@@ -15,11 +15,10 @@ export interface ShareUndoChoices {
   /**
    * How much of each of this payment's bills the share reversed. REQUIRED when the share debits the clearing
    * account by more than this payment applied (it carries other bills too, and its lines do not say which);
-   * each amount at most what this payment applied to that bill; a bill left out is not undone.
+   * each amount at most what this payment applied to that bill; a bill left out is not undone. Trusted as given
+   * beyond that and the share's per-account capacity: it must come from the share's own working.
    */
   undoAmounts?: readonly { billId: string; amount: number }[];
-  /** Skip the hand-undo detection (`shareUndoGuards.assertNoManualUndo`) — the caller says the match is not one. */
-  acknowledgeManualUndo?: boolean;
 }
 
 export interface ShareUndoJournalPlan {

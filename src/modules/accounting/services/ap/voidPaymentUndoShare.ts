@@ -16,12 +16,12 @@
  * service would need `newManualJournalRefusal` instead (none exists today). The gate is applied per journal AND to the
  * call's lines as one, so splitting an undo over several bills cannot step under a rule.
  *
- * NUMBER LOCKS (arch review #7). The void's reversal is numbered in the contra's year and each undo in the share's
- * year, each under its company+year number lock (migration 858), taken as each journal is created. When those years
- * differ, two such calls taking the two years in opposite orders can deadlock; Postgres aborts one (40P01), the
+ * NUMBER LOCKS (arch review #7, corrected round 2). The void's reversal is numbered in the contra's year and each undo
+ * in the share's year, each under its company+year number lock (migration 858), taken as each journal is created.
+ * When those years differ, this call can deadlock against ANY other path that numbers journals in the same two years
+ * in the opposite order (another undo, a year-end close, any multi-journal write). Postgres aborts one (40P01), the
  * savepoint unwinds everything it wrote, and the registry answers it retryable (`lockWaitError.deadlockErrorText`:
- * "nothing was written; retry"). Accepted rather than pre-locking both years: the window needs two undo calls across
- * the same two years at the same instant, and the outcome is a clean retry.
+ * "nothing was written; retry"). Accepted rather than pre-locking both years: the outcome is a clean retry.
  */
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { agentNewManualJournalsRefusal } from '../gl/manualJournalApproval';

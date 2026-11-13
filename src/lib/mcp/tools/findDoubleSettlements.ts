@@ -23,8 +23,8 @@ export const findDoubleSettlementsTool: McpTool = {
   name: 'find_double_settlements',
   description:
     'Supplier bills settled more than once. Reports a bill when (a) its live settlements sum to more than its total '
-    + '(over_settled); (b) its settlements cover the whole bill and, summed per kind, two kinds each cover at least '
-    + 'half of it, one of them a contra or a card line (multiple_sources — the contra-plus-card-line pattern); or (c) '
+    + '(over_settled); (b) summed per kind, its contras cover at least half of it AND another kind (card line, payment '
+    + 'or credit note) covers at least half too (multiple_sources — the contra-plus-card-line pattern); or (c) '
     + 'its own amount_paid exceeds its total or its settlements by more than a cent (amount_paid_unexplained: paid by a '
     + 'bank match or an import that left no settlement row; cancelled bills excluded). '
     + 'A settlement is a processed/reconciled supplier payment allocated to the bill, or an approved supplier credit '

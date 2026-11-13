@@ -19,12 +19,11 @@
  * ── REPORTED ────────────────────────────────────────────────────────────────
  *   (a) `over_settled`: the live settlements sum to more than the bill's total (by at least a cent) — one document
  *       allocated past the total counts too;
- *   (b) `multiple_sources` (narrowed in review round 1): the settlements cover the whole bill (≥ total − 1c) AND, summed
- *       PER KIND, at least two kinds each cover at least half of it, one of them a contra or a card line — the
- *       double-settlement pattern (a contra and a card line both paying a petty-cash bill). Half a credit note and half
- *       a payment is an ordinary settlement and is not reported; nor are two payments of one kind. Named limit: a
- *       payment matched to a statement line later reads `card_line`, so two half payments, one later matched, are
- *       reported;
+ *   (b) `multiple_sources` (narrowed in review rounds 1 and 2): summed PER KIND, the CONTRAS cover at least half the
+ *       bill AND another kind (card line, payment or credit note) covers at least half too — the motivating pattern, a
+ *       contra and a card line both paying a petty-cash bill. (Two kinds each ≥ half already cover the whole bill.)
+ *       Not reported: half a credit note and half a payment, whether or not the payment came from a statement line
+ *       (a bank-fed payment reads `card_line`), and two payments of one kind;
  *   (c) `amount_paid_unexplained`: the bill's own `amount_paid` exceeds its total, or exceeds what its settlement rows
  *       add up to, by more than a cent — paid by something that left no settlement row (bank-match-confirm, an
  *       importer). Cancelled bills are left out of (c). AP has no write-off document (customer_write_offs is AR-only),
@@ -134,10 +133,11 @@ export async function findDoubleSettlements(
       SELECT b.id, b.invoice_number, b.invoice_date, b.supplier_id, su.name AS supplier_name, b.total_amount,
              b.amount_paid, COALESCE(pb.settled_total, 0) AS settled_total, COALESCE(pb.settlement_count, 0) AS settlement_count,
              (COALESCE(pb.settled_total, 0) - b.total_amount >= 0.01) AS over_settled,
-             (b.total_amount > 0 AND COALESCE(pb.settled_total, 0) >= b.total_amount - 0.01
-               AND (SELECT COUNT(*) FROM per_kind k WHERE k.bill_id = b.id AND k.amount * 2 >= b.total_amount) >= 2
-               AND EXISTS (SELECT 1 FROM per_kind k WHERE k.bill_id = b.id AND k.amount * 2 >= b.total_amount
-                             AND k.kind IN ('contra', 'card_line'))) AS multi,
+             (b.total_amount > 0
+               AND EXISTS (SELECT 1 FROM per_kind k WHERE k.bill_id = b.id AND k.kind = 'contra'
+                             AND k.amount * 2 >= b.total_amount)
+               AND EXISTS (SELECT 1 FROM per_kind k WHERE k.bill_id = b.id AND k.kind <> 'contra'
+                             AND k.amount * 2 >= b.total_amount)) AS multi,
              (b.status <> 'cancelled' AND (b.amount_paid - b.total_amount > 0.01
                OR b.amount_paid - COALESCE(pb.settled_total, 0) > 0.01)) AS unexplained
       FROM bills b

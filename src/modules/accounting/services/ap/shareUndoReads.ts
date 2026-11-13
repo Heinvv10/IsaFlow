@@ -142,52 +142,66 @@ export async function lockShareJournal(companyId: string, journalId: string): Pr
     WHERE id = ${journalId}::UUID AND company_id = ${companyId}::UUID FOR UPDATE`;
 }
 
-/** What the live undo journals linked to this share (source_record_id) already took back, per account, in cents. */
-export async function readShareConsumption(
-  companyId: string, shareJournalId: string,
-): Promise<Map<string, { debit: number; credit: number }>> {
-  const rows = (await sql`
-    SELECT jl.gl_account_id, SUM(jl.debit) AS debit, SUM(jl.credit) AS credit
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = ${companyId}::UUID
-    WHERE jl.company_id = ${companyId}::UUID AND je.source_record_id = ${shareJournalId}::UUID
-      AND je.reference LIKE 'undo-share:%' AND je.status IN ('draft', 'posted') AND je.reversed_at IS NULL
-    GROUP BY jl.gl_account_id`) as DbRow[];
-  return new Map(rows.map((r) => [String(r.gl_account_id), {
-    debit: Math.round(Number(r.debit ?? 0) * 100), credit: Math.round(Number(r.credit ?? 0) * 100),
-  }]));
+export interface ShareConsumption {
+  /** Per account, in cents, over every journal below. */
+  byAccount: Map<string, { debit: number; credit: number }>;
+  /** Entry numbers of the hand-undo-shaped journals counted (for the refusal). */
+  handUndos: string[];
 }
 
 /**
- * A journal a person may already have posted to undo this bill's share by hand (JE-2026-29195 style, any reference):
- * posted, standing, dated on the share's date or later, CREATED after the share was (an undo of a share cannot
- * predate it — this keeps one bill's hand undo from standing for every later bill of the same shape), not the share
- * and not linked as an undo, crediting the clearing account by one of `amounts` (± a cent) and debiting every one of
- * the bill's leg accounts. The first, or null. Named limits: a hand undo that covers several bills in one line on the
- * clearing account is not recognised; two bills of identical shape shared by the same journal cannot be told apart.
+ * What has already come back out of this share, per account, in cents (review rounds 1-2). Two kinds of journal:
+ *   - LINKED undos: `source_record_id` = the share and reference `undo-share:…` (what void_payment writes);
+ *   - HAND undos, which name no share: posted, standing, not a reversal, not a linked undo of any share, dated on or
+ *     after the share's date and CREATED after it (an undo of a share cannot predate it), that credit the clearing
+ *     account X and debit at least one account the share credits. Their whole journal counts — every X credit line
+ *     summed (a hand undo may credit X in several lines) and every debit on the share's accounts — so a person's undo
+ *     of one bill reduces what is left for the others, and nothing has to guess which bill it was.
+ * Named limit, on the refusing side: a hand undo of a LATER share on the same accounts counts against this one too,
+ * so an undo can be refused that a person could post; it can never restore a bill twice.
  */
-export async function findManualUndo(companyId: string, q: {
-  shareJournalId: string; shareDate: string; clearingId: string; legAccounts: readonly string[]; amounts: readonly number[];
-}): Promise<string | null> {
+export async function readShareConsumption(
+  companyId: string, shareJournalId: string, clearingId: string,
+): Promise<ShareConsumption> {
   const rows = (await sql`
-    SELECT je.id, je.entry_number FROM gl_journal_entries je
-    WHERE je.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.reversed_at IS NULL
-      AND je.entry_date >= ${q.shareDate}::DATE AND je.id <> ${q.shareJournalId}::UUID
-      AND je.created_at >= (SELECT sh.created_at FROM gl_journal_entries sh
-                            WHERE sh.id = ${q.shareJournalId}::UUID AND sh.company_id = ${companyId}::UUID)
-      AND (je.reference IS NULL OR je.reference NOT LIKE 'undo-share:%')
-      AND EXISTS (
-        SELECT 1 FROM gl_journal_lines x
-        WHERE x.journal_entry_id = je.id AND x.company_id = ${companyId}::UUID AND x.gl_account_id = ${q.clearingId}::UUID
-          AND EXISTS (SELECT 1 FROM unnest(${[...q.amounts]}::NUMERIC[]) amt WHERE ABS(x.credit - amt) <= 0.01))
-      AND NOT EXISTS (
-        SELECT 1 FROM unnest(${[...q.legAccounts]}::UUID[]) acc
-        WHERE NOT EXISTS (
-          SELECT 1 FROM gl_journal_lines l
-          WHERE l.journal_entry_id = je.id AND l.company_id = ${companyId}::UUID AND l.gl_account_id = acc AND l.debit > 0))
-    ORDER BY je.entry_date, je.entry_number
-    LIMIT 1`) as DbRow[];
-  return rows[0] ? String(rows[0].entry_number ?? rows[0].id) : null;
+    WITH sh AS (
+      SELECT id, entry_date, created_at FROM gl_journal_entries
+      WHERE id = ${shareJournalId}::UUID AND company_id = ${companyId}::UUID
+    ),
+    credited AS (
+      SELECT DISTINCT gl_account_id FROM gl_journal_lines
+      WHERE journal_entry_id = ${shareJournalId}::UUID AND company_id = ${companyId}::UUID AND credit > 0
+    ),
+    consumers AS (
+      SELECT je.id, je.entry_number, (je.source_record_id IS DISTINCT FROM sh.id) AS by_hand
+      FROM gl_journal_entries je CROSS JOIN sh
+      WHERE je.company_id = ${companyId}::UUID AND je.id <> sh.id AND je.reversed_at IS NULL
+        AND (
+          (je.source_record_id = sh.id AND je.reference LIKE 'undo-share:%' AND je.status IN ('draft', 'posted'))
+          OR (je.status = 'posted' AND je.reversal_of_id IS NULL
+              AND (je.reference IS NULL OR je.reference NOT LIKE 'undo-share:%')
+              AND je.entry_date >= sh.entry_date AND je.created_at >= sh.created_at
+              AND EXISTS (SELECT 1 FROM gl_journal_lines hx WHERE hx.journal_entry_id = je.id
+                            AND hx.company_id = ${companyId}::UUID AND hx.gl_account_id = ${clearingId}::UUID AND hx.credit > 0)
+              AND EXISTS (SELECT 1 FROM gl_journal_lines hd JOIN credited c ON c.gl_account_id = hd.gl_account_id
+                          WHERE hd.journal_entry_id = je.id AND hd.company_id = ${companyId}::UUID AND hd.debit > 0))
+        )
+    )
+    SELECT jl.gl_account_id, SUM(jl.debit) AS debit, SUM(jl.credit) AS credit,
+           ARRAY_AGG(DISTINCT c.entry_number) FILTER (WHERE c.by_hand) AS hand
+    FROM gl_journal_lines jl
+    JOIN consumers c ON c.id = jl.journal_entry_id
+    WHERE jl.company_id = ${companyId}::UUID
+    GROUP BY jl.gl_account_id`) as DbRow[];
+  const handUndos = new Set<string>();
+  const byAccount = new Map<string, { debit: number; credit: number }>();
+  for (const r of rows) {
+    byAccount.set(String(r.gl_account_id), {
+      debit: Math.round(Number(r.debit ?? 0) * 100), credit: Math.round(Number(r.credit ?? 0) * 100),
+    });
+    for (const n of (r.hand ?? []) as unknown[]) if (n != null) handUndos.add(String(n));
+  }
+  return { byAccount, handUndos: [...handUndos].sort() };
 }
 
 /** Has this bill journal been split by the s16(3) late claim (a companion names it)? */

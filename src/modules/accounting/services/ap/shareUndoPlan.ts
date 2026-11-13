@@ -17,15 +17,18 @@
  *   - a bill whose own journal is not a posted, standing DR legs / CR AP posting of its total, or was late-claimed
  *     (s16(3): its VAT sits on the clearing account and the claim on a companion — undo by hand);
  *   - a share journal that is not this company's posted, standing journal, or no longer HOLDS what this undo gives
- *     back — cumulatively across every live undo linked to it (`shareUndoGuards.ts`);
+ *     back — cumulatively across every live undo of it, linked or by hand (`shareUndoGuards.ts`);
  *   - a share that debits X by more than this payment applied (it carries other bills, and its lines do not say how
  *     much of each) unless `undo_amounts` says how much of each bill it reversed;
  *   - a share date in a period that is not open, or in a locked VAT period — no roll;
  *   - an undo account that is deactivated or a header;
- *   - a journal on or after the share date that already looks like a hand undo of the bill (unless acknowledged);
  *   - a live journal already carrying `undo-share:<payment>:<bill>`. Belt and braces: a voided payment is refused
  *     `already_cancelled` before this runs, so this fires only for a journal written by hand with that reference;
  *     the capacity check is what stops a second undo of a share.
+ *
+ * `undo_amounts` is TRUSTED as given (within what the payment applied and what the share still holds per account):
+ * the share's lines do not say which bill each amount belongs to, so the figure must come from the share's own
+ * working. The per-account capacity is the only cap that can be computed.
  *
  * ── THE JOURNALS ────────────────────────────────────────────────────────────
  * ONE journal per bill undone, reference `undo-share:<payment_id>:<bill_id>`, `source_record_id` = the share journal
@@ -43,7 +46,7 @@ import { splitOverLegs } from './shareUndoSplit';
 import {
   ShareUndoRefusal, undoShareReference, type ShareUndoChoices, type ShareUndoJournalPlan, type ShareUndoPlan,
 } from './shareUndoTypes';
-import { assertAccountsPostable, assertDateOpen, assertNoManualUndo, assertShareCapacity } from './shareUndoGuards';
+import { assertAccountsPostable, assertDateOpen, assertShareCapacity } from './shareUndoGuards';
 import {
   countSiblingPayments, findPriorUndos, hasLateClaimCompanion, lockShareJournal, readBills, readJournalHead,
   readJournalLines, readPaymentAllocations, readPaymentKind, type BillRow, type JournalLineRow,
@@ -107,9 +110,6 @@ export async function planShareUndo(
     if (!bill) throw new ShareUndoRefusal(`${label} is applied to a bill this company does not hold.`);
     const { journal, legs } = await billUndo(companyId, label, payment.id, bill, want, x);
     for (const l of legs) legsByAccount.set(l.glAccountId, l);
-    if (!choices.acknowledgeManualUndo) {
-      await assertNoManualUndo(companyId, { share, clearingId: x.glAccountId, journal, legAccounts: [...new Set(legs.map((l) => l.glAccountId))], billTotal: bill.totalAmount });
-    }
     journals.push(journal);
   }
   legsByAccount.set(x.glAccountId, x);

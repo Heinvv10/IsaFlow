@@ -3,8 +3,8 @@
  * AND a card line (SIV0003760); a bill settled by a payment AND a credit note (Build It CN-2026-00562); a bill paid by
  * a "contra" that is an EFT crediting a clearing account (classified by its account, rule 3) and a payment, half
  * each; a bill whose amount_paid no settlement row explains; a payment crediting an account with no subtype
- * ("unclassified"). Not reported: a clean bill, two halves of the same kind, half a credit note + half a payment, a
- * cancelled payment. Company isolation both ways.
+ * ("unclassified"). Not reported: a clean bill, two halves of the same kind, half a credit note + half a payment (bank-fed
+ * or not), a cancelled payment. Company isolation both ways.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
@@ -94,6 +94,10 @@ describe.skipIf(!DATABASE_URL)('find_double_settlements', () => {
     const sameKind = await bill(fx, a, 'SAMEKIND', 300);
     await pay(fx, a, { method: 'eft', credit: a.bank, date: '2026-06-05', allocs: [{ bill: sameKind, amount: 150 }] });
     await pay(fx, a, { method: 'eft', credit: a.bank, date: '2026-06-06', allocs: [{ bill: sameKind, amount: 150 }] });
+    // Half a credit note + half a BANK-FED payment (reads card_line): an ordinary settlement, not the contra pattern.
+    const cnCard = await bill(fx, a, 'CNCARD', 100);
+    await pay(fx, a, { method: 'eft', credit: a.bank, date: '2026-06-05', allocs: [{ bill: cnCard, amount: 50 }], statementLine: true });
+    await creditNote(fx, cnCard, 50);
     const cnHalf = await bill(fx, a, 'CNHALF', 100);
     await pay(fx, a, { method: 'eft', credit: a.bank, date: '2026-06-05', allocs: [{ bill: cnHalf, amount: 50 }] });
     await creditNote(fx, cnHalf, 50);

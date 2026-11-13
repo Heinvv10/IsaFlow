@@ -50,6 +50,34 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — cumulative share cap
       .toMatch(/does not hold the R\s?1\s?000\.00 the bills posted to account 6000/);
   }, 120000);
 
+  it('a hand undo crediting the clearing account in two lines is summed, not matched line by line', async () => {
+    const fuel = [{ account: a.expense2, debit: 130.43 }, { account: a.vatInput, debit: 19.57, vatType: 'standard' }];
+    const b = await billWithJournal(fx, a, 'TWOLINE', '2026-05-10', fuel);
+    const p = await contra(b.id, 150);
+    // The clearing account is the tight side (225); the accounts have room for two bills.
+    const share = await postedJournal(fx, '2026-05-31', [{ account: a.clearing, debit: 225 }, { account: a.bank, debit: 75 },
+      { account: a.expense2, credit: 260.86 }, { account: a.vatInput, credit: 39.14, vatType: 'standard' }]);
+    await postedJournal(fx, '2026-05-31', [...fuel, { account: a.clearing, credit: 75 }, { account: a.clearing, credit: 75 }], 'hand undo, two lines');
+    expect(text(await undo(p, share, { undo_amounts: [{ bill_id: b.id, amount: 150 }] })))
+      .toMatch(/does not hold the R\s?150\.00 being undone on 1560731/);
+  }, 120000);
+
+  it('another share\'s linked undo, or the reversal of another share, is not a hand undo of this one', async () => {
+    const shareOf = () => postedJournal(fx, '2026-05-31', [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
+      { account: a.vatInput, credit: 150, vatType: 'standard' }]);
+    const [b1, b2, b3] = [await billWithJournal(fx, a, 'OTHER1', '2026-05-10', legs()),
+      await billWithJournal(fx, a, 'OTHER2', '2026-05-11', legs()), await billWithJournal(fx, a, 'OTHER3', '2026-05-12', legs())];
+    const [p1, p2] = [await contra(b1.id, 1150), await contra(b2.id, 1150)];
+    await contra(b3.id, 1150);
+    const [s1, s2, s3] = [await shareOf(), await shareOf(), await shareOf()];
+    // An undo linked to s1, created after s2 and s3, on the same accounts: not s2's.
+    expect((await undo(p1, s1)).isError).toBeFalsy();
+    // s3 reversed (no undos of it): its reversal debits the accounts and credits the clearing account — not s2's either.
+    await inTx(fx, () => reverseJournalEntry(fx.companyId, s3, fx.userId));
+    const r = await undo(p2, s2);
+    expect(r.isError, text(r)).toBeFalsy();
+  }, 120000);
+
   it('a reversed undo gives its capacity back: the next contra on the bill can be undone against the same share', async () => {
     const b = await billWithJournal(fx, a, 'REVERSED', '2026-05-10', legs());
     const p1 = await contra(b.id, 1150);

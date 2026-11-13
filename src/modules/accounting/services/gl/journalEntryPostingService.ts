@@ -23,6 +23,7 @@ import { recordPayRunApprovalAudit } from '../payroll/payRunApprovalAudit';
 import { postJournalEntry } from './journalEntryPostService';
 import { cleanUpAfter } from './reversalCleanup';
 import { bookEtiAfterDirectiveReversal } from '../payroll/etiRebook';
+import { assertNoLiveUndoShares } from './shareUndoReversalGuard';
 import {
   LateClaimCompanionReversalError, copyLateClaimBaseToReversal, planLateClaimCompanionReversal,
 } from './vatLateClaimSplit';
@@ -103,6 +104,7 @@ async function reverseJournalEntryInner(
     if (entry.source === 'auto_vat_late_claim' && !opts?.lateClaimCascade) {
       throw new LateClaimCompanionReversalError(entry.entryNumber);
     }
+    await assertNoLiveUndoShares(companyId, id, entry.entryNumber); // step 6: a share with live undos — read-only
     const payRunReversal = await refuseReversalAgainstPayRun(companyId, entry); // W3-01: judged under its locks
 
     // Debits and credits swap; every dimension and the VAT classification come

@@ -97,14 +97,13 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — refusals write nothi
     expect(await payStatus(s.pay)).toBe('processed');
   }, 120000);
 
-  it('a hand undo is refused unless acknowledged; acknowledged, the undo posts', async () => {
+  it('a hand undo of the share uses its capacity: the undo is refused, naming the hand journal', async () => {
     const s = await scenario('HAND', '2026-05-31');
-    await postedJournal(fx, '2026-06-30', [{ account: a.expense, debit: 1000 }, { account: a.vatInput, debit: 150, vatType: 'standard' },
-      { account: a.clearing, credit: 1150 }], 'undo share by hand');
-    expect(text(await undo(s.pay, s.share))).toMatch(/already looks like an undo of HAND-/);
+    const [hand] = (await sql`SELECT entry_number FROM gl_journal_entries WHERE id = ${await postedJournal(fx, '2026-06-30', [
+      { account: a.expense, debit: 1000 }, { account: a.vatInput, debit: 150, vatType: 'standard' },
+      { account: a.clearing, credit: 1150 }], 'undo share by hand')}::UUID`) as Row[];
+    expect(text(await undo(s.pay, s.share))).toMatch(new RegExp(`does not hold .*including hand journal ${String(hand!.entry_number)}`));
     expect(await payStatus(s.pay)).toBe('processed');
-    const ok = await undo(s.pay, s.share, { acknowledge_manual_undo: true });
-    expect(ok.isError, text(ok)).toBeFalsy();
   }, 120000);
 
   it('undo_amounts naming a bill the payment did not settle, or more than it applied', async () => {
