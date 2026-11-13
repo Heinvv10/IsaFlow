@@ -15,7 +15,9 @@ import { ChevronRight } from 'lucide-react';
 import { TABS, getActiveTabId } from '../accounting/accountingNavConfig';
 import { panelCls, panelEntries, moveInPanel, TabFlyoutContent } from './SidebarFlyouts';
 import { stripVatNav } from '../accounting/navSections/vatNav';
+import { stripFlagNav } from '../accounting/navSections/flagNav';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
+import { useNavFlags } from '@/hooks/useNavFlags';
 
 // ─── Main sidebar nav ───────────────────────────────────────────────────────
 
@@ -29,6 +31,7 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
   const activeTabId = getActiveTabId(router.pathname, router.query);
 
   const { isRegistered } = useVatRegistration();
+  const flags = useNavFlags();
   const [flyout, setFlyout] = useState<{ tabId: string; top: number; left: number } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Touch and pen have no hover: the first tap on a label that has a flyout opens it, the second follows the link.
@@ -83,7 +86,7 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
     openFlyout(tabId, e.currentTarget);
   };
 
-  const tabs = stripVatNav(TABS, isRegistered);
+  const tabs = stripFlagNav(stripVatNav(TABS, isRegistered), flags);
   const flyoutTab = flyout ? tabs.find(t => t.id === flyout.tabId) : null;
 
   return (
