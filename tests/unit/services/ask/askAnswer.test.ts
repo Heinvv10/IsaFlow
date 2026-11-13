@@ -139,7 +139,7 @@ describe('VAT period', () => {
   it('no period named: the company\'s current VAT period, and no "period you named" wording', async () => {
     const a = await ask('what vat do I owe');
     expect(m.vat).toHaveBeenCalledWith(CO, '2026-11-01', '2026-12-31', expect.anything());
-    expect(a.text).toContain('current VAT period');
+    expect(a.text).toContain('This is your current VAT period (2026-11-01\u20132026-12-31).');
     expect(a.text).not.toContain('you named');
   });
   it('a named month maps to the VAT period holding it and says so', async () => {
@@ -159,6 +159,17 @@ describe('VAT period', () => {
     expect(a.figure).toBeNull();
     expect(a.text).toContain('not set up as a VAT vendor');
     expect(m.vat).not.toHaveBeenCalled();
+  });
+});
+
+describe('VAT wording for the current period', () => {
+  it.each([['vat payable this period'], ['vat for the current period'], ['what vat do I owe this month'], ['how much vat do we owe']])('%s says it is the current VAT period', async (q) => {
+    const a = await ask(q);
+    expect(a.text).toContain('This is your current VAT period (2026-11-01\u20132026-12-31).');
+    expect(a.text).not.toContain('falls in this VAT period');
+  });
+  it('a named month still says which month falls in the period', async () => {
+    expect((await ask('what vat do I owe for october')).text).toContain('October 2026 falls in this VAT period');
   });
 });
 

@@ -27,13 +27,14 @@ export async function vat(intent: AskIntent, companyId: string, today: string): 
   }
   const settings = await getCompanyVatCycle(companyId);
   if (!settings) return reply('This company is not set up as a VAT vendor, so there is no VAT201.', null, [], href, label);
-  const t = p ? monthOf(p, today, 'this') : null;
+  // No window, "this month" and "this/current period" all mean the company's current VAT period.
+  const t = p && p.kind !== 'this_month' ? monthOf(p, today, 'this') : null;
   const asked = t ? ymd(t.y, t.m, 1) : today;
   const period = periodContaining(settings, asked);
   const { totals } = await getVat201Report(companyId, period.from, period.to, { detail: 'summary' });
   const net = r2(totals.netVat);
   const what = net >= 0 ? `${rand(net)} payable to SARS` : `${rand(-net)} refundable`;
-  const note = t ? ` ${MONTH_NAMES[t.m - 1]} ${t.y} falls in this VAT period; the figure is for the whole period.` : ' This is your current VAT period.';
+  const note = t ? ` ${MONTH_NAMES[t.m - 1]} ${t.y} falls in this VAT period; the figure is for the whole period.` : ` This is your current VAT period (${period.from}\u2013${period.to}).`;
   return reply(`VAT for ${period.label} (${period.from} to ${period.to}): ${what}.${note}`, net,
     [{ label: 'Output tax', value: r2(totals.outputTax) }, { label: 'Input tax', value: r2(totals.inputTax) }],
     `${href}?from=${period.from}&to=${period.to}`, label);
