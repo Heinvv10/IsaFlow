@@ -128,3 +128,18 @@ describe('useFocusTrap and a listbox that is not a Select', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('useFocusTrap with the real kit Select inside a trapped drawer', () => {
+  it('Escape with focus in the open, portalled list closes the list and leaves the drawer open', async () => {
+    const close = vi.fn();
+    const { Select } = await import('@/components/ui/Select');
+    render(<Overlay name="Drawer" onEscape={close} nested={<Select label="Pick one" options={[{ value: 'a', label: 'Alpha' }, { value: 'b', label: 'Beta' }]} value={null} onChange={() => undefined} />} />);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Pick one' }));
+    const option = screen.getByRole('option', { name: 'Alpha' });
+    option.focus();
+    expect(option.closest('[role="listbox"]')).not.toBeNull();
+    fireEvent.keyDown(option, { key: 'Escape' });
+    expect(close).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
+  });
+});
