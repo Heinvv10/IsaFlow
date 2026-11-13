@@ -67,12 +67,16 @@ function isProv(v: Record<string, unknown>): boolean {
 /** Keys that could reach an object's prototype: refused here, not left to a later parse. */
 const FORBIDDEN_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
 
-function refuseForbiddenKeys(v: unknown, path: string): void {
+/** The assumptions document nests at most a few levels; anything deeper is refused, not recursed. */
+const MAX_OVERRIDE_DEPTH = 8;
+
+function refuseForbiddenKeys(v: unknown, path: string, depth = 0): void {
   if (!isPlainObject(v)) return;
+  if (depth > MAX_OVERRIDE_DEPTH) throw new AssumptionsDocError([{ path, message: 'Nested too deeply' }]);
   for (const k of Object.keys(v)) {
     const at = path ? `${path}.${k}` : k;
     if (FORBIDDEN_KEYS.has(k)) throw new AssumptionsDocError([{ path: at, message: 'Forbidden key' }]);
-    refuseForbiddenKeys(v[k], at);
+    refuseForbiddenKeys(v[k], at, depth + 1);
   }
 }
 

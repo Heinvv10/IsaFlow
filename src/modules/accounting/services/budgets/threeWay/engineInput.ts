@@ -17,6 +17,8 @@ import { BUCKET_KEYS, PNL_BANDS, type EngineInput } from './types';
 export const MAX_VERSION_MONTHS = 15;
 export const MAX_LOOKBACK_MONTHS = 36;
 export const MAX_LOAN_SCHEDULES = 200;
+/** A full-life schedule (`previewSchedule` / `amortise`): the schema's longest term. Lines outside the version are ignored. */
+export const MAX_LOAN_LINES = 600;
 export const MAX_UNMAPPED_ACCOUNTS = 2000;
 
 const ISO_DATE = /^(\d{4}-(0[1-9]|1[0-2]))-(\d{2})$/;
@@ -69,14 +71,17 @@ function validateLists(input: EngineInput, total: TotalBound): void {
 
   if (input.loanSchedules.length > MAX_LOAN_SCHEDULES) throw new EngineInputError('LOAN_SCHEDULE', `At most ${MAX_LOAN_SCHEDULES} loan schedules`);
   const ids = new Set<string>();
+  const inVersion: ReadonlySet<string> = new Set(months);
   for (const s of input.loanSchedules) {
     if (ids.has(s.loanId)) throw new EngineInputError('LOAN_SCHEDULE', `Duplicate loan schedule ${s.loanId}`);
     ids.add(s.loanId);
-    if (s.lines.length > months.length) throw new EngineInputError('LOAN_SCHEDULE', `Loan ${s.loanId}: at most ${months.length} lines (one per version month)`);
+    if (s.lines.length > MAX_LOAN_LINES) throw new EngineInputError('LOAN_SCHEDULE', `Loan ${s.loanId}: at most ${MAX_LOAN_LINES} lines`);
     for (const l of s.lines) {
       if (!isMonth(l.month)) throw new EngineInputError('LOAN_SCHEDULE', `Loan ${s.loanId}: bad month ${String(l.month)}`);
-      cents('LOAN_SCHEDULE', `loan ${s.loanId} principal`, l.principal, total);
-      cents('LOAN_SCHEDULE', `loan ${s.loanId} interest`, l.interest, total);
+      // Only lines inside the version reach the ledger, so only they count toward the total bound.
+      const bound = inVersion.has(l.month) ? total : new TotalBound();
+      cents('LOAN_SCHEDULE', `loan ${s.loanId} principal`, l.principal, bound);
+      cents('LOAN_SCHEDULE', `loan ${s.loanId} interest`, l.interest, bound);
     }
   }
 

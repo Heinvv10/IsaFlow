@@ -100,10 +100,10 @@ describe('item 13: list caps', () => {
     expect(runThreeWay(base(i => { i.lookback = lb(36); })).months).toHaveLength(3);
     expectRefused(() => runThreeWay(base(i => { i.lookback = lb(37); })), 'LOOKBACK');
   });
-  it('loanSchedules[].lines ≤ months; loanSchedules ≤ 200', () => {
+  it('loanSchedules[].lines ≤ 600 (full-life schedules, out-of-version lines ignored); loanSchedules ≤ 200', () => {
     const lines = (n: number) => Array.from({ length: n }, (_, k) => ({ month: addMonths('2026-03', k), principal: 0, interest: 0 }));
-    expect(runThreeWay(base(i => { i.loanSchedules = [{ loanId: 'a', lines: lines(3) }]; })).months).toHaveLength(3);
-    expectRefused(() => runThreeWay(base(i => { i.loanSchedules = [{ loanId: 'a', lines: lines(4) }]; })), 'LOAN_SCHEDULE');
+    expect(runThreeWay(base(i => { i.loanSchedules = [{ loanId: 'a', lines: lines(600) }]; })).months).toHaveLength(3);
+    expectRefused(() => runThreeWay(base(i => { i.loanSchedules = [{ loanId: 'a', lines: lines(601) }]; })), 'LOAN_SCHEDULE');
     const many = (n: number) => Array.from({ length: n }, (_, k) => ({ loanId: `l${k}`, lines: [] }));
     expect(runThreeWay(base(i => { i.loanSchedules = many(200); })).months).toHaveLength(3);
     expectRefused(() => runThreeWay(base(i => { i.loanSchedules = many(201); })), 'LOAN_SCHEDULE');

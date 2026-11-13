@@ -167,3 +167,13 @@ function expectChainError(fn: () => unknown, code: AssumptionChainError['code'])
   }
   expect.fail(`expected AssumptionChainError ${code}`);
 }
+
+describe('mergeOverrides depth guard', () => {
+  it('refuses an overrides object nested deeper than the document can be, with a typed error (no RangeError)', () => {
+    let deep: Record<string, unknown> = {};
+    const root = deep;
+    for (let k = 0; k < 5000; k += 1) { const next: Record<string, unknown> = {}; deep.x = next; deep = next; }
+    const base = defaultAssumptions({ priorYearEnd: '2026-02', entityType: 'pty_ltd', vat: { registered: false, cadence: 'monthly', alignment: 'odd', basis: 'invoice' } });
+    expect(() => mergeOverrides(base, root as never)).toThrow(AssumptionsDocError);
+  });
+});
