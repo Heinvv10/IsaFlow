@@ -192,6 +192,8 @@ describe('qualifiers', () => {
     expect(q('operating profit last month')).toEqual(['profit', 'operating']);
     expect(q('cost of sales this year')).toEqual(['expenses', 'cost_of_sales']);
     expect(q('what is my profit')).toEqual(['profit', undefined]);
+    expect(q('profit gross')).toEqual(['profit', 'gross']);
+    expect(q('income operating')).toEqual(['profit', 'operating']);
   });
 });
 
