@@ -64,7 +64,7 @@ export const generalLedgerTool: McpTool = {
     'RE-BF: an UNFILTERED read adds an openingBalances key RE-BF, the retained earnings brought forward — the profit earned before that fiscal-year start, credit positive (negative is an accumulated loss), omitted when under 1 cent. It is derived, not a posted account: it has no lines and is not counted in accountCount. A filtered read never carries it. ' +
     'Paging: call again with cursor set and every other argument unchanged until next_cursor is null. Every line is served exactly once. ' +
     'COMPLETENESS: universeTotal is the UNFILTERED posted line count for the period, so rowsTotal below it means you are holding an extract and excludedTotal says how many lines your filters removed. An unfiltered call has excludedTotal 0 and rowsTotal equal to universeTotal. universeTotal is the window\'s own count even when your filters match nothing (rowsTotal 0, excludedTotal equal to universeTotal); it is 0 only when the window genuinely holds no posted line. ' +
-    'detail: "summary" returns totals only; "standard" (default) and "full" return lines.',
+    'search is a case-insensitive LITERAL substring of the entry number or description (% and _ are not wildcards). detail: "summary" returns totals only; "standard" (default) and "full" return lines.',
   scope: 'read:reports',
   write: false,
   inputSchema: {

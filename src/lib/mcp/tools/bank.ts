@@ -9,6 +9,7 @@ import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAc
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
 import { InvalidCursorError } from '@/modules/accounting/services/bank/bankTxCursor';
 import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { escapeLikeLiteral } from '@/lib/sqlLikeLiteral';
 
 const ALLOCATION_FILTERS = ['all', 'unallocated', 'suggested', 'allocated'] as const;
 type AllocationFilter = (typeof ALLOCATION_FILTERS)[number];
@@ -46,14 +47,11 @@ export function allocationStateOf(tx: BankTransaction): AllocationState {
 
 /**
  * The service wraps the term in %…% for ILIKE and escapes nothing, so an
- * agent's "50%" or "ref_123" would match as a wildcard pattern. Escape the
- * three LIKE metacharacters (Postgres's default escape is backslash) so the
+ * agent's "50%" or "ref_123" would match as a wildcard pattern. The tool
+ * escapes the three LIKE metacharacters (src/lib/sqlLikeLiteral) so the
  * argument means what its name says: a literal substring.
  */
-export function escapeLikeLiteral(term: string | undefined): string | undefined {
-  if (term === undefined) return undefined;
-  return term.replace(/[\\%_]/g, (ch) => `\\${ch}`);
-}
+export { escapeLikeLiteral };
 
 function toCompact(tx: BankTransaction): CompactBankTx {
   return {

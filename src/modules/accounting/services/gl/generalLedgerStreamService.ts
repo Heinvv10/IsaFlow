@@ -56,6 +56,7 @@ import { incomeStatementBalanceNullFrom, runningBalanceIsDefined, streamFiscalBa
 import { INCOME_STATEMENT_TYPES } from './trialBalanceBasis';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import { readUniverseLineCount } from './generalLedgerUniverse';
+import { containsLikePattern } from '@/lib/sqlLikeLiteral';
 export type { GeneralLedgerCursor, GeneralLedgerLine, GeneralLedgerPage, GeneralLedgerQuery } from './generalLedgerStreamTypes';
 
 /**
@@ -87,7 +88,7 @@ export async function getGeneralLedgerLines(
   // A null threshold disables the clause; 0 would admit every line and read as
   // "no filter" while still suppressing the running balance.
   const minAmt = minAmount ?? null;
-  const term = search === undefined || search === '' ? null : `%${search}%`;
+  const term = containsLikePattern(search); // a LITERAL substring: %, _ and \ escaped; the ILIKEs below say ESCAPE '\'
 
   try {
     const basis = await streamFiscalBasis(companyId, periodStart, !anyFilter, periodEnd);
@@ -124,8 +125,8 @@ export async function getGeneralLedgerLines(
           AND (${minAmt}::NUMERIC IS NULL
                OR GREATEST(jl.debit, jl.credit) >= ${minAmt}::NUMERIC)
           AND (${term}::TEXT IS NULL
-               OR je.entry_number ILIKE ${term}::TEXT
-               OR COALESCE(je.description, '') ILIKE ${term}::TEXT)
+               OR je.entry_number ILIKE ${term}::TEXT ESCAPE '\\'
+               OR COALESCE(je.description, '') ILIKE ${term}::TEXT ESCAPE '\\')
       ),
       -- The period BEFORE any filter. Deliberately a separate scan rather than
       -- a count over the matched set: that set is where the filters live, so
@@ -208,10 +209,9 @@ export async function getGeneralLedgerLines(
     const totals =
       agg === undefined
         // `after === null` and no rows means the filtered set really is empty,
-        // so the zeros are the truth, EXCEPT the universe: it is the unfiltered window,
-        // not the matched set, and the filters are what emptied this one. Re-reading
-        // the stream in that case would recurse forever, which is how a guard that
-        // looks defensive hangs a request; the universe is its own count.
+        // so the zeros are the truth, EXCEPT the universe: it is the unfiltered window (the
+        // filters emptied this set) and has its own count. Re-reading the stream here would
+        // recurse forever, which is how a guard that looks defensive hangs a request.
         ? after === null
           ? { ...EMPTY_TOTALS, universeLineCount: await readUniverseLineCount(companyId, periodStart, periodEnd) }
           : await readTotalsOnly(query)

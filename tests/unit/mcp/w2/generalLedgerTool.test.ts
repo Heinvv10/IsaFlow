@@ -118,6 +118,7 @@ describe('general_ledger', () => {
     assertEnvelopeSound(body as never);
     expect([body.rowsTotal, body.universeTotal, body.excludedTotal]).toEqual([0, 6, 6]);
     expect(generalLedgerTool.description).toContain('even when your filters match nothing');
+    expect(generalLedgerTool.description).toContain('LITERAL substring');
   });
 
   it('passes balanced THROUGH rather than deriving it from the page', async () => {
