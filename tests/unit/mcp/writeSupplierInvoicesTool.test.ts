@@ -145,6 +145,19 @@ describe('create_supplier_invoice — external_ref (brief step 3)', () => {
     expect(r).toMatchObject({ id: INVOICE, external_system: 'sage', external_ref: '3629825983' });
   });
 
+  it('a replay whose number or date differs from the stored bill says so', async () => {
+    vi.mocked(findByExternalRef).mockResolvedValueOnce([{
+      entityType: 'supplier_invoice', id: 'existing', number: 'INV-9001', status: 'approved', date: '2026-06-01',
+      totalAmount: 1150, live: true, externalDocumentNumber: null,
+    }]);
+    const r = parseOk(await createSupplierInvoiceTool.handler(createArgs({ ...XREF, invoice_number: 'INV-9002' }), ctx()));
+    expect(r.payload_differs).toBe(true);
+    expect(r.differences).toEqual([
+      { field: 'number', existing: 'INV-9001', requested: 'INV-9002' },
+      { field: 'date', existing: '2026-06-01', requested: '2026-06-30' },
+    ]);
+  });
+
   it('refuses a reference with no system before any read', async () => {
     expect(errText(await createSupplierInvoiceTool.handler(createArgs({ external_ref: '1' }), ctx()))).toMatch(/external_system/);
     expect(findByExternalRef).not.toHaveBeenCalled();

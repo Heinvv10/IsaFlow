@@ -156,7 +156,8 @@ export const createCreditNoteTool: McpTool = {
     // Before the duplicate-draft check: re-sending the same source note returns it, rather than a refusal.
     const replay = await createReplayOrLock(ctx, 'credit_note', xref, {
       creditNoteType: type as (typeof TYPES)[number],
-      expect: { date: creditDate, totalAmount: total },
+      // Rounded as createCreditNote stores it (tax first, then total), so a cent-edge note is not reported as differing.
+      expect: { date: creditDate, totalAmount: Math.round((subtotal + Math.round(subtotal * taxRateForTotal / 100 * 100) / 100) * 100) / 100 },
     });
     if (replay) return replay;
 

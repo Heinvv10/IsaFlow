@@ -35,6 +35,17 @@ describe('create_credit_note — external_ref', () => {
     expect(createCreditNote).not.toHaveBeenCalled();
   });
 
+  it('a replay compares the total as the service rounds it (no cent-edge false difference)', async () => {
+    // subtotal 0.50 at 15%: the service rounds tax first (0.075 -> 0.08), total 0.58;
+    // a single round of 0.50 * 1.15 gives 0.57.
+    vi.mocked(findByExternalRef).mockResolvedValueOnce([{
+      entityType: 'credit_note', id: 'cn-existing', number: 'CN-1', status: 'draft', date: '2026-11-11',
+      totalAmount: 0.58, live: true, externalDocumentNumber: null, creditNoteType: 'supplier',
+    }]);
+    const out = parseOk(await createCreditNoteTool.handler({ ...supplierArgs, subtotal: 0.5 }, ctx()));
+    expect(out.payload_differs).toBe(false);
+  });
+
   it('creates and stamps a new note', async () => {
     vi.mocked(createCreditNote).mockResolvedValue({ ...draftNote, type: 'supplier' } as never);
     const out = parseOk(await createCreditNoteTool.handler(supplierArgs, ctx()));
