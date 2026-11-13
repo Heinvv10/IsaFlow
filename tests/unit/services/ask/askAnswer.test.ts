@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const m = vi.hoisted(() => ({
-  ar: vi.fn(), ap: vi.fn(), bank: vi.fn(), cash: vi.fn(), income: vi.fn(), sheet: vi.fn(), vat: vi.fn(), emp: vi.fn(), fy: vi.fn(), cycle: vi.fn(), run: vi.fn(),
+  ar: vi.fn(), ap: vi.fn(), bank: vi.fn(), cash: vi.fn(), income: vi.fn(), sheet: vi.fn(), vat: vi.fn(), emp: vi.fn(), fy: vi.fn(), cycle: vi.fn(), run: vi.fn(), fyLabel: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/ar/arAgingService', () => ({ getARAging: m.ar }));
 vi.mock('@/modules/accounting/services/ap/apAgingService', () => ({ getAPAging: m.ap }));
@@ -11,7 +11,7 @@ vi.mock('@/modules/accounting/services/reports/financialReportingService', () =>
 vi.mock('@/modules/accounting/services/reports/balanceSheetService', () => ({ getBalanceSheet: m.sheet }));
 vi.mock('@/modules/accounting/services/reports/vat201ReportService', () => ({ getVat201Report: m.vat }));
 vi.mock('@/modules/accounting/services/reports/emp201Service', () => ({ generateEMP201: m.emp }));
-vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', () => ({ fiscalYearForDate: m.fy }));
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', () => ({ fiscalYearForDate: m.fy, getFiscalYear: m.fyLabel }));
 vi.mock('@/modules/accounting/services/reports/companyVatCycle', () => ({ getCompanyVatCycle: m.cycle }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunQueryService', () => ({ getDeclarablePayRun: m.run }));
 
@@ -41,6 +41,7 @@ beforeEach(() => {
   m.sheet.mockResolvedValue({ totalAssets: 12345.67, totalLiabilities: 2345.01 });
   m.vat.mockResolvedValue({ totals: { outputTax: 150, inputTax: 60, netVat: 90 } });
   m.emp.mockResolvedValue({ payePayable: 1000, totalUIF: 100, totalSDL: 50, totalDeductions: 1150.07 });
+  m.fyLabel.mockResolvedValue({ startDate: '2025-03-01', endDate: '2026-02-28' });
   m.fy.mockImplementation(async (_c: string, d: string) => (d >= '2026-03-01' ? { startDate: '2026-03-01', endDate: '2027-02-28' } : { startDate: '2025-03-01', endDate: '2026-02-28' }));
   m.cycle.mockResolvedValue({ cadence: 'bi-monthly', alignment: 'even' });
   m.run.mockResolvedValue(run);
@@ -309,7 +310,8 @@ describe('unsupported windows are answered with a refusal, not a default', () =>
   });
   it('periodIsHonoured is false for a day that resolves to nothing', () => {
     expect(periodIsHonoured('assets', { kind: 'day', day: 29, month: 2, year: 2026 }, TODAY)).toBe(false);
-    expect(periodIsHonoured('assets', { kind: 'day', day: 29, month: 2, year: null }, TODAY)).toBe(true);
+    expect(periodIsHonoured('assets', { kind: 'day', day: 29, month: 2, year: null }, TODAY)).toBe(false);
+    expect(periodIsHonoured('assets', { kind: 'day', day: 28, month: 2, year: null }, TODAY)).toBe(true);
     expect(periodIsHonoured('liabilities', { kind: 'day', day: 31, month: 4, year: 2026 }, TODAY)).toBe(false);
   });
   it('excluding VAT is a refusal for revenue, and the plain suggestion is revenue', async () => {
@@ -317,6 +319,35 @@ describe('unsupported windows are answered with a refusal, not a default', () =>
     expect(a.figure).toBeNull();
     expect(a.suggestions).toEqual(['What is my revenue this year?']);
     expect(m.vat).not.toHaveBeenCalled();
+  });
+});
+
+describe('financial years by label, and leftover words', () => {
+  it('profit for FY2026 reads the registry year and asks the income statement for exactly its dates', async () => {
+    const a = await ask('profit fy2026');
+    expect(m.fyLabel).toHaveBeenCalledWith(CO, 2026);
+    expect(m.income).toHaveBeenLastCalledWith(CO, '2025-03-01', '2026-02-28');
+    expect(a.text).toContain('FY2026');
+    expect(a.link?.href).toBe('/accounting/reports/income-statement?period_start=2025-03-01&period_end=2026-02-28');
+  });
+  it('an unknown financial year is refused; other intents refuse a financial year label', async () => {
+    m.fyLabel.mockResolvedValue(null);
+    expect((await ask('profit fy2019')).figure).toBeNull();
+    expect(m.income).not.toHaveBeenCalled();
+    for (const q of ['total assets fy2026', 'vat fy2026', 'who owes me money fy2026']) expect((await ask(q)).figure, q).toBeNull();
+  });
+  it('leftover words are refused with the plain question, calling no service', async () => {
+    const a = await ask('profit by customer');
+    expect(a.understood).toBe(false);
+    expect(a.text).toContain('"by"');
+    expect(a.suggestions).toEqual(['What is my profit this month?']);
+    for (const fn of [m.income, m.ar, m.vat, m.sheet]) expect(fn).not.toHaveBeenCalled();
+  });
+  it('a yearless 29 February is refused naming the year, not answered as another year', async () => {
+    const a = await ask('who owes me money as at 29 february');
+    expect(a.figure).toBeNull();
+    expect(a.text).toBe("29 February 2026 doesn't exist. Name the year you mean.");
+    expect(m.ar).not.toHaveBeenCalled();
   });
 });
 

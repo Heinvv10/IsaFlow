@@ -33,20 +33,30 @@ export function resolveWindow(period: AskPeriod | null, today: string, fy: Fisca
   return null;
 }
 
+/**
+ * The year an exact day lands in: the one named, else the latest year in which that month-and-day is not after today (so within the
+ * last 12 months). `exists` is false when the day is not on that year's calendar ("29 February 2026"): the caller refuses it and
+ * asks for the year, rather than reading it as another year's day.
+ */
+export function dayCandidate(p: Extract<AskPeriod, { kind: 'day' }>, today: string): { date: string; year: number; exists: boolean } {
+  const y0 = Number(today.slice(0, 4));
+  const year = p.year ?? (`${pad(p.month)}-${pad(p.day)}` <= today.slice(5) ? y0 : y0 - 1);
+  return { date: `${year}-${pad(p.month)}-${pad(p.day)}`, year, exists: p.day <= lastDay(year, p.month) };
+}
+
+/** The refusal for a day that is not on the calendar, or null when the period is not such a day. */
+export function missingDayNote(p: AskPeriod | null, today: string): string | null {
+  if (!p || p.kind !== 'day') return null;
+  const c = dayCandidate(p, today);
+  return c.exists ? null : `${p.day} ${MONTH_NAMES[p.month - 1]} ${c.year} doesn't exist. Name the year you mean.`;
+}
+
 /** The as-at date for point-in-time figures (balances, aging). Null for a window with no single date. */
 export function resolveAsAt(period: AskPeriod | null, today: string): { date: string; label: string } | null {
   if (!period || period.kind === 'this_month' || period.kind === 'this_year') return { date: today, label: today };
   if (period.kind === 'day') {
-    // The day must exist in the year it lands in ("29 February" is not a day in 2026). With no year: the latest such day not after today.
-    const exists = (y: number): boolean => period.day <= lastDay(y, period.month);
-    const y0 = Number(today.slice(0, 4));
-    const candidates = period.year !== null ? [period.year] : Array.from({ length: 9 }, (_, i) => y0 - i);
-    for (const y of candidates) {
-      const date = `${y}-${pad(period.month)}-${pad(period.day)}`;
-      if (exists(y) && date <= today) return { date, label: date };
-      if (period.year !== null) return null;
-    }
-    return null;
+    const c = dayCandidate(period, today);
+    return c.exists && c.date <= today ? { date: c.date, label: c.date } : null;
   }
   if (period.kind === 'last_month' || period.kind === 'month') {
     const t = monthOf(period, today, 'this')!;
@@ -66,6 +76,7 @@ export function describePeriod(p: AskPeriod | null): string {
     case 'last_month': return 'last month';
     case 'this_month': return 'this month';
     case 'month': return `${MONTH_NAMES[p.month - 1]}${p.year ? ` ${p.year}` : ''}`;
+    case 'fy': return `FY${p.year}`;
     case 'day': return `${p.day} ${MONTH_NAMES[p.month - 1]}${p.year ? ` ${p.year}` : ''}`;
   }
 }

@@ -5,22 +5,28 @@ import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAc
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
 import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSheetService';
-import { fiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import { fiscalYearForDate, getFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import type { AgingBucket } from '@/modules/accounting/types/ap.types';
 import type { AskIntent } from './askIntents';
-import { describePeriod, resolveAsAt, resolveWindow, type FiscalYears } from './askPeriod';
+import type { ResolvedPeriod } from './askPeriod';
+import { describePeriod, missingDayNote, resolveAsAt, resolveWindow, type FiscalYears } from './askPeriod';
 import { periodRefusal, rand, reply, type AskAnswer } from './askTypes';
 
 export const r2 = (n: number): number => Math.round(n * 100) / 100;
 const num = (v: unknown): number => (typeof v === 'number' ? v : Number(v) || 0);
 const dayBefore = (iso: string): string => new Date(Date.parse(`${iso}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+function refuseAsAt(intent: AskIntent, today: string, href: string, label: string): AskAnswer {
+  const note = missingDayNote(intent.period, today);
+  return note ? reply(note, null, [], href, label) : periodRefusal('that', describePeriod(intent.period), AS_AT_HELP, href, label);
+}
+
 const AS_AT_HELP = 'Name a month, "this month", "last month" or an exact day ("as at 15 October") and I will give the position as at that date.';
 
 export async function aging(side: 'ar' | 'ap', intent: AskIntent, companyId: string, today: string): Promise<AskAnswer> {
   const href = side === 'ar' ? '/accounting/ar-aging' : '/accounting/ap-aging';
   const label = side === 'ar' ? 'Open AR aging' : 'Open AP aging';
   const at = resolveAsAt(intent.period, today);
-  if (!at) return periodRefusal('that', describePeriod(intent.period), AS_AT_HELP, href, label);
+  if (!at) return refuseAsAt(intent, today, href, label);
   const rows: AgingBucket[] = side === 'ar' ? await getARAging(companyId, at.date) : await getAPAging(companyId, at.date);
   const total = r2(rows.reduce((s, b) => s + num(b.total), 0));
   const top = [...rows].sort((a, b) => num(b.total) - num(a.total)).slice(0, 3).filter((b) => num(b.total) !== 0);
@@ -57,13 +63,18 @@ async function fiscalYears(companyId: string, today: string): Promise<FiscalYear
   return { thisStart: now.startDate, lastStart: prev.startDate, lastEnd: prev.endDate };
 }
 
+async function fiscalYearWindow(companyId: string, year: number): Promise<ResolvedPeriod | null> {
+  const y = await getFiscalYear(companyId, year);
+  return y ? { from: y.startDate, to: y.endDate, label: `FY${year}` } : null;
+}
+
 export async function income(intent: AskIntent, companyId: string, today: string): Promise<AskAnswer> {
   const named = intent.period?.kind;
   const fy = named === 'this_year' || named === 'last_year' ? await fiscalYears(companyId, today) : null;
-  const w = resolveWindow(intent.period, today, fy);
+  const w = intent.period?.kind === 'fy' ? await fiscalYearWindow(companyId, intent.period.year) : resolveWindow(intent.period, today, fy);
   const link = 'Open the income statement';
   if (!w) {
-    return periodRefusal('this', describePeriod(intent.period), 'I understand a month, "this month", "last month", "this year" and "last year" (financial years).', '/accounting/reports/income-statement', link);
+    return periodRefusal('this', describePeriod(intent.period), 'I understand a month, "this month", "last month", "this year", "last year" and a financial year ("FY2026").', '/accounting/reports/income-statement', link);
   }
   const r = await getIncomeStatement(companyId, w.from, w.to);
   const href = `/accounting/reports/income-statement?period_start=${w.from}&period_end=${w.to}`;
@@ -88,7 +99,7 @@ export async function balanceSheet(intent: AskIntent, companyId: string, today: 
   const href = '/accounting/reports/balance-sheet';
   const label = 'Open the balance sheet';
   const at = resolveAsAt(intent.period, today);
-  if (!at) return periodRefusal('that', describePeriod(intent.period), AS_AT_HELP, href, label);
+  if (!at) return refuseAsAt(intent, today, href, label);
   const sheet = await getBalanceSheet(companyId, at.date);
   const assets = intent.id === 'assets';
   const total = r2(assets ? sheet.totalAssets : sheet.totalLiabilities);

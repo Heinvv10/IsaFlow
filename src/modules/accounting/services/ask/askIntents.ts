@@ -7,6 +7,8 @@
  * question), and when two or more specific intents still match the parser says so and the caller asks which was meant.
  */
 
+import { leftoverWords } from './askVocabulary';
+
 export type AskIntentId =
   | 'owed_to_me' | 'i_owe' | 'cash' | 'profit' | 'revenue' | 'expenses'
   | 'assets' | 'liabilities' | 'vat' | 'emp201' | 'last_pay_run' | 'bank_to_allocate';
@@ -17,6 +19,8 @@ export type AskPeriod =
   | { kind: 'month'; year: number | null; month: number }
   /** An exact day ("as at 15 October"): honoured for positions, refused for everything else, never rounded to a month end. */
   | { kind: 'day'; day: number; month: number; year: number | null }
+  /** A financial year by its label ("FY2026", "financial year 2026"), read through the fiscal-year registry. */
+  | { kind: 'fy'; year: number }
   | { kind: 'unsupported'; said: string };
 
 /** A narrower figure of the same intent: gross/operating profit, cost of sales. Answered as that figure, labelled as it, never as the plain one. */
@@ -30,6 +34,8 @@ export type ParsedQuestion =
   | { kind: 'ambiguous'; ids: AskIntentId[]; examples: string[] }
   /** One intent, but several windows ("this year vs last year"): one period at a time, `examples` one per window. */
   | { kind: 'periods'; id: AskIntentId; examples: string[] }
+  /** One intent, but words the parser could not account for: refused rather than dropped, with the plain question offered. */
+  | { kind: 'leftover'; id: AskIntentId; words: string[] }
   /** A recognised refinement we cannot honour (an amount filter, a comparison, before/after tax): said, never answered with a broader figure. */
   | { kind: 'unsupported'; id: AskIntentId; said: string }
   | { kind: 'none' };
@@ -74,8 +80,10 @@ const PATTERNS: ReadonlyArray<readonly [AskIntentId, RegExp]> = [
 /** Plain P&L words, and "liabilities" ("VAT liability" is a tax question): they lose to any more specific intent that also matched. */
 const GENERIC: ReadonlySet<AskIntentId> = new Set<AskIntentId>(['profit', 'revenue', 'expenses', 'liabilities']);
 
+const ABBREVIATED: Readonly<Record<string, string>> = { jan: 'january', feb: 'february', mar: 'march', apr: 'april', jun: 'june', jul: 'july', aug: 'august', sep: 'september', sept: 'september', oct: 'october', nov: 'november', dec: 'december' };
+
 const normalise = (question: string): string =>
-  question.toLowerCase().replace(/\bcost\s+of\s+sales\b/g, 'costofsales').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  question.toLowerCase().replace(/\bcost\s+of\s+sales\b/g, 'costofsales').replace(/\b(jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\b/g, (a) => ABBREVIATED[a]!).replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 
 const QUARTER = /\b(q[1-4]|(?:first|second|third|fourth|1st|2nd|3rd|4th)\s+quarter|h[12]|half\s*year(?:ly)?|quarter(?:ly)?)\b/;
 /** A number is a year only with year context, and never after a comparison word ("more than 2000" is an amount). */
@@ -114,6 +122,9 @@ function dayIn(q: string): AskPeriod | null {
   return null;
 }
 
+/** "fy2026", "fy 2026", "financial year 2026", "2026 financial year": a financial year by its label. */
+const FY = /\bfy\s?((?:19|20)\d{2})\b|\b(?:financial|fiscal)\s+year\s+((?:19|20)\d{2})\b|\b((?:19|20)\d{2})\s+(?:financial|fiscal)\s+year\b/;
+
 /** Window phrases we do not support: a duration, "past/next/since ...", a week or fortnight. Refused, never dropped for the default. */
 const UNSUPPORTED_WINDOW = /\b(?:(?:last|past|next|previous)\s+\d+\s+(?:days?|weeks?|months?|years?)|\d+\s+(?:days?|weeks?|months?|years?)|past\s+(?:\w+\s+)?(?:days?|weeks?|months?|years?)|next\s+\w+|since\s+\w+(?:\s+20\d{2})?|fortnight|last\s+week|this\s+week)\b/;
 
@@ -122,6 +133,8 @@ export function parsePeriod(raw: string): AskPeriod | null {
   const q = normalise(raw);
   const quarter = QUARTER.exec(q);
   if (quarter) return { kind: 'unsupported', said: quarter[1]! };
+  const fy = FY.exec(q);
+  if (fy) return { kind: 'fy', year: Number(fy[1] ?? fy[2] ?? fy[3]) };
   const day = dayIn(q);
   if (day) return day;
   const odd = UNSUPPORTED_WINDOW.exec(q);
@@ -144,16 +157,20 @@ export function parsePeriod(raw: string): AskPeriod | null {
 }
 
 /** Every distinct window a question names, as the words to put after a stem. Two or more is "one period at a time". */
+/** Every exact day in a question, with its month name ('15 october', 'october 15th'). */
+const DAY_RE = new RegExp(`\\b(\\d{1,2})${ORD}\\s+(?:of\\s+)?(${MONTHS.join('|')})(?:\\s+(20\\d{2}))?\\b|\\b(${MONTHS.join('|')})\\s+(\\d{1,2})${ORD}(?:\\s+(20\\d{2}))?\\b`, 'g');
+
 function windowPhrases(raw: string): string[] {
   const found = new Set<string>();
   let q = raw;
   // Exact days first, counted by the day itself, then removed so their month names are not counted again.
-  const dayRe = new RegExp(`\\b(\\d{1,2})${ORD}\\s+(?:of\\s+)?(${MONTHS.join('|')})(?:\\s+(20\\d{2}))?\\b|\\b(${MONTHS.join('|')})\\s+(\\d{1,2})${ORD}(?:\\s+(20\\d{2}))?\\b`, 'g');
-  for (const m of raw.matchAll(dayRe)) {
+  for (const m of raw.matchAll(DAY_RE)) {
     const day = m[1] ?? m[5]; const name = m[2] ?? m[4]; const year = m[3] ?? m[6];
     found.add(`as at ${Number(day)} ${name![0]!.toUpperCase()}${name!.slice(1)}${year ? ` ${year}` : ''}`);
   }
-  q = q.replace(dayRe, ' ');
+  q = q.replace(DAY_RE, ' ');
+  const fy = FY.exec(q);
+  if (fy) { found.add(`for FY${fy[1] ?? fy[2] ?? fy[3]}`); q = q.replace(FY, ' '); }
   for (const [re, phrase] of [[/\blast\s+month\b/, 'last month'], [/\bthis\s+month\b/, 'this month'],
     [/\b(last|previous|prior)\s+(financial\s+|fiscal\s+)?year\b/, 'last year'],
     [/\b(this|current)\s+(financial\s+|fiscal\s+)?year\b|\byear\s+to\s+date\b|\bytd\b/, 'this year']] as const) {
@@ -230,9 +247,18 @@ export function parseQuestion(question: string): ParsedQuestion {
   if (vatBasis && (id === 'revenue' || id === 'expenses' || id === 'profit')) return { kind: 'unsupported', id, said: 'figures including or excluding VAT' };
   if (TAX_BASIS.test(q)) return { kind: 'unsupported', id, said: 'figures before or after tax' };
   const windows = windowPhrases(q);
+  const statement = id === 'profit' || id === 'revenue' || id === 'expenses';
+  // A statement covers a month or a financial year: a single day or a day range is not one, and "as at" is never offered for it.
+  if (statement && windows.some((w) => w.startsWith('as at'))) return { kind: 'unsupported', id, said: 'a single day or a date range' };
   if (windows.length > 1) return { kind: 'periods', id, examples: windows.map((w) => `${STEMS[id]} ${w}?`) };
   if (COMPARISON.test(q)) return { kind: 'unsupported', id, said: 'comparisons' };
-  return { kind: 'intent', intent: { id, period: parsePeriod(q), qualifier } };
+  const period = parsePeriod(q);
+  // Every remaining content word is something we did not understand: refuse rather than answer the plain figure without it.
+  if (period?.kind !== 'unsupported') {
+    const words = leftoverWords(q.replace(DAY_RE, ' ').replace(/\s+/g, ' ').trim());
+    if (words.length > 0) return { kind: 'leftover', id, words };
+  }
+  return { kind: 'intent', intent: { id, period, qualifier } };
 }
 
 /**

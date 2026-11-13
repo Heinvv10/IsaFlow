@@ -10,6 +10,15 @@ describe('askRowPlacement: auxiliary-verb openers', () => {
   });
 });
 
+describe('askRowPlacement: anything the parser has a reply for gets a row', () => {
+  it.each(['profit since june', 'profit by customer', 'profit this year vs last year', 'revenue and expenses', 'who owes me more than 2000', 'profit fy2026'])('%s gets a row', (q) => {
+    expect(askRowPlacement(q)).not.toBeNull();
+  });
+  it.each(['since june', 'do not', 'is it', 'can we'])('%s: nothing understood and no question shape, no row', (q) => {
+    expect(askRowPlacement(q)).toBeNull();
+  });
+});
+
 describe('askRowPlacement', () => {
   it.each(['who owes me money', 'what was profit last month', 'How much cash do I have?', 'is my vat due', 'how many bank transactions need allocating', 'what is the weather', 'cash in the bank?'])('%s: a question, its row first', (q) => {
     expect(askRowPlacement(q)).toBe('first');

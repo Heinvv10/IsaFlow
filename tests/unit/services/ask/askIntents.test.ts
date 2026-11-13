@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { parseQuestion, parsePeriod, INTENT_EXAMPLES, type AskIntentId, type ParsedQuestion } from '@/modules/accounting/services/ask/askIntents';
-import { resolveWindow, resolveAsAt, monthOf } from '@/modules/accounting/services/ask/askPeriod';
+import { resolveWindow, resolveAsAt, monthOf, missingDayNote } from '@/modules/accounting/services/ask/askPeriod';
 
-const idOf = (p: ParsedQuestion): string => (p.kind === 'intent' ? p.intent.id : p.kind === 'ambiguous' ? `ambiguous:${[...p.ids].sort().join('+')}` : p.kind === 'unsupported' ? `unsupported:${p.id}` : p.kind === 'periods' ? `periods:${p.id}` : 'none');
+const idOf = (p: ParsedQuestion): string => (p.kind === 'intent' ? p.intent.id : p.kind === 'ambiguous' ? `ambiguous:${[...p.ids].sort().join('+')}` : p.kind === 'unsupported' ? `unsupported:${p.id}` : p.kind === 'periods' ? `periods:${p.id}` : p.kind === 'leftover' ? `leftover:${p.id}` : 'none');
 
 describe('parseQuestion', () => {
   it.each(INTENT_EXAMPLES.map((i) => [i.id, i.example]))('%s understands its own example', (id, example) => {
@@ -94,7 +94,7 @@ describe('parsePeriod', () => {
     for (const q of ['who owes me more than 2000', 'who owes me over 2020', 'invoices under 1999', 'who owes me above 2005 rand']) expect(parsePeriod(q), q).toBeNull();
     expect(parsePeriod('profit in 2025')).toEqual({ kind: 'unsupported', said: '2025' });
     expect(parsePeriod('profit 2025')).toEqual({ kind: 'unsupported', said: '2025' });
-    expect(parsePeriod('profit for fy 2025')).toEqual({ kind: 'unsupported', said: '2025' });
+    expect(parsePeriod('profit for fy 2025')).toEqual({ kind: 'fy', year: 2025 });
   });
   it('names a window it cannot honour instead of dropping it', () => {
     expect(parsePeriod('profit for 2025')).toEqual({ kind: 'unsupported', said: '2025' });
@@ -172,6 +172,54 @@ describe('two exact days are two windows', () => {
   });
 });
 
+describe('every content word is accounted for, or the question is refused', () => {
+  it.each([
+    ['profit by customer', 'leftover:profit'], ['revenue from acme', 'leftover:revenue'], ['expenses for rent', 'leftover:expenses'],
+    ['top 5 customers who owe me', 'leftover:owed_to_me'], ['profit mid october', 'leftover:profit'], ['revenue for the period ending october', 'leftover:revenue'],
+    ['who owes me money in cape town', 'leftover:owed_to_me'], ['cash in the bank at fnb', 'leftover:cash'], ['expenses on fuel', 'leftover:expenses'],
+  ])('%s -> %s', (q, expected) => expect(idOf(parseQuestion(q))).toBe(expected));
+
+  it('names the leftover words', () => {
+    const p = parseQuestion('revenue from acme');
+    expect(p.kind === 'leftover' && p.words).toEqual(['from', 'acme']);
+  });
+  it('every phrasing that answers still answers (the whole collision vocabulary)', () => {
+    for (const q of ['What VAT is on my sales this month?', 'output VAT on sales', 'PAYE cost last month', 'What did payroll cost last month?', 'How much cash, roughly, is in the bank?',
+      'show debtors', 'customers owing me', 'what is the bank balance', 'net profit year to date', 'how much vat is due', 'emp201 for last month', 'what is my net income',
+      'how much did I spend last month', 'turnover this year', 'profit and loss', 'VAT on my sales and purchases', 'who owes me money as at 15 october',
+      'total assets as at 3 march 2026', 'what vat do I owe for october 2025', 'please show me my total liabilities', 'what is my gross profit this month', 'cost of sales last month']) {
+      expect(['intent', 'ambiguous'], q).toContain(parseQuestion(q).kind);
+    }
+  });
+  it('a refinement we refuse for another reason is not reported as leftover words', () => {
+    expect(idOf(parseQuestion('profit in q3 by customer'))).toBe('profit');
+  });
+});
+
+describe('month abbreviations and financial years', () => {
+  it('abbreviated months read as the month', () => {
+    for (const [q, month] of [['vat for oct', 10], ['profit in sept', 9], ['emp201 for jan 2026', 1], ['profit dec', 12], ['revenue for feb', 2]] as const) {
+      const p = parseQuestion(q);
+      expect(p.kind === 'intent' && p.intent.period, q).toMatchObject({ kind: 'month', month });
+    }
+  });
+  it.each(['profit fy2026', 'profit FY 2026', 'profit financial year 2026', 'profit 2026 financial year', 'revenue for the 2026 fiscal year'])('%s is financial year 2026', (q) => {
+    const p = parseQuestion(q);
+    expect(p.kind === 'intent' && p.intent.period).toEqual({ kind: 'fy', year: 2026 });
+  });
+});
+
+describe('a day range on a statement is refused, never offered as "as at"', () => {
+  it('profit for 1 october to 31 october', () => {
+    const p = parseQuestion('what is my profit from 1 october to 31 october');
+    expect(p.kind === 'unsupported' && p.said).toBe('a single day or a date range');
+  });
+  it('a position still gets "as at" examples for two days', () => {
+    const p = parseQuestion('total assets as at 1 october and 31 october');
+    expect(p.kind === 'periods' && p.examples[0]).toContain('as at 1 October');
+  });
+});
+
 describe('exact days', () => {
   it('reads a day with its month (and year)', () => {
     expect(parsePeriod('as at 15 october')).toEqual({ kind: 'day', day: 15, month: 10, year: null });
@@ -198,11 +246,19 @@ describe('qualifiers', () => {
 });
 
 describe('askPeriod days', () => {
-  it('a day that does not exist in the year it lands in is refused (29 February)', () => {
-    expect(resolveAsAt({ kind: 'day', day: 29, month: 2, year: null }, '2026-11-13')?.date).toBe('2024-02-29'); // latest real 29 Feb not after today
+  it('a yearless day is the latest occurrence not after today (within 12 months); one not on that year\'s calendar is refused, never read as another year', () => {
+    expect(resolveAsAt({ kind: 'day', day: 29, month: 2, year: null }, '2026-11-13')).toBeNull(); // 2026-02-29 does not exist
+    expect(resolveAsAt({ kind: 'day', day: 29, month: 2, year: null }, '2028-11-13')?.date).toBe('2028-02-29');
+    expect(resolveAsAt({ kind: 'day', day: 29, month: 2, year: null }, '2028-01-10')).toBeNull(); // latest is 2027-02-29: not a day
     expect(resolveAsAt({ kind: 'day', day: 29, month: 2, year: 2026 }, '2026-11-13')).toBeNull();
     expect(resolveAsAt({ kind: 'day', day: 29, month: 2, year: 2028 }, '2028-11-13')?.date).toBe('2028-02-29');
     expect(resolveAsAt({ kind: 'day', day: 30, month: 2, year: null }, '2026-11-13')).toBeNull();
+    expect(resolveAsAt({ kind: 'day', day: 15, month: 12, year: null }, '2026-11-13')?.date).toBe('2025-12-15');
+  });
+  it('the refusal names the day and the year and asks for the year', () => {
+    expect(missingDayNote({ kind: 'day', day: 29, month: 2, year: null }, '2026-11-13')).toBe("29 February 2026 doesn't exist. Name the year you mean.");
+    expect(missingDayNote({ kind: 'day', day: 15, month: 10, year: null }, '2026-11-13')).toBeNull();
+    expect(missingDayNote({ kind: 'month', month: 2, year: null }, '2026-11-13')).toBeNull();
   });
   it('as-at honours the exact day; a day without a year is the latest one not after today; the future is refused', () => {
     expect(resolveAsAt({ kind: 'day', day: 15, month: 10, year: null }, '2026-11-13')?.date).toBe('2026-10-15');

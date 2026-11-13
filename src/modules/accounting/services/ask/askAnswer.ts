@@ -23,6 +23,9 @@ export async function answerQuestion(companyId: string, question: string, today:
   if (parsed.kind === 'periods') {
     return { understood: false, text: 'I can answer one period at a time. Which did you mean?', figure: null, lines: [], link: null, suggestions: parsed.examples };
   }
+  if (parsed.kind === 'leftover') {
+    return { understood: false, text: `I can't take "${parsed.words.join(' ')}" into account yet. Here is the plain question:`, figure: null, lines: [], link: null, suggestions: [exampleFor(parsed.id)] };
+  }
   if (parsed.kind === 'unsupported') {
     return { understood: false, text: `I can't answer ${parsed.said} yet. I can give the plain figure:`, figure: null, lines: [], link: null, suggestions: [exampleFor(parsed.id)] };
   }
