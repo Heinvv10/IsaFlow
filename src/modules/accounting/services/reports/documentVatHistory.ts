@@ -33,7 +33,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { MissingSystemAccountError } from '../gl/systemAccountKeys';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import {
-  MATCH_LIMIT, readChainLines, readDocument, readNarrationMatches, readPeriodStart, readTiedRoots,
+  MATCH_LIMIT, readChainLines, readDocument, readNarrationMatches, readPeriodStart, readTiedRoots, readVatSideAccountIds,
   type DocumentVatEntityType, type RootJournal,
 } from './documentVatHistoryQuery';
 import {
@@ -95,7 +95,11 @@ export async function getDocumentVatHistory(
   if (!doc) return null;
   const tied = await readTiedRoots(companyId, entityType, doc);
   const tiedRows = await readChainLines(companyId, tied);
-  const vatAccountIds = documentVatAccountIds(tiedRows);
+  const direction = documentDirection(entityType, doc.noteType);
+  const ownVatAccountIds = documentVatAccountIds(tiedRows);
+  // Input VAT for a bill and a supplier note, output VAT for an invoice and a customer note.
+  const side = (entityType === 'supplier_invoice') || (entityType === 'credit_note' && doc.noteType === 'supplier') ? 'input' : 'output';
+  const vatAccountIds = ownVatAccountIds.length > 0 ? await readVatSideAccountIds(companyId, side, ownVatAccountIds) : [];
   const postingDates = tiedRows.filter((r) => r.root_tie === 'posting')
     .map((r) => fmtDate(r.entry_date));
   const earliest = [doc.documentDate, ...postingDates].filter(Boolean).sort()[0] ?? doc.documentDate;
@@ -115,7 +119,7 @@ export async function getDocumentVatHistory(
   const kept: RootJournal[] = matched.slice(0, MATCH_LIMIT)
     .map(({ journalId, tie, matchedIn }) => ({ journalId, tie, via: null, matchedIn }));
   const rows = [...tiedRows, ...await readChainLines(companyId, kept)];
-  const { lines, totals, matches } = summariseVatLines(rows, documentDirection(entityType, doc.noteType), await roleAccountIds(companyId));
+  const { lines, totals, matches } = summariseVatLines(rows, direction, await roleAccountIds(companyId), new Set(vatAccountIds));
 
   const notes: string[] = [];
   if (doc.status === 'cancelled' && !doc.postingJournalId && entityType !== 'credit_note') {

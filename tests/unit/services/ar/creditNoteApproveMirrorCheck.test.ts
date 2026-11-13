@@ -36,7 +36,7 @@ describe('approveCreditNote: the mirror_bill re-check', () => {
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID).catch(() => 'later steps are not this suite\'s');
     expect(assertMirroredNoteVatStands).toHaveBeenCalledWith(COMPANY_ID, {
       id: CN_ID, number: expect.any(String), type: 'supplier', subtotal: 500, taxAmount: 75, billId: BILL, vatBasis: 'mirror_bill',
-      createdAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
+      createdAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), ackMatches: null,
     });
     expect(order).toEqual(['recheck']);
     expect(vi.mocked(assertMirroredNoteVatStands).mock.invocationCallOrder[0]!)

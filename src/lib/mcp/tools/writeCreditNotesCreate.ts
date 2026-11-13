@@ -204,6 +204,7 @@ export const createCreditNoteTool: McpTool = {
         subtotal,
         taxRate: mirrored ? mirrored.taxRate : taxRate,
         ...(mirrored ? { taxAmount: mirrored.taxAmount, vatBasis: mirrored.basis } : {}),
+        ...(mirrored?.basis === 'mirror_bill_ack' ? { vatAckMatches: mirrored.ackMatches } : {}),
         glAccountId,
       },
       ctx.userId,

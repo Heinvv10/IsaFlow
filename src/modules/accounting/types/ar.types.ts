@@ -137,6 +137,8 @@ export interface CreditNoteCreateInput {
    * 'rate'. The REST routes never forward it.
    */
   vatBasis?: 'rate' | 'mirror_bill' | 'mirror_bill_ack';
+  /** Migration 988, 'mirror_bill_ack' only: the heuristic matches the caller acknowledged. */
+  vatAckMatches?: { journal_entry_id: string; vat_amount: number }[];
 }
 
 // ── Customer Write-Offs ──────────────────────────────────────────────────────

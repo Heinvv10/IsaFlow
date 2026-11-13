@@ -95,7 +95,10 @@ describe('planMirroredNote — refusals', () => {
 
   it('a heuristic never writes: acknowledged needs vat_amount; with it, the stated amount is what the note carries', () => {
     expect(planMirroredNote(siv3762(), 1739.13, ack(null)).ok).toBe(false);
-    expect(planMirroredNote(siv3762(), 1739.13, ack(0))).toMatchObject({ ok: true, plan: { taxAmount: 0, basis: 'mirror_bill_ack' } });
+    expect(planMirroredNote(siv3762(), 1739.13, ack(0))).toMatchObject({ ok: true, plan: { taxAmount: 0, basis: 'mirror_bill_ack',
+      ackMatches: [{ journal_entry_id: 'm-0', vat_amount: -260.87 }] } });
+    // A plain mirror stores no acknowledged set.
+    expect(planMirroredNote(history({}), 1000, NO_ACK)).toMatchObject({ ok: true, plan: { ackMatches: [] } });
   });
 
   it('an acknowledged vat_amount above the derivable VAT on this share is refused', () => {

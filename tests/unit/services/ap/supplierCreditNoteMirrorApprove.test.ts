@@ -28,6 +28,7 @@ function bill(derivable = 150, heuristic = 0, base = 1000, matchWritten = '2026-
     heuristic: { searched: true, truncated: false, limit: 100, matches },
   } as unknown as DocumentVatHistory;
 }
+const ACKED = [{ journal_entry_id: 'jm', vat_amount: -75 }];
 const note = (over: Record<string, unknown> = {}) => ({
   id: 'n1', number: 'CN-1', type: 'supplier', billId: 'b1', subtotal: 500, taxAmount: 75, vatBasis: 'mirror_bill',
   createdAt: '2026-06-01T10:00:00.000Z', ...over,
@@ -62,15 +63,23 @@ describe('judgeMirroredApproval', () => {
   });
 
   it('an acknowledged note is refused when a journal moving the bill\'s VAT was WRITTEN after it (review round 2, R2-3)', () => {
-    const ack = note({ vatBasis: 'mirror_bill_ack', taxAmount: 0 });
+    const ack = note({ vatBasis: 'mirror_bill_ack', taxAmount: 0, ackMatches: ACKED });
     expect(judgeMirroredApproval(bill(150, -75, 1000, '2026-06-01T09:00:00.000Z'), ack)).toBeNull();
     expect(judgeMirroredApproval(bill(150, -75, 1000, '2026-06-01T11:00:00.000Z'), ack))
       .toMatch(/were written after the acknowledgement \(JE-9 \[manual\] narration_match -75\)/);
   });
 
   it('an acknowledged note is judged on its stated amount against the derivable VAT only', () => {
-    expect(judgeMirroredApproval(bill(150, -75), note({ vatBasis: 'mirror_bill_ack', taxAmount: 0 }))).toBeNull();
-    expect(judgeMirroredApproval(bill(150, -75), note({ vatBasis: 'mirror_bill_ack', taxAmount: 75.02 }))).toMatch(/more than the/);
+    expect(judgeMirroredApproval(bill(150, -75), note({ vatBasis: 'mirror_bill_ack', taxAmount: 0, ackMatches: ACKED }))).toBeNull();
+    expect(judgeMirroredApproval(bill(150, -75), note({ vatBasis: 'mirror_bill_ack', taxAmount: 75.02, ackMatches: ACKED }))).toMatch(/more than the/);
+  });
+
+  it('an acknowledged note is refused when a VAT-moving match is not in the acknowledged set, or moves a different amount (R4-1)', () => {
+    const ack = (ackMatches: unknown) => note({ vatBasis: 'mirror_bill_ack', taxAmount: 0, ackMatches });
+    expect(judgeMirroredApproval(bill(150, -75), ack([]))).toMatch(/move its VAT differently from what was acknowledged \(JE-9 \[manual\]/);
+    expect(judgeMirroredApproval(bill(150, -75), ack(null))).toMatch(/differently from what was acknowledged/);
+    expect(judgeMirroredApproval(bill(150, -75), ack([{ journal_entry_id: 'jm', vat_amount: -70 }]))).toMatch(/differently from what was acknowledged/);
+    expect(judgeMirroredApproval(bill(150, -75), ack(ACKED))).toBeNull();
   });
 
   it('other open drafts do NOT block this approval (the first approved wins)', () => {

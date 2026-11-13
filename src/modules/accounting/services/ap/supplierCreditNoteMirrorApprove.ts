@@ -31,6 +31,11 @@ import { NO_ACK, planMirroredNote } from './supplierCreditNoteMirror';
 export const VAT_TOLERANCE = 0.01;
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 /** ISO timestamp of a pg timestamptz (Date) or string; the epoch when absent, so nothing reads as written after it. */
+/** The stored acknowledged-match list (JSONB: pg returns it parsed), or null. */
+export function ackMatchesOf(v: unknown): MirroredNoteState['ackMatches'] {
+  if (!Array.isArray(v)) return null;
+  return v.map((m: { journal_entry_id?: unknown; vat_amount?: unknown }) => ({ journal_entry_id: String(m.journal_entry_id), vat_amount: Number(m.vat_amount) }));
+}
 export const isoOf = (v: unknown): string => (v instanceof Date ? v.toISOString() : v ? new Date(String(v)).toISOString() : new Date(0).toISOString());
 
 export class MirroredNoteVatRefusal extends Error {
@@ -45,6 +50,8 @@ export interface MirroredNoteState {
   id: string;
   /** When the note was written: an acknowledgement covers only journals written before it. */
   createdAt: string;
+  /** 'mirror_bill_ack': the matches acknowledged at create (migration 988), else null. */
+  ackMatches?: { journal_entry_id: string; vat_amount: number }[] | null;
   number: string;
   type: string;
   billId: string | null;
@@ -67,6 +74,15 @@ export function judgeMirroredApproval(h: DocumentVatHistory, note: MirroredNoteS
   const head = `VAT_ALREADY_REVERSED: credit note ${note.number} was raised with mirror_bill on bill ${h.document_number}, which has changed since. `;
   if (!d.ok) return `${head}${d.reason.replace(/^VAT_ALREADY_REVERSED: /, '')} ${REMEDY}`;
   if (acknowledged) {
+    // In place (review round 4, R4-1): an account merge or a VAT-code edit can bring a journal into the match set, or
+    // change what a known one moves, without touching any timestamp — so the acknowledged set itself is compared.
+    const known = new Map((note.ackMatches ?? []).map((m) => [m.journal_entry_id, Number(m.vat_amount)]));
+    const unacknowledged = h.heuristic.matches.filter((m) => Math.abs(m.vat_amount) > 0.01
+      && (!known.has(m.journal_entry_id) || Math.abs(known.get(m.journal_entry_id)! - m.vat_amount) > 0.01));
+    if (unacknowledged.length > 0) {
+      const named = unacknowledged.map((m) => `${m.entry_number ?? m.journal_entry_id} [${m.source ?? 'no source'}] ${m.tie} ${m.vat_amount}`).join('; ');
+      return `${head}Journals naming the bill now move its VAT differently from what was acknowledged (${named}). ${REMEDY}`;
+    }
     const since = h.heuristic.matches.filter((m) => Math.abs(m.vat_amount) > 0.01 && m.last_written_at > note.createdAt);
     if (since.length > 0) {
       const named = since.map((m) => `${m.entry_number ?? m.journal_entry_id} [${m.source ?? 'no source'}] ${m.tie} ${m.vat_amount}`).join('; ');
@@ -94,13 +110,14 @@ export async function assertMirroredNoteVatStands(companyId: string, note: Mirro
 /** The notes of a batch, keyed by id (company-scoped). */
 export async function readMirrorStates(companyId: string, ids: readonly string[]): Promise<Map<string, MirroredNoteState>> {
   const rows = (await sql`
-    SELECT id, credit_note_number, type, supplier_invoice_id, subtotal, tax_amount, vat_basis, created_at FROM credit_notes
+    SELECT id, credit_note_number, type, supplier_invoice_id, subtotal, tax_amount, vat_basis, created_at, vat_ack_matches FROM credit_notes
     WHERE company_id = ${companyId}::UUID AND id = ANY(${[...ids]}::UUID[])`) as DbRow[];
   return new Map(rows.map((r) => [String(r.id), {
     id: String(r.id), number: String(r.credit_note_number ?? r.id), type: String(r.type),
     billId: r.supplier_invoice_id == null ? null : String(r.supplier_invoice_id),
     subtotal: Number(r.subtotal ?? 0), taxAmount: Number(r.tax_amount ?? 0), vatBasis: String(r.vat_basis ?? 'rate'),
     createdAt: isoOf(r.created_at),
+    ackMatches: ackMatchesOf(r.vat_ack_matches),
   }]));
 }
 

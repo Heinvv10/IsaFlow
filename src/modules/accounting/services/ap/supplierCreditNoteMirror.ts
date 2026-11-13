@@ -56,6 +56,8 @@ export interface MirrorPlan {
   suggestedVatAmount: number;
   heuristicSearched: boolean;
   adjustingJournals: AdjustingJournal[];
+  /** 'mirror_bill_ack' only: the VAT-moving heuristic matches acknowledged, stored on the note (migration 988). */
+  ackMatches: { journal_entry_id: string; vat_amount: number }[];
 }
 
 /** A live note on the bill that has not posted yet (a draft): it will take its subtotal and VAT when approved. */
@@ -117,6 +119,7 @@ export function planMirroredNote(
     taxAmount, basis, taxRate: rateOf(taxAmount), billVatRateNow: r2(Math.max(0, vatNow) / baseNow * 100),
     vatNetNow: vatNow, netBaseNow: baseNow, vatOutOfProportion: outOfProportion, vatHeuristic, suggestedVatAmount: suggested,
     heuristicSearched: h.heuristic.searched, adjustingJournals,
+    ackMatches: basis === 'mirror_bill_ack' ? moved.map((m) => ({ journal_entry_id: m.journal_entry_id, vat_amount: m.vat_amount })) : [],
   });
   if (ack.acknowledged && ack.vatAmount !== null) {
     if (ack.vatAmount > derivableTax + 0.01) {

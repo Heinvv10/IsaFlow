@@ -16,7 +16,7 @@
  *     back-dated before it), of ANY source, that are not the posting journal of
  *     a supplier invoice, customer invoice or credit note (their reversals and
  *     companions are never roots either), that carry a line on one of the
- *     document's OWN VAT accounts, and whose reference / narration / a line
+ *     accounts of the document's VAT SIDE (readVatSideAccountIds), and whose reference / narration / a line
  *     narration names one of its numbers as a whole token. MATCH_LIMIT + 1 at
  *     most. Every filter but the regex runs first; the regex reads only the
  *     survivors and their lines. No source is trusted (round 3): a supplier
@@ -123,6 +123,26 @@ export async function readDocument(
     postingJournalId: str(r.gl_journal_entry_id), status: String(r.status ?? ''), documentDate: fmtDate(r.doc_date),
     noteType: str(r.note_type),
   };
+}
+
+/** The VAT control subtypes of each side (review round 4, R4-2): input VAT includes the s16(3) clearing account. */
+export const VAT_SIDE_SUBTYPES = {
+  input: ['vat_input', LATE_CLAIM_CLEARING_SUBTYPE],
+  output: ['vat_output'],
+} as const;
+
+/**
+ * Every account on the document's VAT SIDE: this company's accounts of that side's control subtypes, plus the
+ * document's own VAT accounts (a VAT-coded account with no VAT subtype, such as a "VAT Payable" a bill posted to).
+ * A hand reversal on a second input-VAT account ("Input VAT branch") is the same VAT201 input box, so it is searched.
+ */
+export async function readVatSideAccountIds(
+  companyId: string, side: keyof typeof VAT_SIDE_SUBTYPES, ownAccountIds: readonly string[],
+): Promise<string[]> {
+  const rows = (await sql`
+    SELECT id FROM gl_accounts
+    WHERE company_id = ${companyId}::UUID AND account_subtype = ANY(${[...VAT_SIDE_SUBTYPES[side]] as string[]}::TEXT[])`) as DbRow[];
+  return [...new Set([...rows.map((r) => String(r.id)), ...ownAccountIds])];
 }
 
 /** The start of the fiscal period holding `date` (this company's), or null when none does. */

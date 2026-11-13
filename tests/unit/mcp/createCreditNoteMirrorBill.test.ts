@@ -18,6 +18,7 @@ const base = { type: 'supplier', supplier_id: SUPPLIER, supplier_invoice_id: SUP
 const plan: MirrorPlan = {
   taxAmount: 0, basis: 'mirror_bill_ack', taxRate: 0, billVatRateNow: 15, vatNetNow: 260.87, netBaseNow: 1739.13,
   vatOutOfProportion: 0, vatHeuristic: -260.87, suggestedVatAmount: 0, heuristicSearched: true,
+  ackMatches: [{ journal_entry_id: 'je-26788', vat_amount: -260.87 }],
   adjustingJournals: [{ entry_number: 'JE-2026-26788', tie: 'narration_match', vat_amount: -260.87 }],
 };
 const NO = { acknowledged: false, vatAmount: null };
@@ -58,7 +59,8 @@ describe('create_credit_note mirror_bill — the plan', () => {
     vi.mocked(planMirroredSupplierNote).mockResolvedValue({ ok: true, plan });
     const r = parseOk(await createCreditNoteTool.handler({ ...base, mirror_bill: true, acknowledge_vat_already_reversed: true, vat_amount: 0 }, ctx()));
     expect(planMirroredSupplierNote).toHaveBeenCalledWith(COMPANY, SUPP_INV, 1000, { acknowledged: true, vatAmount: 0 });
-    expect(createCreditNote).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ taxRate: 0, taxAmount: 0, subtotal: 1000, vatBasis: 'mirror_bill_ack' }),
+    expect(createCreditNote).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ taxRate: 0, taxAmount: 0, subtotal: 1000, vatBasis: 'mirror_bill_ack',
+      vatAckMatches: [{ journal_entry_id: 'je-26788', vat_amount: -260.87 }] }),
       expect.any(String), expect.anything());
     expect(vi.mocked(findOpenDuplicateDraft).mock.calls[0]![2]).toBe(1000);
     expect(r.mirror).toMatchObject({ acknowledged_vat_already_reversed: true, vat_basis: 'mirror_bill_ack', vat_heuristic: -260.87, heuristic_search: 'ran' });
@@ -70,6 +72,7 @@ describe('create_credit_note mirror_bill — the plan', () => {
     await createCreditNoteTool.handler({ ...base, mirror_bill: true }, ctx());
     expect(createCreditNote).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ taxRate: 5, taxAmount: 50, vatBasis: 'mirror_bill' }),
       expect.any(String), expect.anything());
+    expect(vi.mocked(createCreditNote).mock.calls[0]![1]).not.toHaveProperty('vatAckMatches');
     expect(vi.mocked(findOpenDuplicateDraft).mock.calls[0]![2]).toBe(1050);
   });
 

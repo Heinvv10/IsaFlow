@@ -118,8 +118,12 @@ export function documentVatAccountIds(rows: readonly JournalLineRow[]): string[]
  * Pure: the lines and totals from the journal rows (each journal counted once, under its strongest tie).
  * `roleAccountIds`: the payable / receivable / VAT system accounts, as 892 reads them.
  */
-export function summariseVatLines(rows: readonly JournalLineRow[], direction: 1 | -1, roleAccountIds: ReadonlySet<string>) {
-  const ownVat = new Set(documentVatAccountIds(rows));
+export function summariseVatLines(
+  rows: readonly JournalLineRow[], direction: 1 | -1, roleAccountIds: ReadonlySet<string>,
+  /** The document's VAT-side accounts (readVatSideAccountIds); default: its own VAT accounts. */
+  sideAccountIds?: ReadonlySet<string>,
+) {
+  const ownVat = sideAccountIds ?? new Set(documentVatAccountIds(rows));
   const tieOf = new Map<string, JournalLineRow>();
   for (const r of rows) {
     const seen = tieOf.get(r.journal_entry_id);
@@ -145,7 +149,7 @@ export function summariseVatLines(rows: readonly JournalLineRow[], direction: 1 
     const head = tieOf.get(journalId)!;
     const derivable = DERIVABLE_TIES.has(head.root_tie);
     const signed = (r: JournalLineRow) => direction * (Number(r.debit) - Number(r.credit));
-    // A heuristic match counts only its lines on the document's own VAT accounts (A2).
+    // A heuristic match counts only its lines on the document's VAT side (A2; R4-2: every account of that side).
     const vatLines = jl.filter((r) => r.is_vat === true && (derivable || ownVat.has(String(r.gl_account_id))));
     const base = derivable
       ? r2(jl.filter((r) => r.is_vat !== true && isBillExpenseLeg(r, roleAccountIds)).reduce((s, r) => s + signed(r), 0))
