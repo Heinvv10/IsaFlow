@@ -17,9 +17,8 @@ vi.mock('@/components/admin/AdminLayout', () => ({ AdminLayout: ({ children }: {
 vi.mock('@/components/admin/StatsCard', () => ({ StatsCard: () => null }));
 vi.mock('@/components/admin/charts/TrafficTimeseriesChart', () => ({ TrafficTimeseriesChart: () => null }));
 vi.mock('@/components/accounting/dashboard/OverviewTables', () => ({ OverviewTables: () => null }));
-vi.mock('@/components/accounting/dashboard/TodoWidget', () => ({ TodoWidget: () => null }));
 vi.mock('@/components/accounting/dashboard/ModuleSetupChecklist', () => ({ ModuleSetupChecklist: () => null }));
-vi.mock('@/components/accounting/dashboard/WorkbenchSection', () => ({ WorkbenchSection: () => null }));
+vi.mock('@/components/accounting/dashboard/NeedsAttention', () => ({ NeedsAttention: () => null }));
 vi.mock('@/components/accounting/banking/NoBankAccountWarning', () => ({ NoBankAccountWarning: () => null }));
 const company = vi.hoisted(() => ({ activeCompany: { id: 'co-1' } })); // stable: a fresh object per render refetches forever
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => company }));
@@ -69,7 +68,7 @@ describe('web analytics website list', () => {
 });
 
 describe('accounting dashboard KPIs', () => {
-  const go = (kind: Kind) => { serveRoutes([['/api/accounting/kpi-dashboard', () => respond(kind, { kpis, hasBankAccount: true, headline: { asAt: '2026-11-12', monthStart: '2026-11-01', cash: 0, receivables: { total: 0, overdue: 0 }, payables: { total: 0, overdue: 0 }, revenueMtd: 0, profitMtd: 0, draftInvoices: 0, draftBills: 0, draftJournals: 0, billsDueNext7Days: 0, billsOverdue: 0 }, period: { from: '2025-10-01', to: '2026-11-12' } })]]); render(<OverviewTab />); };
+  const go = (kind: Kind) => { serveRoutes([['/api/accounting/kpi-dashboard', () => respond(kind, { kpis, hasBankAccount: true, headline: { asAt: '2026-11-12', monthStart: '2026-11-01', cash: 7654321, receivables: { total: 0, overdue: 0 }, payables: { total: 0, overdue: 0 }, revenueMtd: 0, profitMtd: 0, draftInvoices: 0, draftBills: 0, draftJournals: 0, billsDueNext7Days: 0, billsOverdue: 0 }, period: { from: '2025-10-01', to: '2026-11-12' } })]]); render(<OverviewTab />); };
   it('shows the server message on a 400', async () => { go('bad'); expect(await screen.findByText(new RegExp(MSG))).toBeTruthy(); });
   it('shows a plain sentence on an empty 500', async () => { go('empty500'); await plain(/could not load the dashboard figures/i)(); });
   it('renders the figures on a 200', async () => { go('ok'); expect(await screen.findByText(formatMoney(7654321).replace(/\s/g, ' '))).toBeTruthy(); });

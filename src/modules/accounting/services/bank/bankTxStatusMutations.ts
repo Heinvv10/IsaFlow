@@ -24,7 +24,7 @@ import {
   withBankLockBudget,
 } from './bankTxLock';
 import { openStampOnly, refuseCompletedSession, shareLockSession } from './reconciliationSessionLock';
-import { refuseLineOfCompletedReconciliation } from './reconciledCash';
+import { refuseLineOfCompletedReconciliation, SageReconciledLineError } from './reconciledCash';
 import { assertFeedPosted } from './bankFeedStateGuard';
 import { journalReversalState } from './journalReversalState';
 import { refuseResettingProvisionalLine, type ProvisionalLineVerb } from './provisionalLineGuard';
@@ -36,15 +36,21 @@ export { BankLineChangedError, BankMatchTargetError, BankTransactionAllocatedErr
 
 type Row = DbRow;
 
+/** A Sage-reconciled line's refusal is expected (a 4xx), so it stays out of the error tracker; the rest are faults. */
+function logStatusWriteFailure(message: string, data: Record<string, unknown> & { error: unknown }): void {
+  if (data.error instanceof SageReconciledLineError) log.info(message, data, 'accounting');
+  else log.error(message, data, 'accounting');
+}
+
 /**
  * The one status that means "an allocation posted a journal for this row".
  *
  * `reconciled` is deliberately NOT here. A reconciled row got there through
  * `matchTransaction` (bankReconciliationService only ever promotes rows whose
  * status is already `matched`), so its journal was written by something else
- * and pre-dates the link — unmatching it orphans nothing. The bank table still
- * offers Undo on reconciled rows, so refusing them would be a live 400 on a
- * button the UI shows.
+ * and pre-dates the link — unmatching it orphans nothing. (Mig 980: the bank
+ * table no longer offers Undo on a reconciled row; a completed session's line is
+ * refused by the shared 409 and a Sage-reconciled one in lockForStatusWrite.)
  */
 const POSTED_STATUS = 'allocated';
 
@@ -65,6 +71,11 @@ async function lockForStatusWrite(
   assertFeedPosted(row, verb);
   // D12: a line IN a completed reconciliation (the shared rule; its session was locked with the row) — 409.
   await refuseLineOfCompletedReconciliation(companyId, row);
+  // Hein 2026-11-12: a line reconciled in the Sage import has no session to reopen; it stays as reconciled.
+  if (row.status === 'reconciled' && !row.reconciliation_id) {
+    throw new SageReconciledLineError('This line was reconciled in the Sage import, so it cannot be matched, unmatched or '
+      + 'excluded in the app. Correct it with a journal, or contact support.');
+  }
   await refuseResettingProvisionalLine(companyId, row, verb); // D10 O9: a provisional's own line, X standing
   const status = String(row.status ?? '');
   if (status === POSTED_STATUS && row.matched_journal_line_id) {
@@ -229,7 +240,7 @@ export async function matchTransaction(
     log.info('Matched bank transaction', { bankTxId, journalLineId }, 'accounting');
     return mapTxRow(rows[0]!);
   } catch (err) {
-    log.error('Failed to match bank transaction', { bankTxId, error: err }, 'accounting');
+    logStatusWriteFailure('Failed to match bank transaction', { bankTxId, error: err });
     throw err;
   }
 }
@@ -250,7 +261,7 @@ export async function unmatchTransaction(
     log.info('Unmatched bank transaction', { bankTxId }, 'accounting');
     return mapTxRow(rows[0]!);
   } catch (err) {
-    log.error('Failed to unmatch bank transaction', { bankTxId, error: err }, 'accounting');
+    logStatusWriteFailure('Failed to unmatch bank transaction', { bankTxId, error: err });
     throw err;
   }
 }
@@ -269,7 +280,7 @@ export async function excludeTransaction(
     log.info('Excluded bank transaction', { bankTxId, reason }, 'accounting');
     return { ...mapTxRow(rows[0]!), priorStatus };
   } catch (err) {
-    log.error('Failed to exclude bank transaction', { bankTxId, error: err }, 'accounting');
+    logStatusWriteFailure('Failed to exclude bank transaction', { bankTxId, error: err });
     throw err;
   }
 }

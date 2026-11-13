@@ -81,6 +81,8 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
 
   it('ATK1b bulk_accept on a line a peer holds: the UPDATE itself is bounded too — 503 at ~5 s', async () => {
     const p = await seedPair(c, await newBank(c), 113.13, '2026-06-02');
+    // Mig 980: Review only touches a line a journal carries — match the seeded line to its own journal line first.
+    await c.fx.pool.query("UPDATE bank_transactions SET status = 'matched', matched_journal_line_id = $2 WHERE id = $1", [p.bt, p.jl]);
     const h: PoolClient = await c.fx.pool.connect();
     await h.query('BEGIN');
     await h.query('SELECT id FROM bank_transactions WHERE id = $1 FOR UPDATE', [p.bt]);
@@ -89,7 +91,8 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     finally { await h.query('ROLLBACK'); h.release(); }
     expect(out.status, out.body).toBe(503);
     expect(out.ms).toBeGreaterThan(4000); expect(out.ms).toBeLessThan(8500);
-    expect((await lineOf(p.bt)).status).toBe('imported');
+    expect(await lineOf(p.bt)).toMatchObject({ status: 'matched', jl: p.jl });
+    expect((await c.fx.pool.query('SELECT reviewed_at FROM bank_transactions WHERE id = $1', [p.bt])).rows[0].reviewed_at).toBeNull();
   }, 60000);
 
   it('ATK2 adjustment vs a writer that posted a journal and then locks a line of the session: no 40P01', async () => {

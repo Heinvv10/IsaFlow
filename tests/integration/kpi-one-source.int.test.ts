@@ -1,9 +1,10 @@
 /**
  * One definition per headline figure (app audit 12 Nov 2026, P2.5 item 1).
  *
- * /accounting (kpi-dashboard), /home (clientMetricsSnapshot + /api/home), the
- * "Today in the books" cards (getWorkbenchMetrics), the Action Items
- * (dashboard-todos) and Month-End (getMonthEndWorkbench) each read cash,
+ * /accounting (kpi-dashboard), the bureau client home (clientMetricsSnapshot),
+ * the dashboard's "Needs attention" list (dashboard/attention), the workbench
+ * metrics (getWorkbenchMetrics), dashboard-todos and Month-End
+ * (getMonthEndWorkbench) each read cash,
  * receivables, payables, revenue MTD and the draft / bill counts from
  * reports/headlineFigures, as at one SAST day. The fixture makes every OLD
  * definition disagree with the new one, so equal figures here cannot be the
@@ -19,13 +20,15 @@
  *     12 overdue bills (the Action Items row printed its 10-row cap), a draft, a
  *     paid and a soft-deleted bill due this week (old "AP due this week"), and
  *     bills due on T, T+7 and T+8 and T-1 that pin both ends of the 7-day window.
- * A second company carries its own invoice, journal and bill; no figure of the
- * first moves.
+ * A second company carries its own invoice, journal, bill and pay run; no figure
+ * of the first moves. The attention list's pay-run rows have their own suite,
+ * dashboard-attention-pay-runs.int.test.ts.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import { fixtureWriters } from './kpi-one-source.helpers';
 import { todayInSast } from '@/lib/saDateParser';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
@@ -36,7 +39,8 @@ import { getMonthEndWorkbench } from '@/modules/accounting/services/workbench/mo
 import { getSupplierInvoices } from '@/modules/accounting/services/ap/supplierInvoiceQueryService';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import kpiDashboardRoute from '../../pages/api/accounting/kpi-dashboard';
-import homeRoute from '../../pages/api/home';
+import attentionRoute from '../../pages/api/accounting/dashboard/attention';
+import type { AttentionList } from '@/modules/accounting/services/dashboard/attentionShape';
 import todosRoute from '../../pages/api/accounting/dashboard-todos';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -53,7 +57,6 @@ const CUST = id();
 const SUPP = id();
 const D_CUST = id();
 const D_SUPP = id();
-
 const T = todayInSast();
 /** YYYY-MM-DD `n` days from T, by calendar arithmetic in UTC (no host-zone drift). */
 const add = (n: number): string => {
@@ -90,34 +93,7 @@ const EXPECTED = {
 
 let token = '';
 
-async function journal(company: string, date: string, dr: string, cr: string, amount: number, opts: { status?: string; source?: string } = {}): Promise<void> {
-  const entry = id();
-  await pool.query(
-    `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,source,status,created_by)
-     VALUES($1,$2,$3,'kpi fixture',$4,$5,$6)`,
-    [entry, company, date, opts.source ?? 'manual', opts.status ?? 'posted', USER]);
-  await pool.query(
-    `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,description,company_id)
-     VALUES($1,$2,$4,0,'kpi',$5),($1,$3,0,$4,'kpi',$5)`, [entry, dr, cr, amount, company]);
-}
-
-async function invoice(company: string, customer: string, n: string, invoiceDate: string, due: string, total: number,
-  status = 'approved', deleted = false): Promise<void> {
-  await pool.query(
-    `INSERT INTO customer_invoices
-       (company_id, client_id, customer_id, invoice_number, invoice_date, due_date, status, total_amount, amount_paid, created_by, deleted_at)
-     VALUES ($1,$2,$2,$3,$4,$5,$6,$7,0,$8,$9)`,
-    [company, customer, n, invoiceDate, due, status, total, USER, deleted ? new Date() : null]);
-}
-
-async function bill(company: string, supplier: string, n: string, due: string, total: number,
-  opts: { status?: string; paid?: number; deleted?: boolean } = {}): Promise<void> {
-  await pool.query(
-    `INSERT INTO supplier_invoices
-       (company_id, supplier_id, invoice_number, invoice_date, due_date, status, total_amount, amount_paid, created_by, deleted_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-    [company, supplier, n, add(-40), due, opts.status ?? 'approved', total, opts.paid ?? 0, USER, opts.deleted ? new Date() : null]);
-}
+const { journal, invoice, bill } = fixtureWriters(pool, USER, add);
 
 async function cleanup(): Promise<void> {
   const cos = [C, D];
@@ -144,7 +120,7 @@ async function call<T>(route: unknown, company: string = C): Promise<T> {
   return (result.state.body as { data: T }).data;
 }
 
-describeIfDb('headline figures: one definition across /accounting, /home and Month-End', () => {
+describeIfDb('headline figures: one definition across the dashboard, the bureau client home and Month-End', () => {
   beforeAll(async () => {
     assertDisposable();
     await cleanup();
@@ -260,22 +236,26 @@ describeIfDb('headline figures: one definition across /accounting, /home and Mon
     expect(data.period.to).toBe(T);
   });
 
-  it('/home and the bureau client home: clientMetricsSnapshot (no request context) is the headline', async () => {
+  it('the bureau client home: clientMetricsSnapshot (no request context) is the headline', async () => {
     expect(await clientMetricsSnapshot(C)).toEqual({
       cash: EXPECTED.cash, ar: EXPECTED.receivables.total, ap: EXPECTED.payables.total,
       revenueMtd: EXPECTED.revenueMtd, profitMtd: EXPECTED.profitMtd, asAt: T,
     });
   });
 
-  it('/api/home: the metric strip and "total owed" are the headline figures', async () => {
-    const data = await call<{ metrics: { cash: number; ar: number }; cashPosition: { cash: number; arTotal: number } }>(homeRoute);
-    expect(data.metrics.cash).toBe(EXPECTED.cash);
-    expect(data.metrics.ar).toBe(EXPECTED.receivables.total);
-    expect(data.cashPosition.cash).toBe(EXPECTED.cash);
-    expect(data.cashPosition.arTotal).toBe(EXPECTED.receivables.total);
+  it('the dashboard attention list: its counts are the headline counts', async () => {
+    const data = await call<AttentionList>(attentionRoute);
+    expect(data.asAt).toBe(T);
+    const label = (key: string) => data.items.find((i) => i.key === key)?.label;
+    expect(label('overdue-bills')).toBe(`${EXPECTED.billsOverdue} overdue supplier bills`);
+    expect(label('bills-due-7')).toBe(`${EXPECTED.billsDueNext7Days} bills due in 7 days`);
+    expect(label('draft-invoices')).toBe(`${EXPECTED.draftInvoices} draft invoice`);
+    expect(label('draft-journals')).toBe(`${EXPECTED.draftJournals} draft journals`);
+    expect(data.items.find((i) => i.key === 'overdue-invoices')).toMatchObject({ label: '1 overdue invoice', amount: EXPECTED.receivables.overdue });
+    expect(new Set(data.items.map((i) => i.key)).size).toBe(data.items.length);
   });
 
-  it('"Today in the books": draft invoices, bills due in 7 days and draft journals are the headline counts', async () => {
+  it('workbench metrics: draft invoices, bills due in 7 days and draft journals are the headline counts', async () => {
     const m = await getWorkbenchMetrics(C);
     expect(m.draftInvoices).toBe(EXPECTED.draftInvoices);
     expect(m.apDueThisWeek).toBe(EXPECTED.billsDueNext7Days);

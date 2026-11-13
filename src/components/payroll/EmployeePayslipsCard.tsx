@@ -57,7 +57,7 @@ export function EmployeePayslipsCard({ employeeId, employeeName }: { employeeId:
                   {e.final ? 'Final' : 'Draft'}
                 </span>
                 <span className="tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(e.netPay)} net</span>
-                <button type="button" onClick={() => setOpen({ runId: e.runId, employeeId, title: `${employeeName}, ${period}` })}
+                <button type="button" onClick={() => setOpen({ runId: e.runId, employeeId, title: `${employeeName}, ${period}`, employeeName })}
                   aria-label={`View payslip for ${period}`}
                   className="text-teal-700 underline hover:no-underline dark:text-teal-300">
                   View

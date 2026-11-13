@@ -29,3 +29,12 @@ describe('Bank Feeds folded into Statement Imports', () => {
     for (const r of redirects) expect(r.source.startsWith('/api/'), r.source).toBe(false);
   });
 });
+
+describe('One dashboard is home', () => {
+  it('redirects /home to /accounting, temporarily', async () => {
+    const redirects = await withRedirects.redirects();
+    expect(redirects.filter((x) => x.source === '/home')).toEqual([
+      { source: '/home', destination: '/accounting', permanent: false },
+    ]);
+  });
+});

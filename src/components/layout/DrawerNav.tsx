@@ -62,9 +62,12 @@ function TabGroup({ tab, asPath, active }: { tab: Tab; asPath: string; active: b
   // "Customers" twice in one accordion; the section wins. A daily link into a differently named section (Invoices
   // -> Transactions > Tax Invoices) stays: it is the one-tap shortcut the drawer exists for.
   const links = tab.links?.filter(l => !(tab.items ?? []).some(i => isFlyout(i) && i.section === l.label && hrefsOf(i.items).includes(l.href)));
+  // The landing row: skipped when a daily link below already opens it, named like that daily link when the
+  // section rule above dropped it (Banking: "Transactions", as on desktop), "X home" only when no daily link names it.
+  const homeLabel = tab.links?.find(l => l.href === tab.href)?.label ?? `${tab.label} home`;
   return (
     <Group id={id} label={tab.label} depth={0} active={active}>
-      {tab.href && <Link href={tab.href} className={rowCls(asPath === tab.href, 1)}>{tab.label} home</Link>}
+      {tab.href && !links?.some(l => l.href === tab.href) && <Link href={tab.href} className={rowCls(asPath === tab.href, 1)}>{homeLabel}</Link>}
       <NavLinksBlock links={links} tabItems={tab.items} asPath={asPath} onNav={() => undefined}
         linkClassName={a => rowCls(a, 1)} separatorClassName="border-t border-[var(--ff-canvas-border)] my-1 ml-7" />
       {tab.topItems?.map(item => (

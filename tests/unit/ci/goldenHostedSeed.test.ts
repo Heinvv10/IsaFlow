@@ -3,6 +3,7 @@
  * in the recent past, in complete months, spread over all of them.
  */
 import { describe, it, expect } from 'vitest';
+import { PAYROLL_SANDBOX_MONTH } from '../../e2e/golden-paths/_api';
 import { RESERVED_PAYROLL_MONTHS, seedDate, seedMonths, seedPayRun, type Client } from '../../../scripts/ci/golden-hosted/seed-demo-app';
 
 describe('seedMonths', () => {
@@ -95,5 +96,21 @@ describe('seedPayRun', () => {
     const created = calls.filter((c) => c.startsWith('POST /api/payroll/runs {'));
     expect(created).toEqual(['POST /api/payroll/runs {"month":12,"year":2026}']);
     expect(calls.at(-1)).toContain('/approve');
+  });
+});
+
+describe('RESERVED_PAYROLL_MONTHS', () => {
+  it('holds the golden payroll sandbox month, so a moved sandbox month cannot start receiving a seeded pay run', () => {
+    expect(RESERVED_PAYROLL_MONTHS).toContain(PAYROLL_SANDBOX_MONTH);
+  });
+
+  it('is skipped by seedPayRun even when it is the newest month', async () => {
+    const created: string[] = [];
+    const spy = {
+      post: (path: string, body?: unknown) => { if (path === '/api/payroll/runs') created.push(JSON.stringify(body)); return Promise.resolve({ id: 'r', documentDigest: 'd' }); },
+      get: () => Promise.resolve({ planHash: 'p' }),
+    } as unknown as Client;
+    await seedPayRun(spy, ['2026-12', PAYROLL_SANDBOX_MONTH]);
+    expect(created).toEqual(['{"month":12,"year":2026}']);
   });
 });

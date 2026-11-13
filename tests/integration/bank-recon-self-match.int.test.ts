@@ -140,6 +140,8 @@ describeIfDb('bank reconciliation — allocated lines are their own match', () =
   });
 
   it('completion at R0.00 reconciles the self-matched lines and nothing else', async () => {
+    // Migration 980: completion refuses while a line it reconciles is unreviewed; a person reviewed these.
+    await pool.query('UPDATE bank_transactions SET reviewed_at = NOW(), reviewed_by = $2 WHERE reconciliation_id = $1', [recId, user]);
     const done = await completeReconciliation(company, recId, user);
     expect(done.status).toBe('completed');
     expect(await state(tx.T1)).toEqual({ status: 'reconciled', reconciliation_id: recId });

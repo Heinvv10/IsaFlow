@@ -133,6 +133,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/bank/bankTransactionQueryService.ts': 'filtered',
   'src/modules/accounting/services/bank/bankTransferAutoLink.ts': 'exempt: writer (Task 3)',
   'src/modules/accounting/services/bank/bankTransferLinkService.ts': 'exempt: writer (Task 3)',
+  'src/modules/accounting/services/bank/bankTxAnnotations.ts': 'exempt: writer of one line\'s notes and dimensions (mig 980 lock), not a financial total',
   'src/modules/accounting/services/bank/bankTransferLinkUndo.ts': "exempt: writer (migration 978): the undo's UPDATE self-joins bank_transactions by id only to read the line as the link left it for the audit row; it restores lines the link wrote, which were posted rows",
   'src/modules/accounting/services/bank/bankTransferLinkLog.ts': "exempt: display only (migration 978): the transfer link log joins bank_transactions by id to the lines a link wrote, which were imported, posted rows (the link's UPDATE requires feed_state = 'posted'); not a financial total or a queue",
   'src/modules/accounting/services/bank/bankTxAttachmentService.ts': 'exempt: attachment CRUD ownership check, not a financial total',

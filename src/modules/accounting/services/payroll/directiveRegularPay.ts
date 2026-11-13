@@ -75,7 +75,7 @@ export function regularPayDirectivePaye(d: RegularPayDirective, line: {
   annual: number;
   /** The tables' PAYE on positive annual payments, costed as a first period (fixed-amount directive only). */
   tablesAnnualPayment: number;
-}): { regular: number; annualPayment: number; results: ValidationResult[] } {
+}): { regular: number; annualPayment: number; results: ValidationResult[]; base: number; annualBase: number } {
   const periodic = Math.max(0, line.periodic);
   // A clawback reduces the month's remuneration: netted into the base, never below nil.
   const base = Math.max(0, line.periodic + line.annual);
@@ -114,7 +114,10 @@ export function regularPayDirectivePaye(d: RegularPayDirective, line: {
       });
     }
   }
-  return { regular, annualPayment, results };
+  // The base the rule was applied to (for a fixed amount: nil when no regular pay was paid), for the explanation.
+  // A percentage with a positive 3605: regular pay is the periodic part alone (the 3605 is its own base, annualBase).
+  const appliedBase = d.type === 'fixed_amount' ? (regular === 0 ? 0 : base) : line.annual > 0 ? periodic : base;
+  return { regular, annualPayment, results, base: appliedBase, annualBase: Math.max(0, line.annual) };
 }
 
 /** On an independent contractor's line, a regular-pay directive is not applied (Hein's ruling, #1266 round 2): an error the approval gate refuses. */
@@ -134,14 +137,14 @@ export function contractorDirectiveResult(d: RegularPayDirective): ValidationRes
  */
 export function capDirectivePaye(
   split: { regular: number; annualPayment: number }, available: number, d: RegularPayDirective,
-): { regular: number; annualPayment: number; result: ValidationResult | null } {
+): { regular: number; annualPayment: number; result: ValidationResult | null; capRoom: number | null } {
   const room = Math.max(0, round2(available));
   const shortfall = round2(split.regular + split.annualPayment - room);
-  if (shortfall <= 0) return { ...split, result: null };
+  if (shortfall <= 0) return { regular: split.regular, annualPayment: split.annualPayment, result: null, capRoom: null };
   const regular = Math.min(split.regular, room);
   const annualPayment = round2(Math.min(split.annualPayment, room - regular));
   return {
-    regular: round2(regular), annualPayment,
+    regular: round2(regular), annualPayment, capRoom: room,
     result: {
       code: 'DIRECTIVE_PAYE_CAPPED', severity: 'warning',
       message: `${label(d)} directs ${formatMoney(split.regular + split.annualPayment)} of PAYE, but the month pays only ${formatMoney(room)} of cash `

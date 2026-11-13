@@ -11,6 +11,10 @@ vi.mock('@/modules/accounting/services/capture/capturedAttachmentLinks', () => (
   listBankLineAttachments: vi.fn(), unlinkCapturedDocFromBankTx: (...a: unknown[]) => unlink(...a),
 }));
 vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: (t: string) => t }) }));
+// Mig 980: the route first asks whether the line is reconciled (session FOR SHARE); these lines are not.
+vi.mock('@/modules/accounting/services/bank/reconciledCash', async (orig) => ({
+  ...(await orig<object>()), documentRemovalRefused: vi.fn(async () => false),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h: unknown) => h }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));

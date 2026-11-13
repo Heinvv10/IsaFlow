@@ -102,7 +102,10 @@ describe('set-based writers leave a pending feed row alone', () => {
   it('bulkAcceptTransactions', async () => {
     await seed();
     const { bulkAcceptTransactions } = await import('@/modules/accounting/services/bank/bankTransactionQueryService');
-    const n = await inRequest(() => bulkAcceptTransactions(company, [postedId, pendingId]));
+    // Migration 980: Review needs a line whose cash a journal carries — match the posted row to a seeded line first.
+    await pool.query(`UPDATE bank_transactions SET status = 'matched', matched_journal_line_id =
+      (SELECT id FROM gl_journal_lines WHERE journal_entry_id = $2 LIMIT 1) WHERE id = $1`, [postedId, journalEntryId]);
+    const n = await inRequest(() => bulkAcceptTransactions(company, [postedId, pendingId], user));
     expect(n).toBe(1);
     await pendingUntouched();
   });

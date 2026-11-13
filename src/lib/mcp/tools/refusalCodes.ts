@@ -203,6 +203,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // D12: a write that would change a COMPLETED bank reconciliation (match/auto-match into it, a line of it, its
   // complete/cancel, a reversal or void of its cash). Names the account and statement date; raised before any write.
   'RECONCILIATION_COMPLETED',
+  // Mig 980: completion refused while a line it would reconcile is unreviewed. Counts only, raised before any write.
+  'RECONCILIATION_REVIEW_REQUIRED',
   'RECURRING_INVOICE_LOCK_TIMEOUT',
   'RECURRING_INVOICE_NOT_DUE',
   'RECURRING_INVOICE_TEMPLATE_INVALID',

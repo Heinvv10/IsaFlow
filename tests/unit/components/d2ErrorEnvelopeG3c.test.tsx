@@ -23,7 +23,7 @@ vi.mock('@/contexts/CompanyContext', () => ({
 }));
 
 import { apiFetch } from '@/lib/apiFetch';
-import HomePage from '../../../pages/home';
+import { NeedsAttention } from '@/components/accounting/dashboard/NeedsAttention';
 import BureauDashboardPage from '../../../pages/bureau/index';
 import BureauClientsPage from '../../../pages/bureau/clients/index';
 import LeaveDetailPage from '../../../pages/payroll/leave/[id]';
@@ -49,10 +49,10 @@ function script(refused: (p: string, m: string) => boolean, msg: string, status:
 }
 
 describe('home and bureau dashboards show the server message', () => {
-  it('home: /api/home refused', async () => {
-    const msg = 'D2 server says no: home refused';
-    script((p) => p === '/api/home', msg, 500, () => ({}));
-    render(<HomePage />);
+  it('dashboard: the attention list refused', async () => {
+    const msg = 'D2 server says no: attention refused';
+    script((p) => p === '/api/accounting/dashboard/attention', msg, 500, () => ({}));
+    render(<NeedsAttention />);
     expect(await screen.findByText(new RegExp(msg))).toBeTruthy();
   });
 
@@ -142,9 +142,9 @@ describe('success: pages render and complete with a valid envelope', () => {
   const stats = { overdue: 0, dueSoon: 0, info: 1, total: 1 };
   const item = (task: string) => ({ bureauId: 'b1', bureauName: 'B', companyId: 'co-9', companyName: 'C', task, detail: 'd', dueAt: null, href: '/x', severity: 'info' });
 
-  it('success: home renders the data it received', async () => {
-    script(none, '', 0, () => ({ metrics: { cash: 1, ar: 2, ap: 3, revenueMtd: 4, profitMtd: 5 }, workItems: [item('Chase Hippo Debtors')] }));
-    render(<HomePage />);
+  it('success: the dashboard attention list renders the data it received', async () => {
+    script(none, '', 0, () => ({ asAt: '2026-11-12', items: [{ key: 'k1', area: 'Sales', label: 'Chase Hippo Debtors', severity: 'info', href: '/x' }] }));
+    render(<NeedsAttention />);
     expect(await screen.findByText('Chase Hippo Debtors')).toBeTruthy();
   });
 

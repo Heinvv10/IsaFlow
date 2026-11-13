@@ -4,9 +4,7 @@
  */
 
 import localFont from 'next/font/local';
-import { TrendingUp, FileText, Landmark, Clock, ArrowDown } from 'lucide-react';
 import type { ElementType } from 'react';
-import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayMonthYearLong } from '@/utils/dateFormat';
 
 // Self-hosted (OFL, src/assets/fonts/OFL-DMSerifDisplay.txt): the Google-hosted loader fetched it at build time.
@@ -18,12 +16,6 @@ const serif = localFont({
   adjustFontFallback: 'Times New Roman',
 });
 
-export interface DashboardHeroStats {
-  revenueMtd: number;
-  outstandingInvoices: number;
-  cashPosition: number;
-}
-
 export interface HeroTab {
   id: string;
   label: string;
@@ -33,42 +25,10 @@ export interface HeroTab {
 export interface DashboardHeroProps {
   companyName: string;
   loading?: boolean;
-  stats?: DashboardHeroStats;
   tabs: HeroTab[];
   activeTab: string;
   onTabChange: (id: string) => void;
 }
-
-// Exact, never abbreviated: a tile is a figure someone reconciles (principle 1).
-const fmt = (n: number): string => formatMoney(n);
-
-const PILLS = (s: DashboardHeroStats) => [
-  {
-    icon: TrendingUp, label: 'Revenue MTD',
-    value: fmt(s.revenueMtd),
-    accent: 'bg-teal-500/80', valueColor: 'text-slate-900 dark:text-white',
-    warning: false,
-  },
-  {
-    icon: FileText, label: 'Receivables',
-    value: fmt(s.outstandingInvoices),
-    accent: 'bg-amber-500/80', valueColor: 'text-slate-900 dark:text-white',
-    warning: false,
-  },
-  {
-    icon: Landmark, label: 'Cash',
-    value: fmt(s.cashPosition),
-    accent: s.cashPosition < 0 ? 'bg-red-500/80' : 'bg-emerald-500/80',
-    valueColor: s.cashPosition < 0 ? 'text-red-700 dark:text-red-300' : 'text-slate-900 dark:text-white',
-    warning: s.cashPosition < 0,
-  },
-  {
-    icon: Clock, label: 'Days to Close',
-    value: '—',
-    accent: 'bg-slate-500/80', valueColor: 'text-slate-900 dark:text-white',
-    warning: false,
-  },
-];
 
 // Per-tab hero identity. When the user navigates via a top-nav menu item that
 // resolves to /accounting?tab=X, the hero should advertise the tab they're on
@@ -98,7 +58,7 @@ const TAB_HERO: Record<string, { eyebrow: string; title: string; subtitle: strin
 };
 
 export function DashboardHero({
-  companyName, loading = false, stats, tabs, activeTab, onTabChange,
+  companyName, loading = false, tabs, activeTab, onTabChange,
 }: DashboardHeroProps) {
   const now   = new Date();
   const tabHero = TAB_HERO[activeTab];
@@ -107,10 +67,10 @@ export function DashboardHero({
   const subtitle = tabHero ? tabHero.subtitle : 'General Ledger, Journal Entries & Financial Reports';
 
   return (
-    <div
+    <section
       className="relative overflow-hidden rounded-3xl border border-slate-900/10 dark:border-white/10 [contain:paint]"
       style={{ background: `linear-gradient(135deg, var(--ff-canvas-raised) 0%, var(--ff-canvas-mid) 50%, var(--ff-canvas-base) 100%)` }}
-      role="banner"
+      aria-label={tabHero ? tabHero.title : 'Dashboard overview'}
     >
 
       {/* Dot grid — covers entire card */}
@@ -155,39 +115,12 @@ export function DashboardHero({
 
         <div className="border-t border-slate-900/10 dark:border-white/10 mt-6 mb-5" />
 
-        {/* Stat pills — only show on overview tab. Other tabs (Journal Entries,
-            Chart of Accounts, etc.) have their own data and should not display
-            cross-cutting financial KPIs. */}
-        {activeTab === 'overview' && <div className="flex flex-wrap gap-3 mb-7">
-          {stats
-            ? PILLS(stats).map(({ icon: Icon, label, value, accent, valueColor, warning }) => (
-                <div key={label} className="flex min-h-[62px] items-center gap-3 px-5 py-3.5 rounded-xl bg-slate-900/5 dark:bg-white/5 border border-slate-900/10 dark:border-white/10 backdrop-blur-sm hover:bg-slate-900/10 dark:hover:bg-white/10 transition-colors">
-                  <div className={`p-1.5 rounded-lg ${accent}`}>
-                    <Icon className="h-3.5 w-3.5 text-slate-900 dark:text-white" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-widest text-ink-muted leading-none mb-1.5">{label}</p>
-                    <p className={`text-sm font-bold leading-none flex items-center gap-1 ${valueColor}`}>
-                      {warning && <ArrowDown className="h-3 w-3" aria-label="Negative" />}
-                      {value}
-                    </p>
-                  </div>
-                </div>
-              ))
-            : Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="flex min-h-[62px] items-center gap-3 px-5 py-3.5 rounded-xl bg-slate-900/5 dark:bg-white/5 border border-slate-900/10 dark:border-white/10">
-                  <div className="w-7 h-7 rounded-lg bg-slate-900/10 dark:bg-white/10 animate-pulse" />
-                  <div className="space-y-1.5">
-                    <div className="h-2 w-20 rounded bg-slate-900/10 dark:bg-white/10 animate-pulse" />
-                    <div className="h-3.5 w-24 rounded bg-slate-900/10 dark:bg-white/10 animate-pulse" />
-                  </div>
-                </div>
-              ))}
-        </div>}
-
         {/* Pill tab bar — integrated into the card */}
-        <div
-          className="flex items-center gap-1 backdrop-blur-sm rounded-xl p-1 w-fit"
+        {/* Scrolls sideways when narrower than the tabs (390 px phones). */}
+        {/* Plain buttons, not an ARIA tablist: two of the items open another page. */}
+        <nav
+          aria-label="Dashboard sections"
+          className="flex items-center gap-1 backdrop-blur-sm rounded-xl p-1 w-fit max-w-full overflow-x-auto"
           style={{ background: 'var(--ff-canvas-base)', border: '1px solid var(--ff-canvas-border)' }}
         >
           {tabs.map(tab => {
@@ -196,17 +129,19 @@ export function DashboardHero({
             return (
               <button
                 key={tab.id}
+                type="button"
+                aria-current={isActive ? 'page' : undefined}
                 onClick={() => onTabChange(tab.id)}
                 style={isActive ? { background: 'var(--ff-brand-dark)' } : {}}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${isActive ? 'text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-900/5 dark:hover:bg-white/5' }`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap shrink-0 ${isActive ? 'text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-900/5 dark:hover:bg-white/5' }`}
               >
                 <Icon className="h-3.5 w-3.5" />
                 {tab.label}
               </button>
             );
           })}
-        </div>
+        </nav>
       </div>
-    </div>
+    </section>
   );
 }

@@ -17,7 +17,7 @@ import { AutosaveStatus } from '@/components/ui/AutosaveStatus';
 import { MoneyField } from '@/components/ui/MoneyField';
 import { RunHoursCell } from '@/components/payroll/RunHoursCell';
 import { Select } from '@/components/ui/Select';
-import { PayrollRunLinesTable, type RunLineAmounts } from '@/components/payroll/PayrollRunLinesTable';
+import { PayrollRunLinesTable, type OnExplain, type RunLineAmounts } from '@/components/payroll/PayrollRunLinesTable';
 import { cellKey, hoursKey, type RowSave, type RunInputComponent, type RunInputs } from '@/components/payroll/useRunInputs';
 import { formatCurrency } from '@/utils/formatters';
 
@@ -32,6 +32,8 @@ interface Props {
   refuse: (employeeId: string, componentId: string) => void;
   forgetRefused: (componentId: string) => void;
   onPayslip?: (line: RunLineAmounts) => void;
+  /** "How was this calculated?" on each statutory cell (EX-core). */
+  onExplain?: OnExplain;
 }
 
 type Column = 'earning' | 'deduction';
@@ -78,7 +80,7 @@ function ComponentPicker({ column, options, value, onChange }: {
 const hasOvertimeOrCommission = (earnings: RunInputComponent[]) =>
   earnings.some((c) => c.sarsSourceCode === '3606' || c.sarsSourceCode === '3607');
 
-export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, commitHours, refuse, forgetRefused, onPayslip }: Props) {
+export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, commitHours, refuse, forgetRefused, onPayslip, onExplain }: Props) {
   const earnings = inputs.components.filter((c) => c.componentType === 'earning');
   const deductions = inputs.components.filter((c) => c.componentType === 'deduction');
   const [pickedEarning, setEarningId] = useState('');
@@ -167,7 +169,7 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
           earning: { head: COLUMN_LABEL.earning, cell: cell('earning', earningId) },
           deduction: deductions.length > 0 ? { head: COLUMN_LABEL.deduction, cell: cell('deduction', deductionId) } : undefined,
           statusCell: save,
-        }} onPayslip={onPayslip} />
+        }} onPayslip={onPayslip} onExplain={onExplain} />
       </div>
     </>
   );

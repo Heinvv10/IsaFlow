@@ -3,7 +3,9 @@
  */
 import { trailForPath, type NavIndexEntry } from '@/components/accounting/navSections/navIndex';
 
-const PRODUCT = 'IsaFlow';
+/** The bare title of a page no index entry names. */
+export const PRODUCT_TITLE = 'IsaFlow';
+const PRODUCT = PRODUCT_TITLE;
 
 /**
  * "Tax Invoices · Sales · IsaFlow": the page, its module, the product. A top-level tab has no module, a page the
@@ -19,4 +21,9 @@ export function documentTitle(asPath: string, index: NavIndexEntry[]): string {
 /** The payroll area: `/payroll` and its sub-pages, never a sibling such as `/payroll-settings`. */
 export function isPayrollPath(pathname: string): boolean {
   return pathname === '/payroll' || pathname.startsWith('/payroll/');
+}
+
+/** The dashboards: the only routes that may show the install banner. */
+export function isDashboardPath(pathname: string): boolean {
+  return pathname === '/accounting' || pathname === '/home';
 }

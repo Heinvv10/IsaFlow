@@ -2,7 +2,7 @@
  * Route → tab id resolver for the top nav.
  *
  * Tabs: dashboard · sales · purchases · banking · payroll · tax · reports ·
- *       month-end · portfolio · library (settings — cog only)
+ *       month-end · portfolio · library (settings: cog only, no top tab)
  *
  * getActiveModuleId returns the raw module id; getActiveTabId collapses the
  * library-only modules (inventory, accounting, practice) → 'library'.
@@ -42,7 +42,11 @@ export function getActiveModuleId(
     pathname.startsWith('/accounting/sage-migration') ||
     pathname.startsWith('/accounting/gl-import') ||
     pathname.startsWith('/accounting/group') ||
-    pathname.startsWith('/accounting/consolidation')
+    pathname.startsWith('/accounting/consolidation') ||
+    pathname.startsWith('/accounting/settings/connected-apps') ||
+    pathname.startsWith('/accounting/settings/integrations-mcp') ||
+    pathname.startsWith('/accounting/settings/billing') ||
+    pathname === '/developer' || pathname.startsWith('/developer/')
   ) {
     return 'settings';
   }
@@ -60,9 +64,12 @@ export function getActiveModuleId(
     pathname.startsWith('/accounting/statements') ||
     pathname.startsWith('/accounting/dunning') ||
     pathname.startsWith('/accounting/ar/') ||
+    pathname.startsWith('/accounting/delivery-notes') ||
+    pathname.startsWith('/accounting/disputes') ||
+    pathname.startsWith('/accounting/sales-reps') ||
     pathname === '/accounting/reports/sales-by-customer' ||
     pathname === '/accounting/reports/unallocated-receipts' ||
-    (pathname.startsWith('/accounting/adjustments') && query.type === 'customer')
+    (pathname.startsWith('/accounting/adjustments') && query.type !== 'supplier') // the page defaults to customer
   ) {
     return 'sales';
   }
@@ -75,6 +82,10 @@ export function getActiveModuleId(
     pathname.startsWith('/accounting/goods-received') ||
     pathname.startsWith('/accounting/batch-payments') ||
     pathname.startsWith('/accounting/ap-aging') ||
+    pathname.startsWith('/accounting/ap/') ||
+    pathname.startsWith('/accounting/capture') ||
+    pathname.startsWith('/accounting/expenses') ||
+    pathname.startsWith('/accounting/fraud') ||
     pathname === '/accounting/reports/purchases-by-supplier' ||
     pathname === '/accounting/reports/supplier-pos' ||
     pathname === '/accounting/reports/unallocated-payments' ||
@@ -87,6 +98,8 @@ export function getActiveModuleId(
   if (
     pathname.startsWith('/accounting/items') ||
     pathname.startsWith('/accounting/item-') ||
+    pathname.startsWith('/accounting/stock-levels') ||
+    pathname.startsWith('/accounting/products') ||
     pathname === '/accounting/reports/item-listing' ||
     pathname === '/accounting/reports/sales-by-item' ||
     pathname === '/accounting/reports/purchases-by-item' ||
@@ -98,20 +111,21 @@ export function getActiveModuleId(
   }
 
   // ── Banking ─────────────────────────────────────────────────────────────
-  if (pathname.startsWith('/accounting/bank-')) return 'banking';
+  if (
+    pathname.startsWith('/accounting/bank-') ||
+    pathname.startsWith('/accounting/bank/') ||
+    pathname.startsWith('/accounting/cashbook') ||
+    pathname.startsWith('/accounting/netcash')
+  ) {
+    return 'banking';
+  }
 
-  // ── Tax (VAT + SARS + Payroll SARS submissions) ─────────────────────────
+  // ── Tax (VAT + SARS; payroll statutory pages are Payroll's) ─────────────
   if (
     pathname.startsWith('/accounting/vat-') ||
     pathname.startsWith('/accounting/drc-vat') ||
     pathname.startsWith('/accounting/sars') ||
-    pathname === '/accounting/reports/vat-reconciliation' ||
-    pathname.startsWith('/payroll/emp201') ||
-    pathname.startsWith('/payroll/emp501') ||
-    pathname.startsWith('/payroll/irp5') ||
-    pathname.startsWith('/payroll/uif') ||
-    pathname.startsWith('/payroll/tax-directives') ||
-    pathname.startsWith('/payroll/year-end')
+    pathname === '/accounting/reports/vat-reconciliation'
   ) {
     return 'tax';
   }
@@ -135,13 +149,12 @@ export function getActiveModuleId(
     pathname.startsWith('/accounting/settings/account-reporting-groups') ||
     pathname.startsWith('/accounting/accounting-settings') ||
     pathname.startsWith('/accounting/opening-balances') ||
-    pathname.startsWith('/accounting/audit-log') ||
-    pathname.startsWith('/accounting/change-history') ||
     pathname.startsWith('/accounting/assets') ||
     pathname.startsWith('/accounting/depreciation') ||
     pathname.startsWith('/accounting/cost-centres') ||
     pathname.startsWith('/accounting/business-units') ||
-    pathname.startsWith('/accounting/budgets')
+    pathname.startsWith('/accounting/budgets') ||
+    pathname.startsWith('/accounting/loans')
   ) {
     return 'accounting';
   }
@@ -150,7 +163,12 @@ export function getActiveModuleId(
   if (
     pathname.startsWith('/accounting/afs') ||
     pathname.startsWith('/accounting/trial-balance') ||
-    pathname.startsWith('/accounting/reports')
+    pathname.startsWith('/accounting/reports') ||
+    pathname.startsWith('/accounting/audit-log') ||
+    pathname.startsWith('/accounting/change-history') ||
+    pathname.startsWith('/accounting/audit-packs') ||
+    pathname.startsWith('/accounting/audit-snapshots') ||
+    pathname.startsWith('/accounting/cash-flow-forecast')
   ) {
     return 'reports';
   }
@@ -158,8 +176,11 @@ export function getActiveModuleId(
   // ── Practice (firm tools: clients, jobs, time, WIP) ─────────────────────
   if (pathname.startsWith('/accounting/practice')) return 'practice';
 
-  // ── Payroll (employees, runs, leave only — SARS bits live under Tax) ────
+  // ── Payroll (runs, employees, leave and the statutory UIF / IRP5 / EMP501 pages) ──
   if (pathname.startsWith('/payroll')) return 'payroll';
+
+  // ── Bureau (cross-client view): no tab of its own, so no tab lights and no second row draws ──
+  if (pathname === '/bureau' || pathname.startsWith('/bureau/')) return 'bureau';
 
   return 'dashboard';
 }

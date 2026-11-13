@@ -19,6 +19,7 @@ import {
 import { lockSessionForHeaderChange, refuseCompletedSession, shareLockSession } from './reconciliationSessionLock';
 import { bankGlBalanceAsAt, refreshReconciledBalanceIfFree, updateReconciledBalance } from './bankReconciliationBalance';
 import { RowLockTimeoutError } from '../core/rowLockBudget';
+import { isReconciliationReviewRequired, ReconciliationReviewRequiredError } from './reconciliationReviewGate';
 import { newManualJournalRefusal } from '../gl/manualJournalApproval';
 import { ApprovalRequiredError } from '../gl/approvalGate';
 
@@ -135,6 +136,15 @@ export async function completeReconciliation(
     // after transactions are marked 'reconciled', they become stuck in a
     // terminal state with no completed reconciliation to reference them.
     const completedRow = await withTransaction(async (tx) => {
+      // Hein 2026-11-12 (mig 980): every line this completion reconciles must have been reviewed first. Read under
+      // the header FOR UPDATE above: review and every line writer hold the session FOR SHARE, so none moves between.
+      const [gate] = (await tx`
+        SELECT COUNT(*)::INT AS unreviewed FROM bank_transactions bt
+        JOIN bank_reconciliations br ON br.id = bt.reconciliation_id AND br.company_id = ${companyId}::UUID
+        WHERE bt.reconciliation_id = ${id}::UUID AND bt.company_id = ${companyId}::UUID
+          AND bt.feed_state = 'posted' AND bt.reviewed_at IS NULL
+          AND ${countsAsMatched(companyId, sql`br.statement_date`)}`) as DbRow[];
+      if (Number(gate?.unreviewed ?? 0) > 0) throw new ReconciliationReviewRequiredError(Number(gate!.unreviewed));
       // BL-83: company_id guard. Reconciles exactly what the session counts as
       // matched — matched lines and self-matched allocated lines.
       await tx`
@@ -153,7 +163,8 @@ export async function completeReconciliation(
     log.info('Completed bank reconciliation', { id }, 'accounting');
     return mapReconRow(completedRow);
   } catch (err) {
-    log.error('Failed to complete reconciliation', { id, error: err }, 'accounting');
+    if (isReconciliationReviewRequired(err)) log.info('Reconciliation not completed: lines unreviewed', { id, unreviewed: err.unreviewed }, 'accounting');
+    else log.error('Failed to complete reconciliation', { id, error: err }, 'accounting');
     throw err;
   }
 }

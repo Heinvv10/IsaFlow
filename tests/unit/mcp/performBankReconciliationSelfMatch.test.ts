@@ -31,6 +31,7 @@ import {
   previewReconciliationClaim, startReconciliation,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { performBankReconciliationTool } from '@/lib/mcp/tools/writeBankReconciliation';
+import { ReconciliationReviewRequiredError } from '@/modules/accounting/services/bank/reconciliationReviewGate';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
 const ctx: McpToolContext = {
@@ -99,5 +100,20 @@ describe('perform_bank_reconciliation — allocated lines are their own match', 
     expect(previewReconciliationClaim).toHaveBeenCalledWith(ctx.companyId, ACC, '2025-07-14');
     expect(startReconciliation).not.toHaveBeenCalled();
     expect(body(res)).toMatchObject({ would_self_match: 575, would_claim_unallocated: 0, difference: 0 });
+  });
+});
+
+describe('perform_bank_reconciliation — completion refuses unreviewed lines (migration 980)', () => {
+  it('answers completed: false with the unreviewed count and leaves the session in progress', async () => {
+    vi.mocked(completeReconciliation).mockRejectedValue(new ReconciliationReviewRequiredError(7));
+    const b = body(await performBankReconciliationTool.handler({ ...base, complete: true }, ctx));
+    expect(completeReconciliation).toHaveBeenCalledTimes(1);
+    expect(b).toMatchObject({ completed: false, status: 'in_progress', unreviewed: 7 });
+    expect(String(b.note)).toMatch(/^Not completed: 7 transaction\(s\) in this session are not reviewed yet/);
+  });
+
+  it('any other completion failure still throws (the savepoint must unwind the session)', async () => {
+    vi.mocked(completeReconciliation).mockRejectedValue(new Error('boom'));
+    await expect(performBankReconciliationTool.handler({ ...base, complete: true }, ctx)).rejects.toThrow('boom');
   });
 });

@@ -38,6 +38,13 @@ export function formatPeriod(month: number, year: number): string {
   return `${MONTHS[month - 1]} ${year}`;
 }
 
+/**
+ * How many months before the current SAST month an open pay run still counts
+ * as current on the dashboard (attentionShape, ownerCashPositionService). Older
+ * open runs are summarised, never listed one by one.
+ */
+export const PAY_RUN_WINDOW_MONTHS_BACK = 1;
+
 export function endOfNextMonth(periodMonth: number, periodYear: number): Date {
   const nextMonth = periodMonth === 12 ? 1 : periodMonth + 1;
   const nextYear = periodMonth === 12 ? periodYear + 1 : periodYear;
