@@ -88,7 +88,7 @@ const expandContractions = (q: string): string => q.replace(/[\u2018\u2019]/g, "
   .replace(/'re\b/g, ' are').replace(/'ve\b/g, ' have').replace(/'m\b/g, ' am').replace(/'ll\b/g, ' will').replace(/'d\b/g, ' would').replace(/\b(what|who|how|that|it|there|here|where|when|he|she)'s\b/g, '$1 is').replace(/'s\b/g, '');
 
 /** Politeness openers: a recognised unit, not loose words ("would", "want" and "know" keep their meaning everywhere else). */
-const OPENERS = /\b(?:i\s+would\s+like\s+to\s+(?:know|see)|i\s+want\s+to\s+(?:know|see)|i\s+need\s+to\s+know|(?:can|could|would)\s+you\s+(?:please\s+)?(?:tell|show)\s+me|(?:please\s+)?(?:tell|show)\s+me|let\s+me\s+know|do\s+you\s+know)\b/g;
+const OPENERS = /\b(?:i\s+would\s+like\s+to\s+(?:know|see)|i\s+want\s+to\s+(?:know|see)|i\s+need\s+to\s+know|(?:can|could|would)\s+you\s+(?:please\s+)?(?:tell|show)\s+me|let\s+me\s+know|do\s+you\s+know)\b/g;
 
 const normalise = (question: string): string =>
   expandContractions(question.toLowerCase()).replace(/\bcost\s+of\s+sales\b/g, 'costofsales').replace(/\b(jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\b/g, (a) => ABBREVIATED[a]!).replace(/[^a-z0-9\s]/g, ' ').replace(OPENERS, ' ').replace(/\s+/g, ' ').trim();

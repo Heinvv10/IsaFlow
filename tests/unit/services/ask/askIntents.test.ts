@@ -214,6 +214,19 @@ describe('the refusal quotes the words as the person typed them', () => {
   });
 });
 
+describe('the future is refused as a forecast, not as unknown words', () => {
+  it.each(['will we make a profit', 'what will my profit be', 'are we going to make a profit', 'forecast revenue', 'what is our expected profit', 'projected expenses'])('%s', (q) => {
+    const p = parseQuestion(q);
+    expect(p.kind === 'unsupported' && p.said).toBe('forecasts');
+  });
+  it('bank and lender debt is refused as such, not answered as supplier debt', () => {
+    for (const q of ['how much do we owe the bank', 'what do we owe on our loan', 'what do we owe the lenders']) {
+      const p = parseQuestion(q);
+      expect(p.kind === 'unsupported' && p.said, q).toBe('what is owed to the bank or lenders');
+    }
+  });
+});
+
 describe('numeric dates are part of a window, not leftover words', () => {
   it.each([['total assets as at 2026-10-15', 10, 15, 2026], ['total assets as at 15/10/2026', 10, 15, 2026], ['who owes me money on 15-10-2026', 10, 15, 2026]])('%s', (q, month, day, year) => {
     const p = parseQuestion(q);
