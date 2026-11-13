@@ -16,6 +16,8 @@ vi.mock('@/modules/accounting/services/reports/companyVatCycle', () => ({ getCom
 vi.mock('@/modules/accounting/services/payroll/payrollRunQueryService', () => ({ getDeclarablePayRun: m.run }));
 
 import { answerQuestion } from '@/modules/accounting/services/ask/askAnswer';
+import { parseQuestion } from '@/modules/accounting/services/ask/askIntents';
+import { periodIsHonoured } from '@/modules/accounting/services/ask/askPeriod';
 
 const CO = '11111111-1111-1111-1111-111111111111';
 const TODAY = '2026-11-13';
@@ -230,6 +232,20 @@ describe('narrower figures and wording', () => {
       expect((await ask(q)).figure, q).toBeNull();
     }
     expect(m.income).not.toHaveBeenCalled();
+  });
+});
+
+describe('the pre-charge window check agrees with the answers', () => {
+  it.each([
+    ['profit'], ['revenue'], ['expenses'], ['total assets'], ['total liabilities'],
+  ])('%s: refused exactly when periodIsHonoured says so', async (word) => {
+    for (const when of ['', 'this month', 'last month', 'in october', 'this year', 'last year', 'for 2025', 'in q3', 'last quarter', 'today']) {
+      const q = `what are my ${word} ${when}`.trim();
+      const parsed = parseQuestion(q);
+      if (parsed.kind !== 'intent') throw new Error(`${q} did not parse to one intent`);
+      const a = await ask(q);
+      expect(a.figure === null, q).toBe(!periodIsHonoured(parsed.intent.id, parsed.intent.period));
+    }
   });
 });
 
