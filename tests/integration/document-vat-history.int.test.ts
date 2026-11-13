@@ -141,14 +141,15 @@ describeIfDisposable('document_vat_history — every VAT line tied to a document
     expect(h.totals).toMatchObject({ vat_heuristic: 4, vat_derivable_now: 30, vat_net_now: 30 });
   });
 
-  it('only journals in or after the bill\'s fiscal period, on its own VAT accounts and no document posting, can match (rounds 1-2)', async () => {
+  it('journals in or after the bill\'s fiscal period, on its own VAT accounts, of any source but an invoice/bill/note posting, match (rounds 1-3)', async () => {
     const num = number();
     const b = await bill(num, 1000);
     // Another supplier's bill with the same number, its posting stamped as a migration import (a hand-journal source).
     const other = await bill(num, 1000);
     await sql`UPDATE gl_journal_entries SET source = 'auto_migration' WHERE company_id = ${fx.companyId}::UUID
       AND id = (SELECT gl_journal_entry_id FROM supplier_invoices WHERE id = ${other}::UUID)`;
-    // A document-sourced journal naming the bill (an automatic payment), on the bill's VAT account.
+    // A document-sourced journal naming the bill (an automatic payment), on the bill's VAT account: no source is trusted
+    // (round 3: a supplier refund posts as a supplier payment), so it matches — a fail-safe refusal for mirror_bill.
     const auto = await vatOut(fx, acct.vatIn!, acct.cos!, 11, { description: `Payment ${num}` });
     await sql`UPDATE gl_journal_entries SET source = 'auto_payment' WHERE id = ${auto}::UUID AND company_id = ${fx.companyId}::UUID`;
     // Hand journals naming the bill, dated BEFORE it: in its fiscal period (a back-dated correction: found, B4) and in
@@ -167,9 +168,9 @@ describeIfDisposable('document_vat_history — every VAT line tied to a document
     await vatOut(fx, acct.vatOut!, acct.cos!, 13, { description: `Output adj ${num}` });
 
     const h = await history('supplier_invoice', b);
-    expect(h.heuristic.matches.map((m) => m.vat_amount)).toEqual([-7]);
+    expect(h.heuristic.matches.map((m) => [m.vat_amount, m.source])).toEqual([[-7, 'manual'], [-11, 'auto_payment']]);
     expect(h.heuristic.from_date).toBe('2026-01-01');
-    expect(h.totals).toMatchObject({ vat_posted: 150, vat_net_now: 143, vat_heuristic: -7 });
+    expect(h.totals).toMatchObject({ vat_posted: 150, vat_net_now: 132, vat_heuristic: -18 });
   });
 
   it('a reversed hand-made journal nets out through its chain; a cancelled note nets out too', async () => {

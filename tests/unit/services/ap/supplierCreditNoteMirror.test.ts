@@ -16,8 +16,8 @@ function history(
 ): DocumentVatHistory {
   const t = { vat_posted: 260.87, vat_derivable_now: 260.87, vat_heuristic: 0, net_base_posted: 1739.13, net_base_now: 1739.13, ...totals };
   const matches = lines.filter((l) => l.tie === 'narration_match' || l.tie === 'reference_match').map((l, i) => ({
-    journal_entry_id: `m-${i}`, entry_number: l.entry_number ?? `JE-m${i}`, tie: l.tie!, vat_amount: l.vat_amount ?? 0,
-    last_created_at: '2026-06-01T10:00:00.000Z',
+    journal_entry_id: `m-${i}`, entry_number: l.entry_number ?? `JE-m${i}`, tie: l.tie!, source: l.source ?? 'manual', vat_amount: l.vat_amount ?? 0,
+    last_written_at: '2026-06-01T10:00:00.000Z',
   }));
   const reducing = matches.reduce((s, m) => s + Math.min(0, m.vat_amount), 0);
   return {
@@ -88,6 +88,8 @@ describe('planMirroredNote — refusals', () => {
     const r = planMirroredNote(h, 1739.13, NO_ACK);
     expect(r.ok).toBe(false);
     expect((r as { reason: string }).reason).toContain('2 journal(s) naming the bill moved its VAT');
+    expect((r as { reason: string }).reason).toContain('JE-SLIP [manual]');
+    expect((r as { reason: string }).reason).toContain('another document\'s own posting that names the same number');
     expect((r as { reason: string }).reason).toContain('vat_amount: 0 ');
   });
 

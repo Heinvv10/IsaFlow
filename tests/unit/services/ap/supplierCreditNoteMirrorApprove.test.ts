@@ -19,7 +19,7 @@ import { isRefusalCoded } from '@/lib/mcp/tools/toolHelpers';
 import type { DocumentVatHistory } from '@/modules/accounting/services/reports/documentVatHistory';
 
 function bill(derivable = 150, heuristic = 0, base = 1000, matchWritten = '2026-06-01T09:00:00.000Z'): DocumentVatHistory {
-  const matches = heuristic ? [{ journal_entry_id: 'jm', entry_number: 'JE-9', tie: 'narration_match', vat_amount: heuristic, last_created_at: matchWritten }] : [];
+  const matches = heuristic ? [{ journal_entry_id: 'jm', entry_number: 'JE-9', tie: 'narration_match', source: 'manual', vat_amount: heuristic, last_written_at: matchWritten }] : [];
   return {
     document_number: 'SIV1', document_status: 'approved',
     lines: heuristic ? [{ journal_entry_id: 'jm', entry_number: 'JE-9', tie: 'narration_match', vat_amount: heuristic }] : [],
@@ -65,7 +65,7 @@ describe('judgeMirroredApproval', () => {
     const ack = note({ vatBasis: 'mirror_bill_ack', taxAmount: 0 });
     expect(judgeMirroredApproval(bill(150, -75, 1000, '2026-06-01T09:00:00.000Z'), ack)).toBeNull();
     expect(judgeMirroredApproval(bill(150, -75, 1000, '2026-06-01T11:00:00.000Z'), ack))
-      .toMatch(/were written after the acknowledgement \(JE-9 narration_match -75\)/);
+      .toMatch(/were written after the acknowledgement \(JE-9 \[manual\] narration_match -75\)/);
   });
 
   it('an acknowledged note is judged on its stated amount against the derivable VAT only', () => {

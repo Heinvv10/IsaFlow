@@ -18,7 +18,7 @@ let lineSeq = 0;
 function row(over: Partial<JournalLineRow>): JournalLineRow {
   const journal = over.journal_entry_id ?? 'je-1';
   return {
-    journal_entry_id: journal, root_journal_id: over.root_journal_id ?? journal, created_at: '2026-06-01T10:00:00Z', root_tie: 'posting', via: null, matched_in: null, reverses: null,
+    journal_entry_id: journal, root_journal_id: over.root_journal_id ?? journal, written_at: '2026-06-01T10:00:00Z', root_tie: 'posting', via: null, matched_in: null, reverses: null,
     entry_number: 'JE-1', entry_date: '2026-06-01', source: 'auto_supplier_invoice', status: 'posted', stands: true,
     line_id: `l-${++lineSeq}`, gl_account_id: 'cos', account_code: '5010', account_name: 'COS', account_subtype: null,
     vat_type: null, debit: 0, credit: 0, line_description: null, is_vat: false, ...over,
@@ -98,8 +98,8 @@ describe('summariseVatLines', () => {
     expect(lines.map((l) => [l.tie, l.vat_amount, l.net_base])).toEqual([
       ['posting', 150, 1000], ['narration_match', -150, null], ['credit_note', -75, -500],
     ]);
-    expect(matches).toEqual([{ journal_entry_id: 'je-manual', entry_number: 'JE-2', tie: 'narration_match', vat_amount: -150,
-      last_created_at: '2026-06-01T10:00:00.000Z' }]);
+    expect(matches).toEqual([{ journal_entry_id: 'je-manual', entry_number: 'JE-2', tie: 'narration_match', source: 'auto_supplier_invoice', vat_amount: -150,
+      last_written_at: '2026-06-01T10:00:00.000Z' }]);
     expect(totals).toEqual({
       vat_posted: 150, vat_reversed: 225, vat_net_now: -75, vat_derivable_now: 75, vat_heuristic: -150, vat_heuristic_reducing: -150,
       vat_by_tie: { posting: 150, late_claim: 0, reversal: 0, credit_note: -75, reference_match: 0, narration_match: -150 },
@@ -123,22 +123,22 @@ describe('summariseVatLines', () => {
     const rows = [
       ...billJournal(),
       vat({ journal_entry_id: 'je-slip', root_tie: 'narration_match', credit: 150 }),
-      vat({ journal_entry_id: 'je-other', root_tie: 'narration_match', debit: 150, created_at: '2026-06-02T09:00:00Z' }),
+      vat({ journal_entry_id: 'je-other', root_tie: 'narration_match', debit: 150, written_at: '2026-06-02T09:00:00Z' }),
     ];
     const { totals, matches } = summariseVatLines(rows, 1, NO_ROLES);
     expect(totals).toMatchObject({ vat_heuristic: 0, vat_heuristic_reducing: -150, vat_net_now: 0 });
     expect(matches.map((m) => [m.journal_entry_id, m.vat_amount])).toEqual([['je-slip', -150], ['je-other', 150]]);
   });
 
-  it('a match and its own reversal net to nothing, and the chain\'s latest write is the match\'s last_created_at', () => {
+  it('a match and its own reversal net to nothing, and the chain\'s latest write is the match\'s last_written_at', () => {
     const rows = [
       ...billJournal(),
       vat({ journal_entry_id: 'je-slip', root_tie: 'narration_match', credit: 150 }),
-      vat({ journal_entry_id: 'je-slip-rev', root_journal_id: 'je-slip', root_tie: 'narration_match', debit: 150, created_at: '2026-07-01T08:00:00Z' }),
+      vat({ journal_entry_id: 'je-slip-rev', root_journal_id: 'je-slip', root_tie: 'narration_match', debit: 150, written_at: '2026-07-01T08:00:00Z' }),
     ];
     const { totals, matches } = summariseVatLines(rows, 1, NO_ROLES);
     expect(totals).toMatchObject({ vat_heuristic_reducing: 0, vat_net_now: 150 });
-    expect(matches).toEqual([expect.objectContaining({ journal_entry_id: 'je-slip', vat_amount: 0, last_created_at: '2026-07-01T08:00:00.000Z' })]);
+    expect(matches).toEqual([expect.objectContaining({ journal_entry_id: 'je-slip', vat_amount: 0, last_written_at: '2026-07-01T08:00:00.000Z' })]);
   });
 
   it('s16(3): the late-claim clearing leg is VAT, not base; the companion nets on it (architecture A1)', () => {

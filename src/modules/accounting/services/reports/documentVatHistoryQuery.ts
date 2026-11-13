@@ -11,14 +11,19 @@
  *     guarded, with every line and the VAT201 member-line rule evaluated per
  *     line — plus the late-claim clearing leg, which holds the VAT a locked
  *     period moved off VAT Input until its companion claims it;
- *  4. the HEURISTIC roots (review rounds 1-2): posted journals dated on or after
+ *  4. the HEURISTIC roots (review rounds 1-3): posted journals dated on or after
  *     the start of the document's fiscal period (a same-period correction may be
- *     back-dated before it), from any source but a document posting
- *     (DOCUMENT_POSTING_SOURCES), that are no document's own posting and no
- *     reversal or companion, that carry a line on one of the document's OWN VAT
- *     accounts, and whose reference / narration / a line narration names one of
- *     its numbers as a whole token. MATCH_LIMIT + 1 at most. Every filter but the
- *     regex runs first; the regex reads only the survivors and their lines.
+ *     back-dated before it), of ANY source, that are not the posting journal of
+ *     a supplier invoice, customer invoice or credit note (their reversals and
+ *     companions are never roots either), that carry a line on one of the
+ *     document's OWN VAT accounts, and whose reference / narration / a line
+ *     narration names one of its numbers as a whole token. MATCH_LIMIT + 1 at
+ *     most. Every filter but the regex runs first; the regex reads only the
+ *     survivors and their lines. No source is trusted (round 3): a supplier
+ *     refund allocated from the bank posts as auto_supplier_payment. Another
+ *     document's own posting that names the number (an expense claim, a bank
+ *     allocation, a provisional) therefore matches too and makes mirror_bill
+ *     refuse — fail-safe; the refusal names the journal and its source.
  *
  * Only POSTED journals are read, as the VAT201 reads them. The VAT submission
  * clearing journal and the year-end closing journal are excluded through their
@@ -39,16 +44,6 @@ export type DocumentVatTie = 'posting' | 'late_claim' | 'reversal' | 'credit_not
 
 /** Most heuristic matches read per call; one more is fetched to say the list was cut. */
 export const MATCH_LIMIT = 100;
-/**
- * Sources that are a DOCUMENT'S OWN posting (or a settlement / payroll run of one), never a correction of another
- * document's VAT. Everything else may match — hand journals, imports, bank allocations (a supplier refund allocated
- * from the statement, `auto_bank_recon`), expense claims, write-offs, VAT adjustments (review round 2, R2-2). The
- * posting-id NOT IN lists below still stop a document matching itself whatever its source.
- */
-export const DOCUMENT_POSTING_SOURCES = [
-  'auto_invoice', 'auto_supplier_invoice', 'auto_credit_note', 'auto_vat_late_claim', 'auto_payment',
-  'auto_supplier_payment', 'auto_batch_payment', 'auto_payroll', 'auto_grn', 'auto_purchase_order', 'auto_depreciation',
-] as const;
 export { LATE_CLAIM_CLEARING_SUBTYPE };
 
 export interface DocumentRow {
@@ -76,8 +71,11 @@ export interface JournalLineRow {
   journal_entry_id: string;
   /** The root journal of this row's chain (itself for a root). */
   root_journal_id: string;
-  /** When the journal was written (not its entry_date): an approval compares it with the note's own. */
-  created_at: Date | string;
+  /**
+   * When the journal entered the ledger: the later of its created_at and posted_at (a draft written before a note
+   * and posted after it counts from its posting — review round 3). An approval compares it with the note's own.
+   */
+  written_at: Date | string;
   root_tie: DocumentVatTie;
   via: string | null;
   matched_in: string | null;
@@ -182,7 +180,6 @@ export async function readNarrationMatches(
       WHERE je.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.entry_date >= ${scope.fromDate}::DATE
         AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND ${vatEntrySourceAdmitsSql(sql`je.source`)}
-        AND (je.source IS NULL OR NOT (je.source = ANY(${DOCUMENT_POSTING_SOURCES as unknown as string[]}::TEXT[])))
         AND je.reversal_of_id IS NULL AND je.late_claim_of_id IS NULL
         AND NOT (je.id = ANY(${scope.excludeJournalIds as string[]}::UUID[]))
         -- OFFSET 0 keeps each probe a per-journal index lookup (company_id, journal_entry_id), never a scan
@@ -250,7 +247,7 @@ export async function readChainLines(companyId: string, roots: readonly RootJour
         AND NOT j.id = ANY(c.path) AND cardinality(c.path) < ${MAX_CHAIN_DEPTH}
     )
     SELECT ch.id AS journal_entry_id, ch.root AS root_journal_id, ch.tie AS root_tie, ch.via, ch.matched_in, ch.reverses,
-      je.entry_number, je.entry_date, je.created_at, je.source, je.status,
+      je.entry_number, je.entry_date, GREATEST(je.created_at, COALESCE(je.posted_at, je.created_at)) AS written_at, je.source, je.status,
       ${journalStandsFragment('je.id', companyId)} AS stands,
       jl.id AS line_id, jl.gl_account_id, ga.account_code, ga.account_name, ga.account_subtype,
       jl.vat_type, jl.debit, jl.credit, jl.description AS line_description,

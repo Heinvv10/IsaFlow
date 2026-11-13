@@ -59,8 +59,10 @@ export interface HeuristicMatch {
   tie: DocumentVatTie;
   /** Its chain's VAT on the document's own VAT accounts, in the document's direction. */
   vat_amount: number;
-  /** The latest created_at (when written, not dated) in its chain, ISO. */
-  last_created_at: string;
+  /** The root journal's source: a match may be another document's own posting (a payment, a claim, a provisional). */
+  source: string | null;
+  /** The latest time any journal in its chain entered the ledger (created or posted, whichever is later), ISO. */
+  last_written_at: string;
 }
 
 export interface DocumentVatTotals {
@@ -152,9 +154,9 @@ export function summariseVatLines(rows: readonly JournalLineRow[], direction: 1 
     if (base !== null && head.root_tie === 'posting') basePosted += base;
     if (!derivable) {
       const root = String(head.root_journal_id);
-      const m = matches.get(root) ?? { journal_entry_id: root, entry_number: null, tie: head.root_tie, vat_amount: 0, last_created_at: iso(head.created_at) };
-      if (journalId === root) m.entry_number = head.entry_number;
-      if (iso(head.created_at) > m.last_created_at) m.last_created_at = iso(head.created_at);
+      const m = matches.get(root) ?? { journal_entry_id: root, entry_number: null, tie: head.root_tie, source: null, vat_amount: 0, last_written_at: iso(head.written_at) };
+      if (journalId === root) { m.entry_number = head.entry_number; m.source = head.source; }
+      if (iso(head.written_at) > m.last_written_at) m.last_written_at = iso(head.written_at);
       m.vat_amount = r2(m.vat_amount + vatLines.reduce((s, r) => s + signed(r), 0));
       matches.set(root, m);
     }

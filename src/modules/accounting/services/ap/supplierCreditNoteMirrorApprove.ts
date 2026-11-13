@@ -11,11 +11,13 @@
  *   'mirror_bill'      refused when the planner refuses, or when the note's tax exceeds what it would now give
  *                      (by more than a cent);
  *   'mirror_bill_ack'  refused when the planner refuses the acknowledged amount (more than the bill's derivable VAT
- *                      on this share, or no base left), AND when any heuristic match that moves the bill's VAT was
- *                      WRITTEN (gl_journal_entries.created_at, not its entry date) after the note was (review round 2,
- *                      R2-3): the acknowledgement covered the journals the caller was shown, not later ones. Remaining
- *                      limit: a match written before the note but reversed or edited after it is judged as it stood
- *                      when acknowledged only if its chain gained a journal (the chain's latest created_at counts).
+ *                      on this share, or no base left), AND when any heuristic match that moves the bill's VAT
+ *                      entered the ledger after the note was written (review rounds 2-3): the later of a journal's
+ *                      created_at and posted_at, so a draft written before the note and posted after it counts; the
+ *                      acknowledgement covered only the journals the caller was shown. Remaining limits: both stamps are
+ *                      transaction-start times (NOW()), so a journal posted by a transaction that began before the
+ *                      note's and committed after it reads as earlier; and an edit to a posted journal that adds no
+ *                      journal to its chain is not seen.
  * 'rate' notes are not checked: unchanged.
  *
  * `mirroredVatRefusals` is the same judgement for a batch, read before anything posts, so the
@@ -65,9 +67,9 @@ export function judgeMirroredApproval(h: DocumentVatHistory, note: MirroredNoteS
   const head = `VAT_ALREADY_REVERSED: credit note ${note.number} was raised with mirror_bill on bill ${h.document_number}, which has changed since. `;
   if (!d.ok) return `${head}${d.reason.replace(/^VAT_ALREADY_REVERSED: /, '')} ${REMEDY}`;
   if (acknowledged) {
-    const since = h.heuristic.matches.filter((m) => Math.abs(m.vat_amount) > 0.01 && m.last_created_at > note.createdAt);
+    const since = h.heuristic.matches.filter((m) => Math.abs(m.vat_amount) > 0.01 && m.last_written_at > note.createdAt);
     if (since.length > 0) {
-      const named = since.map((m) => `${m.entry_number ?? m.journal_entry_id} ${m.tie} ${m.vat_amount}`).join('; ');
+      const named = since.map((m) => `${m.entry_number ?? m.journal_entry_id} [${m.source ?? 'no source'}] ${m.tie} ${m.vat_amount}`).join('; ');
       return `${head}Journals naming the bill and moving its VAT were written after the acknowledgement (${named}); `
         + `it covered only the journals shown when the note was raised. ${REMEDY}`;
     }

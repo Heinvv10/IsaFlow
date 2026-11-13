@@ -17,9 +17,10 @@
  *   credit_note      a LINKED credit note's journal, its companion and its
  *                    reversal chain (a cancelled note's contra);
  *   reference_match  HEURISTIC (documentVatHistoryQuery.readNarrationMatches:
- *   narration_match  any journal but a document posting, on the document's own
- *                    VAT accounts, dated in or after its fiscal period, naming
- *                    its number as a whole token; each judged on its own).
+ *   narration_match  any journal but an invoice / bill / note posting, on the
+ *                    document's own VAT accounts, dated in or after its fiscal
+ *                    period, naming its number as a whole token; each judged
+ *                    on its own).
  * Credit applied by FIFO from a note NOT linked to the document carries no VAT
  * tie to it and is not read. A CANCELLED invoice or bill no longer names its
  * posting journal (the cancel nulls the link), so neither its posting nor its
@@ -44,8 +45,8 @@ export { DOCUMENT_VAT_ENTITY_TYPES, type DocumentVatEntityType, type DocumentVat
 export type { DocumentVatLine, DocumentVatTotals, HeuristicMatch } from './documentVatHistorySummary';
 
 export const HEURISTIC_NOTE =
-  'reference_match and narration_match are HEURISTIC: a posted journal that is no document\'s own posting (any '
-  + 'source but invoice, bill, credit-note, payment and payroll postings; not a reversal), dated in or after this '
+  'reference_match and narration_match are HEURISTIC: a posted journal of any source that is not the posting of an '
+  + 'invoice, bill or credit note (nor a reversal or late-claim companion), dated in or after this '
   + 'document\'s fiscal period, with a line on one of its own VAT accounts, whose reference or '
   + 'narration names one of its numbers as a whole token (case-insensitive; numbers shorter than 4 characters, longer '
   + 'than 64 or with no digit are not searched). Only its lines on this document\'s VAT accounts count; each match is '

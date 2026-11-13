@@ -109,7 +109,7 @@ export function planMirroredNote(
     Math.abs(outOfProportion) > tolerance
       ? `its credit notes and reversals leave ${fmt(vatNow)} of VAT on ${fmt(baseNow)} of base, ${fmt(Math.abs(outOfProportion))} ${outOfProportion > 0 ? 'less' : 'more'} than its posted rate gives` : null,
     moved.length > 0
-      ? `${moved.length} journal(s) naming the bill moved its VAT (${moved.map((m) => `${m.entry_number ?? m.journal_entry_id} ${fmt(m.vat_amount)}`).join(', ')}; matched by narration or reference: heuristic)` : null,
+      ? `${moved.length} journal(s) naming the bill moved its VAT (${moved.map((m) => `${m.entry_number ?? m.journal_entry_id} [${m.source ?? 'no source'}] ${fmt(m.vat_amount)}`).join(', ')}; matched by narration or reference: heuristic — a match may be another document's own posting that names the same number, such as a payment, a bank allocation or an expense claim)` : null,
     h.heuristic.truncated ? `more than ${h.heuristic.limit} journals name the bill, so the search is incomplete` : null,
   ].filter((s): s is string => s !== null);
   const rateOf = (tax: number) => Math.min(100, r2(tax / subtotal * 100));
