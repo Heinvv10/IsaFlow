@@ -12,9 +12,11 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateAsset, type AssetInput } from '@/modules/accounting/services/items/assetService';
-import { createAsset } from '@/modules/accounting/services/items/assetCreateService';
+import { assetCostAccountProblem, createAsset } from '@/modules/accounting/services/items/assetCreateService';
 
 type Row = Record<string, unknown>;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const ASSET_STATUSES: readonly string[] = ['available', 'assigned', 'in_maintenance', 'disposed', 'written_off'];
 
@@ -95,6 +97,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.validationError(res,
         Object.fromEntries((validation.errors || []).map(e => [e.field, e.message]))
       );
+    }
+
+    if (body.glAssetAccountId !== undefined && body.glAssetAccountId !== null) {
+      if (typeof body.glAssetAccountId !== 'string' || !UUID_RE.test(body.glAssetAccountId)) {
+        return apiResponse.badRequest(res, 'glAssetAccountId must be a UUID or null');
+      }
+      const problem = await assetCostAccountProblem(companyId, body.glAssetAccountId);
+      if (problem) return apiResponse.badRequest(res, `glAssetAccountId invalid: ${problem}`);
     }
 
     const created = await createAsset(companyId, String(req.user.id), body);

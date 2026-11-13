@@ -162,6 +162,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'cancel_supplier_invoice',
   'cancel_customer_invoice',
   'create_fixed_asset',
+  'delete_fixed_asset',
   'update_supplier_invoice',
   'reapply_payment_terms',
   'reapply_customer_payment_terms',

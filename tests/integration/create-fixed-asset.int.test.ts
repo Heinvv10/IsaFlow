@@ -12,6 +12,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import assetsRoute from '../../pages/api/accounting/assets';
+import disposeRoute from '../../pages/api/accounting/assets/[assetId]/dispose';
+import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { createFixedAssetTool } from '@/lib/mcp/tools/writeCreateFixedAsset';
 import { loadDepreciationAssets, planDepreciationRun } from '@/modules/accounting/services/items/depreciationRunService';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
@@ -28,6 +30,10 @@ let other: Fixture;
 let token = '';
 /** asset_categories is global and data-less in the schema-only fixture: the rows this suite added, removed after. */
 let seededCategories: string[] = [];
+let costAccount = '';
+let inactiveCostAccount = '';
+let bankAccountLeaf = '';
+let foreignCostAccount = '';
 
 const ctxFor = (f: Fixture) => ({
   companyId: f.companyId, userId: f.userId, scopes: ['write:journals'], companyRole: 'owner',
@@ -55,6 +61,19 @@ describeIfDb('create_fixed_asset: real Postgres', () => {
     fx = await seedFixture('CFA', DATABASE_URL!);
     other = await seedFixture('CFA-O', DATABASE_URL!);
     token = await seedRouteUser(fx, 'cfa');
+    const acct = async (f: Fixture, code: string, type: string, subtype: string, normal: string, active = true) =>
+      String(((await sql`
+        INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance,
+          is_active, is_system_account)
+        VALUES (${f.companyId}::UUID, ${code}, ${`CFA ${code} ${f.tag}`}, ${type}, ${subtype}, ${normal}, ${active}, true)
+        RETURNING id`) as Row[])[0]!.id);
+    costAccount = await acct(fx, '1500', 'asset', 'fixed_asset', 'debit');
+    inactiveCostAccount = await acct(fx, '1501', 'asset', 'fixed_asset', 'debit', false);
+    bankAccountLeaf = await acct(fx, '1502', 'asset', 'cash', 'debit');
+    foreignCostAccount = await acct(other, '1500', 'asset', 'fixed_asset', 'debit');
+    await acct(fx, '1510', 'asset', 'accumulated_depreciation', 'credit');
+    await acct(fx, '8100', 'expense', 'disposal_profit_loss', 'debit');
+    clearSystemAccountCache(fx.companyId);
     seededCategories = ((await sql`
       INSERT INTO asset_categories (name, code, sars_rate, sars_years) VALUES
         ('Computers', 'computers', 33.33, 3), ('Furniture', 'furniture', 16.67, 6)
@@ -62,7 +81,11 @@ describeIfDb('create_fixed_asset: real Postgres', () => {
   }, 60000);
 
   afterAll(async () => {
-    for (const f of [fx, other]) await sql`DELETE FROM assets WHERE company_id = ${f.companyId}::UUID`;
+    for (const f of [fx, other]) {
+      await sql`DELETE FROM asset_disposals WHERE asset_id IN (SELECT id FROM assets WHERE company_id = ${f.companyId}::UUID)`;
+      await sql`DELETE FROM asset_period_ledger WHERE asset_id IN (SELECT id FROM assets WHERE company_id = ${f.companyId}::UUID)`;
+      await sql`DELETE FROM assets WHERE company_id = ${f.companyId}::UUID`;
+    }
     await sql`DELETE FROM asset_categories WHERE code = ANY(${seededCategories}::TEXT[])`;
     await dropRouteUser(fx);
     await dropFixture(fx);
@@ -153,6 +176,52 @@ describeIfDb('create_fixed_asset: real Postgres', () => {
     expect(names).not.toContain('Rolled back');
     const next = await call(fx, { ...ARGS, name: 'After rollback' });
     expect(out(next).asset_number).toBe(minted);
+  }, 60000);
+
+  it('stores a valid cost account, and the existing dispose route then disposes the asset', async () => {
+    const r = await call(fx, { ...ARGS, name: 'With account', gl_asset_account_id: costAccount });
+    expect(r.isError, r.content[0]!.text).toBeUndefined();
+    const id = String(out(r).asset_id);
+    expect(((await sql`SELECT gl_asset_account_id FROM assets WHERE id = ${id}::UUID`) as Row[])[0]!.gl_asset_account_id)
+      .toBe(costAccount);
+    const disposed = await callRoute(fx, token, disposeRoute as never,
+      { proceeds: 0, disposalDate: '2026-06-15', disposalType: 'scrap' }, { assetId: id });
+    expect(disposed.statusCode, JSON.stringify(disposed.body)).toBe(200);
+    expect(((await sql`SELECT status FROM assets WHERE id = ${id}::UUID`) as Row[])[0]!.status).toBe('disposed');
+  }, 60000);
+
+  it('without a cost account the same dispose is refused (the gap the account closes)', async () => {
+    const r = await call(fx, { ...ARGS, name: 'No account' });
+    const id = String(out(r).asset_id);
+    const disposed = await callRoute(fx, token, disposeRoute as never,
+      { proceeds: 0, disposalDate: '2026-06-15', disposalType: 'scrap' }, { assetId: id });
+    expect(disposed.statusCode).toBe(400);
+  }, 60000);
+
+  it('the tool refuses an inactive, foreign, wrong-subtype or unknown cost account and writes nothing', async () => {
+    const before = (await assetsOf(fx)).length;
+    for (const bad of [inactiveCostAccount, foreignCostAccount, bankAccountLeaf, crypto.randomUUID()]) {
+      const r = await call(fx, { ...ARGS, gl_asset_account_id: bad });
+      expect(r.isError, bad).toBe(true);
+      expect(r.content[0]!.text).toMatch(/^gl_asset_account_id invalid: /);
+      const dry = await call(fx, { ...ARGS, gl_asset_account_id: bad, dry_run: true });
+      expect(dry.content[0]!.text).toBe(r.content[0]!.text);
+    }
+    expect((await assetsOf(fx)).length).toBe(before);
+  }, 60000);
+
+  it('the route takes the same account and refuses the same bad ones with a 400', async () => {
+    const body = { name: 'Route acct', category: 'computers', sarsCategory: 'computers', purchaseDate: '2026-01-10',
+      cost: 1000, usefulLifeYears: 3 };
+    const good = await callRoute(fx, token, assetsRoute as never, { ...body, glAssetAccountId: costAccount });
+    expect(good.statusCode, JSON.stringify(good.body)).toBe(201);
+    expect(dataOf<{ gl_asset_account_id: string }>(good).gl_asset_account_id).toBe(costAccount);
+    const before = (await assetsOf(fx)).length;
+    for (const bad of [inactiveCostAccount, foreignCostAccount, bankAccountLeaf, 'nope']) {
+      const res = await callRoute(fx, token, assetsRoute as never, { ...body, glAssetAccountId: bad });
+      expect(res.statusCode, bad).toBe(400);
+    }
+    expect((await assetsOf(fx)).length).toBe(before);
   }, 60000);
 
   it('registers in a closed year (no ledger period is touched) and the next depreciation plan picks the asset up', async () => {

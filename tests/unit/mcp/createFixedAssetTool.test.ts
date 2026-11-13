@@ -10,11 +10,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/modules/accounting/services/items/assetCreateService', () => ({
   listActiveAssetCategories: vi.fn(),
   planAssetCreate: vi.fn(),
+  assetCostAccountProblem: vi.fn(),
   insertPlannedAsset: vi.fn(),
   findSimilarAssets: vi.fn(),
 }));
 
 import {
+  assetCostAccountProblem,
   findSimilarAssets,
   insertPlannedAsset,
   listActiveAssetCategories,
@@ -29,6 +31,7 @@ import type { McpToolContext } from '@/lib/mcp/types';
 const COMPANY = 'cccccccc-0000-4000-8000-cccccccccccc';
 const ctx = { companyId: COMPANY, userId: 'u-1', tokenJti: 'jti' } as unknown as McpToolContext;
 const KEY = { idempotency_key: 'k-1' };
+const ACCT = 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb';
 const GOOD = {
   name: 'Dell Latitude 5440', category: 'computers', purchase_date: '2026-03-02', cost: 18500.5,
   useful_life_years: 3, ...KEY,
@@ -46,6 +49,7 @@ beforeEach(() => {
     categoryId: 'cat-1', sarsRate: 33.33, taxLife: 3, categoryKey: 'computers', assetNumber: 'COMP-0004',
   });
   vi.mocked(findSimilarAssets).mockResolvedValue([]);
+  vi.mocked(assetCostAccountProblem).mockResolvedValue(null);
   vi.mocked(insertPlannedAsset).mockResolvedValue({
     id: 'a1a1a1a1-0000-4000-8000-000000000001', asset_number: 'COMP-0004', purchase_date: '2026-03-02',
   });
@@ -66,7 +70,7 @@ describe('create_fixed_asset: registration', () => {
 
   it('takes no company, account, dimension or status argument', () => {
     const props = Object.keys((createFixedAssetTool.inputSchema as { properties: object }).properties);
-    for (const forbidden of ['company_id', 'gl_asset_account_id', 'cost_centre_id', 'status', 'password', 'token']) {
+    for (const forbidden of ['company_id', 'cost_centre_id', 'status', 'password', 'token']) {
       expect(props).not.toContain(forbidden);
     }
   });
@@ -86,7 +90,6 @@ describe('create_fixed_asset: registration', () => {
     expect(plan.assetNumber).toBe('COMP-0004');
     const out = json(r);
     expect(out).toMatchObject({ asset_id: 'a1a1a1a1-0000-4000-8000-000000000001', asset_number: 'COMP-0004', posts_to_ledger: false });
-    expect(String(out.reversal)).toMatch(/No MCP tool or app route deletes an asset/);
   });
 
   it('passes the optional fields through trimmed', async () => {
@@ -106,6 +109,40 @@ describe('create_fixed_asset: registration', () => {
     expect(json(r).possible_duplicates).toEqual([{ id: 'x', assetNumber: 'COMP-0003', name: 'Dell Latitude 5440' }]);
     expect(insertPlannedAsset).toHaveBeenCalledTimes(1);
     expect(findSimilarAssets).toHaveBeenCalledWith(COMPANY, 'Dell Latitude 5440', '2026-03-02', 18500.5);
+  });
+
+  it('stores a valid cost account, checking it against the TOKEN company first', async () => {
+    const r = await createFixedAssetTool.handler({ ...GOOD, gl_asset_account_id: ACCT }, ctx);
+    expect(assetCostAccountProblem).toHaveBeenCalledWith(COMPANY, ACCT);
+    expect(vi.mocked(insertPlannedAsset).mock.calls[0]![2]).toMatchObject({ glAssetAccountId: ACCT });
+    expect((json(r).asset as Record<string, unknown>).gl_asset_account_id).toBe(ACCT);
+  });
+
+  it('without an account it checks nothing and stores none', async () => {
+    const r = await createFixedAssetTool.handler(GOOD, ctx);
+    expect(assetCostAccountProblem).not.toHaveBeenCalled();
+    expect((json(r).asset as Record<string, unknown>).gl_asset_account_id).toBeNull();
+  });
+
+  it('refuses a bad cost account (inactive, foreign, wrong kind) before planning or inserting, dry run alike', async () => {
+    vi.mocked(assetCostAccountProblem).mockResolvedValue('Account not found');
+    for (const dry of [false, true]) {
+      const r = await createFixedAssetTool.handler({ ...GOOD, gl_asset_account_id: ACCT, ...(dry ? { dry_run: true } : {}) }, ctx);
+      expect(r.isError).toBe(true);
+      expect(text(r)).toBe('gl_asset_account_id invalid: Account not found');
+    }
+    expect(planAssetCreate).not.toHaveBeenCalled();
+    expect(insertPlannedAsset).not.toHaveBeenCalled();
+  });
+
+  it('refuses an account id that is not a uuid before any read', async () => {
+    const r = await createFixedAssetTool.handler({ ...GOOD, gl_asset_account_id: 'not-a-uuid' }, ctx);
+    expect(text(r)).toBe('invalid gl_asset_account_id');
+    expect(listActiveAssetCategories).not.toHaveBeenCalled();
+  });
+
+  it('points the reversal at delete_fixed_asset', async () => {
+    expect(String(json(await createFixedAssetTool.handler(GOOD, ctx)).reversal)).toMatch(/delete_fixed_asset/);
   });
 
   it('lets an insert failure propagate (a returned error would commit the savepoint)', async () => {

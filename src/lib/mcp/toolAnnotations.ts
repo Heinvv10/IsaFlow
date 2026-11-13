@@ -58,6 +58,7 @@ const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
   'update_business_unit',
   'delete_business_unit',
   'cancel_customer_invoice',
+  'delete_fixed_asset',
   'set_gl_account_reporting_attributes',
   'set_customer_default_fno',
   'set_bank_account_default_dimensions',

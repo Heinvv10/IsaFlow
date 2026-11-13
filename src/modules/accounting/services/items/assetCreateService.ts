@@ -2,15 +2,17 @@
  * Fixed-asset registration: the `assets` INSERT and the number it mints.
  *
  * Extracted VERBATIM from `POST /api/accounting/assets` so the route and the MCP `create_fixed_asset` tool run ONE
- * implementation. It registers the asset on the subledger and posts NOTHING to the ledger: no GL account, no
- * capitalisation journal, no dimension and no bill link is written here (the cost account is set afterwards with
- * `PATCH /api/accounting/assets/:id/gl-account`). Callers validate with `assetService.validateAsset` first.
+ * implementation. It registers the asset on the subledger and posts NOTHING to the ledger: no capitalisation
+ * journal, no dimension and no bill link. The cost account (`glAssetAccountId`, optional) is stored as given: the
+ * caller checks it first with `assetCostAccountProblem`, the gate `PATCH .../gl-account` applies. Callers validate
+ * with `assetService.validateAsset` first.
  *
  * Plan, then insert: `planAssetCreate` resolves the category and mints the number under the category's number lock
  * (mig 864) and writes nothing, so a dry run is the live path minus the INSERT.
  */
 import { sql } from '@/lib/neon';
 import { ASSET_NUMBER_SEED, takeCompanyNumberLock } from '../core/numberLock';
+import { validateAssetCostAccount } from '../gl/leafAccountValidator';
 import { assetNumberPrefix, generateAssetNumber, type AssetInput } from './assetService';
 
 type Row = Record<string, unknown>;
@@ -36,6 +38,16 @@ export async function listActiveAssetCategories(): Promise<AssetCategoryOption[]
     SELECT code, name, sars_years FROM asset_categories WHERE is_active = true ORDER BY code
   `) as Row[];
   return rows.map((r) => ({ code: String(r.code), name: String(r.name), sarsYears: Number(r.sars_years) }));
+}
+
+/**
+ * Why `accountId` cannot be the asset's cost account, or null when it can: the gate `PATCH .../gl-account` applies
+ * (this company's, active, leaf, fixed-asset-cost subtype), so a created asset can later be disposed. A foreign and a
+ * missing id read the same ('Account not found'). Call before any write.
+ */
+export async function assetCostAccountProblem(companyId: string, accountId: string): Promise<string | null> {
+  const check = await validateAssetCostAccount(accountId, companyId);
+  return check.ok ? null : check.reason;
 }
 
 /** Resolves the category and mints the next number. Takes the category's number lock; writes no asset row. */
@@ -93,7 +105,7 @@ export async function insertPlannedAsset(
       serial_number, location, purchase_date, purchase_price,
       salvage_value, useful_life_years, depreciation_method,
       sars_category, sars_rate, tax_useful_life_years, tax_depreciation_method,
-      status, created_by
+      status, created_by, gl_asset_account_id
     ) VALUES (
       ${companyId}::UUID, ${plan.assetNumber}, ${body.name}, ${body.description || null},
       ${plan.categoryId}, ${plan.categoryKey},
@@ -101,7 +113,7 @@ export async function insertPlannedAsset(
       ${body.purchaseDate}, ${body.cost},
       ${body.salvageValue || 0}, ${body.usefulLifeYears}, ${body.depreciationMethod || 'straight_line'},
       ${body.sarsCategory || null}, ${plan.sarsRate}, ${plan.taxLife}, ${'straight_line'},
-      ${body.status || 'available'}, ${userId}
+      ${body.status || 'available'}, ${userId}, ${body.glAssetAccountId || null}::UUID
     ) RETURNING *
   `) as Row[];
   return inserted[0] as Row;

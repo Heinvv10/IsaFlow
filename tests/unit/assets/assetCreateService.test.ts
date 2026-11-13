@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/leafAccountValidator', () => ({ validateAssetCostAccount: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/numberLock', () => ({
   ASSET_NUMBER_SEED: 864001,
   takeCompanyNumberLock: vi.fn(),
@@ -13,7 +14,9 @@ vi.mock('@/modules/accounting/services/core/numberLock', () => ({
 
 import { sql } from '@/lib/neon';
 import { takeCompanyNumberLock } from '@/modules/accounting/services/core/numberLock';
+import { validateAssetCostAccount } from '@/modules/accounting/services/gl/leafAccountValidator';
 import {
+  assetCostAccountProblem,
   createAsset,
   findSimilarAssets,
   insertPlannedAsset,
@@ -75,6 +78,14 @@ describe('insertPlannedAsset / createAsset', () => {
     expect(p).toContain('COMP-0008');
     expect(p).toContain('user-1');
     expect(p).toContain('available');
+    expect(p[p.length - 1]).toBeNull();
+  });
+
+  it('stores the cost account when given', async () => {
+    vi.mocked(sql).mockResolvedValueOnce([{ id: 'new' }] as never);
+    await insertPlannedAsset(COMPANY, 'user-1', { ...body, glAssetAccountId: 'acct-1' }, plan);
+    expect(q(0)).toMatch(/gl_asset_account_id/);
+    expect(params(0)).toContain('acct-1');
   });
 
   it('createAsset is plan then insert', async () => {
@@ -102,5 +113,18 @@ describe('listActiveAssetCategories / findSimilarAssets', () => {
     ]);
     expect(q(0)).toMatch(/company_id = \?::UUID/);
     expect(params(0)[0]).toBe(COMPANY);
+  });
+});
+
+describe('assetCostAccountProblem', () => {
+  it('is null for an account the cost-account gate accepts, checked for the given company', async () => {
+    vi.mocked(validateAssetCostAccount).mockResolvedValue({ ok: true });
+    expect(await assetCostAccountProblem(COMPANY, 'acct-1')).toBeNull();
+    expect(validateAssetCostAccount).toHaveBeenCalledWith('acct-1', COMPANY);
+  });
+
+  it('is the gate\'s reason otherwise', async () => {
+    vi.mocked(validateAssetCostAccount).mockResolvedValue({ ok: false, reason: 'Account not found' });
+    expect(await assetCostAccountProblem(COMPANY, 'acct-1')).toBe('Account not found');
   });
 });

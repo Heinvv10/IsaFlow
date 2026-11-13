@@ -44,6 +44,8 @@ export interface AssetInput {
   description?: string;
   serialNumber?: string;
   sarsCategory?: string;
+  /** The fixed-asset COST account a disposal credits (`assets.gl_asset_account_id`). Checked by `assetCostAccountProblem`. */
+  glAssetAccountId?: string | null;
 }
 
 export interface DisposalInput {

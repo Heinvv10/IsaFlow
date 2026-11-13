@@ -6,7 +6,7 @@
  * (NUMERIC(15,2) cost, NUMERIC(5,2) life, NUL in text) or silently round (a third decimal on the cost).
  */
 import { validateAsset, type AssetInput } from '@/modules/accounting/services/items/assetService';
-import { hasNul, isRealCalendarDate } from '@/lib/validation';
+import { UUID_RE, hasNul, isRealCalendarDate } from '@/lib/validation';
 import { hasWholeCents } from './toolHelpers';
 
 export const DEPRECIATION_METHODS = ['straight_line', 'reducing_balance', 'sum_of_years'] as const;
@@ -78,6 +78,11 @@ export function parseFixedAssetArgs(args: Record<string, unknown>): FixedAssetPa
     return fail(`depreciation_method must be one of ${DEPRECIATION_METHODS.join(', ')}`);
   }
 
+  const account = args.gl_asset_account_id;
+  if (account !== undefined && account !== null && (typeof account !== 'string' || !UUID_RE.test(account.trim()))) {
+    return fail('invalid gl_asset_account_id');
+  }
+
   const input: AssetInput = {
     name: typeof name === 'string' ? name : '',
     category,
@@ -90,6 +95,7 @@ export function parseFixedAssetArgs(args: Record<string, unknown>): FixedAssetPa
     ...(typeof description === 'string' ? { description } : {}),
     ...(typeof serial === 'string' ? { serialNumber: serial } : {}),
     ...(typeof location === 'string' ? { location } : {}),
+    ...(typeof account === 'string' ? { glAssetAccountId: account.trim() } : {}),
   };
   const valid = validateAsset(input);
   if (!valid.success) return fail((valid.errors ?? []).map((e) => e.message).join('; '));
