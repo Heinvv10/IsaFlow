@@ -1,7 +1,8 @@
 /**
  * Free-text "Ask IsaFlow" provider seam (wave 5 M11, decision 8). OFF: nothing is registered, so no value of
  * ASK_ISAFLOW_PROVIDER enables anything. There is no model client, no key and no outbound call here; a provider
- * is a later, separately approved PR that adds an entry to PROVIDERS (spend is Hein's gate).
+ * is a later, separately approved PR that adds an entry to PROVIDERS (spend is Hein's gate). That PR MUST add its own meter: the
+ * route deliberately never meters `mode=free`, so an unmetered provider would be free for every caller.
  */
 import type { AskAnswer } from './askTypes';
 

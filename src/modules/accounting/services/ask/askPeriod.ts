@@ -1,5 +1,5 @@
 /** Turns the window a question named into dates. Pure: `today` is passed in (YYYY-MM-DD, South African date). */
-import type { AskPeriod } from './askIntents';
+import type { AskIntentId, AskPeriod } from './askIntents';
 
 export interface ResolvedPeriod { from: string; to: string; label: string }
 /** The registry's financial years around today, read only when a question says "this/last year". */
@@ -55,4 +55,16 @@ export function describePeriod(p: AskPeriod | null): string {
     case 'this_month': return 'this month';
     case 'month': return `${MONTH_NAMES[p.month - 1]}${p.year ? ` ${p.year}` : ''}`;
   }
+}
+
+/**
+ * Whether a metered intent can honour the window the question named, decided from the question alone (pure). The route asks this
+ * BEFORE charging, so a refused window never debits, never meets a 402 and never triggers an auto top-up.
+ */
+export function periodIsHonoured(id: AskIntentId, period: AskPeriod | null): boolean {
+  if (!period) return true;
+  if (period.kind === 'unsupported') return false;
+  // Statements take months and financial years; positions take a month or today, and have no single date for a year.
+  if (id === 'assets' || id === 'liabilities') return period.kind !== 'last_year';
+  return true;
 }

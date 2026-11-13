@@ -12,6 +12,7 @@ import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { todayInSast } from '@/lib/saDateParser';
 import { resolveProvider } from '@/modules/accounting/services/ask/askProvider';
 import { meteredOperation, parseQuestion } from '@/modules/accounting/services/ask/askIntents';
+import { periodIsHonoured } from '@/modules/accounting/services/ask/askPeriod';
 import { answerQuestion } from '@/modules/accounting/services/ask/askAnswer';
 
 const MAX_QUESTION = 300;
@@ -44,7 +45,10 @@ const bs = withFlowMeter('report.bs', getFlowCost('report.bs'))(handler);
 async function route(req: NextApiRequest, res: NextApiResponse) {
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   const parsed = req.method === 'GET' && q && q.length <= MAX_QUESTION && req.query.mode !== 'free' ? parseQuestion(q) : null;
-  const op = parsed?.kind === 'intent' ? meteredOperation(parsed.intent.id) : null;
+  const intent = parsed?.kind === 'intent' ? parsed.intent : null;
+  const op = intent ? meteredOperation(intent.id) : null;
+  // A window we would refuse is decided before any debit: it costs nothing, and a short wallet never sees a 402 for it.
+  if (intent && op && !periodIsHonoured(intent.id, intent.period)) return handler(req, res);
   return (op === 'report.pnl' ? pnl : op === 'report.bs' ? bs : handler)(req, res);
 }
 
