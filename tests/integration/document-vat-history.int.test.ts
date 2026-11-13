@@ -141,6 +141,30 @@ describeIfDisposable('document_vat_history — every VAT line tied to a document
     expect(h.totals).toMatchObject({ vat_heuristic: 4, vat_derivable_now: 30, vat_net_now: 30 });
   });
 
+  it('only HAND journals dated on or after the bill, on its own VAT accounts and no document\'s posting, can match (round 1)', async () => {
+    const num = number();
+    const b = await bill(num, 1000);
+    // Another supplier's bill with the same number, its posting stamped as a migration import (a hand-journal source).
+    const other = await bill(num, 1000);
+    await sql`UPDATE gl_journal_entries SET source = 'auto_migration' WHERE company_id = ${fx.companyId}::UUID
+      AND id = (SELECT gl_journal_entry_id FROM supplier_invoices WHERE id = ${other}::UUID)`;
+    // A document-sourced journal naming the bill (an automatic payment), on the bill's VAT account.
+    const auto = await vatOut(fx, acct.vatIn!, acct.cos!, 11, { description: `Payment ${num}` });
+    await sql`UPDATE gl_journal_entries SET source = 'auto_payment' WHERE id = ${auto}::UUID AND company_id = ${fx.companyId}::UUID`;
+    // A hand journal naming the bill, dated BEFORE it.
+    await inTx(fx, async () => {
+      const je = await createJournalEntry(fx.companyId, { entryDate: '2026-05-20', source: 'manual', description: `Pre-bill ${num}`, lines: [
+        { glAccountId: acct.cos!, debit: 7, credit: 0 }, { glAccountId: acct.vatIn!, debit: 0, credit: 7, vatType: 'standard' }] }, fx.userId);
+      await postJournalEntry(fx.companyId, je.id, fx.userId);
+    });
+    // A hand journal naming the bill whose VAT sits on another VAT account (output VAT), not the bill's.
+    await vatOut(fx, acct.vatOut!, acct.cos!, 13, { description: `Output adj ${num}` });
+
+    const h = await history('supplier_invoice', b);
+    expect(h.heuristic.journals_matched).toBe(0);
+    expect(h.totals).toMatchObject({ vat_posted: 150, vat_net_now: 150, vat_heuristic: 0 });
+  });
+
   it('a reversed hand-made journal nets out through its chain; a cancelled note nets out too', async () => {
     const num = number();
     const b = await bill(num, 1000);
