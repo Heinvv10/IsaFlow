@@ -98,7 +98,7 @@ test('a full question typed into Ctrl+K gets an Ask IsaFlow row, and Enter answe
   await page.getByRole('combobox').fill('who owes me money');
   await expect(page.getByRole('option').first()).toContainText('Ask IsaFlow: who owes me money');
   await page.keyboard.press('Enter');
-  await expect(page.getByTestId('ask-text')).toContainText('Customers owe you', { timeout: 60_000 });
+  await expect(page.getByTestId('ask-text')).toContainText(/customers owe you/i, { timeout: 60_000 });
 });
 
 test('an unknown question says so and suggests questions that work; axe clean', async ({ page }) => {
