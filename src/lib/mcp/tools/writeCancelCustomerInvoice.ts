@@ -16,6 +16,7 @@ import { MUTATION_ARG_SCHEMA, type DryRunResult } from '@/lib/mcp/contracts';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { cancelCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceCancelService';
+import { RowLockTimeoutError, withRowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const TOOL = 'cancel_customer_invoice';
@@ -48,14 +49,15 @@ export const cancelCustomerInvoiceTool: McpTool = {
     const bad = guardCastableArgs(args, { uuid: ['invoice_id'] });
     if (bad) return bad;
 
-    // Locked for the rest of the request transaction (see the header). A soft-deleted invoice reads as not found,
-    // as the service treats it.
-    const [inv] = (await sql`
+    // Locked for the rest of the request transaction (see the header), with a bounded wait: a peer holding the row
+    // past the budget THROWS RowLockTimeoutError ("retry in a moment"), before any write. A soft-deleted invoice reads
+    // as not found, as the service treats it.
+    const [inv] = await withRowLockBudget(async () => (await sql`
       SELECT id, invoice_number, status, amount_paid, total_amount, gl_journal_entry_id
       FROM customer_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${ctx.companyId}::UUID AND deleted_at IS NULL
       FOR UPDATE
-    `) as DbRow[];
+    `) as DbRow[], () => new RowLockTimeoutError(`Invoice ${invoiceId}`));
     if (!inv) return toolError(NOT_FOUND);
     const number = String(inv.invoice_number);
     const status = String(inv.status);
