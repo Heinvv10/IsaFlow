@@ -28,6 +28,7 @@ import { useDateGate } from '@/hooks/useDateGate';
 import { BudgetApproveDialog } from '@/components/accounting/ap/BudgetApproveDialog';
 import { DueDateEditor } from '@/components/accounting/terms/DueDateEditor';
 import { useBudgetApprove } from '@/components/accounting/ap/useBudgetApprove';
+import { CommentsPanel } from '@/components/accounting/comments/CommentsPanel';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -233,6 +234,8 @@ export default function SupplierInvoiceDetailPage() {
               { value: 'other', label: 'Other' },
             ]}
           />
+
+          <CommentsPanel recordType="supplier_invoice" recordId={invoiceId as string} />
         </div>
 
         {budgetApprove.dialog.open && <BudgetApproveDialog {...budgetApprove.dialog} />}
