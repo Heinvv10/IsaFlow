@@ -60,6 +60,8 @@ export interface ReallocationFacts {
   documents: { supplierIds: string[]; customerIds: string[]; batch: boolean; applied: number; unapplied: number };
   /** The bank account's (card's) default dimensions — what allocate stamps on a contra line that names none. */
   bankDefaults: DimensionIds;
+  /** A supplier / customer target: how many open documents FIFO could settle (bankReallocationLocks.openDocumentsOf). */
+  targetOpenDocuments: number;
   /** The target GL account (account targets only); null when it is not this company's. */
   targetAccount: { subtype: string | null } | null;
 }
@@ -126,12 +128,13 @@ function refuseV1Shapes(f: ReallocationFacts): void {
 
 /**
  * The same contact is the same allocation only when the new document would end where the old one stands: 'fifo'
- * over a document with nothing left on account, 'none' over one with nothing applied. Otherwise the reallocation
- * re-applies (or un-applies) the cash, which is a real change.
+ * over a document with nothing left on account (or with nothing open for FIFO to settle), 'none' over one with
+ * nothing applied. Otherwise the reallocation re-applies (or un-applies) the cash, which is a real change.
  */
 function sameContactOutcome(f: ReallocationFacts, req: ReallocationRequest): boolean {
   const cents = (n: number) => Math.round(n * 100);
-  return (req.autoApply ?? 'fifo') === 'none' ? cents(f.documents.applied) === 0 : cents(f.documents.unapplied) === 0;
+  if ((req.autoApply ?? 'fifo') === 'none') return cents(f.documents.applied) === 0;
+  return cents(f.documents.unapplied) === 0 || f.targetOpenDocuments === 0;
 }
 
 /**

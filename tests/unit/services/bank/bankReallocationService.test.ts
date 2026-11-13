@@ -29,7 +29,7 @@ vi.mock('@/modules/accounting/services/bank/bankReversalGate', () => ({
   agentReversalRefusal: vi.fn(), assertMayReverse: vi.fn(), auditedReversal: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/bank/bankReallocationLocks', () => ({ lockReallocationDocuments: vi.fn() }));
-vi.mock('@/modules/accounting/services/ar/customerVoidCredit', () => ({ customerVoidCreditShortfall: vi.fn() }));
+vi.mock('@/modules/accounting/services/bank/bankReallocationCredit', () => ({ assertReallocationKeepsCredit: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankAllocationUnwind', () => ({ unwindBankAllocationApplication: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/reversalDatePostable', () => ({ lockPeekedReversalTarget: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({ allocateTransaction: vi.fn() }));
@@ -37,6 +37,7 @@ vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ 
 vi.mock('@/modules/accounting/services/bank/bankReallocationWrites', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/bank/bankReallocationWrites')>()),
   assertOriginalDateKept: vi.fn(), readBankLeg: vi.fn(), restoreReconciled: vi.fn(), auditReallocation: vi.fn(),
+  assertBankLegKept: vi.fn(),
   newDocumentOf: vi.fn(async () => ({ kind: 'none', paymentId: null })),
 }));
 
@@ -44,13 +45,15 @@ import { reallocateReconciledTransaction } from '@/modules/accounting/services/b
 import { BankReallocationRefusal } from '@/modules/accounting/services/bank/bankReallocationGuards';
 import { agentReversalRefusal, assertMayReverse } from '@/modules/accounting/services/bank/bankReversalGate';
 import { lockReallocationDocuments } from '@/modules/accounting/services/bank/bankReallocationLocks';
-import { customerVoidCreditShortfall } from '@/modules/accounting/services/ar/customerVoidCredit';
+import { assertReallocationKeepsCredit } from '@/modules/accounting/services/bank/bankReallocationCredit';
+import { refuseStaleUndo } from '@/modules/accounting/services/bank/bankChainLineReversal';
+import { BankControlError } from '@/modules/accounting/services/bank/bankControlRefusal';
 import { unwindBankAllocationApplication } from '@/modules/accounting/services/bank/bankAllocationUnwind';
 import { lockPeekedReversalTarget } from '@/modules/accounting/services/bank/reversalDatePostable';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import {
-  assertOriginalDateKept, auditReallocation, readBankLeg, restoreReconciled,
+  assertBankLegKept, assertOriginalDateKept, auditReallocation, readBankLeg, restoreReconciled,
 } from '@/modules/accounting/services/bank/bankReallocationWrites';
 
 const LEG = { lineId: 'leg', glAccountId: 'bank', subtype: 'bank', debit: 0, credit: 100, vatType: null, cc1Id: null, cc2Id: null, buId: null };
@@ -65,7 +68,10 @@ beforeEach(() => {
   vi.mocked(assertMayReverse).mockImplementation(step('mayReverse', null) as never);
   vi.mocked(assertOriginalDateKept).mockImplementation(step('date') as never);
   vi.mocked(lockReallocationDocuments).mockImplementation(step('lockDocuments', { supplierPaymentIds: [], customerPaymentIds: ['r1'] }) as never);
-  vi.mocked(customerVoidCreditShortfall).mockImplementation(step('credit', null) as never);
+  vi.mocked(assertReallocationKeepsCredit).mockImplementation(step('credit') as never);
+  vi.mocked(refuseStaleUndo).mockImplementation(step('staleUndo') as never);
+  vi.mocked(assertBankLegKept).mockImplementation(((...a: unknown[]) => { order.push('bankLeg'); void a;
+    return { journalId: 'new-je', lineId: 'new', glAccountId: 'bank', debit: 0, credit: 100, entryDate: '2026-06-10' }; }) as never);
   vi.mocked(unwindBankAllocationApplication).mockImplementation(step('unwind', { invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0 }) as never);
   vi.mocked(lockPeekedReversalTarget).mockImplementation(step('lockHead') as never);
   vi.mocked(allocateTransaction).mockImplementation(step('allocate', { journalEntryId: 'new-je', bankTransaction: { id: 'tx' } }) as never);
@@ -78,9 +84,11 @@ beforeEach(() => {
 describe('reallocateReconciledTransaction', () => {
   it('gates -> date -> document locks -> credit -> unwind -> old head -> new journal -> reversal -> restore -> audit', async () => {
     const r = await run();
-    expect(order).toEqual(['agentGate', 'mayReverse', 'date', 'lockDocuments', 'credit', 'unwind', 'lockHead', 'allocate',
-      'reverse', 'restore', 'audit']);
-    expect(vi.mocked(customerVoidCreditShortfall).mock.calls[0]![1]).toEqual(['r1']);
+    expect(order).toEqual(['agentGate', 'mayReverse', 'date', 'lockDocuments', 'credit', 'unwind', 'lockHead', 'staleUndo',
+      'allocate', 'reverse', 'bankLeg', 'restore', 'audit']);
+    expect(vi.mocked(assertReallocationKeepsCredit).mock.calls[0]![1]).toEqual({ supplierPaymentIds: [], customerPaymentIds: ['r1'] });
+    expect(vi.mocked(assertBankLegKept).mock.calls[0]!.slice(1, 2)).toEqual(['2026-06-10']);
+    expect(vi.mocked(assertBankLegKept).mock.calls[0]![3]).toBe('new-je');
     expect(vi.mocked(lockReallocationDocuments).mock.calls[0]![1]).toEqual(
       { journalId: 'je', target: { kind: 'supplier', supplierId: 's' }, spent: true, autoApply: 'fifo' });
     expect(vi.mocked(reverseJournalEntry).mock.calls[0]![3]).toMatchObject({ reversalDate: '2026-06-10' });
@@ -95,8 +103,15 @@ describe('reallocateReconciledTransaction', () => {
     expect(restoreReconciled).not.toHaveBeenCalled();
   });
 
-  it('a customer receipt whose remainder a refund paid out is refused before any write', async () => {
-    vi.mocked(customerVoidCreditShortfall).mockResolvedValue({ customerId: 'c', customerName: 'Acme', lowers: 850, credit: 0 });
+  it('an agent under enforcement is refused (agentReversalRefusal) before anything else', async () => {
+    vi.mocked(agentReversalRefusal).mockResolvedValue(new BankControlError('AGENT_FORBIDDEN', 'an agent or a job cannot'));
+    await expect(run()).rejects.toThrow(/an agent or a job cannot/);
+    expect(assertMayReverse).not.toHaveBeenCalled();
+    expect(lockReallocationDocuments).not.toHaveBeenCalled();
+  });
+
+  it('a credit-ceiling refusal stops the flow before any write', async () => {
+    vi.mocked(assertReallocationKeepsCredit).mockRejectedValue(new BankReallocationRefusal('leave Acme owing the company'));
     await expect(run()).rejects.toThrow(/leave Acme owing the company/);
     expect(unwindBankAllocationApplication).not.toHaveBeenCalled();
     expect(allocateTransaction).not.toHaveBeenCalled();

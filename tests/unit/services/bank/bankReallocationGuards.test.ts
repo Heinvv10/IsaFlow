@@ -45,6 +45,7 @@ function facts(over: Partial<ReallocationFacts> = {}, line: Partial<Reallocation
     },
     documents: { supplierIds: [], customerIds: [], batch: false, applied: 0, unapplied: 0 },
     bankDefaults: {},
+    targetOpenDocuments: 1,
     targetAccount: { subtype: 'default_expense' },
     ...over,
   };
@@ -149,6 +150,11 @@ describe('planReallocation: what counts as the same allocation', () => {
     expect(planReallocation(doc(60, 40), same, req).kind).toBe('reallocate');
     expect(planReallocation(doc(60, 40), same, { ...req, autoApply: 'fifo' }).kind).toBe('reallocate');
     expect(planReallocation(doc(100, 0), same, { ...req, autoApply: 'fifo' }).kind).toBe('nothing_changed');
+  });
+  it('fifo over a payment left on account, with nothing open for FIFO to settle, is the same (no journals)', () => {
+    const none = { ...doc(0, 400), targetOpenDocuments: 0 };
+    expect(planReallocation(none, same, { ...req, autoApply: 'fifo' }).kind).toBe('nothing_changed');
+    expect(planReallocation({ ...none, targetOpenDocuments: 2 }, same, { ...req, autoApply: 'fifo' }).kind).toBe('reallocate');
   });
   it("auto_apply none over a payment that applied something un-applies it: a real change; over nothing applied, the same", () => {
     expect(planReallocation(doc(60, 40), same, { ...req, autoApply: 'none' }).kind).toBe('reallocate');

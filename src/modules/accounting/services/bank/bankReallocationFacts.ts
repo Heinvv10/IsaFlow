@@ -10,6 +10,7 @@ import { findChainCashLines } from './chainBankLines';
 import { peekReversalTarget } from './reversalDatePostable';
 import type { LineChain } from './bankChainLineReversal';
 import type { ReallocationFacts, ReallocationTarget } from './bankReallocationGuards';
+import { openDocumentsOf } from './bankReallocationLocks';
 
 const str = (v: unknown): string | null => (v == null ? null : String(v));
 
@@ -82,6 +83,8 @@ export async function loadReallocationFacts(
       ...(bank?.cc1 ? { cc1Id: String(bank.cc1) } : {}), ...(bank?.cc2 ? { cc2Id: String(bank.cc2) } : {}),
       ...(bank?.bu ? { buId: String(bank.bu) } : {}),
     },
+    targetOpenDocuments: target.kind === 'supplier' ? await openDocumentsOf(companyId, { kind: 'supplier', id: target.supplierId })
+      : target.kind === 'customer' ? await openDocumentsOf(companyId, { kind: 'customer', id: target.customerId }) : 0,
     targetAccount: target.kind === 'account' ? (acct ? { subtype: str(acct.account_subtype) } : null) : null,
   };
 }

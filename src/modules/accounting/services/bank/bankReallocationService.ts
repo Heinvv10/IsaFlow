@@ -18,19 +18,18 @@
  *
  * LOCK ORDER (bank/.claude.md, CANONICAL LOCK ORDER), all under one flow lock budget: the chain's lines in id order
  * (each line's session FOR SHARE first, inside the line lock) -> the line -> [the VAT shared key, the date check] ->
- * the refund contacts -> the old payments -> the old AND new bills, then invoices, ONE id-ordered pass each
- * (bankReallocationLocks) -> the old journal head -> the journal number lock of the two posts. The unwind, the FIFO
- * fetch and the payment plans re-take rows already held.
+ * the old payments -> the old AND new bills, then invoices, ONE id-ordered pass each -> the refund contacts
+ * (bankReallocationLocks) -> [the supplier credit key, TRIED] -> the old journal head -> the journal number lock of
+ * the two posts. The unwind, the FIFO fetch and the payment plans re-take rows already held. The number lock after
+ * the bills is a recorded, retryable cycle with a multi-line poster (bankReallocationLocks header).
  */
 import { withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
-import { formatMoney } from '@/lib/money/formatMoney';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import type { DimensionIds } from '../gl/dimensions/dimensionTypes';
 import type { AutoApplyMode } from '../shared/autoAllocateStrategy';
 import { reverseJournalEntry } from '../gl/journalEntryPostingService';
 import { underFlowLockBudget } from '../core/rowLockBudget';
-import { customerVoidCreditShortfall } from '../ar/customerVoidCredit';
 import { allocateTransaction } from './bankAllocationService';
 import type { AllocationApplicationResult } from './bankAllocationTypes';
 import { unwindBankAllocationApplication, type BankAllocationUnwindResult } from './bankAllocationUnwind';
@@ -42,6 +41,7 @@ import { lockPeekedReversalTarget } from './reversalDatePostable';
 import { BankReallocationRefusal, planReallocation, type ReallocationTarget } from './bankReallocationGuards';
 import { loadReallocationFacts } from './bankReallocationFacts';
 import { lockReallocationDocuments } from './bankReallocationLocks';
+import { assertReallocationKeepsCredit } from './bankReallocationCredit';
 import {
   assertBankLegKept, assertOriginalDateKept, auditReallocation, newDocumentOf, readBankLeg, restoreReconciled,
   type NewDocumentKind,
@@ -112,15 +112,9 @@ async function reallocateInner(
   await assertOriginalDateKept(companyId, plan.journalId, plan.entryDate);
   const old = await lockReallocationDocuments(companyId,
     { journalId: plan.journalId, target, spent: amount < 0, autoApply: opts.autoApply });
-  // Cancelling the old receipt must not leave the customer owing a refund nobody can cover (the AP twin refuses in
-  // the unwind: ap/supplierVoidCredit). Decided under the customer's refund lock, before any write.
-  const shortfall = await customerVoidCreditShortfall(companyId, old.customerPaymentIds);
-  if (shortfall) {
-    throw new BankReallocationRefusal(`Reallocating this line would cancel its receipt and leave ${shortfall.customerName} `
-      + `owing the company: it takes ${formatMoney(shortfall.lowers)} of unapplied cash off the customer's account, and `
-      + `only ${formatMoney(Math.max(shortfall.credit, 0))} is still on account — a refund has already returned the rest. `
-      + 'Reverse the refund first, then reallocate.');
-  }
+  // Cancelling the old payment / receipt must not leave a recorded refund with no credit behind it on any date from
+  // the document's own (bankReallocationCredit, both sides). Under the contact's credit / refund lock, before any write.
+  await assertReallocationKeepsCredit(companyId, old);
   const reviewed = { at: tx.reviewed_at, by: tx.reviewed_by };
   const actor: PostingActorOpts = {
     ...(opts.postingAgent === undefined ? {} : { postingAgent: opts.postingAgent }),
@@ -130,7 +124,8 @@ async function reallocateInner(
 
   const done = await withSavepoint('bank_reallocate', async () => {
     const unwound = await unwindBankAllocationApplication(companyId, plan.journalId);
-    await lockPeekedReversalTarget(companyId, plan.journalId, plan.journalId); // the old journal locked last
+    // The old journal head, after every document: the new journal's number lock and the reversal's claim come next.
+    await lockPeekedReversalTarget(companyId, plan.journalId, plan.journalId);
     await refuseStaleUndo(companyId, bankTxId, chain, opts.expectedJournalEntryId);
     const posted = await allocateTransaction(
       companyId, bankTxId, target.kind === 'account' ? target.glAccountId : null, userId, undefined, target.kind,

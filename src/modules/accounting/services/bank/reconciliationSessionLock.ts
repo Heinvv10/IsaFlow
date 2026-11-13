@@ -13,7 +13,10 @@
  * still reconciled on exactly that completed session inside `allocateTransaction` (`opts.reallocation`,
  * `bankReallocationGuards.assertReallocatableRow`), keeps the line `reconciled` with the same `reconciliation_id` and
  * review stamp, and asserts the new bank leg has the same account, amount and date as the old — so the session's
- * signed-off figures (bank GL balance as at the statement date, the reconciled lines) do not move.
+ * signed-off figures (bank GL balance as at the statement date, the reconciled lines) do not move. The exception
+ * lives in application code (pinned by `bankReallocationCensus.test.ts`); a future SQL / trigger enforcement of D12
+ * must give `reallocateReconciledTransaction` a session-local exemption (a transaction-local setting it sets itself),
+ * because the census cannot see a trigger.
  *
  * ── THE SESSION ROW SERIALISES THEM ────────────────────────────────────────
  *
