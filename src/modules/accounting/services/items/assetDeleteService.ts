@@ -23,7 +23,12 @@
  * unlinks the committed bank line. FOR UPDATE first makes the delete wait for (or fence out) every KEY SHARE holder
  * BEFORE the census, so it sees what they committed and refuses. The B1 cycle needs a holder that keeps waiting on
  * another resource after taking the asset lock; this one reads and deletes, and the wait for the lock is bounded
- * (5 s, then RowLockTimeoutError: retry). `delete-fixed-asset.int.test.ts` runs the delete against a concurrent bank
+ * (5 s, then RowLockTimeoutError: retry).
+ * THIS ARGUMENT HOLDS ONLY WHILE THE DELETE TAKES NO OTHER ROW LOCK between the asset FOR UPDATE and the DELETE: the
+ * census must stay plain reads (no FOR UPDATE / FOR SHARE / FOR KEY SHARE on any row). A future census query that locks
+ * rows must first re-check the lock order against bank/bankAssetLinkService and items/fleetRecordsService, which take
+ * KEY SHARE on the asset and then other rows, or it can close the B1 cycle.
+ * `delete-fixed-asset.int.test.ts` runs the delete against a concurrent bank
  * link and fleet fuel / service insert in both orders (no deadlock, no silent unlink), and fails if this is weakened.
  *
  * The depreciation run and disposal lock the same row FOR NO KEY UPDATE, which conflicts with FOR UPDATE, so a run in
