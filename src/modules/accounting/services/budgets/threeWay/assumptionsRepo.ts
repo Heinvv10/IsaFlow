@@ -32,10 +32,10 @@ import { versionMonths } from '../drivers/driverRecomputeService';
 import { tokenSql } from '../gridErrors';
 import { MAX_SCENARIO_DEPTH, parseStoredDoc, resolveAssumptions, type ChainVersion } from './assumptionsChain';
 import { defaultAssumptions } from './assumptionsDefaults';
-import { isFullDoc, type StoredAssumptionsDoc } from './assumptionsSchema';
-import { AssumptionChainError } from './errors';
+import { isFullDoc, type StoredAssumptionsDoc, type ThreeWayAssumptions } from './assumptionsSchema';
+import { AssumptionChainError, AssumptionsDocError } from './errors';
 import { addMonths } from './months';
-import { assertPayableAccounts, namedInDoc } from './payableAccounts';
+import { assertPayableAccounts, namedInDoc, payableAccountsOf } from './payableAccounts';
 import { AssumptionsStaleError } from './serviceErrors';
 
 export interface StoredAssumptions {
@@ -110,14 +110,14 @@ async function lockVersionRow(companyId: string, versionId: string): Promise<Loc
  * figures share the shape). Throws AssumptionChainError / AssumptionsDocError, after the write: the
  * savepoint takes the write back.
  */
-async function assertChainResolves(companyId: string, versionId: string, fiscalYear: number): Promise<void> {
+async function assertChainResolves(companyId: string, versionId: string, fiscalYear: number): Promise<ThreeWayAssumptions> {
   const { versions } = await readChain(companyId, versionId);
   const months = await versionMonths(companyId, fiscalYear);
   const shape = defaultAssumptions({
     priorYearEnd: addMonths(months[0] as string, -1), entityType: 'pty_ltd',
     vat: { registered: false, cadence: 'bi-monthly', alignment: 'odd', basis: 'invoice' },
   });
-  resolveAssumptions(versionId, versions, shape);
+  return resolveAssumptions(versionId, versions, shape).assumptions;
 }
 
 /** One audit field per top-level section that changed (an overrides document: per override section). */
@@ -131,6 +131,17 @@ export function sectionChanges(before: StoredAssumptionsDoc | null, after: Store
   return keys
     .filter((k) => text(b[k]) !== text(a[k]))
     .map((k) => ({ field: `threeWay.${k}`, old: text(b[k]), new: text(a[k]), label: `Three-way assumptions: ${k}` }));
+}
+
+/** The audit's copy of a replaced document that no longer validates: at most this many UTF-8 bytes. */
+export const MAX_BEFORE_RAW_BYTES = 16 * 1024;
+
+/** `{ beforeInvalid, beforeRaw[, beforeRawTruncated] }`: the stored text, cut on a character boundary. */
+export function rawBefore(raw: string): Record<string, string> {
+  if (Buffer.byteLength(raw, 'utf8') <= MAX_BEFORE_RAW_BYTES) return { beforeInvalid: 'true', beforeRaw: raw };
+  // Decoding a byte-cut buffer replaces a split last character with U+FFFD: drop it.
+  const cut = Buffer.from(raw, 'utf8').subarray(0, MAX_BEFORE_RAW_BYTES).toString('utf8').replace(/\uFFFD$/, '');
+  return { beforeInvalid: 'true', beforeRaw: cut, beforeRawTruncated: 'true' };
 }
 
 export interface SaveAssumptionsInput {
@@ -155,10 +166,21 @@ export async function saveAssumptions(companyId: string, userId: string, input: 
         }
       }
       const cur = (await sql`
-        SELECT doc, ${tokenSql()} AS token FROM budget_three_way_assumptions
+        SELECT doc, doc::TEXT AS raw, ${tokenSql()} AS token FROM budget_three_way_assumptions
          WHERE company_id = ${companyId}::UUID AND version_id = ${versionId}::UUID
       `) as DbRow[];
-      const before = cur[0] ? parseStoredDoc(cur[0].doc) : null;
+      // A stored document that no longer validates (schema drift, a hand edit) never blocks its overwrite:
+      // the audit row records before = null, `beforeInvalid` and the replaced document as stored (`beforeRaw`).
+      let before: StoredAssumptionsDoc | null = null;
+      let beforeInvalid = false;
+      if (cur[0]) {
+        try {
+          before = parseStoredDoc(cur[0].doc);
+        } catch (err) {
+          if (!(err instanceof AssumptionsDocError)) throw err;
+          beforeInvalid = true;
+        }
+      }
       const currentToken = cur[0] ? String(cur[0].token) : null;
       // "No row yet" must meet no row, and a token must meet a row; the UPDATE's WHERE compares the token itself.
       if ((currentToken === null) !== (input.expectedUpdatedAt === null)) throw new AssumptionsStaleError(currentToken);
@@ -174,15 +196,20 @@ export async function saveAssumptions(companyId: string, userId: string, input: 
             VALUES (${companyId}::UUID, ${versionId}::UUID, 1, ${json}::JSONB)
             RETURNING ${tokenSql()} AS token, updated_by`) as DbRow[];
       if (!written[0]) throw new AssumptionsStaleError(currentToken);
-      if (!isFullDoc(doc)) await assertChainResolves(companyId, versionId, version.fiscalYear);
+      if (!isFullDoc(doc)) {
+        // The RESOLVED chain's payable accounts (the base's and this override's together) must hold too.
+        // `named` (this override's own ids) words a clash with an id the base supplies.
+        await assertPayableAccounts(companyId, payableAccountsOf(await assertChainResolves(companyId, versionId, version.fiscalYear)), undefined, named);
+      }
       await logAuditOrThrow({
-        companyId, userId, action: before ? 'update' : 'create', entityType: 'budget', entityId: versionId,
+        companyId, userId, action: cur[0] ? 'update' : 'create', entityType: 'budget', entityId: versionId,
         entityRef: `FY${version.fiscalYear} budget`,
         changes: {
           fields: sectionChanges(before, doc),
           metadata: {
             threeWayAction: 'assumptions', fiscalYear: String(version.fiscalYear), versionStatus: version.status,
             document: isFullDoc(doc) ? 'full' : 'overrides',
+            ...(beforeInvalid ? rawBefore(String(cur[0]?.raw ?? '')) : {}),
           },
         },
       });

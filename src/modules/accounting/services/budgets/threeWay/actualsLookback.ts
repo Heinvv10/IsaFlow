@@ -6,9 +6,9 @@
  *   - the engine's lookback: the 12 months before the version's first month;
  *   - the derive's trailing window: the 12 whole months ending on or before the
  *     opening as-at (the same months unless the opening is provisional).
- * A month with no posting is 0 (and inactive). Lookback months after the
- * opening as-at (a provisional opening, decision 10a) hold no actuals yet: they
- * read as 0 and the opening_provisional warning covers it.
+ * A month with no posting is 0 (and inactive). The read ends at the opening
+ * as-at: on a provisional opening (decision 10a) lookback months after it read
+ * as 0, forward-dated postings included, and the opening_provisional warning covers it.
  */
 import { readTrackingActuals } from '@/modules/accounting/services/budgets/tracking/trackingActualRead';
 import { readTrackingBudgets } from '@/modules/accounting/services/budgets/tracking/trackingBudgetRead';
@@ -27,9 +27,11 @@ export interface ActualsRead {
   trailing: ActualMonth[];
 }
 
-export async function readActualMonths(companyId: string, months: readonly string[]): Promise<ActualMonth[]> {
+/** Actual months over `months`, read to their last day or to `through` ('YYYY-MM-DD') when that is earlier. */
+export async function readActualMonths(companyId: string, months: readonly string[], through?: string): Promise<ActualMonth[]> {
   if (months.length === 0) return [];
-  const rows = await readTrackingActuals(companyId, `${months[0]}-01`, monthLastDay(months[months.length - 1] as string));
+  const last = monthLastDay(months[months.length - 1] as string);
+  const rows = await readTrackingActuals(companyId, `${months[0]}-01`, through !== undefined && through < last ? through : last);
   return foldActuals(rows.map((r) => ({ accountType: r.accountType, accountSubtype: r.accountSubtype, month: r.month, amount: r.amount })), months);
 }
 
@@ -39,7 +41,8 @@ export async function readActuals(companyId: string, firstMonth: string, asAt: s
   const from = monthOrdinal(trailingMonths[0] as string) < monthOrdinal(lookbackMonths[0] as string) ? trailingMonths[0] as string : lookbackMonths[0] as string;
   const to = lookbackMonths[lookbackMonths.length - 1] as string;
   const span = monthOrdinal(to) - monthOrdinal(from) + 1;
-  const all = await readActualMonths(companyId, Array.from({ length: span }, (_, i) => addMonths(from, i)));
+  // Clamped at the as-at: on a provisional opening a posting dated after it (forward-dated) never enters the window.
+  const all = await readActualMonths(companyId, Array.from({ length: span }, (_, i) => addMonths(from, i)), asAt);
   const byMonth = new Map(all.map((m) => [m.month, m]));
   const pick = (ms: readonly string[]) => ms.map((m) => byMonth.get(m) as ActualMonth);
   return { lookback: toLookback(pick(lookbackMonths)), trailing: pick(trailingMonths) };

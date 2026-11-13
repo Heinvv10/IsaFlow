@@ -4,7 +4,7 @@
  * feeds. Pure.
  */
 import { describe, expect, it } from 'vitest';
-import { bucketOf, pnlBandOf } from '@/modules/accounting/services/budgets/threeWay/bucketMap';
+import { bucketOf, payableSlotAllowed, pnlBandOf } from '@/modules/accounting/services/budgets/threeWay/bucketMap';
 
 const plain = { isLoanAccount: false, isRetainedEarningsAccount: false };
 
@@ -101,5 +101,16 @@ describe('pnlBandOf: budget line → engine band (§13.6)', () => {
     ['expense', null, 'otherOpex'],
   ] as const)('%s %s → %s', (type, subtype, band) => {
     expect(pnlBandOf(type, subtype)).toBe(band);
+  });
+});
+
+describe('payableSlotAllowed (review R1)', () => {
+  it.each([null, 'current_liability', 'other_current_liabilities', 'other'])('%s: allowed (other current liabilities)', (sub) => {
+    expect(payableSlotAllowed(sub, false)).toBe(true);
+  });
+  it.each(['payable', 'vat_output', 'vat_input', 'payroll_liability', 'long_term_liability', 'non_current_liability', 'credit_card', 'bank', 'cash'])(
+    '%s: refused', (sub) => { expect(payableSlotAllowed(sub, false)).toBe(false); });
+  it("a loan's account is refused whatever its subtype", () => {
+    expect(payableSlotAllowed(null, true)).toBe(false);
   });
 });

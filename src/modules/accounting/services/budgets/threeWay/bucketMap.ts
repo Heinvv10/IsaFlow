@@ -112,3 +112,20 @@ export function pnlBandOf(accountType: 'revenue' | 'expense', subtype: string | 
   if (accountType === 'revenue') return canon === 'other_income' ? 'otherIncome' : 'turnover';
   return (canon === null ? undefined : EXPENSE[canon]) ?? 'otherOpex';
 }
+
+/** Liability subtypes that are a bank facility, never a payable slot (a liability spelled bank/cash is a card). */
+const NOT_A_PAYABLE: ReadonlySet<CanonicalSubtype> = new Set<CanonicalSubtype>(['credit_card', 'bank', 'cash']);
+
+/**
+ * May this liability be named as income-tax or dividends payable (review R1)? Only one whose balance
+ * would otherwise sit in other (current or non-current) liabilities, and which is no loan's account:
+ * never AP control, VAT control, a payroll liability, a loan or a credit card. Moving a typed control
+ * account would empty its own bucket and drive the wrong cash flows.
+ */
+export function payableSlotAllowed(subtype: string | null | undefined, isLoanAccount: boolean): boolean {
+  if (isLoanAccount) return false;
+  const canon = canonicalSubtype(subtype);
+  if (canon !== null && NOT_A_PAYABLE.has(canon)) return false;
+  const { bucket } = bucketOf('liability', subtype, { isLoanAccount: false, isRetainedEarningsAccount: false });
+  return bucket === 'otherCurrentLiabilities' || bucket === 'otherNonCurrentLiabilities';
+}
