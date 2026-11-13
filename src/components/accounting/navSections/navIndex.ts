@@ -12,6 +12,7 @@
  */
 import { isFlyout, type NavItem, type Tab } from './types';
 import { stripVatNav } from './vatNav';
+import { stripFlagNav } from './flagNav';
 import { mostSpecificActiveHref, EXACT_ONLY_PATHS } from './activeTab';
 
 export interface NavIndexEntry {
@@ -26,6 +27,8 @@ export interface NavIndexEntry {
   /** A gear-icon settings link. Those into a `?tab=` view share their page with the other tabs, so they never own it. */
   isSetting?: true;
 }
+
+const NO_FLAGS: ReadonlySet<string> = new Set();
 
 /** A section named like its only link ("Transactions" > "Transactions") would repeat the label in its own trail. */
 function withoutLabel(trail: string[], label: string): string[] {
@@ -58,10 +61,11 @@ function addUnique(into: NavIndexEntry[], seen: Map<string, NavIndexEntry>, entr
   }
 }
 
-export function buildNavIndex(tabs: Tab[], isVatRegistered: boolean): NavIndexEntry[] {
+/** `enabledFlags`: the company's nav feature flags (`useNavFlags`); a flagged page is indexed only when its flag is in it. */
+export function buildNavIndex(tabs: Tab[], isVatRegistered: boolean, enabledFlags: ReadonlySet<string> = NO_FLAGS): NavIndexEntry[] {
   const index: NavIndexEntry[] = [];
   const seen = new Map<string, NavIndexEntry>();
-  for (const tab of stripVatNav(tabs, isVatRegistered)) {
+  for (const tab of stripFlagNav(stripVatNav(tabs, isVatRegistered), enabledFlags)) {
     // Sections carry the canonical label, so they outrank the daily-link
     // shortcuts, which in turn outrank the tab's own landing href.
     const sections: NavIndexEntry[] = [];

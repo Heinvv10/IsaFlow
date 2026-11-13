@@ -14,6 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useCompany } from '@/contexts/CompanyContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
+import { useNavFlags } from '@/hooks/useNavFlags';
 import { PaletteOption } from '@/components/layout/CommandPaletteRows';
 import { buildSections, type PaletteRow } from '@/components/layout/paletteRank';
 import { saveRecentItem, usePaletteSearch } from '@/components/layout/usePaletteSearch';
@@ -52,7 +53,8 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
 
   useFocusTrap(dialogRef, isOpen, onClose);
 
-  const index = useMemo(() => buildNavIndex(TABS, isRegistered), [isRegistered]);
+  const flags = useNavFlags();
+  const index = useMemo(() => buildNavIndex(TABS, isRegistered, flags), [isRegistered, flags]);
   const sections = useMemo(() => buildSections({ query, index, recent, server }), [query, index, recent, server]);
   const rows = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 

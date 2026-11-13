@@ -12,6 +12,10 @@
  *
  * Settings lives behind a cog icon in the AppLayout header (top-right), not
  * in the main tab bar. The settingsTab below is exported for the cog flyout.
+ *
+ * Feature-flagged pages (the three-way budget under Management Accounting)
+ * are listed in the section trees like any page and stripped at render time
+ * by `stripFlagNav` (navSections/flagNav.ts) for a company without the flag.
  */
 
 // Import types (also re-exported below for backward compatibility)
