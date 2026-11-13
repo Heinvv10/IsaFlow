@@ -82,6 +82,7 @@ describe('useFocusTrap with a Select open inside the overlay (M14 mention picker
       <div role="combobox" aria-expanded="true" aria-label="Pick" tabIndex={0} />
       <div role="listbox"><div role="option" aria-selected="false" tabIndex={0}>One</div></div>
     </>} />);
+    screen.getByRole('combobox', { name: 'Pick' }).focus();
     fireEvent.keyDown(screen.getByRole('combobox', { name: 'Pick' }), { key: 'Escape' });
     screen.getByRole('option', { name: 'One' }).focus();
     fireEvent.keyDown(screen.getByRole('option', { name: 'One' }), { key: 'Escape' });
