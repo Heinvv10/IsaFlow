@@ -9,11 +9,15 @@
  * draft, frees its period.
  *
  * LEGACY. Journals generated before the link carry none, so they cannot be found. For a template with NO linked
- * journal at all, the period of `last_run_date` counts as generated — under either of its meanings (the day a legacy
- * run was generated, or a newer run's own date) that period held a run. What stays undetectable: a legacy run in an
- * earlier period than last_run_date's (a template moved back before the link existed). Known limit: a template
- * whose ONLY linked journal was a draft that was then deleted has no link left, so the fallback keeps last_run_date's
- * period blocked — the refusal says to post a manual journal.
+ * journal at all, `last_run_date` stands in, but it has two meanings: a newer run's own date, or (before this rule)
+ * the day someone clicked Generate — which can fall AFTER the run's own period ended (the Q3 run dated 30 Sep,
+ * generated 2 Oct). The run itself was dated before the stored next run date's period (the schedule advanced one step
+ * from it), so the fallback's reference date is the EARLIER of last_run_date and the last day before the next run
+ * date's period (at the stored frequency): a late-generated legacy run never blocks the period it was generated in.
+ * What stays undetectable: a legacy run whose schedule was later moved back into its own period (a pre-rule edit),
+ * and, after a frequency-only edit, the old frequency's finer periods. Known limit: a template whose ONLY linked
+ * journal was a draft that was then deleted has no link left, so the fallback keeps that run's period blocked — the
+ * refusal says to post a manual journal.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
@@ -38,11 +42,28 @@ export interface GeneratedRuns {
   linked: boolean;
 }
 
+/** The template row's stored schedule: the legacy fallback reads it (last_run_date, next_run_date, frequency). */
+export interface StoredSchedule {
+  lastRunDate: string | null;
+  nextRunDate: string;
+  frequency: string;
+}
+
+export function storedSchedule(row: DbRow): StoredSchedule {
+  return {
+    lastRunDate: row.last_run_date === null || row.last_run_date === undefined ? null : String(row.last_run_date),
+    nextRunDate: String(row.next_run_date),
+    frequency: String(row.frequency),
+  };
+}
+
 /** What the template has generated, as seen from a run (or a next run date) on `date` at `frequency`. */
 export async function generatedRuns(
-  companyId: string, templateId: string, date: string, frequency: string, lastRunDate: string | null,
+  companyId: string, templateId: string, date: string, frequency: string, stored: StoredSchedule,
 ): Promise<GeneratedRuns> {
   const unit = frequencyPeriodUnit(frequency);
+  const storedUnit = frequencyPeriodUnit(stored.frequency);
+  const lastRunDate = stored.lastRunDate;
   const rows = (await sql`
     SELECT
       MAX(j.entry_date::TEXT) FILTER (WHERE j.live AND date_trunc(${unit}::TEXT, j.entry_date) = date_trunc(${unit}::TEXT, ${date}::DATE))
@@ -50,7 +71,8 @@ export async function generatedRuns(
       MAX(j.entry_date::TEXT) FILTER (WHERE j.live) AS last_live,
       COUNT(*) AS linked,
       (${lastRunDate}::DATE IS NOT NULL
-        AND date_trunc(${unit}::TEXT, ${date}::DATE) = date_trunc(${unit}::TEXT, ${lastRunDate}::DATE)) AS same_as_last_run
+        AND date_trunc(${unit}::TEXT, ${date}::DATE) = date_trunc(${unit}::TEXT, LEAST(${lastRunDate}::DATE,
+          (date_trunc(${storedUnit}::TEXT, ${stored.nextRunDate}::DATE) - INTERVAL '1 day')::DATE))) AS same_as_last_run
     FROM (
       SELECT entry_date,
              (status IN ('draft', 'posted') AND reversed_at IS NULL AND reversal_of_id IS NULL) AS live
@@ -78,7 +100,6 @@ export function periodGeneratedError(date: string, frequency: string, runs: Gene
 /** Refuse a run on `dueDate` in a period the template already generated (before the claim, under its lock). */
 export async function assertPeriodNotGenerated(companyId: string, templateId: string, dueDate: string, row: DbRow): Promise<void> {
   const frequency = String(row.frequency);
-  const runs = await generatedRuns(companyId, templateId, dueDate, frequency,
-    row.last_run_date === null || row.last_run_date === undefined ? null : String(row.last_run_date));
+  const runs = await generatedRuns(companyId, templateId, dueDate, frequency, storedSchedule(row));
   if (runs.clash !== null) throw periodGeneratedError(dueDate, frequency, runs);
 }

@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { runRecurringJournalsTool } from '@/lib/mcp/tools/writeRunRecurringJournals';
-import { updateRecurringJournalTemplate } from '@/modules/accounting/services/gl/recurringJournalService';
+import { runRecurringJournal, updateRecurringJournalTemplate } from '@/modules/accounting/services/gl/recurringJournalService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupPr6 } from './r035-pr6.helpers';
 import {
@@ -45,14 +45,13 @@ describe('breaker7e r4', () => {
   it('B: weekly template mid-month, frequency-only switch to monthly adds a monthly run to a generated month', async () => {
     const co = await company(pool, user, [cal.prev, cal.cur], companies);
     const t = await plantTemplate(pool, co, user, { name: 'B', frequency: 'weekly', next: day(cal.prev, 1) });
-    // generate the first two weeks only (as if run mid-month): run, then stop by pausing via end of loop
-    await pool.query("UPDATE recurring_journals SET next_run_date=$2::DATE, last_run_date=$3::DATE, run_count=2 WHERE id=$1",
-      [t, day(cal.prev, 15), day(cal.prev, 8)]);
+    // generate the first two weeks only (as if run mid-month): two real runs, 1st and 8th; next prev/15
+    for (let i = 0; i < 2; i++) await request(pool, co, user, () => runRecurringJournal(co.c, t, user));
     const step = await put(co, t, { frequency: 'monthly' });
     await run(co, cal.prev.period);
-    // month already generated at weekly (1st, 8th); a monthly run on the 15th lands in it
+    // month already generated at weekly (1st, 8th); a monthly run on the 15th would land in it
     // Orchestrator decision: frequency-only edits are accepted; generation enforces one run per period.
-    expect({ step, monthlyRunsInPrev: await inPrev(co) }).toEqual({ step: 'ok', monthlyRunsInPrev: 0 });
+    expect({ step, runsInPrev: await inPrev(co) }).toEqual({ step: 'ok', runsInPrev: 2 });
   });
 
   it('C: legacy exception on a NEW-style row: freq-only switch then next inside the last run\'s month is allowed', async () => {

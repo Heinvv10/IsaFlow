@@ -21,7 +21,7 @@ import type { RecurringStatus } from '../../types/recurringJournal.types';
 import {
   RecurringJournalNotFoundError, RecurringJournalRequestError, readTemplateForUpdate,
 } from './recurringJournalGuards';
-import { generatedRuns, periodGeneratedError } from './recurringJournalPeriods';
+import { generatedRuns, periodGeneratedError, storedSchedule } from './recurringJournalPeriods';
 
 export type RecurringStatusTarget = 'paused' | 'active' | 'cancelled';
 
@@ -108,7 +108,7 @@ async function assertNextRunDateAllowed(companyId: string, id: string, next: str
   const row = await readTemplateForUpdate(companyId, id);
   if (!row || !['active', 'paused'].includes(String(row.status))) return;
   const freq = frequency ?? String(row.frequency);
-  const runs = await generatedRuns(companyId, id, next, freq, row.last_run_date ? String(row.last_run_date) : null);
+  const runs = await generatedRuns(companyId, id, next, freq, storedSchedule(row));
   if (runs.clash !== null) throw periodGeneratedError(next, freq, runs);
   if (runs.linked && runs.lastGenerated !== null && next <= runs.lastGenerated) {
     throw new RecurringJournalRequestError(

@@ -5,15 +5,16 @@
  *  - every generated journal carries source_record_id = the template, and a run whose period already holds a live one
  *    is refused — the UI Generate (400) and the MCP run (skip `period_already_generated`, dry run alike);
  *  - reversing that journal frees the period; deleting the draft frees it;
- *  - a legacy template (no linked journal) falls back to last_run_date's period, either meaning; a template whose only
- *    linked journal was a deleted draft is in the same position (the known limit).
+ *  - a legacy template (no linked journal) falls back to last_run_date's period — unless it was generated late, after
+ *    the run's own period ended (then the period it was generated in is open); a template whose only linked journal
+ *    was a deleted draft is in the same position (the known limit).
  *
  * ci-integration-skip: none — every case runs on the throwaway cluster.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { runRecurringJournalsTool } from '@/lib/mcp/tools/writeRunRecurringJournals';
-import { runRecurringJournal } from '@/modules/accounting/services/gl/recurringJournalService';
+import { runRecurringJournal, updateRecurringJournalTemplate } from '@/modules/accounting/services/gl/recurringJournalService';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupPr6 } from './r035-pr6.helpers';
@@ -88,17 +89,23 @@ describe('one run per period, at generation', () => {
     expect(await inPrev(co)).toBe(1);
   });
 
-  it('legacy (no linked journal): last_run_date\'s period counts as generated, under either meaning', async () => {
+  it('legacy (no linked journal), generated on time: last_run_date\'s period counts as generated', async () => {
+    const co = await company(pool, user, [cal.before, cal.prev, cal.cur], companies);
+    // A run dated before/09, generated that day before the link existed: no source_record_id; next prev/09.
+    const t = await plantTemplate(pool, co, user, { name: 'Old', frequency: 'monthly', next: day(cal.prev, 9) });
+    await pool.query('UPDATE recurring_journals SET last_run_date = $2::DATE, run_count = 1 WHERE id = $1', [t, day(cal.before, 9)]);
+    const back = request(pool, co, user, () => updateRecurringJournalTemplate(co.c, t, user, { nextRunDate: day(cal.before, 25) }));
+    await expect(back).rejects.toThrow(`last generated on ${day(cal.before, 9)}`);
+    // Its next period is open.
+    expect(parsed(await run(co, cal.prev.period)).generated).toMatchObject([{ run_date: day(cal.prev, 9) }]);
+  });
+
+  it('legacy, generated LATE (after its own period ended): the period it was generated in is not blocked', async () => {
     const co = await company(pool, user, [cal.prev, cal.cur], companies);
-    const t = await plantTemplate(pool, co, user, { name: 'Old', frequency: 'monthly', next: day(cal.prev, 25) });
-    // A run generated before the link existed: no source_record_id; last_run_date = the day it was generated.
+    // The before/25 run was generated on prev/09 (old rule: last_run_date = the click day); next prev/25.
+    const t = await plantTemplate(pool, co, user, { name: 'Late', frequency: 'monthly', next: day(cal.prev, 25) });
     await pool.query('UPDATE recurring_journals SET last_run_date = $2::DATE, run_count = 1 WHERE id = $1', [t, day(cal.prev, 9)]);
-    const out = parsed(await run(co, cal.prev.period));
-    expect(out.skipped as Skip[]).toMatchObject([{ reason: 'period_already_generated' }]);
-    expect((out.skipped as Skip[])[0]!.message).toContain(`last generated on ${day(cal.prev, 9)}`);
-    expect(await journals(pool, co)).toEqual([]);
-    // A later period is open.
-    await rewind(t, day(cal.cur, 1));
-    expect(parsed(await run(co, cal.cur.period)).generated).toMatchObject([{ run_date: day(cal.cur, 1) }]);
+    expect(parsed(await run(co, cal.prev.period)).generated).toMatchObject([{ recurring_journal_id: t, run_date: day(cal.prev, 25) }]);
+    expect(await inPrev(co)).toBe(1);
   });
 });
