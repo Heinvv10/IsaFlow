@@ -11,7 +11,7 @@ import { McpRegistry } from '@/lib/mcp/registry';
 import type { McpToolResult } from '@/lib/mcp/types';
 import { updateCompanyProfileTool } from '@/lib/mcp/tools/writeCompanyProfile';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { asApp, seedTenants } from './helpers/transferLinkLogHarness';
+import { asApp, asOwner, seedTenants } from './helpers/transferLinkLogHarness';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const company = randomUUID();
@@ -195,6 +195,15 @@ describe('moving the VAT period boundaries over filed history', () => {
     const r = await call({ dry_run: false, idempotency_key: key(), income_tax_number: '9123456789' });
     expect(r.isError, r.text).toBe(false);
     expect(await row()).toMatchObject({ tax_number: '9123456789', vat_period_alignment: 'odd' });
+  });
+
+  it("the footprint query scopes itself: another company's lock does not gate this one even without RLS (table owner)", async () => {
+    await lock(other);
+    const r: McpToolResult = await asOwner(company, user, () => registry.call('update_company_profile',
+      { dry_run: false, idempotency_key: key(), vat_category: 'B' },
+      { userId: user, companyId: company, scopes: ['read:vat', 'write:vat'], companyRole: 'owner', tokenJti: null, oauthAppId: null }));
+    expect(r.isError, r.content[0]!.text).toBeUndefined();
+    expect(await row()).toMatchObject({ vat_period_alignment: 'even' });
   });
 
   it("another company's filings do not gate this one", async () => {

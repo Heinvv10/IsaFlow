@@ -115,9 +115,7 @@ export function periodImpact(current: VatProfileState, desired: { cadence: VatCa
     current: { old: old?.current ?? null, new: next.current },
     next: { old: old?.next ?? null, new: next.next },
   };
-  impact.changes_periods = !same(impact.current.old, impact.current.new) || !same(impact.next.old, impact.next.new)
-    || (current.setting !== 'none' && (current.setting !== desired.cadence
-      || (desired.cadence === 'bi-monthly' && current.alignment !== desired.alignment)));
+  impact.changes_periods = !same(impact.current.old, impact.current.new) || !same(impact.next.old, impact.next.new);
   return impact;
 }
 
