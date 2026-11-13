@@ -22,5 +22,8 @@ describe('EmployeeComponentsCard: a percentage of RFI', () => {
     expect(pension.getByText('7.5% of RFI')).toBeTruthy();
     expect(pension.queryByText(/R\s0\.00/)).toBeNull();
     expect(within(screen.getByRole('row', { name: /Basic Salary/ })).getByText(/R\s25\s000\.00/)).toBeTruthy();
+    // The cell says how the run costs it (round 2 tdd L3); a money cell carries no such title.
+    expect(pension.getByText('7.5% of RFI').getAttribute('title')).toBe('Costed by each pay run on the earnings that count as retirement-funding income');
+    expect(within(screen.getByRole('row', { name: /Basic Salary/ })).getByText(/R\s25\s000\.00/).getAttribute('title')).toBeNull();
   });
 });

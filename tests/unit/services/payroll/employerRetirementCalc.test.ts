@@ -171,3 +171,16 @@ describe('a kept-as-cash row beside an RF-treated one (round 2 adv L3)', () => {
     expect(one.validationResults.map((v) => v.code)).not.toContain('EMPLOYER_FUND_MIXED_TREATMENT');
   });
 });
+
+describe('SDL with an employer fund benefit [G21 (2027) p. 11 "SDL liable amount": the balance after allowable deductions] (qa-rf question)', () => {
+  const sdlSalary = (n: number): EmployeeComponent => ({ component: comp('3601', { countsAsRfi: true, isSdlApplicable: true }), amount: n });
+  it('below the cap: 30 000 + 2 250 applicable, less the 2 250 deemed contribution allowed = 30 000 leviable, SDL R300', () => {
+    const line = run([sdlSalary(30_000), er('3817', 0.075)]);
+    expect([line.sdlApplicable, line.retirementDeduction, line.sdlLeviable, line.sdl]).toEqual([32_250, 2_250, 30_000, 300]);
+  });
+  it('above the 27.5% cap only the allowed part comes off: 20 000 + 6 000, 7 150 allowed of 6 000 + 4 000', () => {
+    // 4001 R4 000 + employer 30% of RFI R6 000 = 10 000 contributions; 27.5% x 26 000 = 7 150 allowed.
+    const line = run([sdlSalary(20_000), ee('4001', 4_000), er('3817', 0.3)]);
+    expect([line.sdlApplicable, line.retirementDeduction, line.sdlLeviable, line.sdl]).toEqual([26_000, 7_150, 18_850, 188.5]);
+  });
+});

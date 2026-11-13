@@ -136,8 +136,8 @@ export default function PayComponentsPage() {
           <WriteOnly>
             <form onSubmit={create} className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4 space-y-4">
               <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">New component</h2>
-              <div className="grid grid-cols-4 gap-4">
-                <div className="col-span-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="sm:col-span-2">
                   <label htmlFor="new-component-name" className={label}>Name</label>
                   <input id="new-component-name" className={field} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Basic Salary" />
                 </div>
@@ -158,7 +158,7 @@ export default function PayComponentsPage() {
                   </select>
                 </div>
               </div>
-              <div className="flex items-center gap-6">
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
                 <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]"
                   title={type === 'deduction' ? 'Only retirement fund contributions (4001, 4003, 4006) and s18A donations (4030) reduce PAYE. Any other taxable deduction is paid from taxed pay, and the pay run warns about it.' : undefined}>
                   <input type="checkbox" checked={isTaxable} onChange={e => setIsTaxable(e.target.checked)} />

@@ -27,8 +27,11 @@
  * paragraph 1 of the Fourth Schedule, less only pensions / superannuation / retiring allowances, the lump sums of gross income
  * paras (a), (cA), (d), (e), (eA), and commission (Unemployment Insurance Contributions Act 4 of 2002 s1, "remuneration", as
  * enacted p. 3; SARS UIF-GEN-01-G01 Rev 10 p. 5 "Remuneration for UIF contribution purposes"), and para 1 remuneration takes
- * in a taxable benefit included in gross income under para (i) (UIF-GEN-01-G01 p. 5), which this is (G21 p. 10). SDL is on the
- * same Fourth Schedule remuneration (G21 p. 11, "SDL liable amount"). A defined-benefit fund's benefit is a para
+ * in a taxable benefit included in gross income under para (i) (UIF-GEN-01-G01 p. 5), which this is (G21 p. 10). SDL: the benefit
+ * is in the SDL-applicable remuneration (G21 p. 11, "SDL liable amount"), and "SDL is therefore determined on the balance of
+ * remuneration after the deduction of all allowable deductions (i.e. pension or provident fund contributions ...)" (same page):
+ * its deemed contribution comes off as part of the s11F deduction (sdlLeviableCumulative). Below the cap the two cancel (R30 000
+ * salary + R2 250 benefit = 32 250 applicable, less 2 250 allowed = 30 000 leviable, SDL R300); above it only the allowed part comes off. A defined-benefit fund's benefit is a para
  * 12D(3) fund-member-category value, not the contribution: refused when the component is created (payrollComponentService).
  */
 import { normaliseSarsCode } from './payeAnnualPayment';
