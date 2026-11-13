@@ -726,6 +726,8 @@ describe('write-tool manifest invariants', () => {
       cancel_supplier_invoice: { ...KEY },
       // Refuses on the missing invoice_id before reading anything; behaviour in cancelCustomerInvoiceTool.test.ts.
       cancel_customer_invoice: { ...KEY },
+      // Refuses on the missing credit_note_id before reading anything; behaviour in deleteDraftCreditNoteTool.test.ts.
+      delete_draft_credit_note: { ...KEY },
       // Refuses on the missing invoice_id before reading anything; behaviour in
       // updateSupplierInvoiceTool.test.ts and update-supplier-invoice.int.test.ts.
       update_supplier_invoice: { ...KEY },
