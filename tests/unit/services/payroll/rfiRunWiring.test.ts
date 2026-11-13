@@ -53,3 +53,14 @@ describe('terminationMonthlySalary with a pre-RF cash row (migration 975 opt-out
     expect(await terminationMonthlySalary('co', 'emp', '2026-03-31')).toBe(23_000);
   });
 });
+
+describe('employerRetirementOf (the run lines\' Gross tooltip figure)', () => {
+  it('sums the non-cash 3817 / 3825 / 3828 items only (trimmed), to the cent', async () => {
+    const { employerRetirementOf } = await import('@/modules/accounting/services/payroll/payrollRunLines');
+    expect(employerRetirementOf([
+      { sarsSourceCode: '3817', amount: 1000.005, isNonCash: true }, { sarsSourceCode: ' 3828 ', amount: 500, isNonCash: true },
+      { sarsSourceCode: '3817', amount: 700 }, { sarsSourceCode: '3810', amount: 900, isNonCash: true },
+    ])).toBe(1500.01);
+    expect(employerRetirementOf('not an array')).toBe(0);
+  });
+});

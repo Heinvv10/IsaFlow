@@ -23,6 +23,17 @@ describe('PayrollRunLinesTable — non-cash benefits', () => {
     expect(screen.getAllByText('R 31 722.88').length).toBeGreaterThan(0);
   });
 
+  it('names the employer retirement fund contribution in the tooltip as also counted as the employee\'s (RF)', () => {
+    render(<PayrollRunLinesTable lines={[line({ nonCashBenefits: 2_250, employerRetirement: 2_250 })]} />);
+    const title = screen.getByText(/\+ R 2 250\.00 non-cash/).closest('td')!.getAttribute('title');
+    expect(title).toMatch(/of which R\s2\s250\.00 is the employer's retirement fund contribution, also counted as the employee's retirement contribution/);
+  });
+
+  it('a non-cash benefit that is no fund contribution says nothing about retirement', () => {
+    render(<PayrollRunLinesTable lines={[line({ nonCashBenefits: 1_000 })]} />);
+    expect(screen.getByText(/\+ R 1 000\.00 non-cash/).closest('td')!.getAttribute('title')).not.toMatch(/retirement/);
+  });
+
   it('shows nothing extra for a line without one', () => {
     render(<PayrollRunLinesTable lines={[line({})]} />);
     expect(screen.queryByText(/non-cash/)).toBeNull();
