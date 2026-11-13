@@ -30,8 +30,8 @@ const kpis = (cash: ReturnType<typeof k>, ar: ReturnType<typeof k>) => ({
 const answer: CompareView = {
   fiscalYear: 2027, months: ['2026-03'],
   versions: [
-    { versionId: V1, name: 'FY2027 Plan', cashSeries: [100_00], cashDelta: [0], minCashMonth: '2026-03', kpis: kpis(k(100_00, 0, 0, null), k(10_00, 0, 0, null)) },
-    { versionId: V2, name: 'Worst', cashSeries: [80_00], cashDelta: [-20_00], minCashMonth: '2026-03', kpis: kpis(k(80_00, -20_00, -20, false), k(5_00, -5_00, -50, true)) },
+    { versionId: V1, name: 'FY2027 Plan', cashSeries: [100_00], cashDelta: [0], minCashMonth: '2026-03', warnings: [], kpis: kpis(k(100_00, 0, 0, null), k(10_00, 0, 0, null)) },
+    { versionId: V2, name: 'Worst', cashSeries: [80_00], cashDelta: [-20_00], minCashMonth: '2026-03', warnings: [], kpis: kpis(k(80_00, -20_00, -20, false), k(5_00, -5_00, -50, true)) },
   ],
 };
 /** happy-dom keeps the hex as written; a browser would report rgb(). Either names the same ink. */

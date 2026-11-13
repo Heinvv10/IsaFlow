@@ -41,6 +41,7 @@ export function threeWayView(over: { provisional?: boolean; status?: BudgetVersi
   return {
     version: { id: V1, name: 'FY2027 Plan', kind: 'original', status: over.status ?? 'draft', fiscalYear: 2027, isPrimary: true, basedOnVersionId: null },
     months: MONTHS,
+    lookback: [],
     opening: {
       asAt: out.opening.asAt, provisional: out.opening.provisional, buckets: out.opening.buckets, balanceSheet: out.opening.balanceSheet,
       totals: { assets: 100_000_00, liabilities: 0, equity: 100_000_00 }, equity: { posted: 100_000_00, derivedRetainedEarnings: 0 }, unmapped: [],
@@ -72,6 +73,7 @@ export function assumptionsView(over: { debtorDays?: number; updatedAt?: string 
     stored: over.updatedAt ? { doc: resolved, updatedAt: over.updatedAt, updatedBy: 'u' } : null,
     resolved,
     chain: [V1],
+    warnings: [],
     derived: {
       assumptions: a,
       evidence: {

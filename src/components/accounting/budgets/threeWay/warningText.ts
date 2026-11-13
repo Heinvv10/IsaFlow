@@ -27,6 +27,7 @@ export function warningText(w: AnyWarning): string {
     case 'top_up_offset_not_sars': return `The tax top-up month (${w.value} months after the prior year end) differs from SARS's ${w.sars}.`;
     case 'opening_debit_carried': return `A debit opening ${w.bucket === 'payrollLiabilities' ? 'payroll liability' : 'income tax payable'} of ${R(w.amount)} is carried flat, not refunded.`;
     case 'negative_flow': return `${FLOW[w.flow] ?? w.flow} came out negative in ${w.month} (${R(w.amount)}); kept so the balance sheet holds.`;
+    case 'payable_account_conflict': return 'The same account is named as income tax payable and dividends payable; it is used for income tax only.';
     case 'opening_cash_difference': return `Opening cash differs from the cash book by ${R(w.differenceCents)} (accounts ${list(w.accounts)}).`;
   }
 }

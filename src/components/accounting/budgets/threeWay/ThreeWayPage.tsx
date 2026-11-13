@@ -51,6 +51,15 @@ export function ThreeWayPage() {
       {!data.loading && !data.error && data.versions.length === 0 && (
         <p className="text-sm text-[var(--ff-text-secondary)]">This year has no budget version yet. Create one on the budget page first.</p>
       )}
+      {!run && data.errorCode === 'BUDGET_ASSUMPTIONS_INVALID' && data.versionId && (
+        <div className="space-y-3" data-testid="three-way-replace">
+          <select aria-label="Budget version" className={SELECT} value={data.versionId} onChange={(e) => data.select(e.target.value)}>
+            {data.versions.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+          <AssumptionsPanel versionId={data.versionId} locked={data.versions.find((v) => v.id === data.versionId)?.status === 'locked'}
+            onSaved={data.reload} />
+        </div>
+      )}
       {data.loading && !run && <p className="text-sm text-[var(--ff-text-secondary)]">Projecting the balance sheet and cash flow…</p>}
       {run && data.versionId && (
         <>

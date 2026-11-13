@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const h = vi.hoisted(() => ({ apiFetch: vi.fn() }));
 vi.mock('@/lib/apiFetch', () => ({ apiFetch: h.apiFetch }));
 
-import { fetchThreeWay, saveAssumptionsDoc, fetchCompare } from '@/components/accounting/budgets/threeWay/threeWayClient';
+import { fetchThreeWay, saveAssumptionsDoc, fetchCompare, fetchAssumptions, fetchDerive } from '@/components/accounting/budgets/threeWay/threeWayClient';
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const err = (status: number, details: Record<string, unknown>, message = 'refused') => json(status, { success: false, error: { message, details } });
@@ -72,5 +72,30 @@ describe('fetchThreeWay / fetchCompare', () => {
     const r = await fetchCompare([V, 'b']);
     expect(r.ok).toBe(true);
     expect(h.apiFetch.mock.calls[0]![0]).toBe(`/api/accounting/budget-three-way/compare?version_ids=${V}%2Cb`);
+  });
+});
+
+describe('fetchAssumptions / fetchDerive', () => {
+  it('400 BUDGET_ASSUMPTIONS_INVALID on a read → invalidDoc with every issue (the form offers the replacement)', async () => {
+    h.apiFetch.mockResolvedValueOnce(err(400, { code: 'BUDGET_ASSUMPTIONS_INVALID', issues: [{ path: 'vat.basis.value', message: 'Invalid option' }] }, 'The assumptions document is invalid'));
+    expect(await fetchAssumptions(V)).toEqual({ ok: false, kind: 'invalidDoc', message: 'The assumptions document is invalid', issues: ['vat.basis.value: Invalid option'] });
+  });
+  it('another 400 is not an invalid document', async () => {
+    h.apiFetch.mockResolvedValueOnce(err(400, { code: 'BUDGET_SCENARIO_CHAIN', reason: 'CYCLE' }, 'chain'));
+    expect(await fetchAssumptions(V)).toMatchObject({ ok: false, kind: 'failed', status: 400 });
+  });
+  it('403 → forbidden; a dropped connection → network', async () => {
+    h.apiFetch.mockResolvedValueOnce(err(403, {}, 'off'));
+    expect(await fetchAssumptions(V)).toEqual({ ok: false, kind: 'forbidden', message: 'off' });
+    h.apiFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    expect(await fetchAssumptions(V)).toMatchObject({ ok: false, kind: 'network' });
+  });
+  it('derive POSTs the version id', async () => {
+    h.apiFetch.mockResolvedValueOnce(json(200, { success: true, data: { version: {}, assumptions: {}, evidence: {} } }));
+    expect((await fetchDerive(V)).ok).toBe(true);
+    const [url, init] = h.apiFetch.mock.calls[0]!;
+    expect(url).toBe('/api/accounting/budget-three-way/derive');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ version_id: V });
   });
 });

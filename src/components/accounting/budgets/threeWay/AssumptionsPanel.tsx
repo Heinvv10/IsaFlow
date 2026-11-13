@@ -8,6 +8,8 @@ import { PROV_FIELDS, SECTION_TITLES, savesOverrides, type ProvSection } from '.
 import { PayablePicker, ProvFieldRow } from './AssumptionFields';
 import { AssumptionLists } from './AssumptionLists';
 import { useAssumptionsForm } from './useAssumptionsForm';
+import { InvalidDocNotice, ReplaceConfirm } from './AssumptionsNotices';
+import { warningText } from './warningText';
 
 const BTN = 'inline-flex items-center rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-hover)] disabled:opacity-50';
 const PRIMARY = 'inline-flex items-center rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50';
@@ -28,11 +30,14 @@ export function AssumptionsPanel({ versionId, locked, firstMonth = '', onSaved }
   const form = useAssumptionsForm(versionId, locked, onSaved);
   const { view, edited } = form;
   if (form.loadError) return <p role="alert" className="text-sm text-error-700 dark:text-error-400">{form.loadError}</p>;
+  if (form.invalidDoc && (!view || !edited)) return <InvalidDocNotice form={form} />;
   if (!view || !edited) return <p className="text-sm text-[var(--ff-text-secondary)]">Loading the assumptions…</p>;
   const derived = view.derived.assumptions;
   const ev = view.derived.evidence;
   return (
     <div className="space-y-4" key={form.generation} data-testid="assumptions-panel">
+      <InvalidDocNotice form={form} />
+      {view.warnings.map((w) => <p key={w.accountId} className="text-xs text-amber-800 dark:text-amber-300">{warningText(w)}</p>)}
       {form.readOnly && <p data-testid="assumptions-readonly" className="text-sm text-[var(--ff-text-secondary)]">{form.readOnlyReason}</p>}
       {form.stale && (
         <div data-testid="assumptions-stale" role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/60 dark:bg-amber-500/10 dark:text-amber-200">
@@ -67,6 +72,7 @@ export function AssumptionsPanel({ versionId, locked, firstMonth = '', onSaved }
           onChange={(id) => form.update((d) => ({ ...d, equity: { ...d.equity, dividendsPayableAccountId: id } }))} />
         <AssumptionLists doc={edited} firstMonth={firstMonth} loans={form.loans} readOnly={form.readOnly} onChange={form.update} />
       </section>
+      <ReplaceConfirm form={form} />
       {form.saveError && (
         <div role="alert" className="text-sm text-error-700 dark:text-error-400">
           <p>{form.saveError.message}</p>
@@ -75,7 +81,7 @@ export function AssumptionsPanel({ versionId, locked, firstMonth = '', onSaved }
       )}
       {!form.readOnly && (
         <div className="sticky bottom-0 flex flex-wrap items-center gap-2 border-t border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] py-3">
-          <button type="button" className={PRIMARY} disabled={!form.dirty || form.saving || form.stale} onClick={() => void form.save()}>
+          <button type="button" className={PRIMARY} disabled={!form.dirty || form.saving || form.stale || form.replaceToken !== null} onClick={() => void form.save()}>
             {form.saving ? 'Saving…' : 'Save assumptions'}
           </button>
           <button type="button" className={BTN} disabled={!form.dirty || form.saving} onClick={form.discard}>Discard changes</button>

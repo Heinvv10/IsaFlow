@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { assumptionsView, V1 } from './fixtures';
 
-const h = vi.hoisted(() => ({ fetchAssumptions: vi.fn(), saveAssumptionsDoc: vi.fn(), fetchLiabilityAccounts: vi.fn(), fetchLoans: vi.fn() }));
+const h = vi.hoisted(() => ({ fetchAssumptions: vi.fn(), saveAssumptionsDoc: vi.fn(), fetchLiabilityAccounts: vi.fn(), fetchLoans: vi.fn(), fetchDerive: vi.fn() }));
 vi.mock('@/components/accounting/budgets/threeWay/threeWayClient', () => h);
 
 import { AssumptionsPanel } from '@/components/accounting/budgets/threeWay/AssumptionsPanel';
@@ -17,7 +17,7 @@ beforeEach(() => {
   h.fetchLiabilityAccounts.mockResolvedValue({ ok: true, data: [{ id: 'a1', accountCode: '2300', accountName: 'Income tax payable' }] });
   h.fetchLoans.mockResolvedValue({ ok: true, data: [] });
 });
-afterEach(() => { cleanup(); vi.clearAllMocks(); h.fetchAssumptions.mockReset(); h.saveAssumptionsDoc.mockReset(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); h.fetchAssumptions.mockReset(); h.saveAssumptionsDoc.mockReset(); h.fetchDerive.mockReset(); });
 
 const debtorDays = () => screen.getByLabelText('Debtor days') as HTMLInputElement;
 
@@ -107,5 +107,75 @@ describe('load failure', () => {
     render(<AssumptionsPanel versionId={V1} locked={false} onSaved={vi.fn()} />);
     expect((await screen.findByRole('alert')).textContent).toContain('This feature is not enabled');
     expect(screen.queryByLabelText('Debtor days')).toBeNull();
+  });
+});
+
+describe('a stored document that no longer validates (400 BUDGET_ASSUMPTIONS_INVALID on read)', () => {
+  const invalid = { ok: false, kind: 'invalidDoc', message: 'The assumptions document is invalid', issues: ['workingCapital.debtorDays.value: Too big'] };
+  const derive = () => {
+    const v = assumptionsView();
+    return { ok: true, data: { version: v.version, assumptions: v.derived.assumptions, evidence: v.derived.evidence } };
+  };
+  const saved = { ok: true, data: { versionId: V1, doc: {}, updatedAt: 't8', updatedBy: 'u' } };
+
+  async function replaceWithDerived(onSaved = vi.fn()) {
+    h.fetchAssumptions.mockResolvedValueOnce(invalid);
+    h.fetchDerive.mockResolvedValueOnce(derive());
+    render(<AssumptionsPanel versionId={V1} locked={false} onSaved={onSaved} />);
+    const alert = await screen.findByTestId('assumptions-invalid');
+    expect(alert.textContent).toContain('workingCapital.debtorDays.value: Too big');
+    expect(screen.queryByLabelText('Debtor days')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Replace with derived defaults' }));
+    await waitFor(() => expect(debtorDays().value).toBe('30'));
+    expect(h.fetchDerive).toHaveBeenCalledWith(V1);
+    return onSaved;
+  }
+
+  it('shows the issues, loads the derived defaults, saves with no token, then retries ONCE with the server token after confirming', async () => {
+    const onSaved = await replaceWithDerived();
+    const save = screen.getByRole('button', { name: 'Save assumptions' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(false); // nothing edited, but the replacement itself is the change
+    h.saveAssumptionsDoc
+      .mockResolvedValueOnce({ ok: false, kind: 'stale', message: 'changed', currentUpdatedAt: 't7' })
+      .mockResolvedValueOnce(saved);
+    fireEvent.click(save);
+    const confirm = await screen.findByTestId('assumptions-replace-confirm');
+    expect(confirm.textContent).toMatch(/replace/i);
+    expect(h.saveAssumptionsDoc).toHaveBeenCalledTimes(1);
+    expect(h.saveAssumptionsDoc.mock.calls[0]![2]).toBeNull();
+    expect(onSaved).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Replace the stored document' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(h.saveAssumptionsDoc).toHaveBeenCalledTimes(2);
+    expect(h.saveAssumptionsDoc.mock.calls[1]![2]).toBe('t7');
+    expect((h.saveAssumptionsDoc.mock.calls[1]![1] as { schemaVersion: number }).schemaVersion).toBe(1);
+    expect(screen.queryByTestId('assumptions-invalid')).toBeNull();
+  });
+
+  it('a second 409 after the confirmed retry is the ordinary reload prompt, never a third save', async () => {
+    await replaceWithDerived();
+    h.saveAssumptionsDoc
+      .mockResolvedValueOnce({ ok: false, kind: 'stale', message: 'changed', currentUpdatedAt: 't7' })
+      .mockResolvedValueOnce({ ok: false, kind: 'stale', message: 'changed again', currentUpdatedAt: 't9' });
+    fireEvent.click(screen.getByRole('button', { name: 'Save assumptions' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Replace the stored document' }));
+    await screen.findByTestId('assumptions-stale');
+    expect(h.saveAssumptionsDoc).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('assumptions-replace-confirm')).toBeNull();
+  });
+
+  it('a locked version cannot be replaced', async () => {
+    h.fetchAssumptions.mockResolvedValueOnce(invalid);
+    render(<AssumptionsPanel versionId={V1} locked onSaved={vi.fn()} />);
+    await screen.findByTestId('assumptions-invalid');
+    expect(screen.queryByRole('button', { name: 'Replace with derived defaults' })).toBeNull();
+  });
+
+  it('a refused derive shows its message', async () => {
+    h.fetchAssumptions.mockResolvedValueOnce(invalid);
+    h.fetchDerive.mockResolvedValueOnce({ ok: false, kind: 'forbidden', message: 'No write access' });
+    render(<AssumptionsPanel versionId={V1} locked={false} onSaved={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Replace with derived defaults' }));
+    await waitFor(() => expect(screen.getByTestId('assumptions-invalid').textContent).toContain('No write access'));
   });
 });

@@ -10,7 +10,7 @@
 import { apiFetch } from '@/lib/apiFetch';
 import { call } from '@/components/accounting/budgets/workspace/budgetWorkspaceClient';
 import type { ApiResult } from '@/components/accounting/budgets/workspace/types';
-import type { AssumptionsView, CompareView, ThreeWayView } from '@/modules/accounting/services/budgets/threeWay/threeWayViews';
+import type { AssumptionsView, CompareView, DeriveView, ThreeWayView } from '@/modules/accounting/services/budgets/threeWay/threeWayViews';
 import type { StoredAssumptions } from '@/modules/accounting/services/budgets/threeWay/assumptionsRepo';
 import type { GLAccount } from '@/modules/accounting/types/gl.types';
 
@@ -27,11 +27,39 @@ export function fetchThreeWay(versionId: string): Promise<ApiResult<ThreeWayView
   return call(`/api/accounting/budget-three-way?version_id=${encodeURIComponent(versionId)}`, undefined, 'Could not load the three-way budget.');
 }
 
-export async function fetchAssumptions(versionId: string): Promise<ApiResult<AssumptionsView>> {
+/** 400 BUDGET_ASSUMPTIONS_INVALID on a READ: the stored document no longer validates (schema drift, a hand edit). */
+export type InvalidDocFailure = { ok: false; kind: 'invalidDoc'; message: string; issues: string[] };
+
+/**
+ * The assumptions view. A stored document that no longer validates answers 400 BUDGET_ASSUMPTIONS_INVALID with its
+ * issues: returned as `invalidDoc` so the form can offer the replacement (derive, then save over it).
+ */
+export async function fetchAssumptions(versionId: string): Promise<ApiResult<AssumptionsView> | InvalidDocFailure> {
   const fallback = 'Could not load the assumptions.';
-  const r = await call(`/api/accounting/budget-three-way/assumptions?version_id=${encodeURIComponent(versionId)}`, undefined, fallback);
-  if (!r.ok) return r;
-  return 'resolved' in r.data ? { ok: true, data: r.data } : { ok: false, kind: 'failed', message: fallback, status: 200 };
+  let res: Response;
+  try {
+    res = await apiFetch(`/api/accounting/budget-three-way/assumptions?version_id=${encodeURIComponent(versionId)}`);
+  } catch {
+    return { ok: false, kind: 'network', message: fallback };
+  }
+  const text = await res.text();
+  let body: (ErrorBody & { data?: unknown }) | null;
+  try { body = JSON.parse(text) as ErrorBody & { data?: unknown }; } catch { body = null; } // an HTML page: no data
+  if (!res.ok) {
+    const message = body?.error?.message || body?.message || fallback;
+    const code = body?.error?.details?.code;
+    if (res.status === 400 && code === 'BUDGET_ASSUMPTIONS_INVALID') return { ok: false, kind: 'invalidDoc', message, issues: issuesOf(body?.error?.details?.issues) };
+    if (res.status === 403) return { ok: false, kind: 'forbidden', message };
+    if (res.status === 404) return { ok: false, kind: 'notFound', message };
+    return { ok: false, kind: 'failed', message, status: res.status };
+  }
+  const data = body?.data as AssumptionsView | undefined;
+  return data && typeof data === 'object' && 'resolved' in data ? { ok: true, data } : { ok: false, kind: 'failed', message: fallback, status: res.status };
+}
+
+/** The derived defaults for the version's year (computes, never writes). */
+export function fetchDerive(versionId: string): Promise<ApiResult<DeriveView>> {
+  return call('/api/accounting/budget-three-way/derive', { method: 'POST', body: JSON.stringify({ version_id: versionId }) }, 'Could not derive the defaults.');
 }
 
 export function fetchCompare(versionIds: readonly string[]): Promise<ApiResult<CompareView>> {

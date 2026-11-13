@@ -39,10 +39,10 @@ describe('kpiRows', () => {
     fiscalYear: 2027,
     months: ['2026-03'],
     versions: [
-      { versionId: 'a', name: 'Base', cashSeries: [100], cashDelta: [0], minCashMonth: '2026-03', kpis: {
+      { versionId: 'a', name: 'Base', cashSeries: [100], cashDelta: [0], minCashMonth: '2026-03', warnings: [], kpis: {
         closingCash: k(100, 0, 0, null), minCash: k(100, 0, 0, null), netProfit: k(0, 0, null, null),
         closingReceivables: k(10, 0, 0, null), closingPayables: k(5, 0, 0, null), netDebt: k(-100, 0, 0, null) } },
-      { versionId: 'b', name: 'Worst', cashSeries: [80], cashDelta: [-20], minCashMonth: '2026-03', kpis: {
+      { versionId: 'b', name: 'Worst', cashSeries: [80], cashDelta: [-20], minCashMonth: '2026-03', warnings: [], kpis: {
         closingCash: k(80, -20, -20, false), minCash: k(80, -20, -20, false), netProfit: k(0, 0, null, null),
         closingReceivables: k(30, 20, 200, false), closingPayables: k(5, 0, 0, null), netDebt: k(-80, 20, 20, false) } },
     ],

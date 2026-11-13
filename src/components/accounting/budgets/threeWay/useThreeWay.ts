@@ -1,8 +1,9 @@
 /**
  * The three-way page's data (budgets P6 spec §7, §8): the financial years (the workspace's `useBudgetYears`), the
  * year's versions (P2's list), the version on screen (`?version_id=` when it is one of the year's, else the
- * primary, else the first) and its run (`GET /budget-three-way`). A refused run keeps its message (403 without the
- * flag, 409 an opening that does not balance, 400 a scenario chain), never an empty page. An answer for a version
+ * primary, else the first) and its run (`GET /budget-three-way`). A refused run keeps its message and code (403
+ * without the flag, 409 an opening that does not balance, 400 a scenario chain or an invalid stored document),
+ * never an empty page. An answer for a version
  * or year the user has left is dropped.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -22,6 +23,8 @@ export interface ThreeWayData {
   select(id: string): void;
   run: ThreeWayView | null;
   error: string | null;
+  /** The refused run's contract code (e.g. BUDGET_ASSUMPTIONS_INVALID: the stored document must be replaced). */
+  errorCode: string | null;
   loading: boolean;
   reload(): void;
 }
@@ -39,6 +42,7 @@ export function useThreeWay(initialVersionId: string | null): ThreeWayData {
   const [versionId, setVersionId] = useState<string | null>(null);
   const [run, setRun] = useState<ThreeWayView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [bump, setBump] = useState(0);
   const wanted = useRef(initialVersionId);
@@ -72,7 +76,10 @@ export function useThreeWay(initialVersionId: string | null): ThreeWayData {
     void fetchThreeWay(versionId).then((r) => {
       if (mine !== runSeq.current) return;
       setLoading(false);
-      if (r.ok) { setRun(r.data); setError(null); } else { setRun(null); setError(r.message); }
+      if (r.ok) { setRun(r.data); setError(null); setErrorCode(null); return; }
+      setRun(null);
+      setError(r.message);
+      setErrorCode('code' in r ? r.code : null);
     });
   }, [versionId, bump]);
 
@@ -80,5 +87,5 @@ export function useThreeWay(initialVersionId: string | null): ThreeWayData {
   const reload = useCallback(() => setBump((n) => n + 1), []);
   const changeYear = useCallback((y: number) => { setFiscalYear(y); setRun(null); }, []);
 
-  return { years: years.years, fiscalYear, setFiscalYear: changeYear, versions, versionId, select, run, error, loading, reload };
+  return { years: years.years, fiscalYear, setFiscalYear: changeYear, versions, versionId, select, run, error, errorCode, loading, reload };
 }
