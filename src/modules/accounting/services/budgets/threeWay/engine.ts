@@ -115,7 +115,7 @@ export function runThreeWay(input: EngineInput): EngineOutput {
     // 5. EMP201: remit what was owed at the start of the month; accrue this month's statutory share.
     add(P.payrollRemittancePosting(m, -open.payrollLiabilities));
     const pay = payrollSplit(p.payroll, r.statutorySharePpm);
-    add(P.payrollPosting(m, pay.net, pay.statutory));
+    add(P.payrollPosting(m, p.payroll, pay.net, pay.statutory));
     // 6. Depreciation (non-cash).
     add(P.depreciationPosting(m, p.depreciation));
     // 7. Finance cost paid in the month; loans.

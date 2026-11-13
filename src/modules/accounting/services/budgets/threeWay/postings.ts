@@ -70,10 +70,10 @@ export function supplierPaymentsPosting(month: string, payments: number): Postin
   return post(month, 'supplier_payments', 'cash_paid_to_suppliers', [{ account: 'payables', amount: payments }, { account: 'cash', amount: -payments }]);
 }
 
-/** 5. Payroll: DR expense, CR cash (net), CR payroll liabilities (statutory). */
-export function payrollPosting(month: string, net: number, statutory: number): Posting {
+/** 5. Payroll: DR expense (the budgeted figure), CR cash (net), CR payroll liabilities (statutory). */
+export function payrollPosting(month: string, payroll: number, net: number, statutory: number): Posting {
   return post(month, 'payroll', 'cash_paid_to_employees', [
-    { account: 'pnl.payroll', amount: net + statutory }, { account: 'cash', amount: -net }, { account: 'payrollLiabilities', amount: -statutory },
+    { account: 'pnl.payroll', amount: payroll }, { account: 'cash', amount: -net }, { account: 'payrollLiabilities', amount: -statutory },
   ]);
 }
 
