@@ -51,6 +51,15 @@ describe('parseQuestion', () => {
     ['revenue excluding vat', 'unsupported:revenue'],
     ['expenses incl vat', 'unsupported:expenses'],
     ['profit including VAT', 'unsupported:profit'],
+    ['revenue net of vat', 'unsupported:revenue'],
+    ['expenses net of VAT', 'unsupported:expenses'],
+    ['profit net of tax', 'unsupported:profit'],
+    ['revenue after vat', 'unsupported:revenue'],
+    ['revenue before vat', 'unsupported:revenue'],
+    ['what vat is payable this month', 'vat'],
+    ['vat payable', 'vat'],
+    ['payables', 'i_owe'],
+    ['who do I owe vat', 'ambiguous:i_owe+vat'],
     ['what vat do I owe', 'vat'],
     ['profit gross', 'profit'],
     ['profit, operating', 'ambiguous:profit'],
@@ -193,6 +202,34 @@ describe('every content word is accounted for, or the question is refused', () =
   });
   it('a refinement we refuse for another reason is not reported as leftover words', () => {
     expect(idOf(parseQuestion('profit in q3 by customer'))).toBe('profit');
+  });
+});
+
+describe('numeric dates are part of a window, not leftover words', () => {
+  it.each([['total assets as at 2026-10-15', 10, 15, 2026], ['total assets as at 15/10/2026', 10, 15, 2026], ['who owes me money on 15-10-2026', 10, 15, 2026]])('%s', (q, month, day, year) => {
+    const p = parseQuestion(q);
+    expect(p.kind === 'intent' && p.intent.period).toEqual({ kind: 'day', day, month, year });
+  });
+  it('an impossible numeric date is refused, not read as another day', () => {
+    const p = parseQuestion('total assets as at 2026-02-30');
+    expect(p.kind === 'intent' && p.intent.period).toEqual({ kind: 'unsupported', said: '2026 02 30' });
+  });
+  it('two numeric dates are two windows', () => {
+    expect(parseQuestion('total assets as at 2026-10-15 and 2026-10-20').kind).toBe('periods');
+  });
+});
+
+describe('everyday words around a question', () => {
+  it.each(['what is my account balance', 'what is my current bank balance', 'how much cash do we have right now', 'how much profit so far this year', 'what is my total balance sheet assets',
+    'what are our total liabilities overall', 'what is my company profit this month', 'show me my bank statement balance thanks',
+    'what is the cash position at the moment', 'how much money do we have in the bank accounts', 'revenue so far'])('%s still answers', (q) => {
+    expect(['intent', 'ambiguous'], q).toContain(parseQuestion(q).kind);
+  });
+});
+
+describe('everyday words that are not accounted for are refused, not dropped', () => {
+  it.each([['what does my vat return say for october', 'leftover:vat'], ['what is my profit and why', 'leftover:profit']])('%s -> %s', (q, expected) => {
+    expect(idOf(parseQuestion(q))).toBe(expected);
   });
 });
 

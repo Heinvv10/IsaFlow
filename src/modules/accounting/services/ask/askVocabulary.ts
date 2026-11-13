@@ -10,7 +10,7 @@
 const FILLER = ['what', 'whats', 'is', 'are', 'was', 'were', 'my', 'our', 'mine', 'i', 'we', 'me', 'us', 'you', 'your', 'the', 'a', 'an', 'for', 'in', 'of', 'on', 'at', 'as',
   'to', 'do', 'does', 'did', 'can', 'could', 'would', 'how', 'much', 'many', 'please', 'show', 'tell', 'give', 'list', 'it', 'its', 'there', 'been', 'be', 'have', 'has', 'had',
   'any', 'all', 'still', 'yet', 'need', 'needs', 'so', 'far', 'right', 'just', 'kindly', 'roughly', 'approximately', 'about', 'around', 'which', 'when', 'who', 'whom', 'with',
-  'and', 'or', 'plus', 'vs', 'versus', 'than', 'due', 'now', 'currently', 'total', 'totals', 'number', 'count', 'get', 'got', 'pay', 'paid', 'owed', 'amount', 'figure'];
+  'and', 'or', 'plus', 'vs', 'versus', 'than', 'due', 'now', 'currently', 'total', 'totals', 'number', 'count', 'get', 'got', 'pay', 'paid', 'owed', 'amount', 'figure', 'overall', 'company', 'business', 'thanks', 'thank', 'moment', 'return', 'sheet', 'statement', 'account', 'accounts'];
 
 const INTENT_WORDS = ['owe', 'owes', 'owing', 'money', 'cash', 'bank', 'banks', 'balance', 'balances', 'hand', 'position', 'debtor', 'debtors', 'receivable', 'receivables',
   'customer', 'customers', 'outstanding', 'creditor', 'creditors', 'payable', 'payables', 'supplier', 'suppliers', 'transaction', 'transactions', 'line', 'lines', 'code',
@@ -23,7 +23,12 @@ const INTENT_STEMS = [/^allocat/, /^categoris/, /^match/, /^liabilit/];
 const PERIOD_WORDS = ['month', 'months', 'year', 'years', 'this', 'previous', 'prior', 'current', 'financial', 'fiscal', 'ytd', 'date', 'fy',
   'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 
+export const FILLER_WORDS: readonly string[] = FILLER;
+
 const KNOWN = new Set<string>([...FILLER, ...INTENT_WORDS, ...PERIOD_WORDS]);
+
+/** Whether a word is one the parser accounts for. */
+export const isKnownWord = (w: string): boolean => KNOWN.has(w) || WINDOW_TOKEN.test(w) || INTENT_STEMS.some((re) => re.test(w));
 
 /** A year, or a financial year label (fy2026): part of a window. */
 const WINDOW_TOKEN = /^(?:(?:19|20)\d{2}|fy(?:19|20)\d{2})$/;

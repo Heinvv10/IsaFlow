@@ -62,12 +62,12 @@ export const exampleFor = (id: AskIntentId): string => INTENT_EXAMPLES.find((i) 
 
 const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 
-const PATTERNS: ReadonlyArray<readonly [AskIntentId, RegExp]> = [
+export const PATTERNS: ReadonlyArray<readonly [AskIntentId, RegExp]> = [
   ['owed_to_me', /\b(who|what)\b.*\b(owes?|owing)\s+(me|us)\b|\b(debtors?|receivables?)\b|\bcustomers?\b.*\b(owe|owing|outstanding)\b|\bowed\s+to\s+(me|us)\b/],
   ['i_owe', /\bwho\s+do\s+(i|we)\s+owe\b|\b(creditors?|payables?)\b|\bwhat\s+do\s+(i|we)\s+owe\s+(my\s+|our\s+)?suppliers?\b|\bsuppliers?\b.*\b(owed|outstanding)\b/],
-  ['cash', /\b(cash|money)\b.*\b(bank|have|hand)\b|\bbank\s+balances?\b|\bcash\s+(balance|position)\b/],
+  ['cash', /\b(cash|money)\b.*\b(bank|have|hand)\b|\bbank\s+balances?\b|\b(?:account|statement)\s+balances?\b|\bcash\s+(balance|position)\b/],
   ['bank_to_allocate', /\bbank\b.*\b(transactions?|lines?)\b.*\b(allocat|categoris|code|match)|\b(unallocated|unmatched)\b.*\bbank\b/],
-  ['assets', /\btotal\s+assets\b|\bwhat\s+(do|are)\s+(i|we|my|our)\b.*\bassets\b/],
+  ['assets', /\btotal\s+(?:balance\s+sheet\s+)?assets\b|\bwhat\s+(do|are)\s+(i|we|my|our)\b.*\bassets\b/],
   ['liabilities', /\bliabilit/],
   ['emp201', /\b(emp\s?201|paye|sdl|uif)\b|\bsars\b.*\bpayroll\b|\bpayroll\b.*\bsars\b|\bpayroll\s+liabilit/],
   ['vat', /\bvat\b/],
@@ -105,6 +105,10 @@ function bareYear(q: string): string | null {
 
 const validDay = (d: number, m: number, y: number | null): boolean => d >= 1 && m >= 1 && m <= 12 && d <= new Date(Date.UTC(y ?? 2024, m, 0)).getUTCDate();
 
+/** Numeric dates once their separators are gone: "2026 10 15" (ISO) and "15 10 2026" (day month year, as South Africa writes it). */
+const ISO_RE = /\b(20\d{2}) (\d{1,2}) (\d{1,2})\b/g;
+const DMY_RE = /\b(\d{1,2}) (\d{1,2}) (20\d{2})\b/g;
+
 /** An exact day: "15 october [2026]", "october 15th", "2026 10 15" (an ISO date once its dashes are gone). */
 function dayIn(q: string): AskPeriod | null {
   const dm = new RegExp(`\\b(\\d{1,2})${ORD}\\s+(?:of\\s+)?(${MONTHS.join('|')})(?:\\s+(20\\d{2}))?\\b`).exec(q);
@@ -117,8 +121,10 @@ function dayIn(q: string): AskPeriod | null {
     const day = Number(md[2]); const month = MONTHS.indexOf(md[1]!) + 1; const year = md[3] ? Number(md[3]) : null;
     return validDay(day, month, year) ? { kind: 'day', day, month, year } : { kind: 'unsupported', said: md[0]! };
   }
-  const iso = /\b(20\d{2}) (\d{1,2}) (\d{1,2})\b/.exec(q);
-  if (iso && validDay(Number(iso[3]), Number(iso[2]), Number(iso[1]))) return { kind: 'day', day: Number(iso[3]), month: Number(iso[2]), year: Number(iso[1]) };
+  const iso = new RegExp(ISO_RE.source).exec(q);
+  if (iso) return validDay(Number(iso[3]), Number(iso[2]), Number(iso[1])) ? { kind: 'day', day: Number(iso[3]), month: Number(iso[2]), year: Number(iso[1]) } : { kind: 'unsupported', said: iso[0]! };
+  const dmy = new RegExp(DMY_RE.source).exec(q);
+  if (dmy) return validDay(Number(dmy[1]), Number(dmy[2]), Number(dmy[3])) ? { kind: 'day', day: Number(dmy[1]), month: Number(dmy[2]), year: Number(dmy[3]) } : { kind: 'unsupported', said: dmy[0]! };
   return null;
 }
 
@@ -160,6 +166,11 @@ export function parsePeriod(raw: string): AskPeriod | null {
 /** Every exact day in a question, with its month name ('15 october', 'october 15th'). */
 const DAY_RE = new RegExp(`\\b(\\d{1,2})${ORD}\\s+(?:of\\s+)?(${MONTHS.join('|')})(?:\\s+(20\\d{2}))?\\b|\\b(${MONTHS.join('|')})\\s+(\\d{1,2})${ORD}(?:\\s+(20\\d{2}))?\\b`, 'g');
 
+const MONTH_LABEL = MONTHS.map((m) => `${m[0]!.toUpperCase()}${m.slice(1)}`);
+
+/** The question with every exact date (named, ISO, day-month-year) removed: their numbers are part of a window, not leftover words. */
+const stripDates = (q: string): string => q.replace(DAY_RE, ' ').replace(ISO_RE, ' ').replace(DMY_RE, ' ').replace(/\s+/g, ' ').trim();
+
 function windowPhrases(raw: string): string[] {
   const found = new Set<string>();
   let q = raw;
@@ -168,7 +179,13 @@ function windowPhrases(raw: string): string[] {
     const day = m[1] ?? m[5]; const name = m[2] ?? m[4]; const year = m[3] ?? m[6];
     found.add(`as at ${Number(day)} ${name![0]!.toUpperCase()}${name!.slice(1)}${year ? ` ${year}` : ''}`);
   }
-  q = q.replace(DAY_RE, ' ');
+  for (const [re, order] of [[ISO_RE, [3, 2, 1]], [DMY_RE, [1, 2, 3]]] as const) {
+    for (const m of raw.matchAll(re)) {
+      const [d, mo, y] = [Number(m[order[0]]), Number(m[order[1]]), Number(m[order[2]])];
+      if (validDay(d, mo, y)) found.add(`as at ${d} ${MONTH_LABEL[mo - 1]} ${y}`);
+    }
+  }
+  q = stripDates(q);
   const fy = FY.exec(q);
   if (fy) { found.add(`for FY${fy[1] ?? fy[2] ?? fy[3]}`); q = q.replace(FY, ' '); }
   for (const [re, phrase] of [[/\blast\s+month\b/, 'last month'], [/\bthis\s+month\b/, 'this month'],
@@ -212,8 +229,10 @@ function qualifierOf(q: string, id: AskIntentId): AskQualifier | undefined {
 /** The intents one clause asks for: every pattern that matched, the plain words stepping aside for a specific one. */
 function keysOf(clause: string): Key[] {
   const hits = PATTERNS.filter(([, re]) => re.test(clause)).map(([id]) => id);
-  const specific = hits.filter((id) => !GENERIC.has(id));
-  return (specific.length > 0 ? specific : hits).map((id) => ({ id, qualifier: qualifierOf(clause, id) }));
+  // "VAT payable" is a VAT question, not a supplier one: i_owe stands only on its own words.
+  const own = hits.includes('vat') && hits.includes('i_owe') && !/\bwho\s+do\s+(i|we)\s+owe\b|\bsuppliers?\b|\bcreditors?\b/.test(clause) ? hits.filter((id) => id !== 'i_owe') : hits;
+  const specific = own.filter((id) => !GENERIC.has(id));
+  return (specific.length > 0 ? specific : own).map((id) => ({ id, qualifier: qualifierOf(clause, id) }));
 }
 
 /** Clauses joined by and / & / , / plus / vs: each may ask for something different, and silently answering one drops the other. */
@@ -224,9 +243,9 @@ const DURATION_UNIT = /^(?:days?|weeks?|months?|years?)$/;
 /** "over 90 days", "overdue", "buckets": a refinement by age, which the plain total does not honour. */
 const AGING_BUCKET = /\b\d+\s+days?\b|\boverdue\b|\bbuckets?\b|\bolder\s+than\b/;
 const COMPARISON = /\b(?:vs|versus|compared\s+(?:to|with)|compare|comparison|against)\b/;
-const TAX_BASIS = /\b(?:before|after|pre|post)\s+tax\b/;
+const TAX_BASIS = /\b(?:before|after|pre|post|net\s+of|less|excluding|including|incl|excl|ex)\s+tax\b/;
 /** "excluding VAT" modifies a figure; it is not a VAT question, so it is cut out before the intents are read. */
-const VAT_BASIS = /\b(?:excluding|including|incl|excl|ex)\s+vat\b/g;
+const VAT_BASIS = /\b(?:excluding|including|incl|excl|ex|net\s+of|before|after|less)\s+vat\b/g;
 
 export function parseQuestion(question: string): ParsedQuestion {
   const full = normalise(question);
@@ -236,7 +255,7 @@ export function parseQuestion(question: string): ParsedQuestion {
   // The whole question first (a comma inside a clause must not split "cash, roughly, in the bank"), then each clause: a question
   // joining clauses that ask for different things is ambiguous, and clauses that match nothing are ignored.
   const found = new Map<string, Key>();
-  for (const k of [...keysOf(q), ...question.toLowerCase().replace(/\b(?:excluding|including|incl|excl|ex)\s+vat\b/g, ' ').split(JOINERS).flatMap((c) => keysOf(normalise(c)))]) found.set(keyName(k), k);
+  for (const k of [...keysOf(q), ...question.toLowerCase().replace(/\b(?:excluding|including|incl|excl|ex|net\s+of|before|after|less)\s+vat\b/g, ' ').split(JOINERS).flatMap((c) => keysOf(normalise(c)))]) found.set(keyName(k), k);
   const keys = [...found.values()];
   if (keys.length === 0) return { kind: 'none' };
   if (keys.length > 1) return { kind: 'ambiguous', ids: [...new Set(keys.map((k) => k.id))], examples: keys.map((k) => exampleForKey(k, windowPhrases(q)[0] ?? null)) };
@@ -255,7 +274,7 @@ export function parseQuestion(question: string): ParsedQuestion {
   const period = parsePeriod(q);
   // Every remaining content word is something we did not understand: refuse rather than answer the plain figure without it.
   if (period?.kind !== 'unsupported') {
-    const words = leftoverWords(q.replace(DAY_RE, ' ').replace(/\s+/g, ' ').trim());
+    const words = leftoverWords(stripDates(q));
     if (words.length > 0) return { kind: 'leftover', id, words };
   }
   return { kind: 'intent', intent: { id, period, qualifier } };

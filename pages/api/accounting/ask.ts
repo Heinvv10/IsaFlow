@@ -12,6 +12,7 @@ import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { todayInSast } from '@/lib/saDateParser';
 import { resolveProvider } from '@/modules/accounting/services/ask/askProvider';
 import { meteredOperation, parseQuestion } from '@/modules/accounting/services/ask/askIntents';
+import { getFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { periodIsHonoured } from '@/modules/accounting/services/ask/askPeriod';
 import { answerQuestion } from '@/modules/accounting/services/ask/askAnswer';
 
@@ -49,6 +50,8 @@ async function route(req: NextApiRequest, res: NextApiResponse) {
   const op = intent ? meteredOperation(intent.id) : null;
   // A window we would refuse is decided before any debit: it costs nothing, and a short wallet never sees a 402 for it.
   if (intent && op && !periodIsHonoured(intent.id, intent.period, todayInSast())) return handler(req, res);
+  // A financial year the registry does not hold is refused: decided here, before any debit, like the other refused windows.
+  if (intent && op && intent.period?.kind === 'fy' && !(await getFiscalYear((req as CompanyAuthedRequest).companyId, intent.period.year))) return handler(req, res);
   return (op === 'report.pnl' ? pnl : op === 'report.bs' ? bs : handler)(req, res);
 }
 

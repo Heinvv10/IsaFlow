@@ -2,11 +2,12 @@
 // assets and liabilities as report.bs; everything else is free. Real withFlowMeter, mocked wallet.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const m = vi.hoisted(() => ({ answer: vi.fn(), plan: vi.fn(), deduct: vi.fn(), refund: vi.fn(), topup: vi.fn(), provider: vi.fn(), providerOn: { value: false } }));
+const m = vi.hoisted(() => ({ fy: vi.fn(), answer: vi.fn(), plan: vi.fn(), deduct: vi.fn(), refund: vi.fn(), topup: vi.fn(), provider: vi.fn(), providerOn: { value: false } }));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/modules/accounting/services/ask/askAnswer', () => ({ answerQuestion: m.answer }));
 vi.mock('@/modules/accounting/services/ask/askProvider', () => ({ resolveProvider: () => (m.providerOn.value ? { answer: m.provider } : null) }));
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', () => ({ getFiscalYear: m.fy }));
 vi.mock('@/lib/billing/getCompanyPlan', () => ({ getCompanyPlan: m.plan }));
 vi.mock('@/lib/afterCommit', () => ({ runAfterCommit: vi.fn(), runAfterRollback: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
@@ -38,6 +39,7 @@ beforeEach(() => {
   m.deduct.mockResolvedValue({ balanceAfter: 90 });
   m.refund.mockResolvedValue({ balanceAfter: 100 });
   m.answer.mockResolvedValue(fig);
+  m.fy.mockResolvedValue({ startDate: '2025-03-01', endDate: '2026-02-28' });
   m.providerOn.value = false;
   m.provider.mockReset();
   m.provider.mockResolvedValue(fig);
@@ -126,5 +128,20 @@ describe('metering', () => {
     expect(m.deduct).toHaveBeenCalledTimes(1);
     expect(m.refund).toHaveBeenCalledTimes(1);
     expect(res.setHeader).not.toHaveBeenCalledWith('X-Flow-Refunded', 'true');
+  });
+
+  it('a financial year the registry does not hold is decided before any debit: no charge, no refund, no 402 path', async () => {
+    m.fy.mockResolvedValue(null);
+    m.deduct.mockRejectedValue(new InsufficientFlowsError(0, 10));
+    const res = await run('what is my profit fy2019');
+    expect(m.fy).toHaveBeenCalledWith('co', 2019);
+    expect(m.deduct).not.toHaveBeenCalled();
+    expect(m.refund).not.toHaveBeenCalled();
+    expect(m.topup).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+  });
+  it('a known financial year is charged once as report.pnl', async () => {
+    await run('what is my profit fy2026');
+    expect(charged()).toEqual(['report.pnl']);
   });
 });
