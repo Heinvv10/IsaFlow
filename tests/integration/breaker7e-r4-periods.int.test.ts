@@ -51,7 +51,8 @@ describe('breaker7e r4', () => {
     const step = await put(co, t, { frequency: 'monthly' });
     await run(co, cal.prev.period);
     // month already generated at weekly (1st, 8th); a monthly run on the 15th lands in it
-    expect({ step, monthlyRunsInPrev: await inPrev(co) }).toEqual({ step: expect.stringMatching(/refused/), monthlyRunsInPrev: 0 });
+    // Orchestrator decision: frequency-only edits are accepted; generation enforces one run per period.
+    expect({ step, monthlyRunsInPrev: await inPrev(co) }).toEqual({ step: 'ok', monthlyRunsInPrev: 0 });
   });
 
   it('C: legacy exception on a NEW-style row: freq-only switch then next inside the last run\'s month is allowed', async () => {
