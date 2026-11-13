@@ -16,6 +16,8 @@ export interface PaletteAction {
   /** Destination for a `nav` action. */
   url?: string;
   icon: string;
+  /** For an `ask` action made from typed text: the question to answer. */
+  query?: string;
   /** Extra words that find the action ("bill" finds "New supplier invoice" and vice versa). */
   keywords: string[];
 }

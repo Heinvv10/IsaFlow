@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const m = vi.hoisted(() => ({
-  ar: vi.fn(), ap: vi.fn(), bank: vi.fn(), cash: vi.fn(), income: vi.fn(), sheet: vi.fn(), vat: vi.fn(), emp: vi.fn(), fy: vi.fn(), sql: vi.fn(),
+  ar: vi.fn(), ap: vi.fn(), bank: vi.fn(), cash: vi.fn(), income: vi.fn(), sheet: vi.fn(), vat: vi.fn(), emp: vi.fn(), fy: vi.fn(), cycle: vi.fn(), run: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/ar/arAgingService', () => ({ getARAging: m.ar }));
 vi.mock('@/modules/accounting/services/ap/apAgingService', () => ({ getAPAging: m.ap }));
@@ -12,7 +12,8 @@ vi.mock('@/modules/accounting/services/reports/balanceSheetService', () => ({ ge
 vi.mock('@/modules/accounting/services/reports/vat201ReportService', () => ({ getVat201Report: m.vat }));
 vi.mock('@/modules/accounting/services/reports/emp201Service', () => ({ generateEMP201: m.emp }));
 vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', () => ({ fiscalYearForDate: m.fy }));
-vi.mock('@/lib/neon', () => ({ sql: (s: TemplateStringsArray, ...v: unknown[]) => m.sql(s.join('?'), v) }));
+vi.mock('@/modules/accounting/services/reports/companyVatCycle', () => ({ getCompanyVatCycle: m.cycle }));
+vi.mock('@/modules/accounting/services/payroll/payrollRunQueryService', () => ({ getDeclarablePayRun: m.run }));
 
 import { answerQuestion } from '@/modules/accounting/services/ask/askAnswer';
 
@@ -26,7 +27,7 @@ const bankRows = [
   { accountName: 'Savings', balance: 200.2, unallocatedCount: 4, isActive: true },
   { accountName: 'Old', balance: 999, unallocatedCount: 50, isActive: false },
 ];
-const run = { id: 'run1', company_id: CO, period_year: 2026, period_month: 10, status: 'paid', total_gross: 50000, total_net: 40000, total_paye: 6000 };
+const run = { id: 'run1', periodYear: 2026, periodMonth: 10, status: 'paid', totalGross: 50000, totalNet: 40000, totalPaye: 6000 };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -39,7 +40,8 @@ beforeEach(() => {
   m.vat.mockResolvedValue({ totals: { outputTax: 150, inputTax: 60, netVat: 90 } });
   m.emp.mockResolvedValue({ payePayable: 1000, totalUIF: 100, totalSDL: 50, totalDeductions: 1150.07 });
   m.fy.mockImplementation(async (_c: string, d: string) => (d >= '2026-03-01' ? { startDate: '2026-03-01', endDate: '2027-02-28' } : { startDate: '2025-03-01', endDate: '2026-02-28' }));
-  m.sql.mockImplementation(async (text: string) => (text.includes('FROM companies') ? [{ vat_period: 'bi-monthly', vat_system_type: 'invoice', vat_period_alignment: 'even' }] : [run]));
+  m.cycle.mockResolvedValue({ cadence: 'bi-monthly', alignment: 'even' });
+  m.run.mockResolvedValue(run);
 });
 
 describe('figure equals the service figure, with the exact page link', () => {
@@ -72,7 +74,7 @@ describe('company scoping', () => {
       expect(fn.mock.calls.length).toBeGreaterThan(0);
       for (const c of fn.mock.calls) expect(c[0]).toBe(CO);
     }
-    for (const c of m.sql.mock.calls) expect(JSON.stringify(c[1])).toContain(CO);
+    for (const fn of [m.cycle, m.run]) for (const c of fn.mock.calls) expect(c[0]).toBe(CO);
     await ask('who owes me money', 'other-co');
     expect(m.ar).toHaveBeenLastCalledWith('other-co', TODAY);
   });
@@ -109,6 +111,22 @@ describe('lines', () => {
     expect((await ask('vat')).lines).toEqual([{ label: 'Output tax', value: 150 }, { label: 'Input tax', value: 60 }]);
     expect((await ask('emp201')).lines).toEqual([{ label: 'PAYE payable', value: 1000 }, { label: 'UIF', value: 100 }, { label: 'SDL', value: 50 }]);
   });
+  it('every service is asked for exactly the window the question names', async () => {
+    await ask('what do I owe sars for payroll');
+    expect(m.emp).toHaveBeenLastCalledWith(CO, '2026-10-01', '2026-10-31');
+    await ask('emp201 for february');
+    expect(m.emp).toHaveBeenLastCalledWith(CO, '2026-02-01', '2026-02-28');
+    await ask('what is my profit last month');
+    expect(m.income).toHaveBeenLastCalledWith(CO, '2026-10-01', '2026-10-31');
+    await ask('what are my total assets');
+    expect(m.sheet).toHaveBeenLastCalledWith(CO, TODAY);
+    await ask('what are my total assets last month');
+    expect(m.sheet).toHaveBeenLastCalledWith(CO, '2026-10-31');
+    await ask('what vat do I owe for august');
+    expect(m.vat).toHaveBeenLastCalledWith(CO, '2026-07-01', '2026-08-31', expect.anything());
+    await ask('who do I owe last month');
+    expect(m.ap).toHaveBeenLastCalledWith(CO, '2026-10-31');
+  });
   it('emp201 reads the service total, not a recomputation', async () => {
     expect((await ask('emp201')).figure).toBe(1150.07);
   });
@@ -128,12 +146,12 @@ describe('VAT period', () => {
     expect(a.link?.href).toBe('/accounting/sars/vat201?from=2026-09-01&to=2026-10-31');
   });
   it('a monthly filer gets that month', async () => {
-    m.sql.mockImplementation(async (t: string) => (t.includes('FROM companies') ? [{ vat_period: 'monthly', vat_system_type: 'invoice', vat_period_alignment: 'odd' }] : [run]));
+    m.cycle.mockResolvedValue({ cadence: 'monthly', alignment: 'odd' });
     await ask('what vat do I owe for october');
     expect(m.vat).toHaveBeenCalledWith(CO, '2026-10-01', '2026-10-31', expect.anything());
   });
   it('a non-vendor is told there is no VAT201', async () => {
-    m.sql.mockImplementation(async () => [{ vat_period: 'none', vat_system_type: 'none', vat_period_alignment: null }]);
+    m.cycle.mockResolvedValue(null);
     const a = await ask('vat');
     expect(a.figure).toBeNull();
     expect(a.text).toContain('not set up as a VAT vendor');
@@ -142,20 +160,15 @@ describe('VAT period', () => {
 });
 
 describe('pay run', () => {
-  const sqlOf = (): { text: string; values: unknown[] } => {
-    const c = m.sql.mock.calls.find((x) => String(x[0]).includes('payroll_run_headers'))!;
-    return { text: String(c[0]), values: c[1] as unknown[] };
-  };
-  it('only declarable statuses, ties broken by creation time', async () => {
+  it('the latest run overall when no month is named; a named month asks for that month', async () => {
     await ask('what did the last pay run cost');
-    const { text, values } = sqlOf();
-    expect(values).toContainEqual(['approved', 'paid']);
-    expect(text).toMatch(/ORDER BY period_year DESC, period_month DESC, created_at DESC/);
+    expect(m.run).toHaveBeenLastCalledWith(CO, null);
+    await ask('what did payroll cost last month');
+    expect(m.run).toHaveBeenLastCalledWith(CO, { year: 2026, month: 10 });
   });
-  it('a named month asks for that month; none found is said, not invented', async () => {
-    m.sql.mockImplementation(async () => []);
+  it('none found is said, not invented', async () => {
+    m.run.mockResolvedValue(null);
     const a = await ask('what did payroll cost last month');
-    expect(sqlOf().values).toEqual(expect.arrayContaining([2026, 10]));
     expect(a.figure).toBeNull();
     expect(a.text).toContain('October 2026');
   });
@@ -169,7 +182,7 @@ describe('windows it cannot honour are said, never replaced by a default', () =>
     const a = await ask(q);
     expect(a.figure).toBeNull();
     expect(a.text).toMatch(/can't answer/);
-    for (const fn of [m.ar, m.income, m.sheet, m.vat, m.emp, m.bank]) expect(fn).not.toHaveBeenCalled();
+    for (const fn of [m.ar, m.income, m.sheet, m.vat, m.emp, m.bank, m.run]) expect(fn).not.toHaveBeenCalled();
   });
   it('aging and balance sheet honour a month as at its end, and say the date', async () => {
     const a = await ask('who owes me money last month');
@@ -184,18 +197,61 @@ describe('windows it cannot honour are said, never replaced by a default', () =>
   });
 });
 
+describe('narrower figures and wording', () => {
+  it('gross profit is gross profit, labelled, never net profit', async () => {
+    m.income.mockResolvedValue({ totalRevenue: 900, totalOtherIncome: 10, totalCostOfSales: 300, totalOperatingExpenses: 200, totalOtherExpenses: 50, netProfit: 360, grossProfit: 600, operatingProfit: 410 });
+    const a = await ask('what is my gross profit this month');
+    expect(a.figure).toBe(600);
+    expect(a.text).toMatch(/^Gross profit/);
+    expect(a.text).not.toMatch(/Net profit/);
+    expect((await ask('operating profit last month')).figure).toBe(410);
+  });
+  it('cost of sales is answered as cost of sales and is not ambiguous', async () => {
+    const a = await ask('cost of sales last month');
+    expect(a.understood).toBe(true);
+    expect(a.figure).toBe(300);
+    expect(a.text).toMatch(/^Cost of sales/);
+  });
+  it('"what can I spend" is not an expenses question', async () => {
+    const a = await ask('what can I spend?');
+    expect(a.understood).toBe(false);
+    expect(m.income).not.toHaveBeenCalled();
+  });
+  it('bank: this month, today are the current balance; a past period is refused in the person\'s words', async () => {
+    expect((await ask('cash in the bank this month')).figure).toBe(5200.3);
+    expect((await ask('cash in the bank today')).figure).toBe(5200.3);
+    const a = await ask('cash in the bank last month');
+    expect(a.figure).toBeNull();
+    expect(a.text).toContain('"last month"');
+    expect((await ask('cash in the bank in october')).text).toContain('"October"');
+  });
+  it('profit in a quarter or half is refused, not answered with the default month', async () => {
+    for (const q of ['profit in Q3', 'profit first quarter', 'profit H1', 'profit for the half year']) {
+      expect((await ask(q)).figure, q).toBeNull();
+    }
+    expect(m.income).not.toHaveBeenCalled();
+  });
+});
+
 describe('unrecognised and ambiguous', () => {
   it('an unrecognised question calls nothing and suggests the twelve', async () => {
     const a = await ask('what is the weather');
     expect(a.understood).toBe(false);
     expect(a.suggestions).toHaveLength(12);
-    for (const fn of [m.ar, m.ap, m.bank, m.income, m.sheet, m.vat, m.emp, m.sql]) expect(fn).not.toHaveBeenCalled();
+    for (const fn of [m.ar, m.ap, m.bank, m.income, m.sheet, m.vat, m.emp, m.cycle, m.run]) expect(fn).not.toHaveBeenCalled();
   });
   it('an ambiguous question asks which was meant, offering exactly those intents', async () => {
     const a = await ask('who owes me VAT?');
     expect(a.understood).toBe(false);
     expect(a.text).toMatch(/Which did you mean/);
     expect(a.suggestions).toEqual(['Who owes me money?', 'What VAT do I owe for October?']);
-    for (const fn of [m.ar, m.vat, m.sql]) expect(fn).not.toHaveBeenCalled();
+    for (const fn of [m.ar, m.vat, m.cycle]) expect(fn).not.toHaveBeenCalled();
+  });
+  it('"vat and profit" asks which, and answers neither', async () => {
+    const a = await ask('vat and profit');
+    expect(a.understood).toBe(false);
+    expect(a.suggestions).toHaveLength(2);
+    expect(m.vat).not.toHaveBeenCalled();
+    expect(m.income).not.toHaveBeenCalled();
   });
 });

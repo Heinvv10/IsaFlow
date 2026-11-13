@@ -17,7 +17,10 @@ export type AskPeriod =
   | { kind: 'month'; year: number | null; month: number }
   | { kind: 'unsupported'; said: string };
 
-export interface AskIntent { id: AskIntentId; period: AskPeriod | null }
+/** A narrower figure of the same intent: gross/operating profit, cost of sales. Answered as that figure, labelled as it, never as the plain one. */
+export type AskQualifier = 'gross' | 'operating' | 'cost_of_sales';
+
+export interface AskIntent { id: AskIntentId; period: AskPeriod | null; qualifier?: AskQualifier }
 
 export type ParsedQuestion =
   | { kind: 'intent'; intent: AskIntent }
@@ -53,21 +56,40 @@ const PATTERNS: ReadonlyArray<readonly [AskIntentId, RegExp]> = [
   ['bank_to_allocate', /\bbank\b.*\b(transactions?|lines?)\b.*\b(allocat|categoris|code|match)|\b(unallocated|unmatched)\b.*\bbank\b/],
   ['assets', /\btotal\s+assets\b|\bwhat\s+(do|are)\s+(i|we|my|our)\b.*\bassets\b/],
   ['liabilities', /\bliabilit/],
-  ['emp201', /\b(emp\s?201|paye|sdl|uif)\b|\bsars\b.*\bpayroll\b|\bpayroll\b.*\bsars\b/],
+  ['emp201', /\b(emp\s?201|paye|sdl|uif)\b|\bsars\b.*\bpayroll\b|\bpayroll\b.*\bsars\b|\bpayroll\s+liabilit/],
   ['vat', /\bvat\b/],
   ['last_pay_run', /\b(last|latest|recent)\b.*\b(pay\s*run|payroll)\b|\bpay\s*run\b.*\bcost\b|\bpayroll\b.*\b(cost|total)\b/],
   ['profit', /\b(net\s+)?(profit|loss)\b|\bnet\s+income\b|\bincome\b(?!\s+tax)/],
   ['revenue', /\b(revenue|sales|turnover)\b/],
-  ['expenses', /\b(expenses?|costs?|spend(ing)?)\b/],
+  ['expenses', /\b(expenses?|costs?|costofsales|spent|spending)\b|\b(did|do|have)\s+(i|we)\s+spend\b/],
 ];
 
-/** Plain P&L words: they lose to any more specific intent that also matched. */
-const GENERIC: ReadonlySet<AskIntentId> = new Set<AskIntentId>(['profit', 'revenue', 'expenses']);
+/** Plain P&L words, and "liabilities" ("VAT liability" is a tax question): they lose to any more specific intent that also matched. */
+const GENERIC: ReadonlySet<AskIntentId> = new Set<AskIntentId>(['profit', 'revenue', 'expenses', 'liabilities']);
 
-const normalise = (question: string): string => question.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+const normalise = (question: string): string =>
+  question.toLowerCase().replace(/\bcost\s+of\s+sales\b/g, 'costofsales').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+
+const QUARTER = /\b(q[1-4]|(?:first|second|third|fourth|1st|2nd|3rd|4th)\s+quarter|h[12]|half\s*year(?:ly)?|quarter(?:ly)?)\b/;
+/** A number is a year only with year context, and never after a comparison word ("more than 2000" is an amount). */
+const NOT_A_YEAR_AFTER = new Set(['than', 'over', 'under', 'above', 'below', 'exceeding', 'exceeds', 'least', 'most', 'about', 'around', 'rand', 'r']);
+const YEAR_CONTEXT = new Set(['in', 'for', 'during', 'fy', 'year', 'of', 'since']);
+
+function bareYear(q: string): string | null {
+  const words = q.split(' ');
+  for (let i = 0; i < words.length; i += 1) {
+    if (!/^(?:19|20)\d{2}$/.test(words[i]!)) continue;
+    const prev = words[i - 1] ?? '';
+    if (NOT_A_YEAR_AFTER.has(prev)) continue;
+    if (YEAR_CONTEXT.has(prev) || i === words.length - 1) return words[i]!;
+  }
+  return null;
+}
 
 /** The window named, or null when none was. A window we recognise but cannot honour is `unsupported`, never dropped. */
 export function parsePeriod(q: string): AskPeriod | null {
+  const quarter = QUARTER.exec(q);
+  if (quarter) return { kind: 'unsupported', said: quarter[1]! };
   if (/\blast\s+month\b/.test(q)) return { kind: 'last_month' };
   if (/\bthis\s+month\b/.test(q)) return { kind: 'this_month' };
   if (/\b(last|previous|prior)\s+(financial\s+|fiscal\s+)?year\b/.test(q)) return { kind: 'last_year' };
@@ -79,19 +101,41 @@ export function parsePeriod(q: string): AskPeriod | null {
     const y = named[2] ?? named[4];
     if (m) return { kind: 'month', month: MONTHS.indexOf(m) + 1, year: y ? Number(y) : null };
   }
-  const other = /\b(quarter|week|today|yesterday|tomorrow|(?:19|20)\d{2})\b/.exec(q);
-  return other?.[1] ? { kind: 'unsupported', said: other[1] } : null;
+  const other = /\b(week|today|yesterday|tomorrow)\b/.exec(q);
+  if (other?.[1]) return { kind: 'unsupported', said: other[1] };
+  const year = bareYear(q);
+  return year ? { kind: 'unsupported', said: year } : null;
+}
+
+/** The intents one clause asks for: every pattern that matched, the plain words stepping aside for a specific one. */
+function intentsOf(clause: string): AskIntentId[] {
+  const hits = PATTERNS.filter(([, re]) => re.test(clause)).map(([id]) => id);
+  const specific = hits.filter((id) => !GENERIC.has(id));
+  return specific.length > 0 ? specific : hits;
+}
+
+/** Clauses joined by and / & / , / plus / vs: each may ask for something different, and silently answering one drops the other. */
+const JOINERS = /[,;&]|\b(?:and|plus|vs\.?|versus)\b|\bas\s+well\s+as\b/;
+
+function qualifierOf(q: string, id: AskIntentId): AskQualifier | undefined {
+  if (id === 'profit' && /\bgross\s+(profit|margin)\b/.test(q)) return 'gross';
+  if (id === 'profit' && /\boperating\s+(profit|income)\b/.test(q)) return 'operating';
+  if (id === 'expenses' && /\bcostofsales\b/.test(q)) return 'cost_of_sales';
+  return undefined;
 }
 
 export function parseQuestion(question: string): ParsedQuestion {
   const q = normalise(question);
   if (q.length < 3) return { kind: 'none' };
-  const hits = PATTERNS.filter(([, re]) => re.test(q)).map(([id]) => id);
-  const specific = hits.filter((id) => !GENERIC.has(id));
-  const chosen = specific.length > 0 ? specific : hits;
+  const found = new Set<AskIntentId>();
+  for (const clause of question.toLowerCase().split(JOINERS)) {
+    for (const id of intentsOf(normalise(clause))) found.add(id);
+  }
+  const chosen = [...found];
   if (chosen.length === 0) return { kind: 'none' };
   if (chosen.length > 1) return { kind: 'ambiguous', ids: chosen };
-  return { kind: 'intent', intent: { id: chosen[0]!, period: parsePeriod(q) } };
+  const id = chosen[0]!;
+  return { kind: 'intent', intent: { id, period: parsePeriod(q), qualifier: qualifierOf(q, id) } };
 }
 
 /**

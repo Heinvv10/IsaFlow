@@ -44,11 +44,15 @@ export function resolveAsAt(period: AskPeriod | null, today: string): { date: st
   return null;
 }
 
-/** How a window reads back to the person in a refusal. */
+/** How a window reads back to the person in a refusal: their own words where we have them. */
 export function describePeriod(p: AskPeriod | null): string {
   if (!p) return 'that period';
-  if (p.kind === 'unsupported') return p.said;
-  if (p.kind === 'last_year') return 'last year';
-  if (p.kind === 'this_year') return 'this year';
-  return 'that period';
+  switch (p.kind) {
+    case 'unsupported': return p.said;
+    case 'last_year': return 'last year';
+    case 'this_year': return 'this year';
+    case 'last_month': return 'last month';
+    case 'this_month': return 'this month';
+    case 'month': return `${MONTH_NAMES[p.month - 1]}${p.year ? ` ${p.year}` : ''}`;
+  }
 }

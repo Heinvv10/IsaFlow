@@ -4,7 +4,7 @@
  * save draft and mark submitted actions.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, Save, Send, AlertTriangle } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
@@ -25,7 +25,7 @@ export default function EMP201Page() {
   const defaults = getDefaultPeriod();
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
-  useReturnDeepLink(setFrom, setTo);
+  const link = useReturnDeepLink(setFrom, setTo);
   const [data, setData] = useState<EMP201Data | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -58,6 +58,12 @@ export default function EMP201Page() {
       setLoading(false);
     }
   }, [from, to]);
+
+  // A link from Ask IsaFlow lands on the figure it quoted: Generate is a read, so it runs once for the link's period.
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (link && !autoRan.current && from === link.from && to === link.to) { autoRan.current = true; void generate(); }
+  }, [link, from, to, generate]);
 
   const saveDraft = async () => {
     if (!data) return;

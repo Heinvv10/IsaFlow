@@ -67,12 +67,22 @@ describe('Explain this figure', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('forgets the figure once focus left the page for nothing (a click on blank space)', () => {
+  it('clicking a figure after another control had focus still explains that figure (the blur is not a loss)', () => {
     const onExplain = vi.fn();
-    render(<>{figure(onExplain)}<CommandPalette isOpen onClose={() => undefined} /></>);
-    const text = screen.getByLabelText('paye text');
-    fireEvent.focusIn(text);
-    fireEvent.focusOut(text, { relatedTarget: null });
+    render(<><button>other</button>{figure(onExplain)}<CommandPalette isOpen onClose={() => undefined} /></>);
+    const other = screen.getByText('other');
+    fireEvent.focusIn(other);
+    fireEvent.pointerDown(screen.getByText('R 1.00'));
+    fireEvent.focusOut(other, { relatedTarget: null }); // the click on non-focusable text blurs the button to nothing
+    fireEvent.click(screen.getByText('Explain this figure'));
+    expect(onExplain).toHaveBeenCalledTimes(1);
+  });
+
+  it('a click on blank space after a figure means nothing is focused any more', () => {
+    const onExplain = vi.fn();
+    render(<>{figure(onExplain)}<div>blank</div><CommandPalette isOpen onClose={() => undefined} /></>);
+    fireEvent.pointerDown(screen.getByText('R 1.00'));
+    fireEvent.pointerDown(screen.getByText('blank'));
     fireEvent.click(screen.getByText('Explain this figure'));
     expect(onExplain).not.toHaveBeenCalled();
     expect(screen.getByTestId('explain-note')).toBeTruthy();
@@ -94,6 +104,31 @@ describe('Explain this figure', () => {
     fireEvent.focusIn(screen.getByLabelText('unrelated'));
     fireEvent.click(screen.getByText('Explain this figure'));
     expect(onExplain).not.toHaveBeenCalled();
+  });
+});
+
+describe('a typed question', () => {
+  const type = (v: string) => fireEvent.change(screen.getByRole('combobox'), { target: { value: v } });
+  const answerOnce = () => apiJson.mockResolvedValue({ understood: true, text: 'Customers owe you R 5.00.', figure: 5, lines: [], link: null, suggestions: [] });
+
+  it.each(['who owes me money', 'what was profit last month', 'How much cash do I have?', 'is my vat due?'])('"%s" gets an Ask IsaFlow row first, and Enter answers it', async (q) => {
+    answerOnce();
+    render(<CommandPalette isOpen onClose={() => undefined} />);
+    type(q);
+    expect(screen.getAllByRole('option')[0]!.textContent).toContain(`Ask IsaFlow: ${q}`);
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' });
+    expect((await screen.findByTestId('ask-text')).textContent).toContain('R 5.00');
+    expect(apiJson.mock.calls[0]![0]).toBe(`/api/accounting/ask?q=${encodeURIComponent(q)}`);
+  });
+
+  it('a phrase that is also a page search gets the row last, so Enter still opens the page; one word gets none', () => {
+    render(<CommandPalette isOpen onClose={() => undefined} />);
+    type('aged debtors');
+    const options = screen.getAllByRole('option');
+    expect(options[options.length - 1]!.textContent).toContain('Ask IsaFlow: aged debtors');
+    expect(options[0]!.textContent).not.toContain('Ask IsaFlow: ');
+    type('vat');
+    expect(screen.getAllByRole('option').some((o) => o.textContent?.includes('Ask IsaFlow: '))).toBe(false);
   });
 });
 

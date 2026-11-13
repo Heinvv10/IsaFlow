@@ -9,8 +9,8 @@ import { log } from '@/lib/logger';
 import { rand, type AskAnswer } from '@/modules/accounting/services/ask/askTypes';
 import { INTENT_EXAMPLES } from '@/modules/accounting/services/ask/askIntents';
 
-export function AskPanel({ onClose, onBack }: { onClose: () => void; onBack: () => void }) {
-  const [question, setQuestion] = useState('');
+export function AskPanel({ onClose, onBack, initialQuestion }: { onClose: () => void; onBack: () => void; initialQuestion?: string }) {
+  const [question, setQuestion] = useState(initialQuestion ?? '');
   const [answer, setAnswer] = useState<AskAnswer | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -31,6 +31,9 @@ export function AskPanel({ onClose, onBack }: { onClose: () => void; onBack: () 
       if (latest.current === mine) setBusy(false);
     }
   };
+  // A question typed in the palette is answered on arrival.
+  useEffect(() => { if (initialQuestion?.trim()) void ask(initialQuestion.trim()); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const submit = (e: FormEvent): void => { e.preventDefault(); if (question.trim()) void ask(question.trim()); };
   const suggestions = answer && !answer.understood ? answer.suggestions : [];
 
@@ -55,7 +58,7 @@ export function AskPanel({ onClose, onBack }: { onClose: () => void; onBack: () 
             <p className="font-medium" data-testid="ask-text">{answer.text}</p>
             {answer.lines.length > 0 && (
               <ul className="mt-2 space-y-1 text-ink-muted">
-                {answer.lines.map((l) => <li key={l.label} className="flex justify-between gap-4"><span className="truncate">{l.label}</span><span className="tabular-nums">{rand(l.value)}</span></li>)}
+                {answer.lines.map((l) => <li key={l.label} className="flex items-baseline justify-between gap-4"><span className="min-w-0 break-words">{l.label}</span><span className="shrink-0 whitespace-nowrap tabular-nums">{rand(l.value)}</span></li>)}
               </ul>
             )}
             {suggestions.length > 0 && (

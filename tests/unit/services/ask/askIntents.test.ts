@@ -22,6 +22,23 @@ describe('parseQuestion', () => {
     ['What did payroll cost last month?', 'last_pay_run'],
     ['what is my payroll cost', 'last_pay_run'],
     ['total assets and liabilities', 'ambiguous:assets+liabilities'],
+    ['VAT liability', 'vat'],
+    ['PAYE liability', 'emp201'],
+    ['payroll liabilities', 'emp201'],
+    ['what are my total liabilities', 'liabilities'],
+    ['gross profit', 'profit'],
+    ['cost of sales last month', 'expenses'],
+    ['what can I spend?', 'none'],
+    ['how much did I spend last month', 'expenses'],
+    ['vat and profit', 'ambiguous:profit+vat'],
+    ['profit & vat', 'ambiguous:profit+vat'],
+    ['revenue, expenses', 'ambiguous:expenses+revenue'],
+    ['who do I owe plus who owes me', 'ambiguous:i_owe+owed_to_me'],
+    ['profit vs revenue', 'ambiguous:profit+revenue'],
+    ['profit and loss', 'profit'],
+    ['PAYE, UIF and SDL', 'emp201'],
+    ['VAT on my sales and purchases', 'vat'],
+    ['who owes me more than 2000', 'owed_to_me'],
   ])('%s -> %s', (q, expected) => expect(idOf(parseQuestion(q))).toBe(expected));
 
   it.each<[string, AskIntentId]>([
@@ -44,6 +61,17 @@ describe('parsePeriod', () => {
     expect(parsePeriod('vat for october 2025')).toEqual({ kind: 'month', month: 10, year: 2025 });
     expect(parsePeriod('who owes me money')).toBeNull();
   });
+  it('quarters and halves are windows we cannot honour', () => {
+    for (const [q, said] of [['profit in q3', 'q3'], ['profit first quarter', 'first quarter'], ['profit h1', 'h1'], ['profit for the half year', 'half year'], ['vat last quarter', 'quarter']]) {
+      expect(parsePeriod(q!)).toEqual({ kind: 'unsupported', said });
+    }
+  });
+  it('an amount is not a year; a year needs year context', () => {
+    for (const q of ['who owes me more than 2000', 'who owes me over 2020', 'invoices under 1999', 'who owes me above 2005 rand']) expect(parsePeriod(q), q).toBeNull();
+    expect(parsePeriod('profit in 2025')).toEqual({ kind: 'unsupported', said: '2025' });
+    expect(parsePeriod('profit 2025')).toEqual({ kind: 'unsupported', said: '2025' });
+    expect(parsePeriod('profit for fy 2025')).toEqual({ kind: 'unsupported', said: '2025' });
+  });
   it('names a window it cannot honour instead of dropping it', () => {
     expect(parsePeriod('profit for 2025')).toEqual({ kind: 'unsupported', said: '2025' });
     expect(parsePeriod('profit last quarter')).toEqual({ kind: 'unsupported', said: 'quarter' });
@@ -53,6 +81,16 @@ describe('parsePeriod', () => {
     expect(parsePeriod('what may i owe')).toBeNull();
     expect(parsePeriod('vat for may')).toEqual({ kind: 'month', month: 5, year: null });
     expect(parsePeriod('vat may 2026')).toEqual({ kind: 'month', month: 5, year: 2026 });
+  });
+});
+
+describe('qualifiers', () => {
+  it('gross and operating profit and cost of sales are carried as qualifiers', () => {
+    const q = (t: string) => { const p = parseQuestion(t); return p.kind === 'intent' ? [p.intent.id, p.intent.qualifier] : p.kind; };
+    expect(q('what is my gross profit')).toEqual(['profit', 'gross']);
+    expect(q('operating profit last month')).toEqual(['profit', 'operating']);
+    expect(q('cost of sales this year')).toEqual(['expenses', 'cost_of_sales']);
+    expect(q('what is my profit')).toEqual(['profit', undefined]);
   });
 });
 

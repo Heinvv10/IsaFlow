@@ -1,13 +1,16 @@
 /**
  * Opens a return page on the period a link names: `?from=YYYY-MM-DD&to=YYYY-MM-DD` ("Ask IsaFlow" links here so the page shows
  * the figure the answer quoted). A link with a missing, unreal or reversed date is ignored whole and the page keeps its own
- * default. `held` tells the page's own settings load not to put its default back over the link's period.
+ * default. It returns the period it applied, so a page whose Generate is a pure read can run it (Generate on these pages only
+ * GETs; saving a draft and filing are separate buttons). `held` tells the page's own settings load not to put its default back over the link's period.
  */
-import { useContext, useEffect, type MutableRefObject } from 'react';
-import { RouterContext } from 'next/dist/shared/lib/router-context.shared-runtime';
+import { useEffect, useState, type MutableRefObject } from 'react';
+import { useRouter } from 'next/compat/router';
 import { localDateFromISO } from '@/lib/dateUtils';
 
-export function readDeepLinkPeriod(query: Record<string, string | string[] | undefined>): { from: string; to: string } | null {
+export interface DeepLinkPeriod { from: string; to: string }
+
+export function readDeepLinkPeriod(query: Record<string, string | string[] | undefined>): DeepLinkPeriod | null {
   const { from, to } = query;
   if (typeof from !== 'string' || typeof to !== 'string') return null;
   if (localDateFromISO(from) === null || localDateFromISO(to) === null || from > to) return null;
@@ -16,9 +19,10 @@ export function readDeepLinkPeriod(query: Record<string, string | string[] | und
 
 export function useReturnDeepLink(
   setFrom: (v: string) => void, setTo: (v: string) => void, held?: MutableRefObject<boolean>,
-): void {
-  // The context, not useRouter(): it is null (no link) where no router is mounted, instead of throwing.
-  const router = useContext(RouterContext);
+): DeepLinkPeriod | null {
+  const [applied, setApplied] = useState<DeepLinkPeriod | null>(null);
+  // next/compat/router: null where no router is mounted (tests, error boundaries), instead of throwing.
+  const router = useRouter();
   const ready = router?.isReady ?? false;
   const query = router?.query;
   useEffect(() => {
@@ -28,7 +32,9 @@ export function useReturnDeepLink(
     if (held) held.current = true;
     setFrom(link.from);
     setTo(link.to);
+    setApplied(link);
     // The link's period is applied once per link, not on every state change in the page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, query?.from, query?.to]);
+  return applied;
 }

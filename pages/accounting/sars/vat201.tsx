@@ -2,7 +2,7 @@
  * VAT201 Form Page — thin shell
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, Save, Send } from 'lucide-react';
 import { ListSkeleton } from '@/components/ui/ListSkeleton';
@@ -43,7 +43,7 @@ export default function VAT201Page() {
   const [error, setError] = useState('');
   const held = useRef(false);
   const { alignment, vatPeriod, quickPeriods, settingsReady, from, setFrom, to, setTo } = useVat201Settings(setError, held);
-  useReturnDeepLink(setFrom, setTo, held);
+  const link = useReturnDeepLink(setFrom, setTo, held);
   const [data, setData] = useState<VAT201Data | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -71,6 +71,12 @@ export default function VAT201Page() {
     } catch (err) { setData(null); setError(apiErrorMessage(err, 'Could not generate VAT201 - try again')); }
     finally { setLoading(false); }
   }, [from, to]);
+
+  // A link from Ask IsaFlow lands on the figure it quoted: Generate is a read, so it runs once the link's period and the VAT settings are in.
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (link && !autoRan.current && settingsReady && from === link.from && to === link.to) { autoRan.current = true; void generate(); }
+  }, [link, settingsReady, from, to, generate]);
 
   const saveDraft = async () => {
     if (!data) return;

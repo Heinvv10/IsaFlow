@@ -78,14 +78,27 @@ test('click a payroll figure, Ctrl+K, Explain this figure opens its explanation'
   const body = (await res.json()) as { data: unknown };
   const list = (Array.isArray(body.data) ? body.data : ((body.data as { runs?: unknown[] }).runs ?? [])) as Array<{ id: string; status: string }>;
   const run = list.find((r) => r.status === 'approved' || r.status === 'paid');
-  test.skip(!run, 'this company has no approved pay run');
+  expect(run, 'z21 needs an approved or paid pay run in the golden company (the CI slot seeds one); none found, so the Explain step cannot run').toBeTruthy();
   await page.goto(`/payroll/runs/${run!.id}`, { waitUntil: 'domcontentloaded' });
   const cell = page.locator('td[data-explain-scope]').first();
   await expect(cell).toBeVisible({ timeout: 60_000 });
+  // Another control has focus first (the common case): the click on the figure's text then blurs it to nothing, and that must not lose the figure.
+  await page.getByRole('button').first().focus();
   await cell.click({ position: { x: 4, y: 4 } }); // the figure's own cell, not its button: a click focuses nothing
   await page.keyboard.press('Control+k');
   await page.getByRole('option', { name: /Explain this figure/ }).click();
   await expect(page.getByRole('dialog').filter({ hasText: /was calculated/ })).toBeVisible({ timeout: 30_000 });
+});
+
+test('a full question typed into Ctrl+K gets an Ask IsaFlow row, and Enter answers it', async ({ page }) => {
+  await page.setViewportSize({ width: 1568, height: 1000 });
+  await page.goto('/accounting', { waitUntil: 'domcontentloaded' });
+  await settle(page);
+  await page.keyboard.press('Control+k');
+  await page.getByRole('combobox').fill('who owes me money');
+  await expect(page.getByRole('option').first()).toContainText('Ask IsaFlow: who owes me money');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('ask-text')).toContainText('Customers owe you', { timeout: 60_000 });
 });
 
 test('an unknown question says so and suggests questions that work; axe clean', async ({ page }) => {

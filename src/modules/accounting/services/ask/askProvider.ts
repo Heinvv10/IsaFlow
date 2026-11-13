@@ -3,9 +3,11 @@
  * ASK_ISAFLOW_PROVIDER enables anything. There is no model client, no key and no outbound call here; a provider
  * is a later, separately approved PR that adds an entry to PROVIDERS (spend is Hein's gate).
  */
+import type { AskAnswer } from './askTypes';
+
 export interface FreeTextProvider {
-  /** Answers a question already scoped to `companyId`. Must itself be read-only. */
-  answer(companyId: string, question: string): Promise<string>;
+  /** Answers a question already scoped to `companyId`, in the shape the route's registered type promises. Must itself be read-only. */
+  answer(companyId: string, question: string): Promise<AskAnswer>;
 }
 
 const PROVIDERS: Readonly<Record<string, FreeTextProvider>> = {};

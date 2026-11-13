@@ -32,7 +32,9 @@ export async function aging(side: 'ar' | 'ap', intent: AskIntent, companyId: str
 export async function bank(intent: AskIntent, companyId: string, today: string): Promise<AskAnswer> {
   const href = intent.id === 'bank_to_allocate' ? '/accounting/bank-transactions' : '/accounting/bank-accounts';
   const label = intent.id === 'bank_to_allocate' ? 'Open bank transactions' : 'Open bank accounts';
-  if (intent.period) return periodRefusal('bank figures', describePeriod(intent.period), 'Bank figures are as at today only.', href, label);
+  const p = intent.period;
+  const current = !p || p.kind === 'this_month' || (p.kind === 'unsupported' && p.said === 'today');
+  if (!current) return periodRefusal('bank figures', describePeriod(p), 'Bank figures are as at today only.', href, label);
   const accounts = await getBankAccountsStatus(companyId, { includeInactive: true });
   const active = accounts.filter((a) => a.isActive !== false);
   const inactive = accounts.filter((a) => a.isActive === false);
@@ -66,6 +68,10 @@ export async function income(intent: AskIntent, companyId: string, today: string
   const r = await getIncomeStatement(companyId, w.from, w.to);
   const href = `/accounting/reports/income-statement?period_start=${w.from}&period_end=${w.to}`;
   const cos = r2(r.totalCostOfSales), opex = r2(r.totalOperatingExpenses), other = r2(r.totalOtherExpenses);
+  if (intent.qualifier === 'gross') return reply(`Gross profit for ${w.label} is ${rand(r.grossProfit)}: revenue less cost of sales.`, r2(r.grossProfit),
+    [{ label: 'Revenue', value: r2(r.totalRevenue) }, { label: 'Cost of sales', value: cos }], href, link);
+  if (intent.qualifier === 'operating') return reply(`Operating profit for ${w.label} is ${rand(r.operatingProfit)}: before finance cost and tax.`, r2(r.operatingProfit), [], href, link);
+  if (intent.qualifier === 'cost_of_sales') return reply(`Cost of sales for ${w.label} is ${rand(cos)}.`, cos, [], href, link);
   if (intent.id === 'revenue') return reply(`Revenue for ${w.label} is ${rand(r.totalRevenue)}.`, r2(r.totalRevenue), [], href, link);
   if (intent.id === 'expenses') {
     const total = r2(cos + opex + other);
