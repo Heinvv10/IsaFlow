@@ -140,7 +140,8 @@ export async function createSupplierInvoice(
           total_amount, payment_terms, reference, project_id,
           cost_center_id, notes, created_by,
           currency_code, exchange_rate, functional_total,
-          duplicate_fingerprint, actor_type, actor_token_jti
+          duplicate_fingerprint, actor_type, actor_token_jti,
+          external_system, external_ref, external_document_number
         ) VALUES (
           ${companyId}::UUID, ${input.invoiceNumber}, ${input.supplierId},
           ${input.purchaseOrderId || null}, ${input.grnId || null},
@@ -151,7 +152,8 @@ export async function createSupplierInvoice(
           ${input.notes || null}, ${userId}::UUID,
           ${currencyCode}, ${exchangeRate}, public.fx_functional(${totalAmount}::NUMERIC(15,2), ${exchangeRate}::NUMERIC(18,6)),
           ${fingerprint},
-          ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}
+          ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null},
+          ${input.externalRef?.system ?? null}, ${input.externalRef?.ref ?? null}, ${input.externalRef?.documentNumber ?? null}
         ) RETURNING *
       `) as Row[];
 

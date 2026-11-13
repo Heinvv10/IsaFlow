@@ -9,6 +9,7 @@
  */
 import { sql } from '@/lib/neon';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+import { containsLikePattern } from '@/lib/sqlLikeLiteral';
 import type { GeneralLedgerQuery } from './generalLedgerStreamTypes';
 
 export function matchedLinesFromWhere(query: Omit<GeneralLedgerQuery, 'limit' | 'after'>) {
@@ -24,7 +25,7 @@ export function matchedLinesFromWhere(query: Omit<GeneralLedgerQuery, 'limit' | 
   // A null threshold disables the clause; 0 would admit every line and read as
   // "no filter" while still suppressing the running balance.
   const minAmt = minAmount ?? null;
-  const term = search === undefined || search === '' ? null : `%${search}%`;
+  const term = containsLikePattern(search); // a LITERAL substring: %, _ and \ escaped; the ILIKEs below say ESCAPE '\'
   return sql`
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
@@ -42,7 +43,7 @@ export function matchedLinesFromWhere(query: Omit<GeneralLedgerQuery, 'limit' | 
           AND (${minAmt}::NUMERIC IS NULL
                OR GREATEST(jl.debit, jl.credit) >= ${minAmt}::NUMERIC)
           AND (${term}::TEXT IS NULL
-               OR je.entry_number ILIKE ${term}::TEXT
-               OR COALESCE(je.description, '') ILIKE ${term}::TEXT)
+               OR je.entry_number ILIKE ${term}::TEXT ESCAPE '\\'
+               OR COALESCE(je.description, '') ILIKE ${term}::TEXT ESCAPE '\\')
       `;
 }
