@@ -58,6 +58,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // ── Reads the UI does not meter ──────────────────────────────────────────
   company_profile: null,
   list_companies: null,
+  token_info: null,
   find_by_external_ref: null,
   search_gl: null,
   list_gl_accounts: null,
