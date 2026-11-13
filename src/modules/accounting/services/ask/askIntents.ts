@@ -93,3 +93,13 @@ export function parseQuestion(question: string): ParsedQuestion {
   if (chosen.length > 1) return { kind: 'ambiguous', ids: chosen };
   return { kind: 'intent', intent: { id: chosen[0]!, period: parsePeriod(q) } };
 }
+
+/**
+ * The Flow operation an answer is charged as, matching the report its figure comes from (Hein, wave 5): the income statement
+ * figures charge `report.pnl`, the balance sheet figures `report.bs`; everything else is free, as its page is.
+ */
+export function meteredOperation(id: AskIntentId): 'report.pnl' | 'report.bs' | null {
+  if (id === 'profit' || id === 'revenue' || id === 'expenses') return 'report.pnl';
+  if (id === 'assets' || id === 'liabilities') return 'report.bs';
+  return null;
+}

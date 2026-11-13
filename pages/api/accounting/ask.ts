@@ -7,8 +7,11 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { markFlowNoOp, withFlowMeter } from '@/lib/billing/withFlowMeter';
+import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { todayInSast } from '@/lib/saDateParser';
 import { resolveProvider } from '@/modules/accounting/services/ask/askProvider';
+import { meteredOperation, parseQuestion } from '@/modules/accounting/services/ask/askIntents';
 import { answerQuestion } from '@/modules/accounting/services/ask/askAnswer';
 
 const MAX_QUESTION = 300;
@@ -25,7 +28,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!provider) return apiResponse.badRequest(res, 'Free-text questions are not enabled');
     return apiResponse.success(res, await provider.answer(companyId, q));
   }
-  return apiResponse.success(res, await answerQuestion(companyId, q, todayInSast()));
+  const answer = await answerQuestion(companyId, q, todayInSast());
+  // A metered intent is charged up front; one that returned no figure (a refused period, a missing run) did no billable work.
+  if (answer.figure === null) markFlowNoOp(req);
+  return apiResponse.success(res, answer);
 }
 
-export default withAuth(withErrorHandler(handler as any));
+const pnl = withFlowMeter('report.pnl', getFlowCost('report.pnl'))(handler);
+const bs = withFlowMeter('report.bs', getFlowCost('report.bs'))(handler);
+
+/**
+ * Charges like the report the figure comes from, and only for a question that is understood and unambiguous: an
+ * unrecognised or ambiguous one, a bad request and free-text mode never reach a meter.
+ */
+async function route(req: NextApiRequest, res: NextApiResponse) {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  const parsed = req.method === 'GET' && q && q.length <= MAX_QUESTION && req.query.mode !== 'free' ? parseQuestion(q) : null;
+  const op = parsed?.kind === 'intent' ? meteredOperation(parsed.intent.id) : null;
+  return (op === 'report.pnl' ? pnl : op === 'report.bs' ? bs : handler)(req, res);
+}
+
+export default withAuth(withErrorHandler(route as any));
