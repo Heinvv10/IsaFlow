@@ -62,15 +62,21 @@ async function expectAxeClean(page: Page): Promise<void> {
  * goldens is a backlog item, not a fix made here.
  */
 async function gotoScreen(page: Page, path: string): Promise<void> {
+  const isProfile = /^\/payroll\/employees\/[0-9a-f-]{36}$/.test(path);
+  const listed = profileListCompany.get(page);
+  if (isProfile && listed === undefined) throw new Error(`gotoScreen(${path}): no company recorded for the employee list, call profilePath(page) first`);
+  // Before every look at the page, not once after the loop: a company switched between attempts must fail as that, not as a not-found.
+  const sameCompany = async (): Promise<void> => {
+    if (!isProfile) return;
+    expect(await activeCompany(page), `the employee list was read under company ${listed}; the session's company changed before the profile loaded (another session switched it)`).toBe(listed);
+  };
   await page.goto(path);
-  for (let attempt = 1; attempt <= 2 && (await page.getByText(/with identifier .* not found/i).count()) > 0; attempt++) {
+  for (let attempt = 1; ; attempt++) {
+    await sameCompany();
+    if (attempt > 2 || (await page.getByText(/with identifier .* not found/i).count()) === 0) return;
     test.info().annotations.push({ type: 'reload-not-found', description: `${path} attempt ${attempt}` });
     await page.waitForTimeout(3_000);
     await page.reload();
-  }
-  const listed = profileListCompany.get(page);
-  if (listed && /^\/payroll\/employees\/[0-9a-f-]{36}$/.test(path)) {
-    expect(await activeCompany(page), `the employee list was read under company ${listed}; the session's company changed before the profile loaded (another session switched it)`).toBe(listed);
   }
 }
 
