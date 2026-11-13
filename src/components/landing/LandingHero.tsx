@@ -15,8 +15,15 @@ const TRUST_POINTS = [
   'Statement import: CSV, OFX, QFX, QIF, MT940 and PDF',
 ] as const;
 
-/** Seconds before the intro ends at which the loop starts buffering in full. */
+/** Slow the hero so the baked-in figures can be read, without re-encoding the mp4 files. */
+export const HERO_PLAYBACK_RATE = 0.65;
+
+/** Wall-clock seconds before the intro ends at which the loop starts buffering in full. */
 const LOOP_WARM_SECONDS = 3;
+
+function applyHeroPlaybackRate(video: HTMLVideoElement) {
+  video.playbackRate = HERO_PLAYBACK_RATE;
+}
 
 /**
  * River hero. Dark in both themes (fixed colours, data-surface="dark"). The still image is in the
@@ -37,6 +44,8 @@ export function LandingHero() {
     if (!showVideo || !v) return;
     // React's `muted` prop can reach the element after autoplay is evaluated; set it directly.
     v.muted = true;
+    applyHeroPlaybackRate(v);
+    if (loopRef.current) applyHeroPlaybackRate(loopRef.current);
     void v.play().catch(() => setFailed(true));
   }, [showVideo]);
 
@@ -50,13 +59,15 @@ export function LandingHero() {
 
   const onIntroTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     const v = e.currentTarget;
-    if (!loopWarm && v.duration - v.currentTime <= LOOP_WARM_SECONDS) setLoopWarm(true);
+    // currentTime is media time; scale the wall-clock lead by the playback rate.
+    if (!loopWarm && v.duration - v.currentTime <= LOOP_WARM_SECONDS * HERO_PLAYBACK_RATE) setLoopWarm(true);
   };
 
   const onIntroEnded = () => {
     const l = loopRef.current;
     if (!l) return;
     l.muted = true;
+    applyHeroPlaybackRate(l);
     // A refused loop leaves the intro's last frame on screen, which is the right fallback.
     void l.play().catch(() => setLoopWarm(true));
   };
@@ -95,6 +106,7 @@ export function LandingHero() {
             src={HERO_MEDIA.loop}
             width={1920}
             height={1080}
+            onLoadedMetadata={(e) => applyHeroPlaybackRate(e.currentTarget)}
             onPlaying={() => setPhase('loop')}
             className="absolute inset-0 -z-20 h-full w-full object-cover"
           />
@@ -109,6 +121,7 @@ export function LandingHero() {
             src={HERO_MEDIA.intro}
             width={1920}
             height={1080}
+            onLoadedMetadata={(e) => applyHeroPlaybackRate(e.currentTarget)}
             onTimeUpdate={onIntroTimeUpdate}
             onEnded={onIntroEnded}
             onError={() => setFailed(true)}

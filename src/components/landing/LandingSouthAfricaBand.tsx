@@ -45,7 +45,8 @@ function PosterStrip() {
 /**
  * "Built in South Africa" band, placed before pricing. Dark in both themes. On a wide screen with
  * motion allowed the three landmark clips play in order once each time the band comes into view;
- * nothing downloads before the band is near. Everyone else gets the poster strip.
+ * nothing downloads before the band is near. Everyone else, and the server HTML, get the poster
+ * strip. The film stage keeps a poster visible until a clip actually plays, so the frame is never empty.
  */
 export function LandingSouthAfricaBand() {
   const stageRef = useRef<HTMLDivElement>(null);
@@ -54,15 +55,19 @@ export function LandingSouthAfricaBand() {
   const started = useRef(false);
   const finished = useRef(false);
   const [visible, setVisible] = useState(0);
+  const [hasFrame, setHasFrame] = useState(false);
   const [filmFailed, setFilmFailed] = useState(false);
 
   const videoAllowed = useRiverVideoAllowed();
-  const showFilm = videoAllowed && !filmFailed;
-  const near = useInView(stageRef, { rootMargin: '600px 0px', threshold: 0, once: true }, showFilm);
-  const inView = useInView(stageRef, { rootMargin: '0px', threshold: 0.5 }, showFilm);
+  const filmAllowed = videoAllowed && !filmFailed;
+  // Observe the poster strip (and later the film stage) so we only swap markup once a poster or
+  // src can be shown. Server HTML and the first client render stay on the poster strip.
+  const near = useInView(stageRef, { rootMargin: '600px 0px', threshold: 0, once: true }, filmAllowed);
+  const inView = useInView(stageRef, { rootMargin: '0px', threshold: 0.5 }, filmAllowed);
+  const showFilm = filmAllowed && near;
 
   useEffect(() => {
-    if (!showFilm || !near) return;
+    if (!showFilm) return;
     const clips = videoRefs.current;
     const playClip = (i: number) => {
       const v = clips[i];
@@ -76,6 +81,7 @@ export function LandingSouthAfricaBand() {
       finished.current = false;
       current.current = 0;
       setVisible(0); // otherwise Pretoria's first frame shows until Cape Town fires `playing`
+      setHasFrame(false); // keep the Cape Town poster up until a frame actually paints
       playClip(0);
     } else if (inView) {
       playClip(current.current);
@@ -137,6 +143,14 @@ export function LandingSouthAfricaBand() {
             {showFilm ? (
               <figure>
                 <div className="relative aspect-video overflow-hidden rounded-2xl bg-river-deep ring-1 ring-white/10">
+                  <img
+                    src={LANDMARK_CLIPS[visible].poster}
+                    alt={LANDMARK_CLIPS[visible].alt}
+                    width={1280}
+                    height={720}
+                    decoding="async"
+                    className={`absolute inset-0 h-full w-full object-cover ${hasFrame ? 'invisible' : ''}`}
+                  />
                   {LANDMARK_CLIPS.map((clip, i) => (
                     <video
                       key={clip.place}
@@ -144,15 +158,18 @@ export function LandingSouthAfricaBand() {
                       muted
                       playsInline
                       preload="none"
-                      poster={near ? clip.poster : undefined}
-                      src={near ? clip.src : undefined}
+                      poster={clip.poster}
+                      src={clip.src}
                       width={1920}
                       height={1080}
                       aria-label={clip.alt}
-                      onPlaying={() => setVisible(i)}
+                      onPlaying={() => {
+                        setVisible(i);
+                        setHasFrame(true);
+                      }}
                       onEnded={() => onClipEnded(i)}
                       onError={() => setFilmFailed(true)}
-                      className={`absolute inset-0 h-full w-full object-cover ${i === visible ? '' : 'invisible'}`}
+                      className={`absolute inset-0 h-full w-full object-cover ${i === visible && hasFrame ? '' : 'invisible'}`}
                     />
                   ))}
                 </div>
