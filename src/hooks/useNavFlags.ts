@@ -54,7 +54,6 @@ export function resetNavFlagsCache(): void {
 function useActiveCompanyIdOrNull(): string | null {
   try {
     // useCompany calls useContext first on every render and only then throws, so the hook order never changes.
-    // eslint-disable-next-line react-hooks/rules-of-hooks
     return useCompany().activeCompany?.id ?? null;
   } catch (err) {
     if (!(err instanceof Error && err.message.includes('within a CompanyProvider'))) throw err;
