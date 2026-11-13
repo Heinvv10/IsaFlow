@@ -30,6 +30,8 @@ import { applyCreditNote, deriveCreditNoteStatus, type CreditNoteSide } from './
 import { assertAllocationsMatchApplied, lockInvoicesForUpdate } from './creditNoteApplicationWrites';
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
 import { assertStoredDocumentSettleable } from './documentCurrency';
+import { readCreditNoteDocument } from './creditNoteDocumentRead';
+import { assertApplicationWithinPostedCredit, readNotePostedCredit } from './creditNotePostedCredit';
 
 /** A refusal whose message is safe to show the caller: it names no schema. */
 export class CreditNoteApplyRefusal extends Error {
@@ -121,6 +123,8 @@ export async function applyCreditNoteToDocument(
 
   const appliedAfter = round2(plan.noteAppliedBefore + applied);
   const statusAfter = deriveCreditNoteStatus(appliedAfter, plan.noteTotal, plan.side);
+  // The invariant, before the note records it: thrown, never a refusal — the allocation is already written.
+  await assertApplicationWithinPostedCredit(companyId, checked.note, plan.side, appliedAfter);
   await sql`
     UPDATE credit_notes
     SET applied_amount = ${appliedAfter}, status = ${statusAfter}, updated_at = NOW()
@@ -203,7 +207,7 @@ async function buildPlan(
 ): Promise<CreditNoteToDocumentResult> {
   const { note, number, side, total, appliedBefore, remainder } = checkNote(noteRow, input);
 
-  const doc = await readDocument(companyId, side, input.invoiceId);
+  const doc = await readCreditNoteDocument(companyId, side, input.invoiceId);
   // One reply for "absent" and "another tenant's": the read is company-scoped,
   // and a distinct message would be an existence oracle.
   if (!doc) throw new CreditNoteApplyRefusal('Invoice not found.');
@@ -243,15 +247,26 @@ async function buildPlan(
 
   // Read-only: the column and the rows must agree before this extends them; and
   // (FX PR0) neither a foreign note nor a foreign document can be settled.
+  // And (brief fix, CN-388) only what the note's journal POSTED may be applied:
+  // no live journal, or a control leg short of the total, is credit the ledger never carried.
+  let posted: number;
   try {
     await assertAllocationsMatchApplied(companyId, input.creditNoteId, appliedBefore);
     await assertStoredDocumentSettleable(companyId, 'credit_note', input.creditNoteId);
     await assertStoredDocumentSettleable(companyId, side === 'customer' ? 'customer_invoice' : 'supplier_invoice', input.invoiceId);
+    posted = (await readNotePostedCredit(companyId, note, side)).posted;
   } catch (err) {
     throw new CreditNoteApplyRefusal(err instanceof Error ? err.message : String(err));
   }
+  const postedLeft = round2(posted - appliedBefore);
+  if (postedLeft <= invoiceFloor(side)) {
+    throw new CreditNoteApplyRefusal(
+      `Credit note ${number}'s journal put R${posted.toFixed(2)} on the control account and R${appliedBefore.toFixed(2)} `
+      + `is already applied; R${round2(total - posted).toFixed(2)} of its R${total.toFixed(2)} total was never posted, so it cannot be applied.`,
+    );
+  }
 
-  const amount = round2(Math.min(input.amount ?? remainder, remainder, outstanding));
+  const amount = round2(Math.min(input.amount ?? remainder, remainder, outstanding, postedLeft));
   // The engine writes only lines ABOVE a cent. A plan below that would promise
   // what the live call then cannot do.
   if (amount <= invoiceFloor(side)) {
@@ -273,23 +288,4 @@ async function buildPlan(
     invoiceOutstandingBefore: outstanding,
     invoiceOutstandingAfter: round2(outstanding - amount),
   };
-}
-
-async function readDocument(
-  companyId: string,
-  side: CreditNoteSide,
-  invoiceId: string,
-): Promise<DbRow | null> {
-  const rows = (side === 'customer'
-    ? await sql`
-        SELECT invoice_number, status, COALESCE(client_id, customer_id) AS owner_id,
-               (total_amount - COALESCE(amount_paid, 0)) AS outstanding
-        FROM customer_invoices
-        WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL`
-    : await sql`
-        SELECT invoice_number, status, supplier_id AS owner_id,
-               (total_amount - COALESCE(amount_paid, 0)) AS outstanding
-        FROM supplier_invoices
-        WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL`) as DbRow[];
-  return rows[0] ?? null;
 }
