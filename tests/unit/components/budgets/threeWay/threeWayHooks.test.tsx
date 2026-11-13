@@ -122,7 +122,7 @@ describe('useAssumptionsForm', () => {
     act(() => result.current.update((d) => ({ ...d, minimumCash: { value: 1, source: 'manual' } })));
     await act(async () => { await expect(result.current.save()).resolves.toBeUndefined(); });
     expect(result.current.saving).toBe(false);
-    expect(result.current.saveError).toEqual({ message: 'The assumptions were not saved: boom', issues: [] });
+    expect(result.current.saveError).toEqual({ message: 'The assumptions were not saved. Check your connection and try again.', issues: [] });
   });
 
   it('a derive in flight when the version changes never replaces the new form (L6)', async () => {
