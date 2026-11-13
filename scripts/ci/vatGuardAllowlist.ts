@@ -184,6 +184,13 @@ export const ALLOWED: Record<string, AllowedEntry> = {
     kinds: ['rate_constant'],
     reason: 'Derives VAT201 box totals from posted journals. Chooses no claim.',
   },
+  'src/modules/accounting/services/bank/bankReallocationService.ts': {
+    kinds: ['allocate_call'],
+    reason: 'No claim decided: it forwards to allocateTransaction the VAT code its one caller, the MCP '
+    + 'reallocate_bank_transaction tool (src/lib/mcp/tools/writeBankReallocate.ts), already resolved through '
+    + 'allocationVatGuard.resolveLineVatCode — the same funnel and the same tool-side split as '
+    + 'allocate_bank_transaction (allocationLine.ts), reported back as vat_coerced.',
+  },
   'src/modules/accounting/services/ap/supplierBankPaymentService.ts': {
     kinds: ['allocate_call'],
     reason: 'allocType supplier — VAT routes to the AP control account, never a '

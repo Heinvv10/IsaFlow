@@ -82,7 +82,7 @@ describe('MCP write-tool role fence (S-01)', () => {
     'aged_creditors', 'aged_debtors', 'asset_register', 'audit_snapshots',
     'audit_trail', 'balance_sheet', 'bank_accounts_status', 'bank_statement_coverage',
     'budget_variance', 'chart_of_accounts_health', 'company_profile', 'compare_audit_snapshot',
-    'customer_statement', 'data_integrity_checks', 'due_by_date', 'emp201_status', 'entity_history',
+    'customer_statement', 'data_integrity_checks', 'document_vat_history', 'due_by_date', 'emp201_status', 'entity_history',
     'export_gl_lines', 'general_ledger', 'get_bank_rule', 'get_credit_note',
     'get_document', 'get_employee', 'get_fiscal_period', 'get_invoice',
     'get_match_candidates', 'get_opening_balances', 'get_supplier_invoice', 'irp5_data',
@@ -96,7 +96,7 @@ describe('MCP write-tool role fence (S-01)', () => {
     'list_time_entries', 'list_unapplied_payments', 'list_unapplied_receipts', 'list_unsupported_transactions',
     'list_work_items', 'period_close_checklist', 'profit_and_loss', 'project_profitability',
     'propose_reclassification', 'reconcile_fixed_assets', 'reconcile_subledger', 'search_gl',
-    'stock_valuation', 'suggest_receipt_matches', 'supplier_statement', 'trial_balance',
+    'stock_valuation', 'suggest_receipt_matches', 'supplier_statement', 'token_info', 'trial_balance',
     'vat201_export', 'vat_exceptions', 'vat_reconciliation', 'vat_status',
     'wip_report',
     ]);

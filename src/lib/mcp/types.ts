@@ -19,6 +19,12 @@ export interface McpToolContext {
    * check. Absent or null is a role that cannot write: a tool that needs one fails closed.
    */
   companyRole?: string | null;
+  /** How the token authenticated; null outside the bearer transport (tests, in-process callers). */
+  authMethod?: 'pat' | 'oauth' | null;
+  /** ISO expiry of the credential presented on THIS call (PAT, or the OAuth access token). */
+  tokenExpiresAt?: string | null;
+  /** OAuth only: ISO expiry of the refresh token — when the connector must be re-authorised. */
+  refreshExpiresAt?: string | null;
 }
 
 export interface McpToolResult {
