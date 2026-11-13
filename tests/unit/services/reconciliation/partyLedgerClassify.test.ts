@@ -41,6 +41,8 @@ describe('buildDocument', () => {
     ['reversal in force', input({}, { controlNet: 0, reversalsInForce: 1 }), 'reversed_journal_live_document'],
     ['legacy reversed status', input({}, { status: 'reversed', controlNet: 0, controlLines: 0 }), 'reversed_journal_live_document'],
     ['cancelled with live journal', input({ statementEffect: 0, onStatement: false, excludedReason: 'invoice_cancelled' }), 'excluded_document_has_live_journal'],
+    ['cancelled payment, journal never reversed', input({ kind: 'payment', status: 'cancelled', statementEffect: 0, onStatement: false, excludedReason: 'payment_not_confirmed', total: 100, checkTrail: false }, { controlNet: -100 }), 'cancelled_payment_journal_stands'],
+    ['cancelled bill with live journal is still the general class', input({ kind: 'invoice', status: 'cancelled', statementEffect: 0, onStatement: false, excludedReason: 'invoice_cancelled' }), 'excluded_document_has_live_journal'],
     ['partial amount', input({}, { controlNet: 60 }), 'journal_amount_differs'],
   ])('%s -> %s', (_name, i, expected) => {
     expect(cls(i)).toEqual([expected]);

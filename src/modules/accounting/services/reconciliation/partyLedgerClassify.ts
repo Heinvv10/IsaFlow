@@ -100,6 +100,12 @@ function statementVsGl(input: DocumentInput, diff: number): PartyFlag {
   if (j.entryDate !== null && j.entryDate > input.asAt) {
     return flag('journal_dated_after_as_at', `The journal is dated ${j.entryDate}, after the reporting date, while the document is dated on or before it.`);
   }
+  if (!input.onStatement && j.controlNet !== 0 && input.kind === 'payment' && input.status === 'cancelled') {
+    return flag(
+      'cancelled_payment_journal_stands',
+      'The payment is cancelled but its journal was never reversed, so its cash is still on the control account. The statement leaves it off, as it always has.',
+    );
+  }
   if (!input.onStatement && j.controlNet !== 0) {
     return flag(
       'excluded_document_has_live_journal',

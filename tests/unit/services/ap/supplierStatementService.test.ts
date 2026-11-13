@@ -230,8 +230,21 @@ describe('supplier statement — a payment cancelled AFTER the as-at date stood 
     await fetchSupplierStatementData(COMPANY, SUPPLIER, '2026-03-31');
     const q = sqlCalls.find((c) => c.sql.includes('FROM supplier_payments'))!;
     expect(q.sql).toContain("sp.status = 'cancelled'");
-    expect(q.sql).toContain('reversal_of_id');
+    // Live only when a posted REVERSAL of the journal is dated AFTER the as-at date: a cancelled
+    // payment whose journal was never reversed (a data defect) stays off, as it always did.
+    expect(q.sql).toMatch(/rev\.reversal_of_id = pje\.id/);
+    expect(q.sql).toMatch(/rev\.entry_date > /);
     expect(q.values).toContain('2026-03-31');
     expect(q.values).toContain(COMPANY);
+  });
+
+  it('for today (or later) the column is constant FALSE: today\'s statement cannot change', async () => {
+    routeMock();
+    const today = new Date();
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    await fetchSupplierStatementData(COMPANY, SUPPLIER, iso);
+    const q = sqlCalls.find((c) => c.sql.includes('FROM supplier_payments'))!;
+    expect(q.sql).not.toMatch(/rev\.reversal_of_id/);
+    expect(q.sql).toMatch(/FALSE AS live_at_as_at/);
   });
 });

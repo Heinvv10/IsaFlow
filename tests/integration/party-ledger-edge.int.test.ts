@@ -10,11 +10,13 @@ import { assertDisposableDb } from '../helpers/assertDisposableDb';
 import { partyLedgerCheck } from '@/modules/accounting/services/reconciliation/partyLedgerCheckService';
 import { assertPartySize, PartyTooLargeError } from '@/modules/accounting/services/reconciliation/partyLedgerSize';
 import { fetchStatementData } from '@/modules/accounting/services/ar/statementEmailService';
+import { fetchSupplierStatementData } from '@/modules/accounting/services/ap/supplierStatementService';
+import { fmtDate } from '@/lib/fmtDate';
 import { partyLedgerCheckTool } from '@/lib/mcp/tools/partyLedgerCheck';
 import type { McpToolContext } from '@/lib/mcp/types';
 import {
   AS_AT, COMPANY, DOC_DATE, PAY_DATE, TAG, USER, account, bill, cleanup, creditNote, invoice, journal, receipt,
-  writeOff,
+  supplierPayment, writeOff,
 } from '../helpers/partyLedgerFixture';
 
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
@@ -38,6 +40,8 @@ let pager = '';
 let fxSupplier = '';
 let cancelledCustomer = '';
 let creditSupplier = '';
+let voidSupplier = '';
+let voidCustomer = '';
 
 describeIfDb('party_ledger_check edges', () => {
   beforeAll(async () => {
@@ -88,6 +92,24 @@ describeIfDb('party_ledger_check edges', () => {
     await sql`INSERT INTO credit_note_allocations (company_id, credit_note_id, invoice_id, amount_allocated)
               VALUES (${COMPANY}::UUID, ${cn}::UUID, ${future}::UUID, 100)`;
     await sql`UPDATE credit_notes SET status = 'applied', applied_amount = 100 WHERE id = ${cn}::UUID`;
+
+    // (5) Cancelled payments in three states, for one supplier: PX never reversed (a data defect),
+    // PY reversed BEFORE as_at, PZ reversed AFTER it. And a receipt cancelled with its journal never reversed.
+    voidSupplier = await party('suppliers', 'void ');
+    await bill(voidSupplier, 'VB', 1000, await sjournal('JVB', 1000));
+    const cancelled = async (n: string, amount: number, reversedOn: string | null) => {
+      const j = await journal('JV' + n, PAY_DATE, [[payable, amount, 0], [bank, 0, amount]]);
+      if (reversedOn) await journal('JV' + n + 'R', reversedOn, [[bank, amount, 0], [payable, 0, amount]], 'posted', j);
+      const id = await supplierPayment(voidSupplier, n, amount, j);
+      await sql`UPDATE supplier_payments SET status = 'cancelled' WHERE id = ${id}::UUID`;
+    };
+    await cancelled('PX', 300, null);
+    await cancelled('PY', 200, '2026-05-01');
+    await cancelled('PZ', 400, '2026-07-15');
+    voidCustomer = await party('customers', 'void ');
+    await invoice(voidCustomer, 'VI', 1000, await cjournal('KVI', 1000));
+    const unrev = await receipt(voidCustomer, 'VR', 250, await journal('KVR', PAY_DATE, [[bank, 250, 0], [receivable, 0, 250]]));
+    await sql`UPDATE customer_payments SET status = 'cancelled' WHERE id = ${unrev}::UUID`;
   }, 120000);
 
   afterAll(async () => {
@@ -161,5 +183,35 @@ describeIfDb('party_ledger_check edges', () => {
     await expect(assertPartySize('ar', COMPANY, pager, AS_AT, 10)).rejects.toBeInstanceOf(PartyTooLargeError);
     await expect(assertPartySize('ar', COMPANY, pager, AS_AT, 10)).rejects.toThrow(/has 29 documents/);
     await expect(assertPartySize('ar', COMPANY, pager, AS_AT, 29)).resolves.toBeUndefined();
+  });
+
+  it('statements: only a cancellation reversed AFTER as_at stands at as_at; an unreversed or earlier-reversed one stays off, and TODAY is unchanged', async () => {
+    const today = fmtDate(new Date());
+    const at = (await fetchSupplierStatementData(COMPANY, voidSupplier, AS_AT))!;
+    expect(at.transactions.filter((t) => t.type === 'payment').map((t) => t.reference.replace(TAG, ''))).toEqual(['PZ']);
+    expect(at.summary.balance).toBe(600);
+    expect(at.excluded.map((e) => e.documentNumber?.replace(TAG, '')).sort()).toEqual(['PX', 'PY']);
+    // Today: all three cancelled payments are off, exactly as the statement always had them.
+    const now = (await fetchSupplierStatementData(COMPANY, voidSupplier, today))!;
+    expect(now.transactions.filter((t) => t.type === 'payment')).toEqual([]);
+    expect(now.summary.balance).toBe(1000);
+    expect(now.excluded.map((e) => e.reason)).toEqual(['payment_not_processed', 'payment_not_processed', 'payment_not_processed']);
+    // Customer: a cancelled receipt whose journal was never reversed stays off at both dates.
+    for (const date of [AS_AT, today]) {
+      const c = (await fetchStatementData(COMPANY, voidCustomer, date))!;
+      expect({ date, balance: c.summary.balance, receipts: c.transactions.filter((t) => t.type === 'payment').length })
+        .toEqual({ date, balance: 1000, receipts: 0 });
+    }
+  });
+
+  it('party_ledger_check names a cancelled payment whose journal was never reversed, and only that one', async () => {
+    const c = (await partyLedgerCheck(COMPANY, 'supplier', voidSupplier, AS_AT))!;
+    const byNo = (n: string) => c.documents.find((d) => d.number === TAG + n)!;
+    expect(byNo('PX').flags.map((f) => [f.class, f.amount])).toEqual([['cancelled_payment_journal_stands', 300]]);
+    expect(byNo('PY').flags).toEqual([]); // reversed before as_at: off the statement and off the ledger
+    expect(byNo('PZ').flags).toEqual([]); // reversed after as_at: on the statement and on the ledger
+    expect(c.totals).toMatchObject({ statementBalance: 600, glControlNet: 300, statementMinusGl: 300, unexplainedResidual: 0 });
+    const r = (await partyLedgerCheck(COMPANY, 'customer', voidCustomer, AS_AT))!;
+    expect(r.documents.flatMap((d) => d.flags.map((f) => f.class))).toEqual(['cancelled_payment_journal_stands']);
   });
 });

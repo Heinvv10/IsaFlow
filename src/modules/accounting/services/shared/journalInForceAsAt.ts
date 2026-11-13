@@ -80,7 +80,7 @@ function chainParity(journalIdColumn: JournalIdColumn, companyId: string, asAtSt
 }
 
 /** $1 = company id, $2 = as-at date or NULL (every posted reversal counts). */
-export function chainParitySql(journalIdColumn: JournalIdColumn): string {
+function chainParitySql(journalIdColumn: JournalIdColumn): string {
   return `(WITH RECURSIVE reversals AS (
         SELECT r.id, r.entry_date, ARRAY[r.reversal_of_id, r.id] AS path
         FROM gl_journal_entries r

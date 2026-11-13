@@ -26,6 +26,7 @@ export type MismatchClass =
   | 'journal_dated_after_as_at'
   | 'reversed_journal_live_document'
   | 'excluded_document_has_live_journal'
+  | 'cancelled_payment_journal_stands'
   | 'posted_to_non_control_account'
   | 'journal_amount_differs'
   | 'write_off_not_on_statement'
