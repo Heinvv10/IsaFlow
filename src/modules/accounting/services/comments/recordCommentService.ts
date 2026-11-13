@@ -117,6 +117,8 @@ export async function createComment(
   const body = cleanCommentBody(rawBody);
   const mentions = cleanMentions(rawMentions, userId);
   await assertMembers(companyId, mentions);
+  // Serialise creators on this record until commit, so the count below cannot be passed by two at once.
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`record_comments:${companyId}:${type}:${recordId}`}, 0))`;
   if ((await liveCount(companyId, type, recordId)) >= MAX_COMMENTS_PER_RECORD) {
     throw new CommentError(400, `This record already has ${MAX_COMMENTS_PER_RECORD} comments, the most it can hold. Delete one to add another.`);
   }

@@ -303,6 +303,32 @@ describe('limits', () => {
   });
 });
 
+describe('concurrency', () => {
+  it('two creators at 499 live comments: exactly one gets the 500th place (advisory lock), the other a 400', async () => {
+    await pool.query(`INSERT INTO record_comments (company_id, record_type, record_id, body, author_id)
+      SELECT $1, 'customer_invoice', $2, 'c' || g, $3 FROM generate_series(1, 499) g`, [A, ids.invA, manager]);
+    try {
+      const run = async () => {
+        const c: PoolClient = await pool.connect();
+        try {
+          await c.query('BEGIN');
+          await c.query('SET LOCAL ROLE app_user');
+          await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: manager })]);
+          await c.query("SELECT set_config('app.current_company_id', $1, true)", [A]);
+          const r = await als.run({ client: c, companyId: A, userId: manager, claims: { sub: manager } },
+            () => createComment(A, manager, 'customer_invoice', ids.invA, 'race').then(() => 'ok', (e: unknown) => (e as { status?: number }).status));
+          await c.query('COMMIT');
+          return r;
+        } finally { c.release(); }
+      };
+      const out = await Promise.all([run(), run()]);
+      expect(out.filter((x) => x === 'ok')).toHaveLength(1);
+      expect(out.filter((x) => x === 400)).toHaveLength(1);
+      expect((await pool.query('SELECT count(*)::int AS n FROM record_comments WHERE company_id = $1', [A])).rows[0].n).toBe(500);
+    } finally { await pool.query('DELETE FROM record_comments WHERE company_id = $1', [A]); }
+  });
+});
+
 describe('comments on a hard-deleted bank line', () => {
   it('are soft-deleted in the same transaction, by whoever deletes the line, and only for that line', async () => {
     await as(A, manager, async (h) => {
