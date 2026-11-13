@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { Select } from '@/components/ui/Select';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Scale, Loader2, AlertCircle } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
@@ -84,13 +85,9 @@ export function PayScaleCard({ employeeId, currentPayScaleId, onChange }: Props)
       ) : (
         <>
           <div className="flex items-center gap-3">
-            <select aria-label="Pay scale" value={selected} onChange={e => setSelected(e.target.value)}
-              className="flex-1 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]">
-              <option value="">(Unassigned)</option>
-              {scales.map(s => (
-                <option key={s.id} value={s.id}>G{s.gradeLevel} · {s.code} — {s.name}</option>
-              ))}
-            </select>
+            <Select label="Pay scale" labelClassName="sr-only" className="min-w-0 flex-1" placeholder="(Unassigned)" clearable searchable
+              value={selected || null} onChange={v => setSelected(v ?? '')}
+              options={scales.map(s => ({ value: s.id, label: `G${s.gradeLevel} · ${s.code} — ${s.name}` }))} />
             <button onClick={save} disabled={!dirty || saving}
               className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
               {saving ? 'Saving...' : 'Save'}

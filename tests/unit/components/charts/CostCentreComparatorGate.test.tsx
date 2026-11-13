@@ -7,6 +7,7 @@
  * the statement's own filter (`cost_centre_id` either level, `business_unit_id`),
  * so it stays on and is re-read for the filtered view.
  */
+import { pickKit } from '../../../helpers/kitSelect';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { COMPANY_WIDE_UNAVAILABLE } from '@/components/accounting/reportControls/ComparatorNotices';
@@ -80,8 +81,7 @@ describe('the income statement with a cost centre selected', () => {
 
     // Wait for the option: changing a select to a value it has no option for
     // leaves it at '' — the cost-centre list is its own fetch (R-138).
-    await screen.findByRole('option', { name: 'OPS — Operations' });
-    fireEvent.change(screen.getByDisplayValue('All Cost Centres'), { target: { value: 'cc-1' } });
+    await pickKit(screen.getByRole('combobox', { name: 'Cost Centre' }), 'OPS — Operations');
 
     expect(await screen.findByText(COMPANY_WIDE_UNAVAILABLE)).toBeInTheDocument();
     expect((screen.getByLabelText('12-month trend') as HTMLInputElement).disabled).toBe(true);
@@ -98,12 +98,10 @@ describe('the income statement with a cost centre selected', () => {
     render(<IncomeStatementPage />);
 
     fireEvent.click(await screen.findByLabelText('12-month trend'));
-    await screen.findByRole('option', { name: 'OPS — Operations' });
-    const select = screen.getByDisplayValue('All Cost Centres');
-    fireEvent.change(select, { target: { value: 'cc-1' } });
+    await pickKit(screen.getByRole('combobox', { name: 'Cost Centre' }), 'OPS — Operations');
     expect((screen.getByLabelText('12-month trend') as HTMLInputElement).checked).toBe(false);
 
-    fireEvent.change(screen.getByDisplayValue('OPS — Operations'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
     await waitFor(() =>
       expect((screen.getByLabelText('12-month trend') as HTMLInputElement).checked).toBe(true));
     expect(screen.queryByText(COMPANY_WIDE_UNAVAILABLE)).not.toBeInTheDocument();
@@ -119,14 +117,13 @@ describe('the income statement with a business unit selected', () => {
     fireEvent.click(screen.getByLabelText('Budget'));
     await waitFor(() => expect(comparatorCalls().length).toBe(2));
 
-    await screen.findByRole('option', { name: 'SALES — Sales' });
-    fireEvent.change(screen.getByDisplayValue('All Business Units'), { target: { value: 'bu-1' } });
+    await pickKit(screen.getByRole('combobox', { name: 'Business Unit' }), 'SALES — Sales');
     expect(await screen.findByText(COMPANY_WIDE_UNAVAILABLE)).toBeInTheDocument();
     expect((screen.getByLabelText('12-month trend') as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByLabelText('Budget') as HTMLInputElement).disabled).toBe(false);
     await waitFor(() => expect(budgetCalls().some(u => u.includes('business_unit_id=bu-1'))).toBe(true));
 
-    fireEvent.change(screen.getByDisplayValue('SALES — Sales'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
     await waitFor(() => expect((screen.getByLabelText('12-month trend') as HTMLInputElement).checked).toBe(true));
     expect((screen.getByLabelText('Budget') as HTMLInputElement).checked).toBe(true);
   });
@@ -144,16 +141,14 @@ describe('touching a live checkbox while the gate is on', () => {
     fireEvent.click(await screen.findByLabelText('12-month trend'));
     fireEvent.click(screen.getByLabelText('Budget'));
 
-    await screen.findByRole('option', { name: 'OPS — Operations' });
-    const select = screen.getByDisplayValue('All Cost Centres');
-    fireEvent.change(select, { target: { value: 'cc-1' } });
+    await pickKit(screen.getByRole('combobox', { name: 'Cost Centre' }), 'OPS — Operations');
     expect(await screen.findByText(COMPANY_WIDE_UNAVAILABLE)).toBeInTheDocument();
 
     // Prior period stays live under the gate — it is filtered with the
     // statement — so this is a click the reader can really make here.
     fireEvent.click(screen.getByLabelText('Prior period'));
 
-    fireEvent.change(screen.getByDisplayValue('OPS — Operations'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
 
     await waitFor(() =>
       expect((screen.getByLabelText('12-month trend') as HTMLInputElement).checked).toBe(true));

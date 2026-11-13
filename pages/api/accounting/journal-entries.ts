@@ -115,6 +115,10 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     // answer with the TypeError it caused further down. Named here instead.
     const shape = lineShapeProblem(lines);
     if (shape) return apiResponse.badRequest(res, shape);
+    // A line with an amount and no account would fail the NOT NULL insert as a database error: refuse it by name first.
+    const needsAccount = (lines as { glAccountId?: unknown; debit?: unknown; credit?: unknown }[])
+      .some(l => (Number(l.debit) || Number(l.credit)) && (typeof l.glAccountId !== 'string' || l.glAccountId.trim() === ''));
+    if (needsAccount) return apiResponse.badRequest(res, 'Choose an account for every line that has an amount');
     // A line's costCenterId is a pick: it goes into its CC1 / CC2 slot
     // (gl/dimensions/costCentrePick), never into the legacy column.
     const placed = await placeCostCentres(companyId, lines as JournalLineInput[]);

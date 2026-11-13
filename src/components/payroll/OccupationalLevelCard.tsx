@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { Select } from '@/components/ui/Select';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Scale, Loader2, AlertCircle } from 'lucide-react';
 
@@ -68,11 +69,9 @@ export function OccupationalLevelCard({ employeeId, currentLevelId, onChange }: 
         </div>
       ) : (
         <div className="flex items-center gap-3">
-          <select aria-label="Occupational level" value={selected} onChange={e => setSelected(e.target.value)}
-            className="flex-1 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]">
-            <option value="">(Not set)</option>
-            {levels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
+          <Select label="Occupational level" labelClassName="sr-only" className="min-w-0 flex-1" placeholder="(Not set)" clearable
+            value={selected || null} onChange={v => setSelected(v ?? '')}
+            options={levels.map(l => ({ value: l.id, label: l.name }))} />
           <button onClick={save} disabled={!dirty || saving}
             className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
             {saving ? 'Saving...' : 'Save'}

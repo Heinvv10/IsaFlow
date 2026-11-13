@@ -1,4 +1,5 @@
 // A failed request shows the server's message (400) or a plain sentence (empty 500), never a blank list or a raw JSON error.
+import { openKit } from '../../helpers/kitSelect';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -32,6 +33,9 @@ describe('Bank account selector', () => {
   });
   it('offers the bank accounts on success', async () => {
     script([[SITE, () => okRes([{ id: 'a1', accountCode: '1000', accountName: 'D2 Bank Account' }])]]); show();
+    const box = await screen.findByRole('combobox', { name: 'Bank account' });
+    await waitFor(() => expect(box.getAttribute('aria-disabled')).toBe('false'));
+    openKit(box);
     expect(await screen.findByRole('option', { name: /D2 Bank Account/ })).toBeTruthy();
   });
 });
