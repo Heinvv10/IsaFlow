@@ -17,12 +17,15 @@
  * Every later lock on these rows (unwind, FIFO fetch, plan/apply) is then re-entrant. All under the caller's flow
  * lock budget (a wait past it is the retryable ROW_LOCK_TIMEOUT).
  *
- * RECORDED CYCLE (breaker R2-4, retryable): the journal-number lock (migrations 857/858, `<company>:<year>`, taken by
- * the numbering triggers) comes AFTER step 2 here, while allocate / bulk allocate / the rule sweep take it at their
- * journal INSERT and THEN FIFO-lock bills. A multi-line poster that has numbered a journal and then FIFOs a bill this
- * pass holds, while this request waits for the number, is a 40P01: Postgres kills one, it rolls back whole and the
- * MCP answer says retry. Taking the number first would invert the refund path's contact -> number order instead (and
- * the key exists only inside the trigger SQL), so the cycle is recorded, not moved. Residual: a bill or invoice that
+ * RECORDED CYCLE (breaker R2-4, retryable, PRE-EXISTING): the journal-number lock (migrations 857/858,
+ * `<company>:<year>`, taken by the numbering triggers) comes AFTER step 2 here, while ANY allocate (single, bulk, the
+ * rule sweep) takes it at its journal INSERT and THEN FIFO-locks bills — and reverse_bank_allocation / void / batches
+ * already lock bills and THEN number their reversal, so this documents->number vs number->documents cycle exists
+ * today between allocate and every reversal; reallocation adds one more party to it. A 40P01 rolls back whole: the
+ * MCP answer says retry, and a bulk poster that loses skips the line as "locked by another request — retry"
+ * (breaker R3-1). Taking the number first here would invert the refund path's contact -> number order (and the key
+ * exists only inside the trigger SQL), so the cycle is recorded, not moved. The clean fix is in allocate (FIFO-lock
+ * the contact's open documents BEFORE createJournalEntry, restoring documents -> journals everywhere): a follow-up. Residual: a bill or invoice that
  * becomes open after step 2 (approved meanwhile) is still locked by the FIFO fetch after the journal head.
  */
 import { sql } from '@/lib/neon';
