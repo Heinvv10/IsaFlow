@@ -78,6 +78,55 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — cumulative share cap
     expect(r.isError, text(r)).toBeFalsy();
   }, 120000);
 
+  it('Velocity-shaped: monthly shares on the same accounts — a June hand undo does not refuse a May undo', async () => {
+    const may = await billWithJournal(fx, a, 'VMAY', '2026-05-10', legs());
+    const jun = await billWithJournal(fx, a, 'VJUN', '2026-06-10', legs());
+    const pMay = await contra(may.id, 1150);
+    await contra(jun.id, 1150);
+    const shareLegs = [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
+      { account: a.vatInput, credit: 150, vatType: 'standard' }];
+    const sMay = await postedJournal(fx, '2026-05-31', shareLegs);
+    await postedJournal(fx, '2026-06-30', shareLegs);
+    // JE-2026-31951 style: the June bill's share undone by hand, dated in June.
+    await postedJournal(fx, '2026-06-30', [...legs(), { account: a.clearing, credit: 1150 }], 'hand undo VJUN');
+    const r = await undo(pMay, sMay);
+    expect(r.isError, text(r)).toBeFalsy();
+  }, 120000);
+
+  it('a hand undo made before a share was re-dated (reverse-and-repost) counts against the re-posted share', async () => {
+    const b = await billWithJournal(fx, a, 'REDATE', '2026-07-10', legs());
+    const p = await contra(b.id, 1150);
+    const shareLegs = [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
+      { account: a.vatInput, credit: 150, vatType: 'standard' }];
+    const old = await postedJournal(fx, '2026-07-31', shareLegs);
+    await postedJournal(fx, '2026-07-31', [...legs(), { account: a.clearing, credit: 1150 }], 'hand undo REDATE');
+    await inTx(fx, () => reverseJournalEntry(fx.companyId, old, fx.userId));
+    const reposted = await postedJournal(fx, '2026-07-31', shareLegs);
+    expect(text(await undo(p, reposted))).toMatch(/does not hold .*including hand journal JE-/);
+  }, 120000);
+
+  it('a hand undo reversed once counts nothing (its chain nets to nil)', async () => {
+    const b = await billWithJournal(fx, a, 'HANDREV', '2026-08-10', legs());
+    const p = await contra(b.id, 1150);
+    const share = await postedJournal(fx, '2026-08-31', [{ account: a.clearing, debit: 1150 }, { account: a.expense, credit: 1000 },
+      { account: a.vatInput, credit: 150, vatType: 'standard' }]);
+    const hand = await postedJournal(fx, '2026-08-31', [...legs(), { account: a.clearing, credit: 1150 }], 'hand undo, later reversed');
+    await inTx(fx, () => reverseJournalEntry(fx.companyId, hand, fx.userId));
+    const r = await undo(p, share);
+    expect(r.isError, text(r)).toBeFalsy();
+  }, 120000);
+
+  it('the refusal names at most ten hand journals, then "and N more"', async () => {
+    const b = await billWithJournal(fx, a, 'MANYHAND', '2026-09-10', [{ account: a.expense, debit: 150 }]);
+    const p = await contra(b.id, 150);
+    const share = await postedJournal(fx, '2026-09-30', [{ account: a.clearing, debit: 1200 }, { account: a.expense, credit: 1200 }]);
+    for (let i = 0; i < 11; i++) {
+      await postedJournal(fx, '2026-09-30', [{ account: a.expense, debit: 100 }, { account: a.clearing, credit: 100 }], `hand ${i}`);
+    }
+    const msg = text(await undo(p, share, { undo_amounts: [{ bill_id: b.id, amount: 150 }] }));
+    expect(msg).toMatch(/including hand journals (JE-\d{4}-\d+, ){9}JE-\d{4}-\d+ and 1 more\)/);
+  }, 120000);
+
   it('a reversed undo gives its capacity back: the next contra on the bill can be undone against the same share', async () => {
     const b = await billWithJournal(fx, a, 'REVERSED', '2026-05-10', legs());
     const p1 = await contra(b.id, 1150);

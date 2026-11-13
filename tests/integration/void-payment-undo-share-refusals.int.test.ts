@@ -99,10 +99,17 @@ describe.skipIf(!DATABASE_URL)('void_payment undo_share — refusals write nothi
 
   it('a hand undo of the share uses its capacity: the undo is refused, naming the hand journal', async () => {
     const s = await scenario('HAND', '2026-05-31');
-    const [hand] = (await sql`SELECT entry_number FROM gl_journal_entries WHERE id = ${await postedJournal(fx, '2026-06-30', [
+    const [hand] = (await sql`SELECT entry_number FROM gl_journal_entries WHERE id = ${await postedJournal(fx, '2026-05-31', [
       { account: a.expense, debit: 1000 }, { account: a.vatInput, debit: 150, vatType: 'standard' },
       { account: a.clearing, credit: 1150 }], 'undo share by hand')}::UUID`) as Row[];
     expect(text(await undo(s.pay, s.share))).toMatch(new RegExp(`does not hold .*including hand journal ${String(hand!.entry_number)}`));
+    expect(await payStatus(s.pay)).toBe('processed');
+  }, 120000);
+
+  it('a share journal that is a document\'s own posting (not a manual journal) is not a share', async () => {
+    const s = await scenario('NOTMANUAL', '2026-05-31');
+    await sql`UPDATE gl_journal_entries SET source = 'auto_supplier_invoice' WHERE id = ${s.share}::UUID AND company_id = ${fx.companyId}::UUID`;
+    expect(text(await undo(s.pay, s.share))).toMatch(/is a auto_supplier_invoice posting .* not a share/);
     expect(await payStatus(s.pay)).toBe('processed');
   }, 120000);
 

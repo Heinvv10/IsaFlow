@@ -16,7 +16,8 @@
  *     account), does not credit exactly ONE other account X, or posted other live payment documents too;
  *   - a bill whose own journal is not a posted, standing DR legs / CR AP posting of its total, or was late-claimed
  *     (s16(3): its VAT sits on the clearing account and the claim on a companion — undo by hand);
- *   - a share journal that is not this company's posted, standing journal, or no longer HOLDS what this undo gives
+ *   - a share journal that is not this company's posted, standing MANUAL journal (manual / GL import / recurring), or
+ *     no longer HOLDS what this undo gives
  *     back — cumulatively across every live undo of it, linked or by hand (`shareUndoGuards.ts`);
  *   - a share that debits X by more than this payment applied (it carries other bills, and its lines do not say how
  *     much of each) unless `undo_amounts` says how much of each bill it reversed;
@@ -57,6 +58,12 @@ export { ShareUndoRefusal } from './shareUndoTypes';
 const standing = (h: { status: string; reversed: boolean } | null) => h !== null && h.status === 'posted' && !h.reversed;
 const cents = (n: number) => toCents(n);
 const isAp = (l: JournalLineRow) => canonicalSubtype(l.accountSubtype) === 'payable';
+/**
+ * The manual-journal family (the R-035 manual-journal paths: entered in the UI or by MCP, GL import, recurring
+ * journal). Only these can be a share; a document's posting (bill, payment, reversal of a document…) never is — so a
+ * share with live undos, which `gl/shareUndoReversalGuard` refuses to reverse, is never a document's journal.
+ */
+const SHARE_SOURCES: readonly string[] = ['manual', 'auto_gl_import', 'auto_recurring'];
 
 export async function planShareUndo(
   companyId: string, payment: VoidingPayment, shareJournalId: string, choices: ShareUndoChoices = {},
@@ -97,6 +104,11 @@ export async function planShareUndo(
   if (!share) throw new ShareUndoRefusal('share_journal_id is not a journal of this company.');
   const name = share.entryNumber ?? share.id;
   if (!standing(share)) throw new ShareUndoRefusal(`Share journal ${name} is not posted and standing (status ${share.status}${share.reversed ? ', reversed' : ''}).`);
+  if (!SHARE_SOURCES.includes(share.source ?? 'manual')) {
+    throw new ShareUndoRefusal(`Journal ${name} is a ${share.source} posting (a document's or the system's own journal), not a `
+      + 'share: a share is a manual journal (entered by hand, imported or recurring). Name the journal that took the '
+      + 'bills out of the clearing account.');
+  }
   const shareLines = await readJournalLines(companyId, share.id);
   const shareOnX = shareLines.filter((l) => l.glAccountId === x.glAccountId).reduce((s, l) => s + cents(l.debit), 0);
 

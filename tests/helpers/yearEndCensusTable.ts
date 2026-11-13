@@ -92,6 +92,8 @@ export const entries: Array<[string, Category, string?]> = [
   // Step 6 rounds 1-2: what the undo journals of ONE share (linked, and hand undos of it) already gave back — its
   // capacity. Not a P&L or equity figure.
   ['ap/shareUndoReads.ts', 'SUBLEDGER', 'SUM(jl.debit) AS debit, SUM(jl.credit) AS credit'],
+  // Round 3: the hand undos of ONE share (its month, attributed, netted over their reversal chains) — its capacity.
+  ['ap/shareUndoHandUndos.ts', 'SUBLEDGER'],
   ['gl/glIntegrityService.ts', 'INTEGRITY'],
   ['gl/integrityChecks/accountChecks.ts', 'INTEGRITY'],
   ['gl/integrityChecks/dimensionChecks.ts', 'INTEGRITY'],
