@@ -3,8 +3,17 @@
  *
  * void_payment's undo journals (`ap/shareUndoPost`) give a share's expense and VAT back for a bill and link to it by
  * `source_record_id`. Reversing the share afterwards gives the same amounts back a SECOND time — Velocity re-dates a
- * share by reverse-and-repost, so this is the ordinary way to do it. Refused, read-only, before the reversal writes
- * anything: reverse those undos first (each is an ordinary journal), then the share.
+ * share by reverse-and-repost, so this is the ordinary way to do it. Refused: reverse those undos first (each is an
+ * ordinary journal), then the share.
+ *
+ * WHERE IT RUNS (security review, TOCTOU). Authoritatively inside `reverseJournalEntry`, AFTER its claim — the
+ * predicated UPDATE that row-locks the journal being reversed. An undo locks the same row FOR UPDATE before it reads
+ * the share (`ap/shareUndoReads.lockShareJournal`), so the two serialise on it: a reversal that waited on an undo sees
+ * the committed undo here and refuses (its claim released); an undo that waited on a reversal sees the share reversed
+ * and refuses. A check before the claim could pass while an undo committed past it. MCP `reverse_journal_entry` also
+ * asks it early, read-only, for its dry run; that read is not the guard.
+ * Lock order, no cycle: reversal = the journal's row (claim) → journal-number lock; undo = bank line → payment → share
+ * row → bills → payment journal head → journal-number locks. A reversal of a share takes no payment or bill lock.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';

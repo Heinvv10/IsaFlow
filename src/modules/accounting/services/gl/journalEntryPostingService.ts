@@ -104,7 +104,6 @@ async function reverseJournalEntryInner(
     if (entry.source === 'auto_vat_late_claim' && !opts?.lateClaimCascade) {
       throw new LateClaimCompanionReversalError(entry.entryNumber);
     }
-    await assertNoLiveUndoShares(companyId, id, entry.entryNumber); // step 6: a share with live undos — read-only
     const payRunReversal = await refuseReversalAgainstPayRun(companyId, entry); // W3-01: judged under its locks
 
     // Debits and credits swap; every dimension and the VAT classification come
@@ -143,6 +142,9 @@ async function reverseJournalEntryInner(
       await refuseReversingSettlementJournal(companyId, entry);
       // D12 round 3: statement cash a COMPLETED reconciliation signed off — asked under the claim, read-only.
       await refuseReversingCompletedCash(companyId, id, opts?.cashLinesLocked);
+      // Step 6: a share journal with live undo-share journals — under the claim's row lock, the row an undo locks
+      // FOR UPDATE (ap/shareUndoReads.lockShareJournal), so the two serialise: authoritative (gl/shareUndoReversalGuard).
+      await assertNoLiveUndoShares(companyId, id, entry.entryNumber);
     } catch (err) {
       await releaseJournalReversalClaim(companyId, id);
       throw err;
