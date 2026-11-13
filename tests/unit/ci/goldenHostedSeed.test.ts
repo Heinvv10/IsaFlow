@@ -4,6 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { PAYROLL_SANDBOX_MONTH } from '../../e2e/golden-paths/_api';
+import { CUSTOMER_INVOICES, FIXTURE_SUPPLIER, seedCustomerInvoices, seedFixtureSupplier } from '../../../scripts/ci/golden-hosted/seed-golden-fixtures';
 import { RESERVED_PAYROLL_MONTHS, seedDate, seedMonths, seedPayRun, type Client } from '../../../scripts/ci/golden-hosted/seed-demo-app';
 
 describe('seedMonths', () => {
@@ -112,5 +113,50 @@ describe('RESERVED_PAYROLL_MONTHS', () => {
     } as unknown as Client;
     await seedPayRun(spy, ['2026-12', PAYROLL_SANDBOX_MONTH]);
     expect(created).toEqual(['{"month":12,"year":2026}']);
+  });
+});
+
+describe('seedCustomerInvoices and seedFixtureSupplier', () => {
+  const months = seedMonths(new Date('2026-11-13T08:00:00Z'));
+  function fake(created: (n: number) => unknown = (n) => ({ id: `inv-${n}` })) {
+    const calls: Array<{ path: string; body: Record<string, unknown> }> = [];
+    const api = {
+      post: (path: string, body: Record<string, unknown>) => {
+        calls.push({ path, body });
+        return Promise.resolve(path.endsWith('-create') ? created(calls.length) : {});
+      },
+    } as unknown as Client;
+    return { api, calls };
+  }
+
+  it('creates then approves each invoice, all in the past, over the customers, leaving none paid', async () => {
+    const { api, calls } = fake();
+    await seedCustomerInvoices(api, (i) => seedDate(months, i), ['c1', 'c2']);
+    const creates = calls.filter((c) => c.path === '/api/accounting/customer-invoices-create');
+    const approves = calls.filter((c) => c.path === '/api/accounting/customer-invoices-detail');
+    expect(creates).toHaveLength(CUSTOMER_INVOICES);
+    expect(approves).toHaveLength(CUSTOMER_INVOICES);
+    expect(approves.every((a) => a.body.action === 'approve')).toBe(true);
+    expect(new Set(creates.map((c) => c.body.clientId))).toEqual(new Set(['c1', 'c2']));
+    expect(creates.every((c) => String(c.body.invoiceDate) < '2026-11-01' && String(c.body.dueDate) > String(c.body.invoiceDate))).toBe(true);
+  });
+
+  it('reaches the 90+ days bucket: the oldest invoice is dated in the oldest seeded month, over 90 days before the run', async () => {
+    const { api, calls } = fake();
+    await seedCustomerInvoices(api, (i) => seedDate(months, i), ['c1']);
+    const dates = calls.filter((c) => c.path.endsWith('-create')).map((c) => String(c.body.invoiceDate)).sort();
+    expect((Date.parse('2026-11-13') - Date.parse(dates[0]!)) / 86400000).toBeGreaterThan(90);
+  });
+
+  it('stops when an invoice comes back without an id, or there is no customer', async () => {
+    await expect(seedCustomerInvoices(fake(() => ({})).api, (i) => seedDate(months, i), ['c1'])).rejects.toThrow(/without an id/);
+    await expect(seedCustomerInvoices(fake().api, (i) => seedDate(months, i), [])).rejects.toThrow(/at least one customer/);
+  });
+
+  it('creates the supplier the specs look up by name', async () => {
+    const { api, calls } = fake();
+    await seedFixtureSupplier(api);
+    expect(calls[0]).toMatchObject({ path: '/api/accounting/suppliers-list', body: { name: '0GP-Golden-Supplier' } });
+    expect(FIXTURE_SUPPLIER).toBe('0GP-Golden-Supplier');
   });
 });
