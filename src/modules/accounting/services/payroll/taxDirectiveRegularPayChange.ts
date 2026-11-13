@@ -32,6 +32,7 @@ import { payrollApprovalLockScope } from './payrollRunLock';
 import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { judgeLeaverExitUndo, type LeaverExitUndo } from './taxDirectiveLeaverUndo';
+import { approversAtCreate } from './taxDirectiveApprover';
 
 export interface RegularDirectiveRow {
   id: string; employeeId: string; effectiveDate: string; expiryDate: string | null; status: string; number: string | null;
@@ -162,6 +163,8 @@ export async function auditLeaverExit(
         leaverExit: 'true', employeeId: row.employeeId, employeeEndDate: String(row.employeeEndDate),
         directiveNumber: row.number ?? '', runs: periods.join(','),
         oldEndsOn: directiveEndsOn(row.effectiveDate, row.expiryDate), newExpiry,
+        // Who could approve its undo at the time (#1266 adv2 L): the undo's four eyes judge this roster, not today's.
+        approversAtExit: (await approversAtCreate(companyId, userId)).join(','),
       },
     },
   });

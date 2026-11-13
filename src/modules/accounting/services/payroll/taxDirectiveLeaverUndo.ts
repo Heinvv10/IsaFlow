@@ -10,7 +10,8 @@
  *     exit's expiry to the restored end: 409 (LeaverExitWindowTakenError); a second directive overlapping it is refused by
  *     the approved-directive overlap check in taxDirectiveRegularPayChange;
  *   - four eyes: the person who took the exit may not restore it while another owner / admin / manager in good standing
- *     exists (403, TaxDirectiveSelfApprovalError); a one-person company may, and the audit row says so.
+ *     exists, or while one who could approve at the exit (`approversAtExit` on its audit row) is still active whatever their
+ *     role now, or was removed since (403, TaxDirectiveSelfApprovalError); a one-person company may, and the audit row says so.
  * The restore writes its own audit row (`leaverExitUndo`, old and new expiry, the exit's audit id). With the directive in
  * force again the exit no longer holds the end date (payrollRunDirectiveUses), so the end date can be corrected and the
  * run recalculated with the employee back in it. Everything is judged before the write; company-scoped.
@@ -19,7 +20,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
-import { otherApproverExists, TaxDirectiveSelfApprovalError } from './taxDirectiveApprover';
+import { anotherApproverBlocks, TaxDirectiveSelfApprovalError } from './taxDirectiveApprover';
 import { TaxDirectiveWindowError } from './taxDirectiveOverlap';
 import { declarableRunInWindow } from './payrollRunRegularDirective';
 
@@ -62,6 +63,7 @@ async function exitInEffect(companyId: string, directiveId: string, currentExpir
   if (meta.newExpiry !== currentExpiry) return null;
   return {
     id: String(r.id), takenBy: String(r.user_id), oldExpiry: field?.old ?? null, oldEndsOn: String(meta.oldEndsOn),
+    approversAtExit: String(meta.approversAtExit ?? '').split(',').filter(Boolean),
     periods: String(meta.runs ?? '').split(',').filter(Boolean),
   };
 }
@@ -97,7 +99,8 @@ export async function judgeLeaverExitUndo(
       + `(${String(from[0]!.d)} to ${exit.oldEndsOn}): the leaver exit cannot be undone while it stands.`);
   }
   const self = exit.takenBy.toLowerCase() === actorId.toLowerCase();
-  if (self && await otherApproverExists(companyId, actorId)) throw new TaxDirectiveSelfApprovalError();
+  // Four eyes against the roster at the exit as well as today's (#1266 adv2 L: demoting the other approver first does not help).
+  if (self && await anotherApproverBlocks(companyId, actorId, exit.approversAtExit)) throw new TaxDirectiveSelfApprovalError();
   return { exitAuditId: exit.id, oldExpiry: exit.oldExpiry, oldEndsOn: exit.oldEndsOn, periods: exit.periods, selfApproval: self };
 }
 

@@ -32,7 +32,9 @@ const patchEmployee = (f: SeveranceFixture, body: Record<string, unknown>) =>
 const recalc = (f: SeveranceFixture, run: string) => f.call(calculateRoute as Route, 'POST', `/api/payroll/runs/${run}/calculate`, run);
 
 /** D approved, March taxed under it and approved, reopened; the employee left 02-28 and f.admin took the exit (03-01). */
-async function exitTaken(name: string, window: { effective_date?: string; expiry_date?: string } = {}, exitTo = '2026-03-01') {
+async function exitTaken(
+  name: string, window: { effective_date?: string; expiry_date?: string } = {}, beforeExit?: (f: SeveranceFixture) => Promise<unknown>,
+) {
   const f = await drFixture(pool, name);
   made.push(f);
   const d = String((await postDirective(f, { ...PCT, ...window })).body.data!.id);
@@ -42,7 +44,8 @@ async function exitTaken(name: string, window: { effective_date?: string; expiry
   expect((await approveRun(f, march)).statusCode).toBe(200);
   expect((await reopenRun(f, march)).statusCode).toBe(200);
   expect((await patchEmployee(f, { endDate: '2026-02-28' })).statusCode).toBe(200);
-  expect((await patchDirective(f, d, { expiry_date: exitTo })).statusCode).toBe(200);
+  await beforeExit?.(f);
+  expect((await patchDirective(f, d, { expiry_date: '2026-03-01' })).statusCode).toBe(200);
   expect((await recalc(f, march)).statusCode).toBe(200);
   expect(await runLine(pool, march, f.employee)).toBeUndefined();
   return { f, d, march };
@@ -144,5 +147,21 @@ describe('the narrow undo of a leaver exit', () => {
     const r = await refused(f, d, '2027-02-28', 409, f.approver);
     expect(r.body.error?.details?.code).toBe('LEAVER_EXIT_WINDOW_TAKEN');
     expect(r.body.error?.message).toMatch(/The 2026-04 payroll run taxed this employee inside the window/);
+  });
+
+  it('adv2 L: four eyes judge the roster at the exit: the other approver demoted after it still blocks the taker (403, nothing written)', async () => {
+    const { f, d } = await exitTaken('DR r5 roster at exit');
+    const exit = (await pool.query(
+      "SELECT changes FROM audit_log WHERE entity_id = $1 AND changes->'metadata'->>'leaverExit' = 'true'", [d])).rows[0]!;
+    expect(exit.changes.metadata.approversAtExit).toBe(f.approver);
+    await pool.query("UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [f.company, f.approver]);
+    await refused(f, d, '2027-02-28', 403, f.admin);
+  });
+
+  it('the sole approver at the exit may undo it themselves; the audit says sole_approver', async () => {
+    const demote = (f: SeveranceFixture) => pool.query("UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [f.company, f.approver]);
+    const { f, d } = await exitTaken('DR r5 sole approver', {}, demote);
+    expect((await patchDirective(f, d, { expiry_date: '2027-02-28' }, f.admin)).statusCode).toBe(200);
+    expect((await undoRows(d))[0].changes.metadata.selfApproval).toBe('sole_approver');
   });
 });

@@ -33,21 +33,30 @@ export async function judgeDirectiveApprover(companyId: string, id: string, appr
   `) as DbRow[])[0];
   const creator = row?.requested_by == null ? null : String(row.requested_by).toLowerCase();
   if (creator !== approverId.toLowerCase()) return { selfApproval: false };
+  if (await anotherApproverBlocks(companyId, approverId, (row?.approvers_at_create ?? []) as string[])) throw new TaxDirectiveSelfApprovalError();
+  return { selfApproval: true };
+}
+
+/**
+ * Whether someone other than `actorId` blocks a self-approval: a member who could approve now, or one on `roster` (the
+ * approvers recorded when the act being approved was taken: a directive's capture, a leaver exit) still active whatever
+ * their role now, or removed from the company since (a removal counts as a demotion).
+ */
+export async function anotherApproverBlocks(companyId: string, actorId: string, roster: readonly string[]): Promise<boolean> {
   // The company's other members through the R-035 definer (users is RLS-scoped to oneself: a plain join sees nobody),
   // in good standing (isActiveUserAccount: active, not suspended).
   const others = (await sql`
-    SELECT m.user_id, m.role, m.is_active, m.status, m.suspended_at FROM approval_company_other_members(${companyId}::uuid, ${approverId}::text) m
+    SELECT m.user_id, m.role, m.is_active, m.status, m.suspended_at FROM approval_company_other_members(${companyId}::uuid, ${actorId}::text) m
   `) as Array<{ user_id: string; role: string; is_active: boolean | null; status: string | null; suspended_at: string | null }>;
   const writers: readonly string[] = DEFAULT_WRITE_ROLES;
-  // Roster as of capture (L-a): anyone who could approve then still blocks while their account is active, whatever their role
+  // Roster as of the act (L-a): anyone who could approve then still blocks while their account is active, whatever their role
   // now; one whose membership was REMOVED since cannot be seen at all, so a removal counts as a demotion and blocks too (the
   // creator captures the directive again to start from today's roster).
-  const atCreate = new Set(((row?.approvers_at_create ?? []) as string[]).map(u => u.toLowerCase()));
+  const atCreate = new Set(roster.map(u => u.toLowerCase()));
   const present = new Set(others.map(m => String(m.user_id).toLowerCase()));
   const blocks = (m: (typeof others)[number]) => isActiveUserAccount(m) && (writers.includes(String(m.role)) || atCreate.has(String(m.user_id).toLowerCase()));
   const removedSince = [...atCreate].some(u => !present.has(u));
-  if (removedSince || others.some(blocks)) throw new TaxDirectiveSelfApprovalError();
-  return { selfApproval: true };
+  return removedSince || others.some(blocks);
 }
 
 /** The approval's audit row, written on the request's transaction (it commits or rolls back with the status change). */
@@ -77,13 +86,4 @@ export async function approversAtCreate(companyId: string, creatorId: string): P
       `) as Array<{ user_id: string; role: string; is_active: boolean | null; status: string | null; suspended_at: string | null }>;
   const writers: readonly string[] = DEFAULT_WRITE_ROLES;
   return members.filter(m => writers.includes(String(m.role)) && isActiveUserAccount(m)).map(m => String(m.user_id)).sort();
-}
-
-/** Whether the company has another owner / admin / manager in good standing besides `userId` (the R-035 definer, in a request). */
-export async function otherApproverExists(companyId: string, userId: string): Promise<boolean> {
-  const others = (await sql`
-    SELECT m.role, m.is_active, m.status, m.suspended_at FROM approval_company_other_members(${companyId}::uuid, ${userId}::text) m
-  `) as Array<{ role: string; is_active: boolean | null; status: string | null; suspended_at: string | null }>;
-  const writers: readonly string[] = DEFAULT_WRITE_ROLES;
-  return others.some(m => writers.includes(String(m.role)) && isActiveUserAccount(m));
 }
