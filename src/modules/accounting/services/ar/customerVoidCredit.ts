@@ -118,6 +118,8 @@ const CANCEL_REMEDY = 'Reverse the refund first, then cancel the receipt.';
 
 const judged = new AsyncLocalStorage<{ companyId: string; snapshots: Map<string, CustomerSnapshot> }>();
 
+const sameId = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
 /**
  * Re-checks, under this receipt's locks and its customer's, that a set judged up front still stands: the receipts it
  * judged keep their remainders and no other row of the customer has fallen on any date. Null when `paymentIds` are
@@ -135,6 +137,9 @@ async function verifyJudged(companyId: string, paymentIds: readonly string[]): P
       if (cents(row.remainder) > 0) return null; // lowers, and was never judged
       continue;
     }
+    // The receipt's CURRENT customer, read under its row lock (the caller holds it): moved since the judgment (a merge,
+    // a reassignment) → the judgment no longer describes it; never pass it on the old customer's credit.
+    if (!sameId(row.customerId, snap.customerId)) return false;
     await tryLockCustomerCredit(companyId, snap.customerId);
     const now = await customerCreditDays(companyId, snap.customerId, snap.rows.map((r) => ({ paymentId: r.paymentId })));
     const before = new Map(snap.days.map((d) => [d.d, cents(d.others)]));
@@ -144,7 +149,8 @@ async function verifyJudged(companyId: string, paymentIds: readonly string[]): P
       if (is < was) return false;
     }
     const nowRows = await removedRows(companyId, snap.rows.map((r) => ({ paymentId: r.paymentId })));
-    if (nowRows.some((n) => cents(n.remainder) !== cents(snap.rows.find((r) => r.paymentId === n.paymentId)!.remainder))) return false;
+    if (nowRows.some((n) => !sameId(n.customerId, snap.customerId)
+      || cents(n.remainder) !== cents(snap.rows.find((r) => r.paymentId === n.paymentId)!.remainder))) return false;
   }
   return true;
 }

@@ -11,6 +11,8 @@ import { Pool } from 'pg';
 import { reverseAllocationsTool } from '@/lib/mcp/tools/writeBankReverseRange';
 import { voidReceiptTool } from '@/lib/mcp/tools/writeVoidPayments';
 import { planReceiptApplication, applyReceiptPlan } from '@/modules/accounting/services/ar/receiptApplicationService';
+import { assertReceiptVoidKeepsCredit, withReceiptCancellationsJudged } from '@/modules/accounting/services/ar/customerVoidCredit';
+import { sql } from '@/lib/neon';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupK074, seedK074, type K074Fixture } from './helpers/k074Fixture';
 import { receiptLedger, verdict } from './ar-receipt-void-after-refund.helpers';
@@ -108,6 +110,26 @@ describe('a customer already below zero on a later date', () => {
     const late = await L.allocated(c, 40, '2026-05-14'); // 05-14: 80
     expect(await verdict(voidReceipt(late.receipt))).toBe('passed'); // leaves 05-14 at 40; 05-08 untouched
     expect(await running(c)).toEqual({ '05-08': -60, '05-12': 40 });
+  }, 60_000);
+});
+
+describe('a judged bulk cancel whose receipt changes customer mid-call (security review, TOCTOU)', () => {
+  it('is not passed on the old customer\'s credit: the per-receipt step refuses, retryable', async () => {
+    const fine = await L.newCustomer();
+    const r = await L.allocated(fine, 200, '2026-05-05'); // judged on `fine`: nothing else, credit 200 → 0 passes
+    const spent = await L.newCustomer();
+    await pool.query(`INSERT INTO customer_payments(company_id,client_id,payment_date,total_amount,payment_method,status,created_by)
+      VALUES($1,$2,'2026-05-10',-150,'refund','confirmed',$3)`, [fx.company, spent, fx.user]); // `spent` below zero from 05-10
+    const out = await verdict(L.inTx(() => withReceiptCancellationsJudged(fx.company, [r.receipt], async () => {
+      // A reassignment (merge, gateway re-attribution) after the judgment, before the receipt's own step.
+      await sql`UPDATE customer_payments SET client_id = ${spent}::UUID WHERE id = ${r.receipt}::UUID`;
+      await assertReceiptVoidKeepsCredit(fx.company, [r.receipt]);
+    })));
+    expect(out).toBe('RECEIPT_REFUSED');
+    // Judged afresh on its CURRENT customer, outside any judgment, the same cancel is refused on the figures.
+    await pool.query('UPDATE customer_payments SET client_id = $1 WHERE id = $2', [spent, r.receipt]);
+    const fresh = await L.inTx(() => assertReceiptVoidKeepsCredit(fx.company, [r.receipt])).catch((e: Error & { reason?: string }) => e);
+    expect((fresh as { reason?: string }).reason).toBe('credit_ceiling');
   }, 60_000);
 });
 
