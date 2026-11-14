@@ -139,6 +139,8 @@ import { jobCostReportTool } from './tools/jobCost';
 import { listFixedAssetsTool, assetRegisterTool } from './tools/assets';
 import { reconcileFixedAssetsTool } from './tools/reconcileFixedAssets';
 import { runDepreciationTool } from './tools/writeDepreciation';
+import { createFixedAssetTool } from './tools/writeCreateFixedAsset';
+import { deleteFixedAssetTool } from './tools/writeDeleteFixedAsset';
 import {
   listItemsTool,
   stockValuationTool,
@@ -281,6 +283,8 @@ export const MCP_TOOLS = [
   cancelSupplierInvoiceTool,
   cancelCustomerInvoiceTool,
   ...RECURRING_JOURNAL_TOOLS,
+  createFixedAssetTool,
+  deleteFixedAssetTool,
   updateSupplierInvoiceTool,
   reapplyPaymentTermsTool,
   reapplyCustomerPaymentTermsTool,

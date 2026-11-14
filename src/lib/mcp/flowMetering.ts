@@ -350,6 +350,10 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // Cancelling a duplicate draft: a correction, never a new document.
   cancel_customer_invoice: null,
   ...RECURRING_JOURNAL_FLOW_OPERATIONS,
+  // Registering an asset: POST /api/accounting/assets carries no meter, so neither does the tool.
+  create_fixed_asset: null,
+  // The undo of a registration: a correction, free like cancel_customer_invoice.
+  delete_fixed_asset: null,
   // Editing a draft bill: the create already paid for the document.
   update_supplier_invoice: null,
   // Re-dating existing bills to the suppliers' terms: a correction, the bills already paid for.

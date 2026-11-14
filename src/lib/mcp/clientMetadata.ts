@@ -169,6 +169,8 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'create_recurring_journal',
   'run_recurring_journals',
   'deactivate_recurring_journal',
+  'create_fixed_asset',
+  'delete_fixed_asset',
   'update_supplier_invoice',
   'reapply_payment_terms',
   'reapply_customer_payment_terms',
