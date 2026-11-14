@@ -13,7 +13,8 @@ interface MobileHeaderMenuProps {
   className: string;
   name: string;
   navMode: 'top' | 'side';
-  onToggleNavMode: () => void;
+  /** Absent: no nav-mode row (the admin subdomain has one menu). */
+  onToggleNavMode?: () => void;
   /** Absent when the sidebar already carries Log out. */
   onLogout?: () => void;
 }
@@ -66,10 +67,12 @@ export function MobileHeaderMenu({ className, name, navMode, onToggleNavMode, on
             <span>Row density</span>
             <TableDensityToggle />
           </div>
-          <button type="button" onClick={onToggleNavMode} className={`${row} w-full hover:bg-surface-sunken`}>
-            <span>{navMode === 'top' ? 'Use sidebar navigation' : 'Use top navigation'}</span>
-            {navMode === 'top' ? <PanelLeft className="w-4 h-4" /> : <PanelTop className="w-4 h-4" />}
-          </button>
+          {onToggleNavMode && (
+            <button type="button" onClick={onToggleNavMode} className={`${row} w-full hover:bg-surface-sunken`}>
+              <span>{navMode === 'top' ? 'Use sidebar navigation' : 'Use top navigation'}</span>
+              {navMode === 'top' ? <PanelLeft className="w-4 h-4" /> : <PanelTop className="w-4 h-4" />}
+            </button>
+          )}
           {onLogout && (
             <button type="button" onClick={onLogout} className={`${row} w-full hover:bg-surface-sunken border-t border-line`}>
               <span>Log out</span>
