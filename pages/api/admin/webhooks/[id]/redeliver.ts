@@ -1,12 +1,14 @@
 /**
  * Admin Webhook Redeliver API
  * POST /api/admin/webhooks/[id]/redeliver
- * Body: { deliveryId?: string } — omit to retry last failed delivery
+ * Body: { deliveryId?: string } — omit to re-send this webhook's last failed delivery.
+ * Sends now (adminWebhookService.redeliverWebhook); `data.delivered` says whether the endpoint accepted it.
  */
 
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
 import { getClientIp } from '@/lib/rateLimit';
@@ -24,8 +26,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const webhookId = req.query.id as string;
-  if (!webhookId) return apiResponse.badRequest(res, 'id is required');
+  const idParsed = UUID.safeParse(req.query.id);
+  if (!idParsed.success) return apiResponse.notFound(res, 'Webhook not found');
+  const webhookId = idParsed.data;
 
   const bodyParsed = PostBody.safeParse(req.body ?? {});
   if (!bodyParsed.success) {
@@ -34,22 +37,30 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const { deliveryId } = bodyParsed.data;
 
+  let result: Awaited<ReturnType<typeof redeliverWebhook>>;
   try {
-    const result = await redeliverWebhook(webhookId, deliveryId);
-    await logAdminAction(
-      req.user.id,
-      'webhook.redeliver',
-      'webhook',
-      webhookId,
-      { deliveryId: deliveryId ?? 'last_failed', newDeliveryId: result.deliveryId },
-      getClientIp(req),
-    );
-    log.info('Admin: queued webhook redeliver', { webhookId, deliveryId }, 'admin-webhooks-redeliver-api');
-    return apiResponse.success(res, result, 'Delivery queued for retry');
+    result = await redeliverWebhook(webhookId, deliveryId);
   } catch (err) {
     log.error('Admin: redeliver webhook failed', { webhookId, deliveryId, error: err }, 'admin-webhooks-redeliver-api');
     return apiResponse.badRequestFromError(res, err, 'Redeliver failed');
   }
+  // Outside the catch: a failed audit write is a 500, not a committed 4xx. It rolls back only the
+  // delivery row (request transaction): the request has already gone out, and the endpoint stamp
+  // (stampDelivery) committed on its own migration_admin connection.
+  await logAdminAction(
+    req.user.id,
+    'webhook.redeliver',
+    'webhook',
+    webhookId,
+    {
+      deliveryId: deliveryId ?? 'last_failed', newDeliveryId: result.deliveryId,
+      delivered: result.delivered, responseStatus: result.responseStatus,
+    },
+    getClientIp(req),
+  );
+  const answer = result.responseStatus === null ? 'no answer' : `HTTP ${result.responseStatus}`;
+  return apiResponse.success(res, result,
+    result.delivered ? `Redelivered (${answer})` : `Redelivery failed: the endpoint gave ${answer}`);
 }
 
-export default withAdmin(handler);
+export default withAdmin(withCsrf(handler));

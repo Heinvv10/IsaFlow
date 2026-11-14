@@ -194,7 +194,6 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/workbench/monthEndLedgerCards.ts': 'filtered',
   'src/modules/admin/services/analyticsService.ts': 'exempt: platform-admin DB-size estimate, not a financial total',
   'src/modules/admin/services/dataExportService.ts': 'exempt: full company data export must include every row regardless of feed_state (completeness)',
-  'src/modules/admin/services/sageMigrationOrchestrator.ts': 'exempt: writer (Task 3) — migration import writer',
   'src/modules/bureau/services/bureauWorkAggregatorService.ts': 'filtered',
 };
 

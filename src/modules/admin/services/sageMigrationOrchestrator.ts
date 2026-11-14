@@ -12,7 +12,6 @@ import { log } from '@/lib/logger';
 import { commitARInvoice, commitAPInvoice, upsertCustomer, upsertSupplier } from './sageMigrationCommitService';
 import type { Row, CommitPayload, CommitSummary } from './sageMigrationTypes';
 import { sageAccountSubtype } from './sageAccountSubtype';
-import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import { assertRolesKept, snapshotRoles } from '@/modules/accounting/services/gl/systemRoleInvariant';
 import { clearSystemAccountCacheAfterCommit } from '@/modules/accounting/services/gl/systemAccountResolver';
@@ -27,7 +26,6 @@ export async function commitSageMigration(payload: CommitPayload): Promise<Commi
     suppliers:        { created: 0, skipped: 0, failed: [] },
     arInvoices:       { created: 0, skipped: 0, failed: [] },
     apInvoices:       { created: 0, skipped: 0, failed: [] },
-    bankTransactions: { created: 0, skipped: 0, failed: [] },
     warnings:         [],
   };
 
@@ -131,33 +129,6 @@ export async function commitSageMigration(payload: CommitPayload): Promise<Commi
         throw err;
       }
     });
-  }
-
-  // Bank Transactions (chunked)
-  const btx = pulled.bankTransactions;
-  if (btx?.records?.length) {
-    const BATCH = 500;
-    const accountId = btx.bankAccountId;
-    const ok = (await sql`SELECT 1 FROM gl_accounts WHERE id = ${accountId}::UUID AND company_id = ${companyId}::UUID AND account_subtype = ANY(${BANK_SUBTYPES as string[]}) LIMIT 1`) as Row[];
-    if (!ok.length) {
-      summary.bankTransactions.failed.push(`Bank account ${accountId} not found for company`);
-    } else {
-      for (let start = 0; start < btx.records.length; start += BATCH) {
-        const chunk = btx.records.slice(start, start + BATCH);
-        await withSavepoint(`btx_${start}`, async () => {
-          for (const tx of chunk) {
-            try {
-              const dup = (await sql`SELECT 1 FROM bank_transactions WHERE bank_account_id = ${accountId}::UUID AND transaction_date = ${tx.date}::DATE AND amount = ${tx.amount} AND COALESCE(description, '') = ${tx.description ?? ''} LIMIT 1`) as Row[];
-              if (dup.length) { summary.bankTransactions.skipped += 1; continue; }
-              await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, reference, status) VALUES (${companyId}::UUID, ${accountId}::UUID, ${tx.date}::DATE, ${tx.amount}, ${tx.description ?? null}, ${tx.reference ?? null}, 'imported')`;
-              summary.bankTransactions.created += 1;
-            } catch (err) {
-              summary.bankTransactions.failed.push(`${tx.date} ${tx.amount}: ${err instanceof Error ? err.message : String(err)}`);
-            }
-          }
-        }).catch(() => { /* chunk savepoint — per-record errors already captured */ });
-      }
-    }
   }
 
   log.info('Sage commit complete', { companyId, summary }, 'migration');

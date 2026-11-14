@@ -85,8 +85,7 @@ export default function AdminMigrationsPage() {
       const json = await res.json();
       const items: Company[] = (json.data?.items ?? []).map((c: Company) =>
         ({ id: c.id, name: c.name, trading_name: c.trading_name }));
-      setCompanies(items);
-      if (items.length > 0 && items[0]) setCompanyId(items[0].id);
+      setCompanies(items); // no company is pre-selected: the admin picks the target (audit 3.4)
     } catch (err) {
       log.error('Failed to load companies for migration tool', { error: err }, 'admin-ui');
       setCompanies([]); setCompanyId('');
@@ -127,6 +126,7 @@ export default function AdminMigrationsPage() {
 
   const handleExecute = async () => {
     if (!companyId) return;
+    if (!confirm(`Import ${totalCount} records into ${companyName?.trading_name ?? companyName?.name ?? 'the selected company'}? This writes into that company's books.`)) return;
     setExecuting(true); setExecErr(''); setResult(null);
     try {
       // withAuth middleware reads X-Company-Id header — pass the admin-selected company explicitly
@@ -176,7 +176,7 @@ export default function AdminMigrationsPage() {
                 <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400"><Loader2 className="w-4 h-4 animate-spin" /> Loading&hellip;</div>
               ) : (
                 <select value={companyId} onChange={e => setCompanyId(e.target.value)} className={selectCls}>
-                  {!companies.length && <option value="">No companies found</option>}
+                  <option value="">{companies.length ? '-- Select a company --' : 'No companies found'}</option>
                   {companies.map(c => <option key={c.id} value={c.id}>{c.trading_name ?? c.name}</option>)}
                 </select>
               )}

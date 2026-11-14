@@ -104,6 +104,65 @@ function readStoredSecret(stored: string): string {
 }
 
 /**
+ * Send one event to one endpoint row (signed with its decrypted secret, through
+ * safeFetch), record the delivery and stamp the endpoint. Never throws on the
+ * outbound call: a refused or failed send is recorded as an unsuccessful
+ * delivery. Shared by fireWebhook and the admin Redeliver (adminWebhookService).
+ */
+export async function deliverToEndpoint(
+  companyId: string,
+  row: Row,
+  event: string,
+  payload: Record<string, unknown>,
+): Promise<{ deliveryId: string; success: boolean; responseStatus: number | null }> {
+  const endpoint = mapWebhook(row);
+  // Sign with the real (decrypted) secret — mapWebhook masks it, so the old
+  // `endpoint.secret` signed every payload with the literal '••••••••'.
+  const rawSecret = row.secret ? readStoredSecret(String(row.secret)) : null;
+  const body = JSON.stringify(payload);
+  const signature = rawSecret ? signPayload(rawSecret, body) : '';
+
+  let responseStatus: number | null = null;
+  let responseBody: string | null = null;
+  let success = false;
+
+  try {
+    // safeFetch re-validates the (re-resolved) target on every delivery, so a
+    // URL that now points to private space (rebinding) is refused fail-closed.
+    const resp = await safeFetch(endpoint.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Webhook-Event': event,
+        ...(signature ? { 'X-Webhook-Signature': signature } : {}),
+      },
+      body,
+    });
+    responseStatus = resp.status;
+    responseBody = (await resp.text().catch(() => null))?.slice(0, 2000) ?? null;
+    success = resp.ok;
+  } catch (fetchErr) {
+    log.warn('Webhook delivery failed', { endpointId: endpoint.id, error: fetchErr }, 'webhook');
+  }
+
+  // Record delivery
+  const recorded = (await sql`
+    INSERT INTO webhook_deliveries (webhook_id, event, payload, response_status, response_body, success)
+    VALUES (${endpoint.id}::UUID, ${event}, ${body}::JSONB,
+            ${responseStatus}, ${responseBody}, ${success})
+    RETURNING id
+  `) as Row[];
+
+  try {
+    await stampDelivery(companyId, endpoint.id, success, AUTO_DISABLE_AFTER_FAILURES);
+  } catch (stampErr) {
+    // This delivery's stamp is lost (a failure is not counted); the other endpoints still go out.
+    log.error('Webhook delivery stamp failed', { endpointId: endpoint.id, success, error: stampErr }, 'webhook');
+  }
+  return { deliveryId: String(recorded[0]!.id), success, responseStatus };
+}
+
+/**
  * Fire webhook for an event — never throws to the caller.
  *
  * Awaitable on purpose (R-075). Its delivery-log INSERT and endpoint UPDATE run
@@ -127,49 +186,7 @@ export async function fireWebhook(
     `) as Row[];
 
     for (const row of rows) {
-      const endpoint = mapWebhook(row);
-      // Sign with the real (decrypted) secret — mapWebhook masks it, so the old
-      // `endpoint.secret` signed every payload with the literal '••••••••'.
-      const rawSecret = row.secret ? readStoredSecret(String(row.secret)) : null;
-      const body = JSON.stringify(payload);
-      const signature = rawSecret ? signPayload(rawSecret, body) : '';
-
-      let responseStatus: number | null = null;
-      let responseBody: string | null = null;
-      let success = false;
-
-      try {
-        // safeFetch re-validates the (re-resolved) target on every delivery, so a
-        // URL that now points to private space (rebinding) is refused fail-closed.
-        const resp = await safeFetch(endpoint.url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Webhook-Event': event,
-            ...(signature ? { 'X-Webhook-Signature': signature } : {}),
-          },
-          body,
-        });
-        responseStatus = resp.status;
-        responseBody = (await resp.text().catch(() => null))?.slice(0, 2000) ?? null;
-        success = resp.ok;
-      } catch (fetchErr) {
-        log.warn('Webhook delivery failed', { endpointId: endpoint.id, error: fetchErr }, 'webhook');
-      }
-
-      // Record delivery
-      await sql`
-        INSERT INTO webhook_deliveries (webhook_id, event, payload, response_status, response_body, success)
-        VALUES (${endpoint.id}::UUID, ${event}, ${JSON.stringify(payload)}::JSONB,
-                ${responseStatus}, ${responseBody}, ${success})
-      `;
-
-      try {
-        await stampDelivery(companyId, endpoint.id, success, AUTO_DISABLE_AFTER_FAILURES);
-      } catch (stampErr) {
-        // This delivery's stamp is lost (a failure is not counted); the other endpoints still go out.
-        log.error('Webhook delivery stamp failed', { endpointId: endpoint.id, success, error: stampErr }, 'webhook');
-      }
+      await deliverToEndpoint(companyId, row, event, payload);
     }
   } catch (err) {
     log.error('fireWebhook error', { companyId, event, error: err }, 'webhook');

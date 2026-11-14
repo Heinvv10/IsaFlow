@@ -21,3 +21,13 @@ export const TYPE_LABELS: Record<string, string> = {
   invite:          'Invite',
   other:           'Other',
 };
+
+/**
+ * Why Resend is off (admin audit 1.12, goal §2a): email_log keeps the recipient,
+ * subject and type, never the email itself or what it was about, so no email can
+ * be rebuilt from it. Sending a shell with the old subject and no content would
+ * mislead the recipient.
+ */
+export const RESEND_UNAVAILABLE =
+  'This email cannot be rebuilt: the log keeps only its recipient and subject, not the email itself. '
+  + 'Send it again from where it started (the invoice, statement, quote or invite).';

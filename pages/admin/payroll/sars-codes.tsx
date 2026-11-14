@@ -119,7 +119,7 @@ export default function AdminSarsCodesPage() {
   const onYearChange = (y: number) => { setTaxYear(y); void load(y); };
 
   const onSetCurrent = async (year: number) => {
-    if (!confirm(`Mark tax year ${year} as the current SARS release? All new payroll runs will use this year's codes.`)) return;
+    if (!confirm(`Mark tax year ${year} as the current SARS release? This only sets which year this page opens on. Payroll runs and IRP5 checks do not read it: they use each run's own tax year.`)) return;
     try {
       const res = await apiFetch('/api/admin/payroll/sars-codes/release', {
         method: 'POST',
@@ -133,7 +133,7 @@ export default function AdminSarsCodesPage() {
   const onToggleStatus = async (row: CodeRow) => {
     const next = row.status === 'deprecated' ? 'active' : 'deprecated';
     if (next === 'deprecated' && row.used_by_companies > 0) {
-      if (!confirm(`Code ${row.code} is used by ${row.used_by_companies} compan${row.used_by_companies === 1 ? 'y' : 'ies'}. Marking deprecated will block new payroll runs that reference it. Continue?`)) return;
+      if (!confirm(`Code ${row.code} is used by ${row.used_by_companies} compan${row.used_by_companies === 1 ? 'y' : 'ies'}. Marking it deprecated makes IRP5 and year-end checks report an error for it in tax year ${row.effective_year}. Pay runs are not blocked. Continue?`)) return;
     }
     try {
       const res = await apiFetch(`/api/admin/payroll/sars-codes/${row.code}?taxYear=${row.effective_year}`, {
@@ -171,7 +171,7 @@ export default function AdminSarsCodesPage() {
         <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] overflow-hidden">
           <div className="px-4 py-3 border-b border-[var(--ff-border-primary)] flex items-center justify-between">
             <h2 className="text-sm font-medium text-[var(--ff-text-primary)]">Releases</h2>
-            <span className="text-xs text-[var(--ff-text-tertiary)]">One release marked <span className="text-emerald-400">current</span> drives all new payroll runs.</span>
+            <span className="text-xs text-[var(--ff-text-tertiary)]">The release marked <span className="text-emerald-400">current</span> is the year this page opens on. Payroll uses each run&rsquo;s own tax year.</span>
           </div>
           <div className="divide-y divide-[var(--ff-border-primary)]">
             {releases.length === 0 ? (

@@ -2,7 +2,6 @@
  * D2 (admin pages, load-on-mount): the server's refusal message from the real error envelope
  * `{ success:false, error:{ code, message } }` reaches the user. The pages used to read `json.message`
  * (always undefined) and showed the generic fallback. Real apiJson/assertOk run over a scripted apiFetch.
- * NOT TESTED: pages/admin/email-log.tsx resend (the message is never rendered, only a "Failed" badge).
  */
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';

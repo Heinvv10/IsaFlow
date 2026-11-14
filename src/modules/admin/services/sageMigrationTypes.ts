@@ -66,14 +66,6 @@ export interface MappedAPInvoice {
   sageId?: number;
 }
 
-export interface BankTx {
-  bankAccountId: string;
-  date: string;
-  amount: number;
-  description?: string;
-  reference?: string;
-}
-
 // ── Orchestrator payload ──────────────────────────────────────────────────────
 
 export interface CommitPayload {
@@ -85,7 +77,6 @@ export interface CommitPayload {
     suppliers?:        { records?: MappedSupplier[] };
     arInvoices?:       { records?: MappedARInvoice[] };
     apInvoices?:       { records?: MappedAPInvoice[] };
-    bankTransactions?: { bankAccountId: string; records: BankTx[] };
   };
 }
 
@@ -111,7 +102,6 @@ export interface CommitSummary {
   suppliers:        { created: number; skipped: number; failed: string[] };
   arInvoices:       { created: number; skipped: number; failed: string[] };
   apInvoices:       { created: number; skipped: number; failed: string[] };
-  bankTransactions: { created: number; skipped: number; failed: string[] };
   /** Non-fatal source problems, one line per affected record. */
   warnings:         string[];
 }
