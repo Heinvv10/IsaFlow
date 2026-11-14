@@ -24,6 +24,8 @@ export interface Assignment {
   componentType: string;
   componentActive: boolean;
   amount: number;
+  /** RF: a share of retirement-funding income the run costs (amount is then 0); null or absent for a plain amount. */
+  percentOfRfi?: number | null;
   effectiveFrom: string;
   effectiveTo: string | null;
   isRecurring: boolean;
@@ -163,7 +165,10 @@ export function EmployeeComponentsCard({
                     </span>
                   )}
                 </td>
-                <td className="py-2 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(a.amount)}</td>
+                <td className="py-2 text-right tabular-nums text-[var(--ff-text-primary)]"
+                  title={a.percentOfRfi != null ? 'Costed by each pay run on the earnings that count as retirement-funding income' : undefined}>
+                  {a.percentOfRfi != null ? `${Number((a.percentOfRfi * 100).toFixed(2))}% of RFI` : formatCurrency(a.amount)}
+                </td>
                 <td className="py-2 pl-6 text-[var(--ff-text-secondary)]">{formatDisplayDate(a.effectiveFrom)}</td>
                 <td className="py-2 pl-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(a.effectiveTo)}</td>
                 <td className="py-2 text-right">

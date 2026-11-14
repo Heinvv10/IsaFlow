@@ -139,7 +139,7 @@ describe('payroll net pay — the bank role holder', () => {
 
     expect(plan!.blockers).toEqual([]);
     expect(plan!.lines).toEqual([
-      { glAccountId: 'acc-5200', accountCode: '5200', accountName: 'Labour Costs', debit: 102000, credit: 0, description: 'Labour costs — gross pay + employer contributions (UIF, SDL, medical scheme) − ETI', inactiveAccount: false, cc1Id: null },
+      { glAccountId: 'acc-5200', accountCode: '5200', accountName: 'Labour Costs', debit: 102000, credit: 0, description: 'Labour costs — gross pay + employer contributions (UIF, SDL, medical scheme, retirement funds) − ETI', inactiveAccount: false, cc1Id: null },
       { glAccountId: 'acc-2140', accountCode: '2140', accountName: 'PAYE Payable', debit: 0, credit: 20000, description: 'PAYE payable, net of ETI', inactiveAccount: false, cc1Id: null },
       { glAccountId: 'acc-2150', accountCode: '2150', accountName: 'UIF Payable', debit: 0, credit: 2000, description: 'UIF payable (employee + employer)', inactiveAccount: false, cc1Id: null },
       { glAccountId: 'acc-2160', accountCode: '2160', accountName: 'SDL Payable', debit: 0, credit: 1000, description: 'SDL payable', inactiveAccount: false, cc1Id: null },
