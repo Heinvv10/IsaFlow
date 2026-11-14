@@ -138,7 +138,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       email_type:      String(r.email_type ?? 'other'),
       status:          (r.status ?? 'sent') as EmailLogItem['status'],
       error_message:   r.error_message != null ? String(r.error_message) : null,
-      sent_at:         String(r.sent_at ?? ''),
+      // pg returns a Date: String() of one is the browser-style long date the page printed raw (audit 4.11).
+      sent_at:         r.sent_at instanceof Date ? r.sent_at.toISOString() : String(r.sent_at ?? ''),
       sent_by:         r.sent_by != null ? String(r.sent_by) : null,
     }));
 
