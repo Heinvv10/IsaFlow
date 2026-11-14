@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { voidOpenChargesForSubscription } from './subscriptionChargeVoid';
 import type {
   BillingOverview,
   SubscriptionListItem,
@@ -263,6 +264,7 @@ export async function updateSubscription(
       updated_at       = NOW()
     WHERE id = ${subscriptionId}
   `;
+  if (status === 'cancelled') await voidOpenChargesForSubscription(subscriptionId);
 
   log.info('updateSubscription', { subscriptionId }, 'BillingService');
 }
@@ -286,6 +288,7 @@ export async function cancelSubscription(
           updated_at   = NOW()
       WHERE id = ${subscriptionId}
     `;
+    await voidOpenChargesForSubscription(subscriptionId);
   }
   log.info('cancelSubscription', { subscriptionId, atPeriodEnd }, 'BillingService');
 }

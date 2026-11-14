@@ -180,6 +180,9 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
     FROM subscription_charges c
     JOIN subscription_mandates m ON m.id = c.mandate_id
     JOIN companies co ON co.id = c.company_id AND co.status IS DISTINCT FROM 'deleted'
+    -- Only a subscription still owed a period: never debit a cancelled or paused one.
+    JOIN subscriptions s ON s.id = c.subscription_id AND s.company_id = c.company_id
+      AND s.status IN ('active','trial','past_due')
     LEFT JOIN users u ON u.id = m.authorised_by::text
     WHERE c.gateway = 'paystack'
       -- Unattributed charges cannot be settled (624's CHECK) and the rejection
