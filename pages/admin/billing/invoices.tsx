@@ -1,15 +1,17 @@
-/** Admin — Invoice List: filter by status/date, paginate, send drafts, mark paid, create invoices. */
+/** Admin — Invoice List: filter by status/date, paginate, email drafts to the billing email, mark paid, create invoices. */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check, Send, CreditCard } from 'lucide-react';
+import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, Send, CreditCard } from 'lucide-react';
 import { DateField } from '@/components/ui/DateField';
 
-import {
-  EMPTY_FORM, type InvForm, type Invoice, type PagedResponse,
-} from '@/components/admin/billing/invoiceModel';
+import { ConfirmModal } from '@/components/admin/ConfirmModal';
+import { CreateInvoiceModal } from '@/components/admin/billing/CreateInvoiceModal';
+import { type Invoice, type PagedResponse } from '@/components/admin/billing/invoiceModel';
+
+type InvoiceAction = 'send' | 'mark_paid';
 
 const STATUS_BADGE: Record<string, string> = {
   draft:      'bg-gray-500/10 text-gray-500',
@@ -31,10 +33,10 @@ export default function InvoicesPage() {
   const [dateFrom, setDateFrom]   = useState('');
   const [dateTo, setDateTo]       = useState('');
   const [showForm, setShowForm]   = useState(false);
-  const [form, setForm]           = useState<InvForm>(EMPTY_FORM);
-  const [formError, setFormError] = useState('');
-  const [saving, setSaving]       = useState(false);
   const [actionId, setActionId]   = useState<string | null>(null);
+  // The action waiting for the admin to confirm it: Send emails the customer, Mark Paid closes the invoice.
+  const [pending, setPending]     = useState<{ invoice: Invoice; action: InvoiceAction } | null>(null);
+  const [notice, setNotice]       = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const LIMIT = 25;
 
@@ -45,8 +47,8 @@ export default function InvoicesPage() {
       const params = new URLSearchParams({ page: String(pg), limit: String(LIMIT) });
       if (q)    params.set('search',    q);
       if (st)   params.set('status',    st);
-      if (from) params.set('date_from', from);
-      if (to)   params.set('date_to',   to);
+      if (from) params.set('from_date', from);
+      if (to)   params.set('to_date',   to);
       const res  = await apiFetch(`/api/admin/billing/invoices?${params}`);
       await assertOk(res, 'Could not load invoices - try again');
       const json = await res.json();
@@ -74,8 +76,9 @@ export default function InvoicesPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
 
-  async function handleAction(id: string, action: 'send' | 'mark_paid') {
+  async function handleAction(id: string, action: InvoiceAction) {
     setActionId(id);
+    setNotice('');
     const failure = action === 'send' ? 'Could not send the invoice - try again' : 'Could not mark the invoice as paid - try again';
     try {
       // Route files use hyphens; mark_paid → mark-paid
@@ -87,6 +90,10 @@ export default function InvoicesPage() {
         body,
       });
       await assertOk(res, failure);
+      if (action === 'send') {
+        const json = await res.json() as { data?: { recipient?: string } };
+        setNotice(json.data?.recipient ? `Invoice emailed to ${json.data.recipient}` : 'Invoice emailed');
+      }
       void load(search, status, dateFrom, dateTo, page);
     } catch (err) {
       setError(apiErrorMessage(err, failure));
@@ -95,34 +102,11 @@ export default function InvoicesPage() {
     }
   }
 
-  async function handleCreate() {
-    setFormError('');
-    if (!form.company_id.trim()) { setFormError('Company ID is required'); return; }
-    if (!form.subtotal)          { setFormError('Subtotal is required'); return; }
-    if (!form.total)             { setFormError('Total is required'); return; }
-    setSaving(true);
-    try {
-      const res  = await apiFetch('/api/admin/billing/invoices', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
-        body: JSON.stringify({
-          company_id:     form.company_id,
-          subtotal_cents: Math.round(parseFloat(form.subtotal) * 100),
-          tax_cents:      Math.round(parseFloat(form.tax || '0') * 100),
-          total_cents:    Math.round(parseFloat(form.total) * 100),
-          due_date:       form.due_date || null,
-          notes:          form.notes || null,
-        }),
-      });
-      await assertOk(res, 'Could not create the invoice - try again');
-      setShowForm(false);
-      setForm(EMPTY_FORM);
-      void load(search, status, dateFrom, dateTo, 1);
-    } catch (err) {
-      setFormError(apiErrorMessage(err, 'Could not create the invoice - try again'));
-    } finally {
-      setSaving(false);
-    }
+  function confirmPending() {
+    if (!pending) return;
+    const { invoice, action } = pending;
+    setPending(null);
+    void handleAction(invoice.id, action);
   }
 
   const inputCls = 'px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500';
@@ -148,7 +132,7 @@ export default function InvoicesPage() {
         <div className="w-40"><DateField label="From date" value={dateFrom || null} onChange={(iso, v) => { if (v.valid) { setDateFrom(iso ?? ''); setPage(1); } }} /></div>
         <div className="w-40"><DateField label="To date" value={dateTo || null} onChange={(iso, v) => { if (v.valid) { setDateTo(iso ?? ''); setPage(1); } }} /></div>
         <span className="text-sm text-gray-500 dark:text-gray-400 self-center ml-auto">{total} total</span>
-        <button onClick={() => { setShowForm(true); setFormError(''); setForm(EMPTY_FORM); }}
+        <button onClick={() => setShowForm(true)}
           className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors">
           <Plus className="w-4 h-4" /> Create Invoice
         </button>
@@ -160,46 +144,26 @@ export default function InvoicesPage() {
         </div>
       )}
 
-      {/* Create Invoice Modal */}
-      {showForm && (
-        <div role="dialog" aria-modal="true" aria-labelledby="invoice-modal-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-              <h3 id="invoice-modal-title" className="text-sm font-semibold text-gray-900 dark:text-white">Create Invoice</h3>
-              <button onClick={() => setShowForm(false)} className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-4 h-4" /></button>
-            </div>
-            <div className="p-5 space-y-4">
-              {formError && (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-xs">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" /> {formError}
-                </div>
-              )}
-              {(['company_id', 'subtotal', 'tax', 'total', 'due_date'] as const).map((key, i) => {
-                const labels = ['Company ID', 'Subtotal (R)', 'Tax (R)', 'Total (R)', 'Due Date'];
-                const types  = ['text', 'number', 'number', 'number', 'date'];
-                return (
-                  <div key={key}>
-                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{labels[i]}</label>
-                    <input type={types[i]} value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} className={`w-full ${inputCls}`} />
-                  </div>
-                );
-              })}
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Notes</label>
-                <textarea rows={3} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                  className={`w-full ${inputCls}`} />
-              </div>
-            </div>
-            <div className="px-5 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-              <button onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">Cancel</button>
-              <button onClick={() => void handleCreate()} disabled={saving}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Create
-              </button>
-            </div>
-          </div>
-        </div>
+      {notice && (
+        <div role="status" className="p-3 rounded-lg bg-teal-500/10 text-teal-700 dark:text-teal-300 text-sm mb-4">{notice}</div>
       )}
+
+      {showForm && (
+        <CreateInvoiceModal onClose={() => setShowForm(false)}
+          onCreated={() => { setShowForm(false); void load(search, status, dateFrom, dateTo, 1); }} />
+      )}
+
+      <ConfirmModal
+        open={pending !== null}
+        title={pending?.action === 'send' ? 'Send invoice?' : 'Mark invoice paid?'}
+        message={pending?.action === 'send'
+          ? `Email ${pending.invoice.invoice_number} (${formatCurrency(pending.invoice.total_cents / 100)}) to ${pending.invoice.company_name}'s billing email? It is then marked sent.`
+          : `Mark ${pending?.invoice.invoice_number ?? ''} (${formatCurrency((pending?.invoice.total_cents ?? 0) / 100)}) as paid? Use this only once the payment has arrived.`}
+        confirmLabel={pending?.action === 'send' ? 'Send invoice' : 'Mark as paid'}
+        confirmClass="bg-brand-600 hover:bg-brand-700 text-white"
+        onConfirm={confirmPending}
+        onCancel={() => setPending(null)}
+      />
 
       {/* Table */}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm overflow-hidden">
@@ -235,13 +199,13 @@ export default function InvoicesPage() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5">
                       {inv.status === 'draft' && (
-                        <button onClick={() => void handleAction(inv.id, 'send')} disabled={actionId === inv.id}
+                        <button onClick={() => setPending({ invoice: inv, action: 'send' })} disabled={actionId === inv.id}
                           className="p-1.5 rounded text-gray-600 dark:text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 transition-colors disabled:opacity-40" title="Send">
                           {actionId === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                         </button>
                       )}
                       {(inv.status === 'sent' || inv.status === 'overdue') && (
-                        <button onClick={() => void handleAction(inv.id, 'mark_paid')} disabled={actionId === inv.id}
+                        <button onClick={() => setPending({ invoice: inv, action: 'mark_paid' })} disabled={actionId === inv.id}
                           className="p-1.5 rounded text-gray-600 dark:text-gray-400 hover:text-teal-400 hover:bg-teal-500/10 transition-colors disabled:opacity-40" title="Mark Paid">
                           {actionId === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />}
                         </button>

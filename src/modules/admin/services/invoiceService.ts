@@ -1,7 +1,7 @@
 /**
  * Invoice Service
  * Admin invoice lifecycle for the IsaFlow Admin Platform.
- * Subscription operations are in billingService.ts.
+ * Subscription operations are in billingService.ts; emailing an invoice is invoiceSendService.ts.
  */
 
 import { sql, withTransaction } from '@/lib/neon';
@@ -9,6 +9,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { InvoiceListItem, PaginatedResult } from '../types/admin.types';
 import { ADMIN_INVOICE_NUMBER_SEED } from '@/modules/accounting/services/core/numberLock';
+import { invoiceAmountsFromSubtotal } from './invoiceAmounts';
 type Row = DbRow;
 
 
@@ -116,26 +117,19 @@ export async function listInvoices(filters: {
   };
 }
 
+/** VAT and total are computed here from the subtotal (invoiceAmounts.ts); a caller cannot supply them. */
 export async function createInvoice(data: {
   company_id: string;
   subscription_id?: string;
   subtotal_cents: number;
-  tax_cents: number;
-  total_cents: number;
-  due_date?: string;
+  due_date?: string | null;
   line_items?: unknown[];
-  notes?: string;
+  notes?: string | null;
 }): Promise<string> {
-  const {
-    company_id,
-    subscription_id = null,
-    subtotal_cents,
-    tax_cents,
-    total_cents,
-    due_date = null,
-    line_items = [],
-    notes = null,
-  } = data;
+  const { company_id, subscription_id = null, line_items = [] } = data;
+  const due_date = data.due_date ?? null;
+  const notes = data.notes ?? null;
+  const { subtotal_cents, tax_cents, total_cents } = invoiceAmountsFromSubtotal(data.subtotal_cents);
 
   // Sequential invoice number: INV-YYYYMM-XXXX
   // Wrapped in a transaction to prevent race conditions on sequence generation.
@@ -186,30 +180,31 @@ export async function createInvoice(data: {
   return id;
 }
 
+/** Why a status change did nothing: no such invoice, or it is not in a status the change starts from. */
+export type InvoiceTransition =
+  | { ok: true }
+  | { ok: false; reason: 'not_found' }
+  | { ok: false; reason: 'wrong_status'; status: string };
+
+/** sent/overdue -> paid. Anything else changes nothing and says why, so the route never answers a silent 200. */
 export async function markInvoicePaid(
   invoiceId: string,
   paymentMethod: string
-): Promise<boolean> {
+): Promise<InvoiceTransition> {
   const rows = await sql`
     UPDATE admin_invoices
     SET status         = 'paid',
         paid_at        = NOW(),
         payment_method = ${paymentMethod}
-    WHERE id = ${invoiceId}
+    WHERE id = ${invoiceId}::uuid
       AND status IN ('sent', 'overdue')
     RETURNING id
   `;
-  const updated = rows.length > 0;
-  log.info('markInvoicePaid', { invoiceId, paymentMethod, updated }, 'InvoiceService');
-  return updated;
-}
-
-export async function sendInvoice(invoiceId: string): Promise<void> {
-  await sql`
-    UPDATE admin_invoices
-    SET status = 'sent'
-    WHERE id   = ${invoiceId}
-      AND status = 'draft'
-  `;
-  log.info('sendInvoice', { invoiceId }, 'InvoiceService');
+  if (rows.length > 0) {
+    log.info('markInvoicePaid', { invoiceId, paymentMethod }, 'InvoiceService');
+    return { ok: true };
+  }
+  const current = (await sql`SELECT status FROM admin_invoices WHERE id = ${invoiceId}::uuid`) as Row[];
+  if (current.length === 0) return { ok: false, reason: 'not_found' };
+  return { ok: false, reason: 'wrong_status', status: String((current[0] as Row).status) };
 }

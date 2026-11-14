@@ -23,13 +23,12 @@ export interface PagedResponse {
   limit: number;
 }
 
+/** The create form: rands as typed. VAT and total are not inputs; the server computes them (invoiceAmounts.ts). */
 export interface InvForm {
   company_id: string;
   subtotal: string;
-  tax: string;
-  total: string;
   due_date: string;
   notes: string;
 }
 
-export const EMPTY_FORM: InvForm = { company_id: '', subtotal: '', tax: '0', total: '', due_date: '', notes: '' };
+export const EMPTY_FORM: InvForm = { company_id: '', subtotal: '', due_date: '', notes: '' };

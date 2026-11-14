@@ -169,7 +169,7 @@
   "pages/admin/billing/payg.tsx": 4,
   "pages/admin/billing/plans.tsx": 5,
   "pages/admin/billing/paystack/return.tsx": 1,
-  "pages/admin/billing/invoices.tsx": 13,
+  "pages/admin/billing/invoices.tsx": 11,
   "pages/admin/billing/flow-bundles.tsx": 6,
   "pages/admin/billing/subscriptions.tsx": 15,
   "pages/admin/health.tsx": 4,

@@ -13,25 +13,26 @@ import { apiResponse } from '@/lib/apiResponse';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { log } from '@/lib/logger';
 import { listInvoices, createInvoice } from '@/modules/admin/services/invoiceService';
+import { invoiceAmountsFromSubtotal } from '@/modules/admin/services/invoiceAmounts';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 import { UUID } from '@/lib/schemas/common';
 
+// VAT and total are not accepted: createInvoice computes them from the subtotal (15%), so `.strict()` refuses a
+// client-sent tax_cents / total_cents. A blank due date or notes may come as null or be left out.
 const PostBody = z.object({
   company_id:      UUID,
   subscription_id: UUID.optional(),
-  subtotal_cents:  z.number().int().nonnegative(),
-  tax_cents:       z.number().int().nonnegative().optional(),
-  total_cents:     z.number().int().nonnegative(),
-  due_date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  subtotal_cents:  z.number().int().nonnegative().max(1_800_000_000), // total (x1.15) must fit the INT column
+  due_date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   line_items:      z.array(z.record(z.string(), z.unknown())).optional(),
-  notes:           z.string().max(2000).optional(),
+  notes:           z.string().max(2000).nullable().optional(),
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     try {
-      const { company_id, status, from_date, to_date, search, page, limit } = req.query;
+      const { company_id, status, from_date, to_date, search, page, limit, sort_by, sort_dir } = req.query;
 
       const result = await listInvoices({
         company_id: company_id as string | undefined,
@@ -41,6 +42,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         search: search as string | undefined,
         page: page ? Number(page) : undefined,
         limit: limit ? Number(limit) : undefined,
+        sort_by: sort_by as string | undefined,
+        sort_dir: sort_dir === 'asc' || sort_dir === 'desc' ? sort_dir : undefined,
       });
 
       return apiResponse.success(res, result);
@@ -57,25 +60,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     try {
-      const { company_id, subscription_id, subtotal_cents, tax_cents, total_cents, due_date, line_items, notes } = parsed.data;
+      const { company_id, subscription_id, subtotal_cents, due_date, line_items, notes } = parsed.data;
 
-      const invoiceId = await createInvoice({
-        company_id,
-        subscription_id,
-        subtotal_cents,
-        tax_cents: tax_cents ?? 0,
-        total_cents,
-        due_date,
-        line_items,
-        notes,
-      });
+      const invoiceId = await createInvoice({ company_id, subscription_id, subtotal_cents, due_date, line_items, notes });
 
       await logAdminAction(
         req.user.id,
         'invoice.create',
         'invoice',
         invoiceId,
-        { company_id: parsed.data.company_id, subscription_id: parsed.data.subscription_id, total_cents: parsed.data.total_cents },
+        { company_id, subscription_id, ...invoiceAmountsFromSubtotal(subtotal_cents) },
         getIp(req)
       );
 
