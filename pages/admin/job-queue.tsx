@@ -91,7 +91,8 @@ export default function JobQueuePage() {
         body: JSON.stringify({ action: 'retry', jobId }),
       });
       await assertOk(res, 'Could not retry the job - try again');
-      setSelectedIds(new Set()); // an action clears the selection; only the poll keeps it
+      // A single Retry drops only that job from the selection; bulk actions clear it all; the poll keeps it.
+      setSelectedIds(prev => { const next = new Set(prev); next.delete(jobId); return next; });
       await load();
     } catch (err) { showToast(apiErrorMessage(err, 'Could not retry the job - try again'));
     } finally { setRetrying(null); }

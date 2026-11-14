@@ -1,6 +1,6 @@
 // Admin Job Queue (WP13, admin audit 2026-11-14):
-//  - 4.17 a reload (the 10 s poll, or Refresh: the same load) keeps the jobs the admin ticked; a finished
-//    action (bulk Retry/Cancel, single Retry) clears the selection;
+//  - 4.17 a reload (the 10 s poll, or Refresh: the same load) keeps the jobs the admin ticked; bulk
+//    Retry/Cancel clears the selection, a single Retry drops only its own job;
 //  - 3.7  Delete Old Jobs asks first: nothing is deleted until the admin confirms.
 import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -70,11 +70,14 @@ describe('job queue', () => {
     expect(screen.getByLabelText('Select job j-2').getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('a single Retry clears the selection', async () => {
+  it('a single Retry drops only that job from the selection', async () => {
     render(<JobQueuePage />);
     fireEvent.click(await screen.findByLabelText('Select job j-1'));
+    fireEvent.click(screen.getByLabelText('Select job j-2'));
+    expect(await screen.findByText('2 jobs selected')).toBeTruthy();
+    fireEvent.click(screen.getAllByRole('button', { name: /^retry$/i })[0]!); // j-1's row
     expect(await screen.findByText('1 job selected')).toBeTruthy();
-    fireEvent.click(screen.getAllByRole('button', { name: /^retry$/i })[0]!);
-    await waitFor(() => expect(screen.queryByText(/job selected/)).toBeNull());
+    expect(screen.getByLabelText('Select job j-1').getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByLabelText('Select job j-2').getAttribute('aria-pressed')).toBe('true');
   });
 });
