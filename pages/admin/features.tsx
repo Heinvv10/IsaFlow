@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
 import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2, ToggleLeft, ToggleRight } from 'lucide-react';
 import {
   FeatureFlagRow,

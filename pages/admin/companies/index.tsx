@@ -9,7 +9,7 @@ import { BulkActionsBar } from '@/components/admin/companies/BulkActionsBar';
 import { BulkResultNotice, type BulkResult } from '@/components/admin/companies/BulkResultNotice';
 import { CreateCompanyModal } from '@/components/admin/companies/CreateCompanyModal';
 import { SuspendCompanyDialog } from '@/components/admin/companies/SuspendCompanyDialog';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import {
