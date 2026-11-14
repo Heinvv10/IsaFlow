@@ -89,14 +89,15 @@ describe('one end row per Login-as', () => {
     expect(await end(first)).toBe(200);
     const [earlier] = (await endRows(fx.platformAdmin)).slice(-1);
     const second = await fx.loginAsTarget();
-    // The second session presents the first session's (now deleted) stash id: STASH_EXPIRED. That stash is gone, so
-    // nothing is recorded in anyone's name (only the presenting browser's own session is revoked).
-    const before = (await endRows(fx.platformAdmin)).length;
+    // The second session presents the first session's (now deleted) stash id: STASH_EXPIRED. That stash is gone, but
+    // the browser holds its OWN session's proof, so it proves (and ends) its own Login-as: a row of its own, keyed on
+    // its session, never the first session's row.
     expect(await end({ ...second, 'sb-admin-stash': first['sb-admin-stash']! })).toBe(401);
     const rows = await endRows(fx.platformAdmin);
     expect(rows.find((r) => r.id === earlier!.id)!.details).toEqual(earlier!.details);
-    expect(rows).toHaveLength(before);
-    expect(await end(second)).toBe(200); // its own live stash still restores
+    expect(rows.at(-1)!.id).not.toBe(earlier!.id);
+    expect(rows.at(-1)!.details).toMatchObject({ reason: 'stash_expired', session_id: sessionOf(second) });
+    expect(rows.at(-1)!.details).not.toHaveProperty('stash_id');
   });
 
   it('re-break M4 a stash cookie swapped between two Login-as of one pair: each session keeps its own end row', async () => {
