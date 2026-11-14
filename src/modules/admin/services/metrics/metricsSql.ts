@@ -12,6 +12,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { CURRENT_SUBSCRIPTION_SQL } from '../currentPlanSql';
 import { summariseRevenue, type RevenueSummary, type SubscriptionFact } from './revenueMath';
 import type { CohortCompany } from './timeSeriesMath';
 
@@ -53,17 +54,16 @@ export const companyMrrCents = () => sql`(
 export const subscriptionMrrCents = () => sql`ROUND(${subscriptionAnnualUnits()}::numeric / 1200)::int`;
 
 /**
- * LEFT JOIN LATERAL `cur`: company `c`'s current subscription, by the rule the
- * feature-flag readers use (featureFlagService.ts): the latest created of
- * trial / active / past_due. One row per company, so a list never repeats one.
+ * LEFT JOIN LATERAL `cur`: company `c`'s current subscription, the one row
+ * feature gating reads its plan from (CURRENT_SUBSCRIPTION_SQL,
+ * currentPlanSql.ts): the latest created active or past_due row, or trial
+ * whose end is still ahead. An expired or dateless trial is not current, so a
+ * company with nothing else shows no plan and no billing cycle. Plan and cycle
+ * come from that one row; one row per company, so a list never repeats one.
  */
 export const currentSubscriptionJoin = () => sql`
   LEFT JOIN LATERAL (
-    SELECT s.plan_id, s.billing_cycle
-    FROM subscriptions s
-    WHERE s.company_id = c.id AND s.status IN ('trial', 'active', 'past_due')
-    ORDER BY s.created_at DESC NULLS LAST, s.id DESC
-    LIMIT 1
+    SELECT s.plan_id, s.billing_cycle${sql.unsafe(CURRENT_SUBSCRIPTION_SQL)}
   ) cur ON true`;
 
 const asDate = (v: unknown): Date => (v instanceof Date ? v : new Date(String(v)));

@@ -24,16 +24,24 @@
  * `subscriptions` has no one-live-per-company constraint, hence the explicit
  * ordering. companies.plan_id is vestigial and never read.
  *
- * The text is a constant with no interpolated values, so splicing it through
- * sql.unsafe cannot inject anything.
+ * CURRENT_SUBSCRIPTION_SQL is the rule itself: the FROM / WHERE / ORDER BY /
+ * LIMIT tail that picks that one row as alias `s`, for a reader that needs
+ * more of the row than plan_id (the admin companies list, detail and export
+ * show its plan and billing cycle: metricsSql.ts currentSubscriptionJoin).
+ *
+ * The texts are constants with no interpolated values, so splicing them
+ * through sql.unsafe cannot inject anything.
  */
-export const CURRENT_PLAN_ID_SQL = `(
-  SELECT s.plan_id
+export const CURRENT_SUBSCRIPTION_SQL = `
   FROM public.subscriptions s
   WHERE s.company_id = c.id
     AND (s.status IN ('active', 'past_due')
          OR (s.status = 'trial'
              AND GREATEST(s.current_period_end, c.trial_ends_at) > NOW()))
   ORDER BY s.created_at DESC NULLS LAST, s.id DESC
-  LIMIT 1
+  LIMIT 1`;
+
+/** The plan_id of that row, as the scalar subquery described above. */
+export const CURRENT_PLAN_ID_SQL = `(
+  SELECT s.plan_id${CURRENT_SUBSCRIPTION_SQL}
 )`;
