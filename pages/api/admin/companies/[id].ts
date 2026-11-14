@@ -22,18 +22,19 @@ import { getIp } from '@/utils/getIp';
 import { isUuidParam } from '@/lib/validation';
 import { Email } from '@/lib/schemas/common';
 
+// null clears an optional field (audit 4.17); an absent key leaves it as it is. The name is required.
 const PatchBody = z.object({
   name:            z.string().min(1).max(200).optional(),
-  trading_name:    z.string().max(200).optional(),
-  phone:           z.string().max(30).optional(),
-  email:           Email.optional(),
-  website:         z.string().url().optional(),
-  billing_email:   Email.optional(),
-  billing_contact: z.string().max(100).optional(),
-  address_line1:   z.string().max(200).optional(),
-  city:            z.string().max(100).optional(),
-  province:        z.string().max(100).optional(),
-  postal_code:     z.string().max(20).optional(),
+  trading_name:    z.string().max(200).nullable().optional(),
+  phone:           z.string().max(30).nullable().optional(),
+  email:           Email.nullable().optional(),
+  website:         z.string().url().nullable().optional(),
+  billing_email:   Email.nullable().optional(),
+  billing_contact: z.string().max(100).nullable().optional(),
+  address_line1:   z.string().max(200).nullable().optional(),
+  city:            z.string().max(100).nullable().optional(),
+  province:        z.string().max(100).nullable().optional(),
+  postal_code:     z.string().max(20).nullable().optional(),
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {

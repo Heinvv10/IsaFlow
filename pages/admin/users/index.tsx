@@ -175,8 +175,10 @@ export default function AdminUsersPage() {
           {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
 
-        {/* Status select */}
+        {/* Status select. A user is active or suspended (users.is_active); there is no third state, so an
+            "Inactive" option matched no row (audit 4.17) and is gone. */}
         <select
+          aria-label="Status"
           value={status}
           onChange={e => { setStatus(e.target.value); setPage(1); }}
           className="px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
@@ -184,7 +186,6 @@ export default function AdminUsersPage() {
           <option value="">All statuses</option>
           <option value="active">Active</option>
           <option value="suspended">Suspended</option>
-          <option value="inactive">Inactive</option>
         </select>
 
         <span className="text-sm text-gray-500 dark:text-gray-400 self-center">

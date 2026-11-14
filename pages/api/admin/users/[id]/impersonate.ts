@@ -20,6 +20,7 @@ import {
 import { generateLink, verifyMagicLink, GotrueAdminLinkError } from '@/lib/auth/gotrue-admin-link';
 import { stashAdminTokens, validateImpersonationTarget, deleteStash, loadStash } from '@/modules/admin/services/userImpersonationService';
 import { setImpersonationCookies } from '@/lib/auth/impersonation-cookies';
+import { purgeExpiredStashesBestEffort } from '@/lib/auth/loginAsRecord';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -51,6 +52,9 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Admin session cookies required' } });
     return;
   }
+
+  // Expired stashes (encrypted admin tokens nothing will read again) go on every start (admin audit 2026-11-14, 3.10).
+  await purgeExpiredStashesBestEffort('impersonate');
 
   let targetTokens;
   try {

@@ -97,3 +97,25 @@ it('does not submit a prefilled company before its name has loaded', async () =>
   releaseName();
   await screen.findByText('Velocity Fibre (Pty) Ltd');
 });
+
+it('Escape does not close the form while the create request is in flight (WP13 UI review L4)', async () => {
+  let release: () => void = () => undefined;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).includes('/plans')) return response([{id: PLAN, name: 'Starter', code: 'starter'}]);
+    if (String(url) === `/api/admin/companies/${COMPANY}`) return response({id: COMPANY, name: 'Velocity Fibre (Pty) Ltd'});
+    if (init?.method === 'POST') { await new Promise<void>((r) => { release = r; }); return response({id: 'sub-1'}); }
+    return response({items: [], total: 0, page: 1, limit: 25});
+  });
+  route.query = {companyId: COMPANY};
+  render(<SubscriptionsPage />);
+  const dialog = await screen.findByRole('dialog');
+  await screen.findByRole('option', {name: /starter/i});
+  await screen.findByText('Velocity Fibre (Pty) Ltd');
+  fireEvent.change(dialog.querySelector('select')!, {target: {value: PLAN}});
+  fireEvent.click(screen.getByRole('button', {name: /^create$/i}));
+  await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some(([, i]) => i?.method === 'POST')).toBe(true));
+  fireEvent.keyDown(document.activeElement ?? document.body, {key: 'Escape'});
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  release();
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+});

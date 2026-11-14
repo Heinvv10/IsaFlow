@@ -1,8 +1,11 @@
 /**
  * ConfirmModal — reusable confirmation dialog for destructive admin actions.
+ * A real dialog (audit 4.13): role=dialog + aria-modal, Escape cancels, Tab stays inside, focus returns on close.
  */
 
+import { useId, useRef } from 'react';
 import { Loader2, X } from 'lucide-react';
+import { useFocusTrap } from '@/components/ui/useFocusTrap';
 
 interface ConfirmModalProps {
   open: boolean;
@@ -11,6 +14,8 @@ interface ConfirmModalProps {
   confirmLabel: string;
   confirmClass?: string;
   loading?: boolean;
+  /** Keeps Confirm disabled, e.g. until a required reason is typed. */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
   children?: React.ReactNode;
@@ -23,17 +28,21 @@ export function ConfirmModal({
   confirmLabel,
   confirmClass = 'bg-red-500 hover:bg-red-600',
   loading,
+  confirmDisabled,
   onConfirm,
   onCancel,
   children,
 }: ConfirmModalProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useFocusTrap(ref, open, () => { if (!loading) onCancel(); });
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6">
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-900 dark:text-white">{title}</h3>
-          <button onClick={onCancel} className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+          <h3 id={titleId} className="font-semibold text-gray-900 dark:text-white">{title}</h3>
+          <button onClick={onCancel} aria-label="Close" className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -48,7 +57,7 @@ export function ConfirmModal({
           </button>
           <button
             onClick={onConfirm}
-            disabled={loading}
+            disabled={loading || confirmDisabled}
             className={`px-4 py-2 text-sm font-medium text-slate-900 dark:text-white rounded-lg disabled:opacity-50 transition-colors ${confirmClass}`}
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : confirmLabel}
