@@ -8,11 +8,14 @@
  * Exits 1, naming the files, when a suite's guards cannot pass on either database,
  * or when a test-shaped file there (`.test.tsx`, `.spec.ts`, ...) would never run.
  *
- * Run: bun scripts/ci/integration/plan.ts <shards>
+ * With PART/PARTS (the gate split over GitHub jobs) it plans only that job's
+ * part of the suites (suiteRoute.ts sliceSuites), dealt to its <shards>.
+ *
+ * Run: bun scripts/ci/integration/plan.ts <shards> [PART/PARTS]
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { assignShards, planFiles, routeSuite } from './suiteRoute';
+import { assignShards, parsePart, planFiles, routeSuite, sliceSuites } from './suiteRoute';
 
 /**
  * Seconds each suite of 3 s or more took (suite-seconds.json, the median over
@@ -35,8 +38,10 @@ if (badWeights.length > 0) {
 const FALLBACK_SECONDS = 1;
 
 const shards = Number(process.argv[2]);
-if (!Number.isInteger(shards) || shards < 1) {
-  process.stderr.write('usage: bun scripts/ci/integration/plan.ts <shards>\n');
+// Optional: this job's part of the suites when the gate is split over jobs (run.sh's argument).
+const slice = process.argv[3] === undefined ? { part: 1, parts: 1 } : parsePart(process.argv[3]);
+if (!Number.isInteger(shards) || shards < 1 || slice === null) {
+  process.stderr.write('usage: bun scripts/ci/integration/plan.ts <shards> [PART/PARTS]\n');
   process.exit(2);
 }
 
@@ -61,6 +66,7 @@ if (conflicts.length > 0) {
   process.exit(1);
 }
 
-for (const { shard, db, file } of assignShards(routes, shards, SLOW, FALLBACK_SECONDS)) {
+const mine = sliceSuites(routes, slice.part, slice.parts, SLOW, FALLBACK_SECONDS);
+for (const { shard, db, file } of assignShards(mine, shards, SLOW, FALLBACK_SECONDS)) {
   process.stdout.write(`${shard}\t${db}\t${file}\n`);
 }
