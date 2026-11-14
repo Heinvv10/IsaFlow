@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, Send, CreditCard, Scale } from 'lucide-react';
 import { DateField } from '@/components/ui/DateField';
@@ -13,6 +13,7 @@ import { SettleSendModal } from '@/components/admin/billing/SettleSendModal';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
 import { isClaimSettleable, SEND_SETTLE_AFTER_MS } from '@/modules/admin/services/invoiceSendTiming';
 import { type Invoice, type PagedResponse } from '@/components/admin/billing/invoiceModel';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 type InvoiceAction = 'send' | 'mark_paid';
 
@@ -56,7 +57,7 @@ export default function InvoicesPage() {
       if (st)   params.set('status',    st);
       if (from) params.set('from_date', from);
       if (to)   params.set('to_date',   to);
-      const res  = await apiFetch(`/api/admin/billing/invoices?${params}`);
+      const res  = await adminFetch(`/api/admin/billing/invoices?${params}`);
       await assertOk(res, 'Could not load invoices - try again');
       const json = await res.json();
       const d = json.data as PagedResponse;
@@ -105,9 +106,9 @@ export default function InvoicesPage() {
       const route = action === 'mark_paid' ? 'mark-paid' : action;
       // Send names the address its confirm dialog showed: the server refuses it if the billing email changed since.
       const body  = action === 'mark_paid' ? JSON.stringify({ payment_method: 'manual' }) : JSON.stringify({ confirmed_to: invoice.billing_email ?? '' });
-      const res   = await apiFetch(`/api/admin/billing/invoices/${id}/${route}`, {
+      const res   = await adminFetch(`/api/admin/billing/invoices/${id}/${route}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body,
       });
       await assertOk(res, failure);

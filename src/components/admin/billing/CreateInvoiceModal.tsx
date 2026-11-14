@@ -6,7 +6,8 @@
  */
 import { useState } from 'react';
 import { AlertCircle, Check, Loader2, X } from 'lucide-react';
-import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { adminFetch } from '@/lib/admin/adminFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { DateField } from '@/components/ui/DateField';
 import { invoiceAmountsFromSubtotal, MAX_INVOICE_SUBTOTAL_CENTS } from '@/modules/admin/services/invoiceAmounts';
@@ -47,9 +48,9 @@ export function CreateInvoiceModal({ onClose, onCreated }: Props) {
     setSaving(true);
     try {
       const notes = form.notes.trim();
-      const res = await apiFetch('/api/admin/billing/invoices', {
+      const res = await adminFetch('/api/admin/billing/invoices', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           company_id: form.company_id.trim(),
           subtotal_cents: cents,

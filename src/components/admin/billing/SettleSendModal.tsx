@@ -5,7 +5,8 @@
  */
 import { useState } from 'react';
 import { AlertCircle, Loader2, X } from 'lucide-react';
-import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { adminFetch } from '@/lib/admin/adminFetch';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
 import { claimAgeText } from '@/modules/admin/services/invoiceSendTiming';
 import type { Invoice } from './invoiceModel';
@@ -27,9 +28,9 @@ export function SettleSendModal({ invoice, onClose, onSettled }: Props) {
     setBusy(outcome);
     setError('');
     try {
-      const res = await apiFetch(`/api/admin/billing/invoices/${invoice.id}/settle-send`, {
+      const res = await adminFetch(`/api/admin/billing/invoices/${invoice.id}/settle-send`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ outcome }),
       });
       await assertOk(res, FAILURE);
