@@ -72,6 +72,9 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/core/paymentLock', () => ({
   lockCustomerPaymentForUpdate: vi.fn(),
 }));
+// The receipt credit ceiling (ar/customerVoidCredit) has its own tests (receiptApplicationCredit.test.ts and the
+// ar-receipt-application-after-refund integration suite); here it passes.
+vi.mock('@/modules/accounting/services/ar/customerVoidCredit', () => ({ assertReceiptApplicationKeepsCredit: vi.fn() }));
 
 import { sql } from '@/lib/neon';
 import { lockCustomerPaymentForUpdate } from '@/modules/accounting/services/core/paymentLock';

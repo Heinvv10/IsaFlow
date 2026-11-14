@@ -19,6 +19,8 @@ import { SecondaryModuleNav } from '@/components/accounting/SecondaryModuleNav';
 import { getActiveModuleId } from '@/components/accounting/accountingNavConfig';
 import { MODULE_BY_ID } from '@/components/accounting/navSections/secondaryNav';
 import { CommandPalette } from '@/components/layout/CommandPalette';
+// Only the admin host renders it; it loads the admin palette as a separate chunk, out of the tenant bundle.
+import { LazyAdminCommandPalette } from '@/components/admin/LazyAdminCommandPalette';
 import { ShortcutHelpOverlay } from '@/components/layout/ShortcutHelpOverlay';
 import { AccountingTour } from '@/components/onboarding/AccountingTour';
 import { ImpersonationBanner } from '@/components/layout/ImpersonationBanner';
@@ -104,7 +106,7 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
   // ─── Global keyboard shortcuts ────────────────────────────────────────────
   const openCommandPalette = useCallback(() => setCommandPaletteOpen(true), []);
   const openShortcutHelp = useCallback(() => setShortcutHelpOpen(true), []);
-  const globalShortcuts = useGlobalShortcuts({ openCommandPalette, openShortcutHelp });
+  const globalShortcuts = useGlobalShortcuts({ openCommandPalette, openShortcutHelp, isAdminHost });
 
   // Close mobile nav on route change
   useEffect(() => {
@@ -115,7 +117,10 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
 
   const closeMobile = useCallback(() => setMobileOpen(false), []);
 
-  const showSidebar = navMode === 'side';
+  // The admin host has its own menu (AdminNav): a saved "sidebar" preference there would draw the accounting sidebar,
+  // whose /accounting/* links are 404s on that host. The preference itself is kept for the app.
+  const shownNavMode: NavMode = isAdminHost ? 'top' : navMode;
+  const showSidebar = shownNavMode === 'side';
   const showTopNav = !showSidebar && !isAdminHost;
 
   // The banner sits above both the skeleton and the shell, so it is not remounted when the session check ends.
@@ -134,6 +139,7 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
         mobileOpen={mobileOpen}
         onCloseMobile={closeMobile}
         menuButtonRef={menuButtonRef}
+        isAdminHost={isAdminHost}
       />
 
       {/* ── Main area ────────────────────────────────────────────────────── */}
@@ -142,7 +148,7 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
         <PwaInstallBanner {...pwaInstall} />
 
         <AppHeader
-          navMode={navMode}
+          navMode={shownNavMode}
           isAdminHost={isAdminHost}
           mobileNavOpen={mobileOpen}
           onToggleMobileNav={() => setMobileOpen(o => !o)}
@@ -175,11 +181,15 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
       </div>
       </div>
 
-      {/* Command Palette */}
-      <CommandPalette
-        isOpen={commandPaletteOpen}
-        onClose={() => setCommandPaletteOpen(false)}
-      />
+      {/* Command Palette: on the admin subdomain it searches admin pages, companies and users, not a tenant's ledger */}
+      {isAdminHost ? (
+        <LazyAdminCommandPalette isOpen={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} />
+      ) : (
+        <CommandPalette
+          isOpen={commandPaletteOpen}
+          onClose={() => setCommandPaletteOpen(false)}
+        />
+      )}
 
       {/* Shortcut Help Overlay — triggered by '?' */}
       <ShortcutHelpOverlay
