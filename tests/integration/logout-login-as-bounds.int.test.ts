@@ -15,7 +15,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { decodeJwt } from 'jose';
-import logoutRoute, { SIGN_OUT_LOOKUP_SLOTS } from '../../pages/api/auth/logout';
+import logoutRoute from '../../pages/api/auth/logout';
+import { LOGIN_AS_LOOKUP_SLOTS as SIGN_OUT_LOOKUP_SLOTS } from '@/lib/auth/loginAsLookup';
 import endImpersonation from '../../pages/api/auth/end-impersonation';
 import { getPlatformAdminPool } from '@/lib/auth/withPlatformAdmin.pools';
 import { BOUNDED_LOOKUP_CHECKOUT_MS, BOUNDED_LOOKUP_STATEMENT_MS } from '@/lib/auth/impersonationSessions';

@@ -3,9 +3,8 @@ import type { NextApiHandler } from 'next';
 import { isSessionAlreadyGone, logout as gotrueLogout, refresh, verifyTokenSignature } from '@/lib/auth/gotrue';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE, REFRESH_COOKIE } from '@/lib/auth/cookies';
 import { ADMIN_STASH_COOKIE } from '@/lib/auth/impersonation-cookies';
-import { createHash } from 'node:crypto';
 import { endLoginAsWithoutRestore, type LoginAsSession } from '@/lib/auth/loginAsRecord';
-import { impersonationPartiesOfBounded } from '@/lib/auth/impersonationSessions';
+import { cappedLoginAsLookup } from '@/lib/auth/loginAsLookup';
 import { log } from '@/lib/logger';
 import { withCsrf } from '@/lib/auth/withCsrf';
 
@@ -38,29 +37,12 @@ async function endThisSession(accessToken?: string, refreshToken?: string): Prom
 }
 
 /**
- * At most this many Sign Outs run the Login-as look-up at once, process-wide (security review, #1371): Sign Out
- * is unauthenticated and not rate limited, so without a cap a burst could hold every platform_admin slot.
- * A slot is taken only by a Sign Out that could be a Login-as: a stash cookie is present, and the access token's
- * signature verifies (locally, no DB) and carries a `session_id`. Junk, token-less and stash-less Sign Outs never
- * take one. (The JWT itself carries no Login-as marker; the session record is the only proof, which is what the
- * look-up reads.) One session id holds at most ONE slot at a time (re-break M1): a burst from one session (any
- * valid session, Login-as or not, with any stash cookie) takes one slot, never both. Over either limit the look-up
- * is skipped and logged at warn with a hash of the session id; the session is still revoked at GoTrue with the
- * caller's own token and the cookies still clear. Never a 429.
- * Residual, accepted: several valid sessions at once (an account can open more than one) can still fill both slots,
- * each for at most one bounded look-up (1 s checkout, 2 s statement). A Login-as Sign Out skipped meanwhile leaves
- * its stash row, unusable without the cleared cookie, to expire within 1 h (purged by the next start or end).
- */
-export const SIGN_OUT_LOOKUP_SLOTS = 2;
-let lookupsInFlight = 0;
-const sessionsInFlight = new Set<string>();
-
-const sessionTag = (sessionId: string) => createHash('sha256').update(sessionId).digest('hex').slice(0, 12);
-
-/**
- * The Login-as session `token` names, or null: no stash cookie (nothing to close), a token that does not verify
- * or names no session, an ordinary session, the cap reached, or a look-up that failed or gave up within its
- * bound (logged; Sign Out goes ahead).
+ * The Login-as session `token` names, or null. A look-up slot (loginAsLookup.cappedLoginAsLookup: global and
+ * per-session caps, shared with end-impersonation) is taken only by a Sign Out that could be a Login-as: a stash
+ * cookie is present, and the access token's signature verifies (locally, no DB) and carries a `session_id`. Junk,
+ * token-less and stash-less Sign Outs never take one. (The JWT carries no Login-as marker; the session record is
+ * the only proof, which is what the look-up reads.) Skipped, failed or past its bound: null, logged there; Sign Out
+ * goes ahead, revoking with the caller's own token and clearing the cookies. Never a 429.
  */
 async function loginAsPartiesOrNull(token: string | undefined, stashId: string | undefined): Promise<LoginAsSession | null> {
   if (!token || !stashId) return null;
@@ -71,24 +53,8 @@ async function loginAsPartiesOrNull(token: string | undefined, stashId: string |
     return null; // expired or not ours: it names no session, nothing to close
   }
   if (typeof sessionId !== 'string') return null;
-  if (lookupsInFlight >= SIGN_OUT_LOOKUP_SLOTS || sessionsInFlight.has(sessionId)) {
-    log.warn('logout: Login-as look-up skipped (concurrency cap); signing out without closing it',
-      { session: sessionTag(sessionId), perSession: sessionsInFlight.has(sessionId) }, 'Auth');
-    return null;
-  }
-  lookupsInFlight += 1;
-  sessionsInFlight.add(sessionId);
-  try {
-    const parties = await impersonationPartiesOfBounded(sessionId);
-    return parties ? { ...parties, sessionId } : null;
-  } catch (err) {
-    log.warn('logout: Login-as session record lookup failed or timed out; signing out without closing it',
-      { session: sessionTag(sessionId), message: err instanceof Error ? err.message : String(err) }, 'Auth');
-    return null;
-  } finally {
-    lookupsInFlight -= 1;
-    sessionsInFlight.delete(sessionId);
-  }
+  const parties = await cappedLoginAsLookup(sessionId, 'logout');
+  return parties && parties !== 'skipped' && parties !== 'gave_up' ? { ...parties, sessionId } : null;
 }
 
 const handler: NextApiHandler = async (req, res) => {

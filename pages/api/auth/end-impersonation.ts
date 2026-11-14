@@ -34,6 +34,7 @@ import {
   noteLoginAsEnd, purgeExpiredStashesBestEffort, recordLoginAsEnd, removeLoginAsStashes, revokeLoginAsSession,
   type LoginAsParties,
 } from '@/lib/auth/loginAsRecord';
+import { cappedLoginAsLookup } from '@/lib/auth/loginAsLookup';
 import { verifyCsrf } from '@/lib/auth/csrf';
 import { pickInitialCompanyId } from '@/lib/auth/liveCompanies';
 import { log } from '@/lib/logger';
@@ -57,13 +58,16 @@ async function partiesOfSession(sessionId: unknown): Promise<LoginAsParties | nu
 /**
  * An expired stash, refused, still ends the Login-as for a VERIFIED caller. Whose: the session record of a Login-as
  * token (its session is then revoked), else the stash row the cookie names when the caller is one of its parties.
- * A look-up past its bound ends nothing here (the stash has expired; the next start or end purges it).
+ * A look-up skipped by the cap or past its bound ends nothing here (the stash has expired; the next start or end
+ * purges it).
  * Never called without verified claims (#1371 re-break N2): an unauthenticated request writes nothing in an
  * admin's name, it only clears its own cookies.
  */
 async function endRefusedLoginAs(stashId: string, accessToken: string, claims: GoTrueClaims, reason: string): Promise<void> {
-  const sessionParties = await partiesOfSession(claims.session_id);
-  if (sessionParties === 'gave_up') return;
+  // Reachable by any signed-in user with any stash cookie: the same capped look-up as Sign Out (loginAsLookup).
+  const sessionParties = typeof claims.session_id === 'string'
+    ? await cappedLoginAsLookup(claims.session_id, 'end-impersonation') : null;
+  if (sessionParties === 'gave_up' || sessionParties === 'skipped') return;
   const stashed = await stashPartiesOf(stashId);
   let parties: LoginAsParties | null = sessionParties;
   if (!parties) {

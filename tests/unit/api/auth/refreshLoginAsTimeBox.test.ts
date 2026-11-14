@@ -145,15 +145,16 @@ describe('/api/auth/refresh', () => {
       // The end row is keyed on the verified session (never the stash cookie): an end already recorded for it
       // would be reused, so the session's lock and look-up come first; here there is none, so the row is INSERTed.
       const calls = h.audit.mock.calls.map(([strings, ...values]) => ({ text: strings.join('?'), values }));
-      expect(calls[0]!.text).toContain('pg_advisory_xact_lock');
-      expect(calls[1]!.text).toContain("action = 'impersonation_end'");
-      expect(calls[2]!.text).toContain('INSERT INTO admin_audit_log');
-      expect(calls[2]!.values.slice(0, 3)).toEqual(['admin-1', 'target-1',
+      expect(calls[0]!.text).toContain("SET LOCAL lock_timeout = '5s'");
+      expect(calls[1]!.text).toContain('pg_advisory_xact_lock');
+      expect(calls[2]!.text).toContain("action = 'impersonation_end'");
+      expect(calls[3]!.text).toContain('INSERT INTO admin_audit_log');
+      expect(calls[3]!.values.slice(0, 3)).toEqual(['admin-1', 'target-1',
         JSON.stringify({ target_session_revoked: null, reason: 'proof_expired', session_id: SESSION_ID })]);
-      expect(calls[3]!.text).toContain('UPDATE admin_audit_log');
-      expect(calls[3]!.values.slice(0, 2)).toEqual([JSON.stringify({ target_session_revoked: true, stashes_removed: 1 }), 'end-1']);
+      expect(calls[4]!.text).toContain('UPDATE admin_audit_log');
+      expect(calls[4]!.values.slice(0, 2)).toEqual([JSON.stringify({ target_session_revoked: true, stashes_removed: 1 }), 'end-1']);
       // Recorded before the revocation (admin audit 3.10): the INSERT precedes the GoTrue logout.
-      expect(h.audit.mock.invocationCallOrder[2]!).toBeLessThan(h.logout.mock.invocationCallOrder[0]!);
+      expect(h.audit.mock.invocationCallOrder[3]!).toBeLessThan(h.logout.mock.invocationCallOrder[0]!);
     });
 
     it('still removes the stash when the stash cookie has already expired', async () => {
@@ -164,7 +165,7 @@ describe('/api/auth/refresh', () => {
     it('a failed stash removal is still audited, as unknown', async () => {
       h.deleteEndedStashes.mockRejectedValueOnce(new Error('down'));
       await refreshWith('sb-refresh-token=r1');
-      expect(h.audit.mock.calls[3]!.slice(1, 3)).toEqual([JSON.stringify({ target_session_revoked: true, stashes_removed: null }), 'end-1']);
+      expect(h.audit.mock.calls[4]!.slice(1, 3)).toEqual([JSON.stringify({ target_session_revoked: true, stashes_removed: null }), 'end-1']);
     });
 
     it.each([

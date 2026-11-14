@@ -58,6 +58,8 @@ export async function recordLoginAsEnd(
   const lockKeys = [key.sessionId && `session:${key.sessionId}`, key.stashId && `stash:${key.stashId}`]
     .filter((k): k is string => Boolean(k)).sort();
   return withTransaction(async (tx) => {
+    // A wait on another end's lock is bounded: past it the write fails (the caller stops before anything irreversible).
+    await tx`SET LOCAL lock_timeout = '5s'`;
     for (const k of lockKeys) await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`login-as-end:${k}`}, 0))`;
     if (lockKeys.length > 0) {
       const [existing] = await tx`
