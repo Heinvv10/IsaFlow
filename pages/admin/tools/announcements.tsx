@@ -35,8 +35,8 @@ function announcementToForm(item: Announcement): AnnouncementFormState {
     type:           item.type,
     target:         item.target,
     target_ids:     (item.target_ids ?? []).join(', '),
-    starts_at:      item.starts_at ? item.starts_at.slice(0, 16) : '',
-    ends_at:        item.ends_at   ? item.ends_at.slice(0, 16)   : '',
+    starts_at:      item.starts_at ?? '',
+    ends_at:        item.ends_at ?? '',
     is_dismissible: item.is_dismissible,
   };
 }
@@ -82,7 +82,8 @@ export default function AdminAnnouncementsPage() {
         target:         form.target,
         target_ids:     targetIds,
         starts_at:      form.starts_at ? new Date(form.starts_at).toISOString() : undefined,
-        ends_at:        form.ends_at   ? new Date(form.ends_at).toISOString()   : undefined,
+        // Emptied on an edit = remove the end (null); on a new one there is nothing to send.
+        ends_at:        form.ends_at   ? new Date(form.ends_at).toISOString()   : (editItem ? null : undefined),
         is_dismissible: form.is_dismissible,
       };
 

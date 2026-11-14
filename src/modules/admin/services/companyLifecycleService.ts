@@ -78,6 +78,11 @@ export async function deleteCompany(companyId: string): Promise<boolean> {
  * Returns false when the company does not exist or is not deleted.
  */
 export async function restoreCompany(companyId: string): Promise<boolean> {
+  // Subscription rows first, then (in the statement below) the charge rows it
+  // voids: the order settle, the attempt claim and an admin cancel use, so a
+  // restore racing a webhook settle of one of the company's charges cannot
+  // deadlock. Held until the admin request's transaction commits.
+  await sql`SELECT id FROM subscriptions WHERE company_id = ${companyId} FOR UPDATE`;
   // Every CTE reads the same snapshot, so `voided` judges each charge against
   // the period end as it was BEFORE `restarted` moves it.
   const rows = await sql<{ id: string; status: string; voided: string[]; restarted: number }>`
