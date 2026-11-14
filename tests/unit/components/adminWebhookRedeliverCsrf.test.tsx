@@ -30,13 +30,13 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); document.cookie = 'isaflow_csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT'; });
 
 describe('webhook Redeliver sends the CSRF token', () => {
-  // X-Admin-Request is WP1's (adminFetch, #1366 census); this pins only the CSRF token withCsrf now demands.
-  it('the POST carries X-CSRF-Token from the cookie', async () => {
+  it('the POST carries X-CSRF-Token from the cookie, and X-Admin-Request (adminFetch)', async () => {
     render(<DeliveryLog webhookId="wh-1" />);
     fireEvent.click(await screen.findByRole('button', { name: /redeliver last failed/i }));
     await waitFor(() => expect(sent.some((s) => s.method === 'POST')).toBe(true));
     const post = sent.find((s) => s.method === 'POST')!;
     expect(post.url).toBe('/api/admin/webhooks/wh-1/redeliver');
     expect(post.headers.get('X-CSRF-Token')).toBe(CSRF);
+    expect(post.headers.get('X-Admin-Request')).toBe('true');
   });
 });
