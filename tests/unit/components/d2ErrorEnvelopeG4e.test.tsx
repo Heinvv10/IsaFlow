@@ -5,7 +5,7 @@
  * NOT TESTED: the companies-list load site (the message is only logged, never rendered).
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mockedApiFetchModule, useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
@@ -37,11 +37,13 @@ const parsedOk = () => json({ success: true, data: { parsed: PARSED, count: 1 } 
 async function uploadAndExecute() {
   const { container } = render(<AdminMigrationsPage />);
   await screen.findByRole('option', { name: 'Acme' });
+  fireEvent.change(screen.getAllByRole('combobox')[0]!, { target: { value: 'co-1' } }); // no company is pre-selected (audit 3.4)
   fireEvent.change(container.querySelectorAll('input[type="file"]')[0]!, { target: { files: [file()] } });
   fireEvent.click(await screen.findByRole('button', { name: /execute migration/i }));
   return container;
 }
 
+beforeEach(() => { vi.stubGlobal('confirm', () => true); }); // Execute confirms first (audit 3.4)
 afterEach(() => { cleanup(); });
 
 describe('admin migration tool', () => {
@@ -50,6 +52,7 @@ describe('admin migration tool', () => {
     script(json({ success: false, error: { code: 'BAD_REQUEST', message: msg } }, 400));
     const { container } = render(<AdminMigrationsPage />);
     await screen.findByRole('option', { name: 'Acme' });
+    fireEvent.change(screen.getAllByRole('combobox')[0]!, { target: { value: 'co-1' } }); // no company is pre-selected (audit 3.4)
     fireEvent.change(container.querySelectorAll('input[type="file"]')[0]!, { target: { files: [file()] } });
     expect(await screen.findByText(msg)).toBeTruthy();
   });
