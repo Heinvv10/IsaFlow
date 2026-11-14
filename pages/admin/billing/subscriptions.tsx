@@ -72,11 +72,12 @@ export default function SubscriptionsPage() {
   const [status, setStatus]     = useState('');
   const [plans, setPlans]       = useState<Plan[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const formRef = useRef<HTMLDivElement>(null); useFocusTrap(formRef, showForm, () => setShowForm(false)); // audit 4.13
   const [form, setForm]         = useState<SubForm>(EMPTY_FORM);
   const [formError, setFormError] = useState('');
   const [companyNamed, setCompanyNamed] = useState(false);
   const [saving, setSaving]     = useState(false);
+  const formRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(formRef, showForm, () => { if (!saving) setShowForm(false); }); // audit 4.13; not mid-request
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
   const [cancelling, setCancelling]           = useState(false);
   const [cancelError, setCancelError]         = useState('');

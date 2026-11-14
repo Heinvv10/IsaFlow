@@ -66,6 +66,9 @@ export default function AdminCompaniesPage() {
   // Suspend waits for a confirm with a typed reason (audit 3.7); ids = one row or the bulk selection.
   const [suspendTarget, setSuspendTarget] = useState<{ ids: string[]; label: string; bulk: boolean } | null>(null);
   const [bulkResult, setBulkResult]       = useState<BulkResult | null>(null);
+  // A failed suspend keeps the dialog (and the typed reason) open and says why there.
+  const [suspendError, setSuspendError]   = useState('');
+  const openSuspend = (t: { ids: string[]; label: string; bulk: boolean }) => { setSuspendError(''); setSuspendTarget(t); };
 
   // Bulk selection
   const [selectedIds, setSelectedIds]   = useState<Set<string>>(new Set());
@@ -159,7 +162,7 @@ export default function AdminCompaniesPage() {
       await assertOk(res, 'Could not suspend the company - try again');
       setSuspendTarget(null);
       void load(search, status, page, sortBy, sortDir);
-    } catch (err) { setSuspendTarget(null); setError(apiErrorMessage(err, 'Could not suspend the company - try again')); }
+    } catch (err) { setSuspendError(apiErrorMessage(err, 'Could not suspend the company - try again')); }
     finally { setActionLoading(null); }
   }
 
@@ -192,17 +195,19 @@ export default function AdminCompaniesPage() {
       const d = ((await res.json()) as { data?: { processed?: number; errors?: string[] } }).data;
       setBulkResult({ label, processed: d?.processed ?? 0, errors: Array.isArray(d?.errors) ? d.errors : [] });
       setSelectedIds(new Set());
+      setSuspendTarget(null);
       void load(search, status, page, sortBy, sortDir);
     } catch (err) {
-      setError(apiErrorMessage(err, failMsg));
+      if (body.action === 'suspend') setSuspendError(apiErrorMessage(err, failMsg));
+      else setError(apiErrorMessage(err, failMsg));
     } finally {
       setBulkLoading(false);
-      setSuspendTarget(null);
     }
   }
 
   function confirmSuspend(reason: string) {
     if (!suspendTarget) return;
+    setSuspendError('');
     const [only] = suspendTarget.ids;
     if (!suspendTarget.bulk && only) { void handleSuspend(only, reason); return; }
     void runBulk('Suspend', { action: 'suspend', company_ids: suspendTarget.ids, reason }, 'Could not suspend the companies - try again');
@@ -290,7 +295,7 @@ export default function AdminCompaniesPage() {
         <BulkActionsBar
           count={selectedIds.size}
           loading={bulkLoading}
-          onSuspend={() => setSuspendTarget({ ids: [...selectedIds], label: `${selectedIds.size} ${selectedIds.size === 1 ? 'company' : 'companies'}`, bulk: true })}
+          onSuspend={() => openSuspend({ ids: [...selectedIds], label: `${selectedIds.size} ${selectedIds.size === 1 ? 'company' : 'companies'}`, bulk: true })}
           onExtendTrial={handleBulkExtendTrial}
           onExportCsv={handleExportCsv}
           onClear={() => setSelectedIds(new Set())}
@@ -389,7 +394,7 @@ export default function AdminCompaniesPage() {
                       {c.status !== 'suspended' && c.status !== 'deleted'
                         ? <button
                             title="Suspend"
-                            onClick={e => { e.stopPropagation(); setSuspendTarget({ ids: [c.id], label: c.name, bulk: false }); }}
+                            onClick={e => { e.stopPropagation(); openSuspend({ ids: [c.id], label: c.name, bulk: false }); }}
                             disabled={actionLoading !== null}
                             className="p-1.5 rounded text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 transition-colors disabled:opacity-50"
                           >
@@ -447,6 +452,7 @@ export default function AdminCompaniesPage() {
       />
       <SuspendCompanyDialog
         target={suspendTarget?.label ?? null}
+        error={suspendError}
         loading={bulkLoading || actionLoading !== null}
         onConfirm={confirmSuspend}
         onCancel={() => setSuspendTarget(null)}

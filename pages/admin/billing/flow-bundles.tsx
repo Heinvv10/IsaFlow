@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
+import { randsToCents } from '@/components/admin/billing/randsToCents';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { AlertCircle, Loader2, Plus } from 'lucide-react';
@@ -52,9 +53,9 @@ export default function FlowBundlesPage() {
 
   async function createBundle() {
     if (creating) return; // one bundle per click (audit 4.17: a double click created two)
-    const rands = Number(draft.priceRands);
-    if (!draft.name || draft.flows <= 0 || draft.priceRands.trim() === '' || !Number.isFinite(rands) || rands < 0) {
-      setCreateError('Name, positive flows, and a non-negative price in rands are required');
+    const priceCents = randsToCents(draft.priceRands);
+    if (!draft.name || !Number.isInteger(draft.flows) || draft.flows <= 0 || priceCents === null) {
+      setCreateError('Name, a whole number of flows, and a price in rands (at most 2 decimals) are required');
       return;
     }
     setCreating(true); setCreateError('');
@@ -63,7 +64,7 @@ export default function FlowBundlesPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({
-          name: draft.name, flows: draft.flows, priceCents: Math.round(rands * 100),
+          name: draft.name, flows: draft.flows, priceCents,
           displayOrder: draft.displayOrder, isActive: draft.isActive,
         }),
       });

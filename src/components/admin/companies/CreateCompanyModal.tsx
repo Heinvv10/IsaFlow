@@ -3,7 +3,7 @@
  * Escape closes, Tab stays inside, every input has a label.
  */
 
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { AlertCircle, Loader2, X } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useFocusTrap } from '@/components/ui/useFocusTrap';
@@ -32,7 +32,9 @@ export function CreateCompanyModal({ open, onClose, onCreated }: Props) {
   const [error, setError]       = useState('');
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
-  useFocusTrap(ref, open, onClose);
+  useFocusTrap(ref, open, () => { if (!creating) onClose(); });
+  // Closed (Cancel, X, Escape or created) = a fresh form next time.
+  useEffect(() => { if (!open) { setForm(EMPTY); setError(''); } }, [open]);
 
   if (!open) return null;
 

@@ -66,8 +66,8 @@ export default function AdminWaitlistPage() {
   const [planOverride, setPlanOverride]     = useState<'' | 'payg' | 'starter'>('');
   const [promoting, setPromoting]           = useState(false);
   const [promoteError, setPromoteError]     = useState('');
-  const promoteRef = useRef<HTMLDivElement>(null); useFocusTrap(promoteRef, promoteTarget !== null, () => setPromoteTarget(null)); // audit 4.13
-
+  const promoteRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(promoteRef, promoteTarget !== null, () => { if (!promoting) setPromoteTarget(null); }); // audit 4.13; not mid-request
   const LIMIT = 25;
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 

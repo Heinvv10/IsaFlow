@@ -1,6 +1,8 @@
-// Admin dialogs (WP13, admin audit 4.13): each is a real modal dialog. role=dialog with aria-modal, focus moves
-// inside on open, Escape closes it, and its inputs are labelled. Before, none closed on Escape and focus stayed on
-// the page behind.
+// Admin dialogs (WP13, admin audit 4.13): ConfirmModal, Login As, webhook delete, waitlist Promote and Add
+// Subscription are real modal dialogs. role=dialog with aria-modal, focus moves inside on open, Escape closes it
+// (not while a request is in flight), and their inputs are labelled. Before, none of these closed on Escape and focus
+// stayed on the page behind. Not covered here (follow-up once their PRs merge): AnnouncementModal (#1362),
+// CreateInvoiceModal (#1368), ConvertTrialModal (#1363).
 import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -54,6 +56,28 @@ describe('admin dialogs', () => {
     const dialog = await expectModal(/promote waitlist signup/i);
     expect(within(dialog).getByLabelText('Plan').tagName).toBe('SELECT');
     pressEscape();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('Waitlist Promote: Escape does nothing while the promote request is in flight (UI review L4)', async () => {
+    let release: () => void = () => undefined;
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (_url, init) => {
+      if (init?.method === 'POST') {
+        await new Promise<void>((r) => { release = r; });
+        return ok({ companyId: null, status: 'promoted' });
+      }
+      return ok({ items: [{ id: 'w-1', name: 'Ann', email: 'ann@x.test', signup_type: 'direct', company_name: 'Ann Co',
+        practice_name: null, phone: null, annual_turnover_cents: null, created_at: '2026-11-01T00:00:00Z', promoted_at: null,
+        promoted_company_id: null }], total: 1, page: 1, limit: 25, total_pages: 1 });
+    });
+    render(<WaitlistPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /promote/i }));
+    const dialog = await expectModal(/promote waitlist signup/i);
+    fireEvent.click(within(dialog).getByRole('button', { name: /create company/i }));
+    await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some(([, i]) => i?.method === 'POST')).toBe(true));
+    pressEscape();
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    release();
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 

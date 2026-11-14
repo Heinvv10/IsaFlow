@@ -91,6 +91,7 @@ export default function JobQueuePage() {
         body: JSON.stringify({ action: 'retry', jobId }),
       });
       await assertOk(res, 'Could not retry the job - try again');
+      setSelectedIds(new Set()); // an action clears the selection; only the poll keeps it
       await load();
     } catch (err) { showToast(apiErrorMessage(err, 'Could not retry the job - try again'));
     } finally { setRetrying(null); }
@@ -121,6 +122,7 @@ export default function JobQueuePage() {
     setBulkLoading(true);
     try {
       const r = await callBulk('retry');
+      setSelectedIds(new Set());
       showToast(`Retried ${r.processed} job(s)${r.errors.length ? ` (${r.errors.length} skipped)` : ''}`);
       await load();
     } catch (err) { showToast(apiErrorMessage(err, 'Could not retry the jobs - try again'));
@@ -131,6 +133,7 @@ export default function JobQueuePage() {
     setBulkLoading(true);
     try {
       const r = await callBulk('cancel');
+      setSelectedIds(new Set());
       showToast(`Cancelled ${r.processed} job(s)${r.errors.length ? ` (${r.errors.length} skipped)` : ''}`);
       await load();
     } catch (err) { showToast(apiErrorMessage(err, 'Could not cancel the jobs - try again'));

@@ -20,16 +20,18 @@ interface Props {
 
 export function BulkResultNotice({ result, names, onDismiss }: Props) {
   const failed = result.errors.length > 0;
+  // An error starts "<company id>: <why>". A company not on this page is named by its short id.
   const named = (e: string) => {
-    const [id, ...rest] = e.split(': ');
-    return id && names[id] ? `${names[id]}: ${rest.join(': ')}` : e;
+    const [id = '', ...rest] = e.split(': ');
+    if (rest.length === 0) return e;
+    return `${names[id] ?? `company ${id.slice(0, 8)}`}: ${rest.join(': ')}`;
   };
   return (
-    <div role="status" className={`flex items-start gap-2 p-3 rounded-lg text-sm mb-4 ${failed ? 'bg-red-500/10 text-red-500' : 'bg-teal-500/10 text-teal-600 dark:text-teal-400'}`}>
+    <div role={failed ? 'alert' : 'status'} className={`flex items-start gap-2 p-3 rounded-lg text-sm mb-4 ${failed ? 'bg-red-500/10 text-red-500' : 'bg-teal-500/10 text-teal-600 dark:text-teal-400'}`}>
       {failed ? <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" /> : <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" />}
       <div className="flex-1">
         <p>{result.label}: {result.processed} done{failed ? `, ${result.errors.length} failed` : ''}.</p>
-        {failed && <ul className="mt-1 list-disc pl-5">{result.errors.map(e => <li key={e}>{named(e)}</li>)}</ul>}
+        {failed && <ul className="mt-1 list-disc pl-5">{result.errors.map((e, i) => <li key={`${i}-${e}`}>{named(e)}</li>)}</ul>}
       </div>
       <button onClick={onDismiss} aria-label="Dismiss" className="opacity-70 hover:opacity-100"><X className="w-4 h-4" /></button>
     </div>

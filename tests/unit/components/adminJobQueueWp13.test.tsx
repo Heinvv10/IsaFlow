@@ -1,5 +1,6 @@
 // Admin Job Queue (WP13, admin audit 2026-11-14):
-//  - 4.17 a reload (the 10 s poll, or Refresh: the same load) keeps the jobs the admin ticked;
+//  - 4.17 a reload (the 10 s poll, or Refresh: the same load) keeps the jobs the admin ticked; a finished
+//    action (bulk Retry/Cancel, single Retry) clears the selection;
 //  - 3.7  Delete Old Jobs asks first: nothing is deleted until the admin confirms.
 import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,8 +22,9 @@ const job = (id: string) => ({ id, company_id: null, job_type: 'report', payload
   created_at: '2026-11-01T00:00:00Z' });
 
 beforeEach(() => {
-  vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => {
+  vi.mocked(apiFetch).mockReset().mockImplementation(async (url, init) => {
     if (String(url).startsWith('/api/admin/job-queue/bulk-action')) return ok({ processed: 3, errors: [] });
+    if (init?.method === 'POST') return ok({});
     return ok({ jobs: [job('j-1'), job('j-2')], total: 2 });
   });
 });
@@ -51,5 +53,28 @@ describe('job queue', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: /delete old jobs/i }));
     await waitFor(() => expect(deletes()).toHaveLength(1));
     expect(JSON.parse(String(deletes()[0]![1]?.body))).toEqual({ action: 'delete_old', olderThanDays: 30 });
+  });
+
+  it.each([['Retry Selected'], ['Cancel Selected']])('bulk %s clears the selection; a later reload keeps a new one', async (label) => {
+    render(<JobQueuePage />);
+    fireEvent.click(await screen.findByLabelText('Select job j-1'));
+    fireEvent.click(await screen.findByRole('button', { name: label }));
+    await waitFor(() => expect(screen.queryByText(/job selected/)).toBeNull());
+    expect(screen.getByLabelText('Select job j-1').getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(screen.getByLabelText('Select job j-2'));
+    expect(await screen.findByText('1 job selected')).toBeTruthy();
+    const before = gets();
+    fireEvent.click(screen.getByRole('button', { name: /refresh/i }));
+    await waitFor(() => expect(gets()).toBeGreaterThan(before));
+    await waitFor(() => expect(screen.getByRole('button', { name: /refresh/i }).hasAttribute('disabled')).toBe(false));
+    expect(screen.getByLabelText('Select job j-2').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('a single Retry clears the selection', async () => {
+    render(<JobQueuePage />);
+    fireEvent.click(await screen.findByLabelText('Select job j-1'));
+    expect(await screen.findByText('1 job selected')).toBeTruthy();
+    fireEvent.click(screen.getAllByRole('button', { name: /^retry$/i })[0]!);
+    await waitFor(() => expect(screen.queryByText(/job selected/)).toBeNull());
   });
 });

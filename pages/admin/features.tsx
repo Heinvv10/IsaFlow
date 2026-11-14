@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2, ToggleLeft, ToggleRight } from 'lucide-react';
 import {
@@ -26,6 +27,7 @@ export default function AdminFeaturesPage() {
   const [selected, setSelected]   = useState<Set<string>>(new Set());
   const [bulkWorking, setBulkWorking] = useState(false);
   const [bulkNotice, setBulkNotice]   = useState('');
+  const afterDelay = useTimeoutOnce();
   // Global availability changes for every tenant at once: it waits for a confirm (audit 3.7).
   const [pendingGlobal, setPendingGlobal] = useState<{ kind: 'bulk'; value: boolean } | { kind: 'edit'; id: string; value: boolean } | null>(null);
 
@@ -48,6 +50,7 @@ export default function AdminFeaturesPage() {
   useEffect(() => { void load(); }, [load]);
 
   function openEdit(flag: FeatureFlag) {
+    setBulkNotice('');
     setEditing(flag.id);
     setEditState({ name: flag.name, description: flag.description ?? '', is_global: flag.is_global });
     setSaveError('');
@@ -107,17 +110,22 @@ export default function AdminFeaturesPage() {
       setSelected(new Set());
       const done = `${isGlobal ? 'Enabled' : 'Disabled'} globally: ${ids.length - failed.length} updated`;
       if (failed.length) setError(`${done}, ${failed.length} failed (${failed.join(', ')})`);
-      else setBulkNotice(`${done}.`);
+      else {
+        setBulkNotice(`${done}.`);
+        afterDelay(() => setBulkNotice(''), 8000); // or sooner, on the next selection or edit
+      }
     } finally {
       setBulkWorking(false);
     }
   }
 
   const toggleSelectAll = () => {
+    setBulkNotice('');
     setSelected(selected.size === flags.length ? new Set() : new Set(flags.map((f) => f.id)));
   };
 
   const toggleOne = (id: string) => {
+    setBulkNotice('');
     setSelected((prev) => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   };
 

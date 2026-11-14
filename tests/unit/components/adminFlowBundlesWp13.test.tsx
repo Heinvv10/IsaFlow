@@ -1,5 +1,6 @@
 // Admin Flow Bundles (WP13, admin audit 2026-11-14):
-//  - the price is typed in rands and sent as cents (it was typed in cents, unlike Plans);
+//  - the price is typed in rands and sent as cents (it was typed in cents, unlike Plans), parsed from the string
+//    with at most 2 decimals; flows are a whole number;
 //  - a double click on Create creates one bundle, not two (4.17);
 //  - Deactivate asks first (3.7).
 import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -14,6 +15,7 @@ vi.mock('@/components/admin/AdminLayout', () => ({ AdminLayout: ({ children }: {
 
 import { apiFetch } from '@/lib/apiFetch';
 import FlowBundlesPage from '../../../pages/admin/billing/flow-bundles';
+import { randsToCents } from '@/components/admin/billing/randsToCents';
 
 useApiJsonOverMock();
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
@@ -59,4 +61,32 @@ describe('flow bundles', () => {
     await waitFor(() => expect(calls('PATCH')).toHaveLength(1));
     expect(JSON.parse(String(calls('PATCH')[0]![1]?.body))).toEqual({ isActive: false });
   });
+
+  it.each([['1.005'], ['-1'], ['12,50'], ['abc']])('refuses price %s and sends nothing', async (price) => {
+    render(<FlowBundlesPage />);
+    await screen.findByText('Small');
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Odd' } });
+    fireEvent.change(screen.getByLabelText('Flows'), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText('Price (R)'), { target: { value: price } });
+    fireEvent.click(screen.getByRole('button', { name: /create/i }));
+    expect(await screen.findByText(/at most 2 decimals/)).toBeTruthy();
+    expect(calls('POST')).toHaveLength(0);
+  });
+
+  it('refuses a fractional number of flows', async () => {
+    render(<FlowBundlesPage />);
+    await screen.findByText('Small');
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Odd' } });
+    fireEvent.change(screen.getByLabelText('Flows'), { target: { value: '1.5' } });
+    fireEvent.change(screen.getByLabelText('Price (R)'), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: /create/i }));
+    expect(await screen.findByText(/whole number of flows/)).toBeTruthy();
+    expect(calls('POST')).toHaveLength(0);
+  });
+});
+
+describe('randsToCents', () => {
+  it.each([['12.50', 1250], ['12.5', 1250], ['12', 1200], ['0.01', 1], ['0', 0], ['4.35', 435], ['1.15', 115], [' 7 ', 700]])(
+    '%s -> %d cents', (input, cents) => { expect(randsToCents(input)).toBe(cents); });
+  it.each([['1.005'], [''], ['-1'], ['1e3'], ['.5'], ['12,50']])('%j -> null', (input) => { expect(randsToCents(input)).toBeNull(); });
 });

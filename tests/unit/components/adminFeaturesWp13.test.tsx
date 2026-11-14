@@ -1,6 +1,7 @@
 // Admin Feature Flags (WP13, admin audit 3.7): global availability changes access for every tenant, so the bulk
-// Enable/Disable and a row's Global toggle wait for a confirm, and a bulk run shows which flags failed.
-import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+// Enable/Disable and a row's Global toggle wait for a confirm, and a bulk run shows which flags failed. A success
+// notice goes after 8 s or at the next selection.
+import { act, cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -54,5 +55,28 @@ describe('feature flags', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: /enable globally/i }));
     await waitFor(() => expect(patches()).toHaveLength(1));
     expect(JSON.parse(String(patches()[0]![1]?.body))).toMatchObject({ is_global: true });
+  });
+
+  it('the success notice clears at the next selection, and on its own after 8 s', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (_url, init) => (init?.method === 'PATCH' ? ok({ ...FLAGS[0], is_global: true }) : ok(FLAGS)));
+    render(<FeaturesPage />);
+    const enableAll = async () => {
+      fireEvent.click(await screen.findByLabelText('Select all feature flags'));
+      fireEvent.click(screen.getByRole('button', { name: /enable selected/i }));
+      fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /enable globally/i }));
+      return screen.findByRole('status');
+    };
+    expect((await enableAll()).textContent).toContain('2 updated');
+    fireEvent.click(screen.getByLabelText('Select budgets'));
+    expect(screen.queryByRole('status')).toBeNull();
+    fireEvent.click(screen.getByLabelText('Select budgets'));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await enableAll();
+      act(() => { vi.advanceTimersByTime(7000); });
+      expect(screen.getByRole('status')).toBeTruthy();
+      act(() => { vi.advanceTimersByTime(1500); });
+      expect(screen.queryByRole('status')).toBeNull();
+    } finally { vi.useRealTimers(); }
   });
 });
