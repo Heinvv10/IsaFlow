@@ -59,7 +59,8 @@ export function ChurnTrendChart({ data }: Props) {
           labelStyle={{ color: '#e5e7eb', marginBottom: 4 }}
           labelFormatter={(label: unknown) => fmtMonth(String(label))}
           formatter={(value: unknown, _name: unknown, props: { payload?: { churned_companies?: number } }) => [
-            `${Number(value ?? 0)}% (${props?.payload?.churned_companies ?? 0} churned)`,
+            // null: nobody was active at the start of that month, so there is no rate.
+            value == null ? 'No active companies' : `${Number(value)}% (${props?.payload?.churned_companies ?? 0} churned)`,
             'Churn Rate',
           ]}
         />

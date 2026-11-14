@@ -8,7 +8,7 @@ import dynamic from 'next/dynamic';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import type { RevenueIntelligence } from '@/modules/admin/types/admin.types';
-import { formatMoney } from '@/lib/money/formatMoney';
+import { formatCentsOrDash, formatRate, MRR_SCOPE_NOTE, MRR_TREND_NOTE } from '@/components/admin/formatMetric';
 
 const PlanBreakdownChart  = dynamic(
   () => import('./charts/PlanBreakdownChart').then((m) => m.PlanBreakdownChart),
@@ -22,10 +22,6 @@ const CohortRetentionTable = dynamic(
   () => import('./charts/CohortRetentionTable').then((m) => m.CohortRetentionTable),
   { ssr: false },
 );
-
-function fmtZAR(cents: number) {
-  return formatMoney(cents / 100, { decimals: 0 });
-}
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -83,7 +79,8 @@ export function RevenueIntelligenceSection() {
 
   return (
     <div className="mb-8">
-      <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Revenue Intelligence</h2>
+      <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">Revenue Intelligence</h2>
+      <p className="text-xs text-ink-muted mb-4">{MRR_SCOPE_NOTE}.</p>
 
       {error && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">
@@ -104,23 +101,26 @@ export function RevenueIntelligenceSection() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
             <StatPill
               label="Net Revenue Retention"
-              value={`${data.nrr}%`}
-              sub={data.nrr >= 100 ? 'Expansion MRR covering churn' : 'Below 100% — churn exceeds expansion'}
-              accent={data.nrr >= 100 ? 'teal' : 'purple'}
+              value={formatRate(data.nrr)}
+              sub={data.nrr === null ? 'No company was paying when last month began'
+                : data.nrr >= 100 ? 'Expansion MRR covering churn (new sales excluded)' : 'Below 100% — churn exceeds expansion'}
+              accent={data.nrr === null || data.nrr >= 100 ? 'teal' : 'purple'}
             />
             <StatPill
               label="ARPU"
-              value={fmtZAR(data.arpu_cents)}
-              sub="Average revenue per active company"
+              value={formatCentsOrDash(data.arpu_cents)}
+              sub="MRR / paying companies"
               accent="blue"
             />
             <StatPill
               label="LTV Estimate"
-              value={data.ltv_estimate_cents > 0 ? fmtZAR(data.ltv_estimate_cents) : 'N/A'}
+              value={formatCentsOrDash(data.ltv_estimate_cents)}
               sub="ARPU / avg monthly churn rate"
               accent="purple"
             />
           </div>
+
+          <p className="text-xs text-ink-muted -mt-3 mb-6">{MRR_TREND_NOTE}</p>
 
           {/* Plan breakdown + Churn trend side by side */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
@@ -129,6 +129,7 @@ export function RevenueIntelligenceSection() {
             </ChartCard>
             <ChartCard title="Churn Rate Trend (6 months)">
               <ChurnTrendChart data={data.churn_trend} />
+              <p className="text-xs text-ink-muted mt-2">Paying companies at the start of each month that pay nothing at its end. {MRR_TREND_NOTE}</p>
             </ChartCard>
           </div>
 
@@ -137,7 +138,7 @@ export function RevenueIntelligenceSection() {
             <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Cohort Retention</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                % of each signup cohort still active at M0 / M1 / M2 / M3
+                % of each signup cohort still subscribed at the end of M0 / M1 / M2 / M3
               </p>
             </div>
             <CohortRetentionTable data={data.cohort_retention} />

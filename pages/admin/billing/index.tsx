@@ -8,7 +8,9 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
+import { formatDisplayMonthYear } from '@/utils/dateFormat';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
+import { formatCentsOrDash, formatRate, MRR_SCOPE_NOTE } from '@/components/admin/formatMetric';
 import { AlertCircle, Loader2, ArrowRight, CreditCard, List, FileText, Zap, Package } from 'lucide-react';
 import Link from 'next/link';
 
@@ -19,8 +21,10 @@ interface BillingOverview {
   active_subscriptions: number;
   past_due_count: number;
   trial_count: number;
-  churn_rate_percent: number;
-  arpu_cents: number;
+  paying_companies: number;
+  churn_rate_percent: number | null;
+  churn_period: string;
+  arpu_cents: number | null;
   total_revenue_cents: number;
   outstanding_cents: number;
 }
@@ -90,15 +94,17 @@ export default function BillingOverviewPage() {
         <>
           {/* KPI Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-8">
-            <StatsCard title="MRR"                   value={formatCurrency(overview.mrr_cents / 100)} />
-            <StatsCard title="ARR"                   value={formatCurrency(overview.arr_cents / 100)} />
+            <StatsCard title="MRR"                   value={formatCurrency(overview.mrr_cents / 100)} subtitle={MRR_SCOPE_NOTE} />
+            <StatsCard title="ARR"                   value={formatCurrency(overview.arr_cents / 100)} subtitle={MRR_SCOPE_NOTE} />
             <StatsCard title="Active Subscriptions"  value={overview.active_subscriptions} />
             <StatsCard title="Past Due"              value={overview.past_due_count} />
             <StatsCard title="Trials"                value={overview.trial_count} />
-            <StatsCard title="Churn Rate"            value={`${overview.churn_rate_percent.toFixed(1)}%`} />
-            <StatsCard title="ARPU"                  value={formatCurrency(overview.arpu_cents / 100)} />
-            <StatsCard title="Total Revenue"         value={formatCurrency(overview.total_revenue_cents / 100)} />
-            <StatsCard title="Outstanding"           value={formatCurrency(overview.outstanding_cents / 100)} />
+            <StatsCard title="Churn Rate"            value={formatRate(overview.churn_rate_percent, 1)} subtitle={`${formatDisplayMonthYear(overview.churn_period)} to date, paying companies`} />
+            <StatsCard title="Paying Companies"      value={overview.paying_companies} />
+            <StatsCard title="ARPU"                  value={formatCentsOrDash(overview.arpu_cents)} subtitle="MRR / paying companies" />
+            {/* admin_invoices only: Paystack charges and flow purchases are not in these two. */}
+            <StatsCard title="Paid Admin Invoices"   value={formatCurrency(overview.total_revenue_cents / 100)} subtitle="Manual invoices, incl. VAT" />
+            <StatsCard title="Unpaid Admin Invoices" value={formatCurrency(overview.outstanding_cents / 100)} subtitle="Sent or overdue, incl. VAT" />
           </div>
 
           {/* Quick Links */}

@@ -129,7 +129,7 @@ async function sendEmailAlert(
           </tr>
           <tr><td style="${rowStyle}">DB Status</td><td style="${rowStyle}">${health.db.status} (${health.db.latency_ms}ms)</td></tr>
           <tr><td style="${rowStyle}">Failed Jobs</td><td style="${rowStyle}">${health.job_queue.failed}</td></tr>
-          <tr><td style="${rowStyle}">Email Success Rate</td><td style="${rowStyle}">${health.email.success_rate_percent}%</td></tr>
+          <tr><td style="${rowStyle}">Email Accepted by SMTP (24h)</td><td style="${rowStyle}">${health.email.success_rate_percent === null ? 'no email sent' : `${health.email.success_rate_percent}%`}</td></tr>
           <tr><td style="${rowStyle}">Checked At</td><td style="${rowStyle}">${health.checked_at}</td></tr>
         </table>
         <p style="margin:20px 0 0; font-family:${BRAND.fontStack}; font-size:12px; color:${BRAND.textMuted};">

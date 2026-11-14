@@ -15,14 +15,15 @@ import { AlertCircle, Loader2 } from 'lucide-react';
 import type { AnalyticsTrends } from '@/modules/admin/types/admin.types';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { formatRate, MRR_SCOPE_NOTE, MRR_TREND_NOTE } from '@/components/admin/formatMetric';
 
 interface UsageAnalytics {
   dau: number;
   wau: number;
   mau: number;
-  stickiness_percent: number;
+  stickiness_percent: number | null;
   top_pages: Array<{ path: string; views: number }>;
-  feature_adoption: Array<{ feature: string; adoption_percent: number; user_count: number }>;
+  feature_adoption: Array<{ feature: string; adoption_percent: number | null; user_count: number }>;
   revenue_by_plan: Array<{ plan_name: string; mrr_cents: number; company_count: number }>;
   churn_signals: Array<{ company_id: string; company_name: string; days_inactive: number; last_login: string | null }>;
 }
@@ -109,7 +110,7 @@ export default function AdminAnalytics() {
             <StatsCard title="DAU"        value={data.dau}                    subtitle="daily active users" />
             <StatsCard title="WAU"        value={data.wau}                    subtitle="weekly active users" />
             <StatsCard title="MAU"        value={data.mau}                    subtitle="monthly active users" />
-            <StatsCard title="Stickiness" value={`${data.stickiness_percent}%`} subtitle="DAU / MAU" />
+            <StatsCard title="Stickiness" value={formatRate(data.stickiness_percent)} subtitle="DAU / MAU" />
           </div>
 
           {/* Trends Section */}
@@ -133,6 +134,7 @@ export default function AdminAnalytics() {
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
                 <ChartCard title="MRR Trend (ZAR)">
                   <MrrTrendChart data={trends.mrr_trend} />
+                  <p className="text-xs text-ink-muted mt-2">{MRR_SCOPE_NOTE}. {MRR_TREND_NOTE}</p>
                 </ChartCard>
                 <ChartCard title="Active Users">
                   <EngagementTrendChart data={trends.engagement_trend} />
@@ -158,12 +160,12 @@ export default function AdminAnalytics() {
                   <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
                     <th className="px-5 py-3 font-medium">Plan</th>
                     <th className="px-5 py-3 font-medium text-right">MRR</th>
-                    <th className="px-5 py-3 font-medium text-right">Companies</th>
+                    <th className="px-5 py-3 font-medium text-right">Paying companies</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.revenue_by_plan.length === 0 && (
-                    <tr><td colSpan={3} className="px-5 py-8 text-center text-gray-600 dark:text-gray-400">No plan data</td></tr>
+                    <tr><td colSpan={3} className="px-5 py-8 text-center text-gray-600 dark:text-gray-400">No paying subscriptions</td></tr>
                   )}
                   {data.revenue_by_plan.map((row, i) => (
                     <tr key={i} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40">
@@ -188,7 +190,7 @@ export default function AdminAnalytics() {
                   <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
                     <th className="px-5 py-3 font-medium">Feature</th>
                     <th className="px-5 py-3 font-medium text-right">Adoption</th>
-                    <th className="px-5 py-3 font-medium text-right">Companies</th>
+                    <th className="px-5 py-3 font-medium text-right">Companies with access</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -199,7 +201,7 @@ export default function AdminAnalytics() {
                     <tr key={i} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40">
                       <td className="px-5 py-3 text-gray-800 dark:text-gray-200">{row.feature}</td>
                       <td className="px-5 py-3 text-right">
-                        <span className="text-gray-700 dark:text-gray-300 font-medium">{row.adoption_percent}%</span>
+                        <span className="text-gray-700 dark:text-gray-300 font-medium">{formatRate(row.adoption_percent)}</span>
                       </td>
                       <td className="px-5 py-3 text-right text-gray-600 dark:text-gray-400">{row.user_count}</td>
                     </tr>

@@ -1,6 +1,9 @@
 /**
  * Admin System Health API
- * GET /api/admin/health — DB latency, job queue, email delivery, sessions, trials, recent errors
+ * GET /api/admin/health — DB latency, job queue, email accepted by SMTP, sign-ins, trials, recent errors
+ *
+ * A metric that cannot be read is an error (500, logged), never a zero or a
+ * "healthy": only the database probe itself degrades to status 'error'.
  */
 
 import type { NextApiResponse } from 'next';
@@ -13,6 +16,7 @@ import type { DbRow } from '@/lib/neon';
 import { checkAndAlert } from '@/modules/admin/services/healthAlertService';
 import { getTrialStats } from '@/modules/admin/services/trialQueries';
 import { runAfterCommit } from '@/lib/afterCommit';
+import { percentOrNull } from '@/modules/admin/services/metrics/revenueMath';
 
 type Row = DbRow;
 
@@ -31,9 +35,12 @@ export interface JobQueueHealth {
 }
 
 export interface EmailHealth {
+  /** Accepted by the SMTP server: not proof of delivery. */
   sent_24h: number;
   failed_24h: number;
-  success_rate_percent: number;
+  bounced_24h: number;
+  /** sent / (sent + failed + bounced); null when no email was attempted. */
+  success_rate_percent: number | null;
 }
 
 export interface TrialHealth {
@@ -52,7 +59,8 @@ export interface SystemHealthResponse {
   db: DbHealth;
   job_queue: JobQueueHealth;
   email: EmailHealth;
-  active_sessions_24h: number;
+  /** Users whose last sign-in (users.last_login) was in the last 24 hours. */
+  users_signed_in_24h: number;
   trials: TrialHealth;
   recent_errors: RecentError[];
   overall_status: 'healthy' | 'degraded' | 'critical';
@@ -71,11 +79,13 @@ async function getDbHealth(): Promise<DbHealth> {
     const size_mb = parseFloat((rows[0] as Row).size_mb as string) || 0;
     return { status: 'ok', latency_ms, size_mb };
   } catch (err) {
+    // The driver's text (host, port, SQL) goes to the log, never to the browser.
+    log.error('Database health check failed', { message: err instanceof Error ? err.message : String(err) }, 'admin-health-api');
     return {
       status: 'error',
       latency_ms: Date.now() - start,
       size_mb: 0,
-      error: err instanceof Error ? err.message : 'Unknown DB error',
+      error: 'database check failed',
     };
   }
 }
@@ -85,7 +95,7 @@ async function getDbHealth(): Promise<DbHealth> {
 interface ScalarHealthMetrics {
   job_queue: JobQueueHealth;
   email: EmailHealth;
-  active_sessions_24h: number;
+  users_signed_in_24h: number;
   trials: TrialHealth;
 }
 
@@ -102,16 +112,17 @@ async function getScalarHealthMetrics(): Promise<ScalarHealthMetrics> {
          FROM email_log WHERE sent_at >= NOW() - INTERVAL '24 hours')::int             AS sent_24h,
         (SELECT COUNT(*) FILTER (WHERE status = 'failed')
          FROM email_log WHERE sent_at >= NOW() - INTERVAL '24 hours')::int             AS failed_24h,
-        (SELECT COUNT(*)::int FROM user_sessions
-         WHERE created_at >= NOW() - INTERVAL '24 hours'
-           AND expires_at > NOW())                                                      AS active_sessions_24h
+        (SELECT COUNT(*) FILTER (WHERE status = 'bounced')
+         FROM email_log WHERE sent_at >= NOW() - INTERVAL '24 hours')::int             AS bounced_24h,
+        (SELECT COUNT(*)::int FROM users
+         WHERE last_login >= NOW() - INTERVAL '24 hours')                               AS users_signed_in_24h
     `;
     // Same definition as the Trials page and the billing overview (trialQueries.ts).
     const trialStats = await getTrialStats();
     const r = rows[0] as Row;
-    const sent   = parseInt(r.sent_24h   as string, 10) || 0;
-    const failed = parseInt(r.failed_24h as string, 10) || 0;
-    const total  = sent + failed;
+    const sent    = parseInt(r.sent_24h    as string, 10) || 0;
+    const failed  = parseInt(r.failed_24h  as string, 10) || 0;
+    const bounced = parseInt(r.bounced_24h as string, 10) || 0;
     return {
       job_queue: {
         pending: parseInt(r.pending as string, 10) || 0,
@@ -122,22 +133,20 @@ async function getScalarHealthMetrics(): Promise<ScalarHealthMetrics> {
           : null,
       },
       email: {
-        sent_24h:   sent,
-        failed_24h: failed,
-        success_rate_percent: total > 0 ? Math.round((sent / total) * 1000) / 10 : 100,
+        sent_24h:    sent,
+        failed_24h:  failed,
+        bounced_24h: bounced,
+        success_rate_percent: percentOrNull(sent, sent + failed + bounced, 1),
       },
-      active_sessions_24h: parseInt(r.active_sessions_24h as string, 10) || 0,
+      users_signed_in_24h: parseInt(r.users_signed_in_24h as string, 10) || 0,
       trials: {
         expiring_in_7d: trialStats.expiring_this_week,
       },
     };
-  } catch {
-    return {
-      job_queue: { pending: 0, running: 0, failed: 0, oldest_pending_age_minutes: null },
-      email:     { sent_24h: 0, failed_24h: 0, success_rate_percent: 100 },
-      active_sessions_24h: 0,
-      trials:    { expiring_in_7d: 0 },
-    };
+  } catch (err) {
+    // Zeros here once read as "All systems operational" (admin audit 2.8).
+    log.error('Health metrics could not be read', { error: err }, 'admin-health-api');
+    throw err;
   }
 }
 
@@ -170,8 +179,9 @@ async function getRecentErrors(): Promise<RecentError[]> {
         created_at,
       };
     });
-  } catch {
-    return [];
+  } catch (err) {
+    log.error('Recent error events could not be read', { error: err }, 'admin-health-api');
+    throw err;
   }
 }
 
@@ -183,8 +193,9 @@ function deriveOverallStatus(
   email: EmailHealth,
 ): SystemHealthResponse['overall_status'] {
   if (db.status === 'error') return 'critical';
-  if (jobs.failed > 50 || email.success_rate_percent < 80) return 'degraded';
-  if (db.latency_ms > 2000 || jobs.failed > 10 || email.success_rate_percent < 95) return 'degraded';
+  const rate = email.success_rate_percent ?? 100; // nothing attempted: nothing failed
+  if (jobs.failed > 50 || rate < 80) return 'degraded';
+  if (db.latency_ms > 2000 || jobs.failed > 10 || rate < 95) return 'degraded';
   return 'healthy';
 }
 
@@ -202,14 +213,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       getRecentErrors(),
     ]);
 
-    const { job_queue, email, active_sessions_24h, trials } = scalars;
+    const { job_queue, email, users_signed_in_24h, trials } = scalars;
     const overall_status = deriveOverallStatus(db, job_queue, email);
 
     const payload: SystemHealthResponse = {
       db,
       job_queue,
       email,
-      active_sessions_24h,
+      users_signed_in_24h,
       trials,
       recent_errors,
       overall_status,

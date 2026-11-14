@@ -1,6 +1,6 @@
 /**
  * Admin System Health Page
- * /admin/health — real-time monitoring: DB, job queue, email, sessions, trials, errors
+ * /admin/health — real-time monitoring: DB, job queue, email, sign-ins, trials, errors
  * Auto-refreshes every 30 seconds.
  */
 
@@ -16,6 +16,7 @@ import {
   type SystemHealthData, type StatusLevel, type RecentError,
 } from '@/components/admin/HealthWidgets';
 import { formatDisplayTimeSeconds } from '@/utils/dateFormat';
+import { formatRate } from '@/components/admin/formatMetric';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -68,7 +69,8 @@ export default function SystemHealthPage() {
 
   const dbStatus:    StatusLevel = !data ? 'ok' : data.db.status === 'error' ? 'error' : data.db.latency_ms > 1000 ? 'warn' : 'ok';
   const jobStatus:   StatusLevel = !data ? 'ok' : data.job_queue.failed > 50 ? 'error' : data.job_queue.failed > 10 ? 'warn' : 'ok';
-  const emailStatus: StatusLevel = !data ? 'ok' : data.email.success_rate_percent < 80 ? 'error' : data.email.success_rate_percent < 95 ? 'warn' : 'ok';
+  const emailRate = data?.email.success_rate_percent ?? null;
+  const emailStatus: StatusLevel = emailRate === null ? 'ok' : emailRate < 80 ? 'error' : emailRate < 95 ? 'warn' : 'ok';
 
   return (
     <AdminLayout title="System Health" ownHeading>
@@ -120,7 +122,7 @@ export default function SystemHealthPage() {
             <MetricCard title="Database" icon={Database} status={dbStatus}>
               <div className="grid grid-cols-2 gap-3">
                 <Stat label="Status"     value={<StatusBadge level={dbStatus} label={data.db.status === 'ok' ? 'Connected' : 'Unreachable'} />} />
-                <Stat label="Query (ms)" value={data.db.latency_ms} />
+                <Stat label="Size query (ms)" value={data.db.latency_ms} />
                 <Stat label="DB Size"    value={`${data.db.size_mb} MB`} />
                 {data.db.status !== 'ok' && (
                   <p className="col-span-2 text-xs text-red-400 mt-1">The database did not answer the health check query - check the database service and the server logs.</p>
@@ -133,7 +135,7 @@ export default function SystemHealthPage() {
               <div className="grid grid-cols-3 gap-3">
                 <Stat label="Pending" value={data.job_queue.pending} />
                 <Stat label="Running" value={data.job_queue.running} />
-                <Stat label="Failed"  value={<span className={data.job_queue.failed > 0 ? 'text-red-400' : ''}>{data.job_queue.failed}</span>} />
+                <Stat label="Failed (all time)" value={<span className={data.job_queue.failed > 0 ? 'text-red-400' : ''}>{data.job_queue.failed}</span>} />
               </div>
               {data.job_queue.oldest_pending_age_minutes != null && (
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
@@ -143,17 +145,17 @@ export default function SystemHealthPage() {
             </MetricCard>
 
             {/* Email Delivery */}
-            <MetricCard title="Email Delivery (24h)" icon={Mail} status={emailStatus} linkHref="/admin/email-log" linkLabel="View email log">
+            {/* "Accepted" = the SMTP server took it; delivery is not known here. */}
+            <MetricCard title="Email Sent (24h)" icon={Mail} status={emailStatus} linkHref="/admin/email-log" linkLabel="View email log">
               <div className="grid grid-cols-3 gap-3">
-                <Stat label="Sent"    value={data.email.sent_24h} />
-                <Stat label="Failed"  value={<span className={data.email.failed_24h > 0 ? 'text-red-400' : ''}>{data.email.failed_24h}</span>} />
-                <Stat label="Success" value={`${data.email.success_rate_percent}%`} />
+                <Stat label="Accepted by SMTP" value={data.email.sent_24h} />
+                <Stat label="Failed or bounced" value={<span className={data.email.failed_24h + (data.email.bounced_24h ?? 0) > 0 ? 'text-red-400' : ''}>{data.email.failed_24h + (data.email.bounced_24h ?? 0)}</span>} />
+                <Stat label="Accepted %" value={formatRate(emailRate)} />
               </div>
             </MetricCard>
 
-            {/* Active Sessions */}
-            <MetricCard title="Active Users (24h)" icon={Users} status="ok">
-              <Stat label="Sessions" value={data.active_sessions_24h} />
+            <MetricCard title="Signed In (24h)" icon={Users} status="ok">
+              <Stat label="Users" value={data.users_signed_in_24h ?? '—'} />
             </MetricCard>
 
             {/* Trials */}

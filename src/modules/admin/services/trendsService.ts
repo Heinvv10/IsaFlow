@@ -6,6 +6,8 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { companyOutOfMetrics, loadSubscriptionFacts } from './metrics/metricsSql';
+import { mrrTrend } from './metrics/timeSeriesMath';
 import type {
   AnalyticsTrends,
   MrrTrendPoint,
@@ -31,36 +33,9 @@ export async function getTrends(): Promise<AnalyticsTrends> {
   return { mrr_trend: mrrTrend, engagement_trend: engagementTrend, signup_trend: signupTrend };
 }
 
+/** 30 SAST days of MRR by the one definition; the last point is today's headline MRR. */
 async function getMrrTrend(): Promise<MrrTrendPoint[]> {
-  const rows = await sql`
-    SELECT
-      d.date::date::text AS date,
-      COALESCE(SUM(
-        CASE
-          WHEN s.billing_cycle = 'monthly' THEN p.monthly_price_cents
-          WHEN s.billing_cycle = 'annual'  THEN ROUND(p.annual_price_cents / 12.0)
-          ELSE 0
-        END
-      ), 0)::int AS mrr_cents,
-      COUNT(DISTINCT s.company_id)::int AS company_count
-    FROM generate_series(
-      NOW() - INTERVAL '29 days',
-      NOW(),
-      INTERVAL '1 day'
-    ) AS d(date)
-    LEFT JOIN subscriptions s
-      ON s.status IN ('active', 'trial')
-      AND s.created_at::date <= d.date::date
-      AND (s.cancelled_at IS NULL OR s.cancelled_at::date > d.date::date)
-    LEFT JOIN plans p ON p.id = s.plan_id
-    GROUP BY d.date
-    ORDER BY d.date ASC
-  `;
-  return (rows as Row[]).map((row) => ({
-    date: row.date as string,
-    mrr_cents: parseInt(row.mrr_cents as string, 10) || 0,
-    company_count: parseInt(row.company_count as string, 10) || 0,
-  }));
+  return mrrTrend(await loadSubscriptionFacts(), new Date(), 30);
 }
 
 async function getEngagementTrend(): Promise<EngagementTrendPoint[]> {
@@ -107,7 +82,7 @@ async function getSignupTrend(): Promise<SignupTrendPoint[]> {
     ) AS d(date)
     LEFT JOIN companies c
       ON c.created_at::date = d.date::date
-      AND c.status IS DISTINCT FROM 'deleted'
+      AND NOT ${companyOutOfMetrics()}
     LEFT JOIN users u
       ON u.created_at::date = d.date::date
       AND u.is_active = true

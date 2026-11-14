@@ -7,6 +7,9 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { companyOutOfMrr, loadSubscriptionFacts, subscriptionInMrr, subscriptionMrrCents } from './metrics/metricsSql';
+import { summariseRevenue } from './metrics/revenueMath';
+import { churnTrend } from './metrics/timeSeriesMath';
 import { getTrialStats } from './trialQueries';
 import type {
   BillingOverview,
@@ -27,25 +30,16 @@ function toIso(value: unknown): string | null {
 // ---------------------------------------------------------------------------
 
 export async function getBillingOverview(): Promise<BillingOverview> {
-  const [[subRow], [churnRow], [revRow], trialStats] = await Promise.all([
+  const now = new Date();
+  const [[subRow], [revRow], facts, trialStats] = await Promise.all([
+    // One population for the whole card row: the companies MRR counts (no
+    // deleted, suspended or internal company), as active_subscriptions.
     sql`
       SELECT COUNT(*) AS total,
-        COUNT(*) FILTER (WHERE s.status = 'active')   AS active,
-        COUNT(*) FILTER (WHERE s.status = 'past_due') AS past_due,
-        COALESCE(SUM(CASE
-          WHEN s.status != 'active' THEN 0
-          WHEN s.billing_cycle = 'monthly' THEN ROUND(p.monthly_price_cents::numeric * (100 - COALESCE(s.discount_percent, 0)::numeric) / 100.0)
-          WHEN s.billing_cycle = 'annual'  THEN ROUND(p.annual_price_cents::numeric * (100 - COALESCE(s.discount_percent, 0)::numeric) / 1200.0)
-          ELSE 0 END), 0) AS mrr_cents
-      FROM subscriptions s INNER JOIN plans p ON p.id = s.plan_id
-    `,
-    sql`
-      SELECT
-        COUNT(*) FILTER (WHERE status = 'cancelled'
-          AND cancelled_at >= NOW() - INTERVAL '30 days')::float AS cancelled_30d,
-        GREATEST(COUNT(*) FILTER (WHERE status IN ('active','trial','past_due')
-          OR (status = 'cancelled' AND cancelled_at >= NOW() - INTERVAL '30 days')), 1)::float AS base
-      FROM subscriptions
+        COUNT(*) FILTER (WHERE s.status = 'past_due') AS past_due
+      FROM subscriptions s
+      JOIN companies c ON c.id = s.company_id
+      WHERE NOT ${companyOutOfMrr()}
     `,
     sql`
       SELECT
@@ -53,30 +47,34 @@ export async function getBillingOverview(): Promise<BillingOverview> {
         COALESCE(SUM(total_cents) FILTER (WHERE status IN ('sent','overdue')), 0)  AS outstanding_cents
       FROM admin_invoices
     `,
+    // MRR, ARR, ARPU, paying companies and churn: the one definition (metrics module).
+    loadSubscriptionFacts(),
+    // Trials: the Trials page's own count (trialQueries.ts), never a subscription status.
     getTrialStats(),
   ]);
 
   const s = subRow as Row;
-  const c = churnRow as Row;
   const rv = revRow as Row;
-  const mrr = parseInt(s.mrr_cents as string, 10);
-  const active = parseInt(s.active as string, 10);
-  const churnRate = Math.round(((c.cancelled_30d as number) / (c.base as number)) * 10000) / 100;
+  const revenue = summariseRevenue(facts);
+  // The same churn as Revenue Intelligence: this SAST month so far.
+  const churn = churnTrend(facts, now, 1)[0]!;
 
   const overview: BillingOverview = {
-    mrr_cents: mrr,
-    arr_cents: mrr * 12,
+    mrr_cents: revenue.mrr_cents,
+    arr_cents: revenue.arr_cents,
     total_subscriptions: parseInt(s.total as string, 10),
-    active_subscriptions: active,
+    active_subscriptions: revenue.active_subscriptions,
     past_due_count: parseInt(s.past_due as string, 10),
     trial_count: trialStats.active_trials,
-    churn_rate_percent: churnRate,
-    arpu_cents: active > 0 ? Math.round(mrr / active) : 0,
+    paying_companies: revenue.paying_companies,
+    churn_rate_percent: churn.churn_rate_pct,
+    churn_period: churn.month,
+    arpu_cents: revenue.arpu_cents,
     total_revenue_cents: parseInt(rv.total_revenue_cents as string, 10),
     outstanding_cents: parseInt(rv.outstanding_cents as string, 10),
   };
 
-  log.info('getBillingOverview', { mrr_cents: mrr, active }, 'BillingService');
+  log.info('getBillingOverview', { mrr_cents: revenue.mrr_cents, paying: revenue.paying_companies }, 'BillingService');
   return overview;
 }
 
@@ -106,6 +104,7 @@ function rowToSubscription(r: Row): SubscriptionListItem {
     cancel_at_period_end: r.cancel_at_period_end as boolean,
     discount_percent: r.discount_percent as number,
     monthly_amount_cents: parseInt(r.monthly_amount_cents as string, 10),
+    counts_toward_mrr: r.counts_toward_mrr === true,
     created_at: toIso(r.created_at) ?? '',
   };
 }
@@ -149,9 +148,7 @@ export async function listSubscriptions(filters: {
       s.status, s.billing_cycle, s.current_period_start, s.current_period_end,
       COALESCE(s.cancel_at_period_end, false) AS cancel_at_period_end,
       COALESCE(s.discount_percent, 0)          AS discount_percent,
-      CASE WHEN s.billing_cycle = 'monthly' THEN p.monthly_price_cents
-           WHEN s.billing_cycle = 'annual'  THEN ROUND(p.annual_price_cents / 12.0)
-           ELSE 0 END AS monthly_amount_cents, s.created_at
+      ${subscriptionMrrCents()} AS monthly_amount_cents, ${subscriptionInMrr()} AS counts_toward_mrr, s.created_at
     FROM subscriptions s
     INNER JOIN companies c ON c.id = s.company_id
     INNER JOIN plans p ON p.id = s.plan_id
@@ -184,9 +181,7 @@ export async function getSubscription(
       s.status, s.billing_cycle, s.current_period_start, s.current_period_end,
       COALESCE(s.cancel_at_period_end, false) AS cancel_at_period_end,
       COALESCE(s.discount_percent, 0)          AS discount_percent,
-      CASE WHEN s.billing_cycle = 'monthly' THEN p.monthly_price_cents
-           WHEN s.billing_cycle = 'annual'  THEN ROUND(p.annual_price_cents / 12.0)
-           ELSE 0 END AS monthly_amount_cents, s.created_at
+      ${subscriptionMrrCents()} AS monthly_amount_cents, ${subscriptionInMrr()} AS counts_toward_mrr, s.created_at
     FROM subscriptions s
     INNER JOIN companies c ON c.id = s.company_id
     INNER JOIN plans p ON p.id = s.plan_id

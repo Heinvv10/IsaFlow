@@ -10,6 +10,7 @@ import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Building2, Users, ArrowRight, Loader2, Activity, Clock } from 'lucide-react';
 import Link from 'next/link';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { formatRate, MRR_SCOPE_NOTE } from '@/components/admin/formatMetric';
 
 interface TrialRow {
   id: string;
@@ -45,7 +46,7 @@ interface PlatformHealth {
   active_users_7d: number;
   active_users_30d: number;
   db_size_mb: number;
-  error_rate_percent: number;
+  error_rate_percent: number | null;
 }
 
 function fmtRelative(dateStr: string) {
@@ -143,38 +144,37 @@ export default function AdminDashboard() {
             <StatsCard title="Active Companies"      value={stats.active_companies} />
             <StatsCard title="Total Users"           value={stats.total_users} />
             <StatsCard title="Active Users (30d)"    value={stats.active_users_30d} />
-            <StatsCard title="MRR"                   value={formatCurrency(stats.mrr_cents / 100)} />
+            <StatsCard title="MRR"                   value={formatCurrency(stats.mrr_cents / 100)} subtitle={MRR_SCOPE_NOTE} />
             <StatsCard title="New Signups (30d)"     value={stats.new_signups_30d} />
           </div>
 
-          {/* Platform Health */}
-          {health && (
-            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm mb-6">
-              <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-teal-500" />
-                  <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Platform Health</h2>
-                </div>
-                <Link href={adminHref('/admin/analytics')} className="text-xs text-teal-500 hover:text-teal-400 font-medium">
-                  View Full Analytics
-                </Link>
+          {/* Platform Health (a failed load says so instead of vanishing) */}
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm mb-6">
+            <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Activity className="w-4 h-4 text-teal-500" />
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Platform Health</h2>
               </div>
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-px bg-gray-200 dark:bg-gray-700">
-                {[
-                  { label: 'Active (24h)',  value: health.active_users_24h },
-                  { label: 'Active (7d)',   value: health.active_users_7d },
-                  { label: 'Active (30d)',  value: health.active_users_30d },
-                  { label: 'DB Size',       value: `${health.db_size_mb} MB` },
-                  { label: 'Error Rate',    value: `${health.error_rate_percent}%` },
-                ].map((item) => (
-                  <div key={item.label} className="bg-white dark:bg-gray-900 px-5 py-4">
-                    <p className="text-xs text-gray-500 dark:text-gray-400 font-medium uppercase tracking-wider mb-1">{item.label}</p>
-                    <p className="text-xl font-bold text-gray-900 dark:text-white">{item.value}</p>
-                  </div>
-                ))}
-              </div>
+              <Link href={adminHref('/admin/analytics')} className="text-xs text-teal-500 hover:text-teal-400 font-medium">
+                View Full Analytics
+              </Link>
             </div>
-          )}
+            {!health && <p className="px-5 py-4 text-sm text-red-400">Could not load platform health - reload to try again</p>}
+            {health && <div className="grid grid-cols-2 lg:grid-cols-5 gap-px bg-gray-200 dark:bg-gray-700">
+              {[
+                { label: 'Signed in (24h)', value: health.active_users_24h },
+                { label: 'Signed in (7d)',  value: health.active_users_7d },
+                { label: 'Signed in (30d)', value: health.active_users_30d },
+                { label: 'DB Size',         value: `${health.db_size_mb} MB` },
+                { label: 'Admin error rate (24h)', value: formatRate(health.error_rate_percent) },
+              ].map((item) => (
+                <div key={item.label} className="bg-white dark:bg-gray-900 px-5 py-4">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 font-medium uppercase tracking-wider mb-1">{item.label}</p>
+                  <p className="text-xl font-bold text-gray-900 dark:text-white">{item.value}</p>
+                </div>
+              ))}
+            </div>}
+          </div>
 
           {/* Recent Activity */}
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm mb-8">

@@ -16,6 +16,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { companyOutOfMetrics } from './metrics/metricsSql';
 
 export type TrialState = 'active' | 'expired' | 'converted';
 
@@ -32,6 +33,8 @@ export interface TrialCompany {
   /** Whole days, rounded up: 12 hours left is 1; an expired trial is 0 or negative. */
   days_left: number;
   converted_at: string | null;
+  /** An internal company (is_demo or the Demo tenant): listed, never counted. */
+  internal: boolean;
 }
 
 export interface TrialStats {
@@ -71,10 +74,13 @@ export function classifyTrial(r: DbRow, now: Date): TrialCompany {
     trial_state: isPaid ? 'converted' : msLeft < 0 ? 'expired' : 'active',
     days_left: Math.ceil(msLeft / DAY_MS) || 0,
     converted_at: isPaid ? isoOrNull(r.converted_at) : null,
+    internal: r.internal === true,
   };
 }
 
-export function summariseTrials(trials: TrialCompany[], now: Date): TrialStats {
+export function summariseTrials(listed: TrialCompany[], now: Date): TrialStats {
+  // Every count leaves out internal companies (the admin metrics' population); the table still lists them.
+  const trials = listed.filter((t) => !t.internal);
   const count = (keep: (t: TrialCompany) => boolean) => trials.filter(keep).length;
   const active = (t: TrialCompany) => t.trial_state === 'active';
   const convertedRecently = count((t) => t.trial_state === 'converted' && t.converted_at !== null
@@ -89,7 +95,12 @@ export function summariseTrials(trials: TrialCompany[], now: Date): TrialStats {
   };
 }
 
-/** The single trials query: every non-deleted company with a trial_ends_at, soonest end first. */
+/**
+ * The single trials query: every non-deleted company with a trial_ends_at,
+ * soonest end first. `internal` (the metrics module's companyOutOfMetrics:
+ * is_demo or the Demo tenant) marks a company the table lists with a badge, so
+ * an admin can still see and extend it, but no count includes.
+ */
 async function loadTrials(now: Date): Promise<TrialCompany[]> {
   const rows = await sql`
     SELECT
@@ -101,6 +112,7 @@ async function loadTrials(now: Date): Promise<TrialCompany[]> {
       COALESCE(uc.user_count, 0)    AS user_count,
       cs.plan_name,
       COALESCE(cs.is_paid, false)   AS is_paid,
+      ${companyOutOfMetrics()}      AS internal,
       CASE WHEN cs.is_paid THEN COALESCE(
         (SELECT MAX(a.created_at) FROM admin_audit_log a
           WHERE a.action = 'trial.convert_to_paid' AND a.target_type = 'company' AND a.target_id = c.id::text),
@@ -133,8 +145,17 @@ export async function getAllTrials(now = new Date()): Promise<TrialCompany[]> {
 
 /** Trials still running that end within the next N days, soonest first. */
 export async function getExpiringTrials(withinDays = 30, now = new Date()): Promise<TrialCompany[]> {
+  return expiringTrials(await loadTrials(now), withinDays, now);
+}
+
+/**
+ * Running trials ending within `withinDays`, never an internal company: this
+ * feeds the dashboard's "Trials Expiring Soon" alert, which must agree with
+ * the counts (summariseTrials).
+ */
+export function expiringTrials(trials: TrialCompany[], withinDays: number, now: Date): TrialCompany[] {
   const horizon = now.getTime() + withinDays * DAY_MS;
-  return (await loadTrials(now)).filter((t) => t.trial_state === 'active' && new Date(t.trial_ends_at).getTime() <= horizon);
+  return trials.filter((t) => !t.internal && t.trial_state === 'active' && new Date(t.trial_ends_at).getTime() <= horizon);
 }
 
 /** The counts for the Trials cards, the billing overview and the health widget. */
