@@ -3,7 +3,8 @@
 // the theme's ink tokens (--ff-text-secondary / -tertiary, dark on light and light on dark), not from a raw grey.
 // Two levels: (1) the rendered nav's CLASS names (happy-dom applies no Tailwind CSS, so no computed colour exists
 // here); (2) the tokens behind those classes: tailwind.config maps ink-muted / ink-faint to the CSS variables, and
-// styles/globals.css gives them values that reach WCAG AA (4.5:1) on the sidebar in both themes.
+// styles/globals.css gives them values that reach WCAG AA (4.5:1) on the sidebar and on the hover background
+// (--ff-bg-tertiary) in both themes.
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 
@@ -67,5 +68,14 @@ describe('ink tokens behind the classes', () => {
     // Light sidebar: bg-white, which the signed-in shell maps to #f5faf8 (--rv-white); dark: #071a24 (--rv-gray-900).
     for (const bg of ['#ffffff', '#f5faf8']) expect(contrast(light, bg), `${name} ${light} on ${bg}`).toBeGreaterThanOrEqual(4.5);
     expect(contrast(dark, '#071a24'), `${name} ${dark} on #071a24`).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(['--ff-text-secondary', '--ff-text-tertiary'])('%s reaches 4.5:1 on the hover background (--ff-bg-tertiary) in both themes', (name) => {
+    for (const [theme, block] of [['light', css], ['dark', darkBlock]] as const) {
+      const fg = value(block, name);
+      const hoverBg = value(block, '--ff-bg-tertiary');
+      expect(hoverBg, `${theme} --ff-bg-tertiary`).toMatch(/^#[0-9a-fA-F]{6}$/);
+      expect(contrast(fg, hoverBg), `${theme}: ${name} ${fg} on ${hoverBg}`).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });
