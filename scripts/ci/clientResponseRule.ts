@@ -52,6 +52,8 @@ export type { Hit, HitKind } from './clientResponseShared';
 export interface Analysis { hits: Hit[]; parseErrors: string[] }
 
 const SHIM = '/virtual/@lib/apiFetch.d.ts';
+const ADMIN_SHIM = '/virtual/@lib/admin/adminFetch.d.ts';
+const ADMIN_SHIM_TEXT = 'export declare function adminFetch(url: string, options?: RequestInit): Promise<Response>;\n';
 const SHIM_TEXT = `export declare function apiFetch(url: string, options?: RequestInit): Promise<Response>;
 export declare function assertOk(res: Response, fallback: string): Promise<void>;
 export declare function apiJson(url: string, options?: RequestInit, failureMessage?: string): Promise<any>;
@@ -106,7 +108,7 @@ export function analyzePaths(paths: string[]): Analysis {
 /** In-memory sources (the unit-test fixtures): `@/lib/apiFetch` resolves to a declaration shim, nothing else resolves. */
 export function analyzeSources(sources: Array<{ file: string; text: string }>): Analysis {
   const options: ts.CompilerOptions = { target: ts.ScriptTarget.ES2020, lib: ['lib.esnext.d.ts', 'lib.dom.d.ts'], strict: true, jsx: ts.JsxEmit.Preserve, noEmit: true, skipLibCheck: true, types: [], allowJs: true, noResolve: false };
-  const mem = new Map(sources.map((s) => [`/virtual/${s.file}`, s.text] as const)); mem.set(SHIM, SHIM_TEXT);
+  const mem = new Map(sources.map((s) => [`/virtual/${s.file}`, s.text] as const)); mem.set(SHIM, SHIM_TEXT); mem.set(ADMIN_SHIM, ADMIN_SHIM_TEXT);
   const base = ts.createCompilerHost(options, true);
   const host: ts.CompilerHost = {
     ...base,
@@ -120,6 +122,7 @@ export function analyzeSources(sources: Array<{ file: string; text: string }>): 
     },
     resolveModuleNames: (names, containing) => names.map((n) => {
       if (n === '@/lib/apiFetch') return { resolvedFileName: SHIM, extension: ts.Extension.Dts };
+      if (n === '@/lib/admin/adminFetch') return { resolvedFileName: ADMIN_SHIM, extension: ts.Extension.Dts };
       // another source of the same fixture: `@/lib/x` or `./x`
       const dir = containing.replace(/\/[^/]*$/, '');
       const target = n.startsWith('@/') ? `/virtual/src/${n.slice(2)}` : n.startsWith('.') ? `${dir}/${n}`.replace(/\/\.\//g, '/') : undefined;

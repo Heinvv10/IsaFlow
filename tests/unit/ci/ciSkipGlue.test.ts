@@ -7,7 +7,7 @@
  * Only exit 10 may skip; 0, 1 and 127 (bun missing) must run everything.
  */
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -37,10 +37,10 @@ chmodSync(join(dir, 'bash'), 0o755);
 const inherited = (k: string) => /^(GIT_|GITHUB_|RUNNER_|ACTIONS_|CI_)/.test(k) || k === 'CI';
 const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !inherited(k)));
 
-function run(script: string[], env: Record<string, string>): { status: number | null; out: string; calls: string[] } {
+function run(script: string[], env: Record<string, string>, cwd = process.cwd()): { status: number | null; out: string; calls: string[] } {
   writeFileSync(LOG, '');
   const r = spawnSync('/bin/bash', script, {
-    cwd: process.cwd(), encoding: 'utf8',
+    cwd, encoding: 'utf8',
     // AGENT_RUN_BIN: never the machine's real agent-run (runCiAgentRun.test.ts covers it).
     env: { ...baseEnv, PATH: `${dir}:${process.env.PATH}`, STUB_LOG: LOG, CI_SKIP_BUILD: '0', AGENT_RUN_BIN: join(dir, 'absent'), ...env },
   });
@@ -209,8 +209,35 @@ describe('run-ci.sh: gate groups (ci.yml runs static on GitHub-hosted, velo on v
 
   it('the pre-push hook runs the prepush group, and keeps SKIP_CI', () => {
     const hook = readFileSync('scripts/ci/hooks/pre-push', 'utf8');
-    expect(hook).toMatch(/^PARITY_SCOPE=diff bun run ci prepush$/m);
+    expect(hook).toMatch(/^ {2}PARITY_SCOPE=diff bun run ci prepush$/m);
     expect(hook).toContain('SKIP_CI:-0');
+  });
+
+  // The hook is shared by every worktree: one whose run-ci.sh predates the prepush group must get the full gate.
+  describe('the pre-push hook on a branch whose run-ci.sh may lack the prepush group', () => {
+    const hookRun = (runCi: string) => {
+      const repo = mkdtempSync(join(dir, 'hookrepo-'));
+      mkdirSync(join(repo, 'scripts/ci'), { recursive: true });
+      writeFileSync(join(repo, 'scripts/ci/run-ci.sh'), runCi);
+      const git = (...a: string[]) => spawnSync('git', a, { cwd: repo, encoding: 'utf8' });
+      git('init', '-q');
+      return run([join(process.cwd(), 'scripts/ci/hooks/pre-push')], {}, repo);
+    };
+    const OLD = '#!/bin/bash\ncase "$GROUP" in\n  all|static|velo) ;;\nesac\n';
+    const NEW = OLD.replace('velo)', 'velo|prepush)');
+
+    it('runs the prepush group when run-ci.sh has it', () => {
+      const r = hookRun(NEW);
+      expect(r.status).toBe(0);
+      expect(r.calls).toEqual(['bun run ci prepush token=unset']);
+    });
+
+    it('falls back to the full gate, and says to merge master, when it does not', () => {
+      const r = hookRun(OLD);
+      expect(r.status).toBe(0);
+      expect(r.calls).toEqual(['bun run ci token=unset']);
+      expect(r.out).toMatch(/predates the fast pre-push hook.*merge master/);
+    });
   });
 
   it('an unknown group exits 2 and runs nothing', () => {
