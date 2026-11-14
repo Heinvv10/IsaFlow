@@ -29,6 +29,8 @@ describe('LazyAdminCommandPalette when the chunk fails', () => {
     expect(SEARCH_UNAVAILABLE).toBe('Search unavailable, reload the page');
     const dialog = screen.getByRole('dialog', { name: 'Command palette' });
     await waitFor(() => expect(document.activeElement).toBe(dialog));
+    // happy-dom focuses any div; a browser only one with a tabindex, so the attribute is the contract here.
+    expect(dialog.getAttribute('tabindex')).toBe('-1');
     expect(h.warn).toHaveBeenCalledWith('Could not load the admin command palette', expect.anything(), 'admin-ui');
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
