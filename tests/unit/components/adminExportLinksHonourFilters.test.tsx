@@ -48,7 +48,7 @@ function exportParams(name: RegExp = /Export CSV/): { path: string; params: URLS
 }
 
 describe('admin export links carry the active filters', () => {
-  it('users: search, company, role and status', async () => {
+  it('users: search, company and status', async () => {
     render(<UsersPage />);
     fireEvent.change(screen.getByPlaceholderText('Search name or email...'), { target: { value: 'ann' } });
     fireEvent.change(screen.getByPlaceholderText('Filter by company...'), { target: { value: 'Acme' } });
