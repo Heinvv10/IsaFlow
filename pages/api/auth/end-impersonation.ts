@@ -8,9 +8,9 @@
 //
 // Every way out ends the Login-as (admin audit 2026-11-14, 3.10), in this order
 // (src/lib/auth/loginAsRecord.ts): the `impersonation_end` row is written and
-// committed FIRST; then the Login-as session is revoked at GoTrue when this
-// request holds its token (scope=local), the stash goes and expired ones are
-// purged; only then is a cookie set. If the audit row cannot be written the
+// committed FIRST; then the stash goes, then the Login-as session is revoked
+// at GoTrue when this request holds its token (scope=local) and expired
+// stashes are purged; only then is a cookie set. If the audit row cannot be written the
 // request throws (500) before anything irreversible: no revocation, no stash
 // removed, no Set-Cookie, so a retry still works. The revocation outcome is
 // added to the row (`target_session_revoked`: true / false / null when this
@@ -137,16 +137,17 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not authorised to end this impersonation' } });
   }
 
-  // Recorded first: a failed write throws here, before any revocation, removal or cookie.
+  // Recorded first: a failed write throws here, before any removal, revocation or cookie. The stash goes next,
+  // before the revocation: a failure after this point leaves no live stash to restore from, so a retry takes the
+  // STASH_EXPIRED path, which revokes what it holds and records that end too (the truth, not a second restore).
   const endId = await recordLoginAsEnd(
     { actorUserId: stash.admin_user_id, targetUserId: stash.target_user_id }, { stash_id: stashId });
+  await deleteStash(stashId);
 
   // The caller is the Login-as session (checked above): end it at GoTrue too. Its own token names it (scope=local).
   // When the caller is the admin, this browser no longer holds the target session's token: nothing to revoke here.
   const targetSessionRevoked = callerId === stash.target_user_id ? await revokeLoginAsSession(accessToken, 'end') : null;
   await noteLoginAsEnd(endId, { target_session_revoked: targetSessionRevoked });
-
-  await deleteStash(stashId);
   await purgeExpiredStashesBestEffort('end-impersonation');
 
   // Returning to the admin's own session: only a company withAuth will still

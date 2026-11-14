@@ -11,6 +11,7 @@
 import { sql } from '@/lib/neon';
 import { getPlatformAdminPool, newPlatformAdminClient } from './withPlatformAdmin.pools';
 import { verifyTokenSignature } from './gotrue';
+import { log } from '@/lib/logger';
 
 /**
  * Must run before any target cookie is issued: if it throws, the impersonation
@@ -69,6 +70,53 @@ export async function impersonationPartiesOf(
     'SELECT actor_user_id, target_user_id FROM impersonation_sessions WHERE session_id = $1', [sessionId],
   );
   return rows[0] ? { actorUserId: rows[0].actor_user_id, targetUserId: rows[0].target_user_id } : null;
+}
+
+/** Bounds of `impersonationPartiesOfBounded`: waiting for a pool slot, and the statement itself. */
+export const BOUNDED_LOOKUP_CHECKOUT_MS = 1000;
+export const BOUNDED_LOOKUP_STATEMENT_MS = 2000;
+
+/** The bounded look-up gave up (no pool slot in time); the caller treats the session as unclassified. */
+export class SessionLookupBoundError extends Error {
+  constructor(message: string) { super(message); this.name = 'SessionLookupBoundError'; }
+}
+
+/**
+ * `impersonationPartiesOf` for an unauthenticated caller (Sign Out): it must never hold a platform_admin slot or
+ * wait long for one. Waits at most BOUNDED_LOOKUP_CHECKOUT_MS for a connection (the pool's own connect timeout is
+ * 15 s; a checkout that arrives late is released at once) and runs the SELECT under a transaction-local
+ * statement_timeout of BOUNDED_LOOKUP_STATEMENT_MS (the client-side query_timeout is longer, so the server cancels
+ * first). Throws SessionLookupBoundError or the query's error; a connection that failed is destroyed, not pooled.
+ */
+export async function impersonationPartiesOfBounded(
+  sessionId: string,
+): Promise<{ actorUserId: string; targetUserId: string } | null> {
+  const checkout = getPlatformAdminPool().connect();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), BOUNDED_LOOKUP_CHECKOUT_MS); });
+  const client = await Promise.race([checkout, late]).finally(() => clearTimeout(timer));
+  if (!client) {
+    checkout.then((c) => c.release(), (err: unknown) => log.warn('bounded session look-up: late checkout failed',
+      { message: err instanceof Error ? err.message : String(err) }, 'Auth'));
+    throw new SessionLookupBoundError(`no platform_admin connection within ${BOUNDED_LOOKUP_CHECKOUT_MS} ms`);
+  }
+  let broken = false;
+  try {
+    await client.query('BEGIN');
+    await client.query(`SET LOCAL statement_timeout = ${BOUNDED_LOOKUP_STATEMENT_MS}`);
+    const { rows } = await client.query<{ actor_user_id: string; target_user_id: string }>({
+      text: 'SELECT actor_user_id, target_user_id FROM impersonation_sessions WHERE session_id = $1',
+      values: [sessionId],
+      query_timeout: BOUNDED_LOOKUP_STATEMENT_MS + 1000,
+    });
+    await client.query('COMMIT');
+    return rows[0] ? { actorUserId: rows[0].actor_user_id, targetUserId: rows[0].target_user_id } : null;
+  } catch (err) {
+    broken = true;
+    throw err;
+  } finally {
+    client.release(broken);
+  }
 }
 
 /**

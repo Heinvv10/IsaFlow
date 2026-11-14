@@ -26,7 +26,7 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 // database in tests/integration/admin-suspend-reset-2fa-audit.int.test.ts. Here only GoTrue's failure modes matter.
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
 vi.mock('@/modules/admin/services/auditService', () => ({ logAdminAction: vi.fn(async () => undefined) }));
-vi.mock('@/lib/auth/platformAdminOwnTx', () => ({ withOwnPlatformAdminTx: async (_a: unknown, fn: () => Promise<unknown>) => fn() }));
+vi.mock('@/lib/auth/platformAdminOwnTx', () => ({ withOwnPlatformAdminTx: async (fn: () => Promise<unknown>) => fn() }));
 vi.mock('@/modules/admin/middleware/withAdmin', () => ({ withAdmin: (h: unknown) => h }));
 vi.mock('@/lib/auth/impersonationGuard', () => ({ refuseImpersonatedSession: vi.fn(async () => false) }));
 vi.mock('@/lib/auth/requireActiveAccount', () => ({ requireActiveAccount: vi.fn(async () => null) }));

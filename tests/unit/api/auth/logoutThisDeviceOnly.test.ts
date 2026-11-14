@@ -8,6 +8,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
+// Sign Out's rate limit is judged on a real database: tests/integration/logout-login-as-bounds.int.test.ts.
+vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: async () => true, getClientIp: () => '127.0.0.1' }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 const gotrueLogout = vi.hoisted(() => vi.fn(async (_token: string, _scope?: string) => undefined));
 const gotrueRefresh = vi.hoisted(() => vi.fn(async (_token: string) => ({ access_token: 'renewed' })));

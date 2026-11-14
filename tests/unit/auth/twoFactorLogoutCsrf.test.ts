@@ -24,6 +24,8 @@ vi.mock('@/lib/auth/gotrue-mfa', () => ({
   GotrueMfaError: class extends Error {},
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+// Sign Out's rate limit is judged on a real database: tests/integration/logout-login-as-bounds.int.test.ts.
+vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: async () => true, getClientIp: () => '127.0.0.1' }));
 
 import enroll from '../../../pages/api/auth/2fa-enroll';
 import confirm from '../../../pages/api/auth/2fa-confirm';

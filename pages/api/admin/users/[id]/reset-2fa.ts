@@ -83,8 +83,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     factor_ids: factorIds,
     ...(target?.role === 'super_admin' ? { target_super_admin: true } : {}),
   };
-  await withOwnPlatformAdminTx({ userId: req.user.id, claims: req.user.claims }, () =>
-    logAdminAction(req.user.id, 'user.reset_2fa_started', 'user', targetUserId, started, ip));
+  await withOwnPlatformAdminTx(() => logAdminAction(req.user.id, 'user.reset_2fa_started', 'user', targetUserId, started, ip));
 
   const out = await removeFactors(targetUserId, factorIds);
   const complete = out.refused.length + out.unknown.length + out.notAttempted.length === 0;

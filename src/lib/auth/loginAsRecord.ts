@@ -6,7 +6,7 @@
 // same row afterwards (`noteLoginAsEnd`), so the row says `target_session_revoked: null` (unknown) until
 // then, and stays honest if that last write fails.
 import { logout, verifyTokenSignature } from './gotrue';
-import { impersonationPartiesOf } from './impersonationSessions';
+import { impersonationPartiesOf, impersonationPartiesOfBounded } from './impersonationSessions';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { deleteEndedStashes, purgeExpiredStashes } from '@/modules/admin/services/userImpersonationService';
@@ -18,16 +18,20 @@ const noteFailure = (reason: string, step: string, err: unknown) =>
 
 /**
  * The parties of the recorded Login-as session `accessToken` belongs to (its verified `session_id`), or null
- * for an ordinary session or a token whose signature does not verify. A lookup failure throws.
+ * for an ordinary session or a token whose signature does not verify (expired, or not ours: it names no session,
+ * so there is nothing to close; not a failure). A lookup failure throws. `bounded`: for an unauthenticated
+ * caller (Sign Out), the look-up gives up fast instead of holding or waiting for a platform_admin slot
+ * (impersonationPartiesOfBounded).
  */
-export async function loginAsPartiesOfToken(accessToken: string): Promise<LoginAsParties | null> {
+export async function loginAsPartiesOfToken(accessToken: string, opts: { bounded?: boolean } = {}): Promise<LoginAsParties | null> {
   let sessionId: unknown;
   try {
     sessionId = (await verifyTokenSignature(accessToken)).session_id;
   } catch {
-    return null; // not a token this app signed (or expired): it names no session
+    return null;
   }
-  return typeof sessionId === 'string' ? impersonationPartiesOf(sessionId) : null;
+  if (typeof sessionId !== 'string') return null;
+  return opts.bounded ? impersonationPartiesOfBounded(sessionId) : impersonationPartiesOf(sessionId);
 }
 
 /** Writes the `impersonation_end` row and returns its id. Throws when it cannot: the caller must stop there. */
