@@ -33,7 +33,10 @@ vi.mock('@/lib/neon', () => ({
       if (fx.failScalars) throw new Error('relation "background_jobs" does not exist');
       return [fx.scalars];
     }
-    if (fx.failErrors) throw new Error('statement timeout');
+    // Only the recent-errors query fails: failing every other text too would
+    // reject the nested sql fragments (companyOutOfMetrics), which this eager
+    // mock turns into promises nobody awaits (an unhandled rejection).
+    if (fx.failErrors && text.includes("action ILIKE 'error%'")) throw new Error('statement timeout');
     return [];
   },
 }));
