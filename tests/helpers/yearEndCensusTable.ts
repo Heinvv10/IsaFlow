@@ -89,6 +89,13 @@ export const entries: Array<[string, Category, string?]> = [
   ['gl/closeReadinessChecks/tbBalancedCheck.ts', 'READINESS'],
   ['gl/closeRun/closeRunRepo.ts', 'READINESS'],
   ['gl/controlAccountService.ts', 'SUBLEDGER'],
+  // Step 6: the lines of ONE named journal (the payment's, a bill's, the share journal) to plan an undo-share; no figure.
+  ['ap/shareUndoReads.ts', 'SUBLEDGER', 'jl.project_id, jl.cc1_id, jl.cc2_id, jl.bu_id'],
+  // Step 6 rounds 1-2: what the undo journals of ONE share (linked, and hand undos of it) already gave back — its
+  // capacity. Not a P&L or equity figure.
+  ['ap/shareUndoReads.ts', 'SUBLEDGER', 'SUM(jl.debit) AS debit, SUM(jl.credit) AS credit'],
+  // Round 3: the hand undos of ONE share (its month, attributed, netted over their reversal chains) — its capacity.
+  ['ap/shareUndoHandUndos.ts', 'SUBLEDGER'],
   ['gl/glIntegrityService.ts', 'INTEGRITY'],
   ['gl/integrityChecks/accountChecks.ts', 'INTEGRITY'],
   ['gl/integrityChecks/dimensionChecks.ts', 'INTEGRITY'],

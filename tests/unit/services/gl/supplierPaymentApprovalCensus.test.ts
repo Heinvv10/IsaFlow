@@ -243,6 +243,7 @@ describe('batch membership', () => {
     'src/modules/accounting/services/reconciliation/partyLedgerSettlementQueries.ts': 'party_ledger_check: reads a payment\'s batch journal (a SELECT); writes nothing',
     'src/modules/accounting/services/reconciliation/partyLedgerSharedJournals.ts': 'party_ledger_check: reads batch members to find who shares a journal (a SELECT); writes nothing',
     'src/modules/accounting/services/core/costCentreUsageGuard.ts': 'dimension_tag_batches.batch_id, not the payment column',
+    'src/modules/accounting/services/core/paymentVoidReads.ts': 'loadPayment maps the locked row\'s batch_id (moved from paymentVoidService, step 6)',
     'src/modules/accounting/services/gl/approvalDocuments.ts': READS,
     'src/modules/accounting/services/gl/approvalEnforcementPreview.ts': READS,
     'src/modules/accounting/services/gl/approvalMatching.ts': READS,

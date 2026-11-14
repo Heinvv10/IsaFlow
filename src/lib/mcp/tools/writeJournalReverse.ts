@@ -19,6 +19,7 @@ import {
   PayrollJournalReversalRefusedError,
   payrollReversalRefusal,
 } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
+import { ShareHasLiveUndosError, liveUndoSharesOf } from '@/modules/accounting/services/gl/shareUndoReversalGuard';
 import type { McpTool } from '../types';
 import { MUTATION_ARG_SCHEMA, type DryRunResult } from '@/lib/mcp/contracts';
 import {
@@ -158,6 +159,10 @@ export const reverseJournalEntryTool: McpTool = {
     // locks, asked here read-only so the dry run refuses what the write refuses.
     const payrollRefusal = await payrollReversalRefusal(ctx.companyId, entry);
     if (payrollRefusal) return toolError(payrollRefusal);
+    // Step 6: a share journal live undo-share journals point at — the guard reverseJournalEntry applies, asked here
+    // read-only so the dry run refuses it too.
+    const undos = await liveUndoSharesOf(ctx.companyId, id);
+    if (undos.length > 0) return toolError(new ShareHasLiveUndosError(entry.entryNumber, undos).message);
     // D12: a statement line matched to this entry and IN a completed bank reconciliation — thrown (a refusal code the
     // registry answers after its savepoint rolls back), the lines locked first; the dry run refuses it too.
     // Step 2 (decision 4), under the same lock: a bank allocation's journal is reversed from its bank line while

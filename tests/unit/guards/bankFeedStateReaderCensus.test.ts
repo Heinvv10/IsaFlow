@@ -165,6 +165,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/core/documentQueryService.ts': 'filtered',
   'src/modules/accounting/services/core/bankAttachmentQuery.ts': 'exempt: MCP list_documents — documents on bank lines by date (an evidence listing moved unchanged out of documentQueryService), not a total or the review queue',
   'src/modules/accounting/services/core/globalSearchRecords.ts': 'filtered',
+  'src/modules/accounting/services/ap/settlementKind.ts': "exempt: classifies one supplier payment (find_double_settlements, void_payment undo_share) — the statement-line test keys on matched_journal_line_id, which a non-posted row cannot carry (trigger 675); the money-account test is an EXISTS on bank_account_id asking whether the account holds statement lines at all, where a pending row is evidence too; no total or queue scope",
   'src/modules/accounting/services/core/paymentVoidReads.ts': "exempt: status IN ('allocated','matched','reconciled') is only reachable via a posted row (Task 2/3 invariant)",
   'src/modules/accounting/services/core/smartCategorizationLearningService.ts': 'exempt: writer (Task 3) — learning pass write path',
   'src/modules/accounting/services/core/smartCategorizationMatchingService.ts': "exempt: non-posted rows cannot carry matched_journal_line_id (trigger 675)",
