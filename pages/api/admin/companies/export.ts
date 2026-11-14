@@ -1,16 +1,18 @@
 /**
  * Admin Companies CSV Export
- * GET /api/admin/companies/export
- * Streams all companies as a CSV file with optional status and date-range filters.
+ * GET /api/admin/companies/export?search=&status=&sort_by=&sort_dir=&from=&to=
+ * Every company matching the Companies list's filters (same predicates as
+ * listCompanies), in its sort order, as one audited CSV (adminCsvExport).
  */
 
 import type { NextApiResponse } from 'next';
-import { type AuthenticatedNextApiRequest } from '@/lib/auth';
+import type { PlatformAdminRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { neutralizeCsvCell } from '@/lib/csvSafe';
+import { csvRow, queryText, sendAuditedCsv } from '@/modules/admin/services/adminCsvExport';
 
 type Row = DbRow;
 
@@ -25,99 +27,87 @@ const CSV_HEADERS = [
   'user_count',
 ];
 
-function escapeCell(value: unknown): string {
-  if (value == null) return '""';
-  const safe = neutralizeCsvCell(String(value));
-  return `"${safe.replace(/"/g, '""')}"`;
-}
+/**
+ * The sort keys the Companies list accepts (adminCompanyService ALLOWED_SORT_COLUMNS) plus plan_name, which
+ * the page offers. A key not here sorts by the default rather than refusing the download; the audit row
+ * records the sort actually applied.
+ */
+const SORT_COLUMNS: Record<string, string> = {
+  name: 'c.name',
+  created_at: 'c.created_at',
+  status: 'c.status',
+  user_count: 'user_count',
+  mrr_cents: 'mrr_cents',
+  plan_name: 'p.name',
+};
 
-function toIsoOrEmpty(value: unknown): string {
-  if (value == null) return '';
-  if (value instanceof Date) return value.toISOString();
-  return String(value);
-}
-
-async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
-    res.setHeader('Allow', 'GET');
-    res.status(405).json({ error: 'Method Not Allowed' });
-    return;
+    return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
 
-  const { status, from, to } = req.query;
-  const statusFilter = typeof status === 'string' && status.trim() ? status.trim() : null;
-  const fromDate     = typeof from === 'string' && from.trim() ? from.trim() : null;
-  const toDate       = typeof to   === 'string' && to.trim()   ? to.trim()   : null;
+  const search       = queryText(req.query.search);
+  const statusFilter = queryText(req.query.status);
+  const fromDate     = queryText(req.query.from);
+  const toDate       = queryText(req.query.to);
+  const requestedSort = queryText(req.query.sort_by);
+  const sortBy  = requestedSort && SORT_COLUMNS[requestedSort] ? requestedSort : null;
+  const sortAsc = sortBy !== null && queryText(req.query.sort_dir)?.toLowerCase() === 'asc';
+  const sortCol = SORT_COLUMNS[sortBy ?? 'created_at']!;
+  const searchPattern = search ? `%${search}%` : null;
 
+  const rows = (await sql`
+    SELECT
+      c.id,
+      c.name,
+      COALESCE(c.status, 'active')                          AS status,
+      p.name                                                AS plan_name,
+      COALESCE(
+        CASE
+          WHEN s.billing_cycle = 'monthly' THEN p.monthly_price_cents
+          WHEN s.billing_cycle = 'annual'  THEN ROUND(p.annual_price_cents / 12.0)
+          ELSE 0
+        END, 0
+      )::int                                                AS mrr_cents,
+      c.created_at,
+      c.trial_ends_at,
+      (SELECT COUNT(*) FROM company_users cu WHERE cu.company_id = c.id)::int AS user_count
+    FROM companies c
+    LEFT JOIN subscriptions s ON s.company_id = c.id AND s.status IN ('active','trial')
+    LEFT JOIN plans p ON p.id = s.plan_id
+    WHERE (c.status IS DISTINCT FROM 'deleted' OR ${statusFilter}::text = 'deleted')
+      AND (${statusFilter}::text IS NULL OR COALESCE(c.status,'active') = ${statusFilter})
+      AND (${searchPattern}::text IS NULL
+           OR c.name ILIKE ${searchPattern}
+           OR c.registration_number ILIKE ${searchPattern})
+      AND (${fromDate}::date IS NULL OR c.created_at >= ${fromDate}::date)
+      AND (${toDate}::date   IS NULL OR c.created_at <  (${toDate}::date + INTERVAL '1 day'))
+    ORDER BY ${sql.unsafe(sortCol)} ${sortAsc ? sql`ASC` : sql`DESC`}, c.id
+  `) as Row[];
+
+  const lines = rows.map((r) => csvRow([
+    r.id,
+    r.name,
+    r.status,
+    r.plan_name ?? '',
+    r.mrr_cents,
+    r.created_at,
+    r.trial_ends_at,
+    r.user_count,
+  ]));
+
+  log.info(`companies/export: ${lines.length} rows`, {}, 'admin-export');
   const today = new Date().toISOString().slice(0, 10);
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="companies-${today}.csv"`);
-  res.setHeader('Transfer-Encoding', 'chunked');
-  res.setHeader('Cache-Control', 'no-store');
-
-  // Write header row immediately
-  res.write(CSV_HEADERS.map(escapeCell).join(',') + '\n');
-
-  const CHUNK_SIZE = 500;
-  let offset = 0;
-  let written = 0;
-
-  try {
-    for (;;) {
-      const rows = await sql`
-        SELECT
-          c.id,
-          c.name,
-          COALESCE(c.status, 'active')                          AS status,
-          p.name                                                AS plan_name,
-          COALESCE(
-            CASE
-              WHEN s.billing_cycle = 'monthly' THEN p.monthly_price_cents
-              WHEN s.billing_cycle = 'annual'  THEN ROUND(p.annual_price_cents / 12.0)
-              ELSE 0
-            END, 0
-          )::int                                                AS mrr_cents,
-          c.created_at,
-          c.trial_ends_at,
-          (SELECT COUNT(*) FROM company_users cu WHERE cu.company_id = c.id)::int AS user_count
-        FROM companies c
-        LEFT JOIN subscriptions s ON s.company_id = c.id AND s.status IN ('active','trial')
-        LEFT JOIN plans p ON p.id = s.plan_id
-        WHERE (c.status IS DISTINCT FROM 'deleted' OR ${statusFilter}::text = 'deleted')
-          AND (${statusFilter}::text IS NULL OR COALESCE(c.status,'active') = ${statusFilter})
-          AND (${fromDate}::date IS NULL OR c.created_at >= ${fromDate}::date)
-          AND (${toDate}::date   IS NULL OR c.created_at <  (${toDate}::date + INTERVAL '1 day'))
-        ORDER BY c.created_at DESC
-        LIMIT ${CHUNK_SIZE} OFFSET ${offset}
-      `;
-
-      if (rows.length === 0) break;
-
-      const lines = (rows as Row[]).map((r) => [
-        r.id,
-        r.name,
-        r.status,
-        r.plan_name ?? '',
-        r.mrr_cents,
-        toIsoOrEmpty(r.created_at),
-        toIsoOrEmpty(r.trial_ends_at),
-        r.user_count,
-      ].map(escapeCell).join(','));
-
-      res.write(lines.join('\n') + '\n');
-      written += rows.length;
-      offset  += CHUNK_SIZE;
-
-      if (rows.length < CHUNK_SIZE) break;
-    }
-
-    log.info(`companies/export: wrote ${written} rows`, { statusFilter, fromDate, toDate }, 'admin-export');
-  } catch (err) {
-    log.error('companies/export failed', { error: err }, 'admin-export');
-    // Headers already sent — cannot send a JSON error; just end the stream
-  }
-
-  res.end();
+  await sendAuditedCsv(req, res, {
+    export: 'companies',
+    filename: `companies-${today}.csv`,
+    filters: {
+      search, status: statusFilter, sort_by: sortBy, sort_dir: sortBy ? (sortAsc ? 'asc' : 'desc') : null,
+      from: fromDate, to: toDate,
+    },
+    header: CSV_HEADERS,
+    lines,
+  });
 }
 
 export default withAdmin(handler);

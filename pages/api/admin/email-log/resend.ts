@@ -18,6 +18,8 @@ import { sql } from '@/lib/neon';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import type { EmailType } from '@/modules/accounting/services/core/emailService';
 import { UUID } from '@/lib/schemas/common';
+import { logAdminAction } from '@/modules/admin/services/auditService';
+import { getIp } from '@/utils/getIp';
 
 const PostBody = z.object({
   logId: UUID,
@@ -94,6 +96,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     const html = buildResendHtml(subject, recipientEmail, emailType);
+
+    // Audited before the send (module rule: order the external call after the audit write), so a failed audit
+    // write sends nothing. The row names the email_log entry, not the recipient.
+    await logAdminAction(req.user.id, 'email.resend', 'email_log', logId, { email_type: emailType, company_id: companyId },
+      getIp(req));
 
     const result = await sendEmail({
       to: recipientEmail,

@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
+import { adminExportHref } from '@/components/admin/adminExportHref';
 import { TrafficTimeseriesChart, type TimeseriesPoint } from '@/components/admin/charts/TrafficTimeseriesChart';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -159,11 +160,6 @@ export default function AdminWebAnalytics() {
     }
   }, [websiteId, range, includeBots]);
 
-  const downloadCsv = useCallback(() => {
-    if (!websiteId) return;
-    window.location.href = `/api/admin/analytics/web/export?website_id=${websiteId}&range=${range}`;
-  }, [websiteId, range]);
-
   const loadRealtime = useCallback(async () => {
     if (!websiteId) return;
     try {
@@ -225,14 +221,17 @@ export default function AdminWebAnalytics() {
               <Bot className="w-3.5 h-3.5" />
               {includeBots ? 'Bots included' : 'Bots excluded'}
             </button>
-            <button
-              onClick={downloadCsv}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            {/* A download link, not a navigation: an error answer is saved, never replaces the page. */}
+            <a
+              href={adminExportHref('/api/admin/analytics/web/export', { website_id: websiteId, range, include_bots: includeBots && '1' })}
+              download
+              aria-disabled={!websiteId}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors${websiteId ? '' : ' pointer-events-none opacity-40'}`}
               title="Download raw events as CSV"
             >
               <Download className="w-3.5 h-3.5" />
               CSV
-            </button>
+            </a>
             <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
               {RANGES.map((r) => (
                 <button

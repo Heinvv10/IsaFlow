@@ -11,6 +11,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
+import { adminExportHref } from '@/components/admin/adminExportHref';
 import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check, Ban, Download } from 'lucide-react';
 
 interface Subscription {
@@ -196,7 +197,7 @@ export default function SubscriptionsPage() {
         </select>
         <span className="text-sm text-gray-500 dark:text-gray-400 self-center">{total} total</span>
         <a
-          href="/api/admin/billing/subscriptions/export"
+          href={adminExportHref('/api/admin/billing/subscriptions/export', { search, status })}
           download
           className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
         >

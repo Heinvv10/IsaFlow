@@ -9,6 +9,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
+import { adminExportHref } from '@/components/admin/adminExportHref';
 import { Search, Building2, AlertCircle, Loader2, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { UserDeleteCell } from '@/components/admin/UserDeleteCell';
 
@@ -191,13 +192,7 @@ export default function AdminUsersPage() {
           {total} total
         </span>
         <a
-          href={[
-            '/api/admin/users/export',
-            [
-              role   ? `role=${encodeURIComponent(role)}`     : '',
-              status ? `is_active=${status === 'active' ? 'true' : 'false'}` : '',
-            ].filter(Boolean).join('&'),
-          ].filter(Boolean).join('?')}
+          href={adminExportHref('/api/admin/users/export', { search, company, role, status })}
           download
           className="ml-auto inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
         >

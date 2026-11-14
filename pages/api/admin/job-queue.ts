@@ -13,6 +13,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { listJobs, retryJob } from '@/modules/accounting/services/core/jobQueueService';
 import { UUID } from '@/lib/schemas/common';
+import { logAdminAction } from '@/modules/admin/services/auditService';
+import { getIp } from '@/utils/getIp';
 
 const PostBody = z.object({
   action: z.literal('retry'),
@@ -47,6 +49,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     const { jobId } = parsed.data;
     await retryJob(jobId);
+    await logAdminAction(req.user.id, 'job.retry', 'background_job', jobId, null, getIp(req));
     log.info('Job retried via admin API', { jobId }, 'admin-job-queue-api');
     return apiResponse.success(res, { jobId }, 'Job queued for retry');
   }

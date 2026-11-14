@@ -6,13 +6,7 @@
  * The prefix is applied BEFORE quote-wrapping so it lands inside the cell value.
  */
 
-/** Prevent Excel/Sheets formula execution by prefixing dangerous leading chars. */
-function sanitizeFormulaInjection(str: string): string {
-  if (/^[=+\-@\t\r]/.test(str)) {
-    return `'${str}`;
-  }
-  return str;
-}
+import { neutralizeCsvCell as sanitizeFormulaInjection } from './csvSafe';
 
 /**
  * Escape a string value for safe embedding in a CSV cell.

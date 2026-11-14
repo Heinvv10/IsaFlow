@@ -1,16 +1,18 @@
 /**
  * Admin Users CSV Export
- * GET /api/admin/users/export
- * Streams all users as a CSV file with optional is_active and role filters.
+ * GET /api/admin/users/export?search=&company=&role=&status=
+ * Every user matching the Users list's filters (same predicates as listUsers),
+ * as one audited CSV (adminCsvExport.sendAuditedCsv: PII export, audit row first).
  */
 
 import type { NextApiResponse } from 'next';
-import { type AuthenticatedNextApiRequest } from '@/lib/auth';
+import type { PlatformAdminRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { neutralizeCsvCell } from '@/lib/csvSafe';
+import { csvRow, queryText, sendAuditedCsv } from '@/modules/admin/services/adminCsvExport';
 
 type Row = DbRow;
 
@@ -26,101 +28,74 @@ const CSV_HEADERS = [
   'created_at',
 ];
 
-function escapeCell(value: unknown): string {
-  if (value == null) return '""';
-  const safe = neutralizeCsvCell(String(value));
-  return `"${safe.replace(/"/g, '""')}"`;
-}
-
-function toIsoOrEmpty(value: unknown): string {
-  if (value == null) return '';
-  if (value instanceof Date) return value.toISOString();
-  return String(value);
-}
-
-async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
-    res.setHeader('Allow', 'GET');
-    res.status(405).json({ error: 'Method Not Allowed' });
-    return;
+    return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
 
-  const { is_active, role } = req.query;
+  const search  = queryText(req.query.search);
+  const company = queryText(req.query.company);
+  const role    = queryText(req.query.role);
+  const status  = queryText(req.query.status);
+  const searchPattern  = search  ? `%${search}%`  : null;
+  const companyPattern = company ? `%${company}%` : null;
 
-  // is_active filter: 'true' | 'false' | undefined (all)
-  const isActiveFilter: boolean | null =
-    is_active === 'true'  ? true  :
-    is_active === 'false' ? false :
-    null;
+  const rows = (await sql`
+    SELECT
+      u.id,
+      u.email,
+      u.first_name,
+      u.last_name,
+      u.role,
+      u.is_active,
+      (
+        SELECT c.name
+        FROM company_users cup
+        JOIN companies c ON c.id = cup.company_id
+        WHERE cup.user_id = u.id
+        ORDER BY cup.created_at ASC
+        LIMIT 1
+      ) AS company_name,
+      u.last_login,
+      u.created_at
+    FROM users u
+    WHERE (${searchPattern}::text IS NULL
+           OR u.email ILIKE ${searchPattern}
+           OR u.first_name ILIKE ${searchPattern}
+           OR u.last_name ILIKE ${searchPattern})
+      AND (${role}::text IS NULL OR u.role = ${role})
+      AND (${status}::text IS NULL
+           OR (${status} = 'active'    AND u.is_active = true)
+           OR (${status} = 'suspended' AND u.is_active = false))
+      AND (${companyPattern}::text IS NULL OR EXISTS (
+        SELECT 1 FROM company_users cu4
+        JOIN companies c4 ON c4.id = cu4.company_id
+        WHERE cu4.user_id = u.id AND c4.name ILIKE ${companyPattern}
+      ))
+    ORDER BY u.created_at DESC, u.id
+  `) as Row[];
 
-  const roleFilter = typeof role === 'string' && role.trim() ? role.trim() : null;
+  const lines = rows.map((r) => csvRow([
+    r.id,
+    r.email,
+    r.first_name ?? '',
+    r.last_name  ?? '',
+    r.role,
+    r.is_active ? 'true' : 'false',
+    r.company_name ?? '',
+    r.last_login,
+    r.created_at,
+  ]));
 
+  log.info(`users/export: ${lines.length} rows`, {}, 'admin-export');
   const today = new Date().toISOString().slice(0, 10);
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="users-${today}.csv"`);
-  res.setHeader('Transfer-Encoding', 'chunked');
-  res.setHeader('Cache-Control', 'no-store');
-
-  res.write(CSV_HEADERS.map(escapeCell).join(',') + '\n');
-
-  const CHUNK_SIZE = 500;
-  let offset = 0;
-  let written = 0;
-
-  try {
-    for (;;) {
-      const rows = await sql`
-        SELECT
-          u.id,
-          u.email,
-          u.first_name,
-          u.last_name,
-          u.role,
-          u.is_active,
-          (
-            SELECT c.name
-            FROM company_users cup
-            JOIN companies c ON c.id = cup.company_id
-            WHERE cup.user_id = u.id
-            ORDER BY cup.created_at ASC
-            LIMIT 1
-          ) AS company_name,
-          u.last_login,
-          u.created_at
-        FROM users u
-        WHERE (${isActiveFilter}::boolean IS NULL OR u.is_active = ${isActiveFilter})
-          AND (${roleFilter}::text IS NULL OR u.role = ${roleFilter})
-        ORDER BY u.created_at DESC
-        LIMIT ${CHUNK_SIZE} OFFSET ${offset}
-      `;
-
-      if (rows.length === 0) break;
-
-      const lines = (rows as Row[]).map((r) => [
-        r.id,
-        r.email,
-        r.first_name ?? '',
-        r.last_name  ?? '',
-        r.role,
-        r.is_active ? 'true' : 'false',
-        r.company_name ?? '',
-        toIsoOrEmpty(r.last_login),
-        toIsoOrEmpty(r.created_at),
-      ].map(escapeCell).join(','));
-
-      res.write(lines.join('\n') + '\n');
-      written += rows.length;
-      offset  += CHUNK_SIZE;
-
-      if (rows.length < CHUNK_SIZE) break;
-    }
-
-    log.info(`users/export: wrote ${written} rows`, { isActiveFilter, roleFilter }, 'admin-export');
-  } catch (err) {
-    log.error('users/export failed', { error: err }, 'admin-export');
-  }
-
-  res.end();
+  await sendAuditedCsv(req, res, {
+    export: 'users',
+    filename: `users-${today}.csv`,
+    filters: { search, company, role, status },
+    header: CSV_HEADERS,
+    lines,
+  });
 }
 
 export default withAdmin(handler);
