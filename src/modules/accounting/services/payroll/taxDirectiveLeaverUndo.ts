@@ -101,10 +101,12 @@ async function exitInEffect(companyId: string, directiveId: string, currentExpir
 /**
  * The end the directive was approved with: `approvedExpiry` on the latest approval audit row (auditDirectiveApproval) written
  * before the exit's, i.e. the approval in force when the exit was taken (a re-approval counts; a row added after the exit does
- * not), else the tax year's end of its effective date. An approval row without approvedExpiry (written before it was
+ * not), else the tax year's end of its effective date; never past the end of the NEXT tax year (undoCeiling). An approval row without approvedExpiry (written before it was
  * recorded; none in production, DR was not deployed) caps at the tax year's end too.
  */
-async function approvedEndsOn(companyId: string, directive: { id: string; effectiveDate: string }, exitAuditId: string): Promise<string> {
+async function approvedEndsOn(
+  companyId: string, directive: { id: string; effectiveDate: string }, exitAuditId: string,
+): Promise<{ cap: string; ceiling: string }> {
   const row = ((await sql`
     SELECT a.changes->'metadata'->>'approvedExpiry' AS approved_expiry FROM audit_log a
     JOIN audit_log x ON x.id::text = ${exitAuditId} AND x.company_id = a.company_id
@@ -114,7 +116,16 @@ async function approvedEndsOn(companyId: string, directive: { id: string; effect
     LIMIT 1
   `) as DbRow[])[0];
   const approved = row?.approved_expiry ? String(row.approved_expiry) : null;
-  return directiveEndsOn(directive.effectiveDate, approved);
+  const fromAudit = directiveEndsOn(directive.effectiveDate, approved);
+  // audit_log alone can never widen the cap past the next tax year's end (#1266 residual L; a cross-year window stays undoable).
+  const ceiling = undoCeiling(directive.effectiveDate);
+  return { cap: fromAudit < ceiling ? fromAudit : ceiling, ceiling };
+}
+
+/** The end of the tax year after the one `effectiveDate` falls in (2026-03-01 -> 2028-02-29). */
+function undoCeiling(effectiveDate: string): string {
+  const yearEnd = directiveEndsOn(effectiveDate, null);
+  return directiveEndsOn(`${yearEnd.slice(0, 4)}-03-01`, null);
 }
 
 /** Judge a request to lengthen the expiry to `requested` (see the header); returns the undo to write, or throws. */
@@ -128,10 +139,10 @@ export async function judgeLeaverExitUndo(
   }
   // Never past the expiry the directive was approved with (Hein, #1266 adv2 L2): the exit's row records the restore date, so
   // the cap comes from the approval's own audit row instead (none = the tax year's end).
-  const cap = await approvedEndsOn(companyId, directive, exit.id);
+  const { cap, ceiling } = await approvedEndsOn(companyId, directive, exit.id);
   if (exit.oldEndsOn > cap || requested > cap) {
-    throw new TaxDirectiveWindowError(`An expiry can be restored no later than ${cap}, the end the directive was approved with: `
-      + `the exit records ${exit.oldEndsOn}. Nothing was restored.`);
+    throw new TaxDirectiveWindowError(`An expiry can be restored no later than ${cap}, the end the directive was approved with `
+      + `(and never past ${ceiling}, the end of the tax year after the one it starts in): the exit records ${exit.oldEndsOn}. Nothing was restored.`);
   }
   if (requested !== exit.oldEndsOn) {
     throw new TaxDirectiveWindowError(`Undoing the leaver exit restores the expiry to exactly ${exit.oldEndsOn}, what it was before the exit; not ${requested}.`);

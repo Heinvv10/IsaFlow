@@ -230,4 +230,14 @@ describe('the narrow undo of a leaver exit', () => {
     const r = await refused(f, d, '2027-01-31', 400, f.approver);
     expect(r.body.error?.message).toMatch(/no later than 2026-12-31, the end the directive was approved with/);
   });
+
+  it('residual L: a forged approval (approvedExpiry 2100) and exit row (2030) are capped at the next tax year\'s end, 2028-02-29: 400', async () => {
+    const { f, d } = await exitTaken('DR r5 forged approval');
+    await pool.query(`UPDATE audit_log SET changes = jsonb_set(changes, '{metadata,approvedExpiry}', '"2100-12-31"')
+      WHERE entity_id = $1 AND action = 'approve'`, [d]);
+    await pool.query(`UPDATE audit_log SET changes = jsonb_set(changes, '{metadata,oldEndsOn}', '"2030-01-31"')
+      WHERE entity_id = $1 AND changes->'metadata'->>'leaverExit' = 'true'`, [d]);
+    const r = await refused(f, d, '2030-01-31', 400, f.approver);
+    expect(r.body.error?.message).toMatch(/no later than 2028-02-29.*never past 2028-02-29, the end of the tax year after the one it starts in/);
+  });
 });
