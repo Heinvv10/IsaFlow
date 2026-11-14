@@ -18,7 +18,8 @@
  * check inside it then only VERIFIES, under that receipt's locks and the customer's, that nothing the judgment read
  * has moved since (the receipt still the judged customer's, with its judged remainder; once per customer, the other
  * rows' figures not fallen on any date and no judged row moved) — a refusal there is retryable, never a second
- * opinion on the books. A reallocation to the SAME customer judges with the new receipt's floor netted in (`reAdd`).
+ * opinion on the books. A reallocation to the SAME customer defers that customer and judges it on the rows its write
+ * actually leaves (`customerCreditFall`, after the new receipt and its FIFO), inside the write's savepoint.
  *
  * Residual: an UNAPPLY (raises credit) takes no customer lock; harmless, it only makes a read conservative.
  */
@@ -28,7 +29,7 @@ import type { DbRow } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { tryLockCustomerCredit } from './customerCreditLock';
 import {
-  cents, customerCreditDays, judgeCreditDays, lowersBelowZero, withDatedRemovals, type CreditDay, type CreditRemoval,
+  cents, customerCreditDays, dayKey, judgeCreditDays, lowersBelowZero, type CreditDay, type CreditRemoval,
 } from './customerRunningCredit';
 import { ReceiptRefusal, isReceiptRefusal } from './receiptRefusal';
 
@@ -86,21 +87,20 @@ const byCustomer = (rows: readonly RemovedRow[]) => {
 
 interface CustomerSnapshot { customerId: string; days: CreditDay[]; rows: RemovedRow[] }
 
-/** Cash the same write puts back on one customer on one date (a reallocation's new receipt). */
-export interface CreditReAdd { customerId: string; date: string; amount: number }
-
-/** Judge `removals` per customer; the first shortfall, and what each customer's judgment read. */
-async function judge(companyId: string, removals: readonly CreditRemoval[], lock: boolean, reAdd?: CreditReAdd) {
+/**
+ * Judge `removals` per customer; the first shortfall, and what each customer's judgment read. `deferred`: a customer
+ * the caller judges itself on the rows its write actually leaves (`customerCreditFall`), so it is not judged here.
+ */
+async function judge(companyId: string, removals: readonly CreditRemoval[], lock: boolean, deferred?: string) {
   const snapshots: CustomerSnapshot[] = [];
   for (const [customerId, rows] of byCustomer(await removedRows(companyId, removals))) {
     if (rows.every((r) => cents(r.removes) <= 0)) continue; // lowers nothing: no lock, never refused
+    if (deferred && sameId(deferred, customerId)) continue;
     if (lock) await tryLockCustomerCredit(companyId, customerId);
     const { customerName, days } = await customerCreditDays(companyId, customerId,
       rows.map((r) => ({ paymentId: r.paymentId, amount: r.removes })));
     snapshots.push({ customerId, days, rows });
-    const back = reAdd && sameId(reAdd.customerId, customerId) && reAdd.amount > 0
-      ? [{ date: reAdd.date, amount: -reAdd.amount }] : [];
-    const j = judgeCreditDays(withDatedRemovals(days, back));
+    const j = judgeCreditDays(days);
     if (lowersBelowZero(j) && j.fromDate) {
       const shortfall: CustomerVoidCreditShortfall = { customerId, customerName, lowers: j.lowers, credit: j.lowest, fromDate: j.fromDate };
       return { shortfall, snapshots };
@@ -111,13 +111,33 @@ async function judge(companyId: string, removals: readonly CreditRemoval[], lock
 
 /**
  * The first customer whose credit cancelling `paymentIds` would take below zero on a date it lowers, or null.
- * `reAdd`: cash the same write records again for one customer on one date (a reallocation to the same customer), which
- * nets against what the cancellation removes.
+ * `deferredCustomerId`: left to the caller's own judgment of what its write actually leaves (`customerCreditFall`).
  */
 export async function customerVoidCreditShortfall(
-  companyId: string, paymentIds: readonly string[], reAdd?: CreditReAdd,
+  companyId: string, paymentIds: readonly string[], deferredCustomerId?: string,
 ): Promise<CustomerVoidCreditShortfall | null> {
-  return (await judge(companyId, paymentIds.map((paymentId) => ({ paymentId })), true, reAdd)).shortfall;
+  return (await judge(companyId, paymentIds.map((paymentId) => ({ paymentId })), true, deferredCustomerId)).shortfall;
+}
+
+/**
+ * Judged on REAL rows, after a write: did the write take `customerId`'s running credit below zero on a date it
+ * lowered? `before` is the customer's per-day figures read under its lock before the write; the write's removal on
+ * each date is what it took off (before − now). A reallocation to the same customer judges this way, after its new
+ * receipt and FIFO have landed, inside its savepoint — no prediction of what FIFO will apply.
+ */
+export async function customerCreditFall(
+  companyId: string, customerId: string, before: readonly CreditDay[],
+): Promise<CustomerVoidCreditShortfall | null> {
+  const now = await customerCreditDays(companyId, customerId, []);
+  const was = new Map(before.map((d) => [dayKey(d.d), d.amount]));
+  const is = new Map(now.days.map((d) => [dayKey(d.d), d.amount]));
+  const days = [...new Set([...was.keys(), ...is.keys()])].map((d) => {
+    const removed = (was.get(d) ?? 0) - (is.get(d) ?? 0);
+    return { d, amount: was.get(d) ?? 0, removed, lowers: Math.max(removed, 0), others: 0 };
+  });
+  const j = judgeCreditDays(days);
+  if (!lowersBelowZero(j) || !j.fromDate) return null;
+  return { customerId, customerName: now.customerName, lowers: j.lowers, credit: j.lowest, fromDate: j.fromDate };
 }
 
 function refusal(s: CustomerVoidCreditShortfall, what: string, remedy: string): CustomerVoidCreditRefusal {
@@ -130,8 +150,10 @@ function refusal(s: CustomerVoidCreditShortfall, what: string, remedy: string): 
 const cancelling = (n: number) => (n > 1 ? 'Cancelling these receipts' : 'Cancelling this receipt');
 const CANCEL_REMEDY = 'Reverse the refund first, then cancel the receipt.';
 
-/** A judged set: what each customer's judgment read, and the customers verified (and locked) since. */
-const judged = new AsyncLocalStorage<{ companyId: string; snapshots: Map<string, CustomerSnapshot>; verified: Set<string> }>();
+/** A judged set: what each customer's judgment read, the customers verified (and locked) since, the one deferred. */
+const judged = new AsyncLocalStorage<{
+  companyId: string; snapshots: Map<string, CustomerSnapshot>; verified: Set<string>; deferred?: string;
+}>();
 
 /**
  * Re-checks, under this receipt's locks and its customer's, that a set judged up front still stands: the receipt is
@@ -148,6 +170,8 @@ async function verifyJudged(companyId: string, paymentIds: readonly string[]): P
   const snapOf = (id: string) => all.find((s) => s.rows.some((r) => sameId(r.paymentId, id)));
   const live = await removedRows(companyId, paymentIds.map((paymentId) => ({ paymentId })));
   for (const row of live) {
+    // The caller judges this customer on the rows its write leaves (`customerCreditFall`): its CURRENT customer only.
+    if (ctx.deferred && sameId(row.customerId, ctx.deferred)) continue;
     const snap = snapOf(row.paymentId);
     if (!snap) {
       if (cents(row.remainder) > 0) return null; // lowers, and was never judged
@@ -218,13 +242,18 @@ export async function judgeReceiptCancellations(companyId: string, paymentIds: r
  * outer one stands.
  */
 export async function withReceiptCancellationsJudged<T>(
-  companyId: string, paymentIds: readonly string[], fn: () => Promise<T>, opts: { locked?: boolean; reAdd?: CreditReAdd } = {},
+  companyId: string, paymentIds: readonly string[], fn: () => Promise<T>,
+  opts: { locked?: boolean; deferredCustomerId?: string } = {},
 ): Promise<T> {
   if (paymentIds.length === 0) return fn();
   const verified = await verifyJudged(companyId, paymentIds);
   if (verified === true) return fn();
   if (verified === false) throw changedMeanwhile();
-  const { shortfall, snapshots } = await judge(companyId, paymentIds.map((paymentId) => ({ paymentId })), opts.locked === true, opts.reAdd);
+  const { shortfall, snapshots } = await judge(
+    companyId, paymentIds.map((paymentId) => ({ paymentId })), opts.locked === true, opts.deferredCustomerId);
   if (shortfall) throw refusal(shortfall, cancelling(paymentIds.length), CANCEL_REMEDY);
-  return judged.run({ companyId, snapshots: new Map(snapshots.map((x) => [x.customerId, x])), verified: new Set() }, fn);
+  return judged.run({
+    companyId, snapshots: new Map(snapshots.map((x) => [x.customerId, x])), verified: new Set(),
+    ...(opts.deferredCustomerId ? { deferred: opts.deferredCustomerId } : {}),
+  }, fn);
 }

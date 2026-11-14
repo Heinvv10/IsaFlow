@@ -1,9 +1,11 @@
 /**
- * reallocate_bank_transaction to the SAME customer (review round 2, LOW 3): cancelling the old receipt removes its
- * unapplied cash, and the new receipt for the same customer on the same date puts back at least its floor (its whole
- * amount with auto_apply "none"; what FIFO cannot take with "fifo") — judged together (`reallocationReAdd`), so a
- * re-point that lowers nothing net passes where it used to be refused, and one whose FIFO would spend what a refund
- * already returned is still refused. Disposable fixture DB only.
+ * reallocate_bank_transaction to the SAME customer (review round 2, LOW 3 + security finding): cancelling the old
+ * receipt removes its unapplied cash and the new receipt for the same customer puts cash back, minus whatever FIFO
+ * applies — judged on the REAL rows the write leaves (`assertReallocationLeftCredit`, inside the reallocation's
+ * savepoint; a dry run is the same write rolled back), never on a prediction of what FIFO will take. A re-point that
+ * lowers nothing net passes (it used to be refused); one whose FIFO spends what a refund already returned is refused,
+ * including when FIFO takes MORE than the open invoices read before the unwind (the old receipt's own invoices it
+ * frees). Disposable fixture DB only.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -20,9 +22,9 @@ import { TOOL, arControlAndSubledger, lineRow, mcp, newBank, reconciledLine, set
 assertDisposable();
 type Row = Record<string, unknown>;
 let c: Ctx;
-const realloc = async (bt: string, target: Record<string, string>, autoApply: 'fifo' | 'none') =>
+const realloc = async (bt: string, target: Record<string, string>, autoApply: 'fifo' | 'none', dryRun = false) =>
   mcp(c, TOOL, { transaction_id: bt, expected_journal_entry_id: String((await lineRow(bt)).je), target,
-    auto_apply: autoApply, dry_run: false, idempotency_key: randomUUID() });
+    auto_apply: autoApply, dry_run: dryRun, idempotency_key: randomUUID() });
 
 async function customer(): Promise<string> {
   const id = randomUUID();
@@ -56,6 +58,8 @@ describe('reallocating a receipt to the same customer, after a refund', () => {
     const s = await reconciledLine(c, { amount: 1000, date: '2026-06-12', statementDate: '2026-06-30', alloc: 'customer', entity: cust, autoApply: 'fifo' });
     await refund(cust, 700, '2026-06-20'); // spends the receipt's whole unapplied 700
     expect(await credit(cust)).toBeCloseTo(0, 2);
+    const dry = await realloc(s.bt, { customer_id: cust }, 'none', true);
+    expect(dry.isError, dry.text).toBe(false);
     const r = await realloc(s.bt, { customer_id: cust }, 'none');
     expect({ err: r.isError, nothing: r.body?.nothing_changed ?? false }, r.text).toEqual({ err: false, nothing: false });
     const paid = Number(((await sql`SELECT amount_paid FROM customer_invoices WHERE id = ${inv}::UUID`) as Row[])[0]!.amount_paid);
@@ -73,5 +77,21 @@ describe('reallocating a receipt to the same customer, after a refund', () => {
     expect(r.isError, r.text).toBe(true);
     expect(r.text).toMatch(/owing the company/);
     expect(await credit(cust)).toBeCloseTo(0, 2);
+  }, 120000);
+
+  it('FIFO takes the invoice the old receipt frees as well: refused on the real outcome, dry and live', async () => {
+    const cust = await customer();
+    await openInvoice(cust, 600); // the old receipt settles this one…
+    const s = await reconciledLine(c, { amount: 1000, date: '2026-06-14', statementDate: '2026-06-30', alloc: 'customer', entity: cust, autoApply: 'fifo' });
+    await openInvoice(cust, 300); // …and this one opens after it
+    await refund(cust, 350, '2026-06-22'); // running: 06-14 400, 06-22 50
+    // A prediction from the invoices open now (300) says the new receipt keeps 700 > the old 400: "passes". The real
+    // FIFO also takes the 600 the unwind frees: the new receipt keeps 100, and 06-22 ends at -250.
+    for (const dryRun of [true, false]) {
+      const r = await realloc(s.bt, { customer_id: cust }, 'fifo', dryRun);
+      expect({ err: r.isError, dryRun }, r.text).toEqual({ err: true, dryRun });
+      expect(r.text).toMatch(/owing the company/);
+    }
+    expect(await credit(cust)).toBeCloseTo(50, 2);
   }, 120000);
 });

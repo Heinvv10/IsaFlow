@@ -41,8 +41,10 @@ import { lockPeekedReversalTarget } from './reversalDatePostable';
 import { BankReallocationRefusal, planReallocation, type ReallocationTarget } from './bankReallocationGuards';
 import { loadReallocationFacts } from './bankReallocationFacts';
 import { lockReallocationDocuments } from './bankReallocationLocks';
-import { assertReallocationKeepsCredit, reallocationReAdd } from './bankReallocationCredit';
+import { assertReallocationKeepsCredit, assertReallocationLeftCredit } from './bankReallocationCredit';
 import { withReceiptCancellationsJudged } from '../ar/customerVoidCredit';
+import { customerCreditDays } from '../ar/customerRunningCredit';
+import { tryLockCustomerCredit } from '../ar/customerCreditLock';
 import {
   assertBankLegKept, assertOriginalDateKept, auditReallocation, newDocumentOf, readBankLeg, restoreReconciled,
   type NewDocumentKind,
@@ -115,8 +117,12 @@ async function reallocateInner(
     { journalId: plan.journalId, target, spent: amount < 0, autoApply: opts.autoApply });
   // Cancelling the old payment / receipt must not leave a recorded refund with no credit behind it on any date from
   // the document's own (bankReallocationCredit, both sides). Under the contact's credit / refund lock, before any write.
-  const reAdd = await reallocationReAdd(companyId, { target, amount, date: plan.entryDate, autoApply: opts.autoApply });
-  await assertReallocationKeepsCredit(companyId, old, reAdd);
+  // Re-pointed to a customer with money in: that customer gets a new receipt, so it is judged on the real rows the
+  // write leaves (after FIFO), not here. Its figures are read now, under its lock (tried: after the documents).
+  const sameCustomer = target.kind === 'customer' && amount > 0 ? target.customerId : undefined;
+  if (sameCustomer) await tryLockCustomerCredit(companyId, sameCustomer);
+  const before = sameCustomer ? (await customerCreditDays(companyId, sameCustomer, [])).days : null;
+  await assertReallocationKeepsCredit(companyId, old, sameCustomer);
   const reviewed = { at: tx.reviewed_at, by: tx.reviewed_by };
   const actor: PostingActorOpts = {
     ...(opts.postingAgent === undefined ? {} : { postingAgent: opts.postingAgent }),
@@ -124,7 +130,7 @@ async function reallocateInner(
     ...(opts.actorTokenJti === undefined ? {} : { actorTokenJti: opts.actorTokenJti }),
   };
 
-  // The unwind's own receipt checks verify the judgment above (the same customer's new receipt netted in).
+  // The unwind's own receipt checks verify the judgment above (the same customer deferred to the post-write check).
   const done = await withReceiptCancellationsJudged(companyId, old.customerPaymentIds, () => withSavepoint('bank_reallocate', async () => {
     const unwound = await unwindBankAllocationApplication(companyId, plan.journalId);
     // The old journal head, after every document: the new journal's number lock and the reversal's claim come next.
@@ -141,10 +147,11 @@ async function reallocateInner(
     if (fmtDate(reversal.entryDate) !== plan.entryDate) {
       throw new BankReallocationRefusal('The reversal could not keep the original date; nothing was written.');
     }
+    if (sameCustomer && before) await assertReallocationLeftCredit(companyId, sameCustomer, before); // rolls back
     const leg = assertBankLegKept(plan.bankLeg, plan.entryDate, await readBankLeg(companyId, bankTxId), posted.journalEntryId);
     await restoreReconciled(companyId, bankTxId, plan.reconciliationId, leg.lineId, reviewed);
     return { unwound, posted, reversalId: reversal.id, newLineId: leg.lineId };
-  }), { locked: true, reAdd });
+  }), { locked: true, deferredCustomerId: sameCustomer });
 
   await auditedReversal(companyId, bankTxId, userId, clearance, null);
   await auditReallocation({

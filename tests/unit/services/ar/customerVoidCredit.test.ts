@@ -16,7 +16,7 @@ vi.mock('@/modules/accounting/services/ar/customerRunningCredit', async (orig) =
 
 import { judgeCreditDays, customerCreditDays, withDatedRemovals, type CreditDay } from '@/modules/accounting/services/ar/customerRunningCredit';
 import {
-  CustomerVoidCreditRefusal, assertReceiptApplicationKeepsCredit, assertReceiptVoidKeepsCredit,
+  CustomerVoidCreditRefusal, assertReceiptApplicationKeepsCredit, assertReceiptVoidKeepsCredit, customerCreditFall,
   isCustomerVoidCreditRefusal, withReceiptCancellationsJudged,
 } from '@/modules/accounting/services/ar/customerVoidCredit';
 import { tryLockCustomerCredit } from '@/modules/accounting/services/ar/customerCreditLock';
@@ -160,5 +160,20 @@ describe('withReceiptCancellationsJudged — N receipts of one customer read its
       await assertReceiptVoidKeepsCredit('co', ['b']);
     }).catch((e: unknown) => e);
     expect(isRetryableReceiptRefusal(err)).toBe(true);
+  });
+});
+
+describe('customerCreditFall — a write judged on the rows it left', () => {
+  it('a date the write lowered that ends below zero is a fall; one it raised or left alone is not', async () => {
+    // before: 06-14 400, 06-22 -350 (cum 50); after: the receipt keeps 100 → 06-14 100, 06-22 cum -250
+    vi.mocked(customerCreditDays).mockResolvedValueOnce({ customerName: 'Acme', days: [day('2026-06-14', 100), day('2026-06-22', -350)] });
+    expect(await customerCreditFall('co', 'c', [day('2026-06-14', 400), day('2026-06-22', -350)]))
+      .toEqual({ customerId: 'c', customerName: 'Acme', lowers: 300, credit: 50, fromDate: '2026-06-14' });
+    vi.mocked(customerCreditDays).mockResolvedValueOnce({ customerName: 'Acme', days: [day('2026-06-14', 1000), day('2026-06-22', -350)] });
+    expect(await customerCreditFall('co', 'c', [day('2026-06-14', 400), day('2026-06-22', -350)])).toBeNull();
+  });
+  it('a customer already below zero is not "fallen" by a write that left its dates where they were', async () => {
+    vi.mocked(customerCreditDays).mockResolvedValueOnce({ customerName: 'Acme', days: [day('2026-06-01', -100)] });
+    expect(await customerCreditFall('co', 'c', [day('2026-06-01', -100)])).toBeNull();
   });
 });

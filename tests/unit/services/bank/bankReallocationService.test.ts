@@ -30,8 +30,10 @@ vi.mock('@/modules/accounting/services/bank/bankReversalGate', () => ({
 }));
 vi.mock('@/modules/accounting/services/bank/bankReallocationLocks', () => ({ lockReallocationDocuments: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankReallocationCredit', () => ({
-  assertReallocationKeepsCredit: vi.fn(), reallocationReAdd: vi.fn(async () => undefined),
+  assertReallocationKeepsCredit: vi.fn(), assertReallocationLeftCredit: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/ar/customerRunningCredit', () => ({ customerCreditDays: vi.fn(async () => ({ customerName: 'A', days: [] })) }));
+vi.mock('@/modules/accounting/services/ar/customerCreditLock', () => ({ tryLockCustomerCredit: vi.fn() }));
 // The unwind runs inside the reallocation's receipt judgment (ar/customerVoidCredit); here it is transparent.
 vi.mock('@/modules/accounting/services/ar/customerVoidCredit', () => ({
   withReceiptCancellationsJudged: vi.fn(async (_c: string, _ids: readonly string[], fn: () => Promise<unknown>) => fn()),
@@ -51,7 +53,9 @@ import { reallocateReconciledTransaction } from '@/modules/accounting/services/b
 import { BankReallocationRefusal } from '@/modules/accounting/services/bank/bankReallocationGuards';
 import { agentReversalRefusal, assertMayReverse } from '@/modules/accounting/services/bank/bankReversalGate';
 import { lockReallocationDocuments } from '@/modules/accounting/services/bank/bankReallocationLocks';
-import { assertReallocationKeepsCredit } from '@/modules/accounting/services/bank/bankReallocationCredit';
+import { assertReallocationKeepsCredit, assertReallocationLeftCredit } from '@/modules/accounting/services/bank/bankReallocationCredit';
+import { tryLockCustomerCredit } from '@/modules/accounting/services/ar/customerCreditLock';
+import { customerCreditDays } from '@/modules/accounting/services/ar/customerRunningCredit';
 import { refuseStaleUndo } from '@/modules/accounting/services/bank/bankChainLineReversal';
 import { BankControlError } from '@/modules/accounting/services/bank/bankControlRefusal';
 import { unwindBankAllocationApplication } from '@/modules/accounting/services/bank/bankAllocationUnwind';
@@ -101,6 +105,25 @@ describe('reallocateReconciledTransaction', () => {
     expect(vi.mocked(restoreReconciled).mock.calls[0]![4]).toEqual({ at: 'r-at', by: 'r-by' });
     expect(vi.mocked(auditReallocation).mock.calls[0]![0]).toMatchObject({ autoPostRunId: 'run', reviewed: { at: 'r-at', by: 'r-by' } });
     expect(r).toMatchObject({ outcome: 'reallocated', newJournalEntryId: 'new-je', reversalJournalEntryId: 'rev' });
+  });
+
+  it('money in to a customer: that customer locked and read first, deferred, then judged on the rows the write left', async () => {
+    h.plan = { ...h.plan, bankLeg: { ...LEG, debit: 100, credit: 0 } };
+    vi.mocked(tryLockCustomerCredit).mockImplementation(step('lockCustomer') as never);
+    vi.mocked(customerCreditDays).mockImplementation(step('before', { customerName: 'A', days: [] }) as never);
+    vi.mocked(assertReallocationLeftCredit).mockImplementation(step('leftCredit') as never);
+    await reallocateReconciledTransaction('co', 'tx', 'u', { kind: 'customer', customerId: 'c' }, OPTS);
+    expect(order).toEqual(['agentGate', 'mayReverse', 'date', 'lockDocuments', 'lockCustomer', 'before', 'credit', 'unwind',
+      'lockHead', 'staleUndo', 'allocate', 'reverse', 'leftCredit', 'bankLeg', 'restore', 'audit']);
+    expect(vi.mocked(assertReallocationKeepsCredit).mock.calls[0]![2]).toBe('c');
+  });
+
+  it('the post-write judgment refusing stops the flow inside the savepoint, before the restore', async () => {
+    h.plan = { ...h.plan, bankLeg: { ...LEG, debit: 100, credit: 0 } };
+    vi.mocked(assertReallocationLeftCredit).mockRejectedValueOnce(new BankReallocationRefusal('owing the company'));
+    await expect(reallocateReconciledTransaction('co', 'tx', 'u', { kind: 'customer', customerId: 'c' }, OPTS))
+      .rejects.toThrow('owing the company');
+    expect(restoreReconciled).not.toHaveBeenCalled();
   });
 
   it('a reversal that did not keep the original date refuses (inside the savepoint), before the restore', async () => {

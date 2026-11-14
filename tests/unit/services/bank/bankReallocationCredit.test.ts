@@ -8,12 +8,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const sqlMock = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 // The customer figure (ar/customerVoidCredit) has its own tests; here the reallocation's decision and wording on it.
-vi.mock('@/modules/accounting/services/ar/customerVoidCredit', () => ({ customerVoidCreditShortfall: vi.fn(async () => null) }));
+vi.mock('@/modules/accounting/services/ar/customerVoidCredit', () => ({
+  customerVoidCreditShortfall: vi.fn(async () => null), customerCreditFall: vi.fn(async () => null),
+}));
 vi.mock('@/modules/accounting/services/ap/supplierCreditLock', () => ({ lockSupplierCredit: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/supplierOnAccountCredit', () => ({ getSupplierOnAccountCredit: vi.fn() }));
 
-import { customerVoidCreditShortfall } from '@/modules/accounting/services/ar/customerVoidCredit';
-import { assertReallocationKeepsCredit, reallocationReAdd } from '@/modules/accounting/services/bank/bankReallocationCredit';
+import { customerCreditFall, customerVoidCreditShortfall } from '@/modules/accounting/services/ar/customerVoidCredit';
+import { assertReallocationKeepsCredit, assertReallocationLeftCredit } from '@/modules/accounting/services/bank/bankReallocationCredit';
 import { BankReallocationRefusal } from '@/modules/accounting/services/bank/bankReallocationGuards';
 import { lockSupplierCredit } from '@/modules/accounting/services/ap/supplierCreditLock';
 import { getSupplierOnAccountCredit } from '@/modules/accounting/services/ap/supplierOnAccountCredit';
@@ -42,22 +44,17 @@ describe('assertReallocationKeepsCredit', () => {
   });
 });
 
-describe('reallocationReAdd — what a new receipt for the same customer keeps on account', () => {
-  const customer = { kind: 'customer' as const, customerId: 'c' };
-  it('auto_apply "none": its whole amount, on the line\'s date', async () => {
-    expect(await reallocationReAdd('co', { target: customer, amount: 1000, date: '2026-06-12', autoApply: 'none' }))
-      .toEqual({ customerId: 'c', date: '2026-06-12', amount: 1000 });
-    expect(sqlMock).not.toHaveBeenCalled();
+describe('assertReallocationLeftCredit — the same customer, judged on what the write left', () => {
+  it('refuses with the reallocation wording when the real rows leave a lowered date below zero', async () => {
+    vi.mocked(customerCreditFall).mockResolvedValueOnce({ customerId: 'c', customerName: 'Acme', lowers: 300, credit: 50, fromDate: '2026-06-14' });
+    await expect(assertReallocationLeftCredit('co', 'c', [])).rejects.toThrow(/cancel its receipt and leave Acme owing the company: .* from 2026-06-14/);
   });
-  it('"fifo": what is left after FIFO could take every open invoice, never below zero', async () => {
-    sqlMock.mockResolvedValueOnce([{ open: 300 }]);
-    expect((await reallocationReAdd('co', { target: customer, amount: 1000, date: '2026-06-12' }))?.amount).toBe(700);
-    sqlMock.mockResolvedValueOnce([{ open: 5000 }]);
-    expect((await reallocationReAdd('co', { target: customer, amount: 1000, date: '2026-06-12', autoApply: 'fifo' }))?.amount).toBe(0);
+  it('passes when they do not', async () => {
+    vi.mocked(customerCreditFall).mockResolvedValueOnce(null);
+    await expect(assertReallocationLeftCredit('co', 'c', [])).resolves.toBeUndefined();
   });
-  it('nothing for a refund, a supplier or an account target', async () => {
-    expect(await reallocationReAdd('co', { target: customer, amount: -500, date: '2026-06-12' })).toBeUndefined();
-    expect(await reallocationReAdd('co', { target: { kind: 'supplier', supplierId: 's' }, amount: 500, date: '2026-06-12' })).toBeUndefined();
-    expect(await reallocationReAdd('co', undefined)).toBeUndefined();
+  it('the pre-check leaves that customer to it', async () => {
+    await assertReallocationKeepsCredit('co', { supplierPaymentIds: [], customerPaymentIds: ['r1'] }, 'c');
+    expect(customerVoidCreditShortfall).toHaveBeenCalledWith('co', ['r1'], 'c');
   });
 });
