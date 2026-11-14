@@ -6,13 +6,14 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { formatLastSeen } from '@/components/admin/formatLastSeen';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { adminExportHref } from '@/components/admin/adminExportHref';
 import { Search, Building2, AlertCircle, Loader2, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { UserDeleteCell } from '@/components/admin/UserDeleteCell';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface AdminUser {
   id: string;
@@ -96,7 +97,7 @@ export default function AdminUsersPage() {
       if (co) params.set('company', co);
       if (r)  params.set('role', r);
       if (st) params.set('status', st);
-      const res  = await apiFetch(`/api/admin/users?${params}`);
+      const res  = await adminFetch(`/api/admin/users?${params}`);
       await assertOk(res, 'Could not load the users - try again');
       const json = await res.json() as { data?: PagedResponse; message?: string };
       const d = json.data as PagedResponse;
@@ -128,7 +129,7 @@ export default function AdminUsersPage() {
     setDeleting(userId);
     setError('');
     try {
-      const res = await apiFetch(`/api/admin/users/${userId}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
+      const res = await adminFetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
       await assertOk(res, 'Could not delete the user - try again');
       setConfirmDeleteId(null);
       void load(search, company, role, status, page);

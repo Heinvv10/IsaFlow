@@ -5,13 +5,14 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2, ChevronLeft, ChevronRight, ScrollText, Download } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
 import { DateField } from '@/components/ui/DateField';
 import { ADMIN_EXPORT_MAX_ROWS, adminExportHref } from '@/components/admin/adminExportHref';
 import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '@/components/admin/auditFilterOptions';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface UnifiedAuditEntry {
   id: string;
@@ -125,7 +126,7 @@ export default function AdminAuditPage() {
   const [search,      setSearch]      = useState('');
 
   useEffect(() => {
-    void apiFetch('/api/admin/companies?limit=200')
+    void adminFetch('/api/admin/companies?limit=200')
       .then(async r => { await assertOk(r, 'Could not load the company list - try again'); return r.json(); })
       .then(j => {
         const items = (j?.data?.items ?? j?.data ?? []) as Array<{ id: string; name: string }>;
@@ -145,7 +146,7 @@ export default function AdminAuditPage() {
       if (action)     p.set('action',      action);
       if (entityType) p.set('entity_type', entityType);
       if (search)     p.set('search',      search);
-      const res  = await apiFetch(`/api/admin/audit?${p}`);
+      const res  = await adminFetch(`/api/admin/audit?${p}`);
       await assertOk(res, 'Could not load the audit log - try again');
       const json = await res.json();
       const d = json.data as PagedResponse;
