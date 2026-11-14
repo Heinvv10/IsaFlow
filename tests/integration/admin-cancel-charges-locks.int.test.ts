@@ -80,6 +80,30 @@ describe('lock order: settle, cancel and claim', () => {
     }
   }, 30000);
 
+  it('two settles of different charges on one subscription are serialised, not deadlocked (no lock upgrade)', async () => {
+    const a = await fx.insertCharge({ company: ids.company, subscription: ids.sub, mandate: ids.mandate,
+      start: 100, end: 130, status: 'queued' });
+    const b = await fx.insertCharge({ company: ids.company, subscription: ids.sub, mandate: ids.mandate,
+      start: 130, end: 160, status: 'queued' });
+    await pool.query(`CREATE OR REPLACE FUNCTION zz_adm_slow2() RETURNS trigger LANGUAGE plpgsql AS
+      $$ BEGIN PERFORM pg_sleep(1.5); RETURN NEW; END $$`);
+    await pool.query(`CREATE TRIGGER zz_adm_slow2 BEFORE UPDATE ON subscription_charges
+      FOR EACH ROW WHEN (NEW.status = 'settled' AND NEW.company_id = '${ids.company}')
+      EXECUTE FUNCTION zz_adm_slow2()`);
+    try {
+      const results = await Promise.allSettled([
+        settleSubscriptionCharge(a, ids.company),
+        settleSubscriptionCharge(b, ids.company),
+      ]);
+      expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
+      expect((await fx.chargeStatus(a)).status).toBe('settled');
+      expect((await fx.chargeStatus(b)).status).toBe('settled');
+    } finally {
+      await pool.query('DROP TRIGGER zz_adm_slow2 ON subscription_charges');
+      await pool.query('DROP FUNCTION zz_adm_slow2()');
+    }
+  }, 30000);
+
   it('claim, cancel and settle fired together 20 times: none is rejected', async () => {
     const rejected: string[] = [];
     for (let i = 0; i < 20; i++) {
