@@ -160,7 +160,7 @@
   "pages/admin/tools/sage-import.tsx": 10,
   "pages/admin/tools/migrations.tsx": 5,
   "pages/admin/web-analytics.tsx": 9,
-  "pages/admin/trials.tsx": 8,
+  "pages/admin/trials.tsx": 7,
   "pages/admin/settings.tsx": 1,
   "pages/admin/webhooks.tsx": 4,
   "pages/admin/features.tsx": 3,

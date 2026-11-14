@@ -247,6 +247,9 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // Books an ETI journal the EMP201 already declares (a correction to the ledger, not a new transaction).
   book_eti_for_month: null,
 
+  // Company set-up (VAT/income tax numbers, VAT category): a settings change that posts nothing, free like a lock.
+  update_company_profile: null,
+
   // ── Corrections ──────────────────────────────────────────────────────────
   reverse_bank_allocation: null,
   // Corrects where a reconciled line was allocated (a reversal and its re-allocation, same date): a correction, free

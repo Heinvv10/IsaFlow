@@ -42,6 +42,7 @@ export const SCOPE_LABELS: Record<OAuthScope, string> = {
   // tools previously sat under write:post's label, which never mentioned
   // either action.
   'write:vat': 'Lock VAT periods and clear VAT pre-filing exceptions',
+  'write:company': 'Change company tax details (VAT and income tax numbers, VAT category)',
   'read:practice': 'Read your practice clients, job categories and logged time',
   'write:practice': 'Create job categories and work items, and log and submit time entries',
   // Named explicitly because payroll data is personal information under POPIA
