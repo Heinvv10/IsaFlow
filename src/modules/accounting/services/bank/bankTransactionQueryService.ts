@@ -183,6 +183,13 @@ export async function deleteTransactions(companyId: string, bankTxIds: string[])
     // Callers report this number to a user — bank-transactions-action.ts and
     // undo_bank_import both do.
     const deleted = result.length;
+    if (deleted > 0) {
+      // Comments on a line that no longer exists go with it (soft delete, same transaction; record_comments_guard
+      // lets anyone retire the comments of a record that is gone). Company-scoped like every query here.
+      await sql`UPDATE record_comments SET deleted_at = clock_timestamp()
+                 WHERE company_id = ${companyId}::UUID AND record_type = 'bank_transaction'
+                   AND record_id = ANY(${result.map((r) => String(r.id))}::UUID[]) AND deleted_at IS NULL`;
+    }
     log.info('Deleted bank transactions', { count: deleted, ids: bankTxIds }, 'accounting');
     return deleted;
   } catch (err) {

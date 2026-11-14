@@ -162,3 +162,6 @@ describe('late answers for A on B\'s page', () => {
   });
 });
 
+
+// M14: this suite does not provide the auth context or the comments route; the panel has its own tests (commentsPanel, commentsMounts).
+vi.mock('@/components/accounting/comments/CommentsPanel', () => ({ CommentsPanel: () => null }));
