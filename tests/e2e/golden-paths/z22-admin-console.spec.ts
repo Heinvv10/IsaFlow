@@ -1,4 +1,3 @@
-// golden:dev-only
 /**
  * Golden path (z22): the admin console (admin.isaflow.co.za) loads, read-only.
  *
@@ -6,22 +5,20 @@
  * is no console error, page error or 5xx response on the way. The companies list sorts by Name both ways and by
  * Created; a company's and a user's detail tabs switch and show their table.
  *
- * Read-only and figure-free: nothing is clicked that saves, sends, suspends, converts, deletes or exports, and no
- * number or name from the data is asserted (a company and a user are picked from the list the page loaded).
+ * Read-only and figure-free, because it runs in the post-deploy verify against production (a red run rolls the
+ * deploy back): nothing is clicked that saves, sends, suspends, converts, deletes or exports, and no number or
+ * name from the data is asserted (a company and a user are picked from the list the page loaded).
  *
  * Who logs in: GOLDEN_PLATFORM_ADMIN_* (hosted CI: a throwaway super_admin seeded by scripts/ci/golden-hosted/up.sh),
- * else E2E_ADMIN_* (a local run against dev, where that user is a super_admin). The suite's own golden user is a
- * company admin and is refused by every admin API.
- *
- * Why dev-only for now: the post-deploy run against production would need a super_admin login there, which has not
- * been approved. Once it is, drop the marker; the host mapping below already works against a colour's own port.
+ * else E2E_ADMIN_* (the post-deploy verify and local runs: admin@isaflow.co.za, which must be a super_admin with at
+ * least one company there). The hosted suite's own golden user is a company admin and is refused by every admin API.
  *
  * How it reaches the admin host: middleware serves the console only for Host admin.isaflow.co.za, and on any other
  * host redirects /admin/* to the public admin site (in production, the LIVE colour, not the build under test). So
- * Chromium resolves admin.isaflow.co.za to the server under test (--host-resolver-rules) and the session cookies
- * are copied onto that host, non-Secure because the mapped origin is plain http. Never call the admin origin
- * through an APIRequestContext (page.request, request): Node does not use Chromium's resolver and would reach the
- * real admin.isaflow.co.za.
+ * Chromium resolves admin.isaflow.co.za to the server under test (--host-resolver-rules), CSP is bypassed on that
+ * plain-http origin (see adminPage), and the session cookies are copied onto that host, non-Secure. Never
+ * call the admin origin through an APIRequestContext (page.request, request): Node does not use Chromium's resolver
+ * and would reach the real admin.isaflow.co.za.
  */
 import { test, expect, request as pwRequest, type Browser, type BrowserContext, type Page, type Request, type Response } from '@playwright/test';
 
@@ -47,7 +44,7 @@ const TARGET = adminTarget(BASE_URL);
 test.use({
   launchOptions: {
     args: TARGET.mapTo
-      ? [`--host-resolver-rules=MAP ${ADMIN_HOST} ${TARGET.mapTo}`, '--disable-features=HttpsUpgrades,HttpsFirstBalancedModeAutoEnable']
+      ? [`--host-resolver-rules=MAP ${ADMIN_HOST} ${TARGET.mapTo}`]
       : [],
   },
 });
@@ -81,15 +78,30 @@ test.beforeAll(async () => {
   const res = await ctx.post('/api/auth/login', { data: platformAdminCredentials() });
   expect(res.status(), `platform admin login: ${res.status()}`).toBe(200);
   cookies = sessionCookies(res.headersArray().filter((h) => h.name.toLowerCase() === 'set-cookie').map((h) => h.value));
-  await ctx.dispose();
   expect(cookies.map((c) => c.name), 'login set no session cookie').toContain('sb-access-token');
+  // users.role is what withPlatformAdmin and AdminLayout read. Fail here, in words, rather than as 403s or a page
+  // that redirects to /login: in the post-deploy verify this failure rolls the deploy back.
+  const me = await ctx.get('/api/auth/me', { headers: { cookie: cookies.map((c) => `${c.name}=${c.value}`).join('; ') } });
+  expect(me.status(), `/api/auth/me after login: ${me.status()}`).toBe(200);
+  const { data } = (await me.json()) as { data: { user: { email?: string; role?: string | null }; memberships: unknown[] } };
+  await ctx.dispose();
+  if (data.user.role !== 'super_admin') {
+    throw new Error(`NOT_SUPER_ADMIN: the golden admin login (${data.user.email}) is not a super admin here (users.role = ${data.user.role}): grant it, or the deploy rolls back.`);
+  }
+  if (data.memberships.length === 0) {
+    throw new Error(`the golden admin login (${data.user.email}) belongs to no company here: every admin page then logs a 400 from the app shell's company lookup. Link it to a company, or the deploy rolls back.`);
+  }
 });
 
 interface Watched { page: Page; context: BrowserContext; problems: string[]; inflight: Set<Request> }
 
 /** A fresh context on the admin host holding the session, recording every console error, page error and 5xx. */
 async function adminPage(browser: Browser): Promise<Watched> {
-  const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  // bypassCSP only on the mapped plain-http origin: production's CSP carries upgrade-insecure-requests, which sends
+  // every script and API call to https on a port that speaks http (ERR_SSL_PROTOCOL_ERROR, the page never hydrates).
+  // Neither --unsafely-treat-insecure-origin-as-secure nor stripping that one directive from the routed document
+  // got the page to load (2026-11-14). Cost: a CSP violation on these pages is not reported here.
+  const context = await browser.newContext({ storageState: { cookies: [], origins: [] }, bypassCSP: TARGET.mapTo !== null });
   await context.addCookies(cookies.map((c) => ({ ...c, url: TARGET.origin })));
   const page = await context.newPage();
   const problems: string[] = [];
@@ -113,6 +125,9 @@ async function visit(w: Watched, path: string, heading: RegExp, api: RegExp): Pr
   const answered = w.page.waitForResponse(adminGet(api));
   await w.page.goto(`${TARGET.origin}${path}`);
   const res = await answered;
+  if (res.status() === 403 && /NOT_SUPER_ADMIN/.test(await res.text())) {
+    throw new Error(`NOT_SUPER_ADMIN on ${path}: the golden admin login is not a super admin here: grant it, or the deploy rolls back.`);
+  }
   expect(res.status(), `${path}: ${res.url()}`).toBe(200);
   await expect(w.page.getByRole('heading', { level: 1, name: heading }).first()).toBeVisible();
   return res;
