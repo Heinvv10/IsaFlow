@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { JobBulkActionsBar } from '@/components/admin/job-queue/JobBulkActionsBar';
 import { JobTable } from '@/components/admin/job-queue/JobTable';
+import { ConfirmModal } from '@/components/admin/ConfirmModal';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Loader2, RefreshCw, Zap, Trash2 } from 'lucide-react';
@@ -35,6 +36,7 @@ export default function JobQueuePage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [deletingOld, setDeletingOld] = useState(false);
+  const [confirmDeleteOld, setConfirmDeleteOld] = useState(false);
   const [toastMsg, setToastMsg]       = useState<string | null>(null);
   const [loadError, setLoadError]     = useState('');
 
@@ -51,10 +53,17 @@ export default function JobQueuePage() {
       const res = await apiFetch(`/api/admin/job-queue?${params}`, { credentials: 'include' });
       await assertOk(res, 'Could not load the job queue - try again');
       const json = await res.json() as { data: { jobs: BackgroundJob[]; total: number } };
-      setJobs(json.data?.jobs ?? []);
+      const list = json.data?.jobs ?? [];
+      setJobs(list);
       setTotal(json.data?.total ?? 0);
       setLastRefresh(new Date());
-      setSelectedIds(new Set());
+      // The 10 s poll keeps what is ticked (audit 4.17: it cleared the selection under the admin); only jobs
+      // no longer listed drop out.
+      setSelectedIds(prev => {
+        const listed = new Set(list.map(j => j.id));
+        const kept = new Set([...prev].filter(id => listed.has(id)));
+        return kept.size === prev.size ? prev : kept;
+      });
       setLoadError('');
     } catch (err) {
       log.error('Failed to load job queue', { error: err }, 'admin-ui');
@@ -129,6 +138,7 @@ export default function JobQueuePage() {
   };
 
   const handleDeleteOld = async () => {
+    setConfirmDeleteOld(false);
     setDeletingOld(true);
     try {
       const res = await apiFetch('/api/admin/job-queue/bulk-action', {
@@ -176,7 +186,7 @@ export default function JobQueuePage() {
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={handleDeleteOld} disabled={deletingOld}
+                onClick={() => setConfirmDeleteOld(true)} disabled={deletingOld}
                 className="flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:text-red-300 border border-red-700/50 hover:border-red-600 rounded-lg transition-colors disabled:opacity-50"
                 title="Delete completed/cancelled/failed jobs older than 30 days"
               >
@@ -242,6 +252,15 @@ export default function JobQueuePage() {
           </div>
         </div>
       </div>
+      <ConfirmModal
+        open={confirmDeleteOld}
+        title="Delete old jobs"
+        message="Permanently delete every completed, cancelled and failed job older than 30 days? This cannot be undone."
+        confirmLabel="Delete old jobs"
+        loading={deletingOld}
+        onConfirm={() => void handleDeleteOld()}
+        onCancel={() => setConfirmDeleteOld(false)}
+      />
     </AdminLayout>
   );
 }
