@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const NOTICE_TEXT = `Notice of Payment 13 November 2026
 Absa Bank Limited
+Dear EXAMPLE TRADING PTY LTD
 Transaction number: 80AB12CD34-11
 Payment date: 2026-11-13
 Payment made from: EXAMPLE MAIN
@@ -26,6 +27,7 @@ const h = vi.hoisted(() => ({
   envelope: { from: 'ibreply@absa.co.za', subject: 'Notice of payment: JANE Q PUBLIC' },
   attachment: { contentType: 'application/pdf' as string, content: Buffer.from('%PDF-1.4 notice') },
   popHeld: false,
+  payerTrusted: true,
   stored: 0,
 }));
 
@@ -71,6 +73,7 @@ vi.mock('@/lib/neon', () => {
     const text = strings.join('?').replace(/\s+/g, ' ').trim();
     h.statements.push({ text, values });
     if (/SELECT 1 FROM proof_of_payments/.test(text)) return h.popHeld ? [{ '?column?': 1 }] : [];
+    if (/SELECT 1 FROM pop_trusted_payers/.test(text)) return h.payerTrusted && values[1] === 'EXAMPLE TRADING PTY LTD' ? [{ '?column?': 1 }] : [];
     return /RETURNING id/.test(text) ? [{ id: crypto.randomUUID() }] : [];
   });
   return { sql, withTransaction: async (fn: (tx: typeof sql) => Promise<unknown>) => fn(sql) };
@@ -95,6 +98,7 @@ beforeEach(() => {
   h.envelope = { from: 'ibreply@absa.co.za', subject: 'Notice of payment: JANE Q PUBLIC' };
   h.attachment = { contentType: 'application/pdf', content: Buffer.from('%PDF-1.4 notice') };
   h.popHeld = false;
+  h.payerTrusted = true;
   h.stored = 0;
 });
 
@@ -106,7 +110,7 @@ describe('IMAP mirror: ABSA notice of payment', () => {
     expect(doc!.text).toMatch(/'processed', 'proof_of_payment'/);
     const [pop] = inserts('proof_of_payments');
     expect(pop!.values).toEqual([COMPANY, expect.any(String), '80AB12CD34-11', '2026-11-13', '3000.00',
-      'JANE Q PUBLIC', 'CAPITEC', 'Example Ref', 'EXAMPLE MAIN']);
+      'JANE Q PUBLIC', 'CAPITEC', 'Example Ref', 'EXAMPLE MAIN', 'EXAMPLE TRADING PTY LTD']);
     expect(pop!.values[1]).toBe(h.statements.find((s) => s.text.startsWith('UPDATE captured_documents'))!.values[2]);
     expect(h.stored).toBe(1);
     expect(inserts('capture_events')).toEqual([]);
@@ -135,6 +139,14 @@ describe('IMAP mirror: ABSA notice of payment', () => {
     expect(await scanConnection(conn())).toMatchObject({ ingested: 1 });
     expect(inserts('proof_of_payments')).toEqual([]);
     expect(inserts('capture_events')).toHaveLength(1);
+  });
+
+  it('sends a genuine ABSA notice from a payer the company does not trust to capture review', async () => {
+    h.payerTrusted = false; // e.g. another ABSA customer had their notice mailed to this inbox
+    expect(await scanConnection(conn())).toMatchObject({ ingested: 1 });
+    expect(inserts('proof_of_payments')).toEqual([]);
+    expect(inserts('capture_events')).toHaveLength(1);
+    expect(scanLogOutcome()).toBe('ingested');
   });
 
   it('files nothing for a notice already held (same ABSA transaction number)', async () => {

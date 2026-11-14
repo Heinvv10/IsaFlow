@@ -10,6 +10,8 @@
  */
 
 export interface AbsaPop {
+  /** The ABSA banking profile the notice is addressed to ("Dear ..."): who made the payment. */
+  payerProfile: string;
   transactionNumber: string;
   /** YYYY-MM-DD */
   paymentDate: string;
@@ -23,6 +25,7 @@ export interface AbsaPop {
 
 export type AbsaPopReason =
   | 'not_absa_notice'
+  | 'missing_payer_profile'
   | 'missing_transaction_number'
   | 'missing_payment_date'
   | 'missing_beneficiary'
@@ -83,6 +86,10 @@ export function parseAbsaPopText(pdfText: string): AbsaPopParse {
   if (!/\babsa\b/i.test(pdfText) || !/notice of payment/i.test(pdfText)) return { ok: false, reason: 'not_absa_notice' };
   const f = readFields(pdfText);
 
+  const profiles = new Set([...pdfText.matchAll(/^\s*Dear\s+(.+?)\s*,?\s*$/gim)].map((m) => m[1]!));
+  if (profiles.size !== 1) return { ok: false, reason: 'missing_payer_profile' };
+  const payerProfile = [...profiles][0]!;
+
   const transactionNumber = text(f.transactionNumber);
   if (!transactionNumber || !/^[A-Z0-9][A-Z0-9-]{4,40}$/.test(transactionNumber)) {
     return { ok: false, reason: 'missing_transaction_number' };
@@ -97,6 +104,7 @@ export function parseAbsaPopText(pdfText: string): AbsaPopParse {
   return {
     ok: true,
     pop: {
+      payerProfile,
       transactionNumber,
       paymentDate,
       payerAccountName: text(f.payerAccountName),

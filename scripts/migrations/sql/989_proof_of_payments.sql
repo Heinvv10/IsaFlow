@@ -7,6 +7,12 @@
 --     'proof_of_payment'). Phase 1 writes only 'absa_notice' rows: ABSA "Notice of
 --     payment" mail whose DKIM signature verified (capture/pop/absaPopTrust.ts).
 --
+-- WHOSE PAYMENT. DKIM proves ABSA sent a notice, not that the company made the payment: any ABSA
+-- customer can have a genuine notice mailed to any address. A notice is filed only when the profile it
+-- is addressed to ("Dear <profile>", printed inside the signed PDF) is in pop_trusted_payers for the
+-- company; any other notice goes to the capture inbox for a person. pop_trusted_payers is ops config:
+-- app sessions read it, only migration_admin writes it.
+--
 -- ONE ROW PER BANK TRANSACTION. UNIQUE (company_id, source, transaction_number): the same
 -- notice re-sent, forwarded or re-scanned files nothing twice; the ingest inserts
 -- ON CONFLICT DO NOTHING inside the transaction that creates the document, so a losing
@@ -33,6 +39,7 @@ CREATE TABLE IF NOT EXISTS proof_of_payments (
   beneficiary_bank TEXT CHECK (length(beneficiary_bank) <= 200),
   reference TEXT CHECK (length(reference) <= 200),
   payer_account_name TEXT CHECK (length(payer_account_name) <= 200),
+  payer_profile TEXT NOT NULL CHECK (btrim(payer_profile) <> '' AND length(payer_profile) <= 200),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT proof_of_payments_one_per_bank_txn UNIQUE (company_id, source, transaction_number)
 );
@@ -52,6 +59,24 @@ CREATE POLICY tenant_isolation ON proof_of_payments FOR ALL TO app_user
 REVOKE INSERT, UPDATE, DELETE ON proof_of_payments FROM app_user;
 GRANT SELECT ON proof_of_payments TO app_user;
 GRANT INSERT (company_id, captured_document_id, source, transaction_number, payment_date, amount,
-  beneficiary, beneficiary_bank, reference, payer_account_name) ON proof_of_payments TO app_user;
+  beneficiary, beneficiary_bank, reference, payer_account_name, payer_profile) ON proof_of_payments TO app_user;
+
+CREATE TABLE IF NOT EXISTS pop_trusted_payers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  profile_name TEXT NOT NULL CHECK (btrim(profile_name) <> '' AND length(profile_name) <= 200),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_pop_trusted_payers_profile
+  ON pop_trusted_payers (company_id, lower(regexp_replace(btrim(profile_name), '\s+', ' ', 'g')));
+
+ALTER TABLE pop_trusted_payers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pop_trusted_payers FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON pop_trusted_payers;
+CREATE POLICY tenant_isolation ON pop_trusted_payers FOR ALL TO app_user
+  USING (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()))
+  WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
+REVOKE INSERT, UPDATE, DELETE ON pop_trusted_payers FROM app_user;
+GRANT SELECT ON pop_trusted_payers TO app_user;
 
 SELECT public.app_service_sync_policies();

@@ -3,6 +3,7 @@
  *   - a notice is filed once: proof_of_payments row + captured_documents row ('proof_of_payment', 'processed');
  *   - the same notice again (same bytes, or re-encoded bytes with the same ABSA transaction number) files nothing;
  *   - two scans filing one transaction number at once leave ONE pop row and ONE document (the loser rolls back);
+ *   - a genuine notice addressed to a profile the company does not trust files nothing;
  *   - app_user sees no other company's rows and cannot UPDATE or DELETE a notice (42501).
  * Storage and the PDF text layer are stubbed (no object store in CI; absaPopParser.test.ts proves the read).
  *
@@ -36,8 +37,9 @@ const describeIfDb = url && !url.includes('dummy') ? describe : describe.skip;
 const pool = new Pool({ connectionString: url, max: 3 });
 const [A, B] = [crypto.randomUUID(), crypto.randomUUID()];
 
-const notice = (txn: string) => `Notice of Payment 13 November 2026
+const notice = (txn: string, payer = 'Example Trading  PTY LTD') => `Notice of Payment 13 November 2026
 Absa Bank Limited
+Dear ${payer}
 Transaction number: ${txn}
 Payment date: 2026-11-13
 Payment made from: EXAMPLE MAIN
@@ -58,11 +60,14 @@ describeIfDb('POP inbox: filing ABSA notices', () => {
   beforeAll(async () => {
     assertNotProductionDb('pop-inbox-ingest inserts companies, captured documents and proofs of payment');
     await pool.query('INSERT INTO companies (id, name) VALUES ($1, $2), ($3, $4)', [A, 'POP A', B, 'POP B']);
+    // Stored with different spacing and case than the notices print: the match ignores both.
+    await pool.query("INSERT INTO pop_trusted_payers (company_id, profile_name) VALUES ($1, 'EXAMPLE TRADING PTY LTD'), ($2, 'example trading pty ltd')", [A, B]);
   });
 
   afterAll(async () => {
     try {
       await pool.query('DELETE FROM proof_of_payments WHERE company_id = ANY($1)', [[A, B]]);
+      await pool.query('DELETE FROM pop_trusted_payers WHERE company_id = ANY($1)', [[A, B]]);
       await pool.query('DELETE FROM captured_documents WHERE company_id = ANY($1)', [[A, B]]);
       await pool.query('DELETE FROM companies WHERE id = ANY($1)', [[A, B]]);
     } finally {
@@ -89,6 +94,12 @@ describeIfDb('POP inbox: filing ABSA notices', () => {
 
     // Another company's identical transaction number is its own notice.
     expect((await ingestAbsaPop(B, pdf('b'))).filed).toBe(true);
+  });
+
+  it('files nothing for a genuine notice addressed to a payer the company does not trust', async () => {
+    h.text = notice('80STRANGER-01', 'SOMEONE ELSE (PTY) LTD');
+    expect(await ingestAbsaPop(A, pdf('stranger'))).toEqual({ filed: false, reason: 'payer_not_trusted' });
+    expect(await counts(A, '80STRANGER-01')).toEqual({ pops: 0, docs: 0 });
   });
 
   it('leaves one notice and one document when two scans file the same transaction at once', async () => {

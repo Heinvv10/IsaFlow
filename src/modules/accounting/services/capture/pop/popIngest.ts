@@ -24,7 +24,7 @@ type Row = Record<string, unknown>;
 export type PopIngestResult =
   | { filed: true; documentId: string; popId: string }
   | { filed: false; reason: 'duplicate' }
-  | { filed: false; reason: 'not_pdf' | 'unreadable_pdf' | AbsaPopReason };
+  | { filed: false; reason: 'not_pdf' | 'unreadable_pdf' | 'payer_not_trusted' | AbsaPopReason };
 
 const PDF_MAGIC = Buffer.from('%PDF-');
 
@@ -35,6 +35,17 @@ export function isPdfBytes(content: Buffer): boolean {
 
 class PopAlreadyFiled extends Error {}
 
+/** pop_trusted_payers (migration 989): ABSA profile names, compared case- and space-insensitively. */
+async function isTrustedPayer(companyId: string, profile: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1 FROM pop_trusted_payers
+    WHERE company_id = ${companyId}::uuid
+      AND lower(regexp_replace(btrim(profile_name), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim(${profile}), '\\s+', ' ', 'g'))
+    LIMIT 1
+  `) as Row[];
+  return rows.length > 0;
+}
+
 export async function ingestAbsaPop(companyId: string, att: Attachment): Promise<PopIngestResult> {
   const content = att.content as Buffer;
   if (!isPdfBytes(content)) return { filed: false, reason: 'not_pdf' };
@@ -43,6 +54,9 @@ export async function ingestAbsaPop(companyId: string, att: Attachment): Promise
   const parsed = parseAbsaPopText(text);
   if (!parsed.ok) return { filed: false, reason: parsed.reason };
   const pop = parsed.pop;
+  // DKIM proves ABSA sent the notice, not that THIS company paid: any ABSA customer can mail a
+  // genuine notice to any address. The profile it is addressed to must be one the company trusts.
+  if (!(await isTrustedPayer(companyId, pop.payerProfile))) return { filed: false, reason: 'payer_not_trusted' };
 
   const sha = sha256(content);
   const held = (await sql`
@@ -76,10 +90,10 @@ export async function ingestAbsaPop(companyId: string, att: Attachment): Promise
       const [row] = (await tx`
         INSERT INTO proof_of_payments (
           company_id, captured_document_id, source, transaction_number, payment_date, amount,
-          beneficiary, beneficiary_bank, reference, payer_account_name
+          beneficiary, beneficiary_bank, reference, payer_account_name, payer_profile
         ) VALUES (
           ${companyId}::uuid, ${documentId}::uuid, 'absa_notice', ${pop.transactionNumber}, ${pop.paymentDate}::date,
-          ${amount}::numeric, ${pop.beneficiary}, ${pop.beneficiaryBank}, ${pop.reference}, ${pop.payerAccountName}
+          ${amount}::numeric, ${pop.beneficiary}, ${pop.beneficiaryBank}, ${pop.reference}, ${pop.payerAccountName}, ${pop.payerProfile}
         )
         ON CONFLICT ON CONSTRAINT proof_of_payments_one_per_bank_txn DO NOTHING
         RETURNING id

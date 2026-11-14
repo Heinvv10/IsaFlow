@@ -41,6 +41,7 @@ describe('parseAbsaPopText', () => {
     expect(parseAbsaPopText(LAYOUT_BUSINESS)).toEqual({
       ok: true,
       pop: {
+        payerProfile: 'EXAMPLE TRADING PTY LTD',
         transactionNumber: '80AB12CD34-11',
         paymentDate: '2026-11-13',
         payerAccountName: 'EXAMPLE MAIN',
@@ -86,6 +87,11 @@ describe('parseAbsaPopText', () => {
   it('refuses two different values for one field (an ambiguous notice)', () => {
     const text = `${LAYOUT_BUSINESS}\nTransaction number: 80FFFFFFFF-99`;
     expect(parseAbsaPopText(text)).toEqual({ ok: false, reason: 'missing_transaction_number' });
+  });
+
+  it('refuses a notice with no payer profile, or two different ones', () => {
+    expect(parseAbsaPopText(LAYOUT_BUSINESS.replace(/^Dear .*$/m, ''))).toEqual({ ok: false, reason: 'missing_payer_profile' });
+    expect(parseAbsaPopText(`${LAYOUT_BUSINESS}\nDear SOMEONE ELSE`)).toEqual({ ok: false, reason: 'missing_payer_profile' });
   });
 
   it('returns null optional fields when they are absent', () => {
