@@ -38,7 +38,7 @@ export const FILE_SECONDS: Readonly<Record<string, number>> = {
   'z2-invoice-autosave-send.spec.ts': 72, 'z2b-invoice-held-back.spec.ts': 26, 'z3-pnl-pdf.spec.ts': 1,
   'z4-employee-pay-on-create.spec.ts': 65, 'z5-employee-bank-details.spec.ts': 41, 'z6-payrun-review-grid.spec.ts': 38,
   'z7-undo-drawers.spec.ts': 116, 'z9-employee-readiness.spec.ts': 99,
-  'z22-admin-console.spec.ts': 120, // hosted run 43596298792 (2026-11-14): 95 s over its 6 tests; 120 keeps headroom
+  'z22-admin-console.spec.ts': 120, // hosted: 95 s with System Health (run 43596298792), 62 s without (run 43605704335); 120 keeps headroom
 };
 /** Mean seconds per o-theme-contrast screen, same runs. */
 export const CONTRAST_SECONDS: Readonly<Record<string, number>> = {
