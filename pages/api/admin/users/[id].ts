@@ -16,6 +16,7 @@ import {
   updateUser,
 } from '@/modules/admin/services/adminUserService';
 import { deleteUser, SoleOwnerError } from '@/modules/admin/services/adminUserActionsService';
+import { assertSuperAdminRemains, LastSuperAdminError } from '@/modules/admin/services/superAdminRosterService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
@@ -51,30 +52,42 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
     }
 
-    try {
-      const { first_name, last_name, role, phone } = parsed.data;
-
-      await updateUser(userId, { first_name, last_name, role, phone });
-
-      const updated = await getUserDetail(userId);
-      if (!updated) {
-        return apiResponse.notFound(res, 'User', userId);
+    const { first_name, last_name, role, phone } = parsed.data;
+    // A role change may take a super admin out of the console: the roster check locks and refuses the last active
+    // one (admin audit 2026-11-14, 3.3). Only that refusal is caught; any other failure is a 500 that rolls the
+    // update back with its audit row.
+    let target = null;
+    if (role !== undefined) {
+      try {
+        target = await assertSuperAdminRemains(userId);
+      } catch (err) {
+        if (err instanceof LastSuperAdminError) return apiResponse.conflict(res, err.message, { reason: err.code });
+        throw err;
       }
-
-      await logAdminAction(
-        req.user.id,
-        'user.update',
-        'user',
-        userId,
-        { fields: Object.keys(parsed.data) },
-        getIp(req)
-      );
-
-      return apiResponse.success(res, updated);
-    } catch (err) {
-      log.error('Failed to update user', { userId, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to update user');
+      if (!target) return apiResponse.notFound(res, 'User', userId);
     }
+
+    await updateUser(userId, { first_name, last_name, role, phone });
+
+    const updated = await getUserDetail(userId);
+    if (!updated) {
+      return apiResponse.notFound(res, 'User', userId);
+    }
+
+    await logAdminAction(
+      req.user.id,
+      'user.update',
+      'user',
+      userId,
+      {
+        fields: Object.keys(parsed.data),
+        ...(target && role !== undefined ? { previous_role: target.role, role } : {}),
+        ...(target?.isSuperAdmin ? { target_super_admin: true } : {}),
+      },
+      getIp(req)
+    );
+
+    return apiResponse.success(res, updated);
   }
 
   if (req.method === 'DELETE') {

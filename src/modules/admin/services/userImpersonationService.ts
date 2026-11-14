@@ -89,6 +89,15 @@ export async function deleteStash(stashId: string): Promise<void> {
   await migrationAdminPool().query('DELETE FROM admin_impersonation_stash WHERE stash_id = $1::uuid', [stashId]);
 }
 
+/**
+ * Removes every expired stash (any admin): loadStash already refuses them, but each row still holds an admin's
+ * encrypted tokens. Run opportunistically on the Login-as start and end paths (no timer). Returns how many went.
+ */
+export async function purgeExpiredStashes(): Promise<number> {
+  const { rowCount } = await migrationAdminPool().query('DELETE FROM admin_impersonation_stash WHERE expires_at <= NOW()');
+  return rowCount ?? 0;
+}
+
 export interface TargetValidationResult {
   userId: string;
   email: string;

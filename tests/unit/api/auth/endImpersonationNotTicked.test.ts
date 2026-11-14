@@ -5,7 +5,9 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/auth/csrf', () => ({ verifyCsrf: () => true }));
-vi.mock('@/lib/auth/gotrue', () => ({ verifyTokenSignature: async () => ({ sub: 'target-1', session_id: 'session-1' }) }));
+vi.mock('@/lib/auth/gotrue', () => ({
+  verifyTokenSignature: async () => ({ sub: 'target-1', session_id: 'session-1' }), logout: async () => undefined,
+}));
 const LOGIN_AS = { actorUserId: 'admin-1', targetUserId: 'target-1' };
 const record = vi.hoisted(() => ({ parties: null as { actorUserId: string; targetUserId: string } | null, asked: [] as string[] }));
 vi.mock('@/lib/auth/impersonationSessions', () => ({
@@ -18,6 +20,7 @@ vi.mock('@/modules/admin/services/userImpersonationService', () => ({
     admin_user_id: 'admin-1', target_user_id: 'target-1', admin_access_token: 'admin-a', admin_refresh_token: 'admin-r',
   }),
   deleteStash: async () => undefined,
+  purgeExpiredStashes: async () => 0,
 }));
 
 import handler from '../../../../pages/api/auth/end-impersonation';

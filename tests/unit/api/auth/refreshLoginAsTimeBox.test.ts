@@ -17,7 +17,7 @@ const h = vi.hoisted(() => ({
   deleteEndedStashes: vi.fn(async (_input: unknown) => 1),
   audit: vi.fn(async (_strings: TemplateStringsArray, ..._values: unknown[]) => []),
 }));
-vi.mock('@/modules/admin/services/userImpersonationService', () => ({ deleteEndedStashes: h.deleteEndedStashes }));
+vi.mock('@/modules/admin/services/userImpersonationService', () => ({ deleteEndedStashes: h.deleteEndedStashes, purgeExpiredStashes: async () => 0 }));
 vi.mock('@/lib/neon', () => ({ sql: h.audit }));
 vi.mock('@/lib/auth/impersonationSessions', () => ({
   impersonationPartiesOf: async (sessionId: string) =>

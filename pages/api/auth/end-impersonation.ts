@@ -1,5 +1,12 @@
 // pages/api/auth/end-impersonation.ts
-// Restores the admin's stashed session cookies; deletes the stash row.
+// Restores the admin's stashed session cookies; deletes the stash row; revokes
+// the Login-as session at GoTrue (admin audit 2026-11-14, 3.10), so a copy of
+// its access or refresh token taken before "Return" cannot keep it going. A
+// failed revocation does not trap the admin in the target's session: the end
+// goes ahead and its audit row says `target_session_revoked: false`. When the
+// caller is the admin (case (b) below) this browser no longer holds the target
+// session's token, so there is nothing to revoke here: `null`. Expired stash
+// rows (any admin's) are purged on the way out.
 //
 // Auth model: the caller MUST either (a) still be authenticated as the
 // impersonated target user (normal flow), or (b) already be authenticated as
@@ -15,7 +22,8 @@ import {
 } from '@/lib/auth/cookies';
 import { ADMIN_STASH_COOKIE, clearImpersonationCookies } from '@/lib/auth/impersonation-cookies';
 import { loadStash, deleteStash } from '@/modules/admin/services/userImpersonationService';
-import { verifyTokenSignature } from '@/lib/auth/gotrue';
+import { logout, verifyTokenSignature } from '@/lib/auth/gotrue';
+import { purgeExpiredStashesBestEffort } from '@/lib/auth/loginAsRecord';
 import { impersonationPartiesOf } from '@/lib/auth/impersonationSessions';
 import { verifyCsrf } from '@/lib/auth/csrf';
 import { pickInitialCompanyId } from '@/lib/auth/liveCompanies';
@@ -97,6 +105,20 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not authorised to end this impersonation' } });
   }
 
+  // The caller is the Login-as session (checked above): end it at GoTrue too. Its own token names it (scope=local).
+  let targetSessionRevoked: boolean | null = null;
+  if (callerId === stash.target_user_id) {
+    try {
+      await logout(accessToken, 'local');
+      targetSessionRevoked = true;
+    } catch (err) {
+      targetSessionRevoked = false;
+      log.error('end-impersonation: the Login-as session could not be revoked at GoTrue', {
+        admin: stash.admin_user_id, target: stash.target_user_id, message: err instanceof Error ? err.message : String(err),
+      }, 'Admin');
+    }
+  }
+
   setAuthCookies(res, {
     accessToken: stash.admin_access_token,
     refreshToken: stash.admin_refresh_token,
@@ -119,13 +141,14 @@ const handler: NextApiHandler = async (req, res) => {
       'impersonation_end',
       'user',
       ${stash.target_user_id},
-      ${JSON.stringify({ stash_id: stashId })}::jsonb
+      ${JSON.stringify({ stash_id: stashId, target_session_revoked: targetSessionRevoked })}::jsonb
     )
   `;
 
   await deleteStash(stashId);
+  await purgeExpiredStashesBestEffort('end-impersonation');
 
-  log.info('impersonation ended', { admin: stash.admin_user_id, target: stash.target_user_id }, 'Admin');
+  log.info('impersonation ended', { admin: stash.admin_user_id, target: stash.target_user_id, targetSessionRevoked }, 'Admin');
 
   return res.status(200).json({ success: true, data: { redirect: '/admin' } });
 };

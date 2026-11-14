@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SignJWT } from 'jose';
 import type { NextApiRequest, NextApiResponse } from 'next';
-const fixture = vi.hoisted(() => ({ loadStash: vi.fn(), deleteStash: vi.fn() }));
+const fixture = vi.hoisted(() => ({ loadStash: vi.fn(), deleteStash: vi.fn(), purgeExpiredStashes: vi.fn(async () => 0) }));
 vi.mock('@/modules/admin/services/userImpersonationService', () => fixture);
 vi.mock('@/lib/neon', () => ({ sql: async () => [] }));
 vi.mock('@/lib/auth/impersonationSessions', () => ({

@@ -104,17 +104,22 @@ export default function AdminUserDetailPage() {
     })();
   }, []);
 
-  async function doAction(endpoint: string, method = 'POST', body?: object): Promise<boolean> {
-    if (!id || typeof id !== 'string') return false;
+  /** null on failure (shown); on success, the server's `message` when it sent one (e.g. a suspension's warning). */
+  async function doAction(endpoint: string, method = 'POST', body?: object): Promise<{ message?: string } | null> {
+    if (!id || typeof id !== 'string') return null;
     setActionLoading(true); setActionError('');
     try {
       const url = endpoint ? `/api/admin/users/${id}/${endpoint}` : `/api/admin/users/${id}`;
       const res  = await apiFetch(url, { method, headers: { 'X-Admin-Request': 'true', ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
       await assertOk(res, 'Could not update the user - try again');
-      return true;
+      const text = await res.text();
+      let message: string | undefined;
+      try { const m = (JSON.parse(text) as { message?: unknown }).message; message = typeof m === 'string' ? m : undefined; }
+      catch { message = undefined; /* a success without a JSON body carries no message */ }
+      return { message };
     } catch (err) {
       setActionError(apiErrorMessage(err, 'Could not update the user - try again'));
-      return false;
+      return null;
     } finally { setActionLoading(false); }
   }
 
@@ -187,8 +192,12 @@ export default function AdminUserDetailPage() {
   async function handleToggleSuspend() {
     const endpoint = user?.status === 'suspended' ? 'activate' : 'suspend';
     const body     = endpoint === 'suspend' ? { reason: 'Suspended by admin' } : undefined;
-    const ok = await doAction(endpoint, 'POST', body);
-    if (ok) { showToast(endpoint === 'activate' ? 'User activated' : 'User suspended'); void load(); }
+    const done = await doAction(endpoint, 'POST', body);
+    if (!done) return;
+    // A suspension whose browser sessions GoTrue could not revoke says so: shown until dismissed, not as a toast.
+    if (done.message) setActionError(done.message);
+    else showToast(endpoint === 'activate' ? 'User activated' : 'User suspended');
+    void load();
   }
 
   async function handleLinkCompany(companyId: string, role: string) {

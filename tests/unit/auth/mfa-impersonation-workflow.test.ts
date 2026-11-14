@@ -6,6 +6,7 @@ import type { PlatformAdminRequest } from '@/lib/auth';
 const fixture = vi.hoisted(() => ({
   sql: vi.fn(), query: vi.fn(), release: vi.fn(), generateLink: vi.fn(), verifyMagicLink: vi.fn(),
   stashAdminTokens: vi.fn(), loadStash: vi.fn(), deleteStash: vi.fn(), validateImpersonationTarget: vi.fn(),
+  purgeExpiredStashes: vi.fn(async () => 0),
 }));
 vi.mock('@/lib/neon', () => ({ sql: fixture.sql }));
 vi.mock('@/lib/auth/authPool', () => ({ getAuthPool: () => ({
@@ -16,6 +17,7 @@ vi.mock('@/modules/admin/middleware/withAdmin', () => ({ withAdmin: (handler: un
 vi.mock('@/modules/admin/services/userImpersonationService', () => ({
   stashAdminTokens: fixture.stashAdminTokens, loadStash: fixture.loadStash,
   deleteStash: fixture.deleteStash, validateImpersonationTarget: fixture.validateImpersonationTarget,
+  purgeExpiredStashes: fixture.purgeExpiredStashes,
 }));
 // R-032: the session record is written on its own platform_admin connection;
 // its durability is proven against Postgres in r-032-session-record-durability.
@@ -140,9 +142,16 @@ it('starts an authorized MFA-target impersonation, uses the emitted cookies on w
   await withAuth(protectedHandler)(request(jar, 'GET'), afterRefresh.res);
   expect(afterRefresh.state.statusCode).toBe(200);
   expect(protectedHandler).toHaveBeenCalledTimes(2);
+  // Ending revokes the Login-as session at GoTrue with its own (rotated) token (admin audit 2026-11-14, 3.10).
+  const gotrueCalls: { url: string; bearer: string | null }[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    gotrueCalls.push({ url: String(url), bearer: new Headers(init?.headers).get('authorization') });
+    return new Response(null, { status: 204 });
+  }));
   const ended = response();
   await end(request(jar), ended.res);
   expect(ended.state.statusCode).toBe(200);
+  expect(gotrueCalls).toEqual([{ url: 'http://gotrue.test.local/logout?scope=local', bearer: `Bearer ${rotatedToken}` }]);
   applyCookies(jar, ended);
   expect(jar['sb-access-token']).toBe(adminToken);
   expect(jar['sb-impersonation-proof']).toBeUndefined();

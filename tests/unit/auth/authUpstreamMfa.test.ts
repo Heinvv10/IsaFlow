@@ -22,6 +22,10 @@ vi.mock('@/lib/rateLimit', () => ({
   getClientIp: () => '127.0.0.1',
 }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
+// reset-2fa reads the target's role and writes its audit row before GoTrue is touched; both are judged on a real
+// database in tests/integration/admin-suspend-reset-2fa-audit.int.test.ts. Here only GoTrue's failure modes matter.
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
+vi.mock('@/modules/admin/services/auditService', () => ({ logAdminAction: vi.fn(async () => undefined) }));
 vi.mock('@/modules/admin/middleware/withAdmin', () => ({ withAdmin: (h: unknown) => h }));
 vi.mock('@/lib/auth/impersonationGuard', () => ({ refuseImpersonatedSession: vi.fn(async () => false) }));
 vi.mock('@/lib/auth/requireActiveAccount', () => ({ requireActiveAccount: vi.fn(async () => null) }));
@@ -55,7 +59,8 @@ async function call(route: unknown, method: string, cookie: string, body: unknow
     status(code: number) { answer.status = code; this.statusCode = code; return this; },
     json(b: unknown) { answer.body = b; return this; },
   } as unknown as NextApiResponse;
-  const req = { method, url: '/api/x', body, query, headers: { cookie } } as unknown as NextApiRequest;
+  // `user`: what withPlatformAdmin (mocked away with withAdmin) gives an admin route; the 2FA routes ignore it.
+  const req = { method, url: '/api/x', body, query, headers: { cookie }, user: { id: 'admin-1' } } as unknown as NextApiRequest;
   await (route as (q: NextApiRequest, s: NextApiResponse) => Promise<unknown>)(req, res);
   return answer;
 }
