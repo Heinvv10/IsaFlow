@@ -224,7 +224,8 @@ async function getChurnSignals(): Promise<UsageAnalytics['churn_signals']> {
   return (rows as Row[]).map((row) => ({
     company_id: row.company_id as string,
     company_name: row.company_name as string,
-    days_inactive: parseInt(row.days_inactive as string, 10) || 0,
+    // null = no member ever signed in (no age to report); a real same-day gap is 0.
+    days_inactive: row.days_inactive == null ? null : parseInt(row.days_inactive as string, 10) || 0,
     last_login: toISOString(row.last_login),
   }));
 }
