@@ -86,7 +86,7 @@ describe('run-ci.sh parts', () => {
     expect(calls).toContain('bash scripts/ci/integration/run.sh 4/5');
   });
 
-  it.each([['static', '0/3'], ['static', '4/3'], ['static', '1/0'], ['velo', 'x'], ['velo', '1/2/3'], ['all', '1/2'], ['all', '2/2']])(
+  it.each([['static', '0/3'], ['static', '4/3'], ['static', '1/0'], ['velo', 'x'], ['velo', '1/2/3'], ['all', '1/2'], ['all', '2/2'], ['prepush', '1/2']])(
     'refuses %s %s before running anything',
     (group, part) => {
       const r = runCi(group, part);

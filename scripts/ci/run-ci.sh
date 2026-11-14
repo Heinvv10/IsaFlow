@@ -15,8 +15,10 @@ cd "$(git rev-parse --show-toplevel)"
 #           pass on velo and not tried on hosted runners) and
 #           integration (throwaway PostgreSQL 16 clusters from velo's
 #           postgresql-16 packages): the self-hosted runners.
-#   all     both, in order: the default, and what the pre-push hook runs.
-#   bun run ci [all|static|velo] [PART/PARTS]
+#   all     both, in order: the default (the full gate, run by hand).
+#   prepush the fast subset the git pre-push hook runs (scripts/ci/hooks/pre-push): type checks, the cheap
+#           guards, lint and unit tests scoped to the diff. Not part of `all`; GitHub still runs every gate.
+#   bun run ci [all|static|velo|prepush] [PART/PARTS]
 # PART/PARTS (default 1/1, the whole group) is how GitHub-hosted runs split a
 # group over parallel jobs (ci.yml's static and velo matrices); every gate, or
 # every file of a split test suite, runs in exactly one part:
@@ -29,19 +31,19 @@ cd "$(git rev-parse --show-toplevel)"
 #           seconds: vitest.print.config.ts) and integration slice k/PARTS
 #           (integration/run.sh). Measured: browser-tests 25 min, integration
 #           36 min, as one job.
-# `all` is never split.
+# `all` and `prepush` are never split.
 GROUP="${1:-all}"
 PART_ARG="${2:-1/1}"
-usage() { echo "usage: run-ci.sh [all|static|velo] [PART/PARTS] (got: $GROUP $PART_ARG)" >&2; exit 2; }
+usage() { echo "usage: run-ci.sh [all|static|velo|prepush] [PART/PARTS] (got: $GROUP $PART_ARG)" >&2; exit 2; }
 case "$GROUP" in
-  all|static|velo) ;;
+  all|static|velo|prepush) ;;
   *) usage ;;
 esac
 [[ "$PART_ARG" =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]] || usage
 PART=${BASH_REMATCH[1]}
 PARTS=${BASH_REMATCH[2]}
 [ "$PART" -le "$PARTS" ] || usage
-[ "$GROUP" != all ] || [ "$PARTS" -eq 1 ] || usage
+case "$GROUP" in all|prepush) [ "$PARTS" -eq 1 ] || usage ;; esac
 in_group() { [ "$GROUP" = all ] || [ "$GROUP" = "$1" ]; }
 # static: part 1 (or the whole group) runs the gates that are not test suites,
 # the other parts (or the whole group) the suites, each in the same share.
@@ -226,6 +228,20 @@ elif [ "${CI_SKIP_BUILD:-0}" = "1" ]; then
   echo "[skip] build: CI_SKIP_BUILD=1"
 else
   run_step "build"           capped env NODE_ENV=production bun run build
+fi
+
+if [ "$GROUP" = prepush ]; then
+  run_step "type-check"          bun run type-check
+  run_step "pack-fixture-types"  bun run type-check:pack-fixtures
+  run_step "paystack-export-types" bun run type-check:paystack-exports
+  run_step "ci-script-types"     bun run type-check:ci-scripts
+  run_step "lint (changed files)" bun scripts/ci/prepush.ts lint
+  run_step "raw-input-allowlist" bun scripts/ci/check-raw-input-allowlist.ts
+  run_step "agent-docs"          bun run agent-docs:check
+  run_step "workflow-runs-ci"    bun scripts/ci/check-workflow-runs-ci.ts
+  run_step "migration-naming"    bun scripts/audit-migration-naming.ts
+  run_step "check-routes"        bun run check:routes
+  run_step "unit-tests (affected)" bun scripts/ci/prepush.ts unit
 fi
 
 echo ""
