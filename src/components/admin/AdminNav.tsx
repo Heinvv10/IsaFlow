@@ -115,6 +115,8 @@ export function AdminNav() {
     return pathMatchesHref(buildHref(`/admin${adminPath}`), router.asPath);
   };
 
+  // Inactive items carry a light-theme colour as well as the dark one (audit 4.4: grey-300 on white was
+  // close to unreadable in the light theme).
   return (
     <aside className="w-56 flex-shrink-0 bg-white dark:bg-gray-900 border-r border-gray-300 dark:border-gray-700 flex flex-col min-h-full">
       <div className="px-4 py-4 border-b border-gray-300 dark:border-gray-700">
@@ -149,7 +151,7 @@ export function AdminNav() {
                     'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
                     parentActive
                       ? 'bg-brand-600 text-white font-medium'
-                      : 'text-gray-300 hover:bg-gray-700/60 hover:text-white',
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/60 hover:text-gray-900 dark:hover:text-white',
                   ].join(' ')}
                 >
                   <Icon className="w-4 h-4 flex-shrink-0" />
@@ -171,7 +173,7 @@ export function AdminNav() {
                             'flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors',
                             childActive
                               ? 'bg-teal-600/80 text-white font-medium'
-                              : 'text-gray-400 hover:bg-gray-700/50 hover:text-white',
+                              : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-white',
                           ].join(' ')}
                         >
                           <ChildIcon className="w-3.5 h-3.5 flex-shrink-0" />
@@ -194,7 +196,7 @@ export function AdminNav() {
                 'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
                 active
                   ? 'bg-brand-600 text-white font-medium'
-                  : 'text-gray-300 hover:bg-gray-700/60 hover:text-white',
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/60 hover:text-gray-900 dark:hover:text-white',
               ].join(' ')}
             >
               <Icon className="w-4 h-4 flex-shrink-0" />
