@@ -8,7 +8,10 @@ import type { BankTransaction } from '@/modules/accounting/types/bank.types';
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
 import { InvalidCursorError } from '@/modules/accounting/services/bank/bankTxCursor';
+import { BANK_TX_GROUP_BY, summariseBankTransactions } from '@/modules/accounting/services/bank/bankTxSummaryService';
+import { SUMMARY_DETAIL_SCHEMA, groupBySchema, parseSummaryRequest, summaryBody } from './summaryMode';
 import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { escapeLikeLiteral } from '@/lib/sqlLikeLiteral';
 
 const ALLOCATION_FILTERS = ['all', 'unallocated', 'suggested', 'allocated'] as const;
 type AllocationFilter = (typeof ALLOCATION_FILTERS)[number];
@@ -42,17 +45,6 @@ export function allocationStateOf(tx: BankTransaction): AllocationState {
     return 'suggested';
   }
   return 'unallocated';
-}
-
-/**
- * The service wraps the term in %…% for ILIKE and escapes nothing, so an
- * agent's "50%" or "ref_123" would match as a wildcard pattern. Escape the
- * three LIKE metacharacters (Postgres's default escape is backslash) so the
- * argument means what its name says: a literal substring.
- */
-export function escapeLikeLiteral(term: string | undefined): string | undefined {
-  if (term === undefined) return undefined;
-  return term.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
 
 function toCompact(tx: BankTransaction): CompactBankTx {
@@ -101,7 +93,8 @@ export const listBankTransactionsTool: McpTool = {
     'fields="compact" returns only id, date, amount, bank_reference and allocation (~10x smaller) — use it when you are scanning or bulk-allocating and do not need the full row. '
     + 'compact bank_reference is the statement reference from either column (the row\'s bank_reference, else its reference), which is exactly what allocate_bank_transaction and bulk_allocate_bank_transactions resolve. '
     + 'compact allocation is one of allocated | suggested | unallocated | excluded; an excluded row is returned by NEITHER allocation_filter=unallocated NOR =suggested, so never treat one as work to do.'
-    + ' description_contains: case-insensitive substring matched against the statement description OR reference (a literal match — % and _ are not wildcards).',
+    + ' description_contains: case-insensitive substring matched against the statement description OR reference (a literal match — % and _ are not wildcards). It combines with every other filter (bank_account_id, allocation_filter, dates) and with cursor paging, and total counts only the matching lines.'
+    + ' A full row is 0.5 to 1 KB, so a 100-row page can approach or pass 90 KB: to size or total a large window, use detail="summary" (counts and money in/out/net over the WHOLE filter set, no rows) and group_by=account|month|allocation (groups sum to the totals; allocation is allocated|suggested|unallocated|excluded). A summary takes no cursor.',
   scope: 'read:bank-tx',
   write: false,
   inputSchema: {
@@ -118,6 +111,8 @@ export const listBankTransactionsTool: McpTool = {
         description: 'Case-insensitive substring of the description or reference.',
       },
       fields: { type: 'string', enum: ['full', 'compact'] },
+      detail: SUMMARY_DETAIL_SCHEMA,
+      group_by: groupBySchema(BANK_TX_GROUP_BY),
     },
     additionalProperties: false,
   },
@@ -135,7 +130,19 @@ export const listBankTransactionsTool: McpTool = {
       date: ['from_date', 'to_date'],
     });
     if (bad) return bad;
+    const wanted = parseSummaryRequest(args, BANK_TX_GROUP_BY);
+    if (!wanted.ok) return wanted.error;
     try {
+      if (wanted.summary) {
+        const summary = await summariseBankTransactions(ctx.companyId, {
+          bankAccountId: strArg(args, 'bank_account_id'),
+          allocationFilter,
+          fromDate: strArg(args, 'from_date'),
+          toDate: strArg(args, 'to_date'),
+          search: escapeLikeLiteral(strArg(args, 'description_contains')),
+        }, wanted.groupBy);
+        return ok(summaryBody(summary, wanted.groupBy));
+      }
       const result = await getBankTransactions(ctx.companyId, {
         bankAccountId: strArg(args, 'bank_account_id'),
         allocationFilter,
@@ -143,6 +150,7 @@ export const listBankTransactionsTool: McpTool = {
         toDate: strArg(args, 'to_date'),
         limit: clampLimit(args, 50, 100),
         cursor: strArg(args, 'cursor'),
+        // The service wraps the term in %…% and escapes nothing: escape here so it is a literal substring.
         search: escapeLikeLiteral(strArg(args, 'description_contains')),
       });
       return ok({

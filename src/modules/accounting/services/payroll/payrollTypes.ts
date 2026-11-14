@@ -1,6 +1,8 @@
 import type { LineExplanations } from './payrollExplainTypes';
 import type { EtiResult } from './payrollTypesEti';
 import type { PayeYearToDate } from './payrollTypesYtd';
+import type { RegularPayDirectiveType } from './taxDirectiveKinds';
+import type { RegularPayDirectiveState } from './directiveRegularPay';
 export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 
 /** What the engine reads (TS-b): employment_type is display and HR only. Migration 967. */
@@ -61,6 +63,8 @@ export interface PayrollComponent {
    * the s11F deduction and the certificate, never deducted from pay (migration 948, PAYE 4c). Absent = false.
    */
   paidOutsidePayroll?: boolean;
+  /** The earning is part of retirement-funding income, the base of a percent_of_rfi assignment (migration 975; rfi.ts). Absent = false. */
+  countsAsRfi?: boolean;
 }
 
 /** The SARS tax directive a lump-sum component (39xx) is paid under, and the PAYE it prescribes. */
@@ -88,6 +92,12 @@ export interface EmployeeComponent {
   /** Hours or days this row pays (HD, migration 967): amount = quantity x the rate at entry. Absent on a plain amount. */
   quantity?: number | null;
   quantityUnit?: QuantityUnit | null;
+  /** The assignment costs this fraction of the line's RFI (migration 975; rfi.ts costs `amount` from it). Absent or null = a plain amount. */
+  percentOfRfi?: number | null;
+  /** Set by rfi.costPercentOfRfi on a percent_of_rfi row: the RFI its amount was costed on. */
+  rfiBase?: number;
+  /** RF opt-out (migration 975 backfill): a 3817 / 3825 / 3828 assignment that existed before RF stays cash, not deemed. */
+  employerFundAsCash?: boolean;
 }
 
 export interface PayrollPeriod {
@@ -131,8 +141,10 @@ export interface ValidationResult {
   deepLink?: string;
   /** PAYE_LATER_PERIODS_APPROVED only: the later months it names, YYYY-MM. The approval gate matches on this, not the message. */
   periods?: string[];
-  /** PAYE_OUTSIDE_TABLES only: how this month's PAYE was taken (taxStatusTreatment); the year to date leaves such a month out. */
-  treatment?: 'flat_25' | 'none';
+  /** PAYE_OUTSIDE_TABLES only: how this month's PAYE was taken (taxStatusTreatment; 'directive': directiveRegularPay); the year to date leaves such a month out. */
+  treatment?: 'flat_25' | 'none' | 'directive';
+  /** PAYE_OUTSIDE_TABLES with treatment 'directive' only: the IRP3(b)/(c) directive applied (the approval gate compares it). */
+  directive?: { id: string; number: string | null; type: RegularPayDirectiveType; rate: number | null; fixedAmount: number | null };
   /** DEDUCTIONS_EXCEED_PAY only: net pay before the floor at nil, negative. */
   rawNet?: number;
   /** LOAN_DEDUCTION_MISSING only: the loan numbers whose instalment was not taken. */
@@ -167,6 +179,8 @@ export interface PayrollLineInput {
    * run): no hours employed in the period, so no ETI (see payrollCalculator).
    */
   notEmployedInPeriod?: boolean;
+  /** The employee's IRP3(b)/(c) directive on regular pay for the period (payrollRunRegularDirective); absent = none. */
+  regularPayDirective?: RegularPayDirectiveState;
 }
 
 export interface ComponentBreakdownItem {
@@ -200,6 +214,9 @@ export interface ComponentBreakdownItem {
   retirementContribution?: true;
   /** Set on a contribution paid outside payroll: not deducted from this line's net pay. */
   paidOutsidePayroll?: true;
+  /** RF (migration 975): a percent_of_rfi row, as costed: amount = round2(percentOfRfi x rfiBase). */
+  percentOfRfi?: number;
+  rfiBase?: number;
 }
 
 export type { PayeYearToDate } from './payrollTypesYtd';

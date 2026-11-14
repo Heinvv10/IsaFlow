@@ -2,7 +2,11 @@ import { getEmployeeComponents } from './payrollComponentService';
 import { applyFringeBenefits, FringeBenefitConfigError, selectBenefit } from './fringeBenefits';
 import { loadFringeBenefitsByEmployee, loadVehicleBenefitComponent } from './fringeBenefitService';
 import { markNonCashEmployerBenefits } from './employerContributions';
+import { costPercentOfRfi } from './rfi';
 import { appendTerminationIfEndingThisPeriod, severanceOnlyComponents } from './payrollRunTermination';
+import { loadRegularPayDirectives } from './payrollRunRegularDirective';
+import { assertRunKeepsItsDirectives } from './payrollRunDirectiveUses';
+import type { RegularPayDirectiveState } from './directiveRegularPay';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 
 export type PreparedRunEmployee = {
@@ -10,6 +14,8 @@ export type PreparedRunEmployee = {
   severanceOnly: boolean;
   components: EmployeeComponent[];
   terminationWarnings: ValidationResult[];
+  /** The IRP3(b)/(c) directive in force this period (DR), for every line the run costs (calculation and the loan preview). */
+  regularPayDirective: RegularPayDirectiveState;
 };
 
 /** Each run employee's components for the period, termination and severance included (moved out of payrollRunService.ts, unchanged). */
@@ -22,6 +28,9 @@ export async function prepareRunComponents(args: {
 }): Promise<PreparedRunEmployee[]> {
   const { companyId, runId, period, readDate, population } = args;
   const prepared: PreparedRunEmployee[] = [];
+  const directives = await loadRegularPayDirectives(companyId, population.map(p => p.employee.id), period, runId);
+  // An ever-approved run keeps every directive it was approved with: refused here, before the first write (DR round 3).
+  await assertRunKeepsItsDirectives(companyId, runId, population, directives);
   const benefits = await loadFringeBenefitsByEmployee(companyId, population.map((p) => p.employee.id));
   const vehicleComponent = await loadVehicleBenefitComponent(companyId);
   for (const { employee, severanceOnly: onlySeverance } of population) {
@@ -32,9 +41,12 @@ export async function prepareRunComponents(args: {
         companyId, runId, employee, await getEmployeeComponents(employee.id, companyId, readDate), period, terminationWarnings,
       );
     if (onlySeverance && components.length === 0) continue;
+    // The whole reading (partial month, overlap, unusable row) reaches the line: each is warned there, none dropped.
     prepared.push({
       employee, severanceOnly: onlySeverance, terminationWarnings,
-      components: onlySeverance ? components : withFringe(components, benefits.get(employee.id) ?? [], vehicleComponent, period, terminationWarnings),
+      components: onlySeverance ? components
+        : withRfiCosted(withFringe(components, benefits.get(employee.id) ?? [], vehicleComponent, period, terminationWarnings), terminationWarnings),
+      regularPayDirective: directives.get(employee.id) ?? { current: null, ended: null },
     });
   }
   return prepared;
@@ -56,4 +68,15 @@ export function withFringe(
     // The opt-in still decides the 3810, whether or not the vehicle could be shown.
     return markNonCashEmployerBenefits(components, selectBenefit(benefits, 'medical_gross_up', period) !== undefined);
   }
+}
+
+/**
+ * The percent_of_rfi rows costed on the line's RFI (RF, rfi.ts), after the fringe step, so an employer's 3817 / 3825 /
+ * 3828 is already non-cash. Done once here: the loan preview (judgeLoanApplications) and the stored line read the same
+ * prepared components, so they cannot cost the contribution differently.
+ */
+export function withRfiCosted(components: EmployeeComponent[], warnings: ValidationResult[]): EmployeeComponent[] {
+  const costed = costPercentOfRfi(components);
+  warnings.push(...costed.warnings);
+  return costed.components;
 }

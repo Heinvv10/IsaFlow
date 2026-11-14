@@ -39,6 +39,17 @@ export interface CustomerInvoiceListFilters {
 }
 
 /**
+ * The tables the list's WHERE reads (`ci`, `c`, `vs`). The list, its count, the CSV export and the MCP summary
+ * (customerInvoiceSummaryService) all select FROM this, so none can join a different row set.
+ */
+export function customerInvoiceListFrom() {
+  return sql.unsafe(`FROM customer_invoices ci
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
+      LEFT JOIN customer_invoice_view_summary vs
+        ON vs.customer_invoice_id = ci.id AND vs.company_id = ci.company_id`);
+}
+
+/**
  * The list's WHERE clause: the tenant scope first, then every optional filter
  * as a typed `${x}::type IS NULL OR ...` predicate, so one parameterised query
  * serves every combination (BL-23). The list, its count and the CSV export all
@@ -46,7 +57,7 @@ export interface CustomerInvoiceListFilters {
  *
  * `clientId` narrows within `companyId`; it never replaces it.
  */
-function customerInvoiceListWhere(companyId: string, filters: CustomerInvoiceListFilters) {
+export function customerInvoiceListWhere(companyId: string, filters: CustomerInvoiceListFilters) {
   const { status = null, clientId = null, search = null, agingFilters = [], dateFrom = null, dateTo = null } = filters;
 
   const statusValues: string[] | null = status && status.length > 0 ? status : null;
@@ -153,10 +164,7 @@ export async function listCustomerInvoices(
           WHEN (${asAt}::date - ${effDue}) <= 90 THEN '61-90'
           ELSE '90+'
         END AS aging_bucket
-      FROM customer_invoices ci
-      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
-      LEFT JOIN customer_invoice_view_summary vs
-        ON vs.customer_invoice_id = ci.id AND vs.company_id = ci.company_id
+      ${customerInvoiceListFrom()}
       WHERE ${where}
       -- id breaks ties: dozens of invoices share a date, and without a total
       -- order OFFSET pages can skip or repeat them.
@@ -165,10 +173,7 @@ export async function listCustomerInvoices(
     `,
     sql`
       SELECT COUNT(*) AS total
-      FROM customer_invoices ci
-      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
-      LEFT JOIN customer_invoice_view_summary vs
-        ON vs.customer_invoice_id = ci.id AND vs.company_id = ci.company_id
+      ${customerInvoiceListFrom()}
       WHERE ${where}
     `,
   ]);
@@ -193,10 +198,7 @@ export async function exportCustomerInvoices(
       ci.total_amount, ci.amount_paid, ci.status,
       to_char(ci.invoice_date, 'YYYY-MM-DD') AS invoice_date,
       to_char(ci.due_date, 'YYYY-MM-DD') AS due_date, NULL AS project_name
-    FROM customer_invoices ci
-    LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
-    LEFT JOIN customer_invoice_view_summary vs
-      ON vs.customer_invoice_id = ci.id AND vs.company_id = ci.company_id
+    ${customerInvoiceListFrom()}
     WHERE ${where}
     ORDER BY ci.invoice_date DESC, ci.id DESC
     LIMIT ${rowLimit}

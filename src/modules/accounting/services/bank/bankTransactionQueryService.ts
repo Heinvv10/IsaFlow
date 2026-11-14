@@ -14,6 +14,7 @@ import type { BankTransaction } from '../../types/bank.types';
 import { fmtDate, mapTxRow } from './bankTxRowMapper';
 import { TX_SELECT, allocationCond } from './bankTxQueryFragments';
 import { tabStatusCond } from './bankTxTabCond';
+import { bankTxScopeWhere } from './bankTxScopeWhere';
 import {
   decodeBankTxCursor,
   encodeBankTxCursor,
@@ -125,53 +126,17 @@ export async function getBankTransactions(
           AND bt.amount >= ${fromAmt}::NUMERIC AND bt.amount <= ${toAmt}::NUMERIC
           AND (bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
           ${sql.unsafe(extra)}`) as Row[];
-    } else if (filters?.bankAccountId) {
-      const fromDate = filters.fromDate || '1900-01-01';
-      const toDate = filters.toDate || '2099-12-31';
-      const alloc = allocationCond(filters);
-      const keyset = bankTxKeysetCond(cursor, 'DESC');
-      rows = (await sql`${sql.unsafe(TX_SELECT)}
-        WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
-          AND bt.company_id = ${companyId}::UUID
-          AND bt.feed_state <> 'removed'
-          AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
-          ${sql.unsafe(alloc)}
-          ${keyset}
-        ORDER BY bt.transaction_date DESC, bt.amount DESC, bt.id DESC
-        LIMIT ${limit}::INT + 1 OFFSET ${offset}`) as Row[];
-      countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions bt
-        WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
-          AND bt.company_id = ${companyId}::UUID
-          AND bt.feed_state <> 'removed'
-          AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
-          ${sql.unsafe(alloc)}`) as Row[];
     } else {
-      const statusFilter = filters?.status ?? null;
-      // Null-safe search: when no term is given the condition collapses to TRUE,
-      // so rows with NULL description AND NULL reference still list (unlike a
-      // bare ILIKE '%', which would drop them).
-      const searchPattern = filters?.search ? `%${filters.search}%` : null;
-      const fromDate = filters?.fromDate || '1900-01-01';
-      const toDate = filters?.toDate || '2099-12-31';
-      const alloc = allocationCond(filters);
+      // Branch 3 (a bank account, no tab status) and the company-wide read: one predicate, ./bankTxScopeWhere.
+      const where = bankTxScopeWhere(companyId, filters);
       const keyset = bankTxKeysetCond(cursor, 'DESC');
       rows = (await sql`${sql.unsafe(TX_SELECT)}
-        WHERE bt.company_id = ${companyId}::UUID
-          AND (${statusFilter}::text IS NULL OR bt.status = ${statusFilter}::text)
-          AND bt.feed_state <> 'removed'
-          AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
-          AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
-          ${sql.unsafe(alloc)}
+        WHERE ${where}
           ${keyset}
         ORDER BY bt.transaction_date DESC, bt.amount DESC, bt.id DESC
         LIMIT ${limit}::INT + 1 OFFSET ${offset}`) as Row[];
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions bt
-        WHERE bt.company_id = ${companyId}::UUID
-          AND (${statusFilter}::text IS NULL OR bt.status = ${statusFilter}::text)
-          AND bt.feed_state <> 'removed'
-          AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
-          AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
-          ${sql.unsafe(alloc)}`) as Row[];
+        WHERE ${where}`) as Row[];
     }
 
     const hasMore = rows.length > limit;
@@ -218,6 +183,13 @@ export async function deleteTransactions(companyId: string, bankTxIds: string[])
     // Callers report this number to a user — bank-transactions-action.ts and
     // undo_bank_import both do.
     const deleted = result.length;
+    if (deleted > 0) {
+      // Comments on a line that no longer exists go with it (soft delete, same transaction; record_comments_guard
+      // lets anyone retire the comments of a record that is gone). Company-scoped like every query here.
+      await sql`UPDATE record_comments SET deleted_at = clock_timestamp()
+                 WHERE company_id = ${companyId}::UUID AND record_type = 'bank_transaction'
+                   AND record_id = ANY(${result.map((r) => String(r.id))}::UUID[]) AND deleted_at IS NULL`;
+    }
     log.info('Deleted bank transactions', { count: deleted, ids: bankTxIds }, 'accounting');
     return deleted;
   } catch (err) {

@@ -45,13 +45,15 @@
 import { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber } from './easyFileFields';
 import { validateEmployee } from './easyFileEmployeeChecks';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
+import { regularDirectiveFieldLines } from './easyFileRegularDirectives';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
 import { contractorAwareReason } from './easyFileContractor';
 import { birthDate3080, medicalFieldLines } from './easyFileMedicalFields';
-import { retirementFieldLines, withDeductionTotal } from './easyFileRetirementFields';
+import { employerFundContributionFields, retirementFieldLines, withDeductionTotal, withDeemedEmployerContributions } from './easyFileRetirementFields';
 
 export { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber };
 export { splitCertificateIncome } from './payrollLumpSumFiling';
+export { buildCertificateNumber } from './easyFileCertificateNumber';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export type { EmployerInput, EmployeeInput, LumpSumInput, BuildInput } from './easyFileTypes';
@@ -145,9 +147,10 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   // With contractor income (3616) the reason is 03, valid beside it (BRS V25.3.0 p. 62, 109); the employee part of a mixed certificate is
   // still judged by nilTaxReason (refused when it is over the threshold with no tax): the reason is never a way round that.
   const reason = it3a ? contractorAwareReason(emp) : null;
-  const employerMedical = Math.floor((emp.fringeBenefits ?? []).filter(f => f.sourceCode === '3810').reduce((n, f) => n + f.amount, 0));
   const medical = medicalFieldLines(emp);
-  const retirement = retirementFieldLines(emp.retirementFund);
+  // RF: 4001 / 4003 / 4006 include the employer's contributions deemed paid by the employee (the non-cash 3817 / 3825 / 3828).
+  const retirement = retirementFieldLines(withDeemedEmployerContributions(emp.retirementFund, emp.fringeBenefits ?? []));
+  const employerFund = employerFundContributionFields(emp.fringeBenefits ?? []);
   const lines: (string | null)[] = [
     formatField(3010, emp.certificateNumber, 'AN'),
     formatField(3015, it3a ? 'IT3(a)' : 'IRP5', 'AN'),
@@ -169,6 +172,7 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
       formatField(3232, l.sourceCode, 'N'),
       formatField(3233, l.amount, 'N'),
     ]),
+    ...regularDirectiveFieldLines(emp.regularDirectiveNumbers, lumpSums.length, `${emp.firstNames} ${emp.surname}`.trim()),
     formatField(3601, emp.grossSalary3601 > 0 ? emp.grossSalary3601 : null, 'N'),
     formatField(3605, (emp.annualPayments3605 ?? 0) > 0 ? emp.annualPayments3605! : null, 'N'),
     formatField(3616, (emp.independentContractor3616 ?? 0) > 0 ? emp.independentContractor3616! : null, 'N'),
@@ -186,8 +190,9 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     formatField(4141, Math.round((emp.uifEmployee + emp.uifEmployer) * 100) / 100, 'N_CENTS'),
     formatField(4142, emp.sdl4142, 'N_CENTS'),
     reason ? `4150,${reason}` : null,
-    // 4474 = the employer's medical contribution, equal to code 3810 (BRS V25.3.0 p. 103; V13.1 rule "3810 must equal 4474").
-    employerMedical > 0 ? formatField(4474, employerMedical, 'N') : null,
+    // 4472 / 4473 / 4474 / 4475 = the employer's contributions, each equal to its non-cash benefit 3817 / 3825 / 3810 / 3828
+    // (BRS V25.3.0 p. 55, 103; V13.1 rule "3810 must equal 4474"): easyFileRetirementFields.employerFundContributionFields.
+    ...employerFund,
     // 4582 (BRS p. 105): mandatory with 3701 / 3802, kept inside 20-80% of them (allowanceCertificateFields).
     emp.paye4582 !== undefined ? formatField(4582, emp.paye4582, 'N') : null,
     '9999,9999',
@@ -223,26 +228,4 @@ export function buildIrp5File(input: BuildInput): string {
   // BRS §3 file is newline-delimited. Use CRLF — e@syFile Thin Client accepts
   // both but CRLF is what the reference importer samples produce.
   return lines.join('\r\n');
-}
-
-/**
- * SARS requires the certificate number to be 30 characters:
- *   10 digits PAYE ref + 4 digits transaction year CCYY + 2 digits reconciliation period MM + 14 alphanumeric unique suffix (left-padded with zeros).
- */
-export function buildCertificateNumber(
-  payeRef: string,
-  transactionYear: number,
-  reconciliationMonthMM: 2 | 8,
-  uniqueSuffix: string | number,
-): string {
-  if (!/^\d{10}$/.test(payeRef)) {
-    throw new UsageError('PAYE ref must be 10 digits to build a certificate number');
-  }
-  const yr = String(transactionYear).padStart(4, '0');
-  const mm = String(reconciliationMonthMM).padStart(2, '0');
-  const suffix = String(uniqueSuffix).toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (suffix.length > 14) {
-    throw new UsageError('Unique suffix for certificate number cannot exceed 14 characters');
-  }
-  return `${payeRef}${yr}${mm}${suffix.padStart(14, '0')}`;
 }

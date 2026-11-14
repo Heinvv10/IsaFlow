@@ -40,6 +40,8 @@ export interface PayeExplainInput {
   annualTaxable: number;
   split: { regular: number; annualPayment: number; directive: number };
   paye: number;
+  /** A regular-pay directive's own steps (directiveExplain, DR): used in place of the tables / flat-rate steps. */
+  directiveSteps?: ExplainStep[];
 }
 
 const r = (n: number) => formatMoney(n);
@@ -102,7 +104,7 @@ function retirementStep(input: PayeExplainInput): ExplainStep {
           {
             key: 'paye.retirement.annualised', label: 'Contributions a year', amount: t.annualisedContributions,
             formula: t.periods > 0 ? 'to date × 12 ÷ periods' : 'no periodic pay yet: taken as it stands',
-            children: [{ key: 'paye.retirement.contributionsToDate', label: 'Contributions to date (4001, 4003, 4006)', amount: t.contributionsToDate }],
+            children: [{ key: 'paye.retirement.contributionsToDate', label: 'Contributions to date (4001, 4003, 4006, and the employer\'s 3817, 3825, 3828 deemed paid by the employee)', amount: t.contributionsToDate }],
           },
           {
             key: 'paye.retirement.rateLimit', label: `${pct(RETIREMENT_DEDUCTION_RATE)} of remuneration a year`, amount: t.shareOfRemuneration,
@@ -245,9 +247,9 @@ function treatmentStep(input: PayeExplainInput): ExplainStep {
 }
 
 export function explainPaye(input: PayeExplainInput): FigureExplanation {
-  const steps: ExplainStep[] = [treatmentStep(input)];
-  if (input.treatment === 'tables') steps.push(...tablesSteps(input));
-  if (input.treatment === 'flat_25') {
+  const steps: ExplainStep[] = input.directiveSteps ? [...input.directiveSteps] : [treatmentStep(input)];
+  if (!input.directiveSteps && input.treatment === 'tables') steps.push(...tablesSteps(input));
+  if (!input.directiveSteps && input.treatment === 'flat_25') {
     steps.push(footed({ key: 'paye.balance', label: 'Balance of remuneration (after allowed deductions)', amount: input.balanceOfRemuneration }, [
       { key: 'paye.balance.periodic', label: 'Taxable pay this period (after any s18A donation)', amount: input.regularTaxable },
       { key: 'paye.balance.annual', label: 'Annual payments this period', amount: input.annualTaxable },

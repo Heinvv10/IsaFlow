@@ -43,18 +43,18 @@
 
 import { sql, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { fmtDate } from '@/lib/fmtDate';
 import {
-  BALANCE_TOLERANCE, EMPTY_TOTALS, openingMap, round2, toIso,
-  type GeneralLedgerCursor,
-  type GeneralLedgerLine,
+  BALANCE_TOLERANCE, EMPTY_TOTALS,
   type GeneralLedgerPage,
   type GeneralLedgerQuery,
   type StreamTotals,
 } from './generalLedgerStreamTypes';
-import { incomeStatementBalanceNullFrom, runningBalanceIsDefined, streamFiscalBasis, withRetainedBf } from './generalLedgerStreamYearEnd';
+import { incomeStatementBalanceNullFrom, streamFiscalBasis, withRetainedBf } from './generalLedgerStreamYearEnd';
 import { INCOME_STATEMENT_TYPES } from './trialBalanceBasis';
+import { matchedLinesFromWhere } from './generalLedgerMatched';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+import { readUniverseLineCount } from './generalLedgerUniverse';
+import { lineFromRow, nextKeyset, totalsFromRow } from './generalLedgerStreamRows';
 export type { GeneralLedgerCursor, GeneralLedgerLine, GeneralLedgerPage, GeneralLedgerQuery } from './generalLedgerStreamTypes';
 
 /**
@@ -79,15 +79,6 @@ export async function getGeneralLedgerLines(
   const anyFilter =
     lineLevelFilter || accountCodes.length > 0 || accountIds.length > 0 || accountTypes.length > 0;
 
-  const codes = [...accountCodes];
-  const ids = [...accountIds];
-  const types = [...accountTypes];
-  const srcs = [...sources];
-  // A null threshold disables the clause; 0 would admit every line and read as
-  // "no filter" while still suppressing the running balance.
-  const minAmt = minAmount ?? null;
-  const term = search === undefined || search === '' ? null : `%${search}%`;
-
   try {
     const basis = await streamFiscalBasis(companyId, periodStart, !anyFilter, periodEnd);
     const rows = (await sql`
@@ -107,24 +98,7 @@ export async function getGeneralLedgerLines(
                -- beside. to_char of a timestamp in this format is fixed-width,
                -- so ordering the text equals ordering the timestamp.
                1 AS order_guard
-        FROM gl_journal_lines jl
-        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-                                  AND je.company_id = ${companyId}::UUID
-                                  AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
-        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-                           AND ga.company_id = ${companyId}::UUID
-        WHERE jl.company_id = ${companyId}::UUID
-          AND je.entry_date >= ${periodStart}::DATE
-          AND je.entry_date <= ${periodEnd}::DATE
-          AND (cardinality(${codes}::text[]) = 0 OR ga.account_code = ANY(${codes}::text[]))
-          AND (cardinality(${ids}::uuid[])  = 0 OR ga.id            = ANY(${ids}::uuid[]))
-          AND (cardinality(${types}::text[]) = 0 OR ga.account_type = ANY(${types}::text[]))
-          AND (cardinality(${srcs}::text[])  = 0 OR COALESCE(je.source, 'manual') = ANY(${srcs}::text[]))
-          AND (${minAmt}::NUMERIC IS NULL
-               OR GREATEST(jl.debit, jl.credit) >= ${minAmt}::NUMERIC)
-          AND (${term}::TEXT IS NULL
-               OR je.entry_number ILIKE ${term}::TEXT
-               OR COALESCE(je.description, '') ILIKE ${term}::TEXT)
+        ${matchedLinesFromWhere(query)}
       ),
       -- The period BEFORE any filter. Deliberately a separate scan rather than
       -- a count over the matched set: that set is where the filters live, so
@@ -207,52 +181,17 @@ export async function getGeneralLedgerLines(
     const totals =
       agg === undefined
         // `after === null` and no rows means the filtered set really is empty,
-        // so the zeros are the truth. Re-reading in that case would recurse
-        // forever, which is how a guard that looks defensive hangs a request.
+        // so the zeros are the truth, EXCEPT the universe: it is the unfiltered window (the
+        // filters emptied this set) and has its own count. Re-reading the stream here would
+        // recurse forever, which is how a guard that looks defensive hangs a request.
         ? after === null
-          ? EMPTY_TOTALS
+          ? { ...EMPTY_TOTALS, universeLineCount: await readUniverseLineCount(companyId, periodStart, periodEnd) }
           : await readTotalsOnly(query)
-        : {
-            lineCount: Number(agg.line_count ?? 0),
-            universeLineCount: Number(agg.universe_count ?? 0),
-            totalDebit: round2(Number(agg.total_debit ?? 0)),
-            totalCredit: round2(Number(agg.total_credit ?? 0)),
-            accountCount: Number(agg.account_count ?? 0),
-            postedThrough: toIso(agg.posted_through),
-            openingBalances: openingMap(agg.opening_all),
-          };
+        : totalsFromRow(agg);
 
     const nullFrom = incomeStatementBalanceNullFrom(basis.nextFyStart, periodEnd);
-    const lines: GeneralLedgerLine[] = rows.map((r) => ({
-      lineId: String(r.line_id),
-      journalEntryId: String(r.journal_entry_id),
-      accountId: String(r.account_id),
-      accountCode: String(r.account_code),
-      accountName: String(r.account_name ?? ''),
-      accountType: String(r.account_type ?? ''),
-      normalBalance: String(r.normal_balance) === 'credit' ? 'credit' : 'debit',
-      date: fmtDate(r.entry_date as string | Date),
-      entryNumber: String(r.entry_number ?? ''),
-      description: String(r.description ?? ''),
-      source: String(r.source ?? 'manual'),
-      debit: Number(r.debit ?? 0),
-      credit: Number(r.credit ?? 0),
-      runningBalance: lineLevelFilter || !runningBalanceIsDefined(
-        String(r.account_type ?? ''), fmtDate(r.entry_date as string | Date), nullFrom)
-        ? null
-        : round2(Number(r.opening_balance ?? 0) + Number(r.cumulative ?? 0)),
-    }));
-
-    const last = rows[rows.length - 1];
-    const next =
-      last !== undefined && rows.length === limit
-        ? {
-            accountCode: String(last.account_code),
-            date: fmtDate(last.entry_date as string | Date),
-            createdKey: String(last.created_key),
-            lineId: String(last.line_id),
-          }
-        : null;
+    const lines = rows.map((r) => lineFromRow(r, lineLevelFilter, nullFrom));
+    const next = nextKeyset(rows, limit);
 
     return {
       lines,

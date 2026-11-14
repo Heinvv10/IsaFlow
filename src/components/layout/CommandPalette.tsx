@@ -14,8 +14,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useCompany } from '@/contexts/CompanyContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
+import { useNavFlags } from '@/hooks/useNavFlags';
 import { PaletteOption } from '@/components/layout/CommandPaletteRows';
 import { buildSections, type PaletteRow } from '@/components/layout/paletteRank';
+import type { PaletteAction } from '@/components/layout/commandActions';
+import { AskPanel } from '@/components/layout/AskPanel';
+import { findExplainTrigger, NOTHING_TO_EXPLAIN } from '@/components/layout/explainTarget';
+import { askRowPlacement } from '@/components/layout/askQuery';
 import { saveRecentItem, usePaletteSearch } from '@/components/layout/usePaletteSearch';
 
 export type { SearchResult } from '@/components/layout/paletteRank';
@@ -48,12 +53,42 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
   const uid = useId();
   const listId = `${uid}-list`;
   const [selected, setSelected] = useState(0);
+  const [asking, setAsking] = useState(false);
+  const [askText, setAskText] = useState('');
+  const [explainNote, setExplainNote] = useState('');
+  // The element the person was on before the palette took focus: "Explain this figure" explains that one.
+  const origin = useRef<Element | null>(null);
+  useEffect(() => {
+    const outside = (t: EventTarget | null): t is Element => t instanceof Element && !t.closest('[role="dialog"][aria-label="Command palette"]');
+    const track = (e: FocusEvent): void => { if (outside(e.target)) origin.current = e.target; };
+    // A click on a figure's text focuses nothing, so the pointer counts as the person's position too.
+    const point = (e: PointerEvent): void => { origin.current = outside(e.target) ? e.target : origin.current; };
+    document.addEventListener('focusin', track);
+    document.addEventListener('pointerdown', point, true);
+    return () => {
+      document.removeEventListener('focusin', track);
+      document.removeEventListener('pointerdown', point, true);
+    };
+  }, []);
+  // Reset while CLOSED, during render: an effect on open runs after the focus trap has placed focus, and the first open frame would
+  // still show the Ask panel (no search input), leaving focus on the body.
+  if (!isOpen && (asking || askText || explainNote)) { setAsking(false); setAskText(''); setExplainNote(''); }
   const { query, setQuery, server, loading, error, recent } = usePaletteSearch(isOpen, scope);
 
   useFocusTrap(dialogRef, isOpen, onClose);
 
-  const index = useMemo(() => buildNavIndex(TABS, isRegistered), [isRegistered]);
-  const sections = useMemo(() => buildSections({ query, index, recent, server }), [query, index, recent, server]);
+  const flags = useNavFlags();
+  const index = useMemo(() => buildNavIndex(TABS, isRegistered, flags), [isRegistered, flags]);
+  const sections = useMemo(() => {
+    const base = buildSections({ query, index, recent, server });
+    // Typed text that is a question gets its own "Ask IsaFlow" row: first for a wh-question, last for a phrase that is also a page search.
+    const where = askRowPlacement(query);
+    if (!where) return base;
+    const text = query.trim();
+    const action: PaletteAction = { id: 'ask-query', label: `Ask IsaFlow: ${text}`, kind: 'ask', icon: 'message-circle', keywords: [], query: text };
+    const ask = { id: 'ask-query', heading: 'Ask IsaFlow', rows: [{ key: 'action-ask-query', kind: 'action' as const, action }] };
+    return where === 'first' ? [ask, ...base] : [...base, ask];
+  }, [query, index, recent, server]);
   const rows = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
   // Back to the top when the typing changes, not when a reply lands: the highlight must not jump under the arrow keys.
@@ -77,6 +112,14 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
     }
     const { action } = row;
     if (action.kind === 'shortcuts') { showShortcuts(); return; }
+    if (action.kind === 'ask') { setAskText(action.query ?? ''); setAsking(true); return; }
+    if (action.kind === 'explain') {
+      const trigger = findExplainTrigger(origin.current);
+      if (!trigger) { setExplainNote(NOTHING_TO_EXPLAIN); return; }
+      onClose();
+      trigger.click();
+      return;
+    }
     onClose();
     if (action.kind === 'theme') toggleTheme();
     else if (action.url) void router.push(action.url);
@@ -110,6 +153,7 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
         className="w-full max-w-xl mx-4 bg-surface border border-line rounded-xl shadow-2xl flex flex-col overflow-hidden max-h-[70vh]"
         onClick={(e) => e.stopPropagation()}
       >
+        {asking ? <AskPanel onClose={onClose} onBack={() => setAsking(false)} initialQuestion={askText} /> : (<>
         <div className="flex items-center gap-3 px-4 border-b border-line">
           <Search className="w-5 h-5 text-ink-muted flex-shrink-0" aria-hidden="true" />
           <input
@@ -156,9 +200,11 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
           ))}
         </div>
 
+        {explainNote && <p role="alert" data-testid="explain-note" className="px-4 py-3 text-sm text-ink border-t border-line">{explainNote}</p>}
         {error && <p role="alert" className="px-4 py-3 text-sm text-ink border-t border-line">{error}</p>}
         {showEmpty && <p className="px-4 py-8 text-center text-sm text-ink-muted">No results for &ldquo;{query}&rdquo;</p>}
         <p className="sr-only" role="status" aria-live="polite">{query.trim() ? `${rows.length} results` : ''}</p>
+        </>)}
 
         <div className="border-t border-line px-4 py-2 flex items-center gap-4 text-xs text-ink-muted">
           {[['↑↓', 'navigate'], ['↵', 'open'], ['Esc', 'close']].map(([key, label]) => (
