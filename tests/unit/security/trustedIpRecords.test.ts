@@ -10,7 +10,7 @@ const h = vi.hoisted(() => ({
   raiseDispute: vi.fn(async (..._a: unknown[]) => ({ id: 'd1' })),
   logAdminAction: vi.fn(async (..._a: unknown[]) => undefined),
 }));
-vi.mock('@/lib/neon', () => ({ sql: h.sql }));
+vi.mock('@/lib/neon', () => ({ sql: h.sql, withTransaction: async (fn: (tx: typeof h.sql) => unknown) => fn(h.sql) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (f: unknown) => f }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (f: unknown) => f }));
