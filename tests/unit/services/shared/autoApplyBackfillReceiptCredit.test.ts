@@ -29,6 +29,12 @@ describe('markReceiptCreditSkips', () => {
     const out = await markReceiptCreditSkips('co', 'ar', [src('r1', '2026-05-02', 200)]);
     expect(out[0]!.skippedReason).toBe(SKIP_RECEIPT_CREDIT_CEILING);
   });
+  it('a source the credit covers is matched to ITS day however the day is spelled — no false skip', async () => {
+    // 50 of the receipt's 200 is still on account after the refund: matched to 05-02, nothing goes below zero
+    vi.mocked(customerCreditDays).mockResolvedValueOnce({ customerName: 'Acme', days: [day(new Date(2026, 4, 2), 200), day('2026-05-04', -150)] });
+    const out = await markReceiptCreditSkips('co', 'ar', [src('r1', '2026-05-02', 50)]);
+    expect(out[0]!.skippedReason).toBeNull();
+  });
   it('lets a covered source through, and an earlier one\'s consumption counts against the next', async () => {
     vi.mocked(customerCreditDays).mockResolvedValueOnce({ customerName: 'Acme', days: [day('2026-05-02', 100), day('2026-05-03', 100), day('2026-05-04', -50)] });
     const out = await markReceiptCreditSkips('co', 'ar', [src('r1', '2026-05-02', 100), src('r2', '2026-05-03', 100)]);
