@@ -87,6 +87,8 @@ async function getKpis(): Promise<{
   };
 }
 
+const UUID_RE = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+
 /**
  * Most recent 50 events from admin_audit_log + recent user_sessions.
  */
@@ -97,10 +99,22 @@ async function getRecentActivity(): Promise<ActivityEvent[]> {
       'admin_action'                                                 AS type,
       a.action || ' ' || a.target_type                              AS description,
       COALESCE(u.first_name || ' ' || u.last_name, u.email)          AS user_name,
-      NULL::text                                                     AS company_name,
+      COALESCE(tc.name, dc.name)                                     AS company_name,
       a.created_at
-    FROM admin_audit_log a
-    LEFT JOIN users u ON u.id = a.admin_user_id::text
+    -- Only the newest 50 admin rows are joined (no more can reach the LIMIT below).
+    FROM (
+      SELECT al.*,
+        -- uuid-shaped ids only, cast on the log side so companies' primary key index serves the joins.
+        CASE WHEN al.target_type = 'company' AND al.target_id ~* ${UUID_RE} THEN al.target_id::uuid END AS target_company_id,
+        CASE WHEN al.details->>'company_id' ~* ${UUID_RE} THEN (al.details->>'company_id')::uuid END AS details_company_id
+      FROM admin_audit_log al
+      ORDER BY al.created_at DESC
+      LIMIT 50
+    ) a
+    LEFT JOIN users u ON u.id = a.admin_user_id
+    -- The company the action was about (audit 4.15): the target itself, else the company its details name.
+    LEFT JOIN companies tc ON tc.id = a.target_company_id
+    LEFT JOIN companies dc ON dc.id = a.details_company_id
 
     UNION ALL
 
