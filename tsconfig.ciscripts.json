@@ -9,6 +9,7 @@
     "scripts/ci/skippedIntegrationSuites.ts",
     "scripts/ci/report-skipped-integration.ts",
     "scripts/ci/mq-merge-already-tested.ts",
+    "scripts/ci/prepush.ts",
     "scripts/ci/golden-free-port.ts",
     "scripts/ci/golden-hosted/*.ts",
     "scripts/ci/check-raw-input-allowlist.ts",

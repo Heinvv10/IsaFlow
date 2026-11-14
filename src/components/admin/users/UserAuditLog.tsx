@@ -4,10 +4,11 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { log } from '@/lib/logger';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface AuditEntry {
   id: string;
@@ -32,7 +33,7 @@ export function UserAuditLog({ userId }: Props) {
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const res  = await apiFetch(`/api/admin/audit?entity_type=user&entity_id=${encodeURIComponent(userId)}&limit=20`);
+      const res  = await adminFetch(`/api/admin/audit?entity_type=user&entity_id=${encodeURIComponent(userId)}&limit=20`);
       await assertOk(res, 'Could not load audit log - try again');
       const json = await res.json();
       setEntries((json.data?.items ?? []) as AuditEntry[]);

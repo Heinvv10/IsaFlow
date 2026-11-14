@@ -24,6 +24,7 @@ const h = vi.hoisted(() => ({
   adminListUserFactors: vi.fn(),
   setAuthCookies: vi.fn(),
   setOnboardingDoneCookie: vi.fn(),
+  recordSignInSafely: vi.fn(),
 }));
 
 vi.mock('@/lib/logger', () => {
@@ -56,6 +57,7 @@ vi.mock('@/lib/auth/gotrue-mfa', async (orig) => ({
 vi.mock('@/lib/auth/cookies', () => ({
   setAuthCookies: h.setAuthCookies, setActiveCompanyCookie: vi.fn(), setOnboardingDoneCookie: h.setOnboardingDoneCookie,
 }));
+vi.mock('@/lib/auth/recordSignIn', () => ({ recordSignInSafely: h.recordSignInSafely }));
 vi.mock('@/lib/auth/liveCompanies', () => ({
   isLiveCompanyForUser: vi.fn(async () => true),
   pickInitialCompanyId: vi.fn(async () => null),
@@ -130,6 +132,18 @@ describe('accepting an invitation that names no account', () => {
     // A member of an existing company skips the new-company onboarding wizard (browser proof 2026-10-27).
     expect(h.queries.find((q) => /INSERT INTO users/.test(q.text))?.text).toMatch(/onboarding_completed = COALESCE\(users\.onboarding_completed, true\)/);
     expect(h.setOnboardingDoneCookie).toHaveBeenCalled();
+    // The accepter now holds a session: that is a sign-in (audit 2026-11-14, 1.1). Once, for the verified account.
+    expect(h.recordSignInSafely).toHaveBeenCalledTimes(1);
+    expect(h.recordSignInSafely).toHaveBeenCalledWith('gt-new', 'invite-accept');
+  });
+
+  it('the response does not wait for the sign-in stamp (a hung stamp cannot hold the accept)', async () => {
+    h.adminCreateUser.mockResolvedValue({ id: 'gt-new', email: 'invitee@example.test' });
+    h.signIn.mockResolvedValue(tokens('gt-new'));
+    h.recordSignInSafely.mockReturnValueOnce(new Promise(() => undefined));
+
+    expect((await accept('a-new-password-1')).status).toBe(200);
+    expect(h.recordSignInSafely).toHaveBeenCalledTimes(1);
   });
 
   it('a weak password for an address with no login creates nothing', async () => {
@@ -153,6 +167,7 @@ describe('accepting an invitation that names no account', () => {
     expect(h.adminCreateUser).not.toHaveBeenCalled();
     expect(h.adminUpdateUser).not.toHaveBeenCalled();
     expect(ran(/INSERT INTO company_users/)).toBe(false);
+    expect(h.recordSignInSafely).not.toHaveBeenCalled();
   });
 
   it('an invitation that already names its account is not looked up', async () => {
@@ -181,6 +196,7 @@ describe('an existing account with a verified second factor', () => {
     expect(body.error?.code).toBe('MFA_REQUIRED');
     expect(h.setAuthCookies).not.toHaveBeenCalled();
     expect(ran(/INSERT INTO company_users/)).toBe(false);
+    expect(h.recordSignInSafely).not.toHaveBeenCalled();
   });
 
   it('an unverified factor does not count', async () => {

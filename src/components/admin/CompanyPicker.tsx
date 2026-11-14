@@ -12,9 +12,10 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { Search, X, CheckCircle2, Loader2 } from 'lucide-react';
-import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface CompanyOption {
   id: string;
@@ -25,6 +26,8 @@ interface CompanyOption {
 interface Props {
   value: string[];
   onChange: (ids: string[]) => void;
+  /** id of the search input, for a <label htmlFor> outside the picker. */
+  inputId?: string;
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -38,7 +41,7 @@ function statusBadgeCls(status: string) {
   return STATUS_BADGE[status] ?? 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400';
 }
 
-export function CompanyPicker({ value, onChange }: Props) {
+export function CompanyPicker({ value, onChange, inputId }: Props) {
   const [query, setQuery]           = useState('');
   const afterDelay = useTimeoutOnce();
   const [results, setResults]       = useState<CompanyOption[]>([]);
@@ -77,7 +80,7 @@ export function CompanyPicker({ value, onChange }: Props) {
       asked.current.add(id);
       void (async () => {
         try {
-          const res = await apiFetch(`/api/admin/companies/${encodeURIComponent(id)}`);
+          const res = await adminFetch(`/api/admin/companies/${encodeURIComponent(id)}`);
           await assertOk(res, 'Could not load a target company');
           const json = await res.json() as { data?: { id?: string; name?: string; status?: string } };
           put({ id, name: json.data?.name ?? id, status: json.data?.status ?? '' });
@@ -97,7 +100,7 @@ export function CompanyPicker({ value, onChange }: Props) {
     }
     setLoading(true); setError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies?search=${encodeURIComponent(q)}&limit=10`);
+      const res  = await adminFetch(`/api/admin/companies?search=${encodeURIComponent(q)}&limit=10`);
       await assertOk(res, 'Could not search companies - try again');
       const json = await res.json() as { data?: { items?: CompanyOption[] } };
       setResults(json.data?.items ?? []);
@@ -183,8 +186,11 @@ export function CompanyPicker({ value, onChange }: Props) {
         </div>
         <input
           ref={inputRef}
+          id={inputId}
           type="text"
           role="combobox"
+          // aria-haspopup lets a surrounding dialog's focus trap leave Escape to the open list (useFocusTrap).
+          aria-haspopup="listbox"
           aria-expanded={open}
           aria-autocomplete="list"
           aria-controls="company-picker-listbox"

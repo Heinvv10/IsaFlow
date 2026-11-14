@@ -5,6 +5,7 @@
 
 import { Loader2, Check, X } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
+import { formatLastSeen } from '@/components/admin/formatLastSeen';
 
 const ROLES = ['super_admin', 'admin', 'manager', 'storeman', 'technician', 'viewer'];
 
@@ -95,7 +96,7 @@ export function UserProfileForm({ user, editing, editState, actionLoading, onSav
           <Field label="Phone"       value={user.phone} />
           <Field label="Role"        value={user.role} />
           <Field label="Status"      value={user.status} />
-          <Field label="Last Login"  value={formatDate(user.last_login)} />
+          <Field label="Last Login"  value={formatLastSeen(user.last_login)} />
           <Field label="Login Count" value={String(user.login_count)} />
           <Field label="Created"     value={formatDate(user.created_at)} />
         </div>

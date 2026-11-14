@@ -4,10 +4,11 @@
 
 import { useRef, useState } from 'react';
 import { Loader2, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { AdminWebhookDetail, DeliveryAttempt } from '@/modules/admin/services/adminWebhookService';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
 import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface Props {
   webhookId: string;
@@ -64,7 +65,7 @@ export function DeliveryLog({ webhookId }: Props) {
   const fetchDetail = async (): Promise<string> => {
     setLoading(true);
     try {
-      const res  = await apiFetch(`/api/admin/webhooks/${webhookId}`, { credentials: 'include' });
+      const res  = await adminFetch(`/api/admin/webhooks/${webhookId}`, { credentials: 'include' });
       await assertOk(res, 'Could not load deliveries - try again');
       const json = await res.json() as { data: AdminWebhookDetail };
       setDetail(json.data);
@@ -85,7 +86,7 @@ export function DeliveryLog({ webhookId }: Props) {
   const redeliver = async () => {
     setRedelivering(true);
     try {
-      const res  = await apiFetch(`/api/admin/webhooks/${webhookId}/redeliver`, {
+      const res  = await adminFetch(`/api/admin/webhooks/${webhookId}/redeliver`, {
         method: 'POST',
         credentials: 'include',
         body: JSON.stringify({}),
