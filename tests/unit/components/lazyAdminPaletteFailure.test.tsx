@@ -3,14 +3,19 @@
  * Ctrl+K says so and logs it instead of opening nothing; focus moves into the dialog; the next open tries again.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-const h = vi.hoisted(() => ({ warn: vi.fn(), attempts: 0 }));
+const h = vi.hoisted(() => {
+  let release: () => void = () => undefined;
+  const retryGate = new Promise<void>((r) => { release = r; });
+  return { warn: vi.fn(), attempts: 0, retryGate, release: () => release() };
+});
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: h.warn, debug: vi.fn() } }));
-// The first load fails like a dropped chunk; a retry succeeds.
-vi.mock('@/components/admin/AdminCommandPalette', () => {
+// The first load fails like a dropped chunk; the retry is slow (held until the test releases it), then succeeds.
+vi.mock('@/components/admin/AdminCommandPalette', async () => {
   h.attempts += 1;
   if (h.attempts === 1) throw new Error('ChunkLoadError: Loading chunk 4711 failed.');
+  await h.retryGate;
   return { AdminCommandPalette: ({ isOpen }: { isOpen: boolean }) => (isOpen ? <div data-testid="real-palette" /> : null) };
 });
 
@@ -37,9 +42,14 @@ describe('LazyAdminCommandPalette when the chunk fails', () => {
 
     rerender(<LazyAdminCommandPalette isOpen={false} onClose={onClose} />);
     rerender(<LazyAdminCommandPalette isOpen onClose={onClose} />);
-    expect(await screen.findByTestId('real-palette')).toBeTruthy();
-    expect(h.attempts).toBe(2);
+    // The retry is in flight: no stale failure, an enabled search box, and focus in it (not left on the dialog).
+    await waitFor(() => expect(h.attempts).toBe(2));
+    const retryBox = screen.getByRole('textbox', { name: 'Search admin pages, companies and users' }) as HTMLInputElement;
     expect(screen.queryByRole('alert')).toBeNull();
+    expect(retryBox.disabled).toBe(false);
+    await waitFor(() => expect(document.activeElement).toBe(retryBox));
+    await act(async () => { h.release(); await h.retryGate; });
+    expect(await screen.findByTestId('real-palette')).toBeTruthy();
     outside.remove();
   });
 });

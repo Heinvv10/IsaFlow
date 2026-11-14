@@ -64,6 +64,8 @@ export function LazyAdminCommandPalette({ isOpen, onClose }: AdminCommandPalette
   const [Loaded, setLoaded] = useState<Palette | null>(null);
   const [failed, setFailed] = useState(false);
   const [typed, setTyped] = useState('');
+  /** Keys the shell: each load attempt mounts a fresh one, whose focus trap puts focus in the search box. */
+  const [attempt, setAttempt] = useState(0);
   /** A load is in flight or done. Cleared when one fails, so the next open retries. */
   const started = useRef(false);
   /** Any load was ever attempted: the idle preload is a one-off, and must not become a retry loop after a failure. */
@@ -75,6 +77,7 @@ export function LazyAdminCommandPalette({ isOpen, onClose }: AdminCommandPalette
     started.current = true;
     tried.current = true;
     setFailed(false);
+    setAttempt(n => n + 1);
     loadPalette()
       .then((P) => { if (mounted.current) setLoaded(() => P); })
       .catch((err: unknown) => {
@@ -99,10 +102,11 @@ export function LazyAdminCommandPalette({ isOpen, onClose }: AdminCommandPalette
 
   useEffect(() => { if (isOpen) start(); }, [isOpen, start]);
 
-  // Each open starts empty, as the real palette does.
+  // Each open starts empty, as the real palette does, and a failure shown last time does not open the next one.
   if (!isOpen && typed) setTyped('');
+  if (!isOpen && failed) setFailed(false);
 
   if (Loaded) return <Loaded isOpen={isOpen} onClose={onClose} initialQuery={typed} />;
   if (!isOpen) return null;
-  return <PaletteShell value={typed} onChange={setTyped} onClose={onClose} failed={failed} />;
+  return <PaletteShell key={attempt} value={typed} onChange={setTyped} onClose={onClose} failed={failed} />;
 }
