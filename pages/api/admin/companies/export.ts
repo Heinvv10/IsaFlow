@@ -26,14 +26,13 @@ const CSV_HEADERS = [
   'created_at',
   'trial_ends_at',
   'user_count',
+  'last_active',
 ];
 
 /**
- * The sort keys the Companies list accepts (adminCompanyService ALLOWED_SORT_COLUMNS) plus plan_name, which
- * the page offers. FALLBACK_SORTS are keys the page offers that the export cannot apply yet (last_active,
- * until the list sorts by it for real): they sort by the default, created_at desc, rather than refusing the
- * download, and the audit row (`sort_fallback_from`) and the X-Export-Sort response header say so. Any other
- * key is a 400, so the audit row only records known values.
+ * The sort keys the Companies list accepts (adminCompanyService ALLOWED_SORT_COLUMNS), sorted the same way
+ * (NULLS LAST, then c.id). Any other key is a 400, so the audit row only records known values; own keys
+ * only (Object.hasOwn), so `constructor` and the like are refused too.
  */
 const SORT_COLUMNS: Record<string, string> = {
   name: 'c.name',
@@ -41,9 +40,9 @@ const SORT_COLUMNS: Record<string, string> = {
   status: 'c.status',
   user_count: 'user_count',
   mrr_cents: 'mrr_cents',
-  plan_name: 'p.name',
+  plan_name: 'plan_name',
+  last_active: 'last_active',
 };
-const FALLBACK_SORTS = new Set(['last_active']);
 const STATUSES = new Set(['trial', 'active', 'suspended', 'cancelled', 'deleted']);
 
 async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
@@ -59,7 +58,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   const requestedSort = queryText(req.query.sort_by);
   const requestedDir  = queryText(req.query.sort_dir);
   if (statusFilter && !STATUSES.has(statusFilter)) return apiResponse.badRequest(res, 'status is not a company status');
-  if (requestedSort && !SORT_COLUMNS[requestedSort] && !FALLBACK_SORTS.has(requestedSort)) {
+  if (requestedSort && !Object.hasOwn(SORT_COLUMNS, requestedSort)) {
     return apiResponse.badRequest(res, 'sort_by is not a Companies column');
   }
   if (requestedDir && requestedDir !== 'asc' && requestedDir !== 'desc') return apiResponse.badRequest(res, 'sort_dir must be asc or desc');
@@ -69,11 +68,9 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   if (plan && (await sql`SELECT 1 FROM plans WHERE code = ${plan}`).length === 0) {
     return apiResponse.badRequest(res, 'plan is not a plan code');
   }
-  const honoured = requestedSort !== null && SORT_COLUMNS[requestedSort] !== undefined;
-  const sortBy  = honoured ? requestedSort : 'created_at';
-  const sortAsc = honoured && requestedDir === 'asc';
+  const sortBy  = requestedSort ?? 'created_at';
+  const sortAsc = requestedSort !== null && requestedDir === 'asc';
   const sortDir = sortAsc ? 'asc' : 'desc';
-  const sortFallbackFrom = requestedSort !== null && !honoured ? requestedSort : null;
   const sortCol = SORT_COLUMNS[sortBy]!;
   const searchPattern = search ? `%${search}%` : null;
 
@@ -92,7 +89,10 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
       )::int                                                AS mrr_cents,
       c.created_at,
       c.trial_ends_at,
-      (SELECT COUNT(*) FROM company_users cu WHERE cu.company_id = c.id)::int AS user_count
+      (SELECT COUNT(*) FROM company_users cu WHERE cu.company_id = c.id)::int AS user_count,
+      -- As listCompanies: the latest sign-in of an active member.
+      (SELECT MAX(u.last_login) FROM company_users cu JOIN users u ON u.id = cu.user_id
+        WHERE cu.company_id = c.id AND u.is_active = true) AS last_active
     FROM companies c
     LEFT JOIN subscriptions s ON s.company_id = c.id AND s.status IN ('active','trial')
     LEFT JOIN plans p ON p.id = s.plan_id
@@ -104,7 +104,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
       AND (${plan}::text IS NULL OR p.code = ${plan})
       AND (${fromDate}::date IS NULL OR c.created_at >= ${fromDate}::date)
       AND (${toDate}::date   IS NULL OR c.created_at <  (${toDate}::date + INTERVAL '1 day'))
-    ORDER BY ${sql.unsafe(sortCol)} ${sortAsc ? sql`ASC` : sql`DESC`}, c.id
+    ORDER BY ${sql.unsafe(sortCol)} ${sortAsc ? sql`ASC` : sql`DESC`} NULLS LAST, c.id
   `) as Row[];
 
   const lines = rows.map((r) => csvRow([
@@ -116,18 +116,17 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
     r.created_at,
     r.trial_ends_at,
     r.user_count,
+    r.last_active,
   ]));
 
   log.info(`companies/export: ${lines.length} rows`, {}, 'admin-export');
   const today = new Date().toISOString().slice(0, 10);
-  // No request text in a header: the requested key is on the audit row.
-  res.setHeader('X-Export-Sort', `${sortBy} ${sortDir}${sortFallbackFrom ? ' (requested sort not supported; default used)' : ''}`);
   await sendAuditedCsv(req, res, {
     export: 'companies',
     filename: `companies-${today}.csv`,
     filters: {
       search: textFilterSet(search), status: statusFilter, plan, sort_by: sortBy, sort_dir: sortDir,
-      sort_fallback_from: sortFallbackFrom, from: fromDate, to: toDate,
+      from: fromDate, to: toDate,
     },
     header: CSV_HEADERS,
     lines,

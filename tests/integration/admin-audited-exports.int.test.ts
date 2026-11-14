@@ -138,18 +138,22 @@ describe('companies export', () => {
     expect(rows.at(-1)!.details).toEqual({
       export: 'companies', row_count: 2,
       filters: { search: true, status: 'active', plan: null, sort_by: 'created_at', sort_dir: 'asc',
-        sort_fallback_from: null, from: null, to: null },
+        from: null, to: null },
     });
-    expect(r.headers.get('x-export-sort')).toBe('created_at asc');
   }, 30000);
 
-  it('a sort the export cannot apply falls back to created_at desc and says so', async () => {
-    const r = await callAdminRoute(admin, companiesExport, 'GET', '/api/admin/companies/export',
-      { search: TAG, sort_by: 'last_active', sort_dir: 'asc' });
-    expect(r.status, r.text.slice(0, 300)).toBe(200);
-    expect(r.headers.get('x-export-sort')).toBe('created_at desc (requested sort not supported; default used)');
+  it('sorts by Last Active as the list does (latest active member sign-in, never-signed-in last)', async () => {
+    const carol = (await pool.query('SELECT id FROM users WHERE email = $1', [`${TAG}-carol@test.local`])).rows[0].id as string;
+    await pool.query(`UPDATE users SET last_login = NOW() - INTERVAL '1 hour' WHERE id = $1`, [humans[0]]);
+    await pool.query(`UPDATE users SET last_login = NOW() - INTERVAL '1 day' WHERE id = $1`, [carol]);
+    await pool.query(`UPDATE users SET last_login = NOW() WHERE id = $1`, [bob]); // suspended: does not count
+    const order = async (dir: string) => csvDataLines((await callAdminRoute(admin, companiesExport, 'GET',
+      '/api/admin/companies/export', { search: TAG, sort_by: 'last_active', sort_dir: dir })).text)
+      .map((l) => l.split('","')[1]);
+    expect(await order('desc')).toEqual([`${TAG} Alpha`, `${TAG} Beta`, `'=${TAG} formula`]);
+    expect(await order('asc')).toEqual([`${TAG} Beta`, `${TAG} Alpha`, `'=${TAG} formula`]);
     expect((await auditRows(pool, admin, 'company.export')).at(-1)!.details!.filters).toMatchObject({
-      sort_by: 'created_at', sort_dir: 'desc', sort_fallback_from: 'last_active',
+      sort_by: 'last_active', sort_dir: 'asc',
     });
   }, 30000);
 
@@ -205,6 +209,7 @@ describe('exports refuse filter values the pages never send (400), so audit rows
     ['users status', usersExport, '/api/admin/users/export', { status: 'deleted' }],
     ['companies status', companiesExport, '/api/admin/companies/export', { status: 'bogus' }],
     ['companies sort_by', companiesExport, '/api/admin/companies/export', { sort_by: 'password' }],
+    ['companies sort_by on the prototype', companiesExport, '/api/admin/companies/export', { sort_by: 'constructor' }],
     ['companies sort_dir', companiesExport, '/api/admin/companies/export', { sort_by: 'name', sort_dir: 'sideways' }],
     ['companies plan', companiesExport, '/api/admin/companies/export', { plan: 'no-such-plan' }],
     ['companies from', companiesExport, '/api/admin/companies/export', { from: '2026-02-31' }],
