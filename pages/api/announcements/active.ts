@@ -2,7 +2,8 @@
  * Active Announcements API — Customer-facing
  * GET /api/announcements/active
  * Returns currently active announcements for the authenticated user's company.
- * Filters by target: 'all', or 'company' (matching company_id), or 'plan' (matching plan_id).
+ * Filters by target: 'all', or 'company' (matching company_id), or 'plan' (matching plan_id), and leaves out
+ * what this user has dismissed. Sends no target_ids / created_by: those name other tenants and admins.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -11,7 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import type { Announcement } from '@/modules/admin/types/admin.types';
+import { DISMISS_KEY_PREFIX, type TenantAnnouncement } from '@/lib/tenantAnnouncements';
 type Row = Record<string, unknown>;
 
 
@@ -21,19 +22,15 @@ function toIso(v: unknown): string | null {
   return v as string;
 }
 
-function rowToAnnouncement(r: Row): Announcement {
+function rowToAnnouncement(r: Row): TenantAnnouncement {
   return {
-    id:            r.id as string,
-    title:         r.title as string,
-    message:       r.message as string,
-    type:          r.type as string,
-    target:        r.target as string,
-    target_ids:    (r.target_ids ?? []) as string[],
-    starts_at:     toIso(r.starts_at) as string,
-    ends_at:       toIso(r.ends_at),
+    id:             r.id as string,
+    title:          r.title as string,
+    message:        r.message as string,
+    type:           r.type as TenantAnnouncement['type'],
+    starts_at:      toIso(r.starts_at) as string,
+    ends_at:        toIso(r.ends_at),
     is_dismissible: r.is_dismissible as boolean,
-    created_by:    r.created_by as string,
-    created_at:    toIso(r.created_at) as string,
   };
 }
 
@@ -42,38 +39,39 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
 
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
 
   try {
-    // Fetch the company's plan_id for plan-targeted announcements
-    const [companyRow] = await sql`
-      SELECT s.plan_id
-      FROM companies c
-      LEFT JOIN subscriptions s ON s.company_id = c.id
-        AND s.status IN ('active', 'trial')
-      WHERE c.id = ${companyId}
-      LIMIT 1
-    `;
-    const planId: string | null = (companyRow?.plan_id as string | null) ?? null;
-
+    // Plan target: any of the company's live subscriptions (a company can hold more than one row).
+    // A user's dismissal hides a dismissible announcement only: a not-dismissible one ignores it.
     const rows = await sql`
-      SELECT *
-      FROM system_announcements
-      WHERE starts_at <= NOW()
-        AND (ends_at IS NULL OR ends_at >= NOW())
+      SELECT a.id, a.title, a.message, a.type, a.starts_at, a.ends_at, a.is_dismissible
+      FROM system_announcements a
+      WHERE a.starts_at <= NOW()
+        AND (a.ends_at IS NULL OR a.ends_at >= NOW())
         AND (
-          target = 'all'
-          OR (target = 'company' AND ${companyId} = ANY(target_ids))
+          a.target = 'all'
+          OR (a.target = 'company' AND ${companyId}::uuid = ANY(a.target_ids))
           OR (
-            target = 'plan'
-            AND ${planId}::uuid IS NOT NULL
-            AND ${planId}::uuid = ANY(target_ids)
+            a.target = 'plan'
+            AND a.target_ids && ARRAY(
+              SELECT s.plan_id FROM subscriptions s
+              WHERE s.company_id = ${companyId}::uuid AND s.status IN ('active', 'trial')
+            )
           )
         )
-      ORDER BY starts_at DESC
+        AND (
+          NOT a.is_dismissible
+          OR NOT EXISTS (
+            SELECT 1 FROM user_preferences up
+            WHERE up.user_id = ${user.id}
+              AND up.key = ${DISMISS_KEY_PREFIX}::text || a.id::text
+          )
+        )
+      ORDER BY a.starts_at DESC
     `;
 
-    return apiResponse.success(res, rows.map(rowToAnnouncement));
+    return apiResponse.success(res, (rows as Row[]).map(rowToAnnouncement));
   } catch (err) {
     log.error('Failed to fetch active announcements', { companyId, error: err }, 'announcements-api');
     return apiResponse.badRequest(res, 'Failed to fetch active announcements');
