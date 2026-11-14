@@ -29,6 +29,8 @@ const fx = loginAsFixture(pool, 'WP9 end Login-as');
 
 /** Every GoTrue /logout call, with the bearer it carried; `failLogout` makes GoTrue refuse it. */
 const logouts: { path: string; bearer: string }[] = [];
+/** How many of this admin's stash rows existed at each GoTrue /logout (review L2: the stash goes BEFORE the revoke). */
+const stashesAtLogout: number[] = [];
 let failLogout = false;
 
 beforeAll(async () => {
@@ -39,6 +41,8 @@ beforeAll(async () => {
     if (url.includes('/logout')) {
       logouts.push({ path: url.slice(url.indexOf('/logout')),
         bearer: new Headers(init?.headers).get('authorization')?.replace(/^Bearer /, '') ?? '' });
+      stashesAtLogout.push((await pool.query(
+        'SELECT count(*)::int AS n FROM admin_impersonation_stash WHERE admin_user_id = $1', [fx.platformAdmin])).rows[0].n);
       if (failLogout) return new Response('{"msg":"wp9: logout refused"}', { status: 500 });
     }
     return fake(input, init);
@@ -48,7 +52,7 @@ afterAll(async () => {
   try { await pool.query('ALTER TABLE admin_audit_log DROP CONSTRAINT IF EXISTS wp9_block_end_audit'); }
   finally { await fx.tearDown(); await pool.end(); }
 });
-beforeEach(() => { logouts.length = 0; failLogout = false; });
+beforeEach(() => { logouts.length = 0; stashesAtLogout.length = 0; failLogout = false; });
 afterEach(async () => {
   await pool.query('ALTER TABLE admin_audit_log DROP CONSTRAINT IF EXISTS wp9_block_end_audit');
   await pool.query('DELETE FROM admin_impersonation_stash WHERE admin_user_id = $1', [fx.platformAdmin]);
@@ -85,6 +89,7 @@ describe('3.10: ending a Login-as', () => {
     expect(r.statusCode).toBe(200);
     expect(r.stashCookieCleared).toBe(true);
     expect(logouts).toEqual([{ path: '/logout?scope=local', bearer: jar['sb-access-token'] }]);
+    expect(stashesAtLogout).toEqual([0]); // deleted before the revocation, so a retry cannot restore twice
     expect(await stashes()).toEqual([]);
     expect((await ends()).at(-1)).toMatchObject({ target_session_revoked: true });
   });
