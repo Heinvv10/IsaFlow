@@ -88,15 +88,20 @@ export default function AdminSarsCodesPage() {
   const [importerOpen, setImporterOpen] = useState(false);
   const didInitialLoadRef = useRef(false);
 
-  const load = useCallback(async (year: number | null) => {
+  // A filter change passes its NEW value in `next`: called in the same tick as setCategory/setStatusFilter,
+  // this closure still holds the old state (audit 4.17: every filter showed the previous choice's list).
+  const load = useCallback(async (year: number | null, next: { search?: string; category?: string; status?: string } = {}) => {
     setLoading(true);
     setError('');
     try {
+      const q = next.search ?? search;
+      const cat = next.category ?? category;
+      const st = next.status ?? statusFilter;
       const params = new URLSearchParams();
       if (year) params.set('taxYear', String(year));
-      if (search.trim()) params.set('search', search.trim());
-      if (category) params.set('category', category);
-      if (statusFilter) params.set('status', statusFilter);
+      if (q.trim()) params.set('search', q.trim());
+      if (cat) params.set('category', cat);
+      if (st) params.set('status', st);
       const res = await apiFetch(`/api/admin/payroll/sars-codes?${params.toString()}`);
       await assertOk(res, 'Could not load the SARS codes - try again');
       const json = await res.json() as { data?: { releases: ReleaseRow[]; codes: CodeRow[]; taxYear: number | null }; message?: string };
@@ -212,23 +217,24 @@ export default function AdminSarsCodesPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search SARS codes"
               onKeyDown={(e) => { if (e.key === 'Enter') void load(taxYear); }}
               placeholder="Search code or description…"
               className="w-full pl-9 pr-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm"
             />
           </div>
-          <select value={category} onChange={(e) => { setCategory(e.target.value); void load(taxYear); }} className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm">
+          <select value={category} aria-label="Category" onChange={(e) => { setCategory(e.target.value); void load(taxYear, { category: e.target.value }); }} className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm">
             <option value="">All categories</option>
             {Object.entries(CATEGORY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
-          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); void load(taxYear); }} className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm">
+          <select value={statusFilter} aria-label="Status" onChange={(e) => { setStatusFilter(e.target.value); void load(taxYear, { status: e.target.value }); }} className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm">
             <option value="">All statuses</option>
             <option value="active">Active</option>
             <option value="conditional">Conditional</option>
             <option value="deprecated">Deprecated</option>
           </select>
           <button
-            onClick={() => { setSearch(''); setCategory(''); setStatusFilter(''); void load(taxYear); }}
+            onClick={() => { setSearch(''); setCategory(''); setStatusFilter(''); void load(taxYear, { search: '', category: '', status: '' }); }}
             className="inline-flex items-center gap-1 px-3 py-2 rounded-lg text-xs text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]"
           >
             <RotateCcw className="h-3 w-3" /> Reset
