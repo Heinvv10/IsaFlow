@@ -27,6 +27,3 @@
 
 ## Related files
 - `src/modules/accounting/services/afs/afsMappingService.ts` — all logic (mappings, taxonomy seed, auto-map, TB join)
-
-## Recent changes
-- 2026-04-21: AFS phases 3-8 — IFRS notes, report templates, PIS, ratios, VAT recon, multi-entity

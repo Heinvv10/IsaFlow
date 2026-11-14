@@ -15,6 +15,7 @@
 import path from 'node:path';
 import { defineConfig } from '@playwright/test';
 import { devOnlySpecPattern } from './tests/e2e/golden-paths/helpers/devOnlySpecs';
+import { quarantineGrepInvert } from './tests/e2e/golden-paths/helpers/quarantine';
 
 export default defineConfig({
   testDir: './tests/e2e/golden-paths',
@@ -25,6 +26,8 @@ export default defineConfig({
   // red run rolls the deploy back. Never edit a regex here: mark the spec.
   testMatch: '**/*.spec.ts',
   testIgnore: process.env.GOLDEN_SKIP_A11Y === '1' ? devOnlySpecPattern(path.join(__dirname, 'tests/e2e/golden-paths')) : undefined,
+  // A test that flaked twice carries quarantined(<issue>) and is left out until fixed (helpers/quarantine.ts).
+  grepInvert: quarantineGrepInvert(process.env),
   globalSetup: './tests/e2e/golden-paths/_global-setup.ts',
   timeout: 90_000,
   retries: 0,

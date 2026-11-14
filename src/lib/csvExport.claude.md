@@ -19,6 +19,3 @@ Browser-side CSV export utility using papaparse — triggers a file download fro
 - Auto-revokes the object URL after clicking — no memory leak per download.
 - Nullish accessor values coerce to empty string, not the literal `"null"`.
 - Does NOT apply formula-injection sanitisation — use `csv.ts`/`csvCell` when exporting user-controlled text to a server-side CSV handler instead.
-
-## Recent changes
-- 2026-04-19: Added during PRD-01 Phase 5A (practice users directory, CSV export, Kanban DnD).
