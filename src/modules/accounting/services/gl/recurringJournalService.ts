@@ -187,7 +187,7 @@ export async function runRecurringJournal(companyId: string,
   await assertTemplateLinesPostable(companyId, lines);
 
   const approval = await newManualJournalGate(companyId, lines);
-  const autoPost = rj.auto_post !== false; // absent before migration 989: every template posted
+  const autoPost = rj.auto_post !== false; // absent before migration 994: every template posted
   if (opts.agent && autoPost && approval.held) { // a read refusal, so it goes before the period guard (which writes)
     throw new RecurringJournalRequestError(await agentNewManualJournalsRefusal(companyId, [lines])
       ?? 'This journal needs approval before it can be posted, and this connector cannot raise or decide approvals.');

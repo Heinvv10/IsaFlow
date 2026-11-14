@@ -1,5 +1,5 @@
 /**
- * A draft-only recurring journal (migration 989, auto_post false) must not let a month slip out of the ledger
+ * A draft-only recurring journal (migration 994, auto_post false) must not let a month slip out of the ledger
  * unnoticed: Generate leaves its journal a DRAFT while the schedule moves on, so the page says so and names the
  * journal, and the list marks such a template "Draft only". Rendered, not grepped.
  */

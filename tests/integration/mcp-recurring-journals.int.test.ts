@@ -180,7 +180,7 @@ describe('run_recurring_journals over a real database', () => {
       templateName: 'UI', frequency: 'monthly', nextRunDate: day(cal.cur, 1),
       lines: [{ glAccountId: co.exp, debit: 10, credit: 0 }, { glAccountId: co.accrual, debit: 0, credit: 10 }],
     }, user));
-    expect(made.autoPost).toBe(true); // migration 989's default: the app never sends the field
+    expect(made.autoPost).toBe(true); // migration 994's default: the app never sends the field
 
     await pool.query("UPDATE recurring_journals SET status = 'cancelled' WHERE id = $1", [made.id]);
     expect(await request(pool, co, user, () => updateRecurringJournalStatus(co.c, made.id, 'active', 'paused')))
