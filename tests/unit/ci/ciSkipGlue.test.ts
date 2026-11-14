@@ -156,7 +156,7 @@ describe('run-ci.sh: gate groups (ci.yml runs static on GitHub-hosted, velo on v
   const ranBuild = (calls: string[]) => calls.some((c) => c.startsWith('bun run build'));
   const PR = { ...GH, GITHUB_EVENT_NAME: 'pull_request', MQ_RC: '0', SCOPE_RC: '0' };
 
-  it('no argument runs every gate, both groups (the pre-push hook)', () => {
+  it('no argument runs every gate, both groups', () => {
     const r = run(['scripts/ci/run-ci.sh'], PR);
     expect(r.status).toBe(0);
     expect([ranGates(r.calls), ranBrowser(r.calls), ranIntegration(r.calls), ranBuild(r.calls)]).toEqual([true, true, true, true]);
@@ -190,6 +190,27 @@ describe('run-ci.sh: gate groups (ci.yml runs static on GitHub-hosted, velo on v
     const r = run(['scripts/ci/run-ci.sh', group], { ...GH, GITHUB_EVENT_NAME: 'push', MQ_RC: '10', SCOPE_RC: '0' });
     expect(r.status).toBe(0);
     expect(r.calls).toEqual([expect.stringContaining('mq-merge-already-tested.ts')]);
+  });
+
+  it('prepush runs the type checks and the diff-scoped steps, and no build, browser test or integration', () => {
+    const r = run(['scripts/ci/run-ci.sh', 'prepush'], PR);
+    expect(r.status).toBe(0);
+    expect([ranGates(r.calls), ranBuild(r.calls), ranBrowser(r.calls), ranIntegration(r.calls)]).toEqual([true, false, false, false]);
+    expect(r.calls).toContain('bun scripts/ci/prepush.ts unit token=unset');
+    expect(r.calls.some((c) => c.startsWith('bun run test:unit') || c.startsWith('bun run lint'))).toBe(false);
+  });
+
+  it('every prepush step is one the full gate also runs', () => {
+    // check:routes is a step of `bun run test:unit` in the full gate (package.json), a step of its own here.
+    const strip = (calls: string[]) => calls.filter((c) => !c.includes('integration/scope.ts') && !c.includes('prepush.ts') && !c.startsWith('bun run check:routes'));
+    const all = strip(run(['scripts/ci/run-ci.sh'], PR).calls);
+    expect(strip(run(['scripts/ci/run-ci.sh', 'prepush'], PR).calls).filter((c) => !all.includes(c))).toEqual([]);
+  });
+
+  it('the pre-push hook runs the prepush group, and keeps SKIP_CI', () => {
+    const hook = readFileSync('scripts/ci/hooks/pre-push', 'utf8');
+    expect(hook).toMatch(/^PARITY_SCOPE=diff bun run ci prepush$/m);
+    expect(hook).toContain('SKIP_CI:-0');
   });
 
   it('an unknown group exits 2 and runs nothing', () => {

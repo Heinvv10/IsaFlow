@@ -11,6 +11,8 @@ if [ "${SKIP_CI:-0}" = "1" ]; then
 fi
 
 cd "$(git rev-parse --show-toplevel)"
-echo "[pre-push] running bun run ci..."
+# Only the fast, diff-scoped subset (scripts/ci/run-ci.sh, group prepush): the full gate (build, browser tests,
+# integration, every unit file) runs on GitHub, where the merge queue re-tests each batch. Run it by hand with `bun run ci`.
+echo "[pre-push] running bun run ci prepush..."
 # The print-parity tests (about five minutes) run only when the push touches what they hold: tests/unit/printParity/parityScope.ts.
-PARITY_SCOPE=diff bun run ci
+PARITY_SCOPE=diff bun run ci prepush
