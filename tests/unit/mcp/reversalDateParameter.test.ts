@@ -17,6 +17,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../helpers/bankControlGateMocks')).importerGateOpen());
 vi.mock('@/modules/accounting/services/bank/bankReversalGate', async () => (await import('../helpers/bankControlGateMocks')).reversalGateOpen());
 
+// The customer side's up-front judgment (bank/reverseLinesCreditLast.reverseLinesJudged) has its own suites
+// (ar-receipt-void-after-refund-bulk, receiptVoidCreditParity); here it judges nothing and the supplier retry runs.
+vi.mock('@/modules/accounting/services/bank/reverseLinesCreditLast', async (orig) => {
+  const actual = await orig<typeof import('@/modules/accounting/services/bank/reverseLinesCreditLast')>();
+  return { ...actual, reverseLinesJudged: async (_c: string, lines: readonly { id: string }[], fn: (id: string) => Promise<unknown>) =>
+    actual.reverseLinesCreditLast(lines.map((l) => l.id), fn) };
+});
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
