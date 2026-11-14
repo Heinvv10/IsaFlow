@@ -10,7 +10,7 @@ import ts from 'typescript';
  * count), when an admin route is BUILT (a `+` chain or template whose static text joins `/api/` and `admin`, puts a
  * `${}` segment right after `/api/` or right before `/admin`), when it mentions the identifier ADMIN_API or IMPORTS a
  * binding named like *ADMIN* (a route constant from an unselected module: a name rule, simpler than resolving
- * constants across files; STATED LIMIT: a constant named without ADMIN that holds an admin route is not seen), or when it imports adminFetch. In an admin file:
+ * constants across files), or when it imports adminFetch. In an admin file:
  *   - it must import adminFetch (when it contains an admin string);
  *   - fetch / window.fetch / globalThis.fetch / self.fetch / apiFetch / apiJson may only be called with a PLAIN
  *     string literal first argument that is not /api/admin (anything else could be an admin URL), except that
@@ -18,6 +18,10 @@ import ts from 'typescript';
  *     `'X-Admin-Request': 'true'` header (it cannot go through adminFetch);
  *   - those names may not be used as values (`const f = apiFetch`, `.then(apiFetch)`);
  *   - adminFetch must not carry a hand-set X-Admin-Request header: it sets it.
+ *
+ * STATED LIMITS (evasions this does NOT catch): a route joined with `[...].join('/')` or `.concat`; a nested template
+ * such as `/api${'/admin'}`; `window[k]` with a variable key; an imported route constant without an uppercase ADMIN
+ * in its name (a default or namespace import, `adminRoutes`).
  */
 const RAW = new Set(['fetch', 'apiFetch', 'apiJson']);
 const ADMIN = '/api/admin';
@@ -87,7 +91,7 @@ export function adminFetchViolations(src: string, file = 'x.tsx'): string[] {
   };
   visitRefs(sf);
   if (!adminString && !adminIdent && !importsAdmin) return out;
-  if ((adminString || adminIdent) && !importsAdmin) at(sf, 'refers to /api/admin but does not import adminFetch');
+  if ((adminString || adminIdent) && !importsAdmin) at(sf, 'builds or imports what looks like an admin route but does not use adminFetch');
 
   const rawName = (e: ts.Expression): string | undefined => {
     if (ts.isIdentifier(e)) return alias.get(e.text) ?? (RAW.has(e.text) ? e.text : undefined);
