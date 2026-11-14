@@ -3,7 +3,7 @@
 
 # capture/pop/
 
-POP inbox, phase 1 (Hein, 2026-11-14): ABSA "Notice of payment" mail reaching a mirrored mailbox is filed as `proof_of_payments` (migration 989). Runs inside the IMAP mirror scan (`../imapMirrorService.ts`); no route, no UI yet.
+POP inbox (Hein, 2026-11-14): ABSA "Notice of payment" mail reaching a mirrored mailbox is filed as `proof_of_payments` (migration 989) inside the IMAP mirror scan (`../imapMirrorService.ts`). After the scan the cron (`pages/api/cron/mirror-scan.ts`) runs `popSweeps.ts`: bank-line matching (991) and the SharePoint copy (992). No route, no UI yet.
 
 ## Modules
 - `absaPopParser.ts` — pure: pdf-parse text of a notice → `{ payerProfile, transactionNumber, paymentDate, payerAccountName, beneficiary, beneficiaryBank, amountCents, reference }` or a refusal reason. Both ABSA layouts (business banking, Absa Online).
@@ -11,6 +11,9 @@ POP inbox, phase 1 (Hein, 2026-11-14): ABSA "Notice of payment" mail reaching a 
 - `pdfText.ts` — the PDF text layer (its own module so tests can stub it: vitest cannot intercept a CommonJS `require`).
 - `popIngest.ts` — `ingestAbsaPop(companyId, att)`: captured_documents (`document_type 'proof_of_payment'`, `status 'processed'`, fields in `extracted_data.proofOfPayment`) + storage + proof_of_payments, in one transaction.
 - `popMirrorBranch.ts` — `isAbsaNoticeEnvelope` (lets the message past the invoice-subject filter), `isNoticeAttachment` (PDF by bytes: ABSA labels some `*/*`), `fileAbsaNotice` (trust, then file each PDF).
+- `popMatchRules.ts` (pure: name test, decision) + `popMatchSweep.ts` (SQL, attach) — phase 2.
+- `popArchiveName.ts` (pure: path) + `popGraphClient.ts` (Graph, injected fetch) + `popArchiveSweep.ts` — the SharePoint copy.
+- `popSweeps.ts` — `runPopSweeps({ deadline })`: both sweeps, company by company, under the cron request's deadline (start + 270 s; curl allows 300), matching at most 60 s of it. Never throws: a sweep failure never fails the scan.
 
 ## Business rules
 - **Whose payment**: DKIM proves ABSA sent the notice, not that this company paid (any ABSA customer can mail a genuine notice anywhere). A notice files only when its "Dear <profile>" is in `pop_trusted_payers` for the company (case/space-insensitive). That table is ops config: app_user SELECT only; seed it as migration_admin. An unlisted payer goes to capture review.
@@ -26,9 +29,25 @@ POP inbox, phase 1 (Hein, 2026-11-14): ABSA "Notice of payment" mail reaching a 
 - A field the table cannot store (text over 200 characters, a NUL byte, an amount beyond NUMERIC(14,2)) is refused by the parser (`unstorable_field`) and goes to capture review, so it cannot fail the insert and be skipped by the cursor.
 - A PDF whose exact bytes were already captured (e.g. through normal capture before its payer was trusted) reads as `duplicate` and is not filed again as a POP.
 
-## Residual risk (accepted, phase 1)
+## Bank-line matching (phase 2, `proof_of_payment_matches`, 991)
+- A line is a candidate when: same company, `feed_state 'posted'`, amount = -POP amount, dated payment_date .. +3 days, no proof_of_payment document on it yet, and the beneficiary is the payee: it starts at the first word after the first "ABSA BANK" in the description (both accent-folded, upper-cased, other characters → one space) and must end a word, except a beneficiary of exactly 20 characters (ABSA's cut), whose end is open. Under 3 characters, or no "ABSA BANK", never matches.
+- **Auto-attach only on a unique match both ways, on an imported window**: one candidate for the POP, no other open POP of the company (batch or not, whatever its decision: an `ambiguous` POP keeps claiming its lines) wants it, and the line's bank account has a posted line dated after payment_date + 3 and no later than today (else `not_found`, re-checked next tick). Two candidates or a rival: `ambiguous`, `candidate_bank_tx_ids` = the suggestion, nothing attached. ~30 R3,000.00 payments can share a day: amount + date never decide.
+- `attached` / `ambiguous` / `refused` (the attach's non-ok reason) are final; 991's trigger refuses any UPDATE of a final row, for every role. `not_found` is re-checked until payment_date + 45 days (SAST date read from the database once per sweep; imports have lagged 15 days), then left. A POP whose document is matched is not looked at.
+- The attach is `attachCapturedDocToBankTx(..., null)` (document `status` 'processed' → 'matched') in its own transaction (a savepoint when nested) with its decision row, after locking line then document and re-reading by the read's own rules (document unmatched; this POP's candidates still exactly this line; its account still imported past the window; no other open POP, one filed since included, naming it); any change counts `moved`, the next tick decides; a decision row that cannot be written (already final) rolls the attach back. One sweep per company at a time (advisory lock `pop_match_sweep:<company>`). ≤200 POPs per company per tick, least recently checked first.
+- **A POP is not a tax invoice**: on a bank line it counts for the paperclip and attachment lists, not as support (`../../bank/bankLineDocumentSql.ts` `hasBankLineDocumentSql`: VAT input support stays `no_tax_invoice`, MCP's unsupported list keeps the line).
+
+## SharePoint copy (`pop_archive_targets` / `pop_archive_copies` / `pop_archive_attempts`, 992)
+- `<folder>/YYYY/MM/YYYY-MM-DD <Beneficiary> R<amount> <txn>.pdf`, SharePoint-illegal characters removed. Site and folder per company in `pop_archive_targets` (ops config, app_user SELECT only). Credentials `POP_ARCHIVE_*` (its own Entra app, Sites.Selected write on one site). Go-live and ops: `docs/runbooks/pop-archive-go-live.md`. Targets without credentials: one warn per tick; neither: silent.
+- Settled once in `pop_archive_copies` (SELECT + INSERT only): `archived`; `too_large` (> 4 MB, never uploaded); `failed` after 10 failures of its own. PUT with conflictBehavior=fail; a 409 adopts the existing item only if it is a file of our size whose downloaded bytes are ours (SharePoint reports only quickXorHash; no verified test vector to prove one), else a counted attempt.
+- Every failure is a try in `pop_archive_attempts`: the POP waits 5 min doubling (capped at 2^8 ≈ 21 h; `tries` stops at 1000) and goes behind never-tried POPs, so none can hold the batch. Only the POP's own failures (no path, no bytes or its storage object missing, a 4xx refusal, an existing file that differs, a 403 on it once another POP archived in the same tick) count toward `failed`; an outage (5xx, network, storage) never does, and a 5xx/network failure ends the tick. 429 / 503 + Retry-After, 401, a token failure, a second POP denied (403) before any archived in the tick (a revoked grant: nothing counted, ever) and the deadline end the tick uncounted. A 409's existing file is downloaded only up to our size (Content-Length or stream cut off). Every Graph call, the token included, is bounded by the deadline; one cut off by it is `deadline`, never a failure. ≤25 per company per tick. Graph only through the injected `fetch`: tests make no network call.
+
+## Residual risk (accepted)
 - The payer binding is the profile name ABSA prints. Another ABSA customer whose profile carries the same name could have a genuine notice filed. ABSA business profiles are KYC'd legal-entity names, the row records nothing in the books, and phase 2 attaches a POP only to a matching debit on the company's own statement. If a stronger binding is needed, add the "Payment made from" nickname to the trusted-payer config.
 
+- The window counts as imported per CANDIDATE account: a line on an imported account can attach while another account of the company is behind. A second matching payment on the lagging account arriving later then makes nothing ambiguous retroactively (the first POP is already attached). Also an import that skips a day inside the window (out-of-order lines) can let a POP attach to the only line seen.
+- Overlapping ticks: the advisory lock serialises sweeps of one company and the locked re-check reads rivals again, but a POP filed by the mail scan after that re-check, while the attach commits, is not seen; it then finds the line taken and stays `not_found`.
+- The name test trusts ABSA's wording ("… ABSA BANK <beneficiary> …"). Two payees whose names agree up to ABSA's 20-character cut on the same amount and window are ambiguous, never auto-attached.
+- The sweeps write as app_user's grants (app_service inherits them), so a tenant's own session can mark its own POPs' decisions or archive records (e.g. `ambiguous`, archived): tenant-scoped by RLS, the composite FKs and 991's finality trigger. Tightening needs the S-07b policy sync (`app_service_wanted_policies`, 915) to mirror app_service-only grants: a separate, reviewed change.
+
 ## Not built yet
-- SharePoint archive copy (phase 1 step 4; needs Graph access to the VelocityFinance site).
-- Matching to bank lines (phase 2): auto-attach on a unique match only.
+- No reader for suggestions: `ambiguous` / `refused` rows and `too_large` / `failed` copies are only in the tables (no UI, no MCP tool, no report).

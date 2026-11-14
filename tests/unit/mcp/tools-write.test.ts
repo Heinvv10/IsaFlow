@@ -656,6 +656,8 @@ describe('write-tool manifest invariants', () => {
       book_eti_for_month: { ...KEY },
       // Refuses on the missing transaction_id before any lookup; behaviour in reallocateBankTransactionTool.test.ts.
       reallocate_bank_transaction: { ...KEY },
+      // Refused before reading anything: the scan's context holds no owner / admin role; behaviour in updateCompanyProfileTool.test.ts.
+      update_company_profile: { ...KEY },
       // Refuses on the missing file_name before any lookup; behaviour in attachDocumentTool.test.ts.
       attach_document: { ...KEY },
       // Refuses on the missing entity_type before any lookup; behaviour in attachEntityDocumentTool.test.ts.
@@ -732,6 +734,10 @@ describe('write-tool manifest invariants', () => {
       cancel_customer_invoice: { ...KEY },
       // Refuses on the missing credit_note_id before reading anything; behaviour in deleteDraftCreditNoteTool.test.ts.
       delete_draft_credit_note: { ...KEY },
+      // Refuses on the missing name before any read; behaviour in createFixedAssetTool.test.ts.
+      create_fixed_asset: { ...KEY },
+      // Refuses on the missing asset_id before any read; behaviour in deleteFixedAssetTool.test.ts.
+      delete_fixed_asset: { ...KEY },
       // Refuses on the missing invoice_id before reading anything; behaviour in
       // updateSupplierInvoiceTool.test.ts and update-supplier-invoice.int.test.ts.
       update_supplier_invoice: { ...KEY },

@@ -30,6 +30,7 @@ const NON_DESTRUCTIVE_WRITES = new Set([
   'take_audit_snapshot',
   'create_cost_centre',
   'create_business_unit',
+  'create_fixed_asset',
 ]);
 
 const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
@@ -51,6 +52,7 @@ const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
   'update_customer',
   'update_supplier',
   'lock_vat_period',
+  'update_company_profile',
   'mark_vat_declared_elsewhere',
   'update_cost_centre',
   'delete_cost_centre',
@@ -58,6 +60,7 @@ const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
   'delete_business_unit',
   'cancel_customer_invoice',
   'delete_draft_credit_note',
+  'delete_fixed_asset',
   'set_gl_account_reporting_attributes',
   'set_customer_default_fno',
   'set_bank_account_default_dimensions',

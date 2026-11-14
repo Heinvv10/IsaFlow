@@ -130,6 +130,11 @@ as well as the read one, and they say so on the consent screen:
 - `mark_vat_declared_elsewhere` (`read:vat` + `write:vat`, owner/admin only) marks
   documents whose VAT was declared outside IsaFlow. It posts nothing and changes no VAT201
   figure.
+- `update_company_profile` (`read:vat` + `write:company`, owner/admin only) changes the company's
+  VAT number, income tax number and SARS VAT category (A, B or C). It posts nothing. Moving the
+  category moves VAT period boundaries, so it is refused when VAT returns, period locks, VAT201
+  versions or a submitted legacy VAT201 exist unless `acknowledge_period_change: true`; `dry_run` reports the periods that
+  would move, and the reply carries the before values to undo with.
 - `take_audit_snapshot` (`read:reports` + `write:journals`, owner/admin only) takes a
   sealed, append-only snapshot of the ledger at a cutoff. It cannot be deleted afterwards.
 - `run_depreciation` (`write:journals` + **`write:post`**) **posts** the month's
