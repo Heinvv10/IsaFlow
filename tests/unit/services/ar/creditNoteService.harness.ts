@@ -24,6 +24,18 @@ vi.mock('@/modules/accounting/services/ar/creditNotePostingChecks', () => ({
   lockInvoiceCreditNotes: async () => undefined,
   afterJournalWritten: async (_n: string, step: () => Promise<unknown>) => step(),
 }));
+// Brief step 7: the posted-credit cap and the application invariants read the journal / the rows with queries of
+// their own; both are proved against a real ledger (credit-note-posted-credit*, credit-note-application-invariant
+// .int.test.ts). Here the journal covers any amount and the invariant passes, so the suites keep describing the service.
+vi.mock('@/modules/accounting/services/shared/creditNotePostedCredit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/shared/creditNotePostedCredit')>()),
+  readNotePostedCredit: async () => ({ journalId: 'je', posted: 1e12 }),
+  assertApplicationWithinPostedCredit: async () => ({ journalId: 'je', posted: 1e12 }),
+}));
+vi.mock('@/modules/accounting/services/shared/creditNoteApplicationInvariant', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/shared/creditNoteApplicationInvariant')>()),
+  assertApplicationRecorded: () => undefined,
+}));
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });

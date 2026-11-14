@@ -6,8 +6,12 @@ import type { PlatformAdminRequest } from '@/lib/auth';
 const fixture = vi.hoisted(() => ({
   sql: vi.fn(), query: vi.fn(), release: vi.fn(), generateLink: vi.fn(), verifyMagicLink: vi.fn(),
   stashAdminTokens: vi.fn(), loadStash: vi.fn(), deleteStash: vi.fn(), validateImpersonationTarget: vi.fn(),
+  purgeExpiredStashes: vi.fn(async () => 0),
 }));
-vi.mock('@/lib/neon', () => ({ sql: fixture.sql }));
+vi.mock('@/lib/neon', () => ({
+  sql: fixture.sql,
+  withTransaction: async (fn: (tx: typeof fixture.sql) => Promise<unknown>) => fn(fixture.sql),
+}));
 vi.mock('@/lib/auth/authPool', () => ({ getAuthPool: () => ({
   connect: async () => ({ query: fixture.query, release: fixture.release }),
 }) }));
@@ -15,7 +19,10 @@ vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: async () => true, withRateLi
 vi.mock('@/modules/admin/middleware/withAdmin', () => ({ withAdmin: (handler: unknown) => handler }));
 vi.mock('@/modules/admin/services/userImpersonationService', () => ({
   stashAdminTokens: fixture.stashAdminTokens, loadStash: fixture.loadStash,
+  // end-impersonation reads it bounded (#1371 round 3); the bound itself: logout-login-as-bounds.int.test.ts.
+  loadStashBounded: (id: string) => fixture.loadStash(id),
   deleteStash: fixture.deleteStash, validateImpersonationTarget: fixture.validateImpersonationTarget,
+  purgeExpiredStashes: fixture.purgeExpiredStashes,
 }));
 // R-032: the session record is written on its own platform_admin connection;
 // its durability is proven against Postgres in r-032-session-record-durability.
@@ -23,6 +30,10 @@ vi.mock('@/lib/auth/impersonationSessions', () => ({
   registerImpersonationSession: async () => undefined,
   sessionActorOfToken: async () => 'impersonation',
   impersonationPartiesOf: async () => ({
+    actorUserId: '00000000-0000-0000-0000-000000000ad1',
+    targetUserId: '00000000-0000-0000-0000-000000000ab1',
+  }),
+  impersonationPartiesOfBounded: async () => ({
     actorUserId: '00000000-0000-0000-0000-000000000ad1',
     targetUserId: '00000000-0000-0000-0000-000000000ab1',
   }),
@@ -94,7 +105,8 @@ beforeEach(async () => {
     expires_at: new Date(Date.now() + 3_600_000) });
   fixture.sql.mockImplementation(async (parts: TemplateStringsArray) =>
     parts.join('').includes('SELECT company_id') ? [{ company_id: companyId }]
-      : parts.join('').includes('FROM users') ? [{ is_active: true, status: 'active', suspended_at: null }] : []);
+      : parts.join('').includes('FROM users') ? [{ is_active: true, status: 'active', suspended_at: null }]
+      : parts.join('').includes('RETURNING id') ? [{ id: 'end-1' }] : []);
   fixture.query.mockImplementation(async (sql: string) => ({ rows: sql.includes('FROM public.company_users')
     ? [{ role: 'admin', account_user_id: targetId, is_active: true, status: 'active', suspended_at: null }] : [] }));
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ id: targetId,
@@ -140,9 +152,16 @@ it('starts an authorized MFA-target impersonation, uses the emitted cookies on w
   await withAuth(protectedHandler)(request(jar, 'GET'), afterRefresh.res);
   expect(afterRefresh.state.statusCode).toBe(200);
   expect(protectedHandler).toHaveBeenCalledTimes(2);
+  // Ending revokes the Login-as session at GoTrue with its own (rotated) token (admin audit 2026-11-14, 3.10).
+  const gotrueCalls: { url: string; bearer: string | null }[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    gotrueCalls.push({ url: String(url), bearer: new Headers(init?.headers).get('authorization') });
+    return new Response(null, { status: 204 });
+  }));
   const ended = response();
   await end(request(jar), ended.res);
   expect(ended.state.statusCode).toBe(200);
+  expect(gotrueCalls).toEqual([{ url: 'http://gotrue.test.local/logout?scope=local', bearer: `Bearer ${rotatedToken}` }]);
   applyCookies(jar, ended);
   expect(jar['sb-access-token']).toBe(adminToken);
   expect(jar['sb-impersonation-proof']).toBeUndefined();

@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { getPlatformAdminPool, newPlatformAdminClient } from './withPlatformAdmin.pools';
 import { verifyTokenSignature } from './gotrue';
+import { boundedPoolRead, BOUNDED_CHECKOUT_MS, BOUNDED_STATEMENT_MS, SessionLookupBoundError } from './boundedPoolRead';
 
 /**
  * Must run before any target cookie is issued: if it throws, the impersonation
@@ -71,6 +72,22 @@ export async function impersonationPartiesOf(
   const { rows } = await getPlatformAdminPool().query<{ actor_user_id: string; target_user_id: string }>(
     'SELECT actor_user_id, target_user_id FROM impersonation_sessions WHERE session_id = $1', [sessionId],
   );
+  return rows[0] ? { actorUserId: rows[0].actor_user_id, targetUserId: rows[0].target_user_id } : null;
+}
+
+/** Bounds of `impersonationPartiesOfBounded` (boundedPoolRead): waiting for a pool slot, and the statement itself. */
+export { BOUNDED_CHECKOUT_MS as BOUNDED_LOOKUP_CHECKOUT_MS, BOUNDED_STATEMENT_MS as BOUNDED_LOOKUP_STATEMENT_MS, SessionLookupBoundError };
+
+/**
+ * `impersonationPartiesOf` for an unauthenticated caller (Sign Out, a refused Return): it must never hold a
+ * platform_admin slot or wait long for one (boundedPoolRead). Throws SessionLookupBoundError or the query's error.
+ */
+export async function impersonationPartiesOfBounded(
+  sessionId: string,
+): Promise<{ actorUserId: string; targetUserId: string } | null> {
+  const rows = await boundedPoolRead<{ actor_user_id: string; target_user_id: string }>(getPlatformAdminPool(),
+    'impersonationPartiesOfBounded',
+    'SELECT actor_user_id, target_user_id FROM impersonation_sessions WHERE session_id = $1', [sessionId]);
   return rows[0] ? { actorUserId: rows[0].actor_user_id, targetUserId: rows[0].target_user_id } : null;
 }
 

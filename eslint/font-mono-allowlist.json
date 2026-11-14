@@ -80,7 +80,7 @@
   "pages/admin/billing/plans.tsx": 1,
   "pages/admin/companies/[id].tsx": 1,
   "pages/admin/health.tsx": 1,
-  "pages/admin/payroll/sars-codes.tsx": 6,
+  "pages/admin/payroll/sars-codes.tsx": 2,
   "pages/admin/tools/sage-import.tsx": 1,
   "pages/admin/web-analytics.tsx": 1,
   "pages/audit-portal/[sessionId].tsx": 1,

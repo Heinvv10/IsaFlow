@@ -6,12 +6,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { BulkActionsBar } from '@/components/admin/companies/BulkActionsBar';
+import { BulkResultNotice, type BulkResult } from '@/components/admin/companies/BulkResultNotice';
+import { CreateCompanyModal } from '@/components/admin/companies/CreateCompanyModal';
+import { SuspendCompanyDialog } from '@/components/admin/companies/SuspendCompanyDialog';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import {
   Search, AlertCircle, Loader2, ChevronLeft, ChevronRight,
-  ChevronsUpDown, Plus, UserCog, ShieldOff, ShieldCheck, X, Download,
+  ChevronsUpDown, Plus, UserCog, ShieldOff, ShieldCheck, Download,
 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -45,14 +48,6 @@ const STATUS_BADGE: Record<string, string> = {
 
 type SortField = 'name' | 'plan_name' | 'status' | 'user_count' | 'mrr_cents' | 'created_at' | 'last_active';
 
-interface CreateForm {
-  name: string;
-  trading_name: string;
-  email: string;
-  phone: string;
-  plan_id: string;
-}
-
 export default function AdminCompaniesPage() {
   const adminHref = useAdminHref();
 
@@ -67,10 +62,13 @@ export default function AdminCompaniesPage() {
   const [sortDir, setSortDir]   = useState<'asc' | 'desc'>('desc');
 
   const [showCreate, setShowCreate]     = useState(false);
-  const [createForm, setCreateForm]     = useState<CreateForm>({ name: '', trading_name: '', email: '', phone: '', plan_id: '' });
-  const [creating, setCreating]         = useState(false);
-  const [createError, setCreateError]   = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  // Suspend waits for a confirm with a typed reason (audit 3.7); ids = one row or the bulk selection.
+  const [suspendTarget, setSuspendTarget] = useState<{ ids: string[]; label: string; bulk: boolean } | null>(null);
+  const [bulkResult, setBulkResult]       = useState<BulkResult | null>(null);
+  // A failed suspend keeps the dialog (and the typed reason) open and says why there.
+  const [suspendError, setSuspendError]   = useState('');
+  const openSuspend = (t: { ids: string[]; label: string; bulk: boolean }) => { setSuspendError(''); setSuspendTarget(t); };
 
   // Bulk selection
   const [selectedIds, setSelectedIds]   = useState<Set<string>>(new Set());
@@ -150,43 +148,21 @@ export default function AdminCompaniesPage() {
     });
   }
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if (!createForm.name.trim()) { setCreateError('Name is required'); return; }
-    setCreating(true); setCreateError('');
-    try {
-      const res  = await apiFetch('/api/admin/companies', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
-        body: JSON.stringify(createForm),
-      });
-      await assertOk(res, 'Could not create the company - try again');
-      setShowCreate(false);
-      setCreateForm({ name: '', trading_name: '', email: '', phone: '', plan_id: '' });
-      setPage(1);
-      void load(search, status, 1, sortBy, sortDir);
-    } catch (err) {
-      setCreateError(apiErrorMessage(err, 'Could not create the company - try again'));
-    } finally {
-      setCreating(false);
-    }
-  }
-
   // The row reload does NOT surface a rejected suspend/activate: apiFetch
   // resolves on 4xx, so without assertOk the row simply reloads unchanged and
   // the admin is left believing the action succeeded.
-  async function handleSuspend(e: React.MouseEvent, companyId: string) {
-    e.stopPropagation();
+  async function handleSuspend(companyId: string, reason: string) {
     setActionLoading(companyId + ':suspend'); setError('');
     try {
       const res = await apiFetch(`/api/admin/companies/${companyId}/suspend`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
-        body: JSON.stringify({ reason: 'Suspended by admin' }),
+        body: JSON.stringify({ reason }),
       });
       await assertOk(res, 'Could not suspend the company - try again');
+      setSuspendTarget(null);
       void load(search, status, page, sortBy, sortDir);
-    } catch (err) { setError(apiErrorMessage(err, 'Could not suspend the company - try again')); }
+    } catch (err) { setSuspendError(apiErrorMessage(err, 'Could not suspend the company - try again')); }
     finally { setActionLoading(null); }
   }
 
@@ -206,41 +182,39 @@ export default function AdminCompaniesPage() {
     window.location.href = adminHref(`/admin/companies/${companyId}`);
   }
 
-  // --- Bulk actions ---
-  async function handleBulkSuspend() {
-    setBulkLoading(true);
+  // --- Bulk actions --- (200 carries { processed, errors[] }: show both, audit 3.7)
+  async function runBulk(label: string, body: Record<string, unknown>, failMsg: string) {
+    setBulkLoading(true); setBulkResult(null);
     try {
       const res  = await apiFetch('/api/admin/companies/bulk-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
-        body: JSON.stringify({ action: 'suspend', company_ids: [...selectedIds], reason: 'Bulk suspended by admin' }),
+        body: JSON.stringify(body),
       });
-      await assertOk(res, 'Could not suspend the companies - try again');
+      await assertOk(res, failMsg);
+      const d = ((await res.json()) as { data?: { processed?: number; errors?: string[] } }).data;
+      setBulkResult({ label, processed: d?.processed ?? 0, errors: Array.isArray(d?.errors) ? d.errors : [] });
       setSelectedIds(new Set());
+      setSuspendTarget(null);
       void load(search, status, page, sortBy, sortDir);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not suspend the companies - try again'));
+      if (body.action === 'suspend') setSuspendError(apiErrorMessage(err, failMsg));
+      else setError(apiErrorMessage(err, failMsg));
     } finally {
       setBulkLoading(false);
     }
   }
 
-  async function handleBulkExtendTrial() {
-    setBulkLoading(true);
-    try {
-      const res  = await apiFetch('/api/admin/companies/bulk-action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
-        body: JSON.stringify({ action: 'extend_trial', company_ids: [...selectedIds], days: 7 }),
-      });
-      await assertOk(res, 'Could not extend the trial - try again');
-      setSelectedIds(new Set());
-      void load(search, status, page, sortBy, sortDir);
-    } catch (err) {
-      setError(apiErrorMessage(err, 'Could not extend the trial - try again'));
-    } finally {
-      setBulkLoading(false);
-    }
+  function confirmSuspend(reason: string) {
+    if (!suspendTarget) return;
+    setSuspendError('');
+    const [only] = suspendTarget.ids;
+    if (!suspendTarget.bulk && only) { void handleSuspend(only, reason); return; }
+    void runBulk('Suspend', { action: 'suspend', company_ids: suspendTarget.ids, reason }, 'Could not suspend the companies - try again');
+  }
+
+  function handleBulkExtendTrial() {
+    void runBulk('Extend trial 7 days', { action: 'extend_trial', company_ids: [...selectedIds], days: 7 }, 'Could not extend the trial - try again');
   }
 
   function handleExportCsv() {
@@ -313,12 +287,16 @@ export default function AdminCompaniesPage() {
         </div>
       )}
 
+      {bulkResult && (
+        <BulkResultNotice result={bulkResult} names={Object.fromEntries(rows.map(r => [r.id, r.name]))} onDismiss={() => setBulkResult(null)} />
+      )}
+
       {selectedIds.size > 0 && (
         <BulkActionsBar
           count={selectedIds.size}
           loading={bulkLoading}
-          onSuspend={() => void handleBulkSuspend()}
-          onExtendTrial={() => void handleBulkExtendTrial()}
+          onSuspend={() => openSuspend({ ids: [...selectedIds], label: `${selectedIds.size} ${selectedIds.size === 1 ? 'company' : 'companies'}`, bulk: true })}
+          onExtendTrial={handleBulkExtendTrial}
           onExportCsv={handleExportCsv}
           onClear={() => setSelectedIds(new Set())}
         />
@@ -381,7 +359,9 @@ export default function AdminCompaniesPage() {
                   className={`border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 cursor-pointer transition-colors ${selectedIds.has(c.id) ? 'bg-teal-50/50 dark:bg-teal-900/10' : ''}`}
                   onClick={() => { window.location.href = adminHref(`/admin/companies/${c.id}`); }}
                 >
-                  <td className="px-3 py-3 w-8" onClick={e => { e.stopPropagation(); toggleRow(c.id); }}>
+                  {/* The cell toggles only for a click on its padding: a click on the box already fired onChange, and
+                      toggling here too undid it (the box never ticked). */}
+                  <td className="px-3 py-3 w-8" onClick={e => { e.stopPropagation(); if (e.target === e.currentTarget) toggleRow(c.id); }}>
                     <input
                       type="checkbox"
                       checked={selectedIds.has(c.id)}
@@ -414,7 +394,7 @@ export default function AdminCompaniesPage() {
                       {c.status !== 'suspended' && c.status !== 'deleted'
                         ? <button
                             title="Suspend"
-                            onClick={e => void handleSuspend(e, c.id)}
+                            onClick={e => { e.stopPropagation(); openSuspend({ ids: [c.id], label: c.name, bulk: false }); }}
                             disabled={actionLoading !== null}
                             className="p-1.5 rounded text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 transition-colors disabled:opacity-50"
                           >
@@ -465,67 +445,18 @@ export default function AdminCompaniesPage() {
         </div>
       </div>
 
-      {/* Create Company Modal */}
-      {showCreate && (
-        <div role="dialog" aria-modal="true" aria-labelledby="company-modal-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-              <h2 id="company-modal-title" className="text-sm font-semibold text-gray-900 dark:text-white">Add Company</h2>
-              <button onClick={() => setShowCreate(false)} className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <form onSubmit={e => void handleCreate(e)} className="p-5 space-y-4">
-              {createError && (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" /> {createError}
-                </div>
-              )}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Company Name *</label>
-                <input type="text" required value={createForm.name}
-                  onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Trading Name</label>
-                <input type="text" value={createForm.trading_name}
-                  onChange={e => setCreateForm(f => ({ ...f, trading_name: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
-                  <input type="email" value={createForm.email}
-                    onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Phone</label>
-                  <input type="tel" value={createForm.phone}
-                    onChange={e => setCreateForm(f => ({ ...f, phone: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end gap-3 pt-2">
-                <button type="button" onClick={() => setShowCreate(false)}
-                  className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                  Cancel
-                </button>
-                <button type="submit" disabled={creating}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors disabled:opacity-50">
-                  {creating && <Loader2 className="w-4 h-4 animate-spin" />}
-                  Create Company
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <CreateCompanyModal
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={() => { setShowCreate(false); setPage(1); void load(search, status, 1, sortBy, sortDir); }}
+      />
+      <SuspendCompanyDialog
+        target={suspendTarget?.label ?? null}
+        error={suspendError}
+        loading={bulkLoading || actionLoading !== null}
+        onConfirm={confirmSuspend}
+        onCancel={() => setSuspendTarget(null)}
+      />
     </AdminLayout>
   );
 }

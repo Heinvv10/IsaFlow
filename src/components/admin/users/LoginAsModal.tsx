@@ -11,7 +11,9 @@
  * flow appeared to fail after it had already succeeded server-side.
  */
 
+import { useRef } from 'react';
 import { Loader2, LogIn, CheckCircle2, X } from 'lucide-react';
+import { useFocusTrap } from '@/components/ui/useFocusTrap';
 
 interface TargetUser {
   first_name: string;
@@ -37,9 +39,12 @@ export function LoginAsModal({
   onOpenTab,
   onClose,
 }: Props) {
+  // Mounted only while open: a real dialog (audit 4.13), Escape closes, Tab stays inside.
+  const ref = useRef<HTMLDivElement>(null);
+  useFocusTrap(ref, true, onClose);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-md p-6 relative">
+      <div ref={ref} role="dialog" aria-modal="true" aria-label="Login as user" className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-md p-6 relative">
         <button
           onClick={onClose}
           className="absolute top-4 right-4 text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"

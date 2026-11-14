@@ -16,6 +16,9 @@ import {
   updateUser,
 } from '@/modules/admin/services/adminUserService';
 import { deleteUser, SoleOwnerError } from '@/modules/admin/services/adminUserActionsService';
+import {
+  assertSuperAdminRemains, LastSuperAdminError, LAST_SUPER_ADMIN_REASON,
+} from '@/modules/admin/services/superAdminRosterService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
@@ -23,9 +26,10 @@ const PatchBody = z.object({
   first_name: z.string().min(1).max(100).optional(),
   last_name:  z.string().min(1).max(100).optional(),
   // Pentest M21: tighten to enum so the schema can't drift away from the
-  // service-layer allowlist in adminUserService.ts:238. super_admin is
-  // deliberately absent — no path to self-promote via this endpoint.
-  role:       z.enum(['admin', 'manager', 'storeman', 'technician', 'viewer']).optional(),
+  // service-layer allowlist in adminUserService.ts:238. super_admin is accepted
+  // ONLY as the target's unchanged role (the edit form sends the role with every
+  // save); the handler refuses it as a promotion — no path to self-promote.
+  role:       z.enum(['admin', 'manager', 'storeman', 'technician', 'viewer', 'super_admin']).optional(),
   phone:      z.string().max(30).optional(),
 }).strict();
 
@@ -51,30 +55,45 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
     }
 
-    try {
-      const { first_name, last_name, role, phone } = parsed.data;
-
-      await updateUser(userId, { first_name, last_name, role, phone });
-
-      const updated = await getUserDetail(userId);
-      if (!updated) {
-        return apiResponse.notFound(res, 'User', userId);
+    const { first_name, last_name, phone } = parsed.data;
+    let role = parsed.data.role;
+    // A role change may take a super admin out of the console: the roster check locks and refuses the last active
+    // one (admin audit 2026-11-14, 3.3); a role sent unchanged is no change (the edit form sends it with every save).
+    // Only that refusal is caught; any other failure is a 500 that rolls the update back with its audit row.
+    let target = null;
+    if (role !== undefined) {
+      try {
+        target = await assertSuperAdminRemains(userId, { keepsSuperAdmin: role === 'super_admin' });
+      } catch (err) {
+        if (err instanceof LastSuperAdminError) return apiResponse.conflict(res, err.message, { reason: LAST_SUPER_ADMIN_REASON });
+        throw err;
       }
-
-      await logAdminAction(
-        req.user.id,
-        'user.update',
-        'user',
-        userId,
-        { fields: Object.keys(parsed.data) },
-        getIp(req)
-      );
-
-      return apiResponse.success(res, updated);
-    } catch (err) {
-      log.error('Failed to update user', { userId, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to update user');
+      if (!target) return apiResponse.notFound(res, 'User', userId);
+      if (role === 'super_admin' && !target.isSuperAdmin) return apiResponse.badRequest(res, 'Cannot promote to super_admin');
+      if (role === target.role) role = undefined;
     }
+
+    await updateUser(userId, { first_name, last_name, role, phone });
+
+    const updated = await getUserDetail(userId);
+    if (!updated) {
+      return apiResponse.notFound(res, 'User', userId);
+    }
+
+    await logAdminAction(
+      req.user.id,
+      'user.update',
+      'user',
+      userId,
+      {
+        fields: Object.keys(parsed.data),
+        ...(target && role !== undefined ? { previous_role: target.role, role } : {}), // only a real change
+        ...(target?.isSuperAdmin ? { target_super_admin: true } : {}),
+      },
+      getIp(req)
+    );
+
+    return apiResponse.success(res, updated);
   }
 
   if (req.method === 'DELETE') {

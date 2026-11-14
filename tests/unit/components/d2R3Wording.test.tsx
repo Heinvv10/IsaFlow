@@ -1,6 +1,6 @@
 // D2 round 4: fallback wording. An empty-body 500 (or a dropped connection) on these admin / journal pages shows the
 // plain sentence, never a bare "Failed", a status code or a JSON parse error; a 4xx shows the server message.
-import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -94,6 +94,10 @@ describe('admin companies list', () => {
     script((p) => p.endsWith('/suspend'), empty500, list);
     render(<CompaniesPage />);
     fireEvent.click(await screen.findByTitle('Suspend'));
+    // Suspend asks for a reason first (WP13, audit 3.7).
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/reason/i), { target: { value: 'D2 reason' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Suspend' }));
     expect(await screen.findByText('Could not suspend the company - try again')).toBeTruthy(); noRaw();
   });
   it('200: the company renders', async () => { script(() => false, empty500, list); render(<CompaniesPage />); expect((await screen.findAllByText('D2 Acme Ltd')).length).toBeGreaterThan(0); });

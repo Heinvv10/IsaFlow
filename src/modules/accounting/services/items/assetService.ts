@@ -4,6 +4,7 @@
  * Pure business logic — no database dependencies (testable without DB).
  */
 
+import { UUID_RE } from '@/lib/validation';
 import { annualPolicyCharge, type DepreciationMethod } from './depreciationMethods';
 import { DISPOSAL_TYPES, type DisposalType } from './assetDisposalTypes';
 
@@ -44,6 +45,22 @@ export interface AssetInput {
   description?: string;
   serialNumber?: string;
   sarsCategory?: string;
+  /** The fixed-asset COST account a disposal credits (`assets.gl_asset_account_id`). Checked by `assetCostAccountProblem`. */
+  glAssetAccountId?: string | null;
+}
+
+export type GlAssetAccountParse = { ok: true; id: string | null } | { ok: false; error: string };
+
+/**
+ * The `glAssetAccountId` / `gl_asset_account_id` argument, parsed ONE way for the REST route and the MCP tool: absent or
+ * null is "none"; anything else must be a UUID after trimming. The refusal text names no field spelling, so both
+ * callers return the same words.
+ */
+export function parseGlAssetAccountId(raw: unknown): GlAssetAccountParse {
+  if (raw === undefined || raw === null) return { ok: true, id: null };
+  const id = typeof raw === 'string' ? raw.trim() : '';
+  if (!UUID_RE.test(id)) return { ok: false, error: 'Fixed-asset cost account must be a UUID or null' };
+  return { ok: true, id };
 }
 
 export interface DisposalInput {
