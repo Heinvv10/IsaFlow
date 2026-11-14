@@ -60,6 +60,27 @@ export class RecurringJournalNotFoundError extends RecurringJournalRequestError 
   }
 }
 
+/**
+ * The template's next run falls after its end date: it has ended, and nothing more is generated from it. Reached
+ * when an edit moves `next_run_date` past `end_date` (the run itself marks a template completed when its next date
+ * would pass the end). Refused from a read, writing nothing — the same answer for the UI's Generate (400) and the MCP
+ * run (skip reason `ended`).
+ */
+export class RecurringJournalEndedError extends RecurringJournalRequestError {
+  override readonly code = 'RECURRING_JOURNAL_ENDED';
+  constructor(dueDate: string, endDate: string) {
+    super(`This recurring journal ended on ${endDate}: its next run (${dueDate}) is after its end date, so nothing `
+      + 'more is generated from it. Extend the end date, or cancel it.');
+    this.name = 'RecurringJournalEndedError';
+  }
+}
+
+/** The ended refusal for a run due on `dueDate`, or null while the template has not ended. */
+export function templateEndedError(dueDate: string, endDate: unknown): RecurringJournalEndedError | null {
+  if (endDate === null || endDate === undefined) return null;
+  return dueDate > String(endDate) ? new RecurringJournalEndedError(dueDate, String(endDate)) : null;
+}
+
 /** Postgres `lock_not_available` — the 5s `lock_timeout` elapsed on the template row. */
 const LOCK_NOT_AVAILABLE = '55P03';
 

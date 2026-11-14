@@ -82,3 +82,32 @@ export function advanceDate(dateStr: string, frequency: string): string {
 
   return `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`;
 }
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
+  'November', 'December'];
+
+/** The calendar period one run of `frequency` belongs to — what a template generates at most once per. */
+export function frequencyPeriodUnit(frequency: string): 'week' | 'month' | 'quarter' | 'year' {
+  if (frequency === 'weekly') return 'week';
+  if (frequency === 'monthly') return 'month';
+  if (frequency === 'quarterly') return 'quarter';
+  return 'year';
+}
+
+/**
+ * The period of `dateStr` (YYYY-MM-DD) for `frequency`, as a person reads it: "October 2026", "Q4 2026", "2026", or
+ * "The week of 2026-10-12" (its ISO Monday, the week Postgres' date_trunc('week') starts).
+ */
+export function frequencyPeriodLabel(dateStr: string, frequency: string): string {
+  const [year, month, day] = dateStr.split('-').map(Number) as [number, number, number];
+  switch (frequencyPeriodUnit(frequency)) {
+    case 'week': {
+      const d = new Date(Date.UTC(year, month - 1, day));
+      d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+      return `The week of ${d.toISOString().slice(0, 10)}`;
+    }
+    case 'month': return `${MONTH_NAMES[month - 1]} ${year}`;
+    case 'quarter': return `Q${Math.ceil(month / 3)} ${year}`;
+    default: return String(year);
+  }
+}

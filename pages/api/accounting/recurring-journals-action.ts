@@ -20,6 +20,13 @@ import {
 import { PreWriteDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { isHeaderAccountRefusal } from '@/modules/accounting/services/gl/headerAccountGuard';
 
+/** The page's status actions: the status each moves to, and how a refused move is worded. */
+const STATUS_ACTIONS = {
+  pause: { status: 'paused', refused: 'paused — only an active one can' },
+  resume: { status: 'active', refused: 'resumed — only a paused one can' },
+  cancel: { status: 'cancelled', refused: 'cancelled — only an active or paused one can' },
+} as const;
+
 /** Detect by SQLSTATE + constraint name; pg localises and rewords messages. */
 function isDuplicateEntryNumber(err: unknown): boolean {
   const e = err as { code?: unknown; constraint?: unknown };
@@ -40,19 +47,27 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'pause':
-        await updateRecurringJournalStatus(companyId, id, 'paused');
-        return apiResponse.success(res, { status: 'paused' });
       case 'resume':
-        await updateRecurringJournalStatus(companyId, id, 'active');
-        return apiResponse.success(res, { status: 'active' });
-      case 'cancel':
-        await updateRecurringJournalStatus(companyId, id, 'cancelled');
-        return apiResponse.success(res, { status: 'cancelled' });
+      case 'cancel': {
+        // Only active -> paused, paused -> active and active | paused -> cancelled exist (recurringJournalEdits): a
+        // completed or cancelled template stays so — a cancelled one paused and then resumed used to come back to
+        // life and generate. A refused move wrote nothing and answers 400.
+        const move = STATUS_ACTIONS[action as keyof typeof STATUS_ACTIONS];
+        const change = await updateRecurringJournalStatus(companyId, id, move.status);
+        if (!change.changed) {
+          return apiResponse.badRequest(res, `This recurring journal is ${change.current}: it cannot be ${move.refused}.`);
+        }
+        return apiResponse.success(res, { status: move.status });
+      }
       case 'generate': {
-        // heldForApproval (R-035 PR6): the journal left a draft awaiting approval, or nothing.
+        // heldForApproval (R-035 PR6): the journal left a draft awaiting approval, or nothing. posted false (a
+        // draft-only template, migration 989, or a hold): the page says the journal is a draft and names it.
         const run = await withJournalDateRefusal(res, () => runRecurringJournal(companyId, id, userId));
         if (run === JOURNAL_DATE_REFUSED) return;
-        return apiResponse.success(res, { journalId: run.journalId, heldForApproval: run.heldForApproval, ...(run.warnings ? { warnings: run.warnings } : {}) });
+        return apiResponse.success(res, {
+          journalId: run.journalId, entryNumber: run.entryNumber, posted: run.posted, heldForApproval: run.heldForApproval,
+          ...(run.warnings ? { warnings: run.warnings } : {}),
+        });
       }
       default:
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
