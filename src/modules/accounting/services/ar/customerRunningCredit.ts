@@ -42,7 +42,11 @@ export interface CreditJudgement {
   lowestAfter: number | null;
 }
 
-const cents = (n: number) => Math.round(n * 100);
+/** Whole cents: every comparison in the receipt credit rule is made in these. */
+export const cents = (n: number): number => Math.round(n * 100);
+
+/** One spelling of a day for every comparison here: what `fmtDate` makes of a Date or a date string. */
+export const dayKey = (d: string | Date): string => fmtDate(d);
 
 /** The per-day figures for `customerId`, with `removals` (this customer's rows only count). */
 export async function customerCreditDays(
@@ -74,13 +78,32 @@ export async function customerCreditDays(
   return {
     customerName: rows[0]?.customer_name ? String(rows[0].customer_name) : 'this customer',
     days: rows.map((r) => ({
-      d: fmtDate(r.d as string | Date),
+      d: dayKey(r.d as string | Date),
       amount: Number(r.amount ?? 0),
       removed: Number(r.removed ?? 0),
       lowers: Number(r.lowers ?? 0),
       others: Number(r.others ?? 0),
     })),
   };
+}
+
+/**
+ * `days` with cash removed at given dates instead of from given rows: a removal the ledger has no row for yet (a refund
+ * about to be recorded) or one only simulated (the back-fill population). `amount` < 0 adds cash (a re-added receipt).
+ * Dates are matched by `dayKey`; a date with no row yet gets a day of its own.
+ */
+export function withDatedRemovals(
+  days: readonly CreditDay[], removals: readonly { date: string | Date; amount: number }[],
+): CreditDay[] {
+  const out = days.map((d) => ({ ...d, d: dayKey(d.d) }));
+  for (const r of removals) {
+    const key = dayKey(r.date);
+    let day = out.find((d) => d.d === key);
+    if (!day) { day = { d: key, amount: 0, removed: 0, lowers: 0, others: 0 }; out.push(day); }
+    day.removed += r.amount;
+    day.lowers += Math.max(r.amount, 0);
+  }
+  return out;
 }
 
 /** The rule, on the per-day figures (in whole cents, oldest date first). */

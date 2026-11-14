@@ -125,3 +125,36 @@ describe('withReceiptCancellationsJudged — judged once, each receipt only veri
     expect(isRetryableReceiptRefusal(await inJudgedCall(judgedDays, 80).catch((e: unknown) => e))).toBe(true);
   });
 });
+
+describe('withReceiptCancellationsJudged — N receipts of one customer read its credit once', () => {
+  it('the judgment, then ONE verification for the customer; each later receipt checks only its own row', async () => {
+    const ids = ['a', 'b', 'c'];
+    const judgedDays = [day('2026-05-02', 300, 300, 0), day('2026-05-09', 100)];
+    // reads in order: the judgment's rows, a's own row, the set (once, at a), b's own row, c's own row
+    sqlMock
+      .mockResolvedValueOnce(rows(['a', 'c', 100], ['b', 'c', 100], ['c', 'c', 100]))
+      .mockResolvedValueOnce(rows(['a', 'c', 100]))
+      .mockResolvedValueOnce(rows(['a', 'c', 100], ['b', 'c', 100], ['c', 'c', 100]))
+      .mockResolvedValueOnce(rows(['b', 'c', 100]))
+      .mockResolvedValueOnce(rows(['c', 'c', 100]));
+    vi.mocked(customerCreditDays).mockResolvedValue({ customerName: 'Acme', days: judgedDays });
+    await withReceiptCancellationsJudged('co', ids, async () => {
+      for (const id of ids) await assertReceiptVoidKeepsCredit('co', [id]);
+    });
+    expect(customerCreditDays).toHaveBeenCalledTimes(2); // judgment + one verification, not one per receipt
+    expect(tryLockCustomerCredit).toHaveBeenCalledTimes(1);
+  });
+  it('a later receipt whose own remainder moved after the customer was verified is still refused, retryable', async () => {
+    sqlMock
+      .mockResolvedValueOnce(rows(['a', 'c', 100], ['b', 'c', 100]))
+      .mockResolvedValueOnce(rows(['a', 'c', 100]))
+      .mockResolvedValueOnce(rows(['a', 'c', 100], ['b', 'c', 100]))
+      .mockResolvedValueOnce(rows(['b', 'c', 160])); // unapplied since (an unapply takes no customer lock)
+    vi.mocked(customerCreditDays).mockResolvedValue({ customerName: 'Acme', days: [day('2026-05-02', 200, 200, 0)] });
+    const err = await withReceiptCancellationsJudged('co', ['a', 'b'], async () => {
+      await assertReceiptVoidKeepsCredit('co', ['a']);
+      await assertReceiptVoidKeepsCredit('co', ['b']);
+    }).catch((e: unknown) => e);
+    expect(isRetryableReceiptRefusal(err)).toBe(true);
+  });
+});

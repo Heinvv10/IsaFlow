@@ -29,7 +29,13 @@ vi.mock('@/modules/accounting/services/bank/bankReversalGate', () => ({
   agentReversalRefusal: vi.fn(), assertMayReverse: vi.fn(), auditedReversal: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/bank/bankReallocationLocks', () => ({ lockReallocationDocuments: vi.fn() }));
-vi.mock('@/modules/accounting/services/bank/bankReallocationCredit', () => ({ assertReallocationKeepsCredit: vi.fn() }));
+vi.mock('@/modules/accounting/services/bank/bankReallocationCredit', () => ({
+  assertReallocationKeepsCredit: vi.fn(), reallocationReAdd: vi.fn(async () => undefined),
+}));
+// The unwind runs inside the reallocation's receipt judgment (ar/customerVoidCredit); here it is transparent.
+vi.mock('@/modules/accounting/services/ar/customerVoidCredit', () => ({
+  withReceiptCancellationsJudged: vi.fn(async (_c: string, _ids: readonly string[], fn: () => Promise<unknown>) => fn()),
+}));
 vi.mock('@/modules/accounting/services/bank/bankAllocationUnwind', () => ({ unwindBankAllocationApplication: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/reversalDatePostable', () => ({ lockPeekedReversalTarget: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({ allocateTransaction: vi.fn() }));

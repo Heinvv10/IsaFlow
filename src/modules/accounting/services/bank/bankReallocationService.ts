@@ -41,7 +41,8 @@ import { lockPeekedReversalTarget } from './reversalDatePostable';
 import { BankReallocationRefusal, planReallocation, type ReallocationTarget } from './bankReallocationGuards';
 import { loadReallocationFacts } from './bankReallocationFacts';
 import { lockReallocationDocuments } from './bankReallocationLocks';
-import { assertReallocationKeepsCredit } from './bankReallocationCredit';
+import { assertReallocationKeepsCredit, reallocationReAdd } from './bankReallocationCredit';
+import { withReceiptCancellationsJudged } from '../ar/customerVoidCredit';
 import {
   assertBankLegKept, assertOriginalDateKept, auditReallocation, newDocumentOf, readBankLeg, restoreReconciled,
   type NewDocumentKind,
@@ -114,7 +115,8 @@ async function reallocateInner(
     { journalId: plan.journalId, target, spent: amount < 0, autoApply: opts.autoApply });
   // Cancelling the old payment / receipt must not leave a recorded refund with no credit behind it on any date from
   // the document's own (bankReallocationCredit, both sides). Under the contact's credit / refund lock, before any write.
-  await assertReallocationKeepsCredit(companyId, old);
+  const reAdd = await reallocationReAdd(companyId, { target, amount, date: plan.entryDate, autoApply: opts.autoApply });
+  await assertReallocationKeepsCredit(companyId, old, reAdd);
   const reviewed = { at: tx.reviewed_at, by: tx.reviewed_by };
   const actor: PostingActorOpts = {
     ...(opts.postingAgent === undefined ? {} : { postingAgent: opts.postingAgent }),
@@ -122,7 +124,8 @@ async function reallocateInner(
     ...(opts.actorTokenJti === undefined ? {} : { actorTokenJti: opts.actorTokenJti }),
   };
 
-  const done = await withSavepoint('bank_reallocate', async () => {
+  // The unwind's own receipt checks verify the judgment above (the same customer's new receipt netted in).
+  const done = await withReceiptCancellationsJudged(companyId, old.customerPaymentIds, () => withSavepoint('bank_reallocate', async () => {
     const unwound = await unwindBankAllocationApplication(companyId, plan.journalId);
     // The old journal head, after every document: the new journal's number lock and the reversal's claim come next.
     await lockPeekedReversalTarget(companyId, plan.journalId, plan.journalId);
@@ -141,7 +144,7 @@ async function reallocateInner(
     const leg = assertBankLegKept(plan.bankLeg, plan.entryDate, await readBankLeg(companyId, bankTxId), posted.journalEntryId);
     await restoreReconciled(companyId, bankTxId, plan.reconciliationId, leg.lineId, reviewed);
     return { unwound, posted, reversalId: reversal.id, newLineId: leg.lineId };
-  });
+  }), { locked: true, reAdd });
 
   await auditedReversal(companyId, bankTxId, userId, clearance, null);
   await auditReallocation({

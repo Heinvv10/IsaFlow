@@ -13,7 +13,7 @@ vi.mock('@/modules/accounting/services/ap/supplierCreditLock', () => ({ lockSupp
 vi.mock('@/modules/accounting/services/ap/supplierOnAccountCredit', () => ({ getSupplierOnAccountCredit: vi.fn() }));
 
 import { customerVoidCreditShortfall } from '@/modules/accounting/services/ar/customerVoidCredit';
-import { assertReallocationKeepsCredit } from '@/modules/accounting/services/bank/bankReallocationCredit';
+import { assertReallocationKeepsCredit, reallocationReAdd } from '@/modules/accounting/services/bank/bankReallocationCredit';
 import { BankReallocationRefusal } from '@/modules/accounting/services/bank/bankReallocationGuards';
 import { lockSupplierCredit } from '@/modules/accounting/services/ap/supplierCreditLock';
 import { getSupplierOnAccountCredit } from '@/modules/accounting/services/ap/supplierOnAccountCredit';
@@ -38,6 +38,26 @@ describe('assertReallocationKeepsCredit', () => {
     vi.mocked(customerVoidCreditShortfall).mockResolvedValueOnce({ customerId: 'c', customerName: 'Acme', lowers: 850, credit: 0, fromDate: '2026-07-12' });
     await expect(assertReallocationKeepsCredit('co', { supplierPaymentIds: [], customerPaymentIds: ['r1'] }))
       .rejects.toThrow(/cancel its receipt and leave Acme owing the company: .* from 2026-07-12/);
-    expect(customerVoidCreditShortfall).toHaveBeenCalledWith('co', ['r1']);
+    expect(customerVoidCreditShortfall).toHaveBeenCalledWith('co', ['r1'], undefined);
+  });
+});
+
+describe('reallocationReAdd — what a new receipt for the same customer keeps on account', () => {
+  const customer = { kind: 'customer' as const, customerId: 'c' };
+  it('auto_apply "none": its whole amount, on the line\'s date', async () => {
+    expect(await reallocationReAdd('co', { target: customer, amount: 1000, date: '2026-06-12', autoApply: 'none' }))
+      .toEqual({ customerId: 'c', date: '2026-06-12', amount: 1000 });
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
+  it('"fifo": what is left after FIFO could take every open invoice, never below zero', async () => {
+    sqlMock.mockResolvedValueOnce([{ open: 300 }]);
+    expect((await reallocationReAdd('co', { target: customer, amount: 1000, date: '2026-06-12' }))?.amount).toBe(700);
+    sqlMock.mockResolvedValueOnce([{ open: 5000 }]);
+    expect((await reallocationReAdd('co', { target: customer, amount: 1000, date: '2026-06-12', autoApply: 'fifo' }))?.amount).toBe(0);
+  });
+  it('nothing for a refund, a supplier or an account target', async () => {
+    expect(await reallocationReAdd('co', { target: customer, amount: -500, date: '2026-06-12' })).toBeUndefined();
+    expect(await reallocationReAdd('co', { target: { kind: 'supplier', supplierId: 's' }, amount: 500, date: '2026-06-12' })).toBeUndefined();
+    expect(await reallocationReAdd('co', undefined)).toBeUndefined();
   });
 });

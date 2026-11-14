@@ -4,7 +4,9 @@
  * {refund, receipt} pair that lowers no date and the live call refused it (per-receipt judgment with a retry vs the
  * set judgment). Both red on eba1b81995. Plus the rule for a customer ALREADY below zero on some date
  * (ar/customerRunningCredit): a write that lowers that date is refused, one that does not is allowed — so such a
- * customer stays correctable by writes that leave the negative date alone. Disposable fixture DB only.
+ * customer stays correctable by writes that leave the negative date alone. Round 2 (98da211bc4): H1 — a refund dated
+ * before one already recorded pushed the later date below zero (the refund writer judged as at its own date only);
+ * H3 — the application refusal holds in a plan. Disposable fixture DB only.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -71,6 +73,34 @@ describe('breaker', () => {
       dry: 'passed', live: 'passed',
       after: { '05-20': 0, '05-27': -150 }, // no date lower than before
     });
+  }, 60_000);
+});
+
+describe('breaker round 2 (98da211bc4)', () => {
+  it('H1: an earlier-dated refund may not take a LATER date below zero — the refund writer judges by date too', async () => {
+    const c = await L.newCustomer();
+    await L.allocated(c, 100, '2026-06-01');
+    await L.allocated(c, -100, '2026-06-20');
+    const second = await verdict(L.allocated(c, -100, '2026-06-10'));
+    expect({ second, running: await running(c) }).toEqual({ second: 'SUPPLIER_REFUND_REFUSED', running: { '06-01': 100, '06-20': 0 } });
+  }, 60_000);
+
+  it('H1 converse: a refund the running credit covers on every later date still passes', async () => {
+    const c = await L.newCustomer();
+    await L.allocated(c, 300, '2026-06-01');
+    await L.allocated(c, -100, '2026-06-20');
+    expect(await verdict(L.allocated(c, -150, '2026-06-10'))).toBe('passed'); // 06-10: 150, 06-20: 50
+    expect(await running(c)).toEqual({ '06-01': 300, '06-10': 150, '06-20': 50 });
+  }, 60_000);
+
+  it('H3: applying a spent remainder is refused, also as a plan (dry run)', async () => {
+    const c = await L.newCustomer();
+    const r = await L.allocated(c, 200, '2026-07-02');
+    await L.allocated(c, -150, '2026-07-04');
+    const inv = await L.invoice(c, 200, '2026-07-01');
+    expect(await verdict(L.inTx(() => planReceiptApplication(fx.company, r.receipt, [{ invoiceId: inv, amount: 60 }])))).toBe('RECEIPT_REFUSED');
+    expect(await verdict(L.inTx(() => planReceiptApplication(fx.company, r.receipt, [{ invoiceId: inv, amount: 50 }])))).toBe('passed');
+    expect(await verdict(voidReceipt(r.receipt))).toBe('RECEIPT_REFUSED');
   }, 60_000);
 });
 

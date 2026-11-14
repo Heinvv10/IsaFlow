@@ -37,6 +37,7 @@ import { log } from '@/lib/logger';
 import { resolveUserUuid } from '../gl/journalEntryCrudService';
 import { lockContactForRefund } from '../core/paymentLock';
 import { REFUND_PAYMENT_METHOD, SupplierRefundRefusal } from '../ap/supplierRefundDocument';
+import { customerCreditDays, judgeCreditDays, lowersBelowZero, withDatedRemovals } from './customerRunningCredit';
 
 /**
  * ONE refusal class for both sides. The two refusals are the same fact about
@@ -103,6 +104,11 @@ export async function getCustomerOnAccountCredit(
  * The ceiling check. Takes the contact lock, then reads; writes nothing else.
  * See the AP twin for why a ceiling read without the lock is a number two
  * concurrent refunds both satisfy.
+ *
+ * Judged by DATE (2026-11-14, the receipt credit rule `ar/customerRunningCredit`): the refund takes its amount off
+ * the running credit from its own date on, and is refused when that leaves any of those dates below zero — the
+ * LOWEST running credit from its date, as the AP twin's `lowestFromDate`. A refund dated before one already recorded
+ * was judged as at its own date only, and pushed the later one's date below zero (breaker round 2, H1).
  */
 export async function planCustomerRefund(
   companyId: string,
@@ -112,14 +118,18 @@ export async function planCustomerRefund(
 ): Promise<CustomerRefundPlan> {
   const gross = round2(Math.abs(amount));
   await lockContactForRefund(companyId, 'customer', customerId);
-  const { credit, customerName } = await getCustomerOnAccountCredit(
+  const { credit: asAtDate, customerName } = await getCustomerOnAccountCredit(
     companyId, customerId, paymentDate,
   );
+  const { days } = await customerCreditDays(companyId, customerId, []);
+  const judged = judgeCreditDays(withDatedRemovals(days, [{ date: paymentDate, amount: gross }]));
+  const credit = gross > 0 ? round2(judged.lowest) : asAtDate;
+  const basis = credit >= asAtDate ? `as at ${paymentDate}` : 'once documents dated after this one are counted';
 
-  if (gross > credit) {
+  if (lowersBelowZero(judged)) {
     throw new SupplierRefundRefusal(
       `A refund of ${gross.toFixed(2)} exceeds the ${credit.toFixed(2)} `
-      + `${customerName} has on account as at ${paymentDate}. `
+      + `${customerName} has on account ${basis}. `
       + `Recording it would leave the company owing ${customerName}, which is a `
       + 'payable — it cannot be recorded against Accounts Receivable. Raise a '
       + 'credit note, or allocate this payment to the account it belongs to.',

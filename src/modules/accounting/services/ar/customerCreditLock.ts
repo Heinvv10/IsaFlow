@@ -14,11 +14,16 @@
  * WHY TRIED (`SKIP LOCKED`): this path never WAITS on the customer, so it adds no wait for the customer to any cycle.
  * Held by another request (a refund, a merge, a reallocation, another write of this customer's cash) → the retryable
  * `PaymentLockTimeoutError` (REST 503 + Retry-After, MCP retry, a run undo's contended skip), before any write.
- * It is NOT edge-free once held: the holder goes on to wait for its journal number (and, in a bulk reversal, later
- * lines), and a request that WAITS for this row while holding one of those closes a cycle. The one known is the R2-4
- * class: a bulk allocate or rule sweep that posts a line's journal (number) and then plans a refund of this customer
- * (waits here) while a cancel holds the customer and waits for the number. Postgres breaks it (40P01, retryable: the
- * sweep skips the line, MCP says retry). Its fix is R2-4's: allocate locking documents before journals.
+ * It is NOT edge-free once held: the holder goes on to wait for its journal number and, in a bulk reversal, for its
+ * later lines' receipts, and a request that WAITS for this row while holding one of those closes a cycle. Known, each
+ * broken by Postgres as a retryable 40P01 (MCP retry, a sweep's skipped line, a merge's 409 CUSTOMER_MERGE_CONTENDED):
+ *   · R2-4 class — a bulk allocate or rule sweep that posts a line's journal (number) and then plans a refund of this
+ *     customer (waits here), while a cancel or a bulk reversal holds the customer and waits for its number. Fix:
+ *     R2-4's (allocate locking documents before journals).
+ *   · a customer merge that holds the SOURCE's receipts and waits for the TARGET customer here, while a bulk reversal
+ *     holds the target (taken at one receipt's step) and reaches a later line whose receipt is one of the source's.
+ * The bulk reversal is the one holder that keeps this row across further waits on receipts (it judges its set up
+ * front, unlocked, and locks each customer at that customer's first receipt).
  *
  * `FOR NO KEY UPDATE`: it conflicts with the refund's `FOR UPDATE` (both directions) and with another writer's own
  * tried lock, but not with the `KEY SHARE` every uncommitted insert of an invoice or receipt for this customer holds

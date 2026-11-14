@@ -106,3 +106,18 @@ export function assertInvoiceTakesReceipts(invoice: LockedReceiptInvoice): void 
     + ' — it has no receivable posted to settle.',
   );
 }
+
+/**
+ * The invoices `paymentIds` are applied to, `FOR UPDATE`, one id-ordered pass: what a receipt CANCEL holds before it
+ * takes the customer's credit lock (payments → invoices → customers; `ar/customerVoidCredit`). A plain FOR UPDATE
+ * with no `lock_timeout` of its own, unlike `lockReceiptInvoices`: the cancel's ONE flow lock budget
+ * (`core/rowLockBudget.underFlowLockBudget`) governs its wait (D8 round 10). The unwind's writes re-enter these rows.
+ */
+export async function lockInvoicesOfReceipts(companyId: string, paymentIds: readonly string[]): Promise<void> {
+  await sql`
+    SELECT ci.id FROM customer_invoices ci
+    WHERE ci.company_id = ${companyId}::UUID
+      AND ci.id IN (SELECT cpa.invoice_id FROM customer_payment_allocations cpa WHERE cpa.payment_id = ANY(${[...paymentIds]}::UUID[]))
+    ORDER BY ci.id
+    FOR UPDATE OF ci`;
+}

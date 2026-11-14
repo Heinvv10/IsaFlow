@@ -9,24 +9,18 @@
  * sources applied at most their remainders, then never refuses a source this let through). A source that would leave
  * the running credit below zero on a date it lowers is skipped and consumes nothing. AP is decided by
  * `markCreditCeilingSkips` (all dates, Hein 2026-10-26).
+ *
+ * The population read takes no customer lock (as AP's does not): a dry run can say "would apply" where the live run,
+ * finding the customer row held by a refund or another write of its cash at that instant, reports the source as a
+ * retryable failure. That is contention only — the rule's answer on the same books is the same in both modes.
  */
-import { customerCreditDays, judgeCreditDays, lowersBelowZero, type CreditDay } from '../ar/customerRunningCredit';
+import {
+  customerCreditDays, judgeCreditDays, lowersBelowZero, withDatedRemovals, type CreditDay,
+} from '../ar/customerRunningCredit';
 import type { BackfillSource, Subledger } from './autoApplyBackfillPlan';
 
 export const SKIP_RECEIPT_CREDIT_CEILING =
   'the customer\'s running on-account credit, after its refunds, does not cover this receipt\'s whole remainder';
-
-/** `days` with `removals` (date, amount) taken off them. */
-function withRemovals(days: readonly CreditDay[], removals: readonly { date: string; amount: number }[]): CreditDay[] {
-  const out = days.map((d) => ({ ...d, removed: 0, lowers: 0 }));
-  for (const r of removals) {
-    let day = out.find((d) => d.d === r.date);
-    if (!day) { day = { d: r.date, amount: 0, removed: 0, lowers: 0, others: 0 }; out.push(day); }
-    day.removed += r.amount;
-    day.lowers += Math.max(r.amount, 0);
-  }
-  return out;
-}
 
 export async function markReceiptCreditSkips(
   companyId: string, subledger: Subledger, sources: readonly BackfillSource[],
@@ -42,7 +36,7 @@ export async function markReceiptCreditSkips(
     if (!isCandidate(source)) return source;
     const key = source.entityId!.toLowerCase();
     const tentative = [...(taken.get(key) ?? []), { date: source.paymentDate, amount: source.remainder }];
-    if (lowersBelowZero(judgeCreditDays(withRemovals(daysOf.get(key) ?? [], tentative)))) {
+    if (lowersBelowZero(judgeCreditDays(withDatedRemovals(daysOf.get(key) ?? [], tentative)))) {
       return { ...source, skippedReason: SKIP_RECEIPT_CREDIT_CEILING };
     }
     taken.set(key, tentative);

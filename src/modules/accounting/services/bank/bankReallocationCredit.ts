@@ -17,8 +17,10 @@ import { fmtDate } from '@/lib/fmtDate';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { lockSupplierCredit } from '../ap/supplierCreditLock';
 import { getSupplierOnAccountCredit } from '../ap/supplierOnAccountCredit';
-import { customerVoidCreditShortfall } from '../ar/customerVoidCredit';
-import { BankReallocationRefusal } from './bankReallocationGuards';
+import { customerVoidCreditShortfall, type CreditReAdd } from '../ar/customerVoidCredit';
+import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
+import type { AutoApplyMode } from '../shared/autoAllocateStrategy';
+import { BankReallocationRefusal, type ReallocationTarget } from './bankReallocationGuards';
 
 const cents = (n: number) => Math.round(n * 100);
 
@@ -51,11 +53,35 @@ async function supplierShortfall(companyId: string, paymentIds: readonly string[
   return null;
 }
 
-/** Refuses (REALLOCATION_REFUSED, before any write) when cancelling the old documents would leave a refund uncovered. */
+/** What the reallocation records next: a receipt for this customer re-adds the cash the old one's cancel removes. */
+export interface ReallocationNext { target: ReallocationTarget; amount: number; date: string; autoApply?: AutoApplyMode }
+
+/**
+ * The cash a new receipt for the same customer keeps on account, as a floor: its whole amount when nothing is
+ * auto-applied, else what is left after FIFO could take every open invoice of the customer (the most it can apply).
+ */
+export async function reallocationReAdd(companyId: string, next: ReallocationNext | undefined): Promise<CreditReAdd | undefined> {
+  if (!next || next.target.kind !== 'customer' || next.amount <= 0) return undefined;
+  const { customerId } = next.target;
+  if ((next.autoApply ?? 'fifo') === 'none') return { customerId, date: next.date, amount: next.amount };
+  const [r] = (await sql`
+    SELECT COALESCE(SUM(GREATEST(ci.total_amount - COALESCE(ci.amount_paid, 0), 0)), 0) AS open
+    FROM customer_invoices ci
+    WHERE ci.company_id = ${companyId}::UUID AND COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
+      AND ci.deleted_at IS NULL AND ci.status = ANY(${[...FIFO_ELIGIBLE_STATUSES]}::TEXT[])`) as DbRow[];
+  return { customerId, date: next.date, amount: Math.max(next.amount - Number(r?.open ?? 0), 0) };
+}
+
+/**
+ * Refuses (REALLOCATION_REFUSED, before any write) when cancelling the old documents would leave a refund uncovered.
+ * Re-pointing a receipt to the SAME customer nets the new receipt's floor (`reallocationReAdd`) against what the
+ * cancel removes; the unwind then runs inside the same judgment (`withReceiptCancellationsJudged`, the service).
+ */
 export async function assertReallocationKeepsCredit(
   companyId: string, old: { supplierPaymentIds: readonly string[]; customerPaymentIds: readonly string[] },
+  reAdd?: CreditReAdd,
 ): Promise<void> {
-  const customer = await customerVoidCreditShortfall(companyId, old.customerPaymentIds);
+  const customer = await customerVoidCreditShortfall(companyId, old.customerPaymentIds, reAdd);
   const s: Shortfall | null = customer
     ? { side: 'customer', name: customer.customerName, lowers: customer.lowers, credit: customer.credit, fromDate: customer.fromDate }
     : await supplierShortfall(companyId, old.supplierPaymentIds);

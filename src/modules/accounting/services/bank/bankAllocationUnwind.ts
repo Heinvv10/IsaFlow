@@ -61,6 +61,7 @@ import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
 import { lockCustomerPaymentForUpdate, lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { assertVoidKeepsCredit } from '../ap/supplierVoidCredit';
 import { assertReceiptVoidKeepsCredit, withReceiptCancellationsJudged } from '../ar/customerVoidCredit';
+import { lockInvoicesOfReceipts } from '../ar/receiptInvoiceLock';
 import type { VatLockRoll } from '../gl/journalEntryReversalVatRoll';
 
 export interface BankAllocationUnwindResult {
@@ -121,8 +122,9 @@ export async function unwindOnePayment(
   let invoicesReopened = 0;
   let amountUnapplied = 0;
 
-  // (1) THE PAYMENT FIRST, AND BEFORE ITS ROWS ARE READ. This flip is the
-  // payment row lock. It used to run AFTER the loop, so
+  // (1) THE PAYMENT FIRST, AND BEFORE ITS ROWS ARE READ: its row lock
+  // (`lockCustomerPaymentForUpdate` / `lockSupplierPaymentForUpdate` below, then
+  // the cancel flip). The flip used to be the lock and ran AFTER the loop, so
   // `reverseReconciledTransaction` — the only caller that does not already
   // hold the payment — took bank -> invoices -> payment, the inverse of
   // `planReceiptApplication` / `planSupplierPaymentApplication`, which lock the
@@ -137,7 +139,7 @@ export async function unwindOnePayment(
     // on-account credit below zero on a date it lowers (a refund already returned this cash). The canonical order,
     // all before the first write: the receipt, its invoices, then the customer (tried) and the check.
     await lockCustomerPaymentForUpdate(companyId, paymentId);
-    await lockReceiptsInvoices(companyId, [paymentId]);
+    await lockInvoicesOfReceipts(companyId, [paymentId]);
     await assertReceiptVoidKeepsCredit(companyId, [paymentId]);
     await sql`
       UPDATE customer_payments SET status = 'cancelled', updated_at = NOW()
@@ -215,16 +217,6 @@ export async function unwindOnePayment(
   return { invoicesReopened, amountUnapplied };
 }
 
-/** The invoices `paymentIds` are applied to, `FOR UPDATE`, one id-ordered pass (the unwind's own writes re-enter). */
-async function lockReceiptsInvoices(companyId: string, paymentIds: readonly string[]): Promise<void> {
-  await sql`
-    SELECT ci.id FROM customer_invoices ci
-    WHERE ci.company_id = ${companyId}::UUID
-      AND ci.id IN (SELECT cpa.invoice_id FROM customer_payment_allocations cpa WHERE cpa.payment_id = ANY(${[...paymentIds]}::UUID[]))
-    ORDER BY ci.id
-    FOR UPDATE OF ci`;
-}
-
 export async function unwindBankAllocationApplication(
   companyId: string,
   journalEntryId: string,
@@ -261,7 +253,7 @@ export async function unwindBankAllocationApplication(
       // held in id order, then all their invoices, then each customer (tried) and the judgment; each receipt's own
       // check inside only verifies it (`ar/customerVoidCredit.withReceiptCancellationsJudged`).
       for (const id of ids) await lockCustomerPaymentForUpdate(companyId, id);
-      await lockReceiptsInvoices(companyId, ids);
+      await lockInvoicesOfReceipts(companyId, ids);
       await withReceiptCancellationsJudged(companyId, ids, unwindAll, { locked: true });
     } else {
       await unwindAll();
