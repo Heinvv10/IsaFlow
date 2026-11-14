@@ -131,3 +131,6 @@ describe('the new page and a STALE_VIEW', () => {
     expect(JSON.parse(sessionStorage.getItem('isaflow:invoice-approve-refused:inv-1')!)).toEqual({ message: 'Changed elsewhere', status: null });
   });
 });
+
+// M14: this suite does not provide the auth context or the comments route; the panel has its own tests (commentsPanel, commentsMounts).
+vi.mock('@/components/accounting/comments/CommentsPanel', () => ({ CommentsPanel: () => null }));
