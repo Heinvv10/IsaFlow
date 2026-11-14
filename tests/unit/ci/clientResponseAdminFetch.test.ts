@@ -34,3 +34,14 @@ describe.each(['apiFetch', 'adminFetch'])('%s callers are held to the same rules
 it('an import alias of adminFetch is undone, so its writes are still checked', () => {
   expect(kinds(src('adminFetch', `await request('/api/admin/x', { method: 'POST' });`, 'request'))).toEqual(['d']);
 });
+
+describe.each(['apiFetch', 'adminFetch'])('%s: the type-driven rule path (a Response found by TYPE, not by callee name)', (name) => {
+  it('(a) a body read off a Response returned by a local wrapper, before any status check, is flagged', () => {
+    const body = `const load = () => ${name}('/api/admin/x');\n  const res = await load();\n  const json = await res.json();\n  setRows(json.data);`;
+    expect(kinds(src(name, body))).toContain('a');
+  });
+  it('(a) the same read after assertOk is quiet', () => {
+    const body = `const load = () => ${name}('/api/admin/x');\n  const res = await load();\n  await assertOk(res, 'Could not load x - try again');\n  const json = await res.json();\n  setRows(json.data);`;
+    expect(kinds(src(name, body))).toEqual([]);
+  });
+});

@@ -16,6 +16,12 @@ const IMP = `import { adminFetch } from '@/lib/admin/adminFetch';\nimport { apiF
 const wrap = (body: string, imports = IMP) => `${imports}export async function f() {\n${body}\n}\n`;
 
 const EVASIONS: Array<[string, string]> = [
+  ['concatenated route', `await apiFetch('/api/' + 'admin/x', { method: 'POST' });`],
+  ['template whose static part is only /api/', 'const seg = \'admin\'; await apiFetch(`/api/${seg}/x`, { method: \'POST\' });'],
+  ['segment before /admin', 'await apiFetch(`${base}/admin/x`, { method: \'POST\' });'],
+  ["window['fetch']", `await window['fetch']('/api/admin/x', { method: 'POST' });`],
+  ["globalThis['fetch']", `await globalThis['fetch']('/api/admin/x', { method: 'POST' });`],
+  ['route constant imported from an unselected module', `await apiFetch(ADMIN_ROUTES.x, { method: 'POST' });`],
   ['const URL variable', `const U = '/api/admin/x'; await apiFetch(U, { method: 'POST' });`],
   ['endpoint variable', 'const endpoint = `/api/admin/x`; await apiFetch(endpoint);'],
   ['window.fetch', `await window.fetch('/api/admin/x', { method: 'POST' });`],
@@ -39,7 +45,8 @@ const EVASIONS: Array<[string, string]> = [
 
 describe('adminFetchViolations: every evasion shape is caught', () => {
   it.each(EVASIONS)('%s', (name, body) => {
-    const imports = name === 'aliased callee' ? `import { adminFetch } from '@/lib/admin/adminFetch';\nimport { apiFetch as req } from '@/lib/apiFetch';\n`
+    const imports = name.startsWith('route constant imported') ? `import { ADMIN_ROUTES } from './routes';\n${IMP}`
+      : name === 'aliased callee' ? `import { adminFetch } from '@/lib/admin/adminFetch';\nimport { apiFetch as req } from '@/lib/apiFetch';\n`
       : name === 'admin string without importing adminFetch' ? `import { apiFetch } from '@/lib/apiFetch';\n` : IMP;
     expect(adminFetchViolations(wrap(body, imports))).not.toEqual([]);
   });
@@ -50,6 +57,7 @@ describe('adminFetchViolations: legitimate shapes are quiet', () => {
     ['adminFetch, GET and write', `await adminFetch('/api/admin/x'); await adminFetch('/api/admin/y', { method: 'POST', headers: { 'Content-Type': 'application/json' } });`],
     ['a plain non-admin literal through apiFetch', `await adminFetch('/api/admin/x'); await apiFetch('/api/accounting/migration-parse', { method: 'POST' });`],
     ['apiJson on an admin route with the real header', `await adminFetch('/api/admin/x'); await apiJson('/api/admin/u/1/impersonate', { method: 'POST', headers: { 'X-Admin-Request': 'true' } });`],
+    ['a link to the admin UI built from a template, and an imported non-ADMIN constant', "import { PACK_DATA_API } from './p';\nconst h = `${base}/admin/tools/x`;\nawait adminFetch('/api/admin/x');"],
     ['a header named only in a comment and a type', `// X-Admin-Request\ntype R = '/api/admin/x';\nawait adminFetch('/api/admin/x');`],
   ])('%s', (_n, body) => expect(adminFetchViolations(wrap(body))).toEqual([]));
   it('a file that never touches /api/admin is not an admin file', () => {
