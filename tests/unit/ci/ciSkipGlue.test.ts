@@ -201,7 +201,8 @@ describe('run-ci.sh: gate groups (ci.yml runs static on GitHub-hosted, velo on v
   });
 
   it('every prepush step is one the full gate also runs', () => {
-    const strip = (calls: string[]) => calls.filter((c) => !c.includes('integration/scope.ts') && !c.includes('prepush.ts'));
+    // check:routes is a step of `bun run test:unit` in the full gate (package.json), a step of its own here.
+    const strip = (calls: string[]) => calls.filter((c) => !c.includes('integration/scope.ts') && !c.includes('prepush.ts') && !c.startsWith('bun run check:routes'));
     const all = strip(run(['scripts/ci/run-ci.sh'], PR).calls);
     expect(strip(run(['scripts/ci/run-ci.sh', 'prepush'], PR).calls).filter((c) => !all.includes(c))).toEqual([]);
   });
