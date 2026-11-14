@@ -12,7 +12,7 @@ import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage } from '@/lib/api
 import type { CompanyEffectiveFeature } from '@/modules/admin/types/admin-billing.types';
 import { formatDate } from '@/utils/formatters';
 import { formatLastSeen } from '@/components/admin/formatLastSeen';
-import { useAdminHref } from '@/hooks/useAdminPrefix';
+import { useAdminHref, tenantAppUrl } from '@/hooks/useAdminPrefix';
 import {
   ArrowLeft, AlertCircle, Loader2, Building2, ShieldOff, ShieldCheck,
   Trash2, Download, UserCog, ToggleLeft, ToggleRight, RotateCcw,
@@ -270,8 +270,7 @@ export default function AdminCompanyDetailPage() {
       const json = await res.json();
       const token = (json.data as { token: string })?.token;
       if (token) {
-        const appBase = process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin;
-        window.open(`${appBase}/accounting?impersonate=${encodeURIComponent(token)}`, '_blank');
+        window.open(tenantAppUrl(`/accounting?impersonate=${encodeURIComponent(token)}`), '_blank', 'noopener,noreferrer');
       } else {
         throw new ApiEnvelopeError('No token was returned, so impersonation could not start');
       }

@@ -10,6 +10,8 @@ import type { ShortcutConfig } from '@/lib/keyboard-shortcuts';
 interface GlobalShortcutHandlers {
   openCommandPalette: () => void;
   openShortcutHelp: () => void;
+  /** The admin subdomain: no "G then <key>", every GO_TO target is an /accounting or /payroll page, a 404 there. */
+  isAdminHost?: boolean;
 }
 
 /**
@@ -30,19 +32,19 @@ export const GO_TO: Array<{ key: string; name: string; href: string }> = [
   { key: 'l', name: 'Library', href: '/accounting/library' },
 ];
 
-export function useGlobalShortcuts({ openCommandPalette, openShortcutHelp }: GlobalShortcutHandlers): ShortcutConfig[] {
+export function useGlobalShortcuts({ openCommandPalette, openShortcutHelp, isAdminHost = false }: GlobalShortcutHandlers): ShortcutConfig[] {
   const router = useRouter();
   const shortcuts = useMemo<ShortcutConfig[]>(() => [
     { key: 'ctrl+k', label: 'Ctrl+K', description: 'Open command palette', category: 'global', action: openCommandPalette },
     { key: '?', label: '?', description: 'Show keyboard shortcuts', category: 'global', action: openShortcutHelp },
-    ...GO_TO.map(({ key, name, href }) => ({
+    ...(isAdminHost ? [] : GO_TO).map(({ key, name, href }) => ({
       key: `g ${key}`,
       label: `G then ${key.toUpperCase()}`,
       description: `Go to ${name}`,
       category: 'navigation' as const,
       action: () => { void router.push(href); },
     })),
-  ], [router, openCommandPalette, openShortcutHelp]);
+  ], [router, openCommandPalette, openShortcutHelp, isAdminHost]);
 
   useKeyboardShortcuts(shortcuts);
   return shortcuts;
