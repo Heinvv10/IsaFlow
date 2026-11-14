@@ -20,7 +20,7 @@ import { listImportBatches } from '@/modules/accounting/services/bank/bankImport
 import { listJournalEntriesPage } from '@/modules/accounting/services/gl/journalEntryListService';
 import { addBankTxAttachment } from '@/modules/accounting/services/bank/bankTxAttachmentService';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
-import { escapeLikeLiteral } from '@/lib/mcp/tools/bank';
+import { escapeLikeLiteral } from '@/lib/sqlLikeLiteral';
 
 type AlsCtx = Parameters<typeof als.run>[0];
 const alsCtx = (client: unknown, companyId: string): AlsCtx =>

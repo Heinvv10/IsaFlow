@@ -16,10 +16,17 @@ vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
   accountsBelongToCompany: vi.fn().mockResolvedValue(true),
 }));
 vi.mock('@/lib/mcp/tools/allocationVatGuard', () => ({ resolveLineVatCode: vi.fn() }));
+vi.mock('@/modules/accounting/services/core/externalRefService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/core/externalRefService')>()),
+  findByExternalRef: vi.fn(async () => []),
+  lockExternalRef: vi.fn(async () => undefined),
+  stampExternalRef: vi.fn(async () => undefined),
+}));
 
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { resolveLineVatCode } from '@/lib/mcp/tools/allocationVatGuard';
 import { createDraftJournalTool } from '@/lib/mcp/tools/writeJournals';
+import { findByExternalRef, stampExternalRef } from '@/modules/accounting/services/core/externalRefService';
 
 const ctx = {
   companyId: 'c0000000-0000-0000-0000-000000000001', userId: 'u0000000-0000-0000-0000-000000000002',
@@ -68,5 +75,24 @@ describe('create_draft_journal vat_type guard', () => {
       allocType: 'account', contraAccountId: SALARIES, vatCode: 'standard',
     });
     expect(createJournalEntry).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('create_draft_journal — external_ref (brief step 3)', () => {
+  const args = {
+    date: '2026-11-03', external_system: 'sage', external_ref: 'JNL-9', idempotency_key: 'k3',
+    lines: [{ account_id: BANK, debit: 10, credit: 0 }, { account_id: SALARIES, debit: 0, credit: 10 }],
+  };
+  it('returns the live journal with the reference and creates nothing', async () => {
+    vi.mocked(findByExternalRef).mockResolvedValueOnce([{ entityType: 'journal', id: 'je-old', number: 'JE-2026-00001', status: 'draft', date: '2026-11-01', totalAmount: 115, live: true, externalDocumentNumber: null }]);
+    const res = await createDraftJournalTool.handler(args, ctx);
+    expect((res as { wroteNothing?: boolean }).wroteNothing).toBe(true);
+    expect(createJournalEntry).not.toHaveBeenCalled();
+  });
+  it('creates, stamps, and echoes the reference', async () => {
+    vi.mocked(createJournalEntry).mockResolvedValue({ id: 'j9', status: 'draft' } as never);
+    const res = await createDraftJournalTool.handler(args, ctx);
+    expect(stampExternalRef).toHaveBeenCalledWith('c0000000-0000-0000-0000-000000000001', 'journal', 'j9', { system: 'sage', ref: 'JNL-9', documentNumber: null });
+    expect(JSON.parse(res.content[0]!.text)).toMatchObject({ id: 'j9', external_ref: 'JNL-9' });
   });
 });

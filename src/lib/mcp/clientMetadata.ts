@@ -25,6 +25,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'company_profile',
   'list_companies',
   'token_info',
+  'find_by_external_ref',
   'trial_balance',
   'profit_and_loss',
   'balance_sheet',
