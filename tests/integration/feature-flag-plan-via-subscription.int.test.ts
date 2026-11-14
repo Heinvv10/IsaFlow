@@ -23,6 +23,7 @@ import {
   getCompanyEffectiveFeatures,
   hasFeature,
 } from '@/modules/admin/services/featureFlagService';
+import { CURRENT_PLAN_ID_SQL } from '@/modules/admin/services/currentPlanSql';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
 import { fixture, loginUrl } from './s07b-app-pool-login-role.helpers';
 
@@ -50,7 +51,7 @@ const co = {
   cancelledOnly: randomUUID(),
   pausedOnly: randomUUID(),
   newerLiveOtherPlan: randomUUID(), // older live grant, newer live non-grant: latest wins
-  newerCancelled: randomUUID(), // live grant, then a later cancelled one: grant stays
+  olderActiveAfterNewerCancelled: randomUUID(), // older ACTIVE grant resurfaces when a newer row is cancelled: intended, current = latest LIVE row
   olderCancelledGrant: randomUUID(), // cancelled grant, newer live non-grant
   overrideOnNoSub: randomUUID(),
   overrideOffOnPlan: randomUUID(),
@@ -78,7 +79,7 @@ const EXPECTED_PLAN: Record<keyof typeof co, boolean> = {
   cancelledOnly: false,
   pausedOnly: false,
   newerLiveOtherPlan: false,
-  newerCancelled: true,
+  olderActiveAfterNewerCancelled: true,
   olderCancelledGrant: false,
   overrideOnNoSub: true,
   overrideOffOnPlan: false,
@@ -150,8 +151,8 @@ describe.skipIf(!process.env.DATABASE_URL)('feature gating reads the plan from s
     await sub(co.pausedOnly, planGrant, 'paused', '2026-01-01');
     await sub(co.newerLiveOtherPlan, planGrant, 'active', '2026-01-01');
     await sub(co.newerLiveOtherPlan, planOther, 'active', '2026-02-01');
-    await sub(co.newerCancelled, planGrant, 'active', '2026-01-01');
-    await sub(co.newerCancelled, planOther, 'cancelled', '2026-02-01');
+    await sub(co.olderActiveAfterNewerCancelled, planGrant, 'active', '2026-01-01');
+    await sub(co.olderActiveAfterNewerCancelled, planOther, 'cancelled', '2026-02-01');
     await sub(co.olderCancelledGrant, planGrant, 'cancelled', '2026-01-01');
     await sub(co.olderCancelledGrant, planOther, 'active', '2026-02-01');
     await sub(co.overrideOffOnPlan, planGrant, 'active', '2026-01-01');
@@ -190,6 +191,11 @@ describe.skipIf(!process.env.DATABASE_URL)('feature gating reads the plan from s
     expect(await hasFeature(co[name], PLAN_FLAG)).toBe(EXPECTED_PLAN[name]);
   });
 
+  it.each(names)('companiesWithFeature, one company at a time: %s', async (name) => {
+    const got = await companiesWithFeature([co[name]], PLAN_FLAG);
+    expect(got.has(co[name])).toBe(EXPECTED_PLAN[name]);
+  });
+
   it('companiesWithFeature answers the same set in one query', async () => {
     const expected = new Set(names.filter((n) => EXPECTED_PLAN[n]).map((n) => co[n]));
     expect(await companiesWithFeature(ALL, PLAN_FLAG)).toEqual(expected);
@@ -199,6 +205,21 @@ describe.skipIf(!process.env.DATABASE_URL)('feature gating reads the plan from s
     const rows = await getCompanyEffectiveFeatures(co[name]);
     const row = rows.find((r) => r.code === PLAN_FLAG);
     expect(row?.enabled).toBe(EXPECTED_PLAN[name]);
+  });
+
+  it('a trial ending exactly now is not live (strict >, evaluated in one transaction so NOW() is equal)', async () => {
+    const client = await fixture.connect();
+    const company = randomUUID();
+    try {
+      await client.query('BEGIN');
+      await client.query('INSERT INTO companies (id, name, trial_ends_at) VALUES ($1, $2, NOW())', [company, `PlanSub edge ${tag}`]);
+      await client.query(`INSERT INTO subscriptions (company_id, plan_id, status) VALUES ($1, $2, 'trial')`, [company, planGrant]);
+      const r = await client.query(`SELECT ${CURRENT_PLAN_ID_SQL} AS plan_id FROM public.companies c WHERE c.id = $1`, [company]);
+      expect(r.rows[0].plan_id).toBeNull();
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
   });
 
   it('effective features name the plan as the source for a subscribed company', async () => {

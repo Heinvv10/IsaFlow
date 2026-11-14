@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { trialEndsAt } from '@/modules/onboarding/services/tenantProvisioningService';
 import type {
   AdminCompanyListItem,
   AdminCompanyDetail,
@@ -280,7 +281,7 @@ export async function createCompany(input: {
   const rows = await sql`
     INSERT INTO companies (
       name, registered_name, trading_name, email, phone, country, default_currency, status,
-      annual_turnover_cents, payg_eligible
+      annual_turnover_cents, payg_eligible, trial_ends_at
     ) VALUES (
       ${input.name},
       ${input.name},
@@ -291,12 +292,15 @@ export async function createCompany(input: {
       'ZAR',
       'active',
       ${input.annual_turnover_cents ?? null},
-      ${input.payg_eligible ?? false}
+      ${input.payg_eligible ?? false},
+      ${input.plan_id ? trialEndsAt(new Date()) : null}
     )
     RETURNING id, name
   `;
   const created = rows[0] as { id: string; name: string };
 
+  // A plan means a trial subscription, and plan gating counts a trial only
+  // while companies.trial_ends_at is in the future (set above, as provisioning does).
   if (input.plan_id) {
     await sql`
       INSERT INTO subscriptions (company_id, plan_id, status, billing_cycle, current_period_start)
