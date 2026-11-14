@@ -1,27 +1,16 @@
 /**
  * Admin ops actions leave an audit row (audit 3.5): job-queue retry, bulk retry,
- * bulk cancel and Delete Old Jobs; email resend; Sage commit. logAdminAction fails
- * closed, so a Sage commit whose audit row cannot be written commits none of the
- * records it wrote.
+ * bulk cancel and Delete Old Jobs; Sage commit. logAdminAction fails closed, so a
+ * Sage commit whose audit row cannot be written commits none of the records it
+ * wrote. (Email resend is removed by WP11: email_log cannot rebuild an email.)
  *
- * Disposable schema fixture only (assertDisposable). The mail transport is mocked:
- * no email leaves this suite.
+ * Disposable schema fixture only (assertDisposable).
  */
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
-
-const sent = vi.hoisted(() => [] as Array<{ to: string; subject: string }>);
-vi.mock('@/modules/accounting/services/core/emailService', async (orig) => ({
-  ...(await orig<Record<string, unknown>>()),
-  sendEmail: vi.fn(async (o: { to: string; subject: string }) => {
-    sent.push({ to: o.to, subject: o.subject });
-    return { success: true, messageId: 'wp10-mock' };
-  }),
-}));
 
 import jobQueueRoute from '../../pages/api/admin/job-queue';
 import bulkRoute from '../../pages/api/admin/job-queue/bulk-action';
-import resendRoute from '../../pages/api/admin/email-log/resend';
 import sageCommitRoute from '../../pages/api/admin/migration/sage-commit';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { auditRows, callAdminRoute, seedSuperAdmin } from './admin-audited-exports.helpers';
@@ -52,7 +41,6 @@ afterAll(async () => {
     await pool.query(`ALTER TABLE admin_audit_log DROP CONSTRAINT IF EXISTS wp10_block_sage_audit`);
     await pool.query('DELETE FROM admin_audit_log WHERE admin_user_id = $1', [admin]);
     await pool.query('DELETE FROM background_jobs WHERE company_id = $1', [company]);
-    await pool.query('DELETE FROM email_log WHERE company_id = $1', [company]);
     await pool.query('DELETE FROM customers WHERE company_id = $1', [company]);
     await pool.query('DELETE FROM users WHERE id = $1', [admin]);
     await pool.query('DELETE FROM companies WHERE id = $1', [company]);
@@ -103,24 +91,6 @@ describe('job queue', () => {
     expect(rows[0]).toMatchObject({ target_type: 'background_job', target_id: null });
     expect(rows[0]!.details).toMatchObject({ older_than_days: 365 });
     expect(rows[0]!.details!.deleted).toBeGreaterThanOrEqual(1);
-  }, 30000);
-});
-
-describe('email resend', () => {
-  it('is audited with the email log id and type, not the recipient', async () => {
-    const recipient = `${TAG}-cust@test.local`;
-    const log = await pool.query(`INSERT INTO email_log (company_id, recipient_email, subject, email_type, status)
-      VALUES ($1, $2, 'Invoice INV-1', 'invoice', 'failed') RETURNING id`, [company, recipient]);
-    const logId = log.rows[0].id as string;
-    const r = await callAdminRoute(admin, resendRoute, 'POST', '/api/admin/email-log/resend', {}, { logId });
-    expect(r.status, r.text).toBe(200);
-    expect(sent.map((m) => m.to)).toEqual([recipient]);
-    const rows = await auditRows(pool, admin, 'email.resend');
-    expect(rows).toEqual([{
-      action: 'email.resend', target_type: 'email_log', target_id: logId,
-      details: { email_type: 'invoice', company_id: company },
-    }]);
-    expect(JSON.stringify(rows[0])).not.toContain(recipient);
   }, 30000);
 });
 
