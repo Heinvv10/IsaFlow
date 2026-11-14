@@ -29,7 +29,7 @@ function heatmapClass(pct: number): string {
 /** null = that month has not ended yet: a dash, distinct from a real 0%. */
 function PctCell({ value }: { value: number | null }) {
   return (
-    <td className={`px-4 py-2.5 text-center text-xs font-semibold rounded ${value === null ? 'text-gray-500' : heatmapClass(value)}`}>
+    <td className={`px-4 py-2.5 text-center text-xs font-semibold rounded ${value === null ? 'text-ink-muted' : heatmapClass(value)}`}>
       {formatRate(value)}
     </td>
   );
