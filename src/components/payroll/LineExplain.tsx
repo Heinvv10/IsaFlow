@@ -22,7 +22,7 @@ export interface ExplainTarget {
 
 export function ExplainButton({ figure, who, onClick }: { figure: ExplainedFigure; who: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} title="How was this calculated?"
+    <button type="button" onClick={onClick} data-explain-trigger title="How was this calculated?"
       aria-label={`How was ${FIGURE_NAME[figure]} for ${who} calculated?`}
       className="ff-focus-ring ml-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded align-middle text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] hover:text-teal-700 dark:hover:text-teal-300">
       <Info className="h-3.5 w-3.5" aria-hidden="true" />

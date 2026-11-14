@@ -52,13 +52,16 @@ jobs:
     name: Static gates
     needs: route
     runs-on: ${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}
-    # Hosted: 40. Measured on ubuntu-24.04 (4 vCPU), PR #977 runs 41117290258
-    # and 41124556128: 26 min including setup (re-measure and tighten). On velo,
-    # the old bound for these steps: 58 min at load 150-250, plus install.
+    # Hosted: 60. Was 40, which cancelled healthy runs: queue run 43530071847
+    # (2026-11-14) took 1 min setup, unit tests 22 min, component tests 10 min,
+    # then hit the cap in the remaining steps; #1348's queue run took 38 min.
+    # PR #977 had measured 26 min on ubuntu-24.04 (4 vCPU) when the suite was
+    # smaller. On velo, the old bound for these steps: 58 min at load 150-250,
+    # plus install.
     # ubuntu-24.04, not ubuntu-latest: -latest moves to Ubuntu 26 from
     # 2026-10-19 (actions/runner-images#14748), and a moving image is a
     # moving gate.
-    timeout-minutes: ${{ needs.route.outputs.hosted == 'true' && 40 || 75 }}
+    timeout-minutes: ${{ needs.route.outputs.hosted == 'true' && 60 || 75 }}
     # Read-only. actions + pull-requests: mq-merge-already-tested.ts reads the
     # merged PR and its CI run's jobs (CI_READ_TOKEN below).
     permissions:

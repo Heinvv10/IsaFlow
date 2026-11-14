@@ -29,8 +29,8 @@ const WIRED: Record<FlowOperationCode, string[] | null> = {
     'pages/api/accounting/supplier-payments.ts',
   ],
   'journal.create':       ['pages/api/accounting/journal-entries.ts'],
-  'report.pnl':           ['pages/api/accounting/reports-income-statement.ts'],
-  'report.bs':            ['pages/api/accounting/reports-balance-sheet.ts'],
+  'report.pnl':           ['pages/api/accounting/reports-income-statement.ts', 'pages/api/accounting/ask.ts'],
+  'report.bs':            ['pages/api/accounting/reports-balance-sheet.ts', 'pages/api/accounting/ask.ts'],
   'report.age':           [
     'pages/api/accounting/reports-ar-aging.ts',
     'pages/api/accounting/reports-ap-aging.ts',

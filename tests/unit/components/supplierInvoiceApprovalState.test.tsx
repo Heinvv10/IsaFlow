@@ -108,3 +108,6 @@ describe('supplier invoice detail — approval state', () => {
     expect(await screen.findByRole('button', { name: /submit for approval/i })).toBeDefined();
   });
 });
+
+// M14: this suite does not provide the auth context or the comments route; the panel has its own tests (commentsPanel, commentsMounts).
+vi.mock('@/components/accounting/comments/CommentsPanel', () => ({ CommentsPanel: () => null }));
