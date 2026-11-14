@@ -53,6 +53,7 @@ import {
   getDocumentTool,
   listUnsupportedTransactionsTool,
 } from './tools/documents';
+import { listMissingDocumentsTool } from './tools/missingDocuments';
 import {
   createDraftInvoiceTool,
   createDraftQuoteTool,
@@ -216,6 +217,7 @@ export const MCP_TOOLS = [
   listDocumentsTool,
   getDocumentTool,
   listUnsupportedTransactionsTool,
+  listMissingDocumentsTool,
   listSupplierInvoicesTool,
   getSupplierInvoiceTool,
   listBankRulesTool,

@@ -18,14 +18,44 @@ cd "$(git rev-parse --show-toplevel)"
 #   all     both, in order: the default (the full gate, run by hand).
 #   prepush the fast subset the git pre-push hook runs (scripts/ci/hooks/pre-push): type checks, the cheap
 #           guards, lint and unit tests scoped to the diff. Not part of `all`; GitHub still runs every gate.
-#   bun run ci [all|static|velo|prepush]
+#   bun run ci [all|static|velo|prepush] [PART/PARTS]
+# PART/PARTS (default 1/1, the whole group) is how GitHub-hosted runs split a
+# group over parallel jobs (ci.yml's static and velo matrices); every gate, or
+# every file of a split test suite, runs in exactly one part:
+#   static  part 1 runs every gate but the two test suites (type checks, lint,
+#           the text guards, migration-naming, the build); parts 2..PARTS run
+#           unit-tests and component-tests, each split PARTS-1 ways (vitest
+#           --shard). Measured on hosted 2026-11-14: gates 3.5 min, build 5,
+#           unit-tests 11, component-tests 7.
+#   velo    part k runs browser-tests --shard=k/PARTS (dealt by measured
+#           seconds: vitest.print.config.ts) and integration slice k/PARTS
+#           (integration/run.sh). Measured: browser-tests 25 min, integration
+#           36 min, as one job.
+# `all` and `prepush` are never split.
 GROUP="${1:-all}"
+PART_ARG="${2:-1/1}"
+usage() { echo "usage: run-ci.sh [all|static|velo|prepush] [PART/PARTS] (got: $GROUP $PART_ARG)" >&2; exit 2; }
 case "$GROUP" in
   all|static|velo|prepush) ;;
-  *) echo "usage: run-ci.sh [all|static|velo|prepush] (got: $GROUP)" >&2; exit 2 ;;
+  *) usage ;;
 esac
+[[ "$PART_ARG" =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]] || usage
+PART=${BASH_REMATCH[1]}
+PARTS=${BASH_REMATCH[2]}
+[ "$PART" -le "$PARTS" ] || usage
+case "$GROUP" in all|prepush) [ "$PARTS" -eq 1 ] || usage ;; esac
 in_group() { [ "$GROUP" = all ] || [ "$GROUP" = "$1" ]; }
-echo "[ci] gate group: $GROUP"
+# static: part 1 (or the whole group) runs the gates that are not test suites,
+# the other parts (or the whole group) the suites, each in the same share.
+static_gates() { in_group static && { [ "$PARTS" -eq 1 ] || [ "$PART" -eq 1 ]; }; }
+static_suites() { in_group static && { [ "$PARTS" -eq 1 ] || [ "$PART" -gt 1 ]; }; }
+declare -a SUITE_SHARD=()
+[ "$PARTS" -gt 2 ] && SUITE_SHARD=("--shard=$((PART - 1))/$((PARTS - 1))")
+declare -a VELO_SHARD=()
+[ "$PARTS" -gt 1 ] && VELO_SHARD=("--shard=$PART/$PARTS")
+declare -a INT_SLICE=()
+[ "$PARTS" -gt 1 ] && INT_SLICE=("$PART/$PARTS")
+echo "[ci] gate group: $GROUP, part $PART/$PARTS"
 
 declare -a FAILED=()
 INTEGRATION_NOTE=""
@@ -91,7 +121,7 @@ fi
 # every gate below (PR-authored tests included). ci.yml's checkouts set
 # persist-credentials: false, so it is not in .git/config either.
 unset CI_READ_TOKEN
-if in_group static; then
+if static_gates; then
 run_step "type-check"        bun run type-check
 # `tsconfig.json` excludes `tests/**`, so a FIXTURE may omit a required field
 # of the model it claims to be and neither `tsc --noEmit` nor vitest notices.
@@ -148,9 +178,11 @@ run_step "workflow-runs-ci"       bun scripts/ci/check-workflow-runs-ci.ts
 # imports, not by directory). It is not a completeness proof: its stated limits
 # are in scripts/ci/clientResponseRule.ts, and review still has to find the rest.
 run_step "client-responses"       bun scripts/ci/check-client-responses.ts
-run_step "unit-tests"        bun run test:unit
-run_step "component-tests"   bun run test:components
 run_step "migration-naming"  bun scripts/audit-migration-naming.ts
+fi
+if static_suites; then
+run_step "unit-tests"        bun run test:unit "${SUITE_SHARD[@]}"
+run_step "component-tests"   bun run test:components "${SUITE_SHARD[@]}"
 fi
 
 if in_group velo; then
@@ -158,7 +190,7 @@ if in_group velo; then
 # unit-tests above, where they timed out beside ~800 parallel files, and
 # run here one file at a time. REQUIRED, like every other step: a failure or a
 # timeout fails the gate.
-run_step "browser-tests"     capped bun run test:print
+run_step "browser-tests"     capped bun run test:print "${VELO_SHARD[@]}"
 
 # Every tests/integration/**/*.test.ts against throwaway PostgreSQL 16
 # clusters the step starts and removes itself (initdb as the current user; no
@@ -181,7 +213,7 @@ if [ "${GITHUB_ACTIONS:-}" = "true" ] || [ "${CI_INTEGRATION:-}" = "1" ]; then
     INTEGRATION_NOTE=" (integration SKIPPED: Markdown-only change)"
     echo "[skip] integration: SKIPPED — every changed file is Markdown (see [integration-scope] above)"
   else
-    run_step "integration"   bash scripts/ci/integration/run.sh
+    run_step "integration"   bash scripts/ci/integration/run.sh "${INT_SLICE[@]}"
   fi
 else
   INTEGRATION_NOTE=" (integration NOT RUN)"
@@ -192,7 +224,7 @@ fi
 
 # Production build gate — catches build-breaking changes pre-merge (the deploy
 # script builds too, but that's too late). Set CI_SKIP_BUILD=1 to skip locally.
-if ! in_group static; then
+if ! static_gates; then
   :
 elif [ "${CI_SKIP_BUILD:-0}" = "1" ]; then
   echo "[skip] build: CI_SKIP_BUILD=1"
@@ -216,7 +248,7 @@ fi
 
 echo ""
 if [ "${#FAILED[@]}" -eq 0 ]; then
-  echo "[ci] all checks passed (group: $GROUP)${INTEGRATION_NOTE}"
+  echo "[ci] all checks passed (group: $GROUP, part $PART/$PARTS)${INTEGRATION_NOTE}"
   exit 0
 fi
 
