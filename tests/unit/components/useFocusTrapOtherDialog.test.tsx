@@ -74,3 +74,72 @@ it('a dialog opened inside the trapped one owns its keys too', () => {
   fireEvent.keyDown(button('Inner'), { key: 'Escape' });
   expect(outer).not.toHaveBeenCalled();
 });
+
+describe('useFocusTrap with a Select open inside the overlay (M14 mention picker in a drawer)', () => {
+  it('Escape on an expanded combobox, or inside its listbox, closes the list and leaves the overlay open', () => {
+    const close = vi.fn();
+    render(<Overlay name="Drawer" onEscape={close} nested={<>
+      <div role="combobox" aria-haspopup="listbox" aria-expanded="true" aria-label="Pick" tabIndex={0} />
+      <div role="listbox" data-select-listbox="true"><div role="option" aria-selected="false" tabIndex={0}>One</div></div>
+    </>} />);
+    screen.getByRole('combobox', { name: 'Pick' }).focus();
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Pick' }), { key: 'Escape' });
+    screen.getByRole('option', { name: 'One' }).focus();
+    fireEvent.keyDown(screen.getByRole('option', { name: 'One' }), { key: 'Escape' });
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it('Escape in a combobox with no popup list (the command palette input) still closes the overlay', () => {
+    const close = vi.fn();
+    render(<Overlay name="Palette" onEscape={close} nested={<input role="combobox" aria-expanded="true" aria-label="Search" />} />);
+    screen.getByRole('combobox', { name: 'Search' }).focus();
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Search' }), { key: 'Escape' });
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape on a closed combobox still closes the overlay', () => {
+    const close = vi.fn();
+    render(<Overlay name="Drawer" onEscape={close} nested={<div role="combobox" aria-expanded="false" aria-label="Pick" tabIndex={0} />} />);
+    screen.getByRole('combobox', { name: 'Pick' }).focus();
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Pick' }), { key: 'Escape' });
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useFocusTrap and a text box that holds a draft (M14 comment composer)', () => {
+  it('Escape in a box marked data-keeps-escape does not close the overlay; in one without the mark it does', () => {
+    const close = vi.fn();
+    render(<Overlay name="Drawer" onEscape={close} nested={<><textarea aria-label="kept" data-keeps-escape="true" /><textarea aria-label="empty" /></>} />);
+    screen.getByLabelText('kept').focus();
+    fireEvent.keyDown(screen.getByLabelText('kept'), { key: 'Escape' });
+    expect(close).not.toHaveBeenCalled();
+    screen.getByLabelText('empty').focus();
+    fireEvent.keyDown(screen.getByLabelText('empty'), { key: 'Escape' });
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useFocusTrap and a listbox that is not a Select', () => {
+  it('Escape inside a plain focusable listbox still closes the overlay', () => {
+    const close = vi.fn();
+    render(<Overlay name="Drawer" onEscape={close} nested={<div role="listbox" tabIndex={0} aria-label="plain"><div role="option" aria-selected="false" tabIndex={0}>One</div></div>} />);
+    screen.getByRole('option', { name: 'One' }).focus();
+    fireEvent.keyDown(screen.getByRole('option', { name: 'One' }), { key: 'Escape' });
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useFocusTrap with the real kit Select inside a trapped drawer', () => {
+  it('Escape with focus in the open, portalled list closes the list and leaves the drawer open', async () => {
+    const close = vi.fn();
+    const { Select } = await import('@/components/ui/Select');
+    render(<Overlay name="Drawer" onEscape={close} nested={<Select label="Pick one" options={[{ value: 'a', label: 'Alpha' }, { value: 'b', label: 'Beta' }]} value={null} onChange={() => undefined} />} />);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Pick one' }));
+    const option = screen.getByRole('option', { name: 'Alpha' });
+    option.focus();
+    expect(option.closest('[role="listbox"]')).not.toBeNull();
+    fireEvent.keyDown(option, { key: 'Escape' });
+    expect(close).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
+  });
+});
