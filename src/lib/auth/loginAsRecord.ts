@@ -5,7 +5,7 @@
 // then may the caller set cookies. The revocation's outcome (and how many stashes went) is added to that
 // same row afterwards (`noteLoginAsEnd`), so the row says `target_session_revoked: null` (unknown) until
 // then, and stays honest if that last write fails.
-import { logout, verifyTokenSignature } from './gotrue';
+import { isSessionAlreadyGone, logout, verifyTokenSignature } from './gotrue';
 import { impersonationPartiesOf } from './impersonationSessions';
 import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -44,7 +44,9 @@ export async function loginAsPartiesOfToken(accessToken: string): Promise<LoginA
 /**
  * Writes the `impersonation_end` row and returns its id. Throws when it cannot: the caller must stop there.
  * One row per Login-as (#1371 re-break B3b): when an end row for these parties already carries the same verified
- * `session_id` or `stash_id` (a retry after a lost answer or a later failure), that row is returned instead,
+ * key (a retry after a lost answer or a later failure), that row is returned instead. With a session id the match
+ * is on `session_id` ONLY (re-break M4: a stash cookie swapped between two Login-as of one pair must not fold one
+ * session's end into the other's row); the stash id matches only an end with no session (the admin's own browser),
  * unchanged; the caller's outcome then lands on it through `noteLoginAsEnd`. Only server-verified keys match
  * (LoginAsEndKey), so a forged stash cookie cannot reach an earlier session's row. The look-up and the insert run
  * in one transaction under a transaction-scoped advisory lock per key (`login-as-end:<key>`, taken in sorted order),
@@ -61,8 +63,9 @@ export async function recordLoginAsEnd(
       const [existing] = await tx`
         SELECT id FROM admin_audit_log
         WHERE admin_user_id = ${parties.actorUserId} AND action = 'impersonation_end' AND target_id = ${parties.targetUserId}
-          AND ((${key.sessionId ?? null}::text IS NOT NULL AND details->>'session_id' = ${key.sessionId ?? null})
-            OR (${key.stashId ?? null}::text IS NOT NULL AND details->>'stash_id' = ${key.stashId ?? null}))
+          AND CASE WHEN ${key.sessionId ?? null}::text IS NOT NULL
+                   THEN details->>'session_id' = ${key.sessionId ?? null}
+                   ELSE details->>'stash_id' = ${key.stashId ?? null} END
         ORDER BY created_at LIMIT 1
       ` as { id: string }[];
       if (existing) return String(existing.id);
@@ -83,19 +86,28 @@ export async function recordLoginAsEnd(
 /** Adds what happened after the end was recorded to that row. Logged, never thrown: the row already stands. */
 export async function noteLoginAsEnd(endId: string, outcome: Record<string, unknown>): Promise<void> {
   try {
+    // Never from revoked to not revoked (re-break M2): a retry whose revocation found nothing left to revoke, or
+    // failed, does not undo an earlier recorded revocation.
     await sql`
-      UPDATE admin_audit_log SET details = coalesce(details, '{}'::jsonb) || ${JSON.stringify(outcome)}::jsonb
+      UPDATE admin_audit_log
+      SET details = coalesce(details, '{}'::jsonb) || ${JSON.stringify(outcome)}::jsonb
+        || CASE WHEN details->>'target_session_revoked' = 'true'
+                THEN '{"target_session_revoked": true}'::jsonb ELSE '{}'::jsonb END
       WHERE id = ${endId}::uuid AND action = 'impersonation_end'
     `;
   } catch (err) { noteFailure('outcome', 'recording the outcome', err); }
 }
 
-/** Revokes the session `accessToken` names at GoTrue (scope=local: that session only). False when it could not. */
+/**
+ * Revokes the session `accessToken` names at GoTrue (scope=local: that session only). False when it could not;
+ * true also when GoTrue answers that the session no longer exists (session_not_found: already revoked).
+ */
 export async function revokeLoginAsSession(accessToken: string, reason: string): Promise<boolean> {
   try {
     await logout(accessToken, 'local');
     return true;
   } catch (err) {
+    if (isSessionAlreadyGone(err)) return true;
     noteFailure(reason, 'GoTrue revocation', err);
     return false;
   }

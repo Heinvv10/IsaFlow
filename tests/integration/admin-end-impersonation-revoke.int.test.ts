@@ -16,6 +16,7 @@
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
+import { decodeJwt } from 'jose';
 import endImpersonation from '../../pages/api/auth/end-impersonation';
 import logoutRoute from '../../pages/api/auth/logout';
 import startImpersonation from '../../pages/api/admin/users/[id]/impersonate';
@@ -44,6 +45,9 @@ const fx = loginAsFixture(pool, 'WP9 end Login-as');
 const logouts: { path: string; bearer: string }[] = [];
 /** How many of this admin's stash rows existed at each GoTrue /logout (review L2: the stash goes BEFORE the revoke). */
 const stashesAtLogout: number[] = [];
+/** GoTrue v2 answers 403 session_not_found to /logout of a session it already revoked; `strictLogout` turns that on. */
+let strictLogout = false;
+const revokedSessions = new Set<string>();
 let failLogout = false;
 
 beforeAll(async () => {
@@ -56,6 +60,13 @@ beforeAll(async () => {
         bearer: new Headers(init?.headers).get('authorization')?.replace(/^Bearer /, '') ?? '' });
       stashesAtLogout.push((await pool.query(
         'SELECT count(*)::int AS n FROM admin_impersonation_stash WHERE admin_user_id = $1', [fx.platformAdmin])).rows[0].n);
+      const bearer = new Headers(init?.headers).get('authorization')?.replace(/^Bearer /, '') ?? '';
+      const sid = (() => { try { return String(decodeJwt(bearer).session_id ?? ''); } catch { return ''; } })();
+      if (strictLogout && sid && revokedSessions.has(sid)) {
+        return new Response('{"code":403,"error_code":"session_not_found","msg":"Session from session_id claim in JWT does not exist"}',
+          { status: 403, headers: { 'content-type': 'application/json' } });
+      }
+      if (sid && !failLogout) revokedSessions.add(sid);
       if (failLogout) return new Response('{"msg":"wp9: logout refused"}', { status: 500 });
     }
     return fake(input, init);
@@ -65,7 +76,7 @@ afterAll(async () => {
   try { await pool.query('ALTER TABLE admin_audit_log DROP CONSTRAINT IF EXISTS wp9_block_end_audit'); }
   finally { await fx.tearDown(); await pool.end(); }
 });
-beforeEach(() => { logouts.length = 0; stashesAtLogout.length = 0; failLogout = false; });
+beforeEach(() => { logouts.length = 0; stashesAtLogout.length = 0; failLogout = false; strictLogout = false; });
 afterEach(async () => {
   await pool.query('ALTER TABLE admin_audit_log DROP CONSTRAINT IF EXISTS wp9_block_end_audit');
   await pool.query('DELETE FROM admin_impersonation_stash WHERE admin_user_id = $1', [fx.platformAdmin]);
@@ -214,6 +225,26 @@ describe('3.10: a refused or failed Return still ends the Login-as, audit first'
     expect((await ends()).length).toBe(before);
     expect((await post(endImpersonation, jar)).statusCode).toBe(200);
     expect(await stashes()).toEqual([]);
+  });
+
+  it('re-break M2 a retry after a lost answer meets session_not_found: the row stays revoked, never flipped', async () => {
+    strictLogout = true;
+    const jar = await fx.loginAsTarget();
+    expect((await post(endImpersonation, jar)).statusCode).toBe(200);
+    expect((await post(endImpersonation, jar)).statusCode).toBe(401); // same cookies: the 200 never arrived
+    const sid = String(decodeJwt(jar['sb-access-token']!).session_id);
+    const rows = (await pool.query(`SELECT details FROM admin_audit_log WHERE admin_user_id = $1
+      AND action = 'impersonation_end' AND details->>'session_id' = $2`, [fx.platformAdmin, sid])).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].details).toMatchObject({ target_session_revoked: true });
+  });
+
+  it('re-break M2 a later failed revocation never downgrades a recorded revocation', async () => {
+    const jar = await fx.loginAsTarget();
+    expect((await post(endImpersonation, jar)).statusCode).toBe(200);
+    failLogout = true;
+    expect((await post(endImpersonation, jar)).statusCode).toBe(401);
+    expect((await ends()).at(-1)).toMatchObject({ target_session_revoked: true });
   });
 
   it('B5 another super admin holding the stash cookie: refused, nothing revoked, stash kept, nothing audited', async () => {

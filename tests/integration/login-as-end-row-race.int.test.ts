@@ -36,6 +36,19 @@ vi.mock('@/lib/neon', async (orig) => {
   return { ...real, withTransaction };
 });
 
+/** The stash delete fails once when set (after the end row is written: a 500 with the stash still live). */
+const failDeleteStash = vi.hoisted(() => ({ once: false }));
+vi.mock('@/modules/admin/services/userImpersonationService', async (orig) => {
+  const actual = await orig<typeof import('@/modules/admin/services/userImpersonationService')>();
+  return {
+    ...actual,
+    deleteStash: async (stashId: string) => {
+      if (failDeleteStash.once) { failDeleteStash.once = false; throw new Error('wp9: stash delete failed'); }
+      return actual.deleteStash(stashId);
+    },
+  };
+});
+
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const fx = loginAsFixture(pool, 'WP9 end row');
@@ -43,11 +56,13 @@ const other = loginAsFixture(pool, 'WP9 end row other');
 
 beforeAll(async () => { await fx.setUp(); await other.setUp(); }, 60000);
 afterAll(async () => { try { await other.tearDown(); await fx.tearDown(); } finally { await pool.end(); } });
-beforeEach(() => { race.parties = 0; });
+beforeEach(() => { race.parties = 0; failDeleteStash.once = false; });
 
 async function end(jar: Jar) {
   const result = response();
-  await (endImpersonation as (q: never, s: never) => Promise<unknown>)(request(jar, 'POST') as never, result.res as never);
+  try {
+    await (endImpersonation as (q: never, s: never) => Promise<unknown>)(request(jar, 'POST') as never, result.res as never);
+  } catch { return 500; /* the route has no error wrapper: a throw is Next's 500 */ }
   return result.state.statusCode;
 }
 const endRows = async (admin: string) => (await pool.query(
@@ -82,6 +97,19 @@ describe('one end row per Login-as', () => {
     expect(rows.at(-1)!.details).toMatchObject({ reason: 'stash_expired', session_id: sessionOf(second) });
     expect(rows.at(-1)!.details).not.toHaveProperty('stash_id');
     expect(await end(second)).toBe(200); // its own live stash still restores
+  });
+
+  it('re-break M4 a stash cookie swapped between two Login-as of one pair: each session keeps its own end row', async () => {
+    const l1 = await fx.loginAsTarget();
+    const l2 = await fx.loginAsTarget();
+    failDeleteStash.once = true;
+    expect(await end(l1)).toBe(500); // end row {stash k1, session s1} written, then the delete fails: k1 still live
+    expect(await end({ ...l2, 'sb-admin-stash': l1['sb-admin-stash']! })).toBe(200); // l2 spends k1
+    const rows = await endRows(fx.platformAdmin);
+    const of = (jar: Jar) => rows.filter((r) => r.details.session_id === sessionOf(jar));
+    expect(of(l1)).toHaveLength(1);
+    expect(of(l2)).toHaveLength(1);
+    expect(of(l1)[0]!.id).not.toBe(of(l2)[0]!.id);
   });
 
   it("a forged stash cookie naming another admin's ended stash touches none of their rows", async () => {

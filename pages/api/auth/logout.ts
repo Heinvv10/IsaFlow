@@ -1,6 +1,6 @@
 // pages/api/auth/logout.ts
 import type { NextApiHandler } from 'next';
-import { logout as gotrueLogout, refresh, verifyTokenSignature } from '@/lib/auth/gotrue';
+import { isSessionAlreadyGone, logout as gotrueLogout, refresh, verifyTokenSignature } from '@/lib/auth/gotrue';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE, REFRESH_COOKIE } from '@/lib/auth/cookies';
 import { ADMIN_STASH_COOKIE } from '@/lib/auth/impersonation-cookies';
 import { createHash } from 'node:crypto';
@@ -22,7 +22,10 @@ const noteFailure = (err: unknown) =>
 async function endThisSession(accessToken?: string, refreshToken?: string): Promise<string | undefined> {
   if (accessToken) {
     try { await gotrueLogout(accessToken, 'local'); return accessToken; }
-    catch (err) { noteFailure(err); }
+    catch (err) {
+      if (isSessionAlreadyGone(err)) return accessToken; // already revoked: ended, nothing to renew
+      noteFailure(err);
+    }
   }
   if (refreshToken) {
     try {
@@ -40,13 +43,17 @@ async function endThisSession(accessToken?: string, refreshToken?: string): Prom
  * A slot is taken only by a Sign Out that could be a Login-as: a stash cookie is present, and the access token's
  * signature verifies (locally, no DB) and carries a `session_id`. Junk, token-less and stash-less Sign Outs never
  * take one. (The JWT itself carries no Login-as marker; the session record is the only proof, which is what the
- * look-up reads.) Over the cap the look-up is skipped and logged at warn with a hash of the session id; the session
- * is still revoked at GoTrue with the caller's own token and the cookies still clear. Never a 429.
- * Residual, accepted: a skipped Login-as leaves its stash row, unusable without the cleared cookie, to expire within
- * 1 h (purged by the next Login-as start or end); only a flood of VALID Login-as tokens could keep the cap full.
+ * look-up reads.) One session id holds at most ONE slot at a time (re-break M1): a burst from one session (any
+ * valid session, Login-as or not, with any stash cookie) takes one slot, never both. Over either limit the look-up
+ * is skipped and logged at warn with a hash of the session id; the session is still revoked at GoTrue with the
+ * caller's own token and the cookies still clear. Never a 429.
+ * Residual, accepted: several valid sessions at once (an account can open more than one) can still fill both slots,
+ * each for at most one bounded look-up (1 s checkout, 2 s statement). A Login-as Sign Out skipped meanwhile leaves
+ * its stash row, unusable without the cleared cookie, to expire within 1 h (purged by the next start or end).
  */
 export const SIGN_OUT_LOOKUP_SLOTS = 2;
 let lookupsInFlight = 0;
+const sessionsInFlight = new Set<string>();
 
 const sessionTag = (sessionId: string) => createHash('sha256').update(sessionId).digest('hex').slice(0, 12);
 
@@ -64,12 +71,13 @@ async function loginAsPartiesOrNull(token: string | undefined, stashId: string |
     return null; // expired or not ours: it names no session, nothing to close
   }
   if (typeof sessionId !== 'string') return null;
-  if (lookupsInFlight >= SIGN_OUT_LOOKUP_SLOTS) {
+  if (lookupsInFlight >= SIGN_OUT_LOOKUP_SLOTS || sessionsInFlight.has(sessionId)) {
     log.warn('logout: Login-as look-up skipped (concurrency cap); signing out without closing it',
-      { session: sessionTag(sessionId) }, 'Auth');
+      { session: sessionTag(sessionId), perSession: sessionsInFlight.has(sessionId) }, 'Auth');
     return null;
   }
   lookupsInFlight += 1;
+  sessionsInFlight.add(sessionId);
   try {
     const parties = await impersonationPartiesOfBounded(sessionId);
     return parties ? { ...parties, sessionId } : null;
@@ -79,6 +87,7 @@ async function loginAsPartiesOrNull(token: string | undefined, stashId: string |
     return null;
   } finally {
     lookupsInFlight -= 1;
+    sessionsInFlight.delete(sessionId);
   }
 }
 

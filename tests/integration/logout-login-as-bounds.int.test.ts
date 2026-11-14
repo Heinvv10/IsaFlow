@@ -14,6 +14,7 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
+import { decodeJwt } from 'jose';
 import logoutRoute, { SIGN_OUT_LOOKUP_SLOTS } from '../../pages/api/auth/logout';
 import endImpersonation from '../../pages/api/auth/end-impersonation';
 import { getPlatformAdminPool } from '@/lib/auth/withPlatformAdmin.pools';
@@ -161,6 +162,25 @@ describe('security review: only a possible Login-as takes a look-up slot', () =>
     const [end] = (await pool.query(`SELECT details FROM admin_audit_log WHERE admin_user_id = $1
       AND action = 'impersonation_end' ORDER BY created_at DESC LIMIT 1`, [fx.platformAdmin])).rows;
     expect(end.details).toMatchObject({ reason: 'logout', target_session_revoked: true });
+  });
+});
+
+describe('re-break M1: one session holds at most one look-up slot', () => {
+  it('40 Sign Outs from one attacker session (a stash cookie, not a Login-as) do not starve the victim', async () => {
+    const victim = await fx.loginAsTarget();
+    const attacker = { ...(await fx.ownSession()), 'sb-admin-stash': crypto.randomUUID() };
+    lookups.delayMs = 200;
+    const burst = Array.from({ length: 40 }, () => signOut(attacker));
+    burst.splice(20, 0, signOut(victim));
+    const results = await Promise.all(burst);
+    expect(results.every((r) => r.status === 200 && r.clearedAccess)).toBe(true);
+    expect(lookups.maxInFlight).toBeLessThanOrEqual(2);
+    const sid = String(decodeJwt(victim['sb-access-token']!).session_id);
+    const rows = (await pool.query(`SELECT details FROM admin_audit_log WHERE admin_user_id = $1
+      AND action = 'impersonation_end' AND details->>'session_id' = $2`, [fx.platformAdmin, sid])).rows;
+    expect(rows).toHaveLength(1);
+    expect((await pool.query('SELECT count(*)::int AS n FROM admin_impersonation_stash WHERE stash_id = $1',
+      [victim['sb-admin-stash']])).rows[0].n).toBe(0);
   });
 });
 
