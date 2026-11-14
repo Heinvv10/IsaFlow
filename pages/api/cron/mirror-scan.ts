@@ -15,6 +15,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { timingSafeEqualStr } from '@/lib/timingSafe';
 import { scanAllDueConnections } from '@/modules/accounting/services/capture/imapMirrorService';
+import { runPopSweeps } from '@/modules/accounting/services/capture/pop/popSweeps';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -45,17 +46,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }),
     { scanned: 0, ingested: 0, skipped: 0, errors: 0 },
   );
+  // After the scan: POP bank-line matching and the SharePoint copy. runPopSweeps never throws.
+  const pop = await runPopSweeps();
   const durationMs = Date.now() - started;
 
   log.info('Cron complete: mirror-scan', {
     connections: results.length,
     ...summary,
+    pop,
     durationMs,
   }, 'cron-mirror-scan');
 
   return apiResponse.success(res, {
     connections: results.length,
     ...summary,
+    pop,
     durationMs,
     results,
   });
