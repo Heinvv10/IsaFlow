@@ -35,6 +35,7 @@
  */
 
 import type { LineExplanationRead } from '@/modules/accounting/services/payroll/payrollLineExplanation';
+import type { TenantAnnouncement } from '@/lib/tenantAnnouncements';
 import type { Currency } from '@/modules/accounting/services/core/currencyService';
 import type { MigrationSession } from '@/modules/accounting/services/core/migrationService';
 import type { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
@@ -113,6 +114,9 @@ interface StaticRoutes extends BudgetStaticRoutes {
   };
   '/api/accounting/fiscal-years': Awaited<ReturnType<typeof listYearsWithPeriods>>;
   '/api/accounting/currencies': Currency[];
+  // The tenant announcement banner: GET the active ones for this user's company, POST one dismissal.
+  '/api/announcements/active': TenantAnnouncement[];
+  '/api/announcements/dismiss': { id: string };
   // The header bell's feed (GET) and mark-read (POST) (budgets P5-1). Budget routes: apiRoutesBudgets.ts.
   '/api/accounting/notifications': NotificationFeed;
   '/api/accounting/notifications/read': { updated: number };

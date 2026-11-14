@@ -22,6 +22,7 @@ import { CommandPalette } from '@/components/layout/CommandPalette';
 import { ShortcutHelpOverlay } from '@/components/layout/ShortcutHelpOverlay';
 import { AccountingTour } from '@/components/onboarding/AccountingTour';
 import { ImpersonationBanner } from '@/components/layout/ImpersonationBanner';
+import { AnnouncementBanner } from '@/components/layout/AnnouncementBanner';
 import { PayrollPeriodBar } from '@/components/payroll/PayrollPeriodBar';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { AppSidebar } from '@/components/layout/AppSidebar';
@@ -122,6 +123,7 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
   return (
     <div data-app-shell className="flex flex-col h-screen overflow-hidden" style={{ background: 'var(--ff-canvas-base)' }}>
       <ImpersonationBanner />
+      {!isAdminHost && <AnnouncementBanner />}
       {loading ? <ShellSkeleton hasModuleNav={hasModuleNav} /> : (<>
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
