@@ -11,28 +11,30 @@ import {
   RecurringJournalRequestError,
   RecurringJournalNotFoundError,
   readTemplateForUpdate,
+  templateEndedError,
   businessToday,
   assertTemplateLinesPostable,
   assertPostablePeriod,
 } from './recurringJournalGuards';
 import { advanceDate } from './recurringSchedule';
-import { newManualJournalGate, settleUnattendedJournal } from './manualJournalApproval';
+import { assertPeriodNotGenerated } from './recurringJournalPeriods';
+import { agentNewManualJournalsRefusal, newManualJournalGate, settleUnattendedJournal } from './manualJournalApproval';
 import { placeCostCentres } from './dimensions/costCentrePick';
 import { assertNewJournalDimensions } from './dimensions/dimensionPolicy';
 import { assertNoHeaderAccountLines } from './headerAccountGuard';
 import { templateAuthors } from './manualJournalAuthors';
-import type { RecurringJournal, RecurringJournalCreateInput, JournalLineInput } from '../../types/gl.types';
+import type {
+  RecurringJournal, RecurringJournalCreateInput, JournalLineInput,
+} from '../../types/gl.types';
+import type { RecurringJournalRun, RecurringRunOptions } from '../../types/recurringJournal.types';
 import type { DbRow } from '@/types/db';
 
-export { RecurringJournalRequestError, RecurringJournalLockTimeoutError, RecurringJournalNotFoundError } from './recurringJournalGuards';
+export {
+  RecurringJournalRequestError, RecurringJournalLockTimeoutError, RecurringJournalNotFoundError,
+} from './recurringJournalGuards';
+export { updateRecurringJournalStatus, updateRecurringJournalTemplate } from './recurringJournalEdits';
 
-/** One run: the journal it minted, and — R-035 PR6 — the journals approval holds as drafts (it or nothing). */
-export interface RecurringJournalRun {
-  journalId: string;
-  heldForApproval: string[];
-  /** A template line's cost-centre pick the run dropped (dimensions/costCentrePick); absent when none. */
-  warnings?: string[];
-}
+export type { RecurringJournalRun, RecurringRunOptions } from '../../types/recurringJournal.types';
 
 export async function getRecurringJournals(companyId: string, filters?: {
   status?: string;
@@ -77,11 +79,11 @@ export async function createRecurringJournal(companyId: string,
   const rows = (await sql`
     INSERT INTO recurring_journals (
       company_id, template_name, description, frequency, next_run_date,
-      end_date, lines, total_amount, created_by
+      end_date, lines, total_amount, created_by, auto_post
     ) VALUES (
       ${companyId}, ${input.templateName}, ${input.description || null}, ${input.frequency},
       ${input.nextRunDate}, ${input.endDate || null},
-      ${JSON.stringify(input.lines)}::JSONB, ${totalDebit}, ${userId}::UUID
+      ${JSON.stringify(input.lines)}::JSONB, ${totalDebit}, ${userId}::UUID, ${input.autoPost !== false}
     ) RETURNING *
   `) as DbRow[];
 
@@ -89,13 +91,11 @@ export async function createRecurringJournal(companyId: string,
   return mapRow(rows[0]!);
 }
 
-export async function updateRecurringJournalStatus(companyId: string,
-  id: string,
-  status: 'paused' | 'active' | 'cancelled'
-): Promise<void> {
-  const result = (await sql`UPDATE recurring_journals SET status = ${status} WHERE id = ${id} AND company_id = ${companyId} RETURNING id`) as DbRow[];
-  if (result.length === 0) throw new RecurringJournalNotFoundError(id);
-  log.info('Updated recurring journal status', { id, status }, 'accounting');
+export async function getRecurringJournalById(companyId: string, id: string): Promise<RecurringJournal | null> {
+  const rows = (await sql`
+    SELECT * FROM recurring_journals WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  return rows[0] ? mapRow(rows[0]) : null;
 }
 
 /**
@@ -151,7 +151,8 @@ export async function updateRecurringJournalStatus(companyId: string,
  */
 export async function runRecurringJournal(companyId: string,
   id: string,
-  userId: string
+  userId: string,
+  opts: RecurringRunOptions = {},
 ): Promise<RecurringJournalRun> {
   if (!als.getStore()?.client) {
     throw new Error(
@@ -166,12 +167,17 @@ export async function runRecurringJournal(companyId: string,
   if (rj.status !== 'active') throw new RecurringJournalRequestError('Recurring journal is not active');
 
   const dueDate = String(rj.next_run_date);
+  const ended = templateEndedError(dueDate, rj.end_date); // an edit moved the next run past the end date
+  if (ended) throw ended;
   const today = await businessToday();
   if (dueDate > today) {
     throw new RecurringJournalRequestError(
       `Recurring journal is not due until ${dueDate}. Change the next run date to generate it earlier.`,
     );
   }
+  // One run per period of the template's frequency: refused when a live journal it generated is dated in this run's
+  // period (recurringJournalPeriods), whatever edits led here. A read, under the template lock, before any write.
+  await assertPeriodNotGenerated(companyId, id, dueDate, rj);
 
   const stored: JournalLineInput[] = Array.isArray(rj.lines) ? rj.lines as JournalLineInput[] : JSON.parse(typeof rj.lines === 'string' ? rj.lines : '[]');
   // A template line's costCenterId is a pick: into its CC1 / CC2 slot, before the claim (the first write).
@@ -180,18 +186,28 @@ export async function runRecurringJournal(companyId: string,
   await assertNoHeaderAccountLines(companyId, lines); // D1, likewise before the claim
   await assertTemplateLinesPostable(companyId, lines);
 
+  const approval = await newManualJournalGate(companyId, lines);
+  const autoPost = rj.auto_post !== false; // absent before migration 989: every template posted
+  if (opts.agent && autoPost && approval.held) { // a read refusal, so it goes before the period guard (which writes)
+    throw new RecurringJournalRequestError(await agentNewManualJournalsRefusal(companyId, [lines])
+      ?? 'This journal needs approval before it can be posted, and this connector cannot raise or decide approvals.');
+  }
+
   await assertPostablePeriod(companyId, dueDate);
 
   const nextDate = advanceDate(dueDate, String(rj.frequency));
   const endDate = rj.end_date ? String(rj.end_date) : null;
   const newStatus = endDate && nextDate > endDate ? 'completed' : 'active';
-  const approval = await newManualJournalGate(companyId, lines);
+  // An agent raises no request (Q6): its draft is marked under enforcement, and a person submits it.
+  const settleGate = opts.agent ? { enforced: approval.enforced, held: false } : approval;
+  const posts = autoPost && !approval.held;
   const authors = await templateAuthors(companyId, { kind: 'recurring_journal', id });
 
+  // last_run_date records the run's own date (the occurrence): recurringJournalEdits refuses a next run on or before it.
   return withTransaction(async (tx) => {
     const claimed = (await tx`
       UPDATE recurring_journals
-      SET last_run_date = ${today}::DATE, next_run_date = ${nextDate}::DATE,
+      SET last_run_date = ${dueDate}::DATE, next_run_date = ${nextDate}::DATE,
           run_count = run_count + 1, status = ${newStatus}
       WHERE id = ${id} AND company_id = ${companyId}
         AND status = 'active' AND next_run_date = ${dueDate}::DATE
@@ -209,14 +225,20 @@ export async function runRecurringJournal(companyId: string,
       entryDate: dueDate,
       description: rj.description ? String(rj.description) : String(rj.template_name),
       source: 'auto_recurring',
+      sourceRecordId: id, // the link the one-run-per-period rule reads (recurringJournalPeriods)
       lines,
-    }, userId);
-    await settleUnattendedJournal(companyId, je.id, userId, approval, authors);
-    if (!approval.held) await postJournalEntry(companyId, je.id, userId);
+    }, userId, opts.meta);
+    await settleUnattendedJournal(companyId, je.id, userId, settleGate, authors);
+    if (posts) await postJournalEntry(companyId, je.id, userId);
 
-    log.info('Generated journal from recurring',
-      { recurringId: id, journalId: je.id, runDate: dueDate, heldForApproval: approval.held }, 'accounting');
-    return { journalId: je.id, heldForApproval: approval.held ? [je.id] : [], ...(warnings.length > 0 ? { warnings } : {}) };
+    if (!opts.preview) {
+      log.info('Generated journal from recurring',
+        { recurringId: id, journalId: je.id, runDate: dueDate, heldForApproval: settleGate.held, posted: posts }, 'accounting');
+    }
+    return {
+      journalId: je.id, entryNumber: je.entryNumber, heldForApproval: settleGate.held ? [je.id] : [], posted: posts,
+      ...(warnings.length > 0 ? { warnings } : {}),
+    };
   });
 }
 
@@ -238,6 +260,7 @@ function mapRow(row: DbRow): RecurringJournal {
     status: String(row.status) as RecurringJournal['status'],
     lines: Array.isArray(row.lines) ? row.lines as JournalLineInput[] : JSON.parse(typeof row.lines === 'string' ? row.lines : '[]'),
     totalAmount: Number(row.total_amount),
+    autoPost: row.auto_post !== false,
     createdBy: String(row.created_by),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
