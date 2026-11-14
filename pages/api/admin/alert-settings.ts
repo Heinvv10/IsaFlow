@@ -27,9 +27,14 @@ const ALERT_KEYS: ReadonlyArray<keyof AlertSettings> = [
   'health_alert_webhook_url',
 ];
 
+// A blank value clears the setting (the stored row is removed; delivery then falls back to the
+// ADMIN_ALERT_* environment values). Whitespace-only counts as blank.
+const blankOr = (rule: z.ZodString) =>
+  z.string().trim().pipe(z.union([z.literal(''), rule]));
+
 const PatchBody = z.object({
-  health_alert_email:       z.string().email().optional(),
-  health_alert_webhook_url: z.string().url().optional(),
+  health_alert_email:       blankOr(z.string().email()).optional(),
+  health_alert_webhook_url: blankOr(z.string().url()).optional(),
 }).strict();
 
 async function getAlertSettings(): Promise<AlertSettings> {
@@ -84,6 +89,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       for (const [key, val] of entries) {
         const strVal = typeof val === 'string' ? val : String(val ?? '');
+        if (strVal === '') {
+          await sql`DELETE FROM admin_settings WHERE key = ${key}`;
+          continue;
+        }
         await sql`
           INSERT INTO admin_settings (key, value, updated_at, updated_by)
           VALUES (${key}, ${JSON.stringify(strVal)}::jsonb, NOW(), ${req.user.id})

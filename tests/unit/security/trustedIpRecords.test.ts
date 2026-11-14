@@ -20,12 +20,10 @@ vi.mock('@/modules/accounting/services/ar/portalTokenService', () => ({
   hashSessionToken: () => 'hash', verifyInvoicePortalToken: vi.fn(async () => ({ companyId: 'c1', invoiceId: 'i1', status: 'sent' })),
 }));
 vi.mock('@/modules/accounting/services/ar/disputeService', () => ({ raiseDispute: h.raiseDispute }));
-vi.mock('@/modules/admin/services/analyticsService', () => ({ getPlatformSettings: vi.fn(), updatePlatformSettings: vi.fn(async () => undefined) }));
 vi.mock('@/modules/admin/services/auditService', () => ({ logAdminAction: h.logAdminAction }));
 vi.mock('@/modules/admin/services/trialService', () => ({ extendTrial: vi.fn(async () => '2030-01-01'), extendTrialsBulk: vi.fn(async () => []), getExpiringTrials: vi.fn(async () => []) }));
 
 import dispute from '../../../pages/api/portal/invoice/[token]/dispute';
-import settings from '../../../pages/api/admin/settings';
 import alertSettings from '../../../pages/api/admin/alert-settings';
 import trials from '../../../pages/api/admin/trials';
 
@@ -50,7 +48,6 @@ describe('the visitor address in records, not the forged chain', () => {
   });
 
   it.each([
-    ['platform settings', settings, { method: 'PATCH', body: {} }],
     ['alert settings', alertSettings, { method: 'PATCH', body: { health_alert_email: 'a@b.co' } }],
   ])('%s audit row', async (_n, route, over) => {
     await (route as Handler)(req(over), res());

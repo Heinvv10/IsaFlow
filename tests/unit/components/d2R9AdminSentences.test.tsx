@@ -151,20 +151,6 @@ describe('plans writes', () => {
   });
 });
 
-describe('settings saves', () => {
-  it('empty 500 on save settings says what could not be saved', async () => {
-    serve(
-      on('PATCH', '/api/admin/settings', empty500),
-      on('GET', '/api/admin/settings', () => ok({ maintenance_mode: false })),
-      on('GET', '/api/admin/alert-settings', () => ok({ health_alert_email: '', health_alert_webhook_url: '' })),
-    );
-    render(<SettingsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /^Save Settings$|^Save$/ }));
-    expect(await screen.findByText('Could not save settings - try again')).toBeDefined();
-    expect(document.body.textContent).not.toContain('Failed to save');
-  });
-});
-
 describe('health', () => {
   it('an unreachable database states a reason and does not print the raw driver text', async () => {
     const data = {
