@@ -81,8 +81,8 @@ describe('recordSignIn', () => {
   });
 
   it('runs as migration_admin, the role production runs it as', async () => {
-    const { migrationAdminPool } = await import('@/lib/auth/migrationAdminPool');
-    expect((await migrationAdminPool().query('SELECT current_user AS who')).rows[0]?.who).toBe('migration_admin');
+    const { signInStampPool } = await import('@/lib/auth/signInStampPool');
+    expect((await signInStampPool().query('SELECT current_user AS who')).rows[0]?.who).toBe('migration_admin');
   });
 
   it('never waits on a row another transaction holds: skipped, uncounted', async () => {

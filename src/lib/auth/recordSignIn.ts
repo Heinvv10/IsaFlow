@@ -9,7 +9,8 @@
  *   - src/lib/auth/inviteAcceptSession.ts  invitation accept (POST /api/invitations/[token]/accept)
  * Not a sign-in, so not hooked: token refresh, change-password, and admin impersonation (the admin's session).
  *
- * Runs on the migration_admin pool (fixed, parameterised statement keyed on the verified user id): no app role may
+ * Runs on the migration_admin login, in a pool of its own (signInStampPool.ts) so it never takes a connection a
+ * route has just released (fixed, parameterised statement keyed on the verified user id): no app role may
  * write users columns an attacker could forge under a stolen claim (S-07, migration 902). Migration 990 grants
  * migration_admin UPDATE on exactly these two columns and refuses to apply without it.
  *
@@ -19,7 +20,7 @@
  * NO KEY UPDATE, not UPDATE, so a request in flight (its FK inserts hold FOR KEY SHARE on the users row) does not
  * make the stamp skip.
  */
-import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
+import { signInStampPool } from '@/lib/auth/signInStampPool';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { log } from '@/lib/logger';
 
@@ -54,7 +55,7 @@ export async function stampSignIn(client: StampClient, userId: string): Promise<
 
 /** True when a row was stamped (see stampSignIn). Throws on a database error; the stamp is rolled back. */
 export async function recordSignIn(userId: string): Promise<boolean> {
-  const client = await migrationAdminPool().connect();
+  const client = await signInStampPool().connect();
   let broken = false;
   let opened = false;
   try {

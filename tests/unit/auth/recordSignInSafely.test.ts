@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const connect = vi.hoisted(() => vi.fn());
 const warn = vi.hoisted(() => vi.fn());
-vi.mock('@/lib/auth/migrationAdminPool', () => ({ migrationAdminPool: () => ({ connect }) }));
+vi.mock('@/lib/auth/signInStampPool', () => ({ signInStampPool: () => ({ connect }) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn, error: vi.fn() } }));
 
 import { recordSignInSafely, SIGN_IN_STAMP_TIMEOUT_MS } from '@/lib/auth/recordSignIn';
