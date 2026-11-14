@@ -103,6 +103,8 @@ export function LandingSouthAfricaBand() {
     void next.play().catch(() => setFilmFailed(true));
   };
 
+  const posterClip = LANDMARK_CLIPS[visible];
+
   return (
     <section
       id="south-africa"
@@ -143,14 +145,16 @@ export function LandingSouthAfricaBand() {
             {showFilm ? (
               <figure>
                 <div className="relative aspect-video overflow-hidden rounded-2xl bg-river-deep ring-1 ring-white/10">
-                  <img
-                    src={LANDMARK_CLIPS[visible].poster}
-                    alt={LANDMARK_CLIPS[visible].alt}
-                    width={1280}
-                    height={720}
-                    decoding="async"
-                    className={`absolute inset-0 h-full w-full object-cover ${hasFrame ? 'invisible' : ''}`}
-                  />
+                  {posterClip && (
+                    <img
+                      src={posterClip.poster}
+                      alt={posterClip.alt}
+                      width={1280}
+                      height={720}
+                      decoding="async"
+                      className={`absolute inset-0 h-full w-full object-cover ${hasFrame ? 'invisible' : ''}`}
+                    />
+                  )}
                   {LANDMARK_CLIPS.map((clip, i) => (
                     <video
                       key={clip.place}
