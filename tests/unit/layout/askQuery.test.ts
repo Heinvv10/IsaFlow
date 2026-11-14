@@ -1,0 +1,32 @@
+import { describe, it, expect } from 'vitest';
+import { askRowPlacement } from '@/components/layout/askQuery';
+
+describe('askRowPlacement: auxiliary-verb openers', () => {
+  it.each(['are my total assets high', 'do I owe any vat', 'can I see my profit this month'])('%s: a real question, first', (q) => {
+    expect(askRowPlacement(q)).toBe('first');
+  });
+  it.each(['do not', 'is it', 'can we', 'can reports', 'does nothing', 'are we there'])('%s: no intent, so no Ask row at all', (q) => {
+    expect(askRowPlacement(q)).toBeNull();
+  });
+});
+
+describe('askRowPlacement: anything the parser has a reply for gets a row', () => {
+  it.each(['profit since june', 'profit by customer', 'profit this year vs last year', 'revenue and expenses', 'who owes me more than 2000', 'profit fy2026'])('%s gets a row', (q) => {
+    expect(askRowPlacement(q)).not.toBeNull();
+  });
+  it.each(['since june', 'do not', 'is it', 'can we'])('%s: nothing understood and no question shape, no row', (q) => {
+    expect(askRowPlacement(q)).toBeNull();
+  });
+});
+
+describe('askRowPlacement', () => {
+  it.each(['who owes me money', 'what was profit last month', 'How much cash do I have?', 'is my vat due', 'how many bank transactions need allocating', 'what is the weather', 'cash in the bank?'])('%s: a question, its row first', (q) => {
+    expect(askRowPlacement(q)).toBe('first');
+  });
+  it.each(['profit loss', 'aged debtors', 'vat return', 'cash in the bank'])('%s: an intent phrase that is also a page search, its row last', (q) => {
+    expect(askRowPlacement(q)).toBe('last');
+  });
+  it.each(['vat', 'ab', 'new invoice', 'employee thandi', ''])('%s: a page search, no row', (q) => {
+    expect(askRowPlacement(q)).toBeNull();
+  });
+});
