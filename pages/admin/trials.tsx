@@ -7,6 +7,8 @@ import { AlertCircle, Loader2, Clock, CheckCircle, TrendingUp, XCircle } from 'l
 import Link from 'next/link';
 import { ConvertTrialModal } from '@/components/admin/ConvertTrialModal';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { daysLeftBadge, STATE_BADGE } from '@/components/admin/trialBadges';
+import type { TrialState } from '@/modules/admin/services/trialQueries';
 
 /* ------------------------------------------------------------------ types */
 interface TrialCompany {
@@ -17,11 +19,13 @@ interface TrialCompany {
   trial_started_at: string | null;
   user_count: number;
   status: string;
+  trial_state: TrialState;
   days_left: number;
 }
 
 interface TrialStats {
   total_trials: number;
+  active_trials: number;
   expiring_this_week: number;
   expired_unpaid: number;
   converted_this_month: number;
@@ -35,14 +39,6 @@ type FilterTab = 'all' | 'expiring' | 'expired' | 'converted';
 /* --------------------------------------------------------------- helpers */
 function fmtDate(iso: string): string {
   return formatDisplayDate(iso);
-}
-
-function daysLeftBadge(days: number) {
-  if (days <= 0)  return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300">Expired</span>;
-  if (days <= 2)  return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-500/20 text-red-400">{days}d left</span>;
-  if (days <= 5)  return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-500/20 text-orange-400">{days}d left</span>;
-  if (days <= 7)  return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-500/20 text-yellow-400">{days}d left</span>;
-  return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-500/20 text-green-400">{days}d left</span>;
 }
 
 /* ================================================================ Page === */
@@ -65,7 +61,7 @@ export default function AdminTrialsPage() {
     setError('');
     try {
       const [trialsRes, statsRes] = await Promise.all([
-        apiFetch('/api/admin/trials?within=365'),
+        apiFetch('/api/admin/trials?scope=all'),
         apiFetch('/api/admin/trials/stats'),
       ]);
       await assertOk(trialsRes, 'Could not load the trials - try again');
@@ -85,9 +81,9 @@ export default function AdminTrialsPage() {
   /* ------------------------------------------------------------ filter */
   const filtered = useMemo<TrialCompany[]>(() => {
     switch (tab) {
-      case 'expiring':  return trials.filter((t) => t.days_left > 0 && t.days_left <= 7);
-      case 'expired':   return trials.filter((t) => t.days_left <= 0 && t.status !== 'active');
-      case 'converted': return trials.filter((t) => t.status === 'active');
+      case 'expiring':  return trials.filter((t) => t.trial_state === 'active' && t.days_left <= 7);
+      case 'expired':   return trials.filter((t) => t.trial_state === 'expired');
+      case 'converted': return trials.filter((t) => t.trial_state === 'converted');
       default:          return trials;
     }
   }, [trials, tab]);
@@ -174,9 +170,10 @@ export default function AdminTrialsPage() {
         <>
           {/* ---- Summary Stats ---- */}
           {stats && (
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+            <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-8">
               {([
                 ['Total Trials',        stats.total_trials,                    Clock,       'text-blue-400'],
+                ['Active Trials',       stats.active_trials,                   Clock,       'text-sky-400'],
                 ['Expiring This Week',  stats.expiring_this_week,              AlertCircle, 'text-yellow-400'],
                 ['Expired (Unpaid)',    stats.expired_unpaid,                  XCircle,     'text-red-400'],
                 ['Converted (30d)',     stats.converted_this_month,            CheckCircle, 'text-green-400'],
@@ -253,13 +250,13 @@ export default function AdminTrialsPage() {
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{trial.plan_name ?? '—'}</td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{trial.trial_started_at ? fmtDate(trial.trial_started_at) : '—'}</td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(trial.trial_ends_at)}</td>
-                    <td className="px-4 py-3">{daysLeftBadge(trial.days_left)}</td>
+                    <td className="px-4 py-3">{trial.trial_state === 'converted' ? '—' : daysLeftBadge(trial.days_left)}</td>
                     <td className="px-4 py-3">
                       <span className={[
                         'px-2 py-0.5 rounded-full text-xs font-medium',
-                        trial.status === 'active' ? 'bg-green-500/15 text-green-400' : 'bg-gray-100 dark:bg-gray-700/50 text-gray-400',
+                        STATE_BADGE[trial.trial_state].style,
                       ].join(' ')}>
-                        {trial.status}
+                        {STATE_BADGE[trial.trial_state].label}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{trial.user_count}</td>
@@ -269,7 +266,7 @@ export default function AdminTrialsPage() {
                           className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-teal-600/20 hover:bg-teal-600/40 text-teal-400 rounded-md transition-colors disabled:opacity-40">
                           {extending.has(trial.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : null}+7 days
                         </button>
-                        {trial.status !== 'active' && (
+                        {trial.trial_state !== 'converted' && (
                           <button onClick={() => setConvertTarget(trial)}
                             className="px-2.5 py-1 text-xs bg-green-600/20 hover:bg-green-600/40 text-green-400 rounded-md transition-colors">
                             Convert to Paid

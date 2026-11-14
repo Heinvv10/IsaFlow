@@ -5,6 +5,7 @@
 import { useState, useEffect } from 'react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, X } from 'lucide-react';
+import { isConvertiblePlanCode } from '@/modules/admin/types/trialPlans';
 
 interface Plan {
   id: string;
@@ -34,8 +35,8 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
         const res  = await apiFetch('/api/admin/billing/plans');
         await assertOk(res, 'Could not load plans - try again');
         const json = await res.json() as { data?: Plan[] };
-        setPlans(json.data ?? []);
-        if (json.data && json.data.length > 0) setPlanId(json.data[0]?.id ?? '');
+        // Not the internal trial/payg plans, and no plan preselected: the admin picks one.
+        setPlans((json.data ?? []).filter((p) => isConvertiblePlanCode(p.code)));
       } catch (err) {
         setPlans([]); setPlanId('');
         setError(apiErrorMessage(err, 'Could not load plans - try again'));
