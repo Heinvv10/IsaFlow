@@ -7,7 +7,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { trialEndsAt } from '@/modules/onboarding/services/tenantProvisioningService';
+import { trialEndsAt } from '@/modules/onboarding/services/trialPeriod';
 import type {
   AdminCompanyListItem,
   AdminCompanyDetail,

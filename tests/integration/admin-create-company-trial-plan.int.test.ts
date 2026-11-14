@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { getPoolForTests } from '@/lib/neon';
 import { createCompany } from '@/modules/admin/services/adminCompanyService';
 import { hasFeature } from '@/modules/admin/services/featureFlagService';
-import { TRIAL_DAYS } from '@/modules/onboarding/services/tenantProvisioningService';
+import { TRIAL_DAYS } from '@/modules/onboarding/services/trialPeriod';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
 
 const tag = randomUUID().slice(0, 8);

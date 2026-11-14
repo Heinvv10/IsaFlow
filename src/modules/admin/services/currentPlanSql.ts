@@ -13,10 +13,10 @@
  *     subscription's current_period_end (set by self-signup provisioning) and
  *     companies.trial_ends_at (what admin extend/convert write), so an extended
  *     trial stays live. A trial with neither date is NOT live: fail closed.
- * An expired trial is therefore never current. An old onboarding trial can
- * resurface only while its own end date is still in the future (at most the
- * trial length, 30 days from signup, longer if an admin extended it); once that
- * passes it never grants again. When a newer row is cancelled, an older LIVE
+ * An expired trial is therefore never current. An old onboarding trial cannot
+ * resurface once its end date (the later of the two dates above) has passed;
+ * until then it can, when a newer row is cancelled (30 days from signup,
+ * longer if an admin extended it). When a newer row is cancelled, an older LIVE
  * row (say an active one) becomes current again: current is the latest LIVE
  * row, not the latest row. This is intended.
  * Cancelled and paused rows are never live. No live row: NULL, no plan features.
