@@ -242,6 +242,8 @@ export const listUnsupportedTransactionsTool: McpTool = {
 
 export const getDocumentTool: McpTool = {
   name: 'get_document',
+  // include_content returns the file as base64 (up to 4 MB) by design.
+  allowLargeResult: true,
   description:
     'One bank-transaction document by id (store "bank_attachment" or "captured_document" from list_documents), with its file name, size, mime type and the transaction it supports. ' +
     'A captured document\'s content is returned only up to 4 MB; past that content_omitted says "too_large". ' +
