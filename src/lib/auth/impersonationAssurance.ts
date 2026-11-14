@@ -59,3 +59,23 @@ export async function validateImpersonationProof(proof: string, target: JWTPaylo
     return false;
   }
 }
+
+/**
+ * Whether `proof` is a Login-as proof THIS app minted for exactly this target session (signature, issuer, audience,
+ * target and session binding), at any age. Not an authorisation (validateImpersonationProof adds the age limit and
+ * the actor): a local, no-DB filter for the refused Return whose stash is already gone, so that only a browser holding
+ * its own session's proof may spend a slot of the capped Login-as look-up. Junk cannot produce one (#1371 review).
+ */
+export async function proofNamesSession(proof: string, target: JWTPayload): Promise<boolean> {
+  if (!identifier(target.sub) || !identifier(target.session_id)) return false;
+  try {
+    const { iat } = decodeJwt(proof);
+    if (typeof iat !== 'number' || !Number.isSafeInteger(iat)) return false;
+    const { payload } = await jwtVerify(proof, key(), {
+      algorithms: ['HS256'], issuer: ISSUER, audience: AUDIENCE, currentDate: new Date(iat * 1000),
+    });
+    return payload.version === 1 && payload.targetUserId === target.sub && payload.targetSessionId === target.session_id;
+  } catch {
+    return false; // not ours, or not this session's: it proves nothing
+  }
+}

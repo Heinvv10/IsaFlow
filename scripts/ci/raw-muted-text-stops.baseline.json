@@ -175,7 +175,7 @@
   "pages/admin/health.tsx": 4,
   "pages/admin/job-queue.tsx": 2,
   "pages/admin/components.tsx": 2,
-  "pages/admin/users/[id].tsx": 6,
+  "pages/admin/users/[id].tsx": 2,
   "pages/admin/users/index.tsx": 9,
   "pages/admin/email-log.tsx": 1,
   "pages/admin/waitlist/index.tsx": 12,
