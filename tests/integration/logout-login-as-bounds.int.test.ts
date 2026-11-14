@@ -185,6 +185,26 @@ describe('re-break M1: one session holds at most one look-up slot', () => {
   });
 });
 
+describe('review LOW: the refused Return shares Sign Out\'s capped look-up', () => {
+  it('with both slots held by Sign Outs, an expired-stash Return runs no look-up and ends nothing', async () => {
+    const jar = await fx.loginAsTarget();
+    await pool.query(`UPDATE admin_impersonation_stash SET expires_at = now() - interval '1 second' WHERE stash_id = $1`,
+      [jar['sb-admin-stash']]);
+    const holders = (await Promise.all([fx.ownSession(), fx.ownSession()]))
+      .map((j) => ({ ...j, 'sb-admin-stash': crypto.randomUUID() }));
+    lookups.delayMs = 400;
+    const holding = holders.map((j) => signOut(j));
+    await vi.waitFor(() => expect(lookups.inFlight).toBe(2));
+    const r = await post(endImpersonation, jar);
+    await Promise.all(holding);
+    expect(r).toMatchObject({ status: 401, clearedAccess: true });
+    expect(lookups.calls).toBe(2); // the Return's look-up was skipped by the shared cap
+    const sid = String(decodeJwt(jar['sb-access-token']!).session_id);
+    expect((await pool.query(`SELECT count(*)::int AS n FROM admin_audit_log WHERE admin_user_id = $1
+      AND action = 'impersonation_end' AND details->>'session_id' = $2`, [fx.platformAdmin, sid])).rows[0].n).toBe(0);
+  });
+});
+
 describe('N3: end-impersonation never waits on the platform_admin pool', () => {
   it('an expired stash with the pool exhausted: refused within the bound, cookies cleared', async () => {
     const jar = await fx.loginAsTarget();

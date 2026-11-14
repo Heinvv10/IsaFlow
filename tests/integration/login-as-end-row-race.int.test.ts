@@ -112,6 +112,24 @@ describe('one end row per Login-as', () => {
     expect(of(l1)[0]!.id).not.toBe(of(l2)[0]!.id);
   });
 
+  it('review LOW: the end write waits at most lock_timeout (5 s) on a held end lock, then fails before anything irreversible', async () => {
+    const jar = await fx.loginAsTarget();
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`login-as-end:session:${sessionOf(jar)}`]);
+      const t0 = Date.now();
+      expect(await end(jar)).toBe(500);
+      expect(Date.now() - t0).toBeLessThan(9000);
+      expect((await pool.query('SELECT count(*)::int AS n FROM admin_impersonation_stash WHERE stash_id = $1',
+        [jar['sb-admin-stash']])).rows[0].n).toBe(1); // still live: a retry restores
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    expect(await end(jar)).toBe(200);
+  }, 20000);
+
   it("a forged stash cookie naming another admin's ended stash touches none of their rows", async () => {
     const theirs = await other.loginAsTarget();
     expect(await end(theirs)).toBe(200);
