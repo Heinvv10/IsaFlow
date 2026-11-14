@@ -84,7 +84,7 @@ test('dashboard and the companies list load; the list sorts by Name both ways an
     const norm = (t: string) => t.replace(/\s+/g, ' ').trim();
     await expect.poll(async () => {
       if (await rows.count() !== Math.max(names.length, 1)) return false;
-      return names.length === 0 || norm(await rows.first().innerText()).includes(norm(names[0]!));
+      return names.length === 0 || norm(await rows.first().innerText({ timeout: 2000 })).includes(norm(names[0]!));
     }, { message: `sort ${by} ${dir}: one row per company, the first row holding the API's first company`, timeout: 15_000 }).toBe(true);
     return names;
   };
