@@ -2,11 +2,20 @@
  * The two reads `paymentVoidService.voidPaymentDocument` makes BEFORE it takes
  * any lock: which bank lines the payment's journal settles, and the journal id
  * itself. Moved out of that file unchanged (R-127, file-size cap); the lock
- * order they serve is described in its header.
+ * order they serve is described in its header. `loadPayment` (the locked read
+ * after them) moved here unchanged too (step 6, file-size cap).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { PaymentKind } from './paymentVoidService';
+import { lockCustomerPaymentForUpdate, lockSupplierPaymentForUpdate } from './paymentLock';
+
+/**
+ * The statuses at which a statement line still settles the journal line it is matched to. ONE list, shared with
+ * `ap/settlementKind.ts` (a payment is a statement-line settlement exactly when this void would delegate to the bank
+ * path), so the two cannot disagree about which lines count.
+ */
+export const SETTLING_LINE_STATUSES: readonly string[] = ['allocated', 'matched', 'reconciled'];
 
 /**
  * The bank lines this journal settles.
@@ -34,7 +43,7 @@ export async function findBankTransactions(
     JOIN gl_journal_lines jl ON jl.id = bt.matched_journal_line_id
     WHERE bt.company_id = ${companyId}::UUID
       AND jl.journal_entry_id = ${journalEntryId}::UUID
-      AND bt.status IN ('allocated', 'matched', 'reconciled')
+      AND bt.status = ANY(${[...SETTLING_LINE_STATUSES]}::TEXT[])
     ORDER BY bt.transaction_date, bt.id`) as DbRow[];
   return rows.map((r) => String(r.id));
 }
@@ -54,4 +63,42 @@ export async function peekPaymentJournal(
   if (rows.length === 0) return undefined;
   const id = rows[0]!.gl_journal_entry_id;
   return id == null ? null : String(id);
+}
+
+export interface PaymentRow {
+  id: string;
+  paymentNumber: string | null;
+  status: string;
+  journalEntryId: string | null;
+  settlesProvisionalJeId: string | null;
+  batchId: string | null;
+}
+
+/**
+ * Read the payment back UNDER company_id — the only tenant check there is —
+ * holding a row lock for the rest of the transaction.
+ *
+ * The lock is not decoration. The registry's idempotency lock only serialises
+ * calls carrying the SAME key, so two `void_receipt` calls on one receipt with
+ * different keys would both read `confirmed`, both read the not-yet-deleted
+ * allocation rows, and both subtract from `amount_paid` — twice, on an invoice
+ * carrying other receipts' cash, which `GREATEST(...,0)` only floors at zero.
+ */
+export async function loadPayment(
+  companyId: string,
+  kind: PaymentKind,
+  paymentId: string,
+): Promise<PaymentRow | null> {
+  const row = kind === 'customer'
+    ? await lockCustomerPaymentForUpdate(companyId, paymentId)
+    : await lockSupplierPaymentForUpdate(companyId, paymentId);
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    paymentNumber: row.payment_number == null ? null : String(row.payment_number),
+    status: String(row.status),
+    journalEntryId: row.gl_journal_entry_id == null ? null : String(row.gl_journal_entry_id),
+    settlesProvisionalJeId: row.settles_provisional_je_id == null ? null : String(row.settles_provisional_je_id),
+    batchId: row.batch_id == null ? null : String(row.batch_id),
+  };
 }

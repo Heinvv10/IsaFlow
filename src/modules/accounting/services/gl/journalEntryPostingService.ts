@@ -23,6 +23,7 @@ import { recordPayRunApprovalAudit } from '../payroll/payRunApprovalAudit';
 import { postJournalEntry } from './journalEntryPostService';
 import { cleanUpAfter } from './reversalCleanup';
 import { bookEtiAfterDirectiveReversal } from '../payroll/etiRebook';
+import { assertNoLiveUndoShares } from './shareUndoReversalGuard';
 import {
   LateClaimCompanionReversalError, copyLateClaimBaseToReversal, planLateClaimCompanionReversal,
 } from './vatLateClaimSplit';
@@ -141,6 +142,9 @@ async function reverseJournalEntryInner(
       await refuseReversingSettlementJournal(companyId, entry);
       // D12 round 3: statement cash a COMPLETED reconciliation signed off — asked under the claim, read-only.
       await refuseReversingCompletedCash(companyId, id, opts?.cashLinesLocked);
+      // Step 6: a share journal with live undo-share journals — under the claim's row lock, the row an undo locks
+      // FOR UPDATE (ap/shareUndoReads.lockShareJournal), so the two serialise: authoritative (gl/shareUndoReversalGuard).
+      await assertNoLiveUndoShares(companyId, id, entry.entryNumber);
     } catch (err) {
       await releaseJournalReversalClaim(companyId, id);
       throw err;

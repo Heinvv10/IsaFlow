@@ -83,7 +83,7 @@ describe('MCP write-tool role fence (S-01)', () => {
     'audit_trail', 'balance_sheet', 'bank_accounts_status', 'bank_statement_coverage',
     'budget_variance', 'chart_of_accounts_health', 'company_profile', 'compare_audit_snapshot',
     'customer_statement', 'data_integrity_checks', 'document_vat_history', 'due_by_date', 'emp201_status', 'entity_history',
-    'export_gl_lines', 'find_by_external_ref', 'general_ledger', 'get_bank_rule', 'get_credit_note',
+    'export_gl_lines', 'find_by_external_ref', 'find_double_settlements', 'general_ledger', 'get_bank_rule', 'get_credit_note',
     'get_document', 'get_employee', 'get_fiscal_period', 'get_invoice',
     'get_match_candidates', 'get_opening_balances', 'get_supplier_invoice', 'irp5_data',
     'job_cost_report', 'list_agent_postings', 'list_bank_reconciliations', 'list_bank_rules',

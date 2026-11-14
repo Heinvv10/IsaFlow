@@ -56,6 +56,7 @@ const GATED: Record<string, string> = {
   [`${A}bank/bankRuleAutoPostLine.ts`]: 'bank-rule sweep: evidenced lines exempt (decision 2); a hand-keyed line to an account skipped (Hein H2, round 4)',
   'src/lib/mcp/tools/writeOpeningBalance.ts': 'MCP opening balance: refused outright under enforcement — a person enters them (Hein, round 4)',
   [`${A}capture/provisionalPostingService.ts`]: 'provisional posting of a bank outflow: evidenced lines exempt (D2); a hand-keyed one skipped (Hein H2, round 5)',
+  [`${A}ap/shareUndoPost.ts`]: 'void_payment undo_share (step 6): the agent is refused up front (voidPaymentUndoShare, Q6); every journal marked under enforcement',
 };
 const EXEMPT: Record<string, string> = {
   [`${A}gl/journalEntryPostService.ts`]: 'the primitive itself: re-enters for the s16(3) companion of a journal already gated',
@@ -98,7 +99,7 @@ describe('the callers of postJournalEntry', () => {
     const callers = filesMatching(/(?<!function )\bpostJournalEntry\(/);
     expect(callers).toEqual(Object.keys({ ...GATED, ...EXEMPT }).sort());
     const calls = SOURCES.reduce((n, s) => n + count(s.text, /(?<!function )\bpostJournalEntry\(/g), 0);
-    expect(calls).toBe(48); // 48 since wave 5 ET: directivePaymentEti posts the month's ETI journal
+    expect(calls).toBe(49); // 49 since step 6: shareUndoPost posts void_payment's undo-share journals
   });
 
   it('every gated path consults the gate before it posts', () => {
@@ -132,6 +133,9 @@ describe('the callers of postJournalEntry', () => {
     before('src/lib/mcp/tools/writeOpeningBalance.ts', "if (await isEnforced(ctx.companyId, 'manual_journal'))", 'createJournalEntry(');
     before('pages/api/accounting/bank-transactions-manual.ts', 'handKeyedLineJournalRefusal(', 'INSERT INTO bank_transactions');
     before('src/lib/mcp/tools/writeReclassification.ts', 'agentNewManualJournalsRefusal(', 'postReclassBatch(');
+    // Step 6: decided from the plan inside the void's pre-write hook; each journal marked before it posts.
+    before(`${A}ap/voidPaymentUndoShare.ts`, 'agentNewManualJournalsRefusal(', 'postShareUndoJournals(');
+    before(`${A}ap/shareUndoPost.ts`, 'markManualJournal(', 'postJournalEntry(');
   });
 });
 
