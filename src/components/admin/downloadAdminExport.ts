@@ -10,9 +10,23 @@ import { adminFetch } from '@/lib/admin/adminFetch';
 /** Admin exports only: the call goes out through adminFetch, as every admin UI call does. */
 const ADMIN_API = '/api/admin/';
 
+/**
+ * The same-origin path + query of `href` once resolved as the browser would (dot-segments, percent-encoded
+ * ones included, are collapsed; `//host` and absolute URLs keep their own origin), or a throw unless that is
+ * under /api/admin/. A plain prefix test would pass `/api/admin/../auth/x`. The resolved path is what gets
+ * fetched, so the URL checked is the URL sent.
+ */
+function adminExportPath(href: string): string {
+  const base = 'http://admin-export.invalid';
+  const url = new URL(href, base);
+  if (url.origin !== base || !url.pathname.startsWith(ADMIN_API)) {
+    throw new Error(`downloadAdminExport takes an ${ADMIN_API} URL`);
+  }
+  return url.pathname + url.search;
+}
+
 export async function downloadAdminExport(href: string, fallbackName: string): Promise<void> {
-  if (!href.startsWith(ADMIN_API)) throw new Error(`downloadAdminExport takes an ${ADMIN_API} URL`);
-  const res = await adminFetch(href);
+  const res = await adminFetch(adminExportPath(href));
   await assertOk(res, 'Could not export the CSV - try again');
   const blob = await res.blob();
   const named = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1];
