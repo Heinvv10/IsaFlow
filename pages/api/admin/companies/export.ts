@@ -69,7 +69,8 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'plan is not a plan code');
   }
   const sortBy  = requestedSort ?? 'created_at';
-  const sortAsc = requestedSort !== null && requestedDir === 'asc';
+  // As the list API: no sort_by sorts c.created_at, in the direction asked for (default desc).
+  const sortAsc = requestedDir === 'asc';
   const sortDir = sortAsc ? 'asc' : 'desc';
   const sortCol = SORT_COLUMNS[sortBy]!;
   const searchPattern = search ? `%${search}%` : null;

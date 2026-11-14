@@ -148,6 +148,9 @@ describe('web traffic CSV: fetched, so a refusal is shown, not saved', () => {
     expect(Object.fromEntries(first!)).toEqual({ website_id: 'site-1', range: '7d' });
     expect(Object.fromEntries(second!)).toEqual({ website_id: 'site-1', range: '7d', include_bots: '1' });
     expect(made).toHaveBeenCalledTimes(2);
+    // Through adminFetch, as every admin UI call (it sets X-Admin-Request).
+    const inits = vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u).startsWith('/api/admin/analytics/web/export')).map(([, i]) => i);
+    expect(inits.map((i) => new Headers(i?.headers).get('X-Admin-Request'))).toEqual(['true', 'true']);
   });
 
   it('shows the server refusal (too many events) and saves nothing', async () => {

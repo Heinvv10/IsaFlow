@@ -4,10 +4,15 @@
  * filter) is thrown with the server's message for the page to show, never saved
  * as the file; a plain download link would save the error JSON instead.
  */
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { assertOk } from '@/lib/apiFetch';
+import { adminFetch } from '@/lib/admin/adminFetch';
+
+/** Admin exports only: the call goes out through adminFetch, as every admin UI call does. */
+const ADMIN_API = '/api/admin/';
 
 export async function downloadAdminExport(href: string, fallbackName: string): Promise<void> {
-  const res = await apiFetch(href);
+  if (!href.startsWith(ADMIN_API)) throw new Error(`downloadAdminExport takes an ${ADMIN_API} URL`);
+  const res = await adminFetch(href);
   await assertOk(res, 'Could not export the CSV - try again');
   const blob = await res.blob();
   const named = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1];
