@@ -24,7 +24,7 @@ interface UsageAnalytics {
   top_pages: Array<{ path: string; views: number }>;
   feature_adoption: Array<{ feature: string; adoption_percent: number; user_count: number }>;
   revenue_by_plan: Array<{ plan_name: string; mrr_cents: number; company_count: number }>;
-  churn_signals: Array<{ company_id: string; company_name: string; days_inactive: number; last_login: string | null }>;
+  churn_signals: Array<{ company_id: string; company_name: string; days_inactive: number | null; last_login: string | null }>;
 }
 
 function fmtZAR(cents: number) {
@@ -228,33 +228,36 @@ export default function AdminAnalytics() {
                   {data.churn_signals.length === 0 && (
                     <tr><td colSpan={3} className="px-5 py-8 text-center text-gray-600 dark:text-gray-400">No churn signals — great!</td></tr>
                   )}
-                  {data.churn_signals.map((row, i) => (
+                  {data.churn_signals.map((row, i) => {
+                    const stale = row.days_inactive != null && row.days_inactive > 30;
+                    return (
                     <tr
                       key={i}
                       className={[
                         'border-b border-gray-100 dark:border-gray-800 last:border-0',
-                        row.days_inactive > 30
+                        stale
                           ? 'bg-red-50 dark:bg-red-900/10'
                           : 'hover:bg-gray-50 dark:hover:bg-gray-800/40',
                       ].join(' ')}
                     >
                       <td className={[
                         'px-5 py-3 font-medium',
-                        row.days_inactive > 30 ? 'text-red-700 dark:text-red-400' : 'text-gray-800 dark:text-gray-200',
+                        stale ? 'text-red-700 dark:text-red-400' : 'text-gray-800 dark:text-gray-200',
                       ].join(' ')}>
                         {row.company_name}
                       </td>
                       <td className={[
                         'px-5 py-3 text-right font-semibold',
-                        row.days_inactive > 30 ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400',
+                        stale ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400',
                       ].join(' ')}>
-                        {row.days_inactive}d
+                        {row.days_inactive == null ? 'Never' : `${row.days_inactive}d`}
                       </td>
                       <td className="px-5 py-3 text-right text-gray-500 dark:text-gray-400">
                         {fmtDate(row.last_login)}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

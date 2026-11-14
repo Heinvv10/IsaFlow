@@ -8,6 +8,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { BulkActionsBar } from '@/components/admin/companies/BulkActionsBar';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
+import { formatLastSeen } from '@/components/admin/formatLastSeen';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import {
   Search, AlertCircle, Loader2, ChevronLeft, ChevronRight,
@@ -400,7 +401,7 @@ export default function AdminCompaniesPage() {
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{c.user_count}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-300 tabular-nums text-xs">{formatCurrency(c.mrr_cents / 100)}</td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(c.created_at)}</td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(c.last_active)}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatLastSeen(c.last_active)}</td>
                   <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center gap-1">
                       <button

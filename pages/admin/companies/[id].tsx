@@ -11,6 +11,7 @@ import { CompanyBillingTab } from '@/components/admin/companies/CompanyBillingTa
 import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { CompanyEffectiveFeature } from '@/modules/admin/types/admin-billing.types';
 import { formatDate } from '@/utils/formatters';
+import { formatLastSeen } from '@/components/admin/formatLastSeen';
 import { useAdminHref, tenantAppUrl } from '@/hooks/useAdminPrefix';
 import {
   ArrowLeft, AlertCircle, Loader2, Building2, ShieldOff, ShieldCheck,
@@ -454,7 +455,7 @@ export default function AdminCompanyDetailPage() {
                     <Field label="Billing Email"    value={company.billing_email} />
                     <Field label="Billing Contact"  value={company.billing_contact} />
                     <Field label="Created"          value={formatDate(company.created_at)} />
-                    <Field label="Last Active"      value={formatDate(company.last_active)} />
+                    <Field label="Last Active"      value={formatLastSeen(company.last_active)} />
                     <div className="col-span-2"><Field label="Address" value={address} /></div>
                   </div>
                 )}
@@ -492,7 +493,7 @@ export default function AdminCompanyDetailPage() {
                             <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{u.first_name} {u.last_name}</td>
                             <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{u.email}</td>
                             <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{u.role}</td>
-                            <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{formatDate(u.last_login)}</td>
+                            <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{formatLastSeen(u.last_login)}</td>
                           </tr>
                         ))}
                       </tbody>
