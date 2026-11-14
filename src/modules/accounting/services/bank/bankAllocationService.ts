@@ -32,6 +32,7 @@ import { underFlowLockBudget } from '../core/rowLockBudget';
 import { refuseResettingProvisionalLine } from './provisionalLineGuard';
 import { isoDay, lockChainLines, peekLineChain, refuseStaleUndo, resetBankLine, reverseDocumentChainLine } from './bankChainLineReversal';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
+import { assertReallocatableRow } from './bankReallocationGuards';
 import { assertPostedForAllocation } from './bankFeedStateGuard';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
 import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contactDirectoryService';
@@ -82,7 +83,11 @@ export async function allocateTransaction(
    */
   // allowLateInputClaim: a USER's allocation only (gl/vatLateClaimPlan) — never the rule auto-post.
   // unattended: the auto-post gate's own post (autoPostGateService), which records its own decision.
-  opts?: PostingActorOpts & { autoApply?: AutoApplyMode; allowLateInputClaim?: boolean; unattended?: boolean },
+  // reallocation: bankReallocationService alone — the line's own completed reconciliation, re-checked on the locked row.
+  opts?: PostingActorOpts & {
+    autoApply?: AutoApplyMode; allowLateInputClaim?: boolean; unattended?: boolean;
+    reallocation?: { reconciliationId: string };
+  },
 ): Promise<{
   journalEntryId: string;
   bankTransaction: BankTransaction;
@@ -102,9 +107,15 @@ export async function allocateTransaction(
   // A pending/removed feed row carries status 'imported', so the status check
   // below would let it through. Refused from the locked row, before any write.
   assertPostedForAllocation(tx, bankTxId, 'allocate');
-  await refuseLineOfCompletedReconciliation(companyId, tx); // D12: the shared 409, before the status refusal
-  if (tx.status !== 'imported') {
-    throw new BankAllocationRefusal(`Transaction already ${tx.status} — cannot allocate`);
+  if (opts?.reallocation) {
+    // reallocate_bank_transaction only (bankReallocationService): this line, reconciled on exactly that completed
+    // reconciliation, judged on THIS locked row — in place of the D12 refusal and the 'imported' requirement.
+    await assertReallocatableRow(companyId, tx, opts.reallocation);
+  } else {
+    await refuseLineOfCompletedReconciliation(companyId, tx); // D12: the shared 409, before the status refusal
+    if (tx.status !== 'imported') {
+      throw new BankAllocationRefusal(`Transaction already ${tx.status} — cannot allocate`);
+    }
   }
 
   // R-067. `entityId` arrives in the request body (bank-transactions-action.ts:40

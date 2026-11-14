@@ -11,8 +11,10 @@ import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import { TABS, getActiveTabId, isFlyout, activeHrefAmong, mostSpecificActiveHref, type NavItem, type Tab } from '../accounting/accountingNavConfig';
 import { stripVatNav } from '../accounting/navSections/vatNav';
+import { stripFlagNav } from '../accounting/navSections/flagNav';
 import { NavLinksBlock } from './NavLinksBlock';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
+import { useNavFlags } from '@/hooks/useNavFlags';
 
 const rowCls = (active: boolean, depth: number) =>
   `flex w-full items-center justify-between py-2 pr-4 text-sm text-left transition-colors ${depth === 0 ? 'pl-4 font-medium border-l-[3px]' : depth === 1 ? 'pl-7' : 'pl-10'} ${
@@ -83,10 +85,11 @@ function TabGroup({ tab, asPath, active }: { tab: Tab; asPath: string; active: b
 export function DrawerNav() {
   const router = useRouter();
   const { isRegistered } = useVatRegistration();
+  const flags = useNavFlags();
   const activeTabId = getActiveTabId(router.pathname, router.query);
   return (
     <nav aria-label="Main" className="flex-1 overflow-y-auto py-2">
-      {stripVatNav(TABS, isRegistered).map(tab => tab.items?.length ? (
+      {stripFlagNav(stripVatNav(TABS, isRegistered), flags).map(tab => tab.items?.length ? (
         <TabGroup key={tab.id} tab={tab} asPath={router.asPath} active={activeTabId === tab.id} />
       ) : tab.href ? (
         <Link key={tab.id} href={tab.href} aria-current={activeTabId === tab.id ? 'page' : undefined} className={rowCls(activeTabId === tab.id, 0)}>

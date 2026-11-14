@@ -6,6 +6,7 @@
 import { McpRegistry } from './registry';
 import { companyProfileTool, listCompaniesTool } from './tools/company';
 import { tokenInfoTool } from './tools/tokenInfo';
+import { findByExternalRefTool } from './tools/externalRef';
 import { listGlAccountsTool, searchGlTool } from './tools/reports';
 import { trialBalanceTool } from './tools/reportsTrialBalance';
 import { getInvoiceTool, listInvoicesTool, listQuotesTool } from './tools/invoices';
@@ -40,6 +41,7 @@ import { chartOfAccountsHealthTool, dataIntegrityChecksTool } from './tools/inte
 import { lockVatPeriodTool, vat201ExportTool, vatReconciliationTool } from './tools/vatReports';
 import { markVatDeclaredElsewhereTool } from './tools/vatDeclaredElsewhere';
 import { vatExceptionsTool } from './tools/vatExceptions';
+import { documentVatHistoryTool } from './tools/documentVatHistory';
 import { linkDocumentToJournalTool } from './tools/journalDocumentLink';
 import { listAgentPostingsTool } from './tools/agentActivity';
 import { auditTrailTool } from './tools/auditTrail';
@@ -60,6 +62,7 @@ import { proposeReclassificationTool } from './tools/reclassificationPropose';
 import { postReclassificationBatchTool } from './tools/writeReclassification';
 import { suggestBankAllocationTool } from './tools/writeBank';
 import { allocateBankTransactionTool, reverseBankAllocationTool } from './tools/writeBankAllocate';
+import { reallocateBankTransactionTool } from './tools/writeBankReallocate';
 import { importBankStatementTool, undoBankImportTool } from './tools/writeBankImport';
 import {
   bulkAllocateBankTransactionsTool,
@@ -167,6 +170,7 @@ export const MCP_TOOLS = [
   companyProfileTool,
   listCompaniesTool,
   tokenInfoTool,
+  findByExternalRefTool,
   trialBalanceTool,
   profitAndLossTool,
   balanceSheetTool,
@@ -189,6 +193,8 @@ export const MCP_TOOLS = [
   vatReconciliationTool,
   vat201ExportTool,
   vatExceptionsTool,
+  // Brief step 5a: every VAT line tied to one document, and what it carries now.
+  documentVatHistoryTool,
   dataIntegrityChecksTool,
   chartOfAccountsHealthTool,
   listAgentPostingsTool,
@@ -263,6 +269,7 @@ export const MCP_TOOLS = [
   bulkFinalizeInvoicesTool,
   allocateBankTransactionTool,
   reverseBankAllocationTool,
+  reallocateBankTransactionTool,
   bulkAllocateBankTransactionsTool,
   autoApplyUnappliedTool,
   applyCreditNoteTool,
