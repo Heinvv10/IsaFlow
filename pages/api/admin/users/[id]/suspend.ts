@@ -43,7 +43,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const { reason } = parsed.data;
     let target;
     try {
-      target = await assertSuperAdminRemains(userId);
+      target = await assertSuperAdminRemains(userId, { keepsSuperAdmin: false });
     } catch (err) {
       if (err instanceof LastSuperAdminError) return apiResponse.conflict(res, err.message, { reason: LAST_SUPER_ADMIN_REASON });
       throw err;

@@ -40,10 +40,13 @@ const ROSTER_LOCK = 'isaflow.admin.super_admin_roster';
 /**
  * Locks the roster, then returns the target's role, or null when no such user exists. Throws LastSuperAdminError
  * when the change removes an active super admin and no OTHER active super admin exists (ids compared case-blind, so
- * a case-variant row of the same person is not "another"). `nextRole`: the role a PATCH sets; a change that keeps
- * `super_admin` (an unchanged role sent with other fields) removes nobody. Omitted (a suspension): it always removes.
+ * a case-variant row of the same person is not "another"). `keepsSuperAdmin`: the change leaves the target a super
+ * admin (a PATCH sending `super_admin` unchanged with other fields), so it removes nobody; false for a suspension
+ * or any other role. Explicit at each caller rather than inferred.
  */
-export async function assertSuperAdminRemains(userId: string, nextRole?: string): Promise<RosterTarget | null> {
+export async function assertSuperAdminRemains(
+  userId: string, change: { keepsSuperAdmin: boolean },
+): Promise<RosterTarget | null> {
   const [iso] = await sql<{ level: string }>`SELECT current_setting('transaction_isolation') AS level`;
   if (iso?.level !== 'read committed') {
     throw new Error(`super admin roster check needs READ COMMITTED, got ${iso?.level ?? 'unknown'}`);
@@ -56,8 +59,7 @@ export async function assertSuperAdminRemains(userId: string, nextRole?: string)
   `;
   if (!target) return null;
   const isSuperAdmin = target.role === 'super_admin';
-  const removes = nextRole !== 'super_admin'; // undefined (a suspension) removes too
-  if (isSuperAdmin && target.active && removes) {
+  if (isSuperAdmin && target.active && !change.keepsSuperAdmin) {
     const [others] = await sql<{ n: number }>`
       SELECT count(*)::int AS n FROM users
       WHERE role = 'super_admin' AND lower(id) <> lower(${userId})

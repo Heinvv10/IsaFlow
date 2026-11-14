@@ -63,7 +63,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     let target = null;
     if (role !== undefined) {
       try {
-        target = await assertSuperAdminRemains(userId, role);
+        target = await assertSuperAdminRemains(userId, { keepsSuperAdmin: role === 'super_admin' });
       } catch (err) {
         if (err instanceof LastSuperAdminError) return apiResponse.conflict(res, err.message, { reason: LAST_SUPER_ADMIN_REASON });
         throw err;
