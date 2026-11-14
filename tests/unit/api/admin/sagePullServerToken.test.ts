@@ -41,3 +41,12 @@ describe('sage-pull-server issues the commit binding', () => {
     expect(() => verifyPullToken(data.pullToken, OTHER, data.pulled)).toThrow(/different company/);
   });
 });
+
+describe('verifyPullToken names each refusal', () => {
+  it('a token issued in the future says so, not "more than two hours old"', async () => {
+    const { issuePullToken } = await import('@/modules/admin/services/sagePullBinding');
+    const pulled = { accounts: { records: [] } };
+    const future = issuePullToken(COMPANY, pulled, Date.now() + 10 * 60 * 1000);
+    expect(() => verifyPullToken(future, COMPANY, pulled)).toThrow(/issued in the future/);
+  });
+});

@@ -37,7 +37,6 @@ import type {
   MappedSupplier,
   MappedARInvoice,
   MappedAPInvoice,
-  BankTx,
 } from '@/modules/admin/services/sageMigrationTypes';
 
 interface CommitBody {
@@ -50,7 +49,6 @@ interface CommitBody {
     suppliers?:        { records?: MappedSupplier[] };
     arInvoices?:       { records?: MappedARInvoice[] };
     apInvoices?:       { records?: MappedAPInvoice[] };
-    bankTransactions?: { bankAccountId: string; records: BankTx[] };
   };
 }
 
@@ -83,7 +81,6 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
       suppliers:        pulled.suppliers?.records?.length        ?? 0,
       arInvoices:       pulled.arInvoices?.records?.length       ?? 0,
       apInvoices:       pulled.apInvoices?.records?.length       ?? 0,
-      bankTransactions: pulled.bankTransactions?.records?.length ?? 0,
     },
   }, 'sage-migration');
 

@@ -70,13 +70,17 @@ describe('Sage import: the target company is fixed at Pull', () => {
     expect(String(confirmSpy.mock.calls[0]?.[0])).toContain('Alpha Ltd');
     // By design (3.4, pinned in sage-commit-closed-period-waiver.int.test.ts): the confirm says so.
     expect(String(confirmSpy.mock.calls[0]?.[0])).toContain(
-      'Historical documents post into their original dates, including closed periods; periods with a filed VAT return are refused.');
+      'Historical documents post into their original dates, including closed periods; documents that move VAT into a period '
+      + 'with a filed VAT return are refused (per document; the rest commit).');
     await new Promise((r) => setTimeout(r, 30));
     expect(commits()).toEqual([]); // declined: nothing posted
 
     confirmSpy.mockReturnValue(true);
     fireEvent.click(screen.getByRole('button', { name: /commit names \+ coa only/i }));
     await screen.findByText('COMMITTED');
+    // Names + COA imports no documents, so its confirm says nothing about dates or VAT.
+    expect(String(confirmSpy.mock.calls[1]?.[0])).toContain('Alpha Ltd');
+    expect(String(confirmSpy.mock.calls[1]?.[0])).not.toMatch(/Historical documents|VAT/);
     expect(commits()).toHaveLength(1);
     expect(JSON.parse(String(commits()[0]![1]?.body))).toMatchObject({ companyId: 'co-a', pullToken: 'pull-token-from-server' });
   });

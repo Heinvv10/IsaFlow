@@ -9,6 +9,14 @@
  * it does send must match. The key is derived from the server's existing
  * JWT_SECRET for this purpose only (the budgetTemplateSignature pattern); no new
  * secret.
+ *
+ * Named limit: the token is not single-use and not bound to an admin or a
+ * session. Any super admin holding it can replay the same commit, into the
+ * same company, with the same data, for two hours. That is acceptable because
+ * the commit is idempotent on what matters (invoice numbers and existing
+ * account codes are skipped, contacts matched by name), every admin is
+ * already allowed to commit into any company, and what the token prevents is
+ * the dangerous case: a payload or company that the pull did not produce.
  */
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
@@ -55,7 +63,10 @@ export function verifyPullToken(token: unknown, companyId: string, pulled: Recor
   if (claims.companyId !== companyId.toLowerCase()) {
     throw new PullBindingError('This data was pulled for a different company. Pull from Sage again for this company.');
   }
-  if (claims.issuedAt > now + CLOCK_SKEW_MS || now - claims.issuedAt > PULL_TOKEN_MAX_AGE_MS) {
+  if (claims.issuedAt > now + CLOCK_SKEW_MS) {
+    throw new PullBindingError('This pull token was issued in the future (server clocks disagree). Pull from Sage again, then commit.');
+  }
+  if (now - claims.issuedAt > PULL_TOKEN_MAX_AGE_MS) {
     throw new PullBindingError('This pull is more than two hours old. Pull from Sage again, then commit.');
   }
   const changed = Object.keys(pulled).filter((s) => pulled[s] !== undefined
