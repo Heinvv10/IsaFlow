@@ -1,5 +1,4 @@
 import { Fragment } from 'react';
-import { Send } from 'lucide-react';
 import type { EmailLogItem } from '../../../../pages/api/admin/email-log';
 import { fmtDate, RESEND_UNAVAILABLE, STATUS_COLORS, TYPE_LABELS } from './emailLogLabels';
 
@@ -43,20 +42,8 @@ export function EmailLogRows({ items, expandedId, onToggle }: Props) {
             </td>
             <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
               {isFailed && (
-                <span className="inline-flex flex-col items-start gap-0.5">
-                  <button
-                    type="button"
-                    disabled
-                    title={RESEND_UNAVAILABLE}
-                    aria-describedby={`resend-why-${item.id}`}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-amber-400 border border-amber-500/40 rounded opacity-50 cursor-not-allowed"
-                  >
-                    <Send className="w-3 h-3" />
-                    Resend
-                  </button>
-                  <span id={`resend-why-${item.id}`} className="text-xs text-gray-600 dark:text-gray-400" title={RESEND_UNAVAILABLE}>
-                    No copy of the email is kept
-                  </span>
+                <span className="text-xs text-gray-600 dark:text-gray-400" title={RESEND_UNAVAILABLE}>
+                  Resend unavailable: no copy of the email is kept
                 </span>
               )}
             </td>

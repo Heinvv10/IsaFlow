@@ -1,8 +1,8 @@
 // Admin audit 2026-11-14, item 1.12 + goal §2a: the email log's Resend sent the
 // recipient a "[Resent] <subject>" shell with none of the original content (the
 // log keeps no body), and the row then said "Sent". No email type can be rebuilt
-// from what email_log holds, so Resend is disabled with the reason, and clicking
-// it posts nothing.
+// from what email_log holds, so a failed row shows the reason instead of a Resend
+// button (review L2: no permanently disabled control).
 import { cleanup, configure, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -27,16 +27,13 @@ const page = { items: [failed], total: 1, page: 1, limit: 25, stats: { total_sen
 afterEach(() => { cleanup(); vi.mocked(apiFetch).mockReset(); });
 
 describe('email log Resend', () => {
-  it('is disabled on a failed row, says why, and posts nothing when clicked', async () => {
+  it('offers no Resend button on a failed row, only the reason, and posts nothing', async () => {
     vi.mocked(apiFetch).mockImplementation(async () => new Response(JSON.stringify({ success: true, data: page }), { status: 200 }));
     render(<EmailLogPage />);
-    const button = await screen.findByRole('button', { name: /^resend$/i }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-    expect(button.getAttribute('title')).toMatch(/cannot be rebuilt/i);
-    const why = document.getElementById(button.getAttribute('aria-describedby') ?? '');
-    expect(why?.textContent).toMatch(/no copy of the email is kept/i);
-
-    fireEvent.click(button);
+    const note = await screen.findByText(/resend unavailable: no copy of the email is kept/i);
+    expect(note.getAttribute('title')).toMatch(/cannot be rebuilt/i);
+    expect(screen.queryByRole('button', { name: /resend/i })).toBeNull();
+    fireEvent.click(note);
     await new Promise((r) => setTimeout(r, 50));
     expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST')).toEqual([]);
   });
