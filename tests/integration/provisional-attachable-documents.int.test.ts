@@ -4,7 +4,7 @@
 // documents never have, so its picker was always empty. "Attachable" is what
 // the attach itself accepts (claimCapturedDocumentForPosting): not posted, not
 // rejected, read finished — and the caller's company only; then NARROWED ON PURPOSE: it leaves out what is
-// not supplier evidence: our own sent invoices, sent emails and dunning letters, and
+// not supplier evidence: our own sent invoices, sent emails and dunning letters, bank payment notices (proof_of_payment), and
 // bank or supplier STATEMENTS (a supplier statement carries no document_type; it is
 // known by the reconciliation that points at it).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -31,6 +31,7 @@ const ids = {
   sentInvoice: crypto.randomUUID(),
   outboundEmail: crypto.randomUUID(),
   dunning: crypto.randomUUID(),
+  proofOfPayment: crypto.randomUUID(),
   bankStatement: crypto.randomUUID(),
   supplierStatement: crypto.randomUUID(),
   // No document_type, but a bank statement import points at it.
@@ -100,6 +101,7 @@ beforeAll(async () => {
     [ids.sentInvoice, company, 'matched', 'done', false, 'sent_invoice'],
     [ids.outboundEmail, company, 'matched', 'done', false, 'outbound_email'],
     [ids.dunning, company, 'matched', 'done', false, 'dunning'],
+    [ids.proofOfPayment, company, 'processed', 'done', false, 'proof_of_payment'],
     [ids.bankStatement, company, 'pending', 'done', false, 'statement'],
     [ids.supplierStatement, company, 'pending', 'done', false, null],
     [ids.bankImportUntyped, company, 'pending', 'done', false, null],
@@ -196,6 +198,7 @@ describe('document-capture ?attachable=1', () => {
     expect(got).not.toContain(ids.bankImportUntyped);
     expect(got).not.toContain(ids.supplierStatement);
     expect(got).not.toContain(ids.bankStatement);
+    expect(got).not.toContain(ids.proofOfPayment);
   });
 
   it('leaves out a document a standing posted journal rests on; a reversed or draft journal frees it', async () => {
