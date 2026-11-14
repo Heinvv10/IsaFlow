@@ -47,6 +47,9 @@ export const isKnownWord = (w: string): boolean => KNOWN.has(w) || WINDOW_TOKEN.
 /** A year, or a financial year label (fy2026): part of a window. */
 const WINDOW_TOKEN = /^(?:(?:19|20)\d{2}|fy(?:19|20)\d{2})$/;
 
+/** The question with the windows the parser reads removed, so a bare "year" or "year end" that is left over can be named as such. */
+export const withoutWindowPhrases = (normalised: string): string => normalised.replace(WINDOW_PHRASES, ' ').replace(/\bfy\s?(?:19|20)\d{2}\b/g, ' ').replace(/\s+/g, ' ').trim();
+
 /** The words of an already-normalised question that no pattern or window accounts for (days of a date are removed by the caller). */
 export function leftoverWords(normalised: string, vat = false): string[] {
   const out: string[] = [];

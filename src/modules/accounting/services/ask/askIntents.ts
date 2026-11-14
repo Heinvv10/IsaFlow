@@ -7,7 +7,7 @@
  * question), and when two or more specific intents still match the parser says so and the caller asks which was meant.
  */
 
-import { leftoverWords } from './askVocabulary';
+import { leftoverWords, withoutWindowPhrases } from './askVocabulary';
 
 export type AskIntentId =
   | 'owed_to_me' | 'i_owe' | 'cash' | 'profit' | 'revenue' | 'expenses'
@@ -306,6 +306,10 @@ export function parseQuestion(question: string): ParsedQuestion {
   if (COMPARISON.test(q)) return { kind: 'unsupported', id, said: 'comparisons' };
   const period = parsePeriod(q);
   // Every remaining content word is something we did not understand: refuse rather than answer the plain figure without it.
+  if (period?.kind !== 'unsupported' && statement && /\b(?:year\s+end|end\s+of\s+(?:the\s+)?year|years?)\b/.test(withoutWindowPhrases(stripDates(q)))) {
+    // A bare "year" or "year end" is a window we do not read: say what to name instead of quoting it as an unknown word.
+    return { kind: 'unsupported', id, said: '"year"', text: `For ${PERIOD_LABEL[id]}, name a month or a financial year (e.g. FY2026).` };
+  }
   if (period?.kind !== 'unsupported') {
     const left = leftoverWords(stripDates(q), id === 'vat');
     if (left.length > 0) return { kind: 'leftover', id, words: originalWords(question, left) };

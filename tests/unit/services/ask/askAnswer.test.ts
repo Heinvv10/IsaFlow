@@ -384,6 +384,24 @@ describe('"period" means the VAT period only', () => {
   });
 });
 
+describe('a bare "year" or "year end" says what to name', () => {
+  it.each([['profit for the year'], ['year end profit'], ['profit at the end of the year']])('%s', async (q) => {
+    const a = await ask(q);
+    expect(a.understood).toBe(false);
+    expect(a.figure).toBeNull();
+    expect(a.text).toBe('For profit, name a month or a financial year (e.g. FY2026).');
+    expect(a.suggestions).toEqual(['What is my profit this month?']);
+    expect(m.income).not.toHaveBeenCalled();
+  });
+  it('revenue and expenses say their own name; supported years still answer', async () => {
+    expect((await ask('revenue for the year')).text).toBe('For revenue, name a month or a financial year (e.g. FY2026).');
+    expect((await ask('expenses year end')).text).toBe('For expenses, name a month or a financial year (e.g. FY2026).');
+    expect((await ask('profit this year')).figure).not.toBeNull();
+    expect((await ask('profit fy2026')).figure).not.toBeNull();
+    expect((await ask('profit last financial year')).figure).not.toBeNull();
+  });
+});
+
 describe('unrecognised and ambiguous', () => {
   it('an unrecognised question calls nothing and suggests the twelve', async () => {
     const a = await ask('what is the weather');
