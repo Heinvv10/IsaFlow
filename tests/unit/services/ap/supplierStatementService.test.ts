@@ -203,3 +203,48 @@ describe('supplier statement — a partly-applied credit note debits what was ap
     expect(q.sql).toContain('applied_amount');
   });
 });
+
+describe('supplier statement — a payment cancelled AFTER the as-at date stood on it', () => {
+  const CANCELLED = (live: boolean) => ({
+    id: 'p3', payment_number: 'SP0003', payment_date: '2026-03-01', amount_allocated: 400,
+    status: 'cancelled', live_at_as_at: live, created_at: '2026-03-01T08:00:00Z',
+  });
+
+  it('counts it, and reduces what we owe, when its journal reversal is not yet in force', async () => {
+    routeMock({ payments: [...PAYMENTS, CANCELLED(true)] });
+    const p = (await fetchSupplierStatementData(COMPANY, SUPPLIER, '2026-03-31'))!;
+    expect(p.transactions.some((t) => t.reference === 'SP0003' && t.type === 'payment')).toBe(true);
+    expect(p.summary.balance).toBe(10800 - 400);
+    expect(p.excluded.find((e) => e.id === 'p3')).toBeUndefined();
+  });
+
+  it('leaves it off, named, when the cancellation is already in force', async () => {
+    routeMock({ payments: [...PAYMENTS, CANCELLED(false)] });
+    const p = (await fetchSupplierStatementData(COMPANY, SUPPLIER, '2026-03-31'))!;
+    expect(p.summary.balance).toBe(10800);
+    expect(p.excluded.find((e) => e.id === 'p3')).toMatchObject({ reason: 'payment_not_processed', amount: 400 });
+  });
+
+  it('asks the question of the payment\'s journal chain, bound to the as-at date and the company', async () => {
+    routeMock();
+    await fetchSupplierStatementData(COMPANY, SUPPLIER, '2026-03-31');
+    const q = sqlCalls.find((c) => c.sql.includes('FROM supplier_payments'))!;
+    expect(q.sql).toContain("sp.status = 'cancelled'");
+    // Live only when a posted REVERSAL of the journal is dated AFTER the as-at date: a cancelled
+    // payment whose journal was never reversed (a data defect) stays off, as it always did.
+    expect(q.sql).toMatch(/rev\.reversal_of_id = pje\.id/);
+    expect(q.sql).toMatch(/rev\.entry_date > /);
+    expect(q.values).toContain('2026-03-31');
+    expect(q.values).toContain(COMPANY);
+  });
+
+  it('for today (or later) the column is constant FALSE: today\'s statement cannot change', async () => {
+    routeMock();
+    const today = new Date();
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    await fetchSupplierStatementData(COMPANY, SUPPLIER, iso);
+    const q = sqlCalls.find((c) => c.sql.includes('FROM supplier_payments'))!;
+    expect(q.sql).not.toMatch(/rev\.reversal_of_id/);
+    expect(q.sql).toMatch(/FALSE AS live_at_as_at/);
+  });
+});

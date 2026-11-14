@@ -26,6 +26,8 @@ export interface RunLineAmounts {
   grossPay: number;
   /** Taxed and levied, not paid: not in grossPay. */
   nonCashBenefits?: number;
+  /** RF: of nonCashBenefits, the employer's retirement fund contributions (3817 / 3825 / 3828), also counted as the employee's. */
+  employerRetirement?: number;
   paye: number;
   uifEmployee: number;
   uifEmployer: number;
@@ -113,9 +115,12 @@ interface RunLinesColumn {
 function GrossCell({ line: l }: { line: RunLineAmounts }) {
   const benefit = l.nonCashBenefits ?? 0;
   if (benefit <= 0) return <td className={`${num} text-[var(--ff-text-primary)]`}>{formatCurrency(l.grossPay)}</td>;
+  const fund = l.employerRetirement ?? 0;
+  // RF: the employer's fund contribution is also deemed paid by the employee (s11F, G21 (2027) p. 10): said, so the deduction is not a mystery.
+  const deemed = fund > 0 ? `, of which ${formatCurrency(fund)} is the employer's retirement fund contribution, also counted as the employee's retirement contribution` : '';
   return (
     <td className={`${num} text-[var(--ff-text-primary)]`}
-      title={`${formatCurrency(l.grossPay)} paid in cash, plus a ${formatCurrency(benefit)} non-cash benefit that is taxed (PAYE) and levied (SDL) but not paid`}>
+      title={`${formatCurrency(l.grossPay)} paid in cash, plus a ${formatCurrency(benefit)} non-cash benefit that is taxed (PAYE), with UIF and SDL on it where they apply, but not paid${deemed}`}>
       {formatCurrency(l.grossPay)}
       <span className="block text-xs text-[var(--ff-text-tertiary)]">+ {formatCurrency(benefit)} non-cash</span>
     </td>

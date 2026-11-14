@@ -81,8 +81,8 @@ function routeSql(rows: Array<Record<string, unknown>>, failPage = false) {
     }
     if (text.includes('FROM companies')) return Promise.resolve([{ name: 'Velocity Fibre (Pty) Ltd' }]);
     if (text.includes('WITH page AS')) {
-      // Bound values: company x2, from x2, to x2, postedOnly, cDate x2, cEntry, cLine, limit, ...
-      const [cDate, cEntry, cLine, limit] = [values[7], values[9], values[10], values[11]] as [string | null, string, string, number];
+      // Bound values: the shared window fragment (glLineExportScope), cDate x2, cEntry, cLine, limit.
+      const [cDate, cEntry, cLine, limit] = [values[1], values[3], values[4], values[5]] as [string | null, string, string, number];
       if (failPage && cDate !== null) return Promise.reject(new Error('connection terminated'));
       const after = cDate === null ? rows : rows.filter((r) =>
         [String(r.entry_date), String(r.entry_id), String(r.line_id)].join('|') > [cDate, cEntry, cLine].join('|'));

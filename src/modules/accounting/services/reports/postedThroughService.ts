@@ -55,6 +55,19 @@ export async function getLedgerPostedThrough(
   asAtDate: string,
   fromDate?: string,
 ): Promise<string> {
+  return (await getLedgerPostedThroughOrNull(companyId, asAtDate, fromDate)) ?? NO_LEDGER_READ;
+}
+
+/**
+ * The same read, answering `null` when no posted entry was consumed -- the
+ * contract's answer (`docs/mcp/CONTRACTS.md`, "`posted_through` is NULL when no
+ * ledger row was consumed"). New callers use this one.
+ */
+export async function getLedgerPostedThroughOrNull(
+  companyId: string,
+  asAtDate: string,
+  fromDate?: string,
+): Promise<string | null> {
   const from = fromDate ?? null;
   const rows = (await sql`
     SELECT MAX(je.created_at) AS posted_through
@@ -65,6 +78,6 @@ export async function getLedgerPostedThrough(
       AND (${from}::TEXT IS NULL OR je.entry_date >= ${from}::DATE)
   `) as DbRow[];
   const raw = rows[0]?.posted_through;
-  if (raw == null) return NO_LEDGER_READ;
+  if (raw == null) return null;
   return raw instanceof Date ? raw.toISOString() : String(raw);
 }

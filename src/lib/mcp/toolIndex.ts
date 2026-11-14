@@ -14,6 +14,7 @@ import { listCustomersTool, listSuppliersTool } from './tools/contacts';
 import { bankAccountsStatusTool, listBankTransactionsTool } from './tools/bank';
 import { listImportBatchesTool } from './tools/importBatches';
 import { reconcileSubledgerTool } from './tools/reconcileSubledger';
+import { partyLedgerCheckTool } from './tools/partyLedgerCheck';
 import { generalLedgerTool } from './tools/generalLedger';
 import { balanceSheetTool } from './tools/reportsBalanceSheet';
 import { agedCreditorsTool, agedDebtorsTool } from './tools/reportsAging';
@@ -178,6 +179,7 @@ export const MCP_TOOLS = [
   agedCreditorsTool,
   dueByDateTool,
   reconcileSubledgerTool,
+  partyLedgerCheckTool,
   generalLedgerTool,
   searchGlTool,
   listGlAccountsTool,
