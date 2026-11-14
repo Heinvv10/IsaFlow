@@ -15,6 +15,7 @@ import { Search, X, CheckCircle2, Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface CompanyOption {
   id: string;
@@ -72,7 +73,7 @@ export function CompanyPicker({ value, onChange }: Props) {
     }
     setLoading(true); setError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies?search=${encodeURIComponent(q)}&limit=10`);
+      const res  = await adminFetch(`/api/admin/companies?search=${encodeURIComponent(q)}&limit=10`);
       await assertOk(res, 'Could not search companies - try again');
       const json = await res.json() as { data?: { items?: CompanyOption[] } };
       setResults(json.data?.items ?? []);

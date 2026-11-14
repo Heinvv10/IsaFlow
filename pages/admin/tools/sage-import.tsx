@@ -18,6 +18,7 @@ import {
   Database, Users, Building2, FileText, ShieldCheck, Cable, KeyRound,
 } from 'lucide-react';
 import { formatDisplayTimeSeconds } from '@/utils/dateFormat';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface Company { id: string; name: string }
 
@@ -114,7 +115,7 @@ export default function AdminSageImportPage() {
   const pulledData = useRef<Record<string, any>>({});
 
   useEffect(() => {
-    apiFetch('/api/admin/companies?limit=200')
+    adminFetch('/api/admin/companies?limit=200')
       .then(async r => { await assertOk(r, 'Could not load companies - try again'); return r.json(); })
       .then(d => setCompanies(d.data?.items ?? []))
       .catch((err: unknown) => setCompaniesError(apiErrorMessage(err, 'Could not load companies - try again')));
@@ -133,7 +134,7 @@ export default function AdminSageImportPage() {
     setPulling(true); setError(''); resetSteps();
 
     try {
-      const res = await apiFetch('/api/admin/migration/sage-pull-server', {
+      const res = await adminFetch('/api/admin/migration/sage-pull-server', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ companyId: selectedCompanyId, sageCookie }),
@@ -178,7 +179,7 @@ export default function AdminSageImportPage() {
       const payload = mode === 'namesAndCoa'
         ? { accounts: all.accounts, customers: all.customers, suppliers: all.suppliers }
         : all;
-      const res = await apiFetch('/api/admin/migration/sage-commit', {
+      const res = await adminFetch('/api/admin/migration/sage-commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ companyId: selectedCompanyId, pulled: payload }),

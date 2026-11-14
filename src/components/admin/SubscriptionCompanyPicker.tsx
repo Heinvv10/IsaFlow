@@ -5,8 +5,9 @@
  */
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface CompanyOption { id: string; name: string; status?: string }
 
@@ -39,7 +40,7 @@ export function SubscriptionCompanyPicker({ companyId, onChange, onNamedChange }
     if (picked.current?.id === companyId) { setLoadError(null); name(picked.current.name); return; }
     name('');
     let live = true;
-    apiFetch(`/api/admin/companies/${encodeURIComponent(companyId)}`)
+    adminFetch(`/api/admin/companies/${encodeURIComponent(companyId)}`)
       .then(async res => { await assertOk(res, LOAD_ERROR); return res.json(); })
       .then(json => { if (live) { setLoadError(null); name((json.data as CompanyOption).name); } })
       .catch(err => {
@@ -57,7 +58,7 @@ export function SubscriptionCompanyPicker({ companyId, onChange, onNamedChange }
     if (!q) { setMatches(null); setSearchError(''); return; }
     let live = true;
     const t = setTimeout(() => {
-      apiFetch(`/api/admin/companies?${new URLSearchParams({ search: q, limit: '10' })}`)
+      adminFetch(`/api/admin/companies?${new URLSearchParams({ search: q, limit: '10' })}`)
         .then(async res => { await assertOk(res, SEARCH_ERROR); return res.json(); })
         .then(json => { if (live) { setSearchError(''); setActiveIdx(-1); setMatches((json.data?.items ?? []) as CompanyOption[]); } })
         .catch(err => {

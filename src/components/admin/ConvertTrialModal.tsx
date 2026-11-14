@@ -3,8 +3,9 @@
  * Used by /admin/trials.
  */
 import { useState, useEffect } from 'react';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, X } from 'lucide-react';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface Plan {
   id: string;
@@ -31,7 +32,7 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
   useEffect(() => {
     void (async () => {
       try {
-        const res  = await apiFetch('/api/admin/billing/plans');
+        const res  = await adminFetch('/api/admin/billing/plans');
         await assertOk(res, 'Could not load plans - try again');
         const json = await res.json() as { data?: Plan[] };
         setPlans(json.data ?? []);
@@ -50,7 +51,7 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
     setWorking(true);
     setError('');
     try {
-      const res = await apiFetch('/api/admin/trials/convert', {
+      const res = await adminFetch('/api/admin/trials/convert', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId, planId }),

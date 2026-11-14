@@ -9,12 +9,13 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   AlertCircle, Loader2, Upload, CheckCircle2, FileSpreadsheet, X,
   Search, RotateCcw, BadgeCheck, Ban, ExternalLink,
 } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface ReleaseRow {
   effective_year: number;
@@ -97,7 +98,7 @@ export default function AdminSarsCodesPage() {
       if (search.trim()) params.set('search', search.trim());
       if (category) params.set('category', category);
       if (statusFilter) params.set('status', statusFilter);
-      const res = await apiFetch(`/api/admin/payroll/sars-codes?${params.toString()}`);
+      const res = await adminFetch(`/api/admin/payroll/sars-codes?${params.toString()}`);
       await assertOk(res, 'Could not load the SARS codes - try again');
       const json = await res.json() as { data?: { releases: ReleaseRow[]; codes: CodeRow[]; taxYear: number | null }; message?: string };
       setReleases(json.data?.releases ?? []);
@@ -121,7 +122,7 @@ export default function AdminSarsCodesPage() {
   const onSetCurrent = async (year: number) => {
     if (!confirm(`Mark tax year ${year} as the current SARS release? All new payroll runs will use this year's codes.`)) return;
     try {
-      const res = await apiFetch('/api/admin/payroll/sars-codes/release', {
+      const res = await adminFetch('/api/admin/payroll/sars-codes/release', {
         method: 'POST',
         body: JSON.stringify({ taxYear: year }),
       });
@@ -136,7 +137,7 @@ export default function AdminSarsCodesPage() {
       if (!confirm(`Code ${row.code} is used by ${row.used_by_companies} compan${row.used_by_companies === 1 ? 'y' : 'ies'}. Marking deprecated will block new payroll runs that reference it. Continue?`)) return;
     }
     try {
-      const res = await apiFetch(`/api/admin/payroll/sars-codes/${row.code}?taxYear=${row.effective_year}`, {
+      const res = await adminFetch(`/api/admin/payroll/sars-codes/${row.code}?taxYear=${row.effective_year}`, {
         method: 'PATCH',
         body: JSON.stringify({ status: next }),
       });
@@ -405,7 +406,7 @@ function ImportWizard({ onClose, onComplete }: { onClose: () => void; onComplete
       fd.append('setCurrent', setCurrent ? '1' : '0');
       if (dryRun) fd.append('dryRun', '1');
 
-      const res = await apiFetch('/api/admin/payroll/sars-codes/import', { method: 'POST', body: fd });
+      const res = await adminFetch('/api/admin/payroll/sars-codes/import', { method: 'POST', body: fd });
       await assertOk(res, 'Could not import the SARS codes - try again');
       const json = await res.json() as { data?: ImportResult; message?: string };
       setPreview(json.data ?? null);

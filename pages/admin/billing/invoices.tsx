@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check, Send, CreditCard } from 'lucide-react';
 import { DateField } from '@/components/ui/DateField';
@@ -10,6 +10,7 @@ import { DateField } from '@/components/ui/DateField';
 import {
   EMPTY_FORM, type InvForm, type Invoice, type PagedResponse,
 } from '@/components/admin/billing/invoiceModel';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 const STATUS_BADGE: Record<string, string> = {
   draft:      'bg-gray-500/10 text-gray-500',
@@ -47,7 +48,7 @@ export default function InvoicesPage() {
       if (st)   params.set('status',    st);
       if (from) params.set('date_from', from);
       if (to)   params.set('date_to',   to);
-      const res  = await apiFetch(`/api/admin/billing/invoices?${params}`);
+      const res  = await adminFetch(`/api/admin/billing/invoices?${params}`);
       await assertOk(res, 'Could not load invoices - try again');
       const json = await res.json();
       const d = json.data as PagedResponse;
@@ -81,7 +82,7 @@ export default function InvoicesPage() {
       // Route files use hyphens; mark_paid → mark-paid
       const route = action === 'mark_paid' ? 'mark-paid' : action;
       const body  = action === 'mark_paid' ? JSON.stringify({ payment_method: 'manual' }) : undefined;
-      const res   = await apiFetch(`/api/admin/billing/invoices/${id}/${route}`, {
+      const res   = await adminFetch(`/api/admin/billing/invoices/${id}/${route}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body,
@@ -102,7 +103,7 @@ export default function InvoicesPage() {
     if (!form.total)             { setFormError('Total is required'); return; }
     setSaving(true);
     try {
-      const res  = await apiFetch('/api/admin/billing/invoices', {
+      const res  = await adminFetch('/api/admin/billing/invoices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({

@@ -18,6 +18,7 @@ import {
   Pencil, Check, X,
 } from 'lucide-react';
 import Link from 'next/link';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface CompanyDetail {
   id: string;
@@ -129,7 +130,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setLoading(true); setError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}`);
+      const res  = await adminFetch(`/api/admin/companies/${id}`);
       await assertOk(res, 'Could not load the company - try again');
       const json = await res.json();
       setCompany(json.data as CompanyDetail);
@@ -141,7 +142,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setUsersLoading(true);
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}/users`);
+      const res  = await adminFetch(`/api/admin/companies/${id}/users`);
       await assertOk(res, 'Could not load the company users - try again');
       const json = await res.json();
       setUsers((json.data as CompanyUser[]) || []);
@@ -153,7 +154,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setFeaturesLoading(true);
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}/features`);
+      const res  = await adminFetch(`/api/admin/companies/${id}/features`);
       await assertOk(res, 'Could not load the company features - try again');
       const json = await res.json();
       setFeatures((json.data as CompanyFeature[]) || []);
@@ -169,7 +170,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setActionLoading(true); setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}/suspend`, {
+      const res  = await adminFetch(`/api/admin/companies/${id}/suspend`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ reason: suspendReason }),
@@ -185,7 +186,7 @@ export default function AdminCompanyDetailPage() {
     const action = company?.status === 'deleted' ? 'restore' : 'activate';
     setActionLoading(true); setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}/${action}`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      const res  = await adminFetch(`/api/admin/companies/${id}/${action}`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
       await assertOk(res, `Could not ${action} the company - try again`);
       void load();
     } catch (err) { setActionError(apiErrorMessage(err, `Could not ${action} the company - try again`)); }
@@ -196,7 +197,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setActionLoading(true); setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
+      const res  = await adminFetch(`/api/admin/companies/${id}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
       await assertOk(res, 'Could not delete the company - try again');
       void router.push(adminHref('/admin/companies'));
     } catch (err) { setActionError(apiErrorMessage(err, 'Could not delete the company - try again')); setActionLoading(false); }
@@ -228,7 +229,7 @@ export default function AdminCompanyDetailPage() {
 
     setEditSaving(true); setEditError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}`, {
+      const res  = await adminFetch(`/api/admin/companies/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify(body),
@@ -249,7 +250,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setActionLoading(true); setActionError('');
     try {
-      const res = await apiFetch(`/api/admin/companies/${id}/export-data`);
+      const res = await adminFetch(`/api/admin/companies/${id}/export-data`);
       await assertOk(res, 'Could not export the company data - try again');
       const blob = await res.blob();
       const url  = URL.createObjectURL(blob);
@@ -264,7 +265,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setActionLoading(true); setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}/impersonate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      const res  = await adminFetch(`/api/admin/companies/${id}/impersonate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
       await assertOk(res, res.status === 429 ? 'Too many attempts - please wait a moment and try again' : 'Could not start impersonation - try again');
       const json = await res.json();
       const token = (json.data as { token: string })?.token;
@@ -282,7 +283,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setFeatureActionId(feature.id); setActionError('');
     try {
-      const res = await apiFetch(`/api/admin/companies/${id}/features`, {
+      const res = await adminFetch(`/api/admin/companies/${id}/features`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ feature_id: feature.id, enabled: !feature.enabled, reason: 'Toggled via admin' }),
@@ -299,7 +300,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setFeatureActionId(feature.id); setActionError('');
     try {
-      const res = await apiFetch(`/api/admin/companies/${id}/features`, {
+      const res = await adminFetch(`/api/admin/companies/${id}/features`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ feature_id: feature.id }),

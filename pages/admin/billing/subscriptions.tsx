@@ -7,11 +7,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { SubscriptionCompanyPicker } from '@/components/admin/SubscriptionCompanyPicker';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check, Ban, Download } from 'lucide-react';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface Subscription {
   id: string;
@@ -88,7 +89,7 @@ export default function SubscriptionsPage() {
     try {
       const params = new URLSearchParams({ page: String(pg), limit: String(LIMIT) });
       if (q) params.set('search', q); if (st) params.set('status', st);
-      const res  = await apiFetch(`/api/admin/billing/subscriptions?${params}`);
+      const res  = await adminFetch(`/api/admin/billing/subscriptions?${params}`);
       await assertOk(res, 'Could not load subscriptions - try again');
       const json = await res.json();
       const d = json.data as PagedResponse;
@@ -103,7 +104,7 @@ export default function SubscriptionsPage() {
 
   const loadPlans = useCallback(async () => {
     try {
-      const res  = await apiFetch('/api/admin/billing/plans'); await assertOk(res, 'Could not load the plans');
+      const res  = await adminFetch('/api/admin/billing/plans'); await assertOk(res, 'Could not load the plans');
       const json = await res.json();
       setPlans((json.data ?? []) as Plan[]);
     } catch (err) { log.warn('Failed to load billing plans', { err }, 'admin-subscriptions'); }
@@ -140,7 +141,7 @@ export default function SubscriptionsPage() {
     if (!form.plan_id)           { setFormError('Plan is required'); return; }
     setSaving(true);
     try {
-      const res  = await apiFetch('/api/admin/billing/subscriptions', {
+      const res  = await adminFetch('/api/admin/billing/subscriptions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({
@@ -165,7 +166,7 @@ export default function SubscriptionsPage() {
     setCancelling(true);
     setCancelError('');
     try {
-      const res  = await apiFetch(`/api/admin/billing/subscriptions/${id}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify({ at_period_end: false }) });
+      const res  = await adminFetch(`/api/admin/billing/subscriptions/${id}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify({ at_period_end: false }) });
       await assertOk(res, 'Could not cancel the subscription - try again');
       setConfirmCancelId(null);
       void load(search, status, page);

@@ -8,12 +8,13 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { JobBulkActionsBar } from '@/components/admin/job-queue/JobBulkActionsBar';
 import { JobTable } from '@/components/admin/job-queue/JobTable';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Loader2, RefreshCw, Zap, Trash2 } from 'lucide-react';
 import type { BackgroundJob } from '@/modules/accounting/services/core/jobQueueService';
 import { formatDisplayTimeSeconds } from '@/utils/dateFormat';
 import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -48,7 +49,7 @@ export default function JobQueuePage() {
     try {
       const params = new URLSearchParams({ limit: '100' });
       if (activeTab !== 'all') params.set('status', activeTab);
-      const res = await apiFetch(`/api/admin/job-queue?${params}`, { credentials: 'include' });
+      const res = await adminFetch(`/api/admin/job-queue?${params}`, { credentials: 'include' });
       await assertOk(res, 'Could not load the job queue - try again');
       const json = await res.json() as { data: { jobs: BackgroundJob[]; total: number } };
       setJobs(json.data?.jobs ?? []);
@@ -76,7 +77,7 @@ export default function JobQueuePage() {
   const handleRetry = async (jobId: string) => {
     setRetrying(jobId);
     try {
-      const res = await apiFetch('/api/admin/job-queue', {
+      const res = await adminFetch('/api/admin/job-queue', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ action: 'retry', jobId }),
@@ -99,7 +100,7 @@ export default function JobQueuePage() {
 
   // ── Bulk actions ──────────────────────────────────────────────────────────
   const callBulk = async (action: 'retry' | 'cancel') => {
-    const res = await apiFetch('/api/admin/job-queue/bulk-action', {
+    const res = await adminFetch('/api/admin/job-queue/bulk-action', {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
       body: JSON.stringify({ action, ids: [...selectedIds] }),
@@ -131,7 +132,7 @@ export default function JobQueuePage() {
   const handleDeleteOld = async () => {
     setDeletingOld(true);
     try {
-      const res = await apiFetch('/api/admin/job-queue/bulk-action', {
+      const res = await adminFetch('/api/admin/job-queue/bulk-action', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ action: 'delete_old', olderThanDays: 30 }),

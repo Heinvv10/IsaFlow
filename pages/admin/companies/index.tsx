@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { BulkActionsBar } from '@/components/admin/companies/BulkActionsBar';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import {
@@ -14,6 +14,7 @@ import {
   ChevronsUpDown, Plus, UserCog, ShieldOff, ShieldCheck, X, Download,
 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface Company {
   id: string;
@@ -86,7 +87,7 @@ export default function AdminCompaniesPage() {
       const params = new URLSearchParams({ page: String(pg), limit: String(LIMIT), sort_by: sb, sort_dir: sd });
       if (q)  params.set('search', q);
       if (st) params.set('status', st);
-      const res  = await apiFetch(`/api/admin/companies?${params}`);
+      const res  = await adminFetch(`/api/admin/companies?${params}`);
       await assertOk(res, 'Could not load companies - try again');
       const json = await res.json();
       const d = (json as { data: PagedResponse }).data;
@@ -155,7 +156,7 @@ export default function AdminCompaniesPage() {
     if (!createForm.name.trim()) { setCreateError('Name is required'); return; }
     setCreating(true); setCreateError('');
     try {
-      const res  = await apiFetch('/api/admin/companies', {
+      const res  = await adminFetch('/api/admin/companies', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify(createForm),
@@ -179,7 +180,7 @@ export default function AdminCompaniesPage() {
     e.stopPropagation();
     setActionLoading(companyId + ':suspend'); setError('');
     try {
-      const res = await apiFetch(`/api/admin/companies/${companyId}/suspend`, {
+      const res = await adminFetch(`/api/admin/companies/${companyId}/suspend`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ reason: 'Suspended by admin' }),
@@ -194,7 +195,7 @@ export default function AdminCompaniesPage() {
     e.stopPropagation();
     setActionLoading(companyId + ':activate'); setError('');
     try {
-      const res = await apiFetch(`/api/admin/companies/${companyId}/${action}`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      const res = await adminFetch(`/api/admin/companies/${companyId}/${action}`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
       await assertOk(res, `Could not ${action} the company - try again`);
       void load(search, status, page, sortBy, sortDir);
     } catch (err) { setError(apiErrorMessage(err, `Could not ${action} the company - try again`)); }
@@ -210,7 +211,7 @@ export default function AdminCompaniesPage() {
   async function handleBulkSuspend() {
     setBulkLoading(true);
     try {
-      const res  = await apiFetch('/api/admin/companies/bulk-action', {
+      const res  = await adminFetch('/api/admin/companies/bulk-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ action: 'suspend', company_ids: [...selectedIds], reason: 'Bulk suspended by admin' }),
@@ -228,7 +229,7 @@ export default function AdminCompaniesPage() {
   async function handleBulkExtendTrial() {
     setBulkLoading(true);
     try {
-      const res  = await apiFetch('/api/admin/companies/bulk-action', {
+      const res  = await adminFetch('/api/admin/companies/bulk-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ action: 'extend_trial', company_ids: [...selectedIds], days: 7 }),

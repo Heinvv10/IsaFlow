@@ -6,13 +6,14 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2, ToggleLeft, ToggleRight } from 'lucide-react';
 import {
   FeatureFlagRow,
   type FeatureFlag,
   type EditState,
 } from '@/components/admin/FeatureFlagRow';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 export default function AdminFeaturesPage() {
   const [flags, setFlags]         = useState<FeatureFlag[]>([]);
@@ -29,7 +30,7 @@ export default function AdminFeaturesPage() {
     setLoading(true);
     setError('');
     try {
-      const res  = await apiFetch('/api/admin/features');
+      const res  = await adminFetch('/api/admin/features');
       await assertOk(res, 'Could not load the feature flags - try again');
       const json = await res.json() as { data?: FeatureFlag[]; message?: string };
       setFlags(json.data ?? []);
@@ -55,7 +56,7 @@ export default function AdminFeaturesPage() {
     setSaving(true);
     setSaveError('');
     try {
-      const res = await apiFetch(`/api/admin/features/${id}`, {
+      const res = await adminFetch(`/api/admin/features/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({
@@ -83,7 +84,7 @@ export default function AdminFeaturesPage() {
       // would leave this reporting success for flags that never changed.
       await Promise.all(
         Array.from(selected).map(async (id) => {
-          const res = await apiFetch(`/api/admin/features/${id}`, {
+          const res = await adminFetch(`/api/admin/features/${id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
             body: JSON.stringify({ is_global: isGlobal }),

@@ -4,12 +4,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Building2, Users, ArrowRight, Loader2, Activity, Clock } from 'lucide-react';
 import Link from 'next/link';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface TrialRow {
   id: string;
@@ -83,9 +84,9 @@ export default function AdminDashboard() {
     setError('');
     try {
       const [statsRes, healthRes, trialsRes] = await Promise.all([
-        apiFetch('/api/admin/dashboard-stats'),
-        apiFetch('/api/admin/analytics/health'),
-        apiFetch('/api/admin/trials?within=7'),
+        adminFetch('/api/admin/dashboard-stats'),
+        adminFetch('/api/admin/analytics/health'),
+        adminFetch('/api/admin/trials?within=7'),
       ]);
       await assertOk(statsRes, 'Could not load the dashboard - try again');
       const statsJson = await statsRes.json();
@@ -104,7 +105,7 @@ export default function AdminDashboard() {
     setExtendingId(companyId);
     setError('');
     try {
-      const res = await apiFetch('/api/admin/trials', {
+      const res = await adminFetch('/api/admin/trials', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ company_id: companyId, days: 7 }),

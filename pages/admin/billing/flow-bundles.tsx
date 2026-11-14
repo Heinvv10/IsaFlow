@@ -5,9 +5,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { AlertCircle, Loader2, Plus } from 'lucide-react';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface Bundle {
   id: string;
@@ -30,7 +31,7 @@ export default function FlowBundlesPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch('/api/admin/billing/flow-bundles');
+      const res = await adminFetch('/api/admin/billing/flow-bundles');
       await assertOk(res, 'Could not load bundles - try again');
       const json = await res.json();
       setBundles(json.data.bundles as Bundle[]);
@@ -50,7 +51,7 @@ export default function FlowBundlesPage() {
       return;
     }
     try {
-      const res = await apiFetch('/api/admin/billing/flow-bundles', {
+      const res = await adminFetch('/api/admin/billing/flow-bundles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify(draft),
@@ -66,7 +67,7 @@ export default function FlowBundlesPage() {
 
   async function toggleActive(bundle: Bundle) {
     try {
-      const res = await apiFetch(`/api/admin/billing/flow-bundles/${bundle.id}`, {
+      const res = await adminFetch(`/api/admin/billing/flow-bundles/${bundle.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ isActive: !bundle.isActive }),

@@ -7,11 +7,12 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, Search, UserPlus, ExternalLink, X, Check } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 type StatusFilter = 'pending' | 'promoted' | 'all';
 
@@ -75,7 +76,7 @@ export default function AdminWaitlistPage() {
     try {
       const params = new URLSearchParams({ status: s, page: String(p), limit: String(LIMIT) });
       if (q) params.set('search', q);
-      const res  = await apiFetch(`/api/admin/waitlist?${params}`);
+      const res  = await adminFetch(`/api/admin/waitlist?${params}`);
       await assertOk(res, 'Could not load the waitlist - try again');
       const json = await res.json();
       const data = (json as { data: ListResponse }).data;
@@ -122,7 +123,7 @@ export default function AdminWaitlistPage() {
     setPromoting(true);
     setPromoteError('');
     try {
-      const res = await apiFetch(`/api/admin/waitlist/${promoteTarget.id}/promote`, {
+      const res = await adminFetch(`/api/admin/waitlist/${promoteTarget.id}/promote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ planCodeOverride: planOverride || null }),

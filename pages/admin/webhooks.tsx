@@ -9,9 +9,10 @@ import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { WebhookRow } from '@/components/admin/webhooks/WebhookRow';
 import { ConfirmDeleteModal } from '@/components/admin/webhooks/ConfirmDeleteModal';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, RefreshCw, Webhook, Search } from 'lucide-react';
 import type { AdminWebhook } from '@/modules/admin/services/adminWebhookService';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -60,7 +61,7 @@ export default function AdminWebhooksPage() {
       });
       if (search) params.set('search', search);
 
-      const res  = await apiFetch(`/api/admin/webhooks?${params}`, { credentials: 'include' });
+      const res  = await adminFetch(`/api/admin/webhooks?${params}`, { credentials: 'include' });
       await assertOk(res, 'Could not load webhooks - try again');
       const json = await res.json() as { data: { items: AdminWebhook[]; total: number } };
       let fetched = json.data?.items ?? [];
@@ -84,7 +85,7 @@ export default function AdminWebhooksPage() {
   const handleToggleStatus = async (id: string, currentlyActive: boolean) => {
     setActionLoading(id);
     try {
-      const res = await apiFetch(`/api/admin/webhooks/${id}`, {
+      const res = await adminFetch(`/api/admin/webhooks/${id}`, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
@@ -104,7 +105,7 @@ export default function AdminWebhooksPage() {
     if (!deleteTarget) return;
     setDeleteLoading(true);
     try {
-      const res = await apiFetch(`/api/admin/webhooks/${deleteTarget.id}`, {
+      const res = await adminFetch(`/api/admin/webhooks/${deleteTarget.id}`, {
         method: 'DELETE',
         credentials: 'include',
         headers: { 'X-Admin-Request': 'true' },

@@ -15,6 +15,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { Plus, Pencil, Trash2, AlertCircle, Loader2 } from 'lucide-react';
 import type { Announcement } from '@/modules/admin/types/admin.types';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 const TYPE_BADGE: Record<string, string> = {
   info:        'bg-blue-500/10 text-blue-600 dark:text-blue-400',
@@ -54,7 +55,7 @@ export default function AdminAnnouncementsPage() {
     setLoading(true);
     setError('');
     try {
-      const res  = await apiFetch('/api/admin/announcements?limit=100');
+      const res  = await adminFetch('/api/admin/announcements?limit=100');
       await assertOk(res, 'Could not load announcements - try again');
       const data = await res.json();
       setRows(data.data?.items ?? []);
@@ -86,7 +87,7 @@ export default function AdminAnnouncementsPage() {
         is_dismissible: form.is_dismissible,
       };
 
-      const res = await apiFetch(editItem ? `/api/admin/announcements/${editItem.id}` : '/api/admin/announcements', {
+      const res = await adminFetch(editItem ? `/api/admin/announcements/${editItem.id}` : '/api/admin/announcements', {
         method: editItem ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body),
       });
       await assertOk(res, 'Could not save the announcement - try again');
@@ -105,7 +106,7 @@ export default function AdminAnnouncementsPage() {
     if (!deleteId) return;
     setError('');
     try {
-      const res = await apiFetch(`/api/admin/announcements/${deleteId}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
+      const res = await adminFetch(`/api/admin/announcements/${deleteId}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
       await assertOk(res, 'Could not delete the announcement - try again');
       setDeleteId(null);
       await load();

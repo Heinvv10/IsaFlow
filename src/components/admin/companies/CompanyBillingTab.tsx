@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
 import { Loader2, AlertCircle } from 'lucide-react';
 import {
@@ -17,6 +17,7 @@ import {
   InvoiceTable,
   NoSubscription,
 } from './BillingTabParts';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface Props {
   companyId: string;
@@ -38,7 +39,7 @@ export function CompanyBillingTab({ companyId }: Props) {
     setLoading(true);
     setError('');
     try {
-      const res  = await apiFetch(
+      const res  = await adminFetch(
         `/api/admin/billing/subscriptions?company_id=${encodeURIComponent(companyId)}&limit=1`
       );
       await assertOk(res, 'Could not load the subscription - try again');
@@ -56,7 +57,7 @@ export function CompanyBillingTab({ companyId }: Props) {
     setInvoicesLoading(true);
     setInvoicesError('');
     try {
-      const res  = await apiFetch(
+      const res  = await adminFetch(
         `/api/admin/billing/invoices?company_id=${encodeURIComponent(companyId)}&limit=10&sort_by=created_at&sort_dir=desc`
       );
       await assertOk(res, 'Could not load invoices - try again');
@@ -79,7 +80,7 @@ export function CompanyBillingTab({ companyId }: Props) {
     setCancelLoading(true);
     setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/billing/subscriptions/${subscription.id}`, {
+      const res  = await adminFetch(`/api/admin/billing/subscriptions/${subscription.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
