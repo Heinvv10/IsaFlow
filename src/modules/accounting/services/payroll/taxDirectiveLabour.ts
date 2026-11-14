@@ -43,14 +43,19 @@ import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { claimUnderLockTimeout } from '@/modules/accounting/services/core/documentClaimLock';
 import { InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { readEmployeeLabourSplit, type EmployeeLabourSplit } from './payrollCostCentreTags';
-import { TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError } from './taxDirectiveErrors';
+import {
+  TaxDirectiveNotApprovedError, TaxDirectiveNotLumpSumError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError,
+} from './taxDirectiveErrors';
+import { isLumpSumDirectiveType } from './taxDirectiveKinds';
 
 export async function lockDirectiveLabour(companyId: string, directiveId: string): Promise<EmployeeLabourSplit> {
   const rows = (await sql`
-    SELECT status, employee_id FROM tax_directives WHERE company_id = ${companyId} AND id = ${directiveId}
+    SELECT status, employee_id, directive_type FROM tax_directives WHERE company_id = ${companyId} AND id = ${directiveId}
   `) as DbRow[];
   const dir = rows[0];
   if (!dir) throw new Error(`Tax directive ${directiveId} not found`);
+  // Only a lump sum is paid here (DR): the type never changes, so this read decides.
+  if (!isLumpSumDirectiveType(dir.directive_type)) throw new TaxDirectiveNotLumpSumError(directiveId, String(dir.directive_type));
   if (String(dir.status) !== 'approved') throw new TaxDirectiveNotApprovedError(directiveId, String(dir.status));
   if (dir.employee_id == null) throw new TaxDirectiveWithoutEmployeeError(directiveId);
   return (await claimUnderLockTimeout('tax directive', () =>
@@ -82,4 +87,17 @@ export async function postOrRetry<T>(
     if (err.accounts.length === 0 || !err.accounts.every((c) => codes.includes(c))) throw err;
     throw new TaxDirectiveSplitChangedError(directiveId);
   }
+}
+
+/**
+ * The apply route's first check (DR round 4): a regular-pay directive is refused (TaxDirectiveNotLumpSumError, 400) before
+ * the ETI wrapper takes the company lock and judges later ETI journals, so its caller hears "each run applies it", not an
+ * ETI 409. The type never changes; an unknown id is left to the payment service's own answer.
+ */
+export async function refuseRegularPayDirective(companyId: string, directiveId: string): Promise<void> {
+  const rows = (await sql`
+    SELECT directive_type FROM tax_directives WHERE company_id = ${companyId} AND id = ${directiveId}
+  `) as DbRow[];
+  const type = rows[0]?.directive_type;
+  if (type != null && !isLumpSumDirectiveType(type)) throw new TaxDirectiveNotLumpSumError(directiveId, String(type));
 }

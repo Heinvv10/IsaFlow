@@ -14,11 +14,11 @@ export const MCP_AUTH_SERVER_METADATA_PATH = '/.well-known/oauth-authorization-s
 export const MCP_PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 
 /**
- * All MCP tool names — 79 read + 91 write = 170 (2026-11-13; docs/mcp-connect.md states
- * the same counts and tests/unit/mcp/mcpConnectDocCounts.test.ts holds it to the registry). Drift-guarded against
- * toolIndex.ts by tests/unit/mcp/clientMetadata.test.ts, which compares the
- * ARRAY rather than this comment; the comment is the part that can rot, so it
- * is derived by counting `MCP_TOOLS.filter(t => !t.write)` and not by hand.
+ * All MCP tool names. No totals are kept here or in the docs: the count of tools is
+ * whatever `MCP_TOOLS` holds, so adding a tool never edits a number. Drift-guarded
+ * against toolIndex.ts by tests/unit/mcp/clientMetadata.test.ts, which compares the
+ * ARRAY, and tests/unit/mcp/tools-read.test.ts holds the read / write / write:post
+ * split to the registry.
  */
 export const CLIENT_MCP_TOOL_NAMES = [
   // read
@@ -118,6 +118,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'allocate_bank_transaction',
   'reverse_bank_allocation',
   'reallocate_bank_transaction',
+  'update_company_profile',
   'bulk_allocate_bank_transactions',
   'reverse_bank_allocation_batch',
   'post_reclassification_batch',

@@ -87,7 +87,7 @@ const WRITERS: Record<string, string[]> = {
   companies: [
     'pages/api/accounting/afs/pis-score.ts', 'pages/api/accounting/chase-settings.ts', 'pages/api/accounting/cipc-annual-return.ts',
     'pages/api/accounting/company-logo.ts', 'pages/api/admin/billing/payg/[companyId]/eligibility.ts',
-    'pages/api/admin/companies/bulk-action.ts', 'scripts/large-scale-seed.ts', 'scripts/provision-isademo2.ts',
+    'scripts/large-scale-seed.ts', 'scripts/provision-isademo2.ts',
     'scripts/acceptance/entity-onboarding-seed.ts', // seeds a throwaway acceptance DB (psql), never a shared one
     'scripts/ci/golden-hosted/seed-demo.sql', // seeds the throwaway database of a hosted Golden Paths run (psql), never a shared one
     'scripts/qa-cleanup-run.ts',

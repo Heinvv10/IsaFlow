@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { companyOutOfMrr, loadSubscriptionFacts, subscriptionInMrr, subscriptionMrrCents } from './metrics/metricsSql';
 import { summariseRevenue } from './metrics/revenueMath';
 import { churnTrend } from './metrics/timeSeriesMath';
+import { getTrialStats } from './trialQueries';
 import type {
   BillingOverview,
   SubscriptionListItem,
@@ -30,13 +31,12 @@ function toIso(value: unknown): string | null {
 
 export async function getBillingOverview(): Promise<BillingOverview> {
   const now = new Date();
-  const [[subRow], [revRow], facts] = await Promise.all([
+  const [[subRow], [revRow], facts, trialStats] = await Promise.all([
     // One population for the whole card row: the companies MRR counts (no
     // deleted, suspended or internal company), as active_subscriptions.
     sql`
       SELECT COUNT(*) AS total,
-        COUNT(*) FILTER (WHERE s.status = 'past_due') AS past_due,
-        COUNT(*) FILTER (WHERE s.status = 'trial')    AS trial
+        COUNT(*) FILTER (WHERE s.status = 'past_due') AS past_due
       FROM subscriptions s
       JOIN companies c ON c.id = s.company_id
       WHERE NOT ${companyOutOfMrr()}
@@ -49,6 +49,8 @@ export async function getBillingOverview(): Promise<BillingOverview> {
     `,
     // MRR, ARR, ARPU, paying companies and churn: the one definition (metrics module).
     loadSubscriptionFacts(),
+    // Trials: the Trials page's own count (trialQueries.ts), never a subscription status.
+    getTrialStats(),
   ]);
 
   const s = subRow as Row;
@@ -63,7 +65,7 @@ export async function getBillingOverview(): Promise<BillingOverview> {
     total_subscriptions: parseInt(s.total as string, 10),
     active_subscriptions: revenue.active_subscriptions,
     past_due_count: parseInt(s.past_due as string, 10),
-    trial_count: parseInt(s.trial as string, 10),
+    trial_count: trialStats.active_trials,
     paying_companies: revenue.paying_companies,
     churn_rate_percent: churn.churn_rate_pct,
     churn_period: churn.month,

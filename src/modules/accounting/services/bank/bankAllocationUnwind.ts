@@ -58,8 +58,10 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
-import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
+import { lockCustomerPaymentForUpdate, lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { assertVoidKeepsCredit } from '../ap/supplierVoidCredit';
+import { assertReceiptVoidKeepsCredit, withReceiptCancellationsJudged } from '../ar/customerVoidCredit';
+import { lockInvoicesOfReceipts } from '../ar/receiptInvoiceLock';
 import type { VatLockRoll } from '../gl/journalEntryReversalVatRoll';
 
 export interface BankAllocationUnwindResult {
@@ -120,8 +122,8 @@ export async function unwindOnePayment(
   let invoicesReopened = 0;
   let amountUnapplied = 0;
 
-  // (1) THE PAYMENT FIRST, AND BEFORE ITS ROWS ARE READ. This flip is the
-  // payment row lock. It used to run AFTER the loop, so
+  // (1) THE PAYMENT FIRST, AND BEFORE ITS ROWS ARE READ. Its row lock is
+  // taken first (below). The flip used to run AFTER the loop, so
   // `reverseReconciledTransaction` — the only caller that does not already
   // hold the payment — took bank -> invoices -> payment, the inverse of
   // `planReceiptApplication` / `planSupplierPaymentApplication`, which lock the
@@ -132,6 +134,12 @@ export async function unwindOnePayment(
   // reproduced). Reading the rows only once the row is held is what makes them
   // the rows this transaction will act on.
   if (kind === 'customer') {
+    // The customer twin (`ar/customerVoidCredit`): a cancellation must not take the customer's running
+    // on-account credit below zero on a date it lowers (a refund already returned this cash). The canonical order,
+    // all before the first write: the receipt, its invoices, then the customer (tried) and the check.
+    await lockCustomerPaymentForUpdate(companyId, paymentId);
+    await lockInvoicesOfReceipts(companyId, [paymentId]);
+    await assertReceiptVoidKeepsCredit(companyId, [paymentId]);
     await sql`
       UPDATE customer_payments SET status = 'cancelled', updated_at = NOW()
       WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
@@ -222,18 +230,32 @@ export async function unwindBankAllocationApplication(
           SELECT id FROM customer_payments
           WHERE company_id = ${companyId}::UUID
             AND gl_journal_entry_id = ${journalEntryId}::UUID
-            AND status <> 'cancelled'`
+            AND status <> 'cancelled'
+          ORDER BY id`
       : await sql`
           SELECT id FROM supplier_payments
           WHERE company_id = ${companyId}::UUID
             AND gl_journal_entry_id = ${journalEntryId}::UUID
             AND status <> 'cancelled'`) as DbRow[];
 
-    for (const p of payments) {
-      const one = await unwindOnePayment(companyId, kind, String(p.id));
-      invoicesReopened += one.invoicesReopened;
-      amountUnapplied = round2(amountUnapplied + one.amountUnapplied);
-      paymentsCancelled += 1;
+    const ids = payments.map((p) => String(p.id));
+    const unwindAll = async () => {
+      for (const id of ids) {
+        const one = await unwindOnePayment(companyId, kind, id);
+        invoicesReopened += one.invoicesReopened;
+        amountUnapplied = round2(amountUnapplied + one.amountUnapplied);
+        paymentsCancelled += 1;
+      }
+    };
+    if (kind === 'customer' && ids.length > 1) {
+      // Several receipts on one journal (a split) are judged TOGETHER, ONCE, before the first is unwound: receipts
+      // held in id order, then all their invoices, then each customer (tried) and the judgment; each receipt's own
+      // check inside only verifies it (`ar/customerVoidCredit.withReceiptCancellationsJudged`).
+      for (const id of ids) await lockCustomerPaymentForUpdate(companyId, id);
+      await lockInvoicesOfReceipts(companyId, ids);
+      await withReceiptCancellationsJudged(companyId, ids, unwindAll, { locked: true });
+    } else {
+      await unwindAll();
     }
   }
 

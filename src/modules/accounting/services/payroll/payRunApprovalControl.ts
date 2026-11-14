@@ -66,7 +66,10 @@ export async function preparePayRunApprovalRequest(companyId: string, runId: str
 
 /** Read-only UI state against the live plan, not a cached digest. */
 export async function describePayRunApproval(companyId: string, runId: string): Promise<DocumentApprovalState> {
-  const [row, gate] = await Promise.all([header(companyId, runId), judgePayrollApproval(companyId, runId)]);
+  // One after the other: the gate takes a bounded FOR SHARE savepoint on the request's connection (regularDirectiveRefusal),
+  // which must not interleave with another query on that same connection.
+  const row = await header(companyId, runId);
+  const gate = await judgePayrollApproval(companyId, runId);
   if (!row || !gate) throw new Error('Payroll run not found');
   return describeApprovalGateForDocument(companyId, 'pay_run', runId, document(row, gate.planHash));
 }

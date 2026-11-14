@@ -14,6 +14,7 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { checkAndAlert } from '@/modules/admin/services/healthAlertService';
+import { getTrialStats } from '@/modules/admin/services/trialQueries';
 import { runAfterCommit } from '@/lib/afterCommit';
 import { percentOrNull } from '@/modules/admin/services/metrics/revenueMath';
 
@@ -114,11 +115,10 @@ async function getScalarHealthMetrics(): Promise<ScalarHealthMetrics> {
         (SELECT COUNT(*) FILTER (WHERE status = 'bounced')
          FROM email_log WHERE sent_at >= NOW() - INTERVAL '24 hours')::int             AS bounced_24h,
         (SELECT COUNT(*)::int FROM users
-         WHERE last_login >= NOW() - INTERVAL '24 hours')                               AS users_signed_in_24h,
-        (SELECT COUNT(*)::int FROM companies
-         WHERE status = 'trial'
-           AND trial_ends_at BETWEEN NOW() AND NOW() + INTERVAL '7 days')              AS expiring_in_7d
+         WHERE last_login >= NOW() - INTERVAL '24 hours')                               AS users_signed_in_24h
     `;
+    // Same definition as the Trials page and the billing overview (trialQueries.ts).
+    const trialStats = await getTrialStats();
     const r = rows[0] as Row;
     const sent    = parseInt(r.sent_24h    as string, 10) || 0;
     const failed  = parseInt(r.failed_24h  as string, 10) || 0;
@@ -140,7 +140,7 @@ async function getScalarHealthMetrics(): Promise<ScalarHealthMetrics> {
       },
       users_signed_in_24h: parseInt(r.users_signed_in_24h as string, 10) || 0,
       trials: {
-        expiring_in_7d: parseInt(r.expiring_in_7d as string, 10) || 0,
+        expiring_in_7d: trialStats.expiring_this_week,
       },
     };
   } catch (err) {
