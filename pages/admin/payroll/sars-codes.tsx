@@ -15,6 +15,7 @@ import {
   Search, RotateCcw, BadgeCheck, Ban, ExternalLink,
 } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { useFocusTrap } from '@/components/ui/useFocusTrap';
 
 interface ReleaseRow {
   effective_year: number;
@@ -326,10 +327,12 @@ function CodeDrawer({ code, onClose, onToggleStatus }: {
   onToggleStatus: () => void;
 }) {
   const badge = STATUS_BADGE[code.status] ?? STATUS_BADGE.active!;
+  const ref = useRef<HTMLDivElement>(null);
+  useFocusTrap(ref, true, onClose); // audit 4.13: Escape closes, Tab stays in the drawer
   return (
     <div className="fixed inset-0 z-40 flex justify-end">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative w-full max-w-xl h-full overflow-y-auto bg-[var(--ff-surface-primary)] border-l border-[var(--ff-border-primary)] shadow-xl p-6">
+      <div ref={ref} role="dialog" aria-modal="true" aria-label={`SARS code ${code.code}`} className="relative w-full max-w-xl h-full overflow-y-auto bg-[var(--ff-surface-primary)] border-l border-[var(--ff-border-primary)] shadow-xl p-6">
         <div className="flex items-start justify-between mb-4">
           <div>
             <div className="font-mono text-2xl text-[var(--ff-text-primary)]">{code.code}{code.foreign_code ? <span className="text-base text-[var(--ff-text-tertiary)] ml-2">/ {code.foreign_code}</span> : null}</div>
@@ -398,6 +401,8 @@ function ImportWizard({ onClose, onComplete }: { onClose: () => void; onComplete
   const [error, setError] = useState('');
   const [preview, setPreview] = useState<ImportResult | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, true, () => { if (!working) onClose(); }); // audit 4.13
 
   const submit = async (dryRun: boolean) => {
     if (!file) { setError('Pick an XLSX file first'); return; }
@@ -427,10 +432,10 @@ function ImportWizard({ onClose, onComplete }: { onClose: () => void; onComplete
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative w-full max-w-2xl rounded-xl bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] shadow-2xl">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="sars-import-title" className="relative w-full max-w-2xl rounded-xl bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] shadow-2xl">
         <div className="px-6 py-4 border-b border-[var(--ff-border-primary)] flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-[var(--ff-text-primary)]">Import SARS Codes</h3>
-          <button onClick={onClose} className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)]"><X className="h-5 w-5 text-[var(--ff-text-secondary)]" /></button>
+          <h3 id="sars-import-title" className="text-lg font-semibold text-[var(--ff-text-primary)]">Import SARS Codes</h3>
+          <button onClick={onClose} aria-label="Close" className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)]"><X className="h-5 w-5 text-[var(--ff-text-secondary)]" /></button>
         </div>
 
         <div className="p-6 space-y-4">
