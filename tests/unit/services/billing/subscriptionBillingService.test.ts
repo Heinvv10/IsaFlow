@@ -167,7 +167,7 @@ describe('runQueuedCharges', () => {
     mockAdmin
       .mockResolvedValueOnce([baseCharge] as never)  // SELECT charges
       .mockResolvedValueOnce([{ attempt_count: 1 }] as never) // claim the attempt
-      .mockResolvedValueOnce([] as never)            // UPDATE charge → settled
+      .mockResolvedValueOnce([{ id: baseCharge.id }] as never) // UPDATE charge → settled (RETURNING id)
       .mockResolvedValueOnce([] as never);           // advance the period
     mockSql
       .mockResolvedValueOnce([{ count: 0 }] as never);        // unattributed live charges
@@ -182,7 +182,7 @@ describe('runQueuedCharges', () => {
 
     const result = await runQueuedCharges();
 
-    expect(result).toEqual({ submitted: 1, failed: 0, skipped: 0 });
+    expect(result).toEqual({ submitted: 1, refundNeeded: 0, failed: 0, skipped: 0 });
     expect(mockCharge).toHaveBeenCalledWith(expect.objectContaining({
       authorizationCode: 'AUTH_xyz',
       email: 'admin@acme.co.za',
@@ -206,7 +206,7 @@ describe('runQueuedCharges', () => {
 
     const result = await runQueuedCharges();
 
-    expect(result).toEqual({ submitted: 0, failed: 0, skipped: 1 });
+    expect(result).toEqual({ submitted: 0, refundNeeded: 0, failed: 0, skipped: 1 });
     expect(mockCharge).not.toHaveBeenCalled();
   });
 
@@ -218,7 +218,7 @@ describe('runQueuedCharges', () => {
     mockSql.mockResolvedValueOnce([{ count: 0 }] as never); // unattributed live charges
 
     const result = await runQueuedCharges();
-    expect(result).toEqual({ submitted: 0, failed: 0, skipped: 1 });
+    expect(result).toEqual({ submitted: 0, refundNeeded: 0, failed: 0, skipped: 1 });
     expect(mockCharge).not.toHaveBeenCalled();
   });
 
@@ -233,7 +233,7 @@ describe('runQueuedCharges', () => {
 
     const result = await runQueuedCharges();
 
-    expect(result).toEqual({ submitted: 0, failed: 1, skipped: 0 });
+    expect(result).toEqual({ submitted: 0, refundNeeded: 0, failed: 1, skipped: 0 });
   });
 
   it('does not charge when a concurrent run has already claimed the attempt', async () => {
@@ -244,7 +244,7 @@ describe('runQueuedCharges', () => {
 
     const result = await runQueuedCharges();
 
-    expect(result).toEqual({ submitted: 0, failed: 0, skipped: 1 });
+    expect(result).toEqual({ submitted: 0, refundNeeded: 0, failed: 0, skipped: 1 });
     expect(mockCharge).not.toHaveBeenCalled();
   });
 });
