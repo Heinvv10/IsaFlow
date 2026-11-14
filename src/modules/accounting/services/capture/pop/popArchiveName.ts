@@ -30,7 +30,7 @@ export function popArchivePath(folder: string, pop: ArchivablePop): string {
   if (!m) throw new Error(`popArchivePath: payment date is not YYYY-MM-DD: ${pop.paymentDate}`);
   if (!/^\d+\.\d{2}$/.test(pop.amount)) throw new Error(`popArchivePath: amount is not 0.00-shaped: ${pop.amount}`);
   const file = sanitizeSharePointName(
-    `${pop.paymentDate} ${pop.beneficiary} R${pop.amount} ${pop.transactionNumber}`);
+    `${pop.paymentDate} ${pop.beneficiary} R${pop.amount} ${pop.transactionNumber}`); // census-ok: a file name in the agreed R3000.00 form, not money shown to a person
   const base = sanitizeFolderPath(folder);
   return `${base ? `${base}/` : ''}${m[1]}/${m[2]}/${file}.pdf`;
 }

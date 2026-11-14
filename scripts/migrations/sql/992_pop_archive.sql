@@ -6,10 +6,15 @@
 --     <folder>/YYYY/MM/YYYY-MM-DD <beneficiary> R<amount> <transaction number>.pdf
 --     (capture/pop/popArchiveName.ts). Ops config, like pop_trusted_payers (989): app sessions read it,
 --     only migration_admin writes it. No row: that company's POPs are not archived.
---   pop_archive_copies  one row per POP once it was copied (outcome 'archived': the drive item's id,
---     web URL and path), or once it was found too large for a simple upload (outcome 'too_large', over
---     4 MB: never retried). A POP with a row is never uploaded again. Written by the mirror cron
---     (capture/pop/popArchiveSweep.ts): app_user (and app_service through it) SELECT + INSERT only.
+--   pop_archive_copies  one row per POP once it is settled: 'archived' (the drive item's id, web URL and
+--     path), 'too_large' (over Graph's 4 MB simple upload: never uploaded), or 'failed' (POP_ARCHIVE_MAX_ATTEMPTS
+--     failed attempts; the last error is in pop_archive_attempts). A POP with a row is never uploaded again.
+--     app_user (and app_service through it) SELECT + INSERT only: a settled copy is never edited.
+--   pop_archive_attempts  one row per POP that failed at least once: how many times, when last, and why.
+--     The sweep takes POPs never tried first, then the least recently tried, and waits between attempts
+--     (5 min doubling, at most 24 h), so a POP that keeps failing never holds the batch.
+--     app_user SELECT, INSERT of the first failure, UPDATE of the counters.
+--   Ops: to retry 'failed' copies, as migration_admin delete their pop_archive_copies and pop_archive_attempts rows.
 --
 -- Credentials are not stored here: the Graph app's tenant, client id and secret are the
 -- POP_ARCHIVE_* environment variables.
@@ -40,15 +45,18 @@ CREATE TABLE IF NOT EXISTS pop_archive_copies (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
   proof_of_payment_id UUID NOT NULL,
-  outcome TEXT NOT NULL CHECK (outcome IN ('archived', 'too_large')),
+  outcome TEXT NOT NULL CHECK (outcome IN ('archived', 'too_large', 'failed')),
   drive_item_id TEXT CHECK (length(drive_item_id) <= 200),
   web_url TEXT CHECK (length(web_url) <= 2000),
-  path TEXT NOT NULL CHECK (btrim(path) <> '' AND length(path) <= 1000),
+  path TEXT CHECK (btrim(path) <> '' AND length(path) <= 1000),
   archived_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT pop_archive_copies_one_per_pop UNIQUE (proof_of_payment_id),
   CONSTRAINT pop_archive_copies_pop_fkey FOREIGN KEY (proof_of_payment_id, company_id)
     REFERENCES proof_of_payments (id, company_id) ON DELETE CASCADE,
-  CONSTRAINT pop_archive_copies_shape CHECK (outcome = 'too_large' OR drive_item_id IS NOT NULL)
+  CONSTRAINT pop_archive_copies_shape CHECK (
+    (outcome = 'archived' AND drive_item_id IS NOT NULL AND path IS NOT NULL)
+    OR (outcome = 'too_large' AND drive_item_id IS NULL AND path IS NOT NULL)
+    OR (outcome = 'failed' AND drive_item_id IS NULL))
 );
 CREATE INDEX IF NOT EXISTS idx_pop_archive_copies_company ON pop_archive_copies (company_id);
 
@@ -61,5 +69,29 @@ CREATE POLICY tenant_isolation ON pop_archive_copies FOR ALL TO app_user
 REVOKE INSERT, UPDATE, DELETE ON pop_archive_copies FROM app_user;
 GRANT SELECT ON pop_archive_copies TO app_user;
 GRANT INSERT (company_id, proof_of_payment_id, outcome, drive_item_id, web_url, path) ON pop_archive_copies TO app_user;
+
+CREATE TABLE IF NOT EXISTS pop_archive_attempts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  proof_of_payment_id UUID NOT NULL,
+  attempts INT NOT NULL DEFAULT 1 CHECK (attempts > 0),
+  last_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_error TEXT NOT NULL CHECK (length(last_error) <= 300),
+  CONSTRAINT pop_archive_attempts_one_per_pop UNIQUE (proof_of_payment_id),
+  CONSTRAINT pop_archive_attempts_pop_fkey FOREIGN KEY (proof_of_payment_id, company_id)
+    REFERENCES proof_of_payments (id, company_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_pop_archive_attempts_company ON pop_archive_attempts (company_id, last_attempt_at);
+
+ALTER TABLE pop_archive_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pop_archive_attempts FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON pop_archive_attempts;
+CREATE POLICY tenant_isolation ON pop_archive_attempts FOR ALL TO app_user
+  USING (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()))
+  WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
+REVOKE INSERT, UPDATE, DELETE ON pop_archive_attempts FROM app_user;
+GRANT SELECT ON pop_archive_attempts TO app_user;
+GRANT INSERT (company_id, proof_of_payment_id, last_error) ON pop_archive_attempts TO app_user;
+GRANT UPDATE (attempts, last_attempt_at, last_error) ON pop_archive_attempts TO app_user;
 
 SELECT public.app_service_sync_policies();

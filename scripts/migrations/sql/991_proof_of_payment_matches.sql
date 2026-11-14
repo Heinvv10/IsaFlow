@@ -7,9 +7,13 @@
 --              it (captured_documents.matched_bank_tx_id, captureBankTxAttachService). Final.
 --   ambiguous  more than one line matched, or the one line also matches another open POP. Nothing was
 --              attached; candidate_bank_tx_ids is the suggestion for a person. Final for the matcher.
---   not_found  no line yet. Checked again on later ticks until payment_date + 14 days, then left.
+--   not_found  no single free line yet, or one whose bank account is not imported past the window yet.
+--              Checked again on later ticks until payment_date + 45 days, then left.
 --   refused    one line matched but the attach refused (refusal = its reason). Final for the matcher.
 -- There was no existing suggestion store for captured documents and bank lines, hence this table.
+--
+-- FINAL MEANS FINAL. Only a 'not_found' row may change (the matcher's upsert says so, and the trigger
+-- below refuses any UPDATE of a row whose outcome is already final, for every role).
 --
 -- Tenancy: 989's forced-RLS policy verbatim. The POP is referenced with its company
 -- (proof_of_payment_id, company_id): a foreign key check bypasses RLS, so a single-column reference
@@ -53,5 +57,24 @@ GRANT SELECT ON proof_of_payment_matches TO app_user;
 GRANT INSERT (company_id, proof_of_payment_id, outcome, candidate_bank_tx_ids, refusal)
   ON proof_of_payment_matches TO app_user;
 GRANT UPDATE (outcome, candidate_bank_tx_ids, refusal, checked_at) ON proof_of_payment_matches TO app_user;
+
+CREATE OR REPLACE FUNCTION public.proof_of_payment_matches_final() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+  IF OLD.outcome <> 'not_found' THEN
+    RAISE EXCEPTION 'proof_of_payment_matches: outcome % of POP % is final', OLD.outcome, OLD.proof_of_payment_id
+      USING ERRCODE = 'restrict_violation';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.proof_of_payment_matches_final() FROM PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_proof_of_payment_matches_final ON proof_of_payment_matches;
+CREATE TRIGGER trg_proof_of_payment_matches_final
+  BEFORE UPDATE ON proof_of_payment_matches
+  FOR EACH ROW EXECUTE FUNCTION public.proof_of_payment_matches_final();
 
 SELECT public.app_service_sync_policies();

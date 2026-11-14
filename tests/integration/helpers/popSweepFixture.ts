@@ -1,5 +1,5 @@
 /**
- * Shared fixture for the POP sweep suites (pop-match-sweep / pop-archive-sweep): companies with a bank
+ * Shared fixture for the POP sweep suites (pop-match-sweep*, pop-archive-sweep): companies with a bank
  * account, proof_of_payments filed straight into the tables (popIngest is pop-inbox-ingest's subject),
  * bank lines, and `asService`, which runs a sweep as the mirror cron's role (app_service) with its
  * statements on one ALS-bound connection, committed.
@@ -10,6 +10,7 @@ import { als } from '@/lib/als';
 export interface PopFixture {
   pool: Pool;
   companies: string[];
+  /** Each company's main bank account (its window is always imported: see `cover`). */
   bankAccount: Map<string, string>;
   /** A user who is a member of every fixture company (app_user's RLS admits a company only for its members). */
   member: string;
@@ -23,20 +24,32 @@ export async function setUpPopFixture(pool: Pool, companies: string[]): Promise<
   for (const [i, company] of companies.entries()) {
     await pool.query('INSERT INTO companies (id, name) VALUES ($1, $2)', [company, `POP sweep ${i}`]);
     await pool.query('INSERT INTO company_users (company_id, user_id) VALUES ($1, $2)', [company, member]);
-    const acc = crypto.randomUUID();
-    await pool.query(`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, account_subtype, normal_balance)
-      VALUES ($1, $2, 'POPB', 'POP bank', 'asset', 'bank', 'debit')`, [acc, company]);
-    bankAccount.set(company, acc);
+    bankAccount.set(company, await addBankAccount(pool, company));
   }
   const { rows: [r] } = await pool.query<{ today: string }>("SELECT (now() AT TIME ZONE 'Africa/Johannesburg')::date::text AS today");
   const today = new Date(`${r!.today}T00:00:00Z`);
   const day = (n: number) => new Date(today.getTime() - n * 86_400_000).toISOString().slice(0, 10);
-  return { pool, companies, bankAccount, member, day };
+  const fx = { pool, companies, bankAccount, member, day };
+  for (const company of companies) await cover(fx, company);
+  return fx;
+}
+
+export async function addBankAccount(pool: Pool, company: string): Promise<string> {
+  const acc = crypto.randomUUID();
+  await pool.query(`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, account_subtype, normal_balance)
+    VALUES ($1, $2, $3, 'POP bank', 'asset', 'bank', 'debit')`, [acc, company, `PB${acc.slice(0, 6)}`]);
+  return acc;
+}
+
+/** A posted line dated well after every window, so the account reads as imported past it. */
+export async function cover(fx: PopFixture, company: string, account = fx.bankAccount.get(company)!): Promise<string> {
+  return seedLine(fx, company, fx.day(-60), '-0.01', 'BANK CHARGE', { account });
 }
 
 export async function tearDownPopFixture(fx: PopFixture): Promise<void> {
   const ids = fx.companies;
   for (const stmt of [
+    'DELETE FROM pop_archive_attempts WHERE company_id = ANY($1)',
     'DELETE FROM pop_archive_copies WHERE company_id = ANY($1)',
     'DELETE FROM pop_archive_targets WHERE company_id = ANY($1)',
     'DELETE FROM proof_of_payment_matches WHERE company_id = ANY($1)',
@@ -44,6 +57,7 @@ export async function tearDownPopFixture(fx: PopFixture): Promise<void> {
     'DELETE FROM proof_of_payments WHERE company_id = ANY($1)',
     'DELETE FROM captured_documents WHERE company_id = ANY($1)',
     'DELETE FROM bank_transactions WHERE company_id = ANY($1)',
+    'DELETE FROM bank_feed_connections WHERE company_id = ANY($1)',
     'DELETE FROM gl_accounts WHERE company_id = ANY($1)',
     'DELETE FROM companies WHERE id = ANY($1)',
   ]) await fx.pool.query(stmt, [ids]);
@@ -70,20 +84,31 @@ export async function seedPop(fx: PopFixture, company: string, p: PopSeed): Prom
   return { popId: pop!.id, documentId: doc!.id };
 }
 
-export async function seedLine(fx: PopFixture, company: string, date: string, amount: string, description: string): Promise<string> {
+/** A bank line; `feedState` other than 'posted' comes from a (fixture) feed connection, as the table requires. */
+export async function seedLine(fx: PopFixture, company: string, date: string, amount: string, description: string | null,
+  opts: { account?: string; feedState?: 'posted' | 'pending' | 'removed' } = {}): Promise<string> {
+  const account = opts.account ?? fx.bankAccount.get(company)!;
+  const state = opts.feedState ?? 'posted';
+  let conn: string | null = null;
+  if (state !== 'posted') {
+    const { rows: [c] } = await fx.pool.query<{ id: string }>(`INSERT INTO bank_feed_connections (company_id, bank_account_id, provider)
+      VALUES ($1, $2, 'test_provider') RETURNING id`, [company, account]);
+    conn = c!.id;
+  }
   const { rows: [r] } = await fx.pool.query<{ id: string }>(`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date,
-      amount, description, reference, status, feed_state)
-    VALUES ($1, $2, $3, $4, $5, 'SAGE3610911701|20261030-0126', 'imported', 'posted') RETURNING id`,
-  [company, fx.bankAccount.get(company), date, amount, description]);
+      amount, description, reference, status, feed_state, bank_feed_connection_id, provider_transaction_id)
+    VALUES ($1, $2, $3, $4, $5, 'SAGE3610911701|20261030-0126', 'imported', $6, $7, $8) RETURNING id`,
+  [company, account, date, amount, description, state, conn, conn ? `ptx-${crypto.randomUUID()}` : null]);
   return r!.id;
 }
 
-/** Runs `fn` as app_service (the cron's role), on one connection bound into ALS, and commits. */
-export async function asService<T>(pool: Pool, fn: () => Promise<T>): Promise<T> {
+/** Runs `fn` as app_service (the cron's role), on one connection bound into ALS, and commits. `setup` runs first. */
+export async function asService<T>(pool: Pool, fn: () => Promise<T>, setup: string[] = []): Promise<T> {
   const client: PoolClient = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query('SET LOCAL ROLE app_service');
+    for (const stmt of setup) await client.query(stmt);
     const out = await als.run({ client, userId: 'system:mirror-scan', claims: {} }, fn);
     await client.query('COMMIT');
     return out;
@@ -95,12 +120,13 @@ export async function asService<T>(pool: Pool, fn: () => Promise<T>): Promise<T>
   }
 }
 
-/** The SQLSTATE `stmt` fails with as app_user in `company`'s context, or 'ok'. Rolled back either way. */
-export async function asAppUser(fx: PopFixture, company: string, stmt: string, params: unknown[] = []): Promise<string> {
+/** The SQLSTATE `stmt` fails with as `role` in `company`'s context, or `ok:<rows>`. Rolled back either way. */
+export async function asAppUser(fx: PopFixture, company: string, stmt: string, params: unknown[] = [],
+  role: 'app_user' | 'app_service' = 'app_user'): Promise<string> {
   const client = await fx.pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('SET LOCAL ROLE app_user');
+    await client.query(`SET LOCAL ROLE ${role}`);
     await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: fx.member })]);
     await client.query("SELECT set_config('app.current_company_id', $1, true)", [company]);
     const res = await client.query(stmt, params);
