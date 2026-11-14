@@ -18,8 +18,16 @@ describe('currentSubscriptionJoin', () => {
 
   it('feature gating reads the same rule', () => {
     expect(CURRENT_PLAN_ID_SQL).toContain(CURRENT_SUBSCRIPTION_SQL);
-    // A trial is current only while its end is ahead.
-    expect(CURRENT_SUBSCRIPTION_SQL).toContain("s.status = 'trial'");
-    expect(CURRENT_SUBSCRIPTION_SQL).toContain('GREATEST(s.current_period_end, c.trial_ends_at) > NOW()');
+  });
+
+  it('the rule: active or past_due, or a trial whose end is ahead; latest created first; one row', () => {
+    // The whole text, whitespace-insensitive: a changed status set, trial-end
+    // test, ordering direction, tiebreak or limit turns this red.
+    const squash = (s: string) => s.replace(/\s+/g, ' ').trim();
+    expect(squash(CURRENT_SUBSCRIPTION_SQL)).toBe(
+      "FROM public.subscriptions s WHERE s.company_id = c.id"
+      + " AND (s.status IN ('active', 'past_due')"
+      + " OR (s.status = 'trial' AND GREATEST(s.current_period_end, c.trial_ends_at) > NOW()))"
+      + ' ORDER BY s.created_at DESC NULLS LAST, s.id DESC LIMIT 1');
   });
 });
