@@ -1,23 +1,23 @@
 /**
- * Tax Directive sub-components — Create Modal + Lump Sum Calculator
+ * Tax Directive sub-components — Create Modal (the Lump Sum Calculator is in LumpSumCalculator.tsx)
  * Used by /payroll/tax-directives page.
  */
 
 import { useState } from 'react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
-import { X, Loader2, Calculator, Plus } from 'lucide-react';
-import { calculateLumpSumTax, type LumpSumCalculation } from '@/lib/taxCalculations';
-import { formatMoney } from '@/lib/money/formatMoney';
+import { X, Loader2, Plus } from 'lucide-react';
 import { DateField } from '@/components/ui/DateField';
 import type { FieldValidity } from '@/components/ui/useParsedField';
 import { DirectiveEmployeeSelect, useDirectiveEmployees } from './TaxDirectiveEmployeeSelect';
+import { Select } from '@/components/ui/Select';
+import { DIRECTIVE_TYPES, isRegularPayDirectiveType } from '@/modules/accounting/services/payroll/taxDirectiveKinds';
+import { TYPE_LABELS, type DirectiveType } from './taxDirectiveLabels';
+
+export { LumpSumCalculator } from './LumpSumCalculator';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const fmtCurrency = (n: number) => formatMoney(n);
-
-const DIRECTIVE_TYPES = ['lump_sum', 'retirement', 'severance', 'death'] as const;
-type DirectiveType = typeof DIRECTIVE_TYPES[number];
+const TYPE_OPTIONS = DIRECTIVE_TYPES.map(t => ({ value: t, label: TYPE_LABELS[t] }));
 
 const inputCls = 'w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-teal-500';
 const labelCls = 'block text-xs font-medium text-gray-400 mb-1';
@@ -39,6 +39,7 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
     directive_type: 'retirement' as DirectiveType,
     amount: '',
     tax_rate: '',
+    tax_amount: '',
     effective_date: '',
     issued_date: '',
     expiry_date: '',
@@ -60,6 +61,7 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
   // The directive is paid to this employee (a run, or /apply): its name and tax number are the employee's, shown
   // read-only and never posted (the server stores the record's, and a posted tax number would only reach the log).
   const picked = employees.find(emp => emp.id === form.employee_id);
+  const regular = isRegularPayDirectiveType(form.directive_type);
   const pickEmployee = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setForm(f => ({ ...f, employee_id: e.target.value }));
   };
@@ -82,10 +84,13 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
     setSaving(true);
     setError('');
     try {
+      // A fixed-percentage or fixed-amount directive (IRP3(b)/(c)) carries a rate or a tax amount a month, no gross.
+      const { tax_amount: taxAmount, ...rest } = form;
       const body = {
-        ...form,
-        amount: parseFloat(form.amount),
-        tax_rate: form.tax_rate ? parseFloat(form.tax_rate) / 100 : undefined,
+        ...rest,
+        amount: regular ? undefined : parseFloat(form.amount),
+        tax_rate: form.tax_rate && form.directive_type !== 'fixed_amount' ? parseFloat(form.tax_rate) / 100 : undefined,
+        tax_amount: form.directive_type === 'fixed_amount' ? parseFloat(taxAmount) : undefined,
         // A blank date input is '', which the DATE columns refuse (expiry_date was a 500 on every create without one).
         issued_date: form.issued_date || undefined,
         expiry_date: form.expiry_date || undefined,
@@ -128,28 +133,44 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
               <label htmlFor="td-tax-number" className={labelCls}>Tax Number</label>
               <input id="td-tax-number" className={inputCls} value={picked?.taxNumber ?? ''} readOnly placeholder="From the employee picked" />
             </div>
-            <div>
-              <label className={labelCls}>Directive Type *</label>
-              <select className={inputCls} value={form.directive_type} onChange={set('directive_type')} required>
-                {DIRECTIVE_TYPES.map(t => (
-                  <option key={t} value={t}>{t.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="td-amount" className={labelCls}>Gross Amount (ZAR) *</label>
-              <input id="td-amount" className={inputCls} type="number" min="0" step="0.01" value={form.amount} onChange={set('amount')} required placeholder="0.00" />
-            </div>
-            <div>
-              <label className={labelCls}>Directive Rate (%) — leave blank for SARS table</label>
-              <input className={inputCls} type="number" min="0" max="100" step="0.01" value={form.tax_rate} onChange={set('tax_rate')} placeholder="e.g. 18.00" />
-            </div>
+            <Select label="Directive Type *" labelClassName={labelCls} options={TYPE_OPTIONS} value={form.directive_type}
+              onChange={v => v && setForm(f => ({ ...f, directive_type: v as DirectiveType }))} />
+            {regular ? (
+              <>
+                {form.directive_type === 'fixed_percentage' ? (
+                  <div>
+                    <label htmlFor="td-rate" className={labelCls}>Directive Rate (%) *</label>
+                    <input id="td-rate" className={inputCls} type="number" min="0" max="100" step="0.01" value={form.tax_rate} onChange={set('tax_rate')} required placeholder="e.g. 20.00" />
+                  </div>
+                ) : (
+                  <div>
+                    <label htmlFor="td-tax-amount" className={labelCls}>PAYE a month (ZAR) *</label>
+                    <input id="td-tax-amount" className={inputCls} type="number" min="0" step="0.01" value={form.tax_amount} onChange={set('tax_amount')} required placeholder="0.00" />
+                  </div>
+                )}
+                <p className="col-span-2 text-xs text-[var(--ff-text-secondary)]">
+                  Every pay run takes PAYE on regular pay from this directive, before retirement fund deductions, while it is in force.
+                  Leave Expiry Date blank for the end of the tax year (SARS PAYE-GEN-01-G21, p. 15).
+                </p>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label htmlFor="td-amount" className={labelCls}>Gross Amount (ZAR) *</label>
+                  <input id="td-amount" className={inputCls} type="number" min="0" step="0.01" value={form.amount} onChange={set('amount')} required placeholder="0.00" />
+                </div>
+                <div>
+                  <label htmlFor="td-lump-rate" className={labelCls}>Directive Rate (%) — leave blank for SARS table</label>
+                  <input id="td-lump-rate" className={inputCls} type="number" min="0" max="100" step="0.01" value={form.tax_rate} onChange={set('tax_rate')} placeholder="e.g. 18.00" />
+                </div>
+              </>
+            )}
             <DateField label="Effective Date" required value={form.effective_date || null} onChange={setDate('effective_date')} />
             <DateField label="Issued Date (by SARS)" value={form.issued_date || null} onChange={setDate('issued_date')} />
             <DateField label="Expiry Date" value={form.expiry_date || null} onChange={setDate('expiry_date')} />
             <div>
-              <label className={labelCls}>Directive Number</label>
-              <input className={inputCls} value={form.directive_number} onChange={set('directive_number')} placeholder="SARS directive number" />
+              <label htmlFor="td-number" className={labelCls}>Directive Number{regular ? ' *' : ''}</label>
+              <input id="td-number" className={inputCls} value={form.directive_number} onChange={set('directive_number')} required={regular} maxLength={regular ? 15 : 50} placeholder="SARS directive number" />
             </div>
             <div>
               <label className={labelCls}>SARS Reference</label>
@@ -171,85 +192,6 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
             </button>
           </div>
         </form>
-      </div>
-    </div>
-  );
-}
-
-// ─── Lump Sum Calculator ──────────────────────────────────────────────────────
-
-export function LumpSumCalculator() {
-  const [gross, setGross] = useState('');
-  const [useDirectiveRate, setUseDirectiveRate] = useState(false);
-  const [directiveRate, setDirectiveRate] = useState('');
-  const [result, setResult] = useState<LumpSumCalculation | null>(null);
-
-  const calculate = () => {
-    const amount = parseFloat(gross);
-    if (isNaN(amount) || amount <= 0) return;
-    const rate = useDirectiveRate && directiveRate ? parseFloat(directiveRate) / 100 : null;
-    setResult(calculateLumpSumTax(amount, rate));
-  };
-
-  return (
-    <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <Calculator className="h-5 w-5 text-teal-400" />
-        <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Lump Sum Calculator</h3>
-      </div>
-      <div className="space-y-3">
-        <div>
-          <label className={labelCls}>Gross Amount (ZAR)</label>
-          <input
-            type="number" min="0" step="0.01"
-            className={inputCls}
-            value={gross} onChange={e => setGross(e.target.value)} placeholder="0.00"
-          />
-        </div>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={useDirectiveRate} onChange={e => setUseDirectiveRate(e.target.checked)} className="accent-teal-500" />
-          <span className="text-xs text-gray-700 dark:text-gray-300">Use directive rate</span>
-        </label>
-        {useDirectiveRate && (
-          <div>
-            <label className={labelCls}>Directive Rate (%)</label>
-            <input
-              type="number" min="0" max="100" step="0.01"
-              className={inputCls}
-              value={directiveRate} onChange={e => setDirectiveRate(e.target.value)} placeholder="e.g. 18.00"
-            />
-          </div>
-        )}
-        <button onClick={calculate} className="w-full py-2 text-sm font-medium bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors">
-          Calculate Tax
-        </button>
-        {result && (
-          <div className="mt-3 space-y-2 border-t border-gray-300 dark:border-gray-700 pt-3">
-            <div className="space-y-1">
-              {result.breakdown.map((b, i) => (
-                <div key={i} className="flex justify-between text-xs">
-                  <span className="text-gray-600 dark:text-gray-400">{b.bracket}</span>
-                  <span className="text-gray-800 dark:text-gray-200">{fmtCurrency(b.tax)}</span>
-                </div>
-              ))}
-            </div>
-            <div className="flex justify-between text-sm font-semibold border-t border-gray-600 pt-2">
-              <span className="text-slate-900 dark:text-white">Total Tax</span>
-              <span className="text-red-400">{fmtCurrency(result.taxAmount)}</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-gray-600 dark:text-gray-400">Net Payment</span>
-              <span className="text-teal-400">{fmtCurrency(result.grossAmount - result.taxAmount)}</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-gray-600 dark:text-gray-400">Effective Rate</span>
-              <span className="text-gray-800 dark:text-gray-200">{(result.effectiveRate * 100).toFixed(2)}%</span>
-            </div>
-            {result.directiveRateUsed && (
-              <p className="text-xs text-amber-400">Using SARS directive rate</p>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );

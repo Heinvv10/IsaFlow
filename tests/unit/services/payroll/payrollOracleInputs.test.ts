@@ -11,13 +11,12 @@ import { ordinaryWageCents } from '@/modules/accounting/services/payroll/etiHour
 
 const cases = loadCases();
 
-/** The `unmodelled` keys buildCaseInput passes to the calculator (as a work term, or as the RF employer contribution: rfiInput.ts). */
-const PASSED = ['ordinaryHoursPerWeek', 'hoursPerDay', 'dayRate', 'monthlyHours', 'ordinaryHoursWage', 'erRetirementPctOfRfi', 'rfiBase'];
+/** The `unmodelled` keys buildCaseInput passes to the calculator (as a work term, the run hours, the RF employer contribution: rfiInput.ts, or the regular-pay directive). */
+const PASSED = ['ordinaryHoursPerWeek', 'hoursPerDay', 'dayRate', 'monthlyHours', 'ordinaryHoursWage', 'erRetirementPctOfRfi', 'rfiBase', 'fixedAmountDirective', 'fixedRateDirectivePercent'];
 /** The keys the calculator cannot take yet, each with the PR that wires it (or why it is only context). */
 const NOT_YET: Record<string, string> = {
   erMedicalContribution: 'FB', travelBusinessUseAtLeast80Pct: 'FB', vehicleDeterminedValue: 'FB', vehicleBenefitPctOfValue: 'FB',
   maintenancePlanIncluded: 'FB', businessUseAtLeast80Pct: 'FB',
-  fixedAmountDirective: 'DR', fixedRateDirectivePercent: 'DR',
   daysWorked: 'context only: the case notes use it to reach the day rate', employmentBasis: 'context only: the classifier works it out from the hours',
   writtenDeclarationHeld: 'not recorded by IsaFlow yet (employmentTerms.ts, the PAYE_OUTSIDE_TABLES warning)',
 };
@@ -44,6 +43,10 @@ describe('every fixture input reaches the calculator, or has a named owner', () 
     const { components } = buildCaseInput(c);
     expect(runHoursOf(employee, components)).toBe(typeof u.monthlyHours === 'number' ? u.monthlyHours : null);
     if (typeof u.ordinaryHoursWage === 'number') expect(ordinaryWageCents(components)).toBe(Math.round(u.ordinaryHoursWage * 100));
+    // The directive (DR): a percentage as its fraction, an amount as is, else none.
+    const d = buildCaseInput(c).regularPayDirective?.current ?? null;
+    expect(d?.rate ?? null).toBe(typeof u.fixedRateDirectivePercent === 'number' ? u.fixedRateDirectivePercent / 100 : null);
+    expect(d?.fixedAmount ?? null).toBe(typeof u.fixedAmountDirective === 'number' ? u.fixedAmountDirective : null);
   });
 
   it('the RF case reaches the calculator as a non-cash 3817 costed at 15% of its R20 000 RFI', () => {
