@@ -333,6 +333,25 @@ describe('post_payroll_journal — the dry run is the deliverable', () => {
     expect(out.employment_cost).toMatchObject({ eti: 700, eti_used: 300 });
   });
 
+  it('itemises the employer retirement contribution (RF) in employment_cost: labour = gross + employer UIF + SDL + medical + retirement - ETI used', async () => {
+    vi.mocked(buildPayrollJournalPlan).mockResolvedValue(plan({
+      lines: [
+        { glAccountId: 'a5200', accountCode: '5200', accountName: 'Labour Costs', debit: 12450, credit: 0, description: 'Labour costs', inactiveAccount: false },
+        { glAccountId: 'a2150', accountCode: '2150', accountName: 'UIF Payable', debit: 0, credit: 200, description: 'UIF payable', inactiveAccount: false },
+        { glAccountId: 'a2160', accountCode: '2160', accountName: 'SDL Payable', debit: 0, credit: 100, description: 'SDL payable', inactiveAccount: false },
+        { glAccountId: 'a2175', accountCode: '2175', accountName: 'Other', debit: 0, credit: 2250, description: 'Employer medical and fund', inactiveAccount: false },
+        { glAccountId: 'a1110', accountCode: '1110', accountName: 'Bank - Primary', debit: 0, credit: 9900, description: 'Net pay', inactiveAccount: false },
+      ],
+      totalDebit: 12450, totalCredit: 12450,
+      totals: { gross: 10000, paye: 0, uif: 200, sdl: 100, eti: 0, etiUsed: 0, net: 9900, employerUif: 100, otherDeductions: 0, employerMedical: 750, employerRetirement: 1500 },
+    }) as never);
+    const out = json(await postPayrollJournalTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx));
+    const c = out.employment_cost;
+    expect(c).toMatchObject({ employer_medical: 750, employer_retirement: 1500 });
+    const labour = out.journals[0].lines.find((l: { accountCode: string }) => l.accountCode === '5200').debit;
+    expect(labour).toBe(c.gross_pay + c.employer_uif + c.sdl + c.employer_medical + c.employer_retirement - c.eti_used);
+  });
+
   it('sets wroteNothing on the dry run so the real call is not served the preview', async () => {
     const res = await postPayrollJournalTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx);
     expect(res.wroteNothing).toBe(true);

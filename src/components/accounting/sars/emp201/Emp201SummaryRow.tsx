@@ -12,13 +12,13 @@ export function SummaryRow({
   onDrill?: () => void;
 }) {
   return (
-    <div className={`px-4 py-3 flex items-center justify-between ${bold ? 'bg-[var(--ff-bg-primary)]/30' : ''}`}>
+    <div data-explain-scope className={`px-4 py-3 flex items-center justify-between ${bold ? 'bg-[var(--ff-bg-primary)]/30' : ''}`}>
       <span className={`text-sm ${bold ? 'font-semibold text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]'}`}>
         {label}
       </span>
       <span className="flex items-center gap-3">
         {onDrill && (
-          <button type="button" onClick={onDrill} data-testid="emp201-drill-link" aria-label={`Show the lines behind ${label}`}
+          <button type="button" onClick={onDrill} data-testid="emp201-drill-link" data-explain-trigger aria-label={`Show the lines behind ${label}`}
             className="min-h-[24px] text-xs text-teal-700 underline dark:text-teal-400">Lines</button>
         )}
         <span data-testid="emp201-value" className={`text-sm font-medium ${bold ? 'text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]'}`}>

@@ -240,6 +240,8 @@ describe('batch membership', () => {
     'src/modules/accounting/services/bank/bankAllocationService.ts': 'allocation_batch_id (bank_transactions); the substring matches',
     'src/modules/accounting/services/bank/bankChainLineReversal.ts': 'reads a batch label (id::TEXT AS batch_id)',
     'src/modules/accounting/services/bank/reverseLinesCreditLast.ts': 'reads a processed batch\'s members for the range dry run\'s credit check',
+    'src/modules/accounting/services/reconciliation/partyLedgerSettlementQueries.ts': 'party_ledger_check: reads a payment\'s batch journal (a SELECT); writes nothing',
+    'src/modules/accounting/services/reconciliation/partyLedgerSharedJournals.ts': 'party_ledger_check: reads batch members to find who shares a journal (a SELECT); writes nothing',
     'src/modules/accounting/services/core/costCentreUsageGuard.ts': 'dimension_tag_batches.batch_id, not the payment column',
     'src/modules/accounting/services/core/paymentVoidReads.ts': 'loadPayment maps the locked row\'s batch_id (moved from paymentVoidService, step 6)',
     'src/modules/accounting/services/gl/approvalDocuments.ts': READS,

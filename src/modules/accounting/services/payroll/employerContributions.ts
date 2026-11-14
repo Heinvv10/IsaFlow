@@ -13,9 +13,30 @@
  * A 3810 earning is non-cash: taxed (100%, para 12A has no 80 / 20 rule) but not paid, so it is not in gross pay
  * and net pay. NAMED LIMIT: the Seventh Schedule text itself was not fetched; the G21 wording is the source. The
  * certificate side (3810, 4474, 4005) is easyFileExportService and payrollMedicalRecord.
+ *
+ * Retirement funds (wave 5 RF). An employer's contribution to a pension, provident or retirement annuity fund for the
+ * employee is, from 1 March 2016, "a taxable fringe benefit and a deemed contribution in the hands of the employee.
+ * Therefore, current contributions = contributions actually made by the employee plus employer contributions"
+ * (PAYE-GEN-01-G21 (2027) Rev 1 p. 10, "Retirement fund contributions"; Seventh Schedule para 12D, not fetched: the
+ * G21 wording is the source). It is assigned as an earning under the benefit's code: 3817 pension, 3825 provident,
+ * 3828 retirement annuity (BRS V25.3.0 p. 94-95). The run marks it non-cash (the employer pays the fund, not the
+ * employee), it is taxed in full, and the same value is deemed paid by the employee into s11F beside the employee's own
+ * 4001 / 4003 / 4006, so the cap binds on the total (deemedRetirementContributions; payeCumulative). On the certificate
+ * 4472 / 4473 / 4475 equal the benefit and 4001 / 4003 / 4006 include it (BRS p. 55, 101-103; easyFileRetirementFields).
+ * UIF and SDL are levied on it, whatever the component's flags (a run sets both): UIF is on "remuneration" as defined in
+ * paragraph 1 of the Fourth Schedule, less only pensions / superannuation / retiring allowances, the lump sums of gross income
+ * paras (a), (cA), (d), (e), (eA), and commission (Unemployment Insurance Contributions Act 4 of 2002 s1, "remuneration", as
+ * enacted p. 3; SARS UIF-GEN-01-G01 Rev 10 p. 5 "Remuneration for UIF contribution purposes"), and para 1 remuneration takes
+ * in a taxable benefit included in gross income under para (i) (UIF-GEN-01-G01 p. 5), which this is (G21 p. 10). SDL: the benefit
+ * is in the SDL-applicable remuneration (G21 p. 11, "SDL liable amount"), and "SDL is therefore determined on the balance of
+ * remuneration after the deduction of all allowable deductions (i.e. pension or provident fund contributions ...)" (same page):
+ * its deemed contribution comes off as part of the s11F deduction (sdlLeviableCumulative). Below the cap the two cancel (R30 000
+ * salary + R2 250 benefit = 32 250 applicable, less 2 250 allowed = 30 000 leviable, SDL R300); above it only the allowed part comes off. A defined-benefit fund's benefit is a para
+ * 12D(3) fund-member-category value, not the contribution: refused when the component is created (payrollComponentService).
  */
 import { normaliseSarsCode } from './payeAnnualPayment';
-import type { EmployeeComponent } from './payrollTypes';
+import { isEmployerFundBenefitCode } from './retirementFund';
+import type { EmployeeComponent, ValidationResult } from './payrollTypes';
 
 export const EMPLOYER_MEDICAL_FRINGE_CODE = '3810';
 
@@ -35,6 +56,12 @@ const is3810Earning = (c: EmployeeComponent): boolean =>
  */
 export function markNonCashEmployerBenefits(components: readonly EmployeeComponent[], grossUp = false): EmployeeComponent[] {
   return components.map((c) => {
+    // An employer's fund contribution (3817 / 3825 / 3828) is paid to the fund: non-cash (RF), unless the assignment predates
+    // RF (employer_fund_as_cash, migration 975), which keeps the cash treatment it was paid under.
+    if (isFundBenefitEarning(c)) {
+      return c.employerFundAsCash === true ? c
+        : { ...c, isNonCash: true, component: { ...c.component, isUifApplicable: true, isSdlApplicable: true } };
+    }
     if (!is3810Earning(c)) return c;
     return grossUp ? { ...c, medicalGrossUp: true } : { ...c, isNonCash: true };
   });
@@ -47,4 +74,32 @@ export function markNonCashEmployerBenefits(components: readonly EmployeeCompone
  */
 export function deemedMedicalFees(components: readonly EmployeeComponent[]): number {
   return Math.round(components.filter((c) => is3810Earning(c) && c.component.isTaxable && c.medicalGrossUp !== true).reduce((s, c) => s + c.amount, 0) * 100) / 100;
+}
+
+const isFundBenefitEarning = (c: EmployeeComponent): boolean =>
+  c.component.componentType === 'earning' && isEmployerFundBenefitCode(c.component.sarsSourceCode);
+
+/**
+ * The employer's fund contributions deemed paid by the employee into s11F (G21 (2027) p. 10): the taxable, NON-CASH
+ * 3817 / 3825 / 3828 earnings, as a run marks them. A non-taxable one is no taxable benefit, so nothing is deemed (the
+ * line is refused, RETIREMENT_BENEFIT_NOT_TAXABLE); one reaching the calculator as cash was not assembled by a run and
+ * is taxed but not deemed (EMPLOYER_FUND_BENEFIT_NOT_DEEMED), as the certificate reads only non-cash items.
+ */
+export function deemedRetirementContributions(components: readonly EmployeeComponent[]): number {
+  return Math.round(components.filter((c) => isFundBenefitEarning(c) && c.component.isTaxable && c.isNonCash === true)
+    .reduce((s, c) => s + c.amount, 0) * 100) / 100;
+}
+
+/**
+ * A line with an employer fund row kept as cash from before RF (migration 975) AND one under the RF treatment (e.g. a once-off
+ * 3817 beside the kept recurring one): each is treated as its row says, which is easy to miss. Said, as information (RF round 2).
+ */
+export function mixedFundTreatmentResult(components: readonly EmployeeComponent[]): ValidationResult | null {
+  const rows = components.filter(isFundBenefitEarning);
+  if (!rows.some((c) => c.employerFundAsCash === true) || !rows.some((c) => c.employerFundAsCash !== true)) return null;
+  return {
+    code: 'EMPLOYER_FUND_MIXED_TREATMENT', severity: 'info',
+    message: 'This line has an employer retirement fund contribution kept as cash from before RF and another one treated as the employer\'s non-cash '
+      + 'contribution deemed paid by the employee. Each is taxed as its own row says. To treat them alike, end the kept-as-cash assignment and re-assign it.',
+  };
 }

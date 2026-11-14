@@ -116,6 +116,7 @@ export function SelectDropdown({
       <ul
         ref={listRef}
         id={listboxId}
+        data-select-listbox="true"
         role="listbox"
         aria-multiselectable={isMulti}
         aria-labelledby={labelId}

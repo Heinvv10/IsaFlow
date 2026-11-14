@@ -232,3 +232,6 @@ describe('a captured document in the bank line\'s lists', () => {
     expect(await screen.findByTitle('scan.pdf')).toBeTruthy();
   });
 });
+
+// M14: this suite does not provide the auth context or the comments route; the panel has its own tests (commentsPanel, commentsMounts).
+vi.mock('@/components/accounting/comments/CommentsPanel', () => ({ CommentsPanel: () => null }));

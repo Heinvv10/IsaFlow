@@ -21,6 +21,8 @@ import { useRelinkTransfersWithTick, TransferLinkNotice } from '@/components/acc
 import { useBankTxRefData } from '@/components/accounting/bank-transactions/useBankTxRefData';
 import { useBankTxColumnPrefs } from '@/components/accounting/bank-transactions/useBankTxColumnPrefs';
 import { useBankLineDetail } from '@/components/accounting/bank-transactions/useBankLineDetail';
+import { DeepLinkNotice } from '@/components/accounting/bank-transactions/DeepLinkNotice';
+import { useBankLineDeepLink } from '@/components/accounting/bank-transactions/useBankLineDeepLink';
 import { BankTxSuppliersNotice, type SuppliersStatus } from '@/components/accounting/bank-transactions/BankTxSuppliersNotice';
 import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
@@ -100,7 +102,8 @@ export default function BankTransactionsPage() {
   const [findMatchTxId, setFindMatchTxId] = useState<string | null>(null);
   const [attachmentsTxId, setAttachmentsTxId] = useState<string | null>(null);
   const [queryTx, setQueryTx] = useState<BankTx | null>(null);
-  const { detailTx, openDetail, closeDetail } = useBankLineDetail(transactions);
+  const { detailTx: listTx, openDetail, closeDetail: closeListDetail } = useBankLineDetail(transactions);
+  const { detailTx, closeDetail, error: deepLinkError, dismissError } = useBankLineDeepLink(listTx, closeListDetail);
   const [linkTx, setLinkTx] = useState<BankTx | null>(null);
   const [createRuleTx, setCreateRuleTx] = useState<BankTx | null>(null);
   const [rulePrompt, setRulePrompt] = useState<RulePrompt | null>(null);
@@ -235,6 +238,7 @@ export default function BankTransactionsPage() {
           <CodingMetricsStrip />
           <AutoPostRunsPanel onUndone={loadTransactions} />
           <TransferLinkNotice bankAccountId={selectedBank} refreshKey={linkTick} onChanged={loadTransactions} />
+          <DeepLinkNotice message={deepLinkError} onDismiss={dismissError} />
           <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading} error={error}
             empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab}
             detailTx={detailTx} onDetailClose={closeDetail}>

@@ -2,6 +2,17 @@
  * Feature Flag Service
  * Resolves effective features per company based on global flags, plan features,
  * and company-level overrides. Used by both the admin platform and feature gating middleware.
+ *
+ * Precedence: company override > global flag > plan membership.
+ *
+ * The plan is the plan of the company's CURRENT subscription: the latest
+ * created (id as tiebreak) of status trial / active / past_due. Cancelled and
+ * paused subscriptions grant nothing, and a company with no such subscription
+ * has no plan-sourced features. `companies.plan_id` is vestigial and is never
+ * read here. `subscriptions` has no one-live-per-company constraint, hence the
+ * explicit ordering. The same subquery appears in all three readers below
+ * (tests/integration/feature-flag-plan-via-subscription.int.test.ts holds them
+ * together); change one, change all.
  */
 
 import { sql } from '@/lib/neon';
@@ -88,8 +99,14 @@ export async function getCompanyEffectiveFeatures(
     sql`
       SELECT pf.feature_id
       FROM plan_features pf
-      JOIN companies c ON c.plan_id = pf.plan_id
-      WHERE c.id = ${companyId}
+      WHERE pf.plan_id = (
+        SELECT s.plan_id
+        FROM public.subscriptions s
+        WHERE s.company_id = ${companyId}
+          AND s.status IN ('trial', 'active', 'past_due')
+        ORDER BY s.created_at DESC NULLS LAST, s.id DESC
+        LIMIT 1
+      )
     `,
     sql`
       SELECT feature_id, enabled
@@ -188,9 +205,15 @@ export async function hasFeature(
       EXISTS (
         SELECT 1
         FROM plan_features pf
-        JOIN companies c ON c.plan_id = pf.plan_id
-        WHERE c.id = ${companyId}
-          AND pf.feature_id = ff.id
+        WHERE pf.feature_id = ff.id
+          AND pf.plan_id = (
+            SELECT s.plan_id
+            FROM public.subscriptions s
+            WHERE s.company_id = ${companyId}
+              AND s.status IN ('trial', 'active', 'past_due')
+            ORDER BY s.created_at DESC NULLS LAST, s.id DESC
+            LIMIT 1
+          )
       ) AS in_plan,
       cfo.enabled AS override_enabled
     FROM feature_flags ff
@@ -237,7 +260,15 @@ export async function companiesWithFeature(
         cfo.enabled,
         COALESCE(ff.is_global, false) OR EXISTS (
           SELECT 1 FROM public.plan_features pf
-          WHERE pf.plan_id = c.plan_id AND pf.feature_id = ff.id
+          WHERE pf.feature_id = ff.id
+            AND pf.plan_id = (
+              SELECT s.plan_id
+              FROM public.subscriptions s
+              WHERE s.company_id = c.id
+                AND s.status IN ('trial', 'active', 'past_due')
+              ORDER BY s.created_at DESC NULLS LAST, s.id DESC
+              LIMIT 1
+            )
         )
       )
   `) as Row[];
