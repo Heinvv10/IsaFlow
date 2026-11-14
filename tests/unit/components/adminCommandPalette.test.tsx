@@ -103,7 +103,8 @@ describe('AdminCommandPalette', () => {
     render(<AdminCommandPalette isOpen onClose={() => undefined} />);
     await type('old');
     await type('new');
-    await act(async () => { for (const r of pending) r(); await vi.advanceTimersByTimeAsync(0); });
+    // The newer reply lands first, the older one last: the late one must not replace it.
+    await act(async () => { for (const r of [...pending].reverse()) r(); await vi.advanceTimersByTimeAsync(0); });
     expect(screen.queryByText('Old Co')).toBeNull();
   });
 });
