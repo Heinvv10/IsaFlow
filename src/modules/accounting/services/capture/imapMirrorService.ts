@@ -24,6 +24,7 @@ import { readCursor } from './mirrorCursor';
 import { openImapClient } from './imapMirrorClient';
 import { isOversizedMessage, runGuardedScan, type ScanGuard, type ScanOptions } from './mirrorScanGuard';
 import { ingestAttachment } from './imapMirrorIngest';
+import { fileAbsaNotice, isAbsaNoticeEnvelope, isNoticeAttachment } from './pop/popMirrorBranch';
 import { fetchNewMessages, fetchSourceByUid, mailboxUidNext } from './mirrorImapFetch';
 import { dueOrSkipTick, isScanLockSkip } from './mirrorScanWrite';
 import { addIngested, logScanEntry, selectDueConnections, stampStopped, stampSuccess, updateCursor } from './imapMirrorWrites';
@@ -179,7 +180,8 @@ async function scanBody(conn: MirrorConnection, result: ScanResult, guard: ScanG
           continue;
         }
 
-        if (!subjectHintsInvoice(subject)) {
+        const absaNotice = isAbsaNoticeEnvelope(fromAddr, subject); // POP inbox: pop/popMirrorBranch.ts
+        if (!absaNotice && !subjectHintsInvoice(subject)) {
           result.skipped += 1;
           await logScanEntry(conn, { imapUid: String(uid), sender: fromAddr,
             subject, attachmentCount: 0, outcome: 'skipped_not_invoice' });
@@ -202,7 +204,7 @@ async function scanBody(conn: MirrorConnection, result: ScanResult, guard: ScanG
         }
 
         const parsed = await simpleParser(source);
-        const attachments = (parsed.attachments ?? []).filter(looksLikeInvoiceAttachment);
+        const attachments = (parsed.attachments ?? []).filter(absaNotice ? isNoticeAttachment : looksLikeInvoiceAttachment);
 
         if (attachments.length === 0) {
           result.skipped += 1;
@@ -212,19 +214,22 @@ async function scanBody(conn: MirrorConnection, result: ScanResult, guard: ScanG
         }
 
         const eventIds: string[] = [];
+        let popIds: string[] = [];
         try {
           // Once per message, before any attachment: a failure here leaves nothing half-ingested.
           const inboxId = await ensureMirrorInbox(conn.companyId, conn.accountEmail);
-          for (const att of attachments) {
+          let toCapture = attachments;
+          if (absaNotice) ({ popIds, toCapture } = await fileAbsaNotice(conn.companyId, source, attachments, () => guard.check()));
+          for (const att of toCapture) {
             guard.check(); // an abandoned scan ingests nothing more
             const eventId = await ingestAttachment(conn, inboxId, parsed, att);
             if (eventId) eventIds.push(eventId); // null: the tenant already holds this file
           }
-          result.ingested += eventIds.length;
-          if (eventIds.length === 0) result.skipped += 1;
+          result.ingested += eventIds.length + popIds.length;
+          if (eventIds.length + popIds.length === 0) result.skipped += 1;
           await logScanEntry(conn, { imapUid: String(uid), sender: fromAddr,
             subject, attachmentCount: attachments.length,
-            outcome: eventIds.length > 0 ? 'ingested' : 'skipped_duplicate', captureEventIds: eventIds });
+            outcome: eventIds.length > 0 ? 'ingested' : popIds.length > 0 ? 'pop_filed' : 'skipped_duplicate', captureEventIds: eventIds });
         } catch (ingestErr) {
           if (guard.expired || isScanLockSkip(ingestErr)) throw ingestErr;
           const msg = ingestErr instanceof Error ? ingestErr.message : String(ingestErr);
