@@ -38,7 +38,10 @@ export async function boundedPoolRead<R extends pg.QueryResultRow>(
   try {
     await client.query('BEGIN READ ONLY'); // the helper can never commit a write, whatever text a caller passes
     await client.query(`SET LOCAL statement_timeout = ${BOUNDED_STATEMENT_MS}`);
-    const { rows } = await client.query<R>({ text, values, query_timeout: BOUNDED_STATEMENT_MS + 1000 });
+    // Typed without relying on src/types/pg-query-timeout.d.ts: the narrower CI type-check configs (ci-scripts,
+    // pack-fixtures) reach this file without that augmentation; node-postgres reads query_timeout either way.
+    const query: pg.QueryConfig & { query_timeout: number } = { text, values, query_timeout: BOUNDED_STATEMENT_MS + 1000 };
+    const { rows } = await client.query<R>(query);
     await client.query('COMMIT');
     return rows;
   } catch (err) {
