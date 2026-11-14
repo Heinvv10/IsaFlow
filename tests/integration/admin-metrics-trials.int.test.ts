@@ -1,11 +1,11 @@
 /**
  * Trial counts leave out deleted and internal companies (PR #1367 review M3):
  * the Trials stats, the billing overview's trial_count and the health
- * widget's "expiring in 7 days" all come from trialQueries.ts, which now
- * applies the metrics module's companyOutOfMetrics.
- *   L  live trial company, trial ends in 3 days          -> counted
- *   M  is_demo trial company, trial ends in 3 days       -> not counted
- *   N  live company, deleted, trial ends in 3 days       -> not counted (as before)
+ * widget's "expiring in 7 days" all come from trialQueries.ts, which marks a
+ * company `internal` by the metrics module's companyOutOfMetrics.
+ *   L  live trial company, trial ends in 3 days    -> listed, counted
+ *   M  is_demo trial company, trial ends in 3 days -> listed as internal, not counted
+ *   N  deleted company, trial ends in 3 days       -> neither listed nor counted
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import healthRoute from '../../pages/api/admin/health';
@@ -49,10 +49,11 @@ describe('trial counts exclude internal and deleted companies (M3)', () => {
     }).toEqual({ total: 1, active: 1, week: 1, overview: 1, expiring: 1 });
   });
 
-  it('the Trials table agrees with its cards: the demo company is not listed', async () => {
-    const listed = (await getAllTrials()).map((t) => t.id);
-    expect(listed).toContain(ids.L);
-    expect(listed).not.toContain(ids.M);
-    expect(listed).not.toContain(ids.N);
+  it('the Trials table lists the demo company as internal (so it can be managed) and never a deleted one', async () => {
+    const listed = await getAllTrials();
+    const row = (id: string) => listed.find((t) => t.id === id);
+    expect(row(ids.L)?.internal).toBe(false);
+    expect(row(ids.M)?.internal).toBe(true);
+    expect(row(ids.N)).toBeUndefined();
   });
 });

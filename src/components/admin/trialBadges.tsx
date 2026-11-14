@@ -15,6 +15,11 @@ export const STATE_BADGE: Record<TrialState, { label: string; style: string }> =
   converted: { label: 'Converted', style: 'bg-green-500/15 text-green-400' },
 };
 
+/** Beside an internal (demo) company's name: listed so it can be managed, left out of every count. */
+export function InternalBadge() {
+  return <span title="Internal company: not counted in the trial figures" className="ml-2 px-1.5 py-0.5 rounded text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300">Internal</span>;
+}
+
 /** A company that already pays is no longer on a trial: its trial is neither extended nor converted. */
 export function canExtendTrial(t: { trial_state: TrialState }): boolean {
   return t.trial_state !== 'converted';

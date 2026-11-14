@@ -7,7 +7,7 @@ import { AlertCircle, Loader2, Clock, CheckCircle, TrendingUp, XCircle } from 'l
 import Link from 'next/link';
 import { ConvertTrialModal } from '@/components/admin/ConvertTrialModal';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { canConvertTrial, canExtendTrial, daysLeftBadge, STATE_BADGE } from '@/components/admin/trialBadges';
+import { canConvertTrial, canExtendTrial, daysLeftBadge, InternalBadge, STATE_BADGE } from '@/components/admin/trialBadges';
 import type { TrialState } from '@/modules/admin/services/trialQueries';
 
 /* ------------------------------------------------------------------ types */
@@ -21,6 +21,7 @@ interface TrialCompany {
   status: string;
   trial_state: TrialState;
   days_left: number;
+  internal?: boolean;
 }
 
 interface TrialStats {
@@ -249,7 +250,7 @@ export default function AdminTrialsPage() {
                         <input type="checkbox" checked={selected.has(trial.id)} onChange={() => toggleOne(trial.id)} className="rounded" />
                       )}
                     </td>
-                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{trial.name}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{trial.name}{trial.internal && <InternalBadge />}</td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{trial.plan_name ?? '—'}</td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{trial.trial_started_at ? fmtDate(trial.trial_started_at) : '—'}</td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(trial.trial_ends_at)}</td>

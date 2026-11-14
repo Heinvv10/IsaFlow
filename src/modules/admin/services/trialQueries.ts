@@ -33,6 +33,8 @@ export interface TrialCompany {
   /** Whole days, rounded up: 12 hours left is 1; an expired trial is 0 or negative. */
   days_left: number;
   converted_at: string | null;
+  /** An internal company (is_demo or the Demo tenant): listed, never counted. */
+  internal: boolean;
 }
 
 export interface TrialStats {
@@ -72,10 +74,13 @@ export function classifyTrial(r: DbRow, now: Date): TrialCompany {
     trial_state: isPaid ? 'converted' : msLeft < 0 ? 'expired' : 'active',
     days_left: Math.ceil(msLeft / DAY_MS) || 0,
     converted_at: isPaid ? isoOrNull(r.converted_at) : null,
+    internal: r.internal === true,
   };
 }
 
-export function summariseTrials(trials: TrialCompany[], now: Date): TrialStats {
+export function summariseTrials(listed: TrialCompany[], now: Date): TrialStats {
+  // Every count leaves out internal companies (the admin metrics' population); the table still lists them.
+  const trials = listed.filter((t) => !t.internal);
   const count = (keep: (t: TrialCompany) => boolean) => trials.filter(keep).length;
   const active = (t: TrialCompany) => t.trial_state === 'active';
   const convertedRecently = count((t) => t.trial_state === 'converted' && t.converted_at !== null
@@ -91,10 +96,10 @@ export function summariseTrials(trials: TrialCompany[], now: Date): TrialStats {
 }
 
 /**
- * The single trials query: every company with a trial_ends_at, soonest end
- * first, except deleted and internal ones (the metrics module's
- * companyOutOfMetrics: deleted, is_demo, the Demo tenant), so the list and
- * every count agree with the admin site's other metrics.
+ * The single trials query: every non-deleted company with a trial_ends_at,
+ * soonest end first. `internal` (the metrics module's companyOutOfMetrics:
+ * is_demo or the Demo tenant) marks a company the table lists with a badge, so
+ * an admin can still see and extend it, but no count includes.
  */
 async function loadTrials(now: Date): Promise<TrialCompany[]> {
   const rows = await sql`
@@ -107,6 +112,7 @@ async function loadTrials(now: Date): Promise<TrialCompany[]> {
       COALESCE(uc.user_count, 0)    AS user_count,
       cs.plan_name,
       COALESCE(cs.is_paid, false)   AS is_paid,
+      ${companyOutOfMetrics()}      AS internal,
       CASE WHEN cs.is_paid THEN COALESCE(
         (SELECT MAX(a.created_at) FROM admin_audit_log a
           WHERE a.action = 'trial.convert_to_paid' AND a.target_type = 'company' AND a.target_id = c.id::text),
@@ -126,7 +132,7 @@ async function loadTrials(now: Date): Promise<TrialCompany[]> {
       SELECT company_id, COUNT(*) AS user_count FROM company_users GROUP BY company_id
     ) uc ON uc.company_id = c.id
     WHERE c.trial_ends_at IS NOT NULL
-      AND NOT ${companyOutOfMetrics()}
+      AND c.status IS DISTINCT FROM 'deleted'
     ORDER BY c.trial_ends_at ASC
   `;
   return (rows as DbRow[]).map((r) => classifyTrial(r, now));
