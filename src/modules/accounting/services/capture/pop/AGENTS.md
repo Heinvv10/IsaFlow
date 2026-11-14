@@ -47,6 +47,7 @@ POP inbox (Hein, 2026-11-14): ABSA "Notice of payment" mail reaching a mirrored 
 - The window counts as imported per CANDIDATE account: a line on an imported account can attach while another account of the company is behind. A second matching payment on the lagging account arriving later then makes nothing ambiguous retroactively (the first POP is already attached). Also an import that skips a day inside the window (out-of-order lines) can let a POP attach to the only line seen.
 - Overlapping ticks: the advisory lock serialises sweeps of one company and the locked re-check reads rivals again, but a POP filed by the mail scan after that re-check, while the attach commits, is not seen; it then finds the line taken and stays `not_found`.
 - The name test trusts ABSA's wording ("… ABSA BANK <beneficiary> …"). Two payees whose names agree up to ABSA's 20-character cut on the same amount and window are ambiguous, never auto-attached.
+- The sweeps write as app_user's grants (app_service inherits them), so a tenant's own session can mark its own POPs' decisions or archive records (e.g. `ambiguous`, archived): tenant-scoped by RLS, the composite FKs and 991's finality trigger. Tightening needs the S-07b policy sync (`app_service_wanted_policies`, 915) to mirror app_service-only grants: a separate, reviewed change.
 
 ## Not built yet
 - No reader for suggestions: `ambiguous` / `refused` rows and `too_large` / `failed` copies are only in the tables (no UI, no MCP tool, no report).
