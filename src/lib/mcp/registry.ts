@@ -18,6 +18,7 @@ import { insufficientFlowsText } from './flowRefusal';
 import { insufficientScopeMessage } from './scopeRemediation';
 import { thrownToolErrorText } from './thrownToolErrorText';
 import { toolAnnotationsFor } from './toolAnnotations';
+import { oversizedReadRefusal } from './resultSize';
 
 /**
  * The SAVEPOINT name a write tool runs under.
@@ -173,7 +174,9 @@ export class McpRegistry {
     // idempotent replay). Reads never replay, so persisting their payload
     // would be a second at-rest copy of financial data with no use.
     const runAndAudit = async (): Promise<McpToolResult> => {
-      const result = await tool.handler(args, ctx);
+      const handled = await tool.handler(args, ctx);
+      // A read too big for a client is refused here, before the audit row, so it is audited as rejected (and refunded).
+      const result = oversizedReadRefusal(tool, handled) ?? handled;
       // A handler REFUSAL is audited as 'rejected' with a NULL key, never as a
       // replayable 'ok'. Same reasoning as the insufficient-Flows and
       // handler-throw paths below: the partial unique index is

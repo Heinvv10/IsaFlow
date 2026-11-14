@@ -47,6 +47,8 @@ export const listPayrollComponentsTool: McpTool = {
         is_sdl_applicable: c.isSdlApplicable,
         // A retirement contribution the employee pays the fund directly: off PAYE, not off pay (PAYE 4c).
         paid_outside_payroll: c.paidOutsidePayroll === true,
+        // RF: part of retirement-funding income, the base a percent_of_rfi assignment is costed on.
+        counts_as_rfi: c.countsAsRfi === true,
       })),
     });
   },
@@ -89,6 +91,8 @@ export const listEmployeeComponentsTool: McpTool = {
         assignment_id: a.id,
         component_id: a.componentId,
         amount: a.amount,
+        // RF: a share of retirement-funding income costed by each run (amount is then 0); null for a plain amount.
+        percent_of_rfi: a.percentOfRfi,
         effective_from: a.effectiveFrom,
         effective_to: a.effectiveTo,
         is_recurring: a.isRecurring,

@@ -16,9 +16,9 @@ vi.mock('@/lib/neon', async (importOriginal) => {
   // mapper delegates to it rather than to a UTC-rendering local copy.
   const actual = await importOriginal<typeof import('@/lib/neon')>();
   const sqlMock = Object.assign(
-    vi.fn((_strings: TemplateStringsArray, ...values: unknown[]) => {
-      // Return a tagged-template-compatible fragment for TX_SELECT interpolation
-      return { _isSqlFragment: true, values };
+    vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+      // The shared WHERE (bankTxScopeWhere) is built through sql`` too, and spliced into the rows and count queries.
+      return { _isSqlFragment: true, strings: [...strings], values };
     }),
     {
       unsafe: vi.fn((s: string) => s),
@@ -95,13 +95,48 @@ function makeTxRow(overrides: Record<string, unknown> = {}) {
 //
 // We detect this by inspecting the flattened values of all sql() calls.
 
-function flatSqlValues(sqlMock: ReturnType<typeof vi.fn>): unknown[] {
-  return sqlMock.mock.calls.flatMap((callArgs: unknown[]) => {
-    // Tagged template: callArgs = [TemplateStringsArray, ...values]
-    // Nested fragments: callArgs[0] might be a sql fragment object from TX_SELECT
-    const [, ...values] = callArgs;
-    return values.flat();
+interface Frag { _isSqlFragment: true; strings: readonly string[]; values: unknown[] }
+const isFrag = (v: unknown): v is Frag => typeof v === 'object' && v !== null && (v as Frag)._isSqlFragment === true;
+
+/** Splice nested fragments the way buildQuery does; a string value is an inlined sql.unsafe text (the mock returns it as is). */
+function expand(strings: readonly string[], values: readonly unknown[]): { text: string; values: unknown[] } {
+  let text = '';
+  const out: unknown[] = [];
+  strings.forEach((str, i) => {
+    text += str;
+    if (i >= values.length) return;
+    const v = values[i];
+    if (isFrag(v)) {
+      const inner = expand(v.strings, v.values);
+      text += inner.text;
+      out.push(...inner.values);
+    } else {
+      text += typeof v === 'string' ? v : '?';
+      out.push(v);
+    }
   });
+  return { text, values: out };
+}
+
+/** The rows query, then the count query: every call that is not a fragment. */
+function topLevelCalls(): Array<{ text: string; values: unknown[] }> {
+  return vi.mocked(sql).mock.calls
+    .map((c) => expand((c as unknown as [TemplateStringsArray, ...unknown[]])[0], (c as unknown[]).slice(1)))
+    .filter((q) => q.text.includes('ORDER BY') || q.text.includes('COUNT(*)'));
+}
+
+/** Rows query -> `rows`; the count query -> `cnt`; the shared WHERE fragment -> itself. */
+function answerQueries(rows: unknown[], cnt: string): void {
+  vi.mocked(sql).mockImplementation(((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.join('$');
+    if (text.includes('COUNT(*)')) return Promise.resolve([{ cnt }]);
+    if (text.includes('ORDER BY')) return Promise.resolve(rows);
+    return { _isSqlFragment: true, strings: [...strings], values };
+  }) as never);
+}
+
+function flatSqlValues(_sqlMock: ReturnType<typeof vi.fn>): unknown[] {
+  return topLevelCalls().flatMap((q) => q.values.flat());
 }
 
 describe('getBankTransactions — BL-17: status filter without bankAccountId', () => {
@@ -114,9 +149,7 @@ describe('getBankTransactions — BL-17: status filter without bankAccountId', (
       makeTxRow({ id: 'tx-002', status: 'imported' }),
       makeTxRow({ id: 'tx-003', status: 'imported' }),
     ];
-    vi.mocked(sql)
-      .mockResolvedValueOnce(importedRows as never)
-      .mockResolvedValueOnce([{ cnt: '3' }] as never);
+    answerQueries(importedRows, '3');
 
     // Act
     const result = await getBankTransactions(COMPANY_ID, { status: 'imported' });
@@ -138,9 +171,7 @@ describe('getBankTransactions — BL-17: status filter without bankAccountId', (
       makeTxRow({ id: 'tx-020', status: 'matched' }),
       makeTxRow({ id: 'tx-021', status: 'matched' }),
     ];
-    vi.mocked(sql)
-      .mockResolvedValueOnce(matchedRows as never)
-      .mockResolvedValueOnce([{ cnt: '2' }] as never);
+    answerQueries(matchedRows, '2');
 
     await getBankTransactions(COMPANY_ID, { status: 'matched' });
 
@@ -154,9 +185,7 @@ describe('getBankTransactions — BL-17: status filter without bankAccountId', (
       makeTxRow({ id: 'tx-031', status: 'matched' }),
       makeTxRow({ id: 'tx-032', status: 'excluded' }),
     ];
-    vi.mocked(sql)
-      .mockResolvedValueOnce(mixedRows as never)
-      .mockResolvedValueOnce([{ cnt: '3' }] as never);
+    answerQueries(mixedRows, '3');
 
     const result = await getBankTransactions(COMPANY_ID);
 
@@ -176,9 +205,7 @@ describe('getBankTransactions — search filter without bankAccountId', () => {
 
   it('passes the ILIKE search pattern to the SQL query when only search is provided', async () => {
     const rows = [makeTxRow({ id: 'tx-s-001', description: 'Coffee shop' })];
-    vi.mocked(sql)
-      .mockResolvedValueOnce(rows as never)
-      .mockResolvedValueOnce([{ cnt: '1' }] as never);
+    answerQueries(rows, '1');
 
     const result = await getBankTransactions(COMPANY_ID, { search: 'coffee' });
 
@@ -186,16 +213,14 @@ describe('getBankTransactions — search filter without bankAccountId', () => {
     expect(result.total).toBe(1);
 
     // The wrapped pattern must appear in the data query AND the count query.
-    const dataValues = vi.mocked(sql).mock.calls[0]!.slice(1).flat();
-    const countValues = vi.mocked(sql).mock.calls[1]!.slice(1).flat();
+    const dataValues = valuesOf(0);
+    const countValues = valuesOf(1);
     expect(dataValues).toContain('%coffee%');
     expect(countValues).toContain('%coffee%');
   });
 
   it('passes a NULL pattern when no search is provided (condition collapses to TRUE, keeping NULL-description rows)', async () => {
-    vi.mocked(sql)
-      .mockResolvedValueOnce([makeTxRow()] as never)
-      .mockResolvedValueOnce([{ cnt: '1' }] as never);
+    answerQueries([makeTxRow()], '1');
 
     await getBankTransactions(COMPANY_ID);
 
@@ -221,9 +246,7 @@ describe('getBankTransactions — bankAccountId + status branch (backwards compa
       makeTxRow({ id: 'tx-100', status: 'imported' }),
       makeTxRow({ id: 'tx-101', status: 'allocated' }),
     ];
-    vi.mocked(sql)
-      .mockResolvedValueOnce(importedRows as never)
-      .mockResolvedValueOnce([{ cnt: '2' }] as never);
+    answerQueries(importedRows, '2');
 
     const result = await getBankTransactions(COMPANY_ID, {
       bankAccountId: ACCOUNT_ID,
@@ -243,9 +266,7 @@ describe('getBankTransactions — bankAccountId + status branch (backwards compa
       makeTxRow({ id: 'tx-200', status: 'imported' }),
       makeTxRow({ id: 'tx-201', status: 'matched' }),
     ];
-    vi.mocked(sql)
-      .mockResolvedValueOnce(rows as never)
-      .mockResolvedValueOnce([{ cnt: '2' }] as never);
+    answerQueries(rows, '2');
 
     const result = await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID });
 
@@ -265,9 +286,7 @@ describe('getBankTransactions — BL-11: limit cap at 100', () => {
     const rows = Array.from({ length: 100 }, (_, i) =>
       makeTxRow({ id: `tx-cap-${String(i).padStart(3, '0')}`, status: 'imported' })
     );
-    vi.mocked(sql)
-      .mockResolvedValueOnce(rows as never)
-      .mockResolvedValueOnce([{ cnt: '150' }] as never);
+    answerQueries(rows, '150');
 
     const result = await getBankTransactions(COMPANY_ID, { limit: 500 });
 
@@ -285,9 +304,7 @@ describe('getBankTransactions — BL-11: limit cap at 100', () => {
     const rows = Array.from({ length: 100 }, (_, i) =>
       makeTxRow({ id: `tx-cap200-${String(i).padStart(3, '0')}` })
     );
-    vi.mocked(sql)
-      .mockResolvedValueOnce(rows as never)
-      .mockResolvedValueOnce([{ cnt: '200' }] as never);
+    answerQueries(rows, '200');
 
     await getBankTransactions(COMPANY_ID, { limit: 200 });
 
@@ -300,9 +317,7 @@ describe('getBankTransactions — BL-11: limit cap at 100', () => {
     const rows = Array.from({ length: 50 }, (_, i) =>
       makeTxRow({ id: `tx-50-${String(i).padStart(3, '0')}` })
     );
-    vi.mocked(sql)
-      .mockResolvedValueOnce(rows as never)
-      .mockResolvedValueOnce([{ cnt: '50' }] as never);
+    answerQueries(rows, '50');
 
     await getBankTransactions(COMPANY_ID, { limit: 50 });
 
@@ -322,9 +337,7 @@ describe('getBankTransactions — IDOR: company_id present in bankAccountId bran
 
   it('passes companyId to sql when bankAccountId + status are provided', async () => {
     const rows = [makeTxRow({ id: 'tx-idor-001', status: 'imported' })];
-    vi.mocked(sql)
-      .mockResolvedValueOnce(rows as never)
-      .mockResolvedValueOnce([{ cnt: '1' }] as never);
+    answerQueries(rows, '1');
 
     await getBankTransactions(COMPANY_ID, {
       bankAccountId: ACCOUNT_ID,
@@ -340,9 +353,7 @@ describe('getBankTransactions — IDOR: company_id present in bankAccountId bran
 
   it('passes companyId to sql when only bankAccountId is provided', async () => {
     const rows = [makeTxRow({ id: 'tx-idor-002' })];
-    vi.mocked(sql)
-      .mockResolvedValueOnce(rows as never)
-      .mockResolvedValueOnce([{ cnt: '1' }] as never);
+    answerQueries(rows, '1');
 
     await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID });
 
@@ -387,9 +398,7 @@ describe('getBankTransactions — BL-11: mapTxRow column projection regression g
       allocation_type: 'supplier',
       allocated_entity_name: 'ACME Ltd',
     });
-    vi.mocked(sql)
-      .mockResolvedValueOnce([row] as never)
-      .mockResolvedValueOnce([{ cnt: '1' }] as never);
+    answerQueries([row], '1');
 
     const result = await getBankTransactions(COMPANY_ID);
     expect(result.transactions).toHaveLength(1);
@@ -447,28 +456,27 @@ describe('getBankTransactions — BL-11: mapTxRow column projection regression g
 const ALLOC_NULL = 'bt.matched_journal_line_id IS NULL';
 const ALLOC_NOT_NULL = 'bt.matched_journal_line_id IS NOT NULL';
 
-/** Reconstruct the SQL text of the Nth sql`` call, with unsafe fragments inlined. */
+/** The SQL text of the Nth top-level query (0 = rows, 1 = count), the shared WHERE and unsafe fragments inlined. */
 function sqlTextOf(callIdx: number): string {
-  const call = vi.mocked(sql).mock.calls[callIdx];
-  if (!call) throw new Error(`no sql call #${callIdx}`);
-  const [strings, ...values] = call as unknown as [TemplateStringsArray, ...unknown[]];
-  return strings.map((str, i) => str + (i < values.length ? (typeof values[i] === 'string' ? values[i] : '?') : '')).join('');
+  const q = topLevelCalls()[callIdx];
+  if (!q) throw new Error(`no sql call #${callIdx}`);
+  return q.text;
 }
 function valuesOf(callIdx: number): unknown[] {
-  const call = vi.mocked(sql).mock.calls[callIdx];
-  if (!call) throw new Error(`no sql call #${callIdx}`);
-  return (call as unknown[]).slice(1);
+  const q = topLevelCalls()[callIdx];
+  if (!q) throw new Error(`no sql call #${callIdx}`);
+  return q.values;
 }
 
 describe('getBankTransactions — #256: allocationFilter applied in every branch', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ cnt: '0' }] as never);
+    answerQueries([], '0');
   });
 
   it('applies unallocated predicate to rows AND count with bankAccountId only (MCP path)', async () => {
     await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID, allocationFilter: 'unallocated' });
-    expect(vi.mocked(sql).mock.calls).toHaveLength(2);
+    expect(topLevelCalls()).toHaveLength(2);
     for (const i of [0, 1]) {
       expect(sqlTextOf(i)).toContain(ALLOC_NULL);
       expect(sqlTextOf(i)).not.toContain(ALLOC_NOT_NULL);
@@ -501,7 +509,7 @@ describe('getBankTransactions — #256: allocationFilter applied in every branch
 describe('getBankTransactions — PRD-11: allocation is a posted journal line, not a suggestion', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ cnt: '0' }] as never);
+    answerQueries([], '0');
   });
 
   it('"allocated" never keys on suggested_* columns', async () => {
@@ -566,7 +574,7 @@ const BRANCHES: Array<[string, Filters]> = [
 describe('getBankTransactions — PRD-11: total ordering', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ cnt: '0' }] as never);
+    answerQueries([], '0');
   });
 
   for (const [label, filters] of BRANCHES) {
@@ -585,7 +593,7 @@ describe('getBankTransactions — PRD-11: total ordering', () => {
 describe('getBankTransactions — PRD-11: cursor applied in every branch', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ cnt: '0' }] as never);
+    answerQueries([], '0');
   });
 
   for (const [label, filters] of BRANCHES) {
@@ -629,9 +637,7 @@ describe('getBankTransactions — PRD-11: nextCursor', () => {
     const rows = Array.from({ length: 4 }, (_, i) =>
       makeTxRow({ id: pageId(i), transaction_date: `2026-02-0${i + 1}`, amount: -100 - i })
     );
-    vi.mocked(sql)
-      .mockResolvedValueOnce(rows as never)
-      .mockResolvedValueOnce([{ cnt: '9' }] as never);
+    answerQueries(rows, '9');
 
     const result = await getBankTransactions(COMPANY_ID, { limit: 3 });
 
@@ -646,9 +652,7 @@ describe('getBankTransactions — PRD-11: nextCursor', () => {
 
   it('returns no nextCursor on the final page', async () => {
     const rows = Array.from({ length: 2 }, (_, i) => makeTxRow({ id: `tx-last-${i}` }));
-    vi.mocked(sql)
-      .mockResolvedValueOnce(rows as never)
-      .mockResolvedValueOnce([{ cnt: '2' }] as never);
+    answerQueries(rows, '2');
 
     const result = await getBankTransactions(COMPANY_ID, { limit: 3 });
 
@@ -686,12 +690,12 @@ describe('getBankTransactions — PRD-11: cursor excludes offset', () => {
   });
 
   it('allows a cursor with offset 0 — that is the UI default, not a paging request', async () => {
-    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ cnt: '0' }] as never);
+    answerQueries([], '0');
     await expect(getBankTransactions(COMPANY_ID, { cursor: CURSOR, offset: 0 })).resolves.toBeDefined();
   });
 
   it('leaves offset paging alone when no cursor is given', async () => {
-    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ cnt: '0' }] as never);
+    answerQueries([], '0');
     await getBankTransactions(COMPANY_ID, { offset: 50 });
     expect(valuesOf(0)).toContain(50);
   });
@@ -701,9 +705,7 @@ describe('getBankTransactions — PRD-11: total ignores the cursor on the asc br
   beforeEach(() => vi.clearAllMocks());
 
   it('returns the full match count while the rows are keyset-narrowed (sortOrder=asc)', async () => {
-    vi.mocked(sql)
-      .mockResolvedValueOnce([makeTxRow({ id: 'tx-asc-1' })] as never)
-      .mockResolvedValueOnce([{ cnt: '317' }] as never);
+    answerQueries([makeTxRow({ id: 'tx-asc-1' })], '317');
 
     const result = await getBankTransactions(COMPANY_ID, {
       bankAccountId: ACCOUNT_ID, status: 'imported', sortOrder: 'asc', cursor: CURSOR,
@@ -745,9 +747,7 @@ describe('mapTxRow — SAST date rendering (no UTC rollback)', () => {
       transaction_date: new Date('2026-02-28T22:30:00Z'),
       value_date: new Date('2026-02-28T22:30:00Z'),
     });
-    vi.mocked(sql)
-      .mockResolvedValueOnce([row] as never)
-      .mockResolvedValueOnce([{ cnt: '1' }] as never);
+    answerQueries([row], '1');
 
     const result = await getBankTransactions(COMPANY_ID, {});
 
@@ -756,9 +756,7 @@ describe('mapTxRow — SAST date rendering (no UTC rollback)', () => {
   });
 
   it('leaves a plain YYYY-MM-DD string untouched', async () => {
-    vi.mocked(sql)
-      .mockResolvedValueOnce([makeTxRow({ transaction_date: '2026-03-01' })] as never)
-      .mockResolvedValueOnce([{ cnt: '1' }] as never);
+    answerQueries([makeTxRow({ transaction_date: '2026-03-01' })], '1');
 
     const result = await getBankTransactions(COMPANY_ID, {});
     expect(result.transactions[0]!.transactionDate).toBe('2026-03-01');
@@ -771,9 +769,7 @@ describe('mapTxRow — SAST date rendering (no UTC rollback)', () => {
         transaction_date: new Date('2026-02-28T22:30:00Z'),
       })
     );
-    vi.mocked(sql)
-      .mockResolvedValueOnce(rows as never)
-      .mockResolvedValueOnce([{ cnt: '5' }] as never);
+    answerQueries(rows, '5');
 
     const result = await getBankTransactions(COMPANY_ID, { limit: 1 });
     expect(decodeBankTxCursor(result.nextCursor!).d).toBe('2026-03-01');
