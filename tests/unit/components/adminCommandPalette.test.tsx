@@ -171,8 +171,11 @@ describe('AdminCommandPalette: stale replies and the live region', () => {
     pendingServe();
     render(<AdminCommandPalette isOpen onClose={() => undefined} />);
     await type('acme');
-    await type('acme ');
+    // Before the newer run starts (it would clear any error): the abort alone must not raise one.
+    fireEvent.change(box(), { target: { value: 'acme ' } });
     await settle();
+    expect(screen.queryByRole('alert')).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(400); });
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
