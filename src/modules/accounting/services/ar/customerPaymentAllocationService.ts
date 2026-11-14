@@ -192,8 +192,11 @@ async function cancelCustomerPaymentInner(
     const delegated = !!leg && await voidViaBankAllocation(companyId, leg, userId, label, journalId);
     // Not below zero (2026-11-14, `ar/customerVoidCredit`): a refund may already have returned this receipt's unapplied
     // cash. Receipt held, then its invoices, then the customer (tried) — before any write; the bank path asks it itself.
+    // The invoices by a plain FOR UPDATE, not `lockReceiptInvoices` (its own 5 s): the cancel's ONE flow budget governs.
     if (!delegated) {
-      await lockReceiptInvoices(companyId, payment.allocations.map((a) => a.invoiceId));
+      await sql`SELECT ci.id FROM customer_invoices ci
+        WHERE ci.company_id = ${companyId}::UUID AND ci.id = ANY(${payment.allocations.map((a) => a.invoiceId)}::UUID[])
+        ORDER BY ci.id FOR UPDATE OF ci`;
       await assertReceiptVoidKeepsCredit(companyId, [id]);
     }
     // Step 2: a statement line MATCHED to this journal (a refund out is gated; a receipt is money in) — before any write.
