@@ -734,6 +734,8 @@ describe('write-tool manifest invariants', () => {
       cancel_supplier_invoice: { ...KEY },
       // Refuses on the missing invoice_id before reading anything; behaviour in cancelCustomerInvoiceTool.test.ts.
       cancel_customer_invoice: { ...KEY },
+      // Refuses on the missing credit_note_id before reading anything; behaviour in deleteDraftCreditNoteTool.test.ts.
+      delete_draft_credit_note: { ...KEY },
       // Each refuses on its missing required argument before reading anything; behaviour in
       // recurringJournalTools.test.ts and mcp-recurring-journals.int.test.ts.
       create_recurring_journal: { ...KEY },

@@ -167,6 +167,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'apply_credit_note',
   'cancel_supplier_invoice',
   'cancel_customer_invoice',
+  'delete_draft_credit_note',
   'create_recurring_journal',
   'run_recurring_journals',
   'deactivate_recurring_journal',
