@@ -33,7 +33,6 @@ import PlansPage from '../../../pages/admin/billing/plans';
 import HealthPage from '../../../pages/admin/health';
 import BillingPage from '../../../pages/admin/billing/index';
 import UserDetailPage from '../../../pages/admin/users/[id]';
-import SettingsPage from '../../../pages/admin/settings';
 
 configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();

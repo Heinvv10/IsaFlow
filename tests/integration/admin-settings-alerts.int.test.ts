@@ -82,6 +82,35 @@ describe('admin alert settings', () => {
     expect(got.body.data).toEqual({ health_alert_email: '', health_alert_webhook_url: '' });
   }, 30000);
 
+  it('audits each key as set / cleared / unchanged, never the value', async () => {
+    await call(alertRoute as Route, 'PATCH', { health_alert_email: 'a@example.co.za', health_alert_webhook_url: '' });
+    await pool.query('DELETE FROM admin_audit_log WHERE admin_user_id = $1', [admin]);
+    const r = await call(alertRoute as Route, 'PATCH', { health_alert_email: '', health_alert_webhook_url: '' });
+    expect(r.status).toBe(200);
+    const rows = (await pool.query(`SELECT details FROM admin_audit_log WHERE admin_user_id = $1 AND action = 'update_alert_settings'`, [admin])).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].details).toEqual({ changes: { health_alert_email: 'cleared', health_alert_webhook_url: 'unchanged' } });
+    await call(alertRoute as Route, 'PATCH', { health_alert_email: 'secret@example.co.za' });
+    const last = (await pool.query(`SELECT details FROM admin_audit_log WHERE admin_user_id = $1 ORDER BY created_at DESC LIMIT 1`, [admin])).rows[0];
+    expect(last.details).toEqual({ changes: { health_alert_email: 'set' } });
+    expect(JSON.stringify(last.details)).not.toContain('secret@');
+  }, 30000);
+
+  it('an invalid value names the field problem, not a generic "Invalid input"', async () => {
+    const r = await call(alertRoute as Route, 'PATCH', { health_alert_email: 'not-an-email' });
+    expect(r.status).toBe(400);
+    expect(r.body.error?.message).toMatch(/email/i);
+    expect(r.body.error?.message).not.toBe('Invalid input');
+  }, 30000);
+
+  it.each(['javascript:alert(1)', 'ftp://hooks.example.com/x', 'http://hooks.example.com/x'])('webhook %s is refused (https only)', async (url) => {
+    await pool.query(`DELETE FROM admin_settings WHERE key = 'health_alert_webhook_url'`);
+    const r = await call(alertRoute as Route, 'PATCH', { health_alert_webhook_url: url });
+    expect(r.status).toBe(400);
+    expect(r.body.error?.message).toMatch(/https/i);
+    expect(await stored('health_alert_webhook_url')).toBeUndefined();
+  }, 30000);
+
   it('an invalid non-blank email is still rejected and the stored value is untouched', async () => {
     await call(alertRoute as Route, 'PATCH', { health_alert_email: 'keep@example.co.za' });
     const r = await call(alertRoute as Route, 'PATCH', { health_alert_email: 'not-an-email' });
