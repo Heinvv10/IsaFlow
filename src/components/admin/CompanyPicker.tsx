@@ -78,7 +78,7 @@ export function CompanyPicker({ value, onChange }: Props) {
       asked.current.add(id);
       void (async () => {
         try {
-          const res = await apiFetch(`/api/admin/companies/${encodeURIComponent(id)}`);
+          const res = await adminFetch(`/api/admin/companies/${encodeURIComponent(id)}`);
           await assertOk(res, 'Could not load a target company');
           const json = await res.json() as { data?: { id?: string; name?: string; status?: string } };
           put({ id, name: json.data?.name ?? id, status: json.data?.status ?? '' });
