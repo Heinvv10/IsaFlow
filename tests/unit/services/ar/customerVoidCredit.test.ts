@@ -73,6 +73,12 @@ describe('assertReceiptVoidKeepsCredit / assertReceiptApplicationKeepsCredit', (
     await expect(assertReceiptApplicationKeepsCredit('co', 'r1', 200)).rejects.toThrow(/^Applying R\s?200\.00 of this receipt .* apply only what is still on account\.$/);
     expect(vi.mocked(customerCreditDays).mock.calls[0]![2]).toEqual([{ paymentId: 'r1', amount: 200 }]);
   });
+  it('an application removes only the amount applied, not the receipt\'s whole remainder', async () => {
+    sqlMock.mockResolvedValueOnce(rows(['r1', 'c', 200]));
+    vi.mocked(customerCreditDays).mockResolvedValueOnce({ customerName: 'Acme', days: [day('2026-05-02', 200, 50), day('2026-05-04', -150)] });
+    await expect(assertReceiptApplicationKeepsCredit('co', 'r1', 50)).resolves.toBeUndefined();
+    expect(vi.mocked(customerCreditDays).mock.calls[0]![2]).toEqual([{ paymentId: 'r1', amount: 50 }]);
+  });
   it('a fully applied receipt lowers nothing: no lock, no figures, no refusal', async () => {
     sqlMock.mockResolvedValueOnce(rows(['r1', 'c', 0]));
     await expect(assertReceiptVoidKeepsCredit('co', ['r1'])).resolves.toBeUndefined();
