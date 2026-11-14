@@ -190,6 +190,28 @@ describe('3.3: the last active super admin', () => {
     expect(row!.details).toMatchObject({ target_super_admin: true });
   });
 
+  it('Codex: the last super admin edited with its role sent unchanged (the form sends it) is a 200, not a refusal', async () => {
+    await pool.query(`UPDATE users SET role = 'admin' WHERE id = $1`, [B]);
+    const r = await call(userRoute as Route, A, 'PATCH', A, '', { role: 'super_admin', first_name: 'Renamed' });
+    expect(r.status).toBe(200);
+    const [row] = (await pool.query('SELECT role, first_name FROM users WHERE id = $1', [A])).rows;
+    expect(row).toEqual({ role: 'super_admin', first_name: 'Renamed' });
+    const [audit] = await audits('user.update');
+    expect(audit!.details).not.toHaveProperty('previous_role'); // no role change recorded
+    // A real demotion of the same last super admin is still refused.
+    expect((await demote(A, A)).status).toBe(409);
+  });
+
+  it('role super_admin is never a promotion: 400 for a user who is not one, nothing written', async () => {
+    const r = await call(userRoute as Route, A, 'PATCH', B, '', { role: 'admin' });
+    expect(r.status).toBe(200); // B demoted while A remains
+    const promote = await call(userRoute as Route, A, 'PATCH', B, '', { role: 'super_admin', first_name: 'Nope' });
+    expect(promote.status).toBe(400);
+    const [row] = (await pool.query('SELECT role, first_name FROM users WHERE id = $1', [B])).rows;
+    expect(row.role).toBe('admin');
+    expect(row.first_name).not.toBe('Nope');
+  });
+
   it('suspending a user who does not exist is a 404 and writes nothing', async () => {
     const ghost = crypto.randomUUID();
     const r = await suspend(A, ghost);
