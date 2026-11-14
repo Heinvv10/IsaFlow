@@ -173,17 +173,20 @@ export async function markJobFailed(jobId: string, error: string): Promise<void>
 
 // ─── Retry a failed job ───────────────────────────────────────────────────────
 
-export async function retryJob(jobId: string): Promise<void> {
+/** Puts a failed job back to pending. False when no failed job has that id (nothing changed). */
+export async function retryJob(jobId: string): Promise<boolean> {
   try {
-    await sql`
+    const rows = await sql`
       UPDATE background_jobs
       SET status = 'pending',
           error_message = NULL,
           started_at = NULL,
           scheduled_at = NOW()
       WHERE id = ${jobId}::UUID AND status = 'failed'
+      RETURNING id
     `;
-    log.info('Job retried', { jobId }, 'job-queue-service');
+    log.info('Job retried', { jobId, matched: rows.length > 0 }, 'job-queue-service');
+    return rows.length > 0;
   } catch (err) {
     log.error('retryJob failed', { jobId, error: err }, 'job-queue-service');
     throw err;

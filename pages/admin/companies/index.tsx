@@ -6,6 +6,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { BulkActionsBar } from '@/components/admin/companies/BulkActionsBar';
+import { companiesSelectionCsv } from '@/components/admin/companies/companiesSelectionCsv';
+import { adminExportHref } from '@/components/admin/adminExportHref';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
@@ -244,17 +246,7 @@ export default function AdminCompaniesPage() {
   }
 
   function handleExportCsv() {
-    const selected = rows.filter(r => selectedIds.has(r.id));
-    const header   = ['Name', 'Plan', 'Status', 'Users', 'MRR (ZAR)', 'Created'].join(',');
-    const csvRows  = selected.map(r => [
-      `"${r.name.replace(/"/g, '""')}"`,
-      `"${(r.plan_name ?? '').replace(/"/g, '""')}"`,
-      r.status,
-      String(r.user_count),
-      (r.mrr_cents / 100).toFixed(2),
-      r.created_at.slice(0, 10),
-    ].join(','));
-    const blob = new Blob([[header, ...csvRows].join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([companiesSelectionCsv(rows.filter(r => selectedIds.has(r.id)))], { type: 'text/csv;charset=utf-8;' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
@@ -293,7 +285,7 @@ export default function AdminCompaniesPage() {
         </select>
         <span className="text-sm text-gray-500 dark:text-gray-400 self-center">{total} total</span>
         <a
-          href={`/api/admin/companies/export${status ? `?status=${encodeURIComponent(status)}` : ''}`}
+          href={adminExportHref('/api/admin/companies/export', { search, status, sort_by: sortBy, sort_dir: sortDir })}
           download
           className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
         >

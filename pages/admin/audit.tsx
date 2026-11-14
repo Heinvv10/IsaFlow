@@ -10,6 +10,8 @@ import { AlertCircle, Loader2, ChevronLeft, ChevronRight, ScrollText, Download }
 import { localISODate } from '@/lib/dateUtils';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
 import { DateField } from '@/components/ui/DateField';
+import { ADMIN_EXPORT_MAX_ROWS, adminExportHref } from '@/components/admin/adminExportHref';
+import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '@/components/admin/auditFilterOptions';
 
 interface UnifiedAuditEntry {
   id: string;
@@ -102,30 +104,6 @@ function DetailsCell({ value }: { value: UnifiedAuditEntry['details'] }) {
   );
 }
 
-function exportCsv(rows: UnifiedAuditEntry[]) {
-  const header = ['Date','Source','User','Email','Company','Action','Entity Type','Entity Ref','IP','Details'];
-  const escape = (v: unknown) => `"${String(v ?? '').replaceAll('"', '""')}"`;
-  const lines = rows.map(r => [
-    r.created_at,
-    r.source,
-    r.user_name ?? '',
-    r.user_email ?? '',
-    r.company_name ?? '',
-    r.action,
-    r.entity_type ?? '',
-    r.entity_ref ?? '',
-    r.ip_address ?? '',
-    typeof r.details === 'string' ? r.details : JSON.stringify(r.details ?? ''),
-  ].map(escape).join(','));
-  const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = `audit-${localISODate()}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
 const inputCls = 'px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500';
 
 export default function AdminAuditPage() {
@@ -188,6 +166,9 @@ export default function AdminAuditPage() {
   }
 
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
+  const overCap = total > ADMIN_EXPORT_MAX_ROWS;
+  // Not while loading: until the reload lands, `total` belongs to the previous filters.
+  const canExport = !loading && total > 0 && !overCap;
 
   return (
     <AdminLayout title="Audit Trail">
@@ -220,8 +201,7 @@ export default function AdminAuditPage() {
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Action</label>
           <select value={action} onChange={e => setAction(e.target.value)} className={inputCls}>
             <option value="">All Actions</option>
-            {['create','update','delete','post','reverse','approve','reject','login','export',
-              'suspend','activate','reset_password','logout'].map(a => (
+            {AUDIT_ACTIONS.map(a => (
               <option key={a} value={a}>{a.replaceAll('_', ' ')}</option>
             ))}
           </select>
@@ -230,10 +210,7 @@ export default function AdminAuditPage() {
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Entity Type</label>
           <select value={entityType} onChange={e => setEntityType(e.target.value)} className={inputCls}>
             <option value="">All Types</option>
-            {['journal_entry','customer_invoice','supplier_invoice','customer','supplier',
-              'bank_transaction','payment','credit_note','quote','purchase_order',
-              'plan','subscription','announcement','feature_flag','settings','session',
-              'company','user'].map(t => (
+            {AUDIT_ENTITY_TYPES.map(t => (
               <option key={t} value={t}>{t.replaceAll('_', ' ')}</option>
             ))}
           </select>
@@ -253,14 +230,23 @@ export default function AdminAuditPage() {
           />
         </div>
         <div className="flex items-end gap-3 ml-auto">
-          <span className="text-sm text-gray-500 dark:text-gray-400 pb-2">{total.toLocaleString()} entries</span>
-          <button
-            onClick={() => exportCsv(rows)}
-            disabled={rows.length === 0}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          <span id="audit-export-hint" className="text-sm text-gray-500 dark:text-gray-400 pb-2">
+            {total.toLocaleString()} entries
+            {overCap && ` - narrow the dates to export (at most ${ADMIN_EXPORT_MAX_ROWS.toLocaleString()})`}
+          </span>
+          {/* Every matching entry, from the server (not the page of rows on screen). No href when there is
+              nothing to export or more than the server will build: the server's 400 cannot show on a download. */}
+          <a
+            href={canExport ? adminExportHref('/api/admin/audit/export', {
+              from_date: dateFrom, to_date: dateTo, source, company_id: companyId, action, entity_type: entityType, search,
+            }) : undefined}
+            download
+            aria-disabled={!canExport}
+            aria-describedby={overCap ? 'audit-export-hint' : undefined}
+            className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors${canExport ? '' : ' opacity-40 pointer-events-none'}`}
           >
             <Download className="w-3.5 h-3.5" /> Export CSV
-          </button>
+          </a>
         </div>
       </div>
 

@@ -38,13 +38,29 @@ export interface UnifiedAuditFilters {
   limit?: number;
 }
 
+/**
+ * The first instant of a SAST calendar day (plus `addDays`), as SQL. The From/To
+ * filters are whole days in South African time: From includes its day from 00:00
+ * SAST, To includes its day up to 24:00 SAST (`created_at < start of the next day`).
+ * Casting the date straight to timestamptz used the session's zone (UTC) and made
+ * To mean "midnight at the start of that day", hiding the whole day (audit 4.12).
+ */
+function sastDayStart(day: string, addDays = 0) {
+  return sql`((${day}::date + ${addDays}::int)::timestamp AT TIME ZONE 'Africa/Johannesburg')`;
+}
+
 function toIsoDate(v: unknown): string {
   if (v instanceof Date) return v.toISOString();
   return v as string;
 }
 
+/**
+ * `opts.all` (the CSV export) returns every matching entry: no LIMIT/OFFSET, `page`
+ * and `limit` ignored. The screen pages at most 100 at a time.
+ */
 export async function getUnifiedAuditLog(
-  filters: UnifiedAuditFilters = {}
+  filters: UnifiedAuditFilters = {},
+  opts: { all?: boolean } = {},
 ): Promise<PaginatedResult<UnifiedAuditEntry>> {
   const page  = Math.max(1, filters.page  ?? 1);
   const limit = Math.min(100, Math.max(1, filters.limit ?? 50));
@@ -142,14 +158,14 @@ export async function getUnifiedAuditLog(
       )
       SELECT *
       FROM combined
-      WHERE (${fromDate   ? sql`created_at >= ${fromDate}::timestamptz`   : sql`TRUE`})
-        AND (${toDate     ? sql`created_at <= ${toDate}::timestamptz`     : sql`TRUE`})
+      WHERE (${fromDate   ? sql`created_at >= ${sastDayStart(fromDate)}`    : sql`TRUE`})
+        AND (${toDate     ? sql`created_at <  ${sastDayStart(toDate, 1)}` : sql`TRUE`})
         AND (${filterAction ? sql`action ILIKE ${'%' + filterAction + '%'}` : sql`TRUE`})
         AND (${searchTerm
           ? sql`(user_email ILIKE ${searchTerm} OR entity_ref ILIKE ${searchTerm} OR action ILIKE ${searchTerm})`
           : sql`TRUE`})
-      ORDER BY created_at DESC
-      LIMIT ${limit} OFFSET ${offset}
+      ORDER BY created_at DESC, id
+      ${opts.all ? sql`` : sql`LIMIT ${limit} OFFSET ${offset}`}
     `;
 
     const [countRow] = await sql`
@@ -191,8 +207,8 @@ export async function getUnifiedAuditLog(
       )
       SELECT COUNT(*)::int AS total
       FROM combined
-      WHERE (${fromDate   ? sql`created_at >= ${fromDate}::timestamptz`   : sql`TRUE`})
-        AND (${toDate     ? sql`created_at <= ${toDate}::timestamptz`     : sql`TRUE`})
+      WHERE (${fromDate   ? sql`created_at >= ${sastDayStart(fromDate)}`    : sql`TRUE`})
+        AND (${toDate     ? sql`created_at <  ${sastDayStart(toDate, 1)}` : sql`TRUE`})
         AND (${filterAction ? sql`action ILIKE ${'%' + filterAction + '%'}` : sql`TRUE`})
         AND (${searchTerm
           ? sql`(user_email ILIKE ${searchTerm} OR entity_ref ILIKE ${searchTerm} OR action ILIKE ${searchTerm})`
