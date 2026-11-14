@@ -117,8 +117,8 @@ export interface ConvertResult {
  *    refused (409), never silently reinstated, and no suspension column is touched;
  *  - the plan must exist, be active and not be an internal plan (trial, payg);
  *  - a company that already pays (active/past_due on a real plan) is refused,
- *    never silently re-planned without proration; a paused subscription is
- *    refused too (resume or cancel it first);
+ *    never silently re-planned without proration; a company with any paused
+ *    subscription is refused too (resume or cancel it first);
  *  - the newest live trial/free-plan subscription is UPDATED to the new plan and
  *    every other live trial row of the company is cancelled, so one live
  *    subscription remains; with none, one is inserted. There is no unique index
@@ -139,7 +139,7 @@ export async function markAsConverted(companyId: string, planId: string): Promis
     `)[0] as Row | undefined;
     if (!company) throw new TrialConvertError('company_not_found', 'Company not found');
     if (company.status !== 'trial' && company.status !== 'active') {
-      throw new TrialConvertError('company_not_convertible', `A ${String(company.status)} company cannot be converted`);
+      throw new TrialConvertError('company_not_convertible', `Company status "${String(company.status)}" cannot be converted`);
     }
 
     const plan = (await tx`SELECT code, is_active FROM plans WHERE id = ${planId}::uuid`)[0] as Row | undefined;
@@ -159,7 +159,11 @@ export async function markAsConverted(companyId: string, planId: string): Promis
     if (current?.is_paid === true) {
       throw new TrialConvertError('already_paid', 'This company is already on a paid plan');
     }
-    if (current?.status === 'paused') {
+    // ANY paused subscription, not only the newest row: converting beside one would leave it behind.
+    const paused = await tx`
+      SELECT 1 FROM subscriptions WHERE company_id = ${companyId}::uuid AND status = 'paused' LIMIT 1
+    `;
+    if (paused.length > 0) {
       throw new TrialConvertError('subscription_paused', 'Resume or cancel the paused subscription first');
     }
 

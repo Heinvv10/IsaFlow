@@ -160,6 +160,7 @@ describe('review: company standing, stray trial rows, the first charge', () => {
     const before = (await pool.query('SELECT status, plan_id, suspended_at, suspended_reason, updated_at FROM companies WHERE id = $1', [id])).rows[0];
     const r = await convert(id, plans.paid);
     expect(r.status, JSON.stringify(r.body)).toBe(409);
+    expect(errorOf(r)).toBe(`Company status "${status}" cannot be converted`);
     expect((await pool.query('SELECT status, plan_id, suspended_at, suspended_reason, updated_at FROM companies WHERE id = $1', [id])).rows[0]).toEqual(before);
     const subs = await subsOf(id);
     expect(subs).toHaveLength(1);
@@ -191,6 +192,17 @@ describe('review: company standing, stray trial rows, the first charge', () => {
     expect(errorOf(r)).toMatch(/paused/i);
     expect(await companyRow(id)).toMatchObject({ status: 'trial', plan_id: null });
     expect((await subsOf(id))[0]).toMatchObject({ status: 'paused', plan_id: plans.paid });
+  }, 30000);
+
+  it('an OLDER paused subscription refuses too, even when a newer trial row exists', async () => {
+    const id = await makeCompany({ name: 'Older paused', endsInDays: 5, status: 'trial',
+      sub: { plan: plans.paid, status: 'paused', createdDaysAgo: 20 }, moreSubs: [{ plan: plans.trial, status: 'trial' }] });
+    const before = await subsOf(id);
+    const r = await convert(id, plans.paid2);
+    expect(r.status, JSON.stringify(r.body)).toBe(409);
+    expect(errorOf(r)).toMatch(/paused/i);
+    expect(await companyRow(id)).toMatchObject({ status: 'trial', plan_id: null });
+    expect((await subsOf(id)).map((x) => [x.id, x.status])).toEqual(before.map((x) => [x.id, x.status]));
   }, 30000);
 
   it('answers the first charge date and whether an active Paystack mandate exists', async () => {
