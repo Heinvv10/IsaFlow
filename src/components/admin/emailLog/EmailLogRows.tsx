@@ -1,18 +1,15 @@
 import { Fragment } from 'react';
-import { Loader2, AlertCircle, CheckCircle, Send } from 'lucide-react';
+import { Send } from 'lucide-react';
 import type { EmailLogItem } from '../../../../pages/api/admin/email-log';
-import { fmtDate, STATUS_COLORS, TYPE_LABELS } from './emailLogLabels';
+import { fmtDate, RESEND_UNAVAILABLE, STATUS_COLORS, TYPE_LABELS } from './emailLogLabels';
 
 interface Props {
   items: EmailLogItem[];
   expandedId: string | null;
   onToggle: (id: string) => void;
-  resendStatus: Record<string, 'ok' | 'err'>;
-  resendingId: string | null;
-  onResend: (id: string) => void;
 }
 
-export function EmailLogRows({ items, expandedId, onToggle, resendStatus, resendingId, onResend }: Props) {
+export function EmailLogRows({ items, expandedId, onToggle }: Props) {
   return (
     <>
     {items.map(item => {
@@ -46,26 +43,21 @@ export function EmailLogRows({ items, expandedId, onToggle, resendStatus, resend
             </td>
             <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
               {isFailed && (
-                resendStatus[item.id] === 'ok' ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-teal-400 border border-teal-500/30 rounded-full">
-                    <CheckCircle className="w-3 h-3" /> Sent
-                  </span>
-                ) : resendStatus[item.id] === 'err' ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-red-400 border border-red-500/30 rounded-full">
-                    <AlertCircle className="w-3 h-3" /> Resend failed
-                  </span>
-                ) : (
+                <span className="inline-flex flex-col items-start gap-0.5">
                   <button
-                    onClick={() => onResend(item.id)}
-                    disabled={resendingId === item.id}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-amber-400 border border-amber-500/40 rounded hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
+                    type="button"
+                    disabled
+                    title={RESEND_UNAVAILABLE}
+                    aria-describedby={`resend-why-${item.id}`}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-amber-400 border border-amber-500/40 rounded opacity-50 cursor-not-allowed"
                   >
-                    {resendingId === item.id
-                      ? <Loader2 className="w-3 h-3 animate-spin" />
-                      : <Send className="w-3 h-3" />}
+                    <Send className="w-3 h-3" />
                     Resend
                   </button>
-                )
+                  <span id={`resend-why-${item.id}`} className="text-xs text-gray-600 dark:text-gray-400" title={RESEND_UNAVAILABLE}>
+                    No copy of the email is kept
+                  </span>
+                </span>
               )}
             </td>
           </tr>

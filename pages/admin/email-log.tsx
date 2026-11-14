@@ -1,6 +1,6 @@
 /**
  * Admin — Email Delivery Log
- * View all outbound email attempts, filter by status/type/date, retry failed.
+ * View all outbound email attempts, filter by status/type/date. Resend is off: the log keeps no copy of an email (RESEND_UNAVAILABLE).
  * Route: /admin/email-log
  */
 
@@ -13,7 +13,6 @@ import { DateField } from '@/components/ui/DateField';
 import { EMAIL_TYPES, TYPE_LABELS } from '@/components/admin/emailLog/emailLogLabels';
 import { StatsCards } from '@/components/admin/emailLog/StatsCards';
 import { EmailLogRows } from '@/components/admin/emailLog/EmailLogRows';
-import { useKeyedTimeoutOnce } from '@/hooks/useKeyedTimeoutOnce';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -24,7 +23,6 @@ export default function EmailLogPage() {
   const [total, setTotal]   = useState(0);
   const [page, setPage]     = useState(1);
   const [loading, setLoading] = useState(true);
-  const afterResend = useKeyedTimeoutOnce();
   const [error, setError]   = useState<string | null>(null);
   const [stats, setStats]   = useState<EmailLogStats>({ total_sent: 0, total_failed: 0, success_rate: 100 });
 
@@ -35,8 +33,6 @@ export default function EmailLogPage() {
   const [dateTo, setDateTo]             = useState('');
   const [search, setSearch]             = useState('');
   const [expandedId, setExpandedId]     = useState<string | null>(null);
-  const [resendingId, setResendingId]   = useState<string | null>(null);
-  const [resendStatus, setResendStatus] = useState<Record<string, 'ok' | 'err'>>({});
 
   const LIMIT = 25;
 
@@ -66,21 +62,6 @@ export default function EmailLogPage() {
   }, [page, statusFilter, typeFilter, dateFrom, dateTo, search]);
 
   useEffect(() => { void load(page); }, [load, page]);
-
-  async function handleResend(logId: string) {
-    setResendingId(logId);
-    try {
-      const res  = await apiFetch('/api/admin/email-log/resend', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify({ logId }), credentials: 'include' });
-      await assertOk(res, 'Could not resend the email - try again');
-      setResendStatus(prev => ({ ...prev, [logId]: 'ok' }));
-      afterResend(logId, () => setResendStatus(prev => { const n = { ...prev }; delete n[logId]; return n; }), 4000);
-    } catch {
-      setResendStatus(prev => ({ ...prev, [logId]: 'err' }));
-      afterResend(logId, () => setResendStatus(prev => { const n = { ...prev }; delete n[logId]; return n; }), 4000);
-    } finally {
-      setResendingId(null);
-    }
-  }
 
   const handleFilter = () => { setPage(1); void load(1); };
   const handleClear  = () => {
@@ -217,9 +198,6 @@ export default function EmailLogPage() {
                       items={items}
                       expandedId={expandedId}
                       onToggle={id => setExpandedId(expandedId === id ? null : id)}
-                      resendStatus={resendStatus}
-                      resendingId={resendingId}
-                      onResend={id => void handleResend(id)}
                     />
                   </tbody>
                 </table>
