@@ -88,26 +88,29 @@ export default function AdminFeaturesPage() {
   async function bulkSetGlobal(isGlobal: boolean) {
     if (selected.size === 0) return;
     setBulkWorking(true); setBulkNotice('');
-    // Each apiFetch resolves on 4xx, so each flag's own result is checked; the outcome lists the failures
-    // instead of one "some flags may not have been updated" (audit 3.7).
-    const ids = Array.from(selected);
-    const results = await Promise.allSettled(ids.map(async (id) => {
-      const res = await apiFetch(`/api/admin/features/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
-        body: JSON.stringify({ is_global: isGlobal }),
-      });
-      await assertOk(res, 'Could not update a feature flag - try again');
-    }));
-    const failed = ids.filter((_, i) => results[i]?.status === 'rejected')
-      .map((id) => flags.find((f) => f.id === id)?.code ?? id);
-    // Reload FIRST: load() opens with setError(''), so a message set before it would be wiped.
-    await load();
-    setSelected(new Set());
-    setBulkWorking(false);
-    const done = `${isGlobal ? 'Enabled' : 'Disabled'} globally: ${ids.length - failed.length} updated`;
-    if (failed.length) setError(`${done}, ${failed.length} failed (${failed.join(', ')})`);
-    else setBulkNotice(`${done}.`);
+    try {
+      // Each apiFetch resolves on 4xx, so each flag's own result is checked; the outcome lists the failures
+      // instead of one "some flags may not have been updated" (audit 3.7).
+      const ids = Array.from(selected);
+      const results = await Promise.allSettled(ids.map(async (id) => {
+        const res = await apiFetch(`/api/admin/features/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+          body: JSON.stringify({ is_global: isGlobal }),
+        });
+        await assertOk(res, 'Could not update a feature flag - try again');
+      }));
+      const failed = ids.filter((_, i) => results[i]?.status === 'rejected')
+        .map((id) => flags.find((f) => f.id === id)?.code ?? id);
+      // Reload FIRST: load() opens with setError(''), so a message set before it would be wiped.
+      await load();
+      setSelected(new Set());
+      const done = `${isGlobal ? 'Enabled' : 'Disabled'} globally: ${ids.length - failed.length} updated`;
+      if (failed.length) setError(`${done}, ${failed.length} failed (${failed.join(', ')})`);
+      else setBulkNotice(`${done}.`);
+    } finally {
+      setBulkWorking(false);
+    }
   }
 
   const toggleSelectAll = () => {

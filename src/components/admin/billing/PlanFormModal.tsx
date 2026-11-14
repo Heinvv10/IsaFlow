@@ -50,7 +50,7 @@ export function PlanFormModal({ open, editing, trapFocus, form, setForm, error, 
     const onChange = (value: string) => setForm(f => ({ ...f, [key]: value }));
     return (
       <div>
-        <label htmlFor={id} className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{label}</label>
+        <label htmlFor={id} className="block text-xs font-medium text-ink-muted mb-1">{label}</label>
         {opts?.rows
           ? <textarea id={id} rows={opts.rows} value={form[key]} onChange={e => onChange(e.target.value)} className={INPUT} />
           : <input id={id} type={opts?.type ?? 'text'} readOnly={opts?.readOnly} value={form[key]} onChange={e => onChange(e.target.value)} className={INPUT} />
