@@ -150,6 +150,9 @@ export const NOT_A_REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Budgets P6 three-way engine: a posting whose debits and credits differ is an engine invariant
   // breach (a bug), never a user's refusal.
   'UNBALANCED_POSTING',
+  // smtpDeadline.ts: an SMTP send cut at its hard deadline. sendEmail catches it and reports a failed send; it is a
+  // mail-transport outcome, not a refusal, and never reaches a tool as one.
+  'EDEADLINE',
 ]);
 
 /**
