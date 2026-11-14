@@ -145,8 +145,17 @@ export async function getAllTrials(now = new Date()): Promise<TrialCompany[]> {
 
 /** Trials still running that end within the next N days, soonest first. */
 export async function getExpiringTrials(withinDays = 30, now = new Date()): Promise<TrialCompany[]> {
+  return expiringTrials(await loadTrials(now), withinDays, now);
+}
+
+/**
+ * Running trials ending within `withinDays`, never an internal company: this
+ * feeds the dashboard's "Trials Expiring Soon" alert, which must agree with
+ * the counts (summariseTrials).
+ */
+export function expiringTrials(trials: TrialCompany[], withinDays: number, now: Date): TrialCompany[] {
   const horizon = now.getTime() + withinDays * DAY_MS;
-  return (await loadTrials(now)).filter((t) => t.trial_state === 'active' && new Date(t.trial_ends_at).getTime() <= horizon);
+  return trials.filter((t) => !t.internal && t.trial_state === 'active' && new Date(t.trial_ends_at).getTime() <= horizon);
 }
 
 /** The counts for the Trials cards, the billing overview and the health widget. */

@@ -10,7 +10,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import healthRoute from '../../pages/api/admin/health';
 import { getBillingOverview } from '@/modules/admin/services/billingService';
-import { getAllTrials, getTrialStats } from '@/modules/admin/services/trialQueries';
+import { getAllTrials, getExpiringTrials, getTrialStats } from '@/modules/admin/services/trialQueries';
 import { callRoute, ok, pool } from './admin-metrics.helpers';
 
 const tag = crypto.randomUUID().slice(0, 8);
@@ -55,5 +55,12 @@ describe('trial counts exclude internal and deleted companies (M3)', () => {
     expect(row(ids.L)?.internal).toBe(false);
     expect(row(ids.M)?.internal).toBe(true);
     expect(row(ids.N)).toBeUndefined();
+  });
+
+  it("the dashboard's expiring-soon list holds the live trial only", async () => {
+    const expiring = (await getExpiringTrials(7)).map((t) => t.id);
+    expect(expiring).toContain(ids.L);
+    expect(expiring).not.toContain(ids.M);
+    expect(expiring).not.toContain(ids.N);
   });
 });

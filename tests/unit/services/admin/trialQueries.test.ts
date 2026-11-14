@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 
-import { classifyTrial, summariseTrials, type TrialCompany } from '@/modules/admin/services/trialQueries';
+import { classifyTrial, expiringTrials, summariseTrials, type TrialCompany } from '@/modules/admin/services/trialQueries';
 
 const NOW = new Date('2026-11-14T10:00:00Z');
 const DAY = 86_400_000;
@@ -36,6 +36,24 @@ describe('classifyTrial', () => {
     expect(paid.converted_at).toBe(at(-3 * DAY).toISOString());
     expect(classifyTrial(raw(5 * DAY, { status: 'suspended' }), NOW).trial_state).toBe('active');
     expect(classifyTrial(raw(5 * DAY, { status: 'active' }), NOW).trial_state).toBe('active');
+  });
+});
+
+describe('internal companies (PR #1367 review)', () => {
+  const live = classifyTrial(raw(3 * DAY, { id: 'live' }), NOW);
+  const demo = classifyTrial(raw(3 * DAY, { id: 'demo', internal: true }), NOW);
+
+  it('classifyTrial carries the query\'s internal flag; absent means false', () => {
+    expect(demo.internal).toBe(true);
+    expect(live.internal).toBe(false);
+  });
+
+  it('summariseTrials counts only non-internal companies', () => {
+    expect(summariseTrials([live, demo], NOW)).toMatchObject({ total_trials: 1, active_trials: 1, expiring_this_week: 1 });
+  });
+
+  it('the expiring-soon list (dashboard alert) leaves the internal company out', () => {
+    expect(expiringTrials([live, demo], 7, NOW).map((t) => t.id)).toEqual(['live']);
   });
 });
 
