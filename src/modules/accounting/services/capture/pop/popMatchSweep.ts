@@ -14,7 +14,7 @@
  * being swept is skipped this tick): two sweeps reading the same open POP could otherwise each act on it.
  *
  * Each attach is its own transaction: both rows are locked (line, then document, as the attach does),
- * re-read, and the attach plus its 'attached' / 'refused' row commit together; if that row cannot be
+ * re-read (stillUniqueUnderLock), and the attach plus its 'attached' / 'refused' row commit together; if that row cannot be
  * written (a final decision is already there) the attach rolls back. A line or document that moved since
  * the read is counted `moved` and left for the next tick.
  */
@@ -24,7 +24,7 @@ import { withAlsTransaction } from '@/lib/alsTransaction';
 import { lockBankTransactionForUpdate } from '../../bank/bankTxLock';
 import { attachCapturedDocToBankTx } from '../captureBankTxAttachService';
 import { lockCapturedDocumentForUpdate } from '../captureRowLock';
-import { decideMatches, type MatchPair } from './popMatchRules';
+import { decideMatches, descriptionNamesBeneficiary, type MatchPair } from './popMatchRules';
 
 type Row = Record<string, unknown>;
 type Outcome = 'attached' | 'ambiguous' | 'not_found' | 'refused';
@@ -192,19 +192,42 @@ async function recordDecision(companyId: string, popId: string, outcome: Outcome
   if (written.length === 0) throw new Error(`pop match: POP ${popId} already has a final decision; ${outcome} not recorded`);
 }
 
+/**
+ * Re-read under both locks: the document is still unmatched, the line still carries no POP, is still posted, of
+ * -amount, in the window and naming the beneficiary, and no open POP of the company OTHER than this one (one filed
+ * after the pairs were read included) also wants it. Anything else: the next tick decides.
+ */
+async function stillUniqueUnderLock(companyId: string, popId: string, documentId: string, bankTxId: string): Promise<boolean> {
+  const [r] = (await sql`
+    SELECT bt.description, p.beneficiary,
+      (bt.feed_state = 'posted' AND bt.amount = -p.amount
+        AND bt.transaction_date BETWEEN p.payment_date AND p.payment_date + ${POP_MATCH_WINDOW_DAYS}::int) AS line_fits,
+      (SELECT matched_bank_tx_id IS NULL FROM captured_documents
+        WHERE id = ${documentId}::uuid AND company_id = ${companyId}::uuid) AS doc_open,
+      NOT EXISTS (SELECT 1 FROM captured_documents WHERE company_id = ${companyId}::uuid
+        AND matched_bank_tx_id = ${bankTxId}::uuid AND document_type = 'proof_of_payment') AS line_open,
+      ARRAY(SELECT o.beneficiary FROM proof_of_payments o
+        JOIN captured_documents ocd ON ocd.id = o.captured_document_id AND ocd.company_id = o.company_id
+          AND ocd.matched_bank_tx_id IS NULL
+        WHERE o.company_id = ${companyId}::uuid AND o.id <> p.id AND bt.amount = -o.amount
+          AND bt.transaction_date BETWEEN o.payment_date AND o.payment_date + ${POP_MATCH_WINDOW_DAYS}::int) AS rival_names
+    FROM bank_transactions bt
+    JOIN proof_of_payments p ON p.id = ${popId}::uuid AND p.company_id = ${companyId}::uuid
+    WHERE bt.id = ${bankTxId}::uuid AND bt.company_id = ${companyId}::uuid
+  `) as Row[];
+  if (!r || r.doc_open !== true || r.line_open !== true || r.line_fits !== true) return false;
+  const description = r.description == null ? null : String(r.description);
+  if (!descriptionNamesBeneficiary(description, String(r.beneficiary))) return false;
+  return !((r.rival_names as string[] | null) ?? []).some((name) => descriptionNamesBeneficiary(description, name));
+}
+
 async function attachOne(companyId: string, popId: string, documentId: string, bankTxId: string): Promise<'attached' | 'refused' | 'moved'> {
   // Its own transaction; the savepoint keeps that true when a caller's transaction is already open (tests).
   return withAlsTransaction({ userId: ACTOR, companyId }, () => withSavepoint('pop_match_attach', async () => {
     if (!(await lockBankTransactionForUpdate(companyId, bankTxId))) return 'moved' as const;
     await lockCapturedDocumentForUpdate(companyId, documentId);
-    const [still] = (await sql`
-      SELECT (SELECT matched_bank_tx_id IS NULL FROM captured_documents
-                WHERE id = ${documentId}::uuid AND company_id = ${companyId}::uuid) AS doc_open,
-             NOT EXISTS (SELECT 1 FROM captured_documents WHERE company_id = ${companyId}::uuid
-                AND matched_bank_tx_id = ${bankTxId}::uuid AND document_type = 'proof_of_payment') AS line_open
-    `) as Row[];
-    if (!still?.doc_open || !still.line_open) {
-      log.info('pop match: line or document moved since the read; left for the next tick', { companyId, popId, bankTxId }, 'pop-match');
+    if (!(await stillUniqueUnderLock(companyId, popId, documentId, bankTxId))) {
+      log.info('pop match: line, document or rivals changed since the read; left for the next tick', { companyId, popId, bankTxId }, 'pop-match');
       return 'moved' as const;
     }
     const result = await attachCapturedDocToBankTx(companyId, documentId, bankTxId, null);

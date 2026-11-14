@@ -104,7 +104,29 @@ describeIfDb('POP matching guards', () => {
     expect(h.beforeLock).toBeNull();
   });
 
-  it('rolls the attach back when a final decision appeared before it could be recorded', async () => {
+  // A posted line cannot stop being posted (BANK_TX_FEED_GUARD refuses posted → pending/removed), so the re-check's
+  // feed_state test has no case here.
+  it('leaves a POP alone (moved) when, before the lock, the line changed or a new rival POP was filed', async () => {
+    const D = fx.day(2);
+    const cases: Array<[string, (line: string, amount: string) => Promise<unknown>]> = [
+      ['new rival POP', (_l, amount) => seedPop(fx, A, { beneficiary: 'Recheck New Rival', date: D, amount })],
+      ['amount changed', (l) => pool.query("UPDATE bank_transactions SET amount = amount - 0.01 WHERE id = $1", [l])],
+      ['date moved out of the window', (l) => pool.query('UPDATE bank_transactions SET transaction_date = $2 WHERE id = $1', [l, fx.day(10)])],
+      ['description renamed', (l) => pool.query("UPDATE bank_transactions SET description = 'DIGITAL PAYMENT DT ABSA BANK SOMEONE ELSE' WHERE id = $1", [l])],
+    ];
+    for (const [i, [label, change]] of cases.entries()) {
+      const amount = `${41 + i}.00`;
+      const name = label === 'new rival POP' ? 'Recheck New Rival' : `Recheck Case ${i}`;
+      const pop = await seedPop(fx, A, { beneficiary: name, date: D, amount });
+      const l = await seedLine(fx, A, D, `-${amount}`, named(name));
+      h.beforeLock = { line: l, run: () => change(l, amount) };
+      expect([label, await sweep()]).toMatchObject([label, { moved: 1, attached: 0 }]);
+      expect([label, await matchedLineOf(pool, pop.documentId)]).toEqual([label, null]);
+      expect([label, await matchRow(pool, pop.popId)]).toEqual([label, null]);
+    }
+  });
+
+    it('rolls the attach back when a final decision appeared before it could be recorded', async () => {
     const D = fx.day(2);
     const pop = await seedPop(fx, A, { beneficiary: 'Late Final Co', date: D, amount: '33.00' });
     const l = await seedLine(fx, A, D, '-33.00', named('Late Final Co'));
