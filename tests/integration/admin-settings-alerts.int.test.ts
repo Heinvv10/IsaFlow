@@ -165,6 +165,15 @@ describe('admin alert settings', () => {
     }
   }, 30000);
 
+  it('a refused webhook rolls the whole PATCH back: the new email is not stored and nothing is audited', async () => {
+    await call(alertRoute as Route, 'PATCH', { health_alert_email: 'before@example.co.za' });
+    await pool.query('DELETE FROM admin_audit_log WHERE admin_user_id = $1', [admin]);
+    const r = await call(alertRoute as Route, 'PATCH', { health_alert_email: 'after@example.co.za', health_alert_webhook_url: 'https://127.0.0.1/x' });
+    expect(r.status).toBe(400);
+    expect(await stored('health_alert_email')).toBe('before@example.co.za');
+    expect((await pool.query(`SELECT 1 FROM admin_audit_log WHERE admin_user_id = $1`, [admin])).rowCount).toBe(0);
+  }, 30000);
+
   it('an invalid non-blank email is still rejected and the stored value is untouched', async () => {
     await call(alertRoute as Route, 'PATCH', { health_alert_email: 'keep@example.co.za' });
     const r = await call(alertRoute as Route, 'PATCH', { health_alert_email: 'not-an-email' });
