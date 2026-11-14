@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 /**
  * downloadAdminExport takes admin export URLs only (WP10 review rev-1372): anything else throws before any
  * fetch. The check is on the URL as the browser resolves it, so dot-segments (also percent-encoded) and
