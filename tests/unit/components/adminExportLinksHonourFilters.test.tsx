@@ -93,6 +93,29 @@ describe('admin export links carry the active filters', () => {
     expect(params.get('to_date')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
+  it('audit trail: exactly 100,000 entries can still be exported', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => json({ success: true, data:
+      String(url).startsWith('/api/admin/audit?') ? { items: [], total: 100000, page: 1, limit: 50, total_pages: 2000 } : empty }));
+    render(<AuditPage />);
+    await waitFor(() => expect(exportParams().path).toBe('/api/admin/audit/export'));
+    expect(screen.queryByText(/narrow the dates to export/)).toBeNull();
+  });
+
+  it('audit trail: no export while the list reloads for new filters (the total is the old one)', async () => {
+    let release: () => void = () => undefined;
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      const u = String(url);
+      if (u.startsWith('/api/admin/audit?') && u.includes('search=late')) await new Promise<void>((r) => { release = r; });
+      return json({ success: true, data: u.startsWith('/api/admin/audit?') ? { items: [], total: 5, page: 1, limit: 50, total_pages: 1 } : empty });
+    });
+    render(<AuditPage />);
+    await waitFor(() => expect(exportParams().path).toBe('/api/admin/audit/export'));
+    fireEvent.change(screen.getByPlaceholderText('Email, ref, or action…'), { target: { value: 'late' } });
+    await waitFor(() => expect(screen.getByText('Export CSV').closest('a')!.getAttribute('href')).toBeNull());
+    release();
+    await waitFor(() => expect(exportParams().params.get('search')).toBe('late'));
+  });
+
   it('audit trail: more than 100,000 entries disables the link and says why', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url) => json({ success: true, data:
       String(url).startsWith('/api/admin/audit?') ? { items: [], total: 100001, page: 1, limit: 50, total_pages: 2001 } : empty }));

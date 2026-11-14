@@ -28,6 +28,14 @@ const CSV_HEADERS = [
   'created_at',
 ];
 
+/**
+ * Allowlists, so the audit row only records known values: the roles users.role may hold (users_role_check)
+ * plus the two the Users page also offers (storeman, technician; they match no one), and the page's statuses
+ * ('inactive' is offered and, as in listUsers, matches no one).
+ */
+const ROLES = new Set(['super_admin', 'admin', 'manager', 'accountant', 'bookkeeper', 'viewer', 'system', 'storeman', 'technician']);
+const STATUSES = new Set(['active', 'suspended', 'inactive']);
+
 async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
@@ -37,6 +45,8 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   const company = queryText(req.query.company);
   const role    = queryText(req.query.role);
   const status  = queryText(req.query.status);
+  if (role && !ROLES.has(role)) return apiResponse.badRequest(res, 'role is not a known user role');
+  if (status && !STATUSES.has(status)) return apiResponse.badRequest(res, 'status must be active, suspended or inactive');
   const searchPattern  = search  ? `%${search}%`  : null;
   const companyPattern = company ? `%${company}%` : null;
 

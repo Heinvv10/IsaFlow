@@ -29,6 +29,9 @@ const CSV_HEADERS = [
   'ends_at',
 ];
 
+/** subscriptions_status_check: the audit row only records a known status. */
+const STATUSES = new Set(['trial', 'active', 'past_due', 'cancelled', 'paused']);
+
 async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
@@ -38,6 +41,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   const status = queryText(req.query.status);
   const planId = queryText(req.query.plan_id);
   if (planId && !isUuidParam(planId)) return apiResponse.badRequest(res, 'plan_id must be a UUID');
+  if (status && !STATUSES.has(status)) return apiResponse.badRequest(res, 'status is not a subscription status');
   const searchPattern = search ? `%${search}%` : null;
 
   const rows = (await sql`

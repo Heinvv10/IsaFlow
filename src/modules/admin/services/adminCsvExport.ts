@@ -44,17 +44,22 @@ export function textFilterSet(value: string | null): boolean {
 /** Re-exported for the routes: the most rows one export may hold (shared with the pages). */
 export { ADMIN_EXPORT_MAX_ROWS } from '@/components/admin/adminExportHref';
 
+/** A plain signed decimal (`-5`, `12.50`): never a formula, so never neutralised. */
+const PLAIN_DECIMAL = /^-?\d+(\.\d+)?$/;
+
 function cell(value: unknown): string {
   if (value == null) return csvCell(null);
   if (value instanceof Date) return csvCell(value.toISOString());
-  // A JS number cannot be a formula: -5 stays -5 (neutralising it would turn it into the text '-5). Still quoted.
+  // A number cannot be a formula: -5 stays -5 (neutralising it would turn it into the text '-5). Still quoted.
+  // That holds for a plain signed decimal string too (pg returns numeric/bigint columns as strings).
   if (typeof value === 'number') return `"${String(value)}"`;
+  if (typeof value === 'string' && PLAIN_DECIMAL.test(value)) return `"${value}"`;
   if (typeof value === 'boolean') return csvCell(value ? 'true' : 'false');
   if (typeof value === 'object') return csvCell(JSON.stringify(value));
   return csvCell(String(value));
 }
 
-/** One CSV line: every value quoted; text formula-neutralised; numbers as they are; Date as ISO-8601. */
+/** One CSV line: every value quoted; text formula-neutralised; numbers and plain decimals as they are; Date as ISO-8601. */
 export function csvRow(values: readonly unknown[]): string {
   return values.map(cell).join(',');
 }

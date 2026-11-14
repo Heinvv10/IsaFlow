@@ -63,7 +63,7 @@ describe('audit export (3.8)', () => {
   it('exports every matching entry beyond one page and audits the filters and count', async () => {
     for (let i = 0; i < 120; i++) await at('2026-11-12T08:00:00Z', `bulk-${i}`);
     const { default: exportRoute } = await import('../../pages/api/admin/audit/export');
-    const query = { source: 'admin', action: ACTION, from_date: '2026-11-12', to_date: '2026-11-12' };
+    const query = { source: 'admin', search: ACTION, from_date: '2026-11-12', to_date: '2026-11-12' };
     const r = await callAdminRoute(admin, exportRoute, 'GET', '/api/admin/audit/export', query);
     expect(r.status, r.text.slice(0, 300)).toBe(200);
     expect(csvDataLines(r.text)).toHaveLength(120);
@@ -71,7 +71,7 @@ describe('audit export (3.8)', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.details).toEqual({
       export: 'audit', row_count: 120,
-      filters: { source: 'admin', company_id: null, action: ACTION, entity_type: null, search: false,
+      filters: { source: 'admin', company_id: null, action: null, entity_type: null, search: true,
         from_date: '2026-11-12', to_date: '2026-11-12' },
     });
   }, 60000);
@@ -80,14 +80,14 @@ describe('audit export (3.8)', () => {
     await at('2026-11-13T08:00:00Z', 'formula', '=cmd|calc');
     const { default: exportRoute } = await import('../../pages/api/admin/audit/export');
     const r = await callAdminRoute(admin, exportRoute, 'GET', '/api/admin/audit/export',
-      { source: 'admin', action: ACTION, from_date: '2026-11-13', to_date: '2026-11-13' });
+      { source: 'admin', search: ACTION, from_date: '2026-11-13', to_date: '2026-11-13' });
     expect(r.status, r.text.slice(0, 300)).toBe(200);
     const lines = csvDataLines(r.text);
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain(`"'=cmd|calc"`);
   }, 60000);
 
-  it('answers 405 to a non-GET and 400 to a bad source, company_id or date, auditing nothing', async () => {
+  it('answers 405 to a non-GET and 400 to a bad source, company_id, date, action or entity_type, auditing nothing', async () => {
     const { default: exportRoute } = await import('../../pages/api/admin/audit/export');
     const call = (method: string, query: Record<string, string>) =>
       callAdminRoute(admin, exportRoute, method, '/api/admin/audit/export', query);
@@ -96,6 +96,8 @@ describe('audit export (3.8)', () => {
     expect((await call('GET', { company_id: 'not-a-uuid' })).status).toBe(400);
     expect((await call('GET', { from_date: '2026-02-31' })).status).toBe(400);
     expect((await call('GET', { to_date: '14/11/2026' })).status).toBe(400);
+    expect((await call('GET', { action: 'anything' })).status).toBe(400);
+    expect((await call('GET', { entity_type: 'secret_table' })).status).toBe(400);
     expect(await auditRows(pool, admin, 'audit.export')).toHaveLength(2); // the two exports above, nothing more
   }, 60000);
 
@@ -106,7 +108,7 @@ describe('audit export (3.8)', () => {
     try {
       const { default: exportRoute } = await import('../../pages/api/admin/audit/export');
       const r = await callAdminRoute(admin, exportRoute, 'GET', '/api/admin/audit/export',
-        { source: 'admin', action: big, from_date: '2026-11-14', to_date: '2026-11-14' });
+        { source: 'admin', search: big, from_date: '2026-11-14', to_date: '2026-11-14' });
       expect(r.status, r.text.slice(0, 200)).toBe(400);
       expect(r.json?.error?.message).toMatch(/^100.001 entries match; narrow the dates to export at most 100.000$/);
       expect(await auditRows(pool, admin, 'audit.export')).toHaveLength(2);

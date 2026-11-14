@@ -15,6 +15,10 @@ export async function downloadAdminExport(href: string, fallbackName: string): P
   const a = document.createElement('a');
   a.href = url;
   a.download = named ?? fallbackName;
+  // In the document for the click (Firefox ignores a detached anchor); the URL is revoked a tick later so the
+  // download has started reading the blob before it goes.
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }

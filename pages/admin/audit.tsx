@@ -11,6 +11,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
 import { DateField } from '@/components/ui/DateField';
 import { ADMIN_EXPORT_MAX_ROWS, adminExportHref } from '@/components/admin/adminExportHref';
+import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '@/components/admin/auditFilterOptions';
 
 interface UnifiedAuditEntry {
   id: string;
@@ -166,7 +167,8 @@ export default function AdminAuditPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
   const overCap = total > ADMIN_EXPORT_MAX_ROWS;
-  const canExport = total > 0 && !overCap;
+  // Not while loading: until the reload lands, `total` belongs to the previous filters.
+  const canExport = !loading && total > 0 && !overCap;
 
   return (
     <AdminLayout title="Audit Trail">
@@ -199,8 +201,7 @@ export default function AdminAuditPage() {
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Action</label>
           <select value={action} onChange={e => setAction(e.target.value)} className={inputCls}>
             <option value="">All Actions</option>
-            {['create','update','delete','post','reverse','approve','reject','login','export',
-              'suspend','activate','reset_password','logout'].map(a => (
+            {AUDIT_ACTIONS.map(a => (
               <option key={a} value={a}>{a.replaceAll('_', ' ')}</option>
             ))}
           </select>
@@ -209,10 +210,7 @@ export default function AdminAuditPage() {
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Entity Type</label>
           <select value={entityType} onChange={e => setEntityType(e.target.value)} className={inputCls}>
             <option value="">All Types</option>
-            {['journal_entry','customer_invoice','supplier_invoice','customer','supplier',
-              'bank_transaction','payment','credit_note','quote','purchase_order',
-              'plan','subscription','announcement','feature_flag','settings','session',
-              'company','user'].map(t => (
+            {AUDIT_ENTITY_TYPES.map(t => (
               <option key={t} value={t}>{t.replaceAll('_', ' ')}</option>
             ))}
           </select>

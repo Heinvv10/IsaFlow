@@ -13,9 +13,12 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { isRealCalendarDate, isUuidParam } from '@/lib/validation';
 import { getUnifiedAuditLog, type UnifiedAuditFilters } from '@/modules/admin/services/auditQueryService';
+import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES, AUDIT_SOURCES } from '@/components/admin/auditFilterOptions';
 import { ADMIN_EXPORT_MAX_ROWS as MAX_ROWS, csvRow, queryText, sendAuditedCsv, textFilterSet } from '@/modules/admin/services/adminCsvExport';
 
-const SOURCES = new Set(['admin', 'accounting', 'auth']);
+const SOURCES = new Set<string>(AUDIT_SOURCES);
+const ACTIONS = new Set<string>(AUDIT_ACTIONS);
+const ENTITY_TYPES = new Set<string>(AUDIT_ENTITY_TYPES);
 
 const CSV_HEADERS = ['Date', 'Source', 'User', 'Email', 'Company', 'Action', 'Entity Type', 'Entity Ref', 'IP', 'Details'];
 
@@ -33,6 +36,9 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   const toDate     = queryText(req.query.to_date);
   if (source && !SOURCES.has(source)) return apiResponse.badRequest(res, 'source must be admin, accounting or auth');
   if (companyId && !isUuidParam(companyId)) return apiResponse.badRequest(res, 'company_id must be a UUID');
+  // The page's dropdown values only, so the audit row records nothing but a known value.
+  if (action && !ACTIONS.has(action)) return apiResponse.badRequest(res, 'action is not one of the Audit Trail actions');
+  if (entityType && !ENTITY_TYPES.has(entityType)) return apiResponse.badRequest(res, 'entity_type is not one of the Audit Trail types');
   for (const d of [fromDate, toDate]) {
     if (d && !isRealCalendarDate(d)) return apiResponse.badRequest(res, 'from_date and to_date must be YYYY-MM-DD');
   }

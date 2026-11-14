@@ -10,8 +10,14 @@ import { csvRow, sendAuditedCsv, textFilterSet } from '@/modules/admin/services/
 
 describe('csvRow', () => {
   it('quotes every cell, neutralises formula text, leaves numbers alone', () => {
-    expect(csvRow([-5, 3.5, 0, '-5', '=1+1', '+SUM(A1)', '@x', 'plain', 'say "hi"'])).toBe(
-      `"-5","3.5","0","'-5","'=1+1","'+SUM(A1)","'@x","plain","say ""hi"""`);
+    expect(csvRow([-5, 3.5, 0, '=1+1', '+SUM(A1)', '@x', 'plain', 'say "hi"'])).toBe(
+      `"-5","3.5","0","'=1+1","'+SUM(A1)","'@x","plain","say ""hi"""`);
+  });
+
+  it('a plain signed decimal string is a number too (pg numeric/bigint); anything more is neutralised', () => {
+    expect(csvRow(['-5', '-12.50', '42', '0.5'])).toBe(`"-5","-12.50","42","0.5"`);
+    expect(csvRow(['-5+1', '-1e3', '- 5', '-5\t', '-.5', '+5', '-'])).toBe(
+      `"'-5+1","'-1e3","'- 5","'-5\t","'-.5","'+5","'-"`);
   });
 
   it('writes null as empty, booleans as words, dates as ISO-8601, objects as JSON (neutralised)', () => {

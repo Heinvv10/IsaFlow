@@ -199,6 +199,35 @@ describe('web analytics export', () => {
   }, 30000);
 });
 
+describe('exports refuse filter values the pages never send (400), so audit rows only hold known values', () => {
+  it.each([
+    ['users role', usersExport, '/api/admin/users/export', { role: 'root' }],
+    ['users status', usersExport, '/api/admin/users/export', { status: 'deleted' }],
+    ['companies status', companiesExport, '/api/admin/companies/export', { status: 'bogus' }],
+    ['companies sort_by', companiesExport, '/api/admin/companies/export', { sort_by: 'password' }],
+    ['companies sort_dir', companiesExport, '/api/admin/companies/export', { sort_by: 'name', sort_dir: 'sideways' }],
+    ['companies plan', companiesExport, '/api/admin/companies/export', { plan: 'no-such-plan' }],
+    ['companies from', companiesExport, '/api/admin/companies/export', { from: '2026-02-31' }],
+    ['companies to', companiesExport, '/api/admin/companies/export', { to: 'yesterday' }],
+    ['subscriptions status', subscriptionsExport, '/api/admin/billing/subscriptions/export', { status: 'bogus' }],
+  ])('%s', async (_name, route, url, query) => {
+    const before = (await pool.query('SELECT COUNT(*)::int AS n FROM admin_audit_log WHERE admin_user_id = $1', [admin])).rows[0].n;
+    const r = await callAdminRoute(admin, route, 'GET', url, query as Record<string, string>);
+    expect(r.status, r.text.slice(0, 200)).toBe(400);
+    const after = (await pool.query('SELECT COUNT(*)::int AS n FROM admin_audit_log WHERE admin_user_id = $1', [admin])).rows[0].n;
+    expect(after).toBe(before);
+  }, 30000);
+
+  it('companies: a valid from/to range is applied', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const r = await callAdminRoute(admin, companiesExport, 'GET', '/api/admin/companies/export', { search: TAG, from: '2000-01-01', to: '2000-12-31' });
+    expect(r.status).toBe(200);
+    expect(csvDataLines(r.text)).toHaveLength(0);
+    const now = await callAdminRoute(admin, companiesExport, 'GET', '/api/admin/companies/export', { search: TAG, from: '2000-01-01', to: today });
+    expect(csvDataLines(now.text).length).toBeGreaterThan(0);
+  }, 30000);
+});
+
 describe('web analytics export: bad input and the row cap', () => {
   it('website_id must be a UUID', async () => {
     const r = await callAdminRoute(admin, webExport, 'GET', '/api/admin/analytics/web/export', { website_id: 'x"y', range: '24h' });

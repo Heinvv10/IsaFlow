@@ -12,6 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { isRealCalendarDate } from '@/lib/validation';
 import { csvRow, queryText, sendAuditedCsv, textFilterSet } from '@/modules/admin/services/adminCsvExport';
 
 type Row = DbRow;
@@ -29,9 +30,10 @@ const CSV_HEADERS = [
 
 /**
  * The sort keys the Companies list accepts (adminCompanyService ALLOWED_SORT_COLUMNS) plus plan_name, which
- * the page offers. A key not here (last_active, until the list sorts by it for real) sorts by the default,
- * created_at desc, rather than refusing the download: the audit row (`sort_fallback_from`) and the
- * X-Export-Sort response header say so.
+ * the page offers. FALLBACK_SORTS are keys the page offers that the export cannot apply yet (last_active,
+ * until the list sorts by it for real): they sort by the default, created_at desc, rather than refusing the
+ * download, and the audit row (`sort_fallback_from`) and the X-Export-Sort response header say so. Any other
+ * key is a 400, so the audit row only records known values.
  */
 const SORT_COLUMNS: Record<string, string> = {
   name: 'c.name',
@@ -41,6 +43,8 @@ const SORT_COLUMNS: Record<string, string> = {
   mrr_cents: 'mrr_cents',
   plan_name: 'p.name',
 };
+const FALLBACK_SORTS = new Set(['last_active']);
+const STATUSES = new Set(['trial', 'active', 'suspended', 'cancelled', 'deleted']);
 
 async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -53,9 +57,21 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   const toDate       = queryText(req.query.to);
   const plan         = queryText(req.query.plan);
   const requestedSort = queryText(req.query.sort_by);
+  const requestedDir  = queryText(req.query.sort_dir);
+  if (statusFilter && !STATUSES.has(statusFilter)) return apiResponse.badRequest(res, 'status is not a company status');
+  if (requestedSort && !SORT_COLUMNS[requestedSort] && !FALLBACK_SORTS.has(requestedSort)) {
+    return apiResponse.badRequest(res, 'sort_by is not a Companies column');
+  }
+  if (requestedDir && requestedDir !== 'asc' && requestedDir !== 'desc') return apiResponse.badRequest(res, 'sort_dir must be asc or desc');
+  for (const d of [fromDate, toDate]) {
+    if (d && !isRealCalendarDate(d)) return apiResponse.badRequest(res, 'from and to must be YYYY-MM-DD');
+  }
+  if (plan && (await sql`SELECT 1 FROM plans WHERE code = ${plan}`).length === 0) {
+    return apiResponse.badRequest(res, 'plan is not a plan code');
+  }
   const honoured = requestedSort !== null && SORT_COLUMNS[requestedSort] !== undefined;
   const sortBy  = honoured ? requestedSort : 'created_at';
-  const sortAsc = honoured && queryText(req.query.sort_dir)?.toLowerCase() === 'asc';
+  const sortAsc = honoured && requestedDir === 'asc';
   const sortDir = sortAsc ? 'asc' : 'desc';
   const sortFallbackFrom = requestedSort !== null && !honoured ? requestedSort : null;
   const sortCol = SORT_COLUMNS[sortBy]!;
