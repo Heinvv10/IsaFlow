@@ -5,9 +5,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import type { RevenueIntelligence } from '@/modules/admin/types/admin.types';
+import { adminFetch } from '@/lib/admin/adminFetch';
 import { formatCentsOrDash, formatRate, MRR_SCOPE_NOTE, MRR_TREND_NOTE } from '@/components/admin/formatMetric';
 
 const PlanBreakdownChart  = dynamic(
@@ -63,7 +64,7 @@ export function RevenueIntelligenceSection() {
     setLoading(true);
     setError('');
     try {
-      const res  = await apiFetch('/api/admin/analytics/revenue');
+      const res  = await adminFetch('/api/admin/analytics/revenue');
       await assertOk(res, 'Could not load the revenue data - try again');
       const json = await res.json() as { data: RevenueIntelligence };
       setData(json.data);

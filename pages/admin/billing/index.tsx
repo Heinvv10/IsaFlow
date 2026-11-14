@@ -6,13 +6,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { formatDisplayMonthYear } from '@/utils/dateFormat';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { formatCentsOrDash, formatRate, MRR_SCOPE_NOTE } from '@/components/admin/formatMetric';
 import { AlertCircle, Loader2, ArrowRight, CreditCard, List, FileText, Zap, Package } from 'lucide-react';
 import Link from 'next/link';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface BillingOverview {
   mrr_cents: number;
@@ -59,8 +60,8 @@ export default function BillingOverviewPage() {
     setError('');
     try {
       const [ovRes, subRes] = await Promise.all([
-        apiFetch('/api/admin/billing/overview'),
-        apiFetch('/api/admin/billing/subscriptions?limit=10'),
+        adminFetch('/api/admin/billing/overview'),
+        adminFetch('/api/admin/billing/subscriptions?limit=10'),
       ]);
       await assertOk(ovRes, 'Could not load billing data - try again');
       await assertOk(subRes, 'Could not load billing data - try again');
