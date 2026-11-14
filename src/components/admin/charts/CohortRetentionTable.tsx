@@ -5,6 +5,7 @@
 
 import type { CohortRetentionRow } from '@/modules/admin/types/admin.types';
 import { formatDisplayMonthYear } from '@/utils/dateFormat';
+import { formatRate } from '@/components/admin/formatMetric';
 
 interface Props {
   data: CohortRetentionRow[];
@@ -25,18 +26,11 @@ function heatmapClass(pct: number): string {
   return 'text-gray-500';
 }
 
-function PctCell({ value, isM0 }: { value: number; isM0?: boolean }) {
-  if (isM0) {
-    // M0 is always 100% by definition if they signed up that month — skip heatmap
-    return (
-      <td className="px-4 py-2.5 text-center text-xs font-semibold text-gray-600 dark:text-gray-400">
-        {value > 0 ? `${value}%` : '—'}
-      </td>
-    );
-  }
+/** null = that month has not ended yet: a dash, distinct from a real 0%. */
+function PctCell({ value }: { value: number | null }) {
   return (
-    <td className={`px-4 py-2.5 text-center text-xs font-semibold rounded ${heatmapClass(value)}`}>
-      {value > 0 ? `${value}%` : '—'}
+    <td className={`px-4 py-2.5 text-center text-xs font-semibold rounded ${value === null ? 'text-gray-500' : heatmapClass(value)}`}>
+      {formatRate(value)}
     </td>
   );
 }
@@ -75,7 +69,7 @@ export function CohortRetentionTable({ data }: Props) {
               <td className="px-4 py-2.5 text-center text-xs text-gray-500 dark:text-gray-400">
                 {row.cohort_size}
               </td>
-              <PctCell value={row.m0_pct} isM0 />
+              <PctCell value={row.m0_pct} />
               <PctCell value={row.m1_pct} />
               <PctCell value={row.m2_pct} />
               <PctCell value={row.m3_pct} />
@@ -84,7 +78,7 @@ export function CohortRetentionTable({ data }: Props) {
         </tbody>
       </table>
       <p className="px-4 py-2 text-xs text-gray-600 dark:text-gray-400 border-t border-gray-100 dark:border-gray-800">
-        Retention at end of each month after signup. Red line at 5% churn is benchmark.
+        Share of each signup cohort with a live subscription at the end of the signup month (M0) and of each month after. A dash: that month has not ended.
       </p>
     </div>
   );

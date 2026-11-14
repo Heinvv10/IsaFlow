@@ -59,8 +59,13 @@ export interface BillingOverview {
   active_subscriptions: number;
   past_due_count: number;
   trial_count: number;
-  churn_rate_percent: number;
-  arpu_cents: number;
+  /** Companies with an active subscription worth more than R0 (metrics module). */
+  paying_companies: number;
+  /** null when nothing could churn (no subscriptions in the window). */
+  churn_rate_percent: number | null;
+  /** MRR / paying companies; null when no company pays. */
+  arpu_cents: number | null;
+  /** Manual admin invoices only (admin_invoices), VAT-inclusive. */
   total_revenue_cents: number;
   outstanding_cents: number;
 }
@@ -114,7 +119,8 @@ export interface PlatformHealth {
   active_users_30d: number;
   total_api_calls_24h: number;
   error_count_24h: number;
-  error_rate_percent: number;
+  /** Error rows / admin audit rows in 24h; null when there were none. */
+  error_rate_percent: number | null;
   db_size_mb: number;
   top_companies_by_size: Array<{ company_id: string; company_name: string; size_mb: number }>;
 }
@@ -123,9 +129,11 @@ export interface UsageAnalytics {
   dau: number;
   wau: number;
   mau: number;
-  stickiness_percent: number;
+  /** DAU / MAU; null when MAU is 0. */
+  stickiness_percent: number | null;
   top_pages: Array<{ path: string; views: number }>;
-  feature_adoption: Array<{ feature: string; adoption_percent: number; user_count: number }>;
+  /** user_count = companies with effective access (override > global > plan); percent null with no companies. */
+  feature_adoption: Array<{ feature: string; adoption_percent: number | null; user_count: number }>;
   revenue_by_plan: Array<{ plan_name: string; mrr_cents: number; company_count: number }>;
   churn_signals: Array<{ company_id: string; company_name: string; days_inactive: number; last_login: string | null }>;
 }
@@ -170,29 +178,34 @@ export interface PlanBreakdownRow {
   company_count: number;
   mrr_cents: number;
   arr_cents: number;
-  pct_of_total: number;
+  /** null when total MRR is 0. */
+  pct_of_total: number | null;
 }
 
 export interface ChurnTrendPoint {
   month: string;
   churned_companies: number;
-  churn_rate_pct: number;
+  /** null when no company was active at the start of the month. */
+  churn_rate_pct: number | null;
 }
 
 export interface CohortRetentionRow {
+  /** First day of the SAST signup month, YYYY-MM-01. */
   cohort_month: string;
   cohort_size: number;
-  m0_pct: number;
-  m1_pct: number;
-  m2_pct: number;
-  m3_pct: number;
+  /** % of the cohort with a live subscription at the end of month N after signup; null until that month has ended. */
+  m0_pct: number | null;
+  m1_pct: number | null;
+  m2_pct: number | null;
+  m3_pct: number | null;
 }
 
 export interface RevenueIntelligence {
   plan_breakdown: PlanBreakdownRow[];
   churn_trend: ChurnTrendPoint[];
-  nrr: number;
-  arpu_cents: number;
-  ltv_estimate_cents: number;
+  /** null when no company paid at the start of last month. */
+  nrr: number | null;
+  arpu_cents: number | null;
+  ltv_estimate_cents: number | null;
   cohort_retention: CohortRetentionRow[];
 }

@@ -32,6 +32,8 @@ export interface AdminCompanyDetail extends AdminCompanyListItem {
   billing_email: string | null;
   billing_contact: string | null;
   stripe_customer_id: string | null;
+  /** Of the current subscription (latest trial/active/past_due); null without one. */
+  billing_cycle: string | null;
   trial_ends_at: string | null;
   suspended_at: string | null;
   suspended_reason: string | null;

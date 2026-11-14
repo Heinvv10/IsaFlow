@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { companyMrrCents, currentSubscriptionJoin } from './metrics/metricsSql';
 import type {
   AdminCompanyListItem,
   AdminCompanyDetail,
@@ -50,10 +51,10 @@ export async function listCompanies(
   const searchPattern = filters.search ? `%${filters.search}%` : null;
 
   const [countRow] = await sql`
-    SELECT COUNT(DISTINCT c.id) AS total
+    SELECT COUNT(*) AS total
     FROM companies c
-    LEFT JOIN subscriptions s ON s.company_id = c.id AND s.status IN ('active','trial')
-    LEFT JOIN plans p ON p.id = s.plan_id
+    ${currentSubscriptionJoin()}
+    LEFT JOIN plans p ON p.id = cur.plan_id
     WHERE (c.status IS DISTINCT FROM 'deleted' OR ${filters.status ?? null}::text = 'deleted')
       AND (${searchPattern}::text IS NULL
            OR c.name ILIKE ${searchPattern}
@@ -72,18 +73,12 @@ export async function listCompanies(
       p.code                                                          AS plan_code,
       (SELECT COUNT(*) FROM company_users cu WHERE cu.company_id = c.id)::int
                                                                       AS user_count,
-      COALESCE(
-        CASE
-          WHEN s.billing_cycle = 'monthly' THEN p.monthly_price_cents
-          WHEN s.billing_cycle = 'annual'  THEN ROUND(p.annual_price_cents / 12.0)
-          ELSE 0
-        END, 0
-      )::int                                                          AS mrr_cents,
+      ${companyMrrCents()}                                            AS mrr_cents,
       c.created_at,
       c.updated_at                                                    AS last_active
     FROM companies c
-    LEFT JOIN subscriptions s ON s.company_id = c.id AND s.status IN ('active','trial')
-    LEFT JOIN plans p ON p.id = s.plan_id
+    ${currentSubscriptionJoin()}
+    LEFT JOIN plans p ON p.id = cur.plan_id
     WHERE (c.status IS DISTINCT FROM 'deleted' OR ${filters.status ?? null}::text = 'deleted')
       AND (${searchPattern}::text IS NULL
            OR c.name ILIKE ${searchPattern}
@@ -151,16 +146,11 @@ export async function getCompanyDetail(
       (SELECT COUNT(*)
          FROM company_users cu
         WHERE cu.company_id = c.id)::int AS user_count,
-      COALESCE(
-        CASE
-          WHEN s.billing_cycle = 'monthly' THEN p.monthly_price_cents
-          WHEN s.billing_cycle = 'annual'  THEN ROUND(p.annual_price_cents / 12.0)
-          ELSE 0
-        END, 0
-      )::int AS mrr_cents
+      cur.billing_cycle,
+      ${companyMrrCents()} AS mrr_cents
     FROM companies c
-    LEFT JOIN subscriptions s ON s.company_id = c.id AND s.status IN ('active','trial')
-    LEFT JOIN plans p ON p.id = s.plan_id
+    ${currentSubscriptionJoin()}
+    LEFT JOIN plans p ON p.id = cur.plan_id
     WHERE c.id = ${companyId}
     LIMIT 1
   `;
@@ -192,6 +182,7 @@ export async function getCompanyDetail(
     billing_email: r.billing_email as string | null,
     billing_contact: r.billing_contact as string | null,
     stripe_customer_id: r.stripe_customer_id as string | null,
+    billing_cycle: (r.billing_cycle as string | null) ?? null,
     trial_ends_at: toIso(r.trial_ends_at),
     suspended_at: toIso(r.suspended_at),
     suspended_reason: r.suspended_reason as string | null,

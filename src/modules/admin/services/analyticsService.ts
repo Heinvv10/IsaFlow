@@ -7,6 +7,9 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { PlatformHealth, UsageAnalytics, PlatformSettings } from '../types/admin.types';
+import { companiesWithFeature, listFeatureFlags } from './featureFlagService';
+import { loadLiveCompanyIds, loadSubscriptionFacts } from './metrics/metricsSql';
+import { percentOrNull, revenueByPlan } from './metrics/revenueMath';
 export { getTrends } from './trendsService';
 type Row = DbRow;
 
@@ -31,9 +34,7 @@ export async function getPlatformHealth(): Promise<PlatformHealth> {
     active_users_30d: activeUsers.d30,
     total_api_calls_24h: apiCalls.total,
     error_count_24h: apiCalls.errors,
-    error_rate_percent: apiCalls.total > 0
-      ? Math.round((apiCalls.errors / apiCalls.total) * 10000) / 100
-      : 0,
+    error_rate_percent: percentOrNull(apiCalls.errors, apiCalls.total),
     db_size_mb: dbSize,
     top_companies_by_size: topCompanies,
   };
@@ -117,9 +118,7 @@ export async function getUsageAnalytics(): Promise<UsageAnalytics> {
     getChurnSignals(),
   ]);
 
-  const stickiness = engagement.mau > 0
-    ? Math.round((engagement.dau / engagement.mau) * 10000) / 100
-    : 0;
+  const stickiness = percentOrNull(engagement.dau, engagement.mau);
 
   const analytics: UsageAnalytics = {
     dau: engagement.dau,
@@ -159,49 +158,24 @@ async function getEngagementCounts(): Promise<{ dau: number; wau: number; mau: n
   };
 }
 
+/**
+ * Per flag, the live companies (not deleted, not internal) that HAVE the
+ * feature: override, else global flag, else their plan — the same reader the
+ * feature gate uses (featureFlagService.companiesWithFeature), not overrides alone.
+ */
 async function getFeatureAdoption(): Promise<UsageAnalytics['feature_adoption']> {
-  const totalRow = await sql`SELECT COUNT(*) AS total FROM companies WHERE status IS DISTINCT FROM 'deleted'`;
-  const total = parseInt((totalRow[0] as Row).total as string, 10) || 1;
-
-  const rows = await sql`
-    SELECT
-      ff.name AS feature,
-      COUNT(DISTINCT cfo.company_id) AS user_count
-    FROM feature_flags ff
-    LEFT JOIN company_feature_overrides cfo ON cfo.feature_id = ff.id AND cfo.enabled = true
-    GROUP BY ff.id, ff.name
-    ORDER BY user_count DESC
-  `;
-
-  return (rows as Row[]).map((row) => ({
-    feature: row.feature as string,
-    user_count: parseInt(row.user_count as string, 10) || 0,
-    adoption_percent: Math.round(((parseInt(row.user_count as string, 10) || 0) / total) * 10000) / 100,
-  }));
+  const [companyIds, flags] = await Promise.all([loadLiveCompanyIds(), listFeatureFlags()]);
+  const adoption: UsageAnalytics['feature_adoption'] = [];
+  for (const flag of flags) {
+    const count = (await companiesWithFeature(companyIds, flag.code)).size;
+    adoption.push({ feature: flag.name, user_count: count, adoption_percent: percentOrNull(count, companyIds.length) });
+  }
+  return adoption.sort((a, b) => b.user_count - a.user_count || a.feature.localeCompare(b.feature));
 }
 
+/** Paying companies and MRR per plan, by the one MRR definition (trials are not a plan's revenue). */
 async function getRevenueByPlan(): Promise<UsageAnalytics['revenue_by_plan']> {
-  const rows = await sql`
-    SELECT
-      p.name AS plan_name,
-      COUNT(s.id) AS company_count,
-      COALESCE(SUM(
-        CASE
-          WHEN s.billing_cycle = 'monthly' THEN p.monthly_price_cents
-          WHEN s.billing_cycle = 'annual'  THEN ROUND(p.annual_price_cents / 12.0)
-          ELSE 0
-        END
-      ), 0) AS mrr_cents
-    FROM plans p
-    LEFT JOIN subscriptions s ON s.plan_id = p.id AND s.status IN ('active', 'trial')
-    GROUP BY p.id, p.name
-    ORDER BY mrr_cents DESC
-  `;
-  return (rows as Row[]).map((row) => ({
-    plan_name: row.plan_name as string,
-    mrr_cents: parseInt(row.mrr_cents as string, 10) || 0,
-    company_count: parseInt(row.company_count as string, 10) || 0,
-  }));
+  return revenueByPlan(await loadSubscriptionFacts());
 }
 
 async function getChurnSignals(): Promise<UsageAnalytics['churn_signals']> {
