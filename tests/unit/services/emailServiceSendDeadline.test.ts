@@ -5,11 +5,11 @@
  * unknown (provablyNotSent false: the server may already have accepted the message).
  *
  * Real nodemailer against a real local SMTP server (127.0.0.1, a port the OS hands out) that delays every reply by
- * STEP_MS: each step is well under socketTimeout, the whole conversation is well past the deadline. Nothing leaves
- * this machine; the recipient is on the reserved .test TLD.
+ * STEP_MS (tests/helpers/fakeSmtpServer.ts, STARTTLS offered): each step is well under socketTimeout, the whole
+ * conversation is well past the deadline. Nothing leaves this machine; the recipient is on the reserved .test TLD.
  */
-import net from 'node:net';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeTestCert, startFakeSmtp, watchClientSockets, type ClientSocketWatch, type FakeSmtp } from '../../helpers/fakeSmtpServer';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => fn()) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
@@ -18,62 +18,27 @@ import { sendEmail } from '@/modules/accounting/services/core/emailService';
 
 const STEP_MS = 400;       // every reply's delay: far under socketTimeout
 const SOCKET_MS = 2_000;   // nodemailer's inactivity timer for this test
-const DEADLINE_MS = 1_500; // the hard ceiling; the conversation needs ~7 steps = ~2.8 s
-let server: net.Server;
+const DEADLINE_MS = 1_500; // the hard ceiling; the conversation needs ~9 steps (STARTTLS included) = ~3.6 s
+// A slow server that offers STARTTLS (sendEmail requires it off port 465); the client trusts its test certificate.
+let server: FakeSmtp;
+let watch: ClientSocketWatch;
 let port = 0;
-const sockets = new Set<net.Socket>();
-let closedByClient = 0;
-let accepted = 0; // messages whose end of data the server received
-
-/** A minimal SMTP server: greeting, EHLO (AUTH PLAIN), AUTH, MAIL, RCPT, DATA, end of data, QUIT, each reply delayed. */
-function slowSmtp(): net.Server {
-  return net.createServer((sock) => {
-    sockets.add(sock);
-    sock.on('close', () => { closedByClient += 1; sockets.delete(sock); });
-    sock.on('error', () => { sockets.delete(sock); });
-    const reply = (line: string) => setTimeout(() => { if (!sock.destroyed) sock.write(`${line}\r\n`); }, STEP_MS);
-    let inData = false;
-    let buffer = '';
-    reply('220 slow.test ESMTP');
-    sock.on('data', (chunk) => {
-      buffer += chunk.toString('utf8');
-      if (inData) {
-        if (!buffer.includes('\r\n.\r\n')) return;
-        inData = false;
-        buffer = '';
-        accepted += 1;
-        reply('250 queued');
-        return;
-      }
-      let at: number;
-      while ((at = buffer.indexOf('\r\n')) >= 0) {
-        const cmd = buffer.slice(0, at).toUpperCase();
-        buffer = buffer.slice(at + 2);
-        if (cmd.startsWith('EHLO')) reply('250-slow.test\r\n250 AUTH PLAIN');
-        else if (cmd.startsWith('AUTH')) reply('235 ok');
-        else if (cmd.startsWith('MAIL') || cmd.startsWith('RCPT')) reply('250 ok');
-        else if (cmd === 'DATA') { inData = true; reply('354 go on'); }
-        else if (cmd === 'QUIT') reply('221 bye');
-        else reply('250 ok');
-      }
-    });
-  });
-}
 
 beforeAll(async () => {
-  server = slowSmtp();
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  port = (server.address() as net.AddressInfo).port;
+  const cert = makeTestCert();
+  server = await startFakeSmtp({ tls: 'starttls', cert, delayMs: STEP_MS });
+  port = server.port;
+  watch = watchClientSockets({ ca: cert.cert });
 });
 afterAll(async () => {
-  for (const s of sockets) s.destroy();
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  watch.restore();
+  await server.close();
 });
 
 const ENV = process.env;
 beforeEach(() => {
-  closedByClient = 0;
-  accepted = 0;
+  server.closed = 0;
+  server.accepted = 0;
   process.env = { ...ENV, SMTP_HOST: '127.0.0.1', SMTP_PORT: String(port), SMTP_USER: 'u', SMTP_PASS: 'p', SMTP_FROM: 'from@slow.example.test' };
 });
 afterEach(() => { process.env = ENV; });
@@ -97,15 +62,15 @@ describe('sendEmail hard deadline', () => {
     expect(r.error).toMatch(/deadline/i);
     expect(took).toBeGreaterThanOrEqual(DEADLINE_MS - 50);
     expect(took).toBeLessThan(DEADLINE_MS + 1_000);
-    await vi.waitFor(() => expect(closedByClient).toBeGreaterThan(0), { timeout: 3_000 });
+    await vi.waitFor(() => expect(server.closed).toBeGreaterThan(0), { timeout: 3_000 });
     // Closed AT the deadline, not left to finish: the abandoned conversation never delivered the message.
     await new Promise((r) => setTimeout(r, 2_500));
-    expect(accepted).toBe(0);
+    expect(server.accepted).toBe(0);
   }, 20_000);
 
   it('a send that finishes inside the deadline is delivered through the socket the deadline holds', async () => {
     const r = await sendEmail({ ...message, deadlineMs: 10_000 });
     expect(r.success, r.error).toBe(true);
-    expect(accepted).toBe(1);
+    expect(server.accepted).toBe(1);
   }, 20_000);
 });

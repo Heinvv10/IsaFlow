@@ -176,6 +176,9 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
       host: config.host,
       port: config.port,
       secure: config.port === 465,
+      // Any other port must upgrade with STARTTLS before AUTH: a server that does not offer it is refused, so the
+      // credentials and the message never cross in plaintext (nodemailer's default only upgrades when offered).
+      requireTLS: config.port !== 465,
       // Validate the TLS cert against its real wildcard name when the host the
       // app dials (SMTP_HOST) differs from the cert's CN/SAN. rejectUnauthorized
       // is left at its default (true) — verification stays ON; we only correct

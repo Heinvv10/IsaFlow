@@ -8,11 +8,12 @@
  * classes nodemailer cannot be made to produce here quickly (a timeout, DNS)
  * are given as the error shapes its source produces (lib/smtp-connection).
  */
-import { createServer, type Server, type Socket } from 'node:net';
+import { createServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import nodemailer from 'nodemailer';
 import nodemailerPackage from 'nodemailer/package.json';
+import { makeTestCert, startFakeSmtp, watchClientSockets, type ClientSocketWatch, type FakeSmtp } from '../../helpers/fakeSmtpServer';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
@@ -21,40 +22,15 @@ import { als, type RequestContext } from '@/lib/als';
 import { markSendUsedUnlessNotSent } from '@/lib/quotaUse';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 
-/** How the fake server answers each step; 'drop' closes the socket without a reply. */
+/**
+ * How the fake server (tests/helpers/fakeSmtpServer.ts) answers each step; 'drop' closes the socket without a reply.
+ * It offers STARTTLS (sendEmail requires it off port 465) with a test certificate the client is made to trust.
+ */
 type Step = 'auth' | 'mail' | 'rcpt' | 'data' | 'end';
 let replies: Partial<Record<Step, string>> = {};
-let server: Server;
+let server: FakeSmtp;
+let watch: ClientSocketWatch;
 let port = 0;
-
-function smtp(socket: Socket): void {
-  const say = (line: string | undefined, fallback: string) => {
-    const reply = line ?? fallback;
-    if (reply === 'drop') socket.destroy(); else socket.write(`${reply}\r\n`);
-  };
-  let inData = false;
-  let buffer = '';
-  socket.write('220 test ESMTP\r\n');
-  socket.on('data', (chunk) => {
-    buffer += chunk.toString();
-    if (inData) {
-      if (!buffer.includes('\r\n.\r\n')) return;
-      inData = false; buffer = '';
-      return say(replies.end, '250 queued');
-    }
-    let at: number;
-    while ((at = buffer.indexOf('\r\n')) >= 0) {
-      const line = buffer.slice(0, at).toUpperCase(); buffer = buffer.slice(at + 2);
-      if (line.startsWith('EHLO')) socket.write('250-test\r\n250 AUTH PLAIN\r\n');
-      else if (line.startsWith('AUTH')) say(replies.auth, '235 ok');
-      else if (line.startsWith('MAIL')) say(replies.mail, '250 ok');
-      else if (line.startsWith('RCPT')) say(replies.rcpt, '250 ok');
-      else if (line.startsWith('DATA')) { inData = !replies.data; say(replies.data, '354 go'); }
-      else if (line.startsWith('QUIT')) { socket.write('221 bye\r\n'); socket.end(); }
-    }
-  });
-  socket.on('error', () => undefined);
-}
 
 async function used(work: () => Promise<unknown>): Promise<number> {
   const ctx: RequestContext = {
@@ -79,11 +55,15 @@ const sendDirect = () => nodemailer.createTransport({
 });
 
 beforeAll(async () => {
-  server = createServer(smtp);
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  port = (server.address() as AddressInfo).port;
+  const cert = makeTestCert();
+  server = await startFakeSmtp({ tls: 'starttls', cert, reply: (step) => (step === 'ehlo' ? undefined : replies[step]) });
+  port = server.port;
+  watch = watchClientSockets({ ca: cert.cert });
 });
-afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
+afterAll(async () => {
+  watch.restore();
+  await server.close();
+});
 
 describe('sendEmail — which SMTP failures use the daily send unit (R-175)', () => {
   beforeEach(() => {
