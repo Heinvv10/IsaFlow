@@ -12,12 +12,13 @@ import Link from 'next/link';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { SageCommitSummary, type SageCommitSummaryData } from '@/components/admin/SageCommitSummary';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
-import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import {
   ArrowLeft, Download, CheckCircle2, AlertCircle, Loader2,
   Database, Users, Building2, FileText, ShieldCheck, Cable, KeyRound,
 } from 'lucide-react';
 import { formatDisplayTimeSeconds } from '@/utils/dateFormat';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface Company { id: string; name: string }
 
@@ -114,7 +115,7 @@ export default function AdminSageImportPage() {
   const pulledData = useRef<Record<string, any>>({});
 
   useEffect(() => {
-    apiFetch('/api/admin/companies?limit=200')
+    adminFetch('/api/admin/companies?limit=200')
       .then(async r => { await assertOk(r, 'Could not load companies - try again'); return r.json(); })
       .then(d => setCompanies(d.data?.items ?? []))
       .catch((err: unknown) => setCompaniesError(apiErrorMessage(err, 'Could not load companies - try again')));
@@ -133,9 +134,9 @@ export default function AdminSageImportPage() {
     setPulling(true); setError(''); resetSteps();
 
     try {
-      const res = await apiFetch('/api/admin/migration/sage-pull-server', {
+      const res = await adminFetch('/api/admin/migration/sage-pull-server', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId: selectedCompanyId, sageCookie }),
       });
       await assertOk(res, 'Could not pull the data from Sage - try again');
@@ -178,9 +179,9 @@ export default function AdminSageImportPage() {
       const payload = mode === 'namesAndCoa'
         ? { accounts: all.accounts, customers: all.customers, suppliers: all.suppliers }
         : all;
-      const res = await apiFetch('/api/admin/migration/sage-commit', {
+      const res = await adminFetch('/api/admin/migration/sage-commit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId: selectedCompanyId, pulled: payload }),
       });
       await assertOk(res, 'Could not import the Sage data - try again');

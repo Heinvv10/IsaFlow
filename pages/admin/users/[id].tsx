@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useAdminHref, tenantAppUrl } from '@/hooks/useAdminPrefix';
 import { ArrowLeft, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
@@ -17,6 +17,7 @@ import { LoginAsModal } from '@/components/admin/users/LoginAsModal';
 import { UserActionBar, type UserBureau } from '@/components/admin/users/UserActionBar';
 import { log } from '@/lib/logger';
 import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface UserDetail {
   id: string;
@@ -64,7 +65,7 @@ export default function AdminUserDetailPage() {
     if (!id || typeof id !== 'string') return;
     setLoading(true); setError('');
     try {
-      const res  = await apiFetch(`/api/admin/users/${id}`);
+      const res  = await adminFetch(`/api/admin/users/${id}`);
       await assertOk(res, 'Could not load this user - try again');
       const json = await res.json();
       const u = json.data as UserDetail;
@@ -81,7 +82,7 @@ export default function AdminUserDetailPage() {
   useEffect(() => {
     void (async () => {
       try {
-        const res  = await apiFetch('/api/admin/companies?limit=100');
+        const res  = await adminFetch('/api/admin/companies?limit=100');
         await assertOk(res, 'Could not load the company list');
         const json = await res.json();
         setAllCompanies((json.data?.items ?? []) as CompanyOption[]);
@@ -95,7 +96,7 @@ export default function AdminUserDetailPage() {
     setActionLoading(true); setActionError('');
     try {
       const url = endpoint ? `/api/admin/users/${id}/${endpoint}` : `/api/admin/users/${id}`;
-      const res  = await apiFetch(url, { method, headers: { 'X-Admin-Request': 'true', ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+      const res  = await adminFetch(url, { method, headers: { ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
       await assertOk(res, 'Could not update the user - try again');
       const text = await res.text();
       let message: string | undefined;
@@ -124,7 +125,7 @@ export default function AdminUserDetailPage() {
     if (!defaultCompany) { setActionError('User has no linked company to impersonate'); return; }
     setActionLoading(true); setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${defaultCompany.company_id}/impersonate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      const res  = await adminFetch(`/api/admin/companies/${defaultCompany.company_id}/impersonate`, { method: 'POST' });
       await assertOk(res, 'Could not start impersonation - try again');
       const json = await res.json();
       const token = (json.data as { token: string }).token;

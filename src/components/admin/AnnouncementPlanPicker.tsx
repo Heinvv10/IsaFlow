@@ -5,7 +5,8 @@
  * "Unknown plan (xxxxxxxx)", so it can be seen and removed.
  */
 import { useEffect, useState } from 'react';
-import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { adminFetch } from '@/lib/admin/adminFetch';
 import { log } from '@/lib/logger';
 import type { Plan } from '@/modules/admin/types/admin-billing.types';
 
@@ -25,7 +26,7 @@ export function AnnouncementPlanPicker({ value, onChange }: Props) {
     let alive = true;
     void (async () => {
       try {
-        const res = await apiFetch('/api/admin/billing/plans?include_archived=true');
+        const res = await adminFetch('/api/admin/billing/plans?include_archived=true');
         await assertOk(res, LOAD_ERROR);
         const json = await res.json() as { data?: Plan[] };
         if (alive) setPlans(json.data ?? []);

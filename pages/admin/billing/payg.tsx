@@ -6,11 +6,12 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { AlertCircle, Loader2, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface PaygCompany {
   companyId: string;
@@ -45,7 +46,7 @@ export default function PaygCompaniesPage() {
       const qs = new URLSearchParams();
       if (search.trim())    qs.set('search', search.trim());
       if (nudgeFilter)      qs.set('nudgeLevel', nudgeFilter);
-      const res = await apiFetch(`/api/admin/billing/payg/companies?${qs.toString()}`);
+      const res = await adminFetch(`/api/admin/billing/payg/companies?${qs.toString()}`);
       await assertOk(res, 'Could not load PAYG companies - try again');
       const json = await res.json();
       setCompanies(json.data.companies as PaygCompany[]);
@@ -71,9 +72,9 @@ export default function PaygCompaniesPage() {
     if (!reason || !reason.trim()) return;
 
     try {
-      const res = await apiFetch(`/api/admin/billing/payg/${companyId}/adjust`, {
+      const res = await adminFetch(`/api/admin/billing/payg/${companyId}/adjust`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ flows, reason }),
       });
       await assertOk(res, 'Could not adjust the wallet - try again');

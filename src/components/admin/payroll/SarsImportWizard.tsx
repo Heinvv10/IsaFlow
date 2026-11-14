@@ -2,9 +2,10 @@
 
 import { useRef, useState } from 'react';
 import { AlertCircle, Loader2, CheckCircle2, FileSpreadsheet, X } from 'lucide-react';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useFocusTrap } from '@/components/ui/useFocusTrap';
 import type { ImportResult } from './sarsCodeTypes';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 export function ImportWizard({ onClose, onComplete }: { onClose: () => void; onComplete: () => void }) {
   const [step, setStep] = useState<'pick' | 'preview' | 'done'>('pick');
@@ -31,7 +32,7 @@ export function ImportWizard({ onClose, onComplete }: { onClose: () => void; onC
       fd.append('setCurrent', setCurrent ? '1' : '0');
       if (dryRun) fd.append('dryRun', '1');
 
-      const res = await apiFetch('/api/admin/payroll/sars-codes/import', { method: 'POST', body: fd });
+      const res = await adminFetch('/api/admin/payroll/sars-codes/import', { method: 'POST', body: fd });
       await assertOk(res, 'Could not import the SARS codes - try again');
       const json = await res.json() as { data?: ImportResult; message?: string };
       setPreview(json.data ?? null);

@@ -6,7 +6,7 @@
 const EXCLUDED = /^(pages\/api\/|tests\/|scripts\/|node_modules\/|\.next\/|\.claude\/|docs\/|e2e\/|playwright|.*\.(config|test|spec|typeproof)\.[mc]?[jt]sx?$)/;
 const CLIENT_ROOT = /^(pages\/|src\/components\/|src\/hooks\/|src\/contexts\/|src\/modules\/[^/]+\/(hooks|utils|documents|components)\/|public\/|chrome-extension\/)/;
 const SHARED_ROOT = /^src\/(lib|utils)\//;   // helpers any client may import: scanned when they touch a Response or the network
-const API_IMPORT = /^\s*import\b[^;]*?from\s+['"]@\/lib\/apiFetch['"]/m;
+const API_IMPORT = /^\s*import\b[^;]*?from\s+['"]@\/lib\/(apiFetch|admin\/adminFetch)['"]/m;
 const RAW_TRANSPORT = /\bfetch\s*\(|\baxios\b|\bXMLHttpRequest\b|\bsendBeacon\b/;
 /** A server-only environment variable: a client bundle cannot read it, so a helper that does is server code. */
 const SERVER_ENV = /\bprocess\.env(\.(?!NEXT_PUBLIC_|NODE_ENV\b)\w+|\[)/;

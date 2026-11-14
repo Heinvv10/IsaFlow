@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   Activity, Database, Zap, Mail, Users, Clock,
   RefreshCw, AlertTriangle, Loader2,
@@ -16,6 +16,7 @@ import {
   type SystemHealthData, type StatusLevel, type RecentError,
 } from '@/components/admin/HealthWidgets';
 import { formatDisplayTimeSeconds } from '@/utils/dateFormat';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ export default function SystemHealthPage() {
     else if (!data) setLoading(true);
     setError('');
     try {
-      const res  = await apiFetch('/api/admin/health');
+      const res  = await adminFetch('/api/admin/health');
       await assertOk(res, 'Could not load health data - try again');
       const json = await res.json() as { data: SystemHealthData; message?: string };
       setData(json.data);

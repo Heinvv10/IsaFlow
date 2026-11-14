@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, RefreshCw, Mail, AlertCircle } from 'lucide-react';
 import type { EmailLogItem, EmailLogStats } from '../api/admin/email-log';
 import { DateField } from '@/components/ui/DateField';
@@ -14,6 +14,7 @@ import { EMAIL_TYPES, TYPE_LABELS } from '@/components/admin/emailLog/emailLogLa
 import { StatsCards } from '@/components/admin/emailLog/StatsCards';
 import { EmailLogRows } from '@/components/admin/emailLog/EmailLogRows';
 import { useKeyedTimeoutOnce } from '@/hooks/useKeyedTimeoutOnce';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ export default function EmailLogPage() {
       if (dateTo)       params.set('date_to', dateTo);
       if (search)       params.set('search', search);
 
-      const res  = await apiFetch(`/api/admin/email-log?${params}`, { credentials: 'include' }); await assertOk(res, 'Could not load the email log - try again');
+      const res  = await adminFetch(`/api/admin/email-log?${params}`, { credentials: 'include' }); await assertOk(res, 'Could not load the email log - try again');
       const json = await res.json() as { data?: { items: EmailLogItem[]; total: number; stats: EmailLogStats } };
       const data = json.data;
       setItems(data?.items ?? []);
@@ -70,7 +71,7 @@ export default function EmailLogPage() {
   async function handleResend(logId: string) {
     setResendingId(logId);
     try {
-      const res  = await apiFetch('/api/admin/email-log/resend', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify({ logId }), credentials: 'include' });
+      const res  = await adminFetch('/api/admin/email-log/resend', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ logId }), credentials: 'include' });
       await assertOk(res, 'Could not resend the email - try again');
       setResendStatus(prev => ({ ...prev, [logId]: 'ok' }));
       afterResend(logId, () => setResendStatus(prev => { const n = { ...prev }; delete n[logId]; return n; }), 4000);

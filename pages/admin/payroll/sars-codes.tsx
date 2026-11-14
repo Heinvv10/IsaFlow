@@ -9,13 +9,14 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2, Upload, BadgeCheck, Ban } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { CodeDrawer } from '@/components/admin/payroll/SarsCodeDrawer';
 import { ImportWizard } from '@/components/admin/payroll/SarsImportWizard';
 import { SarsCodeFilters } from '@/components/admin/payroll/SarsCodeFilters';
 import { CATEGORY_LABELS, STATUS_BADGE, type CodeRow, type ReleaseRow } from '@/components/admin/payroll/sarsCodeTypes';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 export default function AdminSarsCodesPage() {
   const [releases, setReleases] = useState<ReleaseRow[]>([]);
@@ -46,7 +47,7 @@ export default function AdminSarsCodesPage() {
       if (q.trim()) params.set('search', q.trim());
       if (cat) params.set('category', cat);
       if (st) params.set('status', st);
-      const res = await apiFetch(`/api/admin/payroll/sars-codes?${params.toString()}`);
+      const res = await adminFetch(`/api/admin/payroll/sars-codes?${params.toString()}`);
       await assertOk(res, 'Could not load the SARS codes - try again');
       const json = await res.json() as { data?: { releases: ReleaseRow[]; codes: CodeRow[]; taxYear: number | null }; message?: string };
       setReleases(json.data?.releases ?? []);
@@ -70,7 +71,7 @@ export default function AdminSarsCodesPage() {
   const onSetCurrent = async (year: number) => {
     if (!confirm(`Mark tax year ${year} as the current SARS release? All new payroll runs will use this year's codes.`)) return;
     try {
-      const res = await apiFetch('/api/admin/payroll/sars-codes/release', {
+      const res = await adminFetch('/api/admin/payroll/sars-codes/release', {
         method: 'POST',
         body: JSON.stringify({ taxYear: year }),
       });
@@ -85,7 +86,7 @@ export default function AdminSarsCodesPage() {
       if (!confirm(`Code ${row.code} is used by ${row.used_by_companies} compan${row.used_by_companies === 1 ? 'y' : 'ies'}. Marking deprecated will block new payroll runs that reference it. Continue?`)) return;
     }
     try {
-      const res = await apiFetch(`/api/admin/payroll/sars-codes/${row.code}?taxYear=${row.effective_year}`, {
+      const res = await adminFetch(`/api/admin/payroll/sars-codes/${row.code}?taxYear=${row.effective_year}`, {
         method: 'PATCH',
         body: JSON.stringify({ status: next }),
       });

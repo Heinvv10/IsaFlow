@@ -7,9 +7,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
 import { randsToCents } from '@/components/admin/billing/randsToCents';
-import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { AlertCircle, Loader2, Plus } from 'lucide-react';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface Bundle {
   id: string;
@@ -37,7 +38,7 @@ export default function FlowBundlesPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch('/api/admin/billing/flow-bundles');
+      const res = await adminFetch('/api/admin/billing/flow-bundles');
       await assertOk(res, 'Could not load bundles - try again');
       const json = await res.json();
       setBundles(json.data.bundles as Bundle[]);
@@ -60,9 +61,9 @@ export default function FlowBundlesPage() {
     }
     setCreating(true); setCreateError('');
     try {
-      const res = await apiFetch('/api/admin/billing/flow-bundles', {
+      const res = await adminFetch('/api/admin/billing/flow-bundles', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: draft.name, flows: draft.flows, priceCents,
           displayOrder: draft.displayOrder, isActive: draft.isActive,
@@ -81,9 +82,9 @@ export default function FlowBundlesPage() {
   async function toggleActive(bundle: Bundle) {
     setDeactivating(null);
     try {
-      const res = await apiFetch(`/api/admin/billing/flow-bundles/${bundle.id}`, {
+      const res = await adminFetch(`/api/admin/billing/flow-bundles/${bundle.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isActive: !bundle.isActive }),
       });
       await assertOk(res, 'Could not update the bundle - try again');

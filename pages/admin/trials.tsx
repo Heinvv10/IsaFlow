@@ -1,12 +1,13 @@
 /** Admin Trial Management — full lifecycle view. /admin/trials */
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, Clock, CheckCircle, TrendingUp, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { ConvertTrialModal } from '@/components/admin/ConvertTrialModal';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { adminFetch } from '@/lib/admin/adminFetch';
 import { canConvertTrial, canExtendTrial, daysLeftBadge, STATE_BADGE } from '@/components/admin/trialBadges';
 import type { TrialState } from '@/modules/admin/services/trialQueries';
 
@@ -61,8 +62,8 @@ export default function AdminTrialsPage() {
     setError('');
     try {
       const [trialsRes, statsRes] = await Promise.all([
-        apiFetch('/api/admin/trials?scope=all'),
-        apiFetch('/api/admin/trials/stats'),
+        adminFetch('/api/admin/trials?scope=all'),
+        adminFetch('/api/admin/trials/stats'),
       ]);
       await assertOk(trialsRes, 'Could not load the trials - try again');
       const trialsJson = await trialsRes.json() as ApiTrialsResponse;
@@ -92,9 +93,9 @@ export default function AdminTrialsPage() {
   const extendOne = useCallback(async (id: string, days: number) => {
     setExtending((prev) => new Set(prev).add(id));
     try {
-      const res  = await apiFetch('/api/admin/trials', {
+      const res  = await adminFetch('/api/admin/trials', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ company_id: id, days }),
       });
       await assertOk(res, 'Could not extend the trial - try again');
@@ -111,9 +112,9 @@ export default function AdminTrialsPage() {
     if (selected.size === 0) return;
     setBulkWorking(true);
     try {
-      const res = await apiFetch('/api/admin/trials', {
+      const res = await adminFetch('/api/admin/trials', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ company_ids: Array.from(selected), days: 7 }),
       });
       await assertOk(res, 'Could not extend the selected trials - try again');

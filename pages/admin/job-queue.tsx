@@ -9,12 +9,13 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { JobBulkActionsBar } from '@/components/admin/job-queue/JobBulkActionsBar';
 import { JobTable } from '@/components/admin/job-queue/JobTable';
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Loader2, RefreshCw, Zap, Trash2 } from 'lucide-react';
 import type { BackgroundJob } from '@/modules/accounting/services/core/jobQueueService';
 import { formatDisplayTimeSeconds } from '@/utils/dateFormat';
 import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -50,7 +51,7 @@ export default function JobQueuePage() {
     try {
       const params = new URLSearchParams({ limit: '100' });
       if (activeTab !== 'all') params.set('status', activeTab);
-      const res = await apiFetch(`/api/admin/job-queue?${params}`, { credentials: 'include' });
+      const res = await adminFetch(`/api/admin/job-queue?${params}`, { credentials: 'include' });
       await assertOk(res, 'Could not load the job queue - try again');
       const json = await res.json() as { data: { jobs: BackgroundJob[]; total: number } };
       const list = json.data?.jobs ?? [];
@@ -85,9 +86,9 @@ export default function JobQueuePage() {
   const handleRetry = async (jobId: string) => {
     setRetrying(jobId);
     try {
-      const res = await apiFetch('/api/admin/job-queue', {
+      const res = await adminFetch('/api/admin/job-queue', {
         method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'retry', jobId }),
       });
       await assertOk(res, 'Could not retry the job - try again');
@@ -110,9 +111,9 @@ export default function JobQueuePage() {
 
   // ── Bulk actions ──────────────────────────────────────────────────────────
   const callBulk = async (action: 'retry' | 'cancel') => {
-    const res = await apiFetch('/api/admin/job-queue/bulk-action', {
+    const res = await adminFetch('/api/admin/job-queue/bulk-action', {
       method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, ids: [...selectedIds] }),
     });
     await assertOk(res, action === 'retry' ? 'Could not retry the jobs - try again' : 'Could not cancel the jobs - try again');
@@ -145,9 +146,9 @@ export default function JobQueuePage() {
     setConfirmDeleteOld(false);
     setDeletingOld(true);
     try {
-      const res = await apiFetch('/api/admin/job-queue/bulk-action', {
+      const res = await adminFetch('/api/admin/job-queue/bulk-action', {
         method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'delete_old', olderThanDays: 30 }),
       });
       await assertOk(res, 'Could not delete the old jobs - try again');
