@@ -6,10 +6,7 @@ import { ADMIN_STASH_COOKIE } from '@/lib/auth/impersonation-cookies';
 import { endLoginAsWithoutRestore, loginAsPartiesOfToken, type LoginAsParties } from '@/lib/auth/loginAsRecord';
 import { log } from '@/lib/logger';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 
-/** As /api/auth/refresh (30 a minute per IP). Over it, the cookies still clear; nothing else is done. */
-export const LOGOUT_RATE_LIMIT = { max: 30, windowSecs: 60 };
 
 const noteFailure = (err: unknown) =>
   log.info('gotrue logout non-fatal error', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
@@ -50,23 +47,9 @@ async function loginAsPartiesOrNull(token: string | undefined): Promise<LoginAsP
   }
 }
 
-async function admitted(req: Parameters<NextApiHandler>[0]): Promise<boolean> {
-  try {
-    return await checkRateLimit(`auth-logout:ip:${getClientIp(req)}`, LOGOUT_RATE_LIMIT);
-  } catch (err) {
-    // The counter store is down: sign out anyway (the Login-as look-up below is bounded on its own).
-    log.warn('logout: rate limit unavailable', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
-    return true;
-  }
-}
-
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required' } });
-  }
-  if (!(await admitted(req))) {
-    clearAuthCookies(res);
-    return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' } });
   }
   const cookies = parseCookies(req);
   const access = cookies[ACCESS_COOKIE];
@@ -79,6 +62,8 @@ const handler: NextApiHandler = async (req, res) => {
   // named (an expired access token that GoTrue would not renew, or a look-up past its bound) closes nothing. Its
   // stash row is already unusable (the cookie clears below, and the row is refused by loadStash once it expires,
   // within 1 h of the start) and is purged by the next Login-as start or end.
+  // Not rate limited, deliberately (#1371 re-break N1): a limit keyed on the client IP (cloudflared, no real_ip)
+  // let one script stop everyone behind that IP from revoking their sessions. The look-up is bounded instead.
   const parties = await loginAsPartiesOrNull(access);
   if (parties) {
     await endLoginAsWithoutRestore({ parties, stashId, reason: 'logout',

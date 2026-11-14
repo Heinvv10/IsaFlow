@@ -28,6 +28,10 @@ vi.mock('@/lib/auth/impersonationSessions', () => ({
     actorUserId: '00000000-0000-0000-0000-000000000ad1',
     targetUserId: '00000000-0000-0000-0000-000000000ab1',
   }),
+  impersonationPartiesOfBounded: async () => ({
+    actorUserId: '00000000-0000-0000-0000-000000000ad1',
+    targetUserId: '00000000-0000-0000-0000-000000000ab1',
+  }),
 }));
 vi.mock('@/lib/auth/gotrue-admin-link', () => ({
   generateLink: fixture.generateLink, verifyMagicLink: fixture.verifyMagicLink,

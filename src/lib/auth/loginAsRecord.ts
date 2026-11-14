@@ -34,8 +34,24 @@ export async function loginAsPartiesOfToken(accessToken: string, opts: { bounded
   return opts.bounded ? impersonationPartiesOfBounded(sessionId) : impersonationPartiesOf(sessionId);
 }
 
-/** Writes the `impersonation_end` row and returns its id. Throws when it cannot: the caller must stop there. */
+/**
+ * Writes the `impersonation_end` row and returns its id. Throws when it cannot: the caller must stop there.
+ * One row per Login-as (#1371 re-break B3b): when `details.stash_id` names a stash whose end is already recorded
+ * for these parties (a retry after a lost answer or a later failure), that row is returned instead, unchanged; the
+ * caller's outcome then lands on it through `noteLoginAsEnd`. Two ends of one stash racing each other can still
+ * both insert (no lock across the two statements); the second is the duplicate, never a lost end.
+ */
 export async function recordLoginAsEnd(parties: LoginAsParties, details: Record<string, unknown>): Promise<string> {
+  const stashId = typeof details.stash_id === 'string' ? details.stash_id : null;
+  if (stashId) {
+    const [existing] = await sql<{ id: string }>`
+      SELECT id FROM admin_audit_log
+      WHERE admin_user_id = ${parties.actorUserId} AND action = 'impersonation_end'
+        AND target_id = ${parties.targetUserId} AND details->>'stash_id' = ${stashId}
+      ORDER BY created_at LIMIT 1
+    `;
+    if (existing) return String(existing.id);
+  }
   const rows = await sql<{ id: string }>`
     INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
     VALUES (${parties.actorUserId}, 'impersonation_end', 'user', ${parties.targetUserId},
@@ -103,7 +119,7 @@ export async function endLoginAsWithoutRestore(input: {
 }): Promise<void> {
   let endId: string | null = null;
   try {
-    endId = await recordLoginAsEnd(input.parties, { reason: input.reason });
+    endId = await recordLoginAsEnd(input.parties, { reason: input.reason, ...(input.stashId ? { stash_id: input.stashId } : {}) });
   } catch (err) { noteFailure(input.reason, 'audit', err); }
   const revoked = await input.revoke();
   const stashesRemoved = await removeLoginAsStashes(input.parties, input.stashId, input.reason);

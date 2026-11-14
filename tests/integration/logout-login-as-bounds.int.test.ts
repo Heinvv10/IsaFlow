@@ -1,20 +1,23 @@
 /**
- * #1371 review M1 (WP9): Sign Out is unauthenticated, so its Login-as look-up must never hold or wait long for a
- * platform_admin slot, and the route is rate limited as /api/auth/refresh is. Whatever happens, the cookies clear.
+ * #1371 review M1 / re-break N1, N3 (WP9): Sign Out and end-impersonation are reachable without a live session, so
+ * their Login-as look-up must never hold or wait long for a platform_admin slot. Whatever happens, the cookies clear.
  *
  * - the platform_admin pool is exhausted: the look-up gives up after BOUNDED_LOOKUP_CHECKOUT_MS, Sign Out still
  *   revokes the session at GoTrue and clears the cookies, and the late checkout is handed straight back;
  * - impersonation_sessions is locked: the SELECT is cancelled by its statement_timeout (BOUNDED_LOOKUP_STATEMENT_MS);
- * - over 30 a minute from one IP: 429, the cookies still clear, GoTrue and the look-up are not touched.
+ * - Sign Out is NOT rate limited (N1: a per-IP bucket behind cloudflared let one script block everyone's
+ *   revocation): 40 rapid Sign Outs all revoke;
+ * - end-impersonation with the pool exhausted answers within the bound: an expired stash is refused with the
+ *   cookies cleared, a live one gets a retryable 503 with the cookies kept.
  *
  * GoTrue is the r-032 fake (global fetch). Disposable fixture only.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import logoutRoute from '../../pages/api/auth/logout';
+import endImpersonation from '../../pages/api/auth/end-impersonation';
 import { getPlatformAdminPool } from '@/lib/auth/withPlatformAdmin.pools';
 import { BOUNDED_LOOKUP_CHECKOUT_MS, BOUNDED_LOOKUP_STATEMENT_MS } from '@/lib/auth/impersonationSessions';
-import { clearRateLimitCache } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { loginAsFixture, type Jar } from './r-032-login-as.helpers';
@@ -32,44 +35,45 @@ beforeAll(async () => {
     return fake(input, init);
   });
 }, 60000);
-afterAll(async () => {
-  try {
-    await pool.query("DELETE FROM rate_limit_counters WHERE key LIKE 'auth-logout:%'");
-  } finally { await fx.tearDown(); await pool.end(); }
-});
-beforeEach(async () => {
-  logouts.length = 0;
-  await pool.query("DELETE FROM rate_limit_counters WHERE key LIKE 'auth-logout:%'");
-  clearRateLimitCache();
-});
+afterAll(async () => { await fx.tearDown(); await pool.end(); });
+beforeEach(() => { logouts.length = 0; });
 
-async function signOut(jar: Jar) {
+async function post(route: unknown, jar: Jar) {
   const result = response();
   const t0 = Date.now();
-  await (logoutRoute as (q: never, s: never) => Promise<unknown>)(request(jar, 'POST') as never, result.res as never);
+  await (route as (q: never, s: never) => Promise<unknown>)(request(jar, 'POST') as never, result.res as never);
   const cookies = (result.headers.get('set-cookie') as string[] | undefined) ?? [];
   return { status: result.state.statusCode, ms: Date.now() - t0,
-    clearedAccess: cookies.some((c) => c.startsWith('sb-access-token=;') && /Max-Age=0/.test(c)) };
+    clearedAccess: cookies.some((c) => c.startsWith('sb-access-token=;') && /Max-Age=0/.test(c)),
+    clearedStash: cookies.some((c) => c.startsWith('sb-admin-stash=;') && /Max-Age=0/.test(c)) };
+}
+const signOut = (jar: Jar) => post(logoutRoute, jar);
+
+/** Holds every platform_admin pool connection while `fn` runs; checks nothing stays checked out afterwards. */
+async function withPoolExhausted<T>(fn: () => Promise<T>): Promise<T> {
+  const admin = getPlatformAdminPool();
+  const held: PoolClient[] = [];
+  let out: T;
+  try {
+    while (admin.totalCount < (admin.options.max ?? 10) || admin.idleCount > 0) held.push(await admin.connect());
+    out = await fn();
+  } finally {
+    for (const c of held) c.release();
+  }
+  // The checkout that arrived after the bound was released at once: nothing is left checked out.
+  await vi.waitFor(() => expect({ waiting: admin.waitingCount, inUse: admin.totalCount - admin.idleCount })
+    .toEqual({ waiting: 0, inUse: 0 }));
+  return out;
 }
 
 describe('M1: Sign Out never waits on the platform_admin pool', () => {
   it('the pool is exhausted: gives up within the checkout bound, still revokes and clears, hands the slot back', async () => {
     const jar = await fx.loginAsTarget();
-    const admin = getPlatformAdminPool();
-    const held: PoolClient[] = [];
-    try {
-      while (admin.totalCount < (admin.options.max ?? 10) || admin.idleCount > 0) held.push(await admin.connect());
-      const r = await signOut(jar);
-      expect(r).toMatchObject({ status: 200, clearedAccess: true });
-      expect(r.ms).toBeGreaterThanOrEqual(BOUNDED_LOOKUP_CHECKOUT_MS - 50);
-      expect(r.ms).toBeLessThan(BOUNDED_LOOKUP_CHECKOUT_MS + 3000);
-      expect(logouts).toHaveLength(1);
-    } finally {
-      for (const c of held) c.release();
-    }
-    // The checkout that arrived after the bound was released at once: nothing is left checked out.
-    await vi.waitFor(() => expect({ waiting: admin.waitingCount, inUse: admin.totalCount - admin.idleCount })
-      .toEqual({ waiting: 0, inUse: 0 }));
+    const r = await withPoolExhausted(() => signOut(jar));
+    expect(r).toMatchObject({ status: 200, clearedAccess: true });
+    expect(r.ms).toBeGreaterThanOrEqual(BOUNDED_LOOKUP_CHECKOUT_MS - 50);
+    expect(r.ms).toBeLessThan(BOUNDED_LOOKUP_CHECKOUT_MS + 3000);
+    expect(logouts).toHaveLength(1);
   });
 
   it('impersonation_sessions is locked: the look-up is cancelled by its statement_timeout, Sign Out completes', async () => {
@@ -94,12 +98,30 @@ describe('M1: Sign Out never waits on the platform_admin pool', () => {
     }
   });
 
-  it('over 30 a minute from one IP: 429, cookies still cleared, GoTrue not called', async () => {
-    const own = await fx.ownSession();
-    for (let i = 0; i < 30; i += 1) expect((await signOut(own)).status).toBe(200);
-    logouts.length = 0;
-    const r = await signOut(own);
-    expect(r).toMatchObject({ status: 429, clearedAccess: true });
+  it('N1 not rate limited: 40 rapid Sign Outs from one IP all revoke their session', async () => {
+    const sessions = await Promise.all(Array.from({ length: 40 }, () => fx.ownSession()));
+    const results = await Promise.all(sessions.map((jar) => signOut(jar)));
+    expect(results.every((r) => r.status === 200 && r.clearedAccess)).toBe(true);
+    expect(logouts).toHaveLength(40);
+  });
+});
+
+describe('N3: end-impersonation never waits on the platform_admin pool', () => {
+  it('an expired stash with the pool exhausted: refused within the bound, cookies cleared', async () => {
+    const jar = await fx.loginAsTarget();
+    await pool.query(`UPDATE admin_impersonation_stash SET expires_at = now() - interval '1 second' WHERE stash_id = $1`,
+      [jar['sb-admin-stash']]);
+    const r = await withPoolExhausted(() => post(endImpersonation, jar));
+    expect(r).toMatchObject({ status: 401, clearedAccess: true, clearedStash: true });
+    expect(r.ms).toBeLessThan(4000);
+  });
+
+  it('a live stash with the pool exhausted: a retryable 503 within the bound, cookies kept; the retry restores', async () => {
+    const jar = await fx.loginAsTarget();
+    const r = await withPoolExhausted(() => post(endImpersonation, jar));
+    expect(r).toMatchObject({ status: 503, clearedAccess: false, clearedStash: false });
+    expect(r.ms).toBeLessThan(4000);
     expect(logouts).toEqual([]);
+    expect((await post(endImpersonation, jar)).status).toBe(200);
   });
 });

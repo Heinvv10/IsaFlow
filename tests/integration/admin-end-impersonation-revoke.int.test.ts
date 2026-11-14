@@ -148,14 +148,31 @@ describe('3.10: a refused or failed Return still ends the Login-as, audit first'
     ]);
   });
 
-  it('B2 no access cookie (UNAUTHORIZED): the stash cookie is cleared, so its row goes too, and the end is audited', async () => {
-    const { 'sb-access-token': _gone, ...rest } = await fx.loginAsTarget();
-    const r = await post(endImpersonation, rest);
-    expect(r.statusCode).toBe(401);
-    expect(r.stashCookieCleared).toBe(true);
-    expect(logouts).toEqual([]); // no token held: nothing this request can revoke
-    expect(await stashes()).toEqual([]);
-    expect((await ends()).at(-1)).toMatchObject({ reason: 'no_session_cookie', target_session_revoked: null });
+  it('N2 a stash id alone (no access cookie, or a bad token): cookies cleared; no stash removed, no end row written', async () => {
+    const jar = await fx.loginAsTarget();
+    const { 'sb-access-token': _gone, ...stashOnly } = jar;
+    const before = (await ends()).length;
+    for (const attempt of [stashOnly, { ...stashOnly, 'sb-access-token': 'not-a-jwt' }]) {
+      const r = await post(endImpersonation, attempt);
+      expect(r.statusCode).toBe(401);
+      expect(r.stashCookieCleared).toBe(true);
+    }
+    expect(logouts).toEqual([]);
+    expect(await stashes()).toEqual([jar['sb-admin-stash']]); // expires within 1 h; the next start or end purges it
+    expect((await ends()).length).toBe(before);
+  });
+
+  it('B3b a retry after a lost answer reuses the end row: one row per stash, its reason unchanged', async () => {
+    const jar = await fx.loginAsTarget();
+    expect((await post(endImpersonation, jar)).statusCode).toBe(200);
+    const retry = await post(endImpersonation, jar); // the browser never saw the 200: same cookies again
+    expect(retry.statusCode).toBe(401); // STASH_EXPIRED: the stash went with the first end
+    const rows = (await pool.query(
+      `SELECT details FROM admin_audit_log WHERE admin_user_id = $1 AND action = 'impersonation_end'
+         AND details->>'stash_id' = $2`, [fx.platformAdmin, jar['sb-admin-stash']])).rows.map((r) => r.details);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).not.toHaveProperty('reason');
+    expect(rows[0]).toMatchObject({ target_session_revoked: true });
   });
 
   it('B3 the end audit cannot be written: a failure, and nothing irreversible happened; a retry then works', async () => {

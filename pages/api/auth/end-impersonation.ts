@@ -15,7 +15,9 @@
 // removed, no Set-Cookie, so a retry still works. The revocation outcome is
 // added to the row (`target_session_revoked`: true / false / null when this
 // browser holds no Login-as token to revoke). A refused restore (no access
-// cookie, an unverifiable token, an expired stash) still ends what it can.
+// cookie, an unverifiable token, an expired stash) clears this browser's cookies;
+// only a VERIFIED caller's expired stash is ended (revoked, removed, audited).
+// The end row is one per stash: a retry reuses it (loginAsRecord.recordLoginAsEnd).
 import type { NextApiHandler, NextApiResponse } from 'next';
 import {
   parseCookies,
@@ -27,7 +29,7 @@ import {
 import { ADMIN_STASH_COOKIE, clearImpersonationCookies } from '@/lib/auth/impersonation-cookies';
 import { loadStash, deleteStash, stashPartiesOf } from '@/modules/admin/services/userImpersonationService';
 import { verifyTokenSignature, type GoTrueClaims } from '@/lib/auth/gotrue';
-import { impersonationPartiesOf } from '@/lib/auth/impersonationSessions';
+import { impersonationPartiesOfBounded } from '@/lib/auth/impersonationSessions';
 import {
   noteLoginAsEnd, purgeExpiredStashesBestEffort, recordLoginAsEnd, removeLoginAsStashes, revokeLoginAsSession,
   type LoginAsParties,
@@ -37,24 +39,40 @@ import { pickInitialCompanyId } from '@/lib/auth/liveCompanies';
 import { log } from '@/lib/logger';
 
 /**
- * A refused restore still ends the Login-as. Whose: the session record of a verified Login-as token (its session
- * is then revoked), else the stash row the cookie names, when the caller is one of its parties or presents no
- * verifiable identity at all (its cookie is cleared below, so its row must not outlive it). Nothing to end: null.
+ * The session record of a verified token, bounded (impersonationPartiesOfBounded: this route is reachable without
+ * a live session, so it must never hold or wait long for a platform_admin slot). `gave_up` when the look-up failed
+ * or passed its bound (logged).
  */
-async function endRefusedLoginAs(
-  stashId: string, accessToken: string | undefined, claims: GoTrueClaims | null, reason: string,
-): Promise<void> {
-  const sessionParties = accessToken && typeof claims?.session_id === 'string'
-    ? await impersonationPartiesOf(claims.session_id) : null;
+async function partiesOfSession(sessionId: unknown): Promise<LoginAsParties | null | 'gave_up'> {
+  if (typeof sessionId !== 'string') return null;
+  try {
+    return await impersonationPartiesOfBounded(sessionId);
+  } catch (err) {
+    log.warn('end-impersonation: session record look-up failed or timed out',
+      { message: err instanceof Error ? err.message : String(err) }, 'Admin');
+    return 'gave_up';
+  }
+}
+
+/**
+ * An expired stash, refused, still ends the Login-as for a VERIFIED caller. Whose: the session record of a Login-as
+ * token (its session is then revoked), else the stash row the cookie names when the caller is one of its parties.
+ * A look-up past its bound ends nothing here (the stash has expired; the next start or end purges it).
+ * Never called without verified claims (#1371 re-break N2): an unauthenticated request writes nothing in an
+ * admin's name, it only clears its own cookies.
+ */
+async function endRefusedLoginAs(stashId: string, accessToken: string, claims: GoTrueClaims, reason: string): Promise<void> {
+  const sessionParties = await partiesOfSession(claims.session_id);
+  if (sessionParties === 'gave_up') return;
   let parties: LoginAsParties | null = sessionParties;
   if (!parties) {
     const stashed = await stashPartiesOf(stashId);
-    const callerMayEnd = !claims || claims.sub === stashed?.adminUserId || claims.sub === stashed?.targetUserId;
+    const callerMayEnd = claims.sub === stashed?.adminUserId || claims.sub === stashed?.targetUserId;
     parties = stashed && callerMayEnd ? { actorUserId: stashed.adminUserId, targetUserId: stashed.targetUserId } : null;
   }
   if (!parties) return;
   const endId = await recordLoginAsEnd(parties, { reason, stash_id: stashId });
-  const revoked = sessionParties && accessToken ? await revokeLoginAsSession(accessToken, reason) : null;
+  const revoked = sessionParties ? await revokeLoginAsSession(accessToken, reason) : null;
   const stashesRemoved = await removeLoginAsStashes(parties, stashId, reason);
   await noteLoginAsEnd(endId, { target_session_revoked: revoked, stashes_removed: stashesRemoved });
 }
@@ -81,10 +99,10 @@ const handler: NextApiHandler = async (req, res) => {
   }
 
   const accessToken = cookies[ACCESS_COOKIE];
-  if (!accessToken) {
-    await endRefusedLoginAs(stashId, undefined, null, 'no_session_cookie');
-    return refuse(res, 401, 'UNAUTHORIZED', 'Authentication required', false);
-  }
+  // No verifiable identity (no access cookie here, a bad token below): only this browser's own cookies are cleared.
+  // Nothing is deleted or recorded in an admin's name on a stash id alone (#1371 re-break N2); the stash is
+  // unusable without the cookie, expires within 1 h, and the next Login-as start or end purges it.
+  if (!accessToken) return refuse(res, 401, 'UNAUTHORIZED', 'Authentication required', false);
 
   // DELIBERATELY UNGATED for account standing — this is not an oversight.
   //
@@ -105,7 +123,6 @@ const handler: NextApiHandler = async (req, res) => {
     // The restored session is subject to the normal completed-session gate.
     claims = await verifyTokenSignature(accessToken);
   } catch {
-    await endRefusedLoginAs(stashId, undefined, null, 'invalid_token');
     return refuse(res, 401, 'INVALID_TOKEN', 'Invalid or expired token', true);
   }
   const callerId = claims.sub;
@@ -127,10 +144,13 @@ const handler: NextApiHandler = async (req, res) => {
   }
 
   // The stash holds the admin's tokens, so a target's own session may not spend it: only the session this admin's
-  // Login-as minted may. The record cannot be deleted by a browser (R-032); a lookup failure throws and restores nothing.
-  const parties = callerId === stash.target_user_id && typeof sessionId === 'string'
-    ? await impersonationPartiesOf(sessionId)
-    : null;
+  // Login-as minted may. The record cannot be deleted by a browser (R-032). A look-up that fails or passes its bound
+  // restores nothing: 503, cookies kept, so a retry can still restore.
+  const parties = callerId === stash.target_user_id ? await partiesOfSession(sessionId) : null;
+  if (parties === 'gave_up') {
+    res.setHeader('Retry-After', '5');
+    return res.status(503).json({ success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'Could not end the impersonation right now. Try again.' } });
+  }
   if (callerId === stash.target_user_id
     && (parties?.actorUserId !== stash.admin_user_id || parties.targetUserId !== stash.target_user_id)) {
     log.warn('end-impersonation refused: not the Login-as session', { callerId, stashAdmin: stash.admin_user_id }, 'Admin');

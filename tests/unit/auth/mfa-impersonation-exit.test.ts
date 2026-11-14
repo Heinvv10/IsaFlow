@@ -7,6 +7,7 @@ vi.mock('@/modules/admin/services/userImpersonationService', () => fixture);
 vi.mock('@/lib/neon', () => ({ sql: async (strings: TemplateStringsArray) => (strings.join('?').includes('RETURNING id') ? [{ id: 'end-1' }] : []) }));
 vi.mock('@/lib/auth/impersonationSessions', () => ({
   impersonationPartiesOf: async () => ({ actorUserId: 'admin-user', targetUserId: 'target-user' }),
+  impersonationPartiesOfBounded: async () => ({ actorUserId: 'admin-user', targetUserId: 'target-user' }),
 }));
 vi.mock('@/lib/auth/csrf', () => ({ verifyCsrf: () => true }));
 import handler from '../../../pages/api/auth/end-impersonation';

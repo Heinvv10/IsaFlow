@@ -139,14 +139,18 @@ describe('/api/auth/refresh', () => {
       expect(h.deleteEndedStashes).toHaveBeenCalledExactlyOnceWith({ adminUserId: 'admin-1', targetUserId: 'target-1', stashId: 'stash-1' });
       expect(clearedCookie(STASH_COOKIE)).toBe(true);
       expect(clearedCookie('sb-impersonation-proof')).toBe(true);
-      const [strings, ...values] = h.audit.mock.calls[0]!;
-      expect(strings.join('?')).toContain('INSERT INTO admin_audit_log');
-      expect(values.slice(0, 3)).toEqual(['admin-1', 'target-1', JSON.stringify({ target_session_revoked: null, reason: 'proof_expired' })]);
-      const [update, ...outcome] = h.audit.mock.calls[1]!;
-      expect(update.join('?')).toContain('UPDATE admin_audit_log');
-      expect(outcome.slice(0, 2)).toEqual([JSON.stringify({ target_session_revoked: true, stashes_removed: 1 }), 'end-1']);
+      // A stash cookie names the end: an end already recorded for it would be reused (one row per stash), so the
+      // look-up comes first; here there is none, so the row is INSERTed.
+      const calls = h.audit.mock.calls.map(([strings, ...values]) => ({ text: strings.join('?'), values }));
+      expect(calls[0]!.text).toContain("action = 'impersonation_end'");
+      expect(calls[0]!.values).toEqual(['admin-1', 'target-1', 'stash-1']);
+      expect(calls[1]!.text).toContain('INSERT INTO admin_audit_log');
+      expect(calls[1]!.values.slice(0, 3)).toEqual(['admin-1', 'target-1',
+        JSON.stringify({ target_session_revoked: null, reason: 'proof_expired', stash_id: 'stash-1' })]);
+      expect(calls[2]!.text).toContain('UPDATE admin_audit_log');
+      expect(calls[2]!.values.slice(0, 2)).toEqual([JSON.stringify({ target_session_revoked: true, stashes_removed: 1 }), 'end-1']);
       // Recorded before the revocation (admin audit 3.10): the INSERT precedes the GoTrue logout.
-      expect(h.audit.mock.invocationCallOrder[0]!).toBeLessThan(h.logout.mock.invocationCallOrder[0]!);
+      expect(h.audit.mock.invocationCallOrder[1]!).toBeLessThan(h.logout.mock.invocationCallOrder[0]!);
     });
 
     it('still removes the stash when the stash cookie has already expired', async () => {

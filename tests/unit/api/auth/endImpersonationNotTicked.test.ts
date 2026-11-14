@@ -12,6 +12,8 @@ const LOGIN_AS = { actorUserId: 'admin-1', targetUserId: 'target-1' };
 const record = vi.hoisted(() => ({ parties: null as { actorUserId: string; targetUserId: string } | null, asked: [] as string[] }));
 vi.mock('@/lib/auth/impersonationSessions', () => ({
   impersonationPartiesOf: async (sessionId: string) => { record.asked.push(sessionId); return record.parties; },
+  // end-impersonation reads it bounded (#1371 N3); the bound itself: tests/integration/logout-login-as-bounds.
+  impersonationPartiesOfBounded: async (sessionId: string) => { record.asked.push(sessionId); return record.parties; },
 }));
 vi.mock('@/lib/auth/liveCompanies', () => ({ pickInitialCompanyId: async () => null }));
 // The end row's INSERT returns its id (loginAsRecord.recordLoginAsEnd).
