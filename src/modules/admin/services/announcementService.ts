@@ -142,17 +142,25 @@ export async function createAnnouncement(data: CreateAnnouncementData): Promise<
   }
 }
 
+export type UpdateAnnouncementResult = 'updated' | 'not_found' | 'window';
+
+/**
+ * 'window': the row exists but the update would leave an end at or before the start. The guard is the UPDATE's own
+ * predicate (judged on what the row holds at write time, so a pre-read that went stale cannot store a bad pair);
+ * it applies only when the update touches starts_at or ends_at, so a title-only edit of an older bad row still works.
+ */
 export async function updateAnnouncement(
   id: string,
   data: Partial<Omit<Announcement, 'id' | 'created_at' | 'created_by'>>
-): Promise<void> {
+): Promise<UpdateAnnouncementResult> {
   try {
     const startsAt = data.starts_at ?? null;
     // Omitted keeps the stored end; an explicit null clears it.
     const endsGiven = data.ends_at !== undefined;
     const endsAt    = data.ends_at ?? null;
+    const windowTouched = startsAt !== null || endsGiven;
 
-    await sql`
+    const updated = await sql`
       UPDATE system_announcements SET
         title          = COALESCE(${data.title          ?? null}, title),
         message        = COALESCE(${data.message        ?? null}, message),
@@ -167,7 +175,17 @@ export async function updateAnnouncement(
                               ELSE ends_at END,
         is_dismissible = COALESCE(${data.is_dismissible ?? null}, is_dismissible)
       WHERE id = ${id}
+        AND (
+          NOT ${windowTouched}::boolean
+          OR (CASE WHEN ${endsGiven}::boolean THEN ${endsAt}::timestamptz ELSE ends_at END) IS NULL
+          OR (CASE WHEN ${endsGiven}::boolean THEN ${endsAt}::timestamptz ELSE ends_at END)
+             > (CASE WHEN ${startsAt}::text IS NOT NULL THEN ${startsAt}::timestamptz ELSE starts_at END)
+        )
+      RETURNING id
     `;
+    if (updated.length > 0) return 'updated';
+    const [exists] = await sql`SELECT 1 AS one FROM system_announcements WHERE id = ${id}`;
+    return exists ? 'window' : 'not_found';
   } catch (err) {
     log.error('updateAnnouncement failed', { id, error: err }, 'announcementService');
     throw err;

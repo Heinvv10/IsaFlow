@@ -9,6 +9,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import createRoute from '../../pages/api/admin/announcements';
 import oneRoute from '../../pages/api/admin/announcements/[id]';
+import { updateAnnouncement } from '@/modules/admin/services/announcementService';
+import { announcementWindowError } from '@/modules/admin/services/announcementWindow';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { signSession } from './r-032-fake-gotrue.helpers';
 
@@ -130,5 +132,50 @@ describe('update: clearing and checking ends_at', () => {
       `SELECT details FROM admin_audit_log WHERE admin_user_id = $1 AND action = 'announcement.update' AND target_id = $2
         ORDER BY created_at DESC LIMIT 1`, [admin, id]);
     expect(r.rows[0].details).toMatchObject({ ends_at: null });
+  });
+});
+
+describe('update: the window is guarded by the UPDATE itself', () => {
+  const fresh = async () => {
+    const r = await create({ starts_at: S });
+    return r.body.data!.id!;
+  };
+
+  it('a stale pre-read cannot store a bad pair: the end was set after the check read the row', async () => {
+    const aid = await fresh(); // stored: starts S, no end
+    const later = '2026-12-09T08:00:00.000Z';
+    // The pre-check reads the row (no end) and passes a start moved to `later` ...
+    expect(announcementWindowError(later, null)).toBeNull();
+    // ... then another admin sets an end before `later` ...
+    await pool.query(`UPDATE system_announcements SET ends_at = $2 WHERE id = $1`, [aid, E]);
+    // ... and the write must still refuse.
+    expect(await updateAnnouncement(aid, { starts_at: later })).toBe('window');
+    const row = (await stored(aid))!;
+    expect(row.starts_at.toISOString()).toBe(S);
+    expect(row.ends_at?.toISOString()).toBe(E);
+  });
+
+  it('answers by outcome: updated, window (row exists, pair bad, nothing written), not_found', async () => {
+    const aid = await fresh();
+    expect(await updateAnnouncement(aid, { ends_at: E })).toBe('updated');
+    expect(await updateAnnouncement(aid, { ends_at: S })).toBe('window');
+    expect(await updateAnnouncement(aid, { ends_at: null })).toBe('updated');
+    expect((await stored(aid))!.ends_at).toBeNull();
+    expect(await updateAnnouncement(crypto.randomUUID(), { title: 'x' })).toBe('not_found');
+  });
+
+  it('a title-only update on a row whose window is already bad (made before this check) goes through; touching the window must fix it', async () => {
+    const aid = await fresh();
+    await pool.query(`UPDATE system_announcements SET ends_at = starts_at WHERE id = $1`, [aid]); // an old, bad row
+    expect(await updateAnnouncement(aid, { title: `${TAG} fixed` })).toBe('updated');
+    expect(await updateAnnouncement(aid, { starts_at: S })).toBe('window');
+    expect(await updateAnnouncement(aid, { ends_at: E })).toBe('updated');
+  });
+});
+
+describe('a malformed id', () => {
+  it.each(['PATCH', 'DELETE', 'GET'])('%s answers 404, not a database cast error', async (method) => {
+    const r = await call(oneRoute as Route, method, method === 'PATCH' ? { title: 'x' } : undefined, 'not-a-uuid');
+    expect(r.status).toBe(404);
   });
 });

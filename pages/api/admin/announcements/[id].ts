@@ -18,7 +18,8 @@ import {
   deleteAnnouncement,
 } from '@/modules/admin/services/announcementService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
-import { announcementWindowError, ANNOUNCEMENT_TITLE_MAX, ANNOUNCEMENT_MESSAGE_MAX, firstValidationMessage } from '@/modules/admin/services/announcementWindow';
+import { announcementWindowError, WINDOW_ORDER_ERROR, ANNOUNCEMENT_TITLE_MAX, ANNOUNCEMENT_MESSAGE_MAX, firstValidationMessage } from '@/modules/admin/services/announcementWindow';
+import { isUuidParam } from '@/lib/validation';
 import { getIp } from '@/utils/getIp';
 
 const PatchBody = z.object({
@@ -34,7 +35,8 @@ const PatchBody = z.object({
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const id = req.query.id as string;
+  const id = req.query.id;
+  if (!isUuidParam(id)) return apiResponse.notFound(res, 'Announcement');
 
   if (req.method === 'GET') {
     try {
@@ -63,7 +65,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       );
       if (windowError) return apiResponse.badRequest(res, windowError);
 
-      await updateAnnouncement(id, parsed.data);
+      const outcome = await updateAnnouncement(id, parsed.data);
+      if (outcome === 'not_found') return apiResponse.notFound(res, 'Announcement', id);
+      // The pre-check above gives the friendly text; this is the write-time guard it cannot replace.
+      if (outcome === 'window') return apiResponse.badRequest(res, WINDOW_ORDER_ERROR);
 
       await logAdminAction(
         req.user.id,

@@ -12,6 +12,9 @@ export function firstValidationMessage(error: { issues: ReadonlyArray<{ message:
   return error.issues[0]?.message ?? 'Invalid input';
 }
 
+/** What a 400 says when the write-time guard refuses a pair the pre-check read as fine. */
+export const WINDOW_ORDER_ERROR = 'End must be after the start';
+
 const unreadable = (v: string) => Number.isNaN(Date.parse(v));
 
 /** The sentence to answer a 400 with, or null when `starts` and `ends` (null/undefined = no end) are a valid window. */
@@ -19,5 +22,5 @@ export function announcementWindowError(starts: string, ends: string | null | un
   if (!starts || unreadable(starts)) return 'Start must be a valid date and time';
   if (ends === null || ends === undefined) return null;
   if (unreadable(ends)) return 'End must be a valid date and time';
-  return Date.parse(ends) > Date.parse(starts) ? null : 'End must be after the start';
+  return Date.parse(ends) > Date.parse(starts) ? null : WINDOW_ORDER_ERROR;
 }
