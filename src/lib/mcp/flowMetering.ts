@@ -34,6 +34,7 @@ import { getCompanyPlan } from '@/lib/billing/getCompanyPlan';
 import { isDynamicOauthApp } from '@/lib/auth/oauthDynamicClients';
 import { MAX_INVOICES } from './tools/writeBulkInvoices';
 import { partitionSupplierInvoiceBatch } from './tools/bulkInvoiceDuplicateSkip';
+import { RECURRING_JOURNAL_FLOW_OPERATIONS } from './tools/recurringJournalToolSet';
 import {
   getFlowCost,
   type FlowOperationCode,
@@ -348,6 +349,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   cancel_supplier_invoice: null,
   // Cancelling a duplicate draft: a correction, never a new document.
   cancel_customer_invoice: null,
+  ...RECURRING_JOURNAL_FLOW_OPERATIONS,
   // Registering an asset: POST /api/accounting/assets carries no meter, so neither does the tool.
   create_fixed_asset: null,
   // The undo of a registration: a correction, free like cancel_customer_invoice.
