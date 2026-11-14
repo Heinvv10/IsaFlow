@@ -18,6 +18,9 @@ useApiJsonOverMock();
 
 const C1 = '11111111-1111-4111-8111-111111111111';
 const C2 = '22222222-2222-4222-8222-222222222222';
+const P1 = 'p1111111-1111-4111-8111-111111111111';
+const P2 = 'p2222222-2222-4222-8222-222222222222';
+const P3 = 'p3333333-3333-4333-8333-333333333333';
 const GONE = '33333333-3333-4333-8333-333333333333';
 const ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 // 08:00Z is 10:00 SAST.
@@ -46,6 +49,11 @@ beforeEach(() => {
       rows = [{ ...rows[0], ...body, ends_at: body.ends_at ?? null }]; // the server stores what it is sent
       return json({ id: ID });
     }
+    if (u.startsWith('/api/admin/billing/plans')) return json([
+      { id: P1, code: 'starter', name: 'Starter', is_active: true },
+      { id: P2, code: 'pro', name: 'Professional', is_active: true },
+      { id: P3, code: 'legacy', name: 'Legacy', is_active: false },
+    ]);
     if (u === `/api/admin/companies/${C1}`) return json({ id: C1, name: 'Alpha Fibre', status: 'active' });
     if (u === `/api/admin/companies/${C2}`) return json({ id: C2, name: 'Beta Fibre', status: 'trial' });
     return new Response(JSON.stringify({ success: false }), { status: 404 });
@@ -126,5 +134,59 @@ describe('editing an announcement: company targets', () => {
     await dialog.findByText('Beta Fibre');
     await save(dialog, 1);
     expect(patches[0]!.target_ids).toEqual([C1, C2, GONE]);
+  });
+});
+
+describe('editing an announcement: clearing the end', () => {
+  it('emptying the Ends box and saving sends ends_at: null (it could not be cleared)', async () => {
+    const dialog = await openEdit();
+    fireEvent.change(dateInputs(screen.getByRole('dialog'))[1]!, { target: { value: '' } });
+    await save(dialog, 1);
+    expect(patches[0]).toHaveProperty('ends_at', null);
+    expect(Date.parse(String(patches[0]!.starts_at))).toBe(Date.parse(STARTS));
+  });
+
+  it('a new announcement with no end omits ends_at', async () => {
+    render(<AdminAnnouncementsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /new announcement/i }));
+    const dialog = within(await screen.findByRole('dialog'));
+    fireEvent.change(dialog.getAllByRole('textbox')[0]!, { target: { value: 'T' } });
+    fireEvent.change(dialog.getAllByRole('textbox')[1]!, { target: { value: 'M' } });
+    fireEvent.change(dateInputs(screen.getByRole('dialog'))[0]!, { target: { value: '2026-12-01T10:00' } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some(([, i]) => i?.method === 'POST')).toBe(true));
+    const post = vi.mocked(apiFetch).mock.calls.find(([, i]) => i?.method === 'POST')!;
+    const body = JSON.parse(String((post[1] as RequestInit).body)) as Row;
+    expect(body).not.toHaveProperty('ends_at');
+    expect(body.starts_at).toBe('2026-12-01T08:00:00.000Z');
+  });
+});
+
+describe('editing an announcement: plan targets', () => {
+  beforeEach(() => { rows = [row({ target: 'plan', target_ids: [P1, GONE] })]; });
+
+  it('lists the plans by name (archived marked), ticks the chosen ones, and carries an unknown id as such', async () => {
+    const dialog = await openEdit();
+    expect(await dialog.findByRole('checkbox', { name: 'Starter' })).toBeChecked();
+    expect(dialog.getByRole('checkbox', { name: 'Professional' })).not.toBeChecked();
+    expect(dialog.getByRole('checkbox', { name: 'Legacy (archived)' })).not.toBeChecked();
+    expect(dialog.getByRole('checkbox', { name: /Unknown plan \(33333333\)/ })).toBeChecked();
+    expect(dialog.queryByPlaceholderText(/plan-code/i)).toBeNull();
+  });
+
+  it('ticking and unticking changes the saved plan ids, which are plan ids and not codes', async () => {
+    const dialog = await openEdit();
+    fireEvent.click(await dialog.findByRole('checkbox', { name: 'Professional' }));
+    fireEvent.click(dialog.getByRole('checkbox', { name: /Unknown plan/ }));
+    await save(dialog, 1);
+    expect(patches[0]!.target).toBe('plan');
+    expect(patches[0]!.target_ids).toEqual([P1, P2]);
+  });
+
+  it('switching the target to Plan starts with none ticked', async () => {
+    rows = [row()];
+    const dialog = await openEdit();
+    fireEvent.change(dialog.getAllByRole('combobox')[1]!, { target: { value: 'plan' } });
+    expect(await dialog.findByRole('checkbox', { name: 'Starter' })).not.toBeChecked();
   });
 });

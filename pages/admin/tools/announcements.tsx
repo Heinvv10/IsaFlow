@@ -82,7 +82,8 @@ export default function AdminAnnouncementsPage() {
         target:         form.target,
         target_ids:     targetIds,
         starts_at:      form.starts_at ? new Date(form.starts_at).toISOString() : undefined,
-        ends_at:        form.ends_at   ? new Date(form.ends_at).toISOString()   : undefined,
+        // Emptied on an edit = remove the end (null); on a new one there is nothing to send.
+        ends_at:        form.ends_at   ? new Date(form.ends_at).toISOString()   : (editItem ? null : undefined),
         is_dismissible: form.is_dismissible,
       };
 

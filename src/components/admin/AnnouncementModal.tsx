@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { Loader2, X } from 'lucide-react';
 import { CompanyPicker } from './CompanyPicker';
+import { AnnouncementPlanPicker } from './AnnouncementPlanPicker';
 import { isoToSastInput, sastInputToIso } from '@/utils/sastDateTimeInput';
 
 export const EMPTY_FORM = {
@@ -18,7 +19,7 @@ export type AnnouncementFormState = {
   message: string;
   type: string;
   target: string;
-  /** Comma-separated UUIDs (plan target) or serialised company IDs (company target) */
+  /** Comma-separated plan ids (plan target) or serialised company IDs (company target) */
   target_ids: string;
   /** ISO instants (UTC), or '' when empty. The inputs show them as SAST wall clock (see sastDateTimeInput). */
   starts_at: string;
@@ -111,11 +112,10 @@ export function AnnouncementModal({ initial, onClose, onSave, saving }: Props) {
 
           {form.target === 'plan' && (
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                Plan IDs (comma-separated)
-              </label>
-              <input value={form.target_ids} onChange={e => set('target_ids', e.target.value)}
-                placeholder="plan-code1, plan-code2, ..." className={INPUT_CLS} />
+              <span className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Target Plans</span>
+              <AnnouncementPlanPicker
+                value={form.target_ids.split(',').map(s => s.trim()).filter(Boolean)}
+                onChange={ids => set('target_ids', ids.join(', '))} />
             </div>
           )}
 
