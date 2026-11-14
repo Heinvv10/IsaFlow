@@ -105,10 +105,10 @@ describe('run-ci.sh: the integration scope', () => {
   });
 });
 
-describe('ci.yml golden-paths: the merge-check step', () => {
+describe('ci.yml golden-chunks: the merge-check step', () => {
   type Step = { id?: string; if?: string; run?: string; uses?: string; env?: Record<string, string> };
   const steps = ((load(readFileSync('.github/workflows/ci.yml', 'utf8')) as { jobs: Record<string, { steps: Step[] }> })
-    .jobs['golden-paths']!.steps);
+    .jobs['golden-chunks']!.steps);
   const at = steps.findIndex((s) => s.id === 'mq');
 
   // The check is a bun script, and a hosted runner has no bun: the three tool-setup actions (as in static) run

@@ -17,7 +17,7 @@ import type { DbRow } from '@/lib/neon';
 import { isInAppPath } from '@/lib/inAppPath';
 import { log } from '@/lib/logger';
 
-export type NotificationKind = 'budget_alert' | 'budget_slice' | 'budget_reminder';
+export type NotificationKind = 'budget_alert' | 'budget_slice' | 'budget_reminder' | 'comment_mention';
 
 export interface UserNotification {
   id: string;

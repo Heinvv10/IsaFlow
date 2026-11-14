@@ -130,6 +130,15 @@ export interface CreditNoteCreateInput {
    * Omitted: default_expense, as before. A linked note credits the bill's own expense legs first.
    */
   glAccountId?: string;
+  /**
+   * Migration 988. 'mirror_bill' / 'mirror_bill_ack' only from MCP create_credit_note with mirror_bill (a
+   * SUPPLIER note linked to a bill, its VAT taken from the bill as it stood; _ack = the caller acknowledged
+   * VAT already reversed and stated the amount): approveCreditNote re-checks it against the bill. Omitted:
+   * 'rate'. The REST routes never forward it.
+   */
+  vatBasis?: 'rate' | 'mirror_bill' | 'mirror_bill_ack';
+  /** Migration 988, 'mirror_bill_ack' only: the heuristic matches the caller acknowledged. */
+  vatAckMatches?: { journal_entry_id: string; vat_amount: number }[];
 }
 
 // ── Customer Write-Offs ──────────────────────────────────────────────────────

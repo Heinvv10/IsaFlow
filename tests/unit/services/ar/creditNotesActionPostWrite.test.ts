@@ -29,6 +29,7 @@ vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
 import handler from '../../../../pages/api/accounting/credit-notes-action';
 import { ArPostingAfterWriteError } from '@/modules/accounting/services/ar/arErrors';
 import { CreditNoteDimensionRefusal } from '@/modules/accounting/services/ar/creditNoteHeaderTags';
+import { MirroredNoteVatRefusal } from '@/modules/accounting/services/ap/supplierCreditNoteMirrorApprove';
 import { afterJournalWritten } from '@/modules/accounting/services/ar/creditNotePostingChecks';
 import { apiResponse } from '@/lib/apiResponse';
 
@@ -49,6 +50,13 @@ describe('credit-notes-action approve: a failure after the journal is written is
     await call();
     expect(apiResponse.badRequest).toHaveBeenLastCalledWith(expect.anything(), expect.stringMatching(/linked to an invoice/),
       { code: 'CREDIT_NOTE_DIMENSIONS_REFUSED' });
+  });
+
+  it('answers a mirror_bill VAT refusal 400 with its code (988, pre-write)', async () => {
+    approveMock.mockRejectedValueOnce(new MirroredNoteVatRefusal('VAT_ALREADY_REVERSED: credit note CN-1 was raised with mirror_bill'));
+    await call();
+    expect(apiResponse.badRequest).toHaveBeenLastCalledWith(expect.anything(), expect.stringMatching(/^VAT_ALREADY_REVERSED/),
+      { code: 'VAT_ALREADY_REVERSED' });
   });
 
   it('still answers a pre-write refusal 400', async () => {

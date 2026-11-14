@@ -9,6 +9,7 @@ import { useDrawerRead } from '@/components/ui/useDrawerRead';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { showsARBalance } from '@/lib/constants/invoiceStatuses';
+import { CommentsPanel } from '@/components/accounting/comments/CommentsPanel';
 
 interface InvoiceDetail {
   invoice_number: string;
@@ -81,6 +82,7 @@ export function InvoiceDrawerBody({ invoiceId }: { invoiceId: string }) {
       <Link href={`/accounting/customer-invoices/${invoiceId}`} className="inline-block text-sm font-medium text-teal-700 hover:underline dark:text-teal-300">
         Open invoice
       </Link>
+      <CommentsPanel recordType="customer_invoice" recordId={invoiceId} />
     </div>
   );
 }

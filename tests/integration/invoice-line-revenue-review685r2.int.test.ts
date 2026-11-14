@@ -43,7 +43,7 @@ const note = async (subtotal: number, customerInvoiceId?: string) => {
     type: 'customer', clientId: f.fx.customerId, ...(customerInvoiceId ? { customerInvoiceId } : {}),
     creditDate: '2026-07-20', subtotal, taxRate: 0,
   }, f.fx.userId));
-  await inTx(f.fx, () => approveCreditNote(f.fx.companyId, id, f.fx.userId, { autoApply: 'none' }));
+  await inTx(f.fx, () => approveCreditNote(f.fx.companyId, id, f.fx.userId, { autoApply: 'linked' }));
   return id;
 };
 async function noteLegs(id: string): Promise<Record<string, number>> {

@@ -210,6 +210,10 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'RECONCILIATION_COMPLETED',
   // Mig 980: completion refused while a line it would reconcile is unreviewed. Counts only, raised before any write.
   'RECONCILIATION_REVIEW_REQUIRED',
+  // reallocate_bank_transaction (bank/bankReallocationGuards): a reconciled line that cannot be re-pointed in place
+  // (not reconciled, stale expected journal, a shape v1 does not handle, a date that cannot be kept). Names only the
+  // caller's own line, journal id and dates; raised before any write, or inside the savepoint that rolls it back.
+  'REALLOCATION_REFUSED',
   'RECURRING_INVOICE_LOCK_TIMEOUT',
   'RECURRING_INVOICE_NOT_DUE',
   'RECURRING_INVOICE_TEMPLATE_INVALID',
@@ -251,6 +255,10 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'UIF_DECLARATION_NOT_SUBMITTED', // uifPaymentService: names only the declaration's status; raised before any write (route answers 409)
   // VAT adjustment approve/cancel refusals (reports/vatAdjustmentService): not found, not draft, contended.
   'VAT_ADJUSTMENT_REFUSED', 'JOURNAL_DATE_REFUSED', // latter: outside 1900..2199; the registry savepoint rolls back
+  // 988: approving a mirror_bill credit note the bill can no longer carry (ap/supplierCreditNoteMirrorApprove). Names the
+  // note's own number, the bill's number, VAT figures and the journals that moved them (this company's, the caller's own
+  // bill); raised under the bill's key, before any write.
+  'VAT_ALREADY_REVERSED',
   // Mark/unmark "VAT declared outside IsaFlow" refused: not owner/admin,
   // blank reason, document not found, or not currently marked (unmark) —
   // reports/vatDeclaredElsewhereService. Names no id/amount/table beyond the

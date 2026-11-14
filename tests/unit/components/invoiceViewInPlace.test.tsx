@@ -164,3 +164,6 @@ describe('amounts in the invoice\'s own currency', () => {
     expect(document.body.textContent).not.toMatch(/R\s?100\.00/);
   });
 });
+
+// M14: this suite does not provide the auth context or the comments route; the panel has its own tests (commentsPanel, commentsMounts).
+vi.mock('@/components/accounting/comments/CommentsPanel', () => ({ CommentsPanel: () => null }));

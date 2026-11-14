@@ -48,7 +48,7 @@ export const approveCreditNoteTool: McpTool = {
     'Approve a DRAFT credit note and POST it to the ledger. Requires the write:post permission. ' +
     'Customer note: DR Revenue + DR VAT Output / CR Accounts Receivable. Supplier note: DR Accounts Payable / CR Expense + CR VAT Input. ' +
     'Approving also APPLIES the note. A linked invoice is settled first, capped at its outstanding balance; the REMAINDER is then applied FIFO to that same customer\'s or supplier\'s other open documents, oldest first. '
-    + 'Pass auto_apply "none" to skip the FIFO walk and apply only to the linked document (or nothing, if there is no link). '
+    + 'Pass auto_apply "linked" to skip the FIFO walk and apply only to the linked document (nothing, if there is no link), or "none" to apply NOTHING, not even to the linked document: the note posts and the whole credit stays on account for apply_credit_note. '
     + 'The resulting status is DERIVED: "approved" when nothing was applied, "partially_applied" when some of the face value is still on account, "applied" when all of it was consumed. '
     + 'applied_amount is what was consumed and applied_to_invoice_ids names every document it settled. Whatever is left is on-account credit, which aged_debtors / aged_creditors report as unapplied and net off. Reverse the whole thing with cancel_credit_note.',
   scope: 'write:invoices',
@@ -62,7 +62,7 @@ export const approveCreditNoteTool: McpTool = {
         type: 'string',
         enum: [...CREDIT_NOTE_AUTO_APPLY],
         description:
-          '"fifo" (default) applies the remainder to the entity\'s open documents oldest first; "none" applies only to the linked document.',
+          '"fifo" (default) applies the remainder to the entity\'s open documents oldest first; "linked" applies only to the linked document; "none" applies nothing (the credit stays on account).',
       },
       idempotency_key: { type: 'string' },
     },
