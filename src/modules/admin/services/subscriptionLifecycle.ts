@@ -5,9 +5,12 @@
  * the SAME admin transaction (see subscriptionChargeVoid.ts for the rule): the
  * row is locked first, so a charge-attempt claim (subscriptionPeriod.ts, FOR
  * SHARE on the subscription) waits for the change to commit and then sees it.
- * Lock order is subscription row -> charge rows, the same in the claim and in
- * settleSubscriptionCharge (FOR UPDATE on the subscription first), so a cancel
- * racing a webhook settle of the same charge cannot deadlock.
+ * Lock order is subscription row -> charge rows on every path that holds both:
+ * this file (admin cancel / reactivation), the attempt claim, the webhook settle
+ * (settleSubscriptionCharge, FOR UPDATE on the subscription first) and
+ * restoreCompany, so a cancel racing a settle or a restore cannot deadlock.
+ * Paths that write only charges (deleteCompany, the cron voids, the runner's
+ * outcome writes) hold no subscription lock and so cannot close a cycle.
  */
 
 import { sql } from '@/lib/neon';
@@ -27,15 +30,16 @@ async function lockStatus(subscriptionId: string): Promise<string | null> {
 /**
  * A subscription cancelled long ago keeps its old current_period_end, so
  * reactivating it would have the cron raise one charge per missed cycle. Start
- * a new period from today instead, as restoreCompany does: the next run raises
- * one charge from today. Only current_period_end moves (nothing in billing
- * reads current_period_start; the next settle rewrites both). Not restarted
- * while a charge is 'submitted' at Paystack: it settles into the old period.
+ * a new period from today instead (restoreCompany does the same for the end):
+ * the next run raises one charge from today. current_period_start moves too,
+ * or the admin billing tab, the subscriptions list and the CSV export, which
+ * all show it, would display a period of months. Not restarted while a charge
+ * is 'submitted' at Paystack: it settles into the old period.
  */
 async function restartLapsedPeriod(subscriptionId: string): Promise<void> {
   await sql`
     UPDATE subscriptions s
-    SET current_period_end = NOW(), updated_at = NOW()
+    SET current_period_start = NOW(), current_period_end = NOW(), updated_at = NOW()
     WHERE s.id = ${subscriptionId}
       AND s.current_period_end < NOW()
       AND NOT EXISTS (

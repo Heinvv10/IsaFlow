@@ -111,6 +111,7 @@ export function adminCancelFixture(pool: Pool) {
       await pool.query('DELETE FROM subscription_charges WHERE company_id=$1', [c]);
       await pool.query('DELETE FROM subscriptions WHERE company_id=$1', [c]);
     }
+    await pool.query("UPDATE companies SET status='active' WHERE id IN ($1,$2)", [ids.company, ids.other]);
     await insertSubscription(ids.sub, ids.company);
     await insertSubscription(ids.otherSub, ids.other);
     charges.queued = await insertCharge({ company: ids.company, subscription: ids.sub, mandate: ids.mandate,
