@@ -14,6 +14,8 @@
     "scripts/ci/check-raw-input-allowlist.ts",
     "scripts/ci/check-raw-muted-text-stops.ts",
     "scripts/ci/rawInputAllowlist.ts",
+    "scripts/ci/migrationPrefixRule.ts",
+    "scripts/audit-migration-naming.ts",
     "scripts/ci/codemods/*.ts",
     "tests/helpers/liveGoTrue.ts",
     "tests/helpers/integrationGate.ts",
