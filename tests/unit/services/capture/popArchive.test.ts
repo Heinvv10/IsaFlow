@@ -123,6 +123,22 @@ describe('PopGraphClient', () => {
       .toEqual({ kind: 'failed', status: 404, detail: 'exists, download failed: itemNotFound', transient: false });
   });
 
+  it('never reads more of an existing file than our size: a different Content-Length, or a longer stream, is refused', async () => {
+    const meta = () => json(200, { id: 'x', size: BYTES.length, file: {} });
+    const declared = graph([token, exists, meta, () => new Response(new Uint8Array(BYTES), {
+      status: 200, headers: { 'Content-Length': String(BYTES.length + 10) } })]);
+    expect(await declared.client.uploadNew('s', PATH, BYTES)).toEqual({ kind: 'failed', status: 409, detail: 'exists_differs', transient: false });
+
+    let pulled = 0;
+    const endless = new ReadableStream<Uint8Array>({ pull(c) { // 100 chunks of our size, unless the reader stops early
+      pulled += 1;
+      if (pulled > 100) c.close(); else c.enqueue(new Uint8Array(BYTES.length));
+    } });
+    const streamed = graph([token, exists, meta, () => new Response(endless, { status: 200 })]);
+    expect(await streamed.client.uploadNew('s', PATH, BYTES)).toEqual({ kind: 'failed', status: 409, detail: 'exists_differs', transient: false });
+    expect(pulled).toBeLessThanOrEqual(3); // cut off just past our size, not read to the end
+  });
+
   it('classifies throttling, denial, 5xx, other 4xx and network failures', async () => {
     const cases: Array<[() => Response | Promise<Response>, unknown]> = [
       [() => json(429, {}, { 'Retry-After': '30' }), { kind: 'throttled', status: 429, retryAfterSec: 30 }],

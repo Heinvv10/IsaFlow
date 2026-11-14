@@ -5,13 +5,14 @@
  *
  * A POP is settled once in pop_archive_copies: 'archived' (the drive item, or after a 409 an existing file
  * whose bytes are ours), 'too_large' (over Graph's 4 MB simple upload), or 'failed' after POP_ARCHIVE_MAX_ATTEMPTS
- * failures of its own (no path, no bytes or its storage object missing, Graph refused this file, a 403 on it, an
- * existing file that differs).
+ * failures of its own (no path, no bytes or its storage object missing, Graph refused this file, an existing file
+ * that differs, a 403 on it once another POP was archived in the same tick).
  * Every failure is a try in pop_archive_attempts: the POP goes behind the others and waits 5 min doubling (the
  * doubling stops at 2^8, about 21 h, and `tries` at POP_ARCHIVE_TRIES_CEILING, so a month-long outage cannot
  * overflow the wait). An outage (Graph 5xx, the network, storage or the database down) is a try that never counts
  * toward 'failed', and a 5xx or network failure ends the company's tick. Throttling (429, 503 + Retry-After), a 401, a token failure, a
- * second POP denied (403) in one tick (the app's grant) and the deadline end the tick and count against no POP.
+ * second POP denied (403) before any was archived in the tick (the app's grant) and the deadline end the tick and
+ * count against no POP.
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -77,7 +78,11 @@ export async function sweepPopArchive(companyId: string, graph: PopGraphClient, 
     LIMIT ${limit}::int
   `) as Row[];
 
-  let denied = 0; // POPs denied this tick: one is that file, a second is the app's grant
+  // A 403 may be that file (its folder's permissions) or the whole site (the grant revoked). It is counted against
+  // the POP only once another POP of the company was archived in this tick, proving the grant works; before any
+  // success it is an uncounted try, and a second one ends the tick.
+  const deniedUncounted: Array<{ popId: string; path: string }> = [];
+  let archivedThisTick = false;
   for (const pop of pops) {
     if (Date.now() >= deadline) { summary.stopped += 1; break; }
     const popId = String(pop.id);
@@ -108,16 +113,20 @@ export async function sweepPopArchive(companyId: string, graph: PopGraphClient, 
         await recordCopy(companyId, popId, 'archived', up.driveItemId, up.webUrl, path);
         summary.archived += 1;
         log.info('pop archived to SharePoint', { companyId, popId, existed: up.existed }, 'pop-archive');
+        archivedThisTick = true;
+        for (const d of deniedUncounted.splice(0)) await countDenied(companyId, d.popId, d.path);
         continue;
       }
       if (up.kind === 'failed') {
         await recordFailure(companyId, popId, path, `HTTP ${up.status}: ${up.detail}`, up.transient ? 'outage' : 'counted', summary);
         if (!up.transient) continue;
-      } else if (up.kind === 'denied' && up.status === 403 && denied === 0) {
-        // One file can be denied (its folder's permissions): counted against it. A second POP denied in the same
-        // tick is the app's grant: the tick ends there, counted against no POP.
-        denied += 1;
-        await recordFailure(companyId, popId, path, `HTTP ${up.status}: denied`, 'counted', summary);
+      } else if (up.kind === 'denied' && up.status === 403 && (archivedThisTick || deniedUncounted.length === 0)) {
+        if (archivedThisTick) {
+          await recordFailure(companyId, popId, path, `HTTP ${up.status}: denied`, 'counted', summary);
+        } else {
+          await recordFailure(companyId, popId, path, `HTTP ${up.status}: denied`, 'outage', summary);
+          deniedUncounted.push({ popId, path });
+        }
         continue;
       }
       summary.stopped += 1;
@@ -160,6 +169,18 @@ async function recordFailure(companyId: string, popId: string, path: string | nu
   `) as Row[];
   const attempts = Number(row?.attempts ?? 0);
   log.warn('pop archive: try failed', { companyId, popId, kind, attempts, error }, 'pop-archive');
+  if (attempts >= POP_ARCHIVE_MAX_ATTEMPTS) await recordCopy(companyId, popId, 'failed', null, null, path);
+}
+
+/** A 403 tried earlier in this tick, now known to be that file's own (a later POP was archived): count it. */
+async function countDenied(companyId: string, popId: string, path: string): Promise<void> {
+  const [row] = (await sql`
+    UPDATE pop_archive_attempts SET attempts = attempts + 1
+    WHERE company_id = ${companyId}::uuid AND proof_of_payment_id = ${popId}::uuid
+    RETURNING attempts
+  `) as Row[];
+  const attempts = Number(row?.attempts ?? 0);
+  log.warn('pop archive: a 403 counted against this POP (others archive fine)', { companyId, popId, attempts }, 'pop-archive');
   if (attempts >= POP_ARCHIVE_MAX_ATTEMPTS) await recordCopy(companyId, popId, 'failed', null, null, path);
 }
 

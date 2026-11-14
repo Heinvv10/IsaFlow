@@ -33,7 +33,7 @@ What it does and its rules: `src/modules/accounting/services/capture/pop/.claude
    That is the VelocityFinance site's Graph id and its existing, empty `Proof of Payments` folder.
 4. **Watch the next mirror-scan ticks** (every 5 min) with `journalctl -u isaflow-mirror-scan`. The app log component is `pop-archive`, and the cron's answer carries `pop.archive` totals.
    - `POP_ARCHIVE_* is not set`: step 2 has not reached the service.
-   - `stopped`, with a `denied` result on the **second** POP of a tick: the site grant is missing or wrong. One 403 is counted against that POP only (its folder), and the sweep moves on.
+   - `stopped`, with a `denied` result on the **second** POP of a tick and nothing archived: the site grant is missing or wrong. Nothing is counted against any POP while it lasts, so fixing the grant lets every POP through. A 403 on one POP while others archive in the same tick is counted against that POP (its folder's permissions); after 10 it is settled `failed`.
    - `GraphTokenError`: the tenant, client id or secret is wrong.
    - Rows appear in `pop_archive_copies`.
 

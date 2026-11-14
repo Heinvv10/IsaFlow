@@ -214,24 +214,45 @@ describeIfDb('POP archive: copy each POP to SharePoint once', () => {
     await pool.query('DELETE FROM proof_of_payments WHERE id = ANY($1)', [[gone.popId, down.popId]]);
   });
 
-  it('counts a 403 against that POP and moves on; a second POP denied in the same tick ends it uncounted', async () => {
-    const one = await seedPop(fx, Z, { beneficiary: 'Denied File Co', date: '2026-11-10' });
-    const two = await seedPop(fx, Z, { beneficiary: 'Allowed File Co', date: '2026-11-11' });
-    expect(await run(Z, fakeGraph((p) => (p.includes('Denied File Co') ? 403 : 201)).client))
-      .toEqual({ archived: 1, tooLarge: 0, failed: 1, stopped: 0 });
-    expect(await attemptsOf(one.popId)).toEqual({ attempts: 1, last_error: 'HTTP 403: denied' });
-    expect(await copyOf(two.popId)).toMatchObject({ outcome: 'archived' });
-    await pool.query('DELETE FROM proof_of_payments WHERE id = ANY($1)', [[one.popId, two.popId]]);
+  it('counts a 403 against that POP only once another POP archived in the same tick, before or after it', async () => {
+    const before = await seedPop(fx, Z, { beneficiary: 'Denied Before Co', date: '2026-11-10' });
+    const good = await seedPop(fx, Z, { beneficiary: 'Allowed File Co', date: '2026-11-11' });
+    const after = await seedPop(fx, Z, { beneficiary: 'Denied After Co', date: '2026-11-12' });
+    expect(await run(Z, fakeGraph((p) => (p.includes('Denied') ? 403 : 201)).client))
+      .toEqual({ archived: 1, tooLarge: 0, failed: 2, stopped: 0 });
+    expect(await attemptsOf(before.popId)).toEqual({ attempts: 1, last_error: 'HTTP 403: denied' }); // counted at the success
+    expect(await attemptsOf(after.popId)).toEqual({ attempts: 1, last_error: 'HTTP 403: denied' }); // counted at once
+    expect(await copyOf(good.popId)).toMatchObject({ outcome: 'archived' });
+    await pool.query('DELETE FROM proof_of_payments WHERE id = ANY($1)', [[before.popId, good.popId, after.popId]]);
+  });
 
-    const a = await seedPop(fx, Z, { beneficiary: 'Grant Gone A', date: '2026-11-10' });
-    const b = await seedPop(fx, Z, { beneficiary: 'Grant Gone B', date: '2026-11-11' });
-    const c = await seedPop(fx, Z, { beneficiary: 'Grant Gone C', date: '2026-11-12' });
-    const denied = fakeGraph(() => 403);
-    expect(await run(Z, denied.client)).toEqual({ archived: 0, tooLarge: 0, failed: 1, stopped: 1 });
-    expect(denied.puts).toHaveLength(2);
-    const counted = await Promise.all([a, b, c].map((p) => attemptsOf(p.popId)));
-    expect(counted.filter((r) => r !== null)).toEqual([{ attempts: 1, last_error: 'HTTP 403: denied' }]);
-    await pool.query('DELETE FROM proof_of_payments WHERE id = ANY($1)', [[a.popId, b.popId, c.popId]]);
+  it('a 403 counted at a later success can be the one that settles the POP failed', async () => {
+    const bad = await seedPop(fx, Z, { beneficiary: 'Denied Last Try Co', date: '2026-11-10' });
+    const good = await seedPop(fx, Z, { beneficiary: 'Allowed Later Co', date: '2026-11-11' });
+    // `bad` is one counted failure short of settling and goes first (tried longest ago); `good` follows.
+    await pool.query(`INSERT INTO pop_archive_attempts (company_id, proof_of_payment_id, attempts, tries, last_attempt_at, last_error)
+      VALUES ($1, $2, $4 - 1, $4 - 1, now() - interval '3 days', 'x'), ($1, $3, 0, 1, now() - interval '2 days', 'x')`,
+    [Z, bad.popId, good.popId, POP_ARCHIVE_MAX_ATTEMPTS]);
+    expect(await run(Z, fakeGraph((p) => (p.includes('Denied') ? 403 : 201)).client)).toMatchObject({ archived: 1, stopped: 0 });
+    expect(await attemptsOf(bad.popId)).toMatchObject({ attempts: POP_ARCHIVE_MAX_ATTEMPTS });
+    expect(await copyOf(bad.popId)).toMatchObject({ outcome: 'failed' });
+    await pool.query('DELETE FROM proof_of_payments WHERE id = ANY($1)', [[bad.popId, good.popId]]);
+  });
+
+  it('a revoked grant (every POP denied) counts against none of them, tick after tick', async () => {
+    const pops = await Promise.all(['Grant Gone A', 'Grant Gone B', 'Grant Gone C']
+      .map((name, i) => seedPop(fx, Z, { beneficiary: name, date: `2026-11-1${i}` })));
+    for (let tick = 0; tick < 20; tick += 1) {
+      const denied = fakeGraph(() => 403);
+      expect(await run(Z, denied.client)).toMatchObject({ archived: 0, stopped: 1 });
+      expect(denied.puts.length).toBeLessThanOrEqual(2);
+      await pool.query("UPDATE pop_archive_attempts SET last_attempt_at = now() - interval '2 days' WHERE company_id = $1", [Z]);
+    }
+    for (const p of pops) {
+      expect(await copyOf(p.popId)).toBeNull();
+      expect((await attemptsOf(p.popId))?.attempts ?? 0).toBe(0);
+    }
+    await pool.query('DELETE FROM proof_of_payments WHERE id = ANY($1)', [pops.map((p) => p.popId)]);
   });
 
   it('ends the tick on throttling or at the deadline, counting against no POP', async () => {

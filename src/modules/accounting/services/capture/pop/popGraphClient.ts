@@ -5,7 +5,7 @@
  *
  * Upload is the simple PUT (files up to 4 MB) with conflictBehavior=fail: an existing file is never
  * overwritten. A 409 (the name exists) reads the item at that path and adopts it only if it is a file of
- * exactly our size whose content is byte-for-byte ours (downloaded: at most 4 MB, the size already matched).
+ * exactly our size whose content is byte-for-byte ours (downloaded, and cut off past our size: at most 4 MB).
  * SharePoint reports only quickXorHash, and no published test vector was at hand to prove an implementation
  * of it, so the bytes are compared instead. Such a file is this payment's copy from an earlier tick whose
  * record did not commit (the name carries ABSA's transaction number).
@@ -151,9 +151,8 @@ export class PopGraphClient {
       const r = await refusal(content);
       return r.kind === 'failed' ? { ...r, detail: `exists, download failed: ${r.detail}` } : r;
     }
-    if (!Buffer.from(await content.arrayBuffer()).equals(bytes)) {
-      return { kind: 'failed', status: 409, detail: 'exists_differs', transient: false };
-    }
+    const theirs = await readAtMost(content, bytes.length);
+    if (!theirs || !theirs.equals(bytes)) return { kind: 'failed', status: 409, detail: 'exists_differs', transient: false };
     return { kind: 'ok', ...got, existed: true };
   }
 
@@ -180,6 +179,33 @@ export class PopGraphClient {
     if (res.status === 401) this.cache.delete(this.cacheKey); // a revoked token is not reused next tick
     return res;
   }
+}
+
+/**
+ * The body, if it is no longer than `size` bytes; null (and the download cut off) otherwise. A Content-Length
+ * other than `size` refuses before reading; without one, reading stops once more than `size` bytes arrived.
+ */
+async function readAtMost(res: Response, size: number): Promise<Buffer | null> {
+  const declared = res.headers.get('content-length');
+  if (declared !== null && Number(declared) !== size) {
+    await res.body?.cancel();
+    return null;
+  }
+  if (!res.body) return Buffer.alloc(0);
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > size) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
 }
 
 interface ExistingItem { id?: unknown; webUrl?: unknown; size?: unknown; file?: unknown }
