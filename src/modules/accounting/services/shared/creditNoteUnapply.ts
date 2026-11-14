@@ -19,7 +19,9 @@ import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
 import { deriveCreditNoteStatus, type CreditNoteSide } from './creditNoteFifo';
 import { assertAllocationsMatchApplied, lockInvoicesForUpdate, undoApplication } from './creditNoteApplicationWrites';
-import { UnapplyRefusal, assertSourceJournalLive } from './unapplyRefusal';
+import { UnapplyRefusal } from './unapplyRefusal';
+import { readPostedCreditOrRefuse } from './creditNotePostedCredit';
+import { assertApplicationRecorded } from './creditNoteApplicationInvariant';
 import type { UnapplyLine } from '../ap/supplierPaymentUnapply';
 
 export interface CreditNoteUnapplyInput {
@@ -34,6 +36,8 @@ export interface CreditNoteUnapplyResult {
   side: CreditNoteSide;
   amountUnapplied: number;
   lines: UnapplyLine[];
+  /** `applied_amount` before, as recorded (a note a cent apart reads its rows' sum less what was taken back after). */
+  noteAppliedBefore: number;
   noteAppliedAfter: number;
   noteStatusAfter: string;
 }
@@ -66,8 +70,9 @@ export async function unapplyCreditNote(
   await lockInvoicesForUpdate('unapplyCreditNote', companyId, side, targets.map((t) => String(t.invoice_id)));
   const plan = await buildPlan(companyId, note, input);
 
+  let paidMoved = 0;
   for (const line of plan.lines) {
-    await undoApplication(companyId, plan.creditNoteId, plan.side, { invoiceId: line.invoiceId, amount: line.amount });
+    paidMoved += await undoApplication(companyId, plan.creditNoteId, plan.side, { invoiceId: line.invoiceId, amount: line.amount });
     await sql`
       DELETE FROM credit_note_allocations
       WHERE credit_note_id = ${plan.creditNoteId}::UUID AND invoice_id = ${line.invoiceId}::UUID
@@ -77,6 +82,9 @@ export async function unapplyCreditNote(
     UPDATE credit_notes SET applied_amount = ${plan.noteAppliedAfter}, status = ${plan.noteStatusAfter},
            updated_at = NOW()
     WHERE id = ${plan.creditNoteId}::UUID AND company_id = ${companyId}::UUID`;
+  // What the documents moved must equal what the note records (brief step 7); thrown — the documents have moved.
+  await assertApplicationRecorded(companyId, plan.creditNoteId, plan.creditNoteNumber,
+    { rowsMoved: -plan.amountUnapplied, paidMoved, appliedAfter: plan.noteAppliedAfter });
 
   log.info('Unapplied credit note', {
     creditNoteId: plan.creditNoteId, lines: plan.lines.length, amount: plan.amountUnapplied, userId,
@@ -95,15 +103,21 @@ async function buildPlan(
   if (!UNAPPLIABLE_NOTE.has(status)) {
     throw new UnapplyRefusal(`Credit note ${number} is ${status} and has no application to take back.`);
   }
-  await assertSourceJournalLive(sql, companyId, note.gl_journal_entry_id, `Credit note ${number}`);
   const side: CreditNoteSide = note.type === 'supplier' ? 'supplier' : 'customer';
+  // KEPT DELIBERATELY (09-21): a note whose journal chain is not standing has no credit in the GL, and taking its
+  // applications back would mint on-account credit that auto_apply_unapplied and the refund ceiling then spend.
+  // Read through the chain (O <- R <- R2 stands), not O's own reversed_at — the same read the apply paths use.
+  await readPostedCreditOrRefuse(companyId, note, side, (m) => new UnapplyRefusal(m));
   const total = round2(Number(note.total_amount));
   const appliedBefore = round2(Number(note.applied_amount ?? 0));
 
   // The rows and the column must agree, or undoing rows leaves the rest of
   // applied_amount credited to a document nothing names.
+  // A take-back: the one-cent tolerance (a note a cent apart can always be corrected), and the note's figure after
+  // is re-derived from the ROWS that remain, which is what brings such a note back into line.
+  let rowsBefore: number;
   try {
-    await assertAllocationsMatchApplied(companyId, input.creditNoteId, appliedBefore);
+    rowsBefore = await assertAllocationsMatchApplied(companyId, input.creditNoteId, appliedBefore, 'decrease');
   } catch (err) {
     throw new UnapplyRefusal(err instanceof Error ? err.message : String(err));
   }
@@ -163,13 +177,14 @@ async function buildPlan(
   }
 
   const amountUnapplied = round2(lines.reduce((s, l) => s + l.amount, 0));
-  const appliedAfter = round2(appliedBefore - amountUnapplied);
+  const appliedAfter = round2(rowsBefore - amountUnapplied);
   return {
     creditNoteId: input.creditNoteId,
     creditNoteNumber: number,
     side,
     amountUnapplied,
     lines,
+    noteAppliedBefore: appliedBefore,
     noteAppliedAfter: appliedAfter,
     noteStatusAfter: deriveCreditNoteStatus(appliedAfter, total, side),
   };

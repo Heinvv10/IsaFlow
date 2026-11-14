@@ -1,6 +1,7 @@
 // src/lib/auth/gotrue.ts
 import { validateImpersonationProof } from './impersonationAssurance';
 import { callAuthUpstream, readAuthUpstreamJson } from './authUpstream';
+import { GoTrueLogoutError, GoTrueSignInError } from './gotrueErrors';
 import { jwtVerify, SignJWT, type JWTPayload } from 'jose';
 
 export interface GoTrueUser {
@@ -107,18 +108,6 @@ export function adminHeaders(): Record<string, string> {
   return { Authorization: `Bearer ${key}`, apikey: key };
 }
 
-/** A non-OK verdict from the password grant. `credentialsRejected`: GoTrue's definite "wrong email or password". */
-export class GoTrueSignInError extends Error {
-  readonly credentialsRejected: boolean;
-  constructor(readonly status: number, body: string) {
-    super(`gotrue signIn failed: ${status} ${body}`);
-    this.name = 'GoTrueSignInError';
-    let parsed: { error_code?: unknown } | null = null;
-    try { parsed = JSON.parse(body) as { error_code?: unknown }; } catch { parsed = null; /* not JSON: not a definite verdict */ }
-    this.credentialsRejected = status === 400 && parsed?.error_code === 'invalid_credentials';
-  }
-}
-
 /** An outage throws AuthUpstreamUnavailableError: login must not count it as a wrong password. */
 export async function signIn(email: string, password: string): Promise<GoTrueTokenResponse> {
   const res = await callAuthUpstream('gotrue signIn', (signal) => gotrueFetch(
@@ -167,9 +156,11 @@ export async function logout(accessToken: string, scope: LogoutScope = 'global')
     { apikey: getEnv('SUPABASE_ANON_KEY'), Authorization: `Bearer ${accessToken}` }
   ));
   if (!res.ok) {
-    throw new Error(`gotrue logout failed: ${res.status} ${await res.text().catch(() => '')}`);
+    throw new GoTrueLogoutError(res.status, await res.text().catch(() => ''));
   }
 }
+
+export { GoTrueLogoutError, GoTrueSignInError, isSessionAlreadyGone } from './gotrueErrors';
 
 /**
  * Mint a short-lived GoTrue-shaped access token for `userId`, signed with the

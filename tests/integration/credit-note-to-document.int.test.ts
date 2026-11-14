@@ -21,6 +21,7 @@ import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import {
   billState, dropFixture, inTx, seedBill, seedFixture, seedInvoice, seedSupplier, type Fixture,
 } from './helpers/l1FifoFixture';
+import { seedPostedNote } from './helpers/creditNoteJournalFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -28,29 +29,16 @@ const describeIfDb = DATABASE_URL ? describe : describe.skip;
 let fx: Fixture;
 let supB: string;
 
-/** An approved, unapplied credit note with a posted journal, as approval leaves one. */
-async function seedNote(
+/**
+ * An approved, unapplied credit note with a posted journal, as approval leaves
+ * one: its whole total on the control account (an application is capped at what
+ * the journal posted — credit-note-posted-credit.int.test.ts).
+ */
+function seedNote(
   side: 'supplier' | 'customer', counterpartyId: string, number: string, total: number,
   status = 'approved',
 ): Promise<string> {
-  const je = String(((await sql`
-    INSERT INTO gl_journal_entries
-      (company_id, entry_number, entry_date, description, status, created_by, fiscal_period_id, posted_at)
-    VALUES (${fx.companyId}::UUID, ${`JE-${number}-${fx.tag}`}, '2026-03-01'::DATE, 'CN', 'posted',
-            ${fx.userId}::UUID,
-            (SELECT id FROM fiscal_periods WHERE company_id = ${fx.companyId}::UUID LIMIT 1), NOW())
-    RETURNING id`) as { id: string }[])[0]!.id);
-  const rows = (await sql`
-    INSERT INTO credit_notes
-      (company_id, type, supplier_id, client_id, credit_note_number, credit_date,
-       subtotal, total_amount, applied_amount, status, created_by, gl_journal_entry_id)
-    VALUES (${fx.companyId}::UUID, ${side},
-            ${side === 'supplier' ? counterpartyId : null}::UUID,
-            ${side === 'customer' ? counterpartyId : null}::UUID,
-            ${`${number}-${fx.tag}`}, '2026-03-01'::DATE, ${total}, ${total}, 0, ${status},
-            ${fx.userId}::UUID, ${je}::UUID)
-    RETURNING id`) as { id: string }[];
-  return rows[0]!.id;
+  return seedPostedNote(fx, { side, number, total, posted: total, status, counterpartyId });
 }
 
 async function noteState(id: string): Promise<{ status: string; applied: number }> {

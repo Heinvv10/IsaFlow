@@ -1,6 +1,16 @@
 /**
  * Admin User Suspend API
  * POST /api/admin/users/[id]/suspend — Suspend a user and invalidate sessions
+ *
+ * Atomic with its audit row (admin audit 2026-11-14, 3.2). Only the refusals raised before any write are caught
+ * (404, the last active super admin's 409). Every other failure throws: withErrorHandler answers 500 and
+ * withPlatformAdmin rolls the suspension back (an admin_request_failed row records the attempt). A failed GoTrue
+ * revocation is not a failure of the suspension: it commits, its audit row says `revocation_failed: true`, and
+ * the answer says the browser sessions survive (`sessions_revoked: false` and the message).
+ *
+ * Accepted cost: the super-admin roster lock (assertSuperAdminRemains) is transaction-scoped, so it is held across
+ * suspendUser's GoTrue revocation (bounded at 5 s) until COMMIT. A concurrent role change or suspension waits that
+ * long; nothing else takes the lock.
  */
 
 import type { NextApiResponse } from 'next';
@@ -10,7 +20,10 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
-import { suspendUser } from '@/modules/admin/services/adminUserActionsService';
+import { suspendUser, SESSIONS_NOT_REVOKED_MESSAGE } from '@/modules/admin/services/adminUserActionsService';
+import {
+  assertSuperAdminRemains, LastSuperAdminError, LAST_SUPER_ADMIN_REASON,
+} from '@/modules/admin/services/superAdminRosterService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
@@ -27,26 +40,38 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'A suspension reason is required');
     }
 
+    const { reason } = parsed.data;
+    let target;
     try {
-      const { reason } = parsed.data;
-
-      const stranded = await suspendUser(userId, reason.trim());
-
-      await logAdminAction(
-        req.user.id,
-        'user.suspend',
-        'user',
-        userId,
-        // Pending pay-run approvals this left without another approver (the suspension is never refused for them).
-        { reason, ...(stranded.length > 0 ? { stranded_pay_run_requests: stranded } : {}) },
-        getIp(req)
-      );
-
-      return apiResponse.success(res, { suspended: true });
+      target = await assertSuperAdminRemains(userId, { keepsSuperAdmin: false });
     } catch (err) {
-      log.error('Failed to suspend user', { userId, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to suspend user');
+      if (err instanceof LastSuperAdminError) return apiResponse.conflict(res, err.message, { reason: LAST_SUPER_ADMIN_REASON });
+      throw err;
     }
+    if (!target) return apiResponse.notFound(res, 'User', userId);
+
+    const { stranded, sessionsRevoked } = await suspendUser(userId, reason.trim());
+
+    await logAdminAction(
+      req.user.id,
+      'user.suspend',
+      'user',
+      userId,
+      {
+        reason,
+        revocation_failed: !sessionsRevoked,
+        ...(target.isSuperAdmin ? { target_super_admin: true } : {}),
+        // Pending pay-run approvals this left without another approver (the suspension is never refused for them).
+        ...(stranded.length > 0 ? { stranded_pay_run_requests: stranded } : {}),
+      },
+      getIp(req)
+    );
+
+    if (!sessionsRevoked) {
+      log.warn('User suspended; GoTrue sessions not revoked', { userId }, 'admin-api');
+      return apiResponse.success(res, { suspended: true, sessions_revoked: false }, SESSIONS_NOT_REVOKED_MESSAGE);
+    }
+    return apiResponse.success(res, { suspended: true, sessions_revoked: true });
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);

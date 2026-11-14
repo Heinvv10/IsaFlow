@@ -2,7 +2,9 @@
  * ConfirmDeleteModal — confirmation dialog before deleting a webhook.
  */
 
+import { useRef } from 'react';
 import { Loader2 } from 'lucide-react';
+import { useFocusTrap } from '@/components/ui/useFocusTrap';
 
 interface Props {
   url: string;
@@ -12,10 +14,13 @@ interface Props {
 }
 
 export function ConfirmDeleteModal({ url, onConfirm, onCancel, loading }: Props) {
+  // Mounted only while open: a real dialog (audit 4.13), Escape cancels, Tab stays inside.
+  const ref = useRef<HTMLDivElement>(null);
+  useFocusTrap(ref, true, () => { if (!loading) onCancel(); });
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl p-6 max-w-sm w-full mx-4 shadow-xl">
-        <h3 className="text-base font-semibold text-slate-900 dark:text-white mb-2">Delete Webhook?</h3>
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="webhook-delete-title" className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl p-6 max-w-sm w-full mx-4 shadow-xl">
+        <h3 id="webhook-delete-title" className="text-base font-semibold text-slate-900 dark:text-white mb-2">Delete Webhook?</h3>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">This will permanently delete:</p>
         <p className="text-xs font-mono text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 rounded px-3 py-2 mb-4 break-all">
           {url}

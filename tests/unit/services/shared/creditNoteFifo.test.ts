@@ -139,9 +139,10 @@ describe('applyCreditNote — the oldest-first walk', () => {
         rows.push([String(values[2]), Number(values[3])]);
         return Promise.resolve([]);
       }
-      if (/UPDATE supplier_invoices SET amount_paid/i.test(text)) {
-        money.push([String(values[1]), Number(values[0])]);
-        return Promise.resolve([{ id: values[1] }]);
+      // The writer measures the move: WITH prev (id, company) UPDATE … + amount … RETURNING moved.
+      if (/UPDATE supplier_invoices d SET amount_paid/i.test(text)) {
+        money.push([String(values[0]), Number(values[2])]);
+        return Promise.resolve([{ moved: Number(values[2]) }]);
       }
       return Promise.resolve([]);
     }) as never);
