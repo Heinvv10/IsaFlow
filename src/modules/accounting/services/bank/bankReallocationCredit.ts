@@ -5,11 +5,11 @@
  * as at its own date (`planSupplierRefund` / `planCustomerRefund`), and an all-dates figure lets a later-dated
  * document hide a refund left with nothing behind it (breaker R2-2).
  *
- * Reallocation only. The AP unwind still runs `ap/supplierVoidCredit.assertVoidKeepsCredit` (all dates, Hein's
- * 2026-10-26 ruling) for every void; this is a stricter check in front of it for this path, and void_payment /
- * reverse_bank_allocation / void_receipt are unchanged. Supplier: under the supplier's credit key
- * (`ap/supplierCreditLock`, TRIED — no edge in any wait-for cycle), as the void takes it. Customer:
- * `ar/customerVoidCredit` (under the customer's refund lock).
+ * Supplier side: reallocation only. The AP unwind still runs `ap/supplierVoidCredit.assertVoidKeepsCredit` (all
+ * dates, Hein's 2026-10-26 ruling) for every void; this is a stricter check in front of it for this path, and
+ * void_payment is unchanged. Supplier: under the supplier's credit key (`ap/supplierCreditLock`, TRIED — no edge in any
+ * wait-for cycle), as the void takes it. Customer: `ar/customerVoidCredit` (under the customer's refund lock, tried),
+ * the same figure every receipt cancellation asks since 2026-11-14 — here it only words the refusal for reallocation.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';

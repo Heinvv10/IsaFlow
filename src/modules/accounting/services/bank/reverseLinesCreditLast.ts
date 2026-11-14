@@ -1,6 +1,8 @@
 /**
  * Reversing several bank lines in one call (MCP `reverse_bank_allocation_batch` / `_range`) when one may be a
- * supplier payment whose cash a refund in the same call returned (Hein's ruling 2026-10-26, `ap/supplierVoidCredit`).
+ * supplier payment whose cash a refund in the same call returned (Hein's ruling 2026-10-26, `ap/supplierVoidCredit`),
+ * or a customer receipt whose cash a customer refund in the same call returned (2026-11-14, `ar/customerVoidCredit`:
+ * the same retry, the same all-or-nothing; the customer figure is the running credit by date).
  *
  * Lines are reversed in id order (the shared lock order). A payment's line that sorts before its refund's is refused
  * by the void credit check only because the refund still stands; reversing both leaves the credit where it was. So a
@@ -15,6 +17,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { assertVoidKeepsCredit, isVoidCreditRefusal } from '../ap/supplierVoidCredit';
+import { assertReceiptVoidKeepsCredit, isCustomerVoidCreditRefusal } from '../ar/customerVoidCredit';
 import { findJournalChainRoot } from '../shared/journalChainHead';
 
 /** Runs `reverse` over `ids` in the order given, retrying credit-refused ones once after the rest. */
@@ -24,7 +27,7 @@ export async function reverseLinesCreditLast(ids: readonly string[], reverse: (i
     try {
       await reverse(id);
     } catch (err) {
-      if (!isVoidCreditRefusal(err)) throw err;
+      if (!isVoidCreditRefusal(err) && !isCustomerVoidCreditRefusal(err)) throw err;
       setAside.push(id);
     }
   }
@@ -36,7 +39,8 @@ export async function reverseLinesCreditLast(ids: readonly string[], reverse: (i
  * void, voided together (refunds raise the credit, payments lower it), must leave each supplier at zero or above.
  * Found as the live reversal finds them: from each line's matched journal to its chain ROOT (`findJournalChainRoot`,
  * as `peekLineChain` does), then the payments on that root and the members of a processed payment batch posted on it.
- * A chain with no root (a loop) is skipped here: the live call refuses it as a broken chain anyway.
+ * A chain with no root (a loop) is skipped here: the live call refuses it as a broken chain anyway. The customer
+ * receipts and refunds on those roots are judged the same way, together, by date (`ar/customerVoidCredit`).
  */
 export async function assertLinesKeepCredit(companyId: string, journalIds: readonly (string | null)[]): Promise<void> {
   const roots: string[] = [];
@@ -54,4 +58,9 @@ export async function assertLinesKeepCredit(companyId: string, journalIds: reado
                              AND b.gl_journal_entry_id = ANY(${roots}::UUID[])))
   `) as DbRow[];
   await assertVoidKeepsCredit(companyId, rows.map((r) => String(r.id)));
+  const receipts = (await sql`
+    SELECT cp.id FROM customer_payments cp
+    WHERE cp.company_id = ${companyId}::UUID AND cp.gl_journal_entry_id = ANY(${roots}::UUID[])
+  `) as DbRow[];
+  await assertReceiptVoidKeepsCredit(companyId, receipts.map((r) => String(r.id)));
 }

@@ -3,7 +3,7 @@
  * credit retry arrived (2026-10-26).
  *
  * A row whose void would take a supplier's on-account credit below zero (`ap/supplierVoidCredit`: a refund already
- * returned the payment's cash) is NOT counted here: it answers 'creditRefused', and the run tries it again once
+ * returned the payment's cash), or a customer's (`ar/customerVoidCredit`, 2026-11-14), is NOT counted here: it answers 'creditRefused', and the run tries it again once
  * every other row is done. A run that reverses a payment AND its refund reaches them in id order, so the payment
  * can come first and be refused only because the refund is still standing; on the second try the refund's undo has
  * raised the credit back. Refused again — the refund is not in the run, or was skipped — it is a `creditCeiling`
@@ -13,6 +13,7 @@ import { log } from '@/lib/logger';
 import { isHeldRowError } from '@/lib/lockTimeout';
 import { isRetryableContention } from '../core/retryableContention';
 import { isVoidCreditRefusal } from '../ap/supplierVoidCredit';
+import { isCustomerVoidCreditRefusal } from '../ar/customerVoidCredit';
 import type { HandOffset } from './autoPostHandOffset';
 import type { RowResult, UndoSkips } from './autoPostUndoService';
 
@@ -77,11 +78,11 @@ export async function attemptUndoRow(
     // rows already reversed stand. Contention is skipped like any failure;
     // it is kept only to decide the answer below. Every lock timeout is contention (D8 round 11): the bank
     // reversal's flow budget refuses a held bill or invoice after 5 s, and that row is not "failed".
-    if (isVoidCreditRefusal(err)) {
+    if (isVoidCreditRefusal(err) || isCustomerVoidCreditRefusal(err)) {
       if (!final) return 'creditRefused';
       tally.skippedBy.creditCeiling += 1;
-      log.warn('Auto-post undo refused a transaction: voiding its payment would leave the supplier owing the company '
-        + '(a refund already returned that cash) — run stays open', { companyId, runId, txId }, 'auto-post-undo');
+      log.warn('Auto-post undo refused a transaction: cancelling its payment or receipt would leave the contact owing '
+        + 'the company (a refund already returned that cash) — run stays open', { companyId, runId, txId }, 'auto-post-undo');
     } else if (isRetryableContention(err) || isHeldRowError(err)) {
       tally.contention ??= err;
       tally.skippedBy.contended += 1;

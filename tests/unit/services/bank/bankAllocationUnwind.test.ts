@@ -11,7 +11,7 @@
  *
  * Every test names the mutation it catches.
  */
-import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll, afterEach } from 'vitest';
 // Step 2's bank gates read Postgres; stubbed open here, proven in tests/integration/bank-controls-*.int.test.ts.
 vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../../helpers/bankControlGateMocks')).importerGateOpen());
 vi.mock('@/modules/accounting/services/bank/bankReversalGate', async () => (await import('../../helpers/bankControlGateMocks')).reversalGateOpen());
@@ -40,6 +40,13 @@ vi.mock('@/modules/accounting/services/ap/supplierVoidCredit', () => ({ assertVo
 vi.mock('@/modules/accounting/services/core/paymentLock', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/core/paymentLock')>()),
   lockSupplierPaymentForUpdate: vi.fn(async () => ({ id: 'p' })),
+  lockCustomerPaymentForUpdate: vi.fn(async () => ({ id: 'p' })),
+}));
+// The customer twin (ar/customerVoidCredit) likewise: its SQL has an integration suite (ar-receipt-void-after-refund);
+// here it passes unless a test makes it refuse, and the error class stays real.
+vi.mock('@/modules/accounting/services/ar/customerVoidCredit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/ar/customerVoidCredit')>()),
+  assertReceiptVoidKeepsCredit: vi.fn(async () => {}),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 // `importOriginal` keeps BALANCE_DERIVED real — `supplierAllocationLines`
@@ -50,7 +57,9 @@ vi.mock('@/modules/accounting/services/ar/invoiceStatusRecompute', async (import
   recomputeInvoiceStatus,
 }));
 
-import { unwindBankAllocationApplication } from '@/modules/accounting/services/bank/bankAllocationUnwind';
+import { unwindBankAllocationApplication, unwindOnePayment } from '@/modules/accounting/services/bank/bankAllocationUnwind';
+import { CustomerVoidCreditRefusal, assertReceiptVoidKeepsCredit } from '@/modules/accounting/services/ar/customerVoidCredit';
+import { lockCustomerPaymentForUpdate } from '@/modules/accounting/services/core/paymentLock';
 
 const COMPANY = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const JOURNAL = 'jjjjjjjj-jjjj-jjjj-jjjj-jjjjjjjjjjjj';
@@ -228,6 +237,51 @@ describe('unwindOnePayment — canonical lock order', () => {
     const invoice = texts.findIndex((t) => /UPDATE customer_invoices/i.test(t));
     const del = texts.findIndex((t) => /DELETE FROM customer_payment_allocations/i.test(t));
     expect(del).toBeGreaterThan(invoice);
+  });
+});
+
+describe('unwindOnePayment — the receipt credit refusal (ar/customerVoidCredit)', () => {
+  afterEach(() => {
+    vi.mocked(lockCustomerPaymentForUpdate).mockImplementation(async () => ({ id: 'p' }));
+    vi.mocked(assertReceiptVoidKeepsCredit).mockImplementation(async () => {});
+  });
+  it('holds the receipt, then asks the credit check, then cancels — in that order', async () => {
+    const order: string[] = [];
+    vi.mocked(lockCustomerPaymentForUpdate).mockImplementationOnce(async () => { order.push('lock'); return { id: PAYMENT }; });
+    vi.mocked(assertReceiptVoidKeepsCredit).mockImplementationOnce(async () => { order.push('check'); });
+    sqlMock.mockImplementation(async (strings: TemplateStringsArray) => {
+      if (strings.join('?').includes("UPDATE customer_payments SET status = 'cancelled'")) order.push('flip');
+      return [];
+    });
+    await unwindOnePayment(COMPANY, 'customer', PAYMENT);
+    expect(order).toEqual(['lock', 'check', 'flip']);
+    expect(assertReceiptVoidKeepsCredit).toHaveBeenCalledWith(COMPANY, [PAYMENT]);
+  });
+
+  it('a refusal writes nothing: no flip, no invoice, no allocation delete', async () => {
+    vi.mocked(assertReceiptVoidKeepsCredit).mockRejectedValueOnce(new CustomerVoidCreditRefusal('refund spent it'));
+    await expect(unwindOnePayment(COMPANY, 'customer', PAYMENT)).rejects.toThrow('refund spent it');
+    expect(sqlMock).not.toHaveBeenCalled();
+    expect(recomputeInvoiceStatus).not.toHaveBeenCalled();
+  });
+
+  it('several receipts on one journal are judged together, rows held in id order, before the first is unwound', async () => {
+    const order: string[] = [];
+    vi.mocked(lockCustomerPaymentForUpdate).mockImplementation(async (_c, id) => { order.push(`lock ${id}`); return { id }; });
+    vi.mocked(assertReceiptVoidKeepsCredit).mockImplementation(async (_c, ids) => { order.push(`check ${ids.join(',')}`); });
+    sqlMock.mockReset();
+    sqlMock.mockResolvedValueOnce([{ id: 'p1' }, { id: 'p2' }]).mockResolvedValue([]);
+    await unwindBankAllocationApplication(COMPANY, JOURNAL);
+    expect(textOf(0)).toMatch(/ORDER BY id/);
+    expect(order).toEqual(['lock p1', 'lock p2', 'check p1,p2', 'lock p1', 'check p1', 'lock p2', 'check p2']);
+  });
+
+  it('a joint refusal on one journal unwinds none of its receipts', async () => {
+    vi.mocked(assertReceiptVoidKeepsCredit).mockRejectedValueOnce(new CustomerVoidCreditRefusal('together they do not fit'));
+    sqlMock.mockReset();
+    sqlMock.mockResolvedValueOnce([{ id: 'p1' }, { id: 'p2' }]).mockResolvedValue([]);
+    await expect(unwindBankAllocationApplication(COMPANY, JOURNAL)).rejects.toThrow('together they do not fit');
+    expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 });
 

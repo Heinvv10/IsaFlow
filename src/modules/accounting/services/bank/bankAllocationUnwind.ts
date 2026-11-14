@@ -58,8 +58,9 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
-import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
+import { lockCustomerPaymentForUpdate, lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { assertVoidKeepsCredit } from '../ap/supplierVoidCredit';
+import { assertReceiptVoidKeepsCredit } from '../ar/customerVoidCredit';
 import type { VatLockRoll } from '../gl/journalEntryReversalVatRoll';
 
 export interface BankAllocationUnwindResult {
@@ -132,6 +133,11 @@ export async function unwindOnePayment(
   // reproduced). Reading the rows only once the row is held is what makes them
   // the rows this transaction will act on.
   if (kind === 'customer') {
+    // The customer twin (2026-11-14, `ar/customerVoidCredit`): a cancellation must not take the customer's running
+    // on-account credit below zero from the receipt's date on (a refund already returned this cash). Row held, then
+    // the customer's refund lock (tried), then the check — before the first write, before invoices and the journal.
+    await lockCustomerPaymentForUpdate(companyId, paymentId);
+    await assertReceiptVoidKeepsCredit(companyId, [paymentId]);
     await sql`
       UPDATE customer_payments SET status = 'cancelled', updated_at = NOW()
       WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
@@ -222,13 +228,20 @@ export async function unwindBankAllocationApplication(
           SELECT id FROM customer_payments
           WHERE company_id = ${companyId}::UUID
             AND gl_journal_entry_id = ${journalEntryId}::UUID
-            AND status <> 'cancelled'`
+            AND status <> 'cancelled'
+          ORDER BY id`
       : await sql`
           SELECT id FROM supplier_payments
           WHERE company_id = ${companyId}::UUID
             AND gl_journal_entry_id = ${journalEntryId}::UUID
             AND status <> 'cancelled'`) as DbRow[];
 
+    if (kind === 'customer' && payments.length > 1) {
+      // Several receipts on one journal (a split) are judged TOGETHER, before the first is unwound: rows held in id
+      // order, then the credit of each customer across all of them (`ar/customerVoidCredit`).
+      for (const p of payments) await lockCustomerPaymentForUpdate(companyId, String(p.id));
+      await assertReceiptVoidKeepsCredit(companyId, payments.map((p) => String(p.id)));
+    }
     for (const p of payments) {
       const one = await unwindOnePayment(companyId, kind, String(p.id));
       invoicesReopened += one.invoicesReopened;

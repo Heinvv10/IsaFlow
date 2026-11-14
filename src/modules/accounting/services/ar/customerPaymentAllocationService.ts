@@ -16,6 +16,7 @@ import { lockCustomerPaymentForUpdate } from '../core/paymentLock';
 import { assertSameJournal, lockJournalAndUnmatch, voidViaBankAllocation } from '../ap/paymentJournalReversal';
 import { lockReceiptBankLeg } from './receiptBankLeg';
 import { ReceiptRefusal } from './receiptRefusal';
+import { assertReceiptVoidKeepsCredit } from './customerVoidCredit';
 import { assertWithinOutstanding, cents, lockReceiptInvoices } from './receiptInvoiceLock';
 import { getCustomerPaymentById } from './customerPaymentService';
 import type { CustomerPayment } from '../../types/ar.types';
@@ -189,6 +190,9 @@ async function cancelCustomerPaymentInner(
     const label = `Receipt ${payment.paymentNumber}`;
     // A bank ALLOCATION posted the journal: the bank path unwinds the receipt, posts the contra and frees the line.
     const delegated = !!leg && await voidViaBankAllocation(companyId, leg, userId, label, journalId);
+    // Not below zero (2026-11-14, `ar/customerVoidCredit`): a refund may already have returned this receipt's unapplied
+    // cash. Payment held, then the customer (tried) — before any write; the bank path asks it itself when delegated.
+    if (!delegated) await assertReceiptVoidKeepsCredit(companyId, [id]);
     // Step 2: a statement line MATCHED to this journal (a refund out is gated; a receipt is money in) — before any write.
     const auditLeg = !delegated && journalId && leg ? await assertMayReverseMatchedLeg(companyId, journalId, leg.bankLineIds, userId) : null;
 

@@ -149,18 +149,22 @@ export const reverseAllocationsTool: McpTool = {
     const agentRefusal = await agentReversalRefusal(ctx.companyId, rows.map((r) => r.id));
     if (agentRefusal) return toolError(agentRefusal.message);
 
-    // A supplier payment whose cash a refund outside the range returned is refused live (ap/supplierVoidCredit); the
-    // preview answers the same, decided on the range's net (bank/reverseLinesCreditLast).
+    // A supplier payment or customer receipt whose cash a refund outside the range returned is refused live
+    // (ap/supplierVoidCredit, ar/customerVoidCredit); the preview answers the same, decided on the range's net
+    // (bank/reverseLinesCreditLast). `wroteNothing` keeps the idempotency key free for the real call.
     if (dryRun) {
       await assertLinesKeepCredit(ctx.companyId, rows.map((r) => r.journalEntryId));
-      return ok({
-        bank_account_id: bankAccountId, from_date: fromDate, to_date: toDate,
-        dry_run: true,
-        would_reverse: rows.length,
-        transactions: preview,
-        // Named so an agent can go straight to fixing the cause.
-        rules_involved: [...new Set(rows.map((r) => r.allocationRuleName).filter(Boolean))],
-      });
+      return {
+        ...ok({
+          bank_account_id: bankAccountId, from_date: fromDate, to_date: toDate,
+          dry_run: true,
+          would_reverse: rows.length,
+          transactions: preview,
+          // Named so an agent can go straight to fixing the cause.
+          rules_involved: [...new Set(rows.map((r) => r.allocationRuleName).filter(Boolean))],
+        }),
+        wroteNothing: true,
+      };
     }
 
     // All-or-nothing, deliberately — see the file header. Rows arrive ordered by
