@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/neon', () => {
-  const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
+  const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn(), unsafe: vi.fn((text: string) => ({ unsafeSql: text })) });
   return {
     sql: sqlMock,
     withTransaction: vi.fn((cb: (tx: typeof sqlMock) => unknown) => cb(sqlMock)),
@@ -22,6 +22,7 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { sql } from '@/lib/neon';
+import { CURRENT_PLAN_ID_SQL } from '@/modules/admin/services/currentPlanSql';
 import { getCompanyEffectiveFeatures } from '@/modules/admin/services/featureFlagService';
 
 const COMPANY = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -84,7 +85,8 @@ describe('getCompanyEffectiveFeatures', () => {
     // pass if the company filter landed on the wrong statement.
     const [flagsQuery, planQuery, overridesQuery] = vi.mocked(sql).mock.calls;
     expect(flagsQuery.slice(1)).toEqual([]); // catalogue query is tenant-agnostic
-    expect(planQuery.slice(1)).toEqual([COMPANY]);
+    // The plan fragment is the shared CURRENT_PLAN_ID_SQL splice; the company id is the only bound value.
+    expect(planQuery.slice(1)).toEqual([{ unsafeSql: CURRENT_PLAN_ID_SQL }, COMPANY]);
     expect(overridesQuery.slice(1)).toEqual([COMPANY]);
   });
 });
