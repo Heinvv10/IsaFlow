@@ -9,7 +9,7 @@ import { log } from '@/lib/logger';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type JobStatus = 'pending' | 'running' | 'completed' | 'failed';
+export type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export interface BackgroundJob {
   id: string;
@@ -136,13 +136,16 @@ export async function markJobComplete(
   result?: Record<string, unknown>
 ): Promise<void> {
   try {
-    await sql`
+    // Only a running job: an admin may have cancelled it mid-run (audit 3.6).
+    const rows = await sql`
       UPDATE background_jobs
       SET status = 'completed',
           completed_at = NOW(),
           result = ${result ? JSON.stringify(result) : null}::JSONB
-      WHERE id = ${jobId}::UUID
-    `;
+      WHERE id = ${jobId}::UUID AND status = 'running'
+      RETURNING id
+    ` as Array<{ id: string }>;
+    if (rows.length === 0) { log.warn('Job no longer running (cancelled?); completion not recorded', { jobId }, 'job-queue-service'); return; }
     log.info('Job completed', { jobId }, 'job-queue-service');
   } catch (err) {
     log.error('markJobComplete failed', { jobId, error: err }, 'job-queue-service');
@@ -154,7 +157,7 @@ export async function markJobComplete(
 
 export async function markJobFailed(jobId: string, error: string): Promise<void> {
   try {
-    await sql`
+    const rows = await sql`
       UPDATE background_jobs
       SET status = CASE
             WHEN attempts >= max_attempts THEN 'failed'
@@ -162,8 +165,10 @@ export async function markJobFailed(jobId: string, error: string): Promise<void>
           END,
           error_message = ${error},
           started_at = NULL
-      WHERE id = ${jobId}::UUID
-    `;
+      WHERE id = ${jobId}::UUID AND status = 'running'
+      RETURNING id
+    ` as Array<{ id: string }>;
+    if (rows.length === 0) { log.warn('Job no longer running (cancelled?); failure not re-queued', { jobId, error }, 'job-queue-service'); return; }
     log.warn('Job failed', { jobId, error }, 'job-queue-service');
   } catch (err) {
     log.error('markJobFailed failed', { jobId, error: err }, 'job-queue-service');
