@@ -81,7 +81,8 @@ export async function listCompanies(
                                                                       AS user_count,
       ${companyMrrCents()}                                            AS mrr_cents,
       c.created_at,
-      c.updated_at                                                    AS last_active
+      (SELECT MAX(u.last_login) FROM company_users cu JOIN users u ON u.id = cu.user_id
+        WHERE cu.company_id = c.id AND u.is_active = true) AS last_active
     FROM companies c
     ${currentSubscriptionJoin()}
     LEFT JOIN plans p ON p.id = cur.plan_id
@@ -148,7 +149,8 @@ export async function getCompanyDetail(
       c.suspended_reason,
       c.metadata,
       c.created_at,
-      c.updated_at                    AS last_active,
+      (SELECT MAX(u.last_login) FROM company_users cu JOIN users u ON u.id = cu.user_id
+        WHERE cu.company_id = c.id AND u.is_active = true) AS last_active,
       (SELECT COUNT(*)
          FROM company_users cu
         WHERE cu.company_id = c.id)::int AS user_count,

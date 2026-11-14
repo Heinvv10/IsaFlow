@@ -140,7 +140,7 @@ export interface UsageAnalytics {
   /** user_count = companies with effective access (override > global > plan); percent null with no companies. */
   feature_adoption: Array<{ feature: string; adoption_percent: number | null; user_count: number }>;
   revenue_by_plan: Array<{ plan_name: string; mrr_cents: number; company_count: number }>;
-  churn_signals: Array<{ company_id: string; company_name: string; days_inactive: number; last_login: string | null }>;
+  churn_signals: Array<{ company_id: string; company_name: string; days_inactive: number | null; last_login: string | null }>;
 }
 
 export interface MrrTrendPoint {
