@@ -6,15 +6,18 @@
  * read them back, which is why "which transactions over R10,000 have no
  * supporting document" — a standard audit test — has been unanswerable.
  */
-import type { McpTool } from '../types';
+import type { McpTool, McpToolResult } from '../types';
 import {
   listBankAttachments,
   listEntityDocuments,
   listTransactionsWithoutDocuments,
 } from '@/modules/accounting/services/core/documentQueryService';
 import { getBankTxAttachment } from '@/modules/accounting/services/bank/bankTxAttachmentService';
-import { VALID_ENTITY_TYPES } from '@/modules/accounting/services/core/documentStorageService';
+import {
+  DOCUMENT_ENTITY_TYPES, bankTxBelongsToCompany, isBankEntityType,
+} from '@/modules/accounting/services/core/bankLineDocumentRouting';
 import { buildEnvelope } from '../contracts';
+import { insufficientScopeMessage } from '../scopeRemediation';
 import {
   NOT_FOUND, clampLimit, guardCastableArgs, ok, safeErrorText, strArg, toolError,
 } from './toolHelpers';
@@ -22,13 +25,45 @@ import {
 const MAX_LIMIT = 200;
 const EPOCH = new Date(0).toISOString();
 
+/** entity_type bank_transaction: the line's documents from the bank store, ids that get_document accepts. */
+async function listBankLineEntity(bankTxId: string, limit: number, companyId: string): Promise<McpToolResult> {
+  try {
+    // BEFORE the read: an empty page must not be what a foreign line looks like.
+    if (!(await bankTxBelongsToCompany(companyId, bankTxId))) return toolError(NOT_FOUND);
+    const page = await listBankAttachments(companyId, { bankTransactionId: bankTxId, limit });
+    return ok(buildEnvelope({
+      rows: page.rows.map((r) => ({
+        store: r.store,
+        id: r.id,
+        entity_type: 'bank_transaction',
+        entity_id: r.bankTransactionId,
+        bank_transaction_id: r.bankTransactionId,
+        file_name: r.fileName,
+        file_size: r.fileSize,
+        uploaded_by: r.uploadedBy,
+        uploaded_at: r.createdAt,
+        transaction_date: r.transactionDate,
+        amount: r.amount,
+        transaction_description: r.transactionDescription,
+        reference: r.reference,
+      })),
+      rowsTotal: page.rowsTotal,
+      detail: 'standard',
+      as_at: page.rows[0]?.transactionDate ?? EPOCH.slice(0, 10),
+      posted_through: page.postedThrough,
+    }));
+  } catch (err) {
+    return toolError(safeErrorText(err, 'Failed to list documents.'));
+  }
+}
+
 export const listDocumentsTool: McpTool = {
   name: 'list_documents',
   description:
     'Supporting documents on file. THERE ARE TWO SEPARATE STORES and this reads whichever one you address. ' +
-    'Give from and to (and optionally bank_transaction_id) to list the receipts, slips and invoice scans attached to BANK TRANSACTIONS — the read side of attach_document. ' +
+    'Give from and to (and optionally bank_transaction_id) to list the receipts, slips and invoice scans attached to BANK TRANSACTIONS — the read side of attach_document (needs read:bank-tx as well as read:reports). ' +
     'Those rows carry store "bank_attachment" (an uploaded file) or "captured_document" (a captured document linked to the bank line that has no uploaded copy, e.g. one over 2 MB); both count as the line\'s supporting documents. ' +
-    'Give entity_type and entity_id instead to list the documents filed against one accounting document (' + VALID_ENTITY_TYPES.join(', ') + '), including documents cross-linked from another entity, which come back with source "linked" and a link_reason. ' +
+    'Give entity_type and entity_id instead to list the documents filed against one accounting document (' + DOCUMENT_ENTITY_TYPES.join(', ') + '), including documents cross-linked from another entity, which come back with source "linked" and a link_reason. entity_type bank_transaction with the line\'s id lists that one line\'s documents from the bank store (rows as above, no date range needed; needs read:bank-tx as well), so a caller never has to know which store holds what. ' +
     'DOES NOT COVER: a company-wide listing of the entity store. Those rows carry no company id and are fenced by their parent document, so they can only be read one entity at a time — there is no "all documents for this company" query, and asking for one would silently cross tenants. ' +
     'Nor does it return file bytes; use get_document for a single file. ' +
     'To find what has NO document, use list_unsupported_transactions — an empty page here means nothing was found for what you asked, not that nothing exists.',
@@ -40,7 +75,7 @@ export const listDocumentsTool: McpTool = {
       from: { type: 'string', description: 'Transaction date from, YYYY-MM-DD. Bank store only.' },
       to: { type: 'string', description: 'Transaction date to, YYYY-MM-DD. Bank store only.' },
       bank_transaction_id: { type: 'string', description: 'Narrows the bank store to one transaction.' },
-      entity_type: { type: 'string', enum: [...VALID_ENTITY_TYPES] },
+      entity_type: { type: 'string', enum: [...DOCUMENT_ENTITY_TYPES] },
       entity_id: { type: 'string', description: 'With entity_type, reads the entity store instead.' },
       limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT },
       offset: { type: 'integer', minimum: 0, description: 'Entity store only.' },
@@ -56,13 +91,18 @@ export const listDocumentsTool: McpTool = {
       if (!entityType || !entityId) return toolError('entity_type and entity_id must be given together');
       const bad = guardCastableArgs(args, { uuid: ['entity_id'] });
       if (bad) return bad;
+      if (isBankEntityType(entityType)) {
+        // Same read scope as list_missing_documents' bank_transaction type.
+        if (!ctx.scopes.includes('read:bank-tx')) return toolError(insufficientScopeMessage('read:bank-tx'));
+        return listBankLineEntity(entityId, limit, ctx.companyId);
+      }
       const offset = Number.isFinite(Number(args.offset)) ? Math.max(0, Math.floor(Number(args.offset))) : 0;
       try {
         const result = await listEntityDocuments(ctx.companyId, entityType, entityId, limit, offset);
         if (!result.ok) {
           // Cross-tenant and genuine miss must read identically.
           return result.reason === 'invalid_entity_type'
-            ? toolError(`invalid entity_type — expected one of: ${VALID_ENTITY_TYPES.join(', ')}`)
+            ? toolError(`invalid entity_type — expected one of: ${DOCUMENT_ENTITY_TYPES.join(', ')}`)
             : toolError(NOT_FOUND);
         }
         const rows = result.documents.map((d) => ({
@@ -98,6 +138,8 @@ export const listDocumentsTool: McpTool = {
     if (!from || !to) {
       return toolError('from and to are required (YYYY-MM-DD), or give entity_type + entity_id instead');
     }
+    // The date-range listing returns bank attachments: the same gate as the bank_transaction entity path.
+    if (!ctx.scopes.includes('read:bank-tx')) return toolError(insufficientScopeMessage('read:bank-tx'));
     const bad = guardCastableArgs(args, { date: ['from', 'to'], uuid: ['bank_transaction_id'] });
     if (bad) return bad;
     try {

@@ -8,6 +8,7 @@
 import { sql } from '@/lib/neon';
 import { todayInSast } from '@/lib/saDateParser';
 import { AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { lacksEntityDocumentSql } from '../core/documentPresenceSql';
 import type { InvoiceFilters, SupplierInvoiceSort } from './supplierInvoiceQueryService';
 
 // Lookahead windows used in payment-eligibility predicates.
@@ -84,7 +85,7 @@ export function buildInvoiceWhere(companyId: string, f: InvoiceFilters | undefin
 
   // Signal filters — each uses $1 (companyId, already set) to keep subqueries tenant-scoped.
   if (f?.missingDocument) {
-    conds.push('si.source_document_id IS NULL');
+    conds.push(lacksEntityDocumentSql('supplier_invoice', 'si'));
   }
   if (f?.possibleDuplicate) {
     conds.push(

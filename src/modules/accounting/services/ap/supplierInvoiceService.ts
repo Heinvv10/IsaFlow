@@ -11,6 +11,7 @@
 
 import { sql, withTransaction } from '@/lib/neon';
 import { UNKNOWN_SUPPLIER } from './apAgingInvoices';
+import { hasEntityDocumentSql } from '../core/documentPresenceSql';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertBillPoLinks } from './supplierInvoicePoLinks';
@@ -56,7 +57,8 @@ export async function getSupplierInvoiceById(
 ): Promise<(SupplierInvoice & { items: SupplierInvoiceItem[] }) | null> {
   try {
     const rows = (await sql`
-      SELECT si.*, COALESCE(s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name, po.po_number
+      SELECT si.*, COALESCE(s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name, po.po_number,
+             ${sql.unsafe(hasEntityDocumentSql('supplier_invoice', 'si'))} AS has_document
       FROM supplier_invoices si
       LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
       LEFT JOIN purchase_orders po ON po.id = si.purchase_order_id AND po.company_id = si.company_id

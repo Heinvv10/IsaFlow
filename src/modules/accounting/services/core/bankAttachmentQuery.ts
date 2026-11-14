@@ -27,8 +27,9 @@ export interface BankAttachmentRow {
 }
 
 export interface AttachmentFilters {
-  from: string;
-  to: string;
+  /** Transaction-date bounds. Both may be omitted when `bankTransactionId` names the line. */
+  from?: string;
+  to?: string;
   limit: number;
   bankTransactionId?: string;
 }
@@ -46,6 +47,8 @@ function iso(v: unknown): string {
 export async function listBankAttachments(companyId: string, f: AttachmentFilters): Promise<AttachmentPage> {
   try {
     const txId = f.bankTransactionId ?? null;
+    const from = f.from ?? null;
+    const to = f.to ?? null;
     // One CTE for rows and count, so the two can never disagree about which documents exist.
     const docs = sql`
       WITH docs AS (
@@ -54,7 +57,7 @@ export async function listBankAttachments(companyId: string, f: AttachmentFilter
           FROM bank_transaction_attachments a
           JOIN bank_transactions bt ON bt.id = a.bank_transaction_id
          WHERE bt.company_id = ${companyId}::UUID
-           AND bt.transaction_date >= ${f.from}::DATE AND bt.transaction_date <= ${f.to}::DATE
+           AND (${from}::DATE IS NULL OR bt.transaction_date >= ${from}::DATE) AND (${to}::DATE IS NULL OR bt.transaction_date <= ${to}::DATE)
            AND (${txId}::TEXT IS NULL OR a.bank_transaction_id::TEXT = ${txId})
            AND ${sql.unsafe(attachmentCountsSql('a', 'bt'))}
         UNION ALL
@@ -63,7 +66,7 @@ export async function listBankAttachments(companyId: string, f: AttachmentFilter
           FROM captured_documents cd
           JOIN bank_transactions bt ON bt.id = cd.matched_bank_tx_id
          WHERE bt.company_id = ${companyId}::UUID
-           AND bt.transaction_date >= ${f.from}::DATE AND bt.transaction_date <= ${f.to}::DATE
+           AND (${from}::DATE IS NULL OR bt.transaction_date >= ${from}::DATE) AND (${to}::DATE IS NULL OR bt.transaction_date <= ${to}::DATE)
            AND (${txId}::TEXT IS NULL OR bt.id::TEXT = ${txId})
            AND ${sql.unsafe(linkedCapturedDocSql('bt', 'cd'))} AND ${sql.unsafe(hasNoCopySql('bt', 'cd'))}
       )`;
