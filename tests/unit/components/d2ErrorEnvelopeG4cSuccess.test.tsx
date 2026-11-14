@@ -123,7 +123,7 @@ describe('admin billing components complete on a success envelope', () => {
       return null;
     });
     render(<ConvertTrialModal companyId="x-1" companyName="Acme" onClose={() => undefined} onConverted={onConverted} />);
-    await screen.findByText('Starter');
+    fireEvent.click(await screen.findByLabelText(/Starter/)); // no plan is preselected
     fireEvent.click(screen.getByRole('button', { name: /^convert to paid$/i }));
     await waitFor(() => expect(onConverted).toHaveBeenCalledTimes(1));
   });

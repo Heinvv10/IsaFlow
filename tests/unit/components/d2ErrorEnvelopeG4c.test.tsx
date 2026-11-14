@@ -142,7 +142,7 @@ describe('admin billing components', () => {
       return null;
     });
     render(<ConvertTrialModal companyId="x-1" companyName="Acme" onClose={() => undefined} onConverted={() => undefined} />);
-    await screen.findByText('Starter');
+    fireEvent.click(await screen.findByLabelText(/Starter/)); // no plan is preselected
     fireEvent.click(screen.getByRole('button', { name: /^convert to paid$/i }));
     expect(await screen.findByText(msg)).toBeTruthy();
   });
