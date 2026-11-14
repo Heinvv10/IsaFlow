@@ -53,7 +53,8 @@ async function routeDirective(fx: SeveranceFixture, body: Record<string, unknown
   });
   expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
   const id = String(made.body.data!.id);
-  const ok = await fx.call(directive as Route, 'PATCH', `/api/accounting/tax-directives/${id}`, id, { body: { status: 'approved' } });
+  // Four eyes (DR round 2): the company's other member approves what the admin captured.
+  const ok = await fx.call(directive as Route, 'PATCH', `/api/accounting/tax-directives/${id}`, id, { body: { status: 'approved' }, user: fx.approver });
   expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
   return id;
 }
@@ -209,7 +210,7 @@ describe('G1: a directive linked to no employee is refused at apply', () => {
     const body = { employee_name: 'Nobody Linked', directive_number: '1112223334', directive_type: 'death' as const, amount: 5_000, tax_rate: 0.1, effective_date: '2026-06-01' };
     expect((await f.call(directives as Route, 'POST', '/api/accounting/tax-directives', undefined, { body })).statusCode).toBe(400);
     const id = (await createTaxDirective(f.company, body, f.admin)).id;
-    expect((await f.call(directive as Route, 'PATCH', `/api/accounting/tax-directives/${id}`, id, { body: { status: 'approved' } })).statusCode).toBe(200);
+    expect((await f.call(directive as Route, 'PATCH', `/api/accounting/tax-directives/${id}`, id, { body: { status: 'approved' }, user: f.approver })).statusCode).toBe(200);
     const r = await applyStandalone(f, id, '2026-06-05');
     expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
     expect(JSON.stringify(r.body)).toMatch(/not linked to an employee/);

@@ -48,7 +48,24 @@ function recomputePaye(fig: FigureExplanation): number {
   const directive = r.has('paye.directive') ? r.amt('paye.directive') : 0;
   let regular = 0;
   let annual = 0;
-  if (r.has('paye.flat')) {
+  if (r.has('paye.regularDirective.regular')) {
+    // DR: a fixed percentage of the base and of the annual payments, or the fixed amount when regular pay was paid; capped at the cash.
+    if (r.has('paye.regularDirective.rate')) {
+      regular = round2(r.amt('paye.regularDirective.rate') * r.amt('paye.regularDirective.base'));
+      annual = round2(r.amt('paye.regularDirective.rate') * r.amt('paye.regularDirective.annualBase'));
+    } else {
+      regular = r.amt('paye.regularDirective.base') > 0 ? r.amt('paye.regularDirective.fixed') : 0;
+      annual = r.amt('paye.regularDirective.annual');
+    }
+    expect(cents(r.amt('paye.regularDirective.regular'))).toBe(cents(regular));
+    expect(cents(r.amt('paye.regularDirective.annual'))).toBe(cents(annual));
+    if (r.has('paye.regularDirective.cap')) {
+      const room = r.amt('paye.regularDirective.cap');
+      const kept = Math.min(regular, room);
+      annual = round2(Math.min(annual, room - kept));
+      regular = round2(kept);
+    }
+  } else if (r.has('paye.flat')) {
     regular = round2(r.amt('paye.flatRate') * Math.max(0, r.amt('paye.balance')));
   } else if (r.has('paye.annualEquivalent')) {
     const n = r.amt('paye.periods');

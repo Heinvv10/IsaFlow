@@ -1,6 +1,6 @@
 /**
  * Tax Directives Page
- * SARS lump sum, retirement, severance & death directives.
+ * SARS lump sum, retirement, severance & death directives, and fixed-percentage / fixed-amount directives on regular pay.
  * Route: /payroll/tax-directives
  */
 
@@ -12,9 +12,12 @@ import { CreateTaxDirectiveModal } from '@/components/payroll/TaxDirectiveCompon
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import {
+  STATUS_COLOURS, STATUS_LABELS, TYPE_LABELS, directiveAmountCell, type DirectiveStatus, type DirectiveType,
+} from '@/components/payroll/taxDirectiveLabels';
+import { DirectiveExpiryAction } from '@/components/payroll/DirectiveExpiryAction';
+import { isRegularPayDirectiveType } from '@/modules/accounting/services/payroll/taxDirectiveKinds';
 
-type DirectiveType = 'lump_sum' | 'retirement' | 'severance' | 'death';
-type DirectiveStatus = 'pending' | 'approved' | 'expired' | 'cancelled';
 type StatusFilter = 'all' | DirectiveStatus;
 
 interface TaxDirective {
@@ -24,30 +27,10 @@ interface TaxDirective {
   directiveType: DirectiveType;
   amount: number;
   taxRate: number | null;
+  taxAmount: number | null;
   effectiveDate: string;
   status: DirectiveStatus;
 }
-
-const TYPE_LABELS: Record<DirectiveType, string> = {
-  lump_sum: 'Lump Sum',
-  retirement: 'Retirement',
-  severance: 'Severance',
-  death: 'Death',
-};
-
-const STATUS_LABELS: Record<DirectiveStatus, string> = {
-  pending: 'Pending',
-  approved: 'Approved',
-  expired: 'Expired',
-  cancelled: 'Cancelled',
-};
-
-const STATUS_COLOURS: Record<DirectiveStatus, string> = {
-  pending: 'bg-yellow-500/20 text-yellow-400',
-  approved: 'bg-teal-500/20 text-teal-400',
-  expired: 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)]',
-  cancelled: 'bg-red-500/20 text-red-400',
-};
 
 const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: 'all', label: 'All Statuses' },
@@ -144,7 +127,7 @@ export default function TaxDirectivesPage() {
               <div className="p-2 rounded-lg bg-teal-500/10"><FileText className="h-5 w-5 text-teal-400" /></div>
               <div>
                 <h1 className="text-lg font-semibold text-[var(--ff-text-primary)]">Tax Directives</h1>
-                <p className="text-xs text-[var(--ff-text-tertiary)]">SARS lump sum, retirement, severance &amp; death directives</p>
+                <p className="text-xs text-[var(--ff-text-tertiary)]">SARS lump sum, retirement, severance &amp; death directives, and fixed-percentage or fixed-amount directives on regular pay</p>
               </div>
             </div>
             <button onClick={() => setShowModal(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors">
@@ -250,7 +233,7 @@ export default function TaxDirectivesPage() {
                         {formatDisplayDate(d.effectiveDate)}
                       </td>
                       <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">
-                        {fmtCurrency(d.amount)}
+                        {directiveAmountCell(d)}
                       </td>
                       <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">
                         {d.taxRate != null ? `${(d.taxRate * 100).toFixed(2)}%` : '—'}
@@ -268,6 +251,9 @@ export default function TaxDirectivesPage() {
                             >
                               Approve
                             </button>
+                          )}
+                          {d.status === 'approved' && isRegularPayDirectiveType(d.directiveType) && (
+                            <DirectiveExpiryAction id={d.id} onSaved={() => void loadDirectives()} onError={setActionError} />
                           )}
                           {(d.status === 'pending' || d.status === 'approved') && (
                             <button

@@ -20,6 +20,7 @@ import {
   PayrollRunJournalPostedError,
 } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { UnsupportedTaxYearError } from '@/modules/accounting/services/payroll/taxTables';
+import { PayrollRunDirectiveUseError } from '@/modules/accounting/services/payroll/payrollRunDirectiveUses';
 import { EtiLaterMonthPostedError } from '@/modules/accounting/services/payroll/etiPeriodGuard';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -59,6 +60,8 @@ async function handler(
     if (err instanceof PayrollRunJournalPostedError) {
       return apiResponse.badRequest(res, err.message, { code: err.code });
     }
+    // An ever-approved run that would lose a directive it was approved with (DR round 3): before anything is written.
+    if (err instanceof PayrollRunDirectiveUseError) return apiResponse.conflict(res, err.message, { code: err.code });
     // Raised before anything is written; the message says what is missing.
     if (err instanceof UnsupportedTaxYearError) {
       return apiResponse.badRequest(res, err.message, { code: 'UNSUPPORTED_TAX_YEAR', taxYear: err.taxYear });
