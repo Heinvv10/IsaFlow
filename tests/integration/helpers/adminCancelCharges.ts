@@ -103,6 +103,9 @@ export function adminCancelFixture(pool: Pool) {
 
   /** Per test: active subscription, one queued and one failed-past-backoff charge, both for ungranted periods. */
   async function reset() {
+    // withAdmin allows 120 requests a minute per IP, and the counter outlives a run: back-to-back
+    // runs (or other suites sharing this IP key) would answer 429 and silently skip a cancel.
+    await pool.query("DELETE FROM rate_limit_counters WHERE key='admin:127.0.0.79'");
     for (const c of [ids.company, ids.other]) {
       await pool.query('DELETE FROM paystack_payment_requests WHERE company_id=$1', [c]);
       await pool.query('DELETE FROM subscription_charges WHERE company_id=$1', [c]);
