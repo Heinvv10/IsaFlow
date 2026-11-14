@@ -73,7 +73,7 @@ export async function listInvoices(filters: {
       i.invoice_number, i.status,
       i.subtotal_cents, i.tax_cents, i.total_cents, i.currency,
       i.due_date, i.paid_at, i.payment_method,
-      i.created_at
+      i.created_at, i.send_claimed_at
     FROM admin_invoices i
     INNER JOIN companies c ON c.id = i.company_id
     WHERE (${filters.company_id ?? null}::uuid IS NULL
@@ -110,6 +110,7 @@ export async function listInvoices(filters: {
       paid_at: toIso(r.paid_at),
       payment_method: r.payment_method as string | null,
       created_at: toIso(r.created_at) ?? '',
+      send_claimed_at: toIso(r.send_claimed_at),
     })),
     total,
     page,

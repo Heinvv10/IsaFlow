@@ -16,6 +16,8 @@ export interface Invoice {
   paid_at: string | null;
   payment_method: string | null;
   created_at: string;
+  /** A Send in flight or with an unknown outcome (migration 991): no Send button; settle it instead. */
+  send_claimed_at?: string | null;
 }
 
 export interface PagedResponse {

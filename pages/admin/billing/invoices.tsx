@@ -4,11 +4,13 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, Send, CreditCard } from 'lucide-react';
+import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, Send, CreditCard, Scale } from 'lucide-react';
 import { DateField } from '@/components/ui/DateField';
 
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
 import { CreateInvoiceModal } from '@/components/admin/billing/CreateInvoiceModal';
+import { SettleSendModal } from '@/components/admin/billing/SettleSendModal';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 import { type Invoice, type PagedResponse } from '@/components/admin/billing/invoiceModel';
 
 type InvoiceAction = 'send' | 'mark_paid';
@@ -37,6 +39,8 @@ export default function InvoicesPage() {
   // The action waiting for the admin to confirm it: Send emails the customer, Mark Paid closes the invoice.
   const [pending, setPending]     = useState<{ invoice: Invoice; action: InvoiceAction } | null>(null);
   const [notice, setNotice]       = useState('');
+  // A claimed invoice (a Send whose outcome is unknown) being settled.
+  const [settling, setSettling]   = useState<Invoice | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const LIMIT = 25;
 
@@ -76,14 +80,16 @@ export default function InvoicesPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
 
-  async function handleAction(id: string, action: InvoiceAction) {
+  async function handleAction(invoice: Invoice, action: InvoiceAction) {
+    const id = invoice.id;
     setActionId(id);
     setNotice('');
     const failure = action === 'send' ? 'Could not send the invoice - try again' : 'Could not mark the invoice as paid - try again';
     try {
       // Route files use hyphens; mark_paid → mark-paid
       const route = action === 'mark_paid' ? 'mark-paid' : action;
-      const body  = action === 'mark_paid' ? JSON.stringify({ payment_method: 'manual' }) : undefined;
+      // Send names the address its confirm dialog showed: the server refuses it if the billing email changed since.
+      const body  = action === 'mark_paid' ? JSON.stringify({ payment_method: 'manual' }) : JSON.stringify({ confirmed_to: invoice.billing_email ?? '' });
       const res   = await apiFetch(`/api/admin/billing/invoices/${id}/${route}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
@@ -106,7 +112,7 @@ export default function InvoicesPage() {
     if (!pending) return;
     const { invoice, action } = pending;
     setPending(null);
-    void handleAction(invoice.id, action);
+    void handleAction(invoice, action);
   }
 
   const inputCls = 'px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500';
@@ -153,6 +159,15 @@ export default function InvoicesPage() {
           onCreated={() => { setShowForm(false); void load(search, status, dateFrom, dateTo, 1); }} />
       )}
 
+      {settling && (
+        <SettleSendModal invoice={settling} onClose={() => setSettling(null)}
+          onSettled={(outcome) => {
+            setNotice(`${settling.invoice_number}: ${outcome === 'sent' ? 'marked as sent' : 'released; it can be sent again'}`);
+            setSettling(null);
+            void load(search, status, dateFrom, dateTo, page);
+          }} />
+      )}
+
       <ConfirmModal
         open={pending !== null}
         title={pending?.action === 'send' ? 'Send invoice?' : 'Mark invoice paid?'}
@@ -191,6 +206,11 @@ export default function InvoicesPage() {
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{inv.company_name}</td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_BADGE[inv.status] ?? 'bg-gray-500/10 text-gray-500'}`}>{inv.status}</span>
+                    {inv.send_claimed_at && (
+                      <span className="ml-1.5 px-2 py-0.5 rounded text-xs font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 whitespace-nowrap">
+                        Sending — outcome unknown since {formatDisplayDateTime(inv.send_claimed_at)}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-300 tabular-nums text-xs">{formatCurrency(inv.subtotal_cents / 100)}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-300 tabular-nums text-xs">{formatCurrency(inv.tax_cents / 100)}</td>
@@ -200,7 +220,13 @@ export default function InvoicesPage() {
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(inv.created_at)}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5">
-                      {inv.status === 'draft' && (
+                      {inv.status === 'draft' && inv.send_claimed_at && (
+                        <button onClick={() => setSettling(inv)}
+                          className="p-1.5 rounded text-gray-600 dark:text-gray-400 hover:text-amber-500 hover:bg-amber-500/10 transition-colors" title="Settle send">
+                          <Scale className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {inv.status === 'draft' && !inv.send_claimed_at && (
                         <button onClick={() => setPending({ invoice: inv, action: 'send' })} disabled={actionId === inv.id}
                           className="p-1.5 rounded text-gray-600 dark:text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 transition-colors disabled:opacity-40" title="Send">
                           {actionId === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}

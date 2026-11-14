@@ -8,6 +8,7 @@
  * refresh, never deleted — and a control that must know who is really acting
  * asks `currentSessionActor()`.
  */
+import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { getPlatformAdminPool, newPlatformAdminClient } from './withPlatformAdmin.pools';
 import { verifyTokenSignature } from './gotrue';
@@ -28,8 +29,10 @@ export async function registerImpersonationSession(input: {
   sessionId: string; actorUserId: string; targetUserId: string;
 }): Promise<void> {
   const client = newPlatformAdminClient();
-  await client.connect();
+  // A socket error on an idle one-off client is an 'error' event: unhandled, it would crash the process.
+  client.on('error', (err: Error) => log.error('registerImpersonationSession: connection error', { message: err.message }, 'Auth'));
   try {
+    await client.connect();
     await client.query(
       `INSERT INTO impersonation_sessions (session_id, actor_user_id, target_user_id) VALUES ($1, $2, $3)`,
       [input.sessionId, input.actorUserId, input.targetUserId],

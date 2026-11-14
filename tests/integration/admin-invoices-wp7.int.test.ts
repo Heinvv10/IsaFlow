@@ -153,7 +153,7 @@ describe('WP7 send invoice', () => {
   it('emails the billing address through the mail sender, logs it, then marks the invoice sent', async () => {
     const id = await draft(company, 20000);
     const inv = await row(id);
-    const r = await call(sendRoute as Route, {}, id);
+    const r = await call(sendRoute as Route, { confirmed_to: BILLING }, id);
     expect(r.status, JSON.stringify(r.body)).toBe(200);
     expect(r.body.data).toMatchObject({ sent: true, recipient: BILLING });
     expect(mail.sendMail).toHaveBeenCalledTimes(1);
@@ -171,9 +171,9 @@ describe('WP7 send invoice', () => {
 
   it('answers 409 for an invoice already sent: no second email, no second audit row', async () => {
     const id = await draft(company);
-    expect((await call(sendRoute as Route, {}, id)).status).toBe(200);
+    expect((await call(sendRoute as Route, { confirmed_to: BILLING }, id)).status).toBe(200);
     mail.sendMail.mockClear();
-    const again = await call(sendRoute as Route, {}, id);
+    const again = await call(sendRoute as Route, { confirmed_to: BILLING }, id);
     expect(again.status, JSON.stringify(again.body)).toBe(409);
     expect(mail.sendMail).not.toHaveBeenCalled();
     expect(await audits(id, 'invoice.send')).toBe(1);
@@ -181,7 +181,7 @@ describe('WP7 send invoice', () => {
 
   it('answers 404 for an invoice that does not exist, and writes no audit row', async () => {
     const ghost = crypto.randomUUID();
-    const r = await call(sendRoute as Route, {}, ghost);
+    const r = await call(sendRoute as Route, { confirmed_to: BILLING }, ghost);
     expect(r.status, JSON.stringify(r.body)).toBe(404);
     expect(mail.sendMail).not.toHaveBeenCalled();
     expect(await audits(ghost, 'invoice.send')).toBe(0);
@@ -189,7 +189,7 @@ describe('WP7 send invoice', () => {
 
   it('refuses a company with no billing email: still draft, nothing sent', async () => {
     const id = await draft(noEmailCompany);
-    const r = await call(sendRoute as Route, {}, id);
+    const r = await call(sendRoute as Route, { confirmed_to: BILLING }, id);
     expect(r.status, JSON.stringify(r.body)).toBe(422);
     expect(r.body.error?.message).toMatch(/billing email/i);
     expect(mail.sendMail).not.toHaveBeenCalled();
@@ -200,7 +200,7 @@ describe('WP7 send invoice', () => {
     const id = await draft(company);
     const inv = await row(id);
     mail.sendMail.mockRejectedValueOnce(Object.assign(new Error('mock SMTP said no'), { code: 'EENVELOPE' }));
-    const r = await call(sendRoute as Route, {}, id);
+    const r = await call(sendRoute as Route, { confirmed_to: BILLING }, id);
     expect(r.status, JSON.stringify(r.body)).toBe(424);
     expect((await row(id)).status).toBe('draft');
     const logged = (await emailLog(company)).filter((e) => String(e.subject).includes(inv.invoice_number));
@@ -220,7 +220,7 @@ describe('WP7 mark paid', () => {
 
   it('a sent invoice is paid once; the second answers 409 with no second audit row', async () => {
     const id = await draft(company);
-    expect((await call(sendRoute as Route, {}, id)).status).toBe(200);
+    expect((await call(sendRoute as Route, { confirmed_to: BILLING }, id)).status).toBe(200);
     const first = await call(markPaidRoute as Route, { payment_method: 'manual' }, id);
     expect(first.status, JSON.stringify(first.body)).toBe(200);
     expect((await row(id)).status).toBe('paid');

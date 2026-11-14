@@ -44,7 +44,7 @@ async function call(route: (req: never, res: never) => Promise<unknown>, body: u
   await route(req as never, result.res as never);
   return { status: result.state.statusCode, body: result.state.body as Result['body'] };
 }
-const send = (id: string) => call(sendRoute as never, {}, id);
+const send = (id: string) => call(sendRoute as never, { confirmed_to: BILLING }, id);
 let seq = 0;
 async function draft(): Promise<string> {
   seq += 1;

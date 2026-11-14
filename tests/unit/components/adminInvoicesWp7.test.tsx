@@ -84,6 +84,8 @@ describe('admin invoices page (WP7)', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^send invoice$/i }));
     await waitFor(() => expect(posts('/api/admin/billing/invoices/inv-1/send')).toHaveLength(1));
     expect(new Headers(posts('/send')[0]!.init.headers).get('X-Admin-Request')).toBe('true');
+    // The address the dialog showed: the server refuses the send if the billing email changed since (review L3).
+    expect(JSON.parse(String(posts('/send')[0]!.init.body))).toEqual({ confirmed_to: 'billing@acme.example.test' });
     expect(await screen.findByText(/billing@acme\.example\.test/)).toBeTruthy();
   });
 
@@ -126,4 +128,20 @@ describe('admin invoices page (WP7)', () => {
     fireEvent.change(screen.getByLabelText('Subtotal (R)'), { target: { value: '18000000' } });
     expect(screen.getByTestId('invoice-total-preview').textContent).toContain(formatCurrency(20_700_000));
   });
+
+  it.each([['Release, not sent', 'released'], ['Mark as sent', 'sent']] as const)(
+    'a claimed row shows its unknown outcome, has no Send, and settles with "%s"', async (label, outcome) => {
+      serve([{ ...INVOICE, send_claimed_at: '2026-11-14T08:30:00Z' }], () => ({ settled: true, outcome }));
+      render(<InvoicesPage />);
+      expect(await screen.findByText(/Sending — outcome unknown since 14 Nov 2026, 10:30/)).toBeTruthy();
+      expect(screen.queryByTitle('Send')).toBeNull();
+      fireEvent.click(screen.getByTitle('Settle send'));
+      expect(await screen.findByText(/Check the email log for INV-WP7-1 first/)).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: label }));
+      await waitFor(() => expect(posts('/api/admin/billing/invoices/inv-1/settle-send')).toHaveLength(1));
+      const call = posts('/settle-send')[0]!;
+      expect(JSON.parse(String(call.init.body))).toEqual({ outcome });
+      expect(new Headers(call.init.headers).get('X-Admin-Request')).toBe('true');
+      expect(posts('/send')).toHaveLength(0);
+    });
 });
