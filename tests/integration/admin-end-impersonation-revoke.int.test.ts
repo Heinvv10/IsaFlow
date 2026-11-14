@@ -255,6 +255,19 @@ describe('3.10: a refused or failed Return still ends the Login-as, audit first'
     expect((await ends()).at(-1)).toMatchObject({ target_session_revoked: true });
   });
 
+  it("round 3 P2b: the target's own (ordinary) session presenting an expired admin stash writes no row", async () => {
+    const jar = await fx.loginAsTarget();
+    await pool.query(`UPDATE admin_impersonation_stash SET expires_at = now() - interval '1 second' WHERE stash_id = $1`,
+      [jar['sb-admin-stash']]);
+    const own = await fx.ownSession(); // the target's own session: not the Login-as
+    const before = (await ends()).length;
+    const r = await post(endImpersonation, { ...own, 'sb-admin-stash': jar['sb-admin-stash']! });
+    expect(r.statusCode).toBe(401);
+    expect(r.stashCookieCleared).toBe(true);
+    expect((await ends()).length).toBe(before);
+    expect(logouts.map((l) => l.bearer)).toEqual([own['sb-access-token']]); // its own session revoked
+  });
+
   it('B5 another super admin holding the stash cookie: refused, nothing revoked, stash kept, nothing audited', async () => {
     const jar = await fx.loginAsTarget();
     const other = crypto.randomUUID();

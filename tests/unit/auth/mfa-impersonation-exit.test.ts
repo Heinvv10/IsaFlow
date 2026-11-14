@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SignJWT } from 'jose';
 import type { NextApiRequest, NextApiResponse } from 'next';
-const fixture = vi.hoisted(() => ({ loadStash: vi.fn(), deleteStash: vi.fn(), purgeExpiredStashes: vi.fn(async () => 0) }));
+const fixture = vi.hoisted(() => {
+  const loadStash = vi.fn();
+  // end-impersonation reads it bounded (#1371 round 3): same answers.
+  return { loadStash, loadStashBounded: (id: string) => loadStash(id), deleteStash: vi.fn(), purgeExpiredStashes: vi.fn(async () => 0) };
+});
 vi.mock('@/modules/admin/services/userImpersonationService', () => fixture);
 // The end row's INSERT returns its id (loginAsRecord.recordLoginAsEnd).
 vi.mock('@/lib/neon', () => {

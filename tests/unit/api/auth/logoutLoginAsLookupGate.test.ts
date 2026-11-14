@@ -16,6 +16,9 @@ vi.mock('@/lib/auth/gotrue', async (orig) => ({
 }));
 const lookup = vi.hoisted(() => vi.fn(async (_sessionId: string) => null));
 vi.mock('@/lib/auth/impersonationSessions', () => ({ impersonationPartiesOfBounded: lookup }));
+// The stash the cookie names is this user's (round 3 M1b: a slot only for a party to a real stash).
+const stash = vi.hoisted(() => vi.fn(async (_id: string) => ({ adminUserId: 'admin-1', targetUserId: 'user-1' })));
+vi.mock('@/modules/admin/services/userImpersonationService', () => ({ stashPartiesOf: stash }));
 
 import handler from '../../../../pages/api/auth/logout';
 
@@ -41,11 +44,13 @@ describe('Sign Out: the Login-as look-up gate', () => {
   beforeEach(() => {
     vi.stubEnv('JWT_SECRET', SIGNING_KEY);
     lookup.mockClear();
+    stash.mockClear();
     gotrueLogout.mockClear();
   });
 
   it('a verifying token with a session id but no stash cookie: no look-up, still revoked', async () => {
     expect(await signOut(`sb-access-token=${await token()}`)).toBe(200);
+    expect(stash).not.toHaveBeenCalled();
     expect(lookup).not.toHaveBeenCalled();
     expect(gotrueLogout).toHaveBeenCalledOnce();
   });
@@ -53,5 +58,12 @@ describe('Sign Out: the Login-as look-up gate', () => {
   it('the same token with a stash cookie: one look-up for its session', async () => {
     expect(await signOut(`sb-access-token=${await token()}; sb-admin-stash=stash-1`)).toBe(200);
     expect(lookup).toHaveBeenCalledExactlyOnceWith('session-1');
+  });
+
+  it("a stash cookie naming someone else's stash: no look-up slot", async () => {
+    stash.mockResolvedValueOnce({ adminUserId: 'admin-1', targetUserId: 'someone-else' });
+    expect(await signOut(`sb-access-token=${await token()}; sb-admin-stash=stash-1`)).toBe(200);
+    expect(lookup).not.toHaveBeenCalled();
+    expect(gotrueLogout).toHaveBeenCalledOnce();
   });
 });

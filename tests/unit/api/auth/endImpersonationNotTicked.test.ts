@@ -26,6 +26,9 @@ vi.mock('@/modules/admin/services/userImpersonationService', () => ({
   loadStash: async () => ({
     admin_user_id: 'admin-1', target_user_id: 'target-1', admin_access_token: 'admin-a', admin_refresh_token: 'admin-r',
   }),
+  loadStashBounded: async () => ({
+    admin_user_id: 'admin-1', target_user_id: 'target-1', admin_access_token: 'admin-a', admin_refresh_token: 'admin-r',
+  }),
   deleteStash: async () => undefined,
   purgeExpiredStashes: async () => 0,
 }));

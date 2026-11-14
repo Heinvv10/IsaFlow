@@ -19,6 +19,8 @@ vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: async () => true, withRateLi
 vi.mock('@/modules/admin/middleware/withAdmin', () => ({ withAdmin: (handler: unknown) => handler }));
 vi.mock('@/modules/admin/services/userImpersonationService', () => ({
   stashAdminTokens: fixture.stashAdminTokens, loadStash: fixture.loadStash,
+  // end-impersonation reads it bounded (#1371 round 3); the bound itself: logout-login-as-bounds.int.test.ts.
+  loadStashBounded: (id: string) => fixture.loadStash(id),
   deleteStash: fixture.deleteStash, validateImpersonationTarget: fixture.validateImpersonationTarget,
   purgeExpiredStashes: fixture.purgeExpiredStashes,
 }));

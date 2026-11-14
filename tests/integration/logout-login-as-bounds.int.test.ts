@@ -19,6 +19,7 @@ import logoutRoute from '../../pages/api/auth/logout';
 import { LOGIN_AS_LOOKUP_SLOTS as SIGN_OUT_LOOKUP_SLOTS } from '@/lib/auth/loginAsLookup';
 import endImpersonation from '../../pages/api/auth/end-impersonation';
 import { getPlatformAdminPool } from '@/lib/auth/withPlatformAdmin.pools';
+import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import { BOUNDED_LOOKUP_CHECKOUT_MS, BOUNDED_LOOKUP_STATEMENT_MS } from '@/lib/auth/impersonationSessions';
 import { log } from '@/lib/logger';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
@@ -129,9 +130,9 @@ describe('M1: Sign Out never waits on the platform_admin pool', () => {
 describe('security review: Sign Out look-ups are capped process-wide', () => {
   it('20 concurrent Sign Outs never run more than SIGN_OUT_LOOKUP_SLOTS look-ups or hold more slots; all revoke', async () => {
     const admin = getPlatformAdminPool();
-    // Each could be a Login-as (a stash cookie and a verifying token with a session id), so each wants a slot.
-    const sessions = (await Promise.all(Array.from({ length: 20 }, () => fx.ownSession())))
-      .map((jar) => ({ ...jar, 'sb-admin-stash': crypto.randomUUID() }));
+    // Each is a real Login-as (its own stash, its own session), so each wants a slot.
+    const sessions: Jar[] = [];
+    for (let i = 0; i < 20; i += 1) sessions.push(await fx.loginAsTarget());
     lookups.delayMs = 200;
     let maxInUse = 0;
     const sampler = setInterval(() => { maxInUse = Math.max(maxInUse, admin.totalCount - admin.idleCount); }, 5);
@@ -186,12 +187,11 @@ describe('re-break M1: one session holds at most one look-up slot', () => {
 });
 
 describe('review LOW: the refused Return shares Sign Out\'s capped look-up', () => {
-  it('with both slots held by Sign Outs, an expired-stash Return still ends: by its verified stash, own session revoked', async () => {
+  it('with both slots held by Sign Outs, an expired-stash Return is refused, revokes its own session, records nothing', async () => {
     const jar = await fx.loginAsTarget();
     await pool.query(`UPDATE admin_impersonation_stash SET expires_at = now() - interval '1 second' WHERE stash_id = $1`,
       [jar['sb-admin-stash']]);
-    const holders = (await Promise.all([fx.ownSession(), fx.ownSession()]))
-      .map((j) => ({ ...j, 'sb-admin-stash': crypto.randomUUID() }));
+    const holders = [await fx.loginAsTarget(), await fx.loginAsTarget()]; // real Login-as Sign Outs hold both slots
     lookups.delayMs = 400;
     const holding = holders.map((j) => signOut(j));
     await vi.waitFor(() => expect(lookups.inFlight).toBe(2));
@@ -200,11 +200,52 @@ describe('review LOW: the refused Return shares Sign Out\'s capped look-up', () 
     expect(r).toMatchObject({ status: 401, clearedAccess: true });
     expect(lookups.calls).toBe(2); // the Return's look-up was skipped by the shared cap
     expect(logouts).toHaveLength(3); // the two holders' Sign Outs and the Return's own session
-    const [row] = (await pool.query(`SELECT details FROM admin_audit_log WHERE admin_user_id = $1
-      AND action = 'impersonation_end' AND details->>'stash_id' = $2`, [fx.platformAdmin, jar['sb-admin-stash']])).rows;
-    expect(row.details).toMatchObject({ reason: 'stash_expired', lookup: 'skipped', caller_session_revoked: true, stashes_removed: 1 });
-    expect((await pool.query('SELECT count(*)::int AS n FROM admin_impersonation_stash WHERE stash_id = $1',
-      [jar['sb-admin-stash']])).rows[0].n).toBe(0);
+    // Not proven to be the Login-as (the look-up was skipped): nothing in the admin's name (round 3 P2b). The
+    // expired stash is purged by the next Login-as start or end.
+    const sid = String(decodeJwt(jar['sb-access-token']!).session_id);
+    expect((await pool.query(`SELECT count(*)::int AS n FROM admin_audit_log WHERE admin_user_id = $1
+      AND action = 'impersonation_end' AND (details->>'session_id' = $2 OR details->>'stash_id' = $3)`,
+      [fx.platformAdmin, sid, jar['sb-admin-stash']])).rows[0].n).toBe(0);
+  });
+
+  it('round 3 M1b: two sessions of one account each send a junk-stash Sign Out burst; the victim still closes', async () => {
+    const victim = await fx.loginAsTarget();
+    const [a, b] = [await fx.ownSession(), await fx.ownSession()];
+    lookups.delayMs = 200;
+    const burst = [...Array.from({ length: 20 }, () => signOut({ ...a, 'sb-admin-stash': crypto.randomUUID() })),
+      ...Array.from({ length: 20 }, () => signOut({ ...b, 'sb-admin-stash': crypto.randomUUID() }))];
+    burst.splice(20, 0, signOut(victim));
+    const results = await Promise.all(burst);
+    expect(results.every((r) => r.status === 200 && r.clearedAccess)).toBe(true);
+    expect(lookups.calls).toBe(1); // junk stash cookies never take a slot
+    const sid = String(decodeJwt(victim['sb-access-token']!).session_id);
+    expect((await pool.query(`SELECT count(*)::int AS n FROM admin_audit_log WHERE admin_user_id = $1
+      AND action = 'impersonation_end' AND details->>'session_id' = $2`, [fx.platformAdmin, sid])).rows[0].n).toBe(1);
+  });
+
+  it('round 3: the migration_admin pool exhausted: a Return answers a fast retryable 503, a Sign Out still revokes', async () => {
+    const jar = await fx.loginAsTarget();
+    await pool.query(`UPDATE admin_impersonation_stash SET expires_at = now() - interval '1 second' WHERE stash_id = $1`,
+      [jar['sb-admin-stash']]);
+    const other = await fx.loginAsTarget();
+    const migration = migrationAdminPool();
+    const held: PoolClient[] = [];
+    let ret; let out;
+    try {
+      while (migration.totalCount < (migration.options.max ?? 4) || migration.idleCount > 0) held.push(await migration.connect());
+      ret = await post(endImpersonation, jar);
+      out = await signOut(other);
+    } finally {
+      for (const c of held) c.release();
+    }
+    // The stash could not be read in time: not "no stash". Cookies kept, nothing ended, so the retry can still end it.
+    expect(ret).toMatchObject({ status: 503, clearedAccess: false, clearedStash: false });
+    expect(ret.ms).toBeLessThan(4000);
+    expect(out).toMatchObject({ status: 200, clearedAccess: true });
+    expect(out.ms).toBeLessThan(4000);
+    expect(logouts).toHaveLength(1); // the Sign Out still revoked its own session
+    await vi.waitFor(() => expect({ waiting: migration.waitingCount, inUse: migration.totalCount - migration.idleCount })
+      .toEqual({ waiting: 0, inUse: 0 }));
   });
 
   it('40 junk-stash STASH_EXPIRED requests from one session do not starve a real expired Login-as end', async () => {
