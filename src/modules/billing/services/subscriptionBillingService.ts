@@ -29,6 +29,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { migrationAdminSqlTx } from '@/lib/auth/migrationAdminPool';
 import { recordChargePaymentRequest } from './subscriptionChargeRequest';
+import { recordChargeFailed, recordChargeSubmitted } from './subscriptionChargeOutcome';
 import { chargeAuthorization } from './paystackClient';
 import { warnUnattributedLiveCharges } from './subscriptionChargeVerify';
 import {
@@ -180,9 +181,11 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
     FROM subscription_charges c
     JOIN subscription_mandates m ON m.id = c.mandate_id
     JOIN companies co ON co.id = c.company_id AND co.status IS DISTINCT FROM 'deleted'
-    -- Only a subscription still owed a period: never debit a cancelled or paused one.
+    -- Never debit a period the subscription is not owed (cancelled, paused); a
+    -- debt for a period already granted stays collectible.
     JOIN subscriptions s ON s.id = c.subscription_id AND s.company_id = c.company_id
-      AND s.status IN ('active','trial','past_due')
+      AND (s.status IN ('active','trial','past_due')
+           OR c.period_start < (s.current_period_end AT TIME ZONE 'UTC')::date)
     LEFT JOIN users u ON u.id = m.authorised_by::text
     WHERE c.gateway = 'paystack'
       -- Unattributed charges cannot be settled (624's CHECK) and the rejection
@@ -228,14 +231,7 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
       !c.paystack_authorization_code ||
       !c.user_email
     ) {
-      await migrationAdminSqlTx('subscription_charge_no_mandate', (tx) => tx`
-        UPDATE subscription_charges
-        SET status = 'failed',
-            failure_reason = 'mandate_not_active_or_missing_authorization',
-            updated_at = now()
-        WHERE id = ${c.id}
-          AND company_id = ${c.company_id}
-      `);
+      await recordChargeFailed(c.id, c.company_id, 'mandate_not_active_or_missing_authorization');
       await markPastDueIfExhausted(c.id, c.company_id, attemptCount);
       skipped++;
       continue;
@@ -262,30 +258,15 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
       // Optimistically reflect immediate success — the webhook is still
       // authoritative and will overwrite if the bank reverses.
       const localStatus = result.status === 'success' ? 'settled' : 'submitted';
-      await migrationAdminSqlTx('subscription_charge_submitted', (tx) => tx`
-        UPDATE subscription_charges
-        SET status = ${localStatus},
-            settled_at = CASE WHEN ${localStatus} = 'settled' THEN now() ELSE settled_at END,
-            updated_at = now()
-        WHERE id = ${c.id}
-          AND company_id = ${c.company_id}
-      `);
-
-      if (localStatus === 'settled') {
+      const recorded = await recordChargeSubmitted(c.id, c.company_id, localStatus, result.reference);
+      if (recorded && localStatus === 'settled') {
         await advancePeriodForSettledCharge(c.id, c.company_id);
       }
 
       submitted++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      await migrationAdminSqlTx('subscription_charge_failed', (tx) => tx`
-        UPDATE subscription_charges
-        SET status = 'failed',
-            failure_reason = ${msg.slice(0, 500)},
-            updated_at = now()
-        WHERE id = ${c.id}
-          AND company_id = ${c.company_id}
-      `);
+      await recordChargeFailed(c.id, c.company_id, msg);
       await markPastDueIfExhausted(c.id, c.company_id, attemptCount);
       failed++;
       log.error(

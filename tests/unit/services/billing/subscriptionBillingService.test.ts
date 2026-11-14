@@ -167,7 +167,7 @@ describe('runQueuedCharges', () => {
     mockAdmin
       .mockResolvedValueOnce([baseCharge] as never)  // SELECT charges
       .mockResolvedValueOnce([{ attempt_count: 1 }] as never) // claim the attempt
-      .mockResolvedValueOnce([] as never)            // UPDATE charge → settled
+      .mockResolvedValueOnce([{ id: baseCharge.id }] as never) // UPDATE charge → settled (RETURNING id)
       .mockResolvedValueOnce([] as never);           // advance the period
     mockSql
       .mockResolvedValueOnce([{ count: 0 }] as never);        // unattributed live charges

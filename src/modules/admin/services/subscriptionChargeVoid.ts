@@ -9,6 +9,11 @@
  * subscription_charges, migration 945), so the cancel and the void commit or
  * roll back together.
  *
+ * One rule, shared with voidChargesForCancellingSubscriptions and company
+ * delete: a charge for a period the subscription has NOT yet been granted
+ * (period_start on/after current_period_end, or no period at all) is voided; a
+ * charge for a period it WAS granted is service already taken, so cancelling
+ * does not write that debt off and it stays collectible.
  * 'submitted' is left alone: Paystack already has that request and the money
  * may yet arrive, which is a refund case, not something to void locally.
  * Keyed on the subscription's own id and its company, never on company alone.
@@ -28,6 +33,8 @@ export async function voidOpenChargesForSubscription(subscriptionId: string): Pr
       AND c.subscription_id = s.id
       AND c.company_id = s.company_id
       AND c.status IN ('queued', 'failed')
+      AND (s.current_period_end IS NULL
+           OR c.period_start >= (s.current_period_end AT TIME ZONE 'UTC')::date)
     RETURNING c.id
   `;
   if (voided.length > 0) {

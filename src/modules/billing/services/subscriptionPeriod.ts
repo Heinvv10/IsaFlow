@@ -121,13 +121,17 @@ export async function claimChargeAttempt(
       AND company_id = ${companyId}
       AND status = ${status}
       AND attempt_count = ${attemptCount}
-      -- Re-checked here, not only in the runner's SELECT: a cancel that commits
-      -- between the two must still stop the debit (the claim precedes Paystack).
+      -- Re-checked here, not only in the runner's SELECT, and under FOR SHARE: a
+      -- cancel whose transaction is still open holds the subscription row, so
+      -- this claim waits for it and then sees the cancelled status. Chargeable
+      -- = still owed a period, or the debt is for a period already granted.
       AND EXISTS (
         SELECT 1 FROM subscriptions s
         WHERE s.id = subscription_charges.subscription_id
           AND s.company_id = subscription_charges.company_id
-          AND s.status IN ('active','trial','past_due'))
+          AND (s.status IN ('active','trial','past_due')
+               OR subscription_charges.period_start < (s.current_period_end AT TIME ZONE 'UTC')::date)
+        FOR SHARE OF s)
     RETURNING attempt_count
   `)) as Array<{ attempt_count: number }>;
   return claimed[0]?.attempt_count ?? null;
