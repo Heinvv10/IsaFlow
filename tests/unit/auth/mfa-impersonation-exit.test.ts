@@ -4,7 +4,11 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 const fixture = vi.hoisted(() => ({ loadStash: vi.fn(), deleteStash: vi.fn(), purgeExpiredStashes: vi.fn(async () => 0) }));
 vi.mock('@/modules/admin/services/userImpersonationService', () => fixture);
 // The end row's INSERT returns its id (loginAsRecord.recordLoginAsEnd).
-vi.mock('@/lib/neon', () => ({ sql: async (strings: TemplateStringsArray) => (strings.join('?').includes('RETURNING id') ? [{ id: 'end-1' }] : []) }));
+vi.mock('@/lib/neon', () => {
+  const sql = async (strings: TemplateStringsArray) => (strings.join('?').includes('RETURNING id') ? [{ id: 'end-1' }] : []);
+  // The end row is looked up and written in one transaction (loginAsRecord.recordLoginAsEnd).
+  return { sql, withTransaction: async (fn: (tx: typeof sql) => Promise<unknown>) => fn(sql) };
+});
 vi.mock('@/lib/auth/impersonationSessions', () => ({
   impersonationPartiesOf: async () => ({ actorUserId: 'admin-user', targetUserId: 'target-user' }),
   impersonationPartiesOfBounded: async () => ({ actorUserId: 'admin-user', targetUserId: 'target-user' }),

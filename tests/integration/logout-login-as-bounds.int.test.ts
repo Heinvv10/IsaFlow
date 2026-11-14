@@ -14,13 +14,31 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
-import logoutRoute from '../../pages/api/auth/logout';
+import logoutRoute, { SIGN_OUT_LOOKUP_SLOTS } from '../../pages/api/auth/logout';
 import endImpersonation from '../../pages/api/auth/end-impersonation';
 import { getPlatformAdminPool } from '@/lib/auth/withPlatformAdmin.pools';
 import { BOUNDED_LOOKUP_CHECKOUT_MS, BOUNDED_LOOKUP_STATEMENT_MS } from '@/lib/auth/impersonationSessions';
 import { log } from '@/lib/logger';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { loginAsFixture, type Jar } from './r-032-login-as.helpers';
+
+/** Counts concurrent Sign Out look-ups at the module boundary; `delayMs` holds each so a burst overlaps. */
+const lookups = vi.hoisted(() => ({ delayMs: 0, inFlight: 0, maxInFlight: 0, calls: 0 }));
+vi.mock('@/lib/auth/impersonationSessions', async (orig) => {
+  const real = await orig<typeof import('@/lib/auth/impersonationSessions')>();
+  return {
+    ...real,
+    impersonationPartiesOfBounded: async (sessionId: string) => {
+      lookups.calls += 1;
+      lookups.inFlight += 1;
+      lookups.maxInFlight = Math.max(lookups.maxInFlight, lookups.inFlight);
+      try {
+        if (lookups.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, lookups.delayMs));
+        return await real.impersonationPartiesOfBounded(sessionId);
+      } finally { lookups.inFlight -= 1; }
+    },
+  };
+});
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
@@ -36,7 +54,7 @@ beforeAll(async () => {
   });
 }, 60000);
 afterAll(async () => { await fx.tearDown(); await pool.end(); });
-beforeEach(() => { logouts.length = 0; });
+beforeEach(() => { logouts.length = 0; Object.assign(lookups, { delayMs: 0, inFlight: 0, maxInFlight: 0, calls: 0 }); });
 
 async function post(route: unknown, jar: Jar) {
   const result = response();
@@ -103,6 +121,24 @@ describe('M1: Sign Out never waits on the platform_admin pool', () => {
     const results = await Promise.all(sessions.map((jar) => signOut(jar)));
     expect(results.every((r) => r.status === 200 && r.clearedAccess)).toBe(true);
     expect(logouts).toHaveLength(40);
+  });
+});
+
+describe('security review: Sign Out look-ups are capped process-wide', () => {
+  it('20 concurrent Sign Outs never run more than SIGN_OUT_LOOKUP_SLOTS look-ups or hold more slots; all revoke', async () => {
+    const admin = getPlatformAdminPool();
+    const sessions = await Promise.all(Array.from({ length: 20 }, () => fx.ownSession()));
+    lookups.delayMs = 200;
+    let maxInUse = 0;
+    const sampler = setInterval(() => { maxInUse = Math.max(maxInUse, admin.totalCount - admin.idleCount); }, 5);
+    try {
+      const results = await Promise.all(sessions.map((jar) => signOut(jar)));
+      expect(results.every((r) => r.status === 200 && r.clearedAccess)).toBe(true);
+    } finally { clearInterval(sampler); }
+    expect(logouts).toHaveLength(20); // every one revoked at GoTrue, over the cap or not
+    expect(lookups.calls).toBeGreaterThan(0);
+    expect(lookups.maxInFlight).toBeLessThanOrEqual(SIGN_OUT_LOOKUP_SLOTS);
+    expect(maxInUse).toBeLessThanOrEqual(SIGN_OUT_LOOKUP_SLOTS);
   });
 });
 

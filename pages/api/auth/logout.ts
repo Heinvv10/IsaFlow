@@ -3,7 +3,7 @@ import type { NextApiHandler } from 'next';
 import { logout as gotrueLogout, refresh } from '@/lib/auth/gotrue';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE, REFRESH_COOKIE } from '@/lib/auth/cookies';
 import { ADMIN_STASH_COOKIE } from '@/lib/auth/impersonation-cookies';
-import { endLoginAsWithoutRestore, loginAsPartiesOfToken, type LoginAsParties } from '@/lib/auth/loginAsRecord';
+import { endLoginAsWithoutRestore, loginAsPartiesOfToken, type LoginAsSession } from '@/lib/auth/loginAsRecord';
 import { log } from '@/lib/logger';
 import { withCsrf } from '@/lib/auth/withCsrf';
 
@@ -33,17 +33,33 @@ async function endThisSession(accessToken?: string, refreshToken?: string): Prom
 }
 
 /**
- * The Login-as parties `token` names, or null: an ordinary session, a token that names none (expired or not
- * ours), or a look-up that failed or gave up within its bound (logged; Sign Out goes ahead).
+ * At most this many Sign Outs run the Login-as look-up at once, process-wide (security review, #1371): Sign Out
+ * is unauthenticated and not rate limited, so without a cap a burst could hold every platform_admin slot. Over the
+ * cap the look-up is skipped (the session is treated as unnamed: its stash expires within 1 h); the session is
+ * still revoked at GoTrue with the caller's own token and the cookies still clear. Never a 429.
  */
-async function loginAsPartiesOrNull(token: string | undefined): Promise<LoginAsParties | null> {
+export const SIGN_OUT_LOOKUP_SLOTS = 2;
+let lookupsInFlight = 0;
+
+/**
+ * The Login-as session `token` names, or null: an ordinary session, a token that names none (expired or not
+ * ours), the cap reached, or a look-up that failed or gave up within its bound (logged; Sign Out goes ahead).
+ */
+async function loginAsPartiesOrNull(token: string | undefined): Promise<LoginAsSession | null> {
   if (!token) return null;
+  if (lookupsInFlight >= SIGN_OUT_LOOKUP_SLOTS) {
+    log.info('logout: Login-as look-up skipped (concurrency cap); signing out without closing it', {}, 'Auth');
+    return null;
+  }
+  lookupsInFlight += 1;
   try {
     return await loginAsPartiesOfToken(token, { bounded: true });
   } catch (err) {
     log.warn('logout: Login-as session record lookup failed or timed out; signing out without closing it',
       { message: err instanceof Error ? err.message : String(err) }, 'Auth');
     return null;
+  } finally {
+    lookupsInFlight -= 1;
   }
 }
 

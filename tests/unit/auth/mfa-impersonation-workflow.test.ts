@@ -8,7 +8,10 @@ const fixture = vi.hoisted(() => ({
   stashAdminTokens: vi.fn(), loadStash: vi.fn(), deleteStash: vi.fn(), validateImpersonationTarget: vi.fn(),
   purgeExpiredStashes: vi.fn(async () => 0),
 }));
-vi.mock('@/lib/neon', () => ({ sql: fixture.sql }));
+vi.mock('@/lib/neon', () => ({
+  sql: fixture.sql,
+  withTransaction: async (fn: (tx: typeof fixture.sql) => Promise<unknown>) => fn(fixture.sql),
+}));
 vi.mock('@/lib/auth/authPool', () => ({ getAuthPool: () => ({
   connect: async () => ({ query: fixture.query, release: fixture.release }),
 }) }));

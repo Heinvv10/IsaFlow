@@ -64,14 +64,20 @@ async function partiesOfSession(sessionId: unknown): Promise<LoginAsParties | nu
 async function endRefusedLoginAs(stashId: string, accessToken: string, claims: GoTrueClaims, reason: string): Promise<void> {
   const sessionParties = await partiesOfSession(claims.session_id);
   if (sessionParties === 'gave_up') return;
+  const stashed = await stashPartiesOf(stashId);
   let parties: LoginAsParties | null = sessionParties;
   if (!parties) {
-    const stashed = await stashPartiesOf(stashId);
     const callerMayEnd = claims.sub === stashed?.adminUserId || claims.sub === stashed?.targetUserId;
     parties = stashed && callerMayEnd ? { actorUserId: stashed.adminUserId, targetUserId: stashed.targetUserId } : null;
   }
   if (!parties) return;
-  const endId = await recordLoginAsEnd(parties, { reason, stash_id: stashId });
+  // The end row's key is what the server verified (security review, #1371): the session record behind this token,
+  // and the cookie's stash id only when that stash row exists and is these parties'.
+  const stashVerified = stashed?.adminUserId === parties.actorUserId && stashed.targetUserId === parties.targetUserId;
+  const endId = await recordLoginAsEnd(parties, {
+    sessionId: sessionParties ? String(claims.session_id) : undefined,
+    stashId: stashVerified ? stashId : undefined,
+  }, { reason });
   const revoked = sessionParties ? await revokeLoginAsSession(accessToken, reason) : null;
   const stashesRemoved = await removeLoginAsStashes(parties, stashId, reason);
   await noteLoginAsEnd(endId, { target_session_revoked: revoked, stashes_removed: stashesRemoved });
@@ -160,8 +166,10 @@ const handler: NextApiHandler = async (req, res) => {
   // Recorded first: a failed write throws here, before any removal, revocation or cookie. The stash goes next,
   // before the revocation: a failure after this point leaves no live stash to restore from, so a retry takes the
   // STASH_EXPIRED path, which revokes what it holds and records that end too (the truth, not a second restore).
+  // Keyed on the stash just loaded for these parties and, for the Login-as session itself, its verified session id.
   const endId = await recordLoginAsEnd(
-    { actorUserId: stash.admin_user_id, targetUserId: stash.target_user_id }, { stash_id: stashId });
+    { actorUserId: stash.admin_user_id, targetUserId: stash.target_user_id },
+    { stashId: String(stash.stash_id), sessionId: parties ? String(sessionId) : undefined }, {});
   await deleteStash(stashId);
 
   // The caller is the Login-as session (checked above): end it at GoTrue too. Its own token names it (scope=local).
