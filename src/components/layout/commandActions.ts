@@ -7,7 +7,7 @@
  * anywhere, so they promised a shortcut that did nothing.
  */
 
-export type PaletteActionKind = 'nav' | 'theme' | 'shortcuts';
+export type PaletteActionKind = 'nav' | 'theme' | 'shortcuts' | 'explain' | 'ask';
 
 export interface PaletteAction {
   id: string;
@@ -16,6 +16,8 @@ export interface PaletteAction {
   /** Destination for a `nav` action. */
   url?: string;
   icon: string;
+  /** For an `ask` action made from typed text: the question to answer. */
+  query?: string;
   /** Extra words that find the action ("bill" finds "New supplier invoice" and vice versa). */
   keywords: string[];
 }
@@ -26,6 +28,8 @@ export const PALETTE_ACTIONS: readonly PaletteAction[] = [
   { id: 'new-employee', label: 'New employee', kind: 'nav', url: '/payroll/employees/new', icon: 'user-plus', keywords: ['payroll', 'hire'] },
   { id: 'new-pay-run', label: 'New pay run', kind: 'nav', url: '/payroll/runs/new', icon: 'banknote', keywords: ['payroll', 'salaries', 'wages'] },
   { id: 'import-bank', label: 'Import bank statement', kind: 'nav', url: '/accounting/bank-reconciliation/import', icon: 'landmark', keywords: ['banking', 'upload', 'csv'] },
+  { id: 'explain', label: 'Explain this figure', kind: 'explain', icon: 'info', keywords: ['how was this calculated', 'explanation', 'drill down', 'why'] },
+  { id: 'ask', label: 'Ask IsaFlow', kind: 'ask', icon: 'message-circle', keywords: ['question', 'who owes me', 'ask a question'] },
   { id: 'switch-theme', label: 'Switch theme', kind: 'theme', icon: 'sun-moon', keywords: ['dark mode', 'light mode', 'appearance'] },
   { id: 'shortcuts', label: 'Keyboard shortcuts', kind: 'shortcuts', icon: 'keyboard', keywords: ['help', 'keys', 'hotkeys'] },
 ];

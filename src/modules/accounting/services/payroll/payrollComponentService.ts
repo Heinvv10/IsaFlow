@@ -16,6 +16,8 @@ function mapComponent(r: Row): PayrollComponent {
     isUifApplicable: Boolean(r.is_uif_applicable),
     isSdlApplicable: Boolean(r.is_sdl_applicable),
     paidOutsidePayroll: r.paid_outside_payroll === true,
+    // Migration 975; absent before it (false).
+    countsAsRfi: r.counts_as_rfi === true,
   };
 }
 
@@ -51,9 +53,9 @@ export async function getEmployeeComponents(
 ): Promise<EmployeeComponent[]> {
   const rows = (await sql`
     SELECT
-      pec.id AS assignment_id, pec.amount, pec.is_recurring, pec.quantity, pec.quantity_unit,
+      pec.id AS assignment_id, pec.amount, pec.is_recurring, pec.quantity, pec.quantity_unit, pec.percent_of_rfi, pec.employer_fund_as_cash,
       pc.id, pc.name, pc.sars_source_code, pc.component_type,
-      pc.is_taxable, pc.is_uif_applicable, pc.is_sdl_applicable, pc.paid_outside_payroll
+      pc.is_taxable, pc.is_uif_applicable, pc.is_sdl_applicable, pc.paid_outside_payroll, pc.counts_as_rfi
     FROM payroll_employee_components pec
     JOIN payroll_components pc ON pc.id = pec.component_id
     JOIN payroll_employees pe ON pe.id = pec.employee_id
@@ -108,6 +110,10 @@ export async function getEmployeeComponents(
     assignmentId: String(r.assignment_id),
     quantity: r.quantity == null ? null : Number(r.quantity),
     quantityUnit: r.quantity_unit == null ? null : (String(r.quantity_unit) as QuantityUnit),
+    // A percent row's amount is 0 in the table: the run costs it on the line's RFI (payrollRunComponents.withRfiCosted).
+    percentOfRfi: r.percent_of_rfi == null ? null : Number(r.percent_of_rfi),
+    // RF opt-out: an assignment migration 975 found keeps the cash treatment (employerContributions.ts).
+    ...(r.employer_fund_as_cash === true ? { employerFundAsCash: true } : {}),
   }));
 }
 
@@ -134,10 +140,10 @@ export async function createComponent(
   const rows = (await sql`
     INSERT INTO payroll_components (
       company_id, name, sars_source_code, component_type,
-      is_taxable, is_uif_applicable, is_sdl_applicable, paid_outside_payroll
+      is_taxable, is_uif_applicable, is_sdl_applicable, paid_outside_payroll, counts_as_rfi
     ) VALUES (
       ${companyId}::uuid, ${data.name}, ${data.sarsSourceCode}, ${data.componentType},
-      ${data.isTaxable}, ${data.isUifApplicable}, ${data.isSdlApplicable}, ${paidOutsidePayroll}
+      ${data.isTaxable}, ${data.isUifApplicable}, ${data.isSdlApplicable}, ${paidOutsidePayroll}, ${data.countsAsRfi === true}
     )
     RETURNING *
   `) as Row[];

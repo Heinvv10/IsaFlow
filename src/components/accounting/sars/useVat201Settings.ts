@@ -2,7 +2,7 @@
  * The active company's VAT period settings for the VAT201 page, and the from/to the
  * selector starts on (moved from pages/accounting/sars/vat201.tsx).
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type MutableRefObject } from 'react';
 import { apiFetch, assertOk } from '@/lib/apiFetch';
 import {
   vatQuickPeriods, defaultVatQuickPeriod, normalizeVatAlignment, normalizeVatSetting,
@@ -10,7 +10,8 @@ import {
 } from '@/modules/bureau/services/vatPeriodHelper';
 import { useCompany } from '@/contexts/CompanyContext';
 
-export function useVat201Settings(setError: (message: string) => void) {
+/** `held`: a deep link already chose the period, so the settings load must not put the default back over it. */
+export function useVat201Settings(setError: (message: string) => void, held?: MutableRefObject<boolean>) {
   const { activeCompany, loading: companyLoading } = useCompany();
   const [alignment, setAlignment] = useState<'odd' | 'even'>('odd');
   const [vatPeriod, setVatPeriod] = useState<'monthly' | 'bi-monthly'>('bi-monthly');
@@ -54,7 +55,7 @@ export function useVat201Settings(setError: (message: string) => void) {
         setAlignment(a); setVatPeriod(vp);
         setQuickPeriods(vatQuickPeriods(new Date().getFullYear(), vp, a));
         const def = defaultVatQuickPeriod(vp, a, new Date());
-        setFrom(def.from); setTo(def.to);
+        if (!held?.current) { setFrom(def.from); setTo(def.to); }
         setSettingsReady(true);
       } catch {
         // Silent defaults are exactly the bug class this effect fixes — say so.
