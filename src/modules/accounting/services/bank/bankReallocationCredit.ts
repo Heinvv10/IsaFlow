@@ -9,7 +9,7 @@
  * dates, Hein's 2026-10-26 ruling) for every void; this is a stricter check in front of it for this path, and
  * void_payment is unchanged. Supplier: under the supplier's credit key (`ap/supplierCreditLock`, TRIED — no edge in any
  * wait-for cycle), as the void takes it. Customer: `ar/customerVoidCredit` (under the customer's refund lock, tried),
- * the same figure every receipt cancellation asks since 2026-11-14 — here it only words the refusal for reallocation.
+ * the same figure every receipt cancellation asks — here it only words the refusal for reallocation.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -80,7 +80,8 @@ export async function assertReallocationKeepsCredit(
  * The same-customer half, judged AFTER the write on what it left (inside the reallocation's savepoint, so a refusal
  * rolls the whole reallocation back — dry run and live alike, since a dry run is the same write rolled back): the old
  * receipt cancelled, the new one recorded and applied by FIFO. `before` is the customer's per-day figures read under
- * its lock before the unwind. No prediction of what FIFO will apply (round-2 security review).
+ * its lock before the unwind. Never a prediction of what FIFO will apply: FIFO may also take the invoices the unwind
+ * frees.
  */
 export async function assertReallocationLeftCredit(companyId: string, customerId: string, before: readonly CreditDay[]): Promise<void> {
   const fall = await customerCreditFall(companyId, customerId, before);

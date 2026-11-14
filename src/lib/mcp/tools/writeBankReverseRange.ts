@@ -52,7 +52,9 @@ export const reverseAllocationsTool: McpTool = {
     'ALL OR NOTHING: if any reversal fails, none are applied, so the account is never left half-unwound. ' +
     `Refuses (it does not truncate) if the range holds more than ${MAX_RANGE} allocated transactions — narrow the dates. ` +
     'Run with dry_run=true first: it reports exactly which transactions would be reversed, with the rule that created each one, and writes nothing. ' +
-    'Unallocated, excluded and already-reversed transactions in the range are not touched. Requires the write:post permission.',
+    'Unallocated, excluded and already-reversed transactions in the range are not touched. ' +
+    'A customer receipt whose unapplied cash a customer refund has already returned is refused (reverse the refund first, ' +
+    'or include it in the range). Requires the write:post permission.',
   scope: 'write:bank-tx',
   write: true,
   requiresPost: true,

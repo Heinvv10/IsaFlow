@@ -117,7 +117,7 @@ export async function planReceiptApplication(
 
   const { lines } = await planAllocationLines(companyId, allocations, { paymentId, customerId });
 
-  // An EXISTING receipt's remainder may be what a refund already returned (2026-11-14, `ar/customerVoidCredit`):
+  // An EXISTING receipt's remainder may be what a refund already returned (`ar/customerVoidCredit`):
   // applying it then takes the customer's running on-account credit below zero. Receipt held, invoices locked above,
   // then the customer (tried) and the check — before any write, and in the dry run alike. A receipt this request
   // created lands with its allocation and lowers nothing (the AP twin's `paymentCreatedInThisRequest`).

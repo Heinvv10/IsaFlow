@@ -190,7 +190,7 @@ async function cancelCustomerPaymentInner(
     const label = `Receipt ${payment.paymentNumber}`;
     // A bank ALLOCATION posted the journal: the bank path unwinds the receipt, posts the contra and frees the line.
     const delegated = !!leg && await voidViaBankAllocation(companyId, leg, userId, label, journalId);
-    // Not below zero (2026-11-14, `ar/customerVoidCredit`): a refund may already have returned this receipt's unapplied
+    // Not below zero (`ar/customerVoidCredit`): a refund may already have returned this receipt's unapplied
     // cash. Receipt held, then its invoices, then the customer (tried) — before any write; the bank path asks it itself.
     if (!delegated) {
       await lockInvoicesOfReceipts(companyId, [id]);

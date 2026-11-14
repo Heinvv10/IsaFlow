@@ -6,7 +6,8 @@
  * (ar/customerRunningCredit): a write that lowers that date is refused, one that does not is allowed — so such a
  * customer stays correctable by writes that leave the negative date alone. Round 2 (98da211bc4): H1 — a refund dated
  * before one already recorded pushed the later date below zero (the refund writer judged as at its own date only);
- * H3 — the application refusal holds in a plan. Disposable fixture DB only.
+ * H3 — the application refusal holds in a plan. Round 3 (f243e2c261): B3-1 — a bulk reversal's cached per-customer
+ * verification outlived the customer lock a set-aside line's savepoint released. Disposable fixture DB only.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -15,6 +16,11 @@ import { voidReceiptTool } from '@/lib/mcp/tools/writeVoidPayments';
 import { planReceiptApplication, applyReceiptPlan } from '@/modules/accounting/services/ar/receiptApplicationService';
 import { assertReceiptVoidKeepsCredit, withReceiptCancellationsJudged } from '@/modules/accounting/services/ar/customerVoidCredit';
 import { sql } from '@/lib/neon';
+import { als } from '@/lib/als';
+import {
+  allocateTransaction, reverseReconciledTransaction, splitAllocateTransaction,
+} from '@/modules/accounting/services/bank/bankAllocationService';
+import { reverseLinesJudged } from '@/modules/accounting/services/bank/reverseLinesCreditLast';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupK074, seedK074, type K074Fixture } from './helpers/k074Fixture';
 import { receiptLedger, verdict } from './ar-receipt-void-after-refund.helpers';
@@ -102,6 +108,65 @@ describe('breaker round 2 (98da211bc4)', () => {
     expect(await verdict(L.inTx(() => planReceiptApplication(fx.company, r.receipt, [{ invoiceId: inv, amount: 50 }])))).toBe('passed');
     expect(await verdict(voidReceipt(r.receipt))).toBe('RECEIPT_REFUSED');
   }, 60_000);
+});
+
+describe('breaker round 3 (f243e2c261)', () => {
+  async function line(id: string, amount: number, date: string) {
+    await pool.query(`INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status)
+      VALUES($1,$2,$3,$4::DATE,$5,'RVC3 line','imported')`, [id, fx.company, fx.bankAccount, date, amount]);
+  }
+  /** A separate request with a lock_timeout, so a still-held customer row answers instead of hanging the test. */
+  async function otherRequest<T>(fn: () => Promise<T>): Promise<T> {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query("SET LOCAL lock_timeout = '4s'");
+      const out = await als.run({ client, userId: fx.user, companyId: fx.company, claims: {} } as never, fn);
+      await client.query('COMMIT');
+      return out;
+    } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+  }
+  const lineId = (p: string) => `${p}-0000-4000-8000-${crypto.randomUUID().slice(-12)}`;
+
+  it('B3-1: a customer verified under a lock a set-aside line rolled back is verified AGAIN, not passed on the cache', async () => {
+    const c = await L.newCustomer();
+    const s = crypto.randomUUID();
+    await pool.query('INSERT INTO suppliers(id,company_id,name) VALUES($1,$2,$3)', [s, fx.company, `RVC3 S ${s.slice(0, 6)}`]);
+    const l2 = lineId('20000000');
+    const r = await L.allocated(c, 100, '2026-05-20', 'none', l2); // C's receipt, 100 unapplied
+    const l1 = lineId('10000000'); // money out 150 split: C refund 50, supplier payment 100 (unapplied)
+    await line(l1, -150, '2026-05-21');
+    const split = await L.inTx(() => splitAllocateTransaction(fx.company, l1, [
+      { contactType: 'customer', contactId: c, amount: 50 },
+      { contactType: 'supplier', contactId: s, amount: 100, autoApply: 'none' },
+    ], fx.user));
+    const l3 = lineId('30000000'); // the supplier refunds that 100: the payment's void is refused while it stands
+    await line(l3, 100, '2026-05-22');
+    const q = await L.inTx(() => allocateTransaction(fx.company, l3, null, fx.user, 'RVC3', 'supplier', s));
+    expect(await running(c)).toEqual({ '05-20': 100, '05-21': 50 });
+
+    const l4 = lineId('40000000'); // another request's refund of C, between the bulk call's lines
+    await line(l4, -50, '2026-05-25');
+    let concurrent = 'not run';
+    const reverse = async (txId: string) => {
+      if (txId === l2 && concurrent === 'not run') {
+        concurrent = await verdict(otherRequest(() => allocateTransaction(fx.company, l4, null, fx.user, 'RVC3 G', 'customer', c)));
+      }
+      return reverseReconciledTransaction(fx.company, txId, fx.user, {});
+    };
+    const bulk = await verdict(L.inTx(() => reverseLinesJudged(fx.company, [
+      { id: l1, journalEntryId: split.journalEntryId },
+      { id: l2, journalEntryId: r.journalEntryId },
+      { id: l3, journalEntryId: q.journalEntryId },
+    ], reverse)));
+    // L1's set-aside rolled its savepoint back, releasing C's lock: the refund could land. The bulk call then re-took
+    // C's lock (acquired, not held), verified again, saw the refund, and refused (retryable) — rolled back whole.
+    const after = await running(c);
+    expect({ concurrent, bulk, after }).toEqual({
+      concurrent: 'passed', bulk: 'RECEIPT_REFUSED', after: { '05-20': 100, '05-21': 50, '05-25': 0 },
+    });
+    expect(Math.min(...Object.values(after))).toBeGreaterThanOrEqual(0); // never below zero on a date a write lowered
+  }, 120_000);
 });
 
 describe('a customer already below zero on a later date', () => {

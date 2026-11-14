@@ -35,6 +35,8 @@ export const reverseBankAllocationBatchTool: McpTool = {
     + 'Transactions that have moved on since the batch posted (already reversed, or re-allocated to a '
     + 'different journal) are left untouched and listed in "skipped". '
     + 'The originals and their reversals both remain in the audit trail. '
+    + 'A customer receipt whose unapplied cash a customer refund has already returned is refused (reverse the refund '
+    + 'first, or include it in the same batch). '
     + "By default each reversing journal carries its ORIGINAL entry's date when that period is still "
     + 'open, and today when it is closed; pass reversal_date to date every reversal in the batch '
     + 'explicitly.',

@@ -135,7 +135,7 @@ export async function unwindOnePayment(
   // reproduced). Reading the rows only once the row is held is what makes them
   // the rows this transaction will act on.
   if (kind === 'customer') {
-    // The customer twin (2026-11-14, `ar/customerVoidCredit`): a cancellation must not take the customer's running
+    // The customer twin (`ar/customerVoidCredit`): a cancellation must not take the customer's running
     // on-account credit below zero on a date it lowers (a refund already returned this cash). The canonical order,
     // all before the first write: the receipt, its invoices, then the customer (tried) and the check.
     await lockCustomerPaymentForUpdate(companyId, paymentId);

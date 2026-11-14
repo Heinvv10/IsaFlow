@@ -1,6 +1,6 @@
 /**
  * One customer's running on-account credit by date, and the ONE rule every write that removes unapplied receipt cash
- * is judged by (Hein, 2026-11-14): **the running credit must not end below zero on any date the write lowers.**
+ * is judged by: **the running credit must not end below zero on any date the write lowers.**
  *
  * The basis is the AR one (`getCustomerOnAccountCredit`): every receipt and refund but cancelled ones, each counting
  * its unapplied remainder (`total - allocated`, allocations capped at a positive total) at its payment date. A write
@@ -16,6 +16,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { cents } from './receiptInvoiceLock';
 
 /** Cash a write takes off one receipt's remainder: `amount` when given (an application), else the whole remainder. */
 export interface CreditRemoval { paymentId: string; amount?: number }
@@ -28,7 +29,11 @@ export interface CreditDay {
   removed: number;
   /** The positive part of `removed`, row by row: the cash the write takes off. */
   lowers: number;
-  /** The remainders of the rows the write does NOT touch: what a concurrent writer could change. */
+  /**
+   * The remainders of the rows the write does NOT touch: what a concurrent writer could change. Set by
+   * `customerCreditDays` (the bulk verification compares it, `customerVoidCredit.verifyJudged`); days built by
+   * `withDatedRemovals` and `customerCreditFall` carry 0, and nothing reads it there.
+   */
   others: number;
 }
 
@@ -42,8 +47,11 @@ export interface CreditJudgement {
   lowestAfter: number | null;
 }
 
-/** Whole cents: every comparison in the receipt credit rule is made in these. */
-export const cents = (n: number): number => Math.round(n * 100);
+/** The running credit as at `date`: every day's amount up to and including it (the as-at figure a refund reports). */
+export const creditAsAt = (days: readonly CreditDay[], date: string | Date): number => {
+  const key = dayKey(date);
+  return days.reduce((sum, d) => (dayKey(d.d) <= key ? sum + cents(d.amount) : sum), 0) / 100;
+};
 
 /** One spelling of a day for every comparison here: what `fmtDate` makes of a Date or a date string. */
 export const dayKey = (d: string | Date): string => fmtDate(d);
@@ -75,8 +83,12 @@ export async function customerCreditDays(
     FROM pay p LEFT JOIN gone g ON g.id = p.id
     GROUP BY p.d
     ORDER BY p.d`) as DbRow[];
+  // A customer with no live rows has no row to carry the name: read it on its own (company-scoped).
+  const named = rows[0] ?? ((await sql`
+    SELECT c.name AS customer_name FROM customers c
+    WHERE c.id = ${customerId}::UUID AND c.company_id = ${companyId}::UUID`) as DbRow[])[0];
   return {
-    customerName: rows[0]?.customer_name ? String(rows[0].customer_name) : 'this customer',
+    customerName: named?.customer_name ? String(named.customer_name) : 'this customer',
     days: rows.map((r) => ({
       d: dayKey(r.d as string | Date),
       amount: Number(r.amount ?? 0),

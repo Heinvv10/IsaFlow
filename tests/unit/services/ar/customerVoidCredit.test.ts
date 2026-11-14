@@ -142,11 +142,32 @@ describe('withReceiptCancellationsJudged — N receipts of one customer read its
       .mockResolvedValueOnce(rows(['b', 'c', 100]))
       .mockResolvedValueOnce(rows(['c', 'c', 100]));
     vi.mocked(customerCreditDays).mockResolvedValue({ customerName: 'Acme', days: judgedDays });
+    vi.mocked(tryLockCustomerCredit).mockResolvedValueOnce('acquired').mockResolvedValue('held');
     await withReceiptCancellationsJudged('co', ids, async () => {
       for (const id of ids) await assertReceiptVoidKeepsCredit('co', [id]);
     });
     expect(customerCreditDays).toHaveBeenCalledTimes(2); // judgment + one verification, not one per receipt
-    expect(tryLockCustomerCredit).toHaveBeenCalledTimes(1);
+    expect(tryLockCustomerCredit).toHaveBeenCalledTimes(3); // re-taken (re-entrant) at every receipt: still held?
+  });
+  it('a verification made under a lock that has since LAPSED is made again (a rolled-back savepoint released it)', async () => {
+    sqlMock
+      .mockResolvedValueOnce(rows(['a', 'c', 100], ['b', 'c', 100])) // the judgment's rows
+      .mockResolvedValueOnce(rows(['a', 'c', 100])) // a's own row
+      .mockResolvedValueOnce(rows(['a', 'c', 100], ['b', 'c', 100])) // the set, at a
+      .mockResolvedValueOnce(rows(['b', 'c', 100])) // b's own row
+      .mockResolvedValueOnce(rows(['a', 'c', 100], ['b', 'c', 100])); // the set again, at b
+    const judgedDays = [day('2026-05-20', 200, 200, 0), day('2026-05-25', 0, 0, 0)];
+    vi.mocked(customerCreditDays)
+      .mockResolvedValueOnce({ customerName: 'Acme', days: judgedDays }) // the judgment
+      .mockResolvedValueOnce({ customerName: 'Acme', days: judgedDays }) // a's verification
+      .mockResolvedValueOnce({ customerName: 'Acme', days: [...judgedDays.slice(0, 1), day('2026-05-25', -50)] }); // b's: a refund landed
+    vi.mocked(tryLockCustomerCredit).mockResolvedValueOnce('acquired').mockResolvedValueOnce('acquired');
+    const err = await withReceiptCancellationsJudged('co', ['a', 'b'], async () => {
+      await assertReceiptVoidKeepsCredit('co', ['a']);
+      await assertReceiptVoidKeepsCredit('co', ['b']);
+    }).catch((e: unknown) => e);
+    expect(isRetryableReceiptRefusal(err)).toBe(true);
+    expect(customerCreditDays).toHaveBeenCalledTimes(3);
   });
   it('a later receipt whose own remainder moved after the customer was verified is still refused, retryable', async () => {
     sqlMock

@@ -1,5 +1,5 @@
 /**
- * The AR credit-ceiling skip of the auto-apply back-fill (2026-11-14): applying a receipt's remainder that a refund
+ * The AR credit-ceiling skip of the auto-apply back-fill: applying a receipt's remainder that a refund
  * already returned takes the customer's running on-account credit below zero, and `planReceiptApplication` refuses it
  * at write time (`ar/customerVoidCredit.assertReceiptApplicationKeepsCredit`). The population decides it FIRST, by the
  * same rule (`ar/customerRunningCredit.judgeCreditDays`), so a dry run and a live run report it identically.

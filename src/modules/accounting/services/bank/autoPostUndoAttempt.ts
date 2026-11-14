@@ -3,7 +3,7 @@
  * credit retry arrived (2026-10-26).
  *
  * A row whose void would take a supplier's on-account credit below zero (`ap/supplierVoidCredit`: a refund already
- * returned the payment's cash), or a customer's running credit (`ar/customerVoidCredit`, 2026-11-14), is NOT counted
+ * returned the payment's cash), or a customer's running credit (`ar/customerVoidCredit`), is NOT counted
  * here: it answers 'creditRefused', and the run tries it again once every other row is done. (A run undo judges row
  * by row, unlike the all-or-nothing bulk reversals: its rows commit or skip one at a time.) A run that reverses a
  * payment AND its refund reaches them in id order, so the payment can come first and be refused only because the

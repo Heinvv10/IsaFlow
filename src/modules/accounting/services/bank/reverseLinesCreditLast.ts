@@ -9,16 +9,20 @@
  * reversal raises the credit and is never refused, so every refund in the call is reversed by then, and the payments
  * left each lower it — they all pass exactly when the call's net leaves the supplier at zero or above
  * (`assertLinesKeepCredit`, the dry run's answer). Refused again, the refusal is thrown and the call stays
- * all-or-nothing. `reverseReconciledTransaction` writes inside its own savepoint and refuses before its first write,
- * so a set-aside line has written nothing; its bank line stays locked by this transaction, and the retry re-takes
- * locks this transaction already holds.
+ * all-or-nothing. A set-aside line leaves nothing behind, but it may have WRITTEN before the refusal: on a split
+ * line a customer arm is unwound (its receipt cancelled, its customer's credit lock taken) before the supplier arm is
+ * refused. `reverseReconciledTransaction` runs every write inside its own savepoint (`bank_reverse_reconciled`, or
+ * `bank_reverse_chain_line` for a document chain), so the refusal rolls all of that
+ * back — and RELEASES the row locks taken inside the savepoint (the customer's included). The bank line itself is
+ * locked before that savepoint and stays held; the retry re-takes the rest.
  *
- * CUSTOMERS (2026-11-14, `ar/customerVoidCredit`): no retry. The receipts and refunds on the call's lines are judged
- * TOGETHER, ONCE, up front (`judgeReceiptCancellations`, by date) — the dry run and the live call run that one
- * function, so they agree by construction (breaker MEDIUM 2: a per-receipt judgment with a retry refused a pair the
- * set judgment passed, on a customer already below zero later on). The live call then reverses inside
- * `withReceiptCancellationsJudged`: each receipt's own check only verifies, under its locks and its customer's, that
- * nothing the judgment read has moved since.
+ * CUSTOMERS (`ar/customerVoidCredit`): no retry. The receipts and refunds on the call's lines are judged TOGETHER,
+ * ONCE, up front (`judgeReceiptCancellations`, by date) — the dry run and the live call run that one function, so they
+ * agree by construction (a per-receipt judgment with a retry can refuse a set the set judgment passes, when the
+ * customer is already below zero on a later date). The live call then reverses inside `withReceiptCancellationsJudged`:
+ * each receipt's own check only verifies, under its locks and its customer's, that nothing the judgment read has moved
+ * since — and judges that afresh whenever the customer lock had lapsed (a set-aside line's rolled-back savepoint
+ * releases the lock it took).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';

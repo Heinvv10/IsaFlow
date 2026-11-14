@@ -151,7 +151,7 @@ export async function readBackfillSources(
   // The credit ceiling AFTER the period skip: a withheld source consumes no credit.
   const periodChecked = await markJournalPeriodSkips(companyId, ordered);
   const apChecked = markCreditCeilingSkips(subledger, await creditOfSources(companyId, subledger, periodChecked), periodChecked);
-  return markReceiptCreditSkips(companyId, subledger, apChecked); // AR: by date (2026-11-14)
+  return markReceiptCreditSkips(companyId, subledger, apChecked); // AR: by date (`autoApplyBackfillReceiptCredit`)
 }
 
 /** AP: each supplier's on-account credit over every date, for the suppliers whose payments this run may apply. */
