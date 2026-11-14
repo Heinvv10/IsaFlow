@@ -7,10 +7,15 @@
  * both commit. Delete already refuses any super admin. A super admin acting on another super admin stays allowed
  * (no product decision forbids it) and its audit row says so.
  *
- * The race is forced, not hoped for: both requests are held at a barrier in the admin rate-limit step (inside
- * withPlatformAdmin's transaction, after its super-admin gate) until both have arrived, so each actor has passed
- * the gate before either commits. GoTrue is mocked at the module boundary (adminRevokeAllUserSessions); tokens are
- * aal2, so the gate needs no GoTrue. Runs as platform_admin on the disposable schema fixture (assertDisposable).
+ * The race is forced, not hoped for, at two module boundaries:
+ *   1. both requests are held in the admin rate-limit step (inside withPlatformAdmin's transaction, after its
+ *      super-admin gate) until both have arrived, so each actor has passed the gate before either commits;
+ *   2. each request is held again right after its count of the other super admins (the `sql` call, wrapped) until
+ *      the other has counted too, or WINDOW_MS has passed. Without the roster lock both count before either
+ *      writes, so both commit. With it the second waits on the lock before its count, the first is released by
+ *      the time-out, commits, and the second then counts what the first left.
+ * GoTrue is mocked at the module boundary (adminRevokeAllUserSessions); tokens are aal2, so the gate needs no
+ * GoTrue. Runs as platform_admin on the disposable schema fixture (assertDisposable).
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -34,15 +39,35 @@ vi.mock('@/lib/rateLimit', async (orig) => {
     },
   };
 });
+const counted = vi.hoisted(() => ({ parties: 0, arrived: 0, open: (): void => undefined, opened: Promise.resolve() }));
+const WINDOW_MS = 750;
+vi.mock('@/lib/neon', async (orig) => {
+  const real = await orig<Record<string, unknown>>();
+  const realSql = real.sql as (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>;
+  const sql = Object.assign((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const query = realSql(strings, ...values);
+    if (counted.parties === 0 || !/role = 'super_admin' AND lower\(id\) <>/.test(strings.join('?'))) return query;
+    return (async () => {
+      const rows = await query;
+      counted.arrived += 1;
+      if (counted.arrived >= counted.parties) counted.open();
+      await Promise.race([counted.opened, new Promise((resolve) => setTimeout(resolve, WINDOW_MS))]);
+      return rows;
+    })();
+  }, realSql);
+  return { ...real, sql };
+});
 vi.mock('@/lib/auth/gotrue', async (orig) => ({
   ...(await orig<typeof import('@/lib/auth/gotrue')>()),
   adminRevokeAllUserSessions: async () => undefined,
 }));
 
 function holdUntil(parties: number): void {
-  barrier.parties = parties;
-  barrier.arrived = 0;
-  barrier.opened = new Promise<void>((resolve) => { barrier.open = resolve; });
+  for (const gate of [barrier, counted]) {
+    gate.parties = parties;
+    gate.arrived = 0;
+    gate.opened = new Promise<void>((resolve) => { gate.open = resolve; });
+  }
 }
 
 assertDisposable();
@@ -92,7 +117,7 @@ beforeEach(async () => {
     WHERE id = ANY($1)`, [ACTORS]);
   await pool.query('DELETE FROM admin_audit_log WHERE admin_user_id = ANY($1)', [ACTORS]);
 });
-afterEach(() => { barrier.parties = 0; });
+afterEach(() => { barrier.parties = 0; counted.parties = 0; });
 
 afterAll(async () => {
   try {
