@@ -239,6 +239,14 @@ describe('3.10: a refused or failed Return still ends the Login-as, audit first'
     expect(rows[0].details).toMatchObject({ target_session_revoked: true });
   });
 
+  it('re-break M2 a session GoTrue already revoked (403 session_not_found) is recorded as revoked, not failed', async () => {
+    strictLogout = true;
+    const jar = await fx.loginAsTarget();
+    revokedSessions.add(String(decodeJwt(jar['sb-access-token']!).session_id)); // revoked elsewhere first
+    expect((await post(endImpersonation, jar)).statusCode).toBe(200);
+    expect((await ends()).at(-1)).toMatchObject({ target_session_revoked: true });
+  });
+
   it('re-break M2 a later failed revocation never downgrades a recorded revocation', async () => {
     const jar = await fx.loginAsTarget();
     expect((await post(endImpersonation, jar)).statusCode).toBe(200);
