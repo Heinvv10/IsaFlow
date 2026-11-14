@@ -6,11 +6,20 @@
  * Precedence: company override > global flag > plan membership.
  *
  * The plan is the plan of the company's CURRENT subscription: the latest
- * created (id as tiebreak) of status trial / active / past_due. Cancelled and
- * paused subscriptions grant nothing, and a company with no such subscription
- * has no plan-sourced features. `companies.plan_id` is vestigial and is never
- * read here. `subscriptions` has no one-live-per-company constraint, hence the
- * explicit ordering. The same subquery appears in all three readers below
+ * created (id as tiebreak) subscription that is live, where live means
+ *   - active, or
+ *   - past_due: the dunning grace window. The billing runner keeps charging a
+ *     past_due subscription and settling it returns it to active; nothing else
+ *     in the app cuts access on a failed payment, so entitlement is not cut
+ *     here either (cutting it is a product decision, not a lookup fix), or
+ *   - trial AND companies.trial_ends_at is in the future. The trial end lives
+ *     on the company (admin extend/convert write it; a trial subscription has
+ *     no current_period_end). An expired trial, or a trial with no end date
+ *     recorded, grants nothing: fail closed.
+ * Cancelled and paused subscriptions grant nothing, and a company with no live
+ * subscription has no plan-sourced features. `companies.plan_id` is vestigial
+ * and never read. `subscriptions` has no one-live-per-company constraint,
+ * hence the explicit ordering. The same subquery appears in all three readers below
  * (tests/integration/feature-flag-plan-via-subscription.int.test.ts holds them
  * together); change one, change all.
  */
@@ -102,8 +111,10 @@ export async function getCompanyEffectiveFeatures(
       WHERE pf.plan_id = (
         SELECT s.plan_id
         FROM public.subscriptions s
+        JOIN public.companies cc ON cc.id = s.company_id
         WHERE s.company_id = ${companyId}
-          AND s.status IN ('trial', 'active', 'past_due')
+          AND (s.status IN ('active', 'past_due')
+               OR (s.status = 'trial' AND cc.trial_ends_at > NOW()))
         ORDER BY s.created_at DESC NULLS LAST, s.id DESC
         LIMIT 1
       )
@@ -209,8 +220,10 @@ export async function hasFeature(
           AND pf.plan_id = (
             SELECT s.plan_id
             FROM public.subscriptions s
+            JOIN public.companies cc ON cc.id = s.company_id
             WHERE s.company_id = ${companyId}
-              AND s.status IN ('trial', 'active', 'past_due')
+              AND (s.status IN ('active', 'past_due')
+                   OR (s.status = 'trial' AND cc.trial_ends_at > NOW()))
             ORDER BY s.created_at DESC NULLS LAST, s.id DESC
             LIMIT 1
           )
@@ -265,7 +278,8 @@ export async function companiesWithFeature(
               SELECT s.plan_id
               FROM public.subscriptions s
               WHERE s.company_id = c.id
-                AND s.status IN ('trial', 'active', 'past_due')
+                AND (s.status IN ('active', 'past_due')
+                     OR (s.status = 'trial' AND c.trial_ends_at > NOW()))
               ORDER BY s.created_at DESC NULLS LAST, s.id DESC
               LIMIT 1
             )

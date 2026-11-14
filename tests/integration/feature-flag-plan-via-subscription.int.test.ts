@@ -1,7 +1,9 @@
 /**
  * Plan-level feature gating resolves the plan through the company's CURRENT
- * subscription (latest created of status trial / active / past_due), never
- * through the vestigial companies.plan_id. All three readers in
+ * subscription (latest created live one: active, past_due, or a trial whose
+ * companies.trial_ends_at is still in the future), never through the
+ * vestigial companies.plan_id. An expired trial, or a trial with no end date,
+ * grants nothing. All three readers in
  * featureFlagService (hasFeature, companiesWithFeature,
  * getCompanyEffectiveFeatures) must answer the same. Precedence stays
  * override > global flag > plan.
@@ -30,7 +32,10 @@ const planOther = randomUUID(); // grants nothing
 const admin = randomUUID();
 const co = {
   active: randomUUID(),
-  trial: randomUUID(),
+  trial: randomUUID(), // trial ending in the future
+  trialExpired: randomUUID(),
+  trialNoEnd: randomUUID(), // trial with no end date recorded: fail closed
+  expiredTrialOverActive: randomUUID(), // older active grant, newer expired trial: the active one is current
   pastDue: randomUUID(),
   vestigialOnly: randomUUID(), // companies.plan_id -> planGrant, no subscription
   noSub: randomUUID(),
@@ -50,6 +55,9 @@ const flagIds: Record<string, string> = {};
 const EXPECTED_PLAN: Record<keyof typeof co, boolean> = {
   active: true,
   trial: true,
+  trialExpired: false,
+  trialNoEnd: false,
+  expiredTrialOverActive: true,
   pastDue: true,
   vestigialOnly: false,
   noSub: false,
@@ -85,10 +93,17 @@ describe.skipIf(!process.env.DATABASE_URL)('feature gating reads the plan from s
     await q('INSERT INTO plan_features (plan_id, feature_id) VALUES ($1, $2)', [planGrant, flagIds[PLAN_FLAG]]);
     for (const id of ALL) {
       const vestigial = id === co.vestigialOnly || id === co.vestigialBlocksNothing;
-      await q('INSERT INTO companies (id, name, plan_id) VALUES ($1, $2, $3)', [id, `PlanSub ${tag}`, vestigial ? planGrant : null]);
+      const trialEnd = id === co.trial ? '2999-01-01' : id === co.trialExpired || id === co.expiredTrialOverActive ? '2020-01-01' : null;
+      await q('INSERT INTO companies (id, name, plan_id, trial_ends_at) VALUES ($1, $2, $3, $4::timestamptz)', [
+        id, `PlanSub ${tag}`, vestigial ? planGrant : null, trialEnd,
+      ]);
     }
     await sub(co.active, planGrant, 'active', '2026-01-01');
     await sub(co.trial, planGrant, 'trial', '2026-01-01');
+    await sub(co.trialExpired, planGrant, 'trial', '2026-01-01');
+    await sub(co.trialNoEnd, planGrant, 'trial', '2026-01-01');
+    await sub(co.expiredTrialOverActive, planGrant, 'active', '2026-01-01');
+    await sub(co.expiredTrialOverActive, planGrant, 'trial', '2026-02-01');
     await sub(co.pastDue, planGrant, 'past_due', '2026-01-01');
     await sub(co.cancelledOnly, planGrant, 'cancelled', '2026-01-01');
     await sub(co.pausedOnly, planGrant, 'paused', '2026-01-01');
