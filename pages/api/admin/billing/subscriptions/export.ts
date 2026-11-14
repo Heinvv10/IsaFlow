@@ -13,7 +13,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { isUuidParam } from '@/lib/validation';
-import { csvRow, queryText, sendAuditedCsv } from '@/modules/admin/services/adminCsvExport';
+import { csvRow, queryText, sendAuditedCsv, textFilterSet } from '@/modules/admin/services/adminCsvExport';
 
 type Row = DbRow;
 
@@ -77,7 +77,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   await sendAuditedCsv(req, res, {
     export: 'subscriptions',
     filename: `subscriptions-${today}.csv`,
-    filters: { search, status, plan_id: planId },
+    filters: { search: textFilterSet(search), status, plan_id: planId },
     header: CSV_HEADERS,
     lines,
   });

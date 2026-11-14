@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
 import { adminExportHref } from '@/components/admin/adminExportHref';
+import { downloadAdminExport } from '@/components/admin/downloadAdminExport';
 import { TrafficTimeseriesChart, type TimeseriesPoint } from '@/components/admin/charts/TrafficTimeseriesChart';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -121,6 +122,7 @@ export default function AdminWebAnalytics() {
   const [realtime, setRealtime] = useState<Realtime | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -157,6 +159,20 @@ export default function AdminWebAnalytics() {
       setError(apiErrorMessage(err, 'Could not load the analytics summary - try again'));
     } finally {
       setLoading(false);
+    }
+  }, [websiteId, range, includeBots]);
+
+  const downloadCsv = useCallback(async () => {
+    if (!websiteId) return;
+    setExporting(true);
+    setError(null);
+    try {
+      const href = adminExportHref('/api/admin/analytics/web/export', { website_id: websiteId, range, include_bots: includeBots && '1' });
+      await downloadAdminExport(href, 'analytics.csv');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not export the CSV - try again'));
+    } finally {
+      setExporting(false);
     }
   }, [websiteId, range, includeBots]);
 
@@ -221,17 +237,17 @@ export default function AdminWebAnalytics() {
               <Bot className="w-3.5 h-3.5" />
               {includeBots ? 'Bots included' : 'Bots excluded'}
             </button>
-            {/* A download link, not a navigation: an error answer is saved, never replaces the page. */}
-            <a
-              href={adminExportHref('/api/admin/analytics/web/export', { website_id: websiteId, range, include_bots: includeBots && '1' })}
-              download
-              aria-disabled={!websiteId}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors${websiteId ? '' : ' pointer-events-none opacity-40'}`}
+            {/* Fetched, not a plain link: the page cannot know the row count, so a refusal (too many events)
+                must come back as a message here, not be saved as the file or replace the page. */}
+            <button
+              onClick={() => void downloadCsv()}
+              disabled={!websiteId || exporting}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-40"
               title="Download raw events as CSV"
             >
               <Download className="w-3.5 h-3.5" />
               CSV
-            </a>
+            </button>
             <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
               {RANGES.map((r) => (
                 <button

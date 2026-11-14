@@ -13,9 +13,8 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { isRealCalendarDate, isUuidParam } from '@/lib/validation';
 import { getUnifiedAuditLog, type UnifiedAuditFilters } from '@/modules/admin/services/auditQueryService';
-import { csvRow, queryText, sendAuditedCsv } from '@/modules/admin/services/adminCsvExport';
+import { ADMIN_EXPORT_MAX_ROWS as MAX_ROWS, csvRow, queryText, sendAuditedCsv, textFilterSet } from '@/modules/admin/services/adminCsvExport';
 
-const MAX_ROWS = 100_000;
 const SOURCES = new Set(['admin', 'accounting', 'auth']);
 
 const CSV_HEADERS = ['Date', 'Source', 'User', 'Email', 'Company', 'Action', 'Entity Type', 'Entity Ref', 'IP', 'Details'];
@@ -72,7 +71,8 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
     export: 'audit',
     filename: `audit-${new Date().toISOString().slice(0, 10)}.csv`,
     filters: {
-      source, company_id: companyId, action, entity_type: entityType, search, from_date: fromDate, to_date: toDate,
+      source, company_id: companyId, action, entity_type: entityType, search: textFilterSet(search),
+      from_date: fromDate, to_date: toDate,
     },
     header: CSV_HEADERS,
     lines,

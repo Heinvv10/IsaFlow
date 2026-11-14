@@ -1,6 +1,6 @@
 /**
  * Admin Companies CSV Export
- * GET /api/admin/companies/export?search=&status=&sort_by=&sort_dir=&from=&to=
+ * GET /api/admin/companies/export?search=&status=&plan=&sort_by=&sort_dir=&from=&to=
  * Every company matching the Companies list's filters (same predicates as
  * listCompanies), in its sort order, as one audited CSV (adminCsvExport).
  */
@@ -12,7 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { csvRow, queryText, sendAuditedCsv } from '@/modules/admin/services/adminCsvExport';
+import { csvRow, queryText, sendAuditedCsv, textFilterSet } from '@/modules/admin/services/adminCsvExport';
 
 type Row = DbRow;
 
@@ -29,8 +29,9 @@ const CSV_HEADERS = [
 
 /**
  * The sort keys the Companies list accepts (adminCompanyService ALLOWED_SORT_COLUMNS) plus plan_name, which
- * the page offers. A key not here sorts by the default rather than refusing the download; the audit row
- * records the sort actually applied.
+ * the page offers. A key not here (last_active, until the list sorts by it for real) sorts by the default,
+ * created_at desc, rather than refusing the download: the audit row (`sort_fallback_from`) and the
+ * X-Export-Sort response header say so.
  */
 const SORT_COLUMNS: Record<string, string> = {
   name: 'c.name',
@@ -50,10 +51,14 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   const statusFilter = queryText(req.query.status);
   const fromDate     = queryText(req.query.from);
   const toDate       = queryText(req.query.to);
+  const plan         = queryText(req.query.plan);
   const requestedSort = queryText(req.query.sort_by);
-  const sortBy  = requestedSort && SORT_COLUMNS[requestedSort] ? requestedSort : null;
-  const sortAsc = sortBy !== null && queryText(req.query.sort_dir)?.toLowerCase() === 'asc';
-  const sortCol = SORT_COLUMNS[sortBy ?? 'created_at']!;
+  const honoured = requestedSort !== null && SORT_COLUMNS[requestedSort] !== undefined;
+  const sortBy  = honoured ? requestedSort : 'created_at';
+  const sortAsc = honoured && queryText(req.query.sort_dir)?.toLowerCase() === 'asc';
+  const sortDir = sortAsc ? 'asc' : 'desc';
+  const sortFallbackFrom = requestedSort !== null && !honoured ? requestedSort : null;
+  const sortCol = SORT_COLUMNS[sortBy]!;
   const searchPattern = search ? `%${search}%` : null;
 
   const rows = (await sql`
@@ -80,6 +85,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
       AND (${searchPattern}::text IS NULL
            OR c.name ILIKE ${searchPattern}
            OR c.registration_number ILIKE ${searchPattern})
+      AND (${plan}::text IS NULL OR p.code = ${plan})
       AND (${fromDate}::date IS NULL OR c.created_at >= ${fromDate}::date)
       AND (${toDate}::date   IS NULL OR c.created_at <  (${toDate}::date + INTERVAL '1 day'))
     ORDER BY ${sql.unsafe(sortCol)} ${sortAsc ? sql`ASC` : sql`DESC`}, c.id
@@ -98,12 +104,14 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
 
   log.info(`companies/export: ${lines.length} rows`, {}, 'admin-export');
   const today = new Date().toISOString().slice(0, 10);
+  // No request text in a header: the requested key is on the audit row.
+  res.setHeader('X-Export-Sort', `${sortBy} ${sortDir}${sortFallbackFrom ? ' (requested sort not supported; default used)' : ''}`);
   await sendAuditedCsv(req, res, {
     export: 'companies',
     filename: `companies-${today}.csv`,
     filters: {
-      search, status: statusFilter, sort_by: sortBy, sort_dir: sortBy ? (sortAsc ? 'asc' : 'desc') : null,
-      from: fromDate, to: toDate,
+      search: textFilterSet(search), status: statusFilter, plan, sort_by: sortBy, sort_dir: sortDir,
+      sort_fallback_from: sortFallbackFrom, from: fromDate, to: toDate,
     },
     header: CSV_HEADERS,
     lines,

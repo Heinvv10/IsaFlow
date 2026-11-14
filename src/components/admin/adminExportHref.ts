@@ -11,3 +11,11 @@ export function adminExportHref(path: string, params: Record<string, string | nu
   const query = qs.toString();
   return query ? `${path}?${query}` : path;
 }
+
+/**
+ * The most rows one admin CSV export may hold. Above it the export route answers
+ * 400 (narrow the filters) instead of building an unbounded file in memory or
+ * silently cutting it off; a page that knows its total disables its link.
+ */
+export const ADMIN_EXPORT_MAX_ROWS = 100_000;
+

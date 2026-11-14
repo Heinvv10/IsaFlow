@@ -2,7 +2,8 @@
  * Admin Web Analytics CSV Export
  * GET /api/admin/analytics/web/export?website_id=&range=&include_bots=1
  * Raw events for one website and range. Bot sessions are left out unless
- * include_bots=1, as on the page. One audited CSV (adminCsvExport): the cells
+ * include_bots=1, as on the page; more than ADMIN_EXPORT_MAX_ROWS events is a 400.
+ * One audited CSV (adminCsvExport): the cells
  * carry visitor-supplied text (page titles, UTM tags), so neutralising formula
  * cells matters here most.
  */
@@ -12,7 +13,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { PlatformAdminRequest } from '@/lib/auth';
-import { csvRow, sendAuditedCsv } from '@/modules/admin/services/adminCsvExport';
+import { isUuidParam } from '@/lib/validation';
+import { ADMIN_EXPORT_MAX_ROWS, csvRow, sendAuditedCsv } from '@/modules/admin/services/adminCsvExport';
 
 const RANGES: Record<string, string> = {
   '24h': '24 hours',
@@ -25,10 +27,25 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
-  const websiteId = (req.query.website_id as string) || '';
-  const range = (req.query.range as string) || '7d';
+  const websiteId = req.query.website_id;
+  const range = typeof req.query.range === 'string' ? req.query.range : '7d';
   const includeBots = req.query.include_bots === '1';
-  if (!websiteId || !RANGES[range]) return apiResponse.badRequest(res, 'website_id and valid range required');
+  if (!isUuidParam(websiteId) || !RANGES[range]) return apiResponse.badRequest(res, 'website_id (a UUID) and a valid range required');
+
+  // Counted first: above the cap the export is refused, not cut off at the oldest rows.
+  const [counted] = await sql`
+    SELECT COUNT(*)::int AS total
+    FROM analytics_events e
+    JOIN analytics_sessions s ON s.id = e.session_id
+    WHERE e.website_id = ${websiteId}
+      AND e.created_at >= NOW() - (${RANGES[range]})::interval
+      AND (${includeBots}::boolean OR s.is_bot = false)
+  `;
+  const total = Number(counted?.total ?? 0);
+  if (total > ADMIN_EXPORT_MAX_ROWS) {
+    return apiResponse.badRequest(res,
+      `${total.toLocaleString('en-ZA')} events match; choose a shorter range to export at most ${ADMIN_EXPORT_MAX_ROWS.toLocaleString('en-ZA')}`);
+  }
 
   const rows = await sql`
     SELECT e.created_at, e.event_type, e.event_name, e.url_path, e.page_title,
@@ -40,8 +57,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
     WHERE e.website_id = ${websiteId}
       AND e.created_at >= NOW() - (${RANGES[range]})::interval
       AND (${includeBots}::boolean OR s.is_bot = false)
-    ORDER BY e.created_at ASC
-    LIMIT 100000
+    ORDER BY e.created_at ASC, e.id
   `;
 
   const header = [

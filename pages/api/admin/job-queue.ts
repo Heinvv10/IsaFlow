@@ -48,7 +48,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     const { jobId } = parsed.data;
-    await retryJob(jobId);
+    if (!(await retryJob(jobId))) {
+      return apiResponse.conflict(res, 'No failed job with that id: nothing to retry');
+    }
     await logAdminAction(req.user.id, 'job.retry', 'background_job', jobId, null, getIp(req));
     log.info('Job retried via admin API', { jobId }, 'admin-job-queue-api');
     return apiResponse.success(res, { jobId }, 'Job queued for retry');

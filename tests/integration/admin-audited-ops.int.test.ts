@@ -60,6 +60,15 @@ describe('job queue', () => {
     expect(rows).toEqual([{ action: 'job.retry', target_type: 'background_job', target_id: id, details: null }]);
   }, 30000);
 
+  it('retrying a job that is not failed is a 409 and audits nothing', async () => {
+    const id = await job('pending');
+    const before = (await auditRows(pool, admin, 'job.retry')).length;
+    const r = await callAdminRoute(admin, jobQueueRoute, 'POST', '/api/admin/job-queue', {}, { action: 'retry', jobId: id });
+    expect(r.status, r.text).toBe(409);
+    expect(await jobStatus(id)).toBe('pending');
+    expect((await auditRows(pool, admin, 'job.retry')).length).toBe(before);
+  }, 30000);
+
   it('bulk retry and bulk cancel are audited with the ids asked for and the count processed', async () => {
     const failed = await job('failed');
     const pending = await job('pending');

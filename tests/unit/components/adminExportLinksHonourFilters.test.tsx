@@ -80,6 +80,8 @@ describe('admin export links carry the active filters', () => {
   });
 
   it('audit trail: the server export with every filter, not the rows on screen', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => json({ success: true, data:
+      String(url).startsWith('/api/admin/audit?') ? { items: [], total: 120, page: 1, limit: 50, total_pages: 3 } : empty }));
     render(<AuditPage />);
     fireEvent.change(screen.getByDisplayValue('All Sources'), { target: { value: 'admin' } });
     fireEvent.change(screen.getByPlaceholderText('Email, ref, or action…'), { target: { value: 'ann' } });
@@ -91,13 +93,54 @@ describe('admin export links carry the active filters', () => {
     expect(params.get('to_date')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it('web traffic: the CSV follows the Bots toggle', async () => {
+  it('audit trail: more than 100,000 entries disables the link and says why', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => json({ success: true, data:
+      String(url).startsWith('/api/admin/audit?') ? { items: [], total: 100001, page: 1, limit: 50, total_pages: 2001 } : empty }));
+    render(<AuditPage />);
+    expect(await screen.findByText(/narrow the dates to export \(at most 100.000\)/)).toBeTruthy();
+    const link = screen.getByText('Export CSV').closest('a')!;
+    expect(link.getAttribute('href')).toBeNull();
+    expect(link.getAttribute('aria-disabled')).toBe('true');
+  });
+});
+
+describe('web traffic CSV: fetched, so a refusal is shown, not saved', () => {
+  const exportCalls = () => vi.mocked(apiFetch).mock.calls.map(([u]) => String(u))
+    .filter((u) => u.startsWith('/api/admin/analytics/web/export'));
+
+  it('follows the Bots toggle', async () => {
+    const made = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:wp10');
+    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    onTestFinished(() => { made.mockRestore(); revoked.mockRestore(); });
     render(<WebAnalyticsPage />);
-    await waitFor(() => expect(exportParams(/CSV/).params.get('website_id')).toBe('site-1'));
-    expect(exportParams(/CSV/).params.get('include_bots')).toBeNull();
+    const csv = await screen.findByRole('button', { name: /CSV/ });
+    await waitFor(() => expect((csv as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(csv);
+    await waitFor(() => expect(exportCalls()).toHaveLength(1));
     fireEvent.click(screen.getByTitle('Toggle crawler/bot traffic'));
-    await waitFor(() => expect(exportParams(/CSV/).params.get('include_bots')).toBe('1'));
-    expect(exportParams(/CSV/).path).toBe('/api/admin/analytics/web/export');
+    await waitFor(() => expect((csv as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(csv);
+    await waitFor(() => expect(exportCalls()).toHaveLength(2));
+    const [first, second] = exportCalls().map((u) => new URLSearchParams(u.split('?')[1]));
+    expect(Object.fromEntries(first!)).toEqual({ website_id: 'site-1', range: '7d' });
+    expect(Object.fromEntries(second!)).toEqual({ website_id: 'site-1', range: '7d', include_bots: '1' });
+    expect(made).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows the server refusal (too many events) and saves nothing', async () => {
+    const made = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:wp10');
+    onTestFinished(() => { made.mockRestore(); });
+    const base = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => String(url).startsWith('/api/admin/analytics/web/export')
+      ? new Response(JSON.stringify({ success: false, error: { code: 'BAD_REQUEST',
+        message: '100 001 events match; choose a shorter range to export at most 100 000' } }), { status: 400 })
+      : base(url, init));
+    render(<WebAnalyticsPage />);
+    const csv = await screen.findByRole('button', { name: /CSV/ });
+    await waitFor(() => expect((csv as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(csv);
+    expect(await screen.findByText(/events match; choose a shorter range/)).toBeTruthy();
+    expect(made).not.toHaveBeenCalled();
   });
 });
 

@@ -12,7 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { csvRow, queryText, sendAuditedCsv } from '@/modules/admin/services/adminCsvExport';
+import { csvRow, queryText, sendAuditedCsv, textFilterSet } from '@/modules/admin/services/adminCsvExport';
 
 type Row = DbRow;
 
@@ -92,7 +92,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   await sendAuditedCsv(req, res, {
     export: 'users',
     filename: `users-${today}.csv`,
-    filters: { search, company, role, status },
+    filters: { search: textFilterSet(search), company: textFilterSet(company), role, status },
     header: CSV_HEADERS,
     lines,
   });

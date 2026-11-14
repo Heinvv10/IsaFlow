@@ -28,21 +28,35 @@ const EXPORT_ACTIONS = {
 
 export type AdminExport = keyof typeof EXPORT_ACTIONS;
 
-/** A filter value as recorded on the audit row: absent filters are null. */
+/**
+ * A filter value as recorded on the audit row: absent filters are null. Free-text
+ * filters (a search box, a company name typed in) can hold personal information, so
+ * routes record only whether one was set (`textFilterSet`); ids and dropdown values
+ * are recorded as they are.
+ */
 export type ExportFilters = Record<string, string | boolean | null>;
 
-function cellText(value: unknown): string | number | null {
-  if (value == null) return null;
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === 'number') return value;
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
+/** Whether a free-text filter was applied: what the audit row says about it. */
+export function textFilterSet(value: string | null): boolean {
+  return value !== null;
 }
 
-/** One CSV line: every value quoted and formula-neutralised; Date as ISO-8601. */
+/** Re-exported for the routes: the most rows one export may hold (shared with the pages). */
+export { ADMIN_EXPORT_MAX_ROWS } from '@/components/admin/adminExportHref';
+
+function cell(value: unknown): string {
+  if (value == null) return csvCell(null);
+  if (value instanceof Date) return csvCell(value.toISOString());
+  // A JS number cannot be a formula: -5 stays -5 (neutralising it would turn it into the text '-5). Still quoted.
+  if (typeof value === 'number') return `"${String(value)}"`;
+  if (typeof value === 'boolean') return csvCell(value ? 'true' : 'false');
+  if (typeof value === 'object') return csvCell(JSON.stringify(value));
+  return csvCell(String(value));
+}
+
+/** One CSV line: every value quoted; text formula-neutralised; numbers as they are; Date as ISO-8601. */
 export function csvRow(values: readonly unknown[]): string {
-  return values.map((v) => csvCell(cellText(v))).join(',');
+  return values.map(cell).join(',');
 }
 
 /** A trimmed, non-empty query-string value, or null. */
@@ -72,7 +86,8 @@ export async function sendAuditedCsv(req: PlatformAdminRequest, res: NextApiResp
   );
   const body = [csvRow(csv.header), ...csv.lines].join('\n') + '\n';
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="${csv.filename}"`);
+  // Only safe characters reach the header, whatever a route built the name from.
+  res.setHeader('Content-Disposition', `attachment; filename="${csv.filename.replace(/[^A-Za-z0-9._-]/g, '_')}"`);
   res.setHeader('Cache-Control', 'no-store');
   res.status(200).send(body);
 }
