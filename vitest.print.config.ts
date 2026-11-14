@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config';
 import { loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { PrintShardSequencer } from './scripts/ci/printShard';
 
 // The tests that launch real Chromium — everything under tests/unit/print/ —
 // run here, and only here: vitest.config.ts excludes the directory, and
@@ -67,6 +68,9 @@ export default defineConfig(({ mode }) => {
       include: ['tests/unit/print/**/*.test.ts', ...VELO_MACHINE_FILES.filter((f) => process.env.GITHUB_ACTIONS !== 'true' || !PRINT_PARITY_FILES.includes(f))],
       setupFiles: ['tests/unit/print/support/printChromiumGuard.ts'],
       fileParallelism: false,
+      // `--shard=k/n` (ci.yml's velo matrix, through run-ci.sh) deals the files by
+      // measured seconds, not vitest's equal file counts: scripts/ci/printShard.ts.
+      sequence: { sequencer: PrintShardSequencer },
       testTimeout: 120_000,
       hookTimeout: 120_000,
     },

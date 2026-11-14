@@ -21,7 +21,7 @@ function edit(from: string, to: string): string {
 // static's gate env ends with its TZ line, where the velo job's comment starts (velo has the same env).
 const VELO_NEXT = '\n  # `bun run ci velo`';
 const GATE_ENV_END = `          TZ: Africa/Johannesburg\n${VELO_NEXT}`;
-const QUALITY_HEADER = '  static:\n    name: Static gates\n';
+const QUALITY_HEADER = "  static:\n    name: ${{ matrix.part == '1/1' && 'Static gates' || format('Static gates, part {0}', matrix.part) }}\n";
 const QUALITY_INSTALL = '      - name: Install dependencies\n        run: bun install --frozen-lockfile --ignore-scripts\n\n      # Chromium for';
 const QUALITY_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # GitHub-hosted only';
 
@@ -51,7 +51,7 @@ describe('a PR cannot reach the raw-input gate through ci.yml', () => {
     [
       'a step that writes the variable to GITHUB_ENV before the gate',
       edit(QUALITY_INSTALL, '      - run: echo "RAW_INPUT_BASE_REF=HEAD" >> "$GITHUB_ENV"\n\n' + QUALITY_INSTALL),
-      /^jobs\.static\.steps must be exactly: checkout, the hosted-only setup-node\/setup-bun\/cache\/apt steps, `bun install --frozen-lockfile --ignore-scripts`, the hosted-only browser install, `bun run ci static`/,
+      /^jobs\.static\.steps must be exactly: checkout, the hosted-only setup-node\/setup-bun\/cache\/apt steps, `bun install --frozen-lockfile --ignore-scripts`, the hosted-only browser install, `bun run ci static \$\{\{ matrix\.part \}\}`/,
     ],
   ];
 
