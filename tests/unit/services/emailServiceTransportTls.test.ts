@@ -41,6 +41,8 @@ afterAll(() => { process.env = ENV; });
 const TIMEOUTS = { connection: 5_000, greeting: 5_000, socket: 5_000 };
 const message = { to: 'billing@tls.example.test', subject: 'tls', html: '<p>x</p>', smtpTimeoutsMs: TIMEOUTS };
 const authLines = () => fake!.lines.filter((l) => /^AUTH\b/i.test(l.line));
+/** Lines that crossed in plaintext beyond the two a STARTTLS negotiation needs (no AUTH, MAIL, RCPT, DATA, body). */
+const cleartextPastNegotiation = () => fake!.lines.filter((l) => !l.secure && !/^(EHLO|STARTTLS)\b/i.test(l.line));
 const withAndWithoutDeadline = [['with the deadline socket', { deadlineMs: 10_000 }], ['without a deadline', {}]] as const;
 
 describe('(a) port 465: implicit TLS', () => {
@@ -82,6 +84,7 @@ describe('(b) any other port: STARTTLS is mandatory', () => {
     const r = await sendEmail({ ...message, ...extra });
 
     expect(authLines()).toEqual([]); // the credentials never crossed in plaintext
+    expect(cleartextPastNegotiation()).toEqual([]);
     expect(r.success).toBe(false);
     expect(r.provablyNotSent).toBe(true);
     expect(fake.accepted).toBe(0);
@@ -97,6 +100,7 @@ describe('(b) any other port: STARTTLS is mandatory', () => {
     expect(r.success, r.error).toBe(true);
     expect(fake.handshakes).toBe(1);
     expect(authLines()).toEqual([expect.objectContaining({ secure: true })]);
+    expect(cleartextPastNegotiation()).toEqual([]);
     expect(fake.accepted).toBe(1);
   }, 15_000);
 });
