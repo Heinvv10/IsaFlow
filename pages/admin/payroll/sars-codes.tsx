@@ -171,7 +171,7 @@ export default function AdminSarsCodesPage() {
         <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] overflow-hidden">
           <div className="px-4 py-3 border-b border-[var(--ff-border-primary)] flex items-center justify-between">
             <h2 className="text-sm font-medium text-[var(--ff-text-primary)]">Releases</h2>
-            <span className="text-xs text-[var(--ff-text-tertiary)]">The release marked <span className="text-emerald-400">current</span> is the year this page opens on. Payroll uses each run's own tax year.</span>
+            <span className="text-xs text-[var(--ff-text-tertiary)]">The release marked <span className="text-emerald-400">current</span> is the year this page opens on. Payroll uses each run&rsquo;s own tax year.</span>
           </div>
           <div className="divide-y divide-[var(--ff-border-primary)]">
             {releases.length === 0 ? (
