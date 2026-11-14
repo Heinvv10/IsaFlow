@@ -8,10 +8,13 @@
  * - Sign Out from a Login-as session (/api/auth/logout) removes the stash row too (it cleared only the cookie), by
  *   the parties on the session record, and records the end.
  * - Expired stash rows (encrypted admin tokens) are purged on the start and end paths; nothing else ever did.
+ * - Every way out of end-impersonation ends the Login-as with the `impersonation_end` row written FIRST: a failed
+ *   write is a failure with nothing irreversible done (no revocation, no stash removed, no Set-Cookie). A refused
+ *   Return (no access cookie, an expired stash) still revokes what it holds, removes the stash and audits.
  *
  * GoTrue is the r-032 fake (module boundary: global fetch), so this always runs. Tokens are aal2.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import endImpersonation from '../../pages/api/auth/end-impersonation';
 import logoutRoute from '../../pages/api/auth/logout';
@@ -41,8 +44,15 @@ beforeAll(async () => {
     return fake(input, init);
   });
 }, 60000);
-afterAll(async () => { await fx.tearDown(); await pool.end(); });
+afterAll(async () => {
+  try { await pool.query('ALTER TABLE admin_audit_log DROP CONSTRAINT IF EXISTS wp9_block_end_audit'); }
+  finally { await fx.tearDown(); await pool.end(); }
+});
 beforeEach(() => { logouts.length = 0; failLogout = false; });
+afterEach(async () => {
+  await pool.query('ALTER TABLE admin_audit_log DROP CONSTRAINT IF EXISTS wp9_block_end_audit');
+  await pool.query('DELETE FROM admin_impersonation_stash WHERE admin_user_id = $1', [fx.platformAdmin]);
+});
 
 const stashes = async () => (await pool.query(
   'SELECT stash_id::text AS id FROM admin_impersonation_stash WHERE admin_user_id = $1', [fx.platformAdmin])).rows
@@ -57,10 +67,16 @@ const ends = async () => (await pool.query(
 
 async function post(handler: unknown, jar: Jar) {
   const result = response();
-  await (handler as (q: never, s: never) => Promise<unknown>)(request(jar, 'POST') as never, result.res as never);
+  let threw = false;
+  try {
+    await (handler as (q: never, s: never) => Promise<unknown>)(request(jar, 'POST') as never, result.res as never);
+  } catch { threw = true; /* the route has no error wrapper: a throw is Next's 500 */ }
   const cookies = ((result.headers.get('set-cookie') as string[] | undefined) ?? []);
-  return { ...result.state, stashCookieCleared: cookies.some((c) => c.startsWith('sb-admin-stash=;') && /Max-Age=0/.test(c)) };
+  return { ...result.state, threw, cookies,
+    stashCookieCleared: cookies.some((c) => c.startsWith('sb-admin-stash=;') && /Max-Age=0/.test(c)) };
 }
+const blockEndAudit = () => pool.query(`ALTER TABLE admin_audit_log ADD CONSTRAINT wp9_block_end_audit
+  CHECK (action <> 'impersonation_end' OR admin_user_id <> '${fx.platformAdmin}') NOT VALID`);
 
 describe('3.10: ending a Login-as', () => {
   it('Return to my session revokes the Login-as session at GoTrue and removes its stash', async () => {
@@ -94,12 +110,77 @@ describe('3.10: ending a Login-as', () => {
     expect((await ends()).at(-1)).toMatchObject({ reason: 'logout' });
   });
 
+  it('B4 Sign Out while GoTrue is down: the stash still goes, and the end row says the session was NOT revoked', async () => {
+    const jar = await fx.loginAsTarget();
+    failLogout = true;
+    const r = await post(logoutRoute, { ...jar, 'sb-refresh-token': 'refresh-x' });
+    expect(r.statusCode).toBe(200);
+    expect(await stashes()).toEqual([]);
+    expect((await ends()).at(-1)).toMatchObject({ reason: 'logout', target_session_revoked: false });
+  });
+
   it('Sign Out from an ordinary session touches no stash', async () => {
     const live = await fx.loginAsTarget();
     const own = await fx.ownSession();
     expect((await post(logoutRoute, own)).statusCode).toBe(200);
     expect(await stashes()).toEqual([live['sb-admin-stash']]);
     await post(endImpersonation, live);
+  });
+});
+
+describe('3.10: a refused or failed Return still ends the Login-as, audit first', () => {
+  it('B1 the stash expired (STASH_EXPIRED): session revoked, stash row gone, end audited', async () => {
+    const jar = await fx.loginAsTarget();
+    await pool.query(`UPDATE admin_impersonation_stash SET expires_at = now() - interval '1 second' WHERE stash_id = $1`,
+      [jar['sb-admin-stash']]);
+    const before = (await ends()).length;
+    const r = await post(endImpersonation, jar);
+    expect(r.statusCode).toBe(401);
+    expect(logouts.map((l) => l.bearer)).toEqual([jar['sb-access-token']]);
+    expect(await stashes()).toEqual([]);
+    expect((await ends()).slice(before)).toEqual([
+      expect.objectContaining({ reason: 'stash_expired', target_session_revoked: true, stashes_removed: 1 }),
+    ]);
+  });
+
+  it('B2 no access cookie (UNAUTHORIZED): the stash cookie is cleared, so its row goes too, and the end is audited', async () => {
+    const { 'sb-access-token': _gone, ...rest } = await fx.loginAsTarget();
+    const r = await post(endImpersonation, rest);
+    expect(r.statusCode).toBe(401);
+    expect(r.stashCookieCleared).toBe(true);
+    expect(logouts).toEqual([]); // no token held: nothing this request can revoke
+    expect(await stashes()).toEqual([]);
+    expect((await ends()).at(-1)).toMatchObject({ reason: 'no_session_cookie', target_session_revoked: null });
+  });
+
+  it('B3 the end audit cannot be written: a failure, and nothing irreversible happened; a retry then works', async () => {
+    const jar = await fx.loginAsTarget();
+    await blockEndAudit();
+    const r = await post(endImpersonation, jar);
+    expect(r.threw).toBe(true);
+    expect(logouts).toEqual([]);
+    expect(r.cookies).toEqual([]);
+    expect(await stashes()).toEqual([jar['sb-admin-stash']]);
+    await pool.query('ALTER TABLE admin_audit_log DROP CONSTRAINT IF EXISTS wp9_block_end_audit');
+    const retry = await post(endImpersonation, jar);
+    expect(retry.statusCode).toBe(200);
+    expect(await stashes()).toEqual([]);
+  });
+
+  it('B5 another super admin holding the stash cookie: refused, nothing revoked, stash kept, nothing audited', async () => {
+    const jar = await fx.loginAsTarget();
+    const other = crypto.randomUUID();
+    await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'super_admin', true)`, [other, `${other}@test.local`]);
+    try {
+      const before = (await ends()).length;
+      const r = await post(endImpersonation, { ...jar, 'sb-access-token': await signSession(other, crypto.randomUUID(), 'aal2') });
+      expect(r.statusCode).toBe(403);
+      expect(logouts).toEqual([]);
+      expect(await stashes()).toEqual([jar['sb-admin-stash']]);
+      expect((await ends()).length).toBe(before);
+    } finally {
+      await pool.query('DELETE FROM users WHERE id = $1', [other]);
+    }
   });
 });
 

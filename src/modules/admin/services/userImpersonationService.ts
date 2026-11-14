@@ -68,6 +68,16 @@ export async function loadStash(stashId: string): Promise<StashRow | null> {
   };
 }
 
+/** Whose stash `stashId` is, expired or not; null when there is no such row (or the id is not a uuid). Decrypts nothing. */
+export async function stashPartiesOf(stashId: string): Promise<{ adminUserId: string; targetUserId: string } | null> {
+  const rows = (await migrationAdminPool().query<{ admin_user_id: string; target_user_id: string }>(
+    `SELECT admin_user_id, target_user_id FROM admin_impersonation_stash
+      WHERE stash_id::text = $1 LIMIT 1`,
+    [stashId],
+  )).rows;
+  return rows[0] ? { adminUserId: rows[0].admin_user_id, targetUserId: rows[0].target_user_id } : null;
+}
+
 /**
  * For a Login-as that ended without "Return to my session": the parties come from the
  * session record, not from a cookie. Removes the stash the session named and any of

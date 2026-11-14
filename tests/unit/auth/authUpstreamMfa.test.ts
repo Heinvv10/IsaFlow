@@ -26,6 +26,7 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 // database in tests/integration/admin-suspend-reset-2fa-audit.int.test.ts. Here only GoTrue's failure modes matter.
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
 vi.mock('@/modules/admin/services/auditService', () => ({ logAdminAction: vi.fn(async () => undefined) }));
+vi.mock('@/lib/auth/platformAdminOwnTx', () => ({ withOwnPlatformAdminTx: async (_a: unknown, fn: () => Promise<unknown>) => fn() }));
 vi.mock('@/modules/admin/middleware/withAdmin', () => ({ withAdmin: (h: unknown) => h }));
 vi.mock('@/lib/auth/impersonationGuard', () => ({ refuseImpersonatedSession: vi.fn(async () => false) }));
 vi.mock('@/lib/auth/requireActiveAccount', () => ({ requireActiveAccount: vi.fn(async () => null) }));
@@ -137,12 +138,17 @@ describe.each(OUTAGES)('MFA routes when %s', (_label, outage) => {
     vi.stubGlobal('fetch', gotrue([[/^GET \/admin\/users\/user-9$/, outage]]));
     expectOutage(await call(resetTwoFactor, 'POST', '', {}, { id: 'user-9' }));
   });
-  it('POST /api/admin/users/[id]/reset-2fa: removing a factor fails → 503, not "0 removed"', async () => {
+  // Not 503 since admin audit 3.3 (R1): GoTrue may have deleted the factor before the answer was lost, so the
+  // route records it as unknown and answers 424, never "0 removed" and never success.
+  it('POST /api/admin/users/[id]/reset-2fa: removing a factor fails → 424 "may or may not have been removed"', async () => {
     vi.stubGlobal('fetch', gotrue([
       [/^GET \/admin\/users\/user-9$/, ok({ factors: [{ id: 'f-1', status: 'verified', factor_type: 'totp' }] })],
       [/^DELETE \/admin\/users\/user-9\/factors\/f-1$/, outage],
     ]));
-    expectOutage(await call(resetTwoFactor, 'POST', '', {}, { id: 'user-9' }));
+    const answer = await call(resetTwoFactor, 'POST', '', {}, { id: 'user-9' });
+    expect(answer.status).toBe(424);
+    expect(answer.body).toMatchObject({ success: false, error: { code: 'DEPENDENCY_ERROR' } });
+    expect(JSON.stringify(answer.body)).toMatch(/may or may not have been removed/);
   });
 });
 

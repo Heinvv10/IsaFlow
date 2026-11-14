@@ -7,6 +7,10 @@
  * withPlatformAdmin rolls the suspension back (an admin_request_failed row records the attempt). A failed GoTrue
  * revocation is not a failure of the suspension: it commits, its audit row says `revocation_failed: true`, and
  * the answer says the browser sessions survive (`sessions_revoked: false` and the message).
+ *
+ * Accepted cost: the super-admin roster lock (assertSuperAdminRemains) is transaction-scoped, so it is held across
+ * suspendUser's GoTrue revocation (bounded at 5 s) until COMMIT. A concurrent role change or suspension waits that
+ * long; nothing else takes the lock.
  */
 
 import type { NextApiResponse } from 'next';

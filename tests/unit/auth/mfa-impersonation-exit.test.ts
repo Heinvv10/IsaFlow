@@ -3,7 +3,8 @@ import { SignJWT } from 'jose';
 import type { NextApiRequest, NextApiResponse } from 'next';
 const fixture = vi.hoisted(() => ({ loadStash: vi.fn(), deleteStash: vi.fn(), purgeExpiredStashes: vi.fn(async () => 0) }));
 vi.mock('@/modules/admin/services/userImpersonationService', () => fixture);
-vi.mock('@/lib/neon', () => ({ sql: async () => [] }));
+// The end row's INSERT returns its id (loginAsRecord.recordLoginAsEnd).
+vi.mock('@/lib/neon', () => ({ sql: async (strings: TemplateStringsArray) => (strings.join('?').includes('RETURNING id') ? [{ id: 'end-1' }] : []) }));
 vi.mock('@/lib/auth/impersonationSessions', () => ({
   impersonationPartiesOf: async () => ({ actorUserId: 'admin-user', targetUserId: 'target-user' }),
 }));

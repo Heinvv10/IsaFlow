@@ -15,7 +15,9 @@ const h = vi.hoisted(() => ({
   accessToken: '',
   logout: vi.fn(async (_token: string, _scope: string) => undefined),
   deleteEndedStashes: vi.fn(async (_input: unknown) => 1),
-  audit: vi.fn(async (_strings: TemplateStringsArray, ..._values: unknown[]) => []),
+  // The end row is INSERTed first (RETURNING its id), its outcome added by an UPDATE after (loginAsRecord).
+  audit: vi.fn(async (strings: TemplateStringsArray, ..._values: unknown[]) =>
+    (strings.join('?').includes('INSERT INTO admin_audit_log') ? [{ id: 'end-1' }] : [])),
 }));
 vi.mock('@/modules/admin/services/userImpersonationService', () => ({ deleteEndedStashes: h.deleteEndedStashes, purgeExpiredStashes: async () => 0 }));
 vi.mock('@/lib/neon', () => ({ sql: h.audit }));
@@ -138,8 +140,13 @@ describe('/api/auth/refresh', () => {
       expect(clearedCookie(STASH_COOKIE)).toBe(true);
       expect(clearedCookie('sb-impersonation-proof')).toBe(true);
       const [strings, ...values] = h.audit.mock.calls[0]!;
-      expect(strings.join('?')).toContain('admin_audit_log');
-      expect(values.slice(0, 3)).toEqual(['admin-1', 'target-1', JSON.stringify({ reason: 'proof_expired', stashes_removed: 1 })]);
+      expect(strings.join('?')).toContain('INSERT INTO admin_audit_log');
+      expect(values.slice(0, 3)).toEqual(['admin-1', 'target-1', JSON.stringify({ target_session_revoked: null, reason: 'proof_expired' })]);
+      const [update, ...outcome] = h.audit.mock.calls[1]!;
+      expect(update.join('?')).toContain('UPDATE admin_audit_log');
+      expect(outcome.slice(0, 2)).toEqual([JSON.stringify({ target_session_revoked: true, stashes_removed: 1 }), 'end-1']);
+      // Recorded before the revocation (admin audit 3.10): the INSERT precedes the GoTrue logout.
+      expect(h.audit.mock.invocationCallOrder[0]!).toBeLessThan(h.logout.mock.invocationCallOrder[0]!);
     });
 
     it('still removes the stash when the stash cookie has already expired', async () => {
@@ -150,7 +157,7 @@ describe('/api/auth/refresh', () => {
     it('a failed stash removal is still audited, as unknown', async () => {
       h.deleteEndedStashes.mockRejectedValueOnce(new Error('down'));
       await refreshWith('sb-refresh-token=r1');
-      expect(h.audit.mock.calls[0]!.slice(1, 4)).toEqual(['admin-1', 'target-1', JSON.stringify({ reason: 'proof_expired', stashes_removed: null })]);
+      expect(h.audit.mock.calls[1]!.slice(1, 3)).toEqual([JSON.stringify({ target_session_revoked: true, stashes_removed: null }), 'end-1']);
     });
 
     it.each([

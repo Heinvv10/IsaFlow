@@ -96,7 +96,8 @@ beforeEach(async () => {
     expires_at: new Date(Date.now() + 3_600_000) });
   fixture.sql.mockImplementation(async (parts: TemplateStringsArray) =>
     parts.join('').includes('SELECT company_id') ? [{ company_id: companyId }]
-      : parts.join('').includes('FROM users') ? [{ is_active: true, status: 'active', suspended_at: null }] : []);
+      : parts.join('').includes('FROM users') ? [{ is_active: true, status: 'active', suspended_at: null }]
+      : parts.join('').includes('RETURNING id') ? [{ id: 'end-1' }] : []);
   fixture.query.mockImplementation(async (sql: string) => ({ rows: sql.includes('FROM public.company_users')
     ? [{ role: 'admin', account_user_id: targetId, is_active: true, status: 'active', suspended_at: null }] : [] }));
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ id: targetId,

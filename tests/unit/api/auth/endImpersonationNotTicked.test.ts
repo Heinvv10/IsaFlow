@@ -14,7 +14,8 @@ vi.mock('@/lib/auth/impersonationSessions', () => ({
   impersonationPartiesOf: async (sessionId: string) => { record.asked.push(sessionId); return record.parties; },
 }));
 vi.mock('@/lib/auth/liveCompanies', () => ({ pickInitialCompanyId: async () => null }));
-vi.mock('@/lib/neon', () => ({ sql: async () => [] }));
+// The end row's INSERT returns its id (loginAsRecord.recordLoginAsEnd).
+vi.mock('@/lib/neon', () => ({ sql: async (strings: TemplateStringsArray) => (strings.join('?').includes('RETURNING id') ? [{ id: 'end-1' }] : []) }));
 vi.mock('@/modules/admin/services/userImpersonationService', () => ({
   loadStash: async () => ({
     admin_user_id: 'admin-1', target_user_id: 'target-1', admin_access_token: 'admin-a', admin_refresh_token: 'admin-r',

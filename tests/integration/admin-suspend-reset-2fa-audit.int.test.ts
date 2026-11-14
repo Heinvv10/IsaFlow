@@ -9,13 +9,15 @@
  *   - anything else fails after the flag was written: a 5xx, so withPlatformAdmin rolls the suspension back and
  *     records an admin_request_failed row. It used to answer 400, which COMMITs: suspended, no audit row, and the
  *     admin told "Failed to suspend user".
- * 3.3 reset-2fa writes its `user.reset_2fa` row BEFORE GoTrue is touched (a failed audit write removes no factor),
- * and a factor GoTrue would not remove is reported: 424 and a `user.reset_2fa_incomplete` row, never 200.
+ * 3.3 reset-2fa commits a `user.reset_2fa_started` row on its own connection BEFORE GoTrue is touched (a failed
+ * write removes no factor; a later failure cannot erase it), then records the outcome in `user.reset_2fa`. A factor
+ * not confirmed removed is never a 200: a refusal is `incomplete`, a timeout or outage is `unknown` (GoTrue may
+ * have removed it), both 424.
  *
  * GoTrue is mocked at the module boundary (gotrue.adminRevokeAllUserSessions, gotrue-mfa); PATs are the injected
  * non-GoTrue failure. Tokens are aal2. Runs as platform_admin.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import suspendRoute from '../../pages/api/admin/users/[id]/suspend';
 import reset2faRoute from '../../pages/api/admin/users/[id]/reset-2fa';
@@ -26,7 +28,10 @@ const gotrue = vi.hoisted(() => ({
   revokeFails: false,
   patsFail: false,
   factors: [] as { id: string }[],
-  failFactor: null as string | null,
+  /** GoTrue answers 422: a definite refusal, the factor stays. */
+  refuseFactor: null as string | null,
+  /** GoTrue deletes the factor, then the answer is lost (the 5 s bound): the outcome is unknown to the route. */
+  timeoutFactor: null as string | null,
   unenrolled: [] as string[],
 }));
 vi.mock('@/lib/auth/gotrue', async (orig) => ({
@@ -45,12 +50,16 @@ vi.mock('@/lib/auth/personalAccessTokens', async (orig) => {
 });
 vi.mock('@/lib/auth/gotrue-mfa', async (orig) => {
   const actual = await orig<typeof import('@/lib/auth/gotrue-mfa')>();
+  const { AuthUpstreamUnavailableError } = await import('@/lib/auth/authUpstream');
   return {
     ...actual,
     adminListUserFactors: async () => gotrue.factors.map((f) => ({ ...f, factor_type: 'totp', status: 'verified' })),
     adminUnenrollFactor: async (_userId: string, factorId: string) => {
-      if (factorId === gotrue.failFactor) throw new actual.GotrueMfaError(500, 'wp9: unenrol refused', null);
+      if (factorId === gotrue.refuseFactor) throw new actual.GotrueMfaError(422, 'wp9: unenrol refused', null);
       gotrue.unenrolled.push(factorId);
+      if (factorId === gotrue.timeoutFactor) {
+        throw new AuthUpstreamUnavailableError('gotrue DELETE factor unavailable: TimeoutError: The operation was aborted due to timeout');
+      }
     },
   };
 });
@@ -87,7 +96,7 @@ beforeAll(async () => {
 }, 60000);
 
 beforeEach(async () => {
-  Object.assign(gotrue, { revokeFails: false, patsFail: false, factors: [], failFactor: null, unenrolled: [] });
+  Object.assign(gotrue, { revokeFails: false, patsFail: false, factors: [], refuseFactor: null, timeoutFactor: null, unenrolled: [] });
   await pool.query(`UPDATE users SET role = 'viewer', is_active = true, suspended_at = NULL, suspended_reason = NULL WHERE id = $1`, [target]);
   await pool.query('DELETE FROM admin_audit_log WHERE admin_user_id = $1', [admin]);
 });
@@ -133,48 +142,75 @@ describe('3.2: suspend is atomic with its audit row', () => {
   });
 });
 
+const block = (action: string) => pool.query(`ALTER TABLE admin_audit_log ADD CONSTRAINT wp9_block_reset_2fa_audit
+  CHECK (action <> '${action}' OR admin_user_id <> '${admin}') NOT VALID`);
+const unblock = () => pool.query(`ALTER TABLE admin_audit_log DROP CONSTRAINT IF EXISTS wp9_block_reset_2fa_audit`);
+
 describe('3.3: reset-2fa is audited and reports failure honestly', () => {
-  it('every factor removed: 200 and one user.reset_2fa row', async () => {
+  afterEach(async () => { await unblock(); });
+
+  it('every factor removed: 200, a committed started row, and a complete outcome row', async () => {
     gotrue.factors = [{ id: 'f1' }, { id: 'f2' }];
     const r = await reset2fa();
     expect(r.status).toBe(200);
     expect(r.body.data).toMatchObject({ factors_removed: 2 });
     expect(gotrue.unenrolled).toEqual(['f1', 'f2']);
-    expect(await audits('user.reset_2fa')).toEqual([expect.objectContaining({ factor_ids: ['f1', 'f2'] })]);
-    expect(await audits('user.reset_2fa_incomplete')).toEqual([]);
+    expect(await audits('user.reset_2fa_started')).toEqual([expect.objectContaining({ factor_ids: ['f1', 'f2'] })]);
+    expect(await audits('user.reset_2fa')).toEqual([
+      expect.objectContaining({ outcome: 'complete', removed_factor_ids: ['f1', 'f2'] }),
+    ]);
   });
 
-  it('GoTrue refuses one factor: 424 naming it, never 200, and the incomplete reset is audited', async () => {
+  it('GoTrue refuses one factor: 424 naming it, never 200, and the outcome row says incomplete', async () => {
     gotrue.factors = [{ id: 'f1' }, { id: 'f2' }];
-    gotrue.failFactor = 'f2';
+    gotrue.refuseFactor = 'f2';
     const r = await reset2fa();
     expect(r.status).toBe(424);
     expect(r.body.success).toBe(false);
     expect(r.body.error?.message).toMatch(/1 of 2/);
     expect(gotrue.unenrolled).toEqual(['f1']);
-    expect(await audits('user.reset_2fa')).toHaveLength(1);
-    expect(await audits('user.reset_2fa_incomplete')).toEqual([
-      expect.objectContaining({ factors_removed: 1, failed_factor_ids: ['f2'] }),
+    expect(await audits('user.reset_2fa')).toEqual([
+      expect.objectContaining({ outcome: 'incomplete', factors_removed: 1, failed_factor_ids: ['f2'] }),
     ]);
   });
 
-  it('the audit write fails: no factor is removed, and the answer is a failure', async () => {
-    gotrue.factors = [{ id: 'f1' }];
-    await pool.query(`ALTER TABLE admin_audit_log ADD CONSTRAINT wp9_block_reset_2fa_audit
-      CHECK (action <> 'user.reset_2fa' OR admin_user_id <> '${admin}') NOT VALID`);
-    try {
-      const r = await reset2fa();
-      expect(r.status).toBeGreaterThanOrEqual(500);
-      expect(gotrue.unenrolled).toEqual([]);
-    } finally {
-      await pool.query(`ALTER TABLE admin_audit_log DROP CONSTRAINT IF EXISTS wp9_block_reset_2fa_audit`);
-    }
+  it('R1 GoTrue removed the factor but the answer timed out: 424, recorded as unknown, never "not removed"', async () => {
+    gotrue.factors = [{ id: 'f1' }, { id: 'f2' }];
+    gotrue.timeoutFactor = 'f1';
+    const r = await reset2fa();
+    expect(r.status).toBe(424);
+    expect(r.body.error?.message).toMatch(/may or may not have been removed/);
+    expect(gotrue.unenrolled).toEqual(['f1']); // GoTrue did remove it; the loop stops at the outage
+    expect(await audits('user.reset_2fa_started')).toEqual([expect.objectContaining({ factor_ids: ['f1', 'f2'] })]);
+    expect(await audits('user.reset_2fa')).toEqual([expect.objectContaining({
+      outcome: 'unknown', unknown_factor_ids: ['f1'], not_attempted_factor_ids: ['f2'], failed_factor_ids: [],
+    })]);
   });
 
-  it('a super admin target: allowed, and the audit row says it was a super admin', async () => {
+  it('R2 the outcome row cannot be written after a factor went: the committed started row still records it', async () => {
+    gotrue.factors = [{ id: 'f1' }, { id: 'f2' }];
+    gotrue.refuseFactor = 'f2';
+    await block('user.reset_2fa');
+    const r = await reset2fa();
+    expect(r.status).toBeGreaterThanOrEqual(500);
+    expect(gotrue.unenrolled).toEqual(['f1']);
+    expect(await audits('user.reset_2fa_started')).toEqual([expect.objectContaining({ factor_ids: ['f1', 'f2'] })]);
+    expect(await audits('admin_request_failed')).toHaveLength(1);
+  });
+
+  it('the started row cannot be written: no factor is removed, and the answer is a failure', async () => {
+    gotrue.factors = [{ id: 'f1' }];
+    await block('user.reset_2fa_started');
+    const r = await reset2fa();
+    expect(r.status).toBeGreaterThanOrEqual(500);
+    expect(gotrue.unenrolled).toEqual([]);
+  });
+
+  it('a super admin target: allowed, and the audit rows say it was a super admin', async () => {
     await pool.query(`UPDATE users SET role = 'super_admin' WHERE id = $1`, [target]);
     gotrue.factors = [{ id: 'f1' }];
     expect((await reset2fa()).status).toBe(200);
+    expect(await audits('user.reset_2fa_started')).toEqual([expect.objectContaining({ target_super_admin: true })]);
     expect(await audits('user.reset_2fa')).toEqual([expect.objectContaining({ target_super_admin: true })]);
   });
 });
