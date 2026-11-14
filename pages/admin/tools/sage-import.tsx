@@ -12,36 +12,13 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useSageExtension } from '@/hooks/useSageExtension';
 import Link from 'next/link';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { SageCommitSummary, type SageCommitSummaryData } from '@/components/admin/SageCommitSummary';
+import type { SageCommitSummaryData } from '@/components/admin/SageCommitSummary';
+import { INITIAL_STEPS, SageCommitPanel, SagePulledSteps, type PullStep } from '@/components/admin/sage/SageImportSteps';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
-import {
-  ArrowLeft, Download, CheckCircle2, AlertCircle, Loader2,
-  Database, Users, Building2, FileText, ShieldCheck, Cable, KeyRound,
-} from 'lucide-react';
-import { formatDisplayTimeSeconds } from '@/utils/dateFormat';
+import { ArrowLeft, Download, CheckCircle2, AlertCircle, Loader2, Cable, KeyRound } from 'lucide-react';
 
 interface Company { id: string; name: string }
-
-type StepId = 'company' | 'accounts' | 'customers' | 'suppliers' | 'arInvoices' | 'apInvoices';
-type StepStatus = 'pending' | 'done';
-interface PullStep {
-  id: StepId;
-  label: string;
-  icon: typeof Database;
-  description: string;
-  status: StepStatus;
-  count?: number;
-}
-
-const INITIAL_STEPS: PullStep[] = [
-  { id: 'company',    label: 'Company Info',           icon: Building2, description: 'Name, tax number, registration',   status: 'pending' },
-  { id: 'accounts',   label: 'Chart of Accounts',      icon: Database,  description: 'All GL accounts with categories',  status: 'pending' },
-  { id: 'customers',  label: 'Customers',              icon: Users,     description: 'Customer contacts and balances',   status: 'pending' },
-  { id: 'suppliers',  label: 'Suppliers',              icon: Building2, description: 'Supplier contacts and balances',   status: 'pending' },
-  { id: 'arInvoices', label: 'Customer Invoices (AR)', icon: FileText,  description: 'Outstanding sales invoices',       status: 'pending' },
-  { id: 'apInvoices', label: 'Supplier Invoices (AP)', icon: FileText,  description: 'Outstanding purchase invoices',    status: 'pending' },
-];
 
 export default function AdminSageImportPage() {
   const adminHref = useAdminHref();
@@ -279,77 +256,9 @@ export default function AdminSageImportPage() {
           )}
         </div>
 
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-gray-900 dark:text-white">Step 2: Pulled Data</h2>
-            {pulledAt && (
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Pulled {formatDisplayTimeSeconds(pulledAt)}
-              </p>
-            )}
-          </div>
-          <div className="divide-y divide-gray-100 dark:divide-gray-700">
-            {steps.map(step => {
-              const Icon = step.icon;
-              return (
-                <div key={step.id} className="flex items-center gap-3 py-3">
-                  <div className="p-1.5 rounded bg-gray-100 dark:bg-gray-700">
-                    <Icon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">{step.label}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{step.description}</p>
-                  </div>
-                  <div className="shrink-0">
-                    {pulling && step.status === 'pending' ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-teal-500" />
-                    ) : step.status === 'done' ? (
-                      <span className="flex items-center gap-1 text-xs text-teal-500">
-                        <CheckCircle2 className="h-4 w-4" /> {step.count ?? 0}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-gray-500 dark:text-gray-400">Waiting</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <SagePulledSteps steps={steps} pulling={pulling} pulledAt={pulledAt} />
 
-        {anyPulled && (
-          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6 space-y-4">
-            <div className="flex items-center gap-3">
-              <ShieldCheck className="h-5 w-5 text-teal-500" />
-              <h2 className="font-semibold text-gray-900 dark:text-white">Step 3: Commit to IsaFlow</h2>
-            </div>
-            {!commitSummary && (
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Existing customers/suppliers are matched by name; duplicate invoice numbers are skipped; existing GL accounts are skipped on conflict (account_code).
-              </p>
-            )}
-
-            {commitSummary && <SageCommitSummary summary={commitSummary} />}
-
-            <div className="flex items-center gap-3 flex-wrap">
-              <button
-                onClick={() => void commit('namesAndCoa')}
-                disabled={committing || !anyPulled}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 text-gray-900 dark:text-white rounded-lg text-sm font-medium transition-colors"
-                title="Commit only Chart of Accounts, Customers and Suppliers — skip AR/AP invoices."
-              >
-                {committing ? <><Loader2 className="h-4 w-4 animate-spin" /> Committing…</> : 'Commit names + COA only'}
-              </button>
-              <button
-                onClick={() => void commit('all')}
-                disabled={committing || !anyPulled}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:bg-teal-800 disabled:text-teal-300 text-white rounded-lg text-sm font-medium transition-colors"
-              >
-                {committing ? <><Loader2 className="h-4 w-4 animate-spin" /> Committing…</> : commitSummary ? 'Commit again' : 'Commit everything'}
-              </button>
-            </div>
-          </div>
-        )}
+        {anyPulled && <SageCommitPanel summary={commitSummary} committing={committing} onCommit={(mode) => void commit(mode)} />}
       </div>
     </AdminLayout>
   );

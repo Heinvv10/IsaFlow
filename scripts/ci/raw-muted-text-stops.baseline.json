@@ -158,7 +158,7 @@
   "pages/admin/index.tsx": 5,
   "pages/admin/tools/index.tsx": 1,
   "pages/admin/tools/announcements.tsx": 3,
-  "pages/admin/tools/sage-import.tsx": 10,
+  "pages/admin/tools/sage-import.tsx": 5,
   "pages/admin/tools/migrations.tsx": 5,
   "pages/admin/web-analytics.tsx": 9,
   "pages/admin/trials.tsx": 8,
