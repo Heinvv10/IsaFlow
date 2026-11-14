@@ -149,7 +149,7 @@ export default function AdminSarsCodesPage() {
   };
 
   return (
-    <AdminLayout title="SARS Source Codes">
+    <AdminLayout title="SARS Source Codes" ownHeading>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-start justify-between gap-4 flex-wrap">

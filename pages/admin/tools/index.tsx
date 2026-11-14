@@ -61,7 +61,7 @@ export default function AdminToolsPage() {
   const adminHref = useAdminHref();
 
   return (
-    <AdminLayout title="Admin Tools">
+    <AdminLayout title="Admin Tools" ownHeading>
       <div className="max-w-4xl mx-auto space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Admin Tools</h1>

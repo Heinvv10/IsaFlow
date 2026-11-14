@@ -151,7 +151,7 @@ export default function JobQueuePage() {
   }, {});
 
   return (
-    <AdminLayout title="Background Jobs">
+    <AdminLayout title="Background Jobs" ownHeading>
       <div className="min-h-screen bg-white dark:bg-gray-900">
         {toastMsg && (
           <div className="fixed top-4 right-4 z-50 px-4 py-3 bg-brand-700 text-white text-sm rounded-xl shadow-lg">
