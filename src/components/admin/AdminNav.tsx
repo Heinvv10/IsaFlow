@@ -15,6 +15,7 @@ export function AdminNav() {
   const buildHref = useAdminHref();
   const items = resolveAdminNav(buildHref, router.asPath);
 
+  // Inactive items take the theme's ink tokens (audit 4.4: raw grey-300/400 was pale grey on the white light-theme sidebar).
   return (
     <aside className="w-56 flex-shrink-0 bg-white dark:bg-gray-900 border-r border-gray-300 dark:border-gray-700 flex flex-col min-h-full">
       <div className="px-4 py-4 border-b border-gray-300 dark:border-gray-700">
@@ -33,7 +34,7 @@ export function AdminNav() {
                     'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
                     item.active
                       ? 'bg-brand-600 text-white font-medium'
-                      : 'text-gray-300 hover:bg-gray-700/60 hover:text-white',
+                      : 'text-ink-muted hover:bg-[var(--ff-bg-tertiary)] hover:text-ink',
                   ].join(' ')}
                 >
                   <Icon className="w-4 h-4 flex-shrink-0" />
@@ -54,7 +55,7 @@ export function AdminNav() {
                             'flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors',
                             child.active
                               ? 'bg-teal-600/80 text-white font-medium'
-                              : 'text-gray-400 hover:bg-gray-700/50 hover:text-white',
+                              : 'text-ink-faint hover:bg-[var(--ff-bg-tertiary)] hover:text-ink',
                           ].join(' ')}
                         >
                           <ChildIcon className="w-3.5 h-3.5 flex-shrink-0" />
@@ -77,7 +78,7 @@ export function AdminNav() {
                 'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
                 item.active
                   ? 'bg-brand-600 text-white font-medium'
-                  : 'text-gray-300 hover:bg-gray-700/60 hover:text-white',
+                  : 'text-ink-muted hover:bg-[var(--ff-bg-tertiary)] hover:text-ink',
               ].join(' ')}
             >
               <Icon className="w-4 h-4 flex-shrink-0" />
