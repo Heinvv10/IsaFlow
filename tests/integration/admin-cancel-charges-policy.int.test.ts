@@ -178,9 +178,14 @@ describe('races and atomicity', () => {
       expect(ran.refundNeeded).toBe(1);
       expect(ran.submitted).toBe(1); // the other tenant's charge
       expect(callsFor(ids.company)).toHaveLength(1);
+      // Which of the two due charges the runner reached first is heap order, not ours to assume.
+      const debited = (callsFor(ids.company)[0] as [{ metadata: { subscription_charge_id: string } }])[0]
+        .metadata.subscription_charge_id;
+      expect((await chargeStatus(debited)).status).toBe('cancelled');
       expect((await chargeStatus(charges.queued)).status).toBe('cancelled');
+      expect((await chargeStatus(charges.failed)).status).toBe('cancelled');
       expect(warn.mock.calls.some((c) => String(c[0]).includes('voided mid-flight')
-        && (c[1] as { chargeId: string }).chargeId === charges.queued)).toBe(true);
+        && (c[1] as { chargeId: string }).chargeId === debited)).toBe(true);
       // No period granted for the debit that slipped through.
       const { rows } = await pool.query('SELECT current_period_end < now() AS stale FROM subscriptions WHERE id=$1', [ids.sub]);
       expect(rows[0].stale).toBe(true);
