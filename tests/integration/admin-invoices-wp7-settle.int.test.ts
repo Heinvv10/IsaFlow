@@ -111,6 +111,7 @@ describe('WP7 settle a send whose outcome is unknown', () => {
   it('an unclaimed invoice answers 409, a missing one 404, a bad outcome 400; none writes an audit row', async () => {
     const id = await fx.draft();
     fx.expectStatus(await settle(id, 'sent'), 409);
+    fx.expectStatus(await settle(id, 'released'), 409);
     expect((await fx.row(id)).status).toBe('draft');
     fx.expectStatus(await settle(crypto.randomUUID(), 'released'), 404);
     fx.expectStatus(await settle(id, 'maybe'), 400);
