@@ -19,6 +19,7 @@ import { checkLockout, recordFailure, clearLockout } from '@/lib/auth/accountLoc
 import { chargeRateLimit, refundRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
 import { requireActiveAccount } from '@/lib/auth/requireActiveAccount';
 import { pickInitialCompanyId } from '@/lib/auth/liveCompanies';
+import { recordSignInSafely } from '@/lib/auth/recordSignIn';
 import { log } from '@/lib/logger';
 
 const handler: NextApiHandler = async (req, res) => {
@@ -104,6 +105,7 @@ const handler: NextApiHandler = async (req, res) => {
     clearPendingMfaCookie(res);
     clearPendingRememberCookie(res);
     if (email) await clearLockout(email, ip);
+    await recordSignInSafely(userId, '2fa-challenge');
 
     return res.status(200).json({
       success: true,

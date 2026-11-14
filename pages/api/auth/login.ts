@@ -9,6 +9,7 @@ import { chargeRateLimit, refundRateLimit, getClientIp, withRateLimit } from '@/
 import { sql } from '@/lib/neon';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, type UserAccountRow } from '@/lib/auth/userAccountStatus';
 import { pickInitialCompanyId } from '@/lib/auth/liveCompanies';
+import { recordSignInSafely } from '@/lib/auth/recordSignIn';
 import { log } from '@/lib/logger';
 
 const handler: NextApiHandler = async (req, res) => {
@@ -134,6 +135,7 @@ const handler: NextApiHandler = async (req, res) => {
     setActiveCompanyCookie(res, activeCompanyId);
     setOnboardingDoneCookie(res);
   }
+  await recordSignInSafely(token.user.id, 'login');
 
   return res.status(200).json({
     success: true,
