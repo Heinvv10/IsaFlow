@@ -10,8 +10,10 @@ import {
   listJournalEntriesPage,
   type JournalListStatus,
 } from '@/modules/accounting/services/gl/journalEntryListService';
+import { JOURNAL_GROUP_BY, summariseJournals } from '@/modules/accounting/services/gl/journalSummaryService';
 import { InvalidCursorError } from '@/modules/accounting/services/bank/bankTxCursor';
 import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { SUMMARY_DETAIL_SCHEMA, groupBySchema, parseSummaryRequest, summaryBody } from './summaryMode';
 
 export const listJournalsTool: McpTool = {
   name: 'list_journals',
@@ -21,7 +23,8 @@ export const listJournalsTool: McpTool = {
     'status: draft = not yet posted; posted = in the ledger; reversed = posted entries that a contra has already been posted against. status=posted INCLUDES reversed entries (status never flips on reversal — reversed: true on the row is the only signal), so filter them out client-side or ask for status=reversed to see just those. ' +
     'account_id restricts to journals with at least one line on that account. ' +
     'include_lines=true adds each journal\'s lines (account code/name, debit, credit) — leave it off when scanning. ' +
-    'limit is capped at 100 (default 50). Paging: the reply carries next_cursor whenever more rows match; call again with cursor set and every other argument unchanged until next_cursor is null.',
+    'limit is capped at 100 (default 50). Paging: the reply carries next_cursor whenever more rows match; call again with cursor set and every other argument unchanged until next_cursor is null. ' +
+    'include_lines=true on 100 journals is unbounded (a payroll or bulk journal carries hundreds of lines) and can pass 90 KB: to size or total a window use detail="summary" (count of journals and total_debit over the WHOLE filter set, no rows) and group_by=source|month|status (groups sum to the totals; status is draft|posted|reversed, a reversed journal counts under reversed; at most 200 groups, the rest summed in other). A summary takes no cursor.',
   scope: 'read:reports',
   write: false,
   inputSchema: {
@@ -35,6 +38,8 @@ export const listJournalsTool: McpTool = {
       include_lines: { type: 'boolean' },
       limit: { type: 'integer', minimum: 1, maximum: 100 },
       cursor: { type: 'string', description: 'next_cursor from the previous page.' },
+      detail: SUMMARY_DETAIL_SCHEMA,
+      group_by: groupBySchema(JOURNAL_GROUP_BY),
     },
     additionalProperties: false,
   },
@@ -49,7 +54,19 @@ export const listJournalsTool: McpTool = {
     // account_id lands as $n::UUID and the dates as $n::DATE.
     const bad = guardCastableArgs(args, { uuid: ['account_id'], date: ['from_date', 'to_date'] });
     if (bad) return bad;
+    const wanted = parseSummaryRequest(args, JOURNAL_GROUP_BY);
+    if (!wanted.ok) return wanted.error;
     try {
+      if (wanted.summary) {
+        const summary = await summariseJournals(ctx.companyId, {
+          fromDate: strArg(args, 'from_date'),
+          toDate: strArg(args, 'to_date'),
+          status: rawStatus as JournalListStatus | undefined,
+          source: strArg(args, 'source'),
+          accountId: strArg(args, 'account_id'),
+        }, wanted.groupBy);
+        return ok(summaryBody(summary, wanted.groupBy));
+      }
       // Tenant from ctx ONLY. account_id narrows a query fenced to the company:
       // a foreign id matches nothing, so it needs no ownership check.
       const page = await listJournalEntriesPage(ctx.companyId, {

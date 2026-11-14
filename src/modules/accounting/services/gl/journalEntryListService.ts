@@ -145,6 +145,31 @@ async function fetchLines(companyId: string, entryIds: string[]): Promise<Map<st
   return byEntry;
 }
 
+/**
+ * The list's predicate WITHOUT the keyset: tenant, date window, status, source and the has-a-line-on-account test. The
+ * page query adds its cursor after it; the MCP summary (journalSummaryService) splices this alone, so it counts every
+ * journal the walk would serve. `status = reversed` is `reversed_at IS NOT NULL`: a reversal never flips status.
+ */
+export function journalListWhere(companyId: string, filters: JournalListFilters) {
+  const fromDate = filters.fromDate ?? null;
+  const toDate = filters.toDate ?? null;
+  const status = filters.status ?? null;
+  const source = filters.source ?? null;
+  const accountId = filters.accountId ?? null;
+  return sql`je.company_id = ${companyId}::UUID
+      AND (${fromDate}::DATE IS NULL OR je.entry_date >= ${fromDate}::DATE)
+      AND (${toDate}::DATE IS NULL OR je.entry_date <= ${toDate}::DATE)
+      AND (${status}::TEXT IS NULL
+           OR (${status}::TEXT = 'reversed' AND je.reversed_at IS NOT NULL)
+           OR (${status}::TEXT <> 'reversed' AND je.status = ${status}::TEXT))
+      AND (${source}::TEXT IS NULL OR je.source = ${source}::TEXT)
+      AND (${accountId}::UUID IS NULL OR EXISTS (
+            SELECT 1 FROM gl_journal_lines x
+            WHERE x.journal_entry_id = je.id
+              AND x.company_id = ${companyId}::UUID
+              AND x.gl_account_id = ${accountId}::UUID))`;
+}
+
 export async function listJournalEntriesPage(
   companyId: string,
   filters: JournalListFilters = {},
@@ -154,11 +179,6 @@ export async function listJournalEntriesPage(
     ? Math.min(Math.floor(raw), MAX_LIMIT)
     : 50;
   const cursor = filters.cursor ? decodeJournalCursor(filters.cursor) : null;
-  const fromDate = filters.fromDate ?? null;
-  const toDate = filters.toDate ?? null;
-  const status = filters.status ?? null;
-  const source = filters.source ?? null;
-  const accountId = filters.accountId ?? null;
   const cd = cursor?.d ?? null;
   const cc = cursor?.c ?? null;
   const cid = cursor?.id ?? null;
@@ -171,18 +191,7 @@ export async function listJournalEntriesPage(
     FROM gl_journal_entries je
     LEFT JOIN gl_journal_lines jl
       ON jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID
-    WHERE je.company_id = ${companyId}::UUID
-      AND (${fromDate}::DATE IS NULL OR je.entry_date >= ${fromDate}::DATE)
-      AND (${toDate}::DATE IS NULL OR je.entry_date <= ${toDate}::DATE)
-      AND (${status}::TEXT IS NULL
-           OR (${status}::TEXT = 'reversed' AND je.reversed_at IS NOT NULL)
-           OR (${status}::TEXT <> 'reversed' AND je.status = ${status}::TEXT))
-      AND (${source}::TEXT IS NULL OR je.source = ${source}::TEXT)
-      AND (${accountId}::UUID IS NULL OR EXISTS (
-            SELECT 1 FROM gl_journal_lines x
-            WHERE x.journal_entry_id = je.id
-              AND x.company_id = ${companyId}::UUID
-              AND x.gl_account_id = ${accountId}::UUID))
+    WHERE ${journalListWhere(companyId, filters)}
       AND (${cid}::UUID IS NULL
            OR (je.entry_date, je.created_at, je.id)
               < (${cd}::DATE, ${cc}::TIMESTAMPTZ, ${cid}::UUID))
