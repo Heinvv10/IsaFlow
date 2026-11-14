@@ -55,11 +55,11 @@ describe('AnnouncementBanner', () => {
     expect((window as unknown as { __pwned?: number }).__pwned).toBeUndefined();
   });
 
-  it('dismissing hides it at once and sends the id to the dismiss route', async () => {
+  it('dismissing sends the id to the dismiss route and then hides it', async () => {
     render(<AnnouncementBanner />);
     fireEvent.click(await screen.findByRole('button', { name: /dismiss announcement: maintenance/i }));
-    expect(screen.queryByText('Maintenance')).toBeNull();
-    await waitFor(() => expect(calls('/api/announcements/dismiss')).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByText('Maintenance')).toBeNull());
+    expect(calls('/api/announcements/dismiss')).toHaveLength(1);
     const [, init] = calls('/api/announcements/dismiss')[0]!;
     expect((init as RequestInit).method).toBe('POST');
     expect(JSON.parse(String((init as RequestInit).body))).toEqual({ id: ann().id });
@@ -68,10 +68,21 @@ describe('AnnouncementBanner', () => {
   it('stays dismissed on the next page (a fresh mount) without asking the server again', async () => {
     const first = render(<AnnouncementBanner />);
     fireEvent.click(await screen.findByRole('button', { name: /dismiss announcement/i }));
+    await waitFor(() => expect(screen.queryByText('Maintenance')).toBeNull());
     first.unmount();
     render(<AnnouncementBanner />);
     expect(screen.queryByText('Maintenance')).toBeNull();
     expect(calls('/api/announcements/active')).toHaveLength(1);
+  });
+
+  it('if the server cannot keep the dismissal the bar stays and says why (the person is told)', async () => {
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => String(url) === '/api/announcements/active'
+      ? envelope([ann()])
+      : new Response(JSON.stringify({ success: false, error: { message: 'This action cannot be taken while impersonating another user.' } }), { status: 403 }));
+    render(<AnnouncementBanner />);
+    fireEvent.click(await screen.findByRole('button', { name: /dismiss announcement/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/while impersonating/i);
+    expect(screen.getByText('Maintenance')).toBeInTheDocument();
   });
 
   it('a not-dismissible announcement has no close button', async () => {

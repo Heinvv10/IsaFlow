@@ -3,6 +3,7 @@
 // The platform's announcements (maintenance windows, new features, warnings) as bars at the top of the tenant app.
 // Plain text only: title and message are React text children, never HTML. A dismissible one has a close button
 // that is remembered per user on the server, so it stays closed on every device; a not-dismissible one has none.
+// If the server cannot keep a dismissal the bar stays and says why.
 //
 // AppLayout mounts afresh on every client-side navigation, so the last answer is kept for a few minutes per user
 // and company: a second page shows the bars in its first frame instead of pushing the content down when a fetch
@@ -60,17 +61,21 @@ export function AnnouncementBanner() {
     return () => { cancelled = true; };
   }, [key]);
 
-  const dismiss = useCallback((id: string) => {
-    // Gone at once; if the server cannot keep it (offline, a Login-as session), it simply returns on the next load.
-    setItems((list) => list.filter((a) => a.id !== id));
-    if (cache) cache = { ...cache, items: cache.items.filter((a) => a.id !== id) };
-    apiJson('/api/announcements/dismiss', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    }, 'Could not remember that you dismissed this announcement').catch((err: unknown) => {
-      log.warn('Could not save an announcement dismissal', { message: apiErrorMessage(err, 'unknown') }, 'announcement-banner');
-    });
+  const [failed, setFailed] = useState<Record<string, string>>({});
+  const dismiss = useCallback(async (id: string) => {
+    setFailed((f) => ({ ...f, [id]: '' }));
+    try {
+      await apiJson('/api/announcements/dismiss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      }, 'Could not dismiss this announcement - try again');
+      setItems((list) => list.filter((a) => a.id !== id));
+      if (cache) cache = { ...cache, items: cache.items.filter((a) => a.id !== id) };
+    } catch (err) {
+      // Kept on screen, with the reason: a Login-as session is refused, and a dropped connection can be retried.
+      setFailed((f) => ({ ...f, [id]: apiErrorMessage(err, 'Could not dismiss this announcement - try again') }));
+    }
   }, []);
 
   if (items.length === 0) return null;
@@ -85,8 +90,9 @@ export function AnnouncementBanner() {
             {' '}
             <span>{a.message}</span>
           </p>
+          {failed[a.id] && <span role="alert" className="shrink-0 text-xs font-medium">{failed[a.id]}</span>}
           {a.is_dismissible && (
-            <button type="button" onClick={() => dismiss(a.id)} aria-label={`Dismiss announcement: ${a.title}`}
+            <button type="button" onClick={() => { void dismiss(a.id); }} aria-label={`Dismiss announcement: ${a.title}`}
               className="shrink-0 rounded p-0.5 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-current">
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
