@@ -90,11 +90,14 @@ export function DeliveryLog({ webhookId }: Props) {
         credentials: 'include',
         body: JSON.stringify({}),
       });
-      await assertOk(res, 'Could not queue the redelivery - try again');
+      await assertOk(res, 'Could not redeliver - try again');
+      // The server sends it now and says whether the endpoint accepted it.
+      const json = await res.json() as { data?: { delivered?: boolean }; message?: string };
+      const outcome = json.message ?? (json.data?.delivered ? 'Redelivered' : 'Redelivery failed');
       const problem = await fetchDetail();
-      showToast(problem ? `Delivery queued for retry, but the list could not be refreshed: ${problem}` : 'Delivery queued for retry');
+      showToast(problem ? `${outcome}, but the list could not be refreshed: ${problem}` : outcome);
     } catch (err) {
-      showToast(apiErrorMessage(err, 'Could not queue the redelivery - try again'));
+      showToast(apiErrorMessage(err, 'Could not redeliver - try again'));
     } finally {
       setRedelivering(false);
     }

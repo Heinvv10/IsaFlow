@@ -6,6 +6,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { deliverToEndpoint } from '@/modules/accounting/services/core/webhookService';
 
 type Row = DbRow;
 
@@ -238,42 +239,37 @@ export async function deleteAdminWebhook(id: string): Promise<void> {
   log.info('Admin: deleted webhook', { id }, 'admin-webhook-service');
 }
 
+/**
+ * Re-send a delivery of THIS webhook (the last failed one when no id is given)
+ * through the tenant sender (deliverToEndpoint: signed, safeFetch, recorded,
+ * stamped). The delivery is looked up within the webhook, so another webhook's
+ * payload can never be sent or copied here. A disabled endpoint is refused.
+ */
 export async function redeliverWebhook(
   webhookId: string,
   deliveryId?: string,
-): Promise<{ queued: boolean; deliveryId: string }> {
-  let targetDeliveryId = deliveryId;
+): Promise<{ delivered: boolean; responseStatus: number | null; deliveryId: string }> {
+  const endpoints = (await sql`SELECT * FROM webhook_endpoints WHERE id = ${webhookId}::UUID`) as Row[];
+  const endpoint = endpoints[0];
+  if (!endpoint) throw new Error('Webhook not found');
+  if (!endpoint.is_active) throw new Error('This webhook is disabled. Enable it before redelivering.');
 
-  if (!targetDeliveryId) {
-    const rows = (await sql`
-      SELECT id FROM webhook_deliveries
-      WHERE webhook_id = ${webhookId}::UUID AND success = false
-      ORDER BY delivered_at DESC
-      LIMIT 1
-    `) as Row[];
-    if (!rows[0]) throw new Error('No failed delivery found to redeliver');
-    targetDeliveryId = String(rows[0].id);
-  }
+  const srcRows = (deliveryId
+    ? await sql`
+        SELECT id, event, payload FROM webhook_deliveries
+        WHERE id = ${deliveryId}::UUID AND webhook_id = ${webhookId}::UUID`
+    : await sql`
+        SELECT id, event, payload FROM webhook_deliveries
+        WHERE webhook_id = ${webhookId}::UUID AND success = false
+        ORDER BY delivered_at DESC LIMIT 1`) as Row[];
+  const src = srcRows[0];
+  if (!src) throw new Error(deliveryId ? 'Delivery not found for this webhook' : 'No failed delivery found to redeliver');
 
-  // Mark delivery as pending redeliver by inserting a clone with success=false
-  const srcRows = (await sql`
-    SELECT * FROM webhook_deliveries WHERE id = ${targetDeliveryId}::UUID
-  `) as Row[];
-  if (!srcRows[0]) throw new Error('Delivery not found');
-
-  const src = srcRows[0]!;
-  const payloadJson = typeof src.payload === 'string'
-    ? src.payload
-    : JSON.stringify(src.payload);
-
-  const newRows = (await sql`
-    INSERT INTO webhook_deliveries (webhook_id, event, payload, success)
-    VALUES (${webhookId}::UUID, ${String(src.event)}, ${payloadJson}::JSONB, false)
-    RETURNING id
-  `) as Row[];
-
-  const newId = String(newRows[0]!.id);
-  log.info('Admin: queued webhook redeliver', { webhookId, originalDeliveryId: targetDeliveryId, newDeliveryId: newId }, 'admin-webhook-service');
-
-  return { queued: true, deliveryId: newId };
+  const payload = (typeof src.payload === 'string' ? JSON.parse(src.payload) : src.payload) as Record<string, unknown>;
+  const result = await deliverToEndpoint(String(endpoint.company_id), endpoint, String(src.event), payload);
+  log.info('Admin: redelivered webhook', {
+    webhookId, originalDeliveryId: String(src.id), newDeliveryId: result.deliveryId,
+    delivered: result.success, responseStatus: result.responseStatus,
+  }, 'admin-webhook-service');
+  return { delivered: result.success, responseStatus: result.responseStatus, deliveryId: result.deliveryId };
 }

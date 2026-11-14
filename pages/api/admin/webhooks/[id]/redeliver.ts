@@ -1,7 +1,8 @@
 /**
  * Admin Webhook Redeliver API
  * POST /api/admin/webhooks/[id]/redeliver
- * Body: { deliveryId?: string } — omit to retry last failed delivery
+ * Body: { deliveryId?: string } — omit to re-send this webhook's last failed delivery.
+ * Sends now (adminWebhookService.redeliverWebhook); `data.delivered` says whether the endpoint accepted it.
  */
 
 import type { NextApiResponse } from 'next';
@@ -34,22 +35,28 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const { deliveryId } = bodyParsed.data;
 
+  let result: Awaited<ReturnType<typeof redeliverWebhook>>;
   try {
-    const result = await redeliverWebhook(webhookId, deliveryId);
-    await logAdminAction(
-      req.user.id,
-      'webhook.redeliver',
-      'webhook',
-      webhookId,
-      { deliveryId: deliveryId ?? 'last_failed', newDeliveryId: result.deliveryId },
-      getClientIp(req),
-    );
-    log.info('Admin: queued webhook redeliver', { webhookId, deliveryId }, 'admin-webhooks-redeliver-api');
-    return apiResponse.success(res, result, 'Delivery queued for retry');
+    result = await redeliverWebhook(webhookId, deliveryId);
   } catch (err) {
     log.error('Admin: redeliver webhook failed', { webhookId, deliveryId, error: err }, 'admin-webhooks-redeliver-api');
     return apiResponse.badRequestFromError(res, err, 'Redeliver failed');
   }
+  // Outside the catch: a failed audit write is a 500 that rolls the delivery row back, not a committed 4xx.
+  await logAdminAction(
+    req.user.id,
+    'webhook.redeliver',
+    'webhook',
+    webhookId,
+    {
+      deliveryId: deliveryId ?? 'last_failed', newDeliveryId: result.deliveryId,
+      delivered: result.delivered, responseStatus: result.responseStatus,
+    },
+    getClientIp(req),
+  );
+  const answer = result.responseStatus === null ? 'no answer' : `HTTP ${result.responseStatus}`;
+  return apiResponse.success(res, result,
+    result.delivered ? `Redelivered (${answer})` : `Redelivery failed: the endpoint gave ${answer}`);
 }
 
 export default withAdmin(handler);
