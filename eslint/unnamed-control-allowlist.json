@@ -72,7 +72,7 @@
   "pages/accounting/vat-adjustments/index.tsx": 1,
   "pages/accounting/write-offs/index.tsx": 2,
   "pages/admin/audit.tsx": 4,
-  "pages/admin/billing/invoices.tsx": 2,
+  "pages/admin/billing/invoices.tsx": 1,
   "pages/admin/billing/payg.tsx": 1,
   "pages/admin/billing/subscriptions.tsx": 1,
   "pages/admin/companies/index.tsx": 1,

@@ -154,6 +154,17 @@ export const ALLOWED: Record<string, AllowedEntry> = {
   },
 
   // ── NO CLAIM DECIDED ──────────────────────────────────────────────────────
+  'src/lib/vat/standardRate.ts': {
+    kinds: ['rate_constant'],
+    reason: 'No claim decided: the file is the statutory 15% and nothing else. It reads no document, picks no '
+    + 'account and posts nothing; each importer is judged on its own entry here (bankVatInclusive, invoiceAmounts).',
+  },
+  'src/modules/admin/services/invoiceAmounts.ts': {
+    kinds: ['rate_constant'],
+    reason: 'No claim decided: the 15% is output VAT on the PLATFORM\'s own billing invoice to a tenant '
+    + '(admin_invoices, admin audit 2026-11-14 item 2.10). It posts to no tenant ledger, picks no account and '
+    + 'writes no journal; admin_invoices is not a GL table.',
+  },
   'src/modules/accounting/services/ar/quoteLineTax.ts': {
     kinds: ['rate_constant'],
     reason: 'No claim decided: STANDARD_VAT_RATE is the rate a customer QUOTE line takes when the caller sends none '

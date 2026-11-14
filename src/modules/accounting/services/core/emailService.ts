@@ -5,10 +5,12 @@
  */
 
 import * as fs from 'node:fs';
+import * as net from 'node:net';
 import * as path from 'node:path';
 import { log } from '@/lib/logger';
-import { markQuotaUsed, markSendUsedUnlessNotSent } from '@/lib/quotaUse';
+import { markQuotaUsed, markSendUsedUnlessNotSent, smtpErrorProvesNotSent } from '@/lib/quotaUse';
 import { sql, withSavepoint } from '@/lib/neon';
+import { withSendDeadline } from './smtpDeadline';
 
 // Resolve the logo once at module load — path works in both dev and production standalone
 const LOGO_PATH = (() => {
@@ -85,12 +87,21 @@ export interface EmailOptions {
   attachments?: EmailAttachment[];
   /** Optional metadata used to write an email_log row. */
   _log?: { companyId: string | null; emailType: EmailType; sentBy?: string | null };
+  /**
+   * Bounds on the SMTP conversation, in ms, for a caller that must not wait on a hung mail server
+   * (nodemailer's own defaults are 2 min to connect and 10 min of socket inactivity). Omitted: those defaults.
+   */
+  smtpTimeoutsMs?: { connection: number; greeting: number; socket: number };
+  /** Hard ceiling on the whole send, ms (smtpDeadline.ts): past it the transport is closed; the outcome is unknown. */
+  deadlineMs?: number;
 }
 
 export interface EmailResult {
   success: boolean;
   messageId?: string;
   error?: string;
+  /** On a failure: true when the message provably did not leave (no SMTP config, or a refusal); false = it may have. */
+  provablyNotSent?: boolean;
 }
 
 // ─── SMTP Configuration ────────────────────────────────────────────────────
@@ -151,12 +162,15 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
         sentBy: options._log.sentBy ?? null,
       });
     }
-    return { success: false, error: 'SMTP not configured' };
+    return { success: false, error: 'SMTP not configured', provablyNotSent: true };
   }
 
   try {
     // Dynamic import to avoid loading nodemailer when not needed
     const nodemailer = await import('nodemailer');
+    // With a deadline, nodemailer connects a socket WE hold: transporter.close() does not stop a non-pooled send in
+    // flight, destroying its socket does (smtpDeadline.ts).
+    const deadlineSocket = options.deadlineMs ? new net.Socket() : null;
 
     const transporter = nodemailer.createTransport({
       host: config.host,
@@ -168,6 +182,12 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
       // the name it verifies against. Without this nodemailer rejects the cert
       // and every send fails.
       ...(config.tlsServername ? { tls: { servername: config.tlsServername } } : {}),
+      ...(options.smtpTimeoutsMs ? {
+        connectionTimeout: options.smtpTimeoutsMs.connection,
+        greetingTimeout: options.smtpTimeoutsMs.greeting,
+        socketTimeout: options.smtpTimeoutsMs.socket,
+      } : {}),
+      ...(deadlineSocket ? { socket: deadlineSocket } : {}),
       auth: {
         user: config.user,
         pass: config.pass,
@@ -196,7 +216,10 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
       ],
     };
 
-    const info = await transporter.sendMail(mailOptions);
+    const sending = transporter.sendMail(mailOptions);
+    const info = options.deadlineMs
+      ? await withSendDeadline(sending, options.deadlineMs, () => { deadlineSocket?.destroy(); transporter.close(); })
+      : await sending;
     // The mail server accepted it: one unit of the request's daily send quota is spent (R-175).
     markQuotaUsed('send');
 
@@ -239,7 +262,7 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
       });
     }
 
-    return { success: false, error: message };
+    return { success: false, error: message, provablyNotSent: smtpErrorProvesNotSent(err) };
   }
 }
 

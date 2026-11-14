@@ -51,6 +51,7 @@ describe('admin billing actions complete on a success envelope', () => {
     // click, so the count below is the post-send reload alone rather than a race with the debounce on a slow runner.
     await waitFor(() => expect(calls('/api/admin/billing/invoices', 'GET')).toBe(2), { timeout: 5000 });
     fireEvent.click(send);
+    fireEvent.click(await screen.findByRole('button', { name: /^send invoice$/i })); // WP7: Send asks first
     await waitFor(() => expect(calls('/api/admin/billing/invoices/inv-1/send', 'POST')).toBe(1));
     await waitFor(() => expect(calls('/api/admin/billing/invoices', 'GET')).toBe(3));
     expect(screen.queryByText(/failed/i)).toBeNull();
@@ -68,7 +69,6 @@ describe('admin billing actions complete on a success envelope', () => {
     const inputs = container.querySelectorAll('[role="dialog"] input');
     fireEvent.change(inputs[0]!, { target: { value: 'c9' } });
     fireEvent.change(inputs[1]!, { target: { value: '100' } });
-    fireEvent.change(inputs[3]!, { target: { value: '115' } });
     fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
     expect(await screen.findByText('INV-NEW-8841')).toBeTruthy();
     expect(container.querySelector('[role="dialog"]')).toBeNull();
