@@ -111,6 +111,44 @@ describe('admin alert settings', () => {
     expect(await stored('health_alert_webhook_url')).toBeUndefined();
   }, 30000);
 
+  it('editing only the email accepts a stored legacy http:// webhook sent back unchanged', async () => {
+    await pool.query(`INSERT INTO admin_settings (key, value) VALUES ('health_alert_webhook_url', '"http://legacy.example.com/hook"'::jsonb)
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
+    const r = await call(alertRoute as Route, 'PATCH', { health_alert_email: 'ops2@example.co.za', health_alert_webhook_url: 'http://legacy.example.com/hook' });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(await stored('health_alert_webhook_url')).toBe('http://legacy.example.com/hook');
+    const changed = await call(alertRoute as Route, 'PATCH', { health_alert_webhook_url: 'http://other.example.com/hook' });
+    expect(changed.status).toBe(400);
+  }, 30000);
+
+  it.each([
+    'https://localhost/x', 'https://app.localhost/x', 'https://127.0.0.1/x', 'https://127.1.2.3:8443/x', 'https://10.0.0.5/x',
+    'https://172.16.0.1/x', 'https://172.31.255.254/x', 'https://192.168.1.10/x', 'https://169.254.169.254/latest', 'https://0.0.0.0/x',
+    'https://[::1]/x', 'https://[fd00::1]/x', 'https://[fc12::1]/x', 'https://[fe80::1]/x', 'https://[::ffff:127.0.0.1]/x', 'https://2130706433/x',
+  ])('webhook %s (loopback / private / link-local literal) is refused', async (url) => {
+    await pool.query(`DELETE FROM admin_settings WHERE key = 'health_alert_webhook_url'`);
+    const r = await call(alertRoute as Route, 'PATCH', { health_alert_webhook_url: url });
+    expect(r.status).toBe(400);
+    expect(r.body.error?.message).toMatch(/public/i);
+    expect(await stored('health_alert_webhook_url')).toBeUndefined();
+  }, 30000);
+
+  it.each(['https://172.15.0.1/x', 'https://172.32.0.1/x', 'https://hooks.example.com/x', 'https://8.8.8.8/x'])('webhook %s is allowed', async (url) => {
+    const r = await call(alertRoute as Route, 'PATCH', { health_alert_webhook_url: url });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+  }, 30000);
+
+  it('concurrent PATCHes serialise: exactly one reports the change, the other unchanged', async () => {
+    await pool.query(`DELETE FROM admin_settings WHERE key = 'health_alert_email'`);
+    await pool.query('DELETE FROM admin_audit_log WHERE admin_user_id = $1', [admin]);
+    const rs = await Promise.all([1, 2, 3, 4].map(() => call(alertRoute as Route, 'PATCH', { health_alert_email: 'same@example.co.za' })));
+    expect(rs.map((r) => r.status)).toEqual([200, 200, 200, 200]);
+    const rows = (await pool.query(`SELECT details FROM admin_audit_log WHERE admin_user_id = $1`, [admin])).rows
+      .map((r) => (r.details as { changes: Record<string, string> }).changes.health_alert_email);
+    expect(rows.filter((c) => c === 'set')).toHaveLength(1);
+    expect(rows.filter((c) => c === 'unchanged')).toHaveLength(3);
+  }, 30000);
+
   it('an invalid non-blank email is still rejected and the stored value is untouched', async () => {
     await call(alertRoute as Route, 'PATCH', { health_alert_email: 'keep@example.co.za' });
     const r = await call(alertRoute as Route, 'PATCH', { health_alert_email: 'not-an-email' });
