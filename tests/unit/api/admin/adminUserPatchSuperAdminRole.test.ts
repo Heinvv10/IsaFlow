@@ -37,7 +37,7 @@ async function patch(body: unknown) {
     getHeader() { return undefined; },
   } as unknown as NextApiResponse;
   await (handler as unknown as (q: NextApiRequest, s: NextApiResponse) => Promise<unknown>)({
-    method: 'PATCH', query: { id: 'user-1' }, body, headers: {}, user: { id: 'admin-1' },
+    method: 'PATCH', query: { id: 'user-1' }, body, headers: {}, user: { id: 'admin-1' }, socket: { remoteAddress: '127.0.0.1' },
   } as unknown as NextApiRequest, res);
   return state.status;
 }
