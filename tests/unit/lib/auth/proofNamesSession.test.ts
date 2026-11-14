@@ -4,10 +4,19 @@
  * nothing else; validateImpersonationProof (the authorisation) still refuses it once it is an hour old.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHmac } from 'node:crypto';
+import { SignJWT } from 'jose';
 import { mintImpersonationProof, proofNamesSession, validateImpersonationProof } from '@/lib/auth/impersonationAssurance';
 
 const SIGNING_KEY = 'proof-synthetic-'.repeat(4); // HS256 test key, not a credential
 const target = { sub: 'target-1', session_id: 'session-1' };
+/** A proof-shaped JWT under the SAME derived key as impersonationAssurance (its purpose string), with chosen iss/aud. */
+const forge = (iss: string, aud: string) => {
+  const derived = createHmac('sha256', SIGNING_KEY).update('isaflow:impersonation-assurance:v1').digest();
+  return new SignJWT({ version: 1, actorUserId: 'admin-1', targetUserId: 'target-1', targetSessionId: 'session-1' })
+    .setProtectedHeader({ alg: 'HS256' }).setIssuer(iss).setAudience(aud).setIssuedAt().setExpirationTime('1h')
+    .sign(derived);
+};
 const mint = () => {
   const now = Math.floor(Date.now() / 1000);
   return mintImpersonationProof({ actorUserId: 'admin-1', targetUserId: 'target-1', targetSessionId: 'session-1',
@@ -24,6 +33,12 @@ describe('proofNamesSession', () => {
     vi.useFakeTimers({ now: Date.now() + 3 * 3600 * 1000 });
     expect(await validateImpersonationProof(proof, target)).toBe(false);
     expect(await proofNamesSession(proof, target)).toBe(true);
+  });
+
+  it('a token under the same key with another issuer or audience names nothing', async () => {
+    expect(await proofNamesSession(await forge('isaflow', 'isaflow-impersonation'), target)).toBe(true); // control
+    expect(await proofNamesSession(await forge('someone-else', 'isaflow-impersonation'), target)).toBe(false);
+    expect(await proofNamesSession(await forge('isaflow', 'some-other-audience'), target)).toBe(false);
   });
 
   it('names no other session, no other target, and nothing for junk or another key', async () => {

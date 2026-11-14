@@ -16,7 +16,7 @@ export class SessionLookupBoundError extends Error {
 }
 
 /**
- * Runs one read-only statement on `pool`. Waits at most BOUNDED_CHECKOUT_MS for a connection (a pool's own connect
+ * Runs one read-only statement on `pool`, in a READ ONLY transaction (a write is refused by the server). Waits at most BOUNDED_CHECKOUT_MS for a connection (a pool's own connect
  * timeout is 15 s; a checkout that arrives late is released at once) and runs the statement under a
  * transaction-local statement_timeout of BOUNDED_STATEMENT_MS (the client-side query_timeout is longer, so the
  * server cancels first). Throws SessionLookupBoundError or the query's error; a connection whose ROLLBACK failed is
@@ -36,7 +36,7 @@ export async function boundedPoolRead<R extends pg.QueryResultRow>(
   }
   let unusable = false;
   try {
-    await client.query('BEGIN');
+    await client.query('BEGIN READ ONLY'); // the helper can never commit a write, whatever text a caller passes
     await client.query(`SET LOCAL statement_timeout = ${BOUNDED_STATEMENT_MS}`);
     const { rows } = await client.query<R>({ text, values, query_timeout: BOUNDED_STATEMENT_MS + 1000 });
     await client.query('COMMIT');

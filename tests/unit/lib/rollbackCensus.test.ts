@@ -60,7 +60,7 @@ const PINNED: Record<string, { rollbacks: number; unreadable: number; reason: st
   'src/lib/neon/sql.ts': { rollbacks: 0, unreadable: 3, reason: PASSES_TEXT_ON },
   'src/lib/auth/boundedPoolRead.ts': {
     rollbacks: 0, unreadable: 1,
-    reason: `boundedPoolRead: ${PASSES_TEXT_ON} (one fixed read-only SELECT of each caller: the Login-as session record and the stash row, #1371); it rolls back with rollbackFailed`,
+    reason: `boundedPoolRead: ${PASSES_TEXT_ON} (one fixed SELECT of each caller: the Login-as session record and the stash row, #1371), inside BEGIN READ ONLY; it rolls back with rollbackFailed`,
   },
   'src/lib/auth/routeAdminPool.ts': {
     rollbacks: 0, unreadable: 1,
