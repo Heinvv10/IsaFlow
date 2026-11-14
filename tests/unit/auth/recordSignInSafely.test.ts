@@ -34,6 +34,7 @@ describe('recordSignInSafely', () => {
     const { calls, release } = clientAnswering(() => ({ rowCount: 1 }));
     await recordSignInSafely('user-1', 'login');
     expect(calls.map((c) => c.split(/\s/)[0])).toEqual(['BEGIN', 'SET', 'WITH', 'COMMIT']);
+    // The literal in recordSignIn.ts and the exported constant must stay one number.
     expect(calls[1]).toBe(`SET LOCAL statement_timeout = ${SIGN_IN_STAMP_TIMEOUT_MS}`);
     expect(release).toHaveBeenCalledWith(false);
     expect(warn).not.toHaveBeenCalled();

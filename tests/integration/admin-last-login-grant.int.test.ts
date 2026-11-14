@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { afterAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { SIGN_IN_STAMP_SQL, SIGN_IN_THROTTLE_MINUTES } from '@/lib/auth/recordSignIn';
+import { stampSignIn } from '@/lib/auth/recordSignIn';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
@@ -37,7 +37,7 @@ describe('migration 990 and migration_admin', () => {
   it('without it, a SELECT-only migration_admin cannot stamp (the premise)', async () => {
     const error = await asProduction(async (q) => {
       await q('SET LOCAL ROLE migration_admin');
-      return q(SIGN_IN_STAMP_SQL, [user, SIGN_IN_THROTTLE_MINUTES]).then(() => null, (e: Error) => e.message);
+      return stampSignIn({ query: q }, user).then(() => null, (e: Error) => e.message);
     });
     expect(error).toMatch(/permission denied for table users/);
   });
@@ -49,13 +49,13 @@ describe('migration 990 and migration_admin', () => {
         `SELECT has_column_privilege('migration_admin', 'public.users', $1, 'UPDATE') AS ok`, [col])).rows[0]!.ok;
       const granted = { last_login: await priv('last_login'), login_count: await priv('login_count'), email: await priv('email'), role: await priv('role') };
       await q('SET LOCAL ROLE migration_admin');
-      const stamped = await q(SIGN_IN_STAMP_SQL, [user, SIGN_IN_THROTTLE_MINUTES]);
+      const stamped = await stampSignIn({ query: q }, user);
       await q('RESET ROLE');
       const row = (await q('SELECT last_login, login_count FROM users WHERE id = $1', [user])).rows[0]!;
-      return { granted, rowCount: stamped.rowCount, count: row.login_count, last: row.last_login };
+      return { granted, rowCount: stamped, count: row.login_count, last: row.last_login };
     });
     expect(out.granted).toEqual({ last_login: true, login_count: true, email: false, role: false });
-    expect(out.rowCount).toBe(1);
+    expect(out.rowCount).toBe(true);
     expect(out.count).toBe(1);
     expect(out.last).toBeInstanceOf(Date);
   });

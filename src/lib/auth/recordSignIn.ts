@@ -28,8 +28,16 @@ export const SIGN_IN_THROTTLE_MINUTES = 5;
 /** The stamp's own bound, so a stuck table lock or slow database cancels it instead of holding a pool slot. */
 export const SIGN_IN_STAMP_TIMEOUT_MS = 2000;
 
-/** Parameters: $1 user id, $2 throttle minutes. Exported so a test can run it as migration_admin in a transaction. */
-export const SIGN_IN_STAMP_SQL = `WITH due AS (
+interface StampClient { query(text: string, values?: unknown[]): Promise<{ rowCount: number | null }> }
+
+/**
+ * The stamp itself, on a client the caller has put in a transaction (and, in a test, under SET ROLE migration_admin).
+ * True when a row was stamped; false when throttled, locked, or the user has no profile row yet.
+ * The statement text is a literal at the query call so the rollback census (tests/unit/lib/rollbackCensus.test.ts) reads it.
+ */
+export async function stampSignIn(client: StampClient, userId: string): Promise<boolean> {
+  const result = await client.query(
+    `WITH due AS (
        SELECT id FROM users
         WHERE id = $1
           AND (last_login IS NULL OR last_login < NOW() - make_interval(mins => $2::int))
@@ -38,9 +46,13 @@ export const SIGN_IN_STAMP_SQL = `WITH due AS (
      UPDATE users u
         SET last_login = NOW(), login_count = u.login_count + 1
        FROM due
-      WHERE u.id = due.id`;
+      WHERE u.id = due.id`,
+    [userId, SIGN_IN_THROTTLE_MINUTES],
+  );
+  return result.rowCount === 1;
+}
 
-/** True when a row was stamped; false when throttled, locked, or the user has no profile row yet. */
+/** True when a row was stamped (see stampSignIn). Throws on a database error; the stamp is rolled back. */
 export async function recordSignIn(userId: string): Promise<boolean> {
   const client = await migrationAdminPool().connect();
   let broken = false;
@@ -48,11 +60,11 @@ export async function recordSignIn(userId: string): Promise<boolean> {
   try {
     opened = true; // before BEGIN (R-176): a BEGIN that reached the server but failed is rolled back too
     await client.query('BEGIN');
-    await client.query(`SET LOCAL statement_timeout = ${SIGN_IN_STAMP_TIMEOUT_MS}`);
-    const result = await client.query(SIGN_IN_STAMP_SQL, [userId, SIGN_IN_THROTTLE_MINUTES]);
+    await client.query('SET LOCAL statement_timeout = 2000'); // SIGN_IN_STAMP_TIMEOUT_MS, pinned equal by a unit test
+    const stamped = await stampSignIn(client, userId);
     await client.query('COMMIT');
     opened = false;
-    return result.rowCount === 1;
+    return stamped;
   } catch (err) {
     if (opened) broken = await rollbackFailed(client, 'recordSignIn');
     throw err;
