@@ -32,6 +32,13 @@ vi.mock('@/modules/accounting/services/gl/dimensions/dimensionPolicy', async (im
 vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ // R-035 PR6: reads Postgres; proven in r035-pr6-bank.int
   handKeyedAccountLineSkips: vi.fn(async () => new Map()), assertBankLineMayPostToAccounts: vi.fn(), handKeyedLineJournalRefusal: vi.fn(async () => null),
 }));
+// The customer side's up-front judgment (bank/reverseLinesCreditLast.reverseLinesJudged) has its own suites
+// (ar-receipt-void-after-refund-bulk, receiptVoidCreditParity); here it judges nothing and the supplier retry runs.
+vi.mock('@/modules/accounting/services/bank/reverseLinesCreditLast', async (orig) => {
+  const actual = await orig<typeof import('@/modules/accounting/services/bank/reverseLinesCreditLast')>();
+  return { ...actual, reverseLinesJudged: async (_c: string, lines: readonly { id: string }[], fn: (id: string) => Promise<unknown>) =>
+    actual.reverseLinesCreditLast(lines.map((l) => l.id), fn) };
+});
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
