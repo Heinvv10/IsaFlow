@@ -21,7 +21,9 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { suspendUser, SESSIONS_NOT_REVOKED_MESSAGE } from '@/modules/admin/services/adminUserActionsService';
-import { assertSuperAdminRemains, LastSuperAdminError } from '@/modules/admin/services/superAdminRosterService';
+import {
+  assertSuperAdminRemains, LastSuperAdminError, LAST_SUPER_ADMIN_REASON,
+} from '@/modules/admin/services/superAdminRosterService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
@@ -43,7 +45,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     try {
       target = await assertSuperAdminRemains(userId);
     } catch (err) {
-      if (err instanceof LastSuperAdminError) return apiResponse.conflict(res, err.message, { reason: err.code });
+      if (err instanceof LastSuperAdminError) return apiResponse.conflict(res, err.message, { reason: LAST_SUPER_ADMIN_REASON });
       throw err;
     }
     if (!target) return apiResponse.notFound(res, 'User', userId);

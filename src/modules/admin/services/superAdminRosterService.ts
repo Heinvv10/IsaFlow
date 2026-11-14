@@ -17,9 +17,11 @@ import { sql } from '@/lib/neon';
 export const LAST_SUPER_ADMIN_MESSAGE =
   'This is the last active super admin. Make someone else a super admin before removing this one.';
 
+/** The 409's `details.reason`. Not a `readonly code` on the error: admin-only, never an MCP refusal (toolHelpers). */
+export const LAST_SUPER_ADMIN_REASON = 'LAST_SUPER_ADMIN';
+
 /** Refused before anything is written: the change would leave no active super admin. Answer 409. */
 export class LastSuperAdminError extends Error {
-  readonly code = 'LAST_SUPER_ADMIN';
   constructor() {
     super(LAST_SUPER_ADMIN_MESSAGE);
     this.name = 'LastSuperAdminError';
