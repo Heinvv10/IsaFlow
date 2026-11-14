@@ -19,11 +19,11 @@ export const calls = (root: ts.Node, pred: (c: ts.CallExpression) => boolean): t
   visit(root);
   return out;
 };
-/** A call to fetch / apiFetch / window.fetch / globalThis.fetch, by name (the typed rule uses the type checker instead). */
+/** A call to fetch / apiFetch / adminFetch / window.fetch / globalThis.fetch, by name (the typed rule uses the type checker instead). */
 export function isFetchCall(n: ts.Node): n is ts.CallExpression {
   if (!ts.isCallExpression(n)) return false;
   const e = n.expression;
-  if (ts.isIdentifier(e)) return e.text === 'apiFetch' || e.text === 'fetch';
+  if (ts.isIdentifier(e)) return e.text === 'apiFetch' || e.text === 'adminFetch' || e.text === 'fetch';
   return ts.isPropertyAccessExpression(e) && e.name.text === 'fetch' && ts.isIdentifier(e.expression) && /^(window|globalThis|self)$/.test(e.expression.text);
 }
 
@@ -43,7 +43,7 @@ export interface Ctx {
 export function makeCanon(sf: ts.SourceFile): (n: ts.Node) => string {
   const alias = new Map<string, string>();
   for (const st of sf.statements) {
-    if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier) || !/apiFetch$/.test(st.moduleSpecifier.text)) continue;
+    if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier) || !/(apiFetch|adminFetch)$/.test(st.moduleSpecifier.text)) continue;
     const nb = st.importClause?.namedBindings;
     if (nb && ts.isNamedImports(nb)) for (const e of nb.elements) if (e.propertyName) alias.set(e.name.text, e.propertyName.text);
   }

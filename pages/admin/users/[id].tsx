@@ -110,7 +110,7 @@ export default function AdminUserDetailPage() {
     setActionLoading(true); setActionError('');
     try {
       const url = endpoint ? `/api/admin/users/${id}/${endpoint}` : `/api/admin/users/${id}`;
-      const res  = await adminFetch(url, { method, headers: { 'X-Admin-Request': 'true', ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+      const res  = await adminFetch(url, { method, headers: { ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
       await assertOk(res, 'Could not update the user - try again');
       return true;
     } catch (err) {
@@ -135,7 +135,7 @@ export default function AdminUserDetailPage() {
     if (!defaultCompany) { setActionError('User has no linked company to impersonate'); return; }
     setActionLoading(true); setActionError('');
     try {
-      const res  = await adminFetch(`/api/admin/companies/${defaultCompany.company_id}/impersonate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      const res  = await adminFetch(`/api/admin/companies/${defaultCompany.company_id}/impersonate`, { method: 'POST' });
       await assertOk(res, 'Could not start impersonation - try again');
       const json = await res.json();
       const token = (json.data as { token: string }).token;

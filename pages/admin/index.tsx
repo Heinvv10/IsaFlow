@@ -107,7 +107,7 @@ export default function AdminDashboard() {
     try {
       const res = await adminFetch('/api/admin/trials', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ company_id: companyId, days: 7 }),
       });
       await assertOk(res, 'Could not extend the trial - try again');

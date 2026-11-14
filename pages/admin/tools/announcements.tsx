@@ -88,7 +88,7 @@ export default function AdminAnnouncementsPage() {
       };
 
       const res = await adminFetch(editItem ? `/api/admin/announcements/${editItem.id}` : '/api/admin/announcements', {
-        method: editItem ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body),
+        method: editItem ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       await assertOk(res, 'Could not save the announcement - try again');
 
@@ -106,7 +106,7 @@ export default function AdminAnnouncementsPage() {
     if (!deleteId) return;
     setError('');
     try {
-      const res = await adminFetch(`/api/admin/announcements/${deleteId}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
+      const res = await adminFetch(`/api/admin/announcements/${deleteId}`, { method: 'DELETE' });
       await assertOk(res, 'Could not delete the announcement - try again');
       setDeleteId(null);
       await load();

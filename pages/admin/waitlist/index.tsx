@@ -125,7 +125,7 @@ export default function AdminWaitlistPage() {
     try {
       const res = await adminFetch(`/api/admin/waitlist/${promoteTarget.id}/promote`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ planCodeOverride: planOverride || null }),
       });
       await assertOk(res, 'Could not promote the signup - try again');

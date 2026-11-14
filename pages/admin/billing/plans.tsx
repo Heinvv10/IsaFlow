@@ -122,8 +122,8 @@ export default function PlansPage() {
     setSaving(true);
     try {
       const res  = editId
-        ? await adminFetch(`/api/admin/billing/plans/${editId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body) })
-        : await adminFetch('/api/admin/billing/plans',           { method: 'POST',  headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body) });
+        ? await adminFetch(`/api/admin/billing/plans/${editId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        : await adminFetch('/api/admin/billing/plans',           { method: 'POST',  headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       await assertOk(res, 'Could not save the plan - try again');
       setShowForm(false);
       void load();
@@ -137,7 +137,7 @@ export default function PlansPage() {
   async function handleArchive(id: string) {
     if (!confirm('Archive this plan? Existing subscriptions will not be affected.')) return;
     try {
-      const res  = await adminFetch(`/api/admin/billing/plans/${id}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
+      const res  = await adminFetch(`/api/admin/billing/plans/${id}`, { method: 'DELETE' });
       await assertOk(res, 'Could not archive the plan - try again');
       void load();
     } catch (err) {

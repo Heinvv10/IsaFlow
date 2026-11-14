@@ -71,7 +71,7 @@ export default function EmailLogPage() {
   async function handleResend(logId: string) {
     setResendingId(logId);
     try {
-      const res  = await adminFetch('/api/admin/email-log/resend', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify({ logId }), credentials: 'include' });
+      const res  = await adminFetch('/api/admin/email-log/resend', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ logId }), credentials: 'include' });
       await assertOk(res, 'Could not resend the email - try again');
       setResendStatus(prev => ({ ...prev, [logId]: 'ok' }));
       afterResend(logId, () => setResendStatus(prev => { const n = { ...prev }; delete n[logId]; return n; }), 4000);

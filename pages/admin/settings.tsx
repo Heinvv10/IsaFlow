@@ -137,7 +137,7 @@ export default function AdminSettings() {
     setError('');
     setSuccess('');
     try {
-      const res  = await adminFetch('/api/admin/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(settings) });
+      const res  = await adminFetch('/api/admin/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) });
       await assertOk(res, 'Could not save settings - try again');
       setSuccess('Settings saved successfully.');
     } catch (err) {
@@ -152,7 +152,7 @@ export default function AdminSettings() {
     setError('');
     setAlertSuccess('');
     try {
-      const res = await adminFetch('/api/admin/alert-settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(alertSettings) });
+      const res = await adminFetch('/api/admin/alert-settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(alertSettings) });
       await assertOk(res, 'Could not save alert settings - try again');
       setAlertSuccess('Alert settings saved.');
     } catch (err) {

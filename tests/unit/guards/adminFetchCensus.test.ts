@@ -1,76 +1,71 @@
 /**
- * Admin UI census: every call to /api/admin must go through `adminFetch`.
+ * Admin UI census: every client call to /api/admin goes through `adminFetch`.
  *
- * SOURCE-TEXT RATCHET. `withAdmin` rejects any non-GET without `X-Admin-Request`,
- * and a page that forgets it shows a dead button (SARS set-current/deprecate/import,
- * ConvertTrialModal, webhook Redeliver, Cancel subscription were all 403ing). This
- * pins the BY-CALL rule: a `fetch(`/`apiFetch(` call whose first argument names
- * /api/admin (or is the bare variable `url`) fails, wherever else in the file
- * `adminFetch` appears. `apiJson` cannot use adminFetch, so its non-GET calls to
- * /api/admin must carry the header in the call itself. GETs are held to the same
- * rule for consistency.
+ * SOURCE RATCHET over every tracked CLIENT file (the client-response gate's own selection), not a fixed folder list.
+ * `withAdmin` 403s any non-GET without `X-Admin-Request`; a page that forgets it shows a dead button. The scanner is
+ * AST based (tests/helpers/adminFetchCensus.ts); the fixtures below are the shapes that evaded the first, regex
+ * version, and each must be caught.
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { adminFetchViolations } from '../../helpers/adminFetchCensus';
+import { selectClientFiles } from '../../../scripts/ci/clientResponseSelect';
 
-const CALLEE = /(?<![\w.])(fetch|apiFetch|apiJson)\(/g;
+const IMP = `import { adminFetch } from '@/lib/admin/adminFetch';\nimport { apiFetch, apiJson } from '@/lib/apiFetch';\n`;
+const wrap = (body: string, imports = IMP) => `${imports}export async function f() {\n${body}\n}\n`;
 
-/** Text of the call's arguments, up to its balanced closing paren. */
-function callArgs(src: string, from: number): string {
-  let depth = 1;
-  let i = from;
-  for (; i < src.length && depth > 0; i++) {
-    if (src[i] === '(') depth++;
-    else if (src[i] === ')') depth--;
-  }
-  return src.slice(from, i - 1);
-}
+const EVASIONS: Array<[string, string]> = [
+  ['const URL variable', `const U = '/api/admin/x'; await apiFetch(U, { method: 'POST' });`],
+  ['endpoint variable', 'const endpoint = `/api/admin/x`; await apiFetch(endpoint);'],
+  ['window.fetch', `await window.fetch('/api/admin/x', { method: 'POST' });`],
+  ['globalThis.fetch', `await globalThis.fetch('/api/admin/x', { method: 'POST' });`],
+  ['bare fetch', `await fetch('/api/admin/x', { method: 'POST' });`],
+  ['apiFetch<T>', `await apiFetch<Foo>('/api/admin/x', { method: 'POST' });`],
+  ['apiFetch (space)', `await apiFetch ('/api/admin/x', { method: 'POST' });`],
+  ['BASE +', `const BASE = '/api/admin'; await apiFetch(BASE + '/x', { method: 'POST' });`],
+  ['template with BASE', 'const BASE = \'/api/admin\'; await apiFetch(`${BASE}/x`, { method: \'POST\' });'],
+  ['ADMIN_API constant', `await apiFetch(ADMIN_API + '/x', { method: 'POST' });`],
+  ['aliased callee', `await req('/api/admin/x', { method: 'POST' });`],
+  ['apiJson with an options variable', `const opts = { method: 'POST' }; await apiJson('/api/admin/x', opts);`],
+  ['apiJson with a spread', `await apiJson('/api/admin/x', { ...opts, method: 'POST' });`],
+  ['header only in a comment', `await apiFetch('/api/admin/x', { method: 'POST' }); // X-Admin-Request: true`],
+  ['header with another value', `await apiJson('/api/admin/x', { method: 'POST', headers: { 'X-Admin-Request': 'false' } });`],
+  ['const f = apiFetch', `const f = apiFetch; await f('/api/admin/x', { method: 'POST' });`],
+  ['apiFetch passed as a value', `await Promise.all([1].map(apiFetch)); const u = '/api/admin/x';`],
+  ['hand-set header inside adminFetch', `await adminFetch('/api/admin/x', { method: 'POST', headers: { 'X-Admin-Request': 'true' } });`],
+  ['admin string without importing adminFetch', `await apiFetch('/api/admin/x');`],
+];
 
-/** One line per offending call: `<line>: <callee>(...)`. */
-export function adminFetchViolations(src: string): string[] {
-  const bad: string[] = [];
-  for (const m of src.matchAll(CALLEE)) {
-    const args = callArgs(src, m.index + m[0].length);
-    const first = args.split(',')[0] + args.slice(0, 160);
-    const toAdmin = first.includes('/api/admin') || /^\s*url\s*[,)]?/.test(args);
-    if (!toAdmin) continue;
-    const isJson = m[1] === 'apiJson';
-    const nonGet = /method/.test(args) && !/method:\s*['"]GET['"]/.test(args);
-    if (isJson && (!nonGet || args.includes('X-Admin-Request'))) continue;
-    bad.push(`${src.slice(0, m.index).split('\n').length}: ${m[1]}(${args.slice(0, 60).replace(/\s+/g, ' ')}`);
-  }
-  return bad;
-}
-
-function adminUiFiles(): string[] {
-  const out = execFileSync('git', ['ls-files', 'pages/admin', 'src/components/admin', 'src/hooks'], { encoding: 'utf8' });
-  return out.split('\n').filter((f) => /\.tsx?$/.test(f));
-}
-
-describe('adminFetchViolations (the scanner)', () => {
-  it('flags apiFetch to /api/admin, even when adminFetch is used elsewhere in the file', () => {
-    const src = `adminFetch('/api/admin/a');\nawait apiFetch('/api/admin/x', { method: 'POST' });`;
-    expect(adminFetchViolations(src)).toHaveLength(1);
-  });
-  it('flags a multi-line call and a bare url variable', () => {
-    expect(adminFetchViolations("apiFetch(\n  `/api/admin/b/${id}`,\n  { method: 'POST' })")).toHaveLength(1);
-    expect(adminFetchViolations("apiFetch(url, { method })")).toHaveLength(1);
-  });
-  it('allows adminFetch, non-admin routes, and apiJson that sends the header', () => {
-    expect(adminFetchViolations("adminFetch('/api/admin/a', { method: 'POST' }); apiFetch('/api/features/check');")).toEqual([]);
-    expect(adminFetchViolations("apiJson('/api/admin/u/1/impersonate', { method: 'POST', headers: { 'X-Admin-Request': 'true' } })")).toEqual([]);
-    expect(adminFetchViolations("apiJson('/api/admin/u/1/impersonate', { method: 'POST' })")).toHaveLength(1);
+describe('adminFetchViolations: every evasion shape is caught', () => {
+  it.each(EVASIONS)('%s', (name, body) => {
+    const imports = name === 'aliased callee' ? `import { adminFetch } from '@/lib/admin/adminFetch';\nimport { apiFetch as req } from '@/lib/apiFetch';\n`
+      : name === 'admin string without importing adminFetch' ? `import { apiFetch } from '@/lib/apiFetch';\n` : IMP;
+    expect(adminFetchViolations(wrap(body, imports))).not.toEqual([]);
   });
 });
 
-describe('admin UI files', () => {
-  const files = adminUiFiles();
-  it('finds the admin UI (guards against an empty census)', () => {
-    expect(files.length).toBeGreaterThan(30);
+describe('adminFetchViolations: legitimate shapes are quiet', () => {
+  it.each([
+    ['adminFetch, GET and write', `await adminFetch('/api/admin/x'); await adminFetch('/api/admin/y', { method: 'POST', headers: { 'Content-Type': 'application/json' } });`],
+    ['a plain non-admin literal through apiFetch', `await adminFetch('/api/admin/x'); await apiFetch('/api/accounting/migration-parse', { method: 'POST' });`],
+    ['apiJson on an admin route with the real header', `await adminFetch('/api/admin/x'); await apiJson('/api/admin/u/1/impersonate', { method: 'POST', headers: { 'X-Admin-Request': 'true' } });`],
+    ['a header named only in a comment and a type', `// X-Admin-Request\ntype R = '/api/admin/x';\nawait adminFetch('/api/admin/x');`],
+  ])('%s', (_n, body) => expect(adminFetchViolations(wrap(body))).toEqual([]));
+  it('a file that never touches /api/admin is not an admin file', () => {
+    expect(adminFetchViolations(wrap(`await apiFetch(url);`, "import { apiFetch } from '@/lib/apiFetch';\n"))).toEqual([]);
   });
-  it('no call to /api/admin bypasses adminFetch', () => {
-    const offenders = files.flatMap((f) => adminFetchViolations(readFileSync(f, 'utf8')).map((v) => `${f}:${v}`));
+});
+
+describe('the tracked client files', () => {
+  const tracked = execFileSync('git', ['ls-files'], { encoding: 'utf8', maxBuffer: 1 << 27 }).split('\n').filter((f) => /\.tsx?$/.test(f));
+  const files = selectClientFiles(tracked, (f) => readFileSync(f, 'utf8'))
+    .filter((f) => !/^(pages\/api\/|tests\/|scripts\/)/.test(f) && f !== 'src/lib/admin/adminFetch.ts' && f !== 'src/lib/apiFetch.ts');
+  it('selects the admin UI (an empty census proves nothing)', () => {
+    expect(files.filter((f) => f.startsWith('pages/admin/')).length).toBeGreaterThan(20);
+  });
+  it('no client file bypasses adminFetch or hand-sets its header', () => {
+    const offenders = files.flatMap((f) => adminFetchViolations(readFileSync(f, 'utf8'), f).map((v) => `${f}:${v}`));
     expect(offenders).toEqual([]);
   });
 });

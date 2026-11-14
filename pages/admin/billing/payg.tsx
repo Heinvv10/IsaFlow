@@ -74,7 +74,7 @@ export default function PaygCompaniesPage() {
     try {
       const res = await adminFetch(`/api/admin/billing/payg/${companyId}/adjust`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ flows, reason }),
       });
       await assertOk(res, 'Could not adjust the wallet - try again');

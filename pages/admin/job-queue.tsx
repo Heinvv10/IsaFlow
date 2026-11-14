@@ -79,7 +79,7 @@ export default function JobQueuePage() {
     try {
       const res = await adminFetch('/api/admin/job-queue', {
         method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'retry', jobId }),
       });
       await assertOk(res, 'Could not retry the job - try again');
@@ -102,7 +102,7 @@ export default function JobQueuePage() {
   const callBulk = async (action: 'retry' | 'cancel') => {
     const res = await adminFetch('/api/admin/job-queue/bulk-action', {
       method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, ids: [...selectedIds] }),
     });
     await assertOk(res, action === 'retry' ? 'Could not retry the jobs - try again' : 'Could not cancel the jobs - try again');
@@ -134,7 +134,7 @@ export default function JobQueuePage() {
     try {
       const res = await adminFetch('/api/admin/job-queue/bulk-action', {
         method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'delete_old', olderThanDays: 30 }),
       });
       await assertOk(res, 'Could not delete the old jobs - try again');

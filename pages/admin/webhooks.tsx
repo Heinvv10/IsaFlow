@@ -88,7 +88,7 @@ export default function AdminWebhooksPage() {
       const res = await adminFetch(`/api/admin/webhooks/${id}`, {
         method: 'PATCH',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: currentlyActive ? 'disabled' : 'active' }),
       });
       await assertOk(res, 'Could not update the webhook - try again');
@@ -108,7 +108,6 @@ export default function AdminWebhooksPage() {
       const res = await adminFetch(`/api/admin/webhooks/${deleteTarget.id}`, {
         method: 'DELETE',
         credentials: 'include',
-        headers: { 'X-Admin-Request': 'true' },
       });
       await assertOk(res, 'Could not delete the webhook - try again');
       showToast('Webhook deleted');

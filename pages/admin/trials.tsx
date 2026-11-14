@@ -99,7 +99,7 @@ export default function AdminTrialsPage() {
     try {
       const res  = await adminFetch('/api/admin/trials', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ company_id: id, days }),
       });
       await assertOk(res, 'Could not extend the trial - try again');
@@ -118,7 +118,7 @@ export default function AdminTrialsPage() {
     try {
       const res = await adminFetch('/api/admin/trials', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ company_ids: Array.from(selected), days: 7 }),
       });
       await assertOk(res, 'Could not extend the selected trials - try again');

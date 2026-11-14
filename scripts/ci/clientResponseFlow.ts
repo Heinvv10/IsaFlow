@@ -241,7 +241,7 @@ export function analyzeFlow(cx: Ctx): void {
   const report = (c: ts.CallExpression) => { if (!seenCalls.has(c)) { seenCalls.add(c); if (flow(c) === 'unchecked') add(c, 'd', 'a write whose result is never checked (assertOk the response; method not provably GET counts as a write)'); } };
   for (const c of calls(sf, () => true)) {
     const callee = canon(c.expression);
-    const fetcher = /^(apiFetch|fetch|(window|globalThis|self)\.fetch)$/.test(callee);
+    const fetcher = /^(apiFetch|adminFetch|fetch|(window|globalThis|self)\.fetch)$/.test(callee);
     const a0 = c.arguments[0] && unwrap(c.arguments[0]);
     if (fetcher && (a0 && ts.isNewExpression(a0) ? initMethod(a0) : initMethod(c.arguments[1])) === 'mut') report(c);
     else if (callee === 'apiJson' && initMethod(c.arguments[1]) === 'mut') {

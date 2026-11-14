@@ -58,7 +58,7 @@ export default function AdminFeaturesPage() {
     try {
       const res = await adminFetch(`/api/admin/features/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: editState.name.trim() || undefined,
           description: editState.description.trim() || undefined,
@@ -86,7 +86,7 @@ export default function AdminFeaturesPage() {
         Array.from(selected).map(async (id) => {
           const res = await adminFetch(`/api/admin/features/${id}`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ is_global: isGlobal }),
           });
           await assertOk(res, 'Could not update a feature flag - try again');

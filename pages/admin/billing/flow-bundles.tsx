@@ -53,7 +53,7 @@ export default function FlowBundlesPage() {
     try {
       const res = await adminFetch('/api/admin/billing/flow-bundles', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(draft),
       });
       await assertOk(res, 'Could not create the bundle - try again');
@@ -69,7 +69,7 @@ export default function FlowBundlesPage() {
     try {
       const res = await adminFetch(`/api/admin/billing/flow-bundles/${bundle.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isActive: !bundle.isActive }),
       });
       await assertOk(res, 'Could not update the bundle - try again');

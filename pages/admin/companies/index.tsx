@@ -158,7 +158,7 @@ export default function AdminCompaniesPage() {
     try {
       const res  = await adminFetch('/api/admin/companies', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(createForm),
       });
       await assertOk(res, 'Could not create the company - try again');
@@ -182,7 +182,7 @@ export default function AdminCompaniesPage() {
     try {
       const res = await adminFetch(`/api/admin/companies/${companyId}/suspend`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: 'Suspended by admin' }),
       });
       await assertOk(res, 'Could not suspend the company - try again');
@@ -195,7 +195,7 @@ export default function AdminCompaniesPage() {
     e.stopPropagation();
     setActionLoading(companyId + ':activate'); setError('');
     try {
-      const res = await adminFetch(`/api/admin/companies/${companyId}/${action}`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      const res = await adminFetch(`/api/admin/companies/${companyId}/${action}`, { method: 'POST' });
       await assertOk(res, `Could not ${action} the company - try again`);
       void load(search, status, page, sortBy, sortDir);
     } catch (err) { setError(apiErrorMessage(err, `Could not ${action} the company - try again`)); }
@@ -213,7 +213,7 @@ export default function AdminCompaniesPage() {
     try {
       const res  = await adminFetch('/api/admin/companies/bulk-action', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'suspend', company_ids: [...selectedIds], reason: 'Bulk suspended by admin' }),
       });
       await assertOk(res, 'Could not suspend the companies - try again');
@@ -231,7 +231,7 @@ export default function AdminCompaniesPage() {
     try {
       const res  = await adminFetch('/api/admin/companies/bulk-action', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'extend_trial', company_ids: [...selectedIds], days: 7 }),
       });
       await assertOk(res, 'Could not extend the trial - try again');

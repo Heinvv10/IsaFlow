@@ -172,7 +172,7 @@ export default function AdminCompanyDetailPage() {
     try {
       const res  = await adminFetch(`/api/admin/companies/${id}/suspend`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: suspendReason }),
       });
       await assertOk(res, 'Could not suspend the company - try again');
@@ -186,7 +186,7 @@ export default function AdminCompanyDetailPage() {
     const action = company?.status === 'deleted' ? 'restore' : 'activate';
     setActionLoading(true); setActionError('');
     try {
-      const res  = await adminFetch(`/api/admin/companies/${id}/${action}`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      const res  = await adminFetch(`/api/admin/companies/${id}/${action}`, { method: 'POST' });
       await assertOk(res, `Could not ${action} the company - try again`);
       void load();
     } catch (err) { setActionError(apiErrorMessage(err, `Could not ${action} the company - try again`)); }
@@ -197,7 +197,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setActionLoading(true); setActionError('');
     try {
-      const res  = await adminFetch(`/api/admin/companies/${id}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
+      const res  = await adminFetch(`/api/admin/companies/${id}`, { method: 'DELETE' });
       await assertOk(res, 'Could not delete the company - try again');
       void router.push(adminHref('/admin/companies'));
     } catch (err) { setActionError(apiErrorMessage(err, 'Could not delete the company - try again')); setActionLoading(false); }
@@ -231,7 +231,7 @@ export default function AdminCompanyDetailPage() {
     try {
       const res  = await adminFetch(`/api/admin/companies/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       await assertOk(res, 'Could not save the company - try again');
@@ -265,7 +265,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setActionLoading(true); setActionError('');
     try {
-      const res  = await adminFetch(`/api/admin/companies/${id}/impersonate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      const res  = await adminFetch(`/api/admin/companies/${id}/impersonate`, { method: 'POST' });
       await assertOk(res, res.status === 429 ? 'Too many attempts - please wait a moment and try again' : 'Could not start impersonation - try again');
       const json = await res.json();
       const token = (json.data as { token: string })?.token;
@@ -285,7 +285,7 @@ export default function AdminCompanyDetailPage() {
     try {
       const res = await adminFetch(`/api/admin/companies/${id}/features`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ feature_id: feature.id, enabled: !feature.enabled, reason: 'Toggled via admin' }),
       });
       await assertOk(res, `Could not change ${feature.name} - try again`);
@@ -302,7 +302,7 @@ export default function AdminCompanyDetailPage() {
     try {
       const res = await adminFetch(`/api/admin/companies/${id}/features`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ feature_id: feature.id }),
       });
       await assertOk(res, `Could not reset ${feature.name} - try again`);

@@ -136,7 +136,7 @@ export default function AdminSageImportPage() {
     try {
       const res = await adminFetch('/api/admin/migration/sage-pull-server', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId: selectedCompanyId, sageCookie }),
       });
       await assertOk(res, 'Could not pull the data from Sage - try again');
@@ -181,14 +181,13 @@ export default function AdminSageImportPage() {
         : all;
       const res = await adminFetch('/api/admin/migration/sage-commit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId: selectedCompanyId, pulled: payload }),
       });
       await assertOk(res, 'Could not import the Sage data - try again');
       const json = await res.json();
       setCommitSummary(json.data);
     } catch (err) {
-      setCommitSummary(null);
       setError(apiErrorMessage(err, 'Could not import the Sage data - try again'));
     } finally {
       setCommitting(false);

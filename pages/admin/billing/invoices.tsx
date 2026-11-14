@@ -84,7 +84,7 @@ export default function InvoicesPage() {
       const body  = action === 'mark_paid' ? JSON.stringify({ payment_method: 'manual' }) : undefined;
       const res   = await adminFetch(`/api/admin/billing/invoices/${id}/${route}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body,
       });
       await assertOk(res, failure);
@@ -105,7 +105,7 @@ export default function InvoicesPage() {
     try {
       const res  = await adminFetch('/api/admin/billing/invoices', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           company_id:     form.company_id,
           subtotal_cents: Math.round(parseFloat(form.subtotal) * 100),

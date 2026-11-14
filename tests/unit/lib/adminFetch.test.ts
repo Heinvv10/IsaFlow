@@ -30,4 +30,21 @@ describe('adminFetch', () => {
     expect([h.get('Content-Type'), h.get('X-Admin-Request'), patch.body]).toEqual(['application/json', 'true', '{"a":1}']);
     expect(new Headers(get.headers).get('X-Admin-Request')).toBe('true');
   });
+  it.each([
+    ['a Headers instance', () => new Headers({ 'Content-Type': 'application/json' })],
+    ['a [k, v][] array', () => [['Content-Type', 'application/json']] as [string, string][]],
+  ])('keeps caller headers given as %s', async (_n, make) => {
+    const f = stubFetch();
+    await adminFetch('/api/admin/x', { method: 'POST', headers: make() });
+    const [, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    const h = new Headers(init.headers);
+    expect([h.get('Content-Type'), h.get('X-Admin-Request')]).toEqual(['application/json', 'true']);
+  });
+
+  it('forces the header to true when the caller supplied x-admin-request: false', async () => {
+    const f = stubFetch();
+    await adminFetch('/api/admin/x', { method: 'POST', headers: { 'x-admin-request': 'false' } });
+    const [, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect(new Headers(init.headers).get('X-Admin-Request')).toBe('true');
+  });
 });
