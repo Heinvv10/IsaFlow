@@ -13,6 +13,7 @@ vi.mock('@/lib/neon', () => ({
     ? [{ total_revenue_cents: '0', outstanding_cents: '0' }]
     : [{ total: '2', past_due: '0', trial: '0' }]),
 }));
+vi.mock('@/modules/admin/services/trialQueries', () => ({ getTrialStats: async () => ({ active_trials: 0 }) }));
 vi.mock('@/modules/admin/services/metrics/metricsSql', () => ({
   companyOutOfMrr: () => '', subscriptionInMrr: () => '', subscriptionMrrCents: () => '',
   loadSubscriptionFacts: async () => facts.rows,
