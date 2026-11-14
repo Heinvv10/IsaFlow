@@ -3,11 +3,12 @@
  * Create / edit form for system announcements.
  */
 
-import { useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
 import { CompanyPicker } from './CompanyPicker';
 import { AnnouncementPlanPicker } from './AnnouncementPlanPicker';
 import { isoToSastInput, sastInputToIso } from '@/utils/sastDateTimeInput';
+import { useFocusTrap } from '@/components/ui/useFocusTrap';
 
 export const EMPTY_FORM = {
   title: '', message: '', type: 'info', target: 'all',
@@ -39,6 +40,10 @@ const INPUT_CLS =
 
 export function AnnouncementModal({ initial, onClose, onSave, saving }: Props) {
   const [form, setForm] = useState<AnnouncementFormState>(initial);
+  // A real dialog (audit 4.13): focus inside, Tab trapped, Escape closes except mid-save; labels tied to their fields.
+  const boxRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(boxRef, true, () => { if (!saving) onClose(); });
+  const fid = useId();
   const set = <K extends keyof AnnouncementFormState>(k: K, v: AnnouncementFormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
@@ -68,32 +73,32 @@ export function AnnouncementModal({ initial, onClose, onSave, saving }: Props) {
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="announcement-modal-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-lg mx-4 p-6 space-y-4">
+      <div ref={boxRef} className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-lg mx-4 p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 id="announcement-modal-title" className="text-lg font-semibold text-gray-900 dark:text-white">
             {initial.title ? 'Edit Announcement' : 'New Announcement'}
           </h2>
-          <button onClick={onClose} className="text-gray-600 dark:text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} aria-label="Close" className="text-gray-600 dark:text-gray-400 hover:text-gray-600">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Title</label>
-            <input value={form.title} onChange={e => set('title', e.target.value)} className={INPUT_CLS} />
+            <label htmlFor={`${fid}-title`} className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Title</label>
+            <input id={`${fid}-title`} value={form.title} onChange={e => set('title', e.target.value)} className={INPUT_CLS} />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Message</label>
-            <textarea rows={3} value={form.message} onChange={e => set('message', e.target.value)}
+            <label htmlFor={`${fid}-message`} className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Message</label>
+            <textarea id={`${fid}-message`} rows={3} value={form.message} onChange={e => set('message', e.target.value)}
               className={`${INPUT_CLS} resize-none`} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Type</label>
-              <select value={form.type} onChange={e => set('type', e.target.value)} className={INPUT_CLS}>
+              <label htmlFor={`${fid}-type`} className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Type</label>
+              <select id={`${fid}-type`} value={form.type} onChange={e => set('type', e.target.value)} className={INPUT_CLS}>
                 <option value="info">Info</option>
                 <option value="warning">Warning</option>
                 <option value="maintenance">Maintenance</option>
@@ -101,8 +106,8 @@ export function AnnouncementModal({ initial, onClose, onSave, saving }: Props) {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Target</label>
-              <select value={form.target} onChange={e => handleTargetChange(e.target.value)} className={INPUT_CLS}>
+              <label htmlFor={`${fid}-target`} className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Target</label>
+              <select id={`${fid}-target`} value={form.target} onChange={e => handleTargetChange(e.target.value)} className={INPUT_CLS}>
                 <option value="all">All</option>
                 <option value="plan">Plan</option>
                 <option value="company">Company</option>
@@ -130,15 +135,15 @@ export function AnnouncementModal({ initial, onClose, onSave, saving }: Props) {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Starts At (SAST)</label>
-              <input type="datetime-local" value={isoToSastInput(form.starts_at)}
+              <label htmlFor={`${fid}-starts`} className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Starts At (SAST)</label>
+              <input id={`${fid}-starts`} type="datetime-local" value={isoToSastInput(form.starts_at)}
                 onChange={e => set('starts_at', sastInputToIso(e.target.value))} className={INPUT_CLS} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+              <label htmlFor={`${fid}-ends`} className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                 Ends At (SAST, optional)
               </label>
-              <input type="datetime-local" value={isoToSastInput(form.ends_at)}
+              <input id={`${fid}-ends`} type="datetime-local" value={isoToSastInput(form.ends_at)}
                 onChange={e => set('ends_at', sastInputToIso(e.target.value))} className={INPUT_CLS} />
             </div>
           </div>
