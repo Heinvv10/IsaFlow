@@ -8,12 +8,12 @@
  * never printed), and a dismissal that is per user, per announcement, and refused for an announcement the
  * admin marked not dismissible.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import activeRoute from '../../pages/api/announcements/active';
 import dismissRoute from '../../pages/api/announcements/dismiss';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
-import { signSession } from './r-032-fake-gotrue.helpers';
+import { fakeGotrueFetch, signSession, type FakeGotrue } from './r-032-fake-gotrue.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -210,6 +210,28 @@ describe('POST /api/announcements/dismiss', () => {
     expect((await call(dismissRoute, a, 'POST', { id: crypto.randomUUID() })).status).toBe(404);
     expect((await call(dismissRoute, a, 'POST', { id: 'not-a-uuid' })).status).toBe(400);
     expect((await call(dismissRoute, a, 'POST', {})).status).toBe(400);
+  });
+
+  it('a Login-as session leaves no dismissal under the target user\'s name: 403, nothing written, still shown', async () => {
+    // A token with a session id makes withAuth ask GoTrue about the session: only that endpoint is faked.
+    const gotrue: FakeGotrue = { nextSessionId: crypto.randomUUID(), minted: [] };
+    vi.stubEnv('SUPABASE_ANON_KEY', 'ann-anon');
+    vi.stubGlobal('fetch', fakeGotrueFetch((email) => email.split('@')[0]!, gotrue));
+    const sessionId = crypto.randomUUID();
+    await pool.query(`INSERT INTO impersonation_sessions (session_id, actor_user_id, target_user_id) VALUES ($1, $2, $3)`,
+      [sessionId, b.userId, c.userId]);
+    try {
+      const viaLoginAs = { ...c, token: await signSession(c.userId, sessionId, 'aal1') };
+      const id = await idOf('all-open');
+      expect((await call(dismissRoute, viaLoginAs, 'POST', { id })).status).toBe(403);
+      const n = await pool.query(`SELECT count(*)::int AS n FROM user_preferences WHERE user_id = $1`, [c.userId]);
+      expect(n.rows[0].n).toBe(0);
+      expect(await titles(c)).toContain('all-open');
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+      await pool.query('DELETE FROM impersonation_sessions WHERE session_id = $1', [sessionId]);
+    }
   });
 
   it('only POST', async () => {
