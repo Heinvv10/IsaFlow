@@ -362,6 +362,28 @@ describe('financial years by label, and leftover words', () => {
   });
 });
 
+describe('"period" means the VAT period only', () => {
+  it('profit this period is refused with a clear message and the plain question', async () => {
+    const a = await ask('profit this period');
+    expect(a.understood).toBe(false);
+    expect(a.figure).toBeNull();
+    expect(a.text).toBe('For profit, name a month or a year. "Period" only means your VAT period.');
+    expect(a.suggestions).toEqual(['What is my profit this month?']);
+    expect(m.income).not.toHaveBeenCalled();
+  });
+  it.each([['total assets this period', 'For total assets, name a month. "Period" only means your VAT period.'], ['who owes me money last period', 'For what customers owe you, name a month. "Period" only means your VAT period.']])('%s', async (q, text) => {
+    expect((await ask(q)).text).toBe(text);
+  });
+  it('the VAT intent still takes "this period"', async () => {
+    expect((await ask('vat for this period')).figure).toBe(90);
+  });
+  it.each([['profit with vat'], ['total assets without vat'], ['who owes me money plus vat']])('%s: a VAT basis is refused for every figure but VAT', async (q) => {
+    const a = await ask(q);
+    expect(a.figure).toBeNull();
+    expect(a.text).toContain('including or excluding VAT');
+  });
+});
+
 describe('unrecognised and ambiguous', () => {
   it('an unrecognised question calls nothing and suggests the twelve', async () => {
     const a = await ask('what is the weather');

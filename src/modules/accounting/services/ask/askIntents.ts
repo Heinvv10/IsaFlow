@@ -37,7 +37,7 @@ export type ParsedQuestion =
   /** One intent, but words the parser could not account for: refused rather than dropped, with the plain question offered. */
   | { kind: 'leftover'; id: AskIntentId; words: string[] }
   /** A recognised refinement we cannot honour (an amount filter, a comparison, before/after tax): said, never answered with a broader figure. */
-  | { kind: 'unsupported'; id: AskIntentId; said: string }
+  | { kind: 'unsupported'; id: AskIntentId; said: string; text?: string }
   | { kind: 'none' };
 
 export interface IntentDoc { id: AskIntentId; example: string }
@@ -246,6 +246,11 @@ function keysOf(clause: string): Key[] {
 /** Clauses joined by and / & / , / plus / vs: each may ask for something different, and silently answering one drops the other. */
 const JOINERS = /[,;&]|\b(?:and|plus|vs\.?|versus)\b|\bas\s+well\s+as\b/;
 
+const PERIOD_LABEL: Readonly<Record<AskIntentId, string>> = {
+  owed_to_me: 'what customers owe you', i_owe: 'what you owe suppliers', cash: 'the bank balance', profit: 'profit', revenue: 'revenue', expenses: 'expenses',
+  assets: 'total assets', liabilities: 'total liabilities', vat: 'VAT', emp201: 'the EMP201', last_pay_run: 'the pay run', bank_to_allocate: 'bank transactions',
+};
+const PERIOD_YEAR: ReadonlySet<AskIntentId> = new Set<AskIntentId>(['profit', 'revenue', 'expenses']);
 const LENDER = /\b(?:bank|banks|loan|loans|overdraft|credit\s+card|lender|lenders|mortgage|finance)\b/;
 /** The books hold what happened: a question about the future is refused, not answered with the present figure. */
 const FORECAST = /\b(?:will|shall|going\s+to|forecast|predict|predicted|projected|projection|expected)\b/;
@@ -257,7 +262,7 @@ const AGING_BUCKET = /\b\d+\s+days?\b|\boverdue\b|\bbuckets?\b|\bolder\s+than\b/
 const COMPARISON = /\b(?:vs|versus|compared\s+(?:to|with)|compare|comparison|against)\b/;
 const TAX_BASIS = /\b(?:before|after|pre|post|net\s+of|less|excluding|including|incl|excl|ex)\s+tax\b/;
 /** "excluding VAT" modifies a figure; it is not a VAT question, so it is cut out before the intents are read. */
-const VAT_BASIS = /\b(?:excluding|including|incl|excl|ex|net\s+of|before|after|less)\s+vat\b/g;
+const VAT_BASIS = /\b(?:excluding|including|incl|excl|ex|net\s+of|before|after|less|with|without|plus|(?:in|ex)clusive\s+of)\s+vat\b/g;
 
 /** The leftover tokens as the person typed them ("doesn't", not the expanded "not"), in question order. */
 function originalWords(question: string, leftover: string[]): string[] {
@@ -277,17 +282,21 @@ export function parseQuestion(question: string): ParsedQuestion {
   // The whole question first (a comma inside a clause must not split "cash, roughly, in the bank"), then each clause: a question
   // joining clauses that ask for different things is ambiguous, and clauses that match nothing are ignored.
   const found = new Map<string, Key>();
-  for (const k of [...keysOf(q), ...question.toLowerCase().replace(/\b(?:excluding|including|incl|excl|ex|net\s+of|before|after|less)\s+vat\b/g, ' ').split(JOINERS).flatMap((c) => keysOf(normalise(c)))]) found.set(keyName(k), k);
+  for (const k of [...keysOf(q), ...question.toLowerCase().replace(/\b(?:excluding|including|incl|excl|ex|net\s+of|before|after|less|with|without|plus|(?:in|ex)clusive\s+of)\s+vat\b/g, ' ').split(JOINERS).flatMap((c) => keysOf(normalise(c)))]) found.set(keyName(k), k);
   const keys = [...found.values()];
   if (keys.length === 0) return { kind: 'none' };
   if (keys.length > 1) return { kind: 'ambiguous', ids: [...new Set(keys.map((k) => k.id))], examples: keys.map((k) => exampleForKey(k, windowPhrases(q)[0] ?? null)) };
   const { id, qualifier } = keys[0]!;
   if (id === 'i_owe' && LENDER.test(q)) return { kind: 'unsupported', id, said: 'what is owed to the bank or lenders' };
+  if (id !== 'vat' && /\b(?:this|current|last|previous|prior)\s+period\b/.test(q)) {
+    return { kind: 'unsupported', id, said: '"period"', text: `For ${PERIOD_LABEL[id]}, name a month${PERIOD_YEAR.has(id) ? ' or a year' : ''}. "Period" only means your VAT period.` };
+  }
   if (FORECAST.test(q)) return { kind: 'unsupported', id, said: 'forecasts' };
   if ((id === 'owed_to_me' || id === 'i_owe') && AGING_BUCKET.test(q)) return { kind: 'unsupported', id, said: 'by aging bucket' };
   const amount = AMOUNT_FILTER.exec(q);
   if (amount && !DURATION_UNIT.test(amount[1] ?? '')) return { kind: 'unsupported', id, said: 'amount filters ("more than R2 000")' };
-  if (vatBasis && (id === 'revenue' || id === 'expenses' || id === 'profit')) return { kind: 'unsupported', id, said: 'figures including or excluding VAT' };
+  // "profit with VAT", "assets net of VAT": a VAT basis is a refinement of any figure but the VAT one, and is never dropped.
+  if (vatBasis && id !== 'vat') return { kind: 'unsupported', id, said: 'figures including or excluding VAT' };
   if (TAX_BASIS.test(q)) return { kind: 'unsupported', id, said: 'figures before or after tax' };
   const windows = windowPhrases(q);
   const statement = id === 'profit' || id === 'revenue' || id === 'expenses';

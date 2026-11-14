@@ -27,6 +27,7 @@ export async function answerQuestion(companyId: string, question: string, today:
     return { understood: false, text: `I can't take "${parsed.words.join(' ')}" into account yet. Here is the plain question:`, figure: null, lines: [], link: null, suggestions: [exampleFor(parsed.id)] };
   }
   if (parsed.kind === 'unsupported') {
+    if (parsed.text) return { understood: false, text: parsed.text, figure: null, lines: [], link: null, suggestions: [exampleFor(parsed.id)] };
     return { understood: false, text: `I can't answer ${parsed.said} yet. I can give the plain figure:`, figure: null, lines: [], link: null, suggestions: [exampleFor(parsed.id)] };
   }
   const { intent } = parsed;

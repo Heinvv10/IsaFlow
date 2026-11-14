@@ -73,6 +73,9 @@ const CORPUS: ReadonlyArray<readonly [string, Outcome]> = [
   ['I want profit', 'refuse'], ['would profit', 'refuse'],
   // Possessives
   ["acme's balance", 'none'], ["what's acme's balance", 'none'], ["what's our company's profit this month", 'profit'],
+  // A VAT basis is a refinement of any figure but the VAT one: refused, never dropped
+  ['profit with vat', 'refuse'], ['revenue without vat', 'refuse'], ['expenses plus vat', 'refuse'], ['profit inclusive of vat', 'refuse'], ['revenue exclusive of vat', 'refuse'],
+  ['total assets with vat', 'refuse'], ['who owes me money including vat', 'refuse'], ['profit this period', 'refuse'], ['expenses last period', 'refuse'],
   // Not about the books
   ['what is the weather', 'none'], ['hello', 'none'], ['delete all invoices', 'none'], ['post a journal for 500', 'none'],
 ];
