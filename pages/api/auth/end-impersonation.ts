@@ -56,28 +56,41 @@ async function partiesOfSession(sessionId: unknown): Promise<LoginAsParties | nu
 }
 
 /**
- * An expired stash, refused, still ends the Login-as for a VERIFIED caller. Whose: the session record of a Login-as
- * token (its session is then revoked), else the stash row the cookie names when the caller is one of its parties.
- * A look-up skipped by the cap or past its bound ends nothing here (the stash has expired; the next start or end
- * purges it).
- * Never called without verified claims (#1371 re-break N2): an unauthenticated request writes nothing in an
- * admin's name, it only clears its own cookies.
+ * An expired stash, refused, still ends the Login-as for a VERIFIED caller, and never does nothing (#1371 security
+ * review). Never called without verified claims (re-break N2: an unauthenticated request writes nothing in an
+ * admin's name, it only clears its own cookies).
+ *  1. The stash row the cookie names is read first (migration pool, primary key: no platform_admin slot). Not the
+ *     caller's, or gone (a junk cookie, a retry after a lost answer): no look-up and no row in anyone's name; the
+ *     browser is signed out (the caller clears its cookies), so its own session is revoked too.
+ *  2. Only then is a slot of the capped look-up taken (loginAsLookup, shared with Sign Out), so junk stash cookies
+ *     cannot starve real ends. Skipped by the cap or past its bound: the end is still recorded, keyed on the verified
+ *     stash, the caller's own session is revoked, the stash removed, and a warning logged.
+ *  3. Otherwise the session record decides whose Login-as this is (its session is revoked), else the stash's.
  */
 async function endRefusedLoginAs(stashId: string, accessToken: string, claims: GoTrueClaims, reason: string): Promise<void> {
-  // Reachable by any signed-in user with any stash cookie: the same capped look-up as Sign Out (loginAsLookup).
-  const sessionParties = typeof claims.session_id === 'string'
-    ? await cappedLoginAsLookup(claims.session_id, 'end-impersonation') : null;
-  if (sessionParties === 'gave_up' || sessionParties === 'skipped') return;
   const stashed = await stashPartiesOf(stashId);
-  let parties: LoginAsParties | null = sessionParties;
-  if (!parties) {
-    const callerMayEnd = claims.sub === stashed?.adminUserId || claims.sub === stashed?.targetUserId;
-    parties = stashed && callerMayEnd ? { actorUserId: stashed.adminUserId, targetUserId: stashed.targetUserId } : null;
+  if (!stashed || (claims.sub !== stashed.adminUserId && claims.sub !== stashed.targetUserId)) {
+    const revoked = await revokeLoginAsSession(accessToken, reason);
+    log.info('end-impersonation: no stash of the caller to end; its own session revoked', { revoked }, 'Admin');
+    return;
   }
-  if (!parties) return;
+  const stashParties: LoginAsParties = { actorUserId: stashed.adminUserId, targetUserId: stashed.targetUserId };
+  const lookup = typeof claims.session_id === 'string'
+    ? await cappedLoginAsLookup(claims.session_id, 'end-impersonation') : null;
+  if (lookup === 'skipped' || lookup === 'gave_up') {
+    log.warn('end-impersonation: Login-as look-up unavailable; ending by the verified stash and the own session',
+      { lookup }, 'Admin');
+    const endId = await recordLoginAsEnd(stashParties, { stashId }, { reason, lookup });
+    const callerRevoked = await revokeLoginAsSession(accessToken, reason);
+    const stashesRemoved = await removeLoginAsStashes(stashParties, stashId, reason);
+    await noteLoginAsEnd(endId, { caller_session_revoked: callerRevoked, stashes_removed: stashesRemoved });
+    return;
+  }
+  const sessionParties = lookup;
+  const parties: LoginAsParties = sessionParties ?? stashParties;
   // The end row's key is what the server verified (security review, #1371): the session record behind this token,
-  // and the cookie's stash id only when that stash row exists and is these parties'.
-  const stashVerified = stashed?.adminUserId === parties.actorUserId && stashed.targetUserId === parties.targetUserId;
+  // and the stash id only when that stash row is these parties'.
+  const stashVerified = stashed.adminUserId === parties.actorUserId && stashed.targetUserId === parties.targetUserId;
   const endId = await recordLoginAsEnd(parties, {
     sessionId: sessionParties ? String(claims.session_id) : undefined,
     stashId: stashVerified ? stashId : undefined,
