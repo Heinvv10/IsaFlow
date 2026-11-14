@@ -18,12 +18,13 @@
 
 import { log } from '@/lib/logger';
 import { generateFiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearGenerator';
+import { trialEndsAt } from './trialPeriod';
 
 /** R1 000 000 in cents. Below this, a declared turnover qualifies for PAYG. */
 export const TURNOVER_THRESHOLD_CENTS = 100_000_000;
 
-/** Length of the free trial granted to every new tenant. */
-export const TRIAL_DAYS = 30;
+// The trial length and end date live in ./trialPeriod; re-exported for existing importers.
+export { TRIAL_DAYS, trialEndsAt } from './trialPeriod';
 
 export type SignupType = 'direct' | 'accountant';
 
@@ -47,11 +48,6 @@ export function suggestedPlanCode(
   if (signupType === 'accountant') return null;
   if (isPaygEligible(annualTurnoverCents)) return 'payg';
   return annualTurnoverCents !== null ? 'starter' : null;
-}
-
-/** Trial expiry for a tenant created at `from`. */
-export function trialEndsAt(from: Date): Date {
-  return new Date(from.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
 }
 
 /**
