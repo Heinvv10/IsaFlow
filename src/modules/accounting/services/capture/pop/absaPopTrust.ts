@@ -16,6 +16,8 @@ import { log } from '@/lib/logger';
 
 export const ABSA_NOTICE_SENDER = 'ibreply@absa.co.za';
 const ABSA_SIGNING_DOMAIN = 'absa.co.za';
+/** The selector ABSA signs notices with (s=homebanking). Only its lookup failure is a DNS outage worth retrying. */
+const ABSA_NOTICE_SELECTOR = 'homebanking';
 
 export type TrustResult =
   | { trusted: true }
@@ -28,6 +30,7 @@ export interface TrustOptions {
 
 interface DkimResultLike {
   signingDomain?: string;
+  selector?: string;
   status?: { result?: string; underSized?: number };
 }
 
@@ -48,8 +51,11 @@ export async function isTrustedAbsaNotice(raw: Buffer, opts: TrustOptions = {}):
     && r.signingDomain?.toLowerCase() === ABSA_SIGNING_DOMAIN
     && !r.status.underSized);
   if (signed) return { trusted: true };
-  // A key lookup that failed for want of DNS says nothing about the message: the caller retries it.
+  // A failed lookup of ABSA's own key says nothing about the message: the caller retries it. A
+  // temperror on any other selector is a plain failure: a sender can name any selector, and a
+  // lookup that never answers must not make its message retried forever.
   const lookupFailed = (verified.results ?? []).some((r) =>
-    r.status?.result === 'temperror' && r.signingDomain?.toLowerCase() === ABSA_SIGNING_DOMAIN);
+    r.status?.result === 'temperror' && r.signingDomain?.toLowerCase() === ABSA_SIGNING_DOMAIN
+    && r.selector?.toLowerCase() === ABSA_NOTICE_SELECTOR);
   return { trusted: false, reason: lookupFailed ? 'dns_unavailable' : 'no_absa_signature' };
 }

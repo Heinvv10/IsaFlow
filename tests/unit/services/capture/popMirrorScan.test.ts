@@ -31,6 +31,8 @@ const h = vi.hoisted(() => ({
   payerTrusted: true,
   stored: 0,
   stamps: [] as Array<{ text: string; params: unknown[] }>,
+  internalDate: undefined as Date | undefined,
+  fetchQuery: null as null | Record<string, unknown>,
 }));
 
 vi.mock('imapflow', () => ({
@@ -42,7 +44,7 @@ vi.mock('imapflow', () => ({
     async connect() { /* fake */ }
     async logout() { /* fake */ }
     async getMailboxLock() { return { release: () => undefined }; }
-    async *fetch() { yield { uid: 11, size: 100, envelope: { from: [{ address: h.envelope.from }], subject: h.envelope.subject } }; }
+    async *fetch(_range: string, query: Record<string, unknown>) { h.fetchQuery = query; yield { uid: 11, size: 100, internalDate: h.internalDate, envelope: { from: [{ address: h.envelope.from }], subject: h.envelope.subject } }; }
     async fetchOne(uid: string) { return { uid: Number(uid), source: Buffer.from('raw message') }; }
   },
 }));
@@ -115,6 +117,7 @@ beforeEach(() => {
   h.payerTrusted = true;
   h.stored = 0;
   h.stamps.length = 0;
+  h.internalDate = new Date(Date.now() - 60_000); // received a minute ago
 });
 
 describe('IMAP mirror: ABSA notice of payment', () => {
@@ -157,6 +160,19 @@ describe('IMAP mirror: ABSA notice of payment', () => {
     // The cursor is not moved past the message, and the stop is stamped with why.
     expect(h.stamps.filter((s) => s.text.includes('SET scan_cursor'))).toEqual([]);
     expect(h.stamps.find((s) => s.text.includes('last_error = $1'))?.params[0]).toMatch(/DNS/);
+    expect(h.fetchQuery).toMatchObject({ internalDate: true }); // the receive time that bounds the retry is fetched
+  });
+
+  it.each([
+    ['received over 24 hours ago', () => new Date(Date.now() - 25 * 60 * 60 * 1000)],
+    ['with no server receive time', () => undefined],
+  ])('stops retrying a DNS failure for a notice %s: logs it as not filed and moves on', async (_name, at) => {
+    h.trust = 'dns_unavailable';
+    h.internalDate = at();
+    expect(await scanConnection(conn())).toMatchObject({ ingested: 0, skipped: 1, errors: 0 });
+    notReadAsBill();
+    expect(scanLogError()).toBe('not filed: dns_unavailable');
+    expect(h.stamps.find((s) => s.text.includes('SET scan_cursor'))?.params[0]).toBe('{"INBOX":11}');
   });
 
   it('does not file or read as a bill a trusted notice whose PDF does not read as a complete notice', async () => {

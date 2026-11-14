@@ -219,7 +219,7 @@ async function scanBody(conn: MirrorConnection, result: ScanResult, guard: ScanG
         try {
           // Once per message, before any attachment: a failure here leaves nothing half-ingested.
           const inboxId = await ensureMirrorInbox(conn.companyId, conn.accountEmail);
-          if (absaNotice) ({ popIds, notFiled } = await fileAbsaNotice(conn.companyId, source, attachments, () => guard.check()));
+          if (absaNotice) ({ popIds, notFiled } = await fileAbsaNotice(conn.companyId, source, attachments, () => guard.check(), meta.internalDate));
           for (const att of absaNotice ? [] : attachments) { // a notice is never read as a bill
             guard.check(); // an abandoned scan ingests nothing more
             const eventId = await ingestAttachment(conn, inboxId, parsed, att);

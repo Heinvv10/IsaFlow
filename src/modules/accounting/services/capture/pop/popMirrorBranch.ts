@@ -6,8 +6,10 @@
  * bill capture ingest. Only a message whose DKIM signature verifies as ABSA's (absaPopTrust.ts),
  * from a trusted payer, with a PDF that reads as a complete notice, is filed. Anything else is
  * NOT captured (a payment notice read as a supplier bill is worse than none) but logged: its
- * reasons go to the scan log as outcome 'pop_not_filed'. A DKIM key lookup that failed for
- * want of DNS is transient: the scan stops at the message and retries it next tick.
+ * reasons go to the scan log as outcome 'pop_not_filed'. A lookup of ABSA's key that failed for
+ * want of DNS is transient for DNS_RETRY_MS after the server received the message (IMAP
+ * INTERNALDATE, not sender-set): the scan stops at it and retries next tick. After that, or with
+ * no receive time, it is logged as not filed so one message cannot hold the mailbox.
  */
 import type { Attachment } from 'mailparser';
 import { log } from '@/lib/logger';
@@ -24,6 +26,9 @@ export function isNoticeAttachment(att: Attachment): boolean {
   return Buffer.isBuffer(att.content) && isPdfBytes(att.content);
 }
 
+/** How long after receipt a DNS failure on ABSA's key holds the mailbox for a retry. */
+export const DNS_RETRY_MS = 24 * 60 * 60 * 1000;
+
 export interface NoticeFiling {
   /** proof_of_payments ids filed from this message. */
   popIds: string[];
@@ -36,10 +41,16 @@ export async function fileAbsaNotice(
   source: Buffer,
   attachments: Attachment[],
   check: () => void,
+  receivedAt: Date | string | undefined,
+  now: number = Date.now(),
 ): Promise<NoticeFiling> {
   const trust = await isTrustedAbsaNotice(source);
   if (!trust.trusted) {
-    if (trust.reason === 'dns_unavailable') throw new TransientIngestError('ABSA DKIM key lookup failed (DNS); retried next scan');
+    const received = receivedAt === undefined ? NaN : new Date(receivedAt).getTime();
+    const age = Number.isNaN(received) ? Infinity : now - received;
+    if (trust.reason === 'dns_unavailable' && age < DNS_RETRY_MS) {
+      throw new TransientIngestError('ABSA DKIM key lookup failed (DNS); retried next scan');
+    }
     log.warn('ABSA-looking notice failed verification; not filed', { companyId, reason: trust.reason }, 'pop-inbox');
     return { popIds: [], notFiled: attachments.map(() => trust.reason) };
   }

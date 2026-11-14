@@ -86,4 +86,10 @@ describe('isTrustedAbsaNotice', () => {
     const failing = async (): Promise<string[][]> => { throw Object.assign(new Error('timeout'), { code: 'ETIMEOUT' }); };
     expect(await isTrustedAbsaNotice(raw, { resolver: failing })).toEqual({ trusted: false, reason: 'dns_unavailable' });
   });
+
+  it('treats a DNS failure on a selector ABSA does not sign with as a bad signature (no endless retry)', async () => {
+    const raw = await signed(message('ibreply@absa.co.za'), 'absa.co.za', 'attacker-chosen', absaKey);
+    const failing = async (): Promise<string[][]> => { throw Object.assign(new Error('servfail'), { code: 'ESERVFAIL' }); };
+    expect(await isTrustedAbsaNotice(raw, { resolver: failing })).toEqual({ trusted: false, reason: 'no_absa_signature' });
+  });
 });
