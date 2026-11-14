@@ -574,8 +574,32 @@ describe('list_bank_transactions — paging and compact rows', () => {
 describe('suite-wide invariants', () => {
   const READ_TOOLS = MCP_TOOLS.filter((t) => !t.write);
 
-  it('exactly 75 read tools, all write:false, additionalProperties:false everywhere', () => {
-    expect(READ_TOOLS).toHaveLength(82);
+  // No exact tool totals are pinned anywhere: a pinned number conflicts with
+  // every PR that adds a tool. The counts are derived from the registry, and
+  // what is held is that the split is a partition (each tool classified once).
+  it('the read / write / write:post split partitions the registry, with no duplicate names', () => {
+    const WRITE_TOOLS = MCP_TOOLS.filter((t) => t.write);
+    const names = MCP_TOOLS.map((t) => t.name);
+    expect(names.filter((n, i) => names.indexOf(n) !== i), 'duplicate tool names').toEqual([]);
+    // A tool whose `write` classification is missing would fall into READ_TOOLS
+    // via `!t.write` and be counted as read without anyone having said so.
+    expect(MCP_TOOLS.filter((t) => typeof t.write !== 'boolean').map((t) => t.name)).toEqual([]);
+    expect(READ_TOOLS.length + WRITE_TOOLS.length).toBe(MCP_TOOLS.length);
+    const writeNames = new Set(WRITE_TOOLS.map((t) => t.name));
+    expect(READ_TOOLS.filter((t) => writeNames.has(t.name))).toEqual([]);
+    // write:post is an extra scope ON a write tool, never a read tool's.
+    const postTools = MCP_TOOLS.filter((t) => t.requiresPost);
+    expect(postTools.filter((t) => !t.write).map((t) => t.name)).toEqual([]);
+    expect(postTools.length).toBeLessThanOrEqual(WRITE_TOOLS.length);
+    // The registry holds exactly these tools, and the read list matches its read tools.
+    const registered = mcpRegistry.listTools();
+    expect(registered.map((t) => t.name).sort()).toEqual([...names].sort());
+    expect(registered.filter((t) => !t.write).map((t) => t.name).sort())
+      .toEqual(READ_TOOLS.map((t) => t.name).sort());
+  });
+
+  it('every read tool is write:false with additionalProperties:false', () => {
+    expect(READ_TOOLS.length).toBeGreaterThan(0);
     // Every registered tool is drift-guarded against CLIENT_MCP_TOOL_NAMES.
     expect(MCP_TOOLS).toHaveLength(CLIENT_MCP_TOOL_NAMES.length);
     for (const t of READ_TOOLS) {
