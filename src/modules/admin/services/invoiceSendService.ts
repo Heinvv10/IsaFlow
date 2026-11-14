@@ -9,7 +9,8 @@
  *                            row. COMMITTED before the email.
  *   2. emailInvoice          outside every transaction; sendEmail writes the email_log row on autocommit,
  *                            so no later rollback can erase the record of an email that left. SMTP is
- *                            bounded (SMTP_TIMEOUTS_MS). A throw while preparing the email (before sendEmail
+ *                            bounded: SMTP_TIMEOUTS_MS (inactivity) and SEND_DEADLINE_MS (hard ceiling: the transport
+ *                            is closed and the outcome is unknown). A throw while preparing the email (before sendEmail
  *                            runs) is InvoiceEmailNotStartedError: nothing left, and the route releases the claim.
  *   3. finaliseInvoiceSent   own transaction: status 'sent', claim cleared, `invoice.send` audit row.
  *      releaseInvoiceClaim   or, when nothing left: claim cleared, `invoice.send_failed`.
@@ -29,7 +30,7 @@ import { withOwnPlatformAdminTx } from '@/lib/auth/platformAdminOwnTx';
 import { sendEmail, type EmailResult } from '@/modules/accounting/services/core/emailService';
 import { logAdminAction } from './auditService';
 import { adminInvoiceEmail } from './adminInvoiceEmail';
-import { SEND_SETTLE_AFTER_MS, SMTP_TIMEOUTS_MS } from './invoiceSendTiming';
+import { SEND_DEADLINE_MS, SEND_SETTLE_AFTER_MS, SMTP_TIMEOUTS_MS } from './invoiceSendTiming';
 
 
 export interface InvoiceForSend {
@@ -126,6 +127,7 @@ export async function emailInvoice(invoice: InvoiceForSend, sentBy: string): Pro
     subject: message.subject,
     html: message.html,
     smtpTimeoutsMs: SMTP_TIMEOUTS_MS,
+    deadlineMs: SEND_DEADLINE_MS,
     _log: { companyId: invoice.company_id, emailType: 'invoice', sentBy },
   }));
 }

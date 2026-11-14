@@ -3,16 +3,25 @@
  * database, no mail, so the page can import it.
  */
 
-/** connection / greeting / socket inactivity, ms: an admin is waiting on the answer. Ceiling 15 + 15 + 20 = 50 s. */
+/**
+ * connection / greeting / socket INACTIVITY timeouts, ms. Not a ceiling on a send: socketTimeout restarts on every
+ * reply, and a send is about ten round trips, so a slow server can stretch one far past their sum.
+ */
 export const SMTP_TIMEOUTS_MS = { connection: 15_000, greeting: 15_000, socket: 20_000 } as const;
 
 /**
- * How old a claim must be before an admin may settle it (mark sent / release). It must stay ABOVE the SMTP
- * ceiling (SMTP_TIMEOUTS_MS: 15 + 15 + 20 = 50 s) plus the claim and finalise transactions (lock_timeout 5 s
- * each): a claim younger than this may belong to a Send still talking to the mail server, and settling it then
- * would mark sent an email the customer never got, or release it into a duplicate send. 2 minutes.
+ * The hard ceiling on one Send's SMTP conversation, ms. Past it sendEmail closes the transport and reports the
+ * outcome as unknown (the server may already have accepted the message), so the claim stays.
  */
-export const SEND_SETTLE_AFTER_MS = 2 * 60_000;
+export const SEND_DEADLINE_MS = 45_000;
+
+/**
+ * How old a claim must be before an admin may settle it (mark sent / release). It must exceed, with wide margin,
+ * everything a Send can still be doing while it holds the claim: the hard deadline (SEND_DEADLINE_MS, 45 s) plus
+ * the claim and finalise transactions (lock_timeout 5 s each). Settling a claim younger than that could mark sent
+ * an email the customer never got, or release it into a duplicate send. 10 minutes.
+ */
+export const SEND_SETTLE_AFTER_MS = 10 * 60_000;
 
 /** True once the claim is old enough to settle (see SEND_SETTLE_AFTER_MS). */
 export function isClaimSettleable(claimedAt: string | Date, nowMs: number = Date.now()): boolean {

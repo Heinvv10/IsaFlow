@@ -18,10 +18,16 @@ import { Pool } from 'pg';
 
 const mail = vi.hoisted(() => {
   const sendMail = vi.fn(async (_opts: Record<string, unknown>) => ({ messageId: 'wp7-claim-mock' }));
-  const createTransport = vi.fn((_cfg: Record<string, unknown>) => ({ sendMail }));
-  return { sendMail, createTransport };
+  const close = vi.fn();
+  const createTransport = vi.fn((_cfg: Record<string, unknown>) => ({ sendMail, close }));
+  return { sendMail, close, createTransport };
 });
 vi.mock('nodemailer', () => ({ default: { createTransport: mail.createTransport }, createTransport: mail.createTransport }));
+// The real 45 s hard deadline, shortened for the suite (the mechanism is the same; see invoiceSendTiming.ts).
+vi.mock('@/modules/admin/services/invoiceSendTiming', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/admin/services/invoiceSendTiming')>()),
+  SEND_DEADLINE_MS: 1_500,
+}));
 
 import sendRoute from '../../pages/api/admin/billing/invoices/[id]/send';
 import markPaidRoute from '../../pages/api/admin/billing/invoices/[id]/mark-paid';
@@ -89,7 +95,7 @@ beforeAll(async () => {
   await pool.query(`INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'super_admin',true)`, [admin, `${admin}@test.local`]);
 }, 60000);
 
-beforeEach(() => { mail.sendMail.mockClear(); mail.createTransport.mockClear(); });
+beforeEach(() => { mail.sendMail.mockClear(); mail.createTransport.mockClear(); mail.close.mockClear(); });
 
 afterAll(async () => {
   try {
@@ -178,6 +184,21 @@ describe('WP7 send: claim, then email, then finalise', () => {
     const retry = await send(id);
     expect(retry.status).toBe(409);
     expect(mail.sendMail).toHaveBeenCalledTimes(1);
+  }, 60000);
+
+  it('a mail server that never finishes is cut at the hard deadline: transport closed, outcome unknown, claim kept', async () => {
+    const id = await draft();
+    mail.sendMail.mockImplementationOnce(() => new Promise(() => { /* the server keeps the conversation going */ }));
+    const started = Date.now();
+    const r = await Promise.race([send(id), new Promise<'hung'>((res) => setTimeout(() => res('hung'), 10_000))]);
+    expect(r, 'no hard deadline: the Send waited on the mail server').not.toBe('hung');
+    const result = r as Result;
+    expect(result.status, JSON.stringify(result.body)).toBe(424);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(result.body.error?.message).toMatch(/did not confirm/);
+    expect(mail.close).toHaveBeenCalled();
+    expect((await row(id)).send_claimed_at).not.toBeNull();
+    expect(await audits(id, 'invoice.send_unknown')).toBe(1);
   }, 60000);
 
   it('never answers sent:true when the status did not change', async () => {

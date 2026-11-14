@@ -6,7 +6,7 @@
  *  - asks before Send (emails the customer) and before Mark Paid, and sends nothing on Cancel;
  *  - sends X-Admin-Request on every write.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockedApiFetchModule, useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
@@ -132,7 +132,7 @@ describe('admin invoices page (WP7)', () => {
 
   it.each([['Release, not sent', 'released'], ['Mark as sent', 'sent']] as const)(
     'a claimed row shows its unknown outcome, has no Send, and settles with "%s"', async (label, outcome) => {
-      const claimedAt = new Date(Date.now() - 12 * 60_000).toISOString(); // past the 2-minute settle bound
+      const claimedAt = new Date(Date.now() - 12 * 60_000).toISOString(); // past the 10-minute settle bound
       serve([{ ...INVOICE, send_claimed_at: claimedAt }], () => ({ settled: true, outcome }));
       render(<InvoicesPage />);
       expect(await screen.findByText(new RegExp(`Sending — outcome unknown since ${formatDisplayDateTime(claimedAt)}`))).toBeTruthy();
@@ -148,12 +148,30 @@ describe('admin invoices page (WP7)', () => {
       expect(posts('/send')).toHaveLength(0);
     });
 
-  it('a claim younger than 2 minutes shows "Sending…": no Settle and no Send yet', async () => {
+  it('a claim younger than 10 minutes shows "Sending…": no Settle and no Send yet', async () => {
     serve([{ ...INVOICE, send_claimed_at: new Date(Date.now() - 10_000).toISOString() }]);
     render(<InvoicesPage />);
     expect(await screen.findByText('Sending…')).toBeTruthy();
     expect(screen.queryByText(/outcome unknown/)).toBeNull();
     expect(screen.queryByTitle('Settle send')).toBeNull();
     expect(screen.queryByTitle('Send')).toBeNull();
+  });
+
+  it('a claim reaching the settle age re-renders on its own, without a reload: "Sending…" becomes Settle', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      serve([{ ...INVOICE, send_claimed_at: new Date(Date.now() - (10 * 60_000 - 5_000)).toISOString() }]);
+      render(<InvoicesPage />);
+      expect(await screen.findByText('Sending…')).toBeTruthy();
+      expect(screen.queryByTitle('Settle send')).toBeNull();
+      const gets = () => calls().filter((c) => (c.init.method ?? 'GET') === 'GET').length;
+      await waitFor(() => expect(gets()).toBe(2)); // mount + the 300 ms debounce: both settled before the clock moves
+      await act(async () => { await vi.advanceTimersByTimeAsync(6_000); });
+      expect(screen.getByText(/Sending — outcome unknown since/)).toBeTruthy();
+      expect(screen.getByTitle('Settle send')).toBeTruthy();
+      expect(gets()).toBe(2); // the row changed from a timer, not from a refetch
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

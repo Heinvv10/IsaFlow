@@ -11,7 +11,7 @@ import { ConfirmModal } from '@/components/admin/ConfirmModal';
 import { CreateInvoiceModal } from '@/components/admin/billing/CreateInvoiceModal';
 import { SettleSendModal } from '@/components/admin/billing/SettleSendModal';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
-import { isClaimSettleable } from '@/modules/admin/services/invoiceSendTiming';
+import { isClaimSettleable, SEND_SETTLE_AFTER_MS } from '@/modules/admin/services/invoiceSendTiming';
 import { type Invoice, type PagedResponse } from '@/components/admin/billing/invoiceModel';
 
 type InvoiceAction = 'send' | 'mark_paid';
@@ -42,6 +42,8 @@ export default function InvoicesPage() {
   const [notice, setNotice]       = useState('');
   // A claimed invoice (a Send whose outcome is unknown) being settled.
   const [settling, setSettling]   = useState<Invoice | null>(null);
+  // Bumped when a shown claim reaches the settle age, so its row re-renders: "Sending…" -> "outcome unknown" + Settle.
+  const [, setClaimTick]          = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const LIMIT = 25;
 
@@ -78,6 +80,18 @@ export default function InvoicesPage() {
   }, [search, status, dateFrom, dateTo, load]);
 
   useEffect(() => { void load(search, status, dateFrom, dateTo, page); }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // One timer, for the next claim on screen to reach SEND_SETTLE_AFTER_MS; it re-arms for the one after on re-render.
+  useEffect(() => {
+    const now = Date.now();
+    const waits = rows
+      .filter((r) => r.status === 'draft' && r.send_claimed_at && !isClaimSettleable(r.send_claimed_at, now))
+      .map((r) => Date.parse(r.send_claimed_at as string) + SEND_SETTLE_AFTER_MS - now)
+      .filter((ms) => Number.isFinite(ms));
+    if (waits.length === 0) return undefined;
+    const timer = setTimeout(() => setClaimTick((n) => n + 1), Math.max(0, Math.min(...waits)) + 50);
+    return () => clearTimeout(timer);
+  });
 
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
 

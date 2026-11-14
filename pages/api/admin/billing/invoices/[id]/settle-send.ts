@@ -5,7 +5,7 @@
  *   'sent'      it was delivered: status 'sent', claim cleared;
  *   'released'  it was not: claim cleared, the draft can be sent again.
  * Audited `invoice.send_settled` { outcome }. 404 no such invoice; 409 no claim to settle (not a claimed draft), or
- * the claim is younger than SEND_SETTLE_AFTER_MS (2 min, above the SMTP ceiling): the send may still be in flight.
+ * the claim is younger than SEND_SETTLE_AFTER_MS (10 min, well above the 45 s hard send deadline): the send may still be in flight.
  */
 
 import type { NextApiResponse } from 'next';

@@ -9,6 +9,7 @@ import * as path from 'node:path';
 import { log } from '@/lib/logger';
 import { markQuotaUsed, markSendUsedUnlessNotSent, smtpErrorProvesNotSent } from '@/lib/quotaUse';
 import { sql, withSavepoint } from '@/lib/neon';
+import { withSendDeadline } from './smtpDeadline';
 
 // Resolve the logo once at module load — path works in both dev and production standalone
 const LOGO_PATH = (() => {
@@ -90,6 +91,8 @@ export interface EmailOptions {
    * (nodemailer's own defaults are 2 min to connect and 10 min of socket inactivity). Omitted: those defaults.
    */
   smtpTimeoutsMs?: { connection: number; greeting: number; socket: number };
+  /** Hard ceiling on the whole send, ms (smtpDeadline.ts): past it the transport is closed; the outcome is unknown. */
+  deadlineMs?: number;
 }
 
 export interface EmailResult {
@@ -208,7 +211,8 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
       ],
     };
 
-    const info = await transporter.sendMail(mailOptions);
+    const sending = transporter.sendMail(mailOptions);
+    const info = options.deadlineMs ? await withSendDeadline(sending, options.deadlineMs, () => transporter.close()) : await sending;
     // The mail server accepted it: one unit of the request's daily send quota is spent (R-175).
     markQuotaUsed('send');
 

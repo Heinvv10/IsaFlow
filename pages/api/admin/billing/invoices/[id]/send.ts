@@ -30,9 +30,11 @@ import {
   claimInvoiceForSend, emailInvoice, finaliseInvoiceSent, InvoiceEmailNotStartedError, recordSendUnknown, releaseInvoiceClaim,
 } from '@/modules/admin/services/invoiceSendService';
 import { getIp } from '@/utils/getIp';
+import { SEND_SETTLE_AFTER_MS } from '@/modules/admin/services/invoiceSendTiming';
 
 const PostBody = z.object({ confirmed_to: z.string().max(320) }).strict();
-const UNKNOWN_OUTCOME = 'A send of this invoice is in progress or its outcome is unknown. Check the email log, then settle it from the invoice list';
+const SETTLE_MINUTES = SEND_SETTLE_AFTER_MS / 60_000;
+const UNKNOWN_OUTCOME = `A send of this invoice is in progress or its outcome is unknown. Check the email log; Settle becomes available in the invoice list ${SETTLE_MINUTES} minutes after the send started`;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
@@ -85,7 +87,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     log.error('Invoice email outcome unknown; claim kept', { id, error: result.error }, 'admin-api');
     await recordSendUnknown(invoice, ip, result.error ?? 'unknown');
     return apiResponse.error(res, ErrorCode.DEPENDENCY_ERROR,
-      `The mail server did not confirm the email to ${invoice.billing_email}. ${UNKNOWN_OUTCOME}`);
+      `The mail server did not confirm the email to ${invoice.billing_email}. Check the email log; Settle becomes available after ${SETTLE_MINUTES} minutes`);
   }
 
   try {

@@ -35,14 +35,14 @@ const send = (id: string, to = fx.billing) => fx.call(sendRoute as never, { conf
 const settle = (id: string, outcome: string) => fx.call(settleRoute as never, { outcome }, id);
 /**
  * A draft whose Send timed out: the claim stays (outcome unknown). `old` backdates the claim past
- * SEND_SETTLE_AFTER_MS (2 min), the age a claim must reach before it may be settled.
+ * SEND_SETTLE_AFTER_MS (10 min), the age a claim must reach before it may be settled.
  */
 async function stranded(old = true): Promise<string> {
   const id = await fx.draft();
   mail.sendMail.mockRejectedValueOnce(Object.assign(new Error('Timeout'), { code: 'ETIMEDOUT' }));
   fx.expectStatus(await send(id), 424);
   expect((await fx.row(id)).send_claimed_at).not.toBeNull();
-  if (old) await fx.pool.query("UPDATE admin_invoices SET send_claimed_at = NOW() - interval '3 minutes' WHERE id=$1", [id]);
+  if (old) await fx.pool.query("UPDATE admin_invoices SET send_claimed_at = NOW() - interval '11 minutes' WHERE id=$1", [id]);
   return id;
 }
 function gate() {
@@ -134,8 +134,10 @@ describe('WP7 settle a send whose outcome is unknown', () => {
     expect(await fx.audits(id, 'invoice.send_settled')).toBe(0);
   }, 60000);
 
-  it('a claim younger than 2 minutes is refused either way: still in progress, nothing changes', async () => {
+  it('a claim younger than 10 minutes is refused either way: still in progress, nothing changes', async () => {
     const id = await stranded(false);
+    // 9 minutes: past the hard 45 s deadline and the old 2-minute bound, still inside SEND_SETTLE_AFTER_MS.
+    await fx.pool.query("UPDATE admin_invoices SET send_claimed_at = NOW() - interval '9 minutes' WHERE id=$1", [id]);
     const before = await fx.row(id);
     for (const outcome of ['sent', 'released']) {
       const r = await settle(id, outcome);
