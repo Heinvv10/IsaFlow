@@ -13,8 +13,8 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const sfx = crypto.randomUUID().slice(0, 8);
-const [alice, bob, carol, ghost] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
-const [coActive, coNever, coMixed] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+const [alice, bob, carol, dave, ghost] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+const [coActive, coNever, coMixed, coSuspended] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
 
 async function stamp(user: string): Promise<{ last: Date | null; count: number }> {
   const r = await pool.query('SELECT last_login, login_count FROM users WHERE id = $1', [user]);
@@ -28,7 +28,8 @@ beforeAll(async () => {
   for (const u of [alice, bob, carol]) {
     await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'viewer', true)`, [u, `${u}@wp3-${sfx}.test`]);
   }
-  for (const [id, name] of [[coActive, 'Active'], [coNever, 'Never'], [coMixed, 'Mixed']] as const) {
+  await pool.query(`INSERT INTO users (id, email, role, is_active, last_login) VALUES ($1, $2, 'viewer', false, NOW())`, [dave, `${dave}@wp3-${sfx}.test`]);
+  for (const [id, name] of [[coActive, 'Active'], [coNever, 'Never'], [coMixed, 'Mixed'], [coSuspended, 'Suspended']] as const) {
     await pool.query(`INSERT INTO companies (id, name, created_at, updated_at) VALUES ($1, $2, NOW(), NOW())`, [id, `WP3 ${name} ${sfx}`]);
   }
   const link = (c: string, u: string) => pool.query(`INSERT INTO company_users (user_id, company_id, role) VALUES ($1, $2, 'viewer')`, [u, c]);
@@ -36,14 +37,16 @@ beforeAll(async () => {
   await link(coNever, carol);
   await link(coMixed, alice);
   await link(coMixed, bob);
+  await link(coSuspended, dave);
+  await link(coMixed, dave);
 }, 60000);
 
 afterAll(async () => {
   try {
-    const users = [alice, bob, carol];
+    const users = [alice, bob, carol, dave];
     await pool.query('DELETE FROM company_users WHERE user_id = ANY($1)', [users]);
     await pool.query('DELETE FROM users WHERE id = ANY($1)', [users]);
-    await pool.query('DELETE FROM companies WHERE id = ANY($1)', [[coActive, coNever, coMixed]]);
+    await pool.query('DELETE FROM companies WHERE id = ANY($1)', [[coActive, coNever, coMixed, coSuspended]]);
   } finally {
     await pool.end();
     vi.unstubAllEnvs();
@@ -99,6 +102,38 @@ describe('recordSignIn', () => {
     }
   });
 
+  it('a request in flight (FOR KEY SHARE on the user row, as an FK insert takes) does not stop the stamp', async () => {
+    const { recordSignIn } = await import('@/lib/auth/recordSignIn');
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT id FROM users WHERE id = $1 FOR KEY SHARE', [carol]);
+      expect(await recordSignIn(carol)).toBe(true);
+      expect((await stamp(carol)).count).toBe(1);
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    await pool.query('UPDATE users SET last_login = NULL, login_count = 0 WHERE id = $1', [carol]);
+  });
+
+  it('a stuck table lock cancels the stamp at its statement_timeout instead of holding the connection', async () => {
+    const { recordSignIn, SIGN_IN_STAMP_TIMEOUT_MS } = await import('@/lib/auth/recordSignIn');
+    const holder = await pool.connect();
+    let outcome: unknown;
+    const t0 = Date.now();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('LOCK TABLE users IN ACCESS EXCLUSIVE MODE');
+      outcome = await recordSignIn(alice).then(() => 'stamped', (e: Error) => e.message);
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    expect(outcome).toMatch(/statement timeout/);
+    expect(Date.now() - t0).toBeLessThan(SIGN_IN_STAMP_TIMEOUT_MS + 3000);
+  });
+
   it('a user with no profile row records nothing and does not throw', async () => {
     const { recordSignIn } = await import('@/lib/auth/recordSignIn');
     expect(await recordSignIn(ghost)).toBe(false);
@@ -127,6 +162,15 @@ describe('company Last Active is the latest member sign-in', () => {
     const seen = await sees(coMixed);
     expect(seen.detail).toBe(aliceLast);
     expect(seen.list).toBe(aliceLast);
+  });
+
+  it('ignores a suspended member (as churn signals do): a company with only a suspended member that signed in is never active', async () => {
+    const seen = await sees(coSuspended);
+    expect(seen.detail).toBeNull();
+    expect(seen.list).toBeNull();
+    // and in a mixed company the suspended member (signed in just now) does not outrank the active ones
+    const mixed = await sees(coMixed);
+    expect(mixed.detail).toBe((await stamp(alice)).last!.toISOString());
   });
 
   it('is null when no member ever signed in, however recently the row was edited', async () => {

@@ -39,7 +39,7 @@ vi.mock('@/lib/auth/accountLockout', () => ({
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
 const requireActiveAccount = vi.hoisted(() => vi.fn(async () => null as unknown));
 vi.mock('@/lib/auth/requireActiveAccount', () => ({ requireActiveAccount: (...a: unknown[]) => requireActiveAccount(...(a as [])) }));
-const recordSignInSafely = vi.hoisted(() => vi.fn(async () => undefined));
+const recordSignInSafely = vi.hoisted(() => vi.fn(async (): Promise<void> => undefined));
 vi.mock('@/lib/auth/recordSignIn', () => ({ recordSignInSafely: (...a: unknown[]) => recordSignInSafely(...(a as [])) }));
 
 import challengeHandler from '../../../../pages/api/auth/2fa-challenge';
@@ -71,6 +71,14 @@ describe('POST /api/auth/2fa-challenge records the sign-in', () => {
     expect(res.statusCode).toBe(200);
     expect(recordSignInSafely).toHaveBeenCalledTimes(1);
     expect(recordSignInSafely).toHaveBeenCalledWith('user-1', '2fa-challenge');
+  });
+
+  it('the response does not wait for the stamp: a hung stamp cannot hold the sign-in, and is still attempted once', async () => {
+    recordSignInSafely.mockReturnValueOnce(new Promise(() => undefined));
+    const { req, res } = await mkReqRes();
+    await (challengeHandler as unknown as Handler)(req, res);
+    expect(res.statusCode).toBe(200);
+    expect(recordSignInSafely).toHaveBeenCalledTimes(1);
   });
 
   it('a wrong code records nothing', async () => {

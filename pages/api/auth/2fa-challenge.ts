@@ -105,7 +105,7 @@ const handler: NextApiHandler = async (req, res) => {
     clearPendingMfaCookie(res);
     clearPendingRememberCookie(res);
     if (email) await clearLockout(email, ip);
-    await recordSignInSafely(userId, '2fa-challenge');
+    void recordSignInSafely(userId, '2fa-challenge');
 
     return res.status(200).json({
       success: true,

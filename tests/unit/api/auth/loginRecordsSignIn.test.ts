@@ -36,7 +36,7 @@ vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async (strings: TemplateStringsArray) =>
     (/FROM users/i.test(strings.join('?')) ? accountRows : [{ company_id: 'company-1', is_default: true, created_at: new Date() }])),
 }));
-const recordSignInSafely = vi.fn(async () => undefined);
+const recordSignInSafely = vi.fn(async (): Promise<void> => undefined);
 vi.mock('@/lib/auth/recordSignIn', () => ({ recordSignInSafely: (...a: unknown[]) => recordSignInSafely(...(a as [])) }));
 
 import loginHandler from '../../../../pages/api/auth/login';
@@ -67,6 +67,14 @@ describe('POST /api/auth/login records the sign-in', () => {
     expect(res.statusCode).toBe(200);
     expect(recordSignInSafely).toHaveBeenCalledTimes(1);
     expect(recordSignInSafely).toHaveBeenCalledWith('user-1', 'login');
+  });
+
+  it('the response does not wait for the stamp: a hung stamp cannot hold the sign-in, and is still attempted once', async () => {
+    recordSignInSafely.mockReturnValueOnce(new Promise(() => undefined));
+    const { req, res } = mockReqRes();
+    await (loginHandler as unknown as Handler)(req, res);
+    expect(res.statusCode).toBe(200);
+    expect(recordSignInSafely).toHaveBeenCalledTimes(1);
   });
 
   it('a wrong password records nothing', async () => {
