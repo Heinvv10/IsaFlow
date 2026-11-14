@@ -94,6 +94,20 @@ describe('parseAbsaPopText', () => {
     expect(parseAbsaPopText(`${LAYOUT_BUSINESS}\nDear SOMEONE ELSE`)).toEqual({ ok: false, reason: 'missing_payer_profile' });
   });
 
+  it.each([
+    ['a beneficiary over 200 characters', (t: string) => t.replace('Payment made to: JANE Q PUBLIC', `Payment made to: ${'J'.repeat(201)}`)],
+    ['a reference with a NUL byte', (t: string) => t.replace('Reference on beneficiary statement: Example Ref', 'Reference on beneficiary statement: Ex\u0000ample')],
+    ['a payer profile over 200 characters', (t: string) => t.replace('Dear EXAMPLE TRADING PTY LTD', `Dear ${'E'.repeat(201)}`)],
+    ['an amount beyond NUMERIC(14,2)', (t: string) => t.replace('3 000.00', '1 000 000 000 000.00')],
+  ])('refuses (for a person to review) %s, which the table cannot store', (_name, edit) => {
+    expect(parseAbsaPopText(edit(LAYOUT_BUSINESS))).toEqual({ ok: false, reason: 'unstorable_field' });
+  });
+
+  it('accepts the largest amount the table stores', () => {
+    const r = parseAbsaPopText(LAYOUT_BUSINESS.replace('3 000.00', '999 999 999 999.99'));
+    expect(r.ok && r.pop.amountCents).toBe(99_999_999_999_999);
+  });
+
   it('returns null optional fields when they are absent', () => {
     const text = LAYOUT_BUSINESS.split('\n').filter((l) => !/^(Beneficiary bank name|Reference on)/.test(l)).join('\n');
     const r = parseAbsaPopText(text);

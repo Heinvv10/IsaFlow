@@ -19,7 +19,7 @@ const ABSA_SIGNING_DOMAIN = 'absa.co.za';
 
 export type TrustResult =
   | { trusted: true }
-  | { trusted: false; reason: 'not_absa_notice_sender' | 'no_absa_signature' };
+  | { trusted: false; reason: 'not_absa_notice_sender' | 'no_absa_signature' | 'dns_unavailable' };
 
 export interface TrustOptions {
   /** DNS TXT resolver (tests); defaults to the system resolver. */
@@ -47,5 +47,9 @@ export async function isTrustedAbsaNotice(raw: Buffer, opts: TrustOptions = {}):
     r.status?.result === 'pass'
     && r.signingDomain?.toLowerCase() === ABSA_SIGNING_DOMAIN
     && !r.status.underSized);
-  return signed ? { trusted: true } : { trusted: false, reason: 'no_absa_signature' };
+  if (signed) return { trusted: true };
+  // A key lookup that failed for want of DNS says nothing about the message: the caller retries it.
+  const lookupFailed = (verified.results ?? []).some((r) =>
+    r.status?.result === 'temperror' && r.signingDomain?.toLowerCase() === ABSA_SIGNING_DOMAIN);
+  return { trusted: false, reason: lookupFailed ? 'dns_unavailable' : 'no_absa_signature' };
 }

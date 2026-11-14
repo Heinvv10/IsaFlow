@@ -215,12 +215,12 @@ async function scanBody(conn: MirrorConnection, result: ScanResult, guard: ScanG
 
         const eventIds: string[] = [];
         let popIds: string[] = [];
+        let notFiled: string[] = [];
         try {
           // Once per message, before any attachment: a failure here leaves nothing half-ingested.
           const inboxId = await ensureMirrorInbox(conn.companyId, conn.accountEmail);
-          let toCapture = attachments;
-          if (absaNotice) ({ popIds, toCapture } = await fileAbsaNotice(conn.companyId, source, attachments, () => guard.check()));
-          for (const att of toCapture) {
+          if (absaNotice) ({ popIds, notFiled } = await fileAbsaNotice(conn.companyId, source, attachments, () => guard.check()));
+          for (const att of absaNotice ? [] : attachments) { // a notice is never read as a bill
             guard.check(); // an abandoned scan ingests nothing more
             const eventId = await ingestAttachment(conn, inboxId, parsed, att);
             if (eventId) eventIds.push(eventId); // null: the tenant already holds this file
@@ -229,7 +229,8 @@ async function scanBody(conn: MirrorConnection, result: ScanResult, guard: ScanG
           if (eventIds.length + popIds.length === 0) result.skipped += 1;
           await logScanEntry(conn, { imapUid: String(uid), sender: fromAddr,
             subject, attachmentCount: attachments.length,
-            outcome: eventIds.length > 0 ? 'ingested' : popIds.length > 0 ? 'pop_filed' : 'skipped_duplicate', captureEventIds: eventIds });
+            outcome: eventIds.length > 0 ? 'ingested' : popIds.length > 0 ? 'pop_filed' : notFiled.length > 0 ? 'pop_not_filed' : 'skipped_duplicate',
+            error: notFiled.length > 0 ? `not filed: ${notFiled.join(', ')}` : null, captureEventIds: eventIds });
         } catch (ingestErr) {
           if (guard.expired || isScanLockSkip(ingestErr)) throw ingestErr;
           const msg = ingestErr instanceof Error ? ingestErr.message : String(ingestErr);

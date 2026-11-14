@@ -24,7 +24,7 @@ type Row = Record<string, unknown>;
 export type PopIngestResult =
   | { filed: true; documentId: string; popId: string }
   | { filed: false; reason: 'duplicate' }
-  | { filed: false; reason: 'not_pdf' | 'unreadable_pdf' | 'payer_not_trusted' | AbsaPopReason };
+  | { filed: false; reason: 'not_pdf' | 'unreadable_pdf' | 'payer_not_trusted' | 'transaction_number_conflict' | AbsaPopReason };
 
 const PDF_MAGIC = Buffer.from('%PDF-');
 
@@ -59,15 +59,21 @@ export async function ingestAbsaPop(companyId: string, att: Attachment): Promise
   if (!(await isTrustedPayer(companyId, pop.payerProfile))) return { filed: false, reason: 'payer_not_trusted' };
 
   const sha = sha256(content);
+  const amount = (pop.amountCents / 100).toFixed(2);
   const held = (await sql`
-    SELECT 1 FROM proof_of_payments
+    SELECT payment_date::text AS payment_date, amount::text AS amount, beneficiary FROM proof_of_payments
     WHERE company_id = ${companyId}::uuid AND source = 'absa_notice'
       AND transaction_number = ${pop.transactionNumber}
     LIMIT 1
   `) as Row[];
-  if (held.length > 0 || await isFileAlreadyCaptured(companyId, sha)) return { filed: false, reason: 'duplicate' };
+  if (held[0]) {
+    // The same transaction number is the same payment only if it says the same thing: a second,
+    // different payment under a reused number is not silently dropped as a duplicate.
+    const same = held[0].payment_date === pop.paymentDate && held[0].amount === amount && held[0].beneficiary === pop.beneficiary;
+    return { filed: false, reason: same ? 'duplicate' : 'transaction_number_conflict' };
+  }
+  if (await isFileAlreadyCaptured(companyId, sha)) return { filed: false, reason: 'duplicate' };
 
-  const amount = (pop.amountCents / 100).toFixed(2);
   try {
     return await withTransaction(async (tx) => {
       const [doc] = (await tx`

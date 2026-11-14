@@ -14,11 +14,19 @@ POP inbox, phase 1 (Hein, 2026-11-14): ABSA "Notice of payment" mail reaching a 
 
 ## Business rules
 - **Whose payment**: DKIM proves ABSA sent the notice, not that this company paid (any ABSA customer can mail a genuine notice anywhere). A notice files only when its "Dear <profile>" is in `pop_trusted_payers` for the company (case/space-insensitive). That table is ops config: app_user SELECT only; seed it as migration_admin. An unlisted payer goes to capture review.
-- Only a DKIM-trusted notice from a trusted payer that parses completely is filed unattended. An untrusted ABSA-looking message, or a PDF that does not parse, goes to the normal capture ingest (VLM read, capture inbox, a person decides). Nothing is dropped.
-- A notice gets no capture_event and no VLM read. Scan log outcome `pop_filed`.
-- One row per (company, source, ABSA transaction number): pre-check, then `ON CONFLICT ON CONSTRAINT proof_of_payments_one_per_bank_txn DO NOTHING`; a lost race rolls its document back (its uploaded blob stays, unreferenced).
+- Only a DKIM-trusted notice from a trusted payer that parses completely is filed unattended.
+- **A notice is never read as a bill.** One that is not filed (failed verification, untrusted payer, unreadable, unstorable, a reused transaction number naming a different payment, a non-transient DB error) is not captured: the scan log records outcome `pop_not_filed` with `error = 'not filed: <reasons>'`. A payment notice read by the VLM as a supplier invoice would invite booking money already paid. There is no review UI yet: read the scan log.
+- A DKIM key lookup that fails for DNS (`temperror` → `dns_unavailable`) throws `TransientIngestError`: the scan stops at the message, the cursor stays before it, and the next tick retries it.
+- A filed notice gets no capture_event and no VLM read. Scan log outcome `pop_filed`.
+- `proof_of_payment` documents are excluded from the provisional-evidence attach picker (`../attachableDocuments.ts`): a payment notice is not a tax invoice.
+- One row per (company, source, ABSA transaction number): pre-check (same number with a different date, amount or beneficiary → `transaction_number_conflict`, not filed), then `ON CONFLICT ON CONSTRAINT proof_of_payments_one_per_bank_txn DO NOTHING`; a lost race rolls its document back (its uploaded blob stays, unreferenced).
 - Non-ABSA POPs are NOT filed in phase 1: widening the subject filter to "proof of payment" would capture every tenant's customer POPs as bills. Such mail keeps the mirror's existing behaviour.
 - The notice names the paying account by nickname only ("Payment made from"), never its number.
+- A field the table cannot store (text over 200 characters, a NUL byte, an amount beyond NUMERIC(14,2)) is refused by the parser (`unstorable_field`) and goes to capture review, so it cannot fail the insert and be skipped by the cursor.
+- A PDF whose exact bytes were already captured (e.g. through normal capture before its payer was trusted) reads as `duplicate` and is not filed again as a POP.
+
+## Residual risk (accepted, phase 1)
+- The payer binding is the profile name ABSA prints. Another ABSA customer whose profile carries the same name could have a genuine notice filed. ABSA business profiles are KYC'd legal-entity names, the row records nothing in the books, and phase 2 attaches a POP only to a matching debit on the company's own statement. If a stronger binding is needed, add the "Payment made from" nickname to the trusted-payer config.
 
 ## Not built yet
 - SharePoint archive copy (phase 1 step 4; needs Graph access to the VelocityFinance site).

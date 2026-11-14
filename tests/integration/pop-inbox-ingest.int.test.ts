@@ -4,6 +4,8 @@
  *   - the same notice again (same bytes, or re-encoded bytes with the same ABSA transaction number) files nothing;
  *   - two scans filing one transaction number at once leave ONE pop row and ONE document (the loser rolls back);
  *   - a genuine notice addressed to a profile the company does not trust files nothing;
+ *   - the cron's role (app_service, under forced RLS and the column grants) files a notice through the real ingest;
+ *   - app_user cannot insert a notice into another company (WITH CHECK);
  *   - app_user sees no other company's rows and cannot UPDATE or DELETE a notice (42501).
  * Storage and the PDF text layer are stubbed (no object store in CI; absaPopParser.test.ts proves the read).
  *
@@ -11,6 +13,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
+import { als } from '@/lib/als';
 import type { Attachment } from 'mailparser';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 
@@ -91,6 +94,11 @@ describeIfDb('POP inbox: filing ABSA notices', () => {
     expect(await ingestAbsaPop(A, first)).toEqual({ filed: false, reason: 'duplicate' });
     expect(await ingestAbsaPop(A, pdf('re-encoded'))).toEqual({ filed: false, reason: 'duplicate' });
     expect(await counts(A, '80AB12CD34-11')).toEqual({ pops: 1, docs: 1 });
+    // The same number naming a different payment is not a duplicate: it is refused for a person.
+    h.text = notice('80AB12CD34-11').replace('3 000.00', '2 750.00');
+    expect(await ingestAbsaPop(A, pdf('different'))).toEqual({ filed: false, reason: 'transaction_number_conflict' });
+    expect(await counts(A, '80AB12CD34-11')).toEqual({ pops: 1, docs: 1 });
+    h.text = notice('80AB12CD34-11');
 
     // Another company's identical transaction number is its own notice.
     expect((await ingestAbsaPop(B, pdf('b'))).filed).toBe(true);
@@ -110,6 +118,38 @@ describeIfDb('POP inbox: filing ABSA notices', () => {
     expect(results.filter((r) => r.filed)).toHaveLength(1);
     expect(results.filter((r) => !r.filed)).toEqual([{ filed: false, reason: 'duplicate' }]);
     expect(await counts(A, '80RACE0001-12')).toEqual({ pops: 1, docs: 1 });
+  });
+
+  it('files a notice as app_service, the role the mirror cron writes with', async () => {
+    h.text = notice('80SERVICE1-14');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE app_service');
+      const r = await als.run({ client, userId: 'system:mirror-scan', claims: {} }, () => ingestAbsaPop(A, pdf('service')));
+      expect(r.filed).toBe(true);
+      const seen = await client.query('SELECT payer_profile FROM proof_of_payments WHERE company_id = $1 AND transaction_number = $2', [A, '80SERVICE1-14']);
+      expect(seen.rows).toEqual([{ payer_profile: 'Example Trading  PTY LTD' }]);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+
+  it('app_user cannot insert a notice into another company', async () => {
+    const doc = (await pool.query("SELECT id FROM captured_documents WHERE company_id = $1 AND document_type = 'proof_of_payment' LIMIT 1", [A])).rows[0].id;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE app_user');
+      await client.query("SELECT set_config('app.current_company_id', $1, true)", [B]);
+      await expect(client.query(`INSERT INTO proof_of_payments (company_id, captured_document_id, source, transaction_number,
+        payment_date, amount, beneficiary, payer_profile) VALUES ($1, $2, 'absa_notice', '80XTENANT1-01', '2026-11-13', 1, 'X', 'Y')`, [A, doc]))
+        .rejects.toMatchObject({ code: '42501' });
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
   });
 
   it('app_user sees no other company\'s notices and cannot edit or delete one', async () => {

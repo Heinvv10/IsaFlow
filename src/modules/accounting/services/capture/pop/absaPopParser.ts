@@ -29,7 +29,8 @@ export type AbsaPopReason =
   | 'missing_transaction_number'
   | 'missing_payment_date'
   | 'missing_beneficiary'
-  | 'missing_amount';
+  | 'missing_amount'
+  | 'unstorable_field';
 
 export type AbsaPopParse = { ok: true; pop: AbsaPop } | { ok: false; reason: AbsaPopReason };
 
@@ -78,6 +79,15 @@ function amountCents(raw: string): number | null {
   return Number.isSafeInteger(cents) ? cents : null;
 }
 
+/** proof_of_payments limits (migration 989): text columns hold at most 200 characters, amount is NUMERIC(14,2). */
+const MAX_TEXT = 200;
+const MAX_CENTS = 99_999_999_999_999;
+
+/** A value the table would refuse (too long, or a NUL byte Postgres cannot store in text). */
+function unstorable(v: string | null): boolean {
+  return v !== null && (v.length > MAX_TEXT || v.includes('\u0000'));
+}
+
 function text(v: string | null | false): string | null {
   return typeof v === 'string' ? v : null;
 }
@@ -101,17 +111,17 @@ export function parseAbsaPopText(pdfText: string): AbsaPopParse {
   const cents = text(f.amount) && amountCents(text(f.amount)!);
   if (!cents) return { ok: false, reason: 'missing_amount' };
 
-  return {
-    ok: true,
-    pop: {
-      payerProfile,
-      transactionNumber,
-      paymentDate,
-      payerAccountName: text(f.payerAccountName),
-      beneficiary,
-      beneficiaryBank: text(f.beneficiaryBank),
-      amountCents: cents,
-      reference: text(f.reference),
-    },
+  const pop: AbsaPop = {
+    payerProfile,
+    transactionNumber,
+    paymentDate,
+    payerAccountName: text(f.payerAccountName),
+    beneficiary,
+    beneficiaryBank: text(f.beneficiaryBank),
+    amountCents: cents,
+    reference: text(f.reference),
   };
+  const texts = [pop.payerProfile, pop.beneficiary, pop.beneficiaryBank, pop.reference, pop.payerAccountName];
+  if (pop.amountCents > MAX_CENTS || texts.some(unstorable)) return { ok: false, reason: 'unstorable_field' };
+  return { ok: true, pop };
 }

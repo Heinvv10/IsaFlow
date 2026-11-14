@@ -81,9 +81,9 @@ describe('isTrustedAbsaNotice', () => {
     expect(await isTrustedAbsaNotice(raw, { resolver })).toEqual({ trusted: false, reason: 'not_absa_notice_sender' });
   });
 
-  it('refuses (does not throw) when the key cannot be looked up', async () => {
+  it('reports a DNS failure on the key lookup as dns_unavailable (retried), not as a bad signature', async () => {
     const raw = await signed(message('ibreply@absa.co.za'), 'absa.co.za', 'homebanking', absaKey);
     const failing = async (): Promise<string[][]> => { throw Object.assign(new Error('timeout'), { code: 'ETIMEOUT' }); };
-    expect(await isTrustedAbsaNotice(raw, { resolver: failing })).toEqual({ trusted: false, reason: 'no_absa_signature' });
+    expect(await isTrustedAbsaNotice(raw, { resolver: failing })).toEqual({ trusted: false, reason: 'dns_unavailable' });
   });
 });

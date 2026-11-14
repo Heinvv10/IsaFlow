@@ -2,16 +2,18 @@
  * The IMAP mirror's branch for ABSA "Notice of payment" mail (POP inbox, phase 1).
  *
  * imapMirrorService lets a message through its invoice-subject filter when its envelope looks
- * like an ABSA notice (isAbsaNoticeEnvelope), then hands its attachments here. Only a message
- * whose DKIM signature verifies as ABSA's (absaPopTrust.ts) is filed as proofs of payment;
- * every PDF this does not file (an untrusted message, a PDF that does not read as a complete
- * notice) is returned for the normal capture ingest, where it is VLM-read and waits for a
- * person in the capture inbox. Nothing is dropped silently.
+ * like an ABSA notice (isAbsaNoticeEnvelope), then hands its attachments here instead of to the
+ * bill capture ingest. Only a message whose DKIM signature verifies as ABSA's (absaPopTrust.ts),
+ * from a trusted payer, with a PDF that reads as a complete notice, is filed. Anything else is
+ * NOT captured (a payment notice read as a supplier bill is worse than none) but logged: its
+ * reasons go to the scan log as outcome 'pop_not_filed'. A DKIM key lookup that failed for
+ * want of DNS is transient: the scan stops at the message and retries it next tick.
  */
 import type { Attachment } from 'mailparser';
 import { log } from '@/lib/logger';
 import { ABSA_NOTICE_SENDER, isTrustedAbsaNotice } from './absaPopTrust';
 import { ingestAbsaPop, isPdfBytes } from './popIngest';
+import { isTransientIngestError, TransientIngestError } from '../imapMirrorInbox';
 
 export function isAbsaNoticeEnvelope(fromAddress: string, subject: string | null | undefined): boolean {
   return fromAddress.trim().toLowerCase() === ABSA_NOTICE_SENDER && /notice of payment/i.test(subject ?? '');
@@ -25,10 +27,8 @@ export function isNoticeAttachment(att: Attachment): boolean {
 export interface NoticeFiling {
   /** proof_of_payments ids filed from this message. */
   popIds: string[];
-  /** Attachments already filed (same ABSA transaction number or same bytes). */
-  duplicates: number;
-  /** Attachments for the normal capture ingest, typed application/pdf. */
-  toCapture: Attachment[];
+  /** Why each attachment that is neither filed nor already held was not filed. */
+  notFiled: string[];
 }
 
 export async function fileAbsaNotice(
@@ -37,23 +37,27 @@ export async function fileAbsaNotice(
   attachments: Attachment[],
   check: () => void,
 ): Promise<NoticeFiling> {
-  const asPdf = (att: Attachment): Attachment => ({ ...att, contentType: 'application/pdf' });
   const trust = await isTrustedAbsaNotice(source);
   if (!trust.trusted) {
-    log.warn('ABSA-looking notice failed verification; sent to capture review', { companyId, reason: trust.reason }, 'pop-inbox');
-    return { popIds: [], duplicates: 0, toCapture: attachments.map(asPdf) };
+    if (trust.reason === 'dns_unavailable') throw new TransientIngestError('ABSA DKIM key lookup failed (DNS); retried next scan');
+    log.warn('ABSA-looking notice failed verification; not filed', { companyId, reason: trust.reason }, 'pop-inbox');
+    return { popIds: [], notFiled: attachments.map(() => trust.reason) };
   }
 
-  const out: NoticeFiling = { popIds: [], duplicates: 0, toCapture: [] };
+  const out: NoticeFiling = { popIds: [], notFiled: [] };
   for (const att of attachments) {
     check(); // an abandoned scan files nothing more
-    const r = await ingestAbsaPop(companyId, att);
-    if (r.filed) out.popIds.push(r.popId);
-    else if (r.reason === 'duplicate') out.duplicates += 1;
-    else {
-      log.warn('ABSA notice PDF did not read as a complete notice; sent to capture review', { companyId, reason: r.reason }, 'pop-inbox');
-      out.toCapture.push(asPdf(att));
+    try {
+      const r = await ingestAbsaPop(companyId, att);
+      if (r.filed) out.popIds.push(r.popId);
+      else if (r.reason !== 'duplicate') out.notFiled.push(r.reason);
+    } catch (err) {
+      if (isTransientIngestError(err)) throw err; // the scan stops here and retries the message
+      const code = (err as { code?: unknown } | null)?.code;
+      log.warn('ABSA notice PDF failed to file', { companyId, code, err: err instanceof Error ? err.message : String(err) }, 'pop-inbox');
+      out.notFiled.push(`error${typeof code === 'string' ? ` ${code}` : ''}`);
     }
   }
+  if (out.notFiled.length) log.warn('ABSA notice PDF(s) not filed', { companyId, reasons: out.notFiled }, 'pop-inbox');
   return out;
 }
