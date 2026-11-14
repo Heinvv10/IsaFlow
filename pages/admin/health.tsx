@@ -82,7 +82,7 @@ export default function SystemHealthPage() {
           </h1>
           {data && (
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Last checked at {fmtTime(data.checked_at)} — auto-refreshes every 30s
+              Last checked at {fmtTime(data.checked_at)} — auto-refreshes every 30s. Health alerts (email/webhook) are only sent while an admin has this page open.
             </p>
           )}
         </div>
