@@ -5,9 +5,11 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
+import { ConfirmModal } from '@/components/admin/ConfirmModal';
+import { PlanFormModal, EMPTY_PLAN_FORM as EMPTY_FORM, type PlanForm } from '@/components/admin/billing/PlanFormModal';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
-import { AlertCircle, Loader2, Plus, Pencil, Archive, X, Check } from 'lucide-react';
+import { AlertCircle, Loader2, Plus, Pencil, Archive } from 'lucide-react';
 
 interface Plan {
   id: string;
@@ -24,23 +26,6 @@ interface Plan {
   created_at: string;
 }
 
-interface PlanForm {
-  code: string;
-  name: string;
-  description: string;
-  monthly_price: string;
-  annual_price: string;
-  users_limit: string;
-  features: string;
-  limits: string;
-}
-
-const EMPTY_FORM: PlanForm = {
-  code: '', name: '', description: '',
-  monthly_price: '', annual_price: '',
-  users_limit: '', features: '{}', limits: '{}',
-};
-
 export default function PlansPage() {
   const [plans, setPlans]         = useState<Plan[]>([]);
   const [loading, setLoading]     = useState(true);
@@ -50,6 +35,9 @@ export default function PlansPage() {
   const [showForm, setShowForm]   = useState(false);
   const [editId, setEditId]       = useState<string | null>(null);
   const [form, setForm]           = useState<PlanForm>(EMPTY_FORM);
+  // The prices the edited plan had: a change reprices every subscriber, so it needs a confirm (audit 4.17).
+  const [origPrices, setOrigPrices] = useState<{ monthly: number; annual: number } | null>(null);
+  const [repriceBody, setRepriceBody] = useState<Record<string, unknown> | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,6 +59,7 @@ export default function PlansPage() {
 
   function openAdd() {
     setEditId(null);
+    setOrigPrices(null);
     setForm(EMPTY_FORM);
     setFormError('');
     setShowForm(true);
@@ -78,6 +67,7 @@ export default function PlansPage() {
 
   function openEdit(plan: Plan) {
     setEditId(plan.id);
+    setOrigPrices({ monthly: plan.monthly_price_cents, annual: plan.annual_price_cents });
     setForm({
       code:          plan.code,
       name:          plan.name,
@@ -108,16 +98,30 @@ export default function PlansPage() {
       limits = { ...limits, users: n };
     }
 
+    const monthly = Math.round(parseFloat(form.monthly_price) * 100);
+    const annual  = Math.round(parseFloat(form.annual_price)  * 100);
+    if (!Number.isFinite(monthly) || !Number.isFinite(annual) || monthly < 0 || annual < 0) {
+      setFormError('Monthly and annual prices must be amounts in rands (0 or more)'); return;
+    }
     const commonBody = {
       name:               form.name,
       description:        form.description,
-      monthly_price_cents: Math.round(parseFloat(form.monthly_price) * 100),
-      annual_price_cents:  Math.round(parseFloat(form.annual_price)  * 100),
+      monthly_price_cents: monthly,
+      annual_price_cents:  annual,
       features,
       limits,
     };
+    // The code is fixed once a plan exists (the API ignores it on edit): the field is read-only there.
     const body = editId ? commonBody : { code: form.code, ...commonBody };
+    if (origPrices && (monthly !== origPrices.monthly || annual !== origPrices.annual)) {
+      setRepriceBody(body);
+      return;
+    }
+    await submit(body);
+  }
 
+  async function submit(body: Record<string, unknown>) {
+    setRepriceBody(null);
     setSaving(true);
     try {
       const res  = editId
@@ -144,20 +148,6 @@ export default function PlansPage() {
     }
   }
 
-  function field(key: keyof PlanForm, label: string, opts?: { type?: string; rows?: number }) {
-    const isTextarea = !!opts?.rows;
-    const cls = 'w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500';
-    return (
-      <div>
-        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{label}</label>
-        {isTextarea
-          ? <textarea rows={opts!.rows} value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} className={cls} />
-          : <input type={opts?.type ?? 'text'} value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} className={cls} />
-        }
-      </div>
-    );
-  }
-
   return (
     <AdminLayout title="Billing Plans">
       <div className="flex items-center justify-between mb-5">
@@ -176,47 +166,17 @@ export default function PlansPage() {
         </div>
       )}
 
-      {/* Plan Form Modal */}
-      {showForm && (
-        <div role="dialog" aria-modal="true" aria-labelledby="plan-modal-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-              <h3 id="plan-modal-title" className="text-sm font-semibold text-gray-900 dark:text-white">{editId ? 'Edit Plan' : 'Add Plan'}</h3>
-              <button onClick={() => setShowForm(false)} className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-4 h-4" /></button>
-            </div>
-            <div className="p-5 space-y-4">
-              {formError && (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-xs">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" /> {formError}
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-4">
-                {field('code', 'Code (e.g. starter)')}
-                {field('name', 'Name')}
-              </div>
-              {field('description', 'Description')}
-              <div className="grid grid-cols-3 gap-4">
-                {field('monthly_price', 'Monthly Price (R)', { type: 'number' })}
-                {field('annual_price',  'Annual Price (R)',  { type: 'number' })}
-                {field('users_limit',   'Users Limit',       { type: 'number' })}
-              </div>
-              {field('features', 'Features (JSON)', { rows: 4 })}
-              {field('limits',   'Limits (JSON)',   { rows: 4 })}
-            </div>
-            <div className="px-5 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-              <button onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">Cancel</button>
-              <button
-                onClick={() => void handleSave()}
-                disabled={saving}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
-              >
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                {editId ? 'Save Changes' : 'Create Plan'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <PlanFormModal
+        open={showForm}
+        editing={editId !== null}
+        trapFocus={repriceBody === null}
+        form={form}
+        setForm={setForm}
+        error={formError}
+        saving={saving}
+        onSave={() => void handleSave()}
+        onClose={() => setShowForm(false)}
+      />
 
       {/* Table */}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm overflow-hidden">
@@ -268,6 +228,17 @@ export default function PlansPage() {
           </table>
         </div>
       </div>
+      <ConfirmModal
+        open={repriceBody !== null}
+        title="Reprice every subscriber?"
+        message={<>The new price applies to <strong>every subscription on {form.name || 'this plan'}</strong> from its next
+          charge, and MRR changes immediately. Subscriptions do not keep the old price. Save the new price?</>}
+        confirmLabel="Save new price"
+        confirmClass="bg-amber-500 hover:bg-amber-600"
+        loading={saving}
+        onConfirm={() => { if (repriceBody) void submit(repriceBody); }}
+        onCancel={() => setRepriceBody(null)}
+      />
     </AdminLayout>
   );
 }
