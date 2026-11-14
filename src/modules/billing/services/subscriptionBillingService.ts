@@ -164,6 +164,8 @@ export async function generateDueCharges(now = new Date()): Promise<GenerateResu
 
 export interface RunChargesResult {
   submitted: number;
+  /** Card debited for a charge an admin voided mid-flight: a refund case, not a submission. */
+  refundNeeded: number;
   failed: number;
   skipped: number;
 }
@@ -214,6 +216,7 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
   await warnUnattributedLiveCharges();
 
   let submitted = 0;
+  let refundNeeded = 0;
   let failed = 0;
   let skipped = 0;
 
@@ -259,7 +262,11 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
       // authoritative and will overwrite if the bank reverses.
       const localStatus = result.status === 'success' ? 'settled' : 'submitted';
       const recorded = await recordChargeSubmitted(c.id, c.company_id, localStatus, result.reference);
-      if (recorded && localStatus === 'settled') {
+      if (!recorded) {
+        refundNeeded++;
+        continue;
+      }
+      if (localStatus === 'settled') {
         await advancePeriodForSettledCharge(c.id, c.company_id);
       }
 
@@ -277,5 +284,5 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
     }
   }
 
-  return { submitted, failed, skipped };
+  return { submitted, refundNeeded, failed, skipped };
 }

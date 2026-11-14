@@ -25,6 +25,26 @@ async function lockStatus(subscriptionId: string): Promise<string | null> {
   return rows[0]?.status ?? null;
 }
 
+/**
+ * A subscription cancelled long ago keeps its old current_period_end, so
+ * reactivating it would have the cron raise one charge per missed cycle. Start
+ * a new period from today instead, as restoreCompany does: the next run raises
+ * one charge from today. Only current_period_end moves (nothing in billing
+ * reads current_period_start; the next settle rewrites both). Not restarted
+ * while a charge is 'submitted' at Paystack: it settles into the old period.
+ */
+async function restartLapsedPeriod(subscriptionId: string): Promise<void> {
+  await sql`
+    UPDATE subscriptions s
+    SET current_period_end = NOW(), updated_at = NOW()
+    WHERE s.id = ${subscriptionId}
+      AND s.current_period_end < NOW()
+      AND NOT EXISTS (
+        SELECT 1 FROM subscription_charges c
+        WHERE c.subscription_id = s.id AND c.company_id = s.company_id AND c.status = 'submitted')
+  `;
+}
+
 export async function updateSubscription(
   subscriptionId: string,
   data: {
@@ -46,6 +66,7 @@ export async function updateSubscription(
     // would be debited the moment the subscription is active again.
     if (before === 'cancelled' && status !== 'cancelled') {
       await voidOpenChargesForSubscription(subscriptionId);
+      await restartLapsedPeriod(subscriptionId);
     }
   }
 

@@ -76,6 +76,16 @@ export async function settleSubscriptionCharge(
   const paidCents = paid?.cents ?? null;
   // The charge and its period move together: one transaction.
   const done = await migrationAdminSqlTx('subscription_settle_charge', async (tx) => {
+    // Subscription row first, then the charge row: the order an admin cancel and
+    // the attempt claim take them, so a settle racing either cannot deadlock.
+    // FOR UPDATE, not FOR SHARE: advancePeriod below writes this row, and two
+    // settles each holding a share lock would deadlock on the upgrade.
+    await tx`
+      SELECT s.id FROM subscriptions s
+      JOIN subscription_charges c ON c.subscription_id = s.id AND c.company_id = s.company_id
+      WHERE c.id = ${chargeId} AND c.company_id = ${companyId}
+      FOR UPDATE OF s
+    `;
     const settled = (await tx`
       UPDATE subscription_charges
       SET status = 'settled',

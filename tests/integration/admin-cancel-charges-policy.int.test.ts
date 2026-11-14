@@ -150,8 +150,10 @@ describe('races and atomicity', () => {
   it('a failing void rolls the whole cancel back: the subscription stays active', async () => {
     await pool.query(`CREATE OR REPLACE FUNCTION zz_adm_cancel_fail() RETURNS trigger LANGUAGE plpgsql AS
       $$ BEGIN RAISE EXCEPTION 'zz_adm_cancel'; END $$`);
+    // Scoped to this suite's own company: it cannot touch a parallel suite's charges.
     await pool.query(`CREATE TRIGGER zz_adm_cancel BEFORE UPDATE ON subscription_charges
-      FOR EACH ROW WHEN (NEW.status = 'cancelled') EXECUTE FUNCTION zz_adm_cancel_fail()`);
+      FOR EACH ROW WHEN (NEW.status = 'cancelled' AND NEW.company_id = '${ids.company}')
+      EXECUTE FUNCTION zz_adm_cancel_fail()`);
     try {
       await callRoute(cancelRoute, 'POST', { at_period_end: false });
       expect((await subscriptionRow()).status).toBe('active');
@@ -170,8 +172,11 @@ describe('races and atomicity', () => {
         return { status: paystackStatus, reference: `ref_${crypto.randomUUID()}` };
       });
 
-      await runQueuedCharges(new Date());
+      const ran = await runQueuedCharges(new Date());
 
+      // Counted apart from a real submission: the card was debited and nothing records it.
+      expect(ran.refundNeeded).toBe(1);
+      expect(ran.submitted).toBe(1); // the other tenant's charge
       expect(callsFor(ids.company)).toHaveLength(1);
       expect((await chargeStatus(charges.queued)).status).toBe('cancelled');
       expect(warn.mock.calls.some((c) => String(c[0]).includes('voided mid-flight')
