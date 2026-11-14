@@ -105,7 +105,7 @@ export default function AdminSageImportPage() {
     const what = mode === 'namesAndCoa'
       ? 'the chart of accounts, customers and suppliers'
       : 'everything pulled (accounts, customers, suppliers and their invoices, with the invoices\' journals)';
-    if (!confirm(`Import ${what} from Sage into ${pulledFor.name}? This writes into that company's books and cannot be undone from here.`)) return;
+    if (!confirm(`Import ${what} from Sage into ${pulledFor.name}? This writes into that company's books and cannot be undone from here. Historical documents post into their original dates, including closed periods; periods with a filed VAT return are refused.`)) return;
     setCommitting(true); setError(''); setCommitSummary(null);
     try {
       const all = pulledData.current;

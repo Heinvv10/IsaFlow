@@ -68,6 +68,9 @@ describe('Sage import: the target company is fixed at Pull', () => {
     fireEvent.click(screen.getByRole('button', { name: /commit everything/i }));
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(String(confirmSpy.mock.calls[0]?.[0])).toContain('Alpha Ltd');
+    // By design (3.4, pinned in sage-commit-closed-period-waiver.int.test.ts): the confirm says so.
+    expect(String(confirmSpy.mock.calls[0]?.[0])).toContain(
+      'Historical documents post into their original dates, including closed periods; periods with a filed VAT return are refused.');
     await new Promise((r) => setTimeout(r, 30));
     expect(commits()).toEqual([]); // declined: nothing posted
 
