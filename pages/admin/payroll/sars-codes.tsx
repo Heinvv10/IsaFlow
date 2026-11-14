@@ -413,6 +413,7 @@ function ImportWizard({ onClose, onComplete }: { onClose: () => void; onComplete
       setStep(dryRun ? 'preview' : 'done');
       if (!dryRun) setTimeout(onComplete, 1500);
     } catch (err) {
+      setPreview(null);
       setError(apiErrorMessage(err, 'Could not import the SARS codes - try again'));
     } finally {
       setWorking(false);

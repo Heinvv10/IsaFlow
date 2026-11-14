@@ -188,6 +188,7 @@ export default function AdminSageImportPage() {
       const json = await res.json();
       setCommitSummary(json.data);
     } catch (err) {
+      setCommitSummary(null);
       setError(apiErrorMessage(err, 'Could not import the Sage data - try again'));
     } finally {
       setCommitting(false);

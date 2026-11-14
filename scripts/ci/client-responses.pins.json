@@ -82,5 +82,11 @@
     "kind": "f",
     "line": "setFeed(json.data);",
     "reason": "Deliberate (PR #1066 review): a failed bell refresh keeps the last good list and unread badge beside the error sentence, so a 503 never wipes the count; a company switch clears the feed separately."
+  },
+  {
+    "file": "pages/admin/companies/[id].tsx",
+    "kind": "f",
+    "line": "setCompany(json.data as CompanyDetail);",
+    "reason": "Fills the company from a successful save response. On a failed save the existing company must stay on screen under the error, so the catch must not clear it."
   }
 ]
