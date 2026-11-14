@@ -9,7 +9,7 @@ import { checkWorkflowRunsCi, WORKFLOW_FILES } from '../../../scripts/ci/workflo
 
 const REAL = readFileSync('.github/workflows/ci.yml', 'utf8');
 const SCRIPTS = (JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string> }).scripts;
-const GATE_LINE = '      - name: CI gate (scripts/ci/run-ci.sh static)\n        run: bun run ci static\n';
+const GATE_LINE = '      - name: CI gate (scripts/ci/run-ci.sh static)\n        run: bun run ci static ${{ matrix.part }}\n';
 const QUALITY_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # GitHub-hosted only';
 const JOB_PERMS = '    permissions:\n      contents: read\n      actions: read\n      pull-requests: read\n';
 const QUALITY_PERMS = `merged PR and its CI run's jobs (CI_READ_TOKEN below).\n${JOB_PERMS}`;
@@ -22,9 +22,9 @@ function edit(from: string, to: string): string {
 
 describe('accepts equivalent spellings of the one allowed shape', () => {
   it('a nameless step, a quoted command and a trailing comment', () => {
-    expect(check(edit(GATE_LINE, '      - run: bun run ci static\n'))).toEqual([]);
-    expect(check(edit(GATE_LINE, '      - run: "bun run ci static"\n'))).toEqual([]);
-    expect(check(edit(GATE_LINE, '      - run: bun run ci static  # every static gate\n'))).toEqual([]);
+    expect(check(edit(GATE_LINE, '      - run: bun run ci static ${{ matrix.part }}\n'))).toEqual([]);
+    expect(check(edit(GATE_LINE, '      - run: "bun run ci static ${{ matrix.part }}"\n'))).toEqual([]);
+    expect(check(edit(GATE_LINE, '      - run: bun run ci static ${{ matrix.part }}  # every static gate\n'))).toEqual([]);
   });
 
   it('static without the job permissions block, and then a checkout without inputs', () => {
