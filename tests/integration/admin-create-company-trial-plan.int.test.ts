@@ -43,7 +43,7 @@ describe.skipIf(!process.env.DATABASE_URL)('admin createCompany on a plan', () =
     await pool().end();
   });
 
-  it('an admin-created company on a plan has the plan features and a trial end TRIAL_DAYS out', async () => {
+  it('an admin-created company on a plan has the plan features and a trial end (company and subscription) TRIAL_DAYS out', async () => {
     const before = Date.now();
     const company = await createCompany({ name: `CreateCo ${tag}`, plan_id: plan });
     created.push(company.id);
@@ -54,6 +54,9 @@ describe.skipIf(!process.env.DATABASE_URL)('admin createCompany on a plan', () =
     const day = 24 * 60 * 60 * 1000;
     expect(end).toBeGreaterThanOrEqual(before + TRIAL_DAYS * day);
     expect(end).toBeLessThanOrEqual(Date.now() + TRIAL_DAYS * day);
+    const sub = await pool().query('SELECT status, current_period_end FROM subscriptions WHERE company_id = $1', [company.id]);
+    expect(sub.rows[0].status).toBe('trial');
+    expect(new Date(sub.rows[0].current_period_end).getTime()).toBe(end);
   });
 
   it('an admin-created company with no plan has no subscription, no trial end and no plan feature', async () => {

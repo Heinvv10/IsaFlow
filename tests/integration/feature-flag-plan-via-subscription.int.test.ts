@@ -207,6 +207,21 @@ describe.skipIf(!process.env.DATABASE_URL)('feature gating reads the plan from s
     expect(row?.enabled).toBe(EXPECTED_PLAN[name]);
   });
 
+  it('a trial that ended one second ago, with no period end, is not live', async () => {
+    const client = await fixture.connect();
+    const company = randomUUID();
+    try {
+      await client.query('BEGIN');
+      await client.query(`INSERT INTO companies (id, name, trial_ends_at) VALUES ($1, $2, NOW() - interval '1 second')`, [company, `PlanSub edge ${tag}`]);
+      await client.query(`INSERT INTO subscriptions (company_id, plan_id, status) VALUES ($1, $2, 'trial')`, [company, planGrant]);
+      const r = await client.query(`SELECT ${CURRENT_PLAN_ID_SQL} AS plan_id FROM public.companies c WHERE c.id = $1`, [company]);
+      expect(r.rows[0].plan_id).toBeNull();
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+
   it('a trial ending exactly now is not live (strict >, evaluated in one transaction so NOW() is equal)', async () => {
     const client = await fixture.connect();
     const company = randomUUID();

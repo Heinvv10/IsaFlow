@@ -278,6 +278,8 @@ export async function createCompany(input: {
   annual_turnover_cents?: number | null;
   payg_eligible?: boolean;
 }): Promise<{ id: string; name: string }> {
+  // A plan means a trial subscription ending when provisioning's trials end.
+  const trialEnd = input.plan_id ? trialEndsAt(new Date()) : null;
   const rows = await sql`
     INSERT INTO companies (
       name, registered_name, trading_name, email, phone, country, default_currency, status,
@@ -293,18 +295,19 @@ export async function createCompany(input: {
       'active',
       ${input.annual_turnover_cents ?? null},
       ${input.payg_eligible ?? false},
-      ${input.plan_id ? trialEndsAt(new Date()) : null}
+      ${trialEnd}
     )
     RETURNING id, name
   `;
   const created = rows[0] as { id: string; name: string };
 
-  // A plan means a trial subscription, and plan gating counts a trial only
-  // while companies.trial_ends_at is in the future (set above, as provisioning does).
+  // Plan gating counts a trial only while its end is in the future, so both
+  // companies.trial_ends_at (above) and the subscription's current_period_end
+  // carry the end, as tenant provisioning does.
   if (input.plan_id) {
     await sql`
-      INSERT INTO subscriptions (company_id, plan_id, status, billing_cycle, current_period_start)
-      VALUES (${created.id}::uuid, ${input.plan_id}::uuid, 'trial', 'monthly', NOW())
+      INSERT INTO subscriptions (company_id, plan_id, status, billing_cycle, current_period_start, current_period_end)
+      VALUES (${created.id}::uuid, ${input.plan_id}::uuid, 'trial', 'monthly', NOW(), ${trialEnd})
     `;
   }
 
