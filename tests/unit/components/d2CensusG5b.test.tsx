@@ -1,7 +1,7 @@
 // Census group 5 (admin, SARS, AFS): a 4xx shows the server's message, an empty 5xx body shows a
 // plain sentence (never "Unexpected end of JSON input"), and a 200 envelope still renders its data.
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 
@@ -77,16 +77,18 @@ describe('admin job queue', () => {
     fireEvent.click(await screen.findByText('d2_job_type')); fireEvent.click(await screen.findByText('Retry Selected'));
     await waitFor(() => expect(bodyText()).toContain('Retried 7 job(s)'));
   });
+  // Delete Old Jobs asks first (WP13, audit 3.7): confirm in the dialog.
+  const confirmDeleteOld = async () => fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete old jobs' }));
   it('delete old: toast shows the server message on a 400', async () => {
-    script(bulk, refused); render(<JobQueuePage />); fireEvent.click(await screen.findByText(/Delete Old Jobs/));
+    script(bulk, refused); render(<JobQueuePage />); fireEvent.click(await screen.findByText(/Delete Old Jobs/)); await confirmDeleteOld();
     await waitFor(() => expect(bodyText()).toContain(MSG));
   });
   it('delete old: toast shows a plain sentence on an empty 500', async () => {
-    script(bulk, empty500); render(<JobQueuePage />); fireEvent.click(await screen.findByText(/Delete Old Jobs/));
+    script(bulk, empty500); render(<JobQueuePage />); fireEvent.click(await screen.findByText(/Delete Old Jobs/)); await confirmDeleteOld();
     await waitFor(() => expect(bodyText()).toContain('Could not delete the old jobs')); noParserText();
   });
   it('delete old: toast reports the result on a 200', async () => {
-    script(bulk, () => ok({ processed: 9 })); render(<JobQueuePage />); fireEvent.click(await screen.findByText(/Delete Old Jobs/));
+    script(bulk, () => ok({ processed: 9 })); render(<JobQueuePage />); fireEvent.click(await screen.findByText(/Delete Old Jobs/)); await confirmDeleteOld();
     await waitFor(() => expect(bodyText()).toContain('Deleted 9 old job(s)'));
   });
 });

@@ -39,11 +39,12 @@ describe('admin companies list', () => {
     render(<CompaniesPage />);
     expect(await screen.findByText('D2 Acme Ltd')).toBeTruthy();
     fireEvent.click(screen.getAllByRole('checkbox')[1]!);
-    expect(await screen.findByRole('button', { name: /suspend/i })).toBeTruthy();
+    // The row's own Suspend button is also named "Suspend": the bulk bar's is "Bulk Suspend".
+    expect(await screen.findByRole('button', { name: /bulk suspend/i })).toBeTruthy();
     fireEvent.change(screen.getByPlaceholderText('Search companies...'), { target: { value: 'zzz' } });
     expect(await screen.findByText('Could not load companies - try again')).toBeTruthy();
     expect(screen.queryByText('D2 Acme Ltd')).toBeNull();
-    expect(screen.queryByRole('button', { name: /suspend/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /bulk suspend/i })).toBeNull();
     expect(noRawText()).toBe(true);
   });
 });

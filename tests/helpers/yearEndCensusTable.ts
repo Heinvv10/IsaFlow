@@ -126,6 +126,7 @@ export const entries: Array<[string, Category, string?]> = [
   ['reports/vatReconciliationService.ts', 'VAT'],
   ['reports/vatReturnService.ts', 'VAT'],
   ['reports/vatUnpostedInvoices.ts', 'VAT'],
+  ['shared/creditNotePostedCredit.ts', 'SUBLEDGER'], // one credit note's own journal on the AR/AP control (brief step 7)
   ['workbench/monthEndWorkbenchService.ts', 'READINESS'],
   ['gl/approvalDocuments.ts', 'APPROVAL'],
   ['gl/glAccountBalance.ts', 'ACCOUNT_BALANCE'],

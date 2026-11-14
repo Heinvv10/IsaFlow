@@ -16,6 +16,7 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { attachPostedJournal, dropNoteJournals } from './helpers/creditNoteRawJournal';
 import { als } from '../../src/lib/als';
 import { applyCreditNoteToInvoice } from '../../src/modules/accounting/services/ar/creditNoteCancelService';
 
@@ -34,11 +35,15 @@ beforeAll(async () => {
   await pool.query(`INSERT INTO credit_notes(id,company_id,type,client_id,credit_date,subtotal,total_amount,status,created_by,applied_amount)
     VALUES($1,$3,'customer',$4,'2026-03-02',100,100,'approved',$5,0),($2,$3,'customer',$4,'2026-03-02',50,50,'approved',$5,0)`,
     [noteA, noteB, company, customer, user]);
+  // Brief step 7: an application is capped at what the note's journal posted, so each note gets the one approval posts.
+  await attachPostedJournal(pool, { companyId: company, userId: user, noteId: noteA, side: 'customer', amount: 100 });
+  await attachPostedJournal(pool, { companyId: company, userId: user, noteId: noteB, side: 'customer', amount: 50 });
 });
 
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM credit_notes WHERE company_id=$1', [company]);
+    await dropNoteJournals(pool, company);
     await pool.query('DELETE FROM customer_invoices WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM customers WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM company_users WHERE company_id=$1', [company]);

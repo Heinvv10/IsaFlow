@@ -1,7 +1,7 @@
 // D2 round 9: pages that had no component test. A 4xx shows the server message, an empty 5xx a plain sentence
 // that says what could not be done, a throwing request is reported, and a good response still renders.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { empty500, expectNoJargon, MSG, ok, on, refuse, serve } from '../helpers/d2R3a6';
@@ -121,6 +121,8 @@ describe('admin flow bundles', () => {
     serve(on('PATCH', '/flow-bundles/b1', () => refuse()), on('GET', '/flow-bundles', () => ok({ bundles: [BUNDLE] })));
     render(<FlowBundlesPage />);
     fireEvent.click(await screen.findByText('Deactivate'));
+    // Deactivate asks first (WP13, audit 3.7).
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Deactivate' }));
     expect(await screen.findByText(MSG)).toBeDefined();
   });
   it('a good load shows the bundle', async () => {

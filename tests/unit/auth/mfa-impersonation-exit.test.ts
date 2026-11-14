@@ -1,11 +1,21 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SignJWT } from 'jose';
 import type { NextApiRequest, NextApiResponse } from 'next';
-const fixture = vi.hoisted(() => ({ loadStash: vi.fn(), deleteStash: vi.fn() }));
+const fixture = vi.hoisted(() => {
+  const loadStash = vi.fn();
+  // end-impersonation reads it bounded (#1371 round 3): same answers.
+  return { loadStash, loadStashBounded: (id: string) => loadStash(id), deleteStash: vi.fn(), purgeExpiredStashes: vi.fn(async () => 0) };
+});
 vi.mock('@/modules/admin/services/userImpersonationService', () => fixture);
-vi.mock('@/lib/neon', () => ({ sql: async () => [] }));
+// The end row's INSERT returns its id (loginAsRecord.recordLoginAsEnd).
+vi.mock('@/lib/neon', () => {
+  const sql = async (strings: TemplateStringsArray) => (strings.join('?').includes('RETURNING id') ? [{ id: 'end-1' }] : []);
+  // The end row is looked up and written in one transaction (loginAsRecord.recordLoginAsEnd).
+  return { sql, withTransaction: async (fn: (tx: typeof sql) => Promise<unknown>) => fn(sql) };
+});
 vi.mock('@/lib/auth/impersonationSessions', () => ({
   impersonationPartiesOf: async () => ({ actorUserId: 'admin-user', targetUserId: 'target-user' }),
+  impersonationPartiesOfBounded: async () => ({ actorUserId: 'admin-user', targetUserId: 'target-user' }),
 }));
 vi.mock('@/lib/auth/csrf', () => ({ verifyCsrf: () => true }));
 import handler from '../../../pages/api/auth/end-impersonation';
