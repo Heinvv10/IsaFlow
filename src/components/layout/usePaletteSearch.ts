@@ -72,6 +72,10 @@ export function usePaletteSearch(isOpen: boolean, scope: string | null): Palette
   const [recent, setRecent] = useState<SearchResult[]>([]);
   const latest = useRef('');
 
+  // Cleared while CLOSED, during render: an effect on open runs after the first painted frame, which still showed the old text, and a
+  // key typed in that frame was appended to it.
+  if (!isOpen && query) setQuery('');
+
   useEffect(() => {
     if (!isOpen) return;
     setQuery('');

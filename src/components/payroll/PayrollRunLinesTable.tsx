@@ -134,7 +134,7 @@ function StatutoryCell({ line, figure, amount, onExplain, className = '' }: {
   line: RunLineAmounts; figure: ExplainedFigure; amount: number; onExplain?: OnExplain; className?: string;
 }) {
   return (
-    <td className={`${num} text-[var(--ff-text-secondary)] ${className}`}>
+    <td data-explain-scope className={`${num} text-[var(--ff-text-secondary)] ${className}`}>
       <span className="inline-flex items-center justify-end whitespace-nowrap">
         {formatCurrency(amount)}
         {onExplain && <ExplainButton figure={figure} who={line.employeeName} onClick={() => onExplain(line, figure)} />}

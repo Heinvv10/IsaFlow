@@ -5,7 +5,7 @@
 
 import {
   ArrowRight, BookOpen, Banknote, FilePlus, FileText, Keyboard, Landmark, Package, Receipt,
-  Scroll, SunMoon, Truck, UserPlus, UserRound, Users,
+  Info, MessageCircle, Scroll, SunMoon, Truck, UserPlus, UserRound, Users,
 } from 'lucide-react';
 
 const ICONS = {
@@ -23,6 +23,8 @@ const ICONS = {
   banknote: Banknote,
   'sun-moon': SunMoon,
   keyboard: Keyboard,
+  info: Info,
+  'message-circle': MessageCircle,
 } as const;
 
 export function ResultIcon({ name, className }: { name: string; className?: string }) {
