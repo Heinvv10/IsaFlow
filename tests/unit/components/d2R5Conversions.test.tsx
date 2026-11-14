@@ -1,6 +1,6 @@
 // D2 round 5: admin companies create / bulk suspend / extend trial, company detail save, subscription cancel,
 // RevenueIntelligenceSection and the useBankRules load. 400 -> server message; empty 500 -> a plain sentence; 200 -> completes.
-import { act, cleanup, configure, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, configure, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -88,12 +88,20 @@ describe('admin companies: create, bulk suspend, extend trial', () => {
     fireEvent.click(screen.getByRole('button', { name: /^create company$/i }));
     await waitFor(() => expect(screen.queryByRole('button', { name: /^create company$/i })).toBeNull());
   });
+  // Bulk Suspend asks for a reason first (WP13, audit 3.7); Extend Trial runs at once.
+  const confirmIfAsked = async (label: RegExp) => {
+    if (!label.test('Bulk Suspend')) return;
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/reason/i), { target: { value: 'D2 reason' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Suspend' }));
+  };
   const bulk = async (label: RegExp, fail: Fail | null) => {
     script((p) => p.endsWith('/bulk-action'), fail ?? (() => ok({}) as Response), list);
     await mountCompanies();
     await screen.findAllByText('D2 Acme Ltd');
     fireEvent.click(screen.getAllByRole('checkbox').at(-1)!.closest('td')!);
     fireEvent.click(await screen.findByRole('button', { name: label }));
+    await confirmIfAsked(label);
   };
   for (const [what, label, sentence] of [['bulk suspend', /bulk suspend/i, 'Could not suspend the companies - try again'], ['extend trial', /extend trial/i, 'Could not extend the trial - try again']] as const) {
     it(`${what} 400: the server message`, async () => { await bulk(label, bad400); expect(await screen.findByText(MSG)).toBeTruthy(); });
@@ -104,6 +112,7 @@ describe('admin companies: create, bulk suspend, extend trial', () => {
       await screen.findAllByText('D2 Acme Ltd');
       fireEvent.click(screen.getAllByRole('checkbox').at(-1)!.closest('td')!);
       fireEvent.click(await screen.findByRole('button', { name: label }));
+      await confirmIfAsked(label);
       await waitFor(() => expect(screen.queryByRole('button', { name: label })).toBeNull());
     });
   }

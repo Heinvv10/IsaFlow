@@ -189,8 +189,8 @@ export default function AdminCompaniesPage() {
         body: JSON.stringify(body),
       });
       await assertOk(res, failMsg);
-      const d = ((await res.json()) as { data: { processed: number; errors: string[] } }).data;
-      setBulkResult({ label, processed: d.processed, errors: d.errors ?? [] });
+      const d = ((await res.json()) as { data?: { processed?: number; errors?: string[] } }).data;
+      setBulkResult({ label, processed: d?.processed ?? 0, errors: Array.isArray(d?.errors) ? d.errors : [] });
       setSelectedIds(new Set());
       void load(search, status, page, sortBy, sortDir);
     } catch (err) {
