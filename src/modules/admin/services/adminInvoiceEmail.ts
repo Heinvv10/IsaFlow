@@ -5,6 +5,7 @@
  */
 import { BRAND, emailContentRow, emailLayout } from '@/lib/email-templates-shared';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 export interface AdminInvoiceEmailData {
   invoiceNumber: string;
@@ -30,9 +31,9 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#039;');
 }
 
-/** 123456 cents -> "R 1,234.56". */
+/** 123456 cents -> "R 1 234.56" (the app's one money format). */
 function rands(cents: number): string {
-  return 'R ' + (cents / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return formatMoney(cents / 100);
 }
 
 function line(label: string, value: string, strong = false): string {
