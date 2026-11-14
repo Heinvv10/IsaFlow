@@ -80,6 +80,14 @@ describe('AdminCommandPalette', () => {
     expect(h.push).toHaveBeenCalledWith('/admin/companies/co-1');
   });
 
+  it('starts from initialQuery (text typed while the chunk loaded) and searches it', async () => {
+    render(<AdminCommandPalette isOpen onClose={() => undefined} initialQuery="plans" />);
+    expect((box() as HTMLInputElement).value).toBe('plans');
+    expect(screen.getAllByRole('option')[0]!.textContent).toContain('Plans');
+    await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+    expect(h.apiFetch.mock.calls.map(([u]) => String(u))).toContain('/api/admin/companies?search=plans&limit=5');
+  });
+
   it('one character does not reach the server', async () => {
     render(<AdminCommandPalette isOpen onClose={() => undefined} />);
     await type('a');

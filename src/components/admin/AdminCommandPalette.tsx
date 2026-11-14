@@ -15,9 +15,11 @@ import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { adminPageIndex } from './adminNavConfig';
 import { useAdminPaletteSearch } from './useAdminPaletteSearch';
 
-interface AdminCommandPaletteProps {
+export interface AdminCommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Text already typed (into LazyAdminCommandPalette's loading shell) when this mounts open. */
+  initialQuery?: string;
 }
 
 interface Section { id: 'pages' | 'records'; heading: string; rows: SearchResult[] }
@@ -25,7 +27,7 @@ interface Section { id: 'pages' | 'records'; heading: string; rows: SearchResult
 const BADGES: Record<string, string> = { page: 'Page', company: 'Company', user: 'User' };
 const MAX_PAGES = 8;
 
-export function AdminCommandPalette({ isOpen, onClose }: AdminCommandPaletteProps) {
+export function AdminCommandPalette({ isOpen, onClose, initialQuery = '' }: AdminCommandPaletteProps) {
   const router = useRouter();
   const href = useAdminHref();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -33,7 +35,7 @@ export function AdminCommandPalette({ isOpen, onClose }: AdminCommandPaletteProp
   const uid = useId();
   const listId = `${uid}-list`;
   const [selected, setSelected] = useState(0);
-  const { query, setQuery, records, loading, error } = useAdminPaletteSearch(isOpen, href);
+  const { query, setQuery, records, loading, error } = useAdminPaletteSearch(isOpen, href, initialQuery);
 
   useFocusTrap(dialogRef, isOpen, onClose);
 

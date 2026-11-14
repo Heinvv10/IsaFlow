@@ -54,8 +54,9 @@ export interface AdminPaletteSearch {
   error: string;
 }
 
-export function useAdminPaletteSearch(isOpen: boolean, href: (path: string) => string): AdminPaletteSearch {
-  const [query, setQuery] = useState('');
+/** `initialQuery`: the starting text when the palette mounts already open (it was typed while the chunk loaded). */
+export function useAdminPaletteSearch(isOpen: boolean, href: (path: string) => string, initialQuery = ''): AdminPaletteSearch {
+  const [query, setQuery] = useState(initialQuery);
   const [reply, setReply] = useState<{ q: string; results: SearchResult[] }>({ q: '', results: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
