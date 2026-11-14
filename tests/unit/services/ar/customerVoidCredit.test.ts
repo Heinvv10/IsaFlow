@@ -14,7 +14,7 @@ vi.mock('@/modules/accounting/services/ar/customerRunningCredit', async (orig) =
   customerCreditDays: vi.fn(),
 }));
 
-import { judgeCreditDays, customerCreditDays, type CreditDay } from '@/modules/accounting/services/ar/customerRunningCredit';
+import { judgeCreditDays, customerCreditDays, withDatedRemovals, type CreditDay } from '@/modules/accounting/services/ar/customerRunningCredit';
 import {
   CustomerVoidCreditRefusal, assertReceiptApplicationKeepsCredit, assertReceiptVoidKeepsCredit,
   isCustomerVoidCreditRefusal, withReceiptCancellationsJudged,
@@ -45,6 +45,10 @@ describe('judgeCreditDays — the rule', () => {
     const negativeLater = [day('05-05', 100, 100), day('05-10', -300)];
     expect(judgeCreditDays(negativeLater).lowestAfter).toBe(-300);
     expect(judgeCreditDays([day('05-08', -60), day('05-12', 100), day('05-14', 40, 40)]).lowestAfter).toBe(40);
+  });
+  it('a dated removal lands on its own day whichever way either date is spelled', () => {
+    const out = withDatedRemovals([day('2026-05-02', 200)], [{ date: new Date(2026, 4, 2), amount: 50 }, { date: '2026-05-09', amount: 10 }]);
+    expect(out.map((d) => [d.d, d.removed])).toEqual([['2026-05-02', 50], ['2026-05-09', 10]]);
   });
   it('a write that lowers nothing has no figure to refuse on', () => {
     expect(judgeCreditDays([day('05-05', 0, 0), day('05-10', -300)])).toMatchObject({ fromDate: null, lowestAfter: null });
