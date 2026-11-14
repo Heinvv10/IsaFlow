@@ -33,6 +33,3 @@
 - `paginated` adds `pagination` at the top level of the envelope, not inside `data`.
 - The `apiResponse` convenience export binds each method to the class — destructure-safe.
 - Legacy `api-error-handler.ts` has a different envelope (`data: null` on error); don't mix the two. New code uses **this** module.
-
-## Recent changes
-- 2026-04-24: Pentest M10–M23 CORS dedupe; Critical+High batch added `badRequestFromError`; PAYG Phase 1 introduced `paymentRequired` and `ErrorCode.PAYMENT_REQUIRED`.

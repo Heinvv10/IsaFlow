@@ -13,7 +13,3 @@ Plain-text comments with in-app @mentions on a customer invoice, a supplier invo
 - Plain text everywhere: stored byte for byte (NUL dropped, trimmed, 1-4000 characters), rendered by React as text with `whitespace-pre-wrap`. Never add `dangerouslySetInnerHTML`.
 - The table holds the rest: tenant RLS (FORCE), author and stamps are the session's and the clock's (column grants), only the author updates (42501), deleted is final (23514), no DELETE privilege.
 - Writes are rate limited per company and user (30 a minute, literal at the call site so the rate-limit key census reads it).
-
-## Recent changes
-- 2026-11-13 (M14): module created.
-- 2026-11-13 (M14 review r1): mention picker is the kit Select; roster for writers only; bank line deep link.
