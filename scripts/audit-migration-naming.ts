@@ -1,60 +1,33 @@
 #!/usr/bin/env bun
 /**
- * Audits migration filenames for duplicate numeric prefixes.
- * Exits 0 — informational only. Prints WARNING for any NEW duplicates
- * (not in the historical allowlist).
+ * CI gate (run-ci.sh step "migration-naming", Static gates): fails when a
+ * migration's version prefix clashes with another migration, so the clash
+ * shows on the PR instead of aborting a production deploy. Rule and the frozen
+ * list of historic clashes: scripts/ci/migrationPrefixRule.ts.
  *
- * Usage: bun scripts/audit-migration-naming.ts
+ * Usage (from the repo root): bun scripts/audit-migration-naming.ts   # exit 1 on a new clash
  */
 import { readdirSync } from 'fs';
-import { join } from 'path';
-
-const MIGRATIONS_DIR = join(import.meta.dir, 'migrations', 'sql');
-
-// Historical duplicate-prefix pairs — these pre-date the naming policy.
-// Do NOT add new entries here; fix the naming instead.
-const KNOWN_DUPLICATE_PREFIXES = new Set(['341', '342', '343', '344', '434', '436', '437']);
+import { findPrefixClashes, HISTORIC_PREFIX_CLASHES } from './ci/migrationPrefixRule';
+import { MIGRATIONS_DIR } from './lib/migrationFiles';
 
 const files = readdirSync(MIGRATIONS_DIR)
-  .filter(f => f.endsWith('.sql'))
+  .filter((f) => f.endsWith('.sql'))
   .sort();
+const clashes = findPrefixClashes(files);
 
-// Group by the full prefix string — digits followed by an optional letter,
-// e.g. "244" or "244b". Files like 244_ and 244b_ are distinct prefixes
-// and are NOT flagged. Only two files sharing the exact same prefix are violations.
-const byPrefix = new Map<string, string[]>();
-for (const file of files) {
-  const match = /^(\d+[a-z]?)_/.exec(file);
-  if (!match) {
-    console.warn(`WARNING: non-standard filename: ${file}`);
-    continue;
-  }
-  const prefix = match[1]!;
-  const group = byPrefix.get(prefix) ?? [];
-  group.push(file);
-  byPrefix.set(prefix, group);
+process.stdout.write(
+  `Scanned ${files.length} migration files (${HISTORIC_PREFIX_CLASHES.size} historic clashes allowlisted).\n`,
+);
+if (clashes.length === 0) {
+  process.stdout.write('No new migration prefix clashes.\n');
+  process.exit(0);
 }
-
-let newViolations = 0;
-for (const [prefix, group] of byPrefix) {
-  if (group.length > 1) {
-    // Strip trailing letter to get the numeric-only prefix for allowlist lookup
-    const numericPrefix = prefix.replace(/[a-z]+$/, '');
-    if (KNOWN_DUPLICATE_PREFIXES.has(numericPrefix)) {
-      console.log(`OK (historical): prefix ${prefix} — ${group.join(', ')}`);
-    } else {
-      console.warn(`WARNING: NEW duplicate prefix ${prefix} — ${group.join(', ')}`);
-      newViolations++;
-    }
-  }
+for (const c of clashes) {
+  process.stderr.write(`ERROR: ${c.name}: ${c.detail}\n`);
 }
-
-const total = files.length;
-console.log(`\nScanned ${total} migration files.`);
-if (newViolations === 0) {
-  console.log('No new duplicate prefixes found.');
-} else {
-  console.warn(`${newViolations} new duplicate prefix(es) found — please rename one file in each pair.`);
-}
-// Exit 0 always — informational, does not fail CI.
-process.exit(0);
+process.stderr.write(
+  `${clashes.length} migration prefix clash(es). Rename the new file to the next unused prefix ` +
+    '(production deploy would abort with DUPLICATE_PENDING_VERSION / PENDING_VERSION_TAKEN).\n',
+);
+process.exit(1);

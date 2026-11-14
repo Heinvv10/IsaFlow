@@ -56,4 +56,4 @@ Uses an advisory lock — concurrent runs are safe.
 bun scripts/audit-migration-naming.ts
 ```
 
-Warns on any new duplicate prefixes (exits 0 — informational only).
+Fails (exit 1) when a migration's version prefix clashes with another migration or with a prod-tracked file that left the repo. It runs in CI (`migration-naming` step) so the clash shows on the PR, not at deploy. Rule and frozen historic list: `scripts/ci/migrationPrefixRule.ts`.
