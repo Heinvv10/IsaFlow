@@ -6,10 +6,9 @@ import { adminUpdateUser, signIn, type GoTrueTokenResponse } from '@/lib/auth/go
 import { AuthUpstreamUnavailableError, respondToAuthOutage } from '@/lib/auth/authUpstream';
 import { sql } from '@/lib/neon';
 import { chargeRateLimit, refundRateLimit, withRateLimit } from '@/lib/rateLimit';
-import { setAuthCookies, setActiveCompanyCookie, setOnboardingDoneCookie } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
-import { isLiveCompanyForUser, pickInitialCompanyId } from '@/lib/auth/liveCompanies';
+import { issueInviteSession } from '@/lib/auth/inviteAcceptSession';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import { accountHasVerifiedFactor, MIN_NEW_PASSWORD_LENGTH, resolveInvitationAccount } from '@/lib/auth/inviteAccount';
 
@@ -273,22 +272,8 @@ const handler: NextApiHandler = async (req, res) => {
     client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
   }
 
-  // 5. Set cookies
-  setAuthCookies(res, {
-    accessToken: tok.access_token,
-    refreshToken: tok.refresh_token,
-    expiresIn: tok.expires_in,
-    persistent: false, // the acceptance page has no "Keep me signed in" box: not ticked
-  });
-  // The invited company is normally the right landing spot, but an invitation
-  // can outlive its company (admin soft delete writes companies.status =
-  // 'deleted'). Pointing the cookie at one would 403 every later request, so
-  // fall back to the accepter's next live membership and, failing that, set no
-  // active-company cookie at all (incident 2026-10-16).
-  const landingCompanyId = (await isLiveCompanyForUser(tok.user.id, inv.company_id))
-    ? inv.company_id
-    : await pickInitialCompanyId(tok.user.id);
-  if (landingCompanyId) { setActiveCompanyCookie(res, landingCompanyId); setOnboardingDoneCookie(res); }
+  // 5. Set cookies, record the sign-in, pick the landing company
+  const landingCompanyId = await issueInviteSession(res, tok, inv.company_id);
 
   return res.status(200).json({ success: true, data: { userId: tok.user.id, companyId: landingCompanyId } });
 };
