@@ -66,14 +66,11 @@ export function LazyAdminCommandPalette({ isOpen, onClose }: AdminCommandPalette
   const [typed, setTyped] = useState('');
   /** A load is in flight or done. Cleared when one fails, so the next open retries. */
   const started = useRef(false);
-  /** Any load was ever attempted: the idle preload is a one-off, and must not become a retry loop after a failure. */
-  const tried = useRef(false);
   const mounted = useRef(true);
 
   const start = useCallback(() => {
     if (started.current) return;
     started.current = true;
-    tried.current = true;
     loadPalette()
       .then((P) => { if (mounted.current) setLoaded(() => P); })
       .catch((err: unknown) => {
@@ -86,13 +83,12 @@ export function LazyAdminCommandPalette({ isOpen, onClose }: AdminCommandPalette
 
   useEffect(() => {
     mounted.current = true;
-    const preload = () => { if (!tried.current) start(); };
     const w = window as IdleWindow;
     if (w.requestIdleCallback) {
-      const id = w.requestIdleCallback(preload);
+      const id = w.requestIdleCallback(start);
       return () => { mounted.current = false; w.cancelIdleCallback?.(id); };
     }
-    const t = setTimeout(preload, 0);
+    const t = setTimeout(start, 0);
     return () => { mounted.current = false; clearTimeout(t); };
   }, [start]);
 
