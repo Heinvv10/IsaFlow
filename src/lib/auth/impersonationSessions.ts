@@ -12,6 +12,7 @@ import { sql } from '@/lib/neon';
 import { getPlatformAdminPool, newPlatformAdminClient } from './withPlatformAdmin.pools';
 import { verifyTokenSignature } from './gotrue';
 import { log } from '@/lib/logger';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 
 /**
  * Must run before any target cookie is issued: if it throws, the impersonation
@@ -93,14 +94,14 @@ export async function impersonationPartiesOfBounded(
 ): Promise<{ actorUserId: string; targetUserId: string } | null> {
   const checkout = getPlatformAdminPool().connect();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), BOUNDED_LOOKUP_CHECKOUT_MS); });
-  const client = await Promise.race([checkout, late]).finally(() => clearTimeout(timer));
+  const bound = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), BOUNDED_LOOKUP_CHECKOUT_MS); });
+  const client = await Promise.race([checkout, bound]).finally(() => clearTimeout(timer));
   if (!client) {
-    checkout.then((c) => c.release(), (err: unknown) => log.warn('bounded session look-up: late checkout failed',
+    checkout.then((late) => late.release(), (err: unknown) => log.warn('bounded session look-up: late checkout failed',
       { message: err instanceof Error ? err.message : String(err) }, 'Auth'));
     throw new SessionLookupBoundError(`no platform_admin connection within ${BOUNDED_LOOKUP_CHECKOUT_MS} ms`);
   }
-  let broken = false;
+  let unusable = false;
   try {
     await client.query('BEGIN');
     await client.query(`SET LOCAL statement_timeout = ${BOUNDED_LOOKUP_STATEMENT_MS}`);
@@ -112,10 +113,11 @@ export async function impersonationPartiesOfBounded(
     await client.query('COMMIT');
     return rows[0] ? { actorUserId: rows[0].actor_user_id, targetUserId: rows[0].target_user_id } : null;
   } catch (err) {
-    broken = true;
+    // R-176: a statement_timeout cancel aborts the transaction; a failed ROLLBACK leaves it open, so destroy it.
+    unusable = await rollbackFailed(client, 'impersonationPartiesOfBounded');
     throw err;
   } finally {
-    client.release(broken);
+    client.release(unusable);
   }
 }
 
