@@ -1,9 +1,11 @@
 /**
  * Drift guard for docs/mcp-connect.md (FB-5). The listing copy is held to
  * "accurate, complete, and not misleading" (Cursor Marketplace Publisher Terms
- * 4.5), and the old "Read (17) / Write (8)" went stale by 140 tools. The doc's
- * one count line is checked against the registry here, the same pattern as
- * clientMetadata.test.ts checks CLIENT_MCP_TOOL_NAMES.
+ * 4.5), and the old "Read (17) / Write (8)" went stale by 140 tools. The doc
+ * therefore carries no totals (they conflicted with every PR that added a tool);
+ * what is held here is that every tool it names exists and that the tools it
+ * calls state-changing are write tools. The read / write / write:post split is
+ * held to the registry in tools-read.test.ts.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -25,20 +27,10 @@ import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 import { CLIENT_MCP_TOOL_NAMES } from '@/lib/mcp/clientMetadata';
 
 const DOC = readFileSync(join(process.cwd(), 'docs', 'mcp-connect.md'), 'utf8');
-const COUNT_LINE = /\*\*(\d+) tools\*\* \((\d+) read-only, (\d+) that change data; (\d+) of those also need `write:post`\)/;
 
-describe('docs/mcp-connect.md tool counts', () => {
-  it('states the registry\'s own counts', () => {
-    const m = DOC.match(COUNT_LINE);
-    expect(m, 'count line missing from docs/mcp-connect.md').not.toBeNull();
-    const [, total, read, write, post] = m!.map(Number);
-    expect({ total, read, write, post }).toEqual({
-      total: MCP_TOOLS.length,
-      read: MCP_TOOLS.filter((t) => !t.write).length,
-      write: MCP_TOOLS.filter((t) => t.write).length,
-      post: MCP_TOOLS.filter((t) => t.requiresPost).length,
-    });
-    expect(total).toBe(CLIENT_MCP_TOOL_NAMES.length);
+describe('docs/mcp-connect.md tool claims', () => {
+  it('states no tool totals, which would conflict with every PR that adds a tool', () => {
+    expect(DOC).not.toMatch(/\b\d+ tools\b|\b\d+ read-only\b/i);
   });
 
   it('every tool the doc names in backticks exists', () => {
