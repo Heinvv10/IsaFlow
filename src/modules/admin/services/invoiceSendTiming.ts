@@ -1,5 +1,5 @@
 /**
- * Timing of an admin invoice Send (migration 991's claim), shared by the server and the admin page. Pure: no
+ * Timing of an admin invoice Send (migration 993's claim), shared by the server and the admin page. Pure: no
  * database, no mail, so the page can import it.
  */
 

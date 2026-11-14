@@ -3,7 +3,7 @@
  * POST /api/admin/billing/invoices/[id]/send — email a draft invoice to the company's billing email, then mark it sent.
  * Body: { confirmed_to } — the address the confirm dialog showed; a billing email changed since then is refused.
  *
- * Claim -> email -> finalise, each committed on its own (services/invoiceSendService.ts, migration 991). The
+ * Claim -> email -> finalise, each committed on its own (services/invoiceSendService.ts, migration 993). The
  * request's own transaction and pool connection stay open (idle) across the SMTP call, holding no row lock and
  * no write of this flow, so an email that left is never erased by this request rolling back.
  *   404 no such invoice; 409 not a draft, the billing email changed, or a send is in flight / its outcome is

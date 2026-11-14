@@ -1,4 +1,4 @@
--- 991: admin_invoices.send_claimed_at — the claim a platform-invoice Send takes before its email leaves
+-- 993: admin_invoices.send_claimed_at — the claim a platform-invoice Send takes before its email leaves
 -- (admin audit 2026-11-14 WP7, review of #1368 M1/M2).
 --
 -- WHY. The admin Send used to email the customer from inside the request transaction while holding a
@@ -16,4 +16,4 @@
 ALTER TABLE admin_invoices ADD COLUMN IF NOT EXISTS send_claimed_at TIMESTAMPTZ;
 
 COMMENT ON COLUMN admin_invoices.send_claimed_at IS
-  'Set while an admin Send of this draft is in flight, or when its outcome is unknown (the email may have left). NULL otherwise. Migration 991.';
+  'Set while an admin Send of this draft is in flight, or when its outcome is unknown (the email may have left). NULL otherwise. Migration 993.';

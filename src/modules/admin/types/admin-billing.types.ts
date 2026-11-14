@@ -52,7 +52,7 @@ export interface InvoiceListItem {
   paid_at: string | null;
   payment_method: string | null;
   created_at: string;
-  /** Set while a Send is in flight or its outcome is unknown (migration 991); an admin settles it. */
+  /** Set while a Send is in flight or its outcome is unknown (migration 993); an admin settles it. */
   send_claimed_at: string | null;
 }
 

@@ -1,6 +1,6 @@
 /**
  * Emailing a platform invoice to the company's billing email (admin "Send"), in three committed steps
- * (migration 991, reviews of #1368). Each step commits on its own one-off platform_admin connection
+ * (migration 993, reviews of #1368). Each step commits on its own one-off platform_admin connection
  * (withOwnPlatformAdminTx). The request's own withPlatformAdmin transaction and its pool connection stay
  * open, idle, across the SMTP call, but hold no row lock and no write of this flow:
  *

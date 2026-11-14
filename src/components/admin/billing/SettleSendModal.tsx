@@ -1,5 +1,5 @@
 /**
- * Settle an invoice Send whose outcome is unknown (the claim of migration 991): the email may or may not have
+ * Settle an invoice Send whose outcome is unknown (the claim of migration 993): the email may or may not have
  * left. The admin checks the email log first, then marks it sent (it was delivered) or releases it (it was not,
  * so it can be sent again). POST /api/admin/billing/invoices/[id]/settle-send, audited `invoice.send_settled`.
  */

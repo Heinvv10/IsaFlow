@@ -1,6 +1,6 @@
 /**
  * WP7 review of #1368, M1/M2: the admin invoice Send is claim -> email -> finalise, each committed on its own
- * (migration 991), and nothing of the request is held open across the SMTP call. Through the real route,
+ * (migration 993), and nothing of the request is held open across the SMTP call. Through the real route,
  * withAdmin / withPlatformAdmin, on the disposable schema fixture; nodemailer is mocked (nothing leaves this
  * process) and every recipient is on the reserved .test TLD.
  *

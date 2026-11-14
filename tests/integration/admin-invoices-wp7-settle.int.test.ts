@@ -1,5 +1,5 @@
 /**
- * WP7 review round 2 of #1368: a claimed invoice (a Send whose outcome is unknown, migration 991) is visible and
+ * WP7 review round 2 of #1368: a claimed invoice (a Send whose outcome is unknown, migration 993) is visible and
  * can be settled, a claim is released when the Send failed before anything reached the mail server, and a
  * billing email changed after the confirm dialog is refused. Real routes, disposable schema fixture, nodemailer
  * mocked (nothing leaves this process), recipients on the reserved .test TLD.

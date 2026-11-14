@@ -1,6 +1,6 @@
 /**
  * Admin Billing Invoice Settle Send API
- * POST /api/admin/billing/invoices/[id]/settle-send — settle a Send whose outcome is unknown (the claim of migration 991).
+ * POST /api/admin/billing/invoices/[id]/settle-send — settle a Send whose outcome is unknown (the claim of migration 993).
  * Body: { outcome: 'sent' | 'released' }. The admin reads the email log first:
  *   'sent'      it was delivered: status 'sent', claim cleared;
  *   'released'  it was not: claim cleared, the draft can be sent again.
