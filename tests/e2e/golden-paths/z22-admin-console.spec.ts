@@ -9,9 +9,12 @@
  * deploy back): nothing is clicked that saves, sends, suspends, converts, deletes or exports, and no number or
  * name from the data is asserted (a company and a user are picked from the list the page loaded).
  *
- * Who logs in: GOLDEN_PLATFORM_ADMIN_* (hosted CI: a throwaway super_admin seeded by scripts/ci/golden-hosted/up.sh),
- * else E2E_ADMIN_* (the post-deploy verify and local runs: admin@isaflow.co.za, which must be a super_admin with at
- * least one company there). The hosted suite's own golden user is a company admin and is refused by every admin API.
+ * Who logs in: GOLDEN_PLATFORM_ADMIN_EMAIL/_PASSWORD whenever both are set, in every environment (hosted CI sets them
+ * to a throwaway super_admin seeded by scripts/ci/golden-hosted/up.sh; setting them for the post-deploy verify swaps
+ * the shared login for a dedicated principal with no code change). Otherwise E2E_ADMIN_* (today the post-deploy
+ * verify and local runs: admin@isaflow.co.za, which must be a super_admin with at least one company there; see the
+ * deploy pre-check in PR #1377). The hosted suite's own golden user is a company admin and is refused by every admin
+ * API. Failure messages name only the login's email domain.
  *
  * How it reaches the admin host: middleware serves the console only for Host admin.isaflow.co.za, and on any other
  * host redirects /admin/* to the public admin site (in production, the LIVE colour, not the build under test). So
@@ -57,14 +60,27 @@ test.use({
   },
 });
 
+/** The dedicated pair when either half is set (both then required, never mixed with E2E_ADMIN_*), else E2E_ADMIN_*. */
 function platformAdminCredentials(): { email: string; password: string } {
-  const email = process.env.GOLDEN_PLATFORM_ADMIN_EMAIL || process.env.E2E_ADMIN_EMAIL;
-  const password = process.env.GOLDEN_PLATFORM_ADMIN_PASSWORD || process.env.E2E_ADMIN_PASSWORD;
+  const env = process.env;
+  const dedicated = Boolean(env.GOLDEN_PLATFORM_ADMIN_EMAIL || env.GOLDEN_PLATFORM_ADMIN_PASSWORD);
+  const email = dedicated ? env.GOLDEN_PLATFORM_ADMIN_EMAIL : env.E2E_ADMIN_EMAIL;
+  const password = dedicated ? env.GOLDEN_PLATFORM_ADMIN_PASSWORD : env.E2E_ADMIN_PASSWORD;
   if (!email || !password) {
-    throw new Error('z22 needs a super_admin login: GOLDEN_PLATFORM_ADMIN_EMAIL/_PASSWORD (hosted CI) or E2E_ADMIN_EMAIL/_PASSWORD');
+    throw new Error(dedicated
+      ? 'z22: set both GOLDEN_PLATFORM_ADMIN_EMAIL and GOLDEN_PLATFORM_ADMIN_PASSWORD, or neither'
+      : 'z22 needs a super_admin login: GOLDEN_PLATFORM_ADMIN_EMAIL/_PASSWORD or E2E_ADMIN_EMAIL/_PASSWORD');
   }
   return { email, password };
 }
+
+/** The login named by its email domain only, for failure messages that land in deploy logs. */
+function loginLabel(email: string | undefined): string {
+  const domain = email?.split('@')[1];
+  return domain ? `@${domain}` : 'unknown';
+}
+
+const PRE_CHECK = 'see the deploy pre-check in PR #1377 before deploying';
 
 /** name=value of every cookie the login set (expired ones dropped), read from Set-Cookie whatever its Domain/Secure. */
 function sessionCookies(setCookieHeaders: string[]): Array<{ name: string; value: string }> {
@@ -95,10 +111,10 @@ test.beforeAll(async () => {
   const { data } = (await me.json()) as { data: { user: { email?: string; role?: string | null }; memberships: unknown[] } };
   await ctx.dispose();
   if (data.user.role !== 'super_admin') {
-    throw new Error(`NOT_SUPER_ADMIN: the golden admin login (${data.user.email}) is not a super admin here (users.role = ${data.user.role}): grant it, or the deploy rolls back.`);
+    throw new Error(`NOT_SUPER_ADMIN: the golden admin login (${loginLabel(data.user.email)}) is not a super admin here; ${PRE_CHECK}.`);
   }
   if (data.memberships.length === 0) {
-    throw new Error(`the golden admin login (${data.user.email}) belongs to no company here: every admin page then logs a 400 from the app shell's company lookup. Link it to a company, or the deploy rolls back.`);
+    throw new Error(`the golden admin login (${loginLabel(data.user.email)}) belongs to no company here, so every admin page logs a 400 from the app shell's company lookup; ${PRE_CHECK}.`);
   }
 });
 
@@ -135,7 +151,7 @@ async function visit(w: Watched, path: string, heading: RegExp, api: RegExp): Pr
   await w.page.goto(`${TARGET.origin}${path}`);
   const res = await answered;
   if (res.status() === 403 && /NOT_SUPER_ADMIN/.test(await res.text())) {
-    throw new Error(`NOT_SUPER_ADMIN on ${path}: the golden admin login is not a super admin here: grant it, or the deploy rolls back.`);
+    throw new Error(`NOT_SUPER_ADMIN on ${path}: the golden admin login is not a super admin here; ${PRE_CHECK}.`);
   }
   expect(res.status(), `${path}: ${res.url()}`).toBe(200);
   await expect(w.page.getByRole('heading', { level: 1, name: heading }).first()).toBeVisible();
