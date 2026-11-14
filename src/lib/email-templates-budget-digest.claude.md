@@ -11,6 +11,3 @@ The budget overspend digest email (budgets P5-4): the alerts a daily run newly f
 ## Critical notes
 - Every value from the books (company, recipient, account, slice, month, amounts, the link) is escaped before it is placed, text or attribute; links are `appBaseUrl` + the alert's in-app path.
 - Unit test: `tests/unit/services/budgets/overspendDigest.test.ts` (hostile strings in every field).
-
-## Recent changes
-- 2026-11-03: added (budgets P5-4).

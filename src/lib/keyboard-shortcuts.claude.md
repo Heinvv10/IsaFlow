@@ -20,6 +20,3 @@ None.
 - `matchesShortcut` treats `ctrl` and `meta`/`cmd` as equivalent (`event.ctrlKey || event.metaKey`) — so `'ctrl+k'` fires for both Ctrl+K on Windows/Linux and ⌘+K on macOS. Do not register `'meta+k'` separately.
 - For sequences, `matchesShortcut` returns `false` immediately — callers must track the sequence state themselves (typically a hook that watches for the first key, then the second within a timeout).
 - Parsing is case-insensitive. `enabled` defaults to `true` when omitted.
-
-## Recent changes
-- 2026-03-30: Added during the Marneweck roadmap rollout (22 features across 8 workstreams).

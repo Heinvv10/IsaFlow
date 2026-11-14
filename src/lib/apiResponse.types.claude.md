@@ -19,6 +19,3 @@ None (pure types).
 - `PAYMENT_REQUIRED` (402) is reserved for PAYG Flow wallet insufficient-balance responses.
 - `RESOURCE_LOCKED` maps to 423, `DEPENDENCY_ERROR` to 424 — both uncommon; use when calling a downstream service that failed.
 - `VALIDATION_ERROR` maps to 422, not 400.
-
-## Recent changes
-- 2026-04-24: Split from apiResponse.ts during PAYG Phase 1; adds `PAYMENT_REQUIRED` code.
