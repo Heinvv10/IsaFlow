@@ -4,6 +4,7 @@
  * file under the 300-line cap.
  */
 
+import { isEmployerFundBenefitCode } from './retirementFund';
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import type { ValidationResult } from './payrollTypes';
@@ -19,6 +20,8 @@ export interface PayrollRunLine {
   grossPay: number;
   /** The breakdown's items flagged isNonCash (the 3801 loan benefit): taxed and levied, not in grossPay. */
   nonCashBenefits: number;
+  /** RF: of nonCashBenefits, the employer's 3817 / 3825 / 3828 fund contributions, also deemed paid by the employee into s11F. */
+  employerRetirement: number;
   taxableIncome: number;
   paye: number;
   uifEmployee: number;
@@ -268,6 +271,7 @@ export async function getPayrollRunLines(
       ? Math.round((r.component_breakdown as Array<{ isNonCash?: boolean; amount?: unknown }>)
         .reduce((s, i) => s + (i?.isNonCash === true ? Number(i.amount) || 0 : 0), 0) * 100) / 100
       : 0,
+    employerRetirement: employerRetirementOf(r.component_breakdown),
     taxableIncome: Number(r.taxable_income),
     paye: Number(r.paye),
     uifEmployee: Number(r.uif_employee),
@@ -277,4 +281,11 @@ export async function getPayrollRunLines(
     netPay: Number(r.net_pay),
     validationResults: parseValidationResults(r.validation_results),
   }));
+}
+
+/** RF: the line's taxable non-cash 3817 / 3825 / 3828 items (the employer's fund contributions, as deemed), to the cent; 0 for none or an unreadable breakdown. */
+export function employerRetirementOf(breakdown: unknown): number {
+  if (!Array.isArray(breakdown)) return 0;
+  return Math.round((breakdown as Array<{ isNonCash?: boolean; isTaxable?: boolean; sarsSourceCode?: unknown; amount?: unknown }>)
+    .reduce((s, i) => s + (i?.isNonCash === true && i.isTaxable === true && isEmployerFundBenefitCode(String(i.sarsSourceCode ?? '')) ? Number(i.amount) || 0 : 0), 0) * 100) / 100;
 }

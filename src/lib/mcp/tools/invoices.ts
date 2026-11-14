@@ -7,16 +7,23 @@ import {
   getCustomerInvoiceDetail,
   listCustomerInvoices,
 } from '@/modules/accounting/services/ar/customerInvoiceReadService';
+import {
+  CUSTOMER_INVOICE_GROUP_BY,
+  summariseCustomerInvoices,
+} from '@/modules/accounting/services/ar/customerInvoiceSummaryService';
 import { getQuotes } from '@/modules/accounting/services/ar/quoteService';
 import { NOT_FOUND, clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { OFFSET_SCHEMA, nextOffsetFromTotal, parseOffset } from './pageArgs';
+import { SUMMARY_DETAIL_SCHEMA, groupBySchema, parseSummaryRequest, summaryBody } from './summaryMode';
 
 export const listInvoicesTool: McpTool = {
   name: 'list_invoices',
   description:
     'Customer invoices, newest first. Filter by status (draft/sent/paid/…), customer_id, or free-text search. '
     + 'Returns {invoices, total, next_offset}: up to `limit` rows (default 25, max 100); when next_offset is '
-    + 'not null, call again with offset=next_offset for the next page.',
+    + 'not null, call again with offset=next_offset for the next page. '
+    + 'To total a large book without paging, use detail="summary" (count, total_amount, amount_paid and balance over the WHOLE filter set, no rows) '
+    + 'and group_by=customer|status|month (groups sum to the totals; at most 200 groups, the rest summed in other). A summary takes no offset.',
   scope: 'read:invoices',
   write: false,
   inputSchema: {
@@ -27,6 +34,8 @@ export const listInvoicesTool: McpTool = {
       search: { type: 'string', description: 'Matches invoice number or customer name' },
       limit: { type: 'integer', minimum: 1, maximum: 100 },
       offset: OFFSET_SCHEMA,
+      detail: SUMMARY_DETAIL_SCHEMA,
+      group_by: groupBySchema(CUSTOMER_INVOICE_GROUP_BY),
     },
     additionalProperties: false,
   },
@@ -34,9 +43,19 @@ export const listInvoicesTool: McpTool = {
     // status and search are compared as TEXT; customer_id is a UUID cast.
     const bad = guardCastableArgs(args, { uuid: ['customer_id'] });
     if (bad) return bad;
+    const wanted = parseSummaryRequest(args, CUSTOMER_INVOICE_GROUP_BY);
+    if (!wanted.ok) return wanted.error;
     const offset = parseOffset(args);
     if (typeof offset === 'string') return toolError(offset);
     const status = strArg(args, 'status');
+    if (wanted.summary) {
+      const summary = await summariseCustomerInvoices(ctx.companyId, {
+        status: status && status !== 'all' ? [status] : null,
+        clientId: strArg(args, 'customer_id') ?? null,
+        search: strArg(args, 'search') ?? null,
+      }, wanted.groupBy);
+      return ok(summaryBody(summary, wanted.groupBy));
+    }
     const result = await listCustomerInvoices(ctx.companyId, {
       status: status && status !== 'all' ? [status] : null,
       clientId: strArg(args, 'customer_id') ?? null,

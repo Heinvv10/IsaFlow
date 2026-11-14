@@ -40,9 +40,9 @@ describe('rankPages', () => {
 });
 
 describe('actions', () => {
-  it('lists the seven actions and no key hint that is not registered', () => {
+  it('lists the nine actions and no key hint that is not registered', () => {
     expect(PALETTE_ACTIONS.map((a) => a.label)).toEqual([
-      'New invoice', 'New bill', 'New employee', 'New pay run', 'Import bank statement', 'Switch theme', 'Keyboard shortcuts',
+      'New invoice', 'New bill', 'New employee', 'New pay run', 'Import bank statement', 'Explain this figure', 'Ask IsaFlow', 'Switch theme', 'Keyboard shortcuts',
     ]);
     expect(JSON.stringify(PALETTE_ACTIONS)).not.toMatch(/Ctrl\+Shift/);
   });

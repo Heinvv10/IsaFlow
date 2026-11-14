@@ -20,6 +20,9 @@ import {
 } from '@/modules/accounting/services/payroll/payrollComponentService';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { paidOutsidePayrollRefusal } from '@/modules/accounting/services/payroll/retirementFund';
+import {
+  componentRfiRefusal, defaultCountsAsRfi, DEFINED_BENEFIT_REFUSAL, logDefinedBenefitRefusal,
+} from '@/modules/accounting/services/payroll/payrollComponentRfi';
 
 async function handler(
   req: AuthenticatedNextApiRequest,
@@ -33,7 +36,7 @@ async function handler(
   }
 
   if (req.method === 'POST') {
-    const { name, sarsSourceCode, componentType, isTaxable, isUifApplicable, isSdlApplicable, paidOutsidePayroll } =
+    const { name, sarsSourceCode, componentType, isTaxable, isUifApplicable, isSdlApplicable, paidOutsidePayroll, countsAsRfi, fundType } =
       req.body as Record<string, unknown>;
 
     const code = normaliseSarsCode(sarsSourceCode == null ? '' : String(sarsSourceCode));
@@ -74,7 +77,13 @@ async function handler(
       isUifApplicable: isUifApplicable !== false,
       isSdlApplicable: isSdlApplicable !== false,
       paidOutsidePayroll: paidOutsidePayroll === true,
+      // RF (migration 975): an earning coded 3601 counts as retirement-funding income unless the request says otherwise.
+      countsAsRfi: typeof countsAsRfi === 'boolean' ? countsAsRfi : defaultCountsAsRfi(componentType, code),
     };
+    // RF: an employer's fund contribution (3817 / 3825 / 3828) is taxable and for a defined-contribution fund only.
+    const rfiRefused = componentRfiRefusal({ componentType, code, isTaxable: data.isTaxable, isUifApplicable: data.isUifApplicable, isSdlApplicable: data.isSdlApplicable, countsAsRfi, fundType });
+    if (rfiRefused === DEFINED_BENEFIT_REFUSAL) logDefinedBenefitRefusal(companyId, code);
+    if (rfiRefused) return apiResponse.badRequest(res, rfiRefused);
     // A contribution the employee pays the fund directly (PAYE 4c): retirement fund deductions only.
     const refused = data.paidOutsidePayroll ? paidOutsidePayrollRefusal(componentType, code) : null;
     if (refused) return apiResponse.badRequest(res, refused);
