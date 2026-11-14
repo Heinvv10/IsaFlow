@@ -31,6 +31,8 @@ export interface UnifiedAuditFilters {
   user_id?: string;
   action?: string;
   entity_type?: string;
+  /** One entity's entries (a user's Audit tab: entity_type=user&entity_id=<id>, audit 4.7). */
+  entity_id?: string;
   search?: string;
   from_date?: string;
   to_date?: string;
@@ -61,6 +63,7 @@ export async function getUnifiedAuditLog(
   const filterEntityType = filters.entity_type ?? null;
   const filterCompanyId  = filters.company_id  ?? null;
   const filterUserId     = filters.user_id     ?? null;
+  const filterEntityId   = filters.entity_id   ?? null;
 
   try {
     const rows = await sql`
@@ -85,6 +88,7 @@ export async function getUnifiedAuditLog(
         WHERE ${includeAdmin ? sql`TRUE` : sql`FALSE`}
           AND (${filterCompanyId ? sql`FALSE` : sql`TRUE`})
           AND (${filterUserId    ? sql`al.admin_user_id::text = ${filterUserId}` : sql`TRUE`})
+          AND (${filterEntityId  ? sql`al.target_id::text = ${filterEntityId}` : sql`TRUE`})
       ),
       accounting_rows AS (
         SELECT
@@ -109,6 +113,7 @@ export async function getUnifiedAuditLog(
           AND (${filterCompanyId ? sql`al.company_id = ${filterCompanyId}::uuid` : sql`TRUE`})
           AND (${filterUserId    ? sql`al.user_id::text = ${filterUserId}` : sql`TRUE`})
           AND (${filterEntityType ? sql`al.entity_type ILIKE ${filterEntityType}` : sql`TRUE`})
+          AND (${filterEntityId  ? sql`al.entity_id::text = ${filterEntityId}` : sql`TRUE`})
       ),
       auth_rows AS (
         SELECT
@@ -132,6 +137,7 @@ export async function getUnifiedAuditLog(
           AND (${filterCompanyId ? sql`FALSE` : sql`TRUE`})
           AND (${filterUserId    ? sql`us.user_id::text = ${filterUserId}` : sql`TRUE`})
           AND (${filterEntityType ? sql`'session' ILIKE ${filterEntityType}` : sql`TRUE`})
+          AND (${filterEntityId  ? sql`us.id::text = ${filterEntityId}` : sql`TRUE`})
       ),
       combined AS (
         SELECT * FROM admin_rows
@@ -161,6 +167,7 @@ export async function getUnifiedAuditLog(
         WHERE ${includeAdmin ? sql`TRUE` : sql`FALSE`}
           AND (${filterCompanyId ? sql`FALSE` : sql`TRUE`})
           AND (${filterUserId ? sql`al.admin_user_id::text = ${filterUserId}` : sql`TRUE`})
+          AND (${filterEntityId  ? sql`al.target_id::text = ${filterEntityId}` : sql`TRUE`})
       ),
       accounting_rows AS (
         SELECT al.user_id::text, al.company_id, al.action, al.entity_type,
@@ -170,6 +177,7 @@ export async function getUnifiedAuditLog(
           AND (${filterCompanyId ? sql`al.company_id = ${filterCompanyId}::uuid` : sql`TRUE`})
           AND (${filterUserId    ? sql`al.user_id::text = ${filterUserId}` : sql`TRUE`})
           AND (${filterEntityType ? sql`al.entity_type ILIKE ${filterEntityType}` : sql`TRUE`})
+          AND (${filterEntityId  ? sql`al.entity_id::text = ${filterEntityId}` : sql`TRUE`})
       ),
       auth_rows AS (
         SELECT us.user_id::text, NULL::uuid AS company_id, 'login'::text AS action,
@@ -181,6 +189,7 @@ export async function getUnifiedAuditLog(
           AND (${filterCompanyId ? sql`FALSE` : sql`TRUE`})
           AND (${filterUserId    ? sql`us.user_id::text = ${filterUserId}` : sql`TRUE`})
           AND (${filterEntityType ? sql`'session' ILIKE ${filterEntityType}` : sql`TRUE`})
+          AND (${filterEntityId  ? sql`us.id::text = ${filterEntityId}` : sql`TRUE`})
       ),
       combined AS (
         SELECT * FROM admin_rows

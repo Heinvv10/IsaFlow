@@ -97,10 +97,13 @@ async function getRecentActivity(): Promise<ActivityEvent[]> {
       'admin_action'                                                 AS type,
       a.action || ' ' || a.target_type                              AS description,
       COALESCE(u.first_name || ' ' || u.last_name, u.email)          AS user_name,
-      NULL::text                                                     AS company_name,
+      COALESCE(tc.name, dc.name)                                     AS company_name,
       a.created_at
     FROM admin_audit_log a
     LEFT JOIN users u ON u.id = a.admin_user_id::text
+    -- The company the action was about (audit 4.15): the target itself, else the company its details name.
+    LEFT JOIN companies tc ON a.target_type = 'company' AND tc.id::text = a.target_id
+    LEFT JOIN companies dc ON dc.id::text = a.details->>'company_id'
 
     UNION ALL
 
