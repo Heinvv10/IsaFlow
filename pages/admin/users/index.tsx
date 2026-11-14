@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
+import { formatLastSeen } from '@/components/admin/formatLastSeen';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { Search, Building2, AlertCircle, Loader2, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { UserDeleteCell } from '@/components/admin/UserDeleteCell';
@@ -256,7 +257,7 @@ export default function AdminUsersPage() {
                     <CompanyCell primaryCompany={u.primary_company} count={u.company_count} />
                   </td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                    {formatDate(u.last_login)}
+                    {formatLastSeen(u.last_login)}
                   </td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_BADGE[u.status] ?? ''}`}>
