@@ -5,10 +5,9 @@
  * the SAME admin transaction (see subscriptionChargeVoid.ts for the rule): the
  * row is locked first, so a charge-attempt claim (subscriptionPeriod.ts, FOR
  * SHARE on the subscription) waits for the change to commit and then sees it.
- * Lock order is subscription row -> charge rows, as in the claim; the Paystack
- * settle path takes them the other way round (charge, then subscription), so a
- * cancel racing a webhook settle of the same charge can deadlock, in which case
- * Postgres aborts one side (an admin retry, or Paystack's webhook retry).
+ * Lock order is subscription row -> charge rows, the same in the claim and in
+ * settleSubscriptionCharge (FOR UPDATE on the subscription first), so a cancel
+ * racing a webhook settle of the same charge cannot deadlock.
  */
 
 import { sql } from '@/lib/neon';
