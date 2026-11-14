@@ -113,5 +113,10 @@ export interface McpTool {
    * registry, before the handler — a viewer's token with `read:payroll` is refused.
    */
   requiresWriteRole?: boolean;
+  /**
+   * A READ that returns a file or other bulk content by design (get_document with include_content). Exempts it from
+   * the registry's oversized-result refusal (resultSize.ts); every other read is held to MAX_READ_RESULT_BYTES.
+   */
+  allowLargeResult?: boolean;
   handler(args: Record<string, unknown>, ctx: McpToolContext): Promise<McpToolResult>;
 }

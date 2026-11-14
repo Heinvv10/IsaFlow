@@ -19,7 +19,9 @@ export const assignEmployeeComponentTool: McpTool = {
     + 'employee with none costs to R0. Resolve component_id with list_payroll_components first. '
     + 'A RECURRING assignment runs every month from effective_from until it is ended; a once-off '
     + '(is_recurring: false) dies at the end of the month it was captured for. '
-    + 'Amounts are to the cent and post NOTHING to the ledger.',
+    + 'Amounts are to the cent and post NOTHING to the ledger. A pension, provident or RA contribution (deduction 4001/4003/4006, '
+    + 'or the employer\'s earning 3817/3825/3828) may instead be percent_of_rfi, a fraction of retirement-funding income '
+    + '(0.075 = 7.5%) with amount 0: each run costs it on the earnings flagged counts_as_rfi.',
   scope: 'write:payroll',
   requiresWriteRole: true,
   write: true,
@@ -32,6 +34,7 @@ export const assignEmployeeComponentTool: McpTool = {
       effective_from: { type: 'string', format: 'date', description: 'YYYY-MM-DD' },
       effective_to: { type: 'string', format: 'date' },
       is_recurring: { type: 'boolean', description: 'Default true' },
+      percent_of_rfi: { type: 'number', description: 'Fraction of retirement-funding income, 0 < p <= 1, four decimals; amount must be 0' },
       idempotency_key: { type: 'string' },
     },
     required: ['employee_id', 'component_id', 'amount', 'effective_from', 'idempotency_key'],
@@ -77,6 +80,8 @@ export const assignEmployeeComponentTool: McpTool = {
         effectiveTo,
         args.is_recurring !== false,
         { userId: ctx.userId, channel: 'mcp' },
+        // Judged by the service before the write (type, range, amount 0, a retirement contribution).
+        args.percent_of_rfi === undefined || args.percent_of_rfi === null ? null : (args.percent_of_rfi as number),
       );
     } catch (err) {
       if (err instanceof EmployeeComponentRefused) return toolError(err.message);
@@ -90,6 +95,7 @@ export const assignEmployeeComponentTool: McpTool = {
       component_name: component.name,
       component_type: component.componentType,
       amount,
+      percent_of_rfi: assignment.percentOfRfi,
       effective_from: effectiveFrom,
       is_recurring: args.is_recurring !== false,
     });

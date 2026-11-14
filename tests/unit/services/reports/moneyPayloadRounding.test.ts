@@ -196,6 +196,7 @@ describe('general_ledger (getGeneralLedgerLines) — payload guard', () => {
     };
     mockSql
       .mockResolvedValueOnce([{ retained: '0' }])           // trialBalanceBasis retained earnings b/f
+      .mockReturnValueOnce({} as never)                      // the matched-lines FROM/WHERE fragment (matchedLinesFromWhere)
       .mockResolvedValueOnce([row]);
 
     const page = await getGeneralLedgerLines({
