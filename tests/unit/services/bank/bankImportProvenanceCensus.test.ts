@@ -144,9 +144,9 @@ describe('4. every reversal path passes the reversal gate', () => {
     before(svc, 'await assertMayReverse(companyId, tx,', 'reverseDocumentChainLine(companyId, tx,');
     before(svc, 'await assertMayReverse(companyId, tx,', "withSavepoint('bank_reverse_reconciled'");
     before(`${MCP}writeBankAllocate.ts`, 'await agentReversalRefusal(', 'await reverseReconciledTransaction(');
-    // The bulk reversals reverse through bank/reverseLinesCreditLast (a payment before its refund is retried last).
+    // The bulk reversals reverse through bank/reverseLinesCreditLast (customers judged once, suppliers retried last).
     for (const tool of ['writeBankReverseBatch.ts', 'writeBankReverseRange.ts']) {
-      before(`${MCP}${tool}`, 'await agentReversalRefusal(', 'await reverseLinesCreditLast(');
+      before(`${MCP}${tool}`, 'await agentReversalRefusal(', 'await reverseLinesJudged(');
     }
     before(`${MCP}writeBankReverseRange.ts`, 'await agentReversalRefusal(', 'if (dryRun)');
     before('pages/api/accounting/bank-transactions-action.ts', 'respondIfBankControlRefused(res, err)', "badRequest(res, message)");

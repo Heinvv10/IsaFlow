@@ -130,6 +130,40 @@ describe('lock order: settle, cancel and claim', () => {
     }
   }, 30000);
 
+  it('restoring a company that is not deleted takes no subscription lock', async () => {
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT id FROM subscriptions WHERE id=$1 FOR UPDATE', [ids.sub]);
+      const txFx = { pool, companyId: ids.company, userId: ids.admin } as unknown as Fixture;
+      const restore = inTx(txFx, () => restoreCompany(ids.company));
+      const outcome = await Promise.race([
+        restore.then((v) => `returned ${v}`),
+        new Promise<string>((r) => setTimeout(() => r('blocked on the subscription lock'), 2000)),
+      ]);
+      await holder.query('COMMIT');
+      await restore;
+      expect(outcome).toBe('returned false');
+    } finally {
+      await holder.query('ROLLBACK').catch(() => undefined);
+      holder.release();
+    }
+  }, 30000);
+
+  it('restoring a lapsed company restarts the whole period, start and end together', async () => {
+    await pool.query(`UPDATE subscriptions SET current_period_start = now() - interval '130 days',
+      current_period_end = now() - interval '100 days' WHERE id=$1`, [ids.sub]);
+    await deleteCompany(ids.company);
+    const txFx = { pool, companyId: ids.company, userId: ids.admin } as unknown as Fixture;
+
+    expect(await inTx(txFx, () => restoreCompany(ids.company))).toBe(true);
+
+    const { rows } = await pool.query(
+      `SELECT current_period_end = current_period_start AS flat, current_period_end > now() - interval '1 minute' AS fresh
+       FROM subscriptions WHERE id=$1`, [ids.sub]);
+    expect(rows[0]).toEqual({ flat: true, fresh: true });
+  });
+
   it('claim, cancel and settle fired together 20 times: none is rejected', async () => {
     const rejected: string[] = [];
     for (let i = 0; i < 20; i++) {

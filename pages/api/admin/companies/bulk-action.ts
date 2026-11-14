@@ -12,9 +12,9 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { suspendCompany } from '@/modules/admin/services/adminCompanyService';
+import { extendTrialIfExists } from '@/modules/admin/services/trialService';
 import { logAdminAction, CriticalAuditError } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
-import { sql } from '@/lib/neon';
 import { UUID } from '@/lib/schemas/common';
 
 const MAX_BULK_IDS = 100;
@@ -80,13 +80,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     for (const companyId of company_ids) {
       try {
-        // Extend existing trial_ends_at or base from NOW() if null
-        await sql`
-          UPDATE companies
-          SET trial_ends_at = COALESCE(trial_ends_at, NOW()) + (${days} || ' days')::INTERVAL,
-              updated_at    = NOW()
-          WHERE id = ${companyId}
-        `;
+        // Same rule as the Trials page: from the later of the current end and
+        // today, never on a deleted, missing or already-paying company (not "processed").
+        const result = await extendTrialIfExists(companyId, days);
+        if (result.kind !== 'extended') {
+          errors.push(`${companyId}: ${result.kind === 'already_paid' ? 'already on a paid plan' : 'not found or deleted'}`);
+          continue;
+        }
         await logAdminAction(
           req.user.id,
           'company.extend_trial',
@@ -97,6 +97,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         );
         processed++;
       } catch (err) {
+        // Same as suspend above: a failed CRITICAL audit aborts the whole bulk op.
+        if (err instanceof CriticalAuditError) throw err;
         const msg = err instanceof Error ? err.message : 'Unknown error';
         errors.push(`${companyId}: ${msg}`);
         log.error('bulk extend_trial failed for company', { companyId, error: err }, 'admin-bulk-action');

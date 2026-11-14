@@ -5,11 +5,11 @@
  * as at its own date (`planSupplierRefund` / `planCustomerRefund`), and an all-dates figure lets a later-dated
  * document hide a refund left with nothing behind it (breaker R2-2).
  *
- * Reallocation only. The AP unwind still runs `ap/supplierVoidCredit.assertVoidKeepsCredit` (all dates, Hein's
- * 2026-10-26 ruling) for every void; this is a stricter check in front of it for this path, and void_payment /
- * reverse_bank_allocation / void_receipt are unchanged. Supplier: under the supplier's credit key
- * (`ap/supplierCreditLock`, TRIED — no edge in any wait-for cycle), as the void takes it. Customer:
- * `ar/customerVoidCredit` (under the customer's refund lock).
+ * Supplier side: reallocation only. The AP unwind still runs `ap/supplierVoidCredit.assertVoidKeepsCredit` (all
+ * dates, Hein's 2026-10-26 ruling) for every void; this is a stricter check in front of it for this path, and
+ * void_payment is unchanged. Supplier: under the supplier's credit key (`ap/supplierCreditLock`, TRIED — no edge in any
+ * wait-for cycle), as the void takes it. Customer: `ar/customerVoidCredit` (under the customer's refund lock, tried),
+ * the same figure every receipt cancellation asks — here it only words the refusal for reallocation.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -17,7 +17,8 @@ import { fmtDate } from '@/lib/fmtDate';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { lockSupplierCredit } from '../ap/supplierCreditLock';
 import { getSupplierOnAccountCredit } from '../ap/supplierOnAccountCredit';
-import { customerVoidCreditShortfall } from '../ar/customerVoidCredit';
+import { customerCreditFall, customerVoidCreditShortfall, type CustomerVoidCreditShortfall } from '../ar/customerVoidCredit';
+import type { CreditDay } from '../ar/customerRunningCredit';
 import { BankReallocationRefusal } from './bankReallocationGuards';
 
 const cents = (n: number) => Math.round(n * 100);
@@ -51,18 +52,38 @@ async function supplierShortfall(companyId: string, paymentIds: readonly string[
   return null;
 }
 
-/** Refuses (REALLOCATION_REFUSED, before any write) when cancelling the old documents would leave a refund uncovered. */
-export async function assertReallocationKeepsCredit(
-  companyId: string, old: { supplierPaymentIds: readonly string[]; customerPaymentIds: readonly string[] },
-): Promise<void> {
-  const customer = await customerVoidCreditShortfall(companyId, old.customerPaymentIds);
-  const s: Shortfall | null = customer
-    ? { side: 'customer', name: customer.customerName, lowers: customer.lowers, credit: customer.credit, fromDate: customer.fromDate }
-    : await supplierShortfall(companyId, old.supplierPaymentIds);
-  if (!s) return;
+function refusalOf(s: Shortfall): BankReallocationRefusal {
   const doc = s.side === 'customer' ? 'receipt' : 'payment';
-  throw new BankReallocationRefusal(`Reallocating this line would cancel its ${doc} and leave ${s.name} owing the company: `
+  return new BankReallocationRefusal(`Reallocating this line would cancel its ${doc} and leave ${s.name} owing the company: `
     + `it takes ${formatMoney(s.lowers)} of unapplied cash off the ${s.side}'s account from ${s.fromDate}, and on some `
     + `date since then only ${formatMoney(Math.max(s.credit, 0))} is on account — a refund has already returned the rest. `
     + 'Reverse the refund first, then reallocate.');
+}
+const customerSide = (c: CustomerVoidCreditShortfall): Shortfall =>
+  ({ side: 'customer', name: c.customerName, lowers: c.lowers, credit: c.credit, fromDate: c.fromDate });
+
+/**
+ * Refuses (REALLOCATION_REFUSED, before any write) when cancelling the old documents would leave a refund uncovered.
+ * `sameCustomerId`: the target customer, when the line is re-pointed to a customer — its old receipts are NOT judged
+ * here (the new receipt puts cash back on that customer); `assertReallocationLeftCredit` judges it on the real rows.
+ */
+export async function assertReallocationKeepsCredit(
+  companyId: string, old: { supplierPaymentIds: readonly string[]; customerPaymentIds: readonly string[] },
+  sameCustomerId?: string,
+): Promise<void> {
+  const customer = await customerVoidCreditShortfall(companyId, old.customerPaymentIds, sameCustomerId);
+  const s = customer ? customerSide(customer) : await supplierShortfall(companyId, old.supplierPaymentIds);
+  if (s) throw refusalOf(s);
+}
+
+/**
+ * The same-customer half, judged AFTER the write on what it left (inside the reallocation's savepoint, so a refusal
+ * rolls the whole reallocation back — dry run and live alike, since a dry run is the same write rolled back): the old
+ * receipt cancelled, the new one recorded and applied by FIFO. `before` is the customer's per-day figures read under
+ * its lock before the unwind. Never a prediction of what FIFO will apply: FIFO may also take the invoices the unwind
+ * frees.
+ */
+export async function assertReallocationLeftCredit(companyId: string, customerId: string, before: readonly CreditDay[]): Promise<void> {
+  const fall = await customerCreditFall(companyId, customerId, before);
+  if (fall) throw refusalOf(customerSide(fall));
 }

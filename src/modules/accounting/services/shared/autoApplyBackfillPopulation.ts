@@ -35,6 +35,7 @@ import { EPS } from './autoAllocateStrategy';
 import {
   basisSources, markCreditCeilingSkips, SKIP_NO_FISCAL_PERIOD, SKIP_NO_JOURNAL,
 } from './autoApplyBackfillSkips';
+import { markReceiptCreditSkips } from './autoApplyBackfillReceiptCredit';
 import type { SimulationDocument } from './autoApplySimulation';
 import type { BackfillSource, Subledger } from './autoApplyBackfillPlan';
 
@@ -149,7 +150,8 @@ export async function readBackfillSources(
 
   // The credit ceiling AFTER the period skip: a withheld source consumes no credit.
   const periodChecked = await markJournalPeriodSkips(companyId, ordered);
-  return markCreditCeilingSkips(subledger, await creditOfSources(companyId, subledger, periodChecked), periodChecked);
+  const apChecked = markCreditCeilingSkips(subledger, await creditOfSources(companyId, subledger, periodChecked), periodChecked);
+  return markReceiptCreditSkips(companyId, subledger, apChecked); // AR: by date (`autoApplyBackfillReceiptCredit`)
 }
 
 /** AP: each supplier's on-account credit over every date, for the suppliers whose payments this run may apply. */

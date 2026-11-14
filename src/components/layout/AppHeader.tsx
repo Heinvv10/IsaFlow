@@ -102,16 +102,18 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
       {/* Settings cog (hidden on admin subdomain) */}
       {!isAdminHost && <SettingsMenu />}
 
-      {/* Nav mode toggle */}
-      <button
-        type="button"
-        onClick={onToggleNavMode}
-        className={`${inline} ${ICON_BUTTON}`}
-        title={navMode === 'top' ? 'Switch to sidebar navigation' : 'Switch to top navigation'}
-        aria-label={navMode === 'top' ? 'Switch to sidebar navigation' : 'Switch to top navigation'}
-      >
-        {navMode === 'top' ? <PanelLeft className="w-4 h-4" /> : <PanelTop className="w-4 h-4" />}
-      </button>
+      {/* Nav mode toggle (hidden on admin subdomain: its sidebar is the accounting one) */}
+      {!isAdminHost && (
+        <button
+          type="button"
+          onClick={onToggleNavMode}
+          className={`${inline} ${ICON_BUTTON}`}
+          title={navMode === 'top' ? 'Switch to sidebar navigation' : 'Switch to top navigation'}
+          aria-label={navMode === 'top' ? 'Switch to sidebar navigation' : 'Switch to top navigation'}
+        >
+          {navMode === 'top' ? <PanelLeft className="w-4 h-4" /> : <PanelTop className="w-4 h-4" />}
+        </button>
+      )}
 
       {/* Table density toggle (below lg these live in MobileHeaderMenu) */}
       <div className={inline}><TableDensityToggle /></div>
@@ -123,7 +125,7 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
         className={showSidebar ? 'xl:hidden' : 'lg:hidden'}
         name={user ? `${user.firstName} ${user.lastName}` : ''}
         navMode={navMode}
-        onToggleNavMode={onToggleNavMode}
+        onToggleNavMode={isAdminHost ? undefined : onToggleNavMode}
         onLogout={showSidebar ? undefined : () => void logout()}
       />
 

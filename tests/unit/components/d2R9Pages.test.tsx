@@ -78,7 +78,7 @@ describe('paystack mandate return', () => {
 });
 
 describe('admin trials', () => {
-  const TRIAL = { id: 't1', name: 'D2 Trial Co', plan_name: null, trial_ends_at: '2027-01-01T00:00:00Z', trial_started_at: null, user_count: 1, status: 'active', days_left: 5 };
+  const TRIAL = { id: 't1', name: 'D2 Trial Co', plan_name: null, trial_ends_at: '2027-01-01T00:00:00Z', trial_started_at: null, user_count: 1, status: 'active', trial_state: 'active', days_left: 5 };
   const list = on('GET', '/api/admin/trials?', () => ok([TRIAL]));
   it('load 5xx: a plain sentence', async () => {
     serve(on('GET', '/api/admin/trials?', empty500));

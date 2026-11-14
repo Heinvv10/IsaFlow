@@ -16,6 +16,7 @@ export const OAUTH_SCOPES = [
   'write:contacts',
   'read:vat',
   'write:vat',
+  'write:company',
   'read:practice',
   'write:practice',
   'read:payroll',

@@ -9,11 +9,14 @@
 #   2. a real GoTrue (the image velo runs) on its own database, as in
 #      production, where GoTrue's `auth` schema is not the app's database;
 #   3. the Demo company and the E2E admin (seed-demo.sql, and the admin through
-#      GoTrue's admin API, so the password is a real GoTrue password);
+#      GoTrue's admin API, so the password is a real GoTrue password), plus a
+#      second user who is a platform super_admin, for the admin-console spec
+#      only (the E2E admin stays an ordinary company admin);
 #   4. a generated .env.local of random, run-local values. Nothing here is a
 #      secret and none of it can reach anything outside this runner.
 #
-# Output: .env.local in the repo root; E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD in
+# Output: .env.local in the repo root; E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD and
+# GOLDEN_PLATFORM_ADMIN_EMAIL / GOLDEN_PLATFORM_ADMIN_PASSWORD in
 # $ADMIN_ENV_FILE (default: $RUNNER_TEMP/golden-admin.env) for the Playwright
 # step to source. Nothing secret is printed. The cluster and the GoTrue container die with the runner.
 #
@@ -44,7 +47,10 @@ export PGPASSWORD JWT JWT_SECRET
 ADMIN_ENV_FILE=${ADMIN_ENV_FILE:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/golden-admin.env}
 ADMIN_EMAIL=golden-admin@isaflow.test
 ADMIN_PASSWORD="Gp-$(rand 12)-Aa1"
+PLATFORM_ADMIN_EMAIL=golden-platform-admin@isaflow.test
+PLATFORM_ADMIN_PASSWORD="Gp-$(rand 12)-Aa1"
 echo "::add-mask::$ADMIN_PASSWORD"
+echo "::add-mask::$PLATFORM_ADMIN_PASSWORD"
 echo "::add-mask::$PGPASSWORD"
 
 WORK=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/isaflow-golden-db.XXXXXX")
@@ -111,16 +117,34 @@ if [ "$ready" != 1 ]; then
 fi
 echo "[golden-hosted] GoTrue healthy on $GPORT"
 
-# The E2E admin: a confirmed GoTrue user, so the password is judged by GoTrue
-# itself at login.
-ADMIN_ID=$(curl -sf -X POST "$GOTRUE_URL/admin/users" \
-  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-  -H 'content-type: application/json' \
-  -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\",\"email_confirm\":true}" | jq -r .id)
+# gotrue_user <email> <password>: a confirmed GoTrue user, so the password is
+# judged by GoTrue itself at login. Prints its id.
+gotrue_user() {
+  curl -sf -X POST "$GOTRUE_URL/admin/users" \
+    -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+    -H 'content-type: application/json' \
+    -d "{\"email\":\"$1\",\"password\":\"$2\",\"email_confirm\":true}" | jq -r .id
+}
+ADMIN_ID=$(gotrue_user "$ADMIN_EMAIL" "$ADMIN_PASSWORD")
 [ -n "$ADMIN_ID" ] && [ "$ADMIN_ID" != null ] || { echo "::error::GoTrue refused to create the E2E admin" >&2; exit 1; }
 
 "${PSQL[@]}" -d "$APP_DB" -v admin_id="$ADMIN_ID" -v admin_email="$ADMIN_EMAIL" -f scripts/ci/golden-hosted/seed-demo.sql
 echo "[golden-hosted] Demo company and E2E admin seeded"
+
+# The platform admin: super_admin on users.role (what withPlatformAdmin reads),
+# and, like every real platform admin, owner of a company of its own (one
+# without any company gets a 400 from the app shell's company lookup on every
+# admin page). Not a member of Demo, whose roster the other specs rely on.
+# Only the admin-console spec (z22) logs in as it.
+PLATFORM_ADMIN_ID=$(gotrue_user "$PLATFORM_ADMIN_EMAIL" "$PLATFORM_ADMIN_PASSWORD")
+[ -n "$PLATFORM_ADMIN_ID" ] && [ "$PLATFORM_ADMIN_ID" != null ] || { echo "::error::GoTrue refused to create the platform admin" >&2; exit 1; }
+"${PSQL[@]}" -d "$APP_DB" -v id="$PLATFORM_ADMIN_ID" -v email="$PLATFORM_ADMIN_EMAIL" <<'SQL'
+INSERT INTO users (id, email, first_name, last_name, role, is_active, onboarding_completed)
+VALUES (:'id', :'email', 'Golden', 'Platform Admin', 'super_admin', true, true);
+SELECT set_config('request.jwt.claims', json_build_object('sub', :'id')::text, false) \gset
+SELECT id FROM create_company_with_owner(jsonb_build_object('name', 'Golden Platform Admin Co')) \gset
+SQL
+echo "[golden-hosted] platform admin seeded"
 
 APP_URL=$(pg_url "$APP_DB")
 umask 077
@@ -146,6 +170,8 @@ ENV
 # The Playwright step sources this. Not GITHUB_ENV: a step's own `env:` beats
 # it, and the real E2E_ADMIN_* secrets must never reach a hosted run anyway.
 printf 'E2E_ADMIN_EMAIL=%s\nE2E_ADMIN_PASSWORD=%s\n' "$ADMIN_EMAIL" "$ADMIN_PASSWORD" > "$ADMIN_ENV_FILE"
+printf 'GOLDEN_PLATFORM_ADMIN_EMAIL=%s\nGOLDEN_PLATFORM_ADMIN_PASSWORD=%s\n' \
+  "$PLATFORM_ADMIN_EMAIL" "$PLATFORM_ADMIN_PASSWORD" >> "$ADMIN_ENV_FILE"
 # A fresh database makes the suite create every sandbox company in one run, past
 # complete-setup's 10 per user per hour: the golden helper resets that one
 # counter row here before each create (tests/e2e/golden-paths/helpers/hostedOnboardingLimit.ts).
