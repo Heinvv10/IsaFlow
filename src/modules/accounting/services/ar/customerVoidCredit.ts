@@ -16,8 +16,8 @@
  * BULK (`judgeReceiptCancellations` / `withReceiptCancellationsJudged`): a call that cancels several receipts at once
  * judges the whole set ONCE, by the same function its dry run uses, so the two agree by construction. The per-receipt
  * check inside it then only VERIFIES, under that receipt's locks and the customer's, that nothing the judgment read
- * has moved since (the receipt still the judged customer's, with its judged remainder; once per customer, the other
- * rows' figures not fallen on any date and no judged row moved) — a refusal there is retryable, never a second
+ * has moved since (the receipt still the judged customer's, with its judged remainder; the other rows' figures not
+ * fallen on any date and no judged row moved — at every receipt) — a refusal there is retryable, never a second
  * opinion on the books. A reallocation to the SAME customer defers that customer and judges it on the rows its write
  * actually leaves (`customerCreditFall`, after the new receipt and its FIFO), inside the write's savepoint.
  *
@@ -149,10 +149,8 @@ function refusal(s: CustomerVoidCreditShortfall, what: string, remedy: string): 
 const cancelling = (n: number) => (n > 1 ? 'Cancelling these receipts' : 'Cancelling this receipt');
 const CANCEL_REMEDY = 'Reverse the refund first, then cancel the receipt.';
 
-/** A judged set: what each customer's judgment read, the customers verified (and locked) since, the one deferred. */
-const judged = new AsyncLocalStorage<{
-  companyId: string; snapshots: Map<string, CustomerSnapshot>; verified: Set<string>; deferred?: string;
-}>();
+/** A judged set: what each customer's judgment read, and the one customer the caller judges itself. */
+const judged = new AsyncLocalStorage<{ companyId: string; snapshots: Map<string, CustomerSnapshot>; deferred?: string }>();
 
 /** Where a set of receipts stands against an up-front judgment. */
 type Verified = 'not-judged' | 'ok' | 'moved';
@@ -160,11 +158,8 @@ type Verified = 'not-judged' | 'ok' | 'moved';
 /**
  * Re-checks, under this receipt's locks and its customer's, that a set judged up front still stands: the receipt is
  * still the judged customer's with the judged remainder, and no other row of that customer has fallen on any date and
- * no judged row has moved. The second half is cached per customer only while the customer lock taken for it is held:
- * every call re-takes the lock (re-entrant), and when that call had to ACQUIRE it (a savepoint rolled back meanwhile
- * released it, and another request may have written), the cached verification is discarded and made again. While the
- * row stays held every writer that can lower its other rows waits for it or is refused (a refund's `FOR UPDATE`, an
- * application's or a cancel's tried lock, a merge's `FOR UPDATE`); an unapply only raises.
+ * no judged row has moved. On EVERY call, under the customer lock taken again (re-entrant): nothing is cached between
+ * receipts, so a lock released meanwhile (a set-aside line's savepoint rolled back) cannot let a stale check stand.
  * 'not-judged' when `paymentIds` are not all in a judged set (the caller then judges them itself).
  */
 async function verifyJudged(companyId: string, paymentIds: readonly string[]): Promise<Verified> {
@@ -186,11 +181,8 @@ async function verifyJudged(companyId: string, paymentIds: readonly string[]): P
     if (!sameId(row.customerId, snap.customerId)) return 'moved';
     const judgedRow = snap.rows.find((r) => sameId(r.paymentId, row.paymentId));
     if (!judgedRow || cents(row.remainder) !== cents(judgedRow.remainder)) return 'moved';
-    const key = snap.customerId.toLowerCase();
-    if ((await tryLockCustomerCredit(companyId, snap.customerId)) === 'acquired') ctx.verified.delete(key);
-    if (ctx.verified.has(key)) continue;
+    await tryLockCustomerCredit(companyId, snap.customerId);
     if (!(await customerStillAsJudged(companyId, snap))) return 'moved';
-    ctx.verified.add(key);
   }
   return 'ok';
 }
@@ -267,7 +259,7 @@ export async function withReceiptCancellationsJudged<T>(
   const r = await judgeOrVerify(companyId, paymentIds, opts.locked === true, opts.deferredCustomerId);
   if (r.verified) return fn();
   return judged.run({
-    companyId, snapshots: new Map(r.snapshots.map((x) => [x.customerId, x])), verified: new Set(),
+    companyId, snapshots: new Map(r.snapshots.map((x) => [x.customerId, x])),
     ...(opts.deferredCustomerId ? { deferred: opts.deferredCustomerId } : {}),
   }, fn);
 }

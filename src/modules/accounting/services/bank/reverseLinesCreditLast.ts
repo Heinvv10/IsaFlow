@@ -21,8 +21,8 @@
  * agree by construction (a per-receipt judgment with a retry can refuse a set the set judgment passes, when the
  * customer is already below zero on a later date). The live call then reverses inside `withReceiptCancellationsJudged`:
  * each receipt's own check only verifies, under its locks and its customer's, that nothing the judgment read has moved
- * since — and judges that afresh whenever the customer lock had lapsed (a set-aside line's rolled-back savepoint
- * releases the lock it took).
+ * since, at every receipt under the customer lock taken again (a set-aside line's rolled-back savepoint releases the
+ * lock it took, so nothing is carried between receipts).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';

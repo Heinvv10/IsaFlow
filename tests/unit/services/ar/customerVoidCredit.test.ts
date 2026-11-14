@@ -134,50 +134,41 @@ describe('withReceiptCancellationsJudged — judged once, each receipt only veri
   });
 });
 
-describe('withReceiptCancellationsJudged — N receipts of one customer read its credit once', () => {
-  it('the judgment, then ONE verification for the customer; each later receipt checks only its own row', async () => {
+describe('withReceiptCancellationsJudged — verified at EVERY receipt, nothing cached between them', () => {
+  it('each receipt of one customer re-takes the customer lock and re-reads its credit', async () => {
     const ids = ['a', 'b', 'c'];
     const judgedDays = [day('2026-05-02', 300, 300, 0), day('2026-05-09', 100)];
-    // reads in order: the judgment's rows, a's own row, the set (once, at a), b's own row, c's own row
-    sqlMock
-      .mockResolvedValueOnce(rows(['a', 'c', 100], ['b', 'c', 100], ['c', 'c', 100]))
-      .mockResolvedValueOnce(rows(['a', 'c', 100]))
-      .mockResolvedValueOnce(rows(['a', 'c', 100], ['b', 'c', 100], ['c', 'c', 100]))
-      .mockResolvedValueOnce(rows(['b', 'c', 100]))
-      .mockResolvedValueOnce(rows(['c', 'c', 100]));
+    const set = rows(['a', 'c', 100], ['b', 'c', 100], ['c', 'c', 100]);
+    sqlMock.mockResolvedValueOnce(set); // the judgment's rows
+    for (const id of ids) sqlMock.mockResolvedValueOnce(rows([id, 'c', 100])).mockResolvedValueOnce(set); // own row, then the set
     vi.mocked(customerCreditDays).mockResolvedValue({ customerName: 'Acme', days: judgedDays });
-    vi.mocked(tryLockCustomerCredit).mockResolvedValueOnce('acquired').mockResolvedValue('held');
     await withReceiptCancellationsJudged('co', ids, async () => {
       for (const id of ids) await assertReceiptVoidKeepsCredit('co', [id]);
     });
-    expect(customerCreditDays).toHaveBeenCalledTimes(2); // judgment + one verification, not one per receipt
-    expect(tryLockCustomerCredit).toHaveBeenCalledTimes(3); // re-taken (re-entrant) at every receipt: still held?
+    expect(customerCreditDays).toHaveBeenCalledTimes(1 + ids.length); // the judgment + one verification per receipt
+    expect(tryLockCustomerCredit).toHaveBeenCalledTimes(ids.length);
   });
-  it('a verification made under a lock that has since LAPSED is made again (a rolled-back savepoint released it)', async () => {
+  it('a refund that lands between two receipts (a set-aside line released the lock) is caught at the next receipt', async () => {
+    const set = rows(['a', 'c', 100], ['b', 'c', 100]);
     sqlMock
-      .mockResolvedValueOnce(rows(['a', 'c', 100], ['b', 'c', 100])) // the judgment's rows
-      .mockResolvedValueOnce(rows(['a', 'c', 100])) // a's own row
-      .mockResolvedValueOnce(rows(['a', 'c', 100], ['b', 'c', 100])) // the set, at a
-      .mockResolvedValueOnce(rows(['b', 'c', 100])) // b's own row
-      .mockResolvedValueOnce(rows(['a', 'c', 100], ['b', 'c', 100])); // the set again, at b
+      .mockResolvedValueOnce(set) // the judgment's rows
+      .mockResolvedValueOnce(rows(['a', 'c', 100])).mockResolvedValueOnce(set) // a: own row, set
+      .mockResolvedValueOnce(rows(['b', 'c', 100])).mockResolvedValueOnce(set); // b: own row, set
     const judgedDays = [day('2026-05-20', 200, 200, 0), day('2026-05-25', 0, 0, 0)];
     vi.mocked(customerCreditDays)
       .mockResolvedValueOnce({ customerName: 'Acme', days: judgedDays }) // the judgment
       .mockResolvedValueOnce({ customerName: 'Acme', days: judgedDays }) // a's verification
       .mockResolvedValueOnce({ customerName: 'Acme', days: [...judgedDays.slice(0, 1), day('2026-05-25', -50)] }); // b's: a refund landed
-    vi.mocked(tryLockCustomerCredit).mockResolvedValueOnce('acquired').mockResolvedValueOnce('acquired');
     const err = await withReceiptCancellationsJudged('co', ['a', 'b'], async () => {
       await assertReceiptVoidKeepsCredit('co', ['a']);
       await assertReceiptVoidKeepsCredit('co', ['b']);
     }).catch((e: unknown) => e);
     expect(isRetryableReceiptRefusal(err)).toBe(true);
-    expect(customerCreditDays).toHaveBeenCalledTimes(3);
   });
-  it('a later receipt whose own remainder moved after the customer was verified is still refused, retryable', async () => {
+  it('a later receipt whose own remainder moved since the judgment is refused, retryable', async () => {
     sqlMock
       .mockResolvedValueOnce(rows(['a', 'c', 100], ['b', 'c', 100]))
-      .mockResolvedValueOnce(rows(['a', 'c', 100]))
-      .mockResolvedValueOnce(rows(['a', 'c', 100], ['b', 'c', 100]))
+      .mockResolvedValueOnce(rows(['a', 'c', 100])).mockResolvedValueOnce(rows(['a', 'c', 100], ['b', 'c', 100]))
       .mockResolvedValueOnce(rows(['b', 'c', 160])); // unapplied since (an unapply takes no customer lock)
     vi.mocked(customerCreditDays).mockResolvedValue({ customerName: 'Acme', days: [day('2026-05-02', 200, 200, 0)] });
     const err = await withReceiptCancellationsJudged('co', ['a', 'b'], async () => {
