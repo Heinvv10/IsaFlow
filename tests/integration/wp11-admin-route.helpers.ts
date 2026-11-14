@@ -29,7 +29,7 @@ export async function dropAdmin(pool: Pool, id: string): Promise<void> {
 
 export async function callAdmin(
   handler: unknown, token: string,
-  opts: { method?: string; query?: Record<string, string>; body?: unknown } = {},
+  opts: { method?: string; query?: Record<string, string>; body?: unknown; csrf?: boolean } = {},
 ): Promise<Wire> {
   const wire: Wire[] = [];
   const headers: Record<string, unknown> = {};
@@ -45,6 +45,7 @@ export async function callAdmin(
       return this;
     },
   };
+  const csrf = opts.csrf ?? true;
   const req = {
     method: opts.method ?? 'POST',
     url: '/api/admin/wp11',
@@ -52,7 +53,7 @@ export async function callAdmin(
     body: opts.body ?? {},
     headers: {
       cookie: `sb-access-token=${token}; isaflow_csrf=${CSRF}`,
-      'x-admin-request': 'true', 'x-csrf-token': CSRF, 'content-type': 'application/json',
+      'x-admin-request': 'true', 'content-type': 'application/json', ...(csrf ? { 'x-csrf-token': CSRF } : {}),
     },
     cookies: { 'sb-access-token': token, isaflow_csrf: CSRF },
     socket: { remoteAddress: '127.0.0.1' },

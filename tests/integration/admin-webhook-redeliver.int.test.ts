@@ -35,8 +35,8 @@ async function failedDelivery(webhookId: string, event: string, payload: Record<
     VALUES ($1, $2, $3, 503, false) RETURNING id`, [webhookId, event, JSON.stringify(payload)])).rows[0].id);
 }
 
-const redeliver = (webhookId: string, body: Record<string, unknown> = {}) =>
-  callAdmin(redeliverRoute, admin.token, { query: { id: webhookId }, body });
+const redeliver = (webhookId: string, body: Record<string, unknown> = {}, csrf = true) =>
+  callAdmin(redeliverRoute, admin.token, { query: { id: webhookId }, body, csrf });
 
 beforeAll(async () => {
   admin = await createAdmin(pool, 'wp11-hooks');
@@ -119,5 +119,19 @@ describe('admin webhook Redeliver', () => {
     expect(r.status).toBeLessThan(500);
     expect(outbound.calls).toHaveLength(0);
     expect(await deliveries(hookA)).toHaveLength(1);
+  });
+
+  it('refuses a redelivery without the CSRF token (review M2): 403, nothing sent', async () => {
+    await failedDelivery(hookA, 'invoice.created', { invoice: 'INV-4' });
+    const r = await redeliver(hookA, {}, false);
+    expect(r.status).toBe(403);
+    expect(outbound.calls).toHaveLength(0);
+    expect(await deliveries(hookA)).toHaveLength(1);
+  });
+
+  it('answers 404 for a malformed webhook id (review L3), sending nothing', async () => {
+    const r = await redeliver('not-a-uuid');
+    expect(r.status).toBe(404);
+    expect(outbound.calls).toHaveLength(0);
   });
 });

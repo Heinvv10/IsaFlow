@@ -8,6 +8,7 @@
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
 import { getClientIp } from '@/lib/rateLimit';
@@ -25,8 +26,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const webhookId = req.query.id as string;
-  if (!webhookId) return apiResponse.badRequest(res, 'id is required');
+  const idParsed = UUID.safeParse(req.query.id);
+  if (!idParsed.success) return apiResponse.notFound(res, 'Webhook not found');
+  const webhookId = idParsed.data;
 
   const bodyParsed = PostBody.safeParse(req.body ?? {});
   if (!bodyParsed.success) {
@@ -42,7 +44,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     log.error('Admin: redeliver webhook failed', { webhookId, deliveryId, error: err }, 'admin-webhooks-redeliver-api');
     return apiResponse.badRequestFromError(res, err, 'Redeliver failed');
   }
-  // Outside the catch: a failed audit write is a 500 that rolls the delivery row back, not a committed 4xx.
+  // Outside the catch: a failed audit write is a 500, not a committed 4xx. It rolls back only the
+  // delivery row (request transaction): the request has already gone out, and the endpoint stamp
+  // (stampDelivery) committed on its own migration_admin connection.
   await logAdminAction(
     req.user.id,
     'webhook.redeliver',
@@ -59,4 +63,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     result.delivered ? `Redelivered (${answer})` : `Redelivery failed: the endpoint gave ${answer}`);
 }
 
-export default withAdmin(handler);
+export default withAdmin(withCsrf(handler));
