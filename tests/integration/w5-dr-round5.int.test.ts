@@ -197,12 +197,12 @@ describe('the narrow undo of a leaver exit', () => {
     await refused(f, d, '2027-02-28', 400, f.approver);
   });
 
-  it('adv2 L2: an exit row (forged) recording a later end than the tax year the directive starts in: 400, nothing restored', async () => {
+  it('adv2 L2: an exit row (forged) recording a later end than the directive was approved with (none: the tax year): 400, nothing restored', async () => {
     const { f, d } = await exitTaken('DR r5 forged later end');
     await pool.query(`UPDATE audit_log SET changes = jsonb_set(changes, '{metadata,oldEndsOn}', '"2027-06-30"')
       WHERE entity_id = $1 AND changes->'metadata'->>'leaverExit' = 'true'`, [d]);
     const r = await refused(f, d, '2027-06-30', 400, f.approver);
-    expect(r.body.error?.message).toMatch(/no later than 2027-02-28, the end of the tax year the directive starts in/);
+    expect(r.body.error?.message).toMatch(/no later than 2027-02-28, the end the directive was approved with/);
   });
 
   it('adv2 L2: two live exit rows for the current expiry (one hand-inserted): 409 LEAVER_EXIT_AMBIGUOUS, nothing restored', async () => {
@@ -212,5 +212,22 @@ describe('the narrow undo of a leaver exit', () => {
       WHERE entity_id = $1 AND changes->'metadata'->>'leaverExit' = 'true'`, [d]);
     const r = await refused(f, d, '2027-02-28', 409, f.approver);
     expect(r.body.error?.details?.code).toBe('LEAVER_EXIT_AMBIGUOUS');
+  });
+
+  it('Hein (adv2 L2): a directive approved across the tax-year end (02-01 to 12-31) has its exit undone back to 12-31', async () => {
+    const { f, d } = await exitTaken('DR r5 cross-year undo', { effective_date: '2026-02-01', expiry_date: '2026-12-31' });
+    const approval = (await pool.query(
+      "SELECT changes FROM audit_log WHERE entity_id = $1 AND action = 'approve'", [d])).rows[0]!;
+    expect(approval.changes.metadata.approvedExpiry).toBe('2026-12-31');
+    expect((await patchDirective(f, d, { expiry_date: '2026-12-31' }, f.approver)).statusCode).toBe(200);
+    expect(await expiryOf(d)).toBe('2026-12-31');
+  });
+
+  it('Hein (adv2 L2): a forged exit row recording a date past the approved 12-31 is refused at the approved expiry: 400', async () => {
+    const { f, d } = await exitTaken('DR r5 cross-year forged', { effective_date: '2026-02-01', expiry_date: '2026-12-31' });
+    await pool.query(`UPDATE audit_log SET changes = jsonb_set(changes, '{metadata,oldEndsOn}', '"2027-01-31"')
+      WHERE entity_id = $1 AND changes->'metadata'->>'leaverExit' = 'true'`, [d]);
+    const r = await refused(f, d, '2027-01-31', 400, f.approver);
+    expect(r.body.error?.message).toMatch(/no later than 2026-12-31, the end the directive was approved with/);
   });
 });

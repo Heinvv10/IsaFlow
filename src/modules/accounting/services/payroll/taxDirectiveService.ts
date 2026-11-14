@@ -200,7 +200,7 @@ export async function updateTaxDirective(
     RETURNING *
   `;
 
-  if (approval && rows.length) await auditDirectiveApproval(companyId, id, approvedByUserId!, approval.selfApproval);
+  if (approval && rows.length) await auditDirectiveApproval(companyId, id, approvedByUserId!, approval.selfApproval, mapRow(rows[0]!).expiryDate);
   if (fresh && judged?.undo && rows.length && actorUserId) await auditLeaverExitUndo(companyId, fresh, judged.undo, actorUserId);
   if (fresh && judged?.leaverExitPeriods && rows.length && actorUserId) {
     await auditLeaverExit(companyId, fresh, change.expiry_date!, judged.leaverExitPeriods, actorUserId);

@@ -5,7 +5,8 @@
  * may restore the directive's expiry to EXACTLY what it was before the exit, and to nothing else:
  *   - the restore is the one way to lengthen an expiry; any other later date stays refused (shorten-only, 400);
  *   - no exit in effect (none recorded, or the expiry is not the exit's any more): 400;
- *   - another date, or one past the end of the tax year the directive starts in: 400; a named run not reopened: 409;
+ *   - another date, or one past the expiry the directive was approved with (its approval audit row; none = the tax year's
+ *     end): 400; a named run not reopened: 409;
  *   - two live exit rows for the current expiry (one cannot be the exit path's): 409 LEAVER_EXIT_AMBIGUOUS;
  *   - any other run that taxed the employee (ever approved) inside the window the restore re-covers, from the day after the
  *     exit's expiry to the restored end: 409 (LeaverExitWindowTakenError); a second directive overlapping it is refused by
@@ -97,6 +98,25 @@ async function exitInEffect(companyId: string, directiveId: string, currentExpir
   };
 }
 
+/**
+ * The end the directive was approved with: `approvedExpiry` on the latest approval audit row (auditDirectiveApproval) written
+ * before the exit's, i.e. the approval in force when the exit was taken (a re-approval counts; a row added after the exit does
+ * not), else the tax year's end of its effective date. An approval row without approvedExpiry (written before it was
+ * recorded; none in production, DR was not deployed) caps at the tax year's end too.
+ */
+async function approvedEndsOn(companyId: string, directive: { id: string; effectiveDate: string }, exitAuditId: string): Promise<string> {
+  const row = ((await sql`
+    SELECT a.changes->'metadata'->>'approvedExpiry' AS approved_expiry FROM audit_log a
+    JOIN audit_log x ON x.id::text = ${exitAuditId} AND x.company_id = a.company_id
+    WHERE a.company_id = ${companyId}::uuid AND a.entity_type = 'tax_directive' AND a.entity_id = ${directive.id}::uuid
+      AND a.action = 'approve' AND a.changes->'metadata'->>'status' = 'approved' AND a.created_at <= x.created_at
+    ORDER BY a.created_at DESC, a.id DESC
+    LIMIT 1
+  `) as DbRow[])[0];
+  const approved = row?.approved_expiry ? String(row.approved_expiry) : null;
+  return directiveEndsOn(directive.effectiveDate, approved);
+}
+
 /** Judge a request to lengthen the expiry to `requested` (see the header); returns the undo to write, or throws. */
 export async function judgeLeaverExitUndo(
   companyId: string, directive: { id: string; employeeId: string; effectiveDate: string; expiryDate: string | null }, requested: string, actorId: string,
@@ -106,11 +126,11 @@ export async function judgeLeaverExitUndo(
     throw new TaxDirectiveWindowError('An expiry date can only shorten the directive (SARS issues a new directive for a longer period). '
       + 'It can be lengthened only to undo a leaver exit, and none is in effect on this directive.');
   }
-  // Never past the end of the tax year the directive starts in (adv2 L2: the restore date comes from the exit's audit row).
-  // SARS directives run for one tax year at most (G21 p. 15).
-  const yearEnd = directiveEndsOn(directive.effectiveDate, null);
-  if (exit.oldEndsOn > yearEnd || requested > yearEnd) {
-    throw new TaxDirectiveWindowError(`An expiry can be restored no later than ${yearEnd}, the end of the tax year the directive starts in: `
+  // Never past the expiry the directive was approved with (Hein, #1266 adv2 L2): the exit's row records the restore date, so
+  // the cap comes from the approval's own audit row instead (none = the tax year's end).
+  const cap = await approvedEndsOn(companyId, directive, exit.id);
+  if (exit.oldEndsOn > cap || requested > cap) {
+    throw new TaxDirectiveWindowError(`An expiry can be restored no later than ${cap}, the end the directive was approved with: `
       + `the exit records ${exit.oldEndsOn}. Nothing was restored.`);
   }
   if (requested !== exit.oldEndsOn) {

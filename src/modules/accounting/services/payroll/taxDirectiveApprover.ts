@@ -60,10 +60,16 @@ export async function anotherApproverBlocks(companyId: string, actorId: string, 
 }
 
 /** The approval's audit row, written on the request's transaction (it commits or rolls back with the status change). */
-export async function auditDirectiveApproval(companyId: string, id: string, userId: string, selfApproval: boolean): Promise<void> {
+export async function auditDirectiveApproval(
+  companyId: string, id: string, userId: string, selfApproval: boolean, expiryDate: string | null,
+): Promise<void> {
   await logAuditOrThrow({
     companyId, userId, action: 'approve', entityType: 'tax_directive', entityId: id,
-    changes: { fields: [], metadata: { status: 'approved', ...(selfApproval ? { selfApproval: 'sole_approver' } : {}) } },
+    changes: {
+      fields: [],
+      // approvedExpiry: the expiry as approved ('' = none, the tax year's end): the most a leaver-exit undo may restore (Hein, #1266).
+      metadata: { status: 'approved', approvedExpiry: expiryDate ?? '', ...(selfApproval ? { selfApproval: 'sole_approver' } : {}) },
+    },
   });
 }
 
