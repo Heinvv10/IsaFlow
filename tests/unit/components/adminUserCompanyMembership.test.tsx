@@ -53,7 +53,7 @@ describe('admin user detail: linked company role', () => {
     await waitFor(() => expect(writes('PATCH', '/api/admin/users/u-1/company-role')).toHaveLength(1));
     const init = writes('PATCH', '/company-role')[0]![1] as RequestInit;
     expect(JSON.parse(String(init.body))).toEqual({ company_id: DEMO, role: 'accountant' });
-    expect((init.headers as Record<string, string>)['X-Admin-Request']).toBe('true');
+    expect(new Headers(init.headers).get('X-Admin-Request')).toBe('true');
   });
 
   it("an owner's row shows Owner (not grantable) and offers only the portal roles; no Save until changed", async () => {

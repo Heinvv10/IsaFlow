@@ -10,11 +10,12 @@ import { MrrTrendChart } from '@/components/admin/charts/MrrTrendChart';
 import { EngagementTrendChart } from '@/components/admin/charts/EngagementTrendChart';
 import { SignupTrendChart } from '@/components/admin/charts/SignupTrendChart';
 import { RevenueIntelligenceSection } from '@/components/admin/RevenueIntelligenceSection';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import type { AnalyticsTrends } from '@/modules/admin/types/admin.types';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface UsageAnalytics {
   dau: number;
@@ -57,7 +58,7 @@ export default function AdminAnalytics() {
     setLoading(true);
     setError('');
     try {
-      const res  = await apiFetch('/api/admin/analytics/usage');
+      const res  = await adminFetch('/api/admin/analytics/usage');
       await assertOk(res, 'Could not load the analytics - try again');
       const json = await res.json() as { data: UsageAnalytics };
       setData(json.data);
@@ -73,7 +74,7 @@ export default function AdminAnalytics() {
     setTrendsLoading(true);
     setTrendsError('');
     try {
-      const res  = await apiFetch('/api/admin/analytics/trends');
+      const res  = await adminFetch('/api/admin/analytics/trends');
       await assertOk(res, 'Could not load the trends - try again');
       const json = await res.json() as { data: AnalyticsTrends };
       setTrends(json.data);
