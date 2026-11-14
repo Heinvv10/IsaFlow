@@ -14,8 +14,9 @@
 --     (failures that are this POP's own: no bytes, no path, Graph refused this file, an existing file that
 --     differs; only these count toward 'failed'), when last, and why. A Graph outage (5xx, the network)
 --     adds a try but no attempt, so it can never settle a good POP 'failed'. The sweep takes POPs never
---     tried first, then the least recently tried, and waits between tries (5 min doubling by `tries`, at
---     most 24 h), so a POP that keeps failing never holds the batch.
+--     tried first, then the least recently tried, and waits between tries (5 min doubling by `tries`, the
+--     doubling capped at 2^8, about 21 h; the sweep stops counting `tries` at 1000), so a POP that keeps
+--     failing never holds the batch.
 --     app_user SELECT, INSERT of the first failure, UPDATE of the counters.
 --   Ops: to retry 'failed' copies, as migration_admin delete their pop_archive_copies and pop_archive_attempts rows.
 --

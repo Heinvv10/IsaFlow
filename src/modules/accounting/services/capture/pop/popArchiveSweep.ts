@@ -5,15 +5,18 @@
  *
  * A POP is settled once in pop_archive_copies: 'archived' (the drive item, or after a 409 an existing file
  * whose bytes are ours), 'too_large' (over Graph's 4 MB simple upload), or 'failed' after POP_ARCHIVE_MAX_ATTEMPTS
- * failures of its own (no path, no bytes, Graph refused this file, a 403 on it, an existing file that differs).
- * Every failure is a try in pop_archive_attempts: the POP goes behind the others and waits 5 min doubling (at
- * most 24 h). An outage (Graph 5xx, the network, storage) is a try that never counts toward 'failed', and a 5xx
- * or network failure ends the company's tick. Throttling (429, 503 + Retry-After), a 401, a token failure, a
+ * failures of its own (no path, no bytes or its storage object missing, Graph refused this file, a 403 on it, an
+ * existing file that differs).
+ * Every failure is a try in pop_archive_attempts: the POP goes behind the others and waits 5 min doubling (the
+ * doubling stops at 2^8, about 21 h, and `tries` at POP_ARCHIVE_TRIES_CEILING, so a month-long outage cannot
+ * overflow the wait). An outage (Graph 5xx, the network, storage or the database down) is a try that never counts
+ * toward 'failed', and a 5xx or network failure ends the company's tick. Throttling (429, 503 + Retry-After), a 401, a token failure, a
  * second POP denied (403) in one tick (the app's grant) and the deadline end the tick and count against no POP.
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fetchRawBytes } from '@/lib/documentStorage';
+import { CapturedDocumentMissingError, StorageObjectOutsideCompanyError } from '@/lib/supabaseStorage';
 import { encodeDrivePath, popArchivePath } from './popArchiveName';
 import { GraphTokenError, MAX_SIMPLE_UPLOAD_BYTES, type PopGraphClient } from './popGraphClient';
 
@@ -22,6 +25,10 @@ type Row = Record<string, unknown>;
 export const POP_ARCHIVE_BATCH = 25;
 /** After this many failed attempts a POP is settled as 'failed' for a person (popArchiveSweep header). */
 export const POP_ARCHIVE_MAX_ATTEMPTS = 10;
+/** The wait doubles at most this often (5 min · 2^8 ≈ 21 h, then the 24 h cap): `tries` grows without end in an outage. */
+const BACKOFF_MAX_DOUBLINGS = 8;
+/** `tries` stops counting here; only the backoff reads it, and the cap above makes anything past 9 the same. */
+export const POP_ARCHIVE_TRIES_CEILING = 1000;
 
 export interface PopArchiveSummary {
   archived: number;
@@ -65,7 +72,7 @@ export async function sweepPopArchive(companyId: string, graph: PopGraphClient, 
     WHERE p.company_id = ${companyId}::uuid
       AND NOT EXISTS (SELECT 1 FROM pop_archive_copies c WHERE c.proof_of_payment_id = p.id AND c.company_id = p.company_id)
       AND (a.id IS NULL OR a.last_attempt_at
-        <= now() - least(interval '5 minutes' * power(2, a.tries - 1), interval '24 hours'))
+        <= now() - least(interval '5 minutes' * power(2, least(greatest(a.tries, 1), ${BACKOFF_MAX_DOUBLINGS + 1}::int) - 1), interval '24 hours'))
     ORDER BY a.last_attempt_at NULLS FIRST, p.created_at, p.id
     LIMIT ${limit}::int
   `) as Row[];
@@ -122,8 +129,10 @@ export async function sweepPopArchive(companyId: string, graph: PopGraphClient, 
         log.warn('pop archive: no Graph token; stopped for this tick', { companyId, error: err.message }, 'pop-archive');
         break;
       }
-      // Storage or the database, not this POP: a try that does not count toward 'failed'.
-      await recordFailure(companyId, popId, path, err instanceof Error ? err.message : String(err), 'outage', summary).catch((e: unknown) => {
+      // The storage object of THIS document is gone, or its pointer is outside the company: this POP's own failure.
+      // Anything else thrown (storage or the database down) is an outage: a try that does not count toward 'failed'.
+      const own = err instanceof CapturedDocumentMissingError || err instanceof StorageObjectOutsideCompanyError;
+      await recordFailure(companyId, popId, path, err instanceof Error ? err.message : String(err), own ? 'counted' : 'outage', summary).catch((e: unknown) => {
         log.error('pop archive: failure not recorded', { companyId, popId, error: String(e) }, 'pop-archive');
       });
     }
@@ -144,7 +153,8 @@ async function recordFailure(companyId: string, popId: string, path: string | nu
     INSERT INTO pop_archive_attempts (company_id, proof_of_payment_id, attempts, last_error)
     VALUES (${companyId}::uuid, ${popId}::uuid, ${counted}::int, ${error.slice(0, 300)})
     ON CONFLICT ON CONSTRAINT pop_archive_attempts_one_per_pop DO UPDATE
-      SET attempts = pop_archive_attempts.attempts + ${counted}::int, tries = pop_archive_attempts.tries + 1,
+      SET attempts = pop_archive_attempts.attempts + ${counted}::int,
+          tries = least(pop_archive_attempts.tries + 1, ${POP_ARCHIVE_TRIES_CEILING}::int),
           last_attempt_at = now(), last_error = EXCLUDED.last_error
     RETURNING attempts
   `) as Row[];

@@ -18,11 +18,19 @@ import { Pool } from 'pg';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { asAppUser, asService, seedPop, setUpPopFixture, tearDownPopFixture, type PopFixture } from './helpers/popSweepFixture';
 
-const h = vi.hoisted(() => ({ large: new Set<string>(), missing: new Set<string>(), badPath: new Set<string>() }));
+const h = vi.hoisted(() => ({
+  large: new Set<string>(), missing: new Set<string>(), badPath: new Set<string>(),
+  objectGone: new Set<string>(), storageDown: new Set<string>(),
+}));
 vi.mock('@/lib/documentStorage', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/documentStorage')>()),
   fetchRawBytes: vi.fn(async (documentId: string) => {
     if (h.missing.has(documentId)) return null;
+    if (h.objectGone.has(documentId)) {
+      const { CapturedDocumentMissingError } = await import('@/lib/supabaseStorage');
+      throw new CapturedDocumentMissingError(`x/${documentId}`, 'Object not found');
+    }
+    if (h.storageDown.has(documentId)) throw new Error('Storage download failed: fetch failed');
     const buffer = h.large.has(documentId) ? Buffer.alloc(4 * 1024 * 1024 + 1) : Buffer.from(`%PDF-1.4 ${documentId}`);
     return { buffer, hash: 'h', storedHash: 'h', size: buffer.length, fileType: 'application/pdf' };
   }),
@@ -35,7 +43,9 @@ vi.mock('@/modules/accounting/services/capture/pop/popArchiveName', async (impor
   }) };
 });
 
-import { companiesWithUnarchivedPops, POP_ARCHIVE_MAX_ATTEMPTS, sweepPopArchive } from '@/modules/accounting/services/capture/pop/popArchiveSweep';
+import {
+  companiesWithUnarchivedPops, POP_ARCHIVE_MAX_ATTEMPTS, POP_ARCHIVE_TRIES_CEILING, sweepPopArchive,
+} from '@/modules/accounting/services/capture/pop/popArchiveSweep';
 import { PopGraphClient } from '@/modules/accounting/services/capture/pop/popGraphClient';
 
 const url = process.env.DATABASE_URL ?? '';
@@ -174,6 +184,34 @@ describeIfDb('POP archive: copy each POP to SharePoint once', () => {
       .toEqual({ attempts: 0, tries: 12 });
     expect(await run(Z, fakeGraph(() => 201).client)).toMatchObject({ archived: 1 });
     expect(await copyOf(pop.popId)).toMatchObject({ outcome: 'archived' });
+  });
+
+  it('caps the backoff: a POP with any number of tries is retried at most ~21 h later, and tries stop at the ceiling', async () => {
+    const huge = await seedPop(fx, Z, { beneficiary: 'Huge Tries Co', date: '2026-11-01' });
+    const ten = await seedPop(fx, Z, { beneficiary: 'Ten Tries Co', date: '2026-11-02' });
+    const recent = await seedPop(fx, Z, { beneficiary: 'Recent Tries Co', date: '2026-11-03' });
+    await pool.query(`INSERT INTO pop_archive_attempts (company_id, proof_of_payment_id, attempts, tries, last_attempt_at, last_error)
+      VALUES ($1, $2, 0, 100000, now() - interval '22 hours', 'x'), ($1, $3, 0, 10, now() - interval '22 hours', 'x'),
+             ($1, $4, 0, 100000, now() - interval '20 hours', 'x')`, [Z, huge.popId, ten.popId, recent.popId]);
+    const g = fakeGraph((p) => (p.includes('Huge Tries Co') ? 400 : 201)); // a failure that does not end the tick
+    expect(await run(Z, g.client)).toMatchObject({ failed: 1 });
+    expect(g.puts.some((p) => p.includes('Recent Tries Co'))).toBe(false); // 20 h < 5 min · 2^8
+    expect(g.puts.filter((p) => !p.includes('Recent Tries Co'))).toHaveLength(2);
+    expect(await copyOf(ten.popId)).toMatchObject({ outcome: 'archived' });
+    expect((await pool.query('SELECT tries FROM pop_archive_attempts WHERE proof_of_payment_id = $1', [huge.popId])).rows[0].tries)
+      .toBe(POP_ARCHIVE_TRIES_CEILING);
+    await pool.query('DELETE FROM proof_of_payments WHERE id = ANY($1)', [[huge.popId, ten.popId, recent.popId]]);
+  });
+
+  it('counts a storage object that is gone against that POP; storage being down is an outage', async () => {
+    const gone = await seedPop(fx, Z, { beneficiary: 'Object Gone Co', date: '2026-11-01' });
+    const down = await seedPop(fx, Z, { beneficiary: 'Storage Down Co', date: '2026-11-02' });
+    h.objectGone.add(gone.documentId);
+    h.storageDown.add(down.documentId);
+    expect(await run(Z, fakeGraph(() => 201).client)).toMatchObject({ failed: 2, archived: 0 });
+    expect(await attemptsOf(gone.popId)).toMatchObject({ attempts: 1 });
+    expect(await attemptsOf(down.popId)).toMatchObject({ attempts: 0 });
+    await pool.query('DELETE FROM proof_of_payments WHERE id = ANY($1)', [[gone.popId, down.popId]]);
   });
 
   it('counts a 403 against that POP and moves on; a second POP denied in the same tick ends it uncounted', async () => {
