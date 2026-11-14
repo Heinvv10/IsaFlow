@@ -33,6 +33,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'aged_creditors',
   'due_by_date',
   'reconcile_subledger',
+  'party_ledger_check',
   'general_ledger',
   'search_gl',
   'list_gl_accounts',
