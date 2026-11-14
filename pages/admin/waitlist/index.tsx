@@ -12,6 +12,7 @@ import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, Search, UserPlus, ExternalLink, X, Check } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { useFocusTrap } from '@/components/ui/useFocusTrap';
 import { adminFetch } from '@/lib/admin/adminFetch';
 
 type StatusFilter = 'pending' | 'promoted' | 'all';
@@ -66,7 +67,8 @@ export default function AdminWaitlistPage() {
   const [planOverride, setPlanOverride]     = useState<'' | 'payg' | 'starter'>('');
   const [promoting, setPromoting]           = useState(false);
   const [promoteError, setPromoteError]     = useState('');
-
+  const promoteRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(promoteRef, promoteTarget !== null, () => { if (!promoting) setPromoteTarget(null); }); // audit 4.13; not mid-request
   const LIMIT = 25;
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -249,10 +251,10 @@ export default function AdminWaitlistPage() {
 
       {promoteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
+          <div ref={promoteRef} role="dialog" aria-modal="true" aria-labelledby="promote-title" className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Promote waitlist signup</h2>
-              <button onClick={() => setPromoteTarget(null)} className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"><X className="w-4 h-4" /></button>
+              <h2 id="promote-title" className="text-sm font-semibold text-gray-900 dark:text-white">Promote waitlist signup</h2>
+              <button onClick={() => setPromoteTarget(null)} aria-label="Close" className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"><X className="w-4 h-4" /></button>
             </div>
             <form onSubmit={(e) => void handlePromote(e)} className="p-5 space-y-4 text-sm">
               {promoteError && (
@@ -269,9 +271,9 @@ export default function AdminWaitlistPage() {
                 <dd className="col-span-2 text-gray-900 dark:text-white tabular-nums">{fmtTurnover(promoteTarget.annual_turnover_cents)}</dd>
               </dl>
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Plan</label>
+                <label htmlFor="promote-plan" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Plan</label>
                 <select
-                  value={planOverride}
+                  id="promote-plan" value={planOverride}
                   onChange={(e) => setPlanOverride(e.target.value as '' | 'payg' | 'starter')}
                   className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                 >

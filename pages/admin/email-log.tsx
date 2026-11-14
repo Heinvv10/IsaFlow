@@ -93,7 +93,7 @@ export default function EmailLogPage() {
   const totalPages = Math.ceil(total / LIMIT);
 
   return (
-    <AdminLayout title="Email Delivery Log">
+    <AdminLayout title="Email Delivery Log" ownHeading>
       <div className="min-h-screen bg-white dark:bg-gray-900">
         {/* Header */}
         <div className="border-b border-gray-300 dark:border-gray-700 bg-slate-100 dark:bg-gray-800 px-6 py-4">

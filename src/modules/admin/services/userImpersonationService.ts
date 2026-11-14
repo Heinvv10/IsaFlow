@@ -15,6 +15,8 @@
 import { sql } from '@/lib/neon';
 import { encryptToken, decryptToken } from '@/lib/encryption';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
+import { boundedPoolRead } from '@/lib/auth/boundedPoolRead';
+import { log } from '@/lib/logger';
 
 const IMPERSONATION_TTL_HOURS = 1;
 
@@ -68,6 +70,49 @@ export async function loadStash(stashId: string): Promise<StashRow | null> {
   };
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * `loadStash` for end-impersonation, which any browser can call with any stash cookie: bounded (boundedPoolRead),
+ * so it never holds or waits long for one of the migration_admin pool's few slots. A non-uuid id is null with no
+ * query. `gave_up` when it could not answer in time (logged); the caller must not treat that as "no stash".
+ */
+export async function loadStashBounded(stashId: string): Promise<StashRow | null | 'gave_up'> {
+  if (!UUID.test(stashId)) return null;
+  let rows: StashRow[];
+  try {
+    rows = await boundedPoolRead<StashRow>(migrationAdminPool(), 'loadStashBounded',
+      `SELECT stash_id, admin_user_id, admin_access_token, admin_refresh_token, target_user_id, expires_at
+         FROM admin_impersonation_stash WHERE stash_id = $1::uuid AND expires_at > NOW() LIMIT 1`, [stashId]);
+  } catch (err) {
+    log.warn('loadStashBounded: stash look-up failed or timed out', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
+    return 'gave_up';
+  }
+  const row = rows[0];
+  if (!row) return null;
+  return { ...row, admin_access_token: decryptToken(row.admin_access_token), admin_refresh_token: decryptToken(row.admin_refresh_token) };
+}
+
+/**
+ * Whose stash `stashId` is, expired or not; null when there is no such row (or the id is not a uuid: no query).
+ * Decrypts nothing. Bounded (boundedPoolRead): the unauthenticated end paths (Sign Out, a refused Return) call it
+ * on every request, and the migration_admin pool is small; `gave_up` when it could not answer in time (logged).
+ */
+export async function stashPartiesOf(
+  stashId: string,
+): Promise<{ adminUserId: string; targetUserId: string } | null | 'gave_up'> {
+  if (!UUID.test(stashId)) return null;
+  try {
+    const rows = await boundedPoolRead<{ admin_user_id: string; target_user_id: string }>(migrationAdminPool(),
+      'stashPartiesOf', 'SELECT admin_user_id, target_user_id FROM admin_impersonation_stash WHERE stash_id = $1::uuid',
+      [stashId]);
+    return rows[0] ? { adminUserId: rows[0].admin_user_id, targetUserId: rows[0].target_user_id } : null;
+  } catch (err) {
+    log.warn('stashPartiesOf: stash look-up failed or timed out', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
+    return 'gave_up';
+  }
+}
+
 /**
  * For a Login-as that ended without "Return to my session": the parties come from the
  * session record, not from a cookie. Removes the stash the session named and any of
@@ -87,6 +132,15 @@ export async function deleteEndedStashes(input: {
 
 export async function deleteStash(stashId: string): Promise<void> {
   await migrationAdminPool().query('DELETE FROM admin_impersonation_stash WHERE stash_id = $1::uuid', [stashId]);
+}
+
+/**
+ * Removes every expired stash (any admin): loadStash already refuses them, but each row still holds an admin's
+ * encrypted tokens. Run opportunistically on the Login-as start and end paths (no timer). Returns how many went.
+ */
+export async function purgeExpiredStashes(): Promise<number> {
+  const { rowCount } = await migrationAdminPool().query('DELETE FROM admin_impersonation_stash WHERE expires_at <= NOW()');
+  return rowCount ?? 0;
 }
 
 export interface TargetValidationResult {

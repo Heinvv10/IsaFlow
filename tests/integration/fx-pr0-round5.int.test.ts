@@ -39,6 +39,7 @@ import {
   applyCreditNoteToDocument, CreditNoteApplyRefusal, planCreditNoteToDocument,
 } from '@/modules/accounting/services/shared/creditNoteDocumentApply';
 import { ForeignCurrencySettlementError } from '@/modules/accounting/services/shared/documentCurrency';
+import { attachPostedJournal } from './helpers/creditNoteRawJournal';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -83,6 +84,9 @@ async function inRequest<T>(c: string, fn: () => Promise<T>): Promise<T> {
 async function appliedPair(c: string, noteCurrency = 'ZAR') {
   const note = await plantNote(pool, c, owner, 'customer', { linked: true });
   await pool.query("UPDATE credit_notes SET status = 'approved', currency = $2 WHERE id = $1", [note.id, noteCurrency]);
+  // Brief step 7: an application is capped at what the note's journal posted — give it the journal approval posts.
+  const { rows: [t] } = await pool.query('SELECT total_amount FROM credit_notes WHERE id = $1', [note.id]);
+  await attachPostedJournal(pool, { companyId: c, userId: owner, noteId: note.id, side: 'customer', amount: Number(t.total_amount) });
   return note;
 }
 const paidOf = async (id: string) =>

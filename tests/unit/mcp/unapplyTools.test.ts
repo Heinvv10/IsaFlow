@@ -34,7 +34,7 @@ const payPlan = {
 };
 const notePlan = {
   creditNoteId: NOTE, creditNoteNumber: 'CN-1', side: 'customer' as const, amountUnapplied: 40,
-  lines: [line], noteAppliedAfter: 60, noteStatusAfter: 'partially_applied',
+  lines: [line], noteAppliedBefore: 100, noteAppliedAfter: 60, noteStatusAfter: 'partially_applied',
 };
 
 beforeEach(() => {

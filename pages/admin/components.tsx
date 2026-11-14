@@ -86,7 +86,7 @@ export default function ComponentShowcasePage() {
 
   return (
     <div className={darkMode ? 'dark' : ''}>
-      <AdminLayout title="Component Library">
+      <AdminLayout title="Component Library" ownHeading>
         <ToastProvider>
           <div className="flex min-h-screen bg-gray-50 dark:bg-gray-950">
 

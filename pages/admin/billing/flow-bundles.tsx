@@ -5,6 +5,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
+import { ConfirmModal } from '@/components/admin/ConfirmModal';
+import { randsToCents } from '@/components/admin/billing/randsToCents';
 import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { AlertCircle, Loader2, Plus } from 'lucide-react';
@@ -19,13 +21,18 @@ interface Bundle {
   displayOrder: number;
 }
 
-const emptyDraft = { name: '', flows: 0, priceCents: 0, displayOrder: 0, isActive: true };
+// The price is typed in rands, like Plans (audit 4.17: it was cents here); the API stores cents.
+const emptyDraft = { name: '', flows: 0, priceRands: '', displayOrder: 0, isActive: true };
+const INPUT = 'px-3 py-2 text-sm rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900';
 
 export default function FlowBundlesPage() {
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
   const [draft, setDraft]     = useState<typeof emptyDraft>(emptyDraft);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState('');
+  const [deactivating, setDeactivating] = useState<Bundle | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -46,26 +53,34 @@ export default function FlowBundlesPage() {
   useEffect(() => { void load(); }, [load]);
 
   async function createBundle() {
-    if (!draft.name || draft.flows <= 0 || draft.priceCents < 0) {
-      window.alert('Name, positive flows, and non-negative price are required');
+    if (creating) return; // one bundle per click (audit 4.17: a double click created two)
+    const priceCents = randsToCents(draft.priceRands);
+    if (!draft.name || !Number.isInteger(draft.flows) || draft.flows <= 0 || priceCents === null) {
+      setCreateError('Name, a whole number of flows, and a price in rands (at most 2 decimals) are required');
       return;
     }
+    setCreating(true); setCreateError('');
     try {
       const res = await adminFetch('/api/admin/billing/flow-bundles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(draft),
+        body: JSON.stringify({
+          name: draft.name, flows: draft.flows, priceCents,
+          displayOrder: draft.displayOrder, isActive: draft.isActive,
+        }),
       });
       await assertOk(res, 'Could not create the bundle - try again');
+      setDraft(emptyDraft);
+      await load();
     } catch (err) {
-      window.alert(apiErrorMessage(err, 'Could not create the bundle - try again'));
-      return;
+      setCreateError(apiErrorMessage(err, 'Could not create the bundle - try again'));
+    } finally {
+      setCreating(false);
     }
-    setDraft(emptyDraft);
-    await load();
   }
 
   async function toggleActive(bundle: Bundle) {
+    setDeactivating(null);
     try {
       const res = await adminFetch(`/api/admin/billing/flow-bundles/${bundle.id}`, {
         method: 'PATCH',
@@ -92,47 +107,37 @@ export default function FlowBundlesPage() {
         <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
           <h2 className="text-sm font-semibold">Create bundle</h2>
         </div>
+        {createError && (
+          <div className="mx-4 mt-4 flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" /> {createError}
+          </div>
+        )}
         <div className="p-4 flex flex-wrap gap-3 items-end">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Name</label>
-            <input
-              value={draft.name}
-              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-              className="px-3 py-2 text-sm rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
-            />
+            <label htmlFor="bundle-name" className="block text-xs text-gray-500 mb-1">Name</label>
+            <input id="bundle-name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className={INPUT} />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Flows</label>
-            <input
-              type="number" min={1}
-              value={draft.flows || ''}
-              onChange={(e) => setDraft({ ...draft, flows: Number(e.target.value) })}
-              className="px-3 py-2 text-sm rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 w-24"
-            />
+            <label htmlFor="bundle-flows" className="block text-xs text-gray-500 mb-1">Flows</label>
+            <input id="bundle-flows" type="number" min={1} value={draft.flows || ''}
+              onChange={(e) => setDraft({ ...draft, flows: Number(e.target.value) })} className={`${INPUT} w-24`} />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Price (cents)</label>
-            <input
-              type="number" min={0}
-              value={draft.priceCents || ''}
-              onChange={(e) => setDraft({ ...draft, priceCents: Number(e.target.value) })}
-              className="px-3 py-2 text-sm rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 w-32"
-            />
+            <label htmlFor="bundle-price" className="block text-xs text-gray-500 mb-1">Price (R)</label>
+            <input id="bundle-price" type="number" min={0} step="0.01" value={draft.priceRands}
+              onChange={(e) => setDraft({ ...draft, priceRands: e.target.value })} className={`${INPUT} w-32`} />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Order</label>
-            <input
-              type="number" min={0}
-              value={draft.displayOrder || ''}
-              onChange={(e) => setDraft({ ...draft, displayOrder: Number(e.target.value) })}
-              className="px-3 py-2 text-sm rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 w-20"
-            />
+            <label htmlFor="bundle-order" className="block text-xs text-gray-500 mb-1">Order</label>
+            <input id="bundle-order" type="number" min={0} value={draft.displayOrder || ''}
+              onChange={(e) => setDraft({ ...draft, displayOrder: Number(e.target.value) })} className={`${INPUT} w-20`} />
           </div>
           <button
-            onClick={createBundle}
-            className="inline-flex items-center gap-1 px-4 py-2 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded"
+            onClick={() => void createBundle()}
+            disabled={creating}
+            className="inline-flex items-center gap-1 px-4 py-2 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded disabled:opacity-50"
           >
-            <Plus className="w-4 h-4" /> Create
+            {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Create
           </button>
         </div>
       </div>
@@ -168,7 +173,7 @@ export default function FlowBundlesPage() {
                   <td className="px-4 py-3 text-center">{b.isActive ? '✓' : '—'}</td>
                   <td className="px-4 py-3 text-right">
                     <button
-                      onClick={() => toggleActive(b)}
+                      onClick={() => (b.isActive ? setDeactivating(b) : void toggleActive(b))}
                       className="text-xs text-teal-600 hover:text-teal-500"
                     >
                       {b.isActive ? 'Deactivate' : 'Activate'}
@@ -180,6 +185,14 @@ export default function FlowBundlesPage() {
           </table>
         </div>
       )}
+      <ConfirmModal
+        open={deactivating !== null}
+        title="Deactivate bundle"
+        message={<>Tenants can no longer buy <strong>{deactivating?.name}</strong>. Flows already bought are kept.</>}
+        confirmLabel="Deactivate"
+        onConfirm={() => { if (deactivating) void toggleActive(deactivating); }}
+        onCancel={() => setDeactivating(null)}
+      />
     </AdminLayout>
   );
 }

@@ -151,7 +151,7 @@ export default function AdminMigrationsPage() {
   const selectCls = 'w-full text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-teal-500 focus:border-transparent';
 
   return (
-    <AdminLayout title="Data Migration">
+    <AdminLayout title="Data Migration" ownHeading>
       <div className="max-w-3xl mx-auto space-y-5">
 
         {/* Header */}

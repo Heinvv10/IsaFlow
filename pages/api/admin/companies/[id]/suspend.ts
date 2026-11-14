@@ -15,7 +15,8 @@ import { getIp } from '@/utils/getIp';
 import { isUuidParam } from '@/lib/validation';
 
 const PostBody = z.object({
-  reason: z.string().min(1).max(500),
+  // trim() first: "   " is no reason (WP13 review M2).
+  reason: z.string().trim().min(1).max(500),
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {

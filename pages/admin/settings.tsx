@@ -24,8 +24,9 @@ function TextInput({ label, value, onChange, placeholder, type = 'text' }: {
   placeholder?: string;
   type?: 'text' | 'email' | 'url';
 }) {
+  // A <label> around the input names it (audit 4.13: the caption was a bare span, so the field had no label).
   return (
-    <div className="flex flex-col gap-1 py-3">
+    <label className="flex flex-col gap-1 py-3">
       <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
       <input
         type={type}
@@ -34,7 +35,7 @@ function TextInput({ label, value, onChange, placeholder, type = 'text' }: {
         onChange={(e) => onChange(e.target.value)}
         className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
       />
-    </div>
+    </label>
   );
 }
 

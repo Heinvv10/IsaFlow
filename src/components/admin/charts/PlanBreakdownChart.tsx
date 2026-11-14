@@ -4,6 +4,10 @@
  */
 
 import dynamic from 'next/dynamic';
+// Cell is imported directly, not through next/dynamic: Bar finds its Cells by component type, and a dynamic
+// wrapper is a different type, so every bar lost its colour and rendered black (audit 4.5). This module is
+// itself loaded client-only (ssr: false) by RevenueIntelligenceSection.
+import { Cell } from 'recharts';
 import type { PlanBreakdownRow } from '@/modules/admin/types/admin.types';
 import { formatMoney } from '@/lib/money/formatMoney';
 
@@ -14,7 +18,6 @@ const XAxis               = dynamic(() => import('recharts').then((m) => m.XAxis
 const YAxis               = dynamic(() => import('recharts').then((m) => m.YAxis),               { ssr: false });
 const CartesianGrid       = dynamic(() => import('recharts').then((m) => m.CartesianGrid),       { ssr: false });
 const Tooltip             = dynamic(() => import('recharts').then((m) => m.Tooltip),             { ssr: false });
-const Cell                = dynamic(() => import('recharts').then((m) => m.Cell),                { ssr: false });
 
 interface Props {
   data: PlanBreakdownRow[];

@@ -6,7 +6,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { ConfirmModal } from '@/components/admin/ConfirmModal';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2, ToggleLeft, ToggleRight } from 'lucide-react';
 import {
   FeatureFlagRow,
@@ -25,6 +27,10 @@ export default function AdminFeaturesPage() {
   const [saveError, setSaveError] = useState('');
   const [selected, setSelected]   = useState<Set<string>>(new Set());
   const [bulkWorking, setBulkWorking] = useState(false);
+  const [bulkNotice, setBulkNotice]   = useState('');
+  const afterDelay = useTimeoutOnce();
+  // Global availability changes for every tenant at once: it waits for a confirm (audit 3.7).
+  const [pendingGlobal, setPendingGlobal] = useState<{ kind: 'bulk'; value: boolean } | { kind: 'edit'; id: string; value: boolean } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -45,12 +51,19 @@ export default function AdminFeaturesPage() {
   useEffect(() => { void load(); }, [load]);
 
   function openEdit(flag: FeatureFlag) {
+    setBulkNotice('');
     setEditing(flag.id);
     setEditState({ name: flag.name, description: flag.description ?? '', is_global: flag.is_global });
     setSaveError('');
   }
 
   function cancelEdit() { setEditing(null); setSaveError(''); }
+
+  function requestSave(id: string) {
+    const flag = flags.find((f) => f.id === id);
+    if (flag && flag.is_global !== editState.is_global) { setPendingGlobal({ kind: 'edit', id, value: editState.is_global }); return; }
+    void saveEdit(id);
+  }
 
   async function saveEdit(id: string) {
     setSaving(true);
@@ -78,38 +91,42 @@ export default function AdminFeaturesPage() {
 
   async function bulkSetGlobal(isGlobal: boolean) {
     if (selected.size === 0) return;
-    setBulkWorking(true);
+    setBulkWorking(true); setBulkNotice('');
     try {
-      // Each apiFetch resolves on 4xx, so without assertOk a per-flag rejection
-      // would leave this reporting success for flags that never changed.
-      await Promise.all(
-        Array.from(selected).map(async (id) => {
-          const res = await adminFetch(`/api/admin/features/${id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ is_global: isGlobal }),
-          });
-          await assertOk(res, 'Could not update a feature flag - try again');
-        })
-      );
+      // Each apiFetch resolves on 4xx, so each flag's own result is checked; the outcome lists the failures
+      // instead of one "some flags may not have been updated" (audit 3.7).
+      const ids = Array.from(selected);
+      const results = await Promise.allSettled(ids.map(async (id) => {
+        const res = await adminFetch(`/api/admin/features/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_global: isGlobal }),
+        });
+        await assertOk(res, 'Could not update a feature flag - try again');
+      }));
+      const failed = ids.filter((_, i) => results[i]?.status === 'rejected')
+        .map((id) => flags.find((f) => f.id === id)?.code ?? id);
+      // Reload FIRST: load() opens with setError(''), so a message set before it would be wiped.
+      await load();
       setSelected(new Set());
-      await load();
-    } catch (err) {
-      // Reload FIRST: load() opens with setError(''), so setting the message
-      // before it would wipe the very failure this block exists to report.
-      // load() never throws — it owns its try/catch — so this order is safe.
-      await load();
-      setError(`Some flags may not have been updated (${apiErrorMessage(err, 'Could not update a feature flag - try again')})`);
+      const done = `${isGlobal ? 'Enabled' : 'Disabled'} globally: ${ids.length - failed.length} updated`;
+      if (failed.length) setError(`${done}, ${failed.length} failed (${failed.join(', ')})`);
+      else {
+        setBulkNotice(`${done}.`);
+        afterDelay(() => setBulkNotice(''), 8000); // or sooner, on the next selection or edit
+      }
     } finally {
       setBulkWorking(false);
     }
   }
 
   const toggleSelectAll = () => {
+    setBulkNotice('');
     setSelected(selected.size === flags.length ? new Set() : new Set(flags.map((f) => f.id)));
   };
 
   const toggleOne = (id: string) => {
+    setBulkNotice('');
     setSelected((prev) => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   };
 
@@ -127,7 +144,7 @@ export default function AdminFeaturesPage() {
         <div className="flex items-center gap-3 mb-4 px-4 py-2 bg-teal-500/10 border border-teal-500/30 rounded-lg">
           <span className="text-sm text-teal-400 font-medium">{selected.size} selected</span>
           <button
-            onClick={() => void bulkSetGlobal(true)}
+            onClick={() => setPendingGlobal({ kind: 'bulk', value: true })}
             disabled={bulkWorking}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
           >
@@ -135,7 +152,7 @@ export default function AdminFeaturesPage() {
             Enable Selected
           </button>
           <button
-            onClick={() => void bulkSetGlobal(false)}
+            onClick={() => setPendingGlobal({ kind: 'bulk', value: false })}
             disabled={bulkWorking}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-slate-900 dark:text-white text-xs font-medium rounded-lg transition-colors"
           >
@@ -146,6 +163,10 @@ export default function AdminFeaturesPage() {
             Clear
           </button>
         </div>
+      )}
+
+      {bulkNotice && (
+        <div role="status" className="p-3 rounded-lg bg-teal-500/10 text-teal-600 dark:text-teal-400 text-sm mb-4">{bulkNotice}</div>
       )}
 
       {error && (
@@ -164,6 +185,7 @@ export default function AdminFeaturesPage() {
                     type="checkbox"
                     checked={flags.length > 0 && selected.size === flags.length}
                     onChange={toggleSelectAll}
+                    aria-label="Select all feature flags"
                     className="rounded"
                   />
                 </th>
@@ -200,7 +222,7 @@ export default function AdminFeaturesPage() {
                   onToggleSelect={() => toggleOne(flag.id)}
                   onOpenEdit={() => openEdit(flag)}
                   onCancelEdit={cancelEdit}
-                  onSaveEdit={() => void saveEdit(flag.id)}
+                  onSaveEdit={() => requestSave(flag.id)}
                   onEditChange={(patch) => setEditState((s) => ({ ...s, ...patch }))}
                 />
               ))}
@@ -208,6 +230,23 @@ export default function AdminFeaturesPage() {
           </table>
         </div>
       </div>
+      <ConfirmModal
+        open={pendingGlobal !== null}
+        title={pendingGlobal?.value ? 'Make globally available?' : 'Remove global availability?'}
+        message={pendingGlobal?.kind === 'bulk'
+          ? <>{pendingGlobal.value ? 'Turn on' : 'Turn off'} global availability for <strong>{selected.size} feature flag{selected.size === 1 ? '' : 's'}</strong>. This can change access for every tenant at once.</>
+          : <>{pendingGlobal?.value ? 'Turn on' : 'Turn off'} global availability for this feature flag. This can change access for every tenant at once.</>}
+        confirmLabel={pendingGlobal?.value ? 'Enable globally' : 'Disable globally'}
+        confirmClass="bg-amber-500 hover:bg-amber-600"
+        loading={bulkWorking || saving}
+        onConfirm={() => {
+          const p = pendingGlobal;
+          setPendingGlobal(null);
+          if (p?.kind === 'bulk') void bulkSetGlobal(p.value);
+          else if (p?.kind === 'edit') void saveEdit(p.id);
+        }}
+        onCancel={() => setPendingGlobal(null)}
+      />
     </AdminLayout>
   );
 }
