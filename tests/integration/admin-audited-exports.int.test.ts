@@ -23,6 +23,7 @@ const TAG = `wp10x${Date.now()}`;
 const alpha = crypto.randomUUID();
 const beta = crypto.randomUUID();
 const formulaCo = crypto.randomUUID();
+const outsider = crypto.randomUUID(); // active, not matching the search: proves the search filter
 const planId = crypto.randomUUID();
 const website = crypto.randomUUID();
 const humans: string[] = [];
@@ -33,8 +34,9 @@ beforeAll(async () => {
   await pool.query(`INSERT INTO companies (id, name, status, created_at) VALUES
     ($1, $4, 'active', NOW() - INTERVAL '3 days'),
     ($2, $5, 'suspended', NOW() - INTERVAL '2 days'),
-    ($3, $6, 'active', NOW() - INTERVAL '1 day')`,
-    [alpha, beta, formulaCo, `${TAG} Alpha`, `${TAG} Beta`, `=${TAG} formula`]);
+    ($3, $6, 'active', NOW() - INTERVAL '1 day'),
+    ($7, $8, 'active', NOW() - INTERVAL '1 day')`,
+    [alpha, beta, formulaCo, `${TAG} Alpha`, `${TAG} Beta`, `=${TAG} formula`, outsider, `Outsider ${Date.now()}`]);
   // 30 users in Alpha: more than one page of the Users list (25).
   for (let i = 0; i < 30; i++) {
     const id = crypto.randomUUID();
@@ -48,6 +50,12 @@ beforeAll(async () => {
   await pool.query(`INSERT INTO users (id, email, first_name, role, is_active) VALUES ($1, $2, 'Bob', 'viewer', false)`,
     [bob, `${TAG}-bob@test.local`]);
   await pool.query(`INSERT INTO company_users (user_id, company_id, role) VALUES ($1, $2, 'viewer')`, [bob, beta]);
+  // Active, in Beta: only the company filter keeps her out of an Alpha export.
+  const carol = crypto.randomUUID();
+  humans.push(carol);
+  await pool.query(`INSERT INTO users (id, email, first_name, role, is_active) VALUES ($1, $2, 'Carol', 'viewer', true)`,
+    [carol, `${TAG}-carol@test.local`]);
+  await pool.query(`INSERT INTO company_users (user_id, company_id, role) VALUES ($1, $2, 'viewer')`, [carol, beta]);
 
   await pool.query(`INSERT INTO plans (id, code, name, monthly_price_cents, annual_price_cents) VALUES ($1, $2, $3, 10000, 100000)`,
     [planId, `${TAG}-plan`, `${TAG} Plan`]);
@@ -78,7 +86,7 @@ afterAll(async () => {
     await pool.query('DELETE FROM plans WHERE id = $1', [planId]);
     await pool.query('DELETE FROM company_users WHERE user_id = ANY($1)', [humans]);
     await pool.query('DELETE FROM users WHERE id = ANY($1)', [[...humans, admin]]);
-    await pool.query('DELETE FROM companies WHERE id = ANY($1)', [[alpha, beta, formulaCo]]);
+    await pool.query('DELETE FROM companies WHERE id = ANY($1)', [[alpha, beta, formulaCo, outsider]]);
     await pool.query("DELETE FROM rate_limit_counters WHERE key = 'admin:127.0.0.79'");
   } finally {
     await pool.end();
@@ -92,7 +100,7 @@ describe('users export (PII)', () => {
     expect(r.status, r.text.slice(0, 300)).toBe(200);
     const lines = csvDataLines(r.text);
     expect(lines).toHaveLength(30);
-    expect(lines.some((l) => l.includes('-bob@'))).toBe(false);
+    expect(lines.some((l) => l.includes('-bob@') || l.includes('-carol@'))).toBe(false);
     expect(r.text).toContain(`"'=cmd|' /C calc'!A0"`);
     expect(r.text).not.toMatch(/(^|,)"=cmd/m);
 
