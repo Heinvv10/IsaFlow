@@ -24,7 +24,7 @@ const PatchBody = z.object({
   plan_id:          UUID.optional(),
   billing_cycle:    z.enum(['monthly', 'annual']).optional(),
   discount_percent: z.number().min(0).max(50).optional(),
-  status:           z.enum(['active', 'trial', 'past_due', 'cancelled', 'suspended']).optional(),
+  status:           z.enum(['active', 'trial', 'past_due', 'cancelled']).optional(),
   notes:            z.string().max(2000).optional(),
   // The company billing tab PATCHes this to schedule a cancellation; without
   // it the strict schema rejected the only UI that offers the option. Only
