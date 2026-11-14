@@ -191,8 +191,11 @@ async function cancelCustomerPaymentInner(
     // A bank ALLOCATION posted the journal: the bank path unwinds the receipt, posts the contra and frees the line.
     const delegated = !!leg && await voidViaBankAllocation(companyId, leg, userId, label, journalId);
     // Not below zero (2026-11-14, `ar/customerVoidCredit`): a refund may already have returned this receipt's unapplied
-    // cash. Payment held, then the customer (tried) — before any write; the bank path asks it itself when delegated.
-    if (!delegated) await assertReceiptVoidKeepsCredit(companyId, [id]);
+    // cash. Receipt held, then its invoices, then the customer (tried) — before any write; the bank path asks it itself.
+    if (!delegated) {
+      await lockReceiptInvoices(companyId, payment.allocations.map((a) => a.invoiceId));
+      await assertReceiptVoidKeepsCredit(companyId, [id]);
+    }
     // Step 2: a statement line MATCHED to this journal (a refund out is gated; a receipt is money in) — before any write.
     const auditLeg = !delegated && journalId && leg ? await assertMayReverseMatchedLeg(companyId, journalId, leg.bankLineIds, userId) : null;
 

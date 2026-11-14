@@ -34,7 +34,7 @@ import { bankGlAccountBelongsToCompany } from '@/modules/accounting/services/ban
 import { REVERSAL_DATE_PROPERTY } from './allocationSchema';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
-import { assertLinesKeepCredit, reverseLinesCreditLast } from '@/modules/accounting/services/bank/reverseLinesCreditLast';
+import { assertLinesKeepCredit, reverseLinesJudged } from '@/modules/accounting/services/bank/reverseLinesCreditLast';
 
 const REVERSE_RANGE_TOOL = 'reverse_allocations';
 
@@ -171,7 +171,8 @@ export const reverseAllocationsTool: McpTool = {
     // id, the same deterministic lock order the allocate and batch-reverse
     // paths use, so this cannot deadlock against a concurrent batch. A supplier payment whose refund is later in the
     // range is set aside and retried after the rest, rethrown if it still stands (bank/reverseLinesCreditLast).
-    await reverseLinesCreditLast(rows.map((r) => r.id), (id) =>
+    // A customer's receipts and refunds in the range are judged together first, by the dry run's own judgment.
+    await reverseLinesJudged(ctx.companyId, rows, (id) =>
       // The contra journal is stamped too: without it the agent's own
       // correction posts as human:<userId> and drops out of list_agent_postings,
       // which is the surface a human reviews agent work through.

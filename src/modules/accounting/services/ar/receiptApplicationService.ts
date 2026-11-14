@@ -39,6 +39,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { lockCustomerPaymentForUpdate } from '../core/paymentLock';
 import { ReceiptRefusal } from './receiptRefusal';
+import { assertReceiptApplicationKeepsCredit } from './customerVoidCredit';
 import {
   EPS,
   applyLineToInvoice,
@@ -81,6 +82,7 @@ export async function planReceiptApplication(
   companyId: string,
   paymentId: string,
   allocations: readonly ReceiptAllocationInput[],
+  opts: { paymentCreatedInThisRequest?: boolean } = {},
 ): Promise<ReceiptApplicationPlan> {
   if (allocations.length === 0) throw new ReceiptRefusal('Provide at least one allocation.');
 
@@ -114,6 +116,14 @@ export async function planReceiptApplication(
   }
 
   const { lines } = await planAllocationLines(companyId, allocations, { paymentId, customerId });
+
+  // An EXISTING receipt's remainder may be what a refund already returned (2026-11-14, `ar/customerVoidCredit`):
+  // applying it then takes the customer's running on-account credit below zero. Receipt held, invoices locked above,
+  // then the customer (tried) and the check — before any write, and in the dry run alike. A receipt this request
+  // created lands with its allocation and lowers nothing (the AP twin's `paymentCreatedInThisRequest`).
+  if (opts.paymentCreatedInThisRequest !== true) {
+    await assertReceiptApplicationKeepsCredit(companyId, paymentId, requested);
+  }
 
   const allocatedAfter = round2(allocatedBefore + requested);
   const unappliedAfter = round2(paymentTotal - allocatedAfter);

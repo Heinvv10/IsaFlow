@@ -115,23 +115,29 @@ describe('cancelCustomerPayment — the receipt credit refusal', () => {
     mockSql.mockImplementation((strings: TemplateStringsArray) => {
       const text = (strings as unknown as string[]).join('?');
       texts.push(text);
-      if (/GROUP BY cp\.client_id/.test(text)) return Promise.resolve([{ customer_id: 'cust', lowers: 100 }]);
-      if (/WITH pay AS/.test(text)) {
-        return Promise.resolve([{ customer_name: 'Acme', from_date: '2026-05-01', lowers: 100, lowest: after + 100, lowest_after: after }]);
+      if (/cp\.client_id IS NOT NULL/.test(text)) return Promise.resolve([{ id: PAYMENT_ID, customer_id: 'cust', remainder: 100 }]);
+      if (/WITH gone AS/.test(text)) {
+        return Promise.resolve([
+          { d: '2026-05-01', amount: 100, removed: 100, lowers: 100, others: 0, customer_name: 'Acme' },
+          { d: '2026-05-02', amount: after, removed: 0, lowers: 0, others: after, customer_name: 'Acme' },
+        ]);
       }
       return Promise.resolve(isInvoiceLock(text) ? lockedInvoices() : [{ id: PAYMENT_ID, status: 'x' }]);
     });
     return texts;
   }
 
-  it('takes the customer (tried) after the receipt and before any write, and asks its credit there', async () => {
+  it('takes the customer (tried) after the receipt and its invoices, before any write, and asks its credit there', async () => {
     mockGetPayment.mockResolvedValue(payment());
     const texts = recordSqlWithCredit(0);
     await cancelCustomerPayment(COMPANY_ID, PAYMENT_ID, USER_ID);
     const lock = indexOf(texts, PAYMENT_LOCK);
-    const customer = indexOf(texts, /FROM customers c[\s\S]*FOR NO KEY UPDATE OF c SKIP LOCKED/);
-    const credit = indexOf(texts, /WITH pay AS/);
+    const invoiceLock = indexOf(texts, /FROM customer_invoices[\s\S]*FOR UPDATE OF ci/i);
+    const customer = indexOf(texts, /FROM customers c[\s\S]*SKIP LOCKED/);
+    const credit = indexOf(texts, /WITH gone AS/);
     const invoices = indexOf(texts, /UPDATE customer_invoices/i);
+    expect(invoiceLock).toBeGreaterThan(lock);
+    expect(customer).toBeGreaterThan(invoiceLock); // payments → invoices → customers
     expect(customer).toBeGreaterThan(lock);
     expect(credit).toBeGreaterThan(customer);
     expect(invoices).toBeGreaterThan(credit);

@@ -1,86 +1,112 @@
 /**
- * The receipt-cancellation credit refusal (ar/customerVoidCredit) and its tried lock (ar/customerCreditLock): the
- * decision on the figures, the wording, and when the lock is taken. The running-credit SQL is proven on a real ledger
- * in tests/integration/ar-receipt-void-after-refund.int.test.ts.
+ * The receipt credit rule (ar/customerRunningCredit.judgeCreditDays — pure, so the arithmetic is pinned here on
+ * figures) and the refusals built on it (ar/customerVoidCredit): wording, when the customer lock is taken, and the
+ * bulk judgment's verification. The SQL that reads the figures, and the lock's behaviour against a refund, are proven
+ * on a real ledger in tests/integration/ar-receipt-*.int.test.ts.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const sqlMock = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+vi.mock('@/modules/accounting/services/ar/customerCreditLock', () => ({ tryLockCustomerCredit: vi.fn() }));
+vi.mock('@/modules/accounting/services/ar/customerRunningCredit', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/ar/customerRunningCredit')>()),
+  customerCreditDays: vi.fn(),
+}));
 
+import { judgeCreditDays, customerCreditDays, type CreditDay } from '@/modules/accounting/services/ar/customerRunningCredit';
 import {
-  CustomerVoidCreditRefusal, assertReceiptVoidKeepsCredit, isCustomerVoidCreditRefusal,
+  CustomerVoidCreditRefusal, assertReceiptApplicationKeepsCredit, assertReceiptVoidKeepsCredit,
+  isCustomerVoidCreditRefusal, withReceiptCancellationsJudged,
 } from '@/modules/accounting/services/ar/customerVoidCredit';
 import { tryLockCustomerCredit } from '@/modules/accounting/services/ar/customerCreditLock';
-import { ReceiptRefusal, isReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
-import { isPaymentLockTimeout } from '@/modules/accounting/services/core/paymentLock';
+import { ReceiptRefusal, isRetryableReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
 import { safeErrorText } from '@/lib/mcp/tools/toolHelpers';
 
-const sqlText = (i: number) => (sqlMock.mock.calls[i]![0] as TemplateStringsArray).join('?');
-beforeEach(() => { sqlMock.mockReset(); });
+const day = (d: string, amount: number, removed = 0, others = amount - removed): CreditDay =>
+  ({ d, amount, removed, lowers: Math.max(removed, 0), others });
 
-describe('assertReceiptVoidKeepsCredit', () => {
-  it('refuses, naming the customer, what it lowers, the lowest credit and the date, as RECEIPT_REFUSED', async () => {
-    sqlMock
-      .mockResolvedValueOnce([{ customer_id: 'c', lowers: 1000 }]) // the receipts' customers
-      .mockResolvedValueOnce([{ id: 'c' }]) // the tried lock
-      .mockResolvedValueOnce([{ customer_name: 'Acme', from_date: '2026-05-05', lowers: 1000, lowest: 0, lowest_after: -1000 }]);
+describe('judgeCreditDays — the rule', () => {
+  it('one receipt: refused exactly when its remainder exceeds the lowest running credit from its date (R2-2)', () => {
+    // receipt 500 on 05-05, refund -500 on 05-10, a later receipt 500 on 05-20: the all-dates figure is 500
+    const days = [day('05-05', 500, 500), day('05-10', -500), day('05-20', 500)];
+    expect(judgeCreditDays(days)).toEqual({ fromDate: '05-05', lowers: 500, lowest: 0, lowestAfter: -500 });
+    expect(judgeCreditDays([day('05-05', 500), day('05-10', -500), day('05-20', 500, 500)]).lowestAfter).toBe(0);
+  });
+  it('several receipts are judged by date, not "sum lowered vs lowest from the earliest date"', () => {
+    const j = judgeCreditDays([day('05-16', 50, 50), day('05-18', 100, 100)]);
+    expect(j).toEqual({ fromDate: '05-16', lowers: 150, lowest: 50, lowestAfter: 0 }); // 150 > 50, yet nothing < 0
+  });
+  it('a receipt and its refund together lower no date', () => {
+    expect(judgeCreditDays([day('05-20', 0), day('05-22', -50, -50), day('05-24', 50, 50), day('05-27', -150)]).lowestAfter)
+      .toBeNull();
+  });
+  it('a customer below zero on a later date: a write that lowers that date is refused, one after it is judged alone', () => {
+    const negativeLater = [day('05-05', 100, 100), day('05-10', -300)];
+    expect(judgeCreditDays(negativeLater).lowestAfter).toBe(-300);
+    expect(judgeCreditDays([day('05-08', -60), day('05-12', 100), day('05-14', 40, 40)]).lowestAfter).toBe(40);
+  });
+  it('a write that lowers nothing has no figure to refuse on', () => {
+    expect(judgeCreditDays([day('05-05', 0, 0), day('05-10', -300)])).toMatchObject({ fromDate: null, lowestAfter: null });
+  });
+});
+
+/** removedRows' answer: the receipts named, with customer and remainder. */
+const rows = (...r: [string, string, number][]) => r.map(([id, customer_id, remainder]) => ({ id, customer_id, remainder }));
+
+beforeEach(() => { sqlMock.mockReset(); vi.mocked(customerCreditDays).mockReset(); vi.mocked(tryLockCustomerCredit).mockClear(); });
+
+describe('assertReceiptVoidKeepsCredit / assertReceiptApplicationKeepsCredit', () => {
+  it('refuses a cancel, naming the customer, what it lowers, the lowest credit and the date, as RECEIPT_REFUSED', async () => {
+    sqlMock.mockResolvedValueOnce(rows(['r1', 'c', 1000]));
+    vi.mocked(customerCreditDays).mockResolvedValueOnce({ customerName: 'Acme', days: [day('2026-05-05', 1000, 1000), day('2026-05-10', -1000)] });
     const err = await assertReceiptVoidKeepsCredit('co', ['r1']).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(CustomerVoidCreditRefusal);
-    expect(isReceiptRefusal(err)).toBe(true);
     expect(isCustomerVoidCreditRefusal(err)).toBe(true);
     const text = safeErrorText(err, 'fallback');
-    expect(text).toMatch(/^Cancelling this receipt would leave Acme owing the company/);
-    expect(text).toContain('from 2026-05-05');
-    expect(text).toMatch(/R\s?1[\s,]?000\.00 of unapplied cash/);
-    expect(text).toMatch(/only R\s?0\.00 is on account/);
-    expect(sqlText(1)).toMatch(/FOR NO KEY UPDATE OF c SKIP LOCKED/);
+    expect(text).toMatch(/^Cancelling this receipt would leave Acme owing the company: it takes R\s?1[\s,]?000\.00 .* from 2026-05-05, .* only R\s?0\.00 is on account/);
+    expect(tryLockCustomerCredit).toHaveBeenCalledWith('co', 'c');
   });
-
-  it('a fully applied receipt lowers nothing: no lock, no credit read, no refusal', async () => {
-    sqlMock.mockResolvedValueOnce([{ customer_id: 'c', lowers: 0 }]);
+  it('words an application by its amount, with its own remedy', async () => {
+    sqlMock.mockResolvedValueOnce(rows(['r1', 'c', 200]));
+    vi.mocked(customerCreditDays).mockResolvedValueOnce({ customerName: 'Acme', days: [day('2026-05-02', 200, 200), day('2026-05-04', -150)] });
+    await expect(assertReceiptApplicationKeepsCredit('co', 'r1', 200)).rejects.toThrow(/^Applying R\s?200\.00 of this receipt .* apply only what is still on account\.$/);
+    expect(vi.mocked(customerCreditDays).mock.calls[0]![2]).toEqual([{ paymentId: 'r1', amount: 200 }]);
+  });
+  it('a fully applied receipt lowers nothing: no lock, no figures, no refusal', async () => {
+    sqlMock.mockResolvedValueOnce(rows(['r1', 'c', 0]));
     await expect(assertReceiptVoidKeepsCredit('co', ['r1'])).resolves.toBeUndefined();
-    expect(sqlMock).toHaveBeenCalledTimes(1);
+    expect(tryLockCustomerCredit).not.toHaveBeenCalled();
+    expect(customerCreditDays).not.toHaveBeenCalled();
   });
-
-  it('passes when the running credit stays at zero or above on every date it lowers', async () => {
-    sqlMock
-      .mockResolvedValueOnce([{ customer_id: 'c', lowers: 150 }])
-      .mockResolvedValueOnce([{ id: 'c' }])
-      // two receipts on different dates: the lowest BEFORE (50) is below what they lower together (150), but each
-      // date's figure after the cancellation is 0 — judged by date, not "sum vs lowest"
-      .mockResolvedValueOnce([{ customer_name: 'Acme', from_date: '2026-05-05', lowers: 150, lowest: 50, lowest_after: 0 }]);
-    await expect(assertReceiptVoidKeepsCredit('co', ['r1', 'r2'])).resolves.toBeUndefined();
-    expect(sqlMock.mock.calls[2]).toContainEqual(['r1', 'r2']);
-  });
-
-  it('words several receipts as "these receipts"', async () => {
-    sqlMock
-      .mockResolvedValueOnce([{ customer_id: 'c', lowers: 200 }])
-      .mockResolvedValueOnce([{ id: 'c' }])
-      .mockResolvedValueOnce([{ customer_name: 'Acme', from_date: '2026-05-05', lowers: 200, lowest: 150, lowest_after: -50 }]);
-    await expect(assertReceiptVoidKeepsCredit('co', ['r1', 'r2'])).rejects.toThrow(/^Cancelling these receipts/);
-  });
-
-  it('a plain receipt refusal is not the credit refusal (bulk reversals retry only the credit one)', () => {
+  it('a plain receipt refusal is not the credit refusal', () => {
     expect(isCustomerVoidCreditRefusal(new ReceiptRefusal('x'))).toBe(false);
   });
 });
 
-describe('tryLockCustomerCredit', () => {
-  it('takes the row when it is free', async () => {
-    sqlMock.mockResolvedValueOnce([{ id: 'c' }]);
-    await expect(tryLockCustomerCredit('co', 'c')).resolves.toBeUndefined();
-    expect(sqlMock).toHaveBeenCalledTimes(1);
+describe('withReceiptCancellationsJudged — judged once, each receipt only verifies', () => {
+  const judgedDays = [day('2026-05-22', -50, -50, 0), day('2026-05-24', 50, 50, 0), day('2026-05-27', -150)];
+  async function inJudgedCall(nowDays: CreditDay[], nowRemainder = 50) {
+    sqlMock
+      .mockResolvedValueOnce(rows(['ref', 'c', -50], ['rec', 'c', 50])) // the judgment's rows
+      .mockResolvedValueOnce(rows(['rec', 'c', nowRemainder])) // the receipt's own check: its row
+      .mockResolvedValueOnce(rows(['ref', 'c', -50], ['rec', 'c', nowRemainder])); // the set's remainders now
+    vi.mocked(customerCreditDays)
+      .mockResolvedValueOnce({ customerName: 'Acme', days: judgedDays })
+      .mockResolvedValueOnce({ customerName: 'Acme', days: nowDays });
+    return withReceiptCancellationsJudged('co', ['ref', 'rec'], () => assertReceiptVoidKeepsCredit('co', ['rec']));
+  }
+  it('passes a set that lowers no date, and the receipt inside it is not judged again (breaker B)', async () => {
+    await expect(inJudgedCall(judgedDays)).resolves.toBeUndefined();
+    expect(customerCreditDays).toHaveBeenCalledTimes(2); // the judgment, then the verification — no second judgment
+    expect(tryLockCustomerCredit).toHaveBeenCalledTimes(1); // judged unlocked; locked at the receipt's own step
   });
-  it('refuses, retryable, when another request holds the row — never waits', async () => {
-    sqlMock.mockResolvedValueOnce([]).mockResolvedValueOnce([{ one: 1 }]);
-    const err = await tryLockCustomerCredit('co', 'c').catch((e: unknown) => e);
-    expect(isPaymentLockTimeout(err)).toBe(true);
-    expect(sqlText(0)).toMatch(/SKIP LOCKED/);
+  it('refuses as retryable when another row of the customer fell since the judgment', async () => {
+    const err = await inJudgedCall([...judgedDays.slice(0, 2), day('2026-05-27', -200)]).catch((e: unknown) => e);
+    expect(isRetryableReceiptRefusal(err)).toBe(true);
+    expect(isCustomerVoidCreditRefusal(err)).toBe(false);
   });
-  it('a customer that does not exist for this company is not contention', async () => {
-    sqlMock.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
-    await expect(tryLockCustomerCredit('co', 'c')).resolves.toBeUndefined();
+  it('refuses as retryable when a judged receipt\'s remainder moved', async () => {
+    expect(isRetryableReceiptRefusal(await inJudgedCall(judgedDays, 80).catch((e: unknown) => e))).toBe(true);
   });
 });

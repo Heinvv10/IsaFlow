@@ -1,50 +1,44 @@
 /**
- * The customer mirror of `ap/supplierVoidCredit`: the refusal every cancellation of a customer receipt makes before its
- * first write (Hein, 2026-11-14) — would cancelling these receipts leave a customer's on-account credit below zero on
- * ANY date from the receipts' date onward?
+ * The refusal every write that REMOVES unapplied receipt cash makes before its first write (Hein, 2026-11-14): a
+ * cancellation of a customer receipt and an application of an existing receipt's remainder. Either would be refused
+ * when it leaves the customer's running on-account credit below zero on a date it lowers (`ar/customerRunningCredit`:
+ * the rule, by date) — a refund already returned that cash. The AR twin of `ap/supplierVoidCredit`, judged by date as
+ * a refund is (`planCustomerRefund`); the all-dates figure let a receipt dated after the refund hide it (breaker R2-2).
  *
- * Cancelling a receipt removes its unapplied remainder (`total - allocated`, the term `getCustomerOnAccountCredit`
- * sums) from the credit at its own date and every later one. A refund already recorded at a later date was judged
- * against the credit AS AT its date (`planCustomerRefund`), so the test is the running credit from the receipt's date
- * onward — the AR twin of `ap/supplierOnAccountCredit`'s `lowestFromDate`. The all-dates figure alone let a receipt
- * dated after the refund hide a refund left with nothing behind it on its own date (breaker R2-2).
+ * WHAT LOWERS NOTHING is never refused: a fully applied receipt, a refund, a receipt and its own refund together. A
+ * customer already below zero on some date is refused only writes that lower that date.
  *
- * Several receipts are judged TOGETHER, by date: each one's remainder leaves the running credit from its own date on,
- * and the cancellation is refused when that leaves the credit below zero on a date it lowered. One receipt: its
- * lowest running credit from its date must cover its remainder. A fully applied receipt and a refund (a negative
- * remainder) lower nothing; a set that lowers nothing takes no lock and is never refused, so a customer already below
- * zero stays correctable that way.
+ * LOCK: the customer row, TRIED (`ar/customerCreditLock`), taken AFTER the receipt row and the invoices the write
+ * touches and before any write — the canonical payments → invoices → customers. Tried, so this path never waits on it.
  *
- * Taken under the customer's refund lock, TRIED (`ar/customerCreditLock`), so a refund in flight has committed or the
- * caller is refused as retryable. Residual, as on every customer-side credit read: an APPLICATION of another receipt's
- * remainder takes no customer lock (AR has no credit key), so one committing between this read and the caller's commit
- * is not seen.
+ * BULK (`judgeReceiptCancellations` / `withReceiptCancellationsJudged`): a call that cancels several receipts at once
+ * judges the whole set ONCE, by the same function its dry run uses, so the two agree by construction. The per-receipt
+ * check inside it then only VERIFIES, under that receipt's locks and the customer's, that nothing the judgment read
+ * has moved since (the other rows' figures may only have risen; the set's own remainders are unchanged) — a refusal
+ * there is retryable, never a second opinion on the books.
  *
- * Callers, each with the receipt row held: `bank/bankAllocationUnwind.unwindOnePayment` (bank reverse, chain reversal,
- * MCP `reverse_bank_allocation` / `_batch` / `_range`, `void_receipt`, a run undo, reallocation) and
- * `unwindBankAllocationApplication` (every receipt on one journal, together); `cancelCustomerPayment` (the receipts
- * screen); `bank/reverseLinesCreditLast.assertLinesKeepCredit` (the range's dry run); reallocation's own ceiling
- * (`bank/bankReallocationCredit`, via `customerVoidCreditShortfall`).
+ * Residual: an UNAPPLY (raises credit) takes no customer lock; harmless, it only makes a read conservative.
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { tryLockCustomerCredit } from './customerCreditLock';
+import { customerCreditDays, judgeCreditDays, lowersBelowZero, type CreditDay, type CreditRemoval } from './customerRunningCredit';
 import { ReceiptRefusal, isReceiptRefusal } from './receiptRefusal';
 
 export interface CustomerVoidCreditShortfall {
   customerId: string;
   customerName: string;
-  /** The unapplied cash the cancellation takes off the customer's account. */
+  /** The unapplied cash the write takes off the customer's account. */
   lowers: number;
-  /** The lowest running credit from `fromDate` onward, before the cancellation. */
+  /** The lowest running credit from `fromDate` onward, before the write. */
   credit: number;
-  /** The earliest cancelled receipt's date: the credit is judged from here on. */
+  /** The earliest date the write lowers: the credit is judged from here on. */
   fromDate: string;
 }
 
-/** The credit refusal, told apart from the other receipt refusals so a bulk reversal can retry it last. */
+/** The credit refusal, told apart from the other receipt refusals (a run undo retries it after its other rows). */
 export class CustomerVoidCreditRefusal extends ReceiptRefusal {
   readonly reason = 'credit_ceiling' as const;
 }
@@ -55,82 +49,152 @@ export function isCustomerVoidCreditRefusal(err: unknown): err is CustomerVoidCr
 }
 
 const cents = (n: number) => Math.round(n * 100);
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
-/**
- * One customer's running credit (the AR basis: every receipt and refund but cancelled ones; an applied amount counts
- * at its payment's date), before and after cancelling `paymentIds`: the lowest figure from the earliest cancelled
- * receipt's date on, and the lowest figure after the cancellation on the dates it lowers (null when it lowers none).
- */
-async function creditAroundCancellation(companyId: string, customerId: string, paymentIds: readonly string[]) {
-  const [r] = (await sql`
-    WITH pay AS (
-      SELECT cp.payment_date AS d, cp.id = ANY(${[...paymentIds]}::UUID[]) AS going,
-             cp.total_amount - LEAST(COALESCE(alloc.allocated, 0), GREATEST(cp.total_amount, 0)) AS amount
-      FROM customer_payments cp
-      LEFT JOIN LATERAL (
-        SELECT SUM(cpa.amount_allocated) AS allocated FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id
-      ) alloc ON TRUE
-      WHERE cp.company_id = ${companyId}::UUID AND cp.client_id = ${customerId}::UUID AND cp.status <> 'cancelled'
-    ), by_day AS (
-      SELECT d, SUM(amount) AS amount, SUM(amount) FILTER (WHERE going) AS removed FROM pay GROUP BY d
-    ), running AS (
-      SELECT d, SUM(amount) OVER w AS cum, COALESCE(SUM(removed) OVER w, 0) AS removed
-      FROM by_day WINDOW w AS (ORDER BY d)
-    ), cancelled_now AS (
-      SELECT MIN(d) AS from_date, SUM(GREATEST(amount, 0)) AS lowers FROM pay WHERE going
-    )
-    SELECT c.name AS customer_name, g.from_date, g.lowers,
-           (SELECT MIN(r.cum) FROM running r WHERE r.d >= g.from_date) AS lowest,
-           (SELECT MIN(r.cum - r.removed) FROM running r WHERE r.removed > 0) AS lowest_after
-    FROM customers c CROSS JOIN cancelled_now g
-    WHERE c.id = ${customerId}::UUID AND c.company_id = ${companyId}::UUID`) as DbRow[];
-  return {
-    customerName: r?.customer_name ? String(r.customer_name) : 'this customer',
-    fromDate: r?.from_date == null ? null : fmtDate(r.from_date as string | Date),
-    lowers: round2(Number(r?.lowers ?? 0)),
-    lowest: round2(Number(r?.lowest ?? 0)),
-    lowestAfter: r?.lowest_after == null ? null : round2(Number(r.lowest_after)),
-  };
-}
+interface RemovedRow { paymentId: string; customerId: string; remainder: number; removes: number }
 
-/** The first customer whose credit cancelling `paymentIds` would take below zero on some date, or null. */
-export async function customerVoidCreditShortfall(
-  companyId: string, paymentIds: readonly string[],
-): Promise<CustomerVoidCreditShortfall | null> {
-  if (paymentIds.length === 0) return null;
+/** The live rows `removals` names, with their customer and remainder (company-scoped). */
+async function removedRows(companyId: string, removals: readonly CreditRemoval[]): Promise<RemovedRow[]> {
+  if (removals.length === 0) return [];
   const rows = (await sql`
-    SELECT cp.client_id::TEXT AS customer_id,
-           SUM(GREATEST(cp.total_amount - LEAST(COALESCE(alloc.allocated, 0), GREATEST(cp.total_amount, 0)), 0)) AS lowers
+    SELECT cp.id::TEXT AS id, cp.client_id::TEXT AS customer_id,
+           cp.total_amount - LEAST(COALESCE(alloc.allocated, 0), GREATEST(cp.total_amount, 0)) AS remainder
     FROM customer_payments cp
     LEFT JOIN LATERAL (
       SELECT SUM(cpa.amount_allocated) AS allocated FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id
     ) alloc ON TRUE
-    WHERE cp.company_id = ${companyId}::UUID
-      AND cp.id = ANY(${[...paymentIds]}::UUID[])
-      AND cp.status <> 'cancelled'
-    GROUP BY cp.client_id
-    ORDER BY cp.client_id`) as DbRow[];
-  for (const r of rows) {
-    if (cents(Number(r.lowers ?? 0)) <= 0 || r.customer_id == null) continue;
-    const customerId = String(r.customer_id);
-    await tryLockCustomerCredit(companyId, customerId);
-    const c = await creditAroundCancellation(companyId, customerId, paymentIds); // re-read under the lock
-    if (c.lowestAfter == null || cents(c.lowestAfter) >= 0 || c.fromDate == null) continue;
-    return { customerId, customerName: c.customerName, lowers: c.lowers, credit: c.lowest, fromDate: c.fromDate };
-  }
-  return null;
+    WHERE cp.company_id = ${companyId}::UUID AND cp.id = ANY(${removals.map((r) => r.paymentId)}::UUID[])
+      AND cp.status <> 'cancelled' AND cp.client_id IS NOT NULL
+    ORDER BY cp.client_id, cp.id`) as DbRow[];
+  const amountOf = new Map(removals.map((r) => [r.paymentId.toLowerCase(), r.amount]));
+  return rows.map((r) => {
+    const remainder = Number(r.remainder ?? 0);
+    return { paymentId: String(r.id), customerId: String(r.customer_id), remainder,
+      removes: amountOf.get(String(r.id).toLowerCase()) ?? remainder };
+  });
 }
+
+const byCustomer = (rows: readonly RemovedRow[]) => {
+  const out = new Map<string, RemovedRow[]>();
+  for (const r of rows) out.set(r.customerId, [...(out.get(r.customerId) ?? []), r]);
+  return out;
+};
+
+interface CustomerSnapshot { customerId: string; days: CreditDay[]; rows: RemovedRow[] }
+
+/** Judge `removals` per customer; the first shortfall, and what each customer's judgment read. */
+async function judge(companyId: string, removals: readonly CreditRemoval[], lock: boolean) {
+  const snapshots: CustomerSnapshot[] = [];
+  for (const [customerId, rows] of byCustomer(await removedRows(companyId, removals))) {
+    if (rows.every((r) => cents(r.removes) <= 0)) continue; // lowers nothing: no lock, never refused
+    if (lock) await tryLockCustomerCredit(companyId, customerId);
+    const { customerName, days } = await customerCreditDays(companyId, customerId,
+      rows.map((r) => ({ paymentId: r.paymentId, amount: r.removes })));
+    snapshots.push({ customerId, days, rows });
+    const j = judgeCreditDays(days);
+    if (lowersBelowZero(j) && j.fromDate) {
+      const shortfall: CustomerVoidCreditShortfall = { customerId, customerName, lowers: j.lowers, credit: j.lowest, fromDate: j.fromDate };
+      return { shortfall, snapshots };
+    }
+  }
+  return { shortfall: null, snapshots };
+}
+
+/** The first customer whose credit cancelling `paymentIds` would take below zero on a date it lowers, or null. */
+export async function customerVoidCreditShortfall(
+  companyId: string, paymentIds: readonly string[],
+): Promise<CustomerVoidCreditShortfall | null> {
+  return (await judge(companyId, paymentIds.map((paymentId) => ({ paymentId })), true)).shortfall;
+}
+
+function refusal(s: CustomerVoidCreditShortfall, what: string, remedy: string): CustomerVoidCreditRefusal {
+  return new CustomerVoidCreditRefusal(
+    `${what} would leave ${s.customerName} owing the company: it takes ${formatMoney(s.lowers)} of `
+    + `unapplied cash off the customer's account from ${s.fromDate}, and on some date since then only `
+    + `${formatMoney(Math.max(s.credit, 0))} is on account — a refund has already returned the rest. ${remedy}`,
+  );
+}
+const cancelling = (n: number) => (n > 1 ? 'Cancelling these receipts' : 'Cancelling this receipt');
+const CANCEL_REMEDY = 'Reverse the refund first, then cancel the receipt.';
+
+const judged = new AsyncLocalStorage<{ companyId: string; snapshots: Map<string, CustomerSnapshot> }>();
+
+/**
+ * Re-checks, under this receipt's locks and its customer's, that a set judged up front still stands: the receipts it
+ * judged keep their remainders and no other row of the customer has fallen on any date. Null when `paymentIds` are
+ * not all in a judged set (the caller then judges them itself).
+ */
+async function verifyJudged(companyId: string, paymentIds: readonly string[]): Promise<boolean | null> {
+  const ctx = judged.getStore();
+  if (!ctx || ctx.companyId !== companyId) return null;
+  const all = [...ctx.snapshots.values()];
+  const snapOf = (id: string) => all.find((s) => s.rows.some((r) => r.paymentId.toLowerCase() === id.toLowerCase()));
+  const live = await removedRows(companyId, paymentIds.map((paymentId) => ({ paymentId })));
+  for (const row of live) {
+    const snap = snapOf(row.paymentId);
+    if (!snap) {
+      if (cents(row.remainder) > 0) return null; // lowers, and was never judged
+      continue;
+    }
+    await tryLockCustomerCredit(companyId, snap.customerId);
+    const now = await customerCreditDays(companyId, snap.customerId, snap.rows.map((r) => ({ paymentId: r.paymentId })));
+    const before = new Map(snap.days.map((d) => [d.d, cents(d.others)]));
+    for (const d of new Set([...before.keys(), ...now.days.map((x) => x.d)])) {
+      const was = before.get(d) ?? 0;
+      const is = cents(now.days.find((x) => x.d === d)?.others ?? 0);
+      if (is < was) return false;
+    }
+    const nowRows = await removedRows(companyId, snap.rows.map((r) => ({ paymentId: r.paymentId })));
+    if (nowRows.some((n) => cents(n.remainder) !== cents(snap.rows.find((r) => r.paymentId === n.paymentId)!.remainder))) return false;
+  }
+  return true;
+}
+
+const changedMeanwhile = () => new ReceiptRefusal('This customer\'s account changed while the reversal was running — '
+  + 'nothing was reversed; retry in a moment.', { retryable: true });
 
 /** Refuses (RECEIPT_REFUSED, before any write) cancelling `paymentIds` when it would leave a refund uncovered. */
 export async function assertReceiptVoidKeepsCredit(companyId: string, paymentIds: readonly string[]): Promise<void> {
-  const s = await customerVoidCreditShortfall(companyId, paymentIds);
-  if (!s) return;
-  const what = paymentIds.length > 1 ? 'these receipts' : 'this receipt';
-  throw new CustomerVoidCreditRefusal(
-    `Cancelling ${what} would leave ${s.customerName} owing the company: it takes ${formatMoney(s.lowers)} of `
-    + `unapplied cash off the customer's account from ${s.fromDate}, and on some date since then only `
-    + `${formatMoney(Math.max(s.credit, 0))} is on account — a refund has already returned the rest. `
-    + 'Reverse the refund first, then cancel the receipt.',
-  );
+  const verified = await verifyJudged(companyId, paymentIds);
+  if (verified === true) return;
+  if (verified === false) throw changedMeanwhile();
+  const { shortfall } = await judge(companyId, paymentIds.map((paymentId) => ({ paymentId })), true);
+  if (shortfall) throw refusal(shortfall, cancelling(paymentIds.length), CANCEL_REMEDY);
+}
+
+/** Refuses (RECEIPT_REFUSED, before any write) applying `amount` of an EXISTING receipt's remainder a refund spent. */
+export async function assertReceiptApplicationKeepsCredit(companyId: string, paymentId: string, amount: number): Promise<void> {
+  const { shortfall } = await judge(companyId, [{ paymentId, amount }], true);
+  if (shortfall) {
+    throw refusal(shortfall, `Applying ${formatMoney(amount)} of this receipt`,
+      'Reverse the refund first, or apply only what is still on account.');
+  }
+}
+
+/**
+ * The bulk judgment, read-only (no lock): refuses cancelling `paymentIds` together as the live bulk call will. A dry
+ * run answers with this; the live call runs the same judgment through `withReceiptCancellationsJudged`.
+ */
+export async function judgeReceiptCancellations(companyId: string, paymentIds: readonly string[]) {
+  const { shortfall, snapshots } = await judge(companyId, paymentIds.map((paymentId) => ({ paymentId })), false);
+  if (shortfall) throw refusal(shortfall, cancelling(paymentIds.length), CANCEL_REMEDY);
+  return snapshots;
+}
+
+/**
+ * Judge `paymentIds` together ONCE, then run `fn` with every per-receipt check inside it verifying that judgment
+ * instead of judging again. `locked`: take each customer's lock for the judgment (a caller holding the receipts and
+ * their invoices already); a bulk call judges unlocked, before it holds any line, exactly as its dry run does, and
+ * the customer is locked at each receipt's own step. Inside an outer judgment that already covers `paymentIds`, the
+ * outer one stands.
+ */
+export async function withReceiptCancellationsJudged<T>(
+  companyId: string, paymentIds: readonly string[], fn: () => Promise<T>, opts: { locked?: boolean } = {},
+): Promise<T> {
+  if (paymentIds.length === 0) return fn();
+  const verified = await verifyJudged(companyId, paymentIds);
+  if (verified === true) return fn();
+  if (verified === false) throw changedMeanwhile();
+  const { shortfall, snapshots } = await judge(companyId, paymentIds.map((paymentId) => ({ paymentId })), opts.locked === true);
+  if (shortfall) throw refusal(shortfall, cancelling(paymentIds.length), CANCEL_REMEDY);
+  return judged.run({ companyId, snapshots: new Map(snapshots.map((x) => [x.customerId, x])) }, fn);
 }

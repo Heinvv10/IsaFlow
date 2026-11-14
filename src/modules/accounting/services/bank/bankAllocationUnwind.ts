@@ -60,7 +60,7 @@ import { log } from '@/lib/logger';
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
 import { lockCustomerPaymentForUpdate, lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { assertVoidKeepsCredit } from '../ap/supplierVoidCredit';
-import { assertReceiptVoidKeepsCredit } from '../ar/customerVoidCredit';
+import { assertReceiptVoidKeepsCredit, withReceiptCancellationsJudged } from '../ar/customerVoidCredit';
 import type { VatLockRoll } from '../gl/journalEntryReversalVatRoll';
 
 export interface BankAllocationUnwindResult {
@@ -134,9 +134,10 @@ export async function unwindOnePayment(
   // the rows this transaction will act on.
   if (kind === 'customer') {
     // The customer twin (2026-11-14, `ar/customerVoidCredit`): a cancellation must not take the customer's running
-    // on-account credit below zero from the receipt's date on (a refund already returned this cash). Row held, then
-    // the customer's refund lock (tried), then the check — before the first write, before invoices and the journal.
+    // on-account credit below zero on a date it lowers (a refund already returned this cash). The canonical order,
+    // all before the first write: the receipt, its invoices, then the customer (tried) and the check.
     await lockCustomerPaymentForUpdate(companyId, paymentId);
+    await lockReceiptsInvoices(companyId, [paymentId]);
     await assertReceiptVoidKeepsCredit(companyId, [paymentId]);
     await sql`
       UPDATE customer_payments SET status = 'cancelled', updated_at = NOW()
@@ -214,6 +215,16 @@ export async function unwindOnePayment(
   return { invoicesReopened, amountUnapplied };
 }
 
+/** The invoices `paymentIds` are applied to, `FOR UPDATE`, one id-ordered pass (the unwind's own writes re-enter). */
+async function lockReceiptsInvoices(companyId: string, paymentIds: readonly string[]): Promise<void> {
+  await sql`
+    SELECT ci.id FROM customer_invoices ci
+    WHERE ci.company_id = ${companyId}::UUID
+      AND ci.id IN (SELECT cpa.invoice_id FROM customer_payment_allocations cpa WHERE cpa.payment_id = ANY(${[...paymentIds]}::UUID[]))
+    ORDER BY ci.id
+    FOR UPDATE OF ci`;
+}
+
 export async function unwindBankAllocationApplication(
   companyId: string,
   journalEntryId: string,
@@ -236,17 +247,24 @@ export async function unwindBankAllocationApplication(
             AND gl_journal_entry_id = ${journalEntryId}::UUID
             AND status <> 'cancelled'`) as DbRow[];
 
-    if (kind === 'customer' && payments.length > 1) {
-      // Several receipts on one journal (a split) are judged TOGETHER, before the first is unwound: rows held in id
-      // order, then the credit of each customer across all of them (`ar/customerVoidCredit`).
-      for (const p of payments) await lockCustomerPaymentForUpdate(companyId, String(p.id));
-      await assertReceiptVoidKeepsCredit(companyId, payments.map((p) => String(p.id)));
-    }
-    for (const p of payments) {
-      const one = await unwindOnePayment(companyId, kind, String(p.id));
-      invoicesReopened += one.invoicesReopened;
-      amountUnapplied = round2(amountUnapplied + one.amountUnapplied);
-      paymentsCancelled += 1;
+    const ids = payments.map((p) => String(p.id));
+    const unwindAll = async () => {
+      for (const id of ids) {
+        const one = await unwindOnePayment(companyId, kind, id);
+        invoicesReopened += one.invoicesReopened;
+        amountUnapplied = round2(amountUnapplied + one.amountUnapplied);
+        paymentsCancelled += 1;
+      }
+    };
+    if (kind === 'customer' && ids.length > 1) {
+      // Several receipts on one journal (a split) are judged TOGETHER, ONCE, before the first is unwound: receipts
+      // held in id order, then all their invoices, then each customer (tried) and the judgment; each receipt's own
+      // check inside only verifies it (`ar/customerVoidCredit.withReceiptCancellationsJudged`).
+      for (const id of ids) await lockCustomerPaymentForUpdate(companyId, id);
+      await lockReceiptsInvoices(companyId, ids);
+      await withReceiptCancellationsJudged(companyId, ids, unwindAll, { locked: true });
+    } else {
+      await unwindAll();
     }
   }
 

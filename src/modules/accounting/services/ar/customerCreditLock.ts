@@ -1,23 +1,29 @@
 /**
- * The customer's refund lock, TRIED: what a receipt cancellation takes before it reads the customer's on-account
- * credit (`ar/customerVoidCredit`, 2026-11-14).
+ * The customer's refund lock, TRIED: what every write that removes unapplied receipt cash takes before it reads the
+ * customer's running on-account credit (`ar/customerVoidCredit`, 2026-11-14) — a cancellation, an application of an
+ * existing receipt's remainder.
  *
  * A refund serialises on the customer row (`core/paymentLock.lockContactForRefund`, `FOR UPDATE`, waited) and then
- * reads the credit. A cancellation that lowers the same credit must meet it on that row, or a refund in flight reads
- * the receipt as still on account and a cancellation in flight reads the refund as not yet recorded.
+ * reads the credit. A write that lowers the same credit must meet it on that row, or each reads the other as not yet
+ * written.
  *
- * TRIED, never waited on (`SKIP LOCKED`), as the supplier credit key is (`ap/supplierCreditLock`): a bulk reversal
- * (`reverse_bank_allocation_batch` / `_range`, a run undo) reaches its second receipt's customer while it already
- * holds the journal-number lock its first reversal took, and a refund takes the customer and THEN the journal number;
- * a WAITED lock here closes that cycle. A tried one is no edge in any wait-for cycle. Held by another request (a
- * refund, a merge, another cancellation of this customer's cash) means the caller is refused with the retryable
- * `PaymentLockTimeoutError` (REST 503 + Retry-After, MCP retry, a run undo's contended skip), before any write; the
- * retry reads committed credit.
+ * WHERE: after the receipt row and the invoices the write touches, before any write and any journal — the canonical
+ * payments → invoices → customers that the customer merge and the reallocation lock pass take (so a reallocation
+ * holding invoices and waiting on the customer meets no cancel holding the customer and waiting on invoices).
  *
- * `FOR NO KEY UPDATE`: it conflicts with the refund's `FOR UPDATE` (both directions) and with another cancellation, but
- * not with the `KEY SHARE` every uncommitted insert of an invoice or receipt for this customer holds through its FK —
- * those raise the credit or leave it alone, and refusing on them would refuse ordinary busy customers.
- * Re-entrant: a request that already holds the row (the reallocation's lock pass) takes it again.
+ * WHY TRIED (`SKIP LOCKED`): this path never WAITS on the customer, so it adds no wait for the customer to any cycle.
+ * Held by another request (a refund, a merge, a reallocation, another write of this customer's cash) → the retryable
+ * `PaymentLockTimeoutError` (REST 503 + Retry-After, MCP retry, a run undo's contended skip), before any write.
+ * It is NOT edge-free once held: the holder goes on to wait for its journal number (and, in a bulk reversal, later
+ * lines), and a request that WAITS for this row while holding one of those closes a cycle. The one known is the R2-4
+ * class: a bulk allocate or rule sweep that posts a line's journal (number) and then plans a refund of this customer
+ * (waits here) while a cancel holds the customer and waits for the number. Postgres breaks it (40P01, retryable: the
+ * sweep skips the line, MCP says retry). Its fix is R2-4's: allocate locking documents before journals.
+ *
+ * `FOR NO KEY UPDATE`: it conflicts with the refund's `FOR UPDATE` (both directions) and with another writer's own
+ * tried lock, but not with the `KEY SHARE` every uncommitted insert of an invoice or receipt for this customer holds
+ * through its FK — those raise the credit or leave it alone, and refusing on them would refuse ordinary busy
+ * customers. Re-entrant: a request that already holds the row (the reallocation's lock pass) takes it again.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
