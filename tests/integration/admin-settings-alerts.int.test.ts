@@ -149,6 +149,22 @@ describe('admin alert settings', () => {
     expect(rows.filter((c) => c === 'unchanged')).toHaveLength(3);
   }, 30000);
 
+  it('a PATCH waits for whoever holds the alert-settings lock before it reads the stored values', async () => {
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query("SELECT pg_advisory_xact_lock(hashtext('admin_alert_settings'))");
+      let done = false;
+      const pending = call(alertRoute as Route, 'PATCH', { health_alert_email: 'lock@example.co.za' }).then((r) => { done = true; return r; });
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      expect(done).toBe(false);
+      await holder.query('COMMIT');
+      expect((await pending).status).toBe(200);
+    } finally {
+      holder.release();
+    }
+  }, 30000);
+
   it('an invalid non-blank email is still rejected and the stored value is untouched', async () => {
     await call(alertRoute as Route, 'PATCH', { health_alert_email: 'keep@example.co.za' });
     const r = await call(alertRoute as Route, 'PATCH', { health_alert_email: 'not-an-email' });
