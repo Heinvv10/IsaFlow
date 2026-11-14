@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import { useAdminHref } from '@/hooks/useAdminPrefix';
+import { useAdminHref, tenantAppUrl } from '@/hooks/useAdminPrefix';
 import {
   ArrowLeft, AlertCircle, Loader2, User, CheckCircle2,
   ShieldOff, ShieldCheck, KeyRound, LogOut, Pencil, RotateCcw, UserCog, LogIn,
@@ -138,7 +138,7 @@ export default function AdminUserDetailPage() {
       await assertOk(res, 'Could not start impersonation - try again');
       const json = await res.json();
       const token = (json.data as { token: string }).token;
-      window.open(`/accounting?impersonate=${encodeURIComponent(token)}`, '_blank');
+      window.open(tenantAppUrl(`/accounting?impersonate=${encodeURIComponent(token)}`), '_blank');
       showToast('Impersonation session opened');
     } catch (err) {
       log.error('Impersonation failed', { userId: user.id, error: err }, 'admin-ui');

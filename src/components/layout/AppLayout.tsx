@@ -19,6 +19,7 @@ import { SecondaryModuleNav } from '@/components/accounting/SecondaryModuleNav';
 import { getActiveModuleId } from '@/components/accounting/accountingNavConfig';
 import { MODULE_BY_ID } from '@/components/accounting/navSections/secondaryNav';
 import { CommandPalette } from '@/components/layout/CommandPalette';
+import { AdminCommandPalette } from '@/components/admin/AdminCommandPalette';
 import { ShortcutHelpOverlay } from '@/components/layout/ShortcutHelpOverlay';
 import { AccountingTour } from '@/components/onboarding/AccountingTour';
 import { ImpersonationBanner } from '@/components/layout/ImpersonationBanner';
@@ -132,6 +133,7 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
         mobileOpen={mobileOpen}
         onCloseMobile={closeMobile}
         menuButtonRef={menuButtonRef}
+        isAdminHost={isAdminHost}
       />
 
       {/* ── Main area ────────────────────────────────────────────────────── */}
@@ -173,11 +175,15 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
       </div>
       </div>
 
-      {/* Command Palette */}
-      <CommandPalette
-        isOpen={commandPaletteOpen}
-        onClose={() => setCommandPaletteOpen(false)}
-      />
+      {/* Command Palette: on the admin subdomain it searches admin pages, companies and users, not a tenant's ledger */}
+      {isAdminHost ? (
+        <AdminCommandPalette isOpen={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} />
+      ) : (
+        <CommandPalette
+          isOpen={commandPaletteOpen}
+          onClose={() => setCommandPaletteOpen(false)}
+        />
+      )}
 
       {/* Shortcut Help Overlay — triggered by '?' */}
       <ShortcutHelpOverlay

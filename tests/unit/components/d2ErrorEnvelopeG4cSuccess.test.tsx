@@ -93,7 +93,7 @@ describe('admin action sites complete on a success envelope', () => {
     render(<UserDetailPage />);
     expect((await screen.findAllByText(/Yvonne Zuma/)).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: /^impersonate$/i }));
-    await waitFor(() => expect(open).toHaveBeenCalledWith('/accounting?impersonate=tok-123', '_blank'));
+    await waitFor(() => expect(open).toHaveBeenCalledWith(expect.stringMatching(/^https?:\/\/[^/]+\/accounting\?impersonate=tok-123$/), '_blank'));
   });
 });
 
