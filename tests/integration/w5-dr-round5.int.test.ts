@@ -165,15 +165,28 @@ describe('the narrow undo of a leaver exit', () => {
     expect((await undoRows(d))[0].changes.metadata.selfApproval).toBe('sole_approver');
   });
 
-  it('rev2 L1: a hand-inserted exit-shaped audit row whose actor is not a payroll approver is ignored: 400 no exit in effect', async () => {
-    const { f, d } = await exitTaken('DR r5 forged exit');
-    // The real exit's row copied (newer, so it is the one read) with a viewer as its actor.
+  it('rev2 L1: a hand-inserted exit row (a viewer as actor) on a directive with no recorded use is ignored: 400 no exit in effect', async () => {
+    const f = await drFixture(pool, 'DR r5 forged exit');
+    made.push(f);
+    const d = String((await postDirective(f, { ...PCT, expiry_date: '2026-03-01' })).body.data!.id);
+    expect((await patchDirective(f, d, { status: 'approved' })).statusCode).toBe(200);
     await pool.query("UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [f.company, f.approver]);
-    await pool.query(`INSERT INTO audit_log (company_id, user_id, action, entity_type, entity_id, entity_ref, changes, created_at)
-      SELECT company_id, $2, action, entity_type, entity_id, entity_ref, changes, now() + interval '1 second' FROM audit_log
-      WHERE entity_id = $1 AND changes->'metadata'->>'leaverExit' = 'true'`, [d, f.approver]);
+    const changes = {
+      fields: [{ field: 'expiry_date', old: null, new: '2026-03-01', label: 'Expiry date' }],
+      metadata: { leaverExit: 'true', employeeId: f.employee, runs: '2026-03', oldEndsOn: '2027-02-28', newExpiry: '2026-03-01', approversAtExit: '' },
+    };
+    await pool.query(`INSERT INTO audit_log (company_id, user_id, action, entity_type, entity_id, changes)
+      VALUES ($1, $2, 'update', 'tax_directive', $3, $4)`, [f.company, f.approver, d, JSON.stringify(changes)]);
     const r = await refused(f, d, '2027-02-28', 400, f.admin);
     expect(r.body.error?.message).toMatch(/none is in effect/);
+  });
+
+  it('rev2 L: an exit whose taker was demoted since is undone by another current approver', async () => {
+    const { f, d } = await exitTaken('DR r5 departed taker');
+    await pool.query("UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [f.company, f.admin]);
+    expect((await patchDirective(f, d, { expiry_date: '2027-02-28' }, f.approver)).statusCode).toBe(200);
+    expect(await expiryOf(d)).toBeNull();
+    expect(await undoRows(d)).toHaveLength(1);
   });
 
   it('rev2 L1: an exit-shaped row naming runs the directive has no recorded use in is ignored: 400', async () => {
