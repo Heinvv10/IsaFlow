@@ -26,6 +26,7 @@ import { reverseLinesCreditLast, reverseLinesJudged } from '@/modules/accounting
 import { attemptUndoRow, type UndoTally } from '@/modules/accounting/services/bank/autoPostUndoAttempt';
 import { CustomerVoidCreditRefusal, withReceiptCancellationsJudged } from '@/modules/accounting/services/ar/customerVoidCredit';
 import { SupplierVoidCreditRefusal } from '@/modules/accounting/services/ap/supplierVoidCredit';
+import { ReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
 
 describe('reverseLinesJudged — the bulk reversal judges the receipts on its lines, then reverses inside that', () => {
   it('passes the receipts on the lines\' chain roots to ONE judgment, and reverses every line inside it', async () => {
@@ -39,7 +40,7 @@ describe('reverseLinesJudged — the bulk reversal judges the receipts on its li
     expect(seen).toEqual(['judge receipt-of-root-je1,receipt-of-root-je3', 'reverse l1', 'reverse l2', 'reverse l3']);
     expect(withReceiptCancellationsJudged).toHaveBeenCalledTimes(1);
   });
-  it('a supplier credit refusal is still retried after the rest; a receipt credit refusal is not', async () => {
+  it('a supplier credit refusal is still retried after the rest', async () => {
     const seen: string[] = [];
     let refundReversed = false;
     await reverseLinesCreditLast(['payment', 'refund'], async (id) => {
@@ -48,8 +49,20 @@ describe('reverseLinesJudged — the bulk reversal judges the receipts on its li
       else if (!refundReversed) throw new SupplierVoidCreditRefusal('a refund returned it');
     });
     expect(seen).toEqual(['payment', 'refund', 'payment']);
-    await expect(reverseLinesCreditLast(['receipt', 'refund'], async () => { throw new CustomerVoidCreditRefusal('spent'); }))
-      .rejects.toThrow('spent');
+  });
+  it('a customer credit refusal is NOT set aside and retried: it stops the call at once', async () => {
+    const seen: string[] = [];
+    await expect(reverseLinesCreditLast(['receipt', 'refund'], async (id) => {
+      seen.push(id);
+      if (id === 'receipt') throw new CustomerVoidCreditRefusal('a refund spent it');
+    })).rejects.toThrow('a refund spent it');
+    expect(seen).toEqual(['receipt']);
+  });
+  it('any other receipt refusal stops the call at once', async () => {
+    const seen: string[] = [];
+    await expect(reverseLinesCreditLast(['a', 'b'], async (id) => { seen.push(id); throw new ReceiptRefusal('other'); }))
+      .rejects.toThrow('other');
+    expect(seen).toEqual(['a']);
   });
 });
 

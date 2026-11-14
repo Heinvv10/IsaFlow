@@ -34,6 +34,7 @@ vi.mock('@/modules/accounting/services/bank/bankReallocationCredit', () => ({
 }));
 vi.mock('@/modules/accounting/services/ar/customerRunningCredit', () => ({ customerCreditDays: vi.fn(async () => ({ customerName: 'A', days: [] })) }));
 vi.mock('@/modules/accounting/services/ar/customerCreditLock', () => ({ tryLockCustomerCredit: vi.fn(), assertCustomerOfCompany: vi.fn() }));
+vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({ assertCustomerInCompany: vi.fn() }));
 // The unwind runs inside the reallocation's receipt judgment (ar/customerVoidCredit); here it is transparent.
 vi.mock('@/modules/accounting/services/ar/customerVoidCredit', () => ({
   withReceiptCancellationsJudged: vi.fn(async (_c: string, _ids: readonly string[], fn: () => Promise<unknown>) => fn()),
@@ -55,6 +56,7 @@ import { agentReversalRefusal, assertMayReverse } from '@/modules/accounting/ser
 import { lockReallocationDocuments } from '@/modules/accounting/services/bank/bankReallocationLocks';
 import { assertReallocationKeepsCredit, assertReallocationLeftCredit } from '@/modules/accounting/services/bank/bankReallocationCredit';
 import { tryLockCustomerCredit } from '@/modules/accounting/services/ar/customerCreditLock';
+import { assertCustomerInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { customerCreditDays } from '@/modules/accounting/services/ar/customerRunningCredit';
 import { refuseStaleUndo } from '@/modules/accounting/services/bank/bankChainLineReversal';
 import { BankControlError } from '@/modules/accounting/services/bank/bankControlRefusal';
@@ -109,11 +111,12 @@ describe('reallocateReconciledTransaction', () => {
 
   it('money in to a customer: that customer locked and read first, deferred, then judged on the rows the write left', async () => {
     h.plan = { ...h.plan, bankLeg: { ...LEG, debit: 100, credit: 0 } };
+    vi.mocked(assertCustomerInCompany).mockImplementation(step('targetIsOurs') as never);
     vi.mocked(tryLockCustomerCredit).mockImplementation(step('lockCustomer') as never);
     vi.mocked(customerCreditDays).mockImplementation(step('before', { customerName: 'A', days: [] }) as never);
     vi.mocked(assertReallocationLeftCredit).mockImplementation(step('leftCredit') as never);
     await reallocateReconciledTransaction('co', 'tx', 'u', { kind: 'customer', customerId: 'c' }, OPTS);
-    expect(order).toEqual(['agentGate', 'mayReverse', 'date', 'lockDocuments', 'lockCustomer', 'before', 'credit', 'unwind',
+    expect(order).toEqual(['agentGate', 'mayReverse', 'date', 'lockDocuments', 'targetIsOurs', 'lockCustomer', 'before', 'credit', 'unwind',
       'lockHead', 'staleUndo', 'allocate', 'reverse', 'leftCredit', 'bankLeg', 'restore', 'audit']);
     expect(vi.mocked(assertReallocationKeepsCredit).mock.calls[0]![2]).toBe('c');
   });

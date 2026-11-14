@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { sql } from '@/lib/neon';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { getCustomerOnAccountCredit } from '@/modules/accounting/services/ar/customerRefundDocument';
+import { reallocateReconciledTransaction } from '@/modules/accounting/services/bank/bankReallocationService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { inTx } from './helpers/l1FifoFixture';
 import { teardown, type Ctx } from './d8-r4-helpers';
@@ -93,5 +94,28 @@ describe('reallocating a receipt to the same customer, after a refund', () => {
       expect(r.text).toMatch(/owing the company/);
     }
     expect(await credit(cust)).toBeCloseTo(50, 2);
+  }, 120000);
+
+  it('re-pointed to another company\'s customer: refused as not this company\'s customer, never as a receipt\'s', async () => {
+    const cust = await customer();
+    const s = await reconciledLine(c, { amount: 250, date: '2026-06-15', statementDate: '2026-06-30', alloc: 'customer', entity: cust, autoApply: 'none' });
+    const otherCo = randomUUID();
+    const foreign = randomUUID();
+    await sql`INSERT INTO companies (id, name) VALUES (${otherCo}::UUID, 'RASC other')`;
+    await sql`INSERT INTO customers (id, company_id, name) VALUES (${foreign}::UUID, ${otherCo}::UUID, 'RASC foreign')`;
+    try {
+      // The MCP tool refuses a foreign target before the service (its ownership check): "Not found".
+      const r = await realloc(s.bt, { customer_id: foreign }, 'none');
+      expect({ err: r.isError, text: r.text }).toEqual({ err: true, text: 'Not found' });
+      // The service itself, reached directly, answers with allocate's own refusal — not the receipt wording.
+      const err = await inTx(c.fx, async () => reallocateReconciledTransaction(c.fx.companyId, s.bt, c.fx.userId,
+        { kind: 'customer', customerId: foreign }, { expectedJournalEntryId: String((await lineRow(s.bt)).je), autoApply: 'none' }))
+        .catch((e: Error & { code?: string }) => e);
+      expect({ code: (err as { code?: string }).code, message: (err as Error).message })
+        .toEqual({ code: 'CUSTOMER_NOT_FOUND', message: `Customer ${foreign} was not found for this company` });
+    } finally {
+      await sql`DELETE FROM customers WHERE id = ${foreign}::UUID`;
+      await sql`DELETE FROM companies WHERE id = ${otherCo}::UUID`;
+    }
   }, 120000);
 });

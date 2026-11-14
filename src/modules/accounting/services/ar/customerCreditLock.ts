@@ -20,7 +20,8 @@
  * through its FK — those raise the credit or leave it alone, and refusing on them would refuse ordinary busy
  * customers.
  *
- * A customer not found in this company is REFUSED (fail closed), never treated as nothing to lock.
+ * A write that LOWERS the credit, naming a customer not found in this company, is REFUSED (fail closed), never treated
+ * as nothing to lock. A write that lowers nothing takes no lock and is not asked.
  * Re-entrant: a request that already holds the row (the reallocation's lock pass, an earlier receipt of the same
  * customer) takes it again as a no-op.
  */
@@ -45,8 +46,9 @@ export async function tryLockCustomerCredit(companyId: string, customerId: strin
 }
 
 /**
- * FAIL CLOSED: a receipt whose customer is not this company's (`client_id` is an FK on id only) has no credit here to
- * judge and no row to serialise a refund on — refused by name, never passed as "nothing to lock". The unlocked bulk
+ * FAIL CLOSED: a write that lowers the credit of a customer that is not this company's (`client_id` is an FK on id
+ * only) has no credit here to judge and no row to serialise a refund on — refused by name, never passed as "nothing to
+ * lock". The unlocked bulk
  * judgment (a dry run) asks this too, so it refuses what the live call will.
  */
 export async function assertCustomerOfCompany(companyId: string, customerId: string): Promise<void> {

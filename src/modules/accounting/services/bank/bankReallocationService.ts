@@ -45,6 +45,7 @@ import { assertReallocationKeepsCredit, assertReallocationLeftCredit } from './b
 import { withReceiptCancellationsJudged } from '../ar/customerVoidCredit';
 import { customerCreditDays } from '../ar/customerRunningCredit';
 import { tryLockCustomerCredit } from '../ar/customerCreditLock';
+import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import {
   assertBankLegKept, assertOriginalDateKept, auditReallocation, newDocumentOf, readBankLeg, restoreReconciled,
   type NewDocumentKind,
@@ -120,7 +121,11 @@ async function reallocateInner(
   // Re-pointed to a customer with money in: that customer gets a new receipt, so it is judged on the real rows the
   // write leaves (after FIFO), not here. Its figures are read now, under its lock (tried: after the documents).
   const sameCustomer = target.kind === 'customer' && amount > 0 ? target.customerId : undefined;
-  if (sameCustomer) await tryLockCustomerCredit(companyId, sameCustomer);
+  if (sameCustomer) {
+    // The target first, with allocate's own refusal (pick a customer of this company): no receipt exists yet to blame.
+    await assertCustomerInCompany(companyId, sameCustomer);
+    await tryLockCustomerCredit(companyId, sameCustomer);
+  }
   const before = sameCustomer ? (await customerCreditDays(companyId, sameCustomer, [])).days : null;
   await assertReallocationKeepsCredit(companyId, old, sameCustomer);
   const reviewed = { at: tx.reviewed_at, by: tx.reviewed_by };

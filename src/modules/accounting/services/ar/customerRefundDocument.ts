@@ -66,14 +66,18 @@ function round2(n: number): number {
 
 /**
  * What this customer has sitting on account, as at a date: the receipt credit rule's one basis
- * (`customerRunningCredit.customerCreditDays`, summed up to the date by `creditAsAt`). See the AP twin for why the
- * allocation cap is `GREATEST(total, 0)` and not `LEAST(alloc, total)`.
+ * (`customerRunningCredit.customerCreditDays`, summed up to the date by `creditAsAt`). A customer that is not this
+ * company's has no credit here: 0 — even if this company's receipts name it (`client_id` is an FK on id only). See the
+ * AP twin for why the allocation cap is `GREATEST(total, 0)` and not `LEAST(alloc, total)`.
  */
 export async function getCustomerOnAccountCredit(
   companyId: string,
   customerId: string,
   asAt: string,
 ): Promise<{ credit: number; customerName: string }> {
+  const owned = (await sql`
+    SELECT c.name FROM customers c WHERE c.id = ${customerId}::UUID AND c.company_id = ${companyId}::UUID`) as DbRow[];
+  if (owned.length === 0) return { credit: 0, customerName: 'this customer' };
   const { customerName, days } = await customerCreditDays(companyId, customerId, []);
   return { credit: round2(creditAsAt(days, asAt)), customerName };
 }
