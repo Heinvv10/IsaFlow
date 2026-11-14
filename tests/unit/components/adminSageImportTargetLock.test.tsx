@@ -35,7 +35,7 @@ beforeEach(() => {
   vi.mocked(apiFetch).mockImplementation(async (url) => {
     const u = String(url);
     if (u.startsWith('/api/admin/companies')) return ok({ items: [{ id: 'co-a', name: 'Alpha Ltd' }, { id: 'co-b', name: 'Bravo Ltd' }] });
-    if (u === '/api/admin/migration/sage-pull-server') return ok({ pulled: PULLED });
+    if (u === '/api/admin/migration/sage-pull-server') return ok({ pulled: PULLED, pullToken: 'pull-token-from-server' });
     if (u === '/api/admin/migration/sage-commit') return ok(SUMMARY);
     return ok({});
   });
@@ -78,7 +78,7 @@ describe('Sage import: the target company is fixed at Pull', () => {
     fireEvent.click(screen.getByRole('button', { name: /commit names \+ coa only/i }));
     await screen.findByText('COMMITTED');
     expect(commits()).toHaveLength(1);
-    expect(JSON.parse(String(commits()[0]![1]?.body)).companyId).toBe('co-a');
+    expect(JSON.parse(String(commits()[0]![1]?.body))).toMatchObject({ companyId: 'co-a', pullToken: 'pull-token-from-server' });
   });
 
   it('"Start over" discards the pulled data and unlocks the picker', async () => {

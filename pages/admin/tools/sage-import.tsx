@@ -28,6 +28,8 @@ export default function AdminSageImportPage() {
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
   /** The company the pulled data is for: set at Pull, the only target Commit uses, cleared by Start over. */
   const [pulledFor, setPulledFor] = useState<Company | null>(null);
+  /** sage-pull-server's token: the server refuses a commit that is not this pull, for this company. */
+  const pullToken = useRef('');
   const [companiesError, setCompaniesError] = useState('');
 
   const [steps, setSteps] = useState<PullStep[]>(INITIAL_STEPS);
@@ -51,6 +53,7 @@ export default function AdminSageImportPage() {
   const resetSteps = useCallback(() => {
     setSteps(INITIAL_STEPS.map(s => ({ ...s, status: 'pending', count: undefined })));
     pulledData.current = {};
+    pullToken.current = '';
     setPulledAt(null);
     setCommitSummary(null);
     setPulledFor(null);
@@ -72,6 +75,7 @@ export default function AdminSageImportPage() {
 
       const pulled = json.data?.pulled ?? {};
       pulledData.current = pulled;
+      pullToken.current = String(json.data?.pullToken ?? '');
       setSteps(prev => prev.map(s => ({
         ...s,
         status: 'done',
@@ -115,7 +119,7 @@ export default function AdminSageImportPage() {
       const res = await apiFetch('/api/admin/migration/sage-commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
-        body: JSON.stringify({ companyId: pulledFor.id, pulled: payload }),
+        body: JSON.stringify({ companyId: pulledFor.id, pulled: payload, pullToken: pullToken.current }),
       });
       await assertOk(res, 'Could not import the Sage data - try again');
       const json = await res.json();
