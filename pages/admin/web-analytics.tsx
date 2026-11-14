@@ -7,9 +7,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
 import { TrafficTimeseriesChart, type TimeseriesPoint } from '@/components/admin/charts/TrafficTimeseriesChart';
-import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Activity, Loader2, Globe, Download, Bot } from 'lucide-react';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 type Range = '24h' | '7d' | '30d' | '90d';
 
@@ -124,7 +125,7 @@ export default function AdminWebAnalytics() {
   useEffect(() => {
     void (async () => {
       try {
-        const res = await apiFetch('/api/admin/analytics/web/websites');
+        const res = await adminFetch('/api/admin/analytics/web/websites');
         await assertOk(res, 'Could not load websites - try again');
         const ws: Website[] = (await res.json())?.data?.websites ?? [];
         setWebsites(ws);
@@ -146,7 +147,7 @@ export default function AdminWebAnalytics() {
     setError(null);
     try {
       const bots = includeBots ? '&include_bots=1' : '';
-      const res = await apiFetch(`/api/admin/analytics/web/summary?website_id=${websiteId}&range=${range}${bots}`);
+      const res = await adminFetch(`/api/admin/analytics/web/summary?website_id=${websiteId}&range=${range}${bots}`);
       await assertOk(res, 'Could not load the analytics summary - try again');
       const json = await res.json();
       if (!json.success) throw new ApiEnvelopeError('Could not load the analytics summary - try again');
@@ -167,7 +168,7 @@ export default function AdminWebAnalytics() {
   const loadRealtime = useCallback(async () => {
     if (!websiteId) return;
     try {
-      const res = await apiFetch(`/api/admin/analytics/web/realtime?website_id=${websiteId}`);
+      const res = await adminFetch(`/api/admin/analytics/web/realtime?website_id=${websiteId}`);
       await assertOk(res, 'Could not refresh the live visitor count'); // polled every 5s: a failed tick keeps the last reading
       const json = await res.json(); if (json.success) setRealtime(json.data as Realtime);
     } catch (err) { log.warn('web-analytics: realtime tick failed, keeping the last reading', { err }); }

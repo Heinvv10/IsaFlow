@@ -60,6 +60,7 @@ import {
   finalizeInvoiceTool,
 } from './tools/writeInvoices';
 import { createDraftJournalTool, postJournalTool } from './tools/writeJournals';
+import { RECURRING_JOURNAL_TOOLS } from './tools/recurringJournalToolSet';
 import { proposeReclassificationTool } from './tools/reclassificationPropose';
 import { postReclassificationBatchTool } from './tools/writeReclassification';
 import { suggestBankAllocationTool } from './tools/writeBank';
@@ -284,6 +285,7 @@ export const MCP_TOOLS = [
   applyCreditNoteTool,
   cancelSupplierInvoiceTool,
   cancelCustomerInvoiceTool,
+  ...RECURRING_JOURNAL_TOOLS,
   createFixedAssetTool,
   deleteFixedAssetTool,
   updateSupplierInvoiceTool,

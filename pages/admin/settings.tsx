@@ -4,8 +4,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, CheckCircle2, Loader2, Save, Bell } from 'lucide-react';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface PlatformSettings {
   smtp_configured: boolean;
@@ -54,8 +55,8 @@ export default function AdminSettings() {
     setError('');
     try {
       const [settingsRes, alertRes] = await Promise.all([
-        apiFetch('/api/admin/settings'),
-        apiFetch('/api/admin/alert-settings'),
+        adminFetch('/api/admin/settings'),
+        adminFetch('/api/admin/alert-settings'),
       ]);
       await assertOk(settingsRes, 'Could not load the settings - try again');
       await assertOk(alertRes, 'Could not load the alert settings - try again');
@@ -79,7 +80,7 @@ export default function AdminSettings() {
     setError('');
     setAlertSuccess('');
     try {
-      const res = await apiFetch('/api/admin/alert-settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(alertSettings) });
+      const res = await adminFetch('/api/admin/alert-settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(alertSettings) });
       await assertOk(res, 'Could not save alert settings - try again');
       setAlertSuccess('Alert settings saved.');
     } catch (err) {
