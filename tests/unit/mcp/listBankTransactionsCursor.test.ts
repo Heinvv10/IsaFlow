@@ -35,6 +35,12 @@ const ctx = (): McpToolContext => ({
   tokenJti: 'jti-1', oauthAppId: null,
 });
 
+/** Rows query -> no rows; the COUNT query -> 0. The shared WHERE fragment is also built through `sql`, so the answer is keyed on text, not on call order. */
+function answerByText(): void {
+  vi.mocked(sql).mockImplementation(((strings: TemplateStringsArray) =>
+    Promise.resolve(strings.join('$').includes('COUNT(*)') ? [{ cnt: '0' }] : [])) as never);
+}
+
 const b64 = (payload: unknown) => Buffer.from(JSON.stringify(payload)).toString('base64url');
 const GOOD_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -67,9 +73,7 @@ describe('list_bank_transactions — a forged cursor never reaches a SQL cast', 
   }
 
   it('a well-formed cursor DOES reach the query', async () => {
-    vi.mocked(sql)
-      .mockResolvedValueOnce([] as never)
-      .mockResolvedValueOnce([{ cnt: '0' }] as never);
+    answerByText();
 
     const r = await listBankTransactionsTool.handler(
       { cursor: b64({ d: '2026-01-01', a: 1, id: GOOD_ID }) }, ctx(),
@@ -121,9 +125,7 @@ describe('list_bank_transactions — uncastable arguments never reach SQL', () =
   });
 
   it('lets a valid uuid and real dates through to the query', async () => {
-    vi.mocked(sql)
-      .mockResolvedValueOnce([] as never)
-      .mockResolvedValueOnce([{ cnt: '0' }] as never);
+    answerByText();
 
     const r = await listBankTransactionsTool.handler(
       { bank_account_id: GOOD_ID, from_date: '2026-01-01', to_date: '2028-02-29' }, ctx(),
@@ -134,9 +136,7 @@ describe('list_bank_transactions — uncastable arguments never reach SQL', () =
   });
 
   it('omitted arguments are not treated as invalid', async () => {
-    vi.mocked(sql)
-      .mockResolvedValueOnce([] as never)
-      .mockResolvedValueOnce([{ cnt: '0' }] as never);
+    answerByText();
 
     const r = await listBankTransactionsTool.handler({}, ctx());
     expect(r.isError).toBeUndefined();

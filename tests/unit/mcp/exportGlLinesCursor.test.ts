@@ -68,7 +68,8 @@ beforeEach(() => {
     }
     if (t.includes('FROM companies')) return Promise.resolve([{ name: 'Co' }]);
     if (t.includes('WITH page AS')) {
-      const [cLine, limit] = [values[10] as string | null, values[11] as number];
+      // values: [shared scope fragment, cursor date x2, cursor entry, cursor line, page size].
+      const [cLine, limit] = [values[4] as string | null, values[5] as number];
       return Promise.resolve(lines.filter((l) => cLine === null || l.line_id > cLine).slice(0, limit));
     }
     if (t.includes('FROM suppliers s WHERE')) {

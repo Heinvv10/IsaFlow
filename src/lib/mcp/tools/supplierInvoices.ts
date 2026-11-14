@@ -15,6 +15,11 @@ import {
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import type { SupplierInvoice } from '@/modules/accounting/types/ap.types';
 import {
+  SUPPLIER_INVOICE_GROUP_BY,
+  summariseSupplierInvoices,
+} from '@/modules/accounting/services/ap/supplierInvoiceSummaryService';
+import { SUMMARY_DETAIL_SCHEMA, groupBySchema, parseSummaryRequest, summaryBody } from './summaryMode';
+import {
   NOT_FOUND,
   clampLimit,
   guardCastableArgs,
@@ -59,7 +64,8 @@ export const listSupplierInvoicesTool: McpTool = {
   name: 'list_supplier_invoices',
   description:
     'List supplier invoices (accounts payable / bills). Filter by status, supplier_id, date range, or a free-text search over invoice number, supplier name and reference. ' +
-    'Returns {invoices, total, offset} — total is the pre-limit match count, so a truncated page is visible rather than assumed complete. Page with offset.',
+    'Returns {invoices, total, offset} — total is the pre-limit match count, so a truncated page is visible rather than assumed complete. Page with offset. ' +
+    'A page of 200 can pass 90 KB: to total a large book use detail="summary" (count, total_amount, amount_paid and balance over the WHOLE filter set, no rows) and group_by=supplier|status|month (groups sum to the totals; at most 200 groups, the rest summed in other). A summary takes no offset.',
   scope: 'read:invoices',
   write: false,
   inputSchema: {
@@ -72,6 +78,8 @@ export const listSupplierInvoicesTool: McpTool = {
       search: { type: 'string', description: 'Free text over invoice number, supplier name and reference' },
       limit: { type: 'number', description: 'Default 50, clamped to 200' },
       offset: { type: 'number' },
+      detail: SUMMARY_DETAIL_SCHEMA,
+      group_by: groupBySchema(SUPPLIER_INVOICE_GROUP_BY),
     },
     additionalProperties: false,
   },
@@ -89,6 +97,19 @@ export const listSupplierInvoicesTool: McpTool = {
       date: ['from_date', 'to_date'],
     });
     if (bad) return bad;
+
+    const wanted = parseSummaryRequest(args, SUPPLIER_INVOICE_GROUP_BY);
+    if (!wanted.ok) return wanted.error;
+    if (wanted.summary) {
+      const summary = await summariseSupplierInvoices(ctx.companyId, {
+        status: status as (typeof STATUSES)[number] | undefined,
+        supplierId: strArg(args, 'supplier_id'),
+        fromDate: strArg(args, 'from_date'),
+        toDate: strArg(args, 'to_date'),
+        search: strArg(args, 'search'),
+      }, wanted.groupBy);
+      return ok(summaryBody(summary, wanted.groupBy));
+    }
 
     const offsetRaw = Number(args.offset);
     const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0;
