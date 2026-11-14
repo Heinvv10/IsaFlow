@@ -732,6 +732,10 @@ describe('write-tool manifest invariants', () => {
       cancel_supplier_invoice: { ...KEY },
       // Refuses on the missing invoice_id before reading anything; behaviour in cancelCustomerInvoiceTool.test.ts.
       cancel_customer_invoice: { ...KEY },
+      // Refuses on the missing name before any read; behaviour in createFixedAssetTool.test.ts.
+      create_fixed_asset: { ...KEY },
+      // Refuses on the missing asset_id before any read; behaviour in deleteFixedAssetTool.test.ts.
+      delete_fixed_asset: { ...KEY },
       // Refuses on the missing invoice_id before reading anything; behaviour in
       // updateSupplierInvoiceTool.test.ts and update-supplier-invoice.int.test.ts.
       update_supplier_invoice: { ...KEY },
