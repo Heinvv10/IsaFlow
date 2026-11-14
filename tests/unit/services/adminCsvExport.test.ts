@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/modules/admin/services/auditService', () => ({ logAdminAction: vi.fn() }));
 
-import { csvRow, textFilterSet } from '@/modules/admin/services/adminCsvExport';
+import { csvRow, sendAuditedCsv, textFilterSet } from '@/modules/admin/services/adminCsvExport';
 
 describe('csvRow', () => {
   it('quotes every cell, neutralises formula text, leaves numbers alone', () => {
@@ -24,5 +24,17 @@ describe('textFilterSet', () => {
   it('records whether a free-text filter was applied, never its text', () => {
     expect(textFilterSet('ann@example.com')).toBe(true);
     expect(textFilterSet(null)).toBe(false);
+  });
+});
+
+describe('sendAuditedCsv', () => {
+  it('puts only [A-Za-z0-9._-] of the file name into Content-Disposition', async () => {
+    const headers = new Map<string, unknown>();
+    const res = { setHeader: (k: string, v: unknown) => headers.set(k, v), status: () => res, send: () => res };
+    const req = { user: { id: 'admin-1' }, headers: {}, socket: { remoteAddress: '127.0.0.1' } };
+    await sendAuditedCsv(req as never, res as never, {
+      export: 'audit', filename: 'a"b\r\nX-Evil: 1;.csv', filters: {}, header: ['h'], lines: [],
+    });
+    expect(headers.get('Content-Disposition')).toBe('attachment; filename="a_b__X-Evil__1_.csv"');
   });
 });
