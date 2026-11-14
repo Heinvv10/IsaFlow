@@ -120,7 +120,7 @@ export default function AdminAnnouncementsPage() {
   const modalInitial = editItem ? announcementToForm(editItem) : { ...EMPTY_FORM };
 
   return (
-    <AdminLayout title="Announcements">
+    <AdminLayout title="Announcements" ownHeading>
       {isModalOpen && (
         <AnnouncementModal
           initial={modalInitial}

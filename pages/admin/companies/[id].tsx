@@ -11,6 +11,7 @@ import { CompanyBillingTab } from '@/components/admin/companies/CompanyBillingTa
 import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { CompanyEffectiveFeature } from '@/modules/admin/types/admin-billing.types';
 import { formatDate } from '@/utils/formatters';
+import { formatLastSeen } from '@/components/admin/formatLastSeen';
 import { useAdminHref, tenantAppUrl } from '@/hooks/useAdminPrefix';
 import {
   ArrowLeft, AlertCircle, Loader2, Building2, ShieldOff, ShieldCheck,
@@ -70,10 +71,11 @@ function toEditForm(c: CompanyDetail): EditForm {
   };
 }
 
+// The API's shape (getCompanyUsers): one `name`, the full name or the email (audit 4.6: the page read
+// first_name/last_name, which the API never sends, so every Name cell was blank).
 interface CompanyUser {
   id: string;
-  first_name: string;
-  last_name: string;
+  name: string;
   email: string;
   role: string;
   last_login: string | null;
@@ -220,10 +222,11 @@ export default function AdminCompanyDetailPage() {
     const name = editForm.name.trim();
     if (!name) { setEditError('Name is required'); return; }
 
-    const body: Partial<Record<EditableKey, string>> = {};
+    // A blanked field is sent as null, which clears it (audit 4.17); dropping it kept the old value.
+    const body: Partial<Record<EditableKey, string | null>> = {};
     for (const key of EDITABLE_KEYS) {
       const v = editForm[key].trim();
-      if (v !== '') body[key] = v;
+      body[key] = v === '' ? null : v; // name is never blank here (checked above)
     }
 
     setEditSaving(true); setEditError('');
@@ -414,8 +417,9 @@ export default function AdminCompanyDetailPage() {
                         ['postal_code',     'Postal Code'],
                       ] as const).map(([key, label]) => (
                         <div key={key} className={key === 'address_line1' ? 'col-span-2' : ''}>
-                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{label}</label>
+                          <label htmlFor={`company-edit-${key}`} className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{label}</label>
                           <input
+                            id={`company-edit-${key}`}
                             type={key === 'email' || key === 'billing_email' ? 'email' : key === 'website' ? 'url' : 'text'}
                             value={editForm[key]}
                             onChange={e => setEditForm(f => f ? { ...f, [key]: e.target.value } : f)}
@@ -454,7 +458,7 @@ export default function AdminCompanyDetailPage() {
                     <Field label="Billing Email"    value={company.billing_email} />
                     <Field label="Billing Contact"  value={company.billing_contact} />
                     <Field label="Created"          value={formatDate(company.created_at)} />
-                    <Field label="Last Active"      value={formatDate(company.last_active)} />
+                    <Field label="Last Active"      value={formatLastSeen(company.last_active)} />
                     <div className="col-span-2"><Field label="Address" value={address} /></div>
                   </div>
                 )}
@@ -489,10 +493,10 @@ export default function AdminCompanyDetailPage() {
                         {users.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-600 dark:text-gray-400">No users</td></tr>}
                         {users.map(u => (
                           <tr key={u.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
-                            <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{u.first_name} {u.last_name}</td>
+                            <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{u.name}</td>
                             <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{u.email}</td>
                             <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{u.role}</td>
-                            <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{formatDate(u.last_login)}</td>
+                            <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{formatLastSeen(u.last_login)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -582,7 +586,7 @@ export default function AdminCompanyDetailPage() {
         onConfirm={() => void handleSuspend()}
         onCancel={() => setSuspendOpen(false)}
       >
-        <textarea rows={3} value={suspendReason} onChange={e => setSuspendReason(e.target.value)}
+        <textarea rows={3} aria-label="Reason for suspension" value={suspendReason} onChange={e => setSuspendReason(e.target.value)}
           placeholder="Reason for suspension..."
           className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-yellow-500 resize-none"
         />

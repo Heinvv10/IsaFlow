@@ -25,6 +25,8 @@ interface CompanyOption {
 interface Props {
   value: string[];
   onChange: (ids: string[]) => void;
+  /** id of the search input, for a <label htmlFor> outside the picker. */
+  inputId?: string;
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -38,7 +40,7 @@ function statusBadgeCls(status: string) {
   return STATUS_BADGE[status] ?? 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400';
 }
 
-export function CompanyPicker({ value, onChange }: Props) {
+export function CompanyPicker({ value, onChange, inputId }: Props) {
   const [query, setQuery]           = useState('');
   const afterDelay = useTimeoutOnce();
   const [results, setResults]       = useState<CompanyOption[]>([]);
@@ -183,8 +185,11 @@ export function CompanyPicker({ value, onChange }: Props) {
         </div>
         <input
           ref={inputRef}
+          id={inputId}
           type="text"
           role="combobox"
+          // aria-haspopup lets a surrounding dialog's focus trap leave Escape to the open list (useFocusTrap).
+          aria-haspopup="listbox"
           aria-expanded={open}
           aria-autocomplete="list"
           aria-controls="company-picker-listbox"

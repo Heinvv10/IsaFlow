@@ -71,6 +71,7 @@ import {
 } from './tools/writeBankBulkAllocate';
 import { autoApplyUnappliedTool } from './tools/writeAutoApplyUnapplied';
 import { applyCreditNoteTool } from './tools/writeApplyCreditNote';
+import { adjustCreditNoteApplicationTool } from './tools/writeAdjustCreditNoteApplication';
 import { cancelSupplierInvoiceTool } from './tools/writeCancelSupplierInvoice';
 import { cancelCustomerInvoiceTool } from './tools/writeCancelCustomerInvoice';
 import { updateSupplierInvoiceTool } from './tools/writeUpdateSupplierInvoice';
@@ -138,6 +139,8 @@ import { jobCostReportTool } from './tools/jobCost';
 import { listFixedAssetsTool, assetRegisterTool } from './tools/assets';
 import { reconcileFixedAssetsTool } from './tools/reconcileFixedAssets';
 import { runDepreciationTool } from './tools/writeDepreciation';
+import { createFixedAssetTool } from './tools/writeCreateFixedAsset';
+import { deleteFixedAssetTool } from './tools/writeDeleteFixedAsset';
 import {
   listItemsTool,
   stockValuationTool,
@@ -279,11 +282,14 @@ export const MCP_TOOLS = [
   applyCreditNoteTool,
   cancelSupplierInvoiceTool,
   cancelCustomerInvoiceTool,
+  createFixedAssetTool,
+  deleteFixedAssetTool,
   updateSupplierInvoiceTool,
   reapplyPaymentTermsTool,
   reapplyCustomerPaymentTermsTool,
   unapplySupplierPaymentTool,
   unapplyCreditNoteTool,
+  adjustCreditNoteApplicationTool,
   reverseBankAllocationBatchTool,
   postReclassificationBatchTool,
   importBankStatementTool,

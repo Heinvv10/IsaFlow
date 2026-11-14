@@ -5,19 +5,32 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/auth/csrf', () => ({ verifyCsrf: () => true }));
-vi.mock('@/lib/auth/gotrue', () => ({ verifyTokenSignature: async () => ({ sub: 'target-1', session_id: 'session-1' }) }));
+vi.mock('@/lib/auth/gotrue', () => ({
+  verifyTokenSignature: async () => ({ sub: 'target-1', session_id: 'session-1' }), logout: async () => undefined,
+}));
 const LOGIN_AS = { actorUserId: 'admin-1', targetUserId: 'target-1' };
 const record = vi.hoisted(() => ({ parties: null as { actorUserId: string; targetUserId: string } | null, asked: [] as string[] }));
 vi.mock('@/lib/auth/impersonationSessions', () => ({
   impersonationPartiesOf: async (sessionId: string) => { record.asked.push(sessionId); return record.parties; },
+  // end-impersonation reads it bounded (#1371 N3); the bound itself: tests/integration/logout-login-as-bounds.
+  impersonationPartiesOfBounded: async (sessionId: string) => { record.asked.push(sessionId); return record.parties; },
 }));
 vi.mock('@/lib/auth/liveCompanies', () => ({ pickInitialCompanyId: async () => null }));
-vi.mock('@/lib/neon', () => ({ sql: async () => [] }));
+// The end row's INSERT returns its id (loginAsRecord.recordLoginAsEnd).
+vi.mock('@/lib/neon', () => {
+  const sql = async (strings: TemplateStringsArray) => (strings.join('?').includes('RETURNING id') ? [{ id: 'end-1' }] : []);
+  // The end row is looked up and written in one transaction (loginAsRecord.recordLoginAsEnd).
+  return { sql, withTransaction: async (fn: (tx: typeof sql) => Promise<unknown>) => fn(sql) };
+});
 vi.mock('@/modules/admin/services/userImpersonationService', () => ({
   loadStash: async () => ({
     admin_user_id: 'admin-1', target_user_id: 'target-1', admin_access_token: 'admin-a', admin_refresh_token: 'admin-r',
   }),
+  loadStashBounded: async () => ({
+    admin_user_id: 'admin-1', target_user_id: 'target-1', admin_access_token: 'admin-a', admin_refresh_token: 'admin-r',
+  }),
   deleteStash: async () => undefined,
+  purgeExpiredStashes: async () => 0,
 }));
 
 import handler from '../../../../pages/api/auth/end-impersonation';

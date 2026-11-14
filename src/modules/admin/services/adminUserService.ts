@@ -94,10 +94,7 @@ export async function listUsers(
         ORDER BY cup.created_at ASC
         LIMIT 1)                                                      AS primary_company,
       u.last_login,
-      COALESCE(
-        (SELECT COUNT(*) FROM user_sessions s WHERE s.user_id = u.id)::int,
-        0
-      )                                                               AS login_count,
+      u.login_count,
       u.created_at
     FROM users u
     LEFT JOIN company_users cu ON cu.user_id = u.id
@@ -116,7 +113,7 @@ export async function listUsers(
         WHERE cu4.user_id = u.id AND c4.name ILIKE ${companyFilter}
       ))
     GROUP BY u.id, u.email, u.first_name, u.last_name, u.role, u.is_active,
-             u.last_login, u.created_at
+             u.last_login, u.login_count, u.created_at
     ORDER BY ${sql.unsafe(sortCol)} ${sortDir}
     LIMIT ${limit} OFFSET ${offset}
   `;
@@ -164,10 +161,7 @@ export async function getUserDetail(
       u.suspended_at,
       u.suspended_reason,
       u.account_type,
-      COALESCE(
-        (SELECT COUNT(*) FROM user_sessions s WHERE s.user_id = u.id)::int,
-        0
-      ) AS login_count,
+      u.login_count,
       u.created_at
     FROM users u
     WHERE u.id = ${userId}

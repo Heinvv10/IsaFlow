@@ -124,7 +124,7 @@ export default function AdminWebhooksPage() {
   const totalPages = Math.ceil(total / LIMIT);
 
   return (
-    <AdminLayout title="Webhook Management">
+    <AdminLayout title="Webhook Management" ownHeading>
       <div className="space-y-6">
 
         {/* Header */}
