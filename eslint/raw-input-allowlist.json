@@ -108,7 +108,7 @@
   "pages/admin/email-log.tsx": 1,
   "pages/admin/features.tsx": 1,
   "pages/admin/payroll/sars-codes.tsx": 2,
-  "pages/admin/settings.tsx": 2,
+  "pages/admin/settings.tsx": 1,
   "pages/admin/tools/migrations.tsx": 1,
   "pages/admin/trials.tsx": 2,
   "pages/admin/users/index.tsx": 2,
