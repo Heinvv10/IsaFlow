@@ -191,10 +191,26 @@ describe('the narrow undo of a leaver exit', () => {
 
   it('rev2 L1: an exit-shaped row naming runs the directive has no recorded use in is ignored: 400', async () => {
     const { f, d } = await exitTaken('DR r5 forged runs');
-    await pool.query(`INSERT INTO audit_log (company_id, user_id, action, entity_type, entity_id, entity_ref, changes, created_at)
-      SELECT company_id, user_id, action, entity_type, entity_id, entity_ref, jsonb_set(changes, '{metadata,runs}', '"2026-05"'),
-             now() + interval '1 second' FROM audit_log
+    // The exit's own row altered (forged) to name May.
+    await pool.query(`UPDATE audit_log SET changes = jsonb_set(changes, '{metadata,runs}', '"2026-05"')
       WHERE entity_id = $1 AND changes->'metadata'->>'leaverExit' = 'true'`, [d]);
     await refused(f, d, '2027-02-28', 400, f.approver);
+  });
+
+  it('adv2 L2: an exit row (forged) recording a later end than the tax year the directive starts in: 400, nothing restored', async () => {
+    const { f, d } = await exitTaken('DR r5 forged later end');
+    await pool.query(`UPDATE audit_log SET changes = jsonb_set(changes, '{metadata,oldEndsOn}', '"2027-06-30"')
+      WHERE entity_id = $1 AND changes->'metadata'->>'leaverExit' = 'true'`, [d]);
+    const r = await refused(f, d, '2027-06-30', 400, f.approver);
+    expect(r.body.error?.message).toMatch(/no later than 2027-02-28, the end of the tax year the directive starts in/);
+  });
+
+  it('adv2 L2: two live exit rows for the current expiry (one hand-inserted): 409 LEAVER_EXIT_AMBIGUOUS, nothing restored', async () => {
+    const { f, d } = await exitTaken('DR r5 two exits');
+    await pool.query(`INSERT INTO audit_log (company_id, user_id, action, entity_type, entity_id, entity_ref, changes, created_at)
+      SELECT company_id, user_id, action, entity_type, entity_id, entity_ref, changes, now() + interval '1 second' FROM audit_log
+      WHERE entity_id = $1 AND changes->'metadata'->>'leaverExit' = 'true'`, [d]);
+    const r = await refused(f, d, '2027-02-28', 409, f.approver);
+    expect(r.body.error?.details?.code).toBe('LEAVER_EXIT_AMBIGUOUS');
   });
 });

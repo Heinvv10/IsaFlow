@@ -28,7 +28,7 @@ import { TaxDirectiveWindowError } from '@/modules/accounting/services/payroll/t
 import { isCalendarDate } from '@/modules/accounting/services/payroll/taxDirectiveRegularPayBody';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { TaxDirectiveSelfApprovalError } from '@/modules/accounting/services/payroll/taxDirectiveApprover';
-import { LeaverExitRunNotReopenedError, LeaverExitWindowTakenError } from '@/modules/accounting/services/payroll/taxDirectiveLeaverUndo';
+import { LeaverExitAmbiguousError, LeaverExitRunNotReopenedError, LeaverExitWindowTakenError } from '@/modules/accounting/services/payroll/taxDirectiveLeaverUndo';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_STATUSES: DirectiveStatus[] = ['pending', 'approved', 'expired', 'cancelled'];
@@ -86,7 +86,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Four eyes: the person who captured it may not approve it while another member could (403, before any write).
       if (err instanceof TaxDirectiveSelfApprovalError) return apiResponse.forbidden(res, err.message);
       // Undoing a leaver exit while a run it changed is not reopened (before any write).
-      if (err instanceof LeaverExitRunNotReopenedError || err instanceof LeaverExitWindowTakenError) return apiResponse.conflict(res, err.message, { code: err.code });
+      if (err instanceof LeaverExitRunNotReopenedError || err instanceof LeaverExitWindowTakenError || err instanceof LeaverExitAmbiguousError) return apiResponse.conflict(res, err.message, { code: err.code });
       // Raised before anything is written, so the 409 withAuth commits changes nothing.
       if (err instanceof TaxDirectivePaidError) return apiResponse.conflict(res, err.message);
       // A regular-pay directive's window (overlap, an approved period inside it, an expiry change): judged under the employee's lock, before the write.
