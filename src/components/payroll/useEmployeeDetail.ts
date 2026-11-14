@@ -145,5 +145,7 @@ export function useEmployeeDetail(employeeId: string) {
     employee, setEmployee, savedTaxNumber, components, assignments, isLoading, error, savingProfile,
     newComponentId, setNewComponentId, newAmount, setNewAmount, newFrom, setNewFrom, newIsRecurring, setNewIsRecurring,
     addingAssignment, saveProfile, assignComponent, endAssignment, editAssignmentDates,
+    /** Re-read the employee, catalogue and assignments (the RF % of RFI card adds rows the Pay Components card lists). */
+    reload: loadAll,
   };
 }
