@@ -2,7 +2,7 @@
  * VAT201 Form Page — thin shell
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, Save, Send } from 'lucide-react';
 import { ListSkeleton } from '@/components/ui/ListSkeleton';
@@ -12,6 +12,7 @@ import { VAT201PageHeader } from '@/components/accounting/sars/VAT201PageHeader'
 import { VAT201ReviewNotices } from '@/components/accounting/sars/VAT201ReviewNotices';
 import { Vat201FieldsSection } from '@/components/accounting/sars/Vat201FieldsSection';
 import { useVat201Settings } from '@/components/accounting/sars/useVat201Settings';
+import { useReturnDeepLink } from '@/components/accounting/sars/useReturnDeepLink';
 import { buildVat201Csv } from '@/components/accounting/sars/vat201Csv';
 import { VAT201SubmitModal } from '@/components/accounting/sars/VAT201SubmitModal';
 import { VAT201ExceptionsPanel } from '@/components/accounting/sars/VAT201ExceptionsPanel';
@@ -40,7 +41,9 @@ export default function VAT201Page() {
   const isOwnerOrAdmin = OVERRIDE_ROLES.includes(companyRole ?? '');
   const { isRegistered, known } = useVatRegistration();
   const [error, setError] = useState('');
-  const { alignment, vatPeriod, quickPeriods, settingsReady, from, setFrom, to, setTo } = useVat201Settings(setError);
+  const held = useRef(false);
+  const { alignment, vatPeriod, quickPeriods, settingsReady, from, setFrom, to, setTo } = useVat201Settings(setError, held);
+  const link = useReturnDeepLink(setFrom, setTo, held);
   const [data, setData] = useState<VAT201Data | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -68,6 +71,15 @@ export default function VAT201Page() {
     } catch (err) { setData(null); setError(apiErrorMessage(err, 'Could not generate VAT201 - try again')); }
     finally { setLoading(false); }
   }, [from, to]);
+
+  // A link from Ask IsaFlow lands on the figure it quoted: Generate is a read, so it runs once the link's period and the VAT settings are in.
+  const autoRanFor = useRef('');
+  useEffect(() => {
+    if (!link || !settingsReady || from !== link.from || to !== link.to) return;
+    if (autoRanFor.current === `${link.from}|${link.to}`) return;
+    autoRanFor.current = `${link.from}|${link.to}`;
+    void generate();
+  }, [link, settingsReady, from, to, generate]);
 
   const saveDraft = async () => {
     if (!data) return;

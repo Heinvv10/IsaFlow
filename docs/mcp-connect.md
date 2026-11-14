@@ -117,10 +117,10 @@ both stay in the audit trail.
 
 ## Tools
 
-As of 13 November 2026 the server offers **177 tools** (82 read-only, 95 that change data; 41 of those also need `write:post`).
-The authoritative list is what your client gets from `tools/list` once connected; each
-tool's description says what it does, what it needs and whether it has a `dry_run`.
-(These counts are checked against the server in `tests/unit/mcp/mcpConnectDocCounts.test.ts`.)
+The server offers a read-only set of tools, a set that change data, and, within those, a
+smaller set that also need `write:post`. The set grows over time, so this page gives no
+totals. The authoritative list is what your client gets from `tools/list` once connected;
+each tool's description says what it does, what it needs and whether it has a `dry_run`.
 
 Some tools that sit in a **read** area still change data, so they need a `write:*` scope
 as well as the read one, and they say so on the consent screen:
