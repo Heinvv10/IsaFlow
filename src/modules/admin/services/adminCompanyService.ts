@@ -40,8 +40,10 @@ export async function listCompanies(
   const limit = Math.min(100, Math.max(1, filters.limit ?? 25));
   const offset = (page - 1) * limit;
   const sortColKey = filters.sort_by ?? '';
-  if (sortColKey && !ALLOWED_SORT_COLUMNS[sortColKey]) throw new Error(`Invalid sort column: ${sortColKey}`);
-  const sortCol = ALLOWED_SORT_COLUMNS[sortColKey] ?? 'c.created_at';
+  // Own keys only: `constructor` & co. are on every object's prototype (WP13 review L3).
+  const allowed = sortColKey !== '' && Object.hasOwn(ALLOWED_SORT_COLUMNS, sortColKey);
+  if (sortColKey && !allowed) throw new Error(`Invalid sort column: ${sortColKey}`);
+  const sortCol = allowed ? ALLOWED_SORT_COLUMNS[sortColKey]! : 'c.created_at';
   const rawDir = (filters.sort_dir ?? 'desc').toUpperCase();
   // F-06: sortDir is validated against an explicit two-value allowlist and then passed
   // through a tagged-template literal (sql`ASC` / sql`DESC`), never via sql.unsafe().

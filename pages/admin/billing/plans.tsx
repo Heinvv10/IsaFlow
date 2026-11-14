@@ -111,7 +111,7 @@ export default function PlansPage() {
       features,
       limits,
     };
-    // The code is fixed once a plan exists (the API ignores it on edit): the field is read-only there.
+    // The code is fixed once a plan exists: the PATCH schema is strict and answers 400 to a `code`, so edit never sends it.
     const body = editId ? commonBody : { code: form.code, ...commonBody };
     if (origPrices && (monthly !== origPrices.monthly || annual !== origPrices.annual)) {
       setRepriceBody(body);

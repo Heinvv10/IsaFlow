@@ -89,6 +89,7 @@ export async function getUnifiedAuditLog(
           AND (${filterCompanyId ? sql`FALSE` : sql`TRUE`})
           AND (${filterUserId    ? sql`al.admin_user_id::text = ${filterUserId}` : sql`TRUE`})
           AND (${filterEntityId  ? sql`al.target_id::text = ${filterEntityId}` : sql`TRUE`})
+          AND (${filterEntityType ? sql`al.target_type ILIKE ${filterEntityType}` : sql`TRUE`})
       ),
       accounting_rows AS (
         SELECT
@@ -168,6 +169,7 @@ export async function getUnifiedAuditLog(
           AND (${filterCompanyId ? sql`FALSE` : sql`TRUE`})
           AND (${filterUserId ? sql`al.admin_user_id::text = ${filterUserId}` : sql`TRUE`})
           AND (${filterEntityId  ? sql`al.target_id::text = ${filterEntityId}` : sql`TRUE`})
+          AND (${filterEntityType ? sql`al.target_type ILIKE ${filterEntityType}` : sql`TRUE`})
       ),
       accounting_rows AS (
         SELECT al.user_id::text, al.company_id, al.action, al.entity_type,

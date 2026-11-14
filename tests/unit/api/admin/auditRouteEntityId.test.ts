@@ -22,4 +22,14 @@ describe('GET /api/admin/audit', () => {
     await (route as unknown as (q: NextApiRequest, s: NextApiResponse) => Promise<void>)(req, res);
     expect(getUnifiedAuditLog).toHaveBeenCalledWith(expect.objectContaining({ entity_type: 'user', entity_id: 'user-42', limit: 20 }));
   });
+
+  it.each([[''], ['  '], [['a', 'b']]])('entity_id %j is 400 and runs no query', async (entityId) => {
+    getUnifiedAuditLog.mockClear();
+    let status = 200;
+    const req = { method: 'GET', query: { entity_type: 'user', entity_id: entityId }, headers: {} } as unknown as NextApiRequest;
+    const res = { status(c: number) { status = c; return res; }, json() { return res; }, setHeader() { return res; } } as unknown as NextApiResponse;
+    await (route as unknown as (q: NextApiRequest, s: NextApiResponse) => Promise<void>)(req, res);
+    expect(status).toBe(400);
+    expect(getUnifiedAuditLog).not.toHaveBeenCalled();
+  });
 });

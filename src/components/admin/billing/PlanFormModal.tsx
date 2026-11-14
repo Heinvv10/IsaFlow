@@ -1,6 +1,6 @@
 /**
  * Add / Edit Plan dialog for the admin Plans page. A real dialog (audit 4.13: Escape, Tab trap, aria-modal,
- * labelled inputs). On edit the Code is read-only (the API never changes it) and the form says plainly that a
+ * labelled inputs). On edit the Code is read-only (the PATCH schema is strict and answers 400 to a `code`) and the form says plainly that a
  * price change reprices every subscriber (audit 4.17); the page asks for a confirm before it saves one.
  */
 

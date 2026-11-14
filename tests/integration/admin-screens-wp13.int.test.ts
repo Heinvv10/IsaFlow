@@ -3,7 +3,8 @@
  *  - 4.1  Companies sorts by Plan and by Last Active (the list API threw "Invalid sort column").
  *  - 4.7  A user's Audit tab asks for entity_type=user&entity_id=<id>: only entries about that user come back.
  *  - 4.15 Dashboard Recent Activity names the company an admin action was about.
- *  - 4.17 Company edit can clear a field: an explicit null clears it, an absent key keeps it.
+ *  - 4.17 Company edit can clear a field: an explicit null (or a free-text '') clears it, an absent key keeps it.
+ *  - Review: entity_type applies to admin rows; a non-uuid target id is no cast error; sort_by=constructor is refused.
  * Runs on the disposable fixture database only (assertDisposable).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -58,7 +59,9 @@ beforeAll(async () => {
        ($1, 'user.suspend',      'user',         $2, '{}'::jsonb, ${future(50)}),
        ($1, 'user.update',       'user',         $3, '{}'::jsonb, ${future(51)}),
        ($1, 'company.suspend',   'company',      $4, '{}'::jsonb, ${future(52)}),
-       ($1, 'subscription.create','subscription', $5, jsonb_build_object('company_id', $6::text), ${future(53)})
+       ($1, 'subscription.create','subscription', $5, jsonb_build_object('company_id', $6::text), ${future(53)}),
+       ($1, 'company.legacy',    'company',      'legacy-123', '{"company_id": "not-a-uuid"}'::jsonb, ${future(54)}),
+       ($1, 'feature.override',  'company',      $2, '{}'::jsonb, ${future(55)})
      RETURNING id::text`,
     [admin, userA, userB, cZ, crypto.randomUUID(), cA]);
   auditIds.push(...rows.rows.map((r) => r.id));
@@ -108,6 +111,12 @@ describe('4.7 audit log scoped to one entity', () => {
     expect(res.items.some((e) => e.action === 'user.suspend')).toBe(true);
     expect(res.total).toBe(res.items.length);
   });
+
+  it('entity_type applies to admin rows too: a company-typed row on the same id is left out (review L2)', async () => {
+    const res = await getUnifiedAuditLog({ entity_type: 'user', entity_id: userA, source: 'admin', limit: 20 });
+    expect(res.items.map((e) => e.action)).toEqual(['user.suspend']);
+    expect(res.total).toBe(1);
+  });
 });
 
 describe('4.15 Recent Activity names the company', () => {
@@ -117,6 +126,8 @@ describe('4.15 Recent Activity names the company', () => {
     expect(byDesc('company.suspend company')?.company_name).toBe(`${tag} one`);
     expect(byDesc('subscription.create subscription')?.company_name).toBe(`${tag} two`);
     expect(byDesc('user.update user')?.company_name ?? null).toBeNull();
+    // A non-uuid target or details id is shown without a company, not a cast error (review L4).
+    expect(byDesc('company.legacy company')?.company_name ?? null).toBeNull();
   });
 });
 
@@ -126,5 +137,16 @@ describe('4.17 company edit can clear a field', () => {
     const after = await getCompanyDetail(cZ);
     expect(after?.phone ?? null).toBeNull();
     expect(after?.city).toBe('Pretoria');
+  });
+
+  it("'' clears a free-text field too", async () => {
+    await updateCompany(cZ, { city: '' } as unknown as Parameters<typeof updateCompany>[1]);
+    expect((await getCompanyDetail(cZ))?.city ?? null).toBeNull();
+  });
+});
+
+describe('sort allowlist (review L3)', () => {
+  it('an Object.prototype name is refused before any SQL', async () => {
+    await expect(listCompanies({ search: tag, sort_by: 'constructor' })).rejects.toThrow('Invalid sort column: constructor');
   });
 });
