@@ -212,9 +212,11 @@ describe('admin cancel / status change must not leave a debit live', () => {
   it('the runner alone refuses a cancelled subscription (a charge that slipped past the void)', async () => {
     await pool.query("UPDATE subscriptions SET status='cancelled', cancelled_at=now() WHERE id=$1", [subscriptionId]);
 
-    await runQueuedCharges(new Date());
+    const ran = await runQueuedCharges(new Date());
 
     expect(callsFor(companyId)).toHaveLength(0);
+    // Not even selected: the SELECT excludes it, the claim is not the only guard.
+    expect(ran.skipped).toBe(0);
     expect(await chargeStatus(queuedId)).toMatchObject({ status: 'queued', attempt_count: 0 });
     expect(await chargeStatus(failedId)).toMatchObject({ status: 'failed', attempt_count: 1 });
   });
@@ -222,8 +224,9 @@ describe('admin cancel / status change must not leave a debit live', () => {
   it('the runner refuses a paused subscription, and debits it again once it is reactivated', async () => {
     await pool.query("UPDATE subscriptions SET status='paused' WHERE id=$1", [subscriptionId]);
 
-    await runQueuedCharges(new Date());
+    const ran = await runQueuedCharges(new Date());
     expect(callsFor(companyId)).toHaveLength(0);
+    expect(ran.skipped).toBe(0);
     expect(await chargeStatus(queuedId)).toMatchObject({ status: 'queued', attempt_count: 0 });
 
     await pool.query("UPDATE subscriptions SET status='active' WHERE id=$1", [subscriptionId]);
