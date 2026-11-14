@@ -92,9 +92,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     try {
       const outcome = await withTransaction(async (tx) => {
+        // The xact advisory lock is held until the REQUEST transaction ends (the commit in withAdmin),
+        // not just until this savepoint is released.
         const current = await getAlertSettings(tx);
-        const changes: Record<string, 'set' | 'cleared' | 'unchanged'> = {};
 
+        // Decide every key before the first write: a refusal after a write would leave that write
+        // committed (a 4xx commits) with no audit row.
+        const plan: Array<[(typeof ALERT_KEYS)[number], string]> = [];
+        const changes: Record<string, 'set' | 'cleared' | 'unchanged'> = {};
         for (const key of ALERT_KEYS) {
           const next = patchParsed.data[key];
           if (next === undefined) continue;
@@ -102,9 +107,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           // An https/public-host policy applies to new values only: an older stored URL sent back unchanged stays valid.
           const refusal = key === 'health_alert_webhook_url' && next !== '' ? webhookUrlRefusal(next) : null;
           if (refusal) return { refusal };
+          plan.push([key, next]);
+          changes[key] = next === '' ? 'cleared' : 'set';
+        }
+
+        for (const [key, next] of plan) {
           if (next === '') {
             await tx`DELETE FROM admin_settings WHERE key = ${key}`;
-            changes[key] = 'cleared';
             continue;
           }
           await tx`
@@ -116,7 +125,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
               updated_at = NOW(),
               updated_by = EXCLUDED.updated_by
           `;
-          changes[key] = 'set';
         }
 
         // Audit: what happened to each key, never the value (the webhook URL can carry a secret).
