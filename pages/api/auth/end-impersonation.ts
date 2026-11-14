@@ -26,7 +26,8 @@ import {
   clearAuthCookies,
   ACCESS_COOKIE,
 } from '@/lib/auth/cookies';
-import { ADMIN_STASH_COOKIE, clearImpersonationCookies } from '@/lib/auth/impersonation-cookies';
+import { ADMIN_STASH_COOKIE, IMPERSONATION_PROOF_COOKIE, clearImpersonationCookies } from '@/lib/auth/impersonation-cookies';
+import { proofNamesSession } from '@/lib/auth/impersonationAssurance';
 import { loadStashBounded, deleteStash, stashPartiesOf } from '@/modules/admin/services/userImpersonationService';
 import { verifyTokenSignature, type GoTrueClaims } from '@/lib/auth/gotrue';
 import { impersonationPartiesOfBounded } from '@/lib/auth/impersonationSessions';
@@ -58,40 +59,62 @@ async function partiesOfSession(sessionId: unknown): Promise<LoginAsParties | nu
 /**
  * An expired stash, refused, still ends the Login-as for a VERIFIED caller, and never does nothing (#1371 security
  * review). Never called without verified claims (re-break N2: an unauthenticated request writes nothing in an
- * admin's name, it only clears its own cookies). The browser is signed out either way (the caller clears its
- * cookies), so its own session is revoked on every branch that records nothing.
- *  1. The stash row the cookie names is read first (stashPartiesOf: migration pool, primary key, bounded). Gone,
- *     not the caller's, or unreadable in time: no look-up and no row in anyone's name.
- *  2. The stash's ADMIN (their own session, never a Login-as one) ends it by the verified stash (round 3 P2b: the
- *     target's ordinary session never writes a row in the admin's name).
- *  3. The target takes a slot of the capped look-up (loginAsLookup, shared with Sign Out) to prove its session is
- *     this Login-as. Skipped, failed, or an ordinary session: its own session is revoked, nothing recorded (warn on a
- *     skip or failure). Proven: the end is recorded by the session (and the verified stash), the session revoked.
+ * admin's name, it only clears its own cookies). Every branch revokes the caller's OWN session: STASH_EXPIRED signs
+ * this browser out (its cookies clear), and a session that outlived its cookies would only be a loose credential.
+ * Where that session is the proven Login-as it is recorded as `target_session_revoked`, else `caller_session_revoked`.
+ *  1. The stash row the cookie names is read first (stashPartiesOf: migration pool, primary key, bounded).
+ *     Unreadable in time, or not the caller's: no look-up, no row. Gone (purged, or a retry after a lost answer):
+ *     only a browser holding its own session's Login-as proof (proofNamesSession: ours, bound to this session, any
+ *     age) may still prove a Login-as through the capped look-up; anything else takes no slot and records nothing.
+ *  2. The stash's ADMIN (their own session, never a Login-as one) ends it by the verified stash. Keyed on the stash
+ *     only, never the admin's session: one admin session can end several stashes, which must stay separate rows.
+ *  3. The target must prove its session is this Login-as (endProvenLoginAs); it never ends by the stash alone
+ *     (round 3 P2b): the expired stash then waits for the next Login-as start or end purge.
  */
-async function endRefusedLoginAs(stashId: string, accessToken: string, claims: GoTrueClaims, reason: string): Promise<void> {
-  const revokeOwn = async (why: string, level: 'info' | 'warn') => {
-    const revoked = await revokeLoginAsSession(accessToken, reason);
-    log[level](`end-impersonation: ${why}; its own session revoked, nothing recorded`, { revoked }, 'Admin');
-  };
+async function endRefusedLoginAs(
+  stashId: string, accessToken: string, claims: GoTrueClaims, proof: string | undefined, reason: string,
+): Promise<void> {
   const stashed = await stashPartiesOf(stashId);
-  if (stashed === 'gave_up') return revokeOwn('stash look-up unavailable', 'warn');
-  if (!stashed || (claims.sub !== stashed.adminUserId && claims.sub !== stashed.targetUserId)) {
-    return revokeOwn('no stash of the caller to end', 'info');
+  if (stashed === 'gave_up') return revokeOwn(accessToken, reason, 'stash look-up unavailable', 'warn');
+  if (!stashed) {
+    if (proof && await proofNamesSession(proof, claims)) return endProvenLoginAs(stashId, null, accessToken, claims, reason);
+    return revokeOwn(accessToken, reason, 'no stash of the caller to end', 'info');
   }
-  const stashParties: LoginAsParties = { actorUserId: stashed.adminUserId, targetUserId: stashed.targetUserId };
+  if (claims.sub !== stashed.adminUserId && claims.sub !== stashed.targetUserId) {
+    return revokeOwn(accessToken, reason, 'not a party to this stash', 'info');
+  }
   if (claims.sub === stashed.adminUserId) {
+    const stashParties: LoginAsParties = { actorUserId: stashed.adminUserId, targetUserId: stashed.targetUserId };
     const endId = await recordLoginAsEnd(stashParties, { stashId }, { reason });
+    const callerRevoked = await revokeLoginAsSession(accessToken, reason);
     const stashesRemoved = await removeLoginAsStashes(stashParties, stashId, reason);
-    await noteLoginAsEnd(endId, { target_session_revoked: null, stashes_removed: stashesRemoved });
+    await noteLoginAsEnd(endId, { target_session_revoked: null, caller_session_revoked: callerRevoked, stashes_removed: stashesRemoved });
     return;
   }
+  return endProvenLoginAs(stashId, stashed, accessToken, claims, reason);
+}
+
+/** Revokes the caller's own session and records nothing (logged with why). */
+async function revokeOwn(accessToken: string, reason: string, why: string, level: 'info' | 'warn'): Promise<void> {
+  const revoked = await revokeLoginAsSession(accessToken, reason);
+  log[level](`end-impersonation: ${why}; its own session revoked, nothing recorded`, { revoked }, 'Admin');
+}
+
+/**
+ * The caller (the target, or a browser holding its session's proof) proves through the capped look-up (loginAsLookup,
+ * shared with Sign Out) that its session is a recorded Login-as. Skipped, failed, or an ordinary session: its own
+ * session is revoked, nothing recorded. Proven: the end is recorded by the session (and the stash, when that row is
+ * these parties'), the session revoked, the stash removed.
+ */
+async function endProvenLoginAs(
+  stashId: string, stashed: { adminUserId: string; targetUserId: string } | null,
+  accessToken: string, claims: GoTrueClaims, reason: string,
+): Promise<void> {
   const lookup = typeof claims.session_id === 'string'
     ? await cappedLoginAsLookup(claims.session_id, 'end-impersonation') : null;
-  if (lookup === 'skipped' || lookup === 'gave_up') return revokeOwn(`Login-as look-up ${lookup}`, 'warn');
-  if (!lookup) return revokeOwn("the target's own session, not this Login-as", 'info');
-  // The end row's key is what the server verified (security review, #1371): the session record behind this token,
-  // and the stash id only when that stash row is these parties'.
-  const stashVerified = stashed.adminUserId === lookup.actorUserId && stashed.targetUserId === lookup.targetUserId;
+  if (lookup === 'skipped' || lookup === 'gave_up') return revokeOwn(accessToken, reason, `Login-as look-up ${lookup}`, 'warn');
+  if (!lookup) return revokeOwn(accessToken, reason, 'not a recorded Login-as session', 'info');
+  const stashVerified = stashed?.adminUserId === lookup.actorUserId && stashed.targetUserId === lookup.targetUserId;
   const endId = await recordLoginAsEnd(lookup, {
     sessionId: String(claims.session_id),
     stashId: stashVerified ? stashId : undefined,
@@ -162,7 +185,7 @@ const handler: NextApiHandler = async (req, res) => {
   const stash = await loadStashBounded(stashId);
   if (stash === 'gave_up') return unavailable(res);
   if (!stash) {
-    await endRefusedLoginAs(stashId, accessToken, claims, 'stash_expired');
+    await endRefusedLoginAs(stashId, accessToken, claims, cookies[IMPERSONATION_PROOF_COOKIE], 'stash_expired');
     return refuse(res, 401, 'STASH_EXPIRED', 'Impersonation expired — please log in again', true);
   }
 
