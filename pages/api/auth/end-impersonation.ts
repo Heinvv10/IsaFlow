@@ -27,7 +27,7 @@ import {
   ACCESS_COOKIE,
 } from '@/lib/auth/cookies';
 import { ADMIN_STASH_COOKIE, clearImpersonationCookies } from '@/lib/auth/impersonation-cookies';
-import { loadStash, deleteStash, stashPartiesOf } from '@/modules/admin/services/userImpersonationService';
+import { loadStashBounded, deleteStash, stashPartiesOf } from '@/modules/admin/services/userImpersonationService';
 import { verifyTokenSignature, type GoTrueClaims } from '@/lib/auth/gotrue';
 import { impersonationPartiesOfBounded } from '@/lib/auth/impersonationSessions';
 import {
@@ -101,6 +101,12 @@ async function endRefusedLoginAs(stashId: string, accessToken: string, claims: G
   await noteLoginAsEnd(endId, { target_session_revoked: revoked, stashes_removed: stashesRemoved });
 }
 
+/** A look-up gave up: nothing restored or ended, the cookies kept so a retry can restore. */
+function unavailable(res: NextApiResponse) {
+  res.setHeader('Retry-After', '5');
+  return res.status(503).json({ success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'Could not end the impersonation right now. Try again.' } });
+}
+
 function refuse(res: NextApiResponse, status: number, code: string, message: string, clearAuth: boolean) {
   if (clearAuth) clearAuthCookies(res);
   clearImpersonationCookies(res);
@@ -152,7 +158,9 @@ const handler: NextApiHandler = async (req, res) => {
   const callerId = claims.sub;
   const sessionId = claims.session_id;
 
-  const stash = await loadStash(stashId);
+  // Bounded (round 3): a give-up is not "no stash". A retryable 503 with the cookies kept, so the retry can restore.
+  const stash = await loadStashBounded(stashId);
+  if (stash === 'gave_up') return unavailable(res);
   if (!stash) {
     await endRefusedLoginAs(stashId, accessToken, claims, 'stash_expired');
     return refuse(res, 401, 'STASH_EXPIRED', 'Impersonation expired — please log in again', true);
@@ -171,10 +179,7 @@ const handler: NextApiHandler = async (req, res) => {
   // Login-as minted may. The record cannot be deleted by a browser (R-032). A look-up that fails or passes its bound
   // restores nothing: 503, cookies kept, so a retry can still restore.
   const parties = callerId === stash.target_user_id ? await partiesOfSession(sessionId) : null;
-  if (parties === 'gave_up') {
-    res.setHeader('Retry-After', '5');
-    return res.status(503).json({ success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'Could not end the impersonation right now. Try again.' } });
-  }
+  if (parties === 'gave_up') return unavailable(res);
   if (callerId === stash.target_user_id
     && (parties?.actorUserId !== stash.admin_user_id || parties.targetUserId !== stash.target_user_id)) {
     log.warn('end-impersonation refused: not the Login-as session', { callerId, stashAdmin: stash.admin_user_id }, 'Admin');
