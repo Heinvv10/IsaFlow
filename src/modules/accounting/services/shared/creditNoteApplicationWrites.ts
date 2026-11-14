@@ -38,8 +38,11 @@ import type { DbRow } from '@/lib/neon';
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
 import { withCustomerInvoiceLock } from '../ar/customerInvoiceLock';
 import { withSupplierInvoiceLock } from '../ap/supplierInvoiceLock';
-import { EPS, round2 } from './autoAllocateStrategy';
+import { round2 } from './autoAllocateStrategy';
 import type { CreditNoteApplicationLine, CreditNoteSide } from './creditNoteFifo';
+
+/** Half a cent: money compared to the cent, exactly. */
+const HALF_CENT = 0.005;
 
 /**
  * Statuses that cannot take a credit, per side.
@@ -135,20 +138,41 @@ export async function writeApplication(
   creditNoteId: string,
   side: CreditNoteSide,
   line: CreditNoteApplicationLine,
-): Promise<void> {
-  await sql`
-    INSERT INTO credit_note_allocations (company_id, credit_note_id, invoice_id, amount_allocated)
-    VALUES (${companyId}::UUID, ${creditNoteId}::UUID, ${line.invoiceId}::UUID, ${line.amount})
-  `;
+  /**
+   * The FIFO walk (approval, auto_apply_unapplied) passes `addToExisting`: a note can already hold part of a
+   * document it walks to (applied by name, or adjusted down), and the walk must ADD to that row — inserting a
+   * second one hits UNIQUE (credit_note_id, invoice_id), 23505, and the back-fill reported the note as failed.
+   * The named-document callers keep the plain insert, so a second application of one pair stays refused.
+   */
+  opts: { addToExisting?: boolean } = {},
+): Promise<number> {
+  if (opts.addToExisting) {
+    await sql`
+      INSERT INTO credit_note_allocations (company_id, credit_note_id, invoice_id, amount_allocated)
+      VALUES (${companyId}::UUID, ${creditNoteId}::UUID, ${line.invoiceId}::UUID, ${line.amount})
+      ON CONFLICT (credit_note_id, invoice_id)
+      DO UPDATE SET amount_allocated = credit_note_allocations.amount_allocated + EXCLUDED.amount_allocated`;
+  } else {
+    await sql`
+      INSERT INTO credit_note_allocations (company_id, credit_note_id, invoice_id, amount_allocated)
+      VALUES (${companyId}::UUID, ${creditNoteId}::UUID, ${line.invoiceId}::UUID, ${line.amount})
+    `;
+  }
+  // `moved` is MEASURED (the stored figure after less before), not the amount
+  // asked for: the caller's invariant compares it with what the note records.
   const applied = (side === 'customer'
     ? await sql`
-        UPDATE customer_invoices SET amount_paid = COALESCE(amount_paid, 0) + ${line.amount}
-        WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
-        RETURNING id`
+        WITH prev AS (SELECT id, COALESCE(amount_paid, 0) AS paid FROM customer_invoices
+                      WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID)
+        UPDATE customer_invoices d SET amount_paid = COALESCE(d.amount_paid, 0) + ${line.amount}
+        FROM prev WHERE d.id = prev.id AND d.company_id = ${companyId}::UUID
+        RETURNING d.amount_paid - prev.paid AS moved`
     : await sql`
-        UPDATE supplier_invoices SET amount_paid = COALESCE(amount_paid, 0) + ${line.amount}
-        WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
-        RETURNING id`) as DbRow[];
+        WITH prev AS (SELECT id, COALESCE(amount_paid, 0) AS paid FROM supplier_invoices
+                      WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID)
+        UPDATE supplier_invoices d SET amount_paid = COALESCE(d.amount_paid, 0) + ${line.amount}
+        FROM prev WHERE d.id = prev.id AND d.company_id = ${companyId}::UUID
+        RETURNING d.amount_paid - prev.paid AS moved`) as DbRow[];
   // A row count of zero means the document vanished between the read and the
   // write. Refusing beats an allocation row pointing at nothing.
   if (applied.length !== 1) {
@@ -157,6 +181,7 @@ export async function writeApplication(
     );
   }
   await recomputeInvoiceStatus(companyId, side, line.invoiceId);
+  return Number(applied[0]!.moved);
 }
 
 /**
@@ -171,24 +196,29 @@ export async function undoApplication(
   creditNoteId: string,
   side: CreditNoteSide,
   line: CreditNoteApplicationLine,
-): Promise<void> {
+): Promise<number> {
   const done = (side === 'customer'
     ? await sql`
-        UPDATE customer_invoices SET amount_paid = amount_paid - ${line.amount}
-        WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
-          AND amount_paid >= ${line.amount}
-        RETURNING id`
+        WITH prev AS (SELECT id, amount_paid AS paid FROM customer_invoices
+                      WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID)
+        UPDATE customer_invoices d SET amount_paid = d.amount_paid - ${line.amount}
+        FROM prev WHERE d.id = prev.id AND d.company_id = ${companyId}::UUID
+          AND d.amount_paid >= ${line.amount}
+        RETURNING d.amount_paid - prev.paid AS moved`
     : await sql`
-        UPDATE supplier_invoices SET amount_paid = amount_paid - ${line.amount}
-        WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
-          AND amount_paid >= ${line.amount}
-        RETURNING id`) as DbRow[];
+        WITH prev AS (SELECT id, amount_paid AS paid FROM supplier_invoices
+                      WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID)
+        UPDATE supplier_invoices d SET amount_paid = d.amount_paid - ${line.amount}
+        FROM prev WHERE d.id = prev.id AND d.company_id = ${companyId}::UUID
+          AND d.amount_paid >= ${line.amount}
+        RETURNING d.amount_paid - prev.paid AS moved`) as DbRow[];
   if (done.length === 0) {
     throw new Error(
       `Cannot cancel credit note ${creditNoteId}: invoice ${line.invoiceId} has less applied than the ${line.amount} this note credited.`,
     );
   }
   await recomputeInvoiceStatus(companyId, side, line.invoiceId);
+  return Number(done[0]!.moved);
 }
 
 /**
@@ -205,11 +235,19 @@ export async function undoApplication(
  *
  * There is no safe automatic repair, because nothing records where the original
  * credit went. So the note is refused and named, and a person reconciles it.
+ *
+ * `direction` (brief step 7): an INCREASE (apply, adjust up, auto-apply, the
+ * approval walk, the REST apply) needs the two EXACT — extending a note a cent
+ * apart carries the cent into the new figure. A DECREASE (unapply, adjust down,
+ * cancel) keeps the old one-cent tolerance, so a note already a cent apart can
+ * always be taken back; it then re-derives `applied_amount` from the rows that
+ * remain, which is what brings it back into line. Returns the rows' sum.
  */
 export async function assertAllocationsMatchApplied(
   companyId: string,
   creditNoteId: string,
   appliedAmount: number,
+  direction: 'increase' | 'decrease' = 'increase',
 ): Promise<number> {
   const rows = (await sql`
     SELECT COALESCE(SUM(amount_allocated), 0) AS allocated
@@ -218,7 +256,10 @@ export async function assertAllocationsMatchApplied(
   `) as DbRow[];
   const allocated = round2(Number(rows[0]?.allocated ?? 0));
   const applied = round2(appliedAmount);
-  if (Math.abs(allocated - applied) <= EPS) return allocated;
+  // An increase is EXACT (half a cent): both columns are NUMERIC(15,2), so a one-cent gap is a real gap (CN-388:
+  // R490.44 recorded on the note, R490.45 credited to its bill). A decrease tolerates the cent so it can correct it.
+  const tolerance = direction === 'increase' ? HALF_CENT : 0.01 + HALF_CENT;
+  if (Math.abs(allocated - applied) < tolerance) return allocated;
 
   // A note with NO rows and a non-zero column is the legacy shape: approved
   // before migration 677 with no link, so the backfill had nothing to attribute
@@ -227,7 +268,7 @@ export async function assertAllocationsMatchApplied(
   // is only called before an extension. Writing a row for the new amount
   // creates exactly the mismatch the branch below then refuses forever, so the
   // note would be applied once more and then be uncancellable.
-  if (allocated <= EPS) {
+  if (allocated < HALF_CENT) {
     throw new Error(
       `Credit note ${creditNoteId} carries applied_amount ${applied} with no allocation rows — `
       + 'it was applied before the allocations table existed and nothing records which document it '

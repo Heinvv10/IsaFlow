@@ -34,6 +34,10 @@ import type { BackfillSource } from './autoApplyBackfillPlan';
 export const SKIP_CONTACT_UNRESOLVED = 'contact could not be resolved';
 export const SKIP_NO_FISCAL_PERIOD = 'journal not in a fiscal period';
 export const SKIP_NO_JOURNAL = 'no journal entry behind this cash';
+/** A credit note whose journal is unposted or reversed: nothing in the ledger backs an application (brief step 7). */
+export const SKIP_JOURNAL_NOT_LIVE = 'its journal is not posted, or has been reversed';
+/** A credit note that has already applied everything its journal posted to the control account (brief step 7). */
+export const SKIP_POSTED_CREDIT_USED = 'its journal posted no more credit than is already applied';
 /**
  * A REFUND (migration 681) is a negative on-account entry: cash the company
  * sent back, carrying no allocations and a negative remainder. "Applying" it to

@@ -11,7 +11,10 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 const gotrueLogout = vi.hoisted(() => vi.fn(async (_token: string, _scope?: string) => undefined));
 const gotrueRefresh = vi.hoisted(() => vi.fn(async (_token: string) => ({ access_token: 'renewed' })));
-vi.mock('@/lib/auth/gotrue', () => ({ logout: gotrueLogout, refresh: gotrueRefresh }));
+vi.mock('@/lib/auth/gotrue', async (orig) => ({
+  // isSessionAlreadyGone and the error class are the real ones: a plain Error is never "already gone".
+  ...(await orig<typeof import('@/lib/auth/gotrue')>()), logout: gotrueLogout, refresh: gotrueRefresh,
+}));
 
 import handler from '../../../../pages/api/auth/logout';
 
@@ -49,6 +52,13 @@ describe('POST /api/auth/logout', () => {
     gotrueLogout.mockRejectedValueOnce(new Error('gotrue logout failed: 403'));
     expect(await signOut('sb-access-token=expired; sb-refresh-token=live')).toMatchObject({ status: 200 });
     expect(gotrueLogout.mock.calls).toEqual([['expired', 'local'], ['renewed', 'local']]);
+  });
+
+  it('a session GoTrue already revoked (403 session_not_found) counts as signed out: the refresh is not spent', async () => {
+    const { GoTrueLogoutError } = await import('@/lib/auth/gotrue');
+    gotrueLogout.mockRejectedValueOnce(new GoTrueLogoutError(403, '{"code":403,"error_code":"session_not_found"}'));
+    expect(await signOut('sb-access-token=gone; sb-refresh-token=live')).toEqual({ status: 200, clearedAccess: true });
+    expect(gotrueRefresh).not.toHaveBeenCalled();
   });
 
   it('does not spend the refresh token once the access token has signed out', async () => {

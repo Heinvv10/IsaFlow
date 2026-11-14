@@ -196,7 +196,7 @@ export default function AdminSageImportPage() {
   const anyPulled = steps.some(s => s.status === 'done');
 
   return (
-    <AdminLayout title="Sage Auto-Import">
+    <AdminLayout title="Sage Auto-Import" ownHeading>
       <div className="max-w-3xl mx-auto space-y-6">
         <div>
           <Link href={adminHref('/admin/tools')} className="inline-flex items-center gap-1.5 text-sm text-teal-600 dark:text-teal-400 hover:underline mb-4">

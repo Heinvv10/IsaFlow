@@ -70,6 +70,15 @@ async function seedCreditNote(
             (SELECT id FROM fiscal_periods WHERE company_id = ${fx.companyId}::UUID LIMIT 1),
             NOW())
     RETURNING id`) as { id: string }[])[0]!.id);
+  // Brief step 7: an application is capped at what the journal put on the control account, so it carries the
+  // DR payable / CR expense pair an approval posts.
+  await sql`
+    INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit)
+    SELECT ${fx.companyId}::UUID, ${je}::UUID, ga.id,
+           CASE WHEN ga.account_subtype = 'payable' THEN ${total}::NUMERIC ELSE 0 END,
+           CASE WHEN ga.account_subtype = 'payable' THEN 0 ELSE ${total}::NUMERIC END
+    FROM gl_accounts ga
+    WHERE ga.company_id = ${fx.companyId}::UUID AND ga.account_subtype IN ('payable', 'default_expense')`;
   const rows = (await sql`
     INSERT INTO credit_notes
       (company_id, type, supplier_id, credit_note_number, credit_date,
