@@ -46,7 +46,9 @@ describe.skipIf(!process.env.DATABASE_URL)('companiesWithFeature matches hasFeat
     }
     for (const id of ALL) {
       const onPlan = id === co.overrideOff || id === co.planOnly;
-      await q('INSERT INTO companies (id, name, plan_id) VALUES ($1, $2, $3)', [id, `Parity ${tag}`, onPlan ? plan : null]);
+      await q('INSERT INTO companies (id, name) VALUES ($1, $2)', [id, `Parity ${tag}`]);
+      // The plan lives on the subscription, not on the vestigial companies.plan_id.
+      if (onPlan) await q(`INSERT INTO subscriptions (company_id, plan_id, status) VALUES ($1, $2, 'active')`, [id, plan]);
     }
     for (const featureId of flagIds) {
       await q('INSERT INTO plan_features (plan_id, feature_id) VALUES ($1, $2)', [plan, featureId]);
@@ -62,6 +64,7 @@ describe.skipIf(!process.env.DATABASE_URL)('companiesWithFeature matches hasFeat
     await q('DELETE FROM company_feature_overrides WHERE feature_id = ANY($1::uuid[])', [flagIds]);
     await q('DELETE FROM plan_features WHERE feature_id = ANY($1::uuid[])', [flagIds]);
     await q('DELETE FROM feature_flags WHERE id = ANY($1::uuid[])', [flagIds]);
+    await q('DELETE FROM subscriptions WHERE company_id = ANY($1::uuid[])', [ALL]);
     await q('DELETE FROM companies WHERE id = ANY($1::uuid[])', [ALL]);
     await q('DELETE FROM plans WHERE id = $1', [plan]);
     await q('DELETE FROM users WHERE id = $1', [admin]);
