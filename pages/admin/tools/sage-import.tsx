@@ -2,12 +2,14 @@
  * Admin Sage Auto-Import
  *
  * Pick target company → connect (extension or pasted cookie) → click
- * Pull from Sage. The server hits Sage's API directly using the
+ * Pull from Sage. The target is then locked to the pulled-for company until
+ * Start over (audit 3.4), and Commit confirms, naming it. The server hits Sage's API directly using the
  * supplied session cookie, maps every endpoint, and stashes the
  * mapped data so the existing commit endpoint can pick it up.
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useSageExtension } from '@/hooks/useSageExtension';
 import Link from 'next/link';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { SageCommitSummary, type SageCommitSummaryData } from '@/components/admin/SageCommitSummary';
@@ -41,65 +43,14 @@ const INITIAL_STEPS: PullStep[] = [
   { id: 'apInvoices', label: 'Supplier Invoices (AP)', icon: FileText,  description: 'Outstanding purchase invoices',    status: 'pending' },
 ];
 
-interface ExtensionReply {
-  ok: boolean;
-  error?: string | null;
-  value?: string;
-  names?: string[];
-  count?: number;
-  version?: string;
-}
-
-function useSageExtension() {
-  const [installed, setInstalled] = useState(false);
-  const [version, setVersion] = useState('');
-  const pendingRef = useRef<Map<string, (r: ExtensionReply) => void>>(new Map());
-
-  useEffect(() => {
-    function onMessage(ev: MessageEvent) {
-      const d = ev.data;
-      if (!d || typeof d !== 'object' || d.source !== 'isaflow-sage-extension') return;
-      if (d.type === 'announce') {
-        setInstalled(true);
-        if (d.version) setVersion(d.version);
-        return;
-      }
-      if (typeof d.requestId === 'string' && d.type?.endsWith?.('-reply')) {
-        const cb = pendingRef.current.get(d.requestId);
-        if (cb) {
-          pendingRef.current.delete(d.requestId);
-          cb(d as ExtensionReply);
-        }
-      }
-    }
-    window.addEventListener('message', onMessage);
-    // Active probe in case the extension's announce fired before this hook mounted.
-    window.postMessage({ source: 'isaflow-sage-page', type: 'isaflow-sage-ext-ping', requestId: 'probe-' + Date.now() }, '*');
-    return () => window.removeEventListener('message', onMessage);
-  }, []);
-
-  const ask = useCallback((type: string, timeoutMs = 4000): Promise<ExtensionReply> => {
-    return new Promise((resolve) => {
-      const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const timer = setTimeout(() => {
-        if (pendingRef.current.delete(requestId)) {
-          resolve({ ok: false, error: 'Extension did not respond' });
-        }
-      }, timeoutMs);
-      pendingRef.current.set(requestId, (r) => { clearTimeout(timer); resolve(r); });
-      window.postMessage({ source: 'isaflow-sage-page', type, requestId }, '*');
-    });
-  }, []);
-
-  return { installed, version, ask };
-}
-
 export default function AdminSageImportPage() {
   const adminHref = useAdminHref();
   const ext = useSageExtension();
 
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
+  /** The company the pulled data is for: set at Pull, the only target Commit uses, cleared by Start over. */
+  const [pulledFor, setPulledFor] = useState<Company | null>(null);
   const [companiesError, setCompaniesError] = useState('');
 
   const [steps, setSteps] = useState<PullStep[]>(INITIAL_STEPS);
@@ -125,6 +76,7 @@ export default function AdminSageImportPage() {
     pulledData.current = {};
     setPulledAt(null);
     setCommitSummary(null);
+    setPulledFor(null);
   }, []);
 
   const runPull = useCallback(async (sageCookie: string) => {
@@ -149,12 +101,13 @@ export default function AdminSageImportPage() {
         count: pulled[s.id]?.total ?? (s.id === 'company' ? 1 : pulled[s.id]?.records?.length ?? 0),
       })));
       setPulledAt(new Date());
+      setPulledFor(companies.find(c => c.id === selectedCompanyId) ?? { id: selectedCompanyId, name: selectedCompanyId });
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not pull the data from Sage - try again'));
     } finally {
       setPulling(false);
     }
-  }, [selectedCompanyId, resetSteps]);
+  }, [selectedCompanyId, companies, resetSteps]);
 
   const pullViaExtension = useCallback(async () => {
     setError('');
@@ -171,7 +124,11 @@ export default function AdminSageImportPage() {
   }, [pastedCookie, runPull]);
 
   const commit = useCallback(async (mode: 'all' | 'namesAndCoa') => {
-    if (!selectedCompanyId) return;
+    if (!pulledFor) return;
+    const what = mode === 'namesAndCoa'
+      ? 'the chart of accounts, customers and suppliers'
+      : 'everything pulled (accounts, customers, suppliers and their invoices, with the invoices\' journals)';
+    if (!confirm(`Import ${what} from Sage into ${pulledFor.name}? This writes into that company's books and cannot be undone from here.`)) return;
     setCommitting(true); setError(''); setCommitSummary(null);
     try {
       const all = pulledData.current;
@@ -181,7 +138,7 @@ export default function AdminSageImportPage() {
       const res = await apiFetch('/api/admin/migration/sage-commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
-        body: JSON.stringify({ companyId: selectedCompanyId, pulled: payload }),
+        body: JSON.stringify({ companyId: pulledFor.id, pulled: payload }),
       });
       await assertOk(res, 'Could not import the Sage data - try again');
       const json = await res.json();
@@ -191,7 +148,7 @@ export default function AdminSageImportPage() {
     } finally {
       setCommitting(false);
     }
-  }, [selectedCompanyId]);
+  }, [pulledFor]);
 
   const anyPulled = steps.some(s => s.status === 'done');
 
@@ -234,11 +191,20 @@ export default function AdminSageImportPage() {
             <select
               value={selectedCompanyId}
               onChange={e => setSelectedCompanyId(e.target.value)}
+              disabled={pulling || !!pulledFor}
               className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
             >
               <option value="">-- Select a company --</option>
               {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+          )}
+          {pulledFor && (
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+              Locked to {pulledFor.name}: the pulled data is for this company.{' '}
+              <button type="button" onClick={resetSteps} disabled={committing} className="text-teal-600 dark:text-teal-400 underline">
+                Start over
+              </button>{' '}to pick another (discards the pulled data).
+            </p>
           )}
         </div>
 
