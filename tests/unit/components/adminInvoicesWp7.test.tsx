@@ -24,7 +24,7 @@ void mockedApiFetchModule;
 useApiJsonOverMock();
 
 const success = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
-const INVOICE = { id: 'inv-1', invoice_number: 'INV-WP7-1', company_id: 'c1', company_name: 'Acme', status: 'draft',
+const INVOICE = { id: 'inv-1', invoice_number: 'INV-WP7-1', company_id: 'c1', company_name: 'Acme', billing_email: 'billing@acme.example.test', status: 'draft',
   subtotal_cents: 10000, tax_cents: 1500, total_cents: 11500, currency: 'ZAR', due_date: null, paid_at: null,
   payment_method: null, created_at: '2026-01-01T00:00:00Z' };
 
@@ -74,7 +74,8 @@ describe('admin invoices page (WP7)', () => {
     serve([INVOICE], () => ({ sent: true, recipient: 'billing@acme.example.test' }));
     render(<InvoicesPage />);
     fireEvent.click(await screen.findByTitle('Send'));
-    expect(await screen.findByText(/billing email/i)).toBeTruthy();
+    // The dialog names the address the email goes to (review L3), not just "the billing email".
+    expect(await screen.findByText(/to billing@acme\.example\.test, Acme's billing email\?/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
     expect(screen.queryByText(/billing email/i)).toBeNull();
     expect(posts('/send')).toHaveLength(0);
@@ -97,5 +98,32 @@ describe('admin invoices page (WP7)', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^mark as paid$/i }));
     await waitFor(() => expect(posts('/api/admin/billing/invoices/inv-1/mark-paid')).toHaveLength(1));
     expect(JSON.parse(String(posts('/mark-paid')[0]!.init.body))).toEqual({ payment_method: 'manual' });
+  });
+
+  it('says a company without a billing email will be refused, before anything is sent', async () => {
+    serve([{ ...INVOICE, billing_email: null }]);
+    render(<InvoicesPage />);
+    fireEvent.click(await screen.findByTitle('Send'));
+    expect(await screen.findByText(/Acme has no billing email/)).toBeTruthy();
+    expect(posts('/send')).toHaveLength(0);
+  });
+
+  it('a subtotal past the cap shows a dash, a clear message, and sends nothing (it used to throw)', async () => {
+    serve([], () => ({ id: 'inv-9' }));
+    render(<InvoicesPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /create invoice/i }));
+    fireEvent.change(screen.getByLabelText('Company ID'), { target: { value: 'c9' } });
+    for (const huge of ['1e30', '18000000.01']) {
+      fireEvent.change(screen.getByLabelText('Subtotal (R)'), { target: { value: huge } });
+      expect(screen.getByTestId('invoice-vat-preview').textContent).toBe('—');
+      expect(screen.getByTestId('invoice-total-preview').textContent).toBe('—');
+      expect(screen.getByRole('alert').textContent).toMatch(/Subtotal may be at most/);
+    }
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    expect((await screen.findAllByText(/Subtotal may be at most/)).length).toBeGreaterThan(0);
+    expect(posts('/api/admin/billing/invoices')).toHaveLength(0);
+    // The cap itself is accepted and previewed.
+    fireEvent.change(screen.getByLabelText('Subtotal (R)'), { target: { value: '18000000' } });
+    expect(screen.getByTestId('invoice-total-preview').textContent).toContain(formatCurrency(20_700_000));
   });
 });

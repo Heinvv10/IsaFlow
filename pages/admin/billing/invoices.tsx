@@ -157,7 +157,9 @@ export default function InvoicesPage() {
         open={pending !== null}
         title={pending?.action === 'send' ? 'Send invoice?' : 'Mark invoice paid?'}
         message={pending?.action === 'send'
-          ? `Email ${pending.invoice.invoice_number} (${formatCurrency(pending.invoice.total_cents / 100)}) to ${pending.invoice.company_name}'s billing email? It is then marked sent.`
+          ? (pending.invoice.billing_email
+            ? `Email ${pending.invoice.invoice_number} (${formatCurrency(pending.invoice.total_cents / 100)}) to ${pending.invoice.billing_email}, ${pending.invoice.company_name}'s billing email? It is then marked sent.`
+            : `${pending.invoice.company_name} has no billing email, so this send will be refused. Add one on the company first.`)
           : `Mark ${pending?.invoice.invoice_number ?? ''} (${formatCurrency((pending?.invoice.total_cents ?? 0) / 100)}) as paid? Use this only once the payment has arrived.`}
         confirmLabel={pending?.action === 'send' ? 'Send invoice' : 'Mark as paid'}
         confirmClass="bg-brand-600 hover:bg-brand-700 text-white"

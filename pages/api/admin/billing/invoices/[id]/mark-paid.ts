@@ -10,6 +10,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { markInvoicePaid } from '@/modules/admin/services/invoiceService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
@@ -51,8 +52,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       return apiResponse.success(res, { paid: true, payment_method: trimmed });
     } catch (err) {
+      // A lock wait past its bound is a 503 + Retry-After; anything else is a 500 that rolls back (never a 400).
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Failed to mark invoice as paid', { id, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to mark invoice as paid');
+      throw err;
     }
   }
 

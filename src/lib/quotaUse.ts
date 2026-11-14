@@ -126,9 +126,14 @@ const SMTP_NOT_SENT = new Set(['EDNS', 'ETLS', 'EREQUIRETLS', 'EAUTH', 'ENOAUTH'
  * may already have accepted the message.
  */
 export function markSendUsedUnlessNotSent(err: unknown): void {
-  const e = (err ?? {}) as { code?: unknown; responseCode?: unknown; syscall?: unknown };
-  if (SMTP_NOT_SENT.has(String(e.code))) return;
-  if (typeof e.responseCode === 'number' && e.responseCode >= 400) return;
-  if (e.code === 'ESOCKET' && (e.syscall === 'connect' || e.syscall === 'getaddrinfo')) return;
+  if (smtpErrorProvesNotSent(err)) return;
   markQuotaUsed('send');
+}
+
+/** True only when a `sendMail` throw proves the message was NOT accepted (the rule above); false = may have left. */
+export function smtpErrorProvesNotSent(err: unknown): boolean {
+  const e = (err ?? {}) as { code?: unknown; responseCode?: unknown; syscall?: unknown };
+  if (SMTP_NOT_SENT.has(String(e.code))) return true;
+  if (typeof e.responseCode === 'number' && e.responseCode >= 400) return true;
+  return e.code === 'ESOCKET' && (e.syscall === 'connect' || e.syscall === 'getaddrinfo');
 }

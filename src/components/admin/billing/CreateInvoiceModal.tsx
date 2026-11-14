@@ -9,7 +9,7 @@ import { AlertCircle, Check, Loader2, X } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { DateField } from '@/components/ui/DateField';
-import { invoiceAmountsFromSubtotal } from '@/modules/admin/services/invoiceAmounts';
+import { invoiceAmountsFromSubtotal, MAX_INVOICE_SUBTOTAL_CENTS } from '@/modules/admin/services/invoiceAmounts';
 import { EMPTY_FORM, type InvForm } from './invoiceModel';
 
 interface Props {
@@ -20,6 +20,7 @@ interface Props {
 const INPUT = 'w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500';
 const LABEL = 'block text-xs font-medium text-ink-muted mb-1';
 const FAILURE = 'Could not create the invoice - try again';
+const TOO_LARGE = `Subtotal may be at most ${formatCurrency(MAX_INVOICE_SUBTOTAL_CENTS / 100)}`;
 
 /** Rands typed by the admin -> whole cents, or null when it is not a non-negative amount. */
 function toCents(rands: string): number | null {
@@ -34,12 +35,14 @@ export function CreateInvoiceModal({ onClose, onCreated }: Props) {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const cents = toCents(form.subtotal);
-  const preview = cents === null ? null : invoiceAmountsFromSubtotal(cents);
+  // Only an amount the server would take gets a preview; anything else shows a dash (a huge one used to throw).
+  const preview = cents === null || cents > MAX_INVOICE_SUBTOTAL_CENTS ? null : invoiceAmountsFromSubtotal(cents);
 
   async function create() {
     setError('');
     if (!form.company_id.trim()) { setError('Company ID is required'); return; }
     if (cents === null) { setError('Subtotal is required'); return; }
+    if (cents > MAX_INVOICE_SUBTOTAL_CENTS) { setError(TOO_LARGE); return; }
     if (!dueDateValid) { setError('Due date is not a date - correct it or clear it'); return; }
     setSaving(true);
     try {
@@ -85,6 +88,7 @@ export function CreateInvoiceModal({ onClose, onCreated }: Props) {
             <label htmlFor="invoice-subtotal" className={LABEL}>Subtotal (R)</label>
             <input id="invoice-subtotal" type="number" min="0" step="0.01" value={form.subtotal} className={INPUT}
               onChange={(e) => setForm((f) => ({ ...f, subtotal: e.target.value }))} />
+            {cents !== null && cents > MAX_INVOICE_SUBTOTAL_CENTS && <p role="alert" className="mt-1 text-xs text-red-500">{TOO_LARGE}</p>}
           </div>
           <dl className="grid grid-cols-2 gap-1 text-sm">
             <dt className="text-ink-muted">VAT (15%)</dt>

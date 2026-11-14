@@ -40,6 +40,8 @@ export interface InvoiceListItem {
   id: string;
   company_id: string;
   company_name: string;
+  /** companies.billing_email: where a Send would go (shown in its confirm dialog); null when none. */
+  billing_email: string | null;
   invoice_number: string;
   status: string;
   subtotal_cents: number;

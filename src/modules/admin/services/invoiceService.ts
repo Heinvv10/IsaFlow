@@ -69,7 +69,7 @@ export async function listInvoices(filters: {
 
   const rows = await sql`
     SELECT
-      i.id, i.company_id, c.name AS company_name,
+      i.id, i.company_id, c.name AS company_name, c.billing_email,
       i.invoice_number, i.status,
       i.subtotal_cents, i.tax_cents, i.total_cents, i.currency,
       i.due_date, i.paid_at, i.payment_method,
@@ -99,6 +99,7 @@ export async function listInvoices(filters: {
       id: r.id as string,
       company_id: r.company_id as string,
       company_name: r.company_name as string,
+      billing_email: typeof r.billing_email === 'string' && r.billing_email.trim() ? r.billing_email.trim() : null,
       invoice_number: r.invoice_number as string,
       status: r.status as string,
       subtotal_cents: r.subtotal_cents as number,

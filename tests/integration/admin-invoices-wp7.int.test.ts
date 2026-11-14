@@ -121,6 +121,23 @@ describe('WP7 create invoice', () => {
     expect(after).toBe(before);
   }, 60000);
 
+  it('caps the subtotal at the INT-safe maximum and names the field in the 400', async () => {
+    const top = await row(await created(company, 1_800_000_000));
+    expect([top.tax_cents, top.total_cents]).toEqual([270_000_000, 2_070_000_000]);
+    const over = await call(invoicesRoute as Route, { company_id: company, subtotal_cents: 1_800_000_001 });
+    expect(over.status).toBe(400);
+    expect(over.body.error?.message).toMatch(/^subtotal_cents: .*at most 1800000000/);
+  }, 60000);
+
+  it('refuses an impossible due date with a clear 400, and stores blank notes as null', async () => {
+    const bad = await call(invoicesRoute as Route, { company_id: company, subtotal_cents: 100, due_date: '2026-02-31' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error?.message).toBe('due_date: due_date is not a real date');
+    const blank = await call(invoicesRoute as Route, { company_id: company, subtotal_cents: 100, notes: '   ' });
+    expect(blank.status, JSON.stringify(blank.body)).toBe(200);
+    expect((await row(String(blank.body.data?.id))).notes).toBeNull();
+  }, 60000);
+
   it('lists by from_date / to_date (the names the page now sends)', async () => {
     const id = await created(company, 700);
     await pool.query("UPDATE admin_invoices SET created_at = '2024-03-15T10:00:00Z' WHERE id=$1", [id]);
@@ -141,7 +158,8 @@ describe('WP7 send invoice', () => {
     expect(r.body.data).toMatchObject({ sent: true, recipient: BILLING });
     expect(mail.sendMail).toHaveBeenCalledTimes(1);
     const sent = mail.sendMail.mock.calls[0]![0];
-    expect(sent.to).toBe(BILLING);
+    expect(sent.to).toBe(BILLING); // one address as a string: never a list
+    expect(Object.keys(sent).filter((k) => ['cc', 'bcc'].includes(k))).toEqual([]);
     expect(String(sent.subject)).toContain(inv.invoice_number);
     expect(String(sent.html)).toContain(inv.invoice_number);
     expect(String(sent.html)).toContain('230.00'); // total R 230.00 (20000 + 15% VAT)

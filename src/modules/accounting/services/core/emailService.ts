@@ -7,7 +7,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { log } from '@/lib/logger';
-import { markQuotaUsed, markSendUsedUnlessNotSent } from '@/lib/quotaUse';
+import { markQuotaUsed, markSendUsedUnlessNotSent, smtpErrorProvesNotSent } from '@/lib/quotaUse';
 import { sql, withSavepoint } from '@/lib/neon';
 
 // Resolve the logo once at module load — path works in both dev and production standalone
@@ -85,12 +85,19 @@ export interface EmailOptions {
   attachments?: EmailAttachment[];
   /** Optional metadata used to write an email_log row. */
   _log?: { companyId: string | null; emailType: EmailType; sentBy?: string | null };
+  /**
+   * Bounds on the SMTP conversation, in ms, for a caller that must not wait on a hung mail server
+   * (nodemailer's own defaults are 2 min to connect and 10 min of socket inactivity). Omitted: those defaults.
+   */
+  smtpTimeoutsMs?: { connection: number; greeting: number; socket: number };
 }
 
 export interface EmailResult {
   success: boolean;
   messageId?: string;
   error?: string;
+  /** On a failure: true when the message provably did not leave (no SMTP config, or a refusal); false = it may have. */
+  provablyNotSent?: boolean;
 }
 
 // ─── SMTP Configuration ────────────────────────────────────────────────────
@@ -151,7 +158,7 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
         sentBy: options._log.sentBy ?? null,
       });
     }
-    return { success: false, error: 'SMTP not configured' };
+    return { success: false, error: 'SMTP not configured', provablyNotSent: true };
   }
 
   try {
@@ -168,6 +175,11 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
       // the name it verifies against. Without this nodemailer rejects the cert
       // and every send fails.
       ...(config.tlsServername ? { tls: { servername: config.tlsServername } } : {}),
+      ...(options.smtpTimeoutsMs ? {
+        connectionTimeout: options.smtpTimeoutsMs.connection,
+        greetingTimeout: options.smtpTimeoutsMs.greeting,
+        socketTimeout: options.smtpTimeoutsMs.socket,
+      } : {}),
       auth: {
         user: config.user,
         pass: config.pass,
@@ -239,7 +251,7 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
       });
     }
 
-    return { success: false, error: message };
+    return { success: false, error: message, provablyNotSent: smtpErrorProvesNotSent(err) };
   }
 }
 

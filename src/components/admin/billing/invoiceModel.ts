@@ -5,6 +5,8 @@ export interface Invoice {
   invoice_number: string;
   company_id: string;
   company_name: string;
+  /** Where a Send goes; null when the company has none (the server then refuses the send). */
+  billing_email?: string | null;
   status: 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled' | 'credited';
   subtotal_cents: number;
   tax_cents: number;
