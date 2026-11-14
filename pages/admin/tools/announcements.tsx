@@ -35,8 +35,8 @@ function announcementToForm(item: Announcement): AnnouncementFormState {
     type:           item.type,
     target:         item.target,
     target_ids:     (item.target_ids ?? []).join(', '),
-    starts_at:      item.starts_at ? item.starts_at.slice(0, 16) : '',
-    ends_at:        item.ends_at   ? item.ends_at.slice(0, 16)   : '',
+    starts_at:      item.starts_at ?? '',
+    ends_at:        item.ends_at ?? '',
     is_dismissible: item.is_dismissible,
   };
 }

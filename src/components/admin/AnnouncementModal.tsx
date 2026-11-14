@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { Loader2, X } from 'lucide-react';
 import { CompanyPicker } from './CompanyPicker';
+import { isoToSastInput, sastInputToIso } from '@/utils/sastDateTimeInput';
 
 export const EMPTY_FORM = {
   title: '', message: '', type: 'info', target: 'all',
@@ -19,6 +20,7 @@ export type AnnouncementFormState = {
   target: string;
   /** Comma-separated UUIDs (plan target) or serialised company IDs (company target) */
   target_ids: string;
+  /** ISO instants (UTC), or '' when empty. The inputs show them as SAST wall clock (see sastDateTimeInput). */
   starts_at: string;
   ends_at: string;
   is_dismissible: boolean;
@@ -128,16 +130,16 @@ export function AnnouncementModal({ initial, onClose, onSave, saving }: Props) {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Starts At</label>
-              <input type="datetime-local" value={form.starts_at}
-                onChange={e => set('starts_at', e.target.value)} className={INPUT_CLS} />
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Starts At (SAST)</label>
+              <input type="datetime-local" value={isoToSastInput(form.starts_at)}
+                onChange={e => set('starts_at', sastInputToIso(e.target.value))} className={INPUT_CLS} />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                Ends At (optional)
+                Ends At (SAST, optional)
               </label>
-              <input type="datetime-local" value={form.ends_at}
-                onChange={e => set('ends_at', e.target.value)} className={INPUT_CLS} />
+              <input type="datetime-local" value={isoToSastInput(form.ends_at)}
+                onChange={e => set('ends_at', sastInputToIso(e.target.value))} className={INPUT_CLS} />
             </div>
           </div>
 
