@@ -8,7 +8,7 @@ import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
 import { CompanyBillingTab } from '@/components/admin/companies/CompanyBillingTab';
-import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { ApiEnvelopeError, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { CompanyEffectiveFeature } from '@/modules/admin/types/admin-billing.types';
 import { formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';

@@ -12,7 +12,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { Search, X, CheckCircle2, Loader2 } from 'lucide-react';
-import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 import { adminFetch } from '@/lib/admin/adminFetch';

@@ -12,7 +12,7 @@ import Link from 'next/link';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { SageCommitSummary, type SageCommitSummaryData } from '@/components/admin/SageCommitSummary';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
-import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import {
   ArrowLeft, Download, CheckCircle2, AlertCircle, Loader2,
   Database, Users, Building2, FileText, ShieldCheck, Cable, KeyRound,

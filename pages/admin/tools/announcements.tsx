@@ -11,7 +11,7 @@ import {
   EMPTY_FORM,
   type AnnouncementFormState,
 } from '@/components/admin/AnnouncementModal';
-import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Plus, Pencil, Trash2, AlertCircle, Loader2 } from 'lucide-react';
 import type { Announcement } from '@/modules/admin/types/admin.types';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
