@@ -120,7 +120,7 @@ export function RevenueIntelligenceSection() {
             />
           </div>
 
-          <p className="text-xs text-ink-muted -mt-3 mb-6">NRR and LTV: {MRR_TREND_NOTE}</p>
+          <p className="text-xs text-ink-muted -mt-3 mb-6">{MRR_TREND_NOTE}</p>
 
           {/* Plan breakdown + Churn trend side by side */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">

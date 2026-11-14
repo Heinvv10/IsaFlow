@@ -95,7 +95,9 @@ describe('MRR scope note (review M3)', () => {
     render(<RevenueIntelligenceSection />);
     await screen.findByText('Net Revenue Retention');
     const text = document.body.textContent ?? '';
-    expect(text).toContain('NRR and LTV: History:');
+    // Beside NRR/LTV and under the churn chart, with a single label (round 3 L1).
+    expect(text.split('History: a converted trial').length - 1).toBe(2);
+    expect(text).not.toContain('NRR and LTV: History:');
     expect(text).toContain('Paying companies at the start of each month that pay nothing at its end.');
     expect(text).toContain('a paid subscription bought during a trial, or a trial that was extended');
     expect(text).toContain('Past due and paused subscriptions are outside the MRR history and the churn base.');
