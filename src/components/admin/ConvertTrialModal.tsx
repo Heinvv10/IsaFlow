@@ -2,11 +2,12 @@
  * ConvertTrialModal — pick a plan and convert a trial company to paid.
  * Used by /admin/trials.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId, useRef } from 'react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, X } from 'lucide-react';
 import { isConvertiblePlanCode } from '@/modules/admin/types/trialPlans';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { useFocusTrap } from '@/components/ui/useFocusTrap';
 
 interface Plan {
   id: string;
@@ -74,6 +75,11 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
   }
 
   const finish = done ? onConverted : onClose;
+  // A real dialog (audit 4.13): focus inside, Tab trapped, Escape closes (not mid-convert), focus back to the opener.
+  const boxRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(boxRef, true, () => { if (!working) finish(); });
+  const titleId = useId();
+  const plansLabelId = useId();
 
   function formatPrice(cents: number, currency: string) {
     return new Intl.NumberFormat('en-ZA', {
@@ -85,14 +91,16 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
+      <div ref={boxRef} role="dialog" aria-modal="true" aria-labelledby={titleId}
+        className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
+          <h2 id={titleId} className="text-sm font-semibold text-gray-900 dark:text-white">
             Convert to Paid — <span className="text-teal-500">{companyName}</span>
           </h2>
           <button
             onClick={finish}
+            disabled={working}
             aria-label="Close"
             className="p-1.5 rounded text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           >
@@ -125,10 +133,10 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
             <p className="text-sm text-gray-600 dark:text-gray-400 text-center py-4">No plans available</p>
           ) : (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              <p id={plansLabelId} className="text-sm font-medium text-slate-700 dark:text-slate-300">
                 Select plan
-              </label>
-              <div className="space-y-2">
+              </p>
+              <div role="radiogroup" aria-labelledby={plansLabelId} className="space-y-2">
                 {plans.map((p) => (
                   <label
                     key={p.id}
