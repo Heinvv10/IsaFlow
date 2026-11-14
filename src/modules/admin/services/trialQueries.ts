@@ -103,7 +103,7 @@ async function loadTrials(now: Date): Promise<TrialCompany[]> {
       COALESCE(cs.is_paid, false)   AS is_paid,
       CASE WHEN cs.is_paid THEN COALESCE(
         (SELECT MAX(a.created_at) FROM admin_audit_log a
-          WHERE a.action = 'trial.convert_to_paid' AND a.target_id = c.id::text),
+          WHERE a.action = 'trial.convert_to_paid' AND a.target_type = 'company' AND a.target_id = c.id::text),
         cs.sub_created_at) END      AS converted_at
     FROM companies c
     LEFT JOIN LATERAL (

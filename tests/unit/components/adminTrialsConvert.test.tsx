@@ -18,6 +18,7 @@ vi.mock('@/hooks/useAdminPrefix', () => ({ useAdminHref: () => (p: string) => p 
 import { apiFetch } from '@/lib/apiFetch';
 import TrialsPage from '../../../pages/admin/trials';
 import { ConvertTrialModal } from '../../../src/components/admin/ConvertTrialModal';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 useApiJsonOverMock();
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
@@ -25,7 +26,10 @@ const row = (id: string, name: string, trial_state: string, days_left: number) =
   id, name, plan_name: null, trial_ends_at: '2026-11-20T00:00:00Z', trial_started_at: '2026-10-20T00:00:00Z',
   user_count: 1, status: 'active', trial_state, days_left,
 });
-const TRIALS = [row('a', 'Running Co', 'active', 6), row('e', 'Expired Co', 'expired', -9), row('c', 'Paying Co', 'converted', -40)];
+const TRIALS = [
+  row('a', 'Running Co', 'active', 6), row('e', 'Expired Co', 'expired', -9), row('c', 'Paying Co', 'converted', -40),
+  { ...row('s', 'Suspended Co', 'expired', -3), status: 'suspended' }, { ...row('x', 'Cancelled Co', 'expired', -3), status: 'cancelled' },
+];
 const STATS = { total_trials: 3, active_trials: 1, expiring_this_week: 1, expired_unpaid: 1, converted_this_month: 1, conversion_rate_percent: 33.33 };
 const PLANS = [
   { id: 'p0', name: 'Free Trial', code: 'trial', monthly_price_cents: 0, currency: 'ZAR' },
@@ -86,6 +90,32 @@ describe('Trials page: Convert to Paid', () => {
   });
 });
 
+describe('Trials page: who can be converted or extended', () => {
+  it('Convert to Paid is hidden on a suspended or a cancelled company', async () => {
+    render(<TrialsPage />);
+    await screen.findByText('Running Co');
+    expect(within(rowOf('Suspended Co')).queryByRole('button', { name: /convert to paid/i })).toBeNull();
+    expect(within(rowOf('Cancelled Co')).queryByRole('button', { name: /convert to paid/i })).toBeNull();
+    expect(within(rowOf('Expired Co')).queryByRole('button', { name: /convert to paid/i })).not.toBeNull();
+  });
+
+  it('a company that already pays has neither "+7 days" nor a checkbox for the bulk extend', async () => {
+    render(<TrialsPage />);
+    await screen.findByText('Running Co');
+    expect(within(rowOf('Paying Co')).queryByRole('button', { name: /\+7 days/ })).toBeNull();
+    expect(within(rowOf('Paying Co')).queryByRole('checkbox')).toBeNull();
+    expect(within(rowOf('Running Co')).queryByRole('button', { name: /\+7 days/ })).not.toBeNull();
+    expect(within(rowOf('Running Co')).queryByRole('checkbox')).not.toBeNull();
+  });
+
+  it('select-all picks only the companies that can be extended', async () => {
+    render(<TrialsPage />);
+    await screen.findByText('Running Co');
+    fireEvent.click(screen.getAllByRole('checkbox')[0]!);
+    expect(screen.getByText('4 selected')).toBeTruthy();
+  });
+});
+
 describe('Convert dialog', () => {
   it('lists only plans a customer can be converted to, with none preselected', async () => {
     render(<ConvertTrialModal companyId="e" companyName="Expired Co" onClose={vi.fn()} onConverted={vi.fn()} />);
@@ -105,8 +135,44 @@ describe('Convert dialog', () => {
     const button = screen.getByRole('button', { name: /^convert to paid$/i }) as HTMLButtonElement;
     await waitFor(() => expect(button.disabled).toBe(false));
     fireEvent.click(button);
+    fireEvent.click(await screen.findByRole('button', { name: /^done$/i }));
     await waitFor(() => expect(onConverted).toHaveBeenCalled());
     const post = vi.mocked(apiFetch).mock.calls.find(([u, i]) => String(u) === '/api/admin/trials/convert' && i?.method === 'POST')!;
     expect(JSON.parse(String(post[1]!.body))).toEqual({ companyId: 'e', planId: 'p3' });
+  });
+});
+
+describe('Convert dialog: what happens next', () => {
+  const FIRST = '2026-12-14T10:00:00Z';
+  async function convertWith(data: Record<string, unknown>) {
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      const u = String(url);
+      if (u.startsWith('/api/admin/trials/convert')) return ok({ companyId: 'e', planId: 'p3', converted: true, ...data });
+      if (u.startsWith('/api/admin/billing/plans')) return ok(PLANS);
+      return ok([]);
+    });
+    const onConverted = vi.fn();
+    render(<ConvertTrialModal companyId="e" companyName="Expired Co" onClose={vi.fn()} onConverted={onConverted} />);
+    fireEvent.click(await screen.findByLabelText(/Professional/));
+    const button = screen.getByRole('button', { name: /^convert to paid$/i }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    return onConverted;
+  }
+
+  it('states the first charge date, and warns when there is no active mandate', async () => {
+    const onConverted = await convertWith({ firstChargeAt: FIRST, hasActiveMandate: false });
+    expect(await screen.findByText(new RegExp(`first charge.*${formatDisplayDate(FIRST)}`, 'i'))).toBeTruthy();
+    expect(screen.getByText('No active mandate: this company will not be billed until one is set up.')).toBeTruthy();
+    expect(onConverted).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /^done$/i }));
+    expect(onConverted).toHaveBeenCalledTimes(1);
+  });
+
+  it('with an active mandate it says so and shows no warning', async () => {
+    await convertWith({ firstChargeAt: FIRST, hasActiveMandate: true });
+    expect(await screen.findByText(new RegExp(`first charge.*${formatDisplayDate(FIRST)}`, 'i'))).toBeTruthy();
+    expect(screen.queryByText(/No active mandate/)).toBeNull();
+    expect(screen.getByText(/charged to the active Paystack mandate/i)).toBeTruthy();
   });
 });

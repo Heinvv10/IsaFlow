@@ -7,7 +7,7 @@ import { AlertCircle, Loader2, Clock, CheckCircle, TrendingUp, XCircle } from 'l
 import Link from 'next/link';
 import { ConvertTrialModal } from '@/components/admin/ConvertTrialModal';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { daysLeftBadge, STATE_BADGE } from '@/components/admin/trialBadges';
+import { canConvertTrial, canExtendTrial, daysLeftBadge, STATE_BADGE } from '@/components/admin/trialBadges';
 import type { TrialState } from '@/modules/admin/services/trialQueries';
 
 /* ------------------------------------------------------------------ types */
@@ -127,11 +127,12 @@ export default function AdminTrialsPage() {
   }, [selected, load]);
 
   /* --------------------------------------------------- select helpers */
+  const extendable = filtered.filter(canExtendTrial);
   const toggleAll = () => {
-    if (selected.size === filtered.length) {
+    if (selected.size === extendable.length) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(filtered.map((t) => t.id)));
+      setSelected(new Set(extendable.map((t) => t.id)));
     }
   };
 
@@ -229,7 +230,7 @@ export default function AdminTrialsPage() {
             <table className="w-full text-sm">
               <thead className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
                 <tr>
-                  <th className="px-4 py-3"><input type="checkbox" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleAll} className="rounded" /></th>
+                  <th className="px-4 py-3"><input type="checkbox" checked={selected.size === extendable.length && extendable.length > 0} onChange={toggleAll} className="rounded" /></th>
                   {['Company','Plan','Started','Expires','Days Left','Status','Users','Actions'].map((h) => (
                     <th key={h} className="px-4 py-3 font-medium">{h}</th>
                   ))}
@@ -244,7 +245,9 @@ export default function AdminTrialsPage() {
                 {filtered.map((trial) => (
                   <tr key={trial.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40">
                     <td className="px-4 py-3">
-                      <input type="checkbox" checked={selected.has(trial.id)} onChange={() => toggleOne(trial.id)} className="rounded" />
+                      {canExtendTrial(trial) && (
+                        <input type="checkbox" checked={selected.has(trial.id)} onChange={() => toggleOne(trial.id)} className="rounded" />
+                      )}
                     </td>
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{trial.name}</td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{trial.plan_name ?? '—'}</td>
@@ -262,11 +265,13 @@ export default function AdminTrialsPage() {
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{trial.user_count}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <button onClick={() => void extendOne(trial.id, 7)} disabled={extending.has(trial.id)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-teal-600/20 hover:bg-teal-600/40 text-teal-400 rounded-md transition-colors disabled:opacity-40">
-                          {extending.has(trial.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : null}+7 days
-                        </button>
-                        {trial.trial_state !== 'converted' && (
+                        {canExtendTrial(trial) && (
+                          <button onClick={() => void extendOne(trial.id, 7)} disabled={extending.has(trial.id)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-teal-600/20 hover:bg-teal-600/40 text-teal-400 rounded-md transition-colors disabled:opacity-40">
+                            {extending.has(trial.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : null}+7 days
+                          </button>
+                        )}
+                        {canConvertTrial(trial) && (
                           <button onClick={() => setConvertTarget(trial)}
                             className="px-2.5 py-1 text-xs bg-green-600/20 hover:bg-green-600/40 text-green-400 rounded-md transition-colors">
                             Convert to Paid

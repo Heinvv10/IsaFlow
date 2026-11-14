@@ -16,7 +16,7 @@ import overviewRoute from '../../pages/api/admin/billing/overview';
 import healthRoute from '../../pages/api/admin/health';
 import bulkRoute from '../../pages/api/admin/companies/bulk-action';
 import {
-  asAdmin, companyRow, makeCompany, nowSkewSeconds, pool, seedPlans, startAdmin, stopAdmin, subsOf, tag, type TrialPlans,
+  addAudit, asAdmin, companyRow, makeCompany, nowSkewSeconds, pool, seedPlans, startAdmin, stopAdmin, subsOf, tag, type TrialPlans,
 } from './admin-trials.helpers';
 
 interface Row { id: string; name: string; trial_state: string; days_left: number; plan_name: string | null; status: string }
@@ -51,6 +51,13 @@ beforeAll(async () => {
   ids.suspended = await makeCompany({ name: 'List suspended expired', endsInDays: -5, status: 'suspended', sub: trialSub });
   ids.activeOnTrialPlan = await makeCompany({ name: 'List active on trial plan', endsInDays: -60,
     sub: { plan: plans.trial, status: 'active', periodEndDays: -45 } });
+  // A paying company whose subscription began long ago, with an audit row of the same id but another target type: not a conversion of this month.
+  ids.spoofed = await makeCompany({ name: 'List spoofed audit', endsInDays: -90,
+    sub: { plan: plans.paid, status: 'active', periodEndDays: 10, createdDaysAgo: 100 } });
+  await addAudit('trial.convert_to_paid', 'user', ids.spoofed, 3);
+  ids.genuine = await makeCompany({ name: 'List genuine audit', endsInDays: -90,
+    sub: { plan: plans.paid, status: 'active', periodEndDays: 10, createdDaysAgo: 100 } });
+  await addAudit('trial.convert_to_paid', 'company', ids.genuine, 3);
   ids.deleted = await makeCompany({ name: 'List deleted', endsInDays: 2, status: 'deleted', sub: trialSub });
 }, 60000);
 
@@ -63,7 +70,7 @@ describe('the trials list', () => {
     const rows = await listAll();
     const mine = new Map(rows.filter((r) => r.name.endsWith(tag)).map((r) => [r.id, r]));
     expect(mine.has(ids.deleted)).toBe(false);
-    expect(mine.size).toBe(7);
+    expect(mine.size).toBe(9);
     expect(mine.get(ids.running)?.trial_state).toBe('active');
     expect(mine.get(ids.hours)?.trial_state).toBe('active');
     expect(mine.get(ids.later)?.trial_state).toBe('active');
@@ -95,16 +102,36 @@ describe('one definition of a trial', () => {
   it('the stats, the billing overview and the health widget agree with the list', async () => {
     const after = await counts();
     const d = (n: number, b: number) => n - b;
-    expect(d(after.stats.total_trials, before.stats.total_trials)).toBe(7);
+    expect(d(after.stats.total_trials, before.stats.total_trials)).toBe(9);
     expect(d(after.stats.active_trials, before.stats.active_trials)).toBe(3);
     expect(d(after.stats.expiring_this_week, before.stats.expiring_this_week)).toBe(2);
     expect(d(after.stats.expired_unpaid, before.stats.expired_unpaid)).toBe(3);
+    // Converted this month: 'List converted' (subscription made now) and the genuine audit row; not the spoofed one.
+    expect(d(after.stats.converted_this_month, before.stats.converted_this_month)).toBe(2);
     expect(d(after.overview, before.overview)).toBe(3); // running trials, whenever they end
     expect(d(after.health, before.health)).toBe(2); // only those ending within 7 days
   }, 60000);
 });
 
 describe('extending a trial', () => {
+  it('a company that already pays is refused (409) on the single extend and skipped on the bulk ones', async () => {
+    const was = (await companyRow(ids.converted)).trial_ends_at!;
+    const one = await asAdmin(trialsRoute, 'POST', { body: { company_id: ids.converted, days: 7 } });
+    expect(one.status, JSON.stringify(one.body)).toBe(409);
+    const bulk = await asAdmin(trialsRoute, 'POST', { body: { company_ids: [ids.converted, ids.later], days: 1 } });
+    expect(data<{ extended: number }>(bulk).extended).toBe(1);
+    const viaCompanies = await asAdmin(bulkRoute, 'POST', { body: { action: 'extend_trial', company_ids: [ids.converted], days: 1 } });
+    const out = data<{ processed: number; errors: string[] }>(viaCompanies);
+    expect(out.processed).toBe(0);
+    expect(out.errors[0]).toContain(ids.converted);
+    expect((await companyRow(ids.converted)).trial_ends_at!.getTime()).toBe(was.getTime());
+  }, 30000);
+
+  it('an unknown or deleted company is a 404, not a success', async () => {
+    expect((await asAdmin(trialsRoute, 'POST', { body: { company_id: crypto.randomUUID(), days: 7 } })).status).toBe(404);
+    expect((await asAdmin(trialsRoute, 'POST', { body: { company_id: ids.deleted, days: 7 } })).status).toBe(404);
+  }, 30000);
+
   it('an expired trial restarts from today: +7 days ends in 7 days, and its trial subscription follows', async () => {
     const r = await asAdmin(trialsRoute, 'POST', { body: { company_id: ids.expired, days: 7 } });
     expect(r.status, JSON.stringify(r.body)).toBe(200);

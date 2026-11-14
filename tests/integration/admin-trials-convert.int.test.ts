@@ -11,7 +11,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import convertRoute from '../../pages/api/admin/trials/convert';
 import {
-  asAdmin, auditCount, companyRow, makeCompany, nowSkewSeconds, pool, seedPlans, startAdmin, stopAdmin, subsOf, tag,
+  addMandate, asAdmin, auditCount, companyRow, makeCompany, nowSkewSeconds, pool, seedPlans, startAdmin, stopAdmin, subsOf, tag,
   type TrialPlans,
 } from './admin-trials.helpers';
 
@@ -150,6 +150,60 @@ describe('what convert refuses', () => {
     expect((await convert(gone, plans.paid)).status).toBe(404);
     expect(await subsOf(gone)).toHaveLength(0);
     expect(await companyRow(gone)).toMatchObject({ status: 'deleted' });
+  }, 30000);
+});
+
+describe('review: company standing, stray trial rows, the first charge', () => {
+  it.each([['suspended'], ['cancelled']] as const)('a %s company is refused (409) and left exactly as it was', async (status) => {
+    const id = await makeCompany({ name: `Standing ${status}`, endsInDays: -4, status, sub: { plan: plans.trial, status: 'trial' } });
+    await pool.query(`UPDATE companies SET suspended_at = NOW() - interval '2 days', suspended_reason = 'unpaid' WHERE id = $1`, [id]);
+    const before = (await pool.query('SELECT status, plan_id, suspended_at, suspended_reason, updated_at FROM companies WHERE id = $1', [id])).rows[0];
+    const r = await convert(id, plans.paid);
+    expect(r.status, JSON.stringify(r.body)).toBe(409);
+    expect((await pool.query('SELECT status, plan_id, suspended_at, suspended_reason, updated_at FROM companies WHERE id = $1', [id])).rows[0]).toEqual(before);
+    const subs = await subsOf(id);
+    expect(subs).toHaveLength(1);
+    expect(subs[0]).toMatchObject({ status: 'trial', plan_id: plans.trial });
+    expect(await auditCount('trial.convert_to_paid', id)).toBe(0);
+  }, 30000);
+
+  it('two live trial rows: the newest is converted and the other is cancelled, so one live subscription remains', async () => {
+    const id = await makeCompany({ name: 'Two trial rows', endsInDays: 5, status: 'trial',
+      sub: { plan: plans.trial, status: 'trial', createdDaysAgo: 9 },
+      moreSubs: [{ plan: plans.trial, status: 'active', periodEndDays: -3, createdDaysAgo: 2 }, { plan: plans.trial, status: 'trial' }] });
+    const [oldest, middle, newest] = await subsOf(id);
+    const r = await convert(id, plans.paid);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const after = await subsOf(id);
+    const byId = new Map(after.map((x) => [x.id, x]));
+    expect(byId.get(newest.id)).toMatchObject({ status: 'active', plan_id: plans.paid });
+    for (const stray of [oldest, middle]) {
+      expect(byId.get(stray.id)).toMatchObject({ status: 'cancelled', plan_id: plans.trial });
+      expect(byId.get(stray.id)!.cancelled_at).not.toBeNull();
+    }
+    expect(after.filter((x) => x.status !== 'cancelled')).toHaveLength(1);
+  }, 30000);
+
+  it('a paused subscription is refused (409, "paused") and nothing is written', async () => {
+    const id = await makeCompany({ name: 'Paused sub', endsInDays: 5, status: 'trial', sub: { plan: plans.paid, status: 'paused' } });
+    const r = await convert(id, plans.paid2);
+    expect(r.status, JSON.stringify(r.body)).toBe(409);
+    expect(errorOf(r)).toMatch(/paused/i);
+    expect(await companyRow(id)).toMatchObject({ status: 'trial', plan_id: null });
+    expect((await subsOf(id))[0]).toMatchObject({ status: 'paused', plan_id: plans.paid });
+  }, 30000);
+
+  it('answers the first charge date and whether an active Paystack mandate exists', async () => {
+    const withMandate = await makeCompany({ name: 'Mandate yes', endsInDays: 5, status: 'trial', sub: { plan: plans.trial, status: 'trial' } });
+    await addMandate(withMandate);
+    const a = (await convert(withMandate, plans.paid)).body as { data: { firstChargeAt: string; hasActiveMandate: boolean } };
+    expect(a.data.hasActiveMandate).toBe(true);
+    expect(new Date(a.data.firstChargeAt).getTime()).toBe(new Date((await subsOf(withMandate))[0].current_period_end).getTime());
+
+    const without = await makeCompany({ name: 'Mandate revoked', endsInDays: 5, status: 'trial', sub: { plan: plans.trial, status: 'trial' } });
+    await addMandate(without, 'revoked');
+    const b = (await convert(without, plans.paid)).body as { data: { hasActiveMandate: boolean } };
+    expect(b.data.hasActiveMandate).toBe(false);
   }, 30000);
 });
 

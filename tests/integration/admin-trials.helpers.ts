@@ -35,6 +35,7 @@ export async function startAdmin(): Promise<void> {
 export async function stopAdmin(): Promise<void> {
   const q = (text: string, params: unknown[] = []) => pool.query(text, params).catch(() => undefined);
   await q('DELETE FROM admin_audit_log WHERE admin_user_id = $1', [admin]);
+  await q('DELETE FROM subscription_mandates WHERE company_id = ANY($1::uuid[])', [companiesMade]);
   await q('DELETE FROM subscriptions WHERE company_id = ANY($1::uuid[])', [companiesMade]);
   await q('DELETE FROM companies WHERE id = ANY($1::uuid[])', [companiesMade]);
   await q('DELETE FROM plans WHERE id = ANY($1::uuid[])', [plansMade]);
@@ -70,8 +71,12 @@ export interface CompanyShape {
   /** Days from now the trial ends (negative: ended that many days ago); null: no trial_ends_at. */
   endsInDays: number | null;
   status?: string;
-  sub?: { plan: string; status: string; periodEndDays?: number | null };
+  sub?: SubShape;
+  /** More subscriptions for the same company (oldest first; `sub` is created before them). */
+  moreSubs?: SubShape[];
 }
+
+export interface SubShape { plan: string; status: string; periodEndDays?: number | null; createdDaysAgo?: number }
 
 export async function makeCompany(shape: CompanyShape): Promise<string> {
   const id = crypto.randomUUID();
@@ -80,19 +85,21 @@ export async function makeCompany(shape: CompanyShape): Promise<string> {
     `INSERT INTO companies (id, name, status, trial_ends_at)
      VALUES ($1, $2, $3, CASE WHEN $4::numeric IS NULL THEN NULL ELSE NOW() + $4::numeric * interval '1 day' END)`,
     [id, `${shape.name} ${tag}`, shape.status ?? 'active', shape.endsInDays]);
-  if (shape.sub) {
+  for (const sub of [shape.sub, ...(shape.moreSubs ?? [])]) {
+    if (!sub) continue;
     await pool.query(
-      `INSERT INTO subscriptions (company_id, plan_id, status, billing_cycle, current_period_start, current_period_end)
+      `INSERT INTO subscriptions (company_id, plan_id, status, billing_cycle, current_period_start, current_period_end, created_at)
        VALUES ($1, $2, $3, 'monthly', NOW() - interval '30 days',
-         CASE WHEN $4::numeric IS NULL THEN NULL ELSE NOW() + $4::numeric * interval '1 day' END)`,
-      [id, shape.sub.plan, shape.sub.status, shape.sub.periodEndDays ?? shape.endsInDays]);
+         CASE WHEN $4::numeric IS NULL THEN NULL ELSE NOW() + $4::numeric * interval '1 day' END,
+         NOW() - $5::numeric * interval '1 day')`,
+      [id, sub.plan, sub.status, sub.periodEndDays ?? shape.endsInDays, sub.createdDaysAgo ?? 0]);
   }
   return id;
 }
 
 export async function subsOf(companyId: string) {
   return (await pool.query(
-    `SELECT id, plan_id, status, billing_cycle, current_period_start, current_period_end, cancel_at_period_end
+    `SELECT id, plan_id, status, billing_cycle, current_period_start, current_period_end, cancel_at_period_end, cancelled_at
      FROM subscriptions WHERE company_id = $1 ORDER BY created_at`, [companyId])).rows;
 }
 
@@ -109,3 +116,14 @@ export async function auditCount(action: string, targetId: string): Promise<numb
 
 export const nowSkewSeconds = (d: Date | string, expectedFromNowSeconds: number): number =>
   Math.abs((new Date(d).getTime() - Date.now()) / 1000 - expectedFromNowSeconds);
+
+export async function addMandate(companyId: string, status = 'active'): Promise<void> {
+  await pool.query(`INSERT INTO subscription_mandates (company_id, max_amount_cents, status, gateway) VALUES ($1, 100000, $2, 'paystack')`,
+    [companyId, status]);
+}
+
+/** An admin audit row of `action` on `targetId`, `daysAgo` days old. */
+export async function addAudit(action: string, targetType: string, targetId: string, daysAgo: number): Promise<void> {
+  await pool.query(`INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, created_at)
+    VALUES ($1, $2, $3, $4, NOW() - $5::numeric * interval '1 day')`, [admin, action, targetType, targetId, daysAgo]);
+}

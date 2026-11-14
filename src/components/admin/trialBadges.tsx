@@ -14,3 +14,13 @@ export const STATE_BADGE: Record<TrialState, { label: string; style: string }> =
   expired:   { label: 'Expired',   style: 'bg-red-500/15 text-red-400' },
   converted: { label: 'Converted', style: 'bg-green-500/15 text-green-400' },
 };
+
+/** A company that already pays is no longer on a trial: its trial is neither extended nor converted. */
+export function canExtendTrial(t: { trial_state: TrialState }): boolean {
+  return t.trial_state !== 'converted';
+}
+
+/** Convert needs a company on a trial or active: never a suspended or cancelled one (the server refuses it too). */
+export function canConvertTrial(t: { trial_state: TrialState; status: string }): boolean {
+  return t.trial_state !== 'converted' && (t.status === 'trial' || t.status === 'active');
+}

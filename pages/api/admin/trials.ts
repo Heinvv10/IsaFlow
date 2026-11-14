@@ -2,7 +2,8 @@
  * Admin Trials API
  * GET  /api/admin/trials          — trials still running that end within `within` days (default 30),
  *                                   or every trial company incl. expired and converted with `scope=all`
- * POST /api/admin/trials          — extend trial for one or many companies
+ * POST /api/admin/trials          — extend trial for one or many companies (single: 404 unknown/deleted,
+ *                                   409 already paying; bulk skips those and counts what moved)
  */
 
 import type { NextApiResponse } from 'next';
@@ -20,6 +21,7 @@ import {
   extendTrial,
   bulkExtendTrials,
 } from '@/modules/admin/services/trialService';
+import { TrialExtendError } from '@/modules/admin/services/trialErrors';
 import { UUID } from '@/lib/schemas/common';
 
 const PostBody = z.union([
@@ -97,6 +99,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       return apiResponse.badRequest(res, 'Provide company_id or company_ids[]');
     } catch (err) {
+      // Raised before anything is written: nothing to roll back.
+      if (err instanceof TrialExtendError) {
+        return err.code === 'company_not_found'
+          ? apiResponse.notFound(res, 'Company')
+          : apiResponse.conflict(res, err.message);
+      }
       log.error('Failed to extend trial', { error: err }, 'admin-trials-api');
       return apiResponse.badRequestFromError(res, err, 'Failed to extend trial');
     }

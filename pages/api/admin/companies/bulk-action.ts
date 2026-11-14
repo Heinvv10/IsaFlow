@@ -81,9 +81,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     for (const companyId of company_ids) {
       try {
         // Same rule as the Trials page: from the later of the current end and
-        // today, never on a deleted or missing company (which is not "processed").
-        if ((await extendTrialIfExists(companyId, days)) === null) {
-          errors.push(`${companyId}: not found or deleted`);
+        // today, never on a deleted, missing or already-paying company (not "processed").
+        const result = await extendTrialIfExists(companyId, days);
+        if (result.kind !== 'extended') {
+          errors.push(`${companyId}: ${result.kind === 'already_paid' ? 'already on a paid plan' : 'not found or deleted'}`);
           continue;
         }
         await logAdminAction(
