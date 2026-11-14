@@ -34,6 +34,7 @@
  * client into the client bundle.
  */
 
+import type { AskAnswer } from '@/modules/accounting/services/ask/askTypes';
 import type { LineExplanationRead } from '@/modules/accounting/services/payroll/payrollLineExplanation';
 import type { Currency } from '@/modules/accounting/services/core/currencyService';
 import type { MigrationSession } from '@/modules/accounting/services/core/migrationService';
@@ -115,6 +116,7 @@ interface StaticRoutes extends BudgetStaticRoutes {
   '/api/accounting/currencies': Currency[];
   // The header bell's feed (GET) and mark-read (POST) (budgets P5-1). Budget routes: apiRoutesBudgets.ts.
   '/api/accounting/notifications': NotificationFeed;
+  '/api/accounting/ask': AskAnswer;
   '/api/accounting/notifications/read': { updated: number };
   '/api/accounting/setup-checklist': Awaited<ReturnType<typeof getSetupProgress>>;
   '/api/accounting/customer-merge': Awaited<ReturnType<typeof mergeCustomers>>;

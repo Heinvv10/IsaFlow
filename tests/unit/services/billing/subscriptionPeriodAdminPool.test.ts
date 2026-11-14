@@ -40,17 +40,20 @@ beforeEach(() => {
 
 describe('settleSubscriptionCharge', () => {
   it('settles the charge and advances the period in ONE migration_admin transaction', async () => {
-    h.script.push([{ id: 'ch-1' }]); // the settle UPDATE matched
+    h.script.push([{ id: 'sub-1' }], [{ id: 'ch-1' }]); // the subscription lock, then the settle UPDATE matched
     await settleSubscriptionCharge('ch-1', 'co-1');
 
     expect(h.txs.map((t) => t.label)).toEqual(['subscription_settle_charge']);
     const calls = h.txs[0]!.calls;
-    expect(calls).toHaveLength(2);
-    expect(text(calls[0])).toMatch(/UPDATE subscription_charges SET status = 'settled'/);
-    expect(text(calls[1])).toMatch(/UPDATE subscriptions s/);
-    // Both statements are scoped to the charge's own company and id.
-    expect(calls[0]!.slice(1)).toEqual(['ch-1', 'co-1', null, null]); // no paid amount: the cron's verify path
-    expect(calls[1]!.slice(1)).toEqual(expect.arrayContaining(['ch-1', 'co-1']));
+    expect(calls).toHaveLength(3);
+    // Lock order: subscription row first (as the cancel and the claim), then the charge row.
+    expect(text(calls[0])).toMatch(/SELECT s\.id FROM subscriptions s .* FOR UPDATE OF s/);
+    expect(text(calls[1])).toMatch(/UPDATE subscription_charges SET status = 'settled'/);
+    expect(text(calls[2])).toMatch(/UPDATE subscriptions s/);
+    // Every statement is scoped to the charge's own company and id.
+    expect(calls[0]!.slice(1)).toEqual(['ch-1', 'co-1']);
+    expect(calls[1]!.slice(1)).toEqual(['ch-1', 'co-1', null, null]); // no paid amount: the cron's verify path
+    expect(calls[2]!.slice(1)).toEqual(expect.arrayContaining(['ch-1', 'co-1']));
   });
 
   it.each([
@@ -65,10 +68,10 @@ describe('settleSubscriptionCharge', () => {
   });
 
   it('grants no period for a charge that is no longer settleable, and says so', async () => {
-    h.script.push([]); // cancelled charge: the guarded UPDATE matched nothing
+    h.script.push([{ id: 'sub-1' }], []); // the lock, then: cancelled charge, the guarded UPDATE matched nothing
     await settleSubscriptionCharge('ch-1', 'co-1');
 
-    expect(h.txs[0]!.calls).toHaveLength(1);
+    expect(h.txs[0]!.calls).toHaveLength(2);
     expect(log.warn).toHaveBeenCalledWith(
       'Settlement arrived for a charge that is no longer settleable',
       { chargeId: 'ch-1', companyId: 'co-1', paidCents: null },

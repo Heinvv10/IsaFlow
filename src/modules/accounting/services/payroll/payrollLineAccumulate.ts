@@ -1,9 +1,9 @@
 import { formatMoney } from '@/lib/money/formatMoney';
 import { normaliseSarsCode, payeTreatment } from './payeAnnualPayment';
-import { deemedMedicalFees, isEmployerMedicalFringeCode } from './employerContributions';
+import { deemedMedicalFees, deemedRetirementContributions, isEmployerMedicalFringeCode, mixedFundTreatmentResult } from './employerContributions';
 import { effectiveInclusionRate, includedInPaye, VEHICLE_CODE } from './fringeBenefits';
 import { notPayeDeductibleWarning } from './payrollLinePaye';
-import { employerContributionWarning, employerFundBenefitWarning, isEmployerFundBenefitCode, isRetirementContributionCode } from './retirementFund';
+import { employerContributionWarning, employerFundBenefitWarning, isEmployerFundBenefitCode, isRetirementContributionCode, employerFundKeptAsCashWarning, retirementBenefitNotTaxableWarning } from './retirementFund';
 import type { ComponentBreakdownItem, EmployeeComponent, ValidationResult } from './payrollTypes';
 
 /** The running totals of a line's components, by how PAYE, UIF and SDL treat each (moved out of payrollCalculator.ts, unchanged). */
@@ -62,20 +62,23 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
   let medicalSchemeFees = 0;
   let employeeMedicalFees = 0;
   let loanInstalments = 0;
-  // Employee retirement fund contributions: deductions coded 4001/4003/4006,
-  // deducted before PAYE within section 11F (payeCumulative, retirementFund).
-  let retirementContributions = 0;
+  // Retirement fund contributions: deductions coded 4001/4003/4006, plus the employer's non-cash 3817/3825/3828 benefit
+  // deemed paid by the employee (G21 (2027) p. 10; employerContributions.ts), deducted before PAYE within section 11F
+  // on their total (payeCumulative, retirementFund).
+  let retirementContributions = deemedRetirementContributions(components);
   // Donations (4030, s18A) deducted as taxable deductions: the s11F base is taken before them (payeCumulative).
   let donations = 0;
 
   const breakdown: ComponentBreakdownItem[] = [];
   const warnings: ValidationResult[] = [];
+  const mixedFund = mixedFundTreatmentResult(components);
+  if (mixedFund) warnings.push(mixedFund);
   const earningParts: ComponentAccumulation['earningParts'] = [];
   const employerMedicalFees = deemedMedicalFees(components);
   const employeeMedical4005 = components.filter((c) => c.component.componentType === 'deduction' && normaliseSarsCode(c.component.sarsSourceCode) === '4005').reduce((n, c) => n + c.amount, 0);
   medicalSchemeFees += employerMedicalFees;
 
-  for (const { component, amount, isNonCash, directive, quantity, quantityUnit, medicalGrossUp, payeInclusionRate: given } of components) {
+  for (const { component, amount, isNonCash, directive, quantity, quantityUnit, medicalGrossUp, payeInclusionRate: given, percentOfRfi, rfiBase, employerFundAsCash } of components) {
     // 3701 is 80% remuneration unless a record says business use is at least 80%; one default (fringeBenefits.ts, G21 p. 5).
     const payeInclusionRate = component.componentType === 'earning' && component.isTaxable ? effectiveInclusionRate(component.sarsSourceCode, given) : undefined;
     const included = payeInclusionRate === undefined ? amount : includedInPaye(amount, payeInclusionRate);
@@ -99,6 +102,7 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
       // Marked on the line itself, so the certificate never re-reads today's components (payrollRetirementRecord).
       ...(contribution ? { retirementContribution: true as const } : {}),
       ...(outsidePayroll ? { paidOutsidePayroll: true as const } : {}),
+      ...(percentOfRfi != null && rfiBase !== undefined ? { percentOfRfi, rfiBase } : {}),
     });
 
     if (component.componentType === 'earning') {
@@ -140,7 +144,13 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
               + `and the 4005 deduction as the employee's own share. If the 3810 is paid in cash and the whole premium deducted as 4005, record "Medical gross-up" on the employee profile.` });
         }
       }
-      if (isEmployerFundBenefitCode(component.sarsSourceCode)) warnings.push(employerFundBenefitWarning(component.name, component.sarsSourceCode, amount));
+      // An employer's fund contribution (3817 / 3825 / 3828): deemed above when taxable and non-cash, as a run marks it (RF).
+      if (isEmployerFundBenefitCode(component.sarsSourceCode)) {
+        // A pre-RF row kept as cash (migration 975) keeps its pre-RF treatment, a warning only, taxable or not: no new block on deploy.
+        if (employerFundAsCash) warnings.push(employerFundKeptAsCashWarning(component.name, component.sarsSourceCode, amount));
+        else if (!component.isTaxable) warnings.push(retirementBenefitNotTaxableWarning(component.name, component.sarsSourceCode, amount));
+        else if (!isNonCash) warnings.push(employerFundBenefitWarning(component.name, component.sarsSourceCode, amount));
+      }
       const treatment = payeTreatment(component.sarsSourceCode);
       // Any lump-sum earning, taxable flag or not: para 9(3) of the Fourth
       // Schedule requires the directive before a lump sum is paid at all.

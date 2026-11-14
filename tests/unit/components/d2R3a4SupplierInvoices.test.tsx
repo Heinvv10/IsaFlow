@@ -158,3 +158,6 @@ describe('supplier-invoices/new', () => {
     await waitFor(() => expect(route.push).toHaveBeenCalledWith('/accounting/supplier-invoices/new-1'));
   });
 });
+
+// M14: this suite does not provide the auth context or the comments route; the panel has its own tests (commentsPanel, commentsMounts).
+vi.mock('@/components/accounting/comments/CommentsPanel', () => ({ CommentsPanel: () => null }));

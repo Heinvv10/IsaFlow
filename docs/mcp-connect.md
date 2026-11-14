@@ -117,10 +117,10 @@ both stay in the audit trail.
 
 ## Tools
 
-As of 13 November 2026 the server offers **175 tools** (81 read-only, 94 that change data; 41 of those also need `write:post`).
-The authoritative list is what your client gets from `tools/list` once connected; each
-tool's description says what it does, what it needs and whether it has a `dry_run`.
-(These counts are checked against the server in `tests/unit/mcp/mcpConnectDocCounts.test.ts`.)
+The server offers a read-only set of tools, a set that change data, and, within those, a
+smaller set that also need `write:post`. The set grows over time, so this page gives no
+totals. The authoritative list is what your client gets from `tools/list` once connected;
+each tool's description says what it does, what it needs and whether it has a `dry_run`.
 
 Some tools that sit in a **read** area still change data, so they need a `write:*` scope
 as well as the read one, and they say so on the consent screen:
@@ -134,10 +134,6 @@ as well as the read one, and they say so on the consent screen:
   sealed, append-only snapshot of the ledger at a cutoff. It cannot be deleted afterwards.
 - `run_depreciation` (`write:journals` + **`write:post`**) **posts** the month's
   depreciation journals to the general ledger. Run it with `dry_run: true` first.
-- `create_fixed_asset` (`write:journals`) registers an asset on the fixed asset register, as the
-  app's New Asset page does. It posts nothing to the ledger, and the next depreciation run depreciates the asset,
-  so run it with `dry_run: true` first. `delete_fixed_asset` (`write:journals`) undoes it, and only while the
-  asset has no depreciation, disposal, journal, fleet record or bank link; after that it is disposed in the app.
 
 Two **read** tools are the review loop around the writes: `get_match_candidates`
 (`read:bank-tx`) shows the scored shortlist for one bank transaction before anything is

@@ -9,6 +9,7 @@ import { lockCompanyPayrollForComponentChange } from './payrollComponentPaidMont
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 import { refuseOnceOffSpan } from './payrollOnceOffGuard';
 import { refuseAssignmentWrite } from './payrollAssignmentWriteGuard';
+import { judgeFundAssignment, judgePercentOfRfi } from './payrollComponentRfi';
 
 type Row = DbRow;
 
@@ -20,6 +21,10 @@ export interface EmployeeComponentAssignment {
   effectiveFrom: Date;
   effectiveTo: Date | null;
   isRecurring: boolean;
+  /** RF (migration 975): the share of retirement-funding income this row costs in a run; amount is then 0. Null = a plain amount. */
+  percentOfRfi: number | null;
+  /** RF: a pre-RF employer fund row kept as cash (migration 975's opt-out). */
+  employerFundAsCash: boolean;
 }
 
 export type EmployeeComponentAssignmentWithMeta = EmployeeComponentAssignment & {
@@ -42,6 +47,8 @@ function mapAssignment(r: Row): EmployeeComponentAssignment {
       ? r.effective_to instanceof Date ? r.effective_to : new Date(String(r.effective_to))
       : null,
     isRecurring: r.is_recurring === false ? false : true,
+    percentOfRfi: r.percent_of_rfi == null ? null : Number(r.percent_of_rfi),
+    employerFundAsCash: r.employer_fund_as_cash === true,
   };
 }
 
@@ -87,7 +94,9 @@ function dayOf(value: string, field: string): string {
 /**
  * Assign a component. The dates are plain 'YYYY-MM-DD' strings (#1057). Under the company's payroll-approval lock
  * (taken first, as approval, End and Edit dates take it), so no run is approved while an assignment appears; audited
- * with `actor` in the same transaction (payrollComponentAudit), so the approval gate sees it.
+ * with `actor` in the same transaction (payrollComponentAudit), so the approval gate sees it. `percentOfRfi` (RF, a fraction
+ * 0-1) makes the row a share of retirement-funding income, costed per run (rfi.ts): amount must then be 0, and only a
+ * retirement contribution (4001 / 4003 / 4006 deduction, 3817 / 3825 / 3828 earning) may carry it (judgePercentOfRfi).
  */
 export async function assignComponentToEmployee(
   companyId: string,
@@ -98,6 +107,7 @@ export async function assignComponentToEmployee(
   effectiveTo: string | undefined,
   isRecurring: boolean,
   actor: ComponentChangeActor,
+  percentOfRfi: number | null = null,
 ): Promise<EmployeeComponentAssignment> {
   const effectiveFromStr = dayOf(effectiveFrom, 'effectiveFrom');
   // Once-off → auto-cap effective_to at end of effective_from's month so the
@@ -115,13 +125,15 @@ export async function assignComponentToEmployee(
     await lockCompanyPayrollForComponentChange(tx, companyId);
     await assertEmployeeInCompany(employeeId, companyId);
     await assertComponentInCompany(componentId, companyId);
+    await judgeFundAssignment(tx, companyId, componentId);
+    if (percentOfRfi !== null) await judgePercentOfRfi(tx, companyId, componentId, percentOfRfi, amount, isRecurring);
     await refuseAssignmentWrite(tx, companyId, { employeeId, componentId, from: effectiveFromStr, to: effectiveToStr, recurring: isRecurring });
 
     log.info('Assigning component to employee', { companyId, employeeId, componentId, isRecurring }, 'payrollEmployeeComponentService');
 
     const rows = (await tx`
       INSERT INTO payroll_employee_components (
-        employee_id, component_id, amount, effective_from, effective_to, is_recurring, supersede_inferred
+        employee_id, component_id, amount, effective_from, effective_to, is_recurring, supersede_inferred, percent_of_rfi
       ) VALUES (
         ${employeeId}::uuid,
         ${componentId}::uuid,
@@ -129,7 +141,8 @@ export async function assignComponentToEmployee(
         ${effectiveFromStr},
         ${effectiveToStr},
         ${isRecurring},
-        FALSE -- written by this release: superseded_at decides (migration 953)
+        FALSE, -- written by this release: superseded_at decides (migration 953)
+        ${percentOfRfi}
       )
       RETURNING *
     `) as Row[];
@@ -172,7 +185,7 @@ export async function listEmployeeComponentAssignments(
   const rows = (await sql`
     SELECT
       pec.id, pec.employee_id, pec.component_id, pec.amount,
-      pec.effective_from, pec.effective_to, pec.is_recurring,
+      pec.effective_from, pec.effective_to, pec.is_recurring, pec.percent_of_rfi, pec.employer_fund_as_cash,
       pc.name AS component_name,
       pc.component_type,
       pc.is_active AS component_active,

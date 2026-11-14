@@ -47,6 +47,7 @@ export async function resetQaRecords(sql: TaggedSql, companyId: string): Promise
     await tx`DELETE FROM customer_payment_allocations WHERE payment_id IN (SELECT id FROM customer_payments WHERE company_id = ${companyId}::uuid)`;
     await tx`DELETE FROM customer_payments            WHERE company_id = ${companyId}::uuid`;
     await tx`DELETE FROM customer_invoice_items       WHERE invoice_id IN (SELECT id FROM customer_invoices WHERE company_id = ${companyId}::uuid)`;
+    await tx`DELETE FROM record_comments              WHERE company_id = ${companyId}::uuid`; // comments hang on the records below
     await tx`DELETE FROM customer_invoices            WHERE company_id = ${companyId}::uuid`;
     await tx`DELETE FROM supplier_invoice_items       WHERE supplier_invoice_id IN (SELECT id FROM supplier_invoices WHERE company_id = ${companyId}::uuid)`;
     await tx`DELETE FROM supplier_invoices            WHERE company_id = ${companyId}::uuid`;
