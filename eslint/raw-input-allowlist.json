@@ -103,7 +103,6 @@
   "pages/admin/billing/subscriptions.tsx": 1,
   "pages/admin/companies/index.tsx": 1,
   "pages/admin/email-log.tsx": 1,
-  "pages/admin/payroll/sars-codes.tsx": 1,
   "pages/admin/settings.tsx": 1,
   "pages/admin/tools/migrations.tsx": 1,
   "pages/admin/trials.tsx": 2,

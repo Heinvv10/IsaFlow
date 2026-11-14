@@ -10,69 +10,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import {
-  AlertCircle, Loader2, Upload, CheckCircle2, FileSpreadsheet, X,
-  Search, RotateCcw, BadgeCheck, Ban, ExternalLink,
-} from 'lucide-react';
+import { AlertCircle, Loader2, Upload, BadgeCheck, Ban } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { useFocusTrap } from '@/components/ui/useFocusTrap';
-
-interface ReleaseRow {
-  effective_year: number;
-  brs_version: string;
-  released_at: string;
-  is_current: boolean;
-  notes: string | null;
-  code_count: number;
-}
-
-interface CodeRow {
-  code: string;
-  effective_year: number;
-  category: string;
-  description: string;
-  status: string;
-  foreign_code: string | null;
-  code_pair: string | null;
-  applicability_note: string | null;
-  source_document: string | null;
-  source_url: string | null;
-  official_excerpt: string | null;
-  brs_version: string | null;
-  imported_at: string;
-  used_by_companies: number;
-}
-
-interface ImportDiff {
-  added: string[];
-  removed: string[];
-  changed: { code: string; field: string; oldValue: string | null; newValue: string | null }[];
-}
-
-interface ImportResult {
-  effectiveYear: number;
-  brsVersion: string;
-  upserted: number;
-  diff: ImportDiff;
-  setCurrent: boolean;
-  rowCount?: number;
-  dryRun?: boolean;
-}
-
-const CATEGORY_LABELS: Record<string, string> = {
-  income: 'Income',
-  allowance: 'Allowance',
-  fringe: 'Fringe Benefit',
-  employer: 'Employer Contrib.',
-  deduction: 'Deduction',
-  lump_sum: 'Lump Sum',
-};
-
-const STATUS_BADGE: Record<string, { bg: string; fg: string; label: string }> = {
-  active:      { bg: 'bg-emerald-500/10', fg: 'text-emerald-400', label: 'Active' },
-  conditional: { bg: 'bg-amber-500/10',   fg: 'text-amber-400',   label: 'Conditional' },
-  deprecated:  { bg: 'bg-red-500/10',     fg: 'text-red-400',     label: 'Deprecated' },
-};
+import { CodeDrawer } from '@/components/admin/payroll/SarsCodeDrawer';
+import { ImportWizard } from '@/components/admin/payroll/SarsImportWizard';
+import { SarsCodeFilters } from '@/components/admin/payroll/SarsCodeFilters';
+import { CATEGORY_LABELS, STATUS_BADGE, type CodeRow, type ReleaseRow } from '@/components/admin/payroll/sarsCodeTypes';
 
 export default function AdminSarsCodesPage() {
   const [releases, setReleases] = useState<ReleaseRow[]>([]);
@@ -210,38 +153,18 @@ export default function AdminSarsCodesPage() {
           </div>
         </div>
 
-        {/* Filter bar */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="relative flex-1 min-w-[200px] max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              aria-label="Search SARS codes"
-              onKeyDown={(e) => { if (e.key === 'Enter') void load(taxYear); }}
-              placeholder="Search code or description…"
-              className="w-full pl-9 pr-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm"
-            />
-          </div>
-          <select value={category} aria-label="Category" onChange={(e) => { setCategory(e.target.value); void load(taxYear, { category: e.target.value }); }} className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm">
-            <option value="">All categories</option>
-            {Object.entries(CATEGORY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-          <select value={statusFilter} aria-label="Status" onChange={(e) => { setStatusFilter(e.target.value); void load(taxYear, { status: e.target.value }); }} className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm">
-            <option value="">All statuses</option>
-            <option value="active">Active</option>
-            <option value="conditional">Conditional</option>
-            <option value="deprecated">Deprecated</option>
-          </select>
-          <button
-            onClick={() => { setSearch(''); setCategory(''); setStatusFilter(''); void load(taxYear, { search: '', category: '', status: '' }); }}
-            className="inline-flex items-center gap-1 px-3 py-2 rounded-lg text-xs text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]"
-          >
-            <RotateCcw className="h-3 w-3" /> Reset
-          </button>
-          <span className="ml-auto text-xs text-[var(--ff-text-tertiary)]">{codes.length} codes</span>
-        </div>
+        {/* Filter bar. A filter change passes its NEW value to load (audit 4.17). */}
+        <SarsCodeFilters
+          search={search}
+          category={category}
+          status={statusFilter}
+          count={codes.length}
+          onSearch={setSearch}
+          onSubmitSearch={() => void load(taxYear)}
+          onCategory={(v) => { setCategory(v); void load(taxYear, { category: v }); }}
+          onStatus={(v) => { setStatusFilter(v); void load(taxYear, { status: v }); }}
+          onReset={() => { setSearch(''); setCategory(''); setStatusFilter(''); void load(taxYear, { search: '', category: '', status: '' }); }}
+        />
 
         {/* Codes table */}
         {error && (
@@ -316,235 +239,5 @@ export default function AdminSarsCodesPage() {
         />
       )}
     </AdminLayout>
-  );
-}
-
-// ─── Detail drawer ───────────────────────────────────────────────────────────
-
-function CodeDrawer({ code, onClose, onToggleStatus }: {
-  code: CodeRow;
-  onClose: () => void;
-  onToggleStatus: () => void;
-}) {
-  const badge = STATUS_BADGE[code.status] ?? STATUS_BADGE.active!;
-  const ref = useRef<HTMLDivElement>(null);
-  useFocusTrap(ref, true, onClose); // audit 4.13: Escape closes, Tab stays in the drawer
-  return (
-    <div className="fixed inset-0 z-40 flex justify-end">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div ref={ref} role="dialog" aria-modal="true" aria-label={`SARS code ${code.code}`} className="relative w-full max-w-xl h-full overflow-y-auto bg-[var(--ff-surface-primary)] border-l border-[var(--ff-border-primary)] shadow-xl p-6">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <div className="font-mono text-2xl text-[var(--ff-text-primary)]">{code.code}{code.foreign_code ? <span className="text-base text-[var(--ff-text-tertiary)] ml-2">/ {code.foreign_code}</span> : null}</div>
-            <div className="text-sm text-[var(--ff-text-secondary)] mt-1">{code.description}</div>
-            <div className="flex items-center gap-2 mt-2">
-              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${badge.bg} ${badge.fg}`}>{badge.label}</span>
-              <span className="text-xs text-[var(--ff-text-tertiary)]">Year {code.effective_year} · BRS {code.brs_version ?? '—'}</span>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)]"><X className="h-5 w-5 text-[var(--ff-text-secondary)]" /></button>
-        </div>
-
-        <div className="space-y-4 text-sm">
-          <Field label="Category">{CATEGORY_LABELS[code.category] ?? code.category}</Field>
-          {code.code_pair && <Field label="Code pair">{code.code_pair}</Field>}
-          {code.applicability_note && <Field label="Applicability">{code.applicability_note}</Field>}
-          {code.official_excerpt && (
-            <div>
-              <div className="text-xs text-[var(--ff-text-tertiary)] mb-1">Official SARS guide excerpt</div>
-              <div className="text-xs text-[var(--ff-text-secondary)] whitespace-pre-wrap p-3 rounded bg-[var(--ff-bg-tertiary)] max-h-64 overflow-y-auto">
-                {code.official_excerpt}
-              </div>
-            </div>
-          )}
-          {code.source_url && (
-            <Field label="Source">
-              <a href={code.source_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-teal-400 hover:underline break-all">
-                {code.source_document ?? code.source_url} <ExternalLink className="h-3 w-3" />
-              </a>
-            </Field>
-          )}
-          <Field label="Used by">{code.used_by_companies} compan{code.used_by_companies === 1 ? 'y' : 'ies'}</Field>
-        </div>
-
-        <div className="mt-6 pt-4 border-t border-[var(--ff-border-primary)]">
-          <button
-            onClick={onToggleStatus}
-            className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${code.status === 'deprecated' ? 'bg-success-700 hover:bg-success-800 text-white' : 'bg-red-600 hover:bg-red-700 text-white'}`}
-          >
-            {code.status === 'deprecated' ? <><BadgeCheck className="h-4 w-4" /> Restore to active</> : <><Ban className="h-4 w-4" /> Mark deprecated</>}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="text-xs text-[var(--ff-text-tertiary)] mb-1">{label}</div>
-      <div className="text-sm text-[var(--ff-text-primary)]">{children}</div>
-    </div>
-  );
-}
-
-// ─── Import wizard ───────────────────────────────────────────────────────────
-
-function ImportWizard({ onClose, onComplete }: { onClose: () => void; onComplete: () => void }) {
-  const [step, setStep] = useState<'pick' | 'preview' | 'done'>('pick');
-  const [taxYear, setTaxYear] = useState<number>(new Date().getFullYear() + 1);
-  const [brsVersion, setBrsVersion] = useState<string>('v25.2.0');
-  const [setCurrent, setSetCurrent] = useState<boolean>(true);
-  const [file, setFile] = useState<File | null>(null);
-  const [working, setWorking] = useState(false);
-  const [error, setError] = useState('');
-  const [preview, setPreview] = useState<ImportResult | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(dialogRef, true, () => { if (!working) onClose(); }); // audit 4.13
-
-  const submit = async (dryRun: boolean) => {
-    if (!file) { setError('Pick an XLSX file first'); return; }
-    setWorking(true);
-    setError('');
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('taxYear', String(taxYear));
-      fd.append('brsVersion', brsVersion);
-      fd.append('setCurrent', setCurrent ? '1' : '0');
-      if (dryRun) fd.append('dryRun', '1');
-
-      const res = await apiFetch('/api/admin/payroll/sars-codes/import', { method: 'POST', body: fd });
-      await assertOk(res, 'Could not import the SARS codes - try again');
-      const json = await res.json() as { data?: ImportResult; message?: string };
-      setPreview(json.data ?? null);
-      setStep(dryRun ? 'preview' : 'done');
-      if (!dryRun) setTimeout(onComplete, 1500);
-    } catch (err) {
-      setError(apiErrorMessage(err, 'Could not import the SARS codes - try again'));
-    } finally {
-      setWorking(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="sars-import-title" className="relative w-full max-w-2xl rounded-xl bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] shadow-2xl">
-        <div className="px-6 py-4 border-b border-[var(--ff-border-primary)] flex items-center justify-between">
-          <h3 id="sars-import-title" className="text-lg font-semibold text-[var(--ff-text-primary)]">Import SARS Codes</h3>
-          <button onClick={onClose} aria-label="Close" className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)]"><X className="h-5 w-5 text-[var(--ff-text-secondary)]" /></button>
-        </div>
-
-        <div className="p-6 space-y-4">
-          {step === 'pick' && (
-            <>
-              <p className="text-sm text-[var(--ff-text-secondary)]">
-                Upload the curated SARS PAYE-AE-06-G06 master XLSX (sheet <span className="font-mono">Master_Codes</span>). The 4xxx deduction/employer codes are auto-topped-up from the legacy seed if missing.
-              </p>
-              <div className="grid grid-cols-3 gap-3">
-                <label className="block">
-                  <span className="text-xs text-[var(--ff-text-tertiary)]">Tax year</span>
-                  <input type="number" value={taxYear} onChange={(e) => setTaxYear(Number(e.target.value))} className="mt-1 w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm" />
-                </label>
-                <label className="block col-span-2">
-                  <span className="text-xs text-[var(--ff-text-tertiary)]">BRS version</span>
-                  <input type="text" value={brsVersion} onChange={(e) => setBrsVersion(e.target.value)} placeholder="v25.2.0" className="mt-1 w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm" />
-                </label>
-              </div>
-
-              <div
-                onClick={() => inputRef.current?.click()}
-                className="border-2 border-dashed border-[var(--ff-border-primary)] hover:border-teal-500 rounded-lg p-8 text-center cursor-pointer"
-              >
-                <FileSpreadsheet className="h-10 w-10 text-[var(--ff-text-tertiary)] mx-auto mb-2" />
-                <p className="text-sm text-[var(--ff-text-primary)]">{file ? file.name : 'Click to choose XLSX file'}</p>
-                <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">Max 5 MB · sheet &quot;Master_Codes&quot; required</p>
-                <input ref={inputRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-              </div>
-
-              <label className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)]">
-                <input type="checkbox" checked={setCurrent} onChange={(e) => setSetCurrent(e.target.checked)} />
-                Mark this release as current after import
-              </label>
-
-              {error && <div className="flex items-center gap-2 text-sm text-red-400"><AlertCircle className="h-4 w-4" /> {error}</div>}
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]">Cancel</button>
-                <button onClick={() => submit(true)} disabled={working || !file} className="px-3 py-2 rounded-lg text-sm bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-primary)] disabled:opacity-50">
-                  {working ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Preview diff'}
-                </button>
-                <button onClick={() => submit(false)} disabled={working || !file} className="px-3 py-2 rounded-lg text-sm bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-50">
-                  {working ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Import now'}
-                </button>
-              </div>
-            </>
-          )}
-
-          {step === 'preview' && preview && (
-            <>
-              <p className="text-sm text-[var(--ff-text-secondary)]">
-                Preview against year {preview.effectiveYear - 1}: <span className="text-[var(--ff-text-primary)] font-medium">{preview.rowCount ?? 0}</span> rows in file.
-              </p>
-              <div className="grid grid-cols-3 gap-3 text-sm">
-                <DiffCell label="Added" value={preview.diff.added.length} color="text-emerald-400" />
-                <DiffCell label="Removed" value={preview.diff.removed.length} color="text-red-400" />
-                <DiffCell label="Changed" value={preview.diff.changed.length} color="text-amber-400" />
-              </div>
-              <DiffList title="Added codes" codes={preview.diff.added} />
-              <DiffList title="Removed codes" codes={preview.diff.removed} />
-              {preview.diff.changed.length > 0 && (
-                <div>
-                  <div className="text-xs text-[var(--ff-text-tertiary)] mb-1">Changed codes</div>
-                  <div className="text-xs text-[var(--ff-text-secondary)] max-h-40 overflow-y-auto rounded bg-[var(--ff-bg-tertiary)] p-2 space-y-1">
-                    {preview.diff.changed.map((c, i) => (
-                      <div key={i}><span className="font-mono">{c.code}</span> {c.field}: <span className="text-red-400 line-through">{c.oldValue ?? '—'}</span> → <span className="text-emerald-400">{c.newValue ?? '—'}</span></div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <div className="flex justify-end gap-2 pt-2">
-                <button onClick={() => { setStep('pick'); setPreview(null); }} className="px-3 py-2 rounded-lg text-sm text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]">Back</button>
-                <button onClick={() => submit(false)} disabled={working} className="px-3 py-2 rounded-lg text-sm bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-50">
-                  {working ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Confirm import'}
-                </button>
-              </div>
-            </>
-          )}
-
-          {step === 'done' && preview && (
-            <div className="text-center py-6">
-              <CheckCircle2 className="h-12 w-12 text-emerald-400 mx-auto mb-3" />
-              <p className="text-sm text-[var(--ff-text-primary)]">Imported {preview.upserted} codes for tax year {preview.effectiveYear} (BRS {preview.brsVersion}).</p>
-              {preview.setCurrent && <p className="text-xs text-emerald-400 mt-1">Marked as current release.</p>}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DiffCell({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div className="rounded-lg bg-[var(--ff-bg-tertiary)] p-3">
-      <div className="text-xs text-[var(--ff-text-tertiary)]">{label}</div>
-      <div className={`text-2xl tabular-nums ${color}`}>{value}</div>
-    </div>
-  );
-}
-
-function DiffList({ title, codes }: { title: string; codes: string[] }) {
-  if (codes.length === 0) return null;
-  return (
-    <div>
-      <div className="text-xs text-[var(--ff-text-tertiary)] mb-1">{title}</div>
-      <div className="text-xs text-[var(--ff-text-secondary)] flex flex-wrap gap-1 max-h-24 overflow-y-auto rounded bg-[var(--ff-bg-tertiary)] p-2">
-        {codes.map((c) => <span key={c} className="font-mono px-1 py-0.5 rounded bg-[var(--ff-surface-primary)]">{c}</span>)}
-      </div>
-    </div>
   );
 }
