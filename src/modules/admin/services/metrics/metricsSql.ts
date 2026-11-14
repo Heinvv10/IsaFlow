@@ -69,17 +69,37 @@ export const currentSubscriptionJoin = () => sql`
 const asDate = (v: unknown): Date => (v instanceof Date ? v : new Date(String(v)));
 const asDateOrNull = (v: unknown): Date | null => (v == null ? null : asDate(v));
 
-/** Every subscription with its amount and whether it is in MRR now. */
+/**
+ * Every subscription with its amount, whether it is in MRR now, and when it
+ * started earning (`mrr_from`, for history: trend, NRR, churn). A trial is
+ * converted IN PLACE (same row, created at the trial start), so:
+ *   - the company's latest `trial.convert_to_paid` admin audit row, when it
+ *     has one, is the conversion (a row created after it keeps its created_at);
+ *   - else, a row created before the company's trial_ends_at is taken to be
+ *     the trial row and earns from the trial end (capped at now). This is an
+ *     approximation (a paid row bought during the trial is dated to the trial
+ *     end; an extended trial moves it): the trend card says so.
+ */
 export async function loadSubscriptionFacts(): Promise<SubscriptionFact[]> {
   const rows = await sql`
     SELECT s.id::text AS id, s.company_id::text AS company_id, p.id::text AS plan_id, p.name AS plan_name,
            s.billing_cycle, s.status, s.created_at, s.cancelled_at,
+           CASE
+             WHEN conv.converted_at IS NOT NULL THEN GREATEST(s.created_at, conv.converted_at)
+             WHEN c.trial_ends_at IS NOT NULL AND s.created_at < c.trial_ends_at THEN LEAST(c.trial_ends_at, NOW())
+             ELSE s.created_at
+           END AS mrr_from,
            ${subscriptionAnnualUnits()} AS annual_units,
            ${subscriptionInMrr()} AS counts_toward_mrr,
            ${companyOutOfMrr()} AS company_excluded
     FROM subscriptions s
     JOIN plans p ON p.id = s.plan_id
     JOIN companies c ON c.id = s.company_id
+    LEFT JOIN LATERAL (
+      SELECT MAX(a.created_at) AS converted_at
+      FROM admin_audit_log a
+      WHERE a.action = 'trial.convert_to_paid' AND a.target_type = 'company' AND a.target_id = c.id::text
+    ) conv ON true
   `;
   return (rows as DbRow[]).map((r) => ({
     id: r.id as string,
@@ -89,6 +109,7 @@ export async function loadSubscriptionFacts(): Promise<SubscriptionFact[]> {
     billing_cycle: r.billing_cycle as string,
     status: r.status as string,
     created_at: asDate(r.created_at),
+    mrr_from: asDate(r.mrr_from),
     cancelled_at: asDateOrNull(r.cancelled_at),
     annual_units: Number(r.annual_units),
     counts_toward_mrr: r.counts_toward_mrr === true,

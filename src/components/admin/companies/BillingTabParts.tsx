@@ -26,6 +26,7 @@ export interface Subscription {
   cancel_at_period_end: boolean;
   discount_percent: number;
   monthly_amount_cents: number;
+  counts_toward_mrr?: boolean;
   created_at: string;
 }
 
@@ -142,9 +143,14 @@ export function SubscriptionCard({
         <BillingField label="Status">
           <StatusBadge status={subscription.status} map={SUB_STATUS_CLASS} />
         </BillingField>
-        <BillingField label="MRR Contribution">
+        <BillingField label="Monthly amount">
           <span className="text-sm font-semibold text-gray-900 dark:text-white">
             {centsToZar(subscription.monthly_amount_cents)}
+          </span>
+        </BillingField>
+        <BillingField label="Counts toward MRR">
+          <span className="text-sm text-gray-900 dark:text-white">
+            {subscription.counts_toward_mrr === undefined ? '—' : subscription.counts_toward_mrr ? 'Yes' : 'No'}
           </span>
         </BillingField>
         <BillingField label="Discount">

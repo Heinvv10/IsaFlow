@@ -14,9 +14,10 @@ function fact(over: Partial<SubscriptionFact> & { company_id: string; annual_uni
   n += 1;
   const status = over.status ?? 'active';
   const company_excluded = over.company_excluded ?? false;
+  const created_at = over.created_at ?? T0;
   return {
     id: `s${n}`, plan_id: 'p-starter', plan_name: 'Starter', billing_cycle: 'annual',
-    created_at: T0, cancelled_at: null, status, company_excluded,
+    created_at, mrr_from: created_at, cancelled_at: null, status, company_excluded,
     counts_toward_mrr: status === 'active' && !company_excluded,
     ...over,
   };
@@ -55,6 +56,14 @@ describe('summariseRevenue', () => {
     expect(r.arpu_cents).toBe(39_892);
   });
 
+  it('ARPU divides the unrounded MRR (review L3)', () => {
+    // Two companies at 600 360 units: MRR 1 200 720 / 1200 = 1 000.6 -> 1 001 cents.
+    // ARPU from the unrounded MRR: 1 000.6 / 2 = 500.3 -> 500 (from the rounded 1 001 / 2 = 500.5 -> 501).
+    const r = summariseRevenue([fact({ company_id: 'a', annual_units: 600_360 }), fact({ company_id: 'b', annual_units: 600_360 })]);
+    expect(r.mrr_cents).toBe(1_001);
+    expect(r.arpu_cents).toBe(500);
+  });
+
   it('has no ARPU when nobody pays', () => {
     const r = summariseRevenue([fact({ company_id: 'h', annual_units: 0 })]);
     expect(r).toEqual({ mrr_cents: 0, arr_cents: 0, active_subscriptions: 1, paying_companies: 0, arpu_cents: null });
@@ -74,6 +83,15 @@ describe('revenueAt (history without status history)', () => {
     expect(revenueAt(facts, new Date('2026-09-30T23:59:59Z')).mrr_cents).toBe(0);
     expect(revenueAt(facts, new Date('2026-10-19T12:00:00Z')).mrr_cents).toBe(3_000);
     expect(revenueAt(facts, new Date('2026-10-20T00:00:00Z')).mrr_cents).toBe(1_000);
+  });
+});
+
+describe('revenueAt: a converted trial (review H1)', () => {
+  it('counts from mrr_from (its conversion), not from created_at (the trial start)', () => {
+    const f = fact({ company_id: 't', annual_units: 1_200_000, created_at: new Date('2026-10-01T00:00:00Z'),
+      mrr_from: new Date('2026-10-31T00:00:00Z') });
+    expect(revenueAt([f], new Date('2026-10-15T00:00:00Z')).mrr_cents).toBe(0);
+    expect(revenueAt([f], new Date('2026-10-31T00:00:00Z')).mrr_cents).toBe(1_000);
   });
 });
 

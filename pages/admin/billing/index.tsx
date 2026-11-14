@@ -9,7 +9,7 @@ import { StatsCard } from '@/components/admin/StatsCard';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
-import { formatCentsOrDash, formatRate } from '@/components/admin/formatMetric';
+import { formatCentsOrDash, formatRate, MRR_SCOPE_NOTE } from '@/components/admin/formatMetric';
 import { AlertCircle, Loader2, ArrowRight, CreditCard, List, FileText, Zap, Package } from 'lucide-react';
 import Link from 'next/link';
 
@@ -92,8 +92,8 @@ export default function BillingOverviewPage() {
         <>
           {/* KPI Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-8">
-            <StatsCard title="MRR"                   value={formatCurrency(overview.mrr_cents / 100)} />
-            <StatsCard title="ARR"                   value={formatCurrency(overview.arr_cents / 100)} />
+            <StatsCard title="MRR"                   value={formatCurrency(overview.mrr_cents / 100)} subtitle={MRR_SCOPE_NOTE} />
+            <StatsCard title="ARR"                   value={formatCurrency(overview.arr_cents / 100)} subtitle={MRR_SCOPE_NOTE} />
             <StatsCard title="Active Subscriptions"  value={overview.active_subscriptions} />
             <StatsCard title="Past Due"              value={overview.past_due_count} />
             <StatsCard title="Trials"                value={overview.trial_count} />

@@ -15,13 +15,14 @@ import { getDashboardStats } from '@/modules/admin/services/adminDashboardServic
 import { getRevenueIntelligence } from '@/modules/admin/services/revenueService';
 import { getTrends, getUsageAnalytics } from '@/modules/admin/services/analyticsService';
 import { getCompanyDetail, listCompanies } from '@/modules/admin/services/adminCompanyService';
-import { cleanup, flagNames, ids, planNames, seed, tag } from './admin-metrics.helpers';
+import { cleanup, flagNames, ids, lastMonthSignup, planNames, seed, tag } from './admin-metrics.helpers';
 
 type Overview = Awaited<ReturnType<typeof getBillingOverview>> & { paying_companies?: number };
 let before: Overview;
+let dashBefore: Awaited<ReturnType<typeof getDashboardStats>>;
 
 beforeAll(async () => {
-  before = await getBillingOverview();
+  [before, dashBefore] = await Promise.all([getBillingOverview(), getDashboardStats()]);
   await seed();
 });
 afterAll(cleanup);
@@ -35,6 +36,22 @@ describe('one MRR definition (goal §2a)', () => {
     // A, B, C (two), H, K: the R0 subscriptions are active but pay nothing.
     expect(after.active_subscriptions - before.active_subscriptions).toBe(6);
     expect(after.arpu_cents).toBe(after.mrr_cents === 0 ? null : Math.round(after.mrr_cents / (after.paying_companies ?? NaN)));
+  });
+
+  it('billing overview: the card row is one population (review M2)', async () => {
+    const after = await getBillingOverview();
+    // Subscriptions of A, B, C (two), D, H, K; not E (deleted), F (suspended), G (demo).
+    expect(after.total_subscriptions - before.total_subscriptions).toBe(7);
+    expect(after.past_due_count - before.past_due_count).toBe(0);
+  });
+
+  it('dashboard company counts leave out deleted and internal companies (review M6)', async () => {
+    const dash = await getDashboardStats();
+    // A, B, C, D, F, H, K (not E deleted, not G demo); active: the same less F (suspended).
+    expect(dash.total_companies - dashBefore.total_companies).toBe(7);
+    expect(dash.active_companies - dashBefore.active_companies).toBe(6);
+    const kInWindow = Date.now() - lastMonthSignup().getTime() < 30 * 86_400_000 ? 1 : 0;
+    expect(dash.new_signups_30d - dashBefore.new_signups_30d).toBe(6 + kInWindow);
   });
 
   it('dashboard, analytics trend, revenue intelligence and the overview agree', async () => {

@@ -32,7 +32,10 @@ export interface SubscriptionListItem {
   current_period_end: string | null;
   cancel_at_period_end: boolean;
   discount_percent: number;
+  /** This subscription's monthly amount after discount, whatever its status. */
   monthly_amount_cents: number;
+  /** Whether it is in MRR now (active, company not deleted/suspended/internal). */
+  counts_toward_mrr: boolean;
   created_at: string;
 }
 

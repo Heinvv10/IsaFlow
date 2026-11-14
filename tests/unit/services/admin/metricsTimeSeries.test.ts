@@ -3,14 +3,14 @@
  * SAST is UTC+2: 2026-11-14T22:30Z is already 15 November in Johannesburg.
  */
 import { describe, expect, it } from 'vitest';
-import { cohortRetention, mrrTrend, sastDate } from '@/modules/admin/services/metrics/timeSeriesMath';
+import { churnTrend, cohortRetention, mrrTrend, sastDate } from '@/modules/admin/services/metrics/timeSeriesMath';
 import type { SubscriptionFact } from '@/modules/admin/services/metrics/revenueMath';
 
 function fact(company_id: string, annual_units: number, created: string, extra: Partial<SubscriptionFact> = {}): SubscriptionFact {
   const status = extra.status ?? 'active';
   return {
     id: `${company_id}-${created}`, company_id, plan_id: 'p', plan_name: 'P', billing_cycle: 'monthly', status,
-    created_at: new Date(created), cancelled_at: null, annual_units,
+    created_at: new Date(created), mrr_from: new Date(created), cancelled_at: null, annual_units,
     company_excluded: false, counts_toward_mrr: status === 'active', ...extra,
   };
 }
@@ -44,6 +44,35 @@ describe('mrrTrend', () => {
   it("today's point is MRR now", () => {
     // a + c (b cancelled, d trial): (1 200 000 + 3 600 000) / 1200 = 4 000
     expect(trend.at(-1)?.mrr_cents).toBe(4_000);
+  });
+});
+
+describe('mrrTrend: a converted trial (review H1)', () => {
+  it('counts from its conversion, not from the trial start the row was created at', () => {
+    const now = new Date('2026-11-14T22:30:00Z');
+    // The trial row was created on 1 Nov and converted (same row) on 12 Nov 10:00 SAST.
+    const converted = fact('t', 1_200_000, '2026-11-01T08:00:00Z', { mrr_from: new Date('2026-11-12T08:00:00Z') });
+    expect(mrrTrend([converted], now, 7).map((p) => p.mrr_cents)).toEqual([0, 0, 0, 1_000, 1_000, 1_000, 1_000]);
+  });
+});
+
+describe('churnTrend (review M1)', () => {
+  const now = new Date('2026-11-14T10:00:00Z');
+  const aug = '2026-08-01T00:00:00Z'; // 02:00 SAST on 1 Aug: after the August base was taken
+  const rows = churnTrend([
+    fact('a', 1_200_000, aug),                                                                   // pays throughout
+    fact('b', 1_200_000, aug, { status: 'cancelled', cancelled_at: new Date('2026-10-10T00:00:00Z') }), // churns in Oct
+    fact('c', 1_200_000, '2026-10-05T00:00:00Z', { status: 'cancelled', cancelled_at: new Date('2026-10-20T00:00:00Z') }), // new in Oct: not in its base
+    fact('d', 1_200_000, aug, { status: 'cancelled', cancelled_at: new Date('2026-10-15T00:00:00Z'), company_excluded: true }), // deleted/internal
+    fact('e', 1_200_000, aug, { status: 'trial' }),                                              // never paying
+  ], now, 4);
+  it('per SAST month: paying companies at the start that pay nothing by the end; an empty base is null', () => {
+    expect(rows).toEqual([
+      { month: '2026-08-01', churned_companies: 0, churn_rate_pct: null },
+      { month: '2026-09-01', churned_companies: 0, churn_rate_pct: 0 },
+      { month: '2026-10-01', churned_companies: 1, churn_rate_pct: 50 },
+      { month: '2026-11-01', churned_companies: 0, churn_rate_pct: 0 },
+    ]);
   });
 });
 

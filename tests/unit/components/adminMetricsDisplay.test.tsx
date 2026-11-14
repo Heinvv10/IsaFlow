@@ -19,6 +19,10 @@ import BillingOverviewPage from '../../../pages/admin/billing/index';
 import HealthPage from '../../../pages/admin/health';
 import AdminDashboard from '../../../pages/admin/index';
 import { CohortRetentionTable } from '@/components/admin/charts/CohortRetentionTable';
+import { SubscriptionCard } from '@/components/admin/companies/BillingTabParts';
+import { RevenueIntelligenceSection } from '@/components/admin/RevenueIntelligenceSection';
+
+const SCOPE = 'Active subscriptions only; excludes trials, past due, suspended and internal companies';
 
 void mockedApiFetchModule;
 useApiJsonOverMock();
@@ -56,6 +60,47 @@ describe('billing overview', () => {
     expect(screen.queryByText('Total Revenue')).toBeNull();
     expect(screen.getByText('Paid Admin Invoices')).toBeDefined();
     expect(screen.getByText('Unpaid Admin Invoices')).toBeDefined();
+  });
+});
+
+describe('MRR scope note (review M3)', () => {
+  it('billing overview: on the MRR and ARR cards', async () => {
+    serve({ '/api/admin/billing/overview': { mrr_cents: 1, arr_cents: 12, total_subscriptions: 1, active_subscriptions: 1,
+      past_due_count: 0, trial_count: 0, paying_companies: 1, churn_rate_percent: 0, arpu_cents: 1, total_revenue_cents: 0,
+      outstanding_cents: 0 }, '/api/admin/billing/subscriptions': { items: [] } });
+    render(<BillingOverviewPage />);
+    await screen.findByText('ARR');
+    expect(screen.getByText('MRR').parentElement?.textContent).toContain(SCOPE);
+    expect(screen.getByText('ARR').parentElement?.textContent).toContain(SCOPE);
+  });
+  it('dashboard: on the MRR card', async () => {
+    serve({ '/api/admin/dashboard-stats': { total_companies: 1, active_companies: 1, total_users: 1, active_users_30d: 0,
+      mrr_cents: 0, arr_cents: 0, new_signups_30d: 0, recent_activity: [] }, '/api/admin/trials': [] });
+    render(<AdminDashboard />);
+    expect((await screen.findByText('MRR')).parentElement?.textContent).toContain(SCOPE);
+  });
+  it('revenue intelligence: under its heading', async () => {
+    serve({ '/api/admin/analytics/revenue': { plan_breakdown: [], churn_trend: [], nrr: null, arpu_cents: null,
+      ltv_estimate_cents: null, cohort_retention: [] } });
+    render(<RevenueIntelligenceSection />);
+    await screen.findByText('Net Revenue Retention');
+    expect(screen.getByText(`${SCOPE}.`)).toBeDefined();
+  });
+});
+
+describe('company billing tab (review M4)', () => {
+  const sub = { id: 's', company_id: 'c', company_name: 'C', plan_id: 'p', plan_name: 'Pro', plan_code: 'pro', status: 'trial',
+    billing_cycle: 'monthly', current_period_start: null, current_period_end: null, cancel_at_period_end: false,
+    discount_percent: 0, monthly_amount_cents: 59_900, created_at: '2026-01-01T00:00:00Z' };
+  it('a trial shows its monthly amount and that it does not count toward MRR', () => {
+    render(<SubscriptionCard subscription={{ ...sub, counts_toward_mrr: false }} onCancel={vi.fn()} onRefresh={vi.fn()} />);
+    expect(screen.queryByText('MRR Contribution')).toBeNull();
+    expect(valueOf('Monthly amount')).toContain('599.00');
+    expect(valueOf('Counts toward MRR')).toBe('No');
+  });
+  it('an active one says Yes', () => {
+    render(<SubscriptionCard subscription={{ ...sub, status: 'active', counts_toward_mrr: true }} onCancel={vi.fn()} onRefresh={vi.fn()} />);
+    expect(valueOf('Counts toward MRR')).toBe('Yes');
   });
 });
 

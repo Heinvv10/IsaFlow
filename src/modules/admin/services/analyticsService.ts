@@ -165,11 +165,10 @@ async function getEngagementCounts(): Promise<{ dau: number; wau: number; mau: n
  */
 async function getFeatureAdoption(): Promise<UsageAnalytics['feature_adoption']> {
   const [companyIds, flags] = await Promise.all([loadLiveCompanyIds(), listFeatureFlags()]);
-  const adoption: UsageAnalytics['feature_adoption'] = [];
-  for (const flag of flags) {
+  const adoption = await Promise.all(flags.map(async (flag) => {
     const count = (await companiesWithFeature(companyIds, flag.code)).size;
-    adoption.push({ feature: flag.name, user_count: count, adoption_percent: percentOrNull(count, companyIds.length) });
-  }
+    return { feature: flag.name, user_count: count, adoption_percent: percentOrNull(count, companyIds.length) };
+  }));
   return adoption.sort((a, b) => b.user_count - a.user_count || a.feature.localeCompare(b.feature));
 }
 

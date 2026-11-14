@@ -15,7 +15,7 @@ import { AlertCircle, Loader2 } from 'lucide-react';
 import type { AnalyticsTrends } from '@/modules/admin/types/admin.types';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { formatRate } from '@/components/admin/formatMetric';
+import { formatRate, MRR_SCOPE_NOTE, MRR_TREND_NOTE } from '@/components/admin/formatMetric';
 
 interface UsageAnalytics {
   dau: number;
@@ -134,6 +134,7 @@ export default function AdminAnalytics() {
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
                 <ChartCard title="MRR Trend (ZAR)">
                   <MrrTrendChart data={trends.mrr_trend} />
+                  <p className="text-xs text-ink-muted mt-2">{MRR_SCOPE_NOTE}. {MRR_TREND_NOTE}</p>
                 </ChartCard>
                 <ChartCard title="Active Users">
                   <EngagementTrendChart data={trends.engagement_trend} />

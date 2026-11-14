@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { loadSubscriptionFacts } from './metrics/metricsSql';
+import { companyOutOfMetrics, loadSubscriptionFacts } from './metrics/metricsSql';
 import { mrrTrend } from './metrics/timeSeriesMath';
 import type {
   AnalyticsTrends,
@@ -82,7 +82,7 @@ async function getSignupTrend(): Promise<SignupTrendPoint[]> {
     ) AS d(date)
     LEFT JOIN companies c
       ON c.created_at::date = d.date::date
-      AND c.status IS DISTINCT FROM 'deleted'
+      AND NOT ${companyOutOfMetrics()}
     LEFT JOIN users u
       ON u.created_at::date = d.date::date
       AND u.is_active = true

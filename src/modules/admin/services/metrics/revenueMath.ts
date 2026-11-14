@@ -26,6 +26,11 @@ export interface SubscriptionFact {
   billing_cycle: string;
   status: string;
   created_at: Date;
+  /**
+   * When the row started earning: created_at, or for a converted trial (same
+   * row, created at the trial start) its conversion (metricsSql.ts).
+   */
+  mrr_from: Date;
   cancelled_at: Date | null;
   /** Annualised price after discount, in hundredths of a cent. */
   annual_units: number;
@@ -80,13 +85,14 @@ export function summariseRevenue(facts: readonly SubscriptionFact[]): RevenueSum
 
 /**
  * Was this subscription in MRR at instant `at`? There is no status history, so:
- * an active one counts from its creation; a cancelled one counts from creation
- * until its cancelled_at (never, when cancelled_at is missing); any other
- * status (trial, past_due, paused) is not in MRR now and has no knowable past.
- * At `at` = now this is exactly `counts_toward_mrr`.
+ * an active one counts from `mrr_from` (creation, or a trial's conversion); a
+ * cancelled one from `mrr_from` until its cancelled_at (never, when
+ * cancelled_at is missing); any other status (trial, past_due, paused) is not
+ * in MRR now and has no knowable past. At `at` = now this is exactly
+ * `counts_toward_mrr` (mrr_from is never later than the read).
  */
 export function inMrrAt(f: SubscriptionFact, at: Date): boolean {
-  if (f.company_excluded || f.created_at.getTime() > at.getTime()) return false;
+  if (f.company_excluded || f.mrr_from.getTime() > at.getTime()) return false;
   if (f.status === 'active') return true;
   if (f.status === 'cancelled') return f.cancelled_at !== null && f.cancelled_at.getTime() > at.getTime();
   return false;

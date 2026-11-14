@@ -7,7 +7,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { getRevenueSummary } from './metrics/metricsSql';
+import { companyOutOfMetrics, getRevenueSummary } from './metrics/metricsSql';
 import type { DashboardStats, ActivityEvent } from '../types/admin.types';
 type Row = DbRow;
 
@@ -59,10 +59,11 @@ async function getKpis(): Promise<{
 }> {
   const [rows, revenue] = await Promise.all([sql`
     SELECT
-      (SELECT COUNT(*)            FROM companies WHERE status IS DISTINCT FROM 'deleted')                AS total_companies,
-      (SELECT COUNT(*)            FROM companies WHERE status = 'active')                               AS active_companies,
-      (SELECT COUNT(*)            FROM companies WHERE created_at >= NOW() - INTERVAL '30 days'
-                                                   AND status IS DISTINCT FROM 'deleted')              AS new_signups_30d,
+      -- Companies: never deleted or internal ones (metrics module).
+      (SELECT COUNT(*) FROM companies c WHERE NOT ${companyOutOfMetrics()})                              AS total_companies,
+      (SELECT COUNT(*) FROM companies c WHERE c.status = 'active' AND NOT ${companyOutOfMetrics()})      AS active_companies,
+      (SELECT COUNT(*) FROM companies c WHERE c.created_at >= NOW() - INTERVAL '30 days'
+                                          AND NOT ${companyOutOfMetrics()})                             AS new_signups_30d,
       (SELECT COUNT(*)            FROM users     WHERE is_active = true)                               AS total_users,
       (SELECT COUNT(*)            FROM users     WHERE is_active = true
                                                    AND last_login >= NOW() - INTERVAL '30 days')       AS active_users_30d

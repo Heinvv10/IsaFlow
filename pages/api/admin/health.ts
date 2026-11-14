@@ -78,11 +78,13 @@ async function getDbHealth(): Promise<DbHealth> {
     const size_mb = parseFloat((rows[0] as Row).size_mb as string) || 0;
     return { status: 'ok', latency_ms, size_mb };
   } catch (err) {
+    // The driver's text (host, port, SQL) goes to the log, never to the browser.
+    log.error('Database health check failed', { message: err instanceof Error ? err.message : String(err) }, 'admin-health-api');
     return {
       status: 'error',
       latency_ms: Date.now() - start,
       size_mb: 0,
-      error: err instanceof Error ? err.message : 'Unknown DB error',
+      error: 'database check failed',
     };
   }
 }

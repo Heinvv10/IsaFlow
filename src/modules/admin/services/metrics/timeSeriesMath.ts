@@ -5,8 +5,8 @@
  * "today" point is today in Johannesburg whatever the server's clock zone.
  */
 
-import type { CohortRetentionRow, MrrTrendPoint } from '../../types/admin-billing.types';
-import { percentOrNull, revenueAt, type SubscriptionFact } from './revenueMath';
+import type { ChurnTrendPoint, CohortRetentionRow, MrrTrendPoint } from '../../types/admin-billing.types';
+import { inMrrAt, percentOrNull, revenueAt, type SubscriptionFact } from './revenueMath';
 
 const SAST_OFFSET_MS = 2 * 3_600_000;
 const DAY_MS = 86_400_000;
@@ -46,6 +46,35 @@ export function mrrTrend(facts: readonly SubscriptionFact[], now: Date, days = 3
     const dayEnd = new Date(Date.parse(`${date}T00:00:00Z`) - SAST_OFFSET_MS + DAY_MS - 1);
     const r = revenueAt(facts, earlier(dayEnd, now));
     points.push({ date, mrr_cents: r.mrr_cents, company_count: r.paying_companies });
+  }
+  return points;
+}
+
+/** Companies paying (MRR > 0, by `inMrrAt`) at instant `at`. */
+function payingAt(facts: readonly SubscriptionFact[], at: Date): Set<string> {
+  const units = new Map<string, number>();
+  for (const f of facts) if (inMrrAt(f, at)) units.set(f.company_id, (units.get(f.company_id) ?? 0) + f.annual_units);
+  return new Set([...units].filter(([, u]) => u > 0).map(([company]) => company));
+}
+
+/**
+ * Company churn per SAST month, the last `months` months (this one so far
+ * included), oldest first: of the companies paying when the month began, how
+ * many pay nothing at its end (now, for this month). Same population and
+ * live rule as MRR and ARPU (`inMrrAt`: deleted, suspended and internal
+ * companies are outside it), so LTV = ARPU / churn is one definition. A month
+ * with nobody paying at its start has no rate (null).
+ */
+export function churnTrend(facts: readonly SubscriptionFact[], now: Date, months = 6): ChurnTrendPoint[] {
+  const points: ChurnTrendPoint[] = [];
+  for (let k = -(months - 1); k <= 0; k++) {
+    const start = sastMonthStartFrom(now, k);
+    const next = sastMonthStartFrom(now, k + 1);
+    const end = earlier(new Date(next.getTime() - 1), now);
+    const base = payingAt(facts, start);
+    const still = payingAt(facts, end);
+    const churned = [...base].filter((company) => !still.has(company)).length;
+    points.push({ month: sastDate(start), churned_companies: churned, churn_rate_pct: percentOrNull(churned, base.size) });
   }
   return points;
 }

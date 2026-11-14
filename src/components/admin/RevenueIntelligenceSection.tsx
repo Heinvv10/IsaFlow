@@ -8,7 +8,7 @@ import dynamic from 'next/dynamic';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import type { RevenueIntelligence } from '@/modules/admin/types/admin.types';
-import { formatCentsOrDash, formatRate } from '@/components/admin/formatMetric';
+import { formatCentsOrDash, formatRate, MRR_SCOPE_NOTE } from '@/components/admin/formatMetric';
 
 const PlanBreakdownChart  = dynamic(
   () => import('./charts/PlanBreakdownChart').then((m) => m.PlanBreakdownChart),
@@ -79,7 +79,8 @@ export function RevenueIntelligenceSection() {
 
   return (
     <div className="mb-8">
-      <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Revenue Intelligence</h2>
+      <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">Revenue Intelligence</h2>
+      <p className="text-xs text-ink-muted mb-4">{MRR_SCOPE_NOTE}.</p>
 
       {error && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">

@@ -13,6 +13,7 @@ const fx = vi.hoisted(() => ({
   scalars: null as Record<string, unknown> | null,
   failScalars: false,
   failErrors: false,
+  failDb: false,
   texts: [] as string[],
 }));
 const log = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
@@ -24,7 +25,10 @@ vi.mock('@/lib/neon', () => ({
   sql: async (strings: TemplateStringsArray) => {
     const text = strings.join('?');
     fx.texts.push(text);
-    if (text.includes('pg_database_size')) return [{ size_mb: '12.5' }];
+    if (text.includes('pg_database_size')) {
+      if (fx.failDb) throw new Error('connect ECONNREFUSED 10.0.0.5:5432');
+      return [{ size_mb: '12.5' }];
+    }
     if (text.includes('background_jobs')) {
       if (fx.failScalars) throw new Error('relation "background_jobs" does not exist');
       return [fx.scalars];
@@ -55,6 +59,7 @@ beforeEach(() => {
   fx.scalars = { ...ROW };
   fx.failScalars = false;
   fx.failErrors = false;
+  fx.failDb = false;
   fx.texts = [];
   log.error.mockClear();
 });
@@ -64,8 +69,14 @@ describe('a metric that cannot be read is an error', () => {
     fx.failScalars = true;
     const r = await call();
     expect(r.statusCode).toBe(500);
-    expect(JSON.stringify(r.body)).not.toContain('healthy');
+    const body = JSON.stringify(r.body);
+    expect(body).not.toContain('healthy');
+    // No SQL text, relation name or stack reaches the browser (review L4).
+    expect(body).not.toMatch(/background_jobs|relation|SELECT|stack|at \w+ \(/i);
     expect(log.error).toHaveBeenCalledWith('Health metrics could not be read', expect.anything(), 'admin-health-api');
+    // The 500 is the database error itself, not a later crash on a half-built payload.
+    const failure = log.error.mock.calls.find((c) => c[0] === 'System health check failed');
+    expect((failure?.[1] as { error?: Error } | undefined)?.error?.message).toBe('relation "background_jobs" does not exist');
   });
 
   it('the recent-errors query failing answers 500, not "no error events"', async () => {
@@ -73,6 +84,19 @@ describe('a metric that cannot be read is an error', () => {
     const r = await call();
     expect(r.statusCode).toBe(500);
     expect(log.error).toHaveBeenCalledWith('Recent error events could not be read', expect.anything(), 'admin-health-api');
+  });
+});
+
+describe('the database probe (review L1)', () => {
+  it('an unreachable database is status error with a fixed reason; the driver text is only logged', async () => {
+    fx.failDb = true;
+    const r = await call();
+    expect(r.statusCode).toBe(200);
+    expect(r.body.data?.db).toMatchObject({ status: 'error', error: 'database check failed' });
+    expect(r.body.data?.overall_status).toBe('critical');
+    expect(JSON.stringify(r.body)).not.toContain('ECONNREFUSED');
+    expect(log.error).toHaveBeenCalledWith('Database health check failed',
+      { message: 'connect ECONNREFUSED 10.0.0.5:5432' }, 'admin-health-api');
   });
 });
 

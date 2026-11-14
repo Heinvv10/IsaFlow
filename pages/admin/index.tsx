@@ -10,7 +10,7 @@ import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Building2, Users, ArrowRight, Loader2, Activity, Clock } from 'lucide-react';
 import Link from 'next/link';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { formatRate } from '@/components/admin/formatMetric';
+import { formatRate, MRR_SCOPE_NOTE } from '@/components/admin/formatMetric';
 
 interface TrialRow {
   id: string;
@@ -144,7 +144,7 @@ export default function AdminDashboard() {
             <StatsCard title="Active Companies"      value={stats.active_companies} />
             <StatsCard title="Total Users"           value={stats.total_users} />
             <StatsCard title="Active Users (30d)"    value={stats.active_users_30d} />
-            <StatsCard title="MRR"                   value={formatCurrency(stats.mrr_cents / 100)} />
+            <StatsCard title="MRR"                   value={formatCurrency(stats.mrr_cents / 100)} subtitle={MRR_SCOPE_NOTE} />
             <StatsCard title="New Signups (30d)"     value={stats.new_signups_30d} />
           </div>
 
