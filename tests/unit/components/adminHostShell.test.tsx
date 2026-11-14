@@ -23,7 +23,7 @@ vi.mock('@/hooks/useTrackPageVisit', () => ({ useTrackPageVisit: () => undefined
 vi.mock('@/lib/auth/sessionHeartbeat', () => ({ startSessionHeartbeat: () => () => undefined }));
 vi.mock('@/components/accounting/AccountingNav', () => ({ AccountingNav: () => null }));
 vi.mock('@/components/accounting/SecondaryModuleNav', () => ({ SecondaryModuleNav: () => null }));
-vi.mock('@/components/layout/SidebarNav', () => ({ SidebarNav: () => null }));
+vi.mock('@/components/layout/SidebarNav', () => ({ SidebarNav: () => <nav data-testid="accounting-sidebar" /> }));
 vi.mock('@/components/layout/DrawerNav', () => ({ DrawerNav: () => <nav aria-label="Main"><a href="/accounting/customers">Sales</a></nav> }));
 vi.mock('@/components/layout/CommandPalette', () => ({ CommandPalette: ({ isOpen }: { isOpen: boolean }) => (isOpen ? <div data-testid="tenant-palette" /> : null) }));
 vi.mock('@/components/layout/ShortcutHelpOverlay', () => ({ ShortcutHelpOverlay: () => null }));
@@ -45,13 +45,19 @@ const setAdminHost = (on: boolean) => {
   if (on) document.documentElement.setAttribute('data-admin-host', 'true');
   else document.documentElement.removeAttribute('data-admin-host');
 };
+/** The saved "sidebar navigation" preference, as shell-init.js puts it on <html>. */
+const setSideMode = (on: boolean) => {
+  if (on) document.documentElement.setAttribute('data-nav-mode', 'side');
+  else document.documentElement.removeAttribute('data-nav-mode');
+};
+const NAV_TOGGLE = /switch to (sidebar|top) navigation|use (sidebar|top) navigation/i;
 
 beforeEach(() => {
   h.router.push.mockClear();
   h.apiFetch.mockReset().mockResolvedValue(ok({ items: [], total: 0, page: 1, limit: 5 }));
   localStorage.clear();
 });
-afterEach(() => { cleanup(); setAdminHost(false); vi.useRealTimers(); });
+afterEach(() => { cleanup(); setAdminHost(false); setSideMode(false); vi.useRealTimers(); });
 
 describe('AppLayout on the admin host', () => {
   it('the hamburger drawer carries the admin menu, not the accounting one', () => {
@@ -80,7 +86,40 @@ describe('AppLayout on the admin host', () => {
   });
 });
 
+describe('AppLayout on the admin host: no accounting sidebar, no accounting shortcuts', () => {
+  it('a saved sidebar preference does not draw the accounting sidebar, and no control switches to it', () => {
+    setAdminHost(true);
+    setSideMode(true);
+    render(<AppLayout><p>page</p></AppLayout>);
+    expect(screen.queryByTestId('accounting-sidebar')).toBeNull();
+    expect(screen.queryByRole('button', { name: NAV_TOGGLE })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Account and display settings' }));
+    expect(screen.queryByRole('button', { name: NAV_TOGGLE })).toBeNull();
+  });
+
+  it('"G then D" and the other accounting go-to keys do nothing', () => {
+    setAdminHost(true);
+    render(<AppLayout><p>page</p></AppLayout>);
+    for (const k of ['d', 's', 'b', 'y']) {
+      fireEvent.keyDown(document, { key: 'g' });
+      fireEvent.keyDown(document, { key: k });
+    }
+    expect(h.router.push).not.toHaveBeenCalled();
+  });
+});
+
 describe('AppLayout on the app host', () => {
+  it('keeps the sidebar preference, its toggle and the go-to keys', () => {
+    setAdminHost(false);
+    setSideMode(true);
+    render(<AppLayout><p>page</p></AppLayout>);
+    expect(screen.getByTestId('accounting-sidebar')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Switch to top navigation' })).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'g' });
+    fireEvent.keyDown(document, { key: 'd' });
+    expect(h.router.push).toHaveBeenCalledWith('/accounting');
+  });
+
   it('keeps the accounting drawer and palette', () => {
     setAdminHost(false);
     render(<AppLayout><p>page</p></AppLayout>);

@@ -104,7 +104,7 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
   // ─── Global keyboard shortcuts ────────────────────────────────────────────
   const openCommandPalette = useCallback(() => setCommandPaletteOpen(true), []);
   const openShortcutHelp = useCallback(() => setShortcutHelpOpen(true), []);
-  const globalShortcuts = useGlobalShortcuts({ openCommandPalette, openShortcutHelp });
+  const globalShortcuts = useGlobalShortcuts({ openCommandPalette, openShortcutHelp, isAdminHost });
 
   // Close mobile nav on route change
   useEffect(() => {
@@ -115,7 +115,10 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
 
   const closeMobile = useCallback(() => setMobileOpen(false), []);
 
-  const showSidebar = navMode === 'side';
+  // The admin host has its own menu (AdminNav): a saved "sidebar" preference there would draw the accounting sidebar,
+  // whose /accounting/* links are 404s on that host. The preference itself is kept for the app.
+  const shownNavMode: NavMode = isAdminHost ? 'top' : navMode;
+  const showSidebar = shownNavMode === 'side';
   const showTopNav = !showSidebar && !isAdminHost;
 
   // The banner sits above both the skeleton and the shell, so it is not remounted when the session check ends.
@@ -142,7 +145,7 @@ export function AppLayout({ children, navPath }: AppLayoutProps) {
         <PwaInstallBanner {...pwaInstall} />
 
         <AppHeader
-          navMode={navMode}
+          navMode={shownNavMode}
           isAdminHost={isAdminHost}
           mobileNavOpen={mobileOpen}
           onToggleMobileNav={() => setMobileOpen(o => !o)}
