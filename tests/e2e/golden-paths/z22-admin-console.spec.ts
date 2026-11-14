@@ -29,18 +29,26 @@ const ADMIN_API_BUDGET = 80;
 /** How long no fetch/XHR may be in flight before a page counts as settled. */
 const QUIET_MS = 750;
 
-/** The admin origin to browse, and the loopback address Chromium must resolve the admin host to (null: real DNS). */
-function adminTarget(baseUrl: string): { origin: string; mapTo: string | null } {
-  const base = new URL(baseUrl);
+interface Target { origin: string; mapTo: string | null }
+
+/**
+ * The admin origin to browse, and the loopback address Chromium must resolve the admin host to (null: real DNS).
+ * A BASE_URL it cannot use is returned as the reason, not thrown: this runs when the file loads, and a throw there
+ * would stop Playwright listing or running every other golden spec. beforeAll fails with the reason instead.
+ */
+function adminTarget(baseUrl: string): Target | string {
+  let base: URL;
+  try { base = new URL(baseUrl); } catch { return `z22: BASE_URL "${baseUrl}" is not an absolute URL`; }
   const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(base.hostname);
   if (loopback) {
     return { origin: `http://${ADMIN_HOST}${base.port ? `:${base.port}` : ''}`, mapTo: base.hostname === '[::1]' ? '[::1]' : '127.0.0.1' };
   }
   if (base.hostname.endsWith('isaflow.co.za')) return { origin: `https://${ADMIN_HOST}`, mapTo: null };
-  throw new Error(`z22: cannot derive the admin console from BASE_URL ${baseUrl} (loopback or *.isaflow.co.za only)`);
+  return `z22: cannot derive the admin console from BASE_URL ${baseUrl} (loopback or *.isaflow.co.za only)`;
 }
 
-const TARGET = adminTarget(BASE_URL);
+const RESOLVED = adminTarget(BASE_URL);
+const TARGET: Target = typeof RESOLVED === 'string' ? { origin: '', mapTo: null } : RESOLVED;
 test.use({
   launchOptions: {
     args: TARGET.mapTo
@@ -74,6 +82,7 @@ let cookies: Array<{ name: string; value: string }> = [];
 let adminApiCalls = 0;
 
 test.beforeAll(async () => {
+  if (typeof RESOLVED === 'string') throw new Error(RESOLVED);
   const ctx = await pwRequest.newContext({ baseURL: BASE_URL });
   const res = await ctx.post('/api/auth/login', { data: platformAdminCredentials() });
   expect(res.status(), `platform admin login: ${res.status()}`).toBe(200);
