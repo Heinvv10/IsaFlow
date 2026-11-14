@@ -24,6 +24,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { LUMP_SUM_DIRECTIVE_TYPES } from './taxDirectiveKinds';
 
 export interface LumpSumFiling {
   directiveId: string;
@@ -124,6 +125,8 @@ export async function listRunLumpSums(
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${start}::date AND ${end}::date
       AND (${employeeId}::uuid IS NULL OR l.employee_id = ${employeeId}::uuid)
       AND item->'directive' IS NOT NULL
+      -- Lump sums only (DR): a regular-pay directive is never a breakdown item's directive; refused here if one were.
+      AND d.directive_type = ANY(${[...LUMP_SUM_DIRECTIVE_TYPES]}::text[])
     GROUP BY l.employee_id, regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g'), d.id, d.directive_number, d.effective_date, d.issued_date
     ORDER BY l.employee_id, d.effective_date, d.id
   `) as DbRow[];
