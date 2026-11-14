@@ -64,7 +64,7 @@ export function JobTable({ jobs, selectedIds, retrying, onToggleRow, onToggleAll
         <thead>
           <tr className="border-b border-gray-300 dark:border-gray-700">
             <th className="px-4 py-3 w-8">
-              <button onClick={onToggleAll} className="text-gray-600 dark:text-gray-400 hover:text-white transition-colors">
+              <button onClick={onToggleAll} aria-label="Select all jobs" aria-pressed={allSelected} className="text-gray-600 dark:text-gray-400 hover:text-white transition-colors">
                 {allSelected || someSelected
                   ? <CheckSquare className={`h-4 w-4 ${allSelected ? 'text-blue-400' : 'text-blue-400/50'}`} />
                   : <Square className="h-4 w-4" />
@@ -85,7 +85,7 @@ export function JobTable({ jobs, selectedIds, retrying, onToggleRow, onToggleAll
                 className={`cursor-pointer transition-colors ${isSel ? 'bg-blue-500/5 hover:bg-blue-500/10' : 'hover:bg-gray-700/30'}`}
               >
                 <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                  <button onClick={() => onToggleRow(job.id)} className="text-gray-600 dark:text-gray-400 hover:text-white">
+                  <button onClick={() => onToggleRow(job.id)} aria-label={`Select job ${job.id}`} aria-pressed={isSel} className="text-gray-600 dark:text-gray-400 hover:text-white">
                     {isSel ? <CheckSquare className="h-4 w-4 text-blue-400" /> : <Square className="h-4 w-4" />}
                   </button>
                 </td>

@@ -71,7 +71,7 @@ export default function SystemHealthPage() {
   const emailStatus: StatusLevel = !data ? 'ok' : data.email.success_rate_percent < 80 ? 'error' : data.email.success_rate_percent < 95 ? 'warn' : 'ok';
 
   return (
-    <AdminLayout title="System Health">
+    <AdminLayout title="System Health" ownHeading>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>

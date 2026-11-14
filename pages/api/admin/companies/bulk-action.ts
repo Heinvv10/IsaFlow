@@ -23,7 +23,8 @@ const PostBody = z.discriminatedUnion('action', [
   z.object({
     action:      z.literal('suspend'),
     company_ids: z.array(UUID).min(1).max(MAX_BULK_IDS),
-    reason:      z.string().max(500).optional(),
+    // Required and trimmed: the admin types why (audit 3.7); no placeholder reason.
+    reason:      z.string().trim().min(1).max(500),
   }).strict(),
   z.object({
     action:      z.literal('extend_trial'),
@@ -50,7 +51,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   let processed = 0;
 
   if (action === 'suspend') {
-    const reason = body.reason?.trim() || 'Bulk suspended by admin';
+    const { reason } = body;
 
     for (const companyId of company_ids) {
       try {

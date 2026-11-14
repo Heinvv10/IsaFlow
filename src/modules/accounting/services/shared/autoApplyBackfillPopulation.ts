@@ -31,10 +31,12 @@ import { fetchOpenSupplierBills } from '../ap/openSupplierBills';
 import { fetchOpenCustomerInvoices } from '../ar/openCustomerInvoices';
 import { journalsInAPeriod } from './journalPeriodVisibility';
 import { getSupplierOnAccountCredits } from '../ap/supplierOnAccountCredit';
-import { EPS } from './autoAllocateStrategy';
+import { EPS, invoiceFloor, round2 } from './autoAllocateStrategy';
 import {
-  basisSources, markCreditCeilingSkips, SKIP_NO_FISCAL_PERIOD, SKIP_NO_JOURNAL,
+  basisSources, markCreditCeilingSkips, SKIP_JOURNAL_NOT_LIVE, SKIP_NO_FISCAL_PERIOD, SKIP_NO_JOURNAL,
+  SKIP_POSTED_CREDIT_USED,
 } from './autoApplyBackfillSkips';
+import { notePostedCreditLateral, notesJournalStanding } from './creditNotePostedCredit';
 import { markReceiptCreditSkips } from './autoApplyBackfillReceiptCredit';
 import type { SimulationDocument } from './autoApplySimulation';
 import type { BackfillSource, Subledger } from './autoApplyBackfillPlan';
@@ -65,10 +67,12 @@ async function readCreditNotes(
     ? await sql`
         SELECT cn.id, cn.credit_note_number, cn.credit_date, cn.gl_journal_entry_id,
                cn.supplier_id AS entity_id, s.name AS entity_name,
-               (cn.total_amount - COALESCE(cn.applied_amount, 0)) AS remainder
+               (cn.total_amount - COALESCE(cn.applied_amount, 0)) AS remainder,
+               COALESCE(cn.applied_amount, 0) AS applied, pc.posted
         FROM credit_notes cn
         JOIN suppliers s ON s.id = cn.supplier_id
          AND s.company_id = cn.company_id AND s.deleted_at IS NULL
+        ${notePostedCreditLateral('supplier')}
         WHERE cn.company_id = ${companyId}::UUID
           AND cn.type = ${CREDIT_NOTE_TYPE[subledger]}
           AND cn.status = ANY(${CREDIT_NOTE_STATUSES}::TEXT[])
@@ -80,10 +84,12 @@ async function readCreditNotes(
     : await sql`
         SELECT cn.id, cn.credit_note_number, cn.credit_date, cn.gl_journal_entry_id,
                cn.client_id AS entity_id, c.name AS entity_name,
-               (cn.total_amount - COALESCE(cn.applied_amount, 0)) AS remainder
+               (cn.total_amount - COALESCE(cn.applied_amount, 0)) AS remainder,
+               COALESCE(cn.applied_amount, 0) AS applied, pc.posted
         FROM credit_notes cn
         JOIN customers c ON c.id = cn.client_id
          AND c.company_id = cn.company_id AND c.deleted_at IS NULL
+        ${notePostedCreditLateral('customer')}
         WHERE cn.company_id = ${companyId}::UUID
           AND cn.type = ${CREDIT_NOTE_TYPE[subledger]}
           AND cn.status = ANY(${CREDIT_NOTE_STATUSES}::TEXT[])
@@ -93,17 +99,27 @@ async function readCreditNotes(
         ORDER BY cn.credit_date ASC, cn.credit_note_number ASC, cn.id ASC
         LIMIT ${limit}`) as DbRow[];
 
-  return rows.map((r) => ({
-    kind: 'credit_note' as const,
-    paymentId: String(r.id),
-    paymentNumber: r.credit_note_number ? String(r.credit_note_number) : '',
-    entityId: String(r.entity_id),
-    entityName: r.entity_name ? String(r.entity_name) : '',
-    paymentDate: fmtDate(r.credit_date),
-    remainder: Number(r.remainder),
-    journalEntryId: r.gl_journal_entry_id ? String(r.gl_journal_entry_id) : null,
-    skippedReason: null,
-  }));
+  const floor = invoiceFloor(isAp ? 'supplier' : 'customer');
+  const standing = await notesJournalStanding(companyId, rows.filter((r) => r.gl_journal_entry_id).map((r) => String(r.gl_journal_entry_id)));
+  return rows.map((r) => {
+    // Brief step 7: never more than the note's journal POSTED — the cap `applyOneCreditNote` takes under lock.
+    const postedLeft = round2(Number(r.posted ?? 0) - Number(r.applied));
+    const remainder = round2(Math.min(Number(r.remainder), postedLeft));
+    const skippedReason = !r.gl_journal_entry_id ? null // SKIP_NO_JOURNAL, below
+      : !standing.has(String(r.gl_journal_entry_id)) ? SKIP_JOURNAL_NOT_LIVE
+        : remainder <= floor ? SKIP_POSTED_CREDIT_USED : null;
+    return {
+      kind: 'credit_note' as const,
+      paymentId: String(r.id),
+      paymentNumber: r.credit_note_number ? String(r.credit_note_number) : '',
+      entityId: String(r.entity_id),
+      entityName: r.entity_name ? String(r.entity_name) : '',
+      paymentDate: fmtDate(r.credit_date),
+      remainder: skippedReason ? Number(r.remainder) : remainder,
+      journalEntryId: r.gl_journal_entry_id ? String(r.gl_journal_entry_id) : null,
+      skippedReason,
+    };
+  });
 }
 
 /**
