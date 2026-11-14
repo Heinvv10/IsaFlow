@@ -89,7 +89,6 @@
   "pages/payroll/batches/[id].tsx": 1,
   "pages/payroll/batches/index.tsx": 1,
   "pages/payroll/batches/new.tsx": 2,
-  "pages/payroll/components/index.tsx": 1,
   "pages/payroll/cost-centres/index.tsx": 1,
   "pages/payroll/emp501/index.tsx": 1,
   "pages/payroll/irp5/index.tsx": 1,

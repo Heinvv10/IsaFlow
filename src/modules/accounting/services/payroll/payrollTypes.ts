@@ -63,6 +63,8 @@ export interface PayrollComponent {
    * the s11F deduction and the certificate, never deducted from pay (migration 948, PAYE 4c). Absent = false.
    */
   paidOutsidePayroll?: boolean;
+  /** The earning is part of retirement-funding income, the base of a percent_of_rfi assignment (migration 975; rfi.ts). Absent = false. */
+  countsAsRfi?: boolean;
 }
 
 /** The SARS tax directive a lump-sum component (39xx) is paid under, and the PAYE it prescribes. */
@@ -90,6 +92,12 @@ export interface EmployeeComponent {
   /** Hours or days this row pays (HD, migration 967): amount = quantity x the rate at entry. Absent on a plain amount. */
   quantity?: number | null;
   quantityUnit?: QuantityUnit | null;
+  /** The assignment costs this fraction of the line's RFI (migration 975; rfi.ts costs `amount` from it). Absent or null = a plain amount. */
+  percentOfRfi?: number | null;
+  /** Set by rfi.costPercentOfRfi on a percent_of_rfi row: the RFI its amount was costed on. */
+  rfiBase?: number;
+  /** RF opt-out (migration 975 backfill): a 3817 / 3825 / 3828 assignment that existed before RF stays cash, not deemed. */
+  employerFundAsCash?: boolean;
 }
 
 export interface PayrollPeriod {
@@ -206,6 +214,9 @@ export interface ComponentBreakdownItem {
   retirementContribution?: true;
   /** Set on a contribution paid outside payroll: not deducted from this line's net pay. */
   paidOutsidePayroll?: true;
+  /** RF (migration 975): a percent_of_rfi row, as costed: amount = round2(percentOfRfi x rfiBase). */
+  percentOfRfi?: number;
+  rfiBase?: number;
 }
 
 export type { PayeYearToDate } from './payrollTypesYtd';

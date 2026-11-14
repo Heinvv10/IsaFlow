@@ -13,7 +13,9 @@
  * 7: fringe benefits: 3701 and 3802 are taxed at 80% (20% with business use of at least 80%), SDL / UIF / ETI read the PAYE share, a 3810 earning is non-cash and deemed medical fees (FB).
  * 8: ETI by hours: under 160 hours grossed up, tabled and grossed down (s7(5), overtime hours in); nil below the national minimum wage (s4(1)(a)); the base is para 1 cash remuneration (3701 at its PAYE share, no non-taxable or non-cash); an ID document (s6(b)); age at month end; R-B 40 h/week for a monthly starter with no hours (ET).
  * 9: each line records how PAYE, UIF, SDL and ETI were calculated (payroll_run_lines.explanation, migration 973; EX-core).
- * 10: reserved for RF (#1297), ahead of DR in the merge queue.
+ *    Provisional: master's value + 1 at EX-core's final rebase (DR is heading for the same number).
+ * 10: an employer's 3817 / 3825 / 3828 fund contribution is non-cash and deemed paid into s11F, UIF and SDL levied on it (a pre-RF
+ *    assignment stays cash, migration 975); percent_of_rfi rows are costed on RFI (RF). Master's value + 1 at RF's rebase (DR may take it).
  * 11: an IRP3(b) fixed-percentage or IRP3(c) fixed-amount directive decides PAYE on regular pay (DR).
  */
 export const PAYROLL_CALCULATION_VERSION = 11;

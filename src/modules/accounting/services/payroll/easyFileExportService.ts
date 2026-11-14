@@ -49,7 +49,7 @@ import { regularDirectiveFieldLines } from './easyFileRegularDirectives';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
 import { contractorAwareReason } from './easyFileContractor';
 import { birthDate3080, medicalFieldLines } from './easyFileMedicalFields';
-import { retirementFieldLines, withDeductionTotal } from './easyFileRetirementFields';
+import { employerFundContributionFields, retirementFieldLines, withDeductionTotal, withDeemedEmployerContributions } from './easyFileRetirementFields';
 
 export { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber };
 export { splitCertificateIncome } from './payrollLumpSumFiling';
@@ -147,9 +147,10 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   // With contractor income (3616) the reason is 03, valid beside it (BRS V25.3.0 p. 62, 109); the employee part of a mixed certificate is
   // still judged by nilTaxReason (refused when it is over the threshold with no tax): the reason is never a way round that.
   const reason = it3a ? contractorAwareReason(emp) : null;
-  const employerMedical = Math.floor((emp.fringeBenefits ?? []).filter(f => f.sourceCode === '3810').reduce((n, f) => n + f.amount, 0));
   const medical = medicalFieldLines(emp);
-  const retirement = retirementFieldLines(emp.retirementFund);
+  // RF: 4001 / 4003 / 4006 include the employer's contributions deemed paid by the employee (the non-cash 3817 / 3825 / 3828).
+  const retirement = retirementFieldLines(withDeemedEmployerContributions(emp.retirementFund, emp.fringeBenefits ?? []));
+  const employerFund = employerFundContributionFields(emp.fringeBenefits ?? []);
   const lines: (string | null)[] = [
     formatField(3010, emp.certificateNumber, 'AN'),
     formatField(3015, it3a ? 'IT3(a)' : 'IRP5', 'AN'),
@@ -189,8 +190,9 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     formatField(4141, Math.round((emp.uifEmployee + emp.uifEmployer) * 100) / 100, 'N_CENTS'),
     formatField(4142, emp.sdl4142, 'N_CENTS'),
     reason ? `4150,${reason}` : null,
-    // 4474 = the employer's medical contribution, equal to code 3810 (BRS V25.3.0 p. 103; V13.1 rule "3810 must equal 4474").
-    employerMedical > 0 ? formatField(4474, employerMedical, 'N') : null,
+    // 4472 / 4473 / 4474 / 4475 = the employer's contributions, each equal to its non-cash benefit 3817 / 3825 / 3810 / 3828
+    // (BRS V25.3.0 p. 55, 103; V13.1 rule "3810 must equal 4474"): easyFileRetirementFields.employerFundContributionFields.
+    ...employerFund,
     // 4582 (BRS p. 105): mandatory with 3701 / 3802, kept inside 20-80% of them (allowanceCertificateFields).
     emp.paye4582 !== undefined ? formatField(4582, emp.paye4582, 'N') : null,
     '9999,9999',

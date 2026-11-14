@@ -26,6 +26,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
+import { paymentJournalJoin, paymentStoodAsAtColumn } from '../shared/paymentStoodAsAt';
 import { classifyStatementInvoice } from '../shared/statementInvoiceExclusion';
 import { creditNoteAppliedAmount } from '../shared/creditNoteAppliedAmount';
 import { RunningBalance, toMoney } from '@/lib/money/decimalSum';
@@ -33,6 +34,8 @@ import { RunningBalance, toMoney } from '@/lib/money/decimalSum';
 type Row = DbRow;
 
 export interface SupplierStatementTransaction {
+  /** The bill / payment / credit note row behind this line — lets a caller join it to the document. */
+  documentId?: string;
   date: string;
   /**
    * `'refund'` (migration 681) is cash the supplier sent BACK. It rides in the
@@ -137,9 +140,12 @@ export async function fetchSupplierStatementData(
       -- instead is NOT a fix: measured, a R1,000 payment with R600 applied then
       -- shows 600, understating what the supplier was paid by the unapplied
       -- R400 (and a refund's positive allocations would flip its sign).
+      -- live_at_as_at: cancelled SINCE the as-at date (shared/paymentStoodAsAt).
       SELECT sp.id, sp.payment_number, sp.payment_date, sp.status, sp.created_at,
-        sp.payment_method, sp.total_amount AS amount_allocated
+        sp.payment_method, sp.total_amount AS amount_allocated,
+        ${paymentStoodAsAtColumn('sp', companyId, asAtDate)} AS live_at_as_at
       FROM supplier_payments sp
+      ${paymentJournalJoin('sp', companyId, asAtDate)}
       WHERE sp.supplier_id = ${supplierId}::UUID
         AND sp.company_id = ${companyId}::UUID
         AND sp.payment_date <= ${asAtDate}::DATE
@@ -165,6 +171,7 @@ export async function fetchSupplierStatementData(
       continue;
     }
     transactions.push({
+      documentId: String(inv.id),
       date: fmtDate(inv.invoice_date),
       type: 'invoice',
       reference: String(inv.invoice_number ?? ''),
@@ -174,7 +181,7 @@ export async function fetchSupplierStatementData(
     });
   }
   for (const pmt of payments) {
-    const status = String(pmt.status ?? '');
+    const status = pmt.live_at_as_at === true ? 'processed' : String(pmt.status ?? '');
     if (!SETTLING_PAYMENT_STATUSES.has(status)) {
       excluded.push({
         id: String(pmt.id),
@@ -186,6 +193,7 @@ export async function fetchSupplierStatementData(
       continue;
     }
     transactions.push({
+      documentId: String(pmt.id),
       date: fmtDate(pmt.payment_date),
       // From the METHOD, never from the sign of the amount. The constraint
       // added in 681 pins the two together, so they cannot disagree — but a
@@ -215,6 +223,7 @@ export async function fetchSupplierStatementData(
       continue;
     }
     transactions.push({
+      documentId: String(cn.id),
       date: fmtDate(cn.credit_date),
       type: 'credit_note',
       reference: String(cn.credit_note_number ?? ''),

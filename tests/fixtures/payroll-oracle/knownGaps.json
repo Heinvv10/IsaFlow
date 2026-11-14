@@ -7,13 +7,5 @@
     },
     "reason": "Hours-blind Sage parity: R1 125.00 (Sage's flat 25% for its 'Temporary/Part time' status) against engine R0.00 with HOURS_NOT_RECORDED. The case carries no hours, so G21 Rev 1 p. 27-28 cannot put it in non-standard employment; the statutory 22 h and under-5 h cases are ts-standard-22h-boundary-tables-not-flat-25pct and ts-non-standard-under-5h-day-flat-25pct.",
     "closedBy": "Never by a status label: only if Sage's hours for this employee are recorded (then correct the fixture or add them). Parity only."
-  },
-  {
-    "case": "rf-employer-contribution-15pct-rfi-cap-binds-on-total",
-    "engineActual": {
-      "paye": 1395
-    },
-    "reason": "The employer retirement contribution (15% of RFI = R3 000) is ignored (EMPLOYER_CONTRIBUTION_NOT_SUPPORTED), so the employee R4 000 is allowed in full. As a taxable fringe benefit deemed paid by the employee it joins the s11F pool: 27.5% x 23 000 = 6 325 binds on the R7 000 total. Expected 1 516.50.",
-    "closedBy": "RF (RFI and employer retirement contributions)"
   }
 ]
