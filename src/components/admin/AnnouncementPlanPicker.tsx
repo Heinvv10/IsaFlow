@@ -37,7 +37,7 @@ export function AnnouncementPlanPicker({ value, onChange }: Props) {
     return () => { alive = false; };
   }, []);
 
-  if (plans === null) return <p className="text-xs text-gray-500 dark:text-gray-400">Loading plans…</p>;
+  if (plans === null) return <p className="text-xs text-ink-muted">Loading plans…</p>;
 
   const known = new Set(plans.map(p => p.id));
   const options: Option[] = [
