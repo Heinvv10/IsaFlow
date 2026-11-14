@@ -51,7 +51,7 @@ const MIN_QUALITY_TIMEOUT = 2;
 
 const HOSTED = "needs.route.outputs.hosted == 'true'";
 const STATIC_RUNS_ON = `\${{ fromJSON(${HOSTED} && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}`;
-const STATIC_TIMEOUT = `\${{ ${HOSTED} && 40 || 75 }}`;
+const STATIC_TIMEOUT = `\${{ ${HOSTED} && 60 || 75 }}`;
 /**
  * route's one step. It may run on velo before static (which may run on velo
  * too), so an unpinned step could replace the runner's bun before any gate

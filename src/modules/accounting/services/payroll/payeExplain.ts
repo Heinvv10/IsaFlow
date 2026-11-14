@@ -102,7 +102,7 @@ function retirementStep(input: PayeExplainInput): ExplainStep {
           {
             key: 'paye.retirement.annualised', label: 'Contributions a year', amount: t.annualisedContributions,
             formula: t.periods > 0 ? 'to date × 12 ÷ periods' : 'no periodic pay yet: taken as it stands',
-            children: [{ key: 'paye.retirement.contributionsToDate', label: 'Contributions to date (4001, 4003, 4006)', amount: t.contributionsToDate }],
+            children: [{ key: 'paye.retirement.contributionsToDate', label: 'Contributions to date (4001, 4003, 4006, and the employer\'s 3817, 3825, 3828 deemed paid by the employee)', amount: t.contributionsToDate }],
           },
           {
             key: 'paye.retirement.rateLimit', label: `${pct(RETIREMENT_DEDUCTION_RATE)} of remuneration a year`, amount: t.shareOfRemuneration,

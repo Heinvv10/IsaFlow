@@ -40,7 +40,11 @@ const INDIRECT: Record<string, [number, string]> = {
 };
 
 /** Migration files that write the table in a statement or a function body. None today. */
-const MIGRATION_WRITERS: Record<string, string> = {};
+const MIGRATION_WRITERS: Record<string, string> = {
+  // Wave 5 RF opt-out backfill: marks each existing fixed-amount 3817 / 3825 / 3828 assignment employer_fund_as_cash once,
+  // so deploying RF moves no figure (no row inserted, no amount or date changed).
+  'scripts/migrations/sql/975_payroll_rfi.sql': 'RF opt-out backfill: employer_fund_as_cash on pre-RF employer fund assignments',
+};
 
 const NAME = String.raw`(?:"?public"?\.)?"?${TABLE}\b`;
 const STATEMENT = new RegExp(

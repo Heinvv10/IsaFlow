@@ -5,3 +5,9 @@
  * (migration 948's CHECK) state the same three codes.
  */
 export const RETIREMENT_CONTRIBUTION_CODES = ['4001', '4003', '4006'] as const;
+
+/**
+ * The taxable benefits of an employer's fund contributions (wave 5 RF): 3817 pension, 3825 provident, 3828 retirement annuity
+ * (BRS V25.3.0 p. 94-95). Assigned as a non-cash earning and deemed paid by the employee (employerContributions.ts).
+ */
+export const EMPLOYER_FUND_BENEFIT_CODES = ['3817', '3825', '3828'] as const;

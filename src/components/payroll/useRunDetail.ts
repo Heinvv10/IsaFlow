@@ -19,6 +19,8 @@ export interface RunDetailLine {
   grossPay: number;
   /** Non-cash benefits (taxed and levied, not paid): not in grossPay. */
   nonCashBenefits?: number;
+  /** RF: of nonCashBenefits, the employer's 3817 / 3825 / 3828 fund contributions. */
+  employerRetirement?: number;
   taxableIncome: number;
   paye: number;
   uifEmployee: number;

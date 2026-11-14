@@ -51,10 +51,10 @@ import {
 } from './generalLedgerStreamTypes';
 import { incomeStatementBalanceNullFrom, streamFiscalBasis, withRetainedBf } from './generalLedgerStreamYearEnd';
 import { INCOME_STATEMENT_TYPES } from './trialBalanceBasis';
+import { matchedLinesFromWhere } from './generalLedgerMatched';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import { readUniverseLineCount } from './generalLedgerUniverse';
 import { lineFromRow, nextKeyset, totalsFromRow } from './generalLedgerStreamRows';
-import { containsLikePattern } from '@/lib/sqlLikeLiteral';
 export type { GeneralLedgerCursor, GeneralLedgerLine, GeneralLedgerPage, GeneralLedgerQuery } from './generalLedgerStreamTypes';
 
 /**
@@ -79,15 +79,6 @@ export async function getGeneralLedgerLines(
   const anyFilter =
     lineLevelFilter || accountCodes.length > 0 || accountIds.length > 0 || accountTypes.length > 0;
 
-  const codes = [...accountCodes];
-  const ids = [...accountIds];
-  const types = [...accountTypes];
-  const srcs = [...sources];
-  // A null threshold disables the clause; 0 would admit every line and read as
-  // "no filter" while still suppressing the running balance.
-  const minAmt = minAmount ?? null;
-  const term = containsLikePattern(search); // a LITERAL substring: %, _ and \ escaped; the ILIKEs below say ESCAPE '\'
-
   try {
     const basis = await streamFiscalBasis(companyId, periodStart, !anyFilter, periodEnd);
     const rows = (await sql`
@@ -107,24 +98,7 @@ export async function getGeneralLedgerLines(
                -- beside. to_char of a timestamp in this format is fixed-width,
                -- so ordering the text equals ordering the timestamp.
                1 AS order_guard
-        FROM gl_journal_lines jl
-        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-                                  AND je.company_id = ${companyId}::UUID
-                                  AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
-        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-                           AND ga.company_id = ${companyId}::UUID
-        WHERE jl.company_id = ${companyId}::UUID
-          AND je.entry_date >= ${periodStart}::DATE
-          AND je.entry_date <= ${periodEnd}::DATE
-          AND (cardinality(${codes}::text[]) = 0 OR ga.account_code = ANY(${codes}::text[]))
-          AND (cardinality(${ids}::uuid[])  = 0 OR ga.id            = ANY(${ids}::uuid[]))
-          AND (cardinality(${types}::text[]) = 0 OR ga.account_type = ANY(${types}::text[]))
-          AND (cardinality(${srcs}::text[])  = 0 OR COALESCE(je.source, 'manual') = ANY(${srcs}::text[]))
-          AND (${minAmt}::NUMERIC IS NULL
-               OR GREATEST(jl.debit, jl.credit) >= ${minAmt}::NUMERIC)
-          AND (${term}::TEXT IS NULL
-               OR je.entry_number ILIKE ${term}::TEXT ESCAPE '\\'
-               OR COALESCE(je.description, '') ILIKE ${term}::TEXT ESCAPE '\\')
+        ${matchedLinesFromWhere(query)}
       ),
       -- The period BEFORE any filter. Deliberately a separate scan rather than
       -- a count over the matched set: that set is where the filters live, so

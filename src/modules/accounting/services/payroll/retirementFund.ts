@@ -27,18 +27,19 @@
  * 4006 are the "total ... contributions paid and 'deemed paid' by employee";
  * G21 2027 p. 11 reflects them under those codes).
  *
- * NOT SUPPORTED (PAYE 4b): an employer's contributions to a fund are a taxable
- * fringe benefit (3817 pension, 3825 provident, 3828 retirement annuity) and a
- * contribution "deemed paid" by the employee, deductible within the same cap,
- * reported beside 4472 / 4473 / 4475 (BRS V25.3.0 p. 54, 103; G21 2027 p. 10).
- * IsaFlow computes neither the benefit nor the deemed contribution, so the
- * calculator warns on an employer-contribution component and on an earning
- * coded as one of those benefits (payrollCalculator).
+ * Employer contributions (wave 5 RF, employerContributions.ts): an employer's
+ * contribution to a fund is a taxable fringe benefit (3817 pension, 3825
+ * provident, 3828 retirement annuity), assigned as a non-cash earning under that
+ * code, and a contribution "deemed paid" by the employee, deducted within the
+ * same cap together with the employee's own (G21 2027 p. 10), reported beside
+ * 4472 / 4473 / 4475 (BRS V25.3.0 p. 55, 103). A component of type
+ * employer_contribution is still not processed (the calculator warns): the
+ * benefit code is the way in.
  */
 
 import { normaliseSarsCode } from './payeAnnualPayment';
 import { getTaxYearConfig } from './taxTables';
-import { RETIREMENT_CONTRIBUTION_CODES } from './retirementFundCodes';
+import { EMPLOYER_FUND_BENEFIT_CODES, RETIREMENT_CONTRIBUTION_CODES } from './retirementFundCodes';
 import { formatMoney } from '@/lib/money/formatMoney';
 import type { ValidationResult } from './payrollTypes';
 
@@ -47,7 +48,7 @@ export const RETIREMENT_DEDUCTION_RATE = 0.275;
 
 const CONTRIBUTION_CODES = new Set<string>(RETIREMENT_CONTRIBUTION_CODES);
 /** The fringe benefits of an employer's fund contributions (BRS V25.3.0 p. 54: 4472 → 3817, 4473 → 3825, 4475 → 3828). */
-const EMPLOYER_FUND_BENEFIT_CODES = new Set(['3817', '3825', '3828']);
+const FUND_BENEFIT_CODES = new Set<string>(EMPLOYER_FUND_BENEFIT_CODES);
 
 /** A deduction under this code is an employee retirement fund contribution (4001, 4003, 4006). */
 export function isRetirementContributionCode(code: string): boolean {
@@ -56,7 +57,7 @@ export function isRetirementContributionCode(code: string): boolean {
 
 /** An earning under this code is the taxable benefit of an employer's fund contribution (3817, 3825, 3828; PAYE 4b). */
 export function isEmployerFundBenefitCode(code: string): boolean {
-  return EMPLOYER_FUND_BENEFIT_CODES.has(normaliseSarsCode(code));
+  return FUND_BENEFIT_CODES.has(normaliseSarsCode(code));
 }
 
 /**
@@ -88,14 +89,37 @@ export function employerContributionWarning(name: string, amount: number): Valid
   };
 }
 
-/** An earning coded as the benefit of an employer fund contribution: taxed, but its deemed contribution is not deducted (PAYE 4b). */
+/**
+ * An employer fund benefit (3817 / 3825 / 3828) that reached the calculator as CASH: a run marks every one non-cash
+ * (employerContributions.ts), so this is a line not assembled by a run. Taxed, but not deemed into s11F (RF).
+ */
 export function employerFundBenefitWarning(name: string, code: string, amount: number): ValidationResult {
   return {
     code: 'EMPLOYER_FUND_BENEFIT_NOT_DEEMED',
     severity: 'warning',
-    message: `${name} (code ${normaliseSarsCode(code)}, ${formatMoney(amount)}) is the taxable benefit of an employer's retirement fund contribution. `
-      + 'It is taxed, but IsaFlow does not deduct it as a contribution deemed paid by the employee (s11F), nor report it under '
-      + '4001/4003/4006 and 4472/4473/4475, so PAYE is over-deducted and the IRP5 lacks the contribution. Correct the certificate by hand.',
+    message: `${name} (code ${normaliseSarsCode(code)}, ${formatMoney(amount)}) is the taxable benefit of an employer's retirement fund contribution, `
+      + 'but it was costed as cash pay: it is taxed, and not deducted as a contribution deemed paid by the employee (s11F). Recalculate the pay run.',
+  };
+}
+
+/** A pre-RF 3817 / 3825 / 3828 assignment kept as cash (migration 975's opt-out): taxed, not deemed; how to switch. */
+export function employerFundKeptAsCashWarning(name: string, code: string, amount: number): ValidationResult {
+  return {
+    code: 'EMPLOYER_FUND_KEPT_AS_CASH',
+    severity: 'warning',
+    message: `${name} (code ${normaliseSarsCode(code)}, ${formatMoney(amount)}) was assigned before employer retirement contributions were supported, so it is still paid `
+      + 'as cash and taxed, and not deducted as a contribution deemed paid by the employee (s11F). If the employer pays this to the fund, end this assignment '
+      + 'and assign the component again from the next month: the new assignment is a non-cash benefit deemed paid by the employee (PAYE-GEN-01-G21 (2027) p. 10).',
+  };
+}
+
+/** A 3817 / 3825 / 3828 component not flagged taxable: no benefit is taxed and nothing is deemed (RF). Error: the approval gate refuses it. */
+export function retirementBenefitNotTaxableWarning(name: string, code: string, amount: number): ValidationResult {
+  return {
+    code: 'RETIREMENT_BENEFIT_NOT_TAXABLE',
+    severity: 'error',
+    message: `${name} (code ${normaliseSarsCode(code)}, ${formatMoney(amount)}) is an employer's retirement fund contribution, a taxable fringe benefit `
+      + '(PAYE-GEN-01-G21 (2027) p. 10), but the component is not taxable: it was not taxed nor deemed paid by the employee. Mark the component taxable and recalculate.',
   };
 }
 
