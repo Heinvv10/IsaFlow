@@ -104,3 +104,6 @@ describe('customer invoice page — approval state', () => {
     expect(approveButton()).toBeNull();
   });
 });
+
+// M14: this suite does not provide the auth context or the comments route; the panel has its own tests (commentsPanel, commentsMounts).
+vi.mock('@/components/accounting/comments/CommentsPanel', () => ({ CommentsPanel: () => null }));

@@ -10,6 +10,7 @@ import { StatusPill } from '@/components/ui';
 import { useDrawerRead } from '@/components/ui/useDrawerRead';
 import type { BankTx } from '@/components/accounting/BankTxTable';
 import type { Attachment } from '@/components/accounting/bankTxAttachmentHelpers';
+import { CommentsPanel } from '@/components/accounting/comments/CommentsPanel';
 import { AttachmentViewer } from '@/components/accounting/AttachmentViewer';
 import { canDownload, previewKind, safeDownloadName } from '@/components/accounting/attachmentPreview';
 import { formatMoney } from '@/lib/money/formatMoney';
@@ -129,6 +130,7 @@ export function BankLineDrawerBody({ tx }: { tx: BankTx }) {
         <h3 className={HEADING}>Matched journal</h3>
         {tx.matchedJournalEntryId ? <Journal journalId={tx.matchedJournalEntryId} /> : <p className={MUTED}>Not matched to a journal.</p>}
       </section>
+      <CommentsPanel recordType="bank_transaction" recordId={tx.id} />
     </div>
   );
 }
