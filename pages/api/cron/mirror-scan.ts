@@ -15,6 +15,13 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { timingSafeEqualStr } from '@/lib/timingSafe';
 import { scanAllDueConnections } from '@/modules/accounting/services/capture/imapMirrorService';
+import { runPopSweeps } from '@/modules/accounting/services/capture/pop/popSweeps';
+
+/**
+ * The whole request's budget: scripts/isaflow-mirror-scan.service gives curl --max-time 300. The POP sweeps
+ * start nothing after it (popSweeps.ts), so the answer is sent before curl gives up.
+ */
+const REQUEST_BUDGET_MS = 270_000;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -45,17 +52,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }),
     { scanned: 0, ingested: 0, skipped: 0, errors: 0 },
   );
+  // After the scan: POP bank-line matching and the SharePoint copy, within what is left. runPopSweeps never throws.
+  const pop = await runPopSweeps({ deadline: started + REQUEST_BUDGET_MS });
   const durationMs = Date.now() - started;
 
   log.info('Cron complete: mirror-scan', {
     connections: results.length,
     ...summary,
+    pop,
     durationMs,
   }, 'cron-mirror-scan');
 
   return apiResponse.success(res, {
     connections: results.length,
     ...summary,
+    pop,
     durationMs,
     results,
   });

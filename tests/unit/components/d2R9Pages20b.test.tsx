@@ -152,8 +152,8 @@ describe('admin/billing/flow-bundles (route: data = { bundles })', () => {
 });
 
 describe('admin/trials (routes: trials -> TrialCompany[], trials/stats -> TrialStats)', () => {
-  const t = { id: 't1', name: 'D2 Trial Co', plan_name: 'D2 Growth', trial_ends_at: '2026-10-20T00:00:00Z', trial_started_at: null, user_count: 4, status: 'trial', days_left: 3 };
-  const stats = { total_trials: 41, expiring_this_week: 8, expired_unpaid: 9, converted_this_month: 7, conversion_rate_percent: 23 };
+  const t = { id: 't1', name: 'D2 Trial Co', plan_name: 'D2 Growth', trial_ends_at: '2026-10-20T00:00:00Z', trial_started_at: null, user_count: 4, status: 'trial', trial_state: 'active', days_left: 3 };
+  const stats = { total_trials: 41, active_trials: 12, expiring_this_week: 8, expired_unpaid: 9, converted_this_month: 7, conversion_rate_percent: 23 };
   it('success: the trial row and the stat cards come from the responses', async () => {
     serve(on('GET', 'trials/stats', () => ok(stats)), on('GET', 'api/admin/trials', () => ok([t])));
     render(<AdminTrialsPage />);
