@@ -38,4 +38,11 @@ describe('downloadAdminExport', () => {
     expect(fetched).toEqual(['/api/admin/audit/export?source=admin']);
     expect(made).toHaveBeenCalledTimes(1);
   });
+
+  it('fetches the URL it checked: the resolved path, not the raw string', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:wp10');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    await downloadAdminExport('/api/admin/users/../audit/export?search=a', 'f.csv');
+    expect(fetched).toEqual(['/api/admin/audit/export?search=a']);
+  });
 });
