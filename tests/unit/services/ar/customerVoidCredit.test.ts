@@ -92,11 +92,11 @@ describe('assertReceiptVoidKeepsCredit / assertReceiptApplicationKeepsCredit', (
 
 describe('withReceiptCancellationsJudged — judged once, each receipt only verifies', () => {
   const judgedDays = [day('2026-05-22', -50, -50, 0), day('2026-05-24', 50, 50, 0), day('2026-05-27', -150)];
-  async function inJudgedCall(nowDays: CreditDay[], nowRemainder = 50, nowCustomer = 'c') {
+  async function inJudgedCall(nowDays: CreditDay[], nowRemainder = 50, nowCustomer = 'c', refundCustomer = 'c') {
     sqlMock
       .mockResolvedValueOnce(rows(['ref', 'c', -50], ['rec', 'c', 50])) // the judgment's rows
       .mockResolvedValueOnce(rows(['rec', nowCustomer, nowRemainder])) // the receipt's own check: its row
-      .mockResolvedValueOnce(rows(['ref', 'c', -50], ['rec', 'c', nowRemainder])); // the set's remainders now
+      .mockResolvedValueOnce(rows(['ref', refundCustomer, -50], ['rec', 'c', nowRemainder])); // the set's rows now
     vi.mocked(customerCreditDays)
       .mockResolvedValueOnce({ customerName: 'Acme', days: judgedDays })
       .mockResolvedValueOnce({ customerName: 'Acme', days: nowDays });
@@ -117,6 +117,9 @@ describe('withReceiptCancellationsJudged — judged once, each receipt only veri
     expect(isRetryableReceiptRefusal(err)).toBe(true);
     expect(tryLockCustomerCredit).not.toHaveBeenCalled(); // the stale customer is neither locked nor read
     expect(customerCreditDays).toHaveBeenCalledTimes(1); // only the judgment's read
+  });
+  it('refuses as retryable when ANOTHER row of the judged set moved to another customer', async () => {
+    expect(isRetryableReceiptRefusal(await inJudgedCall(judgedDays, 50, 'c', 'other').catch((e: unknown) => e))).toBe(true);
   });
   it('refuses as retryable when a judged receipt\'s remainder moved', async () => {
     expect(isRetryableReceiptRefusal(await inJudgedCall(judgedDays, 80).catch((e: unknown) => e))).toBe(true);
