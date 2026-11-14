@@ -78,7 +78,7 @@ export function AnnouncementModal({ initial, onClose, onSave, saving }: Props) {
           <h2 id="announcement-modal-title" className="text-lg font-semibold text-gray-900 dark:text-white">
             {initial.title ? 'Edit Announcement' : 'New Announcement'}
           </h2>
-          <button onClick={onClose} aria-label="Close" className="text-gray-600 dark:text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} disabled={saving} aria-label="Close" className="text-gray-600 dark:text-gray-400 hover:text-gray-600 disabled:opacity-50">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -126,10 +126,10 @@ export function AnnouncementModal({ initial, onClose, onSave, saving }: Props) {
 
           {form.target === 'company' && (
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+              <label htmlFor={`${fid}-companies`} className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                 Target Companies
               </label>
-              <CompanyPicker value={companyIds} onChange={setCompanyIds} />
+              <CompanyPicker inputId={`${fid}-companies`} value={companyIds} onChange={setCompanyIds} />
             </div>
           )}
 
@@ -157,8 +157,8 @@ export function AnnouncementModal({ initial, onClose, onSave, saving }: Props) {
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">
+          <button onClick={onClose} disabled={saving}
+            className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white disabled:opacity-50">
             Cancel
           </button>
           <button
