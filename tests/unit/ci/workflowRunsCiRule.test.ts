@@ -296,7 +296,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
 
   it('runs-on a label no runner has, so the job queues forever and never goes red', () => {
     expect(check(edit(`${VELO_HEADER}    needs: route\n    runs-on: ${STATIC_RUNS_ON}\n`, `${VELO_HEADER}    needs: route\n    runs-on: [nonexistent-label]\n`)).length).toBeGreaterThan(0);
-    expect(check(edit(`    needs: route\n    runs-on: ${STATIC_RUNS_ON}\n    # Hosted: 40`, `    needs: route\n    runs-on: [nonexistent-label]\n    # Hosted: 40`)).length).toBeGreaterThan(0);
+    expect(check(edit(`    needs: route\n    runs-on: ${STATIC_RUNS_ON}\n    # Hosted: 60`, `    needs: route\n    runs-on: [nonexistent-label]\n    # Hosted: 60`)).length).toBeGreaterThan(0);
     expect(check(edit(`  route:\n    name: CI route\n    runs-on: ${LIGHT}\n`, '  route:\n    name: CI route\n    runs-on: [nonexistent-label]\n')).length).toBeGreaterThan(0);
     expect(check(edit(`${Q}    if: \${{ always() }}\n    runs-on: ${LIGHT}\n`, `${Q}    if: \${{ always() }}\n    runs-on: [nonexistent-label]\n`)).length).toBeGreaterThan(0);
   });
@@ -324,7 +324,8 @@ describe('the required check passes only when both gate groups passed', () => {
     ['aggregator reads a result that is not the job\'s', edit('          VELO: ${{ needs.velo.result }}\n', "          VELO: success\n")],
     ['continue-on-error on the aggregator', edit(QUALITY_HEADER, `${QUALITY_HEADER}    continue-on-error: true\n`)],
     ['a second aggregator step that always passes', edit(AGGREGATE, `${AGGREGATE}      - run: exit 0\n`)],
-    ['static timeout no longer pinned', edit("    timeout-minutes: ${{ needs.route.outputs.hosted == 'true' && 40 || 75 }}\n", '    timeout-minutes: 1\n')],
+    ['static timeout no longer pinned', edit("    timeout-minutes: ${{ needs.route.outputs.hosted == 'true' && 60 || 75 }}\n", '    timeout-minutes: 1\n')],
+    ['static hosted timeout back at 40 (cancelled healthy runs)', edit("hosted == 'true' && 60 || 75 }}", "hosted == 'true' && 40 || 75 }}")],
     ['static no longer needs route (its runs-on reads route\'s output)', edit(`${STATIC_HEADER}    needs: route\n`, STATIC_HEADER)],
     ['velo no longer needs route', edit(`${VELO_HEADER}    needs: route\n`, VELO_HEADER)],
     ['velo apt step running on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n" + APT_HEAD + '          for i in 1 2; do sudo timeout 600 apt-get install -y -qq --no-install-recommends postgresql-16', '      - run: |\n' + APT_HEAD + '          for i in 1 2; do sudo timeout 600 apt-get install -y -qq --no-install-recommends postgresql-16')],
