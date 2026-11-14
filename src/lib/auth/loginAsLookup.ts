@@ -8,12 +8,14 @@ import type { LoginAsParties } from './loginAsRecord';
 
 /**
  * At most this many look-ups run at once, process-wide, across both paths: they are reachable without a live
- * session and not rate limited, so without a cap a burst could hold every platform_admin slot. One session id
- * holds at most ONE slot at a time, so a burst from one session (any valid session, Login-as or not) takes one
- * slot, never both. Each look-up is itself bounded (impersonationPartiesOfBounded: 1 s for a slot, 2 s statement).
- * Residual, accepted: several valid sessions at once (an account can open more than one) can still fill both
- * slots, each for at most one bounded look-up; a Login-as end skipped meanwhile leaves its stash row, unusable
- * without the cleared cookie, to expire within 1 h (purged by the next Login-as start or end).
+ * session and not rate limited, so without a cap a burst could hold every platform_admin slot. Both callers take a
+ * slot only after the stash row their cookie names was found and lists the token's user as a party (round 3 M1b),
+ * so junk stash cookies, and sessions of users who hold no stash, never take one. One session id holds at most ONE
+ * slot at a time. Each look-up is itself bounded (impersonationPartiesOfBounded: 1 s for a slot, 2 s statement).
+ * Residual, accepted: only parties to a real stash (its admin, or its Login-as target) can take a slot, and several
+ * of their valid sessions at once can still fill both, each for at most one bounded look-up; a Login-as end skipped
+ * meanwhile revokes the caller's own session and leaves its stash row, unusable without the cleared cookie, to
+ * expire within 1 h (purged by the next Login-as start or end).
  */
 export const LOGIN_AS_LOOKUP_SLOTS = 2;
 let inFlight = 0;

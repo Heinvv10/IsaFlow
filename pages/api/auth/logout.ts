@@ -5,6 +5,7 @@ import { parseCookies, clearAuthCookies, ACCESS_COOKIE, REFRESH_COOKIE } from '@
 import { ADMIN_STASH_COOKIE } from '@/lib/auth/impersonation-cookies';
 import { endLoginAsWithoutRestore, type LoginAsSession } from '@/lib/auth/loginAsRecord';
 import { cappedLoginAsLookup } from '@/lib/auth/loginAsLookup';
+import { stashPartiesOf } from '@/modules/admin/services/userImpersonationService';
 import { log } from '@/lib/logger';
 import { withCsrf } from '@/lib/auth/withCsrf';
 
@@ -38,21 +39,28 @@ async function endThisSession(accessToken?: string, refreshToken?: string): Prom
 
 /**
  * The Login-as session `token` names, or null. A look-up slot (loginAsLookup.cappedLoginAsLookup: global and
- * per-session caps, shared with end-impersonation) is taken only by a Sign Out that could be a Login-as: a stash
- * cookie is present, and the access token's signature verifies (locally, no DB) and carries a `session_id`. Junk,
- * token-less and stash-less Sign Outs never take one. (The JWT carries no Login-as marker; the session record is
- * the only proof, which is what the look-up reads.) Skipped, failed or past its bound: null, logged there; Sign Out
- * goes ahead, revoking with the caller's own token and clearing the cookies. Never a 429.
+ * per-session caps, shared with end-impersonation) is taken only by a Sign Out that could be this Login-as
+ * (round 3 M1b, the same rule as end-impersonation): the access token's signature verifies (locally, no DB) and
+ * carries a `session_id`, AND the stash row its cookie names exists and lists the token's user as a party
+ * (stashPartiesOf: migration pool, primary key, bounded). Junk, token-less, stash-less and foreign-stash Sign Outs
+ * never take one. (The JWT carries no Login-as marker; the session record is the only proof, which is what the
+ * look-up reads.) Not a candidate, skipped, failed or past its bound: null, logged; Sign Out goes ahead, revoking
+ * with the caller's own token and clearing the cookies. Never a 429.
  */
 async function loginAsPartiesOrNull(token: string | undefined, stashId: string | undefined): Promise<LoginAsSession | null> {
   if (!token || !stashId) return null;
-  let sessionId: unknown;
+  let claims;
   try {
-    sessionId = (await verifyTokenSignature(token)).session_id;
+    claims = await verifyTokenSignature(token);
   } catch {
     return null; // expired or not ours: it names no session, nothing to close
   }
+  const sessionId = claims.session_id;
   if (typeof sessionId !== 'string') return null;
+  const stashed = await stashPartiesOf(stashId);
+  if (stashed === 'gave_up' || !stashed || (claims.sub !== stashed.adminUserId && claims.sub !== stashed.targetUserId)) {
+    return null;
+  }
   const parties = await cappedLoginAsLookup(sessionId, 'logout');
   return parties && parties !== 'skipped' && parties !== 'gave_up' ? { ...parties, sessionId } : null;
 }

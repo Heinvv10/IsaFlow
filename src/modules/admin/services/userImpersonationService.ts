@@ -15,6 +15,8 @@
 import { sql } from '@/lib/neon';
 import { encryptToken, decryptToken } from '@/lib/encryption';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
+import { boundedPoolRead } from '@/lib/auth/boundedPoolRead';
+import { log } from '@/lib/logger';
 
 const IMPERSONATION_TTL_HOURS = 1;
 
@@ -68,14 +70,26 @@ export async function loadStash(stashId: string): Promise<StashRow | null> {
   };
 }
 
-/** Whose stash `stashId` is, expired or not; null when there is no such row (or the id is not a uuid). Decrypts nothing. */
-export async function stashPartiesOf(stashId: string): Promise<{ adminUserId: string; targetUserId: string } | null> {
-  const rows = (await migrationAdminPool().query<{ admin_user_id: string; target_user_id: string }>(
-    `SELECT admin_user_id, target_user_id FROM admin_impersonation_stash
-      WHERE stash_id::text = $1 LIMIT 1`,
-    [stashId],
-  )).rows;
-  return rows[0] ? { adminUserId: rows[0].admin_user_id, targetUserId: rows[0].target_user_id } : null;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Whose stash `stashId` is, expired or not; null when there is no such row (or the id is not a uuid: no query).
+ * Decrypts nothing. Bounded (boundedPoolRead): the unauthenticated end paths (Sign Out, a refused Return) call it
+ * on every request, and the migration_admin pool is small; `gave_up` when it could not answer in time (logged).
+ */
+export async function stashPartiesOf(
+  stashId: string,
+): Promise<{ adminUserId: string; targetUserId: string } | null | 'gave_up'> {
+  if (!UUID.test(stashId)) return null;
+  try {
+    const rows = await boundedPoolRead<{ admin_user_id: string; target_user_id: string }>(migrationAdminPool(),
+      'stashPartiesOf', 'SELECT admin_user_id, target_user_id FROM admin_impersonation_stash WHERE stash_id = $1::uuid',
+      [stashId]);
+    return rows[0] ? { adminUserId: rows[0].admin_user_id, targetUserId: rows[0].target_user_id } : null;
+  } catch (err) {
+    log.warn('stashPartiesOf: stash look-up failed or timed out', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
+    return 'gave_up';
+  }
 }
 
 /**
