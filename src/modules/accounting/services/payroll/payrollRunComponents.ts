@@ -2,6 +2,7 @@ import { getEmployeeComponents } from './payrollComponentService';
 import { applyFringeBenefits, FringeBenefitConfigError, selectBenefit } from './fringeBenefits';
 import { loadFringeBenefitsByEmployee, loadVehicleBenefitComponent } from './fringeBenefitService';
 import { markNonCashEmployerBenefits } from './employerContributions';
+import { costPercentOfRfi } from './rfi';
 import { appendTerminationIfEndingThisPeriod, severanceOnlyComponents } from './payrollRunTermination';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 
@@ -34,7 +35,8 @@ export async function prepareRunComponents(args: {
     if (onlySeverance && components.length === 0) continue;
     prepared.push({
       employee, severanceOnly: onlySeverance, terminationWarnings,
-      components: onlySeverance ? components : withFringe(components, benefits.get(employee.id) ?? [], vehicleComponent, period, terminationWarnings),
+      components: onlySeverance ? components
+        : withRfiCosted(withFringe(components, benefits.get(employee.id) ?? [], vehicleComponent, period, terminationWarnings), terminationWarnings),
     });
   }
   return prepared;
@@ -56,4 +58,15 @@ export function withFringe(
     // The opt-in still decides the 3810, whether or not the vehicle could be shown.
     return markNonCashEmployerBenefits(components, selectBenefit(benefits, 'medical_gross_up', period) !== undefined);
   }
+}
+
+/**
+ * The percent_of_rfi rows costed on the line's RFI (RF, rfi.ts), after the fringe step, so an employer's 3817 / 3825 /
+ * 3828 is already non-cash. Done once here: the loan preview (judgeLoanApplications) and the stored line read the same
+ * prepared components, so they cannot cost the contribution differently.
+ */
+export function withRfiCosted(components: EmployeeComponent[], warnings: ValidationResult[]): EmployeeComponent[] {
+  const costed = costPercentOfRfi(components);
+  warnings.push(...costed.warnings);
+  return costed.components;
 }

@@ -2,6 +2,7 @@
  * Posting a payroll batch: each line becomes an assignment (payroll_employee_components) in the post's transaction,
  * under the company's payroll-approval lock. (Moved out of payrollBatchService.ts, which re-exports postBatch.)
  */
+import { judgeFundAssignment } from './payrollComponentRfi';
 import { sql, withTransaction } from '@/lib/neon';
 import type { TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -150,6 +151,7 @@ async function insertAssignment(
 ): Promise<void> {
   const from = toIso(opts.effectiveFrom);
   const to = opts.effectiveTo ? toIso(opts.effectiveTo) : null;
+  await judgeFundAssignment(tx, companyId, opts.componentId); // RF: a non-taxable pre-RF 3817/3825/3828 takes no new row
   await refuseAssignmentWrite(tx, companyId, { employeeId: opts.employeeId, componentId: opts.componentId, from, to, recurring: opts.isRecurring }, { paid, named: true });
   const rows = (await tx`
     INSERT INTO payroll_employee_components (

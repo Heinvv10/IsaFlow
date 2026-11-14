@@ -5,9 +5,15 @@
  * the "total ... contributions paid and 'deemed paid' by employee"; N15, cents
  * omitted, no negatives, and a code with no value is not reported (p. 53-54).
  * The whole contributions, not the deduction the PAYE allowed (SARS
- * PAYE-GEN-01-G21 (2027) p. 11). The 'deemed paid' part, an employer's
- * contribution taxed as a 3817 / 3825 / 3828 benefit and reported beside
- * 4472 / 4473 / 4475 (BRS p. 54, 103), is PAYE 4b and not supported.
+ * PAYE-GEN-01-G21 (2027) p. 11). The 'deemed paid' part (wave 5 RF) is the
+ * employer's contribution, a non-cash 3817 / 3825 / 3828 benefit (p. 101-102:
+ * "'Deemed paid' by employee is the value of the taxable benefit (code 3817)",
+ * 3825, 3828), so 4001 / 4003 / 4006 include it (withDeemedEmployerContributions),
+ * and the employer's contribution itself is 4472 pension, 4473 provident, 4475
+ * retirement annuity (p. 103), equal to the benefit; p. 55: "If code 4472 is
+ * completed, then code 3817 ... and code 4001 must be completed", the same for
+ * 4473 (3825, 4003) and 4475 (3828, 4006). The benefit codes themselves are the
+ * certificate's non-cash income (payrollNonCashFiling).
  * 4030 (p. 102): donations deducted from remuneration and paid over by the employer, reported in full, "not only the
  * allowable portion" (G21 (2027) p. 11). 4497 (p. 57): the total of every 40xx / 44xx / 45xx value on the record,
  * mandatory when any is completed and absent when none is; after the deduction codes, before 4101 / 4102.
@@ -25,6 +31,37 @@ export interface RetirementContributions {
 }
 
 const field = (code: number, amount: number): string | null => (Math.floor(amount) > 0 ? formatField(code, amount, 'N') : null);
+
+/** A certificate's non-cash income by code (payrollNonCashFiling.NonCashBenefitFiling). */
+export interface CertifiedBenefit { sourceCode: string; amount: number }
+
+/** Benefit code → [the employee's contribution code it is deemed into, the employer's contribution code] (BRS p. 55, 101-103). */
+const EMPLOYER_FUND_CODES: ReadonlyArray<[string, keyof Omit<RetirementContributions, 'donations4030'>, number]> = [
+  ['3817', 'pension4001', 4472], ['3825', 'provident4003', 4473], ['3828', 'annuity4006', 4475],
+];
+
+const benefitTotal = (fringe: readonly CertifiedBenefit[], code: string): number =>
+  fringe.filter((f) => f.sourceCode === code).reduce((n, f) => n + f.amount, 0);
+
+/** 4001 / 4003 / 4006 with the employer's contributions deemed paid by the employee added (RF). Unchanged when there are none. */
+export function withDeemedEmployerContributions(r: RetirementContributions | undefined, fringe: readonly CertifiedBenefit[]): RetirementContributions | undefined {
+  if (EMPLOYER_FUND_CODES.every(([code]) => benefitTotal(fringe, code) <= 0)) return r;
+  const out: RetirementContributions = { ...(r ?? { pension4001: 0, provident4003: 0, annuity4006: 0, donations4030: 0 }) };
+  for (const [code, key] of EMPLOYER_FUND_CODES) out[key] = Math.round((out[key] + Math.max(0, benefitTotal(fringe, code))) * 100) / 100;
+  return out;
+}
+
+/** The employer's contribution field each non-cash benefit is reported beside (BRS V25.3.0 p. 103), in code order. */
+const EMPLOYER_CONTRIBUTION_FIELDS: ReadonlyArray<[string, number]> = [['3817', 4472], ['3825', 4473], ['3810', 4474], ['3828', 4475]];
+
+/**
+ * The employer's own contribution codes in code order, each equal to its benefit; none without a value: 4472 / 4473 / 4475
+ * (pension, provident, RA; RF) and 4474, the medical scheme contribution (V13.1 rule "3810 must equal 4474"; FB).
+ */
+export function employerFundContributionFields(fringe: readonly CertifiedBenefit[]): string[] {
+  return EMPLOYER_CONTRIBUTION_FIELDS.map(([code, employer]) => field(employer, benefitTotal(fringe, code))).filter((l): l is string => l !== null);
+}
+
 
 /** 4001 and 4003 (before 4005) and 4006 (after it), so the record stays in code order; none without a value. */
 export function retirementFieldLines(r: RetirementContributions | undefined): { beforeMedical: (string | null)[]; afterMedical: (string | null)[] } {
