@@ -120,3 +120,29 @@ describe('AnnouncementBanner', () => {
     expect(screen.queryByText('Maintenance')).toBeNull();
   });
 });
+
+describe('AnnouncementBanner: size and requests', () => {
+  it('the bars are capped in height and scroll, so a long announcement cannot push the app off screen', async () => {
+    serve([ann({ message: 'long '.repeat(500) })]);
+    render(<AnnouncementBanner />);
+    const box = (await screen.findByTestId('announcement-banner'));
+    expect(box.className).toMatch(/max-h-/);
+    expect(box.className).toMatch(/overflow-y-auto/);
+  });
+
+  it('two banners mounting together make one request', async () => {
+    render(<><AnnouncementBanner /><AnnouncementBanner /></>);
+    await waitFor(() => expect(screen.getAllByText('Maintenance')).toHaveLength(2));
+    expect(calls('/api/announcements/active')).toHaveLength(1);
+  });
+
+  it('a failed shared request clears, so the next mount asks again', async () => {
+    vi.mocked(apiFetch).mockReset().mockResolvedValueOnce(new Response('{}', { status: 500 }));
+    const first = render(<AnnouncementBanner />);
+    await waitFor(() => expect(calls('/api/announcements/active')).toHaveLength(1));
+    first.unmount();
+    serve([ann()]);
+    render(<AnnouncementBanner />);
+    expect(await screen.findByText('Maintenance')).toBeInTheDocument();
+  });
+});

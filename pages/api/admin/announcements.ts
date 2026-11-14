@@ -16,12 +16,12 @@ import {
   createAnnouncement,
 } from '@/modules/admin/services/announcementService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
-import { announcementWindowError } from '@/modules/admin/services/announcementWindow';
+import { announcementWindowError, ANNOUNCEMENT_TITLE_MAX, ANNOUNCEMENT_MESSAGE_MAX, firstValidationMessage } from '@/modules/admin/services/announcementWindow';
 import { getIp } from '@/utils/getIp';
 
 const PostBody = z.object({
-  title:          z.string().min(1),
-  message:        z.string().min(1),
+  title:          z.string().min(1).max(ANNOUNCEMENT_TITLE_MAX, `Title must be at most ${ANNOUNCEMENT_TITLE_MAX} characters`),
+  message:        z.string().min(1).max(ANNOUNCEMENT_MESSAGE_MAX, `Message must be at most ${ANNOUNCEMENT_MESSAGE_MAX} characters`),
   type:           z.string().optional(),
   target:         z.string().optional(),
   target_ids:     z.array(z.string()).optional(),
@@ -49,7 +49,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     const parsed = PostBody.safeParse(req.body);
     if (!parsed.success) {
-      return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
+      return apiResponse.badRequest(res, firstValidationMessage(parsed.error));
     }
 
     const windowError = announcementWindowError(parsed.data.starts_at, parsed.data.ends_at);

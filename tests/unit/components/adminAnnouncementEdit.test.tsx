@@ -46,7 +46,8 @@ beforeEach(() => {
     if (u === `/api/admin/announcements/${ID}` && init?.method === 'PATCH') {
       const body = JSON.parse(String(init.body)) as Row;
       patches.push(body);
-      rows = [{ ...rows[0], ...body, ends_at: body.ends_at ?? null }]; // the server stores what it is sent
+      // As updateAnnouncement does: an omitted ends_at keeps the stored one, only an explicit null clears it.
+      rows = [{ ...rows[0], ...body, ends_at: 'ends_at' in body ? body.ends_at : rows[0]!.ends_at }];
       return json({ id: ID });
     }
     if (u.startsWith('/api/admin/billing/plans')) return json([

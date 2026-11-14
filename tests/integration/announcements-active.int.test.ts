@@ -234,6 +234,20 @@ describe('POST /api/announcements/dismiss', () => {
     }
   });
 
+  it('only an announcement that targets the caller can be dismissed: another company\'s, or another plan\'s, is a 404 and writes nothing', async () => {
+    const before = async (m: Member) => Number((await pool.query('SELECT count(*) AS n FROM user_preferences WHERE user_id = $1', [m.userId])).rows[0].n);
+    const n0 = await before(c);
+    for (const title of ['company-a', 'plan-p1', 'plan-other', 'company-empty', 'company-b-only']) {
+      const r = await call(dismissRoute, c, 'POST', { id: await idOf(title) });
+      expect([title, r.status]).toEqual([title, 404]);
+    }
+    expect(await before(c)).toBe(n0);
+    // The caller's own targets still work: company A for a, plan P1 and P2 (either live subscription) for a.
+    for (const title of ['company-a', 'plan-p1', 'plan-p2', 'all-open']) {
+      expect([title, (await call(dismissRoute, a2, 'POST', { id: await idOf(title) })).status]).toEqual([title, 200]);
+    }
+  });
+
   it('only POST', async () => {
     expect((await call(dismissRoute, a, 'GET')).status).toBe(405);
   });

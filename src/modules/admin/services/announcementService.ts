@@ -6,6 +6,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { DISMISS_KEY_PREFIX } from '@/lib/tenantAnnouncements';
 import type { Announcement, PaginatedResult } from '../types/admin.types';
 type Row = DbRow;
 
@@ -175,6 +176,8 @@ export async function updateAnnouncement(
 
 export async function deleteAnnouncement(id: string): Promise<void> {
   try {
+    // Both in the request's transaction: no user is left holding a dismissal of an announcement that is gone.
+    await sql`DELETE FROM user_preferences WHERE key = ${DISMISS_KEY_PREFIX + id}`;
     await sql`DELETE FROM system_announcements WHERE id = ${id}`;
   } catch (err) {
     log.error('deleteAnnouncement failed', { id, error: err }, 'announcementService');

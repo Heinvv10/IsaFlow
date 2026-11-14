@@ -12,6 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { announcementTargetsCompany } from '@/lib/tenantAnnouncementsSql';
 import { DISMISS_KEY_PREFIX, type TenantAnnouncement } from '@/lib/tenantAnnouncements';
 type Row = Record<string, unknown>;
 
@@ -42,24 +43,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, user } = req as CompanyAuthedRequest;
 
   try {
-    // Plan target: any of the company's live subscriptions (a company can hold more than one row).
+    // Who it targets: announcementTargetsCompany (shared with the dismiss route).
     // A user's dismissal hides a dismissible announcement only: a not-dismissible one ignores it.
     const rows = await sql`
       SELECT a.id, a.title, a.message, a.type, a.starts_at, a.ends_at, a.is_dismissible
       FROM system_announcements a
       WHERE a.starts_at <= NOW()
         AND (a.ends_at IS NULL OR a.ends_at >= NOW())
-        AND (
-          a.target = 'all'
-          OR (a.target = 'company' AND ${companyId}::uuid = ANY(a.target_ids))
-          OR (
-            a.target = 'plan'
-            AND a.target_ids && ARRAY(
-              SELECT s.plan_id FROM subscriptions s
-              WHERE s.company_id = ${companyId}::uuid AND s.status IN ('active', 'trial')
-            )
-          )
-        )
+        AND ${announcementTargetsCompany(companyId)}
         AND (
           NOT a.is_dismissible
           OR NOT EXISTS (

@@ -27,9 +27,21 @@ const TONE: Record<TenantAnnouncement['type'], string> = {
 
 interface Cached { key: string; at: number; items: TenantAnnouncement[] }
 let cache: Cached | null = null;
+// One GET at a time per user and company: AppLayout mounts the banner again on every navigation, and several can
+// mount together. A failure clears it, so the next mount asks again.
+let inFlight: { key: string; promise: Promise<TenantAnnouncement[]> } | null = null;
+
+function load(key: string): Promise<TenantAnnouncement[]> {
+  if (inFlight && inFlight.key === key) return inFlight.promise;
+  const promise = apiJson('/api/announcements/active', undefined, 'Could not load announcements')
+    .then((list) => { cache = { key, at: Date.now(), items: list }; return list; })
+    .finally(() => { if (inFlight?.promise === promise) inFlight = null; });
+  inFlight = { key, promise };
+  return promise;
+}
 
 /** Forget the kept answer (tests; sign-out is a full page load, which drops it anyway). */
-export function clearAnnouncementCache(): void { cache = null; }
+export function clearAnnouncementCache(): void { cache = null; inFlight = null; }
 
 function fresh(key: string): TenantAnnouncement[] | null {
   return cache && cache.key === key && Date.now() - cache.at < CACHE_MS ? cache.items : null;
@@ -48,11 +60,8 @@ export function AnnouncementBanner() {
     const kept = fresh(key);
     if (kept) { setItems(kept); return; }
     let cancelled = false;
-    apiJson('/api/announcements/active', undefined, 'Could not load announcements')
-      .then((list) => {
-        cache = { key, at: Date.now(), items: list };
-        if (!cancelled) setItems(list);
-      })
+    load(key)
+      .then((list) => { if (!cancelled) setItems(list); })
       .catch((err: unknown) => {
         // A banner must never get in the way of the app: say nothing, log it.
         log.warn('Could not load announcements', { message: apiErrorMessage(err, 'unknown') }, 'announcement-banner');
@@ -81,7 +90,7 @@ export function AnnouncementBanner() {
   if (items.length === 0) return null;
 
   return (
-    <div data-testid="announcement-banner" className="w-full shrink-0">
+    <div data-testid="announcement-banner" className="w-full shrink-0 max-h-48 overflow-y-auto">
       {items.map((a) => (
         <div key={a.id} role="status"
           className={`flex items-start gap-3 border-b px-4 py-2 text-sm ${TONE[a.type] ?? TONE.info}`}>
