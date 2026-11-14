@@ -75,3 +75,20 @@ describe('splitCertificateIncome', () => {
       .toEqual({ grossSalary3601: 235_000, annualPayments3605: 0, paye4102: 20_000 });
   });
 });
+
+// ─── Wave 5 DR: IRP3(b)/(c) directives on regular pay carry 3230 alone (BRS V25.3.0 p. 41-42) ────
+
+describe('buildEmployeeRecord — fixed PAYE rate/amount directives', () => {
+  it('writes 3230 with each number, after any lump-sum group and before 3601, with no 3231-3233 of its own', () => {
+    const lines = buildEmployeeRecord({
+      ...validEmployee,
+      lumpSums: [{ sourceCode: '3901', directiveNumber: '9876543210', directiveIssuedDate: '20260505', amount: 30000, paye: 3000 }],
+      regularDirectiveNumbers: ['1234567'],
+    });
+    const at = (field: string) => lines.indexOf(field);
+    expect(lines.filter(l => l.startsWith('3230,'))).toEqual(['3230,"9876543210"', '3230,"1234567"']);
+    expect(at('3233,30000')).toBeLessThan(at('3230,"1234567"'));
+    expect(at('3230,"1234567"')).toBeLessThan(at('3601,360000'));
+    expect(lines.filter(l => l.startsWith('3231,'))).toHaveLength(1);
+  });
+});

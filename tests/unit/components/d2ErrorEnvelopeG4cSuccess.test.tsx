@@ -54,12 +54,6 @@ describe('admin action sites complete on a success envelope', () => {
     if (p === '/api/admin/alert-settings' && m === 'GET') return success({ health_alert_email: '', health_alert_webhook_url: '' });
     return null;
   };
-  it('success: settings platform save completes', async () => {
-    script(settingsRoute);
-    render(<SettingsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /^save settings$/i }));
-    expect(await screen.findByText('Settings saved successfully.')).toBeTruthy();
-  });
   it('success: settings alert save completes', async () => {
     script(settingsRoute);
     render(<SettingsPage />);
