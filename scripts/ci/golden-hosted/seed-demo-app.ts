@@ -17,9 +17,11 @@
  *
  *   8 suppliers, 80 supplier invoices created and approved, 10 posted
  *   journals (one a month), 200 bank statement rows imported as one CSV,
- *   4 customers, 1 employee on a basic salary, 1 Sage migration session.
+ *   4 customers, 12 approved customer invoices, the 0GP-Golden-Supplier, 1 employee on a basic salary,
+ *   1 Sage migration session.
  */
 import { randomUUID } from 'node:crypto';
+import { CUSTOMER_INVOICES, FIXTURE_SUPPLIER, seedCustomerInvoices, seedFixtureSupplier } from './seed-golden-fixtures';
 
 const COUNTS = { suppliers: 8, invoices: 80, journals: 10, bankRows: 200, customers: 4 } as const;
 
@@ -104,9 +106,11 @@ function say(msg: string): void {
   process.stdout.write(`[golden-seed] ${msg}\n`);
 }
 
-export async function seedPeople(api: Client): Promise<void> {
+export async function seedPeople(api: Client): Promise<string[]> {
+  const customerIds: string[] = [];
   for (let k = 1; k <= COUNTS.customers; k++) {
-    await api.post('/api/accounting/customers', { name: `Demo Customer ${k}`, email: `demo-customer-${k}@example.test` });
+    const made = await api.post<{ id: string }>('/api/accounting/customers', { name: `Demo Customer ${k}`, email: `demo-customer-${k}@example.test` });
+    customerIds.push(made.id);
   }
   const component = await api.post<{ id: string }>('/api/payroll/components', { name: 'Basic Salary', sarsSourceCode: '3601', componentType: 'earning' });
   const employee = await api.post<{ id: string }>('/api/payroll/employees', {
@@ -115,6 +119,7 @@ export async function seedPeople(api: Client): Promise<void> {
   });
   await api.post(`/api/payroll/employees/${employee.id}/components`, { componentId: component.id, amount: 25000, effectiveFrom: '2025-03-01' });
   say(`${COUNTS.customers} customers, 1 employee`);
+  return customerIds;
 }
 
 /**
@@ -257,9 +262,12 @@ async function main(): Promise<void> {
   const now = new Date();
   const months = seedMonths(now);
   await seedLongStandingUser(api, now);
-  await seedPeople(api);
+  const customerIds = await seedPeople(api);
   await seedPayRun(api, months);
   await seedSuppliersAndInvoices(api, months);
+  await seedCustomerInvoices(api, (i) => seedDate(months, i), customerIds);
+  await seedFixtureSupplier(api);
+  say(`${CUSTOMER_INVOICES} approved customer invoices, ${FIXTURE_SUPPLIER}`);
   await seedJournals(api, months);
   await seedBankRows(api, months, now.toISOString().slice(0, 10));
   await api.post('/api/accounting/migration/session', { sourceSystem: 'sage_cloud' });

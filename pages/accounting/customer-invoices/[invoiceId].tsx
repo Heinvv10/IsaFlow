@@ -10,6 +10,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Loader2, AlertCircle, Pencil } from 'lucide-react';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
+import { CommentsPanel } from '@/components/accounting/comments/CommentsPanel';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { InvoiceActionBar } from '@/components/invoices/InvoiceActionBar';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
@@ -236,6 +237,8 @@ export default function CustomerInvoiceDetailPage() {
               { value: 'other', label: 'Other' },
             ]}
           />
+
+          <CommentsPanel recordType="customer_invoice" recordId={invoice.id} />
         </div>
 
         <InvoiceEmailModal
