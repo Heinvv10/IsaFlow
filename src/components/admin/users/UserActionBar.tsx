@@ -1,6 +1,6 @@
 /**
  * Admin user detail: the identity header and the action bar, moved out of pages/admin/users/[id].tsx to keep that
- * page under 300 lines (behaviour unchanged). Destructive actions go through `onConfirm(key, action)`, the page's
+ * page under 300 lines. Same handlers and markup; colour tokens only changed (gray-500/400 → ink-muted/faint). Destructive actions go through `onConfirm(key, action)`, the page's
  * click-twice confirmation; `confirmAction` is the key currently armed.
  */
 import {

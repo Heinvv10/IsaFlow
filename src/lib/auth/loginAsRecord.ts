@@ -6,7 +6,7 @@
 // same row afterwards (`noteLoginAsEnd`), so the row says `target_session_revoked: null` (unknown) until
 // then, and stays honest if that last write fails.
 import { logout, verifyTokenSignature } from './gotrue';
-import { impersonationPartiesOf, impersonationPartiesOfBounded } from './impersonationSessions';
+import { impersonationPartiesOf } from './impersonationSessions';
 import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { deleteEndedStashes, purgeExpiredStashes } from '@/modules/admin/services/userImpersonationService';
@@ -25,13 +25,11 @@ const noteFailure = (reason: string, step: string, err: unknown) =>
   log.error(`end of Login-as (${reason}): ${step} failed`, { message: err instanceof Error ? err.message : String(err) }, 'Auth');
 
 /**
- * The parties of the recorded Login-as session `accessToken` belongs to (its verified `session_id`), or null
- * for an ordinary session or a token whose signature does not verify (expired, or not ours: it names no session,
- * so there is nothing to close; not a failure). A lookup failure throws. `bounded`: for an unauthenticated
- * caller (Sign Out), the look-up gives up fast instead of holding or waiting for a platform_admin slot
- * (impersonationPartiesOfBounded).
+ * The recorded Login-as session `accessToken` belongs to (its verified `session_id`), or null for an ordinary
+ * session or a token whose signature does not verify (expired, or not ours: it names no session, so there is
+ * nothing to close; not a failure). A lookup failure throws. Sign Out reads it bounded and capped (logout.ts).
  */
-export async function loginAsPartiesOfToken(accessToken: string, opts: { bounded?: boolean } = {}): Promise<LoginAsSession | null> {
+export async function loginAsPartiesOfToken(accessToken: string): Promise<LoginAsSession | null> {
   let sessionId: unknown;
   try {
     sessionId = (await verifyTokenSignature(accessToken)).session_id;
@@ -39,7 +37,7 @@ export async function loginAsPartiesOfToken(accessToken: string, opts: { bounded
     return null;
   }
   if (typeof sessionId !== 'string') return null;
-  const parties = opts.bounded ? await impersonationPartiesOfBounded(sessionId) : await impersonationPartiesOf(sessionId);
+  const parties = await impersonationPartiesOf(sessionId);
   return parties ? { ...parties, sessionId } : null;
 }
 

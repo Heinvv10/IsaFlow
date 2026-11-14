@@ -127,7 +127,9 @@ describe('M1: Sign Out never waits on the platform_admin pool', () => {
 describe('security review: Sign Out look-ups are capped process-wide', () => {
   it('20 concurrent Sign Outs never run more than SIGN_OUT_LOOKUP_SLOTS look-ups or hold more slots; all revoke', async () => {
     const admin = getPlatformAdminPool();
-    const sessions = await Promise.all(Array.from({ length: 20 }, () => fx.ownSession()));
+    // Each could be a Login-as (a stash cookie and a verifying token with a session id), so each wants a slot.
+    const sessions = (await Promise.all(Array.from({ length: 20 }, () => fx.ownSession())))
+      .map((jar) => ({ ...jar, 'sb-admin-stash': crypto.randomUUID() }));
     lookups.delayMs = 200;
     let maxInUse = 0;
     const sampler = setInterval(() => { maxInUse = Math.max(maxInUse, admin.totalCount - admin.idleCount); }, 5);
@@ -139,6 +141,26 @@ describe('security review: Sign Out look-ups are capped process-wide', () => {
     expect(lookups.calls).toBeGreaterThan(0);
     expect(lookups.maxInFlight).toBeLessThanOrEqual(SIGN_OUT_LOOKUP_SLOTS);
     expect(maxInUse).toBeLessThanOrEqual(SIGN_OUT_LOOKUP_SLOTS);
+  });
+});
+
+describe('security review: only a possible Login-as takes a look-up slot', () => {
+  it('50 token-less, junk-token and stash-less Sign Outs do not stop a real Login-as Sign Out closing its stash', async () => {
+    const real = await fx.loginAsTarget();
+    const own = await fx.ownSession();
+    const noise: Jar[] = Array.from({ length: 50 }, (_, i) => (
+      i % 3 === 0 ? { 'sb-admin-stash': crypto.randomUUID() } // no access token
+        : i % 3 === 1 ? { 'sb-access-token': `junk-${i}`, 'sb-admin-stash': crypto.randomUUID() } // does not verify
+          : { ...own })); // a verifying token, no stash cookie
+    lookups.delayMs = 200;
+    const results = await Promise.all([...noise.map((jar) => signOut(jar)), signOut(real)]);
+    expect(results.every((r) => r.status === 200 && r.clearedAccess)).toBe(true);
+    expect(lookups.calls).toBe(1); // only the real Login-as took a slot
+    expect((await pool.query('SELECT count(*)::int AS n FROM admin_impersonation_stash WHERE stash_id = $1',
+      [real['sb-admin-stash']])).rows[0].n).toBe(0);
+    const [end] = (await pool.query(`SELECT details FROM admin_audit_log WHERE admin_user_id = $1
+      AND action = 'impersonation_end' ORDER BY created_at DESC LIMIT 1`, [fx.platformAdmin])).rows;
+    expect(end.details).toMatchObject({ reason: 'logout', target_session_revoked: true });
   });
 });
 

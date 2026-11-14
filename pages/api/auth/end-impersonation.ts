@@ -166,6 +166,12 @@ const handler: NextApiHandler = async (req, res) => {
   // Recorded first: a failed write throws here, before any removal, revocation or cookie. The stash goes next,
   // before the revocation: a failure after this point leaves no live stash to restore from, so a retry takes the
   // STASH_EXPIRED path, which revokes what it holds and records that end too (the truth, not a second restore).
+  // Every fallible read happens before the first irreversible step (record, stash delete, revoke): a failure here is
+  // a 500 with the stash still live, so a retry restores. Returning to the admin's own session: only a company
+  // withAuth will still admit (src/lib/auth/liveCompanies.ts), so ending an impersonation cannot drop the admin
+  // into a soft-deleted tenant that 403s everything.
+  const adminCompanyId = await pickInitialCompanyId(stash.admin_user_id);
+
   // Keyed on the stash just loaded for these parties and, for the Login-as session itself, its verified session id.
   const endId = await recordLoginAsEnd(
     { actorUserId: stash.admin_user_id, targetUserId: stash.target_user_id },
@@ -177,11 +183,6 @@ const handler: NextApiHandler = async (req, res) => {
   const targetSessionRevoked = callerId === stash.target_user_id ? await revokeLoginAsSession(accessToken, 'end') : null;
   await noteLoginAsEnd(endId, { target_session_revoked: targetSessionRevoked });
   await purgeExpiredStashesBestEffort('end-impersonation');
-
-  // Returning to the admin's own session: only a company withAuth will still
-  // admit (src/lib/auth/liveCompanies.ts), so ending an impersonation cannot
-  // drop the admin into a soft-deleted tenant that 403s everything.
-  const adminCompanyId = await pickInitialCompanyId(stash.admin_user_id);
 
   setAuthCookies(res, {
     accessToken: stash.admin_access_token,

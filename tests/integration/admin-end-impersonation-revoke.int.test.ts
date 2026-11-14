@@ -23,6 +23,19 @@ import { assertDisposable, request, response } from './mfa-impersonation-postgre
 import { loginAsFixture, type Jar } from './r-032-login-as.helpers';
 import { signSession } from './r-032-fake-gotrue.helpers';
 
+/** pickInitialCompanyId (the admin's company on return) fails once when set: a read before any irreversible step. */
+const company = vi.hoisted(() => ({ failOnce: false }));
+vi.mock('@/lib/auth/liveCompanies', async (orig) => {
+  const actual = await orig<typeof import('@/lib/auth/liveCompanies')>();
+  return {
+    ...actual,
+    pickInitialCompanyId: async (...args: Parameters<typeof actual.pickInitialCompanyId>) => {
+      if (company.failOnce) { company.failOnce = false; throw new Error('wp9: company read failed'); }
+      return actual.pickInitialCompanyId(...args);
+    },
+  };
+});
+
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const fx = loginAsFixture(pool, 'WP9 end Login-as');
@@ -186,6 +199,20 @@ describe('3.10: a refused or failed Return still ends the Login-as, audit first'
     await pool.query('ALTER TABLE admin_audit_log DROP CONSTRAINT IF EXISTS wp9_block_end_audit');
     const retry = await post(endImpersonation, jar);
     expect(retry.statusCode).toBe(200);
+    expect(await stashes()).toEqual([]);
+  });
+
+  it('review M: the company read fails: a failure before anything irreversible; the stash is live and a retry restores', async () => {
+    const jar = await fx.loginAsTarget();
+    const before = (await ends()).length;
+    company.failOnce = true;
+    const r = await post(endImpersonation, jar);
+    expect(r.threw).toBe(true);
+    expect(r.cookies).toEqual([]);
+    expect(logouts).toEqual([]);
+    expect(await stashes()).toEqual([jar['sb-admin-stash']]);
+    expect((await ends()).length).toBe(before);
+    expect((await post(endImpersonation, jar)).statusCode).toBe(200);
     expect(await stashes()).toEqual([]);
   });
 
