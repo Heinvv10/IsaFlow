@@ -16,8 +16,12 @@ vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => authState }));
 import NotFoundPage from '../../../../pages/404';
 import ErrorPage from '../../../../pages/_error';
 
+const START_URL = window.location.href;
+const onHost = (url: string) => (window as unknown as { happyDOM: { setURL: (u: string) => void } }).happyDOM.setURL(url);
+
 afterEach(() => {
   cleanup();
+  onHost(START_URL);
   authState = { isAuthenticated: false, loading: false };
   vi.restoreAllMocks();
 });
@@ -38,6 +42,13 @@ describe('404 page', () => {
     render(<NotFoundPage />);
     expect(screen.getByRole('link', { name: 'Go to dashboard' }).getAttribute('href')).toBe('/accounting');
     expect(screen.queryByRole('link', { name: 'Sign in' })).toBeNull();
+  });
+
+  it('signed in on the admin host: Go to dashboard opens the admin dashboard, not /accounting (audit 4.2)', () => {
+    onHost('https://admin.isaflow.co.za/no-such-page');
+    authState = { isAuthenticated: true, loading: false };
+    render(<NotFoundPage />);
+    expect(screen.getByRole('link', { name: 'Go to dashboard' }).getAttribute('href')).toBe('/');
   });
 
   it('while auth is loading: renders the signed-out links', () => {

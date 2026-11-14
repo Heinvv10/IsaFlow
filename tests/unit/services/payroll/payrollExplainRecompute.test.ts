@@ -79,4 +79,19 @@ describe('lines the oracle does not cover recompute too', () => {
       expect(done.result).toBe(sdl);
     }
   });
+
+  // DR: a regular-pay directive's steps recompute the line too (the rate on a bonus, a clawback, a fixed amount capped at the cash).
+  const window = { endsOn: '2027-02-28', effectiveDate: '2026-03-01', number: '1234567', id: 'd' };
+  const pct20 = { ...window, type: 'fixed_percentage' as const, rate: 0.2, fixedAmount: null };
+  const fixed = (fixedAmount: number) => ({ ...window, type: 'fixed_amount' as const, rate: null, fixedAmount });
+  it.each([
+    ['20% with a 3605 bonus', [earning('3601', 30_000), earning('3605', 10_000)], pct20],
+    ['20% with a 3605 clawback', [earning('3601', 30_000), earning('3605', -5_000)], pct20],
+    ['fixed R2 500 with a 3605 bonus', [earning('3601', 30_000), earning('3605', 10_000)], fixed(2_500)],
+    ['fixed R2 500 capped on a R1 000 month', [earning('3601', 1_000)], fixed(2_500)],
+  ] as const)('a directive: %s', (_n, components, current) => {
+    const l = calculatePayrollLine({ ...line({ components: [...components] }), regularPayDirective: { current, ended: null } });
+    expect(l.explanations.paye.steps.some(s => s.key === 'paye.regularDirective.regular')).toBe(true);
+    expectRecomputes(l);
+  });
 });
