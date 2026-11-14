@@ -10,9 +10,12 @@
 --     path), 'too_large' (over Graph's 4 MB simple upload: never uploaded), or 'failed' (POP_ARCHIVE_MAX_ATTEMPTS
 --     failed attempts; the last error is in pop_archive_attempts). A POP with a row is never uploaded again.
 --     app_user (and app_service through it) SELECT + INSERT only: a settled copy is never edited.
---   pop_archive_attempts  one row per POP that failed at least once: how many times, when last, and why.
---     The sweep takes POPs never tried first, then the least recently tried, and waits between attempts
---     (5 min doubling, at most 24 h), so a POP that keeps failing never holds the batch.
+--   pop_archive_attempts  one row per POP that failed at least once: `tries` (every failure), `attempts`
+--     (failures that are this POP's own: no bytes, no path, Graph refused this file, an existing file that
+--     differs; only these count toward 'failed'), when last, and why. A Graph outage (5xx, the network)
+--     adds a try but no attempt, so it can never settle a good POP 'failed'. The sweep takes POPs never
+--     tried first, then the least recently tried, and waits between tries (5 min doubling by `tries`, at
+--     most 24 h), so a POP that keeps failing never holds the batch.
 --     app_user SELECT, INSERT of the first failure, UPDATE of the counters.
 --   Ops: to retry 'failed' copies, as migration_admin delete their pop_archive_copies and pop_archive_attempts rows.
 --
@@ -74,7 +77,8 @@ CREATE TABLE IF NOT EXISTS pop_archive_attempts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
   proof_of_payment_id UUID NOT NULL,
-  attempts INT NOT NULL DEFAULT 1 CHECK (attempts > 0),
+  attempts INT NOT NULL CHECK (attempts >= 0),
+  tries INT NOT NULL DEFAULT 1 CHECK (tries > 0 AND tries >= attempts),
   last_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_error TEXT NOT NULL CHECK (length(last_error) <= 300),
   CONSTRAINT pop_archive_attempts_one_per_pop UNIQUE (proof_of_payment_id),
@@ -91,7 +95,7 @@ CREATE POLICY tenant_isolation ON pop_archive_attempts FOR ALL TO app_user
   WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
 REVOKE INSERT, UPDATE, DELETE ON pop_archive_attempts FROM app_user;
 GRANT SELECT ON pop_archive_attempts TO app_user;
-GRANT INSERT (company_id, proof_of_payment_id, last_error) ON pop_archive_attempts TO app_user;
-GRANT UPDATE (attempts, last_attempt_at, last_error) ON pop_archive_attempts TO app_user;
+GRANT INSERT (company_id, proof_of_payment_id, attempts, last_error) ON pop_archive_attempts TO app_user;
+GRANT UPDATE (attempts, tries, last_attempt_at, last_error) ON pop_archive_attempts TO app_user;
 
 SELECT public.app_service_sync_policies();

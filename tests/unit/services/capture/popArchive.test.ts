@@ -1,13 +1,13 @@
 /**
  * POP SharePoint archive, pure and HTTP parts: the file name (popArchiveName.ts) and the Graph client
  * (popGraphClient.ts) against a stubbed fetch: token request and cache, upload 201, 409 → the existing item adopted
- * only when it is a file of our size and hash, throttling / denial / 5xx / network classified, the deadline.
+ * only when it is a file whose bytes are ours, throttling / denial / 5xx / network classified, the deadline (token
+ * request included; a call cut off by it is 'deadline', never a failure), a token answer that is not JSON.
  */
 import { describe, expect, it } from 'vitest';
 import {
   encodeDrivePath, popArchivePath, sanitizeFolderPath, sanitizeSharePointName,
 } from '@/modules/accounting/services/capture/pop/popArchiveName';
-import { createHash } from 'crypto';
 import {
   GRAPH_MIN_REQUEST_MS, GraphTokenError, PopGraphClient, popArchiveCredentials, TOKEN_EXPIRY_MARGIN_MS,
 } from '@/modules/accounting/services/capture/pop/popGraphClient';
@@ -64,7 +64,6 @@ function graph(responses: Array<(call: Call) => Response>, now: () => number = (
 const token = () => json(200, { access_token: 'tok-1', expires_in: 3600 });
 const PATH = 'Proof%20of%20Payments/2026/11/x.pdf';
 const BYTES = Buffer.from('%PDF-1.4 our copy');
-const sha256 = createHash('sha256').update(BYTES).digest('hex');
 const exists = () => json(409, { error: { code: 'nameAlreadyExists' } });
 
 describe('PopGraphClient', () => {
@@ -95,28 +94,33 @@ describe('PopGraphClient', () => {
     expect((calls[4]!.init!.headers as Record<string, string>).Authorization).toBe('Bearer tok-2');
   });
 
-  it('on 409 adopts the existing item only when it is a file of our size (and hash, when reported)', async () => {
+  it('on 409 adopts the existing item only when it is a file of our size whose bytes are ours', async () => {
     const { client, calls } = graph([token, exists,
-      () => json(200, { id: 'item-old', webUrl: 'https://sp/old.pdf', size: BYTES.length, file: { hashes: { quickXorHash: 'x' } } })]);
+      () => json(200, { id: 'item-old', webUrl: 'https://sp/old.pdf', size: BYTES.length, file: { hashes: { quickXorHash: 'x' } } }),
+      () => new Response(new Uint8Array(BYTES), { status: 200 })]);
     expect(await client.uploadNew('s', PATH, BYTES)).toEqual({ kind: 'ok', driveItemId: 'item-old', webUrl: 'https://sp/old.pdf', existed: true });
     expect(calls[2]!.url).toBe(`https://graph.microsoft.com/v1.0/sites/s/drive/root:/${PATH}?$select=id,webUrl,size,file`);
-    expect(calls[2]!.init!.method).toBe('GET');
-
-    const sameHash = graph([token, exists, () => json(200, { id: 'h', size: BYTES.length, file: { hashes: { sha256Hash: sha256.toUpperCase() } } })]);
-    expect((await sameHash.client.uploadNew('s', PATH, BYTES)).kind).toBe('ok');
+    expect(calls[3]!.url).toBe(`https://graph.microsoft.com/v1.0/sites/s/drive/root:/${PATH}:/content`);
+    expect([calls[2]!.init!.method, calls[3]!.init!.method]).toEqual(['GET', 'GET']);
   });
 
-  it('refuses to adopt a folder, a file of another size, or one whose hash differs', async () => {
+  it('refuses to adopt a folder or a file of another size (without downloading), or one whose bytes differ', async () => {
     for (const body of [
       { id: 'folder', size: BYTES.length, folder: { childCount: 0 } },
       { id: 'bigger', size: BYTES.length + 1, file: {} },
-      { id: 'other', size: BYTES.length, file: { hashes: { sha256Hash: 'ab'.repeat(32) } } },
-      { id: 'other1', size: BYTES.length, file: { hashes: { sha1Hash: 'ab'.repeat(20) } } },
     ]) {
-      const { client } = graph([token, exists, () => json(200, body)]);
+      const { client, calls } = graph([token, exists, () => json(200, body)]);
       expect([body.id, await client.uploadNew('s', PATH, BYTES)])
         .toEqual([body.id, { kind: 'failed', status: 409, detail: 'exists_differs', transient: false }]);
+      expect(calls).toHaveLength(3);
     }
+    const other = Buffer.from(BYTES.map((b) => b ^ 1));
+    const differs = graph([token, exists, () => json(200, { id: 'same-size', size: BYTES.length, file: {} }),
+      () => new Response(new Uint8Array(other), { status: 200 })]);
+    expect(await differs.client.uploadNew('s', PATH, BYTES)).toEqual({ kind: 'failed', status: 409, detail: 'exists_differs', transient: false });
+    const gone = graph([token, exists, () => json(200, { id: 'x', size: BYTES.length, file: {} }), () => json(404, { error: { code: 'itemNotFound' } })]);
+    expect(await gone.client.uploadNew('s', PATH, BYTES))
+      .toEqual({ kind: 'failed', status: 404, detail: 'exists, download failed: itemNotFound', transient: false });
   });
 
   it('classifies throttling, denial, 5xx, other 4xx and network failures', async () => {
@@ -138,15 +142,40 @@ describe('PopGraphClient', () => {
       .toEqual({ kind: 'failed', status: 404, detail: 'exists, lookup failed: itemNotFound', transient: false });
   });
 
-  it('starts no request with less than the minimum left before the deadline, the 409 lookup included', async () => {
+  it('starts no request, the token request included, with less than the minimum left before the deadline', async () => {
     let t = 1_000_000;
     const none = graph([], () => t);
     expect(await none.client.uploadNew('s', PATH, BYTES, t + GRAPH_MIN_REQUEST_MS - 1)).toEqual({ kind: 'deadline' });
     expect(none.calls).toHaveLength(0);
 
+    const slowToken = graph([() => { t += 10_000; return token(); }], () => t);
+    expect(await slowToken.client.uploadNew('s', PATH, BYTES, t + GRAPH_MIN_REQUEST_MS + 5_000)).toEqual({ kind: 'deadline' });
+    expect(slowToken.calls).toHaveLength(1); // the token; no PUT
+
     const late = graph([token, () => { t += 10_000; return exists(); }], () => t);
     expect(await late.client.uploadNew('s', PATH, BYTES, t + GRAPH_MIN_REQUEST_MS + 5_000)).toEqual({ kind: 'deadline' });
-    expect(late.calls).toHaveLength(2); // token and PUT; no GET
+    expect(late.calls).toHaveLength(2); // token and PUT; no lookup
+  });
+
+  it('answers deadline when the deadline cut a request off, and a failure when Graph\'s own timeout did', async () => {
+    const timeout = () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError'); };
+    const t = 1_000_000;
+    const cutPut = graph([token, timeout], () => t);
+    expect(await cutPut.client.uploadNew('s', PATH, BYTES, t + 10_000)).toEqual({ kind: 'deadline' });
+    const cutToken = graph([timeout], () => t);
+    expect(await cutToken.client.uploadNew('s', PATH, BYTES, t + 10_000)).toEqual({ kind: 'deadline' });
+
+    const slowGraph = graph([token, timeout], () => t);
+    expect(await slowGraph.client.uploadNew('s', PATH, BYTES)).toEqual({ kind: 'failed', status: 0, detail: 'network: TimeoutError', transient: true });
+    const slowLogin = graph([timeout], () => t);
+    await expect(slowLogin.client.uploadNew('s', PATH, BYTES)).rejects.toBeInstanceOf(GraphTokenError);
+  });
+
+  it('throws GraphTokenError for a token answer that is not JSON', async () => {
+    const { client } = graph([() => new Response('<html>proxy error</html>', { status: 200 })]);
+    const err = await client.uploadNew('s', PATH, BYTES).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GraphTokenError);
+    expect((err as Error).message).toMatch(/^Graph token response is not JSON/);
   });
 
   it('throws GraphTokenError on a refused token request without echoing its body, and drops a token Graph answers 401 to', async () => {

@@ -113,7 +113,7 @@ async function sweepLocked(companyId: string, limit: number, deadline: number): 
   if (open.length === 0) return summary;
   const popIds = open.map((r) => String(r.id));
   const documentOf = new Map(open.map((r) => [String(r.id), String(r.captured_document_id)]));
-  const pairs = await candidatePairs(companyId, popIds);
+  const pairs = await candidatePairs(companyId, popIds, today);
 
   for (const [popId, decision] of decideMatches(popIds, pairs)) {
     if (Date.now() >= deadline) break;
@@ -126,7 +126,7 @@ async function sweepLocked(companyId: string, limit: number, deadline: number): 
         await recordDecision(companyId, popId, 'ambiguous', decision.candidateBankTxIds, null);
         summary.ambiguous += 1;
       } else {
-        const outcome = await attachOne(companyId, popId, documentOf.get(popId)!, decision.bankTxId);
+        const outcome = await attachOne(companyId, popId, documentOf.get(popId)!, decision.bankTxId, today);
         summary[outcome === 'attached' ? 'attached' : outcome === 'refused' ? 'refused' : 'moved'] += 1;
       }
     } catch (err) {
@@ -143,9 +143,10 @@ async function sweepLocked(companyId: string, limit: number, deadline: number): 
  * Every (open POP, free line) pair on amount and window that involves a line some batch POP wants: the batch's
  * own candidates AND every rival claim on them (any open POP of the company, whatever its decision, so an
  * 'ambiguous' POP still claims its lines). `window_imported`: the line's account has a posted line dated after
- * the window, so no further candidate can still arrive for that account.
+ * the window (and no later than today: a misdated future line opens nothing), so no further candidate can still
+ * arrive for that account.
  */
-async function candidatePairs(companyId: string, popIds: string[]): Promise<MatchPair[]> {
+async function candidatePairs(companyId: string, popIds: string[], today: string): Promise<MatchPair[]> {
   const rows = (await sql`
     WITH batch AS (
       SELECT amount, payment_date FROM proof_of_payments
@@ -161,7 +162,8 @@ async function candidatePairs(companyId: string, popIds: string[]): Promise<Matc
     SELECT p.id AS pop_id, p.beneficiary, bt.id AS bank_tx_id, bt.description,
       EXISTS (SELECT 1 FROM bank_transactions later WHERE later.company_id = bt.company_id
         AND later.bank_account_id = bt.bank_account_id AND later.feed_state = 'posted'
-        AND later.transaction_date > p.payment_date + ${POP_MATCH_WINDOW_DAYS}::int) AS window_imported
+        AND later.transaction_date > p.payment_date + ${POP_MATCH_WINDOW_DAYS}::int
+        AND later.transaction_date <= ${today}::date) AS window_imported
     FROM lines l
     JOIN bank_transactions bt ON bt.id = l.id AND bt.company_id = ${companyId}::uuid
     JOIN proof_of_payments p ON p.company_id = ${companyId}::uuid AND bt.amount = -p.amount
@@ -193,40 +195,53 @@ async function recordDecision(companyId: string, popId: string, outcome: Outcome
 }
 
 /**
- * Re-read under both locks: the document is still unmatched, the line still carries no POP, is still posted, of
- * -amount, in the window and naming the beneficiary, and no open POP of the company OTHER than this one (one filed
- * after the pairs were read included) also wants it. Anything else: the next tick decides.
+ * Re-read under both locks, by the same rules as the sweep's read: the document is still unmatched; this POP's own
+ * candidates (posted, free, of -amount, in the window, naming the beneficiary) are still exactly this one line; its
+ * account is still imported past the window; and no open POP of the company OTHER than this one (one filed after
+ * the pairs were read included) also names it. Anything else: the next tick decides.
  */
-async function stillUniqueUnderLock(companyId: string, popId: string, documentId: string, bankTxId: string): Promise<boolean> {
+async function stillUniqueUnderLock(companyId: string, popId: string, documentId: string, bankTxId: string, today: string): Promise<boolean> {
   const [r] = (await sql`
-    SELECT bt.description, p.beneficiary,
-      (bt.feed_state = 'posted' AND bt.amount = -p.amount
-        AND bt.transaction_date BETWEEN p.payment_date AND p.payment_date + ${POP_MATCH_WINDOW_DAYS}::int) AS line_fits,
+    SELECT p.beneficiary,
       (SELECT matched_bank_tx_id IS NULL FROM captured_documents
         WHERE id = ${documentId}::uuid AND company_id = ${companyId}::uuid) AS doc_open,
-      NOT EXISTS (SELECT 1 FROM captured_documents WHERE company_id = ${companyId}::uuid
-        AND matched_bank_tx_id = ${bankTxId}::uuid AND document_type = 'proof_of_payment') AS line_open,
+      (SELECT coalesce(json_agg(json_build_object('id', c.id, 'description', c.description)), '[]'::json)
+        FROM bank_transactions c
+        WHERE c.company_id = ${companyId}::uuid AND c.feed_state = 'posted' AND c.amount = -p.amount
+          AND c.transaction_date BETWEEN p.payment_date AND p.payment_date + ${POP_MATCH_WINDOW_DAYS}::int
+          AND NOT EXISTS (SELECT 1 FROM captured_documents x WHERE x.company_id = c.company_id
+            AND x.matched_bank_tx_id = c.id AND x.document_type = 'proof_of_payment')) AS own_lines,
+      (SELECT description FROM bank_transactions WHERE id = ${bankTxId}::uuid AND company_id = ${companyId}::uuid) AS line_description,
+      EXISTS (SELECT 1 FROM bank_transactions t
+        JOIN bank_transactions later ON later.company_id = t.company_id AND later.bank_account_id = t.bank_account_id
+        WHERE t.id = ${bankTxId}::uuid AND t.company_id = ${companyId}::uuid AND later.feed_state = 'posted'
+          AND later.transaction_date > p.payment_date + ${POP_MATCH_WINDOW_DAYS}::int
+          AND later.transaction_date <= ${today}::date) AS window_imported,
       ARRAY(SELECT o.beneficiary FROM proof_of_payments o
         JOIN captured_documents ocd ON ocd.id = o.captured_document_id AND ocd.company_id = o.company_id
           AND ocd.matched_bank_tx_id IS NULL
-        WHERE o.company_id = ${companyId}::uuid AND o.id <> p.id AND bt.amount = -o.amount
-          AND bt.transaction_date BETWEEN o.payment_date AND o.payment_date + ${POP_MATCH_WINDOW_DAYS}::int) AS rival_names
-    FROM bank_transactions bt
-    JOIN proof_of_payments p ON p.id = ${popId}::uuid AND p.company_id = ${companyId}::uuid
-    WHERE bt.id = ${bankTxId}::uuid AND bt.company_id = ${companyId}::uuid
+        JOIN bank_transactions t ON t.id = ${bankTxId}::uuid AND t.company_id = ${companyId}::uuid
+        WHERE o.company_id = ${companyId}::uuid AND o.id <> p.id AND t.amount = -o.amount
+          AND t.transaction_date BETWEEN o.payment_date AND o.payment_date + ${POP_MATCH_WINDOW_DAYS}::int) AS rival_names
+    FROM proof_of_payments p
+    WHERE p.id = ${popId}::uuid AND p.company_id = ${companyId}::uuid
   `) as Row[];
-  if (!r || r.doc_open !== true || r.line_open !== true || r.line_fits !== true) return false;
-  const description = r.description == null ? null : String(r.description);
-  if (!descriptionNamesBeneficiary(description, String(r.beneficiary))) return false;
+  if (!r || r.doc_open !== true || r.window_imported !== true) return false;
+  const beneficiary = String(r.beneficiary);
+  const own = ((r.own_lines as Array<{ id: string; description: string | null }> | null) ?? [])
+    .filter((l) => descriptionNamesBeneficiary(l.description, beneficiary));
+  if (own.length !== 1 || own[0]!.id !== bankTxId) return false;
+  const description = r.line_description == null ? null : String(r.line_description);
   return !((r.rival_names as string[] | null) ?? []).some((name) => descriptionNamesBeneficiary(description, name));
 }
 
-async function attachOne(companyId: string, popId: string, documentId: string, bankTxId: string): Promise<'attached' | 'refused' | 'moved'> {
+async function attachOne(companyId: string, popId: string, documentId: string, bankTxId: string,
+  today: string): Promise<'attached' | 'refused' | 'moved'> {
   // Its own transaction; the savepoint keeps that true when a caller's transaction is already open (tests).
   return withAlsTransaction({ userId: ACTOR, companyId }, () => withSavepoint('pop_match_attach', async () => {
     if (!(await lockBankTransactionForUpdate(companyId, bankTxId))) return 'moved' as const;
     await lockCapturedDocumentForUpdate(companyId, documentId);
-    if (!(await stillUniqueUnderLock(companyId, popId, documentId, bankTxId))) {
+    if (!(await stillUniqueUnderLock(companyId, popId, documentId, bankTxId, today))) {
       log.info('pop match: line, document or rivals changed since the read; left for the next tick', { companyId, popId, bankTxId }, 'pop-match');
       return 'moved' as const;
     }

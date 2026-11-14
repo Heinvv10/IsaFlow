@@ -10,7 +10,7 @@ import { als } from '@/lib/als';
 export interface PopFixture {
   pool: Pool;
   companies: string[];
-  /** Each company's main bank account (its window is always imported: see `cover`). */
+  /** Each company's main bank account (imported up to today: see `cover`). */
   bankAccount: Map<string, string>;
   /** A user who is a member of every fixture company (app_user's RLS admits a company only for its members). */
   member: string;
@@ -41,9 +41,12 @@ export async function addBankAccount(pool: Pool, company: string): Promise<strin
   return acc;
 }
 
-/** A posted line dated well after every window, so the account reads as imported past it. */
+/**
+ * A posted line dated today, so the account reads as imported past every window that has ended (a window ends
+ * payment_date + 3; one ending today or later is not imported yet, whatever the account holds).
+ */
 export async function cover(fx: PopFixture, company: string, account = fx.bankAccount.get(company)!): Promise<string> {
-  return seedLine(fx, company, fx.day(-60), '-0.01', 'BANK CHARGE', { account });
+  return seedLine(fx, company, fx.day(0), '-0.01', 'BANK CHARGE', { account });
 }
 
 export async function tearDownPopFixture(fx: PopFixture): Promise<void> {

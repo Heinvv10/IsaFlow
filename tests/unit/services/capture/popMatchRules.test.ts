@@ -46,6 +46,13 @@ describe('descriptionNamesBeneficiary', () => {
     expect(descriptionNamesBeneficiary(named('JOHN K'), 'John')).toBe(true);
   });
 
+  it('refuses a name that is not the payee: anywhere after the first word after "ABSA BANK"', () => {
+    expect(descriptionNamesBeneficiary(named('MARY JOHN'), 'John')).toBe(false);
+    expect(descriptionNamesBeneficiary(named('ACME HOLDINGS TINTSWALO G MABEHLA'), 'Tintswalo G Mabehla')).toBe(false);
+    expect(descriptionNamesBeneficiary('IMDTE DIGITAL PMT ABSA BANK 161B082ED5 TINTSWALO G MABEHLA', 'Tintswalo G Mabehla')).toBe(false);
+    expect(descriptionNamesBeneficiary(named('JOHN SMITH'), 'John')).toBe(true); // a word end; uniqueness decides the rest
+  });
+
   it('refuses a name found inside another word, or only in ABSA\'s own wording before "ABSA BANK"', () => {
     expect(descriptionNamesBeneficiary(named('JOANNE SMITH'), 'ANNE SMITH')).toBe(false);
     for (const word of ['ABSA', 'DIGITAL', 'IMDTE', 'ABSA BANK', 'PAYMENT DT']) {

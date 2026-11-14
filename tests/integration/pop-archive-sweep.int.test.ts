@@ -2,10 +2,11 @@
  * POP SharePoint archive on real PostgreSQL (migration 992 + popArchiveSweep as app_service), Graph stubbed
  * through the injected fetch (no network):
  *   - each POP is uploaded once under its archive path and recorded; a second tick uploads nothing;
- *   - a 409 adopts the existing file only when it is a file of our size; otherwise a failed attempt;
+ *   - a 409 adopts the existing file only when it is a file whose bytes are ours; otherwise a counted attempt;
  *   - a PDF over 4 MB is recorded 'too_large' and never uploaded;
- *   - a failing POP (no bytes, no path, a refusal, a 5xx) is counted, waits, goes behind the others, and after
- *     POP_ARCHIVE_MAX_ATTEMPTS is settled 'failed'; a 5xx also ends the company's tick;
+ *   - a POP's own failure (no bytes, no path, a refusal, a 403 on it) is counted, waits, goes behind the others,
+ *     and after POP_ARCHIVE_MAX_ATTEMPTS is settled 'failed'; a 5xx waits and ends the tick but never counts, so
+ *     a long outage cannot settle a good POP 'failed'; a second POP denied in one tick ends the tick uncounted;
  *   - throttling (429) and the deadline end the tick and count against no POP;
  *   - no target row: no request, and the company is not listed;
  *   - app_user cannot write pop_archive_targets / pop_trusted_payers, nor edit or delete a copy or attempt record.
@@ -43,12 +44,17 @@ const pool = new Pool({ connectionString: url, max: 3 });
 const [A, B, Z] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
 let fx: PopFixture;
 
-/** A Graph stand-in: the token endpoint, then `put(path)` decides each upload's status; GET returns `existing`. */
-function fakeGraph(put: (path: string) => number, existing: (path: string) => object = () => ({})) {
+/**
+ * A Graph stand-in: the token endpoint, then `put(path)` decides each upload's status; the item lookup returns
+ * `existing(path)`, and its content download `content(path)`.
+ */
+function fakeGraph(put: (path: string) => number, existing: (path: string) => object = () => ({}),
+  content: (path: string) => Buffer = () => Buffer.alloc(0)) {
   const puts: string[] = [];
   const fetchFn = async (u: string, init?: RequestInit): Promise<Response> => {
     if (u.startsWith('https://login.microsoftonline.com/')) return Response.json({ access_token: 't', expires_in: 3600 });
     const path = decodeURIComponent(u.split('/drive/root:/')[1]!.split(/:\/content|\?\$select/)[0]!);
+    if (init?.method === 'GET' && u.endsWith(':/content')) return new Response(new Uint8Array(content(path)), { status: 200 });
     if (init?.method === 'GET') return Response.json({ id: `existing:${path}`, webUrl: `https://sp/${path}`, ...existing(path) });
     puts.push(path);
     const status = put(path);
@@ -75,14 +81,15 @@ describeIfDb('POP archive: copy each POP to SharePoint once', () => {
     try { await tearDownPopFixture(fx); } finally { await pool.end(); }
   });
 
-  it('uploads each POP once, adopts a same-size file on 409, and records too_large without uploading', async () => {
+  it('uploads each POP once, adopts an existing file with our bytes on 409, and records too_large without uploading', async () => {
     const one = await seedPop(fx, A, { beneficiary: 'Amoepong Bed and Bre', date: '2026-11-13' });
     const two = await seedPop(fx, A, { beneficiary: 'Tintswalo G Mabehla', date: '2026-10-30', amount: '40.00' });
     const big = await seedPop(fx, A, { beneficiary: 'Large Scan', date: '2026-11-01' });
     h.large.add(big.documentId);
     const pathOne = `Proof of Payments/2026/11/2026-11-13 Amoepong Bed and Bre R3000.00 ${await txn(one.popId)}.pdf`;
     const pathTwo = `Proof of Payments/2026/10/2026-10-30 Tintswalo G Mabehla R40.00 ${await txn(two.popId)}.pdf`;
-    const g = fakeGraph((p) => (p === pathTwo ? 409 : 201), () => ({ size: Buffer.from(`%PDF-1.4 ${two.documentId}`).length, file: {} }));
+    const twoBytes = Buffer.from(`%PDF-1.4 ${two.documentId}`); // what fetchRawBytes hands the sweep
+    const g = fakeGraph((p) => (p === pathTwo ? 409 : 201), () => ({ size: twoBytes.length, file: {} }), () => twoBytes);
 
     expect(await run(A, g.client)).toEqual({ archived: 2, tooLarge: 1, failed: 0, stopped: 0 });
     expect(g.puts.sort()).toEqual([pathOne, pathTwo].sort());
@@ -95,11 +102,16 @@ describeIfDb('POP archive: copy each POP to SharePoint once', () => {
     expect(again.puts).toEqual([]);
   });
 
-  it('does not adopt an existing file of another size, or a folder: a failed attempt instead', async () => {
+  it('does not adopt an existing file of another size or other bytes, or a folder: a counted attempt instead', async () => {
     const pop = await seedPop(fx, Z, { beneficiary: 'Clash Co', date: '2026-11-12' });
     expect(await run(Z, fakeGraph(() => 409, () => ({ size: 1, file: {} })).client)).toMatchObject({ archived: 0, failed: 1 });
     expect(await copyOf(pop.popId)).toBeNull();
     expect(await attemptsOf(pop.popId)).toEqual({ attempts: 1, last_error: 'HTTP 409: exists_differs' });
+    await age(pop.popId);
+    const same = Buffer.from(`%PDF-1.4 ${pop.documentId}`).length;
+    expect(await run(Z, fakeGraph(() => 409, () => ({ size: same, file: {} }), () => Buffer.alloc(same, 0x41)).client))
+      .toMatchObject({ archived: 0, failed: 1 });
+    expect(await attemptsOf(pop.popId)).toMatchObject({ attempts: 2 });
     await age(pop.popId);
     expect(await run(Z, fakeGraph(() => 409, () => ({ size: Buffer.from(`%PDF-1.4 ${pop.documentId}`).length, folder: {} })).client))
       .toMatchObject({ archived: 0, failed: 1 });
@@ -107,14 +119,14 @@ describeIfDb('POP archive: copy each POP to SharePoint once', () => {
     await pool.query('DELETE FROM proof_of_payments WHERE id = $1', [pop.popId]); // out of the later tests' way
   });
 
-  it('counts a 5xx, ends the tick, waits before retrying, and archives it when Graph is back', async () => {
+  it('a 5xx ends the tick and waits, but never counts toward failed, and archives it when Graph is back', async () => {
     const pop = await seedPop(fx, A, { beneficiary: 'Graph Down Ltd', date: '2026-11-12' });
     const waiting = await seedPop(fx, A, { beneficiary: 'Graph Down Next', date: '2026-11-12' });
     const down = fakeGraph(() => 503);
     expect(await run(A, down.client)).toEqual({ archived: 0, tooLarge: 0, failed: 1, stopped: 1 });
     expect(down.puts).toHaveLength(1);
     const [first, second] = (await attemptsOf(pop.popId)) ? [pop, waiting] : [waiting, pop];
-    expect(await attemptsOf(first.popId)).toMatchObject({ attempts: 1 });
+    expect(await attemptsOf(first.popId)).toMatchObject({ attempts: 0 });
     expect(await attemptsOf(second.popId)).toBeNull();
 
     const up = fakeGraph(() => 201);
@@ -141,7 +153,7 @@ describeIfDb('POP archive: copy each POP to SharePoint once', () => {
     expect(await copyOf(good.popId)).toMatchObject({ outcome: 'archived' });
     expect(await attemptsOf(badPath.popId)).toEqual({ attempts: 1, last_error: 'popArchivePath: amount is not 0.00-shaped' });
 
-    await pool.query('UPDATE pop_archive_attempts SET attempts = $2 - 1 WHERE proof_of_payment_id = $1', [bad.popId, POP_ARCHIVE_MAX_ATTEMPTS]);
+    await pool.query('UPDATE pop_archive_attempts SET attempts = $2 - 1, tries = $2 - 1 WHERE proof_of_payment_id = $1', [bad.popId, POP_ARCHIVE_MAX_ATTEMPTS]);
     await age(bad.popId);
     await run(B, g.client);
     expect(await copyOf(bad.popId)).toMatchObject({ outcome: 'failed', drive_item_id: null });
@@ -149,6 +161,39 @@ describeIfDb('POP archive: copy each POP to SharePoint once', () => {
     await age(bad.popId);
     await run(B, g.client);
     expect(await attemptsOf(bad.popId)).toMatchObject({ attempts: POP_ARCHIVE_MAX_ATTEMPTS }); // settled: not tried again
+  });
+
+  it('never settles a good POP failed through an outage: 12 Graph 5xx in a row leave it waiting, uncounted', async () => {
+    const pop = await seedPop(fx, Z, { beneficiary: 'Long Outage Co', date: '2026-11-12' });
+    for (let i = 0; i < 12; i += 1) {
+      expect(await run(Z, fakeGraph(() => 503).client)).toMatchObject({ failed: 1, stopped: 1 });
+      await age(pop.popId);
+    }
+    expect(await copyOf(pop.popId)).toBeNull();
+    expect((await pool.query('SELECT attempts, tries FROM pop_archive_attempts WHERE proof_of_payment_id = $1', [pop.popId])).rows[0])
+      .toEqual({ attempts: 0, tries: 12 });
+    expect(await run(Z, fakeGraph(() => 201).client)).toMatchObject({ archived: 1 });
+    expect(await copyOf(pop.popId)).toMatchObject({ outcome: 'archived' });
+  });
+
+  it('counts a 403 against that POP and moves on; a second POP denied in the same tick ends it uncounted', async () => {
+    const one = await seedPop(fx, Z, { beneficiary: 'Denied File Co', date: '2026-11-10' });
+    const two = await seedPop(fx, Z, { beneficiary: 'Allowed File Co', date: '2026-11-11' });
+    expect(await run(Z, fakeGraph((p) => (p.includes('Denied File Co') ? 403 : 201)).client))
+      .toEqual({ archived: 1, tooLarge: 0, failed: 1, stopped: 0 });
+    expect(await attemptsOf(one.popId)).toEqual({ attempts: 1, last_error: 'HTTP 403: denied' });
+    expect(await copyOf(two.popId)).toMatchObject({ outcome: 'archived' });
+    await pool.query('DELETE FROM proof_of_payments WHERE id = ANY($1)', [[one.popId, two.popId]]);
+
+    const a = await seedPop(fx, Z, { beneficiary: 'Grant Gone A', date: '2026-11-10' });
+    const b = await seedPop(fx, Z, { beneficiary: 'Grant Gone B', date: '2026-11-11' });
+    const c = await seedPop(fx, Z, { beneficiary: 'Grant Gone C', date: '2026-11-12' });
+    const denied = fakeGraph(() => 403);
+    expect(await run(Z, denied.client)).toEqual({ archived: 0, tooLarge: 0, failed: 1, stopped: 1 });
+    expect(denied.puts).toHaveLength(2);
+    const counted = await Promise.all([a, b, c].map((p) => attemptsOf(p.popId)));
+    expect(counted.filter((r) => r !== null)).toEqual([{ attempts: 1, last_error: 'HTTP 403: denied' }]);
+    await pool.query('DELETE FROM proof_of_payments WHERE id = ANY($1)', [[a.popId, b.popId, c.popId]]);
   });
 
   it('ends the tick on throttling or at the deadline, counting against no POP', async () => {
@@ -195,7 +240,7 @@ describeIfDb('POP archive: copy each POP to SharePoint once', () => {
     const claim = "INSERT INTO pop_archive_copies (company_id, proof_of_payment_id, outcome, path) VALUES ($1, $2, 'too_large', 'x')";
     expect(await asAppUser(fx, Z, claim, [Z, popA.popId])).toBe('23503');
     expect(await asAppUser(fx, A, claim, [A, popA.popId])).toBe('ok:1');
-    const attempt = "INSERT INTO pop_archive_attempts (company_id, proof_of_payment_id, last_error) VALUES ($1, $2, 'x')";
+    const attempt = "INSERT INTO pop_archive_attempts (company_id, proof_of_payment_id, attempts, last_error) VALUES ($1, $2, 1, 'x')";
     expect(await asAppUser(fx, Z, attempt, [Z, popA.popId])).toBe('23503');
     expect(await asAppUser(fx, A, attempt, [A, popA.popId])).toBe('ok:1');
   });

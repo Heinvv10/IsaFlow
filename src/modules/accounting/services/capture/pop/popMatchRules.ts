@@ -6,11 +6,11 @@
  * for every other open POP of the company that wants one of those lines, with whether the line's bank
  * account is imported past the window. This module adds the name test and the decision rules (Hein,
  * 2026-11-14: auto-attach only on a unique match):
- *   - a pair stands only when the beneficiary is named AFTER "ABSA BANK" in the line's description
- *     (descriptionNamesBeneficiary);
+ *   - a pair stands only when the beneficiary is the payee ABSA names right after "ABSA BANK" in the
+ *     line's description (descriptionNamesBeneficiary);
  *   - a POP is attached only when exactly one line stands for it, no other open POP stands for that
  *     line, and that line's account is imported past payment_date + window (a later line on the
- *     account exists). Not yet imported past it: not_found, looked at again next tick. ~30 payments of
+ *     account exists, dated no later than today). Not yet imported past it: not_found, looked at again next tick. ~30 payments of
  *     exactly R3,000.00 can share one day, so amount and date never decide.
  */
 
@@ -41,9 +41,10 @@ export function normalizeForMatch(text: string | null | undefined): string {
 }
 
 /**
- * The line's description names the beneficiary: in the text after the first "ABSA BANK" (a description
- * without it never matches), starting at a word, and ending at a word unless the beneficiary is exactly
- * ABSA's 20-character cut ("AMOEPONG BED AND BRE"), whose end is open.
+ * The line's description names the beneficiary: it is the payee, i.e. it starts at the first word after the
+ * first "ABSA BANK" (every ABSA wording puts the payee there; a description without it never matches), and it
+ * ends at a word unless the beneficiary is exactly ABSA's 20-character cut ("AMOEPONG BED AND BRE"), whose end
+ * is open.
  */
 export function descriptionNamesBeneficiary(description: string | null, beneficiary: string): boolean {
   const name = normalizeForMatch(beneficiary);
@@ -53,7 +54,7 @@ export function descriptionNamesBeneficiary(description: string | null, benefici
   if (at < 0) return false;
   const payee = text.slice(at + ABSA_BANK.length - 1); // keeps the leading space
   const openEnd = beneficiary.length === ABSA_BENEFICIARY_CHARS;
-  return payee.includes(openEnd ? ` ${name}` : ` ${name} `);
+  return payee.startsWith(openEnd ? ` ${name}` : ` ${name} `);
 }
 
 /** One decision per id in `popIds`, from the amount/date pairs of those POPs and of their rivals. */

@@ -10,7 +10,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import {
-  asAppUser, asService, matchedLineOf, matchRow, seedLine, seedPop, setUpPopFixture, tearDownPopFixture, type PopFixture,
+  addBankAccount, asAppUser, asService, cover, matchedLineOf, matchRow, seedLine, seedPop, setUpPopFixture, tearDownPopFixture,
+  type PopFixture,
 } from './helpers/popSweepFixture';
 
 const h = vi.hoisted(() => ({
@@ -70,8 +71,8 @@ describeIfDb('POP matching guards', () => {
   });
 
   it('skips a company another sweep holds', async () => {
-    const pop = await seedPop(fx, A, { beneficiary: 'Held Company Co', date: fx.day(1), amount: '77.00' });
-    await seedLine(fx, A, fx.day(1), '-77.00', named('Held Company Co'));
+    const pop = await seedPop(fx, A, { beneficiary: 'Held Company Co', date: fx.day(5), amount: '77.00' });
+    await seedLine(fx, A, fx.day(5), '-77.00', named('Held Company Co'));
     const holder = await pool.connect();
     try {
       await holder.query('SELECT pg_advisory_lock(hashtext($1))', [`pop_match_sweep:${A}`]);
@@ -85,7 +86,7 @@ describeIfDb('POP matching guards', () => {
   });
 
   it('leaves a POP alone (moved) when its line was taken, or its document matched, before the lock', async () => {
-    const D = fx.day(2);
+    const D = fx.day(5);
     const pop = await seedPop(fx, A, { beneficiary: 'Race Line Co', date: D, amount: '31.00' });
     const l = await seedLine(fx, A, D, '-31.00', named('Race Line Co'));
     const other = await seedPop(fx, A, { beneficiary: 'Race Other Co', date: fx.day(60), amount: '31.00' });
@@ -107,27 +108,44 @@ describeIfDb('POP matching guards', () => {
   // A posted line cannot stop being posted (BANK_TX_FEED_GUARD refuses posted → pending/removed), so the re-check's
   // feed_state test has no case here.
   it('leaves a POP alone (moved) when, before the lock, the line changed or a new rival POP was filed', async () => {
-    const D = fx.day(2);
-    const cases: Array<[string, (line: string, amount: string) => Promise<unknown>]> = [
+    const D = fx.day(5);
+    const cases: Array<[string, (line: string, amount: string, name: string) => Promise<unknown>]> = [
       ['new rival POP', (_l, amount) => seedPop(fx, A, { beneficiary: 'Recheck New Rival', date: D, amount })],
       ['amount changed', (l) => pool.query("UPDATE bank_transactions SET amount = amount - 0.01 WHERE id = $1", [l])],
       ['date moved out of the window', (l) => pool.query('UPDATE bank_transactions SET transaction_date = $2 WHERE id = $1', [l, fx.day(10)])],
       ['description renamed', (l) => pool.query("UPDATE bank_transactions SET description = 'DIGITAL PAYMENT DT ABSA BANK SOMEONE ELSE' WHERE id = $1", [l])],
+      ['a second line for the same POP imported', (_l, amount, name) => seedLine(fx, A, D, `-${amount}`, named(name))],
     ];
     for (const [i, [label, change]] of cases.entries()) {
       const amount = `${41 + i}.00`;
       const name = label === 'new rival POP' ? 'Recheck New Rival' : `Recheck Case ${i}`;
       const pop = await seedPop(fx, A, { beneficiary: name, date: D, amount });
       const l = await seedLine(fx, A, D, `-${amount}`, named(name));
-      h.beforeLock = { line: l, run: () => change(l, amount) };
+      h.beforeLock = { line: l, run: () => change(l, amount, name) };
       expect([label, await sweep()]).toMatchObject([label, { moved: 1, attached: 0 }]);
       expect([label, await matchedLineOf(pool, pop.documentId)]).toEqual([label, null]);
       expect([label, await matchRow(pool, pop.popId)]).toEqual([label, null]);
     }
   });
 
-    it('rolls the attach back when a final decision appeared before it could be recorded', async () => {
-    const D = fx.day(2);
+    it('leaves a POP alone (moved) when its account stopped reading as imported past the window before the lock', async () => {
+    const D = fx.day(5);
+    const account = await addBankAccount(pool, A);
+    const later = await cover(fx, A, account);
+    const pop = await seedPop(fx, A, { beneficiary: 'Recheck Coverage Co', date: D, amount: '48.00' });
+    const l = await seedLine(fx, A, D, '-48.00', named('Recheck Coverage Co'), { account });
+    // The dated line goes; a misdated future line arrives instead, which opens nothing.
+    h.beforeLock = { line: l, run: async () => {
+      await pool.query('DELETE FROM bank_transactions WHERE id = $1', [later]);
+      await seedLine(fx, A, fx.day(-3), '-1.00', 'BANK CHARGE', { account });
+    } };
+    expect(await sweep()).toMatchObject({ moved: 1, attached: 0 });
+    expect(await matchedLineOf(pool, pop.documentId)).toBeNull();
+    expect(await matchRow(pool, pop.popId)).toBeNull();
+  });
+
+  it('rolls the attach back when a final decision appeared before it could be recorded', async () => {
+    const D = fx.day(5);
     const pop = await seedPop(fx, A, { beneficiary: 'Late Final Co', date: D, amount: '33.00' });
     const l = await seedLine(fx, A, D, '-33.00', named('Late Final Co'));
     h.beforeLock = { line: l, run: () => pool.query(`INSERT INTO proof_of_payment_matches (company_id, proof_of_payment_id, outcome,
@@ -139,7 +157,7 @@ describeIfDb('POP matching guards', () => {
   });
 
   it('counts an attach that throws, records nothing, and tries again next tick', async () => {
-    const D = fx.day(2);
+    const D = fx.day(5);
     const pop = await seedPop(fx, A, { beneficiary: 'Throwing Attach Co', date: D, amount: '34.00' });
     const l = await seedLine(fx, A, D, '-34.00', named('Throwing Attach Co'));
     h.explode.add(pop.documentId);
@@ -151,7 +169,7 @@ describeIfDb('POP matching guards', () => {
   });
 
   it('records a refused attach once and does not try it again', async () => {
-    const D = fx.day(2);
+    const D = fx.day(5);
     const pop = await seedPop(fx, A, { beneficiary: 'Refused Attach Co', date: D, amount: '12.00' });
     const l = await seedLine(fx, A, D, '-12.00', named('Refused Attach Co'));
     h.refuse.add(pop.documentId);

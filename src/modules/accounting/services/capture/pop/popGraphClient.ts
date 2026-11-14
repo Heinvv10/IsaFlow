@@ -5,11 +5,13 @@
  *
  * Upload is the simple PUT (files up to 4 MB) with conflictBehavior=fail: an existing file is never
  * overwritten. A 409 (the name exists) reads the item at that path and adopts it only if it is a file of
- * exactly our size (and our SHA-256 / SHA-1, when Graph reports one): the name carries ABSA's transaction
- * number, so such a file is this payment's copy from an earlier tick whose record did not commit.
- * Each call starts only with GRAPH_MIN_REQUEST_MS left before the caller's deadline, and is cut off at it.
+ * exactly our size whose content is byte-for-byte ours (downloaded: at most 4 MB, the size already matched).
+ * SharePoint reports only quickXorHash, and no published test vector was at hand to prove an implementation
+ * of it, so the bytes are compared instead. Such a file is this payment's copy from an earlier tick whose
+ * record did not commit (the name carries ABSA's transaction number).
+ * Each call, the token request included, starts only with GRAPH_MIN_REQUEST_MS left before the caller's
+ * deadline and is cut off at it; a call cut off by the deadline answers 'deadline', never a failure.
  */
-import { createHash } from 'crypto';
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -48,6 +50,12 @@ export class GraphTokenError extends Error {
   constructor(message: string) { super(message); this.name = 'GraphTokenError'; }
 }
 
+/** The caller's deadline left no time for the token request, or cut it off. */
+class GraphDeadline extends Error {}
+
+/** A fetch aborted by its AbortSignal.timeout. */
+const isTimeout = (err: unknown) => err instanceof Error && err.name === 'TimeoutError';
+
 export function popArchiveCredentials(env: NodeJS.ProcessEnv = process.env): GraphCredentials | null {
   const tenantId = env.POP_ARCHIVE_TENANT_ID?.trim();
   const clientId = env.POP_ARCHIVE_CLIENT_ID?.trim();
@@ -70,16 +78,21 @@ export class PopGraphClient {
     return `${this.creds.tenantId}:${this.creds.clientId}`;
   }
 
-  /** A cached or fresh token; throws GraphTokenError when Graph will not issue one. */
-  async token(): Promise<string> {
+  /**
+   * A cached or fresh token; throws GraphTokenError when Graph will not issue one, and GraphDeadline when the
+   * deadline leaves no time to ask or cuts the request off.
+   */
+  private async token(deadline: number): Promise<string> {
     const held = this.cache.get(this.cacheKey);
     if (held && held.expiresAt - TOKEN_EXPIRY_MARGIN_MS > this.now()) return held.token;
+    const timeout = this.timeoutFor(deadline);
+    if (timeout === null) throw new GraphDeadline();
     let res: Response;
     try {
       res = await this.fetchFn(
         `https://login.microsoftonline.com/${encodeURIComponent(this.creds.tenantId)}/oauth2/v2.0/token`, {
           method: 'POST',
-          signal: AbortSignal.timeout(GRAPH_REQUEST_TIMEOUT_MS),
+          signal: AbortSignal.timeout(timeout),
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({
             grant_type: 'client_credentials', client_id: this.creds.clientId,
@@ -87,16 +100,28 @@ export class PopGraphClient {
           }).toString(),
         });
     } catch (err) {
+      if (isTimeout(err) && timeout < GRAPH_REQUEST_TIMEOUT_MS) throw new GraphDeadline();
       throw new GraphTokenError(`Graph token request failed: ${err instanceof Error ? err.name : 'network'}`);
     }
     // The body of a refused token request can echo request details; only the status is reported.
     if (!res.ok) throw new GraphTokenError(`Graph token request failed: HTTP ${res.status}`);
-    const body = (await res.json()) as { access_token?: unknown; expires_in?: unknown };
-    if (typeof body.access_token !== 'string' || !body.access_token) throw new GraphTokenError('Graph token response has no access_token');
+    let body: { access_token?: unknown; expires_in?: unknown };
+    try {
+      body = (await res.json()) as typeof body;
+    } catch (err) {
+      throw new GraphTokenError(`Graph token response is not JSON (${err instanceof Error ? err.name : 'unreadable'})`);
+    }
+    if (typeof body?.access_token !== 'string' || !body.access_token) throw new GraphTokenError('Graph token response has no access_token');
     const seconds = Number(body.expires_in);
     const expiresAt = this.now() + (Number.isFinite(seconds) && seconds > 0 ? seconds : 3600) * 1000;
     this.cache.set(this.cacheKey, { token: body.access_token, expiresAt });
     return body.access_token;
+  }
+
+  /** How long the next request may take: up to the deadline, at most GRAPH_REQUEST_TIMEOUT_MS; null if too little is left. */
+  private timeoutFor(deadline: number): number | null {
+    const left = deadline - this.now();
+    return left < GRAPH_MIN_REQUEST_MS ? null : Math.min(GRAPH_REQUEST_TIMEOUT_MS, left);
   }
 
   /** PUT a new file at `encodedPath` (popArchiveName.encodeDrivePath) in the site's default library. */
@@ -119,20 +144,37 @@ export class PopGraphClient {
     }
     const existing = (await found.json()) as ExistingItem;
     const got = driveItem200(existing);
-    if (!got || !sameFile(existing, bytes)) return { kind: 'failed', status: 409, detail: 'exists_differs', transient: false };
+    if (!got || !isFileOfSize(existing, bytes.length)) return { kind: 'failed', status: 409, detail: 'exists_differs', transient: false };
+    const content = await this.call(`${item}:/content`, { method: 'GET' }, deadline);
+    if (!(content instanceof Response)) return content;
+    if (content.status !== 200) {
+      const r = await refusal(content);
+      return r.kind === 'failed' ? { ...r, detail: `exists, download failed: ${r.detail}` } : r;
+    }
+    if (!Buffer.from(await content.arrayBuffer()).equals(bytes)) {
+      return { kind: 'failed', status: 409, detail: 'exists_differs', transient: false };
+    }
     return { kind: 'ok', ...got, existed: true };
   }
 
   /** One authorised request, or why it was not made / did not answer. */
   private async call(url: string, init: RequestInit, deadline: number): Promise<Response | UploadResult> {
-    const left = deadline - this.now();
-    if (left < GRAPH_MIN_REQUEST_MS) return { kind: 'deadline' };
-    const token = await this.token();
+    let token: string;
+    try {
+      token = await this.token(deadline);
+    } catch (err) {
+      if (err instanceof GraphDeadline) return { kind: 'deadline' };
+      throw err;
+    }
+    const timeout = this.timeoutFor(deadline);
+    if (timeout === null) return { kind: 'deadline' };
     let res: Response;
     try {
-      res = await this.fetchFn(url, { ...init, signal: AbortSignal.timeout(Math.min(GRAPH_REQUEST_TIMEOUT_MS, left)),
+      res = await this.fetchFn(url, { ...init, signal: AbortSignal.timeout(timeout),
         headers: { ...(init.headers as Record<string, string>), Authorization: `Bearer ${token}` } });
     } catch (err) {
+      // Cut off by the caller's deadline, not by Graph: nothing is held against the POP.
+      if (isTimeout(err) && timeout < GRAPH_REQUEST_TIMEOUT_MS) return { kind: 'deadline' };
       return { kind: 'failed', status: 0, detail: `network: ${err instanceof Error ? err.name : 'error'}`, transient: true };
     }
     if (res.status === 401) this.cache.delete(this.cacheKey); // a revoked token is not reused next tick
@@ -140,15 +182,11 @@ export class PopGraphClient {
   }
 }
 
-interface ExistingItem { id?: unknown; webUrl?: unknown; size?: unknown; file?: { hashes?: { sha256Hash?: unknown; sha1Hash?: unknown } } }
+interface ExistingItem { id?: unknown; webUrl?: unknown; size?: unknown; file?: unknown }
 
-/** The existing item is a file of our size, and of our hash where Graph reports SHA-256 or SHA-1. */
-function sameFile(item: ExistingItem, bytes: Buffer): boolean {
-  if (!item.file || typeof item.file !== 'object' || item.size !== bytes.length) return false;
-  const { sha256Hash, sha1Hash } = item.file.hashes ?? {};
-  const differs = (reported: unknown, algo: 'sha256' | 'sha1') => typeof reported === 'string'
-    && reported.toLowerCase() !== createHash(algo).update(bytes).digest('hex');
-  return !differs(sha256Hash, 'sha256') && !differs(sha1Hash, 'sha1');
+/** The existing item is a file (not a folder) of exactly `size` bytes. */
+function isFileOfSize(item: ExistingItem, size: number): boolean {
+  return typeof item.file === 'object' && item.file !== null && item.size === size;
 }
 
 function driveItem200(body: ExistingItem): { driveItemId: string; webUrl: string | null } | null {

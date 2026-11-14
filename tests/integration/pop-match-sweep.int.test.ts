@@ -146,7 +146,7 @@ describeIfDb('POP matching: attach each POP to its bank line', () => {
     expect(await matchedLineOf(pool, earlier.documentId)).toBe(taken);
   });
 
-  it('waits while the line\'s account is not imported past the window, then attaches; ambiguity spans accounts', async () => {
+  it('waits while the line\'s account is not imported past the window (up to today), then attaches; ambiguity spans accounts', async () => {
     const D = fx.day(10);
     const fresh = await addBankAccount(pool, A);
     const pop = await seedPop(fx, A, { beneficiary: 'Coverage Gate Co', date: D, amount: '830.00' });
@@ -158,6 +158,21 @@ describeIfDb('POP matching: attach each POP to its bank line', () => {
     await sweep();
     expect(await matchedLineOf(pool, pop.documentId)).toBe(l);
 
+    // A misdated future line opens nothing: the account is imported only up to today.
+    const misdated = await addBankAccount(pool, A);
+    const pop3 = await seedPop(fx, A, { beneficiary: 'Future Line Co', date: D, amount: '850.00' });
+    await seedLine(fx, A, D, '-850.00', named('Future Line Co'), { account: misdated });
+    await seedLine(fx, A, fx.day(-5), '-1.00', 'BANK CHARGE', { account: misdated });
+    await sweep();
+    expect(await matchRow(pool, pop3.popId)).toEqual({ outcome: 'not_found', candidate_bank_tx_ids: [], refusal: null });
+    expect(await matchedLineOf(pool, pop3.documentId)).toBeNull();
+
+    // A window that has not ended yet is not imported, even on an account imported up to today.
+    const recent = await seedPop(fx, A, { beneficiary: 'Recent Window Co', date: fx.day(2), amount: '860.00' });
+    await seedLine(fx, A, fx.day(2), '-860.00', named('Recent Window Co'));
+    await sweep();
+    expect(await matchRow(pool, recent.popId)).toEqual({ outcome: 'not_found', candidate_bank_tx_ids: [], refusal: null });
+
     const other = await addBankAccount(pool, A);
     const pop2 = await seedPop(fx, A, { beneficiary: 'Two Accounts Co', date: D, amount: '840.00' });
     const covered = await seedLine(fx, A, D, '-840.00', named('Two Accounts Co'));
@@ -167,12 +182,12 @@ describeIfDb('POP matching: attach each POP to its bank line', () => {
   });
 
   it('retries not_found on a later tick, and attaches once the line arrives', async () => {
-    const D = fx.day(2);
+    const D = fx.day(6);
     const pop = await seedPop(fx, A, { beneficiary: 'Late Statement Ltd', date: D, amount: '99.50' });
     await sweep();
     expect((await matchRow(pool, pop.popId))?.outcome).toBe('not_found');
     expect(await asService(pool, () => companiesWithOpenPops())).toContain(A);
-    const l = await seedLine(fx, A, fx.day(1), '-99.50', named('Late Statement Ltd'));
+    const l = await seedLine(fx, A, fx.day(5), '-99.50', named('Late Statement Ltd'));
     await sweep();
     expect(await matchRow(pool, pop.popId)).toMatchObject({ outcome: 'attached', candidate_bank_tx_ids: [l] });
   });

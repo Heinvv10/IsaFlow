@@ -3,12 +3,13 @@
  * from the mirror cron (popSweeps.ts), as the cron's role. Bounded: POP_ARCHIVE_BATCH POPs per company per
  * tick, never-tried first then least recently tried, none started after the caller's deadline.
  *
- * A POP is settled once in pop_archive_copies: 'archived' (the drive item, or an existing file of our size
- * after a 409), 'too_large' (over Graph's 4 MB simple upload), or 'failed' after POP_ARCHIVE_MAX_ATTEMPTS
- * failed attempts. A failed attempt (no path, no bytes, Graph refused this file, a 5xx, the network) is
- * counted in pop_archive_attempts and waits 5 min doubling (at most 24 h) before the next. Graph throttling
- * (429, 503 + Retry-After), a denied app (401/403), a token failure or the deadline stop the company's sweep
- * for this tick and count against no POP. A 5xx or network failure stops it too, after being counted.
+ * A POP is settled once in pop_archive_copies: 'archived' (the drive item, or after a 409 an existing file
+ * whose bytes are ours), 'too_large' (over Graph's 4 MB simple upload), or 'failed' after POP_ARCHIVE_MAX_ATTEMPTS
+ * failures of its own (no path, no bytes, Graph refused this file, a 403 on it, an existing file that differs).
+ * Every failure is a try in pop_archive_attempts: the POP goes behind the others and waits 5 min doubling (at
+ * most 24 h). An outage (Graph 5xx, the network, storage) is a try that never counts toward 'failed', and a 5xx
+ * or network failure ends the company's tick. Throttling (429, 503 + Retry-After), a 401, a token failure, a
+ * second POP denied (403) in one tick (the app's grant) and the deadline end the tick and count against no POP.
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -64,23 +65,29 @@ export async function sweepPopArchive(companyId: string, graph: PopGraphClient, 
     WHERE p.company_id = ${companyId}::uuid
       AND NOT EXISTS (SELECT 1 FROM pop_archive_copies c WHERE c.proof_of_payment_id = p.id AND c.company_id = p.company_id)
       AND (a.id IS NULL OR a.last_attempt_at
-        <= now() - least(interval '5 minutes' * power(2, a.attempts - 1), interval '24 hours'))
+        <= now() - least(interval '5 minutes' * power(2, a.tries - 1), interval '24 hours'))
     ORDER BY a.last_attempt_at NULLS FIRST, p.created_at, p.id
     LIMIT ${limit}::int
   `) as Row[];
 
+  let denied = 0; // POPs denied this tick: one is that file, a second is the app's grant
   for (const pop of pops) {
     if (Date.now() >= deadline) { summary.stopped += 1; break; }
     const popId = String(pop.id);
-    let path: string | null = null;
+    let path: string;
     try {
       path = popArchivePath(String(target.folder_path), {
         paymentDate: String(pop.payment_date), beneficiary: String(pop.beneficiary),
         amount: String(pop.amount), transactionNumber: String(pop.transaction_number),
       });
+    } catch (err) {
+      await recordFailure(companyId, popId, null, err instanceof Error ? err.message : String(err), 'counted', summary);
+      continue;
+    }
+    try {
       const raw = await fetchRawBytes(String(pop.captured_document_id), companyId);
       if (!raw) {
-        await recordFailure(companyId, popId, path, 'PDF bytes unavailable', summary);
+        await recordFailure(companyId, popId, path, 'PDF bytes unavailable', 'counted', summary);
         continue;
       }
       if (raw.buffer.length > MAX_SIMPLE_UPLOAD_BYTES) {
@@ -97,8 +104,14 @@ export async function sweepPopArchive(companyId: string, graph: PopGraphClient, 
         continue;
       }
       if (up.kind === 'failed') {
-        await recordFailure(companyId, popId, path, `HTTP ${up.status}: ${up.detail}`, summary);
+        await recordFailure(companyId, popId, path, `HTTP ${up.status}: ${up.detail}`, up.transient ? 'outage' : 'counted', summary);
         if (!up.transient) continue;
+      } else if (up.kind === 'denied' && up.status === 403 && denied === 0) {
+        // One file can be denied (its folder's permissions): counted against it. A second POP denied in the same
+        // tick is the app's grant: the tick ends there, counted against no POP.
+        denied += 1;
+        await recordFailure(companyId, popId, path, `HTTP ${up.status}: denied`, 'counted', summary);
+        continue;
       }
       summary.stopped += 1;
       log.warn('pop archive: stopped for this tick', { companyId, popId, result: up }, 'pop-archive');
@@ -109,7 +122,8 @@ export async function sweepPopArchive(companyId: string, graph: PopGraphClient, 
         log.warn('pop archive: no Graph token; stopped for this tick', { companyId, error: err.message }, 'pop-archive');
         break;
       }
-      await recordFailure(companyId, popId, path, err instanceof Error ? err.message : String(err), summary).catch((e: unknown) => {
+      // Storage or the database, not this POP: a try that does not count toward 'failed'.
+      await recordFailure(companyId, popId, path, err instanceof Error ? err.message : String(err), 'outage', summary).catch((e: unknown) => {
         log.error('pop archive: failure not recorded', { companyId, popId, error: String(e) }, 'pop-archive');
       });
     }
@@ -117,18 +131,25 @@ export async function sweepPopArchive(companyId: string, graph: PopGraphClient, 
   return summary;
 }
 
-/** Counts a failed attempt; the POP_ARCHIVE_MAX_ATTEMPTS-th settles the POP as 'failed'. */
-async function recordFailure(companyId: string, popId: string, path: string | null, error: string, summary: PopArchiveSummary): Promise<void> {
+/**
+ * A failed try: it moves the POP behind the others and waits (backoff by `tries`). A 'counted' failure (this POP's
+ * own) also counts an attempt, and the POP_ARCHIVE_MAX_ATTEMPTS-th settles it 'failed'; an 'outage' (Graph 5xx, the
+ * network, storage) never does.
+ */
+async function recordFailure(companyId: string, popId: string, path: string | null, error: string,
+  kind: 'counted' | 'outage', summary: PopArchiveSummary): Promise<void> {
   summary.failed += 1;
+  const counted = kind === 'counted' ? 1 : 0;
   const [row] = (await sql`
-    INSERT INTO pop_archive_attempts (company_id, proof_of_payment_id, last_error)
-    VALUES (${companyId}::uuid, ${popId}::uuid, ${error.slice(0, 300)})
+    INSERT INTO pop_archive_attempts (company_id, proof_of_payment_id, attempts, last_error)
+    VALUES (${companyId}::uuid, ${popId}::uuid, ${counted}::int, ${error.slice(0, 300)})
     ON CONFLICT ON CONSTRAINT pop_archive_attempts_one_per_pop DO UPDATE
-      SET attempts = pop_archive_attempts.attempts + 1, last_attempt_at = now(), last_error = EXCLUDED.last_error
+      SET attempts = pop_archive_attempts.attempts + ${counted}::int, tries = pop_archive_attempts.tries + 1,
+          last_attempt_at = now(), last_error = EXCLUDED.last_error
     RETURNING attempts
   `) as Row[];
   const attempts = Number(row?.attempts ?? 0);
-  log.warn('pop archive: attempt failed', { companyId, popId, attempts, error }, 'pop-archive');
+  log.warn('pop archive: try failed', { companyId, popId, kind, attempts, error }, 'pop-archive');
   if (attempts >= POP_ARCHIVE_MAX_ATTEMPTS) await recordCopy(companyId, popId, 'failed', null, null, path);
 }
 
