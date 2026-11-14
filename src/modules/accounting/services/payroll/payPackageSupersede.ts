@@ -4,6 +4,8 @@
  * after it), marked superseded_at (migration 953) and audited, in the apply's transaction under the company lock.
  * Refused (EmployeeComponentRefused, nothing written) when a cut would change what a paid run read.
  */
+import { judgeFundAssignment } from './payrollComponentRfi';
+import { formatPercent } from './rfi';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
@@ -185,13 +187,15 @@ export async function foreignOnceOffsOf(
 export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Promise<number> {
   const { companyId, packageId, employeeId, componentId, effectiveFrom, paid, actor } = input;
   const cutTo = dayBefore(effectiveFrom);
+  await judgeFundAssignment(tx, companyId, componentId); // RF: the apply inserts a row of this component next
   // Supersede every assignment this apply overlaps, not only the
   // open-ended ones. A once-off row is inserted already closed, so an
   // `effective_to IS NULL` predicate would step over the previous apply's
   // row and leave two overlapping windows — getEmployeeComponents returns
   // both and the run pays the component twice.
   const all = (await tx`
-    SELECT c.id, c.amount, c.effective_from, c.effective_to, c.is_recurring, c.superseded_at, c.supersede_inferred, e.end_date AS employee_end
+    SELECT c.id, c.amount, c.effective_from, c.effective_to, c.is_recurring, c.superseded_at, c.supersede_inferred, e.end_date AS employee_end,
+           c.employer_fund_as_cash, c.percent_of_rfi
       FROM payroll_employee_components c
       JOIN payroll_employees e ON e.id = c.employee_id AND e.company_id = ${companyId}::uuid
      WHERE c.employee_id = ${employeeId}::uuid
@@ -199,6 +203,17 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
      ORDER BY c.id FOR UPDATE OF c
   `) as DbRow[];
   const overlapped = all.filter((row) => row.effective_to == null || isoDate(row.effective_to) >= effectiveFrom);
+  // RF (migration 975): a package writes a plain amount, so replacing a pre-RF row kept as cash would silently make it the
+  // employer's non-cash deemed contribution, and replacing a percent_of_rfi row would freeze it at a fixed amount. Refused
+  // before any write; the employee's own profile does both changes deliberately.
+  const rfRow = overlapped.find((row) => row.employer_fund_as_cash === true || row.percent_of_rfi != null);
+  if (rfRow) {
+    throw new EmployeeComponentRefused(rfRow.percent_of_rfi != null
+      ? `This package would replace a retirement fund contribution set as ${formatPercent(Number(rfRow.percent_of_rfi))} of retirement-funding income (from ${isoDate(rfRow.effective_from)}) with a fixed amount. `
+        + 'Remove that component from the package, or end the percentage on the employee profile first.'
+      : `This package would replace an employer retirement fund contribution kept as cash from before RF (from ${isoDate(rfRow.effective_from)}), changing how it is taxed. `
+        + 'End that assignment on the employee profile and assign the component again (as a % of retirement-funding income if the fund sets it so), then apply the package.');
+  }
   // A recurring row is the package's to replace. A once-off is only if the package wrote it (a re-apply); one entered
   // by hand (a back-pay) is not: the apply is refused, with nothing written, rather than cancel it silently.
   // Only live, un-superseded once-offs are judged: a voided one (cancelled, End refuses it) and one an earlier apply

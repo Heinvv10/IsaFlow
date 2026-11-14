@@ -193,7 +193,7 @@ export const TX_SELECT = `
 // allocationFilter — same definition as bankAccountStatusService counts (PRD-11 §2):
 // allocated = journal posted; suggested = categorised, not posted; unallocated = neither.
 // Fixed literals keyed on a validated enum — safe for sql.unsafe. Applied in EVERY branch (#256).
-const HAS_CATEGORY =
+export const HAS_CATEGORY =
   '(bt.suggested_gl_account_id IS NOT NULL OR bt.suggested_supplier_id IS NOT NULL OR bt.suggested_client_id IS NOT NULL OR bt.allocation_type IS NOT NULL)';
 const NO_CATEGORY =
   'bt.suggested_gl_account_id IS NULL AND bt.suggested_supplier_id IS NULL AND bt.suggested_client_id IS NULL AND bt.allocation_type IS NULL';
