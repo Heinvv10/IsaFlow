@@ -147,7 +147,9 @@ export async function updateAnnouncement(
 ): Promise<void> {
   try {
     const startsAt = data.starts_at ?? null;
-    const endsAt   = data.ends_at   ?? null;
+    // Omitted keeps the stored end; an explicit null clears it.
+    const endsGiven = data.ends_at !== undefined;
+    const endsAt    = data.ends_at ?? null;
 
     await sql`
       UPDATE system_announcements SET
@@ -159,7 +161,7 @@ export async function updateAnnouncement(
         starts_at      = CASE WHEN ${startsAt}::text IS NOT NULL
                               THEN ${startsAt}::timestamptz
                               ELSE starts_at END,
-        ends_at        = CASE WHEN ${endsAt}::text IS NOT NULL
+        ends_at        = CASE WHEN ${endsGiven}::boolean
                               THEN ${endsAt}::timestamptz
                               ELSE ends_at END,
         is_dismissible = COALESCE(${data.is_dismissible ?? null}, is_dismissible)

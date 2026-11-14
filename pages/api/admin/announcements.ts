@@ -16,6 +16,7 @@ import {
   createAnnouncement,
 } from '@/modules/admin/services/announcementService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
+import { announcementWindowError } from '@/modules/admin/services/announcementWindow';
 import { getIp } from '@/utils/getIp';
 
 const PostBody = z.object({
@@ -50,6 +51,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (!parsed.success) {
       return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
     }
+
+    const windowError = announcementWindowError(parsed.data.starts_at, parsed.data.ends_at);
+    if (windowError) return apiResponse.badRequest(res, windowError);
 
     try {
       const { title, message, type, target, target_ids, starts_at, ends_at, is_dismissible } = parsed.data;

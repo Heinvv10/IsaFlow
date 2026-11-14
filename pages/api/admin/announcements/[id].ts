@@ -18,6 +18,7 @@ import {
   deleteAnnouncement,
 } from '@/modules/admin/services/announcementService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
+import { announcementWindowError } from '@/modules/admin/services/announcementWindow';
 import { getIp } from '@/utils/getIp';
 
 const PatchBody = z.object({
@@ -27,7 +28,8 @@ const PatchBody = z.object({
   target:         z.string().optional(),
   target_ids:     z.array(z.string()).optional(),
   starts_at:      z.string().optional(),
-  ends_at:        z.string().optional(),
+  /** null clears the end (no end); omitted keeps it. */
+  ends_at:        z.string().nullable().optional(),
   is_dismissible: z.boolean().optional(),
 }).strict();
 
@@ -52,6 +54,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     try {
+      // The window is judged on what will be stored: the body's value, else the stored one, for each side.
+      const current = await getAnnouncement(id);
+      if (!current) return apiResponse.notFound(res, 'Announcement', id);
+      const windowError = announcementWindowError(
+        parsed.data.starts_at ?? current.starts_at,
+        parsed.data.ends_at === undefined ? current.ends_at : parsed.data.ends_at,
+      );
+      if (windowError) return apiResponse.badRequest(res, windowError);
+
       await updateAnnouncement(id, parsed.data);
 
       await logAdminAction(
