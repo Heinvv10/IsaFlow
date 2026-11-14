@@ -256,7 +256,7 @@ Migration 945 (S-07e: billing tables and TEMPORARY, 2026-10-25) also takes effec
   is left in place). The webhook and mandate verify also refuse a payment whose
   Paystack metadata names another company or row: the request gets
   `failure_reason = 'review:…'` and an error log, and nothing is credited.
-- Billing writes use a pool of their own on the migration_admin login (`BILLING_ADMIN_POOL_MAX`, default 6), so metering never queues a sign-in or credential write; the credential pool stays 4 (`MIGRATION_ADMIN_POOL_MAX`). Up to 10 migration_admin connections per app process.
+- Billing writes use a pool of their own on the migration_admin login (`BILLING_ADMIN_POOL_MAX`, default 6), so metering never queues a sign-in or credential write; the credential pool stays 4 (`MIGRATION_ADMIN_POOL_MAX`). Up to 15 migration_admin connections per app process: 4 credential (`MIGRATION_ADMIN_POOL_MAX`), 6 billing, 3 route (`ROUTE_ADMIN_POOL_MAX`) and 2 sign-in stamp (`SIGN_IN_STAMP_POOL_MAX`, `signInStampPool.ts`).
 - Auto top-up cannot be switched on (409): v1 cannot store a payment method. A wallet already switched on can change its bundle or be switched off.
 - PUBLIC loses TEMPORARY on the database. Every role that had it through
   PUBLIC, except the roles the app logins reach, is granted it back by name,

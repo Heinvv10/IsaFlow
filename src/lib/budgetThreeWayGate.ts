@@ -1,8 +1,8 @@
 /**
  * The gate every three-way route passes first (budgets P6, spec §7, §13.13):
  * the dark feature flag, called directly (`hasFeature`, the MCP route's
- * precedent), then a
- * per-user rate limit (the runs read the ledger, the VAT201 and the EMP201).
+ * precedent), then a per-user rate limit (the runs read the ledger, the VAT201
+ * and the EMP201).
  * Answers 403 or 429 itself and returns false; true lets the handler go on.
  */
 import type { NextApiResponse } from 'next';
