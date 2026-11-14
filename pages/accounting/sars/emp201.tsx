@@ -4,12 +4,13 @@
  * save draft and mark submitted actions.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, Save, Send, AlertTriangle } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Emp201DirectivePayments } from '@/components/payroll/Emp201DirectivePayments';
 import { exportEmp201Csv, getDefaultPeriod, type EMP201Data } from '@/components/accounting/sars/emp201/emp201Types';
+import { useReturnDeepLink } from '@/components/accounting/sars/useReturnDeepLink';
 import { Emp201PageHeader } from '@/components/accounting/sars/emp201/Emp201PageHeader';
 import { Emp201PeriodSelector } from '@/components/accounting/sars/emp201/Emp201PeriodSelector';
 import { Emp201ReturnForm } from '@/components/accounting/sars/emp201/Emp201ReturnForm';
@@ -24,6 +25,7 @@ export default function EMP201Page() {
   const defaults = getDefaultPeriod();
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
+  const link = useReturnDeepLink(setFrom, setTo);
   const [data, setData] = useState<EMP201Data | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -56,6 +58,14 @@ export default function EMP201Page() {
       setLoading(false);
     }
   }, [from, to]);
+
+  // A link from Ask IsaFlow lands on the figure it quoted: Generate is a read, so it runs once for the link's period.
+  const autoRanFor = useRef('');
+  useEffect(() => {
+    if (!link || from !== link.from || to !== link.to || autoRanFor.current === `${link.from}|${link.to}`) return;
+    autoRanFor.current = `${link.from}|${link.to}`;
+    void generate();
+  }, [link, from, to, generate]);
 
   const saveDraft = async () => {
     if (!data) return;

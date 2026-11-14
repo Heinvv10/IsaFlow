@@ -17,6 +17,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunService';
+import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 
 type Row = DbRow;
 
@@ -105,4 +106,26 @@ export function payRunCursorParts(run: { periodYear: number; periodMonth: number
     String(run.periodMonth).padStart(2, '0'),
     run.id,
   ];
+}
+
+/**
+ * The pay run a statutory figure would be taken from: only the statuses an EMP201 declares, the latest period first. A company has
+ * one run per (year, month) (unique constraint), so that order is total. `month` narrows to one calendar month; null is the latest.
+ */
+export async function getDeclarablePayRun(
+  companyId: string,
+  month: { year: number; month: number } | null,
+): Promise<PayrollRunSummary | null> {
+  const statuses: string[] = [...EMP201_DECLARABLE_STATUSES];
+  const year = month ? month.year : null;
+  const m = month ? month.month : null;
+  const rows = (await sql`
+    SELECT * FROM payroll_run_headers
+    WHERE company_id = ${companyId}::UUID
+      AND status = ANY(${statuses}::TEXT[])
+      AND (${year}::INT IS NULL OR (period_year = ${year}::INT AND period_month = ${m}::INT))
+    ORDER BY period_year DESC, period_month DESC
+    LIMIT 1
+  `) as Row[];
+  return rows[0] ? { ...mapRunRow(rows[0]) } : null;
 }
