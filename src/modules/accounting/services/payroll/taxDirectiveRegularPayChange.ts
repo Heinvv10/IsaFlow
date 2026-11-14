@@ -23,7 +23,7 @@ import type { DbRow } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { TaxDirectivePaidError } from './taxDirectivePaidGuard';
 import {
-  assertNoRegularDirectiveOverlap, directiveEndsOn, lockEmployeeRegularDirectives, TaxDirectiveWindowError,
+  assertNoRegularDirectiveOverlap, directiveEndsOn, expiryPastCeilingProblem, lockEmployeeRegularDirectives, TaxDirectiveWindowError,
 } from './taxDirectiveOverlap';
 import { declarableRunInWindow } from './payrollRunRegularDirective';
 import { regularDirectiveLatestUse, regularDirectiveUsesAfter } from './payrollRunDirectiveUses';
@@ -140,6 +140,8 @@ export async function judgeRegularDirectiveChange(
     await assertNoRegularDirectiveOverlap(companyId, row.employeeId, { effectiveDate: row.effectiveDate, endsOn, excludeId: row.id, statuses: ['approved'] });
     // Approving now: no period already approved may fall in its window (one it already taxed is its own, not a retroactive one).
     if (change.status === 'approved' && row.status !== 'approved') {
+      const past = expiryPastCeilingProblem(row.effectiveDate, row.expiryDate);
+      if (past) throw new TaxDirectiveWindowError(past);
       await assertNotContractor(companyId, row.employeeId);
       await assertNoApprovedRunInWindow(companyId, row.employeeId, row.effectiveDate, endsOn);
     }

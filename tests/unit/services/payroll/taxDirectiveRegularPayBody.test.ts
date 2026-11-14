@@ -47,6 +47,17 @@ describe('regularPayDirectiveBodyProblem', () => {
   });
 });
 
+describe('the expiry ceiling: the end of the tax year after the one it starts in (Hein, #1266)', () => {
+  it('03-01 start: 2028-02-29 (a leap year) accepted, 2028-03-01 refused naming the limit; a 02-01 start ends 2027-02-28 at most', () => {
+    expect(problem({ ...pct, expiry_date: '2028-02-29' })).toBeNull();
+    expect(problem({ ...pct, expiry_date: '2028-03-01' })).toMatch(/past 2028-02-29, the end of the tax year after the one the directive starts in/);
+    expect(problem({ ...pct, effective_date: '2026-02-01', expiry_date: '2026-12-31' })).toBeNull();
+    expect(problem({ ...pct, effective_date: '2026-02-01', expiry_date: '2027-02-28' })).toBeNull();
+    expect(problem({ ...pct, effective_date: '2026-02-01', expiry_date: '2027-03-01' })).toMatch(/past 2027-02-28/);
+    expect(problem({ ...amt, expiry_date: '2028-03-01' })).toMatch(/past 2028-02-29/);
+  });
+});
+
 describe('directiveBodyProblem: every type', () => {
   it('lengths: directive_number 50, sars_reference 100', () => {
     expect(common({ directive_number: 'x'.repeat(51) })).toMatch(/at most 50/);

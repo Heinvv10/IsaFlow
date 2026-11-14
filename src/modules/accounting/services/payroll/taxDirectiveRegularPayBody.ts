@@ -12,8 +12,10 @@
  * - `amount` is not used (stored 0, taxDirectiveKinds): absent or 0;
  * - `directive_number` REQUIRED, up to 15 letters or digits, not zeros: BRS V25.3.0 p. 41 (code 3230) "For fixed PAYE
  *   rate/amount directives, ONLY the directive number MUST be completed", AN15 (easyFileRegularDirectives);
- * - `expiry_date`, if given, on or after `effective_date` (blank = the tax year's end, G21 p. 15).
+ * - `expiry_date`, if given, on or after `effective_date` (blank = the tax year's end, G21 p. 15), and not past the end of the
+ *   NEXT tax year (Hein, #1266: taxDirectiveOverlap.expiryPastCeilingProblem, also judged at approve).
  */
+import { expiryPastCeilingProblem } from './taxDirectiveOverlap';
 const isNumeric = (v: unknown): boolean =>
   (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)));
 /** Decimal places as written in plain notation; an exponent form counts as too many. */
@@ -73,5 +75,5 @@ export function regularPayDirectiveBodyProblem(body: {
   }
   if (!isCalendarDate(body.effective_date)) return 'effective_date must be a date in YYYY-MM-DD format from 2000 to 2100';
   if (given(body.expiry_date) && String(body.expiry_date) < body.effective_date) return 'expiry_date must be on or after effective_date';
-  return null;
+  return expiryPastCeilingProblem(body.effective_date, given(body.expiry_date) ? String(body.expiry_date) : null);
 }

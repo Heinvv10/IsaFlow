@@ -40,6 +40,23 @@ export function directiveEndsOn(effectiveDate: string, expiryDate: string | null
   return `${endYear}-02-${leap ? '29' : '28'}`;
 }
 
+/** The end of the tax year after the one `effectiveDate` falls in (2026-03-01 -> 2028-02-29): the latest a regular-pay directive may run to. */
+export function directiveCeiling(effectiveDate: string): string {
+  const yearEnd = directiveEndsOn(effectiveDate, null);
+  return directiveEndsOn(`${yearEnd.slice(0, 4)}-03-01`, null);
+}
+
+/**
+ * Hein (#1266 adv2 L): a regular-pay directive's expiry may not pass directiveCeiling, at create and at approve (and so an
+ * undo can never restore past it). The refusal names the limit; null when it is within.
+ */
+export function expiryPastCeilingProblem(effectiveDate: string, expiryDate: string | null): string | null {
+  const ceiling = directiveCeiling(effectiveDate);
+  if (expiryDate == null || expiryDate <= ceiling) return null;
+  return `expiry_date ${expiryDate} is past ${ceiling}, the end of the tax year after the one the directive starts in (${effectiveDate}): `
+    + 'a regular-pay directive may run to that date at most. SARS issues a new directive for a later period.';
+}
+
 /** Serialise every create and approve of one employee's regular-pay directives (bounded wait, a 503 on timeout). */
 export async function lockEmployeeRegularDirectives(companyId: string, employeeId: string): Promise<void> {
   await underFlowLockBudget('This employee\'s tax directives', async () => {

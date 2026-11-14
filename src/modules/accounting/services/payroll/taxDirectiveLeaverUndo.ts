@@ -23,7 +23,7 @@ import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { anotherApproverBlocks, TaxDirectiveSelfApprovalError } from './taxDirectiveApprover';
-import { directiveEndsOn, TaxDirectiveWindowError } from './taxDirectiveOverlap';
+import { directiveCeiling, directiveEndsOn, TaxDirectiveWindowError } from './taxDirectiveOverlap';
 import { declarableRunInWindow } from './payrollRunRegularDirective';
 import { regularDirectiveUsesAfter } from './payrollRunDirectiveUses';
 
@@ -101,7 +101,7 @@ async function exitInEffect(companyId: string, directiveId: string, currentExpir
 /**
  * The end the directive was approved with: `approvedExpiry` on the latest approval audit row (auditDirectiveApproval) written
  * before the exit's, i.e. the approval in force when the exit was taken (a re-approval counts; a row added after the exit does
- * not), else the tax year's end of its effective date; never past the end of the NEXT tax year (undoCeiling). An approval row without approvedExpiry (written before it was
+ * not), else the tax year's end of its effective date; never past the end of the NEXT tax year (directiveCeiling). An approval row without approvedExpiry (written before it was
  * recorded; none in production, DR was not deployed) caps at the tax year's end too.
  */
 async function approvedEndsOn(
@@ -118,15 +118,10 @@ async function approvedEndsOn(
   const approved = row?.approved_expiry ? String(row.approved_expiry) : null;
   const fromAudit = directiveEndsOn(directive.effectiveDate, approved);
   // audit_log alone can never widen the cap past the next tax year's end (#1266 residual L; a cross-year window stays undoable).
-  const ceiling = undoCeiling(directive.effectiveDate);
+  const ceiling = directiveCeiling(directive.effectiveDate);
   return { cap: fromAudit < ceiling ? fromAudit : ceiling, ceiling };
 }
 
-/** The end of the tax year after the one `effectiveDate` falls in (2026-03-01 -> 2028-02-29). */
-function undoCeiling(effectiveDate: string): string {
-  const yearEnd = directiveEndsOn(effectiveDate, null);
-  return directiveEndsOn(`${yearEnd.slice(0, 4)}-03-01`, null);
-}
 
 /** Judge a request to lengthen the expiry to `requested` (see the header); returns the undo to write, or throws. */
 export async function judgeLeaverExitUndo(
