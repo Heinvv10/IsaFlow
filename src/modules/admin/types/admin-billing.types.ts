@@ -156,9 +156,6 @@ export interface AnalyticsTrends {
 }
 
 export interface PlatformSettings {
-  maintenance_mode: boolean;
-  registration_enabled: boolean;
-  max_companies_per_user: number;
   smtp_configured: boolean;
 }
 

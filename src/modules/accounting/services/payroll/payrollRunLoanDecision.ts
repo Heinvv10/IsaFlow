@@ -2,6 +2,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { calculatePayrollLine } from './payrollCalculator';
 import { appendLoanComponents, fringeOnlyLoanApplications, type LoanComponents } from './payrollRunLoanComponents';
 import type { ApplyLoanResult } from './payrollLoanService';
+import type { RegularPayDirectiveState } from './directiveRegularPay';
 import type {
   EmployeeComponent, PayeYearToDate, PayrollEmployee, PayrollPeriod, ValidationResult,
 } from './payrollTypes';
@@ -9,6 +10,8 @@ import type {
 export interface LoanLineBasis {
   employee: PayrollEmployee;
   components: EmployeeComponent[];
+  /** The same directive the stored line is costed with (DR), so the preview's PAYE is the line's. */
+  regularPayDirective?: RegularPayDirectiveState;
 }
 
 export function judgeLoanApplications(input: {
@@ -28,6 +31,7 @@ export function judgeLoanApplications(input: {
       input.basis.components, fringeOnlyLoanApplications(input.applications), input.loanComponents,
     ),
     period: input.period, taxYear: input.taxYear, annualPayrollEstimate: 'defer', ytd: input.ytd,
+    regularPayDirective: input.basis.regularPayDirective,
   });
   const availableCents = Math.round(Math.max(0, benefitOnly.netPay) * 100);
   const deductionCents = Math.round(input.applications.reduce((sum, app) => sum + app.principal + app.interest, 0) * 100);

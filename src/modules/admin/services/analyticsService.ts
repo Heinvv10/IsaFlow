@@ -229,60 +229,9 @@ async function getChurnSignals(): Promise<UsageAnalytics['churn_signals']> {
   }));
 }
 
-const SETTINGS_DEFAULTS: PlatformSettings = {
-  maintenance_mode: false,
-  registration_enabled: true,
-  max_companies_per_user: 5,
-  smtp_configured: false,
-};
-
+// Read-only: the platform has no persisted, enforced platform-wide toggles (maintenance mode,
+// registration, max companies per user were removed - nothing ever read them). smtp_configured
+// is derived from env.
 export async function getPlatformSettings(): Promise<PlatformSettings> {
-  const rows = await sql`SELECT key, value FROM admin_settings`;
-
-  const persisted: Partial<Record<string, unknown>> = {};
-  for (const r of rows as Row[]) {
-    persisted[r.key as string] = r.value;
-  }
-
-  return {
-    maintenance_mode:       (persisted['maintenance_mode']       as boolean)  ?? SETTINGS_DEFAULTS.maintenance_mode,
-    registration_enabled:   (persisted['registration_enabled']   as boolean)  ?? SETTINGS_DEFAULTS.registration_enabled,
-    max_companies_per_user: (persisted['max_companies_per_user'] as number)   ?? SETTINGS_DEFAULTS.max_companies_per_user,
-    // smtp_configured is runtime-only — not persisted, always derived from env
-    smtp_configured: !!(process.env.SMTP_HOST ?? process.env.RESEND_API_KEY),
-  };
-}
-
-// Allowlist of keys that may be persisted — derived directly from PlatformSettings fields
-// (smtp_configured is excluded because it is runtime-only, derived from env vars).
-const ALLOWED_SETTINGS_KEYS: ReadonlyArray<keyof Omit<PlatformSettings, 'smtp_configured'>> = [
-  'maintenance_mode',
-  'registration_enabled',
-  'max_companies_per_user',
-] as const;
-
-export async function updatePlatformSettings(
-  data: Partial<PlatformSettings>,
-  updatedBy?: string,
-): Promise<void> {
-  // smtp_configured is read-only (derived from env) — strip it before upsert
-  // Drop any keys not in the explicit allowlist to prevent arbitrary key injection
-  const entries = (Object.entries(data) as [string, unknown][]).filter(
-    ([key]) => key !== 'smtp_configured' && (ALLOWED_SETTINGS_KEYS as readonly string[]).includes(key),
-  );
-  if (entries.length === 0) return;
-
-  for (const [key, val] of entries) {
-    await sql`
-      INSERT INTO admin_settings (key, value, updated_at, updated_by)
-      VALUES (${key}, ${JSON.stringify(val)}::jsonb, NOW(), ${updatedBy ?? null})
-      ON CONFLICT (key)
-      DO UPDATE SET
-        value      = EXCLUDED.value,
-        updated_at = NOW(),
-        updated_by = EXCLUDED.updated_by
-    `;
-  }
-
-  log.info('Platform settings updated', { keys: entries.map(([key]) => key), updatedBy }, 'analyticsService');
+  return { smtp_configured: !!(process.env.SMTP_HOST ?? process.env.RESEND_API_KEY) };
 }
