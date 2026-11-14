@@ -6,6 +6,8 @@ import { useState, useEffect } from 'react';
 import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, X } from 'lucide-react';
 import { adminFetch } from '@/lib/admin/adminFetch';
+import { isConvertiblePlanCode } from '@/modules/admin/types/trialPlans';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Plan {
   id: string;
@@ -22,12 +24,15 @@ interface Props {
   onConverted: () => void;
 }
 
+interface Converted { firstChargeAt?: string; hasActiveMandate?: boolean }
+
 export function ConvertTrialModal({ companyId, companyName, onClose, onConverted }: Props) {
   const [plans, setPlans]       = useState<Plan[]>([]);
   const [planId, setPlanId]     = useState('');
   const [loading, setLoading]   = useState(true);
   const [working, setWorking]   = useState(false);
   const [error, setError]       = useState('');
+  const [done, setDone]         = useState<Converted | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -35,8 +40,8 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
         const res  = await adminFetch('/api/admin/billing/plans');
         await assertOk(res, 'Could not load plans - try again');
         const json = await res.json() as { data?: Plan[] };
-        setPlans(json.data ?? []);
-        if (json.data && json.data.length > 0) setPlanId(json.data[0]?.id ?? '');
+        // Not the internal trial/payg plans, and no plan preselected: the admin picks one.
+        setPlans((json.data ?? []).filter((p) => isConvertiblePlanCode(p.code)));
       } catch (err) {
         setPlans([]); setPlanId('');
         setError(apiErrorMessage(err, 'Could not load plans - try again'));
@@ -59,13 +64,17 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
       if (!res.ok) {
         await assertOk(res, 'Could not convert the trial - try again');
       }
-      onConverted();
+      // The list reloads when the admin closes the summary, so it is read first.
+      const json = await res.json().catch(() => null) as { data?: Converted } | null;
+      setDone(json?.data ?? {});
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not convert the trial - try again'));
     } finally {
       setWorking(false);
     }
   }
+
+  const finish = done ? onConverted : onClose;
 
   function formatPrice(cents: number, currency: string) {
     return new Intl.NumberFormat('en-ZA', {
@@ -84,7 +93,8 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
             Convert to Paid — <span className="text-teal-500">{companyName}</span>
           </h2>
           <button
-            onClick={onClose}
+            onClick={finish}
+            aria-label="Close"
             className="p-1.5 rounded text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           >
             <X className="w-4 h-4" />
@@ -97,7 +107,18 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
             <p className="text-sm text-red-400 bg-red-500/10 rounded-lg px-3 py-2">{error}</p>
           )}
 
-          {loading ? (
+          {done ? (
+            <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+              <p className="font-medium text-green-500">{companyName} is now on a paid plan.</p>
+              {done.firstChargeAt && <p>First charge: {formatDisplayDate(done.firstChargeAt)}.</p>}
+              {done.hasActiveMandate === true && <p>It will be charged to the active Paystack mandate.</p>}
+              {done.hasActiveMandate === false && (
+                <p className="text-amber-500 bg-amber-500/10 rounded-lg px-3 py-2">
+                  No active mandate: this company will not be billed until one is set up.
+                </p>
+              )}
+            </div>
+          ) : loading ? (
             <div className="flex justify-center py-6">
               <Loader2 className="w-5 h-5 animate-spin text-teal-500" />
             </div>
@@ -142,21 +163,30 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-200 dark:border-gray-700">
-          <button
-            onClick={onClose}
-            disabled={working}
-            className="px-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => void handleConvert()}
-            disabled={working || !planId || loading}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white font-medium rounded-lg transition-colors"
-          >
-            {working && <Loader2 className="w-4 h-4 animate-spin" />}
-            Convert to Paid
-          </button>
+          {done ? (
+            <button onClick={finish}
+              className="px-4 py-2 text-sm bg-brand-600 hover:bg-brand-700 text-white font-medium rounded-lg transition-colors">
+              Done
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={onClose}
+                disabled={working}
+                className="px-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleConvert()}
+                disabled={working || !planId || loading}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white font-medium rounded-lg transition-colors"
+              >
+                {working && <Loader2 className="w-4 h-4 animate-spin" />}
+                Convert to Paid
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
