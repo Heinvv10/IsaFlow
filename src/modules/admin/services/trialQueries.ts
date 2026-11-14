@@ -16,6 +16,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { companyOutOfMetrics } from './metrics/metricsSql';
 
 export type TrialState = 'active' | 'expired' | 'converted';
 
@@ -89,7 +90,12 @@ export function summariseTrials(trials: TrialCompany[], now: Date): TrialStats {
   };
 }
 
-/** The single trials query: every non-deleted company with a trial_ends_at, soonest end first. */
+/**
+ * The single trials query: every company with a trial_ends_at, soonest end
+ * first, except deleted and internal ones (the metrics module's
+ * companyOutOfMetrics: deleted, is_demo, the Demo tenant), so the list and
+ * every count agree with the admin site's other metrics.
+ */
 async function loadTrials(now: Date): Promise<TrialCompany[]> {
   const rows = await sql`
     SELECT
@@ -120,7 +126,7 @@ async function loadTrials(now: Date): Promise<TrialCompany[]> {
       SELECT company_id, COUNT(*) AS user_count FROM company_users GROUP BY company_id
     ) uc ON uc.company_id = c.id
     WHERE c.trial_ends_at IS NOT NULL
-      AND c.status IS DISTINCT FROM 'deleted'
+      AND NOT ${companyOutOfMetrics()}
     ORDER BY c.trial_ends_at ASC
   `;
   return (rows as DbRow[]).map((r) => classifyTrial(r, now));
