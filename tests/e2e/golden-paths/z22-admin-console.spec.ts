@@ -8,7 +8,9 @@
  * Read-only and figure-free, because it runs in the post-deploy verify against production (a red run rolls the
  * deploy back): nothing is clicked that saves, sends, suspends, converts, deletes or exports, no number or name from
  * the data is asserted or printed (a company and a user are picked from the list the page loaded), and every
- * non-GET /api/admin request is aborted and fails the test. System Health is not visited: GET /api/admin/health runs
+ * non-GET /api/admin request is aborted and fails the test. That guard covers /api/admin/* only: the app shell's own
+ * traffic on the same pages (analytics beacons to /api/track/event, session refresh, announcement reads) is not
+ * blocked. System Health is not visited: GET /api/admin/health runs
  * checkAndAlert after commit, which writes the alert state and can send a real email and webhook (unit tests cover
  * it); that GET is aborted too, should any page start calling it.
  *
@@ -77,10 +79,13 @@ test('dashboard and the companies list load; the list sorts by Name both ways an
     expect(res.status(), `sort ${by} ${dir}`).toBe(200);
     const names = ((await res.json()) as { data: { items: Array<{ name: string }> } }).data.items.map((c) => c.name);
     const rows = w.page.locator('main tbody tr');
-    await expect(rows, `sort ${by} ${dir}: one row per company`).toHaveCount(Math.max(names.length, 1));
-    // Pairing, without printing a company name into a deploy log: the first row holds the API's first name.
-    const firstRow = (await rows.first().innerText()).trim();
-    expect(names.length === 0 || firstRow.includes(names[0]!), `sort ${by} ${dir}: first row is the API's first company`).toBe(true);
+    // Polled, both together: the count can already match the previous sort's page, and the first row re-renders a
+    // beat after the response. A boolean, so no company name reaches a deploy log; whitespace normalised both sides.
+    const norm = (t: string) => t.replace(/\s+/g, ' ').trim();
+    await expect.poll(async () => {
+      if (await rows.count() !== Math.max(names.length, 1)) return false;
+      return names.length === 0 || norm(await rows.first().innerText()).includes(norm(names[0]!));
+    }, { message: `sort ${by} ${dir}: one row per company, the first row holding the API's first company`, timeout: 15_000 }).toBe(true);
     return names;
   };
   const asc = await sortedBy('Name', 'name', 'asc');
