@@ -18,6 +18,7 @@ vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, pu
 
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 import InvoicesPage from '../../../pages/admin/billing/invoices';
 
 void mockedApiFetchModule;
@@ -131,12 +132,14 @@ describe('admin invoices page (WP7)', () => {
 
   it.each([['Release, not sent', 'released'], ['Mark as sent', 'sent']] as const)(
     'a claimed row shows its unknown outcome, has no Send, and settles with "%s"', async (label, outcome) => {
-      serve([{ ...INVOICE, send_claimed_at: '2026-11-14T08:30:00Z' }], () => ({ settled: true, outcome }));
+      const claimedAt = new Date(Date.now() - 12 * 60_000).toISOString(); // past the 2-minute settle bound
+      serve([{ ...INVOICE, send_claimed_at: claimedAt }], () => ({ settled: true, outcome }));
       render(<InvoicesPage />);
-      expect(await screen.findByText(/Sending — outcome unknown since 14 Nov 2026, 10:30/)).toBeTruthy();
+      expect(await screen.findByText(new RegExp(`Sending — outcome unknown since ${formatDisplayDateTime(claimedAt)}`))).toBeTruthy();
       expect(screen.queryByTitle('Send')).toBeNull();
       fireEvent.click(screen.getByTitle('Settle send'));
       expect(await screen.findByText(/Check the email log for INV-WP7-1 first/)).toBeTruthy();
+      expect(screen.getByText(/\(12 minutes ago\)/)).toBeTruthy(); // the dialog states the claim's age
       fireEvent.click(screen.getByRole('button', { name: label }));
       await waitFor(() => expect(posts('/api/admin/billing/invoices/inv-1/settle-send')).toHaveLength(1));
       const call = posts('/settle-send')[0]!;
@@ -144,4 +147,13 @@ describe('admin invoices page (WP7)', () => {
       expect(new Headers(call.init.headers).get('X-Admin-Request')).toBe('true');
       expect(posts('/send')).toHaveLength(0);
     });
+
+  it('a claim younger than 2 minutes shows "Sending…": no Settle and no Send yet', async () => {
+    serve([{ ...INVOICE, send_claimed_at: new Date(Date.now() - 10_000).toISOString() }]);
+    render(<InvoicesPage />);
+    expect(await screen.findByText('Sending…')).toBeTruthy();
+    expect(screen.queryByText(/outcome unknown/)).toBeNull();
+    expect(screen.queryByTitle('Settle send')).toBeNull();
+    expect(screen.queryByTitle('Send')).toBeNull();
+  });
 });

@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { AlertCircle, Loader2, X } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
+import { claimAgeText } from '@/modules/admin/services/invoiceSendTiming';
 import type { Invoice } from './invoiceModel';
 
 type Outcome = 'sent' | 'released';
@@ -49,7 +50,8 @@ export function SettleSendModal({ invoice, onClose, onSettled }: Props) {
           <button onClick={onClose} aria-label="Close" className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-5 h-5" /></button>
         </div>
         <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-          A send to {invoice.billing_email ?? `${invoice.company_name}'s billing email`} started {invoice.send_claimed_at ? formatDisplayDateTime(invoice.send_claimed_at) : ''} and
+          A send to {invoice.billing_email ?? `${invoice.company_name}'s billing email`} started
+          {invoice.send_claimed_at ? ` ${formatDisplayDateTime(invoice.send_claimed_at)} (${claimAgeText(invoice.send_claimed_at)} ago)` : ''} and
           its outcome is unknown. Check the email log for {invoice.invoice_number} first. If it was delivered, mark it as sent.
           If it was not, release it so it can be sent again.
         </p>

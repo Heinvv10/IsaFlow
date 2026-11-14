@@ -33,13 +33,29 @@ assertDisposable();
 const fx = invoiceSendFixture('settle');
 const send = (id: string, to = fx.billing) => fx.call(sendRoute as never, { confirmed_to: to }, id);
 const settle = (id: string, outcome: string) => fx.call(settleRoute as never, { outcome }, id);
-/** A draft whose Send timed out: the claim stays (outcome unknown). */
-async function stranded(): Promise<string> {
+/**
+ * A draft whose Send timed out: the claim stays (outcome unknown). `old` backdates the claim past
+ * SEND_SETTLE_AFTER_MS (2 min), the age a claim must reach before it may be settled.
+ */
+async function stranded(old = true): Promise<string> {
   const id = await fx.draft();
   mail.sendMail.mockRejectedValueOnce(Object.assign(new Error('Timeout'), { code: 'ETIMEDOUT' }));
   fx.expectStatus(await send(id), 424);
   expect((await fx.row(id)).send_claimed_at).not.toBeNull();
+  if (old) await fx.pool.query("UPDATE admin_invoices SET send_claimed_at = NOW() - interval '3 minutes' WHERE id=$1", [id]);
   return id;
+}
+function gate() {
+  let open!: () => void;
+  const promise = new Promise<void>((resolve) => { open = resolve; });
+  return { promise, open };
+}
+async function until(check: () => boolean, ms = 10000) {
+  const end = Date.now() + ms;
+  while (!check()) {
+    if (Date.now() > end) throw new Error('until: timed out');
+    await new Promise((r) => setTimeout(r, 20));
+  }
 }
 
 beforeAll(async () => {
@@ -115,6 +131,51 @@ describe('WP7 settle a send whose outcome is unknown', () => {
     expect((await fx.row(id)).status).toBe('draft');
     fx.expectStatus(await settle(crypto.randomUUID(), 'released'), 404);
     fx.expectStatus(await settle(id, 'maybe'), 400);
+    expect(await fx.audits(id, 'invoice.send_settled')).toBe(0);
+  }, 60000);
+
+  it('a claim younger than 2 minutes is refused either way: still in progress, nothing changes', async () => {
+    const id = await stranded(false);
+    const before = await fx.row(id);
+    for (const outcome of ['sent', 'released']) {
+      const r = await settle(id, outcome);
+      fx.expectStatus(r, 409);
+      expect(r.body.error?.message).toMatch(/still in progress; try again shortly/);
+    }
+    const after = await fx.row(id);
+    expect([after.status, String(after.send_claimed_at)]).toEqual(['draft', String(before.send_claimed_at)]);
+    expect(await fx.audits(id, 'invoice.send_settled')).toBe(0);
+  }, 60000);
+
+  it('two concurrent Settles: exactly one wins, the other is a 409, one audit row', async () => {
+    const id = await stranded();
+    const results = await Promise.all([settle(id, 'sent'), settle(id, 'released')]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+    const winner = results[0]!.status === 200 ? 'sent' : 'released';
+    const after = await fx.row(id);
+    expect([after.status, after.send_claimed_at]).toEqual([winner === 'sent' ? 'sent' : 'draft', null]);
+    expect(await fx.auditDetails(id, 'invoice.send_settled')).toEqual([expect.objectContaining({ outcome: winner })]);
+  }, 60000);
+
+  it('a Settle racing a Send still talking to the mail server is refused; the Send completes once', async () => {
+    const id = await fx.draft();
+    const smtp = gate();
+    mail.sendMail.mockImplementationOnce(async () => { await smtp.promise; return { messageId: 'in-flight' }; });
+    const inFlight = send(id);
+    try {
+      await until(() => mail.sendMail.mock.calls.length === 1);
+      for (const outcome of ['released', 'sent']) {
+        const r = await settle(id, outcome);
+        fx.expectStatus(r, 409);
+        expect(r.body.error?.message).toMatch(/still in progress/);
+      }
+    } finally {
+      smtp.open();
+    }
+    fx.expectStatus(await inFlight, 200);
+    const after = await fx.row(id);
+    expect([after.status, after.send_claimed_at]).toEqual(['sent', null]);
+    expect(mail.sendMail).toHaveBeenCalledTimes(1);
     expect(await fx.audits(id, 'invoice.send_settled')).toBe(0);
   }, 60000);
 });

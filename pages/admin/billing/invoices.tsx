@@ -11,6 +11,7 @@ import { ConfirmModal } from '@/components/admin/ConfirmModal';
 import { CreateInvoiceModal } from '@/components/admin/billing/CreateInvoiceModal';
 import { SettleSendModal } from '@/components/admin/billing/SettleSendModal';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
+import { isClaimSettleable } from '@/modules/admin/services/invoiceSendTiming';
 import { type Invoice, type PagedResponse } from '@/components/admin/billing/invoiceModel';
 
 type InvoiceAction = 'send' | 'mark_paid';
@@ -208,7 +209,8 @@ export default function InvoicesPage() {
                     <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_BADGE[inv.status] ?? 'bg-gray-500/10 text-gray-500'}`}>{inv.status}</span>
                     {inv.send_claimed_at && (
                       <span className="ml-1.5 px-2 py-0.5 rounded text-xs font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 whitespace-nowrap">
-                        Sending — outcome unknown since {formatDisplayDateTime(inv.send_claimed_at)}
+                        {/* Younger than SEND_SETTLE_AFTER_MS the Send may still be talking to the mail server. */}
+                        {isClaimSettleable(inv.send_claimed_at) ? `Sending — outcome unknown since ${formatDisplayDateTime(inv.send_claimed_at)}` : 'Sending…'}
                       </span>
                     )}
                   </td>
@@ -220,7 +222,7 @@ export default function InvoicesPage() {
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(inv.created_at)}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5">
-                      {inv.status === 'draft' && inv.send_claimed_at && (
+                      {inv.status === 'draft' && inv.send_claimed_at && isClaimSettleable(inv.send_claimed_at) && (
                         <button onClick={() => setSettling(inv)}
                           className="p-1.5 rounded text-gray-600 dark:text-gray-400 hover:text-amber-500 hover:bg-amber-500/10 transition-colors" title="Settle send">
                           <Scale className="w-3.5 h-3.5" />

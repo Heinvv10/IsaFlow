@@ -16,8 +16,9 @@
  *
  * A Send on a claimed invoice is refused: another send is in flight, or one's outcome is unknown. When
  * the email may have left but step 3 did not run, the claim STAYS, so the invoice is never re-sent
- * automatically. The list shows it ("Sending — outcome unknown") and an admin settles it after reading the
- * email log (settleInvoiceSend: mark it sent, or release it unsent), audited `invoice.send_settled`.
+ * automatically. The list shows it ("Sending…", then "outcome unknown" once SEND_SETTLE_AFTER_MS has passed) and an
+ * admin settles it after reading the email log (settleInvoiceSend: mark it sent, or release it unsent), audited
+ * `invoice.send_settled`; a younger claim cannot be settled.
  */
 import { z } from 'zod';
 import { als, requireCtx } from '@/lib/als';
@@ -28,9 +29,8 @@ import { withOwnPlatformAdminTx } from '@/lib/auth/platformAdminOwnTx';
 import { sendEmail, type EmailResult } from '@/modules/accounting/services/core/emailService';
 import { logAdminAction } from './auditService';
 import { adminInvoiceEmail } from './adminInvoiceEmail';
+import { SEND_SETTLE_AFTER_MS, SMTP_TIMEOUTS_MS } from './invoiceSendTiming';
 
-/** connection / greeting / socket inactivity, ms: an admin is waiting on the answer. */
-export const SMTP_TIMEOUTS_MS = { connection: 15_000, greeting: 15_000, socket: 20_000 } as const;
 
 export interface InvoiceForSend {
   id: string;
@@ -163,23 +163,36 @@ export async function recordSendUnknown(invoice: InvoiceForSend, ip: string | nu
 }
 
 export type SettleOutcome = 'sent' | 'released';
-export type SettleResult = { ok: true; invoice_number: string } | { ok: false; reason: 'not_found' | 'not_claimed' };
+export type SettleResult =
+  | { ok: true; invoice_number: string }
+  | { ok: false; reason: 'not_found' | 'not_claimed' | 'too_fresh' };
 
 /**
  * An admin settles a claim whose outcome was unknown, after reading the email log: 'sent' marks the draft sent,
  * 'released' clears the claim so it can be sent again. Runs in the request transaction (no outside effect).
+ * Only a claim older than SEND_SETTLE_AFTER_MS: a younger one may still be a Send talking to the mail server.
+ * The UPDATE's own predicate decides, so of two concurrent Settles the second re-reads the row after the first
+ * commits, finds no claim, and is refused.
  */
 export async function settleInvoiceSend(invoiceId: string, outcome: SettleOutcome, actorId: string, ip: string | null): Promise<SettleResult> {
+  const settleAfterSecs = SEND_SETTLE_AFTER_MS / 1000;
   const rows = (outcome === 'sent'
     ? await sql`UPDATE admin_invoices SET status = 'sent', send_claimed_at = NULL
-                WHERE id = ${invoiceId}::uuid AND status = 'draft' AND send_claimed_at IS NOT NULL
+                WHERE id = ${invoiceId}::uuid AND status = 'draft'
+                  AND send_claimed_at < NOW() - make_interval(secs => ${settleAfterSecs})
                 RETURNING invoice_number`
     : await sql`UPDATE admin_invoices SET send_claimed_at = NULL
-                WHERE id = ${invoiceId}::uuid AND status = 'draft' AND send_claimed_at IS NOT NULL
+                WHERE id = ${invoiceId}::uuid AND status = 'draft'
+                  AND send_claimed_at < NOW() - make_interval(secs => ${settleAfterSecs})
                 RETURNING invoice_number`) as DbRow[];
   if (rows.length === 0) {
-    const exists = (await sql`SELECT 1 FROM admin_invoices WHERE id = ${invoiceId}::uuid`) as DbRow[];
-    return { ok: false, reason: exists.length ? 'not_claimed' : 'not_found' };
+    const current = (await sql`
+      SELECT status, send_claimed_at IS NOT NULL AS claimed
+      FROM admin_invoices WHERE id = ${invoiceId}::uuid
+    `) as DbRow[];
+    const r = current[0];
+    if (!r) return { ok: false, reason: 'not_found' };
+    return { ok: false, reason: r.status === 'draft' && r.claimed === true ? 'too_fresh' : 'not_claimed' };
   }
   const invoiceNumber = String(rows[0]!.invoice_number);
   await logAdminAction(actorId, 'invoice.send_settled', 'invoice', invoiceId, { outcome, invoice_number: invoiceNumber }, ip);
