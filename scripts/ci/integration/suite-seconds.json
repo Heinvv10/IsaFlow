@@ -52,6 +52,7 @@
   "tests/integration/d8-r6-chain-head-lock-bound.int.test.ts": 6,
   "tests/integration/d8-r6-lock-order.int.test.ts": 5,
   "tests/integration/d8-r9-lock-budget.int.test.ts": 37,
+  "tests/integration/delete-draft-credit-note.int.test.ts": 8,
   "tests/integration/dims-678-lock.int.test.ts": 3,
   "tests/integration/dims-approval-rebind.int.test.ts": 3,
   "tests/integration/docnum-bank-rules-held-number.int.test.ts": 6,
