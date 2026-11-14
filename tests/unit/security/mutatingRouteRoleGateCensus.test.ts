@@ -41,6 +41,7 @@ const EXEMPT: Record<string, string> = {
   // Writes only the caller's own state, not the company's.
   'pages/api/accounting/page-visits.ts': 'the caller\'s own page-visit trail (allowedRoles: null)',
   'pages/api/auth/preferences.ts': 'the caller\'s own preferences',
+  'pages/api/announcements/dismiss.ts': 'writes only the caller\'s own dismissal row (user_preferences, user_id = session user); a viewer sees the banner too and may close it',
   'pages/api/auth/profile.ts': 'the caller\'s own profile',
   'pages/api/auth/personal-tokens/index.ts': 'the caller\'s own tokens; write scopes refused to a non-writing role (scopesRoleMayNotHold)',
   'pages/api/auth/personal-tokens/[id].ts': 'revokes the caller\'s own token',
