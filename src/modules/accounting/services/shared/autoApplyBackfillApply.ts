@@ -28,6 +28,8 @@ import { EPS, invoiceFloor, planGreedyAllocations, round2 } from './autoAllocate
 import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
 import { assertStoredDocumentSettleable } from './documentCurrency';
 import { applyCreditNote, deriveCreditNoteStatus } from './creditNoteFifo';
+import { assertApplicationWithinPostedCredit, readNotePostedCredit } from './creditNotePostedCredit';
+import { assertApplicationRecorded } from './creditNoteApplicationInvariant';
 import { fetchOpenDocuments } from './autoApplyBackfillPopulation';
 import type { BackfillSource, PlannedLine, Subledger } from './autoApplyBackfillPlan';
 
@@ -184,6 +186,7 @@ export async function applyOneCreditNote(
   // the note for twice its own total.
   const appliedBefore = round2(Number(note.applied_amount ?? 0));
   const total = round2(Number(note.total_amount));
+  const side = ctx.subledger === 'ap' ? 'supplier' as const : 'customer' as const;
   const remainder = round2(total - appliedBefore);
 
   // THE REMAINDER IS TESTED BEFORE THE STATUS. A note another run has just
@@ -202,14 +205,18 @@ export async function applyOneCreditNote(
       + 'it changed after this run read it.',
     );
   }
+  // Brief step 7: never more than the note's journal POSTED — the population's cap, re-read under the lock. A
+  // journal reversed since the population read throws, and the run reports this source as failed.
+  const { posted } = await readNotePostedCredit(ctx.companyId, note, side);
+  const applicable = round2(Math.min(remainder, posted - appliedBefore));
+  if (applicable <= invoiceFloor(side)) return [];
 
-  const side = ctx.subledger === 'ap' ? 'supplier' as const : 'customer' as const;
   const application = await applyCreditNote({
     companyId: ctx.companyId,
     creditNoteId: source.paymentId,
     side,
     entityId: source.entityId!,
-    totalAmount: remainder,
+    totalAmount: applicable,
     linkedInvoiceId: null,
     autoApply: 'fifo',
     alreadyApplied: appliedBefore,
@@ -217,6 +224,7 @@ export async function applyOneCreditNote(
   if (application.lines.length === 0) return [];
 
   const appliedAfter = round2(appliedBefore + application.appliedAmount);
+  await assertApplicationWithinPostedCredit(ctx.companyId, note, side, appliedBefore, appliedAfter);
   await sql`
     UPDATE credit_notes
     SET applied_amount = ${appliedAfter},
@@ -224,6 +232,8 @@ export async function applyOneCreditNote(
         updated_at = NOW()
     WHERE id = ${source.paymentId}::UUID AND company_id = ${ctx.companyId}::UUID
   `;
+  await assertApplicationRecorded(ctx.companyId, source.paymentId, source.paymentNumber,
+    { rowsMoved: application.appliedAmount, paidMoved: application.paidMoved, appliedAfter });
 
   log.info('Back-fill applied credit note remainder', {
     creditNoteId: source.paymentId,

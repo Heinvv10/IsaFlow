@@ -41,7 +41,7 @@ function wire() {
         { id: OTHER_BILL, status: 'approved', outstanding: 5000 },
       ]);
     }
-    if (/UPDATE supplier_invoices SET amount_paid/i.test(text)) return Promise.resolve([{ id: BILL }]);
+    if (/UPDATE supplier_invoices d SET amount_paid/i.test(text)) return Promise.resolve([{ moved: 1150 }]);
     if (/UPDATE credit_notes SET status/i.test(text)) return Promise.resolve([row]);
     return Promise.resolve([]);
   }) as never);

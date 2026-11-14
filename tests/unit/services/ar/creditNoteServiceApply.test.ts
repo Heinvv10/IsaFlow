@@ -38,9 +38,10 @@ describe('approveCreditNote — auto-apply is capped and verified', () => {
       if (/SELECT ci\.id/i.test(text)) {
         return Promise.resolve([]);
       }
-      if (/UPDATE customer_invoices SET amount_paid = COALESCE\(amount_paid, 0\) \+/i.test(text)) {
-        applied.push(Number(values[0]));
-        return Promise.resolve([{ id: INV }]);
+      // The row writer measures the move: WITH prev (id, company) UPDATE … + amount … RETURNING moved.
+      if (/UPDATE customer_invoices d SET amount_paid = COALESCE\(d\.amount_paid, 0\) \+/i.test(text)) {
+        applied.push(Number(values[2]));
+        return Promise.resolve([{ moved: Number(values[2]) }]);
       }
       if (/UPDATE credit_notes SET status/i.test(text)) {
         return Promise.resolve([linkedNote()]);
@@ -127,9 +128,9 @@ describe('approveCreditNote — FIFO application across open documents', () => {
         rows.push([String(values[2]), Number(values[3])]);
         return Promise.resolve([]);
       }
-      if (/UPDATE customer_invoices SET amount_paid = COALESCE\(amount_paid, 0\) \+/i.test(text)) {
-        money.push([String(values[1]), Number(values[0])]);
-        return Promise.resolve([{ id: values[1] }]);
+      if (/UPDATE customer_invoices d SET amount_paid = COALESCE\(d\.amount_paid, 0\) \+/i.test(text)) {
+        money.push([String(values[0]), Number(values[2])]);
+        return Promise.resolve([{ moved: Number(values[2]) }]);
       }
       if (/UPDATE credit_notes SET status/i.test(text)) {
         status = String(values[0]);

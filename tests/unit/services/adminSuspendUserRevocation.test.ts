@@ -71,14 +71,14 @@ describe('suspendUser — credential revocation', () => {
     expect(calls.indexOf('FLAG')).toBeLessThan(calls.indexOf('GOTRUE'));
   });
 
-  it('still revokes the DB-side credentials when GoTrue is unreachable, and surfaces the failure', async () => {
+  it('still revokes the DB-side credentials when GoTrue is unreachable, and reports the sessions as not revoked', async () => {
     adminRevokeAllUserSessions.mockRejectedValueOnce(new Error('gotrue unreachable'));
 
-    await expect(suspendUser(USER, 'reason')).rejects.toThrow(/suspend/i);
+    await expect(suspendUser(USER, 'reason')).resolves.toEqual({ stranded: [], sessionsRevoked: false });
 
-    // The flag landed and the credentials we CAN revoke are revoked — the
-    // throw tells the admin that live GoTrue sessions may survive to expiry,
-    // it does not mean the suspension failed.
+    // The flag landed and the credentials we CAN revoke are revoked. It does not throw (admin audit 2026-11-14,
+    // 3.2): the suspension commits with its audit row, which records revocation_failed, and the admin is told
+    // live GoTrue sessions may survive to expiry (tests/integration/admin-suspend-reset-2fa-audit.int.test.ts).
     expect(calls).toContain('FLAG');
     expect(revokeAllUserPats).toHaveBeenCalledWith(USER);
     expect(revokeAllUserAuthorisations).toHaveBeenCalledWith(USER);
@@ -87,7 +87,7 @@ describe('suspendUser — credential revocation', () => {
   it('is never stopped by a failed look-up of the pay-run approvals it strands: it logs, and revokes', async () => {
     findStranded.mockRejectedValueOnce(new Error('migration_admin pool down'));
 
-    await expect(suspendUser(USER, 'compromised')).resolves.toEqual([]);
+    await expect(suspendUser(USER, 'compromised')).resolves.toEqual({ stranded: [], sessionsRevoked: true });
 
     expect(calls).toContain('FLAG');
     expect(revokeAllUserPats).toHaveBeenCalledWith(USER);
@@ -96,7 +96,8 @@ describe('suspendUser — credential revocation', () => {
   it('returns the pending pay-run approvals it leaves without another approver, for the admin audit row', async () => {
     findStranded.mockResolvedValueOnce([{ companyId: 'c1', requestId: 'r1' }]);
 
-    await expect(suspendUser(USER, 'compromised')).resolves.toEqual([{ companyId: 'c1', requestId: 'r1' }]);
+    await expect(suspendUser(USER, 'compromised')).resolves
+      .toEqual({ stranded: [{ companyId: 'c1', requestId: 'r1' }], sessionsRevoked: true });
     expect(calls).toContain('FLAG');
   });
 });

@@ -9,6 +9,10 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { AdminCompanyDetail } from '../types/admin.types';
 
+/**
+ * A key that is undefined keeps the column; null (or '') clears it; a string sets it (audit 4.17: COALESCE
+ * made a cleared field come back). The name is required, so it is only ever replaced.
+ */
 export async function updateCompany(
   companyId: string,
   data: Partial<AdminCompanyDetail>
@@ -19,20 +23,22 @@ export async function updateCompany(
     billing_email, billing_contact,
     address_line1, city, province, postal_code,
   } = data;
+  const has = (v: string | null | undefined) => v !== undefined;
+  const val = (v: string | null | undefined) => (v == null || v === '' ? null : v);
 
   await sql`
     UPDATE companies SET
       name             = COALESCE(${name ?? null}, name),
-      trading_name     = COALESCE(${trading_name ?? null}, trading_name),
-      phone            = COALESCE(${phone ?? null}, phone),
-      email            = COALESCE(${email ?? null}, email),
-      website          = COALESCE(${website ?? null}, website),
-      billing_email    = COALESCE(${billing_email ?? null}, billing_email),
-      billing_contact  = COALESCE(${billing_contact ?? null}, billing_contact),
-      address_line1    = COALESCE(${address_line1 ?? null}, address_line1),
-      city             = COALESCE(${city ?? null}, city),
-      province         = COALESCE(${province ?? null}, province),
-      postal_code      = COALESCE(${postal_code ?? null}, postal_code),
+      trading_name     = CASE WHEN ${has(trading_name)}    THEN ${val(trading_name)}    ELSE trading_name END,
+      phone            = CASE WHEN ${has(phone)}           THEN ${val(phone)}           ELSE phone END,
+      email            = CASE WHEN ${has(email)}           THEN ${val(email)}           ELSE email END,
+      website          = CASE WHEN ${has(website)}         THEN ${val(website)}         ELSE website END,
+      billing_email    = CASE WHEN ${has(billing_email)}   THEN ${val(billing_email)}   ELSE billing_email END,
+      billing_contact  = CASE WHEN ${has(billing_contact)} THEN ${val(billing_contact)} ELSE billing_contact END,
+      address_line1    = CASE WHEN ${has(address_line1)}   THEN ${val(address_line1)}   ELSE address_line1 END,
+      city             = CASE WHEN ${has(city)}            THEN ${val(city)}            ELSE city END,
+      province         = CASE WHEN ${has(province)}        THEN ${val(province)}        ELSE province END,
+      postal_code      = CASE WHEN ${has(postal_code)}     THEN ${val(postal_code)}     ELSE postal_code END,
       updated_at       = NOW()
     WHERE id = ${companyId}
   `;

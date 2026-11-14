@@ -1,0 +1,328 @@
+/**
+ * #1371 review M1 / re-break N1, N3 (WP9): Sign Out and end-impersonation are reachable without a live session, so
+ * their Login-as look-up must never hold or wait long for a platform_admin slot. Whatever happens, the cookies clear.
+ *
+ * - the platform_admin pool is exhausted: the look-up gives up after BOUNDED_LOOKUP_CHECKOUT_MS, Sign Out still
+ *   revokes the session at GoTrue and clears the cookies, and the late checkout is handed straight back;
+ * - impersonation_sessions is locked: the SELECT is cancelled by its statement_timeout (BOUNDED_LOOKUP_STATEMENT_MS);
+ * - Sign Out is NOT rate limited (N1: a per-IP bucket behind cloudflared let one script block everyone's
+ *   revocation): 40 rapid Sign Outs all revoke;
+ * - end-impersonation with the pool exhausted answers within the bound: an expired stash is refused with the
+ *   cookies cleared, a live one gets a retryable 503 with the cookies kept.
+ *
+ * GoTrue is the r-032 fake (global fetch). Disposable fixture only.
+ */
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Pool, type PoolClient } from 'pg';
+import { decodeJwt } from 'jose';
+import logoutRoute from '../../pages/api/auth/logout';
+import { LOGIN_AS_LOOKUP_SLOTS as SIGN_OUT_LOOKUP_SLOTS } from '@/lib/auth/loginAsLookup';
+import endImpersonation from '../../pages/api/auth/end-impersonation';
+import { getPlatformAdminPool } from '@/lib/auth/withPlatformAdmin.pools';
+import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
+import { BOUNDED_LOOKUP_CHECKOUT_MS, BOUNDED_LOOKUP_STATEMENT_MS } from '@/lib/auth/impersonationSessions';
+import { log } from '@/lib/logger';
+import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import { loginAsFixture, type Jar } from './r-032-login-as.helpers';
+import { signSession } from './r-032-fake-gotrue.helpers';
+
+/** Counts concurrent Sign Out look-ups at the module boundary; `delayMs` holds each so a burst overlaps. */
+const lookups = vi.hoisted(() => ({ delayMs: 0, inFlight: 0, maxInFlight: 0, calls: 0 }));
+vi.mock('@/lib/auth/impersonationSessions', async (orig) => {
+  const real = await orig<typeof import('@/lib/auth/impersonationSessions')>();
+  return {
+    ...real,
+    impersonationPartiesOfBounded: async (sessionId: string) => {
+      lookups.calls += 1;
+      lookups.inFlight += 1;
+      lookups.maxInFlight = Math.max(lookups.maxInFlight, lookups.inFlight);
+      try {
+        if (lookups.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, lookups.delayMs));
+        return await real.impersonationPartiesOfBounded(sessionId);
+      } finally { lookups.inFlight -= 1; }
+    },
+  };
+});
+
+assertDisposable();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+const fx = loginAsFixture(pool, 'WP9 logout bounds');
+const logouts: string[] = [];
+
+beforeAll(async () => {
+  await fx.setUp();
+  const fake = globalThis.fetch;
+  vi.stubGlobal('fetch', async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    if (String(input).includes('/logout')) logouts.push(String(input));
+    return fake(input, init);
+  });
+}, 60000);
+afterAll(async () => { await fx.tearDown(); await pool.end(); });
+beforeEach(() => { logouts.length = 0; Object.assign(lookups, { delayMs: 0, inFlight: 0, maxInFlight: 0, calls: 0 }); });
+
+async function post(route: unknown, jar: Jar) {
+  const result = response();
+  const t0 = Date.now();
+  await (route as (q: never, s: never) => Promise<unknown>)(request(jar, 'POST') as never, result.res as never);
+  const cookies = (result.headers.get('set-cookie') as string[] | undefined) ?? [];
+  return { status: result.state.statusCode, ms: Date.now() - t0,
+    clearedAccess: cookies.some((c) => c.startsWith('sb-access-token=;') && /Max-Age=0/.test(c)),
+    clearedStash: cookies.some((c) => c.startsWith('sb-admin-stash=;') && /Max-Age=0/.test(c)) };
+}
+const signOut = (jar: Jar) => post(logoutRoute, jar);
+
+/** Holds every platform_admin pool connection while `fn` runs; checks nothing stays checked out afterwards. */
+async function withPoolExhausted<T>(fn: () => Promise<T>): Promise<T> {
+  const admin = getPlatformAdminPool();
+  const held: PoolClient[] = [];
+  let out: T;
+  try {
+    while (admin.totalCount < (admin.options.max ?? 10) || admin.idleCount > 0) held.push(await admin.connect());
+    out = await fn();
+  } finally {
+    for (const c of held) c.release();
+  }
+  // The checkout that arrived after the bound was released at once: nothing is left checked out.
+  await vi.waitFor(() => expect({ waiting: admin.waitingCount, inUse: admin.totalCount - admin.idleCount })
+    .toEqual({ waiting: 0, inUse: 0 }));
+  return out;
+}
+
+describe('M1: Sign Out never waits on the platform_admin pool', () => {
+  it('the pool is exhausted: gives up within the checkout bound, still revokes and clears, hands the slot back', async () => {
+    const jar = await fx.loginAsTarget();
+    const r = await withPoolExhausted(() => signOut(jar));
+    expect(r).toMatchObject({ status: 200, clearedAccess: true });
+    expect(r.ms).toBeGreaterThanOrEqual(BOUNDED_LOOKUP_CHECKOUT_MS - 50);
+    expect(r.ms).toBeLessThan(BOUNDED_LOOKUP_CHECKOUT_MS + 3000);
+    expect(logouts).toHaveLength(1);
+  });
+
+  it('impersonation_sessions is locked: the look-up is cancelled by its statement_timeout, Sign Out completes', async () => {
+    const jar = await fx.loginAsTarget();
+    const locker = await pool.connect();
+    const warn = vi.spyOn(log, 'warn');
+    try {
+      await locker.query('BEGIN');
+      await locker.query('LOCK TABLE impersonation_sessions IN ACCESS EXCLUSIVE MODE');
+      const r = await signOut(jar);
+      expect(r).toMatchObject({ status: 200, clearedAccess: true });
+      expect(r.ms).toBeGreaterThanOrEqual(BOUNDED_LOOKUP_STATEMENT_MS - 50);
+      expect(r.ms).toBeLessThan(BOUNDED_LOOKUP_STATEMENT_MS + 3000);
+      expect(logouts).toHaveLength(1);
+      // The server's statement_timeout cancelled it, not the slower client-side query_timeout backstop.
+      expect(warn.mock.calls.some(([, data]) => /statement timeout/.test(String((data as { message?: unknown })?.message))))
+        .toBe(true);
+    } finally {
+      warn.mockRestore();
+      await locker.query('ROLLBACK');
+      locker.release();
+    }
+  });
+
+  it('N1 not rate limited: 40 rapid Sign Outs from one IP all revoke their session', async () => {
+    const sessions = await Promise.all(Array.from({ length: 40 }, () => fx.ownSession()));
+    const results = await Promise.all(sessions.map((jar) => signOut(jar)));
+    expect(results.every((r) => r.status === 200 && r.clearedAccess)).toBe(true);
+    expect(logouts).toHaveLength(40);
+  });
+});
+
+describe('security review: Sign Out look-ups are capped process-wide', () => {
+  it('20 concurrent Sign Outs never run more than SIGN_OUT_LOOKUP_SLOTS look-ups or hold more slots; all revoke', async () => {
+    const admin = getPlatformAdminPool();
+    // Each is a real Login-as (its own stash, its own session), so each wants a slot.
+    const sessions: Jar[] = [];
+    for (let i = 0; i < 20; i += 1) sessions.push(await fx.loginAsTarget());
+    lookups.delayMs = 200;
+    let maxInUse = 0;
+    const sampler = setInterval(() => { maxInUse = Math.max(maxInUse, admin.totalCount - admin.idleCount); }, 5);
+    try {
+      const results = await Promise.all(sessions.map((jar) => signOut(jar)));
+      expect(results.every((r) => r.status === 200 && r.clearedAccess)).toBe(true);
+    } finally { clearInterval(sampler); }
+    expect(logouts).toHaveLength(20); // every one revoked at GoTrue, over the cap or not
+    expect(lookups.calls).toBeGreaterThan(0);
+    expect(lookups.maxInFlight).toBeLessThanOrEqual(SIGN_OUT_LOOKUP_SLOTS);
+    expect(maxInUse).toBeLessThanOrEqual(SIGN_OUT_LOOKUP_SLOTS);
+  });
+});
+
+describe('security review: only a possible Login-as takes a look-up slot', () => {
+  it('50 token-less, junk-token and stash-less Sign Outs do not stop a real Login-as Sign Out closing its stash', async () => {
+    const real = await fx.loginAsTarget();
+    const own = await fx.ownSession();
+    const noise: Jar[] = Array.from({ length: 50 }, (_, i) => (
+      i % 3 === 0 ? { 'sb-admin-stash': crypto.randomUUID() } // no access token
+        : i % 3 === 1 ? { 'sb-access-token': `junk-${i}`, 'sb-admin-stash': crypto.randomUUID() } // does not verify
+          : { ...own })); // a verifying token, no stash cookie
+    lookups.delayMs = 200;
+    const results = await Promise.all([...noise.map((jar) => signOut(jar)), signOut(real)]);
+    expect(results.every((r) => r.status === 200 && r.clearedAccess)).toBe(true);
+    expect(lookups.calls).toBe(1); // only the real Login-as took a slot
+    expect((await pool.query('SELECT count(*)::int AS n FROM admin_impersonation_stash WHERE stash_id = $1',
+      [real['sb-admin-stash']])).rows[0].n).toBe(0);
+    const [end] = (await pool.query(`SELECT details FROM admin_audit_log WHERE admin_user_id = $1
+      AND action = 'impersonation_end' ORDER BY created_at DESC LIMIT 1`, [fx.platformAdmin])).rows;
+    expect(end.details).toMatchObject({ reason: 'logout', target_session_revoked: true });
+  });
+});
+
+describe('re-break M1: one session holds at most one look-up slot', () => {
+  it('40 Sign Outs from one attacker session (a stash cookie, not a Login-as) do not starve the victim', async () => {
+    const victim = await fx.loginAsTarget();
+    const attacker = { ...(await fx.ownSession()), 'sb-admin-stash': crypto.randomUUID() };
+    lookups.delayMs = 200;
+    const burst = Array.from({ length: 40 }, () => signOut(attacker));
+    burst.splice(20, 0, signOut(victim));
+    const results = await Promise.all(burst);
+    expect(results.every((r) => r.status === 200 && r.clearedAccess)).toBe(true);
+    expect(lookups.maxInFlight).toBeLessThanOrEqual(2);
+    const sid = String(decodeJwt(victim['sb-access-token']!).session_id);
+    const rows = (await pool.query(`SELECT details FROM admin_audit_log WHERE admin_user_id = $1
+      AND action = 'impersonation_end' AND details->>'session_id' = $2`, [fx.platformAdmin, sid])).rows;
+    expect(rows).toHaveLength(1);
+    expect((await pool.query('SELECT count(*)::int AS n FROM admin_impersonation_stash WHERE stash_id = $1',
+      [victim['sb-admin-stash']])).rows[0].n).toBe(0);
+  });
+});
+
+describe('review LOW: the refused Return shares Sign Out\'s capped look-up', () => {
+  it('with both slots held by Sign Outs, an expired-stash Return is refused, revokes its own session, records nothing', async () => {
+    const jar = await fx.loginAsTarget();
+    const holders = [await fx.loginAsTarget(), await fx.loginAsTarget()]; // real Login-as Sign Outs hold both slots
+    await pool.query(`UPDATE admin_impersonation_stash SET expires_at = now() - interval '1 second' WHERE stash_id = $1`,
+      [jar['sb-admin-stash']]); // expired after the starts above, which purge expired stashes
+    lookups.delayMs = 400;
+    const holding = holders.map((j) => signOut(j));
+    await vi.waitFor(() => expect(lookups.inFlight).toBe(2));
+    const r = await post(endImpersonation, jar);
+    await Promise.all(holding);
+    expect(r).toMatchObject({ status: 401, clearedAccess: true });
+    expect(lookups.calls).toBe(2); // the Return's look-up was skipped by the shared cap
+    expect(logouts).toHaveLength(3); // the two holders' Sign Outs and the Return's own session
+    // Not proven to be the Login-as (the look-up was skipped): nothing in the admin's name (round 3 P2b). The
+    // expired stash is purged by the next Login-as start or end.
+    const sid = String(decodeJwt(jar['sb-access-token']!).session_id);
+    expect((await pool.query(`SELECT count(*)::int AS n FROM admin_audit_log WHERE admin_user_id = $1
+      AND action = 'impersonation_end' AND (details->>'session_id' = $2 OR details->>'stash_id' = $3)`,
+      [fx.platformAdmin, sid, jar['sb-admin-stash']])).rows[0].n).toBe(0);
+  });
+
+  it("P2b decision: the stash's admin ending its own expired stash with both slots held still records (no look-up needed)", async () => {
+    const jar = await fx.loginAsTarget();
+    const holders = [await fx.loginAsTarget(), await fx.loginAsTarget()]; // before expiring: a start purges expired stashes
+    await pool.query(`UPDATE admin_impersonation_stash SET expires_at = now() - interval '1 second' WHERE stash_id = $1`,
+      [jar['sb-admin-stash']]);
+    const adminJar = { 'sb-access-token': await signSession(fx.platformAdmin, crypto.randomUUID(), 'aal2'),
+      'sb-admin-stash': jar['sb-admin-stash']! };
+    lookups.delayMs = 400;
+    const holding = holders.map((j) => signOut(j));
+    await vi.waitFor(() => expect(lookups.inFlight).toBe(2));
+    const r = await post(endImpersonation, adminJar);
+    await Promise.all(holding);
+    expect(r).toMatchObject({ status: 401, clearedAccess: true });
+    expect(lookups.calls).toBe(2);
+    const [row] = (await pool.query(`SELECT details FROM admin_audit_log WHERE admin_user_id = $1
+      AND action = 'impersonation_end' AND details->>'stash_id' = $2`, [fx.platformAdmin, jar['sb-admin-stash']])).rows;
+    expect(row.details).toMatchObject({ reason: 'stash_expired', caller_session_revoked: true, stashes_removed: 1 });
+  });
+
+  it('review LOW: a genuine Login-as whose stash was already purged still gets its end row, through its own proof', async () => {
+    const jar = await fx.loginAsTarget();
+    await pool.query('DELETE FROM admin_impersonation_stash WHERE stash_id = $1', [jar['sb-admin-stash']]);
+    const r = await post(endImpersonation, jar);
+    expect(r).toMatchObject({ status: 401, clearedAccess: true });
+    expect(lookups.calls).toBe(1);
+    const sid = String(decodeJwt(jar['sb-access-token']!).session_id);
+    const rows = (await pool.query(`SELECT details FROM admin_audit_log WHERE admin_user_id = $1
+      AND action = 'impersonation_end' AND details->>'session_id' = $2`, [fx.platformAdmin, sid])).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].details).toMatchObject({ reason: 'stash_expired', target_session_revoked: true });
+    // Without the proof cookie the same request takes no slot and records nothing.
+    const { 'sb-impersonation-proof': _p, ...noProof } = await fx.loginAsTarget();
+    await pool.query('DELETE FROM admin_impersonation_stash WHERE stash_id = $1', [noProof['sb-admin-stash']]);
+    lookups.calls = 0;
+    expect((await post(endImpersonation, noProof)).status).toBe(401);
+    expect(lookups.calls).toBe(0);
+  });
+
+  it('round 3 M1b: two sessions of one account each send a junk-stash Sign Out burst; the victim still closes', async () => {
+    const victim = await fx.loginAsTarget();
+    const [a, b] = [await fx.ownSession(), await fx.ownSession()];
+    lookups.delayMs = 200;
+    const burst = [...Array.from({ length: 20 }, () => signOut({ ...a, 'sb-admin-stash': crypto.randomUUID() })),
+      ...Array.from({ length: 20 }, () => signOut({ ...b, 'sb-admin-stash': crypto.randomUUID() }))];
+    burst.splice(20, 0, signOut(victim));
+    const results = await Promise.all(burst);
+    expect(results.every((r) => r.status === 200 && r.clearedAccess)).toBe(true);
+    expect(lookups.calls).toBe(1); // junk stash cookies never take a slot
+    const sid = String(decodeJwt(victim['sb-access-token']!).session_id);
+    expect((await pool.query(`SELECT count(*)::int AS n FROM admin_audit_log WHERE admin_user_id = $1
+      AND action = 'impersonation_end' AND details->>'session_id' = $2`, [fx.platformAdmin, sid])).rows[0].n).toBe(1);
+  });
+
+  it('round 3: the migration_admin pool exhausted: a Return answers a fast retryable 503, a Sign Out still revokes', async () => {
+    const jar = await fx.loginAsTarget();
+    await pool.query(`UPDATE admin_impersonation_stash SET expires_at = now() - interval '1 second' WHERE stash_id = $1`,
+      [jar['sb-admin-stash']]);
+    const other = await fx.loginAsTarget();
+    const migration = migrationAdminPool();
+    const held: PoolClient[] = [];
+    let ret; let out;
+    try {
+      while (migration.totalCount < (migration.options.max ?? 4) || migration.idleCount > 0) held.push(await migration.connect());
+      ret = await post(endImpersonation, jar);
+      out = await signOut(other);
+    } finally {
+      for (const c of held) c.release();
+    }
+    // The stash could not be read in time: not "no stash". Cookies kept, nothing ended, so the retry can still end it.
+    expect(ret).toMatchObject({ status: 503, clearedAccess: false, clearedStash: false });
+    expect(ret.ms).toBeLessThan(4000);
+    expect(out).toMatchObject({ status: 200, clearedAccess: true });
+    expect(out.ms).toBeLessThan(4000);
+    expect(logouts).toHaveLength(1); // the Sign Out still revoked its own session
+    await vi.waitFor(() => expect({ waiting: migration.waitingCount, inUse: migration.totalCount - migration.idleCount })
+      .toEqual({ waiting: 0, inUse: 0 }));
+  });
+
+  it('40 junk-stash STASH_EXPIRED requests from one session do not starve a real expired Login-as end', async () => {
+    const real = await fx.loginAsTarget();
+    await pool.query(`UPDATE admin_impersonation_stash SET expires_at = now() - interval '1 second' WHERE stash_id = $1`,
+      [real['sb-admin-stash']]);
+    const own = await fx.ownSession();
+    lookups.delayMs = 200;
+    const burst = Array.from({ length: 40 }, () => post(endImpersonation, { ...own, 'sb-admin-stash': crypto.randomUUID() }));
+    burst.splice(20, 0, post(endImpersonation, real));
+    const results = await Promise.all(burst);
+    expect(results.every((x) => x.status === 401 && x.clearedAccess)).toBe(true);
+    expect(lookups.calls).toBe(1); // junk stash cookies never take a slot
+    expect(logouts).toHaveLength(41); // every caller's own session revoked, the real one included
+    const sid = String(decodeJwt(real['sb-access-token']!).session_id);
+    const rows = (await pool.query(`SELECT details FROM admin_audit_log WHERE admin_user_id = $1
+      AND action = 'impersonation_end' AND details->>'session_id' = $2`, [fx.platformAdmin, sid])).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].details).toMatchObject({ reason: 'stash_expired', target_session_revoked: true });
+  });
+});
+
+describe('N3: end-impersonation never waits on the platform_admin pool', () => {
+  it('an expired stash with the pool exhausted: refused within the bound, cookies cleared', async () => {
+    const jar = await fx.loginAsTarget();
+    await pool.query(`UPDATE admin_impersonation_stash SET expires_at = now() - interval '1 second' WHERE stash_id = $1`,
+      [jar['sb-admin-stash']]);
+    const r = await withPoolExhausted(() => post(endImpersonation, jar));
+    expect(r).toMatchObject({ status: 401, clearedAccess: true, clearedStash: true });
+    expect(r.ms).toBeLessThan(4000);
+  });
+
+  it('a live stash with the pool exhausted: a retryable 503 within the bound, cookies kept; the retry restores', async () => {
+    const jar = await fx.loginAsTarget();
+    const r = await withPoolExhausted(() => post(endImpersonation, jar));
+    expect(r).toMatchObject({ status: 503, clearedAccess: false, clearedStash: false });
+    expect(r.ms).toBeLessThan(4000);
+    expect(logouts).toEqual([]);
+    expect((await post(endImpersonation, jar)).status).toBe(200);
+  });
+});

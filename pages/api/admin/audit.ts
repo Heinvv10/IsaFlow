@@ -20,6 +20,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         user_id,
         action,
         entity_type,
+        entity_id,
         search,
         from_date,
         to_date,
@@ -27,12 +28,18 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         limit,
       } = req.query;
 
+      // One entity's entries: a present entity_id must be one non-empty value (WP13 review L1).
+      if (entity_id !== undefined && (typeof entity_id !== 'string' || entity_id.trim() === '')) {
+        return apiResponse.badRequest(res, 'entity_id must be a single non-empty value');
+      }
+
       const filters: UnifiedAuditFilters = {
         source:      source      as UnifiedAuditFilters['source'],
         company_id:  company_id  as string | undefined,
         user_id:     user_id     as string | undefined,
         action:      action      as string | undefined,
         entity_type: entity_type as string | undefined,
+        entity_id:   entity_id   as string | undefined,
         search:      search      as string | undefined,
         from_date:   from_date   as string | undefined,
         to_date:     to_date     as string | undefined,

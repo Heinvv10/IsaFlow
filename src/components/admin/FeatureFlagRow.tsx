@@ -46,7 +46,7 @@ export function FeatureFlagRow({
     return (
       <tr className="border-b border-gray-100 dark:border-gray-800 last:border-0 bg-teal-50/40 dark:bg-teal-900/10">
         <td className="px-4 py-3">
-          <input type="checkbox" checked={isSelected} onChange={onToggleSelect} className="rounded" />
+          <input type="checkbox" checked={isSelected} onChange={onToggleSelect} aria-label={`Select ${flag.code}`} className="rounded" />
         </td>
         <td className="px-4 py-3">
           <code className="text-xs font-mono text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
@@ -112,7 +112,7 @@ export function FeatureFlagRow({
   return (
     <tr className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
       <td className="px-4 py-3">
-        <input type="checkbox" checked={isSelected} onChange={onToggleSelect} className="rounded" />
+        <input type="checkbox" checked={isSelected} onChange={onToggleSelect} aria-label={`Select ${flag.code}`} className="rounded" />
       </td>
       <td className="px-4 py-3">
         <code className="text-xs font-mono text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">

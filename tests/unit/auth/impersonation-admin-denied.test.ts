@@ -12,7 +12,7 @@ vi.mock('@/lib/auth/withPlatformAdmin.pools', () => ({
 }));
 vi.mock('@/modules/admin/services/userImpersonationService', () => ({
   validateImpersonationTarget: fixture.validateTarget, stashAdminTokens: fixture.stash,
-  loadStash: vi.fn(), deleteStash: vi.fn(),
+  loadStash: vi.fn(), deleteStash: vi.fn(), purgeExpiredStashes: vi.fn(async () => 0),
 }));
 vi.mock('@/lib/auth/impersonationAssurance', () => ({
   mintImpersonationProof: fixture.mint, validateImpersonationProof: vi.fn(async () => false),
