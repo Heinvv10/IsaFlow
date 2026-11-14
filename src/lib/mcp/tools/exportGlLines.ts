@@ -58,12 +58,17 @@ import {
   pageComputedTable,
   type GlComputedTable,
 } from '@/modules/accounting/services/reports/glExportComputedTables';
+import {
+  GL_EXPORT_GROUP_BY,
+  summariseGlLineExport,
+} from '@/modules/accounting/services/reports/glLineExportSummaryService';
 import { getLedgerPostedThrough } from '@/modules/accounting/services/reports/postedThroughService';
 import { buildEnvelope, decodeCursor, encodeCursor, isDetailLevel, type DetailLevel } from '@/lib/mcp/contracts';
 import { insufficientScopeMessage } from '@/lib/mcp/scopeRemediation';
 import { UUID_RE } from '@/lib/validation';
 import { isLedgerDate } from '@/modules/accounting/services/gl/ledgerDateRange';
 import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { groupBySchema, groupFields, parseSummaryRequest } from './summaryMode';
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
@@ -87,7 +92,7 @@ const DESCRIPTION = [
   'The flat general-ledger export for the finance model: ONE ROW PER JOURNAL LINE, every account (both sides of every transaction), in the fixed column order of the ledger brief §4 v1 contract (schema ' + GL_LINE_EXPORT_SCHEMA_VERSION + ').',
   'Columns include Line_ID, Txn_ID, Journal_Type, Document_No (with Linked_Document_Count — above 1, the journal has several documents and Document_No/counterparty show the first), Txn_Date, Period, FY and FY_Period_No on the company\'s own financial year (named by the year it ends: on a March year Mar-2025 = FY26 period 1), signed Amount_Excl_VAT (debit positive, credit negative), VAT_Code, the GL account and its reporting ladder (class, category, statement line/group, cash class, capex/opex), CC1/CC2/BU codes and names with the CC2 parent, counterparty, bank account on cash lines, Payment_Ref, Posting_Status and Period_Locked.',
   'VAT is its own row on the VAT control account, so VAT_Amount is 0.00 on every row and Amount_Incl_VAT = Amount_Excl_VAT in v1; every posted Txn_ID sums to zero.',
-  'summary is the §9 control block — rowCount = rows paging to exhaustion yields, controlTotal = Σ Amount_Excl_VAT over Posted rows (must be 0.00), unbalancedTxnCount (must be 0) — and comes with the FIRST page only (no cursor); later pages return summary null and carry rowsTotal from the first. detail "summary" returns only that. Page with next_cursor, sending the same date_from, date_to and status (a cursor is refused with any other). Omit dates for full history. status "all" (default) includes Draft and Reversed journals, labelled; "posted" exports only what feeds the statements.',
+  'summary is the §9 control block — rowCount = rows paging to exhaustion yields, controlTotal = Σ Amount_Excl_VAT over Posted rows (must be 0.00), unbalancedTxnCount (must be 0) — and comes with the FIRST page only (no cursor); later pages return summary null and carry rowsTotal from the first. detail "summary" returns only that. group_by=account|month|source|status (table lines only) adds groups (line_count, total_debit, total_credit, net per group over the same window; they sum to the summary; at most 200 groups, the rest summed in other) and implies detail "summary"; it takes no cursor. A 500-row page passes 90 KB: size the window with group_by first. Page with next_cursor, sending the same date_from, date_to and status (a cursor is refused with any other). Omit dates for full history. status "all" (default) includes Draft and Reversed journals, labelled; "posted" exports only what feeds the statements.',
   'table: "accounts" | "cost_centres" | "business_units" | "counterparties" returns that dimension master instead, paged the same way (limit, next_cursor; row_count on every page) — every code a line carries resolves to a row there. "counterparties" (names and VAT numbers) also needs the read:contacts scope.',
   'table "ap_open_items" / "ar_open_items": one row per open bill / customer invoice as at today (Doc_Type invoice) plus the unconsumed credit notes (credit_note) and on-account cash (unapplied_payment / unapplied_receipt) as NEGATIVE rows, with Days_Overdue, Age_Bucket (current|30|60|90|120+, the aging\'s own bucketing), Outstanding, Disputed, CC1/CC2/BU codes (MIXED when the lines differ) and Has_Document; the first page\'s summary carries controlTotal (Σ Outstanding + Σ Disputed, schema isaflow-open-items-1.1), agedTotal (the aged_creditors / aged_debtors net total, computed through that report\'s own functions) and difference (an internal consistency check on the same data, 0.00 — not a tie to the GL control account), plus grossTotal, unappliedTotal, disputedTotal (what Outstanding leaves out but is still owed, so it is already inside controlTotal and grossTotal: do not add it to them; Outstanding + Disputed = the document\'s balance; AR only) and the gross buckets. Credit and cash rows have blank Days_Overdue and Age_Bucket: only invoices are aged. table "bank_accounts" (also needs read:bank-tx): one row per bank / card account with Ledger_Balance (GL, as at today; blank for an account cash.balance does not hold, counted in summary.noLedgerBalanceCount), last statement date and closing balance (possibly on a reconciliation still in progress — later than the last reconciled date), last completed reconciliation, unreconciled and unallocated line counts, last transaction date, Is_Active. These three are as at today: date_from, date_to and status are refused; page with next_cursor, and a cursor is refused once the table has changed.',
   'The same files download as CSV from /api/accounting/gl-lines-export, with a browser session or a Personal Access Token holding the same scopes.',
@@ -194,6 +199,7 @@ export const exportGlLinesTool: McpTool = {
       limit: { type: 'number', description: `Rows per page, default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}.` },
       cursor: { type: 'string', description: 'next_cursor from the previous page.' },
       detail: { type: 'string', enum: ['summary', 'standard', 'full'] },
+      group_by: groupBySchema(GL_EXPORT_GROUP_BY),
     },
     additionalProperties: false,
   },
@@ -202,6 +208,10 @@ export const exportGlLinesTool: McpTool = {
     if (guard) return guard;
     const table = strArg(args, 'table') ?? 'lines';
     if (!isGlExportTable(table)) return toolError(`table must be one of ${GL_EXPORT_TABLES.join(', ')}`);
+    // `detail` keeps its existing reading here (an unknown value is "standard"); only group_by is new.
+    const wanted = parseSummaryRequest(args, GL_EXPORT_GROUP_BY, true);
+    if (!wanted.ok) return wanted.error;
+    if (wanted.groupBy !== null && table !== 'lines') return toolError('group_by applies to table "lines" only');
     const missing = missingExportScope(table, ctx.scopes);
     if (missing !== null) throw new GlExportScopeRefusal(table, missing);
     if (isGlComputedTable(table)) return computedPage(table, args, ctx);
@@ -216,7 +226,7 @@ export const exportGlLinesTool: McpTool = {
     if (rawStatus !== 'all' && rawStatus !== 'posted') return toolError('status must be all or posted');
     const status: GlLineExportStatus = rawStatus;
     const rawDetail = strArg(args, 'detail');
-    const detail: DetailLevel = isDetailLevel(rawDetail) ? rawDetail : 'standard';
+    const detail: DetailLevel = wanted.groupBy !== null ? 'summary' : isDetailLevel(rawDetail) ? rawDetail : 'standard';
     const limit = clampLimit(args, DEFAULT_LIMIT, MAX_LIMIT);
 
     // Cursor parts: the first page's rowCount and as_at, the window it was
@@ -273,8 +283,11 @@ export const exportGlLinesTool: McpTool = {
         : encodeCursor({ parts: [String(rowsTotal), asAt, windowKey, next.entryDate, next.entryId, next.lineId] }),
     });
 
+    const grouped = wanted.groupBy === null ? null : await summariseGlLineExport(ctx.companyId, opts, wanted.groupBy);
+
     return ok({
       ...envelope,
+      ...(grouped === null || wanted.groupBy === null ? {} : groupFields(grouped, wanted.groupBy)),
       table,
       date_from: dateFrom ?? null,
       date_to: dateTo ?? null,
