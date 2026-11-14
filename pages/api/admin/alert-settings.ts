@@ -29,12 +29,15 @@ const ALERT_KEYS: ReadonlyArray<keyof AlertSettings> = [
 
 // A blank value clears the setting (the stored row is removed; delivery then falls back to the
 // ADMIN_ALERT_* environment values). Whitespace-only counts as blank.
-const blankOr = (rule: z.ZodString) =>
-  z.string().trim().pipe(z.union([z.literal(''), rule]));
+const blankOr = (rule: (v: string) => boolean, message: string) =>
+  z.string().trim().refine((v) => v === '' || rule(v), { message });
+
+const isEmail = (v: string) => z.string().email().safeParse(v).success;
+const isHttpsUrl = (v: string) => /^https:\/\//i.test(v) && z.string().url().safeParse(v).success;
 
 const PatchBody = z.object({
-  health_alert_email:       blankOr(z.string().email()).optional(),
-  health_alert_webhook_url: blankOr(z.string().url()).optional(),
+  health_alert_email:       blankOr(isEmail, 'Alert email must be a valid email address').optional(),
+  health_alert_webhook_url: blankOr(isHttpsUrl, 'Webhook URL must be a valid https:// address').optional(),
 }).strict();
 
 async function getAlertSettings(): Promise<AlertSettings> {
@@ -77,35 +80,37 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'PATCH') {
     const patchParsed = PatchBody.safeParse(req.body);
     if (!patchParsed.success) {
-      return apiResponse.badRequest(res, patchParsed.error.flatten().formErrors[0] ?? 'Invalid input');
+      return apiResponse.badRequest(res, patchParsed.error.issues[0]?.message ?? 'Invalid input');
     }
 
     try {
-      const data = patchParsed.data;
+      const current = await getAlertSettings();
+      const changes: Record<string, 'set' | 'cleared' | 'unchanged'> = {};
 
-      const entries = (Object.entries(data) as [string, unknown][]).filter(
-        ([key]) => (ALERT_KEYS as readonly string[]).includes(key),
-      );
-
-      for (const [key, val] of entries) {
-        const strVal = typeof val === 'string' ? val : String(val ?? '');
-        if (strVal === '') {
+      for (const key of ALERT_KEYS) {
+        const next = patchParsed.data[key];
+        if (next === undefined) continue;
+        if (next === current[key]) { changes[key] = 'unchanged'; continue; }
+        if (next === '') {
           await sql`DELETE FROM admin_settings WHERE key = ${key}`;
+          changes[key] = 'cleared';
           continue;
         }
         await sql`
           INSERT INTO admin_settings (key, value, updated_at, updated_by)
-          VALUES (${key}, ${JSON.stringify(strVal)}::jsonb, NOW(), ${req.user.id})
+          VALUES (${key}, ${JSON.stringify(next)}::jsonb, NOW(), ${req.user.id})
           ON CONFLICT (key)
           DO UPDATE SET
             value      = EXCLUDED.value,
             updated_at = NOW(),
             updated_by = EXCLUDED.updated_by
         `;
+        changes[key] = 'set';
       }
 
-      log.info('Alert settings updated', { keys: entries.map(([k]) => k), userId: req.user.id }, 'admin-alert-settings-api');
+      log.info('Alert settings updated', { changes, userId: req.user.id }, 'admin-alert-settings-api');
 
+      // Audit: what happened to each key, never the value (the webhook URL can carry a secret).
       await sql`
         INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details, ip_address)
         VALUES (
@@ -113,7 +118,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           'update_alert_settings',
           'platform',
           NULL,
-          ${JSON.stringify({ keys: entries.map(([k]) => k) })}::jsonb,
+          ${JSON.stringify({ changes })}::jsonb,
           ${trustedClientIp(req)}
         )
       `;
