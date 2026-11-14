@@ -186,7 +186,7 @@ describe('re-break M1: one session holds at most one look-up slot', () => {
 });
 
 describe('review LOW: the refused Return shares Sign Out\'s capped look-up', () => {
-  it('with both slots held by Sign Outs, an expired-stash Return runs no look-up and ends nothing', async () => {
+  it('with both slots held by Sign Outs, an expired-stash Return still ends: by its verified stash, own session revoked', async () => {
     const jar = await fx.loginAsTarget();
     await pool.query(`UPDATE admin_impersonation_stash SET expires_at = now() - interval '1 second' WHERE stash_id = $1`,
       [jar['sb-admin-stash']]);
@@ -199,9 +199,31 @@ describe('review LOW: the refused Return shares Sign Out\'s capped look-up', () 
     await Promise.all(holding);
     expect(r).toMatchObject({ status: 401, clearedAccess: true });
     expect(lookups.calls).toBe(2); // the Return's look-up was skipped by the shared cap
-    const sid = String(decodeJwt(jar['sb-access-token']!).session_id);
-    expect((await pool.query(`SELECT count(*)::int AS n FROM admin_audit_log WHERE admin_user_id = $1
-      AND action = 'impersonation_end' AND details->>'session_id' = $2`, [fx.platformAdmin, sid])).rows[0].n).toBe(0);
+    expect(logouts).toHaveLength(3); // the two holders' Sign Outs and the Return's own session
+    const [row] = (await pool.query(`SELECT details FROM admin_audit_log WHERE admin_user_id = $1
+      AND action = 'impersonation_end' AND details->>'stash_id' = $2`, [fx.platformAdmin, jar['sb-admin-stash']])).rows;
+    expect(row.details).toMatchObject({ reason: 'stash_expired', lookup: 'skipped', caller_session_revoked: true, stashes_removed: 1 });
+    expect((await pool.query('SELECT count(*)::int AS n FROM admin_impersonation_stash WHERE stash_id = $1',
+      [jar['sb-admin-stash']])).rows[0].n).toBe(0);
+  });
+
+  it('40 junk-stash STASH_EXPIRED requests from one session do not starve a real expired Login-as end', async () => {
+    const real = await fx.loginAsTarget();
+    await pool.query(`UPDATE admin_impersonation_stash SET expires_at = now() - interval '1 second' WHERE stash_id = $1`,
+      [real['sb-admin-stash']]);
+    const own = await fx.ownSession();
+    lookups.delayMs = 200;
+    const burst = Array.from({ length: 40 }, () => post(endImpersonation, { ...own, 'sb-admin-stash': crypto.randomUUID() }));
+    burst.splice(20, 0, post(endImpersonation, real));
+    const results = await Promise.all(burst);
+    expect(results.every((x) => x.status === 401 && x.clearedAccess)).toBe(true);
+    expect(lookups.calls).toBe(1); // junk stash cookies never take a slot
+    expect(logouts).toHaveLength(41); // every caller's own session revoked, the real one included
+    const sid = String(decodeJwt(real['sb-access-token']!).session_id);
+    const rows = (await pool.query(`SELECT details FROM admin_audit_log WHERE admin_user_id = $1
+      AND action = 'impersonation_end' AND details->>'session_id' = $2`, [fx.platformAdmin, sid])).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].details).toMatchObject({ reason: 'stash_expired', target_session_revoked: true });
   });
 });
 
