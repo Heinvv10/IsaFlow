@@ -251,6 +251,9 @@ const PERIOD_LABEL: Readonly<Record<AskIntentId, string>> = {
   assets: 'total assets', liabilities: 'total liabilities', vat: 'VAT', emp201: 'the EMP201', last_pay_run: 'the pay run', bank_to_allocate: 'bank transactions',
 };
 const PERIOD_YEAR: ReadonlySet<AskIntentId> = new Set<AskIntentId>(['profit', 'revenue', 'expenses']);
+/** What to name instead, one wording for every refused window: statements take a month, "this year" or a financial year; positions a month. */
+const NAME_A_WINDOW = (id: AskIntentId): string =>
+  PERIOD_YEAR.has(id) ? `For ${PERIOD_LABEL[id]}, name a month, "this year" or a financial year (e.g. FY2026).` : `For ${PERIOD_LABEL[id]}, name a month.`;
 const LENDER = /\b(?:bank|banks|loan|loans|overdraft|credit\s+card|lender|lenders|mortgage|finance)\b/;
 /** The books hold what happened: a question about the future is refused, not answered with the present figure. */
 const FORECAST = /\b(?:will|shall|going\s+to|forecast|predict|predicted|projected|projection|expected)\b/;
@@ -289,7 +292,7 @@ export function parseQuestion(question: string): ParsedQuestion {
   const { id, qualifier } = keys[0]!;
   if (id === 'i_owe' && LENDER.test(q)) return { kind: 'unsupported', id, said: 'what is owed to the bank or lenders' };
   if (id !== 'vat' && /\b(?:this|current|last|previous|prior)\s+period\b/.test(q)) {
-    return { kind: 'unsupported', id, said: '"period"', text: `For ${PERIOD_LABEL[id]}, name a month${PERIOD_YEAR.has(id) ? ' or a year' : ''}. "Period" only means your VAT period.` };
+    return { kind: 'unsupported', id, said: '"period"', text: `${NAME_A_WINDOW(id)} "Period" only means your VAT period.` };
   }
   if (FORECAST.test(q)) return { kind: 'unsupported', id, said: 'forecasts' };
   if ((id === 'owed_to_me' || id === 'i_owe') && AGING_BUCKET.test(q)) return { kind: 'unsupported', id, said: 'by aging bucket' };
@@ -308,7 +311,7 @@ export function parseQuestion(question: string): ParsedQuestion {
   // Every remaining content word is something we did not understand: refuse rather than answer the plain figure without it.
   if (period?.kind !== 'unsupported' && statement && /\b(?:year\s+end|end\s+of\s+(?:the\s+)?year|years?)\b/.test(withoutWindowPhrases(stripDates(q)))) {
     // A bare "year" or "year end" is a window we do not read: say what to name instead of quoting it as an unknown word.
-    return { kind: 'unsupported', id, said: '"year"', text: `For ${PERIOD_LABEL[id]}, name a month or a financial year (e.g. FY2026).` };
+    return { kind: 'unsupported', id, said: '"year"', text: NAME_A_WINDOW(id) };
   }
   if (period?.kind !== 'unsupported') {
     const left = leftoverWords(stripDates(q), id === 'vat');

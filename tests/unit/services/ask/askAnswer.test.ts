@@ -367,7 +367,7 @@ describe('"period" means the VAT period only', () => {
     const a = await ask('profit this period');
     expect(a.understood).toBe(false);
     expect(a.figure).toBeNull();
-    expect(a.text).toBe('For profit, name a month or a year. "Period" only means your VAT period.');
+    expect(a.text).toBe('For profit, name a month, "this year" or a financial year (e.g. FY2026). "Period" only means your VAT period.');
     expect(a.suggestions).toEqual(['What is my profit this month?']);
     expect(m.income).not.toHaveBeenCalled();
   });
@@ -389,16 +389,25 @@ describe('a bare "year" or "year end" says what to name', () => {
     const a = await ask(q);
     expect(a.understood).toBe(false);
     expect(a.figure).toBeNull();
-    expect(a.text).toBe('For profit, name a month or a financial year (e.g. FY2026).');
+    expect(a.text).toBe('For profit, name a month, "this year" or a financial year (e.g. FY2026).');
     expect(a.suggestions).toEqual(['What is my profit this month?']);
     expect(m.income).not.toHaveBeenCalled();
   });
   it('revenue and expenses say their own name; supported years still answer', async () => {
-    expect((await ask('revenue for the year')).text).toBe('For revenue, name a month or a financial year (e.g. FY2026).');
-    expect((await ask('expenses year end')).text).toBe('For expenses, name a month or a financial year (e.g. FY2026).');
+    expect((await ask('revenue for the year')).text).toBe('For revenue, name a month, "this year" or a financial year (e.g. FY2026).');
+    expect((await ask('expenses year end')).text).toBe('For expenses, name a month, "this year" or a financial year (e.g. FY2026).');
     expect((await ask('profit this year')).figure).not.toBeNull();
     expect((await ask('profit fy2026')).figure).not.toBeNull();
     expect((await ask('profit last financial year')).figure).not.toBeNull();
+  });
+});
+
+describe('the "period" and "year" refusals name the same options', () => {
+  it('the period message is the year message plus one sentence', async () => {
+    const year = (await ask('profit for the year')).text;
+    const period = (await ask('profit this period')).text;
+    expect(period.startsWith(year)).toBe(true);
+    expect(period.slice(year.length).trim()).toBe('"Period" only means your VAT period.');
   });
 });
 
