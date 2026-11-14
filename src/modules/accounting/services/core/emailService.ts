@@ -5,6 +5,7 @@
  */
 
 import * as fs from 'node:fs';
+import * as net from 'node:net';
 import * as path from 'node:path';
 import { log } from '@/lib/logger';
 import { markQuotaUsed, markSendUsedUnlessNotSent, smtpErrorProvesNotSent } from '@/lib/quotaUse';
@@ -167,6 +168,9 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
   try {
     // Dynamic import to avoid loading nodemailer when not needed
     const nodemailer = await import('nodemailer');
+    // With a deadline, nodemailer connects a socket WE hold: transporter.close() does not stop a non-pooled send in
+    // flight, destroying its socket does (smtpDeadline.ts).
+    const deadlineSocket = options.deadlineMs ? new net.Socket() : null;
 
     const transporter = nodemailer.createTransport({
       host: config.host,
@@ -183,6 +187,7 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
         greetingTimeout: options.smtpTimeoutsMs.greeting,
         socketTimeout: options.smtpTimeoutsMs.socket,
       } : {}),
+      ...(deadlineSocket ? { socket: deadlineSocket } : {}),
       auth: {
         user: config.user,
         pass: config.pass,
@@ -212,7 +217,9 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
     };
 
     const sending = transporter.sendMail(mailOptions);
-    const info = options.deadlineMs ? await withSendDeadline(sending, options.deadlineMs, () => transporter.close()) : await sending;
+    const info = options.deadlineMs
+      ? await withSendDeadline(sending, options.deadlineMs, () => { deadlineSocket?.destroy(); transporter.close(); })
+      : await sending;
     // The mail server accepted it: one unit of the request's daily send quota is spent (R-175).
     markQuotaUsed('send');
 

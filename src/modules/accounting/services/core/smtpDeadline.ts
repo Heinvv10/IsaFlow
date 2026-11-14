@@ -1,7 +1,8 @@
 /**
  * A hard ceiling on one SMTP send (sendEmail's `deadlineMs`). nodemailer's connection / greeting / socket timeouts
  * are inactivity timers: each restarts on every reply, so a slow server can keep one send going for minutes. Past
- * the deadline the transport is closed and the send rejects with SendDeadlineError. Its outcome is UNKNOWN: the
+ * the deadline `close` runs (sendEmail destroys the socket it handed nodemailer: transporter.close() alone does not
+ * stop a non-pooled send in flight) and the send rejects with SendDeadlineError. Its outcome is UNKNOWN: the
  * server may already have accepted the message, so the code is not one quotaUse treats as "not sent".
  */
 import { log } from '@/lib/logger';

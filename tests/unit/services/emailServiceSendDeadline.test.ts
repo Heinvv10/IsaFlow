@@ -23,6 +23,7 @@ let server: net.Server;
 let port = 0;
 const sockets = new Set<net.Socket>();
 let closedByClient = 0;
+let accepted = 0; // messages whose end of data the server received
 
 /** A minimal SMTP server: greeting, EHLO (AUTH PLAIN), AUTH, MAIL, RCPT, DATA, end of data, QUIT, each reply delayed. */
 function slowSmtp(): net.Server {
@@ -40,6 +41,7 @@ function slowSmtp(): net.Server {
         if (!buffer.includes('\r\n.\r\n')) return;
         inData = false;
         buffer = '';
+        accepted += 1;
         reply('250 queued');
         return;
       }
@@ -71,6 +73,7 @@ afterAll(async () => {
 const ENV = process.env;
 beforeEach(() => {
   closedByClient = 0;
+  accepted = 0;
   process.env = { ...ENV, SMTP_HOST: '127.0.0.1', SMTP_PORT: String(port), SMTP_USER: 'u', SMTP_PASS: 'p', SMTP_FROM: 'from@slow.example.test' };
 });
 afterEach(() => { process.env = ENV; });
@@ -95,5 +98,14 @@ describe('sendEmail hard deadline', () => {
     expect(took).toBeGreaterThanOrEqual(DEADLINE_MS - 50);
     expect(took).toBeLessThan(DEADLINE_MS + 1_000);
     await vi.waitFor(() => expect(closedByClient).toBeGreaterThan(0), { timeout: 3_000 });
+    // Closed AT the deadline, not left to finish: the abandoned conversation never delivered the message.
+    await new Promise((r) => setTimeout(r, 2_500));
+    expect(accepted).toBe(0);
+  }, 20_000);
+
+  it('a send that finishes inside the deadline is delivered through the socket the deadline holds', async () => {
+    const r = await sendEmail({ ...message, deadlineMs: 10_000 });
+    expect(r.success, r.error).toBe(true);
+    expect(accepted).toBe(1);
   }, 20_000);
 });
