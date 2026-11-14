@@ -5,8 +5,9 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { AlertCircle, Loader2, X } from 'lucide-react';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useFocusTrap } from '@/components/ui/useFocusTrap';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface CreateForm {
   name: string;
@@ -43,9 +44,9 @@ export function CreateCompanyModal({ open, onClose, onCreated }: Props) {
     if (!form.name.trim()) { setError('Name is required'); return; }
     setCreating(true); setError('');
     try {
-      const res = await apiFetch('/api/admin/companies', {
+      const res = await adminFetch('/api/admin/companies', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
       await assertOk(res, 'Could not create the company - try again');
