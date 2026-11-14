@@ -12,7 +12,9 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { trustedClientIp } from '@/lib/trustedClientIp';
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
+import type { TxSql } from '@/lib/neon';
+import { webhookUrlRefusal } from '@/modules/admin/services/webhookUrlPolicy';
 import type { DbRow } from '@/lib/neon';
 
 type Row = DbRow;
@@ -27,16 +29,29 @@ const ALERT_KEYS: ReadonlyArray<keyof AlertSettings> = [
   'health_alert_webhook_url',
 ];
 
+// A blank value clears the setting (the stored row is removed; delivery then falls back to the
+// ADMIN_ALERT_* environment values). Whitespace-only counts as blank.
+const blankOr = (rule: (v: string) => boolean, message: string) =>
+  z.string().trim().refine((v) => v === '' || rule(v), { message });
+
+const isEmail = (v: string) => z.string().email().safeParse(v).success;
+const isUrl = (v: string) => z.string().url().safeParse(v).success;
+
 const PatchBody = z.object({
-  health_alert_email:       z.string().email().optional(),
-  health_alert_webhook_url: z.string().url().optional(),
+  health_alert_email:       blankOr(isEmail, 'Alert email must be a valid email address').optional(),
+  health_alert_webhook_url: blankOr(isUrl, 'Webhook URL must be a valid https:// address').optional(),
 }).strict();
 
-async function getAlertSettings(): Promise<AlertSettings> {
-  const rows = await sql`
-    SELECT key, value FROM admin_settings
-    WHERE key = ANY(ARRAY['health_alert_email', 'health_alert_webhook_url'])
-  `;
+async function getAlertSettings(tx?: TxSql): Promise<AlertSettings> {
+  // With a tx the rows are locked (and the keys serialised, absent rows included) until it ends.
+  const rows = tx
+    ? (await tx`SELECT pg_advisory_xact_lock(hashtext('admin_alert_settings'))`,
+       await tx`
+        SELECT key, value FROM admin_settings
+        WHERE key = ANY(ARRAY['health_alert_email', 'health_alert_webhook_url']) FOR UPDATE`)
+    : await sql`
+        SELECT key, value FROM admin_settings
+        WHERE key = ANY(ARRAY['health_alert_email', 'health_alert_webhook_url'])`;
 
   const map: Record<string, string> = {};
   for (const r of rows as Row[]) {
@@ -72,42 +87,63 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'PATCH') {
     const patchParsed = PatchBody.safeParse(req.body);
     if (!patchParsed.success) {
-      return apiResponse.badRequest(res, patchParsed.error.flatten().formErrors[0] ?? 'Invalid input');
+      return apiResponse.badRequest(res, patchParsed.error.issues[0]?.message ?? 'Invalid input');
     }
 
     try {
-      const data = patchParsed.data;
+      const outcome = await withTransaction(async (tx) => {
+        // The xact advisory lock is held until the REQUEST transaction ends (the commit in withAdmin),
+        // not just until this savepoint is released.
+        const current = await getAlertSettings(tx);
 
-      const entries = (Object.entries(data) as [string, unknown][]).filter(
-        ([key]) => (ALERT_KEYS as readonly string[]).includes(key),
-      );
+        // Decide every key before the first write: a refusal after a write would leave that write
+        // committed (a 4xx commits) with no audit row.
+        const plan: Array<[(typeof ALERT_KEYS)[number], string]> = [];
+        const changes: Record<string, 'set' | 'cleared' | 'unchanged'> = {};
+        for (const key of ALERT_KEYS) {
+          const next = patchParsed.data[key];
+          if (next === undefined) continue;
+          if (next === current[key]) { changes[key] = 'unchanged'; continue; }
+          // An https/public-host policy applies to new values only: an older stored URL sent back unchanged stays valid.
+          const refusal = key === 'health_alert_webhook_url' && next !== '' ? webhookUrlRefusal(next) : null;
+          if (refusal) return { refusal };
+          plan.push([key, next]);
+          changes[key] = next === '' ? 'cleared' : 'set';
+        }
 
-      for (const [key, val] of entries) {
-        const strVal = typeof val === 'string' ? val : String(val ?? '');
-        await sql`
-          INSERT INTO admin_settings (key, value, updated_at, updated_by)
-          VALUES (${key}, ${JSON.stringify(strVal)}::jsonb, NOW(), ${req.user.id})
-          ON CONFLICT (key)
-          DO UPDATE SET
-            value      = EXCLUDED.value,
-            updated_at = NOW(),
-            updated_by = EXCLUDED.updated_by
+        for (const [key, next] of plan) {
+          if (next === '') {
+            await tx`DELETE FROM admin_settings WHERE key = ${key}`;
+            continue;
+          }
+          await tx`
+            INSERT INTO admin_settings (key, value, updated_at, updated_by)
+            VALUES (${key}, ${JSON.stringify(next)}::jsonb, NOW(), ${req.user.id})
+            ON CONFLICT (key)
+            DO UPDATE SET
+              value      = EXCLUDED.value,
+              updated_at = NOW(),
+              updated_by = EXCLUDED.updated_by
+          `;
+        }
+
+        // Audit: what happened to each key, never the value (the webhook URL can carry a secret).
+        await tx`
+          INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details, ip_address)
+          VALUES (
+            ${req.user.id},
+            'update_alert_settings',
+            'platform',
+            NULL,
+            ${JSON.stringify({ changes })}::jsonb,
+            ${trustedClientIp(req)}
+          )
         `;
-      }
+        return { changes };
+      });
 
-      log.info('Alert settings updated', { keys: entries.map(([k]) => k), userId: req.user.id }, 'admin-alert-settings-api');
-
-      await sql`
-        INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details, ip_address)
-        VALUES (
-          ${req.user.id},
-          'update_alert_settings',
-          'platform',
-          NULL,
-          ${JSON.stringify({ keys: entries.map(([k]) => k) })}::jsonb,
-          ${trustedClientIp(req)}
-        )
-      `;
+      if ('refusal' in outcome) return apiResponse.badRequest(res, outcome.refusal as string);
+      log.info('Alert settings updated', { changes: outcome.changes, userId: req.user.id }, 'admin-alert-settings-api');
 
       return apiResponse.success(res, { message: 'Alert settings saved.' });
     } catch (err) {

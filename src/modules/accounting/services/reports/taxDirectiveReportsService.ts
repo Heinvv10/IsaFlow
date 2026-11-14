@@ -6,10 +6,12 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import type { DirectiveKind } from '@/modules/accounting/services/payroll/taxDirectiveKinds';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type DirectiveType = 'lump_sum' | 'retirement' | 'severance' | 'death';
+/** Every stored type, lump sums and the IRP3(b)/(c) regular-pay ones (taxDirectiveKinds). */
+export type DirectiveType = DirectiveKind;
 export type DirectiveStatus = 'pending' | 'approved' | 'expired' | 'cancelled';
 
 export interface TaxDirective {

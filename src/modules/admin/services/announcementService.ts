@@ -6,6 +6,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { DISMISS_KEY_PREFIX } from '@/lib/tenantAnnouncements';
 import type { Announcement, PaginatedResult } from '../types/admin.types';
 type Row = DbRow;
 
@@ -141,15 +142,25 @@ export async function createAnnouncement(data: CreateAnnouncementData): Promise<
   }
 }
 
+export type UpdateAnnouncementResult = 'updated' | 'not_found' | 'window';
+
+/**
+ * 'window': the row exists but the update would leave an end at or before the start. The guard is the UPDATE's own
+ * predicate (judged on what the row holds at write time, so a pre-read that went stale cannot store a bad pair);
+ * it applies only when the update touches starts_at or ends_at, so a title-only edit of an older bad row still works.
+ */
 export async function updateAnnouncement(
   id: string,
   data: Partial<Omit<Announcement, 'id' | 'created_at' | 'created_by'>>
-): Promise<void> {
+): Promise<UpdateAnnouncementResult> {
   try {
     const startsAt = data.starts_at ?? null;
-    const endsAt   = data.ends_at   ?? null;
+    // Omitted keeps the stored end; an explicit null clears it.
+    const endsGiven = data.ends_at !== undefined;
+    const endsAt    = data.ends_at ?? null;
+    const windowTouched = startsAt !== null || endsGiven;
 
-    await sql`
+    const updated = await sql`
       UPDATE system_announcements SET
         title          = COALESCE(${data.title          ?? null}, title),
         message        = COALESCE(${data.message        ?? null}, message),
@@ -159,12 +170,22 @@ export async function updateAnnouncement(
         starts_at      = CASE WHEN ${startsAt}::text IS NOT NULL
                               THEN ${startsAt}::timestamptz
                               ELSE starts_at END,
-        ends_at        = CASE WHEN ${endsAt}::text IS NOT NULL
+        ends_at        = CASE WHEN ${endsGiven}::boolean
                               THEN ${endsAt}::timestamptz
                               ELSE ends_at END,
         is_dismissible = COALESCE(${data.is_dismissible ?? null}, is_dismissible)
       WHERE id = ${id}
+        AND (
+          NOT ${windowTouched}::boolean
+          OR (CASE WHEN ${endsGiven}::boolean THEN ${endsAt}::timestamptz ELSE ends_at END) IS NULL
+          OR (CASE WHEN ${endsGiven}::boolean THEN ${endsAt}::timestamptz ELSE ends_at END)
+             > (CASE WHEN ${startsAt}::text IS NOT NULL THEN ${startsAt}::timestamptz ELSE starts_at END)
+        )
+      RETURNING id
     `;
+    if (updated.length > 0) return 'updated';
+    const [exists] = await sql`SELECT 1 AS one FROM system_announcements WHERE id = ${id}`;
+    return exists ? 'window' : 'not_found';
   } catch (err) {
     log.error('updateAnnouncement failed', { id, error: err }, 'announcementService');
     throw err;
@@ -173,6 +194,8 @@ export async function updateAnnouncement(
 
 export async function deleteAnnouncement(id: string): Promise<void> {
   try {
+    // Both in the request's transaction: no user is left holding a dismissal of an announcement that is gone.
+    await sql`DELETE FROM user_preferences WHERE key = ${DISMISS_KEY_PREFIX + id}`;
     await sql`DELETE FROM system_announcements WHERE id = ${id}`;
   } catch (err) {
     log.error('deleteAnnouncement failed', { id, error: err }, 'announcementService');

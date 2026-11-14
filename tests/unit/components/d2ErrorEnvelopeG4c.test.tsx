@@ -53,13 +53,6 @@ describe('admin settings saves show the server message', () => {
     if (p === failPath && m === 'PATCH') return refuse(msg);
     return null;
   };
-  it('platform settings', async () => {
-    const msg = 'D2 server says no: maintenance message is too long';
-    script(settingsRoute('/api/admin/settings', msg));
-    render(<SettingsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /^save settings$/i }));
-    expect(await screen.findByText(msg)).toBeTruthy();
-  });
   it('alert settings', async () => {
     const msg = 'D2 server says no: webhook url must be https';
     script(settingsRoute('/api/admin/alert-settings', msg));
@@ -142,7 +135,7 @@ describe('admin billing components', () => {
       return null;
     });
     render(<ConvertTrialModal companyId="x-1" companyName="Acme" onClose={() => undefined} onConverted={() => undefined} />);
-    await screen.findByText('Starter');
+    fireEvent.click(await screen.findByLabelText(/Starter/)); // no plan is preselected
     fireEvent.click(screen.getByRole('button', { name: /^convert to paid$/i }));
     expect(await screen.findByText(msg)).toBeTruthy();
   });

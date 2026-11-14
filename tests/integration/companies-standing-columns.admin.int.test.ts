@@ -134,16 +134,24 @@ describe('936: the admin site on a real platform_admin login', () => {
     expect(await audits('trial.extend', target)).toBe(1);
   });
 
-  it('converts a trial to a plan (POST /api/admin/trials/convert)', async () => {
-    await fixture.query(`UPDATE companies SET status = 'suspended' WHERE id = $1`, [bulkB]);
+  it('refuses to convert a suspended company (409) and leaves its standing untouched', async () => {
+    await fixture.query(`UPDATE companies SET status = 'suspended', suspended_at = NOW(), suspended_reason = 'unpaid 936' WHERE id = $1`, [bulkB]);
+    const before = await standing(bulkB);
     const r = await asAdmin(convertRoute, 'POST', { body: { companyId: bulkB, planId: plan } });
-    // BROKEN (before 936, also on production): markAsConverted's subscriptions upsert is ON CONFLICT (company_id)
-    // and subscriptions has no unique index on it, so the route answers 400 and the aborted transaction rolls its
-    // companies UPDATE back. Pinned exactly, so this fails (and gets rewritten) when convert is fixed. The plan and
-    // status write itself, on platform_admin, is proven by the next test.
-    const message = (r.body as { error?: { message?: string } }).error?.message ?? '';
-    expect({ status: r.status, message }, JSON.stringify(r.body)).toEqual({ status: 400, message: expect.stringMatching(/ON CONFLICT specification$/) });
-    expect(await standing(bulkB)).toMatchObject({ status: 'suspended' });
+    expect(r.status, JSON.stringify(r.body)).toBe(409);
+    expect(await standing(bulkB)).toEqual(before);
+    expect((await fixture.query('SELECT 1 FROM subscriptions WHERE company_id = $1', [bulkB])).rowCount).toBe(0);
+    expect(await audits('trial.convert_to_paid', bulkB)).toBe(0);
+  });
+
+  it('converts an active trial company to a plan (POST /api/admin/trials/convert), on platform_admin\'s own grants', async () => {
+    await fixture.query(`UPDATE companies SET status = 'active', suspended_at = NULL, suspended_reason = NULL WHERE id = $1`, [bulkB]);
+    const r = ok(await asAdmin(convertRoute, 'POST', { body: { companyId: bulkB, planId: plan } }));
+    expect(data(r)).toMatchObject({ companyId: bulkB, planId: plan, converted: true, hasActiveMandate: false });
+    expect(await standing(bulkB)).toMatchObject({ status: 'active', plan_id: plan });
+    expect((await fixture.query('SELECT status, plan_id FROM subscriptions WHERE company_id = $1', [bulkB])).rows)
+      .toEqual([{ status: 'active', plan_id: plan }]);
+    expect(await audits('trial.convert_to_paid', bulkB)).toBe(1);
   });
 
   it('platform_admin writes plan_id and status (the statement markAsConverted opens with)', async () => {

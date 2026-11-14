@@ -143,6 +143,8 @@ export const reverseBankAllocationTool: McpTool = {
     + 'and today when it is closed; pass reversal_date to choose it explicitly. '
     + 'The reply carries original_entry_date, reversal_entry_date and date_moved: date_moved true '
     + 'means the correction is NOT in the period it corrects. '
+    + 'Reversing a customer receipt whose unapplied cash a customer refund has already returned is refused '
+    + '(reverse the refund first). '
     + 'To undo a whole bulk allocation, use reverse_bank_allocation_batch.',
   scope: 'write:bank-tx',
   write: true,

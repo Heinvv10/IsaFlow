@@ -14,6 +14,8 @@ import { outsideTablesResult, payeUnderTreatment, taxStatusTreatment } from './t
 import { validateEmploymentTerms } from './validationEngine';
 import { hoursValidation, runHoursOf } from './payrollRunHours';
 import { costLineEti } from './payrollLineEti';
+import { capDirectivePaye, contractorDirectiveResult, directiveStateResults, regularPayDirectivePaye } from './directiveRegularPay';
+import { directivePayeSteps } from './directiveExplain';
 import type {
   PayrollLineInput,
   PayrollLineResult,
@@ -82,7 +84,11 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     earnings: timeWorked, employedShare: employedShareOfMonth(period, employee.startDate, employee.endDate),
   });
   const treatment = taxStatusTreatment(employee.taxStatus, classification.kind);
-  const onTables = treatment.paye === 'tables';
+  // An IRP3(b)/(c) directive on regular pay decides PAYE over the treatment (directiveRegularPay, G21 p. 15, 28): off the tables too.
+  // Never on an independent contractor (Hein, #1266 round 2): the line errors instead (contractorDirectiveResult).
+  const directiveOnContractor = treatment.paye === 'none' ? input.regularPayDirective?.current ?? null : null;
+  const directive = treatment.paye === 'none' ? null : input.regularPayDirective?.current ?? null;
+  const onTables = treatment.paye === 'tables' && !directive;
   const ytdForTables = onTables ? input.ytd : undefined;
 
   const medicalBeneficiaries = employee.medicalAidMainMember
@@ -125,13 +131,19 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const taxableIncome = regularTaxable + annualTaxable;
   const balanceOfRemuneration = taxableIncome - retirementDeduction;
   // A directive's PAYE is SARS's instruction for a lump sum: it stands under any treatment (G21 p. 26 "Employees' tax").
-  const treated = payeUnderTreatment(treatment.paye, { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye }, balanceOfRemuneration);
-  const payeSplit = { regular: treated.regular, annualPayment: treated.annualPayment, directive: round2(directivePaye) };
-  const paye = { ...regular, monthlyPaye: round2(payeSplit.regular + payeSplit.annualPayment + payeSplit.directive) };
-  if (treatment.paye !== 'tables') warnings.push(...outsideTablesResult(treatment.paye));
-
   const uifCosted = employee.uifExcluded || !treatment.uif ? null : uifWithLeviable(uifLeviable, taxYear);
   const uif = uifCosted?.uif ?? { employeeContribution: 0, employerContribution: 0, isCapped: false };
+  // A regular-pay directive's PAYE (directiveRegularPay): on the month's remuneration before deductions, capped at the cash it pays.
+  const directed = directive
+    ? regularPayDirectivePaye(directive, { periodic: acc.periodicTaxable, annual: acc.annualPayments, tablesAnnualPayment: annualPaymentPaye })
+    : null;
+  const capped = directive && directed ? capDirectivePaye(directed, grossPay - uif.employeeContribution - directivePaye, directive) : null;
+  const treated = capped ?? payeUnderTreatment(treatment.paye, { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye }, balanceOfRemuneration);
+  const payeSplit = { regular: treated.regular, annualPayment: treated.annualPayment, directive: round2(directivePaye) };
+  const paye = { ...regular, monthlyPaye: round2(payeSplit.regular + payeSplit.annualPayment + payeSplit.directive) };
+  if (treatment.paye === 'none' || (treatment.paye === 'flat_25' && !directive)) warnings.push(...outsideTablesResult(treatment.paye));
+  if (directiveOnContractor) warnings.push(contractorDirectiveResult(directiveOnContractor));
+  warnings.push(...(directed?.results ?? []), ...(capped?.result ? [capped.result] : []), ...directiveStateResults(input.regularPayDirective));
 
   // SDL is levied on SDL-applicable pay less the para 2(4) retirement and donation deductions allowed, over the tax
   // year (sdlLeviableCumulative). No other deduction reduces PAYE or SDL; the s4(b) threshold stays on gross.
@@ -193,6 +205,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       medicalFees: { total: medicalSchemeFees, employee: employeeMedicalFees, employer: employerMedicalFees },
       donationDeduction: donation.deduction, donationOffAnnual,
       trace, retirementRecorded: retirementDeduction, balanceOfRemuneration, regularTaxable, annualTaxable, split: payeSplit, paye: paye.monthlyPaye,
+      ...(directive && directed && capped ? { directiveSteps: directivePayeSteps({ directive, base: directed.base, annualBase: directed.annualBase,
+        regular: directed.regular, annual: directed.annualPayment, capRoom: capped.capRoom }, taxYear) } : {}),
     },
     uif: {
       uif, leviable: uifCosted?.leviable ?? null, uifRemuneration: uifLeviable, parts: earningParts,

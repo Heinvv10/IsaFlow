@@ -32,6 +32,7 @@ vi.mock('@/components/layout/ShortcutHelpOverlay', () => ({ ShortcutHelpOverlay:
 vi.mock('@/components/onboarding/AccountingTour', () => ({ AccountingTour: () => null }));
 vi.mock('@/components/onboarding/SetupGuideButton', () => ({ SetupGuideButton: () => null }));
 vi.mock('@/components/layout/ImpersonationBanner', () => ({ ImpersonationBanner: () => null }));
+vi.mock('@/components/layout/AnnouncementBanner', () => ({ AnnouncementBanner: () => <div data-testid="announcement-banner" /> }));
 vi.mock('@/components/payroll/PayrollPeriodBar', () => ({ PayrollPeriodBar: () => <div data-testid="payroll-period-bar" /> }));
 vi.mock('@/components/layout/CompanySwitcher', () => ({ CompanySwitcher: () => null }));
 vi.mock('@/components/layout/CreateNewMenu', () => ({ CreateNewMenu: () => null }));
@@ -49,6 +50,21 @@ const hamburger = () => screen.getByRole('button', { name: 'Open menu' });
 
 beforeEach(() => { go('/accounting'); h.auth.loading = false; h.router.push.mockClear(); h.auth.logout.mockClear(); localStorage.clear(); });
 afterEach(cleanup);
+
+describe('AppLayout announcements', () => {
+  afterEach(() => { document.documentElement.removeAttribute('data-admin-host'); });
+
+  it('shows the announcement banner in the tenant app', () => {
+    render(page());
+    expect(screen.getByTestId('announcement-banner')).toBeInTheDocument();
+  });
+
+  it('never on the admin host', () => {
+    document.documentElement.setAttribute('data-admin-host', '');
+    render(page());
+    expect(screen.queryByTestId('announcement-banner')).toBeNull();
+  });
+});
 
 describe('AppLayout', () => {
   it('starts the heartbeat only once the company, and so its idle limit, has loaded', () => {

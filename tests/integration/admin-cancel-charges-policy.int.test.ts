@@ -174,10 +174,13 @@ describe('races and atomicity', () => {
 
       const ran = await runQueuedCharges(new Date());
 
-      // Counted apart from a real submission: the card was debited and nothing records it.
-      expect(ran.refundNeeded).toBe(1);
-      expect(ran.submitted).toBe(1); // the other tenant's charge
+      // Counted apart from a real submission: the card was debited and nothing records it. The
+      // result is global (another suite's leftovers may add to it), so the counts below are this
+      // company's own: its one debit, and the other tenant's charge still going through.
+      expect(ran.refundNeeded).toBeGreaterThanOrEqual(1);
       expect(callsFor(ids.company)).toHaveLength(1);
+      expect(callsFor(ids.other)).toHaveLength(1);
+      expect((await chargeStatus(charges.other)).status).toBe(paystackStatus === 'success' ? 'settled' : 'submitted');
       // Which of the two due charges the runner reached first is heap order, not ours to assume.
       const debited = (callsFor(ids.company)[0] as [{ metadata: { subscription_charge_id: string } }])[0]
         .metadata.subscription_charge_id;

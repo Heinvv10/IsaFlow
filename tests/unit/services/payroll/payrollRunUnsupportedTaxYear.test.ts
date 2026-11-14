@@ -14,6 +14,8 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunLoanComponents', () => 
   appendLoanComponents: (components: unknown[]) => components,
   loadLoanComponents: async () => ({ deduction: { id: 'loan' }, fringe: { id: 'fringe' } }),
 }));
+vi.mock('@/modules/accounting/services/payroll/payrollRunRegularDirective', () => ({ loadRegularPayDirectives: vi.fn(async () => new Map()) }));
+vi.mock('@/modules/accounting/services/payroll/payrollRunDirectiveUses', () => ({ assertRunKeepsItsDirectives: vi.fn(async () => undefined) }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []), withTransaction: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({

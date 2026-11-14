@@ -127,7 +127,7 @@ export interface UsageAnalytics {
   top_pages: Array<{ path: string; views: number }>;
   feature_adoption: Array<{ feature: string; adoption_percent: number; user_count: number }>;
   revenue_by_plan: Array<{ plan_name: string; mrr_cents: number; company_count: number }>;
-  churn_signals: Array<{ company_id: string; company_name: string; days_inactive: number; last_login: string | null }>;
+  churn_signals: Array<{ company_id: string; company_name: string; days_inactive: number | null; last_login: string | null }>;
 }
 
 export interface MrrTrendPoint {
@@ -156,9 +156,6 @@ export interface AnalyticsTrends {
 }
 
 export interface PlatformSettings {
-  maintenance_mode: boolean;
-  registration_enabled: boolean;
-  max_companies_per_user: number;
   smtp_configured: boolean;
 }
 

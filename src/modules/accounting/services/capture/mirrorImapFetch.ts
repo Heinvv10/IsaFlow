@@ -41,7 +41,8 @@ export async function fetchNewMessages(client: ImapFlow, cursorUid: number): Pro
   const messages: FetchMessageObject[] = [];
   setResponseLimit(client, MAX_ENVELOPE_RESPONSE_BYTES);
   try {
-    for await (const msg of client.fetch(range, { uid: true, envelope: true, size: true }, BY_UID)) {
+    // internalDate: the server's own receive time (not sender-set), which bounds the POP inbox's DNS retry.
+    for await (const msg of client.fetch(range, { uid: true, envelope: true, size: true, internalDate: true }, BY_UID)) {
       const uid = Number(msg.uid);
       if (!Number.isInteger(uid) || uid <= cursorUid || uid > MAX_IMAP_NUMBER) continue;
       messages.push(msg);

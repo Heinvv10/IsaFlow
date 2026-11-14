@@ -92,7 +92,7 @@ describe('OFFERED_MCP_SCOPES', () => {
       'read:reports', 'read:invoices', 'read:contacts', 'read:bank-tx',
       'read:vat', 'read:payroll', 'read:practice',
       'write:invoices', 'write:bank-tx', 'write:journals', 'write:accounts',
-      'write:contacts', 'write:vat', 'write:practice', 'write:payroll', 'write:post',
+      'write:contacts', 'write:vat', 'write:company', 'write:practice', 'write:payroll', 'write:post',
       'offline_access',
     ]);
   });

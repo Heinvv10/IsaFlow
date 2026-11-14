@@ -5,91 +5,26 @@
  */
 
 import { sql } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
 import { directivePaidBy, TaxDirectivePaidError } from './taxDirectivePaidGuard';
+import { isRegularPayDirectiveType } from './taxDirectiveKinds';
+import { TaxDirectiveWindowError } from './taxDirectiveOverlap';
+import { regularDirectiveLatestUse } from './payrollRunDirectiveUses';
+import {
+  auditLeaverExit, judgeRegularDirectiveChange, judgeRegularDirectiveCreate, lockForRegularChange, regularDirectiveRow,
+} from './taxDirectiveRegularPayChange';
+import { auditLeaverExitUndo } from './taxDirectiveLeaverUndo';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { approversAtCreate, auditDirectiveApproval, judgeDirectiveApprover } from './taxDirectiveApprover';
+import { mapRow, type DirectiveStatus, type TaxDirective, type TaxDirectiveCreateInput, type ListTaxDirectivesFilter } from './taxDirectiveModel';
 
 export { TaxDirectivePaidError };
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export type DirectiveType = 'lump_sum' | 'retirement' | 'severance' | 'death';
-export type DirectiveStatus = 'pending' | 'approved' | 'expired' | 'cancelled';
-
-export interface TaxDirective {
-  id: string;
-  companyId: string;
-  employeeId: string | null;
-  employeeName: string;
-  employeeTaxNumber: string | null;
-  directiveNumber: string | null;
-  directiveType: DirectiveType;
-  amount: number;
-  taxRate: number | null;
-  taxAmount: number | null;
-  effectiveDate: string;
-  /** The date SARS issued the directive (e@syFile 3231); null when not captured. */
-  issuedDate: string | null;
-  expiryDate: string | null;
-  status: DirectiveStatus;
-  sarsReference: string | null;
-  notes: string | null;
-  requestedBy: string | null;
-  approvedBy: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface TaxDirectiveCreateInput {
-  employee_id?: string;
-  employee_name: string;
-  employee_tax_number?: string;
-  directive_number?: string;
-  directive_type: DirectiveType;
-  amount: number;
-  tax_rate?: number;
-  effective_date: string;
-  issued_date?: string;
-  expiry_date?: string;
-  sars_reference?: string;
-  notes?: string;
-}
-
-export interface ListTaxDirectivesFilter {
-  status?: DirectiveStatus;
-  search?: string;
-}
-
-// ─── Mapper ───────────────────────────────────────────────────────────────────
-
-function mapRow(row: DbRow): TaxDirective {
-  const toDate = (v: unknown): string => fmtDate(v);
-
-  return {
-    id: String(row.id),
-    companyId: String(row.company_id),
-    employeeId: row.employee_id != null ? String(row.employee_id) : null,
-    employeeName: String(row.employee_name),
-    employeeTaxNumber: row.employee_tax_number != null ? String(row.employee_tax_number) : null,
-    directiveNumber: row.directive_number != null ? String(row.directive_number) : null,
-    directiveType: String(row.directive_type) as DirectiveType,
-    amount: parseFloat(String(row.amount)),
-    taxRate: row.tax_rate != null ? parseFloat(String(row.tax_rate)) : null,
-    taxAmount: row.tax_amount != null ? parseFloat(String(row.tax_amount)) : null,
-    effectiveDate: toDate(row.effective_date),
-    issuedDate: row.issued_date != null ? toDate(row.issued_date) : null,
-    expiryDate: row.expiry_date != null ? toDate(row.expiry_date) : null,
-    status: String(row.status) as DirectiveStatus,
-    sarsReference: row.sars_reference != null ? String(row.sars_reference) : null,
-    notes: row.notes != null ? String(row.notes) : null,
-    requestedBy: row.requested_by != null ? String(row.requested_by) : null,
-    approvedBy: row.approved_by != null ? String(row.approved_by) : null,
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
-  };
-}
+export type {
+  DirectiveType, DirectiveStatus, TaxDirective, TaxDirectiveCreateInput, ListTaxDirectivesFilter,
+} from './taxDirectiveModel';
 
 // ─── Service Functions ────────────────────────────────────────────────────────
 
@@ -138,14 +73,19 @@ export async function createTaxDirective(
 ): Promise<TaxDirective> {
   log.info('createTaxDirective', { companyId, directive_type: input.directive_type });
 
-  const taxAmount =
-    input.tax_rate != null ? Math.round(input.amount * input.tax_rate * 100) / 100 : null;
+  // A regular-pay directive (IRP3(b)/(c)): Login-as refused, then judged under the employee's lock before the insert
+  // (taxDirectiveRegularPayChange). Its fixed amount, or none for a percentage (taxDirectiveKinds).
+  const regular = isRegularPayDirectiveType(input.directive_type);
+  if (regular && input.employee_id) await judgeRegularDirectiveCreate(companyId, input.employee_id, input.effective_date, input.expiry_date ?? null);
+  const taxAmount = regular
+    ? (input.directive_type === 'fixed_amount' ? input.tax_amount ?? null : null)
+    : input.tax_rate != null ? Math.round(input.amount * input.tax_rate * 100) / 100 : null;
 
   const rows = await sql`
     INSERT INTO tax_directives (
       company_id, employee_id, employee_name, employee_tax_number,
       directive_number, directive_type, amount, tax_rate, tax_amount,
-      effective_date, issued_date, expiry_date, status, sars_reference, notes, requested_by
+      effective_date, issued_date, expiry_date, status, sars_reference, notes, requested_by, approvers_at_create
     ) VALUES (
       ${companyId},
       ${input.employee_id ?? null},
@@ -162,7 +102,8 @@ export async function createTaxDirective(
       'pending',
       ${input.sars_reference ?? null},
       ${input.notes ?? null},
-      ${requestedByUserId}
+      ${requestedByUserId},
+      ${await approversAtCreate(companyId, requestedByUserId)}::text[]
     )
     RETURNING *
   `;
@@ -174,6 +115,8 @@ export interface TaxDirectiveChange {
   status?: DirectiveStatus;
   /** YYYY-MM-DD, or null to clear. */
   issued_date?: string | null;
+  /** Regular-pay directives only: YYYY-MM-DD, set or shortened (taxDirectiveRegularPayChange). */
+  expiry_date?: string;
 }
 
 export async function updateTaxDirectiveStatus(
@@ -208,11 +151,20 @@ export async function updateTaxDirective(
   id: string,
   change: TaxDirectiveChange,
   approvedByUserId?: string,
+  /** Who made the change (the audit row of an expiry that takes the leaver exit). */
+  actorUserId?: string,
 ): Promise<TaxDirective | null> {
   log.info('updateTaxDirective', { companyId, id, status: change.status, issuedDate: change.issued_date });
 
+  // Approving sets an employee's PAYE: refused under Login-as (all types). A regular-pay directive's change takes the
+  // employee's lock first, then this row (taxDirectiveOverlap's order), and is judged before the write.
+  if (change.status === 'approved') await assertNotImpersonating();
+  const regular = change.status !== undefined || change.expiry_date !== undefined ? await regularDirectiveRow(companyId, id) : null;
+  if (change.expiry_date !== undefined && !regular) throw new TaxDirectiveWindowError('Only a fixed-percentage or fixed-amount directive takes an expiry date change');
+  if (regular) await lockForRegularChange(companyId, regular);
+
   const locked = await underFlowLockBudget('This tax directive', async () => (await sql`
-    SELECT id, directive_number FROM tax_directives
+    SELECT id, directive_number, status FROM tax_directives
     WHERE company_id = ${companyId} AND id = ${id}
     FOR UPDATE
   `) as DbRow[]);
@@ -222,6 +174,14 @@ export async function updateTaxDirective(
     const paid = await directivePaidBy(companyId, id, locked[0].directive_number);
     if (paid) throw new TaxDirectivePaidError(id, paid);
   }
+  // Judged on the row as it is under both locks (status and expiry may have moved since the unlocked read).
+  const fresh = regular ? await regularDirectiveRow(companyId, id) : null;
+  const judged = fresh ? await judgeRegularDirectiveChange(companyId, fresh, change, actorUserId ?? null) : null;
+  // The undo of a leaver exit restores the expiry it had, which may be none (taxDirectiveLeaverUndo).
+  const restoreNull = judged?.undo != null && judged.undo.oldExpiry == null;
+  // Four eyes (Hein, #1266 round 2): judged before the write; the audit row follows it in the same transaction.
+  const approving = change.status === 'approved' && locked[0].status !== 'approved' && approvedByUserId != null;
+  const approval = approving ? await judgeDirectiveApprover(companyId, id, approvedByUserId!) : null;
 
   const setIssued = change.issued_date !== undefined;
   const rows = await sql`
@@ -229,6 +189,7 @@ export async function updateTaxDirective(
     SET
       status = COALESCE(${change.status ?? null}::text, status),
       issued_date = CASE WHEN ${setIssued}::boolean THEN ${change.issued_date ?? null}::date ELSE issued_date END,
+      expiry_date = CASE WHEN ${restoreNull}::boolean THEN NULL ELSE COALESCE(${judged?.undo?.oldExpiry ?? change.expiry_date ?? null}::date, expiry_date) END,
       approved_by = CASE
         WHEN ${approvedByUserId ?? null}::uuid IS NOT NULL THEN ${approvedByUserId ?? null}::uuid
         ELSE approved_by
@@ -239,6 +200,11 @@ export async function updateTaxDirective(
     RETURNING *
   `;
 
+  if (approval && rows.length) await auditDirectiveApproval(companyId, id, approvedByUserId!, approval.selfApproval, mapRow(rows[0]!).expiryDate);
+  if (fresh && judged?.undo && rows.length && actorUserId) await auditLeaverExitUndo(companyId, fresh, judged.undo, actorUserId);
+  if (fresh && judged?.leaverExitPeriods && rows.length && actorUserId) {
+    await auditLeaverExit(companyId, fresh, change.expiry_date!, judged.leaverExitPeriods, actorUserId);
+  }
   return rows.length ? mapRow(rows[0]!) : null;
 }
 
@@ -255,6 +221,9 @@ export async function deleteTaxDirective(
   id: string,
 ): Promise<boolean> {
   log.info('deleteTaxDirective', { companyId, id });
+  // A regular-pay directive: Login-as refused and the same locks as a cancel (taxDirectiveRegularPayChange), first.
+  const regular = await regularDirectiveRow(companyId, id);
+  if (regular) await lockForRegularChange(companyId, regular);
 
   const locked = await underFlowLockBudget('This tax directive', async () => (await sql`
     SELECT id, directive_number FROM tax_directives
@@ -273,6 +242,9 @@ export async function deleteTaxDirective(
     throw new TaxDirectivePaidError(id, `${which} has a payment record (a payroll run's `
       + 'claim or a reversed stand-alone payment), so it cannot be deleted. Cancel it instead.');
   }
+  // A regular-pay directive an approved or paid run's line was taxed by is that PAYE's record (payrollRunRegularDirective).
+  const taxedRun = await regularDirectiveLatestUse(companyId, id);
+  if (taxedRun) throw new TaxDirectivePaidError(id, `${which} decided PAYE on the ${taxedRun.period} payroll run, so it cannot be deleted. Set an expiry date instead.`);
 
   const rows = await sql`
     DELETE FROM tax_directives

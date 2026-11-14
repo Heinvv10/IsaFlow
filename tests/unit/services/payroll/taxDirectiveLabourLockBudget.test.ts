@@ -8,6 +8,7 @@ import { sql } from '@/lib/neon';
 import { claimUnderLockTimeout } from '@/modules/accounting/services/core/documentClaimLock';
 import { readEmployeeLabourSplit } from '@/modules/accounting/services/payroll/payrollCostCentreTags';
 import { lockDirectiveLabour } from '@/modules/accounting/services/payroll/taxDirectiveLabour';
+import { TaxDirectiveNotLumpSumError } from '@/modules/accounting/services/payroll/taxDirectiveErrors';
 
 const split = {
   employeeId: '22222222-2222-4222-8222-222222222222', costCentreId: null, allocations: [], mappings: {},
@@ -17,7 +18,7 @@ const split = {
 describe('lockDirectiveLabour', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    vi.mocked(sql).mockResolvedValue([{ status: 'approved', employee_id: split.employeeId }] as never);
+    vi.mocked(sql).mockResolvedValue([{ status: 'approved', employee_id: split.employeeId, directive_type: 'severance' }] as never);
     vi.mocked(readEmployeeLabourSplit).mockResolvedValue(split);
     vi.mocked(claimUnderLockTimeout).mockImplementation(async (_kind, take) => take());
   });
@@ -31,5 +32,13 @@ describe('lockDirectiveLabour', () => {
     expect(readEmployeeLabourSplit).toHaveBeenCalledOnce();
     expect(vi.mocked(claimUnderLockTimeout).mock.invocationCallOrder[0])
       .toBeLessThan(vi.mocked(readEmployeeLabourSplit).mock.invocationCallOrder[0]!);
+  });
+
+  // DR: an IRP3(b)/(c) directive taxes regular pay in each run; the stand-alone lump-sum payment refuses it before any lock.
+  it.each(['fixed_percentage', 'fixed_amount'])('refuses a %s directive before any centre lock', async (type) => {
+    vi.mocked(sql).mockResolvedValue([{ status: 'approved', employee_id: split.employeeId, directive_type: type }] as never);
+    await expect(lockDirectiveLabour('11111111-1111-4111-8111-111111111111', '33333333-3333-4333-8333-333333333333'))
+      .rejects.toBeInstanceOf(TaxDirectiveNotLumpSumError);
+    expect(claimUnderLockTimeout).not.toHaveBeenCalled();
   });
 });

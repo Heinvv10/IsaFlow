@@ -26,7 +26,10 @@ vi.mock('@/modules/accounting/services/payroll/taxDirectivePaymentService', () =
   TaxDirectiveNotApprovedError: class extends Error {},
   TaxDirectiveSplitChangedError: class extends Error {},
   TaxDirectiveWithoutEmployeeError: class extends Error {},
+  TaxDirectiveNotLumpSumError: class extends Error {},
 }));
+// The route's first check reads the directive's type (DR round 4); a stub here keeps the test off any database.
+vi.mock('@/modules/accounting/services/payroll/taxDirectiveLabour', () => ({ refuseRegularPayDirective: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/payroll/uifPaymentService', () => ({
   markUifDeclarationPaid: vi.fn(),
   UifDeclarationNotSubmittedError: class extends Error {},

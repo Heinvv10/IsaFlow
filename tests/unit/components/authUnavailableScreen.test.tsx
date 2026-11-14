@@ -29,6 +29,7 @@ vi.mock('@/components/layout/ShortcutHelpOverlay', () => ({ ShortcutHelpOverlay:
 vi.mock('@/components/onboarding/AccountingTour', () => ({ AccountingTour: nothing }));
 vi.mock('@/components/onboarding/SetupGuideButton', () => ({ SetupGuideButton: nothing }));
 vi.mock('@/components/layout/ImpersonationBanner', () => ({ ImpersonationBanner: nothing }));
+vi.mock('@/components/layout/AnnouncementBanner', () => ({ AnnouncementBanner: nothing }));
 vi.mock('@/components/payroll/PayrollPeriodBar', () => ({ PayrollPeriodBar: nothing }));
 
 import { AuthProvider } from '@/contexts/AuthContext';

@@ -23,12 +23,17 @@ import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryP
 import { resolvePaymentBankAccount } from '@/modules/accounting/services/gl/paymentBankAccount';
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { directivePaye } from './payrollSeveranceDirective';
-import { TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError } from './taxDirectiveErrors';
+import {
+  TaxDirectiveNotApprovedError, TaxDirectiveNotLumpSumError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError,
+} from './taxDirectiveErrors';
+import { isLumpSumDirectiveType } from './taxDirectiveKinds';
 import { releaseReversedStandalonePayment, reversedStandalonePayments } from './taxDirectivePaidGuard';
 import { employeeLabourLines } from './payrollCostCentreTags';
 import { lockDirectiveLabour, postOrRetry, refreshDirectiveLabour } from './taxDirectiveLabour';
 
-export { TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError };
+export { TaxDirectiveNotApprovedError, TaxDirectiveNotLumpSumError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError };
+export { TaxDirectiveAlreadyAppliedError } from './taxDirectiveErrors';
+import { TaxDirectiveAlreadyAppliedError } from './taxDirectiveErrors';
 
 type Row = DbRow;
 
@@ -48,22 +53,6 @@ export interface ApplyDirectiveResult {
   status: 'applied';
   /** `labour_cost_centre_untagged` (a centre that cannot be a CC1 tag posts untagged), `labour_account_inactive` (to 5200). */
   advisories: Array<{ code: string; detail: string }>;
-}
-
-/**
- * Raised when the directive already carries a payment — because it always did,
- * or because a concurrent request has just claimed it. Raised BEFORE the
- * journal is created, so a route may answer it with a 4xx without `withAuth`
- * committing a half-applied directive.
- */
-export class TaxDirectiveAlreadyAppliedError extends Error {
-  readonly code = 'TAX_DIRECTIVE_ALREADY_APPLIED';
-  constructor(readonly directiveId: string, readonly paymentId: string | null, readonly payrollRunId: string | null = null) {
-    super(payrollRunId
-      ? `Directive ${directiveId} is paid by payroll run ${payrollRunId}, so it cannot be paid again here`
-      : `Directive ${directiveId} has already been applied${paymentId ? ` (paymentId: ${paymentId})` : ''}`);
-    this.name = 'TaxDirectiveAlreadyAppliedError';
-  }
 }
 
 export interface TaxDirectivePayment {
@@ -153,6 +142,8 @@ export async function applyTaxDirective(
   if (dirRows.length === 0) throw new Error(`Tax directive ${directiveId} not found`);
   const dir = dirRows[0]!;
 
+  // A regular-pay directive (IRP3(b)/(c)) is applied by each run, never paid here (also refused before the lock).
+  if (!isLumpSumDirectiveType(dir.directive_type)) throw new TaxDirectiveNotLumpSumError(directiveId, String(dir.directive_type));
   const currentStatus = String(dir.status);
   if (currentStatus !== 'approved') throw new TaxDirectiveNotApprovedError(directiveId, currentStatus);
   // The payment goes on the employee's tax certificate (directivePaymentFiling):

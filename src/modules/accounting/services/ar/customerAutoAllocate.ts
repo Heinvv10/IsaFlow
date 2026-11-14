@@ -115,7 +115,8 @@ export async function autoApplyCustomerReceipt(args: {
     return { appliedLines: [], unappliedRemainder: round2(amount), strategy, autoApply };
   }
 
-  const plan = await planReceiptApplication(companyId, paymentId, allocations);
+  // Every caller has just recorded this receipt (bank allocation, split, bank-rule document): it lowers nothing.
+  const plan = await planReceiptApplication(companyId, paymentId, allocations, { paymentCreatedInThisRequest: true });
   await applyReceiptPlan(companyId, plan, userId);
 
   log.info('Customer receipt auto-applied', {

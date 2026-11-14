@@ -49,7 +49,7 @@ beforeAll(async () => {
     employee_id: f.employee, employee_name: 'Wanda Test', directive_number: '5550002222', directive_type: 'lump_sum',
     amount: 12_000, tax_rate: 0.25, effective_date: '2028-02-10',
   }, f.admin);
-  await updateTaxDirectiveStatus(f.company, lump.id, 'approved', f.admin);
+  await updateTaxDirectiveStatus(f.company, lump.id, 'approved', f.approver);
   const paid = await applyStandalone(f, lump.id, '2028-02-29');
   expect(paid.statusCode, JSON.stringify(paid.body)).toBe(200);
 });

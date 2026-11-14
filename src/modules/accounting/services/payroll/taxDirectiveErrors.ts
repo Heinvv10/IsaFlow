@@ -35,3 +35,32 @@ export class TaxDirectiveSplitChangedError extends Error {
     this.name = 'TaxDirectiveSplitChangedError';
   }
 }
+
+/**
+ * Raised when the directive already carries a payment — because it always did,
+ * or because a concurrent request has just claimed it. Raised BEFORE the
+ * journal is created, so a route may answer it with a 4xx without `withAuth`
+ * committing a half-applied directive.
+ */
+export class TaxDirectiveAlreadyAppliedError extends Error {
+  readonly code = 'TAX_DIRECTIVE_ALREADY_APPLIED';
+  constructor(readonly directiveId: string, readonly paymentId: string | null, readonly payrollRunId: string | null = null) {
+    super(payrollRunId
+      ? `Directive ${directiveId} is paid by payroll run ${payrollRunId}, so it cannot be paid again here`
+      : `Directive ${directiveId} has already been applied${paymentId ? ` (paymentId: ${paymentId})` : ''}`);
+    this.name = 'TaxDirectiveAlreadyAppliedError';
+  }
+}
+
+/**
+ * A fixed-percentage or fixed-amount directive (IRP3(b)/(c), taxDirectiveKinds) taxes regular pay in each run: it is
+ * never paid as a lump sum, nor declared as one. Raised before anything is read under lock or written.
+ */
+export class TaxDirectiveNotLumpSumError extends Error {
+  readonly code = 'TAX_DIRECTIVE_NOT_LUMP_SUM';
+  constructor(readonly directiveId: string, readonly directiveType: string) {
+    super(`Tax directive ${directiveId} is a ${directiveType.replace('_', '-')} directive on regular pay: each payroll run applies it to `
+      + 'that period\'s PAYE, so it cannot be paid as a lump sum.');
+    this.name = 'TaxDirectiveNotLumpSumError';
+  }
+}

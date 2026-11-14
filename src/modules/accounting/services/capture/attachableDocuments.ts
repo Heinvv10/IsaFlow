@@ -62,6 +62,7 @@ export async function listAttachableDocuments(
       WHERE cd.company_id = ${companyId} AND cd.created_at IS NOT NULL AND cd.posted_at IS NULL AND cd.status <> 'rejected' AND cd.read_state = 'done'
         AND cd.document_type IS DISTINCT FROM 'sent_invoice' AND cd.document_type IS DISTINCT FROM 'outbound_email'
         AND cd.document_type IS DISTINCT FROM 'dunning' AND cd.document_type IS DISTINCT FROM 'statement'
+        AND cd.document_type IS DISTINCT FROM 'proof_of_payment' -- a bank's payment notice is not a tax invoice
         AND NOT EXISTS (SELECT 1 FROM bank_statement_imports b WHERE b.source_document_id = cd.id AND b.company_id = cd.company_id)
         AND NOT EXISTS (SELECT 1 FROM supplier_statement_reconciliations r
                         WHERE r.source_document_id = cd.id AND r.company_id = cd.company_id)

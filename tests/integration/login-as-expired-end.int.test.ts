@@ -42,8 +42,9 @@ describe('endExpiredLoginAs', () => {
   it('removes the named stash and expired ones, keeps a newer live one, and audits to the admin', async () => {
     const ended = await fx.loginAsTarget();
     const expired = await fx.loginAsTarget();
-    await pool.query(`UPDATE admin_impersonation_stash SET expires_at = NOW() - INTERVAL '1 minute' WHERE stash_id = $1::uuid`, [expired['sb-admin-stash']]);
     const newer = await fx.loginAsTarget();
+    // Expired only after the last start: a Login-as start purges every expired stash (admin audit 3.10).
+    await pool.query(`UPDATE admin_impersonation_stash SET expires_at = NOW() - INTERVAL '1 minute' WHERE stash_id = $1::uuid`, [expired['sb-admin-stash']]);
     // Each fixture stubs fetch in setUp, so the last one set up records every GoTrue call.
     const callsBefore = other.gotrueCalls.length;
 

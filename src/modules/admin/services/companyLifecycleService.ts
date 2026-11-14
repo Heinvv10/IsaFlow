@@ -25,8 +25,11 @@
  * - money that later arrives against a voided charge is refused by
  *   settleSubscriptionCharge, which logs "no longer settleable" — a refund case.
  * - a charge the cron has already claimed when the delete runs is still
- *   debited; the cron's own status write then records what really happened
- *   (submitted / settled) over the 'cancelled'.
+ *   debited, and stays 'cancelled': the cron's outcome writes
+ *   (subscriptionChargeOutcome.ts) refuse to overwrite a voided charge, so the
+ *   card is debited with nothing recording it. That is logged "Card debited
+ *   for a charge that was voided mid-flight ... refund needed" and counted as
+ *   refundNeeded in the runner result: a refund case, not a submission.
  * - a subscription left on its old period because a charge was `submitted` at
  *   restore time: if that charge later FAILS, the cron retries it and then
  *   bills each missed cycle (the back-billing the restart avoids). Needs a long
@@ -81,8 +84,15 @@ export async function restoreCompany(companyId: string): Promise<boolean> {
   // Subscription rows first, then (in the statement below) the charge rows it
   // voids: the order settle, the attempt claim and an admin cancel use, so a
   // restore racing a webhook settle of one of the company's charges cannot
-  // deadlock. Held until the admin request's transaction commits.
-  await sql`SELECT id FROM subscriptions WHERE company_id = ${companyId} FOR UPDATE`;
+  // deadlock. Held until the admin request's transaction commits. Only for a
+  // company that is actually deleted: restoring any other takes no lock (the
+  // statement below then matches nothing).
+  await sql`
+    SELECT s.id FROM subscriptions s
+    JOIN companies co ON co.id = s.company_id
+    WHERE s.company_id = ${companyId} AND co.status = 'deleted'
+    FOR UPDATE OF s
+  `;
   // Every CTE reads the same snapshot, so `voided` judges each charge against
   // the period end as it was BEFORE `restarted` moves it.
   const rows = await sql<{ id: string; status: string; voided: string[]; restarted: number }>`
@@ -108,7 +118,8 @@ export async function restoreCompany(companyId: string): Promise<boolean> {
       RETURNING c.id
     ), restarted AS (
       UPDATE subscriptions s
-      SET current_period_end = now(),
+      SET current_period_start = now(),
+          current_period_end = now(),
           updated_at = now()
       FROM co
       WHERE s.company_id = co.id

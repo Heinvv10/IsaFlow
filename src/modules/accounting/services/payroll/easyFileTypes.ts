@@ -53,6 +53,8 @@ export interface EmployeeInput {
   paye4582?: number;
   /** Lump sums paid under a directive, NOT included in grossSalary3601. */
   lumpSums?: LumpSumInput[];
+  /** IRP3(b)/(c) directive numbers the year's lines were taxed by: 3230 alone each (easyFileRegularDirectives). */
+  regularDirectiveNumbers?: string[];
   /**
    * The employee's tax threshold for the year (by age). An IT3(a) with reason 02
    * ("earn less than the tax threshold") is written only when 3601 + 3605 is at

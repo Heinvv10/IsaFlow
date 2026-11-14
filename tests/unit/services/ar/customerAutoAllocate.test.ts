@@ -113,7 +113,7 @@ describe('autoApplyCustomerReceipt', () => {
     expect(mockPlan).toHaveBeenCalledWith(COMPANY_ID, PAYMENT_ID, [
       { invoiceId: 'inv-old', amount: 200 },
       { invoiceId: 'inv-new', amount: 300 },
-    ]);
+    ], { paymentCreatedInThisRequest: true }); // every caller just recorded this receipt: no credit ceiling
     expect(result.appliedLines).toHaveLength(2);
     expect(result.unappliedRemainder).toBe(0);
   });

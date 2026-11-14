@@ -83,6 +83,9 @@ describe('admin billing actions complete on a success envelope', () => {
     });
     const { container } = render(<PlansPage />);
     fireEvent.click(await screen.findByRole('button', { name: /add plan/i }));
+    // Prices are required in the form (WP13, audit 4.17: a blank price used to reach the API as null).
+    fireEvent.change(screen.getByLabelText('Monthly Price (R)'), { target: { value: '0' } });
+    fireEvent.change(screen.getByLabelText('Annual Price (R)'), { target: { value: '0' } });
     fireEvent.click(screen.getByRole('button', { name: /create plan/i }));
     expect(await screen.findByText('Freshly Minted Plan')).toBeTruthy();
     expect(container.querySelector('[role="dialog"]')).toBeNull();
