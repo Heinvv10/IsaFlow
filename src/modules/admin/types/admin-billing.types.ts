@@ -64,8 +64,10 @@ export interface BillingOverview {
   trial_count: number;
   /** Companies with an active subscription worth more than R0 (metrics module). */
   paying_companies: number;
-  /** null when nothing could churn (no subscriptions in the window). */
+  /** Company churn of this SAST month so far (Revenue Intelligence's latest month); null when nobody paid at its start. */
   churn_rate_percent: number | null;
+  /** First day (YYYY-MM-01) of the month churn_rate_percent covers. */
+  churn_period: string;
   /** MRR / paying companies; null when no company pays. */
   arpu_cents: number | null;
   /** Manual admin invoices only (admin_invoices), VAT-inclusive. */

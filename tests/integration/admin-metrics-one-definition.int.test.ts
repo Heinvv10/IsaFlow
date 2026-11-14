@@ -62,6 +62,9 @@ describe('one MRR definition (goal §2a)', () => {
     expect(dash.arr_cents).toBe(overview.arr_cents);
     expect(trends.mrr_trend.at(-1)?.mrr_cents).toBe(overview.mrr_cents);
     expect(revenue.arpu_cents).toBe(overview.arpu_cents);
+    // Round 2 M2: the overview's churn is Revenue Intelligence's latest month, labelled with it.
+    expect(overview.churn_rate_percent).toBe(revenue.churn_trend.at(-1)!.churn_rate_pct);
+    expect((overview as { churn_period?: string }).churn_period).toBe(revenue.churn_trend.at(-1)!.month);
   });
 
   it('plan breakdown and revenue by plan: paying companies only, discount applied', async () => {

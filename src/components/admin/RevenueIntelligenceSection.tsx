@@ -8,7 +8,7 @@ import dynamic from 'next/dynamic';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import type { RevenueIntelligence } from '@/modules/admin/types/admin.types';
-import { formatCentsOrDash, formatRate, MRR_SCOPE_NOTE } from '@/components/admin/formatMetric';
+import { formatCentsOrDash, formatRate, MRR_SCOPE_NOTE, MRR_TREND_NOTE } from '@/components/admin/formatMetric';
 
 const PlanBreakdownChart  = dynamic(
   () => import('./charts/PlanBreakdownChart').then((m) => m.PlanBreakdownChart),
@@ -120,6 +120,8 @@ export function RevenueIntelligenceSection() {
             />
           </div>
 
+          <p className="text-xs text-ink-muted -mt-3 mb-6">NRR and LTV: {MRR_TREND_NOTE}</p>
+
           {/* Plan breakdown + Churn trend side by side */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
             <ChartCard title="MRR by Plan &amp; Billing Cycle">
@@ -127,6 +129,7 @@ export function RevenueIntelligenceSection() {
             </ChartCard>
             <ChartCard title="Churn Rate Trend (6 months)">
               <ChurnTrendChart data={data.churn_trend} />
+              <p className="text-xs text-ink-muted mt-2">Paying companies at the start of each month that pay nothing at its end. {MRR_TREND_NOTE}</p>
             </ChartCard>
           </div>
 

@@ -7,8 +7,9 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { companyOutOfMrr, getRevenueSummary, subscriptionInMrr, subscriptionMrrCents } from './metrics/metricsSql';
-import { percentOrNull } from './metrics/revenueMath';
+import { companyOutOfMrr, loadSubscriptionFacts, subscriptionInMrr, subscriptionMrrCents } from './metrics/metricsSql';
+import { summariseRevenue } from './metrics/revenueMath';
+import { churnTrend } from './metrics/timeSeriesMath';
 import type {
   BillingOverview,
   SubscriptionListItem,
@@ -28,7 +29,8 @@ function toIso(value: unknown): string | null {
 // ---------------------------------------------------------------------------
 
 export async function getBillingOverview(): Promise<BillingOverview> {
-  const [[subRow], [churnRow], [revRow], revenue] = await Promise.all([
+  const now = new Date();
+  const [[subRow], [revRow], facts] = await Promise.all([
     // One population for the whole card row: the companies MRR counts (no
     // deleted, suspended or internal company), as active_subscriptions.
     sql`
@@ -41,27 +43,19 @@ export async function getBillingOverview(): Promise<BillingOverview> {
     `,
     sql`
       SELECT
-        COUNT(*) FILTER (WHERE s.status = 'cancelled'
-          AND s.cancelled_at >= NOW() - INTERVAL '30 days')::float AS cancelled_30d,
-        COUNT(*) FILTER (WHERE s.status IN ('active','trial','past_due')
-          OR (s.status = 'cancelled' AND s.cancelled_at >= NOW() - INTERVAL '30 days'))::float AS base
-      FROM subscriptions s
-      JOIN companies c ON c.id = s.company_id
-      WHERE NOT ${companyOutOfMrr()}
-    `,
-    sql`
-      SELECT
         COALESCE(SUM(total_cents) FILTER (WHERE status = 'paid'), 0)              AS total_revenue_cents,
         COALESCE(SUM(total_cents) FILTER (WHERE status IN ('sent','overdue')), 0)  AS outstanding_cents
       FROM admin_invoices
     `,
-    // MRR, ARR, ARPU and paying companies: the one definition (metrics module).
-    getRevenueSummary(),
+    // MRR, ARR, ARPU, paying companies and churn: the one definition (metrics module).
+    loadSubscriptionFacts(),
   ]);
 
   const s = subRow as Row;
-  const c = churnRow as Row;
   const rv = revRow as Row;
+  const revenue = summariseRevenue(facts);
+  // The same churn as Revenue Intelligence: this SAST month so far.
+  const churn = churnTrend(facts, now, 1)[0]!;
 
   const overview: BillingOverview = {
     mrr_cents: revenue.mrr_cents,
@@ -71,7 +65,8 @@ export async function getBillingOverview(): Promise<BillingOverview> {
     past_due_count: parseInt(s.past_due as string, 10),
     trial_count: parseInt(s.trial as string, 10),
     paying_companies: revenue.paying_companies,
-    churn_rate_percent: percentOrNull(c.cancelled_30d as number, c.base as number),
+    churn_rate_percent: churn.churn_rate_pct,
+    churn_period: churn.month,
     arpu_cents: revenue.arpu_cents,
     total_revenue_cents: parseInt(rv.total_revenue_cents as string, 10),
     outstanding_cents: parseInt(rv.outstanding_cents as string, 10),

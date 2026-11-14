@@ -65,12 +65,16 @@ describe('churnTrend (review M1)', () => {
     fact('c', 1_200_000, '2026-10-05T00:00:00Z', { status: 'cancelled', cancelled_at: new Date('2026-10-20T00:00:00Z') }), // new in Oct: not in its base
     fact('d', 1_200_000, aug, { status: 'cancelled', cancelled_at: new Date('2026-10-15T00:00:00Z'), company_excluded: true }), // deleted/internal
     fact('e', 1_200_000, aug, { status: 'trial' }),                                              // never paying
+    fact('r', 0, aug),                                                       // active on a R0 plan: not a paying company (L3)
+    fact('f', 1_200_000, aug, { status: 'cancelled', cancelled_at: new Date('2026-11-20T00:00:00Z') }), // dated after now (L3)
   ], now, 4);
   it('per SAST month: paying companies at the start that pay nothing by the end; an empty base is null', () => {
+    // Base: a, b, f (r pays R0; c joined in Oct; d excluded; e a trial). Oct: b churns, 1 / 3.
+    // Nov: base a, f; f's cancellation is dated 20 Nov, after now (14 Nov): not churn yet.
     expect(rows).toEqual([
       { month: '2026-08-01', churned_companies: 0, churn_rate_pct: null },
       { month: '2026-09-01', churned_companies: 0, churn_rate_pct: 0 },
-      { month: '2026-10-01', churned_companies: 1, churn_rate_pct: 50 },
+      { month: '2026-10-01', churned_companies: 1, churn_rate_pct: 33.33 },
       { month: '2026-11-01', churned_companies: 0, churn_rate_pct: 0 },
     ]);
   });

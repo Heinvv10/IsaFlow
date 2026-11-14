@@ -8,6 +8,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
+import { formatDisplayMonthYear } from '@/utils/dateFormat';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { formatCentsOrDash, formatRate, MRR_SCOPE_NOTE } from '@/components/admin/formatMetric';
 import { AlertCircle, Loader2, ArrowRight, CreditCard, List, FileText, Zap, Package } from 'lucide-react';
@@ -22,6 +23,7 @@ interface BillingOverview {
   trial_count: number;
   paying_companies: number;
   churn_rate_percent: number | null;
+  churn_period: string;
   arpu_cents: number | null;
   total_revenue_cents: number;
   outstanding_cents: number;
@@ -97,7 +99,7 @@ export default function BillingOverviewPage() {
             <StatsCard title="Active Subscriptions"  value={overview.active_subscriptions} />
             <StatsCard title="Past Due"              value={overview.past_due_count} />
             <StatsCard title="Trials"                value={overview.trial_count} />
-            <StatsCard title="Churn Rate"            value={formatRate(overview.churn_rate_percent, 1)} />
+            <StatsCard title="Churn Rate"            value={formatRate(overview.churn_rate_percent, 1)} subtitle={`${formatDisplayMonthYear(overview.churn_period)} to date, paying companies`} />
             <StatsCard title="Paying Companies"      value={overview.paying_companies} />
             <StatsCard title="ARPU"                  value={formatCentsOrDash(overview.arpu_cents)} subtitle="MRR / paying companies" />
             {/* admin_invoices only: Paystack charges and flow purchases are not in these two. */}

@@ -78,7 +78,11 @@ const asDateOrNull = (v: unknown): Date | null => (v == null ? null : asDate(v))
  *   - else, a row created before the company's trial_ends_at is taken to be
  *     the trial row and earns from the trial end (capped at now). This is an
  *     approximation (a paid row bought during the trial is dated to the trial
- *     end; an extended trial moves it): the trend card says so.
+ *     end; an extended trial moves it): the trend, NRR and churn cards say so.
+ * Only the admin Convert route (POST /api/admin/trials/convert) writes that
+ * audit row. A conversion by PATCH /api/admin/billing/subscriptions/[id]
+ * (status) or a self-serve upgrade writes none, so those always take the
+ * trial_ends_at fallback.
  */
 export async function loadSubscriptionFacts(): Promise<SubscriptionFact[]> {
   const rows = await sql`

@@ -19,5 +19,11 @@ export function formatCentsOrDash(cents: number | null | undefined): string {
 /** What every MRR/ARR figure counts (goal §2a), shown beside the figure. */
 export const MRR_SCOPE_NOTE = 'Active subscriptions only; excludes trials, past due, suspended and internal companies';
 
-/** The MRR trend's one approximation (metricsSql.ts loadSubscriptionFacts). */
-export const MRR_TREND_NOTE = 'A converted trial counts from its recorded conversion, or from its trial end when none was recorded.';
+/**
+ * How MRR history (trend, NRR, churn) is dated, and its approximations
+ * (metricsSql.ts loadSubscriptionFacts; revenueMath.ts inMrrAt).
+ */
+export const MRR_TREND_NOTE = 'History: a converted trial counts from its recorded admin conversion. A conversion with no record '
+  + '(a status edit, a self-serve upgrade) counts from the trial end, so a paid subscription bought during a trial, or a trial '
+  + 'that was extended, is dated to the current trial end. Past due and paused subscriptions are outside the MRR history '
+  + 'and the churn base.';

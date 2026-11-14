@@ -41,7 +41,8 @@ const valueOf = (label: string) => screen.getByText(label).nextElementSibling?.t
 
 describe('billing overview', () => {
   const overview = { mrr_cents: 0, arr_cents: 0, total_subscriptions: 1, active_subscriptions: 1, past_due_count: 0,
-    trial_count: 0, paying_companies: 0, churn_rate_percent: null, arpu_cents: null, total_revenue_cents: 0, outstanding_cents: 0 };
+    trial_count: 0, paying_companies: 0, churn_rate_percent: null, churn_period: '2026-11-01', arpu_cents: null,
+    total_revenue_cents: 0, outstanding_cents: 0 };
   it('no paying company and no churn base: dashes, not R0 and 0.0%', async () => {
     serve({ '/api/admin/billing/overview': overview, '/api/admin/billing/subscriptions': { items: [] } });
     render(<BillingOverviewPage />);
@@ -56,6 +57,8 @@ describe('billing overview', () => {
     render(<BillingOverviewPage />);
     await screen.findByText('ARPU');
     expect(valueOf('Churn Rate')).toBe('0.0%');
+    // Round 2 M2: the period the churn figure covers.
+    expect(screen.getByText('Churn Rate').parentElement?.textContent).toContain('Nov 2026 to date, paying companies');
     expect(valueOf('ARPU')).toContain('599.00');
     expect(screen.queryByText('Total Revenue')).toBeNull();
     expect(screen.getByText('Paid Admin Invoices')).toBeDefined();
@@ -85,6 +88,17 @@ describe('MRR scope note (review M3)', () => {
     render(<RevenueIntelligenceSection />);
     await screen.findByText('Net Revenue Retention');
     expect(screen.getByText(`${SCOPE}.`)).toBeDefined();
+  });
+  it('revenue intelligence: NRR and churn name the history approximations (round 2 L1, L2)', async () => {
+    serve({ '/api/admin/analytics/revenue': { plan_breakdown: [], churn_trend: [], nrr: null, arpu_cents: null,
+      ltv_estimate_cents: null, cohort_retention: [] } });
+    render(<RevenueIntelligenceSection />);
+    await screen.findByText('Net Revenue Retention');
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('NRR and LTV: History:');
+    expect(text).toContain('Paying companies at the start of each month that pay nothing at its end.');
+    expect(text).toContain('a paid subscription bought during a trial, or a trial that was extended');
+    expect(text).toContain('Past due and paused subscriptions are outside the MRR history and the churn base.');
   });
 });
 
