@@ -1,7 +1,8 @@
 /**
  * Tax Directives API — single resource
  * GET    — get directive by id
- * PATCH  — update status (approve / cancel) and/or issued_date (YYYY-MM-DD or null).
+ * PATCH  — update status (approve / cancel), issued_date (YYYY-MM-DD or null) and/or, on a regular-pay directive,
+ *          expiry_date (set or shorten only; taxDirectiveRegularPayChange). Approving is refused under Login-as (403).
  *          A paid directive cannot leave 'approved': 409 (taxDirectivePaidGuard).
  *          employee_id cannot be changed (400): a run's claim at approval does
  *          not re-read it, so moving an approved directive would let a run
@@ -23,6 +24,11 @@ import {
 } from '@/modules/accounting/services/payroll/taxDirectiveService';
 import { isIsoDate } from '@/modules/accounting/services/payroll/taxDirectiveDates';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { TaxDirectiveWindowError } from '@/modules/accounting/services/payroll/taxDirectiveOverlap';
+import { isCalendarDate } from '@/modules/accounting/services/payroll/taxDirectiveRegularPayBody';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { TaxDirectiveSelfApprovalError } from '@/modules/accounting/services/payroll/taxDirectiveApprover';
+import { LeaverExitAmbiguousError, LeaverExitRunNotReopenedError, LeaverExitWindowTakenError } from '@/modules/accounting/services/payroll/taxDirectiveLeaverUndo';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_STATUSES: DirectiveStatus[] = ['pending', 'approved', 'expired', 'cancelled'];
@@ -42,14 +48,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'PATCH') {
-    const { status, issued_date: issuedDate, employee_id: employeeId } = (req.body ?? {}) as {
-      status?: string; issued_date?: unknown; employee_id?: unknown;
+    const { status, issued_date: issuedDate, employee_id: employeeId, expiry_date: expiryDate } = (req.body ?? {}) as {
+      status?: string; issued_date?: unknown; employee_id?: unknown; expiry_date?: unknown;
     };
     if (employeeId !== undefined) {
       return apiResponse.badRequest(res, 'A directive\'s employee cannot be changed: cancel it and create a new one for the right employee');
     }
-    if (status === undefined && issuedDate === undefined) {
-      return apiResponse.badRequest(res, 'Send status and/or issued_date');
+    if (status === undefined && issuedDate === undefined && expiryDate === undefined) {
+      return apiResponse.badRequest(res, 'Send status, issued_date and/or expiry_date');
+    }
+    // A regular-pay directive's expiry may be set or shortened (taxDirectiveRegularPayChange); never cleared.
+    if (expiryDate !== undefined && !isCalendarDate(expiryDate)) {
+      return apiResponse.badRequest(res, 'expiry_date must be a date in YYYY-MM-DD format from 2000 to 2100');
     }
     if (status !== undefined && !VALID_STATUSES.includes(status as DirectiveStatus)) {
       return apiResponse.badRequest(
@@ -66,12 +76,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       updated = await updateTaxDirective(
         companyId,
         directiveId,
-        { status: status as DirectiveStatus | undefined, issued_date: issuedDate as string | null | undefined },
+        { status: status as DirectiveStatus | undefined, issued_date: issuedDate as string | null | undefined, expiry_date: expiryDate as string | undefined },
         status === 'approved' ? user.id : undefined,
+        user.id,
       );
     } catch (err) {
+      // Approving, and any change to a regular-pay directive, is refused under Login-as (403, before any write).
+      if (respondIfImpersonationForbidden(res, err)) return;
+      // Four eyes: the person who captured it may not approve it while another member could (403, before any write).
+      if (err instanceof TaxDirectiveSelfApprovalError) return apiResponse.forbidden(res, err.message);
+      // Undoing a leaver exit while a run it changed is not reopened (before any write).
+      if (err instanceof LeaverExitRunNotReopenedError || err instanceof LeaverExitWindowTakenError || err instanceof LeaverExitAmbiguousError) return apiResponse.conflict(res, err.message, { code: err.code });
       // Raised before anything is written, so the 409 withAuth commits changes nothing.
       if (err instanceof TaxDirectivePaidError) return apiResponse.conflict(res, err.message);
+      // A regular-pay directive's window (overlap, an approved period inside it, an expiry change): judged under the employee's lock, before the write.
+      if (err instanceof TaxDirectiveWindowError) return apiResponse.badRequest(res, err.message);
       throw err;
     }
 
@@ -84,6 +103,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
       deleted = await deleteTaxDirective(companyId, directiveId);
     } catch (err) {
+      // A regular-pay directive's delete is refused under Login-as, as its cancel is (403, before any write).
+      if (respondIfImpersonationForbidden(res, err)) return;
       // Raised before anything is written (paid or with a payment record).
       if (err instanceof TaxDirectivePaidError) return apiResponse.conflict(res, err.message);
       throw err;
