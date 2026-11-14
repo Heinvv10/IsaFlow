@@ -2,6 +2,8 @@
  * Admin Trials — Convert to Paid
  * POST /api/admin/trials/convert
  * Body: { companyId: string; planId: string }
+ * 200 { companyId, planId, subscriptionId, firstChargeAt, hasActiveMandate, converted } · 404 company/plan unknown
+ * · 400 plan not convertible · 409 company suspended/cancelled, already paying, or its subscription paused
  */
 
 import type { NextApiResponse } from 'next';
@@ -12,6 +14,7 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { markAsConverted } from '@/modules/admin/services/trialService';
+import { TrialConvertError } from '@/modules/admin/services/trialErrors';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 import { UUID } from '@/lib/schemas/common';
@@ -34,25 +37,35 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId, planId } = parsed.data;
 
   try {
-    await markAsConverted(companyId, planId);
+    const { subscriptionId, firstChargeAt, hasActiveMandate } = await markAsConverted(companyId, planId);
 
     await logAdminAction(
       req.user.id,
       'trial.convert_to_paid',
       'company',
       companyId,
-      { planId },
+      { planId, subscriptionId, firstChargeAt, hasActiveMandate },
       getIp(req),
     );
 
-    log.info('Trial converted to paid', { companyId, planId }, 'admin-trials-convert');
-    return apiResponse.success(res, { companyId, planId, converted: true });
+    log.info('Trial converted to paid', { companyId, planId, subscriptionId }, 'admin-trials-convert');
+    return apiResponse.success(res, { companyId, planId, subscriptionId, firstChargeAt, hasActiveMandate, converted: true });
   } catch (err) {
+    // A refusal is raised before anything is written, so answering 4xx commits nothing.
+    // Anything else (a database error, a failed audit write) is a 500: the request's
+    // transaction rolls back whole, and the client never sees the error text.
+    if (err instanceof TrialConvertError) {
+      switch (err.code) {
+        case 'company_not_found': return apiResponse.notFound(res, 'Company');
+        case 'plan_not_found': return apiResponse.notFound(res, 'Plan');
+        case 'already_paid':
+        case 'company_not_convertible':
+        case 'subscription_paused': return apiResponse.conflict(res, err.message);
+        default: return apiResponse.badRequest(res, err.message);
+      }
+    }
     log.error('Failed to convert trial', { companyId, planId, error: err }, 'admin-trials-convert');
-    return apiResponse.badRequest(
-      res,
-      err instanceof Error ? err.message : 'Failed to convert trial',
-    );
+    throw err;
   }
 }
 

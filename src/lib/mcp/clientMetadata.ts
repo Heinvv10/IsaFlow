@@ -118,6 +118,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'allocate_bank_transaction',
   'reverse_bank_allocation',
   'reallocate_bank_transaction',
+  'update_company_profile',
   'bulk_allocate_bank_transactions',
   'reverse_bank_allocation_batch',
   'post_reclassification_batch',

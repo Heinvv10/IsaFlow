@@ -54,6 +54,7 @@ describe('plain sentences for an empty 5xx', () => {
   it('ConvertTrialModal', async () => {
     serve(on('GET', 'plans', () => ok([{ id: 'p1', name: 'Pro', code: 'pro', monthly_price_cents: 100, currency: 'ZAR' }])), on('POST', 'trials/convert', empty500));
     render(<ConvertTrialModal companyId="c1" companyName="Co" onClose={vi.fn()} onConverted={vi.fn()} />);
+    fireEvent.click(await screen.findByLabelText(/Pro/)); // no plan is preselected
     const btn = await screen.findByRole('button', { name: /convert/i });
     await waitFor(() => expect((btn as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(btn);

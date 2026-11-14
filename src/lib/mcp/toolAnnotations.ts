@@ -51,6 +51,7 @@ const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
   'update_customer',
   'update_supplier',
   'lock_vat_period',
+  'update_company_profile',
   'mark_vat_declared_elsewhere',
   'update_cost_centre',
   'delete_cost_centre',
