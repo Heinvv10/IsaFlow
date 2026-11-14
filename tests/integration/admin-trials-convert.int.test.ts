@@ -89,10 +89,32 @@ describe('convert a trial to paid', () => {
     expect(subs[0].current_period_end).not.toBeNull();
   }, 30000);
 
-  it('two converts at once leave one subscription; the second is refused, as is a later one for another plan', async () => {
+  it('a convert that lost the race (another one committed while it waited on the company lock) is refused, not applied on top', async () => {
+    const id = await makeCompany({ name: 'Convert race', endsInDays: 5, sub: { plan: plans.trial, status: 'trial' } });
+    const rival = await pool.connect();
+    try {
+      await rival.query('BEGIN');
+      await rival.query('SELECT id FROM companies WHERE id = $1 FOR UPDATE', [id]);
+      const loser = convert(id, plans.paid2);
+      await new Promise((resolve) => setTimeout(resolve, 400)); // it is queued behind the rival's lock
+      await rival.query(`UPDATE subscriptions SET status = 'active', plan_id = $2, current_period_end = NOW() + interval '1 month'
+        WHERE company_id = $1`, [id, plans.paid]);
+      await rival.query('COMMIT');
+      const r = await loser;
+      expect(r.status, JSON.stringify(r.body)).toBe(409);
+    } finally {
+      rival.release();
+    }
+    const subs = await subsOf(id);
+    expect(subs).toHaveLength(1);
+    expect(subs[0]).toMatchObject({ status: 'active', plan_id: plans.paid });
+    expect(await auditCount('trial.convert_to_paid', id)).toBe(0);
+  }, 60000);
+
+  it('converting twice leaves one subscription: the second is refused, as is one for another plan', async () => {
     const id = await makeCompany({ name: 'Convert twice', endsInDays: 5, sub: { plan: plans.trial, status: 'trial' } });
-    const both = await Promise.all([convert(id, plans.paid), convert(id, plans.paid)]);
-    expect(both.map((r) => r.status).sort()).toEqual([200, 409]);
+    expect((await convert(id, plans.paid)).status).toBe(200);
+    expect((await convert(id, plans.paid)).status).toBe(409);
     expect((await convert(id, plans.paid2)).status).toBe(409);
     const subs = await subsOf(id);
     expect(subs).toHaveLength(1);

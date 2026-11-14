@@ -44,6 +44,7 @@ beforeAll(async () => {
   before = await counts();
   const trialSub = { plan: plans.trial, status: 'trial' };
   ids.running = await makeCompany({ name: 'List running', endsInDays: 3, sub: trialSub });
+  ids.later = await makeCompany({ name: 'List twenty days', endsInDays: 20, sub: trialSub });
   ids.hours = await makeCompany({ name: 'List twelve hours', endsInDays: 0.5, sub: trialSub });
   ids.expired = await makeCompany({ name: 'List expired', endsInDays: -20, sub: trialSub });
   ids.converted = await makeCompany({ name: 'List converted', endsInDays: -30, sub: { plan: plans.paid, status: 'active', periodEndDays: 10 } });
@@ -62,9 +63,10 @@ describe('the trials list', () => {
     const rows = await listAll();
     const mine = new Map(rows.filter((r) => r.name.endsWith(tag)).map((r) => [r.id, r]));
     expect(mine.has(ids.deleted)).toBe(false);
-    expect(mine.size).toBe(6);
+    expect(mine.size).toBe(7);
     expect(mine.get(ids.running)?.trial_state).toBe('active');
     expect(mine.get(ids.hours)?.trial_state).toBe('active');
+    expect(mine.get(ids.later)?.trial_state).toBe('active');
     expect(mine.get(ids.expired)?.trial_state).toBe('expired');
     expect(mine.get(ids.suspended)?.trial_state).toBe('expired');
     expect(mine.get(ids.converted)?.trial_state).toBe('converted');
@@ -93,12 +95,12 @@ describe('one definition of a trial', () => {
   it('the stats, the billing overview and the health widget agree with the list', async () => {
     const after = await counts();
     const d = (n: number, b: number) => n - b;
-    expect(d(after.stats.total_trials, before.stats.total_trials)).toBe(6);
-    expect(d(after.stats.active_trials, before.stats.active_trials)).toBe(2);
+    expect(d(after.stats.total_trials, before.stats.total_trials)).toBe(7);
+    expect(d(after.stats.active_trials, before.stats.active_trials)).toBe(3);
     expect(d(after.stats.expiring_this_week, before.stats.expiring_this_week)).toBe(2);
     expect(d(after.stats.expired_unpaid, before.stats.expired_unpaid)).toBe(3);
-    expect(d(after.overview, before.overview)).toBe(2);
-    expect(d(after.health, before.health)).toBe(2);
+    expect(d(after.overview, before.overview)).toBe(3); // running trials, whenever they end
+    expect(d(after.health, before.health)).toBe(2); // only those ending within 7 days
   }, 60000);
 });
 
