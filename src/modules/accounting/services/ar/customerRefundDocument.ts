@@ -37,6 +37,7 @@ import { log } from '@/lib/logger';
 import { resolveUserUuid } from '../gl/journalEntryCrudService';
 import { lockContactForRefund } from '../core/paymentLock';
 import { REFUND_PAYMENT_METHOD, SupplierRefundRefusal } from '../ap/supplierRefundDocument';
+import { creditAsAt, customerCreditDays, judgeCreditDays, lowersBelowZero, withDatedRemovals } from './customerRunningCredit';
 
 /**
  * ONE refusal class for both sides. The two refusals are the same fact about
@@ -64,45 +65,32 @@ function round2(n: number): number {
 }
 
 /**
- * What this customer has sitting on account, as at a date. See the AP twin for
- * why the allocation cap is `GREATEST(total, 0)` and not `LEAST(alloc, total)`.
+ * What this customer has sitting on account, as at a date: the receipt credit rule's one basis
+ * (`customerRunningCredit.customerCreditDays`, summed up to the date by `creditAsAt`). A customer that is not this
+ * company's has no credit here: 0 — even if this company's receipts name it (`client_id` is an FK on id only). See the
+ * AP twin for why the allocation cap is `GREATEST(total, 0)` and not `LEAST(alloc, total)`.
  */
 export async function getCustomerOnAccountCredit(
   companyId: string,
   customerId: string,
   asAt: string,
 ): Promise<{ credit: number; customerName: string }> {
-  const rows = (await sql`
-    SELECT COALESCE(SUM(
-             cp.total_amount
-             - LEAST(COALESCE(alloc.allocated, 0), GREATEST(cp.total_amount, 0))
-           ), 0) AS credit,
-           MAX(c.name) AS customer_name
-    FROM customers c
-    LEFT JOIN customer_payments cp
-      ON cp.client_id = c.id
-     AND cp.company_id = c.company_id
-     AND cp.status <> 'cancelled'
-     AND cp.payment_date <= ${asAt}::DATE
-    LEFT JOIN LATERAL (
-      SELECT SUM(cpa.amount_allocated) AS allocated
-      FROM customer_payment_allocations cpa
-      WHERE cpa.payment_id = cp.id
-    ) alloc ON TRUE
-    WHERE c.company_id = ${companyId}::UUID
-      AND c.id = ${customerId}::UUID
-  `) as DbRow[];
-
-  return {
-    credit: round2(Number(rows[0]?.credit ?? 0)),
-    customerName: rows[0]?.customer_name ? String(rows[0].customer_name) : 'this customer',
-  };
+  const owned = (await sql`
+    SELECT c.name FROM customers c WHERE c.id = ${customerId}::UUID AND c.company_id = ${companyId}::UUID`) as DbRow[];
+  if (owned.length === 0) return { credit: 0, customerName: 'this customer' };
+  const { customerName, days } = await customerCreditDays(companyId, customerId, []);
+  return { credit: round2(creditAsAt(days, asAt)), customerName };
 }
 
 /**
  * The ceiling check. Takes the contact lock, then reads; writes nothing else.
  * See the AP twin for why a ceiling read without the lock is a number two
  * concurrent refunds both satisfy.
+ *
+ * Judged by DATE, by the receipt credit rule (`ar/customerRunningCredit`): the refund takes its amount off the running
+ * credit from its own date on, and is refused when that leaves any of those dates below zero — the LOWEST running
+ * credit from its date, as the AP twin's `lowestFromDate`, so a refund dated before one already recorded cannot push
+ * the later one's date below zero.
  */
 export async function planCustomerRefund(
   companyId: string,
@@ -111,15 +99,22 @@ export async function planCustomerRefund(
   paymentDate: string,
 ): Promise<CustomerRefundPlan> {
   const gross = round2(Math.abs(amount));
-  await lockContactForRefund(companyId, 'customer', customerId);
-  const { credit, customerName } = await getCustomerOnAccountCredit(
-    companyId, customerId, paymentDate,
-  );
+  // Fail closed: a customer that is not this company's has no credit here to judge, and its lock serialises nothing.
+  if (!(await lockContactForRefund(companyId, 'customer', customerId))) {
+    throw new SupplierRefundRefusal('This refund names a customer that is not one of this company\'s customers — '
+      + 'nothing was recorded. Allocate it to the right customer.');
+  }
+  // ONE basis with the receipt writes (`customerRunningCredit`): the as-at figure is the running credit up to its date.
+  const { customerName, days } = await customerCreditDays(companyId, customerId, []);
+  const asAtDate = round2(creditAsAt(days, paymentDate));
+  const judged = judgeCreditDays(withDatedRemovals(days, [{ date: paymentDate, amount: gross }]));
+  const credit = gross > 0 ? round2(judged.lowest) : asAtDate;
+  const basis = credit >= asAtDate ? `as at ${paymentDate}` : 'once documents dated after this one are counted';
 
-  if (gross > credit) {
+  if (lowersBelowZero(judged)) {
     throw new SupplierRefundRefusal(
       `A refund of ${gross.toFixed(2)} exceeds the ${credit.toFixed(2)} `
-      + `${customerName} has on account as at ${paymentDate}. `
+      + `${customerName} has on account ${basis}. `
       + `Recording it would leave the company owing ${customerName}, which is a `
       + 'payable — it cannot be recorded against Accounts Receivable. Raise a '
       + 'credit note, or allocate this payment to the account it belongs to.',

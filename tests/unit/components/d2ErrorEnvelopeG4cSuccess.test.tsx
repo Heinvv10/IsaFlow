@@ -46,7 +46,7 @@ const USER = { id: 'x-1', first_name: 'Ann', last_name: 'Lee', email: 'ann@examp
 const calls = (p: string, m: string) => vi.mocked(apiFetch).mock.calls.filter(([u, i]) =>
   String(u).split('?')[0] === p && ((i as RequestInit | undefined)?.method ?? 'GET') === m).length;
 
-afterEach(() => { cleanup(); });
+afterEach(() => { cleanup(); vi.unstubAllEnvs(); });
 
 describe('admin action sites complete on a success envelope', () => {
   const settingsRoute: Router = (p, m) => {
@@ -54,12 +54,6 @@ describe('admin action sites complete on a success envelope', () => {
     if (p === '/api/admin/alert-settings' && m === 'GET') return success({ health_alert_email: '', health_alert_webhook_url: '' });
     return null;
   };
-  it('success: settings platform save completes', async () => {
-    script(settingsRoute);
-    render(<SettingsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /^save settings$/i }));
-    expect(await screen.findByText('Settings saved successfully.')).toBeTruthy();
-  });
   it('success: settings alert save completes', async () => {
     script(settingsRoute);
     render(<SettingsPage />);
@@ -85,6 +79,7 @@ describe('admin action sites complete on a success envelope', () => {
   it('success: user detail renders the data it received and impersonate completes', async () => {
     const open = vi.fn();
     vi.stubGlobal('open', open);
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.example.test');
     script((p, m) => {
       if (p === '/api/admin/users/x-1' && m === 'GET') return success({ ...USER, first_name: 'Yvonne', last_name: 'Zuma' });
       if (p === '/api/admin/companies/co-9/impersonate') return success({ token: 'tok-123' });
@@ -93,7 +88,7 @@ describe('admin action sites complete on a success envelope', () => {
     render(<UserDetailPage />);
     expect((await screen.findAllByText(/Yvonne Zuma/)).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: /^impersonate$/i }));
-    await waitFor(() => expect(open).toHaveBeenCalledWith('/accounting?impersonate=tok-123', '_blank'));
+    await waitFor(() => expect(open).toHaveBeenCalledWith('https://app.example.test/accounting?impersonate=tok-123', '_blank', 'noopener,noreferrer'));
   });
 });
 

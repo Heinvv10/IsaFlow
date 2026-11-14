@@ -21,6 +21,8 @@
  * applied one way in a dry run and another way live.
  */
 import type { McpTool } from '../types';
+import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
+import { isHeldRowError } from '@/lib/lockTimeout';
 import { MUTATION_ARG_SCHEMA, type DryRunEffect, type DryRunResult } from '@/lib/mcp/contracts';
 import {
   applyReceiptPlan,
@@ -52,6 +54,8 @@ export const applyReceiptToInvoiceTool: McpTool = {
     + 'Every invoice must belong to the same customer as the receipt, and no amount may exceed '
     + "that invoice's outstanding balance. Applying less than the receipt is allowed and leaves a "
     + 'real unapplied remainder, which list_unapplied_receipts will keep reporting. '
+    + 'Applying a receipt\'s remainder that a customer refund has already returned is refused (reverse the refund '
+    + 'first, or apply only what is still on account). '
     + 'Does NOT cover: supplier payments (apply_payment_to_supplier_invoice), settlement against '
     + 'a loan or intercompany account without cash (settle_by_contra), credit notes '
     + '(create_credit_note), or receipts that were posted straight to the control account by a '
@@ -124,6 +128,9 @@ async function applyFromPayment(
   try {
     plan = await planReceiptApplication(companyId, paymentId, allocations);
   } catch (err) {
+    // A held row (the receipt, an invoice, the customer's credit lock) is contention, not a refusal about the books:
+    // thrown, so the registry rolls the call back and answers it as every tool answers a retryable lock error.
+    if (isRetryableContention(err) || isHeldRowError(err)) throw err;
     return toolError(safeErrorText(err, 'Could not apply this receipt.'));
   }
 
