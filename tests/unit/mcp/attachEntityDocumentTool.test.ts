@@ -109,7 +109,7 @@ describe('attach_entity_document', () => {
   it('refuses bad arguments pre-write', async () => {
     const b64 = PDF.toString('base64');
     const cases: Array<[Record<string, unknown>, string]> = [
-      [{ ...base, entity_type: 'bank_transaction', content: b64 }, 'invalid entity_type'],
+      [{ ...base, entity_type: 'journal', content: b64 }, 'invalid entity_type'],
       [{ ...base, entity_id: 'abc', content: b64 }, 'entity_id'],
       [{ ...base, document_type: 'payslip', content: b64 }, 'invalid document_type'],
       [{ ...base, mime_type: 'text/html', content: b64 }, 'invalid mime_type'],

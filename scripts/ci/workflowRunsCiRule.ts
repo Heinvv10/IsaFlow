@@ -29,6 +29,8 @@
  * Since 2026-10-30 the gates run in two groups (`bun run ci static` on
  * GitHub-hosted runners, `bun run ci velo` on velo); run-ci.sh still holds the
  * one list, and "Type Check, Lint & Test" passes only when both groups did.
+ * Since 2026-11-14 each group runs hosted as a matrix of parts
+ * (`bun run ci static 2/3`); run-ci.sh decides which gates a part runs.
  *
  * WHAT IT CANNOT DO:
  *   - On GitHub it runs inside the workflow it checks, so it cannot catch a
@@ -55,7 +57,7 @@
  */
 
 import {
-  CHECKOUT, JOB_PERMISSIONS, LIGHT_RUNS_ON, QUALITY_JOB, QUALITY_NAME, checkGateJobs, extraKeys, isObj, sameList, sameMap, type Obj,
+  CHECKOUT, JOB_PERMISSIONS, LIGHT_RUNS_ON, QUALITY_JOB, QUALITY_NAME, checkGateJobs, extraKeys, isObj, partName, sameList, sameMap, type Obj,
 } from './workflowGateJobs';
 
 export { QUALITY_JOB };
@@ -134,8 +136,8 @@ const GOLDEN_AGG_RUN = ['echo "golden-chunks=$CHUNKS"', '[ "$CHUNKS" = "success"
  */
 const JOB_NAMES: Record<string, string> = {
   route: 'CI route',
-  static: 'Static gates',
-  velo: 'Browser & integration',
+  static: partName('Static gates'),
+  velo: partName('Browser & integration'),
   [QUALITY_JOB]: QUALITY_NAME,
   'golden-lane': 'Golden Paths lane',
   'golden-chunks': GOLDEN_CHUNKS_NAME,

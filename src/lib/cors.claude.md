@@ -15,6 +15,3 @@ None.
 - Callers must check the empty-string return and skip setting any `Access-Control-Allow-*` headers if the origin does not match. Echoing an attacker-controlled origin back in the header bypasses the allow-list.
 - Localhost origins are gated on `NODE_ENV === 'development'` — they are not present in production bundles.
 - List is `Object.freeze`d — cannot be mutated at runtime.
-
-## Recent changes
-- 2026-04-24: Created as part of pentest batch M10–M23 to deduplicate CORS allow-lists.

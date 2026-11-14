@@ -31,7 +31,7 @@ import { assertEnvelopeSound } from '@/lib/mcp/contracts';
 
 const ctx = {
   companyId: '11111111-1111-4111-8111-111111111111',
-  userId: 'u1', scopes: ['read:reports'], tokenJti: 't', oauthAppId: null,
+  userId: 'u1', scopes: ['read:reports', 'read:bank-tx'], tokenJti: 't', oauthAppId: null,
 } as never;
 
 function payload(res: { content: { text: string }[] }) {
