@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import { vatDueSignal } from './bureauVatSignal';
 import { complianceSignal } from './complianceSignal';
 import { bankQuerySignal } from './bankQuerySignal';
+import { directiveEndsOnSql } from '@/modules/accounting/services/payroll/taxDirectiveOverlap';
 import {
   formatPeriod,
   endOfNextMonth,
@@ -59,9 +60,10 @@ async function payrollSignals(
       SELECT td.company_id, COUNT(*)::int AS expiring
         FROM tax_directives td
        WHERE td.company_id = ANY(${companyIds})
-         AND td.expiry_date IS NOT NULL
-         AND td.expiry_date <= ${fmtDate(inThirtyDays)}::date
-         AND td.expiry_date >= ${fmtDate(today)}::date
+         -- Approved ones only, by the day each lapses: its expiry, else the end of its tax year (G21 p. 15; taxDirectiveOverlap).
+         AND td.status = 'approved'
+         AND ${directiveEndsOnSql('td')} <= ${fmtDate(inThirtyDays)}::date
+         AND ${directiveEndsOnSql('td')} >= ${fmtDate(today)}::date
        GROUP BY td.company_id
     `,
     sql`

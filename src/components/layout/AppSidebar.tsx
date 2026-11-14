@@ -11,6 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useCompany } from '@/contexts/CompanyContext';
 import { SidebarNav } from '@/components/layout/SidebarNav';
 import { DrawerNav } from '@/components/layout/DrawerNav';
+import { AdminDrawerNav } from '@/components/admin/AdminDrawerNav';
 
 interface AppSidebarProps {
   /** Sidebar nav mode: also draw the desktop sidebar. */
@@ -21,6 +22,8 @@ interface AppSidebarProps {
   onCloseMobile: () => void;
   /** The hamburger: focus returns to it when Escape closes the drawer. */
   menuButtonRef: RefObject<HTMLButtonElement>;
+  /** The admin subdomain: the drawer carries the admin console's menu, not the accounting tabs. */
+  isAdminHost?: boolean;
 }
 
 /** `onClose`: the drawer's visible close button (the desktop sidebar has none). */
@@ -86,7 +89,7 @@ function SidebarContent({ collapsed, nav, onClose }: { collapsed: boolean; nav: 
 
 const ASIDE_STYLE = { background: 'var(--ff-canvas-base)', borderRight: '1px solid var(--ff-canvas-border)' };
 
-export function AppSidebar({ showSidebar, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile, menuButtonRef }: AppSidebarProps) {
+export function AppSidebar({ showSidebar, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile, menuButtonRef, isAdminHost = false }: AppSidebarProps) {
   const drawer = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -155,7 +158,7 @@ export function AppSidebar({ showSidebar, collapsed, onToggleCollapsed, mobileOp
         className={`fixed inset-y-0 left-0 z-50 w-64 flex flex-col lg:hidden duration-300 ${mobileOpen ? 'translate-x-0 visible transition-transform' : '-translate-x-full invisible transition-[transform,visibility]'}`}
         style={ASIDE_STYLE}
       >
-        <SidebarContent collapsed={false} nav={<DrawerNav />} onClose={() => { onCloseMobile(); menuButtonRef.current?.focus(); }} />
+        <SidebarContent collapsed={false} nav={isAdminHost ? <AdminDrawerNav /> : <DrawerNav />} onClose={() => { onCloseMobile(); menuButtonRef.current?.focus(); }} />
       </aside>
     </>
   );

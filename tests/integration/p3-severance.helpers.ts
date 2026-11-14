@@ -80,7 +80,7 @@ export async function approvedDirective(
     employee_id: f.employee, employee_name: 'Wanda Test', directive_number: number, directive_type: 'severance',
     amount, tax_rate: taxRate, effective_date: effectiveDate,
   }, f.admin);
-  await updateTaxDirectiveStatus(f.company, d.id, 'approved', f.admin);
+  await updateTaxDirectiveStatus(f.company, d.id, 'approved', f.approver);
   return d.id;
 }
 
@@ -140,6 +140,7 @@ export const codes = (validation: unknown) => (validation as Array<{ code: strin
 export async function cleanSeveranceFixtures(pool: Pool, fixtures: SeveranceFixture[]): Promise<void> {
   const ids = fixtures.map(f => f.company);
   await pool.query('DELETE FROM tax_directive_payments WHERE company_id = ANY($1)', [ids]);
+  await pool.query('DELETE FROM payroll_run_directive_uses WHERE company_id = ANY($1)', [ids]);
   await pool.query('DELETE FROM tax_directives WHERE company_id = ANY($1)', [ids]);
   await cleanPayrollCompanies(pool, ids);
   await pool.query('DELETE FROM users WHERE id = ANY($1)', [fixtures.flatMap(f => [f.admin, f.approver])]);

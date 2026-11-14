@@ -117,10 +117,10 @@ both stay in the audit trail.
 
 ## Tools
 
-As of 14 November 2026 the server offers **174 tools** (82 read-only, 92 that change data; 41 of those also need `write:post`).
-The authoritative list is what your client gets from `tools/list` once connected; each
-tool's description says what it does, what it needs and whether it has a `dry_run`.
-(These counts are checked against the server in `tests/unit/mcp/mcpConnectDocCounts.test.ts`.)
+The server offers a read-only set of tools, a set that change data, and, within those, a
+smaller set that also need `write:post`. The set grows over time, so this page gives no
+totals. The authoritative list is what your client gets from `tools/list` once connected;
+each tool's description says what it does, what it needs and whether it has a `dry_run`.
 
 Some tools that sit in a **read** area still change data, so they need a `write:*` scope
 as well as the read one, and they say so on the consent screen:
@@ -130,6 +130,11 @@ as well as the read one, and they say so on the consent screen:
 - `mark_vat_declared_elsewhere` (`read:vat` + `write:vat`, owner/admin only) marks
   documents whose VAT was declared outside IsaFlow. It posts nothing and changes no VAT201
   figure.
+- `update_company_profile` (`read:vat` + `write:company`, owner/admin only) changes the company's
+  VAT number, income tax number and SARS VAT category (A, B or C). It posts nothing. Moving the
+  category moves VAT period boundaries, so it is refused when VAT returns, period locks, VAT201
+  versions or a submitted legacy VAT201 exist unless `acknowledge_period_change: true`; `dry_run` reports the periods that
+  would move, and the reply carries the before values to undo with.
 - `take_audit_snapshot` (`read:reports` + `write:journals`, owner/admin only) takes a
   sealed, append-only snapshot of the ledger at a cutoff. It cannot be deleted afterwards.
 - `run_depreciation` (`write:journals` + **`write:post`**) **posts** the month's

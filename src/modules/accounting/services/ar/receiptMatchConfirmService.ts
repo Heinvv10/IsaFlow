@@ -217,7 +217,8 @@ export async function confirmReceiptMatch(
   }
   const customerPaymentId = String(paymentRows[0]!.id);
 
-  const plan = await planReceiptApplication(companyId, customerPaymentId, allocations);
+  // The receipt `allocateTransaction` just recorded for this match: it lowers nothing.
+  const plan = await planReceiptApplication(companyId, customerPaymentId, allocations, { paymentCreatedInThisRequest: true });
   await applyReceiptPlan(companyId, plan, userId);
 
   log.info('Confirmed receipt match', {

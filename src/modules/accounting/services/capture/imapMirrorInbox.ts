@@ -21,6 +21,9 @@ export async function ensureMirrorInbox(companyId: string, accountEmail: string)
   return rows[0]!.id;
 }
 
+/** A failure outside the database that is still not the message's fault (e.g. a DNS lookup): retried like one. */
+export class TransientIngestError extends Error {}
+
 /**
  * Whether an IMAP mirror ingest failed for want of the database rather than
  * because of the message: a privilege refusal (42501, e.g. old code against a
@@ -31,6 +34,7 @@ export async function ensureMirrorInbox(companyId: string, accountEmail: string)
  * as before, so it cannot block the mailbox.
  */
 export function isTransientIngestError(err: unknown): boolean {
+  if (err instanceof TransientIngestError) return true;
   const code = (err as { code?: unknown } | null)?.code;
   if (typeof code === 'string' && (code === '42501' || code === '55P03' || /^(08|53|57)/.test(code))) return true;
   return err instanceof Error && /timeout exceeded when trying to connect/i.test(err.message);

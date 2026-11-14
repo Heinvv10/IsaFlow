@@ -1,7 +1,9 @@
 /**
  * The "Built in South Africa" band: verified copy, a poster strip in still mode (server, phones,
  * reduced motion, save-data, refused playback), and on desktop three lazy landmark clips that get
- * a src only when the band is near and play in order once each time it comes into view.
+ * a src only when the band is near and play in order once each time it comes into view. The film
+ * stage keeps a poster visible until a clip actually plays, so a blocked or delayed autoplay never
+ * leaves an empty frame.
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { renderToString } from 'react-dom/server';
@@ -21,6 +23,7 @@ const isNear = (o: IntersectionObserverInit) => o.rootMargin === '600px 0px';
 const isInView = (o: IntersectionObserverInit) => o.rootMargin === '0px';
 const videos = (c: HTMLElement) => Array.from(c.querySelectorAll('video'));
 const visibleIndex = (c: HTMLElement) => videos(c).findIndex((v) => !v.className.includes('invisible'));
+const filmPoster = (c: HTMLElement) => c.querySelector('#south-africa figure img') as HTMLImageElement;
 
 const FACTS: [string, string][] = [
   ['SARS-ready returns', 'VAT201 and EMP201 prepared for you to file on eFiling. EMP501 and IRP5/IT3(a) prepared for you to submit through e@syFile Employer.'],
@@ -105,21 +108,16 @@ describe('LandingSouthAfricaBand still mode', () => {
 });
 
 describe('LandingSouthAfricaBand film', () => {
-  it('has three src-less clips before the band is near', () => {
+  it('keeps the poster strip, with no video, until the band is near', () => {
     const { container, clips, play } = renderDesktop();
-    expect(clips()).toHaveLength(3);
-    for (const v of clips()) {
-      expect(v.hasAttribute('src')).toBe(false);
-      expect(v.getAttribute('preload')).toBe('none');
-      expect(v.hasAttribute('poster')).toBe(false);
-    }
+    expect(clips()).toHaveLength(0);
+    expect(container.querySelectorAll('img')).toHaveLength(3);
     expect(container.innerHTML).not.toContain('.mp4');
-    expect(container.innerHTML).not.toContain('poster.webp');
     expect(play).not.toHaveBeenCalled();
   });
 
-  it('sets the sources in order when near, without playing', () => {
-    const { io, clips, play } = renderDesktop();
+  it('sets the sources in order when near, without playing, and keeps the poster visible', () => {
+    const { io, clips, play, container } = renderDesktop();
     io.fire(isNear, true);
     expect(clips().map((v) => v.getAttribute('src'))).toEqual([
       '/landing/sa/landmark-capetown.mp4',
@@ -131,8 +129,28 @@ describe('LandingSouthAfricaBand film', () => {
       '/landing/sa/landmark-joburg-poster.webp',
       '/landing/sa/landmark-pretoria-poster.webp',
     ]);
-    for (const v of clips()) expect(v.getAttribute('preload')).toBe('none');
+    for (const v of clips()) {
+      expect(v.getAttribute('preload')).toBe('none');
+      expect(v.className).toContain('invisible');
+    }
+    const poster = filmPoster(container);
+    expect(poster.getAttribute('src')).toBe('/landing/sa/landmark-capetown-poster.webp');
+    expect(poster.getAttribute('alt')).toBeTruthy();
+    expect(poster.className).not.toContain('invisible');
     expect(play).not.toHaveBeenCalled();
+  });
+
+  it('keeps the poster visible when the band is in view but the video never plays', () => {
+    const { container, io, clips, play } = renderDesktop();
+    io.fire(isNear, true);
+    io.fire(isInView, true);
+    expect(play).toHaveBeenCalled();
+    for (const v of clips()) expect(v.className).toContain('invisible');
+    const poster = filmPoster(container);
+    expect(poster.getAttribute('src')).toBe('/landing/sa/landmark-capetown-poster.webp');
+    expect(poster.getAttribute('alt')).toBeTruthy();
+    expect(poster.className).not.toContain('invisible');
+    expect(visibleIndex(container)).toBe(-1);
   });
 
   it('plays Cape Town, Johannesburg, Pretoria once, holding each last frame', () => {
@@ -144,6 +162,7 @@ describe('LandingSouthAfricaBand film', () => {
     expect(play.mock.contexts[0]).toBe(c0);
     fireEvent.playing(c0);
     expect(visibleIndex(container)).toBe(0);
+    expect(filmPoster(container).className).toContain('invisible');
     fireEvent.ended(c0);
     expect(play.mock.contexts[1]).toBe(c1);
     expect(visibleIndex(container)).toBe(0);
@@ -189,7 +208,9 @@ describe('LandingSouthAfricaBand film', () => {
     expect(play).toHaveBeenCalledTimes(1);
     expect(play.mock.contexts[0]).toBe(c0);
     expect(c0.currentTime).toBe(0);
-    expect(visibleIndex(container)).toBe(0);
+    expect(visibleIndex(container)).toBe(-1);
+    expect(filmPoster(container).getAttribute('src')).toBe('/landing/sa/landmark-capetown-poster.webp');
+    expect(filmPoster(container).className).not.toContain('invisible');
   });
 
   it('swaps the film for the poster strip when the window narrows', () => {

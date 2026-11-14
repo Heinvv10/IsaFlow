@@ -59,17 +59,20 @@ import {
   finalizeInvoiceTool,
 } from './tools/writeInvoices';
 import { createDraftJournalTool, postJournalTool } from './tools/writeJournals';
+import { RECURRING_JOURNAL_TOOLS } from './tools/recurringJournalToolSet';
 import { proposeReclassificationTool } from './tools/reclassificationPropose';
 import { postReclassificationBatchTool } from './tools/writeReclassification';
 import { suggestBankAllocationTool } from './tools/writeBank';
 import { allocateBankTransactionTool, reverseBankAllocationTool } from './tools/writeBankAllocate';
 import { reallocateBankTransactionTool } from './tools/writeBankReallocate';
+import { updateCompanyProfileTool } from './tools/writeCompanyProfile';
 import { importBankStatementTool, undoBankImportTool } from './tools/writeBankImport';
 import {
   bulkAllocateBankTransactionsTool,
 } from './tools/writeBankBulkAllocate';
 import { autoApplyUnappliedTool } from './tools/writeAutoApplyUnapplied';
 import { applyCreditNoteTool } from './tools/writeApplyCreditNote';
+import { adjustCreditNoteApplicationTool } from './tools/writeAdjustCreditNoteApplication';
 import { cancelSupplierInvoiceTool } from './tools/writeCancelSupplierInvoice';
 import { cancelCustomerInvoiceTool } from './tools/writeCancelCustomerInvoice';
 import { updateSupplierInvoiceTool } from './tools/writeUpdateSupplierInvoice';
@@ -137,6 +140,8 @@ import { jobCostReportTool } from './tools/jobCost';
 import { listFixedAssetsTool, assetRegisterTool } from './tools/assets';
 import { reconcileFixedAssetsTool } from './tools/reconcileFixedAssets';
 import { runDepreciationTool } from './tools/writeDepreciation';
+import { createFixedAssetTool } from './tools/writeCreateFixedAsset';
+import { deleteFixedAssetTool } from './tools/writeDeleteFixedAsset';
 import {
   listItemsTool,
   stockValuationTool,
@@ -272,16 +277,21 @@ export const MCP_TOOLS = [
   allocateBankTransactionTool,
   reverseBankAllocationTool,
   reallocateBankTransactionTool,
+  updateCompanyProfileTool,
   bulkAllocateBankTransactionsTool,
   autoApplyUnappliedTool,
   applyCreditNoteTool,
   cancelSupplierInvoiceTool,
   cancelCustomerInvoiceTool,
+  ...RECURRING_JOURNAL_TOOLS,
+  createFixedAssetTool,
+  deleteFixedAssetTool,
   updateSupplierInvoiceTool,
   reapplyPaymentTermsTool,
   reapplyCustomerPaymentTermsTool,
   unapplySupplierPaymentTool,
   unapplyCreditNoteTool,
+  adjustCreditNoteApplicationTool,
   reverseBankAllocationBatchTool,
   postReclassificationBatchTool,
   importBankStatementTool,

@@ -39,7 +39,7 @@ async function lumpSum(employeeId: string, number: string, paymentDate: string):
     employee_id: employeeId, employee_name: 'Emp', directive_number: number, directive_type: 'lump_sum',
     amount: 5_000, tax_rate: 0.2, effective_date: '2026-05-01',
   }, f.admin);
-  await updateTaxDirectiveStatus(f.company, d.id, 'approved', f.admin);
+  await updateTaxDirectiveStatus(f.company, d.id, 'approved', f.approver);
   const paid = await applyStandalone(f, d.id, paymentDate);
   expect(paid.statusCode, JSON.stringify(paid.body)).toBe(200);
 }

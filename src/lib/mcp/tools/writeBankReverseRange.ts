@@ -34,7 +34,7 @@ import { bankGlAccountBelongsToCompany } from '@/modules/accounting/services/ban
 import { REVERSAL_DATE_PROPERTY } from './allocationSchema';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
-import { assertLinesKeepCredit, reverseLinesCreditLast } from '@/modules/accounting/services/bank/reverseLinesCreditLast';
+import { assertLinesKeepCredit, reverseLinesJudged } from '@/modules/accounting/services/bank/reverseLinesCreditLast';
 
 const REVERSE_RANGE_TOOL = 'reverse_allocations';
 
@@ -52,7 +52,9 @@ export const reverseAllocationsTool: McpTool = {
     'ALL OR NOTHING: if any reversal fails, none are applied, so the account is never left half-unwound. ' +
     `Refuses (it does not truncate) if the range holds more than ${MAX_RANGE} allocated transactions — narrow the dates. ` +
     'Run with dry_run=true first: it reports exactly which transactions would be reversed, with the rule that created each one, and writes nothing. ' +
-    'Unallocated, excluded and already-reversed transactions in the range are not touched. Requires the write:post permission.',
+    'Unallocated, excluded and already-reversed transactions in the range are not touched. ' +
+    'A customer receipt whose unapplied cash a customer refund has already returned is refused (reverse the refund first, ' +
+    'or include it in the range). Requires the write:post permission.',
   scope: 'write:bank-tx',
   write: true,
   requiresPost: true,
@@ -149,25 +151,30 @@ export const reverseAllocationsTool: McpTool = {
     const agentRefusal = await agentReversalRefusal(ctx.companyId, rows.map((r) => r.id));
     if (agentRefusal) return toolError(agentRefusal.message);
 
-    // A supplier payment whose cash a refund outside the range returned is refused live (ap/supplierVoidCredit); the
-    // preview answers the same, decided on the range's net (bank/reverseLinesCreditLast).
+    // A supplier payment or customer receipt whose cash a refund outside the range returned is refused live
+    // (ap/supplierVoidCredit, ar/customerVoidCredit); the preview answers the same, decided on the range's net
+    // (bank/reverseLinesCreditLast). `wroteNothing` keeps the idempotency key free for the real call.
     if (dryRun) {
       await assertLinesKeepCredit(ctx.companyId, rows.map((r) => r.journalEntryId));
-      return ok({
-        bank_account_id: bankAccountId, from_date: fromDate, to_date: toDate,
-        dry_run: true,
-        would_reverse: rows.length,
-        transactions: preview,
-        // Named so an agent can go straight to fixing the cause.
-        rules_involved: [...new Set(rows.map((r) => r.allocationRuleName).filter(Boolean))],
-      });
+      return {
+        ...ok({
+          bank_account_id: bankAccountId, from_date: fromDate, to_date: toDate,
+          dry_run: true,
+          would_reverse: rows.length,
+          transactions: preview,
+          // Named so an agent can go straight to fixing the cause.
+          rules_involved: [...new Set(rows.map((r) => r.allocationRuleName).filter(Boolean))],
+        }),
+        wroteNothing: true,
+      };
     }
 
     // All-or-nothing, deliberately — see the file header. Rows arrive ordered by
     // id, the same deterministic lock order the allocate and batch-reverse
     // paths use, so this cannot deadlock against a concurrent batch. A supplier payment whose refund is later in the
     // range is set aside and retried after the rest, rethrown if it still stands (bank/reverseLinesCreditLast).
-    await reverseLinesCreditLast(rows.map((r) => r.id), (id) =>
+    // A customer's receipts and refunds in the range are judged together first, by the dry run's own judgment.
+    await reverseLinesJudged(ctx.companyId, rows, (id) =>
       // The contra journal is stamped too: without it the agent's own
       // correction posts as human:<userId> and drops out of list_agent_postings,
       // which is the surface a human reviews agent work through.

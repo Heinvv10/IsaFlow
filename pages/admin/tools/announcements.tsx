@@ -11,10 +11,11 @@ import {
   EMPTY_FORM,
   type AnnouncementFormState,
 } from '@/components/admin/AnnouncementModal';
-import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Plus, Pencil, Trash2, AlertCircle, Loader2 } from 'lucide-react';
 import type { Announcement } from '@/modules/admin/types/admin.types';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 const TYPE_BADGE: Record<string, string> = {
   info:        'bg-blue-500/10 text-blue-600 dark:text-blue-400',
@@ -35,8 +36,8 @@ function announcementToForm(item: Announcement): AnnouncementFormState {
     type:           item.type,
     target:         item.target,
     target_ids:     (item.target_ids ?? []).join(', '),
-    starts_at:      item.starts_at ? item.starts_at.slice(0, 16) : '',
-    ends_at:        item.ends_at   ? item.ends_at.slice(0, 16)   : '',
+    starts_at:      item.starts_at ?? '',
+    ends_at:        item.ends_at ?? '',
     is_dismissible: item.is_dismissible,
   };
 }
@@ -54,7 +55,7 @@ export default function AdminAnnouncementsPage() {
     setLoading(true);
     setError('');
     try {
-      const res  = await apiFetch('/api/admin/announcements?limit=100');
+      const res  = await adminFetch('/api/admin/announcements?limit=100');
       await assertOk(res, 'Could not load announcements - try again');
       const data = await res.json();
       setRows(data.data?.items ?? []);
@@ -82,12 +83,13 @@ export default function AdminAnnouncementsPage() {
         target:         form.target,
         target_ids:     targetIds,
         starts_at:      form.starts_at ? new Date(form.starts_at).toISOString() : undefined,
-        ends_at:        form.ends_at   ? new Date(form.ends_at).toISOString()   : undefined,
+        // Emptied on an edit = remove the end (null); on a new one there is nothing to send.
+        ends_at:        form.ends_at   ? new Date(form.ends_at).toISOString()   : (editItem ? null : undefined),
         is_dismissible: form.is_dismissible,
       };
 
-      const res = await apiFetch(editItem ? `/api/admin/announcements/${editItem.id}` : '/api/admin/announcements', {
-        method: editItem ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body),
+      const res = await adminFetch(editItem ? `/api/admin/announcements/${editItem.id}` : '/api/admin/announcements', {
+        method: editItem ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       await assertOk(res, 'Could not save the announcement - try again');
 
@@ -105,7 +107,7 @@ export default function AdminAnnouncementsPage() {
     if (!deleteId) return;
     setError('');
     try {
-      const res = await apiFetch(`/api/admin/announcements/${deleteId}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
+      const res = await adminFetch(`/api/admin/announcements/${deleteId}`, { method: 'DELETE' });
       await assertOk(res, 'Could not delete the announcement - try again');
       setDeleteId(null);
       await load();
@@ -119,7 +121,7 @@ export default function AdminAnnouncementsPage() {
   const modalInitial = editItem ? announcementToForm(editItem) : { ...EMPTY_FORM };
 
   return (
-    <AdminLayout title="Announcements">
+    <AdminLayout title="Announcements" ownHeading>
       {isModalOpen && (
         <AnnouncementModal
           initial={modalInitial}

@@ -59,6 +59,7 @@
     "jszip": "^3.10.1",
     "lru-cache": "^11.2.7",
     "lucide-react": "^1.8.0",
+    "mailauth": "8.0.6",
     "mailparser": "^3.14.1",
     "next": "15.5.28",
     "nodemailer": "10.3.1",

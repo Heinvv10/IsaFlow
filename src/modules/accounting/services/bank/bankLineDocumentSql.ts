@@ -12,12 +12,18 @@
  * A copy is recognised by its file_name, "<captured document id>_<name>" (captureBankTxAttachService builds it from
  * the document's own id, lower-case).
  *
+ * A proof of payment (captured_documents.document_type 'proof_of_payment', capture/pop/) is a bank's payment notice,
+ * not a tax invoice: it is one of the line's documents for the paperclip and the attachments list
+ * (attachmentCountSql, attachmentCountsSql, linkedCapturedDocSql), but it does NOT support the line
+ * (hasBankLineDocumentSql: the unsupported-transactions list and the VAT input support report). Neither the POP
+ * linked to the line nor its copy counts there.
+ *
  * Aliases are fixed code constants, never input, so these are safe for sql.unsafe. Tenant scope: copies are reached
  * only through the line's id; a captured document must carry the line's own company_id, so a link forged across
  * companies is never counted. This module imports nothing: bank fragments must not pull in capture's storage code.
  */
 
-type Alias = 'bt' | 'cd' | 'm' | 'bta' | 'x' | 'a' | 'cx';
+type Alias = 'bt' | 'cd' | 'm' | 'bta' | 'x' | 'a' | 'cx' | 'cp';
 
 /** captured document `cd` is a supporting document of bank line `bt` (before the copy check). */
 export function linkedCapturedDocSql(bt: Alias = 'bt', cd: Alias = 'cd'): string {
@@ -59,10 +65,16 @@ export function attachmentCountSql(bt: Alias = 'bt'): string {
   )`;
 }
 
-/** Bank line `bt` has at least one supporting document, as a boolean expression. */
+/**
+ * Bank line `bt` has at least one supporting document, as a boolean expression. A proof of payment, linked or
+ * copied, is not one (see the header).
+ */
 export function hasBankLineDocumentSql(bt: Alias = 'bt'): string {
-  return `(EXISTS (SELECT 1 FROM bank_transaction_attachments x WHERE x.bank_transaction_id = ${bt}.id AND ${attachmentCountsSql('x', bt)})`
-    + ` OR EXISTS (SELECT 1 FROM captured_documents cd WHERE ${linkedCapturedDocSql(bt, 'cd')}))`;
+  return `(EXISTS (SELECT 1 FROM bank_transaction_attachments x WHERE x.bank_transaction_id = ${bt}.id AND ${attachmentCountsSql('x', bt)}`
+    + ` AND NOT EXISTS (SELECT 1 FROM captured_documents cp WHERE cp.id = ${copiedDocIdSql('x')}`
+    + ` AND cp.company_id = ${bt}.company_id AND cp.document_type = 'proof_of_payment'))`
+    + ` OR EXISTS (SELECT 1 FROM captured_documents cd WHERE ${linkedCapturedDocSql(bt, 'cd')}`
+    + ` AND cd.document_type IS DISTINCT FROM 'proof_of_payment'))`;
 }
 
 const COPY_PREFIX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_/i;

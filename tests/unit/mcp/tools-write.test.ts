@@ -484,6 +484,8 @@ describe('write-tool manifest invariants', () => {
   it('exactly the posting tools require write:post — the batch pair included', () => {
     const requiresPost = MCP_TOOLS.filter((t) => t.requiresPost).map((t) => t.name).sort();
     expect(requiresPost).toEqual([
+      // Moves one application up or down: what apply_credit_note / unapply_credit_note move.
+      'adjust_credit_note_application',
       'allocate_bank_transaction',
       // Moves a document's outstanding balance and the note's applied amount.
       'apply_credit_note',
@@ -656,6 +658,8 @@ describe('write-tool manifest invariants', () => {
       book_eti_for_month: { ...KEY },
       // Refuses on the missing transaction_id before any lookup; behaviour in reallocateBankTransactionTool.test.ts.
       reallocate_bank_transaction: { ...KEY },
+      // Refused before reading anything: the scan's context holds no owner / admin role; behaviour in updateCompanyProfileTool.test.ts.
+      update_company_profile: { ...KEY },
       // Refuses on the missing file_name before any lookup; behaviour in attachDocumentTool.test.ts.
       attach_document: { ...KEY },
       // Refuses on the missing entity_type before any lookup; behaviour in attachEntityDocumentTool.test.ts.
@@ -730,6 +734,15 @@ describe('write-tool manifest invariants', () => {
       cancel_supplier_invoice: { ...KEY },
       // Refuses on the missing invoice_id before reading anything; behaviour in cancelCustomerInvoiceTool.test.ts.
       cancel_customer_invoice: { ...KEY },
+      // Each refuses on its missing required argument before reading anything; behaviour in
+      // recurringJournalTools.test.ts and mcp-recurring-journals.int.test.ts.
+      create_recurring_journal: { ...KEY },
+      run_recurring_journals: { ...KEY },
+      deactivate_recurring_journal: { ...KEY },
+      // Refuses on the missing name before any read; behaviour in createFixedAssetTool.test.ts.
+      create_fixed_asset: { ...KEY },
+      // Refuses on the missing asset_id before any read; behaviour in deleteFixedAssetTool.test.ts.
+      delete_fixed_asset: { ...KEY },
       // Refuses on the missing invoice_id before reading anything; behaviour in
       // updateSupplierInvoiceTool.test.ts and update-supplier-invoice.int.test.ts.
       update_supplier_invoice: { ...KEY },
@@ -740,6 +753,9 @@ describe('write-tool manifest invariants', () => {
       // unapplyTools.test.ts and unapply.int.test.ts.
       unapply_supplier_payment: { ...KEY },
       unapply_credit_note: { ...KEY },
+      // Refuses on the missing credit_note_id before reading anything; behaviour in
+      // adjustCreditNoteApplicationTool.test.ts and credit-note-application-adjust.int.test.ts.
+      adjust_credit_note_application: { ...KEY },
       void_receipt: { ...KEY },
       void_payment: { ...KEY },
       // Payroll setup refuses on the missing required argument before any

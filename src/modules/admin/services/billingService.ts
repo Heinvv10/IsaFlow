@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { getTrialStats } from './trialQueries';
 import type {
   BillingOverview,
   SubscriptionListItem,
@@ -26,12 +27,11 @@ function toIso(value: unknown): string | null {
 // ---------------------------------------------------------------------------
 
 export async function getBillingOverview(): Promise<BillingOverview> {
-  const [[subRow], [churnRow], [revRow]] = await Promise.all([
+  const [[subRow], [churnRow], [revRow], trialStats] = await Promise.all([
     sql`
       SELECT COUNT(*) AS total,
         COUNT(*) FILTER (WHERE s.status = 'active')   AS active,
         COUNT(*) FILTER (WHERE s.status = 'past_due') AS past_due,
-        COUNT(*) FILTER (WHERE s.status = 'trial')    AS trial,
         COALESCE(SUM(CASE
           WHEN s.status != 'active' THEN 0
           WHEN s.billing_cycle = 'monthly' THEN ROUND(p.monthly_price_cents::numeric * (100 - COALESCE(s.discount_percent, 0)::numeric) / 100.0)
@@ -53,6 +53,7 @@ export async function getBillingOverview(): Promise<BillingOverview> {
         COALESCE(SUM(total_cents) FILTER (WHERE status IN ('sent','overdue')), 0)  AS outstanding_cents
       FROM admin_invoices
     `,
+    getTrialStats(),
   ]);
 
   const s = subRow as Row;
@@ -68,7 +69,7 @@ export async function getBillingOverview(): Promise<BillingOverview> {
     total_subscriptions: parseInt(s.total as string, 10),
     active_subscriptions: active,
     past_due_count: parseInt(s.past_due as string, 10),
-    trial_count: parseInt(s.trial as string, 10),
+    trial_count: trialStats.active_trials,
     churn_rate_percent: churnRate,
     arpu_cents: active > 0 ? Math.round(mrr / active) : 0,
     total_revenue_cents: parseInt(rv.total_revenue_cents as string, 10),

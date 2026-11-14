@@ -6,11 +6,13 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
+import { formatLastSeen } from '@/components/admin/formatLastSeen';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { Search, Building2, AlertCircle, Loader2, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { UserDeleteCell } from '@/components/admin/UserDeleteCell';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface AdminUser {
   id: string;
@@ -94,7 +96,7 @@ export default function AdminUsersPage() {
       if (co) params.set('company', co);
       if (r)  params.set('role', r);
       if (st) params.set('status', st);
-      const res  = await apiFetch(`/api/admin/users?${params}`);
+      const res  = await adminFetch(`/api/admin/users?${params}`);
       await assertOk(res, 'Could not load the users - try again');
       const json = await res.json() as { data?: PagedResponse; message?: string };
       const d = json.data as PagedResponse;
@@ -126,7 +128,7 @@ export default function AdminUsersPage() {
     setDeleting(userId);
     setError('');
     try {
-      const res = await apiFetch(`/api/admin/users/${userId}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
+      const res = await adminFetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
       await assertOk(res, 'Could not delete the user - try again');
       setConfirmDeleteId(null);
       void load(search, company, role, status, page);
@@ -175,8 +177,10 @@ export default function AdminUsersPage() {
           {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
 
-        {/* Status select */}
+        {/* Status select. A user is active or suspended (users.is_active); there is no third state, so an
+            "Inactive" option matched no row (audit 4.17) and is gone. */}
         <select
+          aria-label="Status"
           value={status}
           onChange={e => { setStatus(e.target.value); setPage(1); }}
           className="px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
@@ -184,7 +188,6 @@ export default function AdminUsersPage() {
           <option value="">All statuses</option>
           <option value="active">Active</option>
           <option value="suspended">Suspended</option>
-          <option value="inactive">Inactive</option>
         </select>
 
         <span className="text-sm text-gray-500 dark:text-gray-400 self-center">
@@ -255,7 +258,7 @@ export default function AdminUsersPage() {
                     <CompanyCell primaryCompany={u.primary_company} count={u.company_count} />
                   </td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                    {formatDate(u.last_login)}
+                    {formatLastSeen(u.last_login)}
                   </td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_BADGE[u.status] ?? ''}`}>

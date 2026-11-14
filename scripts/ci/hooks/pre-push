@@ -11,6 +11,15 @@ if [ "${SKIP_CI:-0}" = "1" ]; then
 fi
 
 cd "$(git rev-parse --show-toplevel)"
-echo "[pre-push] running bun run ci..."
+# Only the fast, diff-scoped subset (scripts/ci/run-ci.sh, group prepush): the full gate (build, browser tests,
+# integration, every unit file) runs on GitHub, where the merge queue re-tests each batch. Run it by hand with `bun run ci`.
 # The print-parity tests (about five minutes) run only when the push touches what they hold: tests/unit/printParity/parityScope.ts.
-PARITY_SCOPE=diff bun run ci
+# All worktrees share this hook, so a branch that has not merged master since the prepush group landed has a run-ci.sh
+# that rejects it (exit 2): that branch gets the old full gate instead.
+if grep -qF 'prepush)' scripts/ci/run-ci.sh; then
+  echo "[pre-push] running bun run ci prepush..."
+  PARITY_SCOPE=diff bun run ci prepush
+else
+  echo "[pre-push] this branch predates the fast pre-push hook (no prepush group in scripts/ci/run-ci.sh): merge master. Running the full gate..."
+  PARITY_SCOPE=diff bun run ci
+fi

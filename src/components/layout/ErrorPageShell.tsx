@@ -2,6 +2,7 @@ import Head from 'next/head';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
+import { isAdminSubdomain } from '@/hooks/useAdminPrefix';
 
 interface ErrorPageShellProps {
   title: string;
@@ -17,7 +18,8 @@ const SECONDARY_LINK =
 /**
  * Static, branded shell for the 404 and error pages. Reads auth state from
  * context only (no fetch). While auth is loading it renders the signed-out
- * links, which matches the prerendered HTML.
+ * links, which matches the prerendered HTML. On the admin host the dashboard is the
+ * console's root: /accounting there is rewritten to /admin/accounting, itself a 404.
  */
 export function ErrorPageShell({ title, heading, message }: ErrorPageShellProps) {
   const { isAuthenticated } = useAuth();
@@ -36,7 +38,7 @@ export function ErrorPageShell({ title, heading, message }: ErrorPageShellProps)
           <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed mb-6">{message}</p>
           <div className="flex items-center justify-center gap-3">
             {isAuthenticated ? (
-              <Link href="/accounting" className={PRIMARY_LINK}>Go to dashboard</Link>
+              <Link href={isAdminSubdomain() ? '/' : '/accounting'} className={PRIMARY_LINK}>Go to dashboard</Link>
             ) : (
               <>
                 <Link href="/login" className={PRIMARY_LINK}>Sign in</Link>

@@ -125,7 +125,8 @@ export const voidReceiptTool = voidTool(
   'Void a customer receipt (CP document): takes the cash back off every invoice it was applied to, '
   + 'reverses its journal, and cancels the document. If the receipt settled a bank line, that line returns to unallocated too. '
   + 'Use to correct a receipt captured in error — the original and its reversal both remain in the audit trail. '
-  + 'Requires the write:post permission. Already-cancelled documents are refused.',
+  + 'Requires the write:post permission. Already-cancelled documents are refused, and so is a receipt whose '
+  + 'unapplied cash a customer refund has already returned (reverse the refund first).',
 );
 
 export const voidPaymentTool = voidTool(

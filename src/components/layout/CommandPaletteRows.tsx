@@ -4,12 +4,13 @@
  */
 
 import {
-  ArrowRight, BookOpen, Banknote, FilePlus, FileText, Keyboard, Landmark, Package, Receipt,
+  ArrowRight, BookOpen, Banknote, Building2, FilePlus, FileText, Keyboard, Landmark, Package, Receipt,
   Info, MessageCircle, Scroll, SunMoon, Truck, UserPlus, UserRound, Users,
 } from 'lucide-react';
 
 const ICONS = {
   'book-open': BookOpen,
+  building: Building2,
   users: Users,
   truck: Truck,
   'file-text': FileText,

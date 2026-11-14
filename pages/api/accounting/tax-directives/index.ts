@@ -22,8 +22,12 @@ import {
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { isIsoDate } from '@/modules/accounting/services/payroll/taxDirectiveDates';
 import { getDirectivePayee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
+import { DIRECTIVE_TYPES, isRegularPayDirectiveType } from '@/modules/accounting/services/payroll/taxDirectiveKinds';
+import { directiveBodyProblem, regularPayDirectiveBodyProblem } from '@/modules/accounting/services/payroll/taxDirectiveRegularPayBody';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { TaxDirectiveWindowError } from '@/modules/accounting/services/payroll/taxDirectiveOverlap';
 
-const VALID_TYPES = ['lump_sum', 'retirement', 'severance', 'death'] as const;
+const VALID_TYPES = DIRECTIVE_TYPES;
 const VALID_STATUSES = ['pending', 'approved', 'expired', 'cancelled'] as const;
 // employee_name and employee_tax_number are not among them: both are ignored (the record's are stored).
 const TEXT_FIELDS = [
@@ -76,19 +80,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         `directive_type must be one of: ${VALID_TYPES.join(', ')}`,
       );
     }
+    // Lengths, date ranges ("" included) and the rate's precision, for every type (taxDirectiveRegularPayBody).
+    const common = directiveBodyProblem(body);
+    if (common) return apiResponse.badRequest(res, common);
+    // A fixed-percentage or fixed-amount directive (IRP3(b)/(c)) states a rate or a tax amount, not a gross: its own rules.
+    const regular = isRegularPayDirectiveType(body.directive_type);
+    const regularProblem = regular ? regularPayDirectiveBodyProblem({ ...body, directive_type: body.directive_type as 'fixed_percentage' | 'fixed_amount' }) : null;
+    if (regularProblem) return apiResponse.badRequest(res, regularProblem);
     // A number or a numeric string only: Number([]) is 0 and Number([5]) is 5, so an array slipped through.
-    if (!isNumeric(body.amount) || Number(body.amount) <= 0) {
-      return apiResponse.badRequest(res, 'amount must be a positive number');
+    // NUMERIC(15,2): 1e13 and above would overflow the column (a 500).
+    if (!regular && (!isNumeric(body.amount) || Number(body.amount) <= 0 || Number(body.amount) >= 1e13)) {
+      return apiResponse.badRequest(res, 'amount must be a positive number below R10 000 000 000 000');
     }
     if (!body.effective_date) {
       return apiResponse.badRequest(res, 'effective_date is required');
     }
     if (body.issued_date != null && !isIsoDate(body.issued_date)) {
       return apiResponse.badRequest(res, 'issued_date must be a date in YYYY-MM-DD format from 2000 to today');
-    }
-    // A rate is a fraction of the gross (0.18 = 18%): above 1 the PAYE would exceed the lump sum.
-    if (body.tax_rate != null && (!isNumeric(body.tax_rate) || Number(body.tax_rate) < 0 || Number(body.tax_rate) > 1)) {
-      return apiResponse.badRequest(res, 'tax_rate must be a fraction between 0 and 1 (0.18 = 18%)');
     }
 
     const input: TaxDirectiveCreateInput = {
@@ -97,8 +105,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       employee_tax_number: employee.taxNumber ?? undefined,
       directive_number: body.directive_number,
       directive_type: body.directive_type,
-      amount: Number(body.amount),
+      amount: regular ? 0 : Number(body.amount),
       tax_rate: body.tax_rate != null ? Number(body.tax_rate) : undefined,
+      tax_amount: regular && body.tax_amount != null ? Number(body.tax_amount) : undefined,
       effective_date: body.effective_date,
       issued_date: body.issued_date ?? undefined,
       expiry_date: body.expiry_date,
@@ -106,14 +115,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       notes: body.notes,
     };
 
-    const directive = await createTaxDirective(companyId, input, user.id);
-    return apiResponse.created(res, directive);
+    try {
+      return apiResponse.created(res, await createTaxDirective(companyId, input, user.id));
+    } catch (err) {
+      // Judged under the employee's lock before the insert: nothing written (taxDirectiveRegularPayChange).
+      if (respondIfImpersonationForbidden(res, err)) return;
+      if (err instanceof TaxDirectiveWindowError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
   }
 
   return apiResponse.badRequest(res, 'Method not allowed');
 }
 
 // The body names the employee, so what it says about the payment (and any notes on why) is about that person.
-const MASKED_KEYS = ['amount', 'tax_rate', 'notes'];
+const MASKED_KEYS = ['amount', 'tax_rate', 'tax_amount', 'notes', 'directive_number', 'sars_reference'];
 
 export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: MASKED_KEYS }));

@@ -106,7 +106,7 @@ export const unapplyCreditNoteTool: McpTool = {
         const entityType = p.side === 'customer' ? 'customer_invoice' as const : 'supplier_invoice' as const;
         return dryRun(p.lines, entityType, {
           entityId: p.creditNoteId, documentNumber: p.creditNoteNumber, field: 'credit_note_applied_amount',
-          before: p.noteAppliedAfter + p.amountUnapplied, after: p.noteAppliedAfter,
+          before: p.noteAppliedBefore, after: p.noteAppliedAfter,
         });
       }
       const r = await unapplyCreditNote(ctx.companyId, input, ctx.userId);

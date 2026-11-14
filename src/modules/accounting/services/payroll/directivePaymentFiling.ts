@@ -30,6 +30,7 @@ import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { directiveIssuedDate, listRunLumpSums, lumpSumPayeCode, type LumpSumFiling } from './payrollLumpSumFiling';
 import { payrollJournalInForce } from './payrollJournalChain';
+import { LUMP_SUM_DIRECTIVE_TYPES } from './taxDirectiveKinds';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -70,6 +71,9 @@ export async function listStandaloneDirectivePayments(
       AND je.status = 'posted'
       AND je.entry_date BETWEEN ${bounds.start}::date AND ${bounds.end}::date
       AND (${employeeId}::uuid IS NULL OR e.id = ${employeeId}::uuid)
+      -- Lump sums only: a regular-pay directive (IRP3(b)/(c)) is PAYE on a run's lines, never a lump-sum line (DR). Kept after
+      -- the bounds so the query's parameters keep their order.
+      AND d.directive_type = ANY(${[...LUMP_SUM_DIRECTIVE_TYPES]}::text[])
     ORDER BY je.entry_date, tdp.id
   `) as DbRow[];
   // A posted journal nothing has reversed is in force; only a reversed one needs its chain read.

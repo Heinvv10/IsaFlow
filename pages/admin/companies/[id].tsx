@@ -8,16 +8,18 @@ import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
 import { CompanyBillingTab } from '@/components/admin/companies/CompanyBillingTab';
-import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { ApiEnvelopeError, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { CompanyEffectiveFeature } from '@/modules/admin/types/admin-billing.types';
 import { formatDate } from '@/utils/formatters';
-import { useAdminHref } from '@/hooks/useAdminPrefix';
+import { formatLastSeen } from '@/components/admin/formatLastSeen';
+import { useAdminHref, tenantAppUrl } from '@/hooks/useAdminPrefix';
 import {
   ArrowLeft, AlertCircle, Loader2, Building2, ShieldOff, ShieldCheck,
   Trash2, Download, UserCog, ToggleLeft, ToggleRight, RotateCcw,
   Pencil, Check, X,
 } from 'lucide-react';
 import Link from 'next/link';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface CompanyDetail {
   id: string;
@@ -70,10 +72,11 @@ function toEditForm(c: CompanyDetail): EditForm {
   };
 }
 
+// The API's shape (getCompanyUsers): one `name`, the full name or the email (audit 4.6: the page read
+// first_name/last_name, which the API never sends, so every Name cell was blank).
 interface CompanyUser {
   id: string;
-  first_name: string;
-  last_name: string;
+  name: string;
   email: string;
   role: string;
   last_login: string | null;
@@ -129,7 +132,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setLoading(true); setError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}`);
+      const res  = await adminFetch(`/api/admin/companies/${id}`);
       await assertOk(res, 'Could not load the company - try again');
       const json = await res.json();
       setCompany(json.data as CompanyDetail);
@@ -141,7 +144,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setUsersLoading(true);
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}/users`);
+      const res  = await adminFetch(`/api/admin/companies/${id}/users`);
       await assertOk(res, 'Could not load the company users - try again');
       const json = await res.json();
       setUsers((json.data as CompanyUser[]) || []);
@@ -153,7 +156,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setFeaturesLoading(true);
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}/features`);
+      const res  = await adminFetch(`/api/admin/companies/${id}/features`);
       await assertOk(res, 'Could not load the company features - try again');
       const json = await res.json();
       setFeatures((json.data as CompanyFeature[]) || []);
@@ -169,9 +172,9 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setActionLoading(true); setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}/suspend`, {
+      const res  = await adminFetch(`/api/admin/companies/${id}/suspend`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: suspendReason }),
       });
       await assertOk(res, 'Could not suspend the company - try again');
@@ -185,7 +188,7 @@ export default function AdminCompanyDetailPage() {
     const action = company?.status === 'deleted' ? 'restore' : 'activate';
     setActionLoading(true); setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}/${action}`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      const res  = await adminFetch(`/api/admin/companies/${id}/${action}`, { method: 'POST' });
       await assertOk(res, `Could not ${action} the company - try again`);
       void load();
     } catch (err) { setActionError(apiErrorMessage(err, `Could not ${action} the company - try again`)); }
@@ -196,7 +199,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setActionLoading(true); setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
+      const res  = await adminFetch(`/api/admin/companies/${id}`, { method: 'DELETE' });
       await assertOk(res, 'Could not delete the company - try again');
       void router.push(adminHref('/admin/companies'));
     } catch (err) { setActionError(apiErrorMessage(err, 'Could not delete the company - try again')); setActionLoading(false); }
@@ -220,17 +223,18 @@ export default function AdminCompanyDetailPage() {
     const name = editForm.name.trim();
     if (!name) { setEditError('Name is required'); return; }
 
-    const body: Partial<Record<EditableKey, string>> = {};
+    // A blanked field is sent as null, which clears it (audit 4.17); dropping it kept the old value.
+    const body: Partial<Record<EditableKey, string | null>> = {};
     for (const key of EDITABLE_KEYS) {
       const v = editForm[key].trim();
-      if (v !== '') body[key] = v;
+      body[key] = v === '' ? null : v; // name is never blank here (checked above)
     }
 
     setEditSaving(true); setEditError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}`, {
+      const res  = await adminFetch(`/api/admin/companies/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       await assertOk(res, 'Could not save the company - try again');
@@ -249,7 +253,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setActionLoading(true); setActionError('');
     try {
-      const res = await apiFetch(`/api/admin/companies/${id}/export-data`);
+      const res = await adminFetch(`/api/admin/companies/${id}/export-data`);
       await assertOk(res, 'Could not export the company data - try again');
       const blob = await res.blob();
       const url  = URL.createObjectURL(blob);
@@ -264,13 +268,12 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setActionLoading(true); setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}/impersonate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      const res  = await adminFetch(`/api/admin/companies/${id}/impersonate`, { method: 'POST' });
       await assertOk(res, res.status === 429 ? 'Too many attempts - please wait a moment and try again' : 'Could not start impersonation - try again');
       const json = await res.json();
       const token = (json.data as { token: string })?.token;
       if (token) {
-        const appBase = process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin;
-        window.open(`${appBase}/accounting?impersonate=${encodeURIComponent(token)}`, '_blank');
+        window.open(tenantAppUrl(`/accounting?impersonate=${encodeURIComponent(token)}`), '_blank', 'noopener,noreferrer');
       } else {
         throw new ApiEnvelopeError('No token was returned, so impersonation could not start');
       }
@@ -282,9 +285,9 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setFeatureActionId(feature.id); setActionError('');
     try {
-      const res = await apiFetch(`/api/admin/companies/${id}/features`, {
+      const res = await adminFetch(`/api/admin/companies/${id}/features`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ feature_id: feature.id, enabled: !feature.enabled, reason: 'Toggled via admin' }),
       });
       await assertOk(res, `Could not change ${feature.name} - try again`);
@@ -299,9 +302,9 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setFeatureActionId(feature.id); setActionError('');
     try {
-      const res = await apiFetch(`/api/admin/companies/${id}/features`, {
+      const res = await adminFetch(`/api/admin/companies/${id}/features`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ feature_id: feature.id }),
       });
       await assertOk(res, `Could not reset ${feature.name} - try again`);
@@ -415,8 +418,9 @@ export default function AdminCompanyDetailPage() {
                         ['postal_code',     'Postal Code'],
                       ] as const).map(([key, label]) => (
                         <div key={key} className={key === 'address_line1' ? 'col-span-2' : ''}>
-                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{label}</label>
+                          <label htmlFor={`company-edit-${key}`} className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{label}</label>
                           <input
+                            id={`company-edit-${key}`}
                             type={key === 'email' || key === 'billing_email' ? 'email' : key === 'website' ? 'url' : 'text'}
                             value={editForm[key]}
                             onChange={e => setEditForm(f => f ? { ...f, [key]: e.target.value } : f)}
@@ -455,7 +459,7 @@ export default function AdminCompanyDetailPage() {
                     <Field label="Billing Email"    value={company.billing_email} />
                     <Field label="Billing Contact"  value={company.billing_contact} />
                     <Field label="Created"          value={formatDate(company.created_at)} />
-                    <Field label="Last Active"      value={formatDate(company.last_active)} />
+                    <Field label="Last Active"      value={formatLastSeen(company.last_active)} />
                     <div className="col-span-2"><Field label="Address" value={address} /></div>
                   </div>
                 )}
@@ -490,10 +494,10 @@ export default function AdminCompanyDetailPage() {
                         {users.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-600 dark:text-gray-400">No users</td></tr>}
                         {users.map(u => (
                           <tr key={u.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
-                            <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{u.first_name} {u.last_name}</td>
+                            <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{u.name}</td>
                             <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{u.email}</td>
                             <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{u.role}</td>
-                            <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{formatDate(u.last_login)}</td>
+                            <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{formatLastSeen(u.last_login)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -583,7 +587,7 @@ export default function AdminCompanyDetailPage() {
         onConfirm={() => void handleSuspend()}
         onCancel={() => setSuspendOpen(false)}
       >
-        <textarea rows={3} value={suspendReason} onChange={e => setSuspendReason(e.target.value)}
+        <textarea rows={3} aria-label="Reason for suspension" value={suspendReason} onChange={e => setSuspendReason(e.target.value)}
           placeholder="Reason for suspension..."
           className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-yellow-500 resize-none"
         />

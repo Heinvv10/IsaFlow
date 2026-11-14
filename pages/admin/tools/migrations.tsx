@@ -8,6 +8,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Upload, CheckCircle2, AlertCircle, Loader2, Database, Play } from 'lucide-react';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 type Source   = 'xero' | 'quickbooks' | 'pastel';
 type FileType = 'accounts' | 'customers' | 'suppliers';
@@ -80,7 +81,7 @@ export default function AdminMigrationsPage() {
   const loadCompanies = useCallback(async () => {
     setLoadingCo(true); setCoErr('');
     try {
-      const res  = await apiFetch('/api/admin/companies?limit=200&sort_by=name&sort_dir=asc');
+      const res  = await adminFetch('/api/admin/companies?limit=200&sort_by=name&sort_dir=asc');
       await assertOk(res, 'Could not load the companies - try again');
       const json = await res.json();
       const items: Company[] = (json.data?.items ?? []).map((c: Company) =>
@@ -150,7 +151,7 @@ export default function AdminMigrationsPage() {
   const selectCls = 'w-full text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-teal-500 focus:border-transparent';
 
   return (
-    <AdminLayout title="Data Migration">
+    <AdminLayout title="Data Migration" ownHeading>
       <div className="max-w-3xl mx-auto space-y-5">
 
         {/* Header */}

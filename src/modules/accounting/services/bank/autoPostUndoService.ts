@@ -43,7 +43,7 @@ export interface UndoSkips {
   contended: number;
   failed: number;
   offsetByHand: number;
-  /** Voiding the row's payment would leave its supplier owing the company: a refund already returned that cash. */
+  /** Cancelling the row's payment or receipt would leave its contact owing the company: a refund already returned that cash. */
   creditCeiling: number;
 }
 

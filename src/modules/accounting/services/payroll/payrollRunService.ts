@@ -196,7 +196,7 @@ export async function calculatePayrollRun(
   const withheldResults = withheldLineResults(withheld);
   const fringeWarnings = fringeNotRecordedResults(loansByEmployee, loanComponents);
 
-  for (const { employee, severanceOnly: onlySeverance, components, terminationWarnings } of prepared) {
+  for (const { employee, severanceOnly: onlySeverance, components, terminationWarnings, regularPayDirective } of prepared) {
     const loanApplications: ApplyLoanResult[] = onlySeverance ? [] : loansByEmployee.get(employee.id) ?? [];
     const componentsWithLoans = appendLoanComponents(components, loanApplications, loanComponents);
 
@@ -208,6 +208,7 @@ export async function calculatePayrollRun(
       annualPayrollEstimate: 'defer',
       ytd: ytdByEmployee.get(employee.id),
       notEmployedInPeriod: onlySeverance,
+      regularPayDirective,
     });
 
     const otherTaxNumbers = allTaxNumbers.filter(t => t !== employee.taxNumber);

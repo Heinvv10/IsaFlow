@@ -1,7 +1,8 @@
 import { sql, withTransaction } from '@/lib/neon';
 import { lockCompanyPayrollForComponentChange } from './payrollCompanyLock';
 import { fmtDate } from '@/lib/fmtDate';
-import type { DbRow } from '@/lib/neon';
+import type { DbRow, TxSql } from '@/lib/neon';
+import { assertEndDateKeepsDirectiveExits } from './payrollRunDirectiveUses';
 import { log } from '@/lib/logger';
 import type { PayrollEmployee } from './payrollTypes';
 import { recordEmployeeChange } from './payrollEmployeeHistoryService';
@@ -203,6 +204,8 @@ export async function updatePayrollEmployee(
     if (carried.length > 0) {
       judgeTerms({ ...termsFromRow(locked), ...Object.fromEntries(carried.map((k) => [k, data[k]])) } as EmployeeTerms, (m) => new EmployeeTermsRefused(m));
     }
+    // A directive ended at this leaver's date before a run it taxed (DR) holds only while the end date does: refused (409) before the write.
+    if (endIso !== null && endIso !== toIso(locked.end_date)) await assertEndDateKeepsDirectiveExits(db as TxSql, companyId, id, endIso);
     const written = (await write(db, locked)) as Row[];
     if (userId && written[0]) {
       for (const m of movedTerms(termsFromRow(locked), termsFromRow(written[0]), carried)) {

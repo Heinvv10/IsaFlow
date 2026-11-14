@@ -7,11 +7,13 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { SubscriptionCompanyPicker } from '@/components/admin/SubscriptionCompanyPicker';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
+import { useFocusTrap } from '@/components/ui/useFocusTrap';
 import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check, Ban, Download } from 'lucide-react';
+import { adminFetch } from '@/lib/admin/adminFetch';
 
 interface Subscription {
   id: string;
@@ -75,6 +77,8 @@ export default function SubscriptionsPage() {
   const [formError, setFormError] = useState('');
   const [companyNamed, setCompanyNamed] = useState(false);
   const [saving, setSaving]     = useState(false);
+  const formRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(formRef, showForm, () => { if (!saving) setShowForm(false); }); // audit 4.13; not mid-request
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
   const [cancelling, setCancelling]           = useState(false);
   const [cancelError, setCancelError]         = useState('');
@@ -88,7 +92,7 @@ export default function SubscriptionsPage() {
     try {
       const params = new URLSearchParams({ page: String(pg), limit: String(LIMIT) });
       if (q) params.set('search', q); if (st) params.set('status', st);
-      const res  = await apiFetch(`/api/admin/billing/subscriptions?${params}`);
+      const res  = await adminFetch(`/api/admin/billing/subscriptions?${params}`);
       await assertOk(res, 'Could not load subscriptions - try again');
       const json = await res.json();
       const d = json.data as PagedResponse;
@@ -103,7 +107,7 @@ export default function SubscriptionsPage() {
 
   const loadPlans = useCallback(async () => {
     try {
-      const res  = await apiFetch('/api/admin/billing/plans'); await assertOk(res, 'Could not load the plans');
+      const res  = await adminFetch('/api/admin/billing/plans'); await assertOk(res, 'Could not load the plans');
       const json = await res.json();
       setPlans((json.data ?? []) as Plan[]);
     } catch (err) { log.warn('Failed to load billing plans', { err }, 'admin-subscriptions'); }
@@ -140,9 +144,9 @@ export default function SubscriptionsPage() {
     if (!form.plan_id)           { setFormError('Plan is required'); return; }
     setSaving(true);
     try {
-      const res  = await apiFetch('/api/admin/billing/subscriptions', {
+      const res  = await adminFetch('/api/admin/billing/subscriptions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           company_id:    form.company_id,
           plan_id:       form.plan_id,
@@ -165,7 +169,7 @@ export default function SubscriptionsPage() {
     setCancelling(true);
     setCancelError('');
     try {
-      const res  = await apiFetch(`/api/admin/billing/subscriptions/${id}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify({ at_period_end: false }) });
+      const res  = await adminFetch(`/api/admin/billing/subscriptions/${id}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ at_period_end: false }) });
       await assertOk(res, 'Could not cancel the subscription - try again');
       setConfirmCancelId(null);
       void load(search, status, page);
@@ -222,10 +226,10 @@ export default function SubscriptionsPage() {
       {/* Add Subscription Modal */}
       {showForm && (
         <div role="dialog" aria-modal="true" aria-labelledby="subscription-modal-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
+          <div ref={formRef} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
               <h3 id="subscription-modal-title" className="text-sm font-semibold text-gray-900 dark:text-white">Add Subscription</h3>
-              <button onClick={() => setShowForm(false)} className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-4 h-4" /></button>
+              <button onClick={() => setShowForm(false)} aria-label="Close" className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-4 h-4" /></button>
             </div>
             <div className="p-5 space-y-4">
               {formError && (
@@ -238,8 +242,8 @@ export default function SubscriptionsPage() {
                 <SubscriptionCompanyPicker companyId={form.company_id} onChange={id => setForm(f => ({ ...f, company_id: id }))} onNamedChange={setCompanyNamed} />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Plan</label>
-                <select value={form.plan_id} onChange={e => setForm(f => ({ ...f, plan_id: e.target.value }))}
+                <label htmlFor="sub-plan" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Plan</label>
+                <select id="sub-plan" value={form.plan_id} onChange={e => setForm(f => ({ ...f, plan_id: e.target.value }))}
                   className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500">
                   <option value="">Select a plan...</option>
                   {plans.map(p => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
@@ -247,16 +251,16 @@ export default function SubscriptionsPage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Billing Cycle</label>
-                  <select value={form.billing_cycle} onChange={e => setForm(f => ({ ...f, billing_cycle: e.target.value }))}
+                  <label htmlFor="sub-cycle" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Billing Cycle</label>
+                  <select id="sub-cycle" value={form.billing_cycle} onChange={e => setForm(f => ({ ...f, billing_cycle: e.target.value }))}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500">
                     <option value="monthly">Monthly</option>
                     <option value="annual">Annual</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Discount %</label>
-                  <input type="number" min="0" max="50" value={form.discount_pct} onChange={e => setForm(f => ({ ...f, discount_pct: e.target.value }))}
+                  <label htmlFor="sub-discount" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Discount %</label>
+                  <input id="sub-discount" type="number" min="0" max="50" value={form.discount_pct} onChange={e => setForm(f => ({ ...f, discount_pct: e.target.value }))}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
                 </div>
               </div>

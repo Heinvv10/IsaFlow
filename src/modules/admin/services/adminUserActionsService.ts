@@ -43,17 +43,31 @@ type Row = DbRow;
  * from 2026-04-18 and none are unexpired. It is NOT session revocation — do
  * not mistake it for one.
  *
- * Throws if GoTrue revocation fails. The suspension itself has already landed
- * and is enforced; the throw exists so the admin learns that pre-existing
- * browser sessions may survive until their token expires, rather than seeing a
- * silent success.
+ * A failed GoTrue revocation does NOT throw (admin audit 2026-11-14, 3.2): the
+ * suspension stands and commits with its audit row, because closing a
+ * compromised account must not wait for GoTrue. `sessionsRevoked: false` tells
+ * the route, which records `revocation_failed` on the audit row and tells the
+ * admin that live browser sessions may survive until their token expires. Any
+ * other failure throws, and the route lets it become a 5xx so withPlatformAdmin
+ * rolls the suspension back: a suspension never commits without its audit row.
  *
  * Never refused for a pending pay-run approval (revoking a compromised account must always land). When the user is
  * the last other eligible approver of one, the suspension still goes ahead; the requests it strands are logged and
  * returned (the route puts them on the admin audit row). They cannot be self-approved by their requester: the
  * sole-approver fallback needs the roster unchanged since the request was raised (see payRunApproverGuard).
  */
-export async function suspendUser(userId: string, reason: string): Promise<StrandedPayRunRequest[]> {
+export interface SuspendOutcome {
+  stranded: StrandedPayRunRequest[];
+  /** False when GoTrue could not revoke the browser sessions: they live until their tokens expire. */
+  sessionsRevoked: boolean;
+}
+
+/** The admin's answer when the suspension landed but GoTrue could not revoke the browser sessions. */
+export const SESSIONS_NOT_REVOKED_MESSAGE =
+  'User suspended and API tokens revoked, but existing browser sessions could not be revoked — ' +
+  'they will expire on their own. Retry Force Logout once GoTrue is reachable.';
+
+export async function suspendUser(userId: string, reason: string): Promise<SuspendOutcome> {
   const stranded = await strandedOrNone(userId);
   await sql`
     UPDATE users
@@ -71,23 +85,21 @@ export async function suspendUser(userId: string, reason: string): Promise<Stran
   const pats = await revokeAllUserPats(userId);
   const authorisations = await revokeAllUserAuthorisations(userId);
 
+  let sessionsRevoked = true;
   try {
     await adminRevokeAllUserSessions(userId);
   } catch (err) {
+    sessionsRevoked = false;
     log.error('suspendUser — user suspended but GoTrue session revocation failed', {
       userId,
       pats,
       authorisations,
       message: err instanceof Error ? err.message : String(err),
     }, 'AdminUserActionsService');
-    throw new Error(
-      'User suspended and API tokens revoked, but existing browser sessions could not be revoked — ' +
-      'they will expire on their own. Retry Force Logout once GoTrue is reachable.',
-    );
   }
 
-  log.info('suspendUser', { userId, reason, pats, authorisations }, 'AdminUserActionsService');
-  return stranded;
+  log.info('suspendUser', { userId, reason, pats, authorisations, sessionsRevoked }, 'AdminUserActionsService');
+  return { stranded, sessionsRevoked };
 }
 
 /** The look-up must never stand between an admin and an emergency revocation: a failure is logged and nothing is reported. */

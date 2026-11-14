@@ -19,11 +19,12 @@ import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   TaxDirectiveAlreadyAppliedError, TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError,
-  TaxDirectiveWithoutEmployeeError,
+  TaxDirectiveWithoutEmployeeError, TaxDirectiveNotLumpSumError,
 } from '@/modules/accounting/services/payroll/taxDirectivePaymentService';
 // The payment plus its month's ETI journal, refused while a later ETI month is posted (wave 5 ET: H2, R-A, R-C).
 import { applyTaxDirective } from '@/modules/accounting/services/payroll/directivePaymentEti';
 import { EtiLaterMonthPostedError } from '@/modules/accounting/services/payroll/etiPeriodGuard';
+import { refuseRegularPayDirective } from '@/modules/accounting/services/payroll/taxDirectiveLabour';
 import { isBankAccountRefusal } from '@/modules/accounting/services/gl/paymentBankAccount';
 import { log } from '@/lib/logger';
 
@@ -59,6 +60,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   let result: Awaited<ReturnType<typeof applyTaxDirective>> | typeof JOURNAL_DATE_REFUSED;
   try {
+    // A regular-pay directive is never paid here: refused before the ETI wrapper's lock and later-month check.
+    await refuseRegularPayDirective(companyId, directiveId);
     result = await withJournalDateRefusal(res, () => applyTaxDirective(
       companyId,
       directiveId,
@@ -73,6 +76,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (err instanceof TaxDirectiveAlreadyAppliedError) return apiResponse.conflict(res, err.message);
     if (err instanceof TaxDirectiveNotApprovedError) return apiResponse.conflict(res, err.message);
     if (err instanceof TaxDirectiveWithoutEmployeeError) return apiResponse.badRequest(res, err.message);
+    if (err instanceof TaxDirectiveNotLumpSumError) return apiResponse.badRequest(res, err.message);
     if (isBankAccountRefusal(err)) return apiResponse.badRequest(res, err.message);
     if (err instanceof TaxDirectiveSplitChangedError) return apiResponse.conflict(res, err.message, { code: err.code, retryable: true });
     throw err;

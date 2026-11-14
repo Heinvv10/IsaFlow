@@ -33,7 +33,6 @@ import PlansPage from '../../../pages/admin/billing/plans';
 import HealthPage from '../../../pages/admin/health';
 import BillingPage from '../../../pages/admin/billing/index';
 import UserDetailPage from '../../../pages/admin/users/[id]';
-import SettingsPage from '../../../pages/admin/settings';
 
 configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();
@@ -148,20 +147,6 @@ describe('plans writes', () => {
     fireEvent.click(await screen.findByTitle('Archive'));
     expect(await screen.findByText('Could not archive the plan - try again')).toBeDefined();
     expect(document.body.textContent).not.toMatch(/Archive failed|Could not complete:/);
-  });
-});
-
-describe('settings saves', () => {
-  it('empty 500 on save settings says what could not be saved', async () => {
-    serve(
-      on('PATCH', '/api/admin/settings', empty500),
-      on('GET', '/api/admin/settings', () => ok({ maintenance_mode: false })),
-      on('GET', '/api/admin/alert-settings', () => ok({ health_alert_email: '', health_alert_webhook_url: '' })),
-    );
-    render(<SettingsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /^Save Settings$|^Save$/ }));
-    expect(await screen.findByText('Could not save settings - try again')).toBeDefined();
-    expect(document.body.textContent).not.toContain('Failed to save');
   });
 });
 
