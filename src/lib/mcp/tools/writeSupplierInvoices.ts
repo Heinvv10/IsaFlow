@@ -37,13 +37,16 @@ import {
   toolError,
 } from './toolHelpers';
 import { ALLOW_LATE_INPUT_CLAIM_PROP, allowLateInputClaim, lateClaimResult } from './lateClaimArg';
+import { EXTERNAL_REF_CREATE_PROPS, createReplayOrLock, parseCreateRef } from './externalRef';
 
 export const createSupplierInvoiceTool: McpTool = {
   name: 'create_supplier_invoice',
   description:
     'Create a DRAFT supplier invoice (bill / accounts payable document). Posts nothing to the ledger — use approve_supplier_invoice (needs write:post) to post DR Expense + DR VAT Input / CR Accounts Payable. ' +
     'Line amounts are NET of VAT: tax_rate is applied on top of quantity x unit_price. A line with no gl_account_id posts to the company\'s default expense account. ' +
-    'Resolve supplier_id with list_suppliers and gl_account_id with list_gl_accounts first.',
+    'Resolve supplier_id with list_suppliers and gl_account_id with list_gl_accounts first. '
+    + 'Pass external_system + external_ref (e.g. the Sage id) to make the create idempotent: a live bill already carrying them is returned instead (already_existed: true). '
+    + 'With an external_ref, a supplier\'s invoice_number may repeat an existing bill\'s (a supplier that reused its number on a different document); without one, a repeated number is refused.',
   scope: 'write:invoices',
   write: true,
   inputSchema: {
@@ -79,6 +82,7 @@ export const createSupplierInvoiceTool: McpTool = {
           additionalProperties: false,
         },
       },
+      ...EXTERNAL_REF_CREATE_PROPS,
       idempotency_key: { type: 'string' },
     },
     required: ['supplier_id', 'invoice_number', 'invoice_date', 'lines', 'idempotency_key'],
@@ -87,6 +91,8 @@ export const createSupplierInvoiceTool: McpTool = {
   handler: async (args, ctx) => {
     const parsed = parseSupplierInvoiceInput(args);
     if (typeof parsed === 'string') return toolError(parsed);
+    const xref = parseCreateRef(args);
+    if (typeof xref === 'string') return toolError(xref);
 
     // Ownership, batched, before the first write. supplier_id and
     // gl_account_id are plain foreign keys with no composite (id, company_id)
@@ -109,8 +115,15 @@ export const createSupplierInvoiceTool: McpTool = {
       { supplierId: parsed.supplierId, invoiceDate: parsed.invoiceDate, dueDate: parsed.dueDate, paymentTerms: parsed.paymentTerms, label: '' },
     ]);
 
+    // A live bill already carrying this external reference is returned, not created again.
+    const replay = await createReplayOrLock(ctx, 'supplier_invoice', xref, {
+      expect: { number: parsed.invoiceNumber, date: parsed.invoiceDate },
+    });
+    if (replay) return replay;
+
+    let invoice: Awaited<ReturnType<typeof createSupplierInvoice>>;
     try {
-      const invoice = await createSupplierInvoice(
+      invoice = await createSupplierInvoice(
         ctx.companyId,
         {
           supplierId: parsed.supplierId,
@@ -122,29 +135,32 @@ export const createSupplierInvoiceTool: McpTool = {
           reference: parsed.reference,
           notes: parsed.notes,
           items,
+          // Written by the INSERT, not stamped after: migration 986's uniqueness must see it.
+          ...(xref ? { externalRef: xref } : {}),
         },
         ctx.userId,
         mcpPostingOpts(ctx, 'create_supplier_invoice'),
       );
-      return ok({
-        id: invoice.id,
-        invoice_number: invoice.invoiceNumber,
-        supplier_id: invoice.supplierId,
-        invoice_date: invoice.invoiceDate,
-        due_date: invoice.dueDate ?? null,
-        subtotal: invoice.subtotal,
-        tax_amount: invoice.taxAmount,
-        total_amount: invoice.totalAmount,
-        status: invoice.status,
-        ...(cos.warnings.length > 0 ? { dimension_warnings: cos.warnings } : {}),
-        ...(dueWarnings.length > 0 ? { due_date_warnings: dueWarnings } : {}),
-      });
     } catch (err) {
       // The service's own validation (quantity, unit price) fires before its
       // INSERT, so surfacing the message keeps nothing written. Anything with
       // a SQLSTATE generic-ifies rather than leaking schema.
       return toolError(safeErrorText(err, 'Failed to create supplier invoice.'));
     }
+    return ok({
+      id: invoice.id,
+      invoice_number: invoice.invoiceNumber,
+      supplier_id: invoice.supplierId,
+      invoice_date: invoice.invoiceDate,
+      due_date: invoice.dueDate ?? null,
+      subtotal: invoice.subtotal,
+      tax_amount: invoice.taxAmount,
+      total_amount: invoice.totalAmount,
+      status: invoice.status,
+      ...(cos.warnings.length > 0 ? { dimension_warnings: cos.warnings } : {}),
+      ...(dueWarnings.length > 0 ? { due_date_warnings: dueWarnings } : {}),
+      ...(xref ? { external_system: xref.system, external_ref: xref.ref } : {}),
+    });
   },
 };
 

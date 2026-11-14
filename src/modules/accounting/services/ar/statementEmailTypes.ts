@@ -5,6 +5,8 @@
  */
 
 export interface StatementTransaction {
+  /** The invoice / receipt / credit note row behind this line — lets a caller join it to the document. */
+  documentId?: string;
   date: string;
   type: 'invoice' | 'payment' | 'credit_note';
   reference: string;

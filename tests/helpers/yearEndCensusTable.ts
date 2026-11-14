@@ -58,6 +58,8 @@ export const entries: Array<[string, Category, string?]> = [
   ['bank/bankCoverageDirections.ts', 'CASH'],
   ['bank/bankMatchDbQueries.ts', 'BANK'],
   ['bank/bankReconciliationBalance.ts', 'BANK'],
+  ['bank/bankReallocationFacts.ts', 'BANK'], // reallocate_bank_transaction: the lines of the one journal a reconciled bank line is allocated by
+  ['bank/bankReallocationWrites.ts', 'BANK'], // reallocate_bank_transaction: the bank leg the reallocated line is matched to now
   ['bank/cashBalanceService.ts', 'CASH'],
   ['bank/journalReversalState.ts', 'BANK'],
   ['bank/splitJournalDocuments.ts', 'BANK'],
@@ -105,6 +107,7 @@ export const entries: Array<[string, Category, string?]> = [
   ['payroll/payrollJournalChain.ts', 'SUBLEDGER'],
   ['reconciliation/creditNoteRelief.ts', 'SUBLEDGER'],
   ['reconciliation/orphanControlPostings.ts', 'SUBLEDGER'],
+  ['reconciliation/partyLedgerJournalLateral.ts', 'SUBLEDGER'], // one document's own journal chain on the control accounts (party_ledger_check)
   ['reconciliation/unappliedPaymentCash.ts', 'SUBLEDGER'],
   ['reconciliation/unpostedDocumentQueries.ts', 'SUBLEDGER'],
   ['reports/cashFlowForecastDataService.ts', 'CASH'],
@@ -137,6 +140,7 @@ export const COMPOSED: Array<[string, Category]> = [
   ['payroll/payrollJournalChain.ts', 'SUBLEDGER'],
   ['reports/customReportFieldDefs.ts', 'RAW'],
   ['shared/journalInForceAsAt.ts', 'FRAGMENT'],
+  ['shared/paymentStoodAsAt.ts', 'FRAGMENT'],
   ['shared/softDeleteLedgerPresence.ts', 'FRAGMENT'],
 ];
 

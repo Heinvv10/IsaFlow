@@ -185,3 +185,6 @@ describe('a load for an invoice no longer open', () => {
     expect(description().value).toBe('B line');
   });
 });
+
+// M14: this suite does not provide the auth context or the comments route; the panel has its own tests (commentsPanel, commentsMounts).
+vi.mock('@/components/accounting/comments/CommentsPanel', () => ({ CommentsPanel: () => null }));

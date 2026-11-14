@@ -128,6 +128,9 @@ export async function getBankTransactions(
     } else if (filters?.bankAccountId) {
       const fromDate = filters.fromDate || '1900-01-01';
       const toDate = filters.toDate || '2099-12-31';
+      // Null-safe, as the company-wide branch: no term collapses to TRUE so lines with a NULL description AND
+      // reference still list. This branch ignored `search` outright (MCP description_contains, 2026-11-13).
+      const searchPattern = filters.search ? `%${filters.search}%` : null;
       const alloc = allocationCond(filters);
       const keyset = bankTxKeysetCond(cursor, 'DESC');
       rows = (await sql`${sql.unsafe(TX_SELECT)}
@@ -135,6 +138,7 @@ export async function getBankTransactions(
           AND bt.company_id = ${companyId}::UUID
           AND bt.feed_state <> 'removed'
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
+          AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
           ${sql.unsafe(alloc)}
           ${keyset}
         ORDER BY bt.transaction_date DESC, bt.amount DESC, bt.id DESC
@@ -144,6 +148,7 @@ export async function getBankTransactions(
           AND bt.company_id = ${companyId}::UUID
           AND bt.feed_state <> 'removed'
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
+          AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
           ${sql.unsafe(alloc)}`) as Row[];
     } else {
       const statusFilter = filters?.status ?? null;
@@ -218,6 +223,13 @@ export async function deleteTransactions(companyId: string, bankTxIds: string[])
     // Callers report this number to a user — bank-transactions-action.ts and
     // undo_bank_import both do.
     const deleted = result.length;
+    if (deleted > 0) {
+      // Comments on a line that no longer exists go with it (soft delete, same transaction; record_comments_guard
+      // lets anyone retire the comments of a record that is gone). Company-scoped like every query here.
+      await sql`UPDATE record_comments SET deleted_at = clock_timestamp()
+                 WHERE company_id = ${companyId}::UUID AND record_type = 'bank_transaction'
+                   AND record_id = ANY(${result.map((r) => String(r.id))}::UUID[]) AND deleted_at IS NULL`;
+    }
     log.info('Deleted bank transactions', { count: deleted, ids: bankTxIds }, 'accounting');
     return deleted;
   } catch (err) {

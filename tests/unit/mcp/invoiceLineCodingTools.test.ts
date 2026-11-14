@@ -14,6 +14,12 @@ vi.mock('@/modules/accounting/services/ar/customerInvoiceCreateService', () => (
   InvoiceLineValidationError: class InvoiceLineValidationError extends Error {},
 }));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({ customerBelongsToCompany: vi.fn(async () => true) }));
+vi.mock('@/modules/accounting/services/core/externalRefService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/core/externalRefService')>()),
+  findByExternalRef: vi.fn(async () => []),
+  lockExternalRef: vi.fn(async () => undefined),
+  stampExternalRef: vi.fn(async () => undefined),
+}));
 
 import { createDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { createDraftInvoiceTool } from '@/lib/mcp/tools/writeInvoices';
@@ -21,6 +27,7 @@ import { bulkCreateCustomerInvoicesTool } from '@/lib/mcp/tools/writeBulkCustome
 import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
 import { isRefusalCoded } from '@/lib/mcp/tools/toolHelpers';
 import type { McpToolContext } from '@/lib/mcp/types';
+import { findByExternalRef, stampExternalRef } from '@/modules/accounting/services/core/externalRefService';
 
 const create = vi.mocked(createDraftCustomerInvoice);
 const ctx = { userId: 'u', companyId: 'c', scopes: ['write:invoices'], tokenJti: 'j', oauthAppId: null } as McpToolContext;
@@ -98,5 +105,21 @@ describe('bulk_create_customer_invoices', () => {
     expect(res.isError).toBe(true);
     expect(res.content[0]!.text).toContain('invoices[1].items[0] has "glAccountId", which is not a line field');
     expect(create).not.toHaveBeenCalled();
+  });
+});
+
+describe('create_draft_invoice — external_ref (brief step 3)', () => {
+  const XREF = { external_system: 'sage', external_ref: '77', idempotency_key: 'k' };
+  it('returns the live invoice with the reference and creates nothing', async () => {
+    vi.mocked(findByExternalRef).mockResolvedValueOnce([{ entityType: 'customer_invoice', id: 'inv-old', number: 'INV-0007', status: 'draft', date: '2026-11-01', totalAmount: 115, live: true, externalDocumentNumber: null }]);
+    const res = await createDraftInvoiceTool.handler({ ...one(), ...XREF }, ctx) as Res & { wroteNothing?: boolean };
+    expect(res.wroteNothing).toBe(true);
+    expect(JSON.parse(res.content[0]!.text)).toMatchObject({ already_existed: true, id: 'inv-old' });
+    expect(create).not.toHaveBeenCalled();
+  });
+  it('creates, stamps, and echoes the reference', async () => {
+    const res = await createDraftInvoiceTool.handler({ ...one(), ...XREF }, ctx) as Res;
+    expect(stampExternalRef).toHaveBeenCalledWith('c', 'customer_invoice', 'inv-1', { system: 'sage', ref: '77', documentNumber: null });
+    expect(JSON.parse(res.content[0]!.text)).toMatchObject({ id: 'inv-1', external_ref: '77' });
   });
 });
