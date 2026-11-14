@@ -180,22 +180,29 @@ export async function adminPage(browser: Browser, cookies: Cookie[]): Promise<Wa
   return { page, context, problems, inflight };
 }
 
-export function adminGet(api: RegExp, params: Record<string, string> = {}): (r: Response) => boolean {
+export function adminGet(api: RegExp, params: Record<string, string> = {}): (r: Request) => boolean {
   return (r) => {
     const u = new URL(r.url());
-    return r.request().method() === 'GET' && api.test(u.pathname) && Object.entries(params).every(([k, v]) => u.searchParams.get(k) === v);
+    return r.method() === 'GET' && api.test(u.pathname) && Object.entries(params).every(([k, v]) => u.searchParams.get(k) === v);
   };
 }
 
-/** Runs `act` and returns the first response `match` accepts; neither promise is left to reject unobserved. */
-export async function responseTo(page: Page, match: (r: Response) => boolean, act: () => Promise<unknown>): Promise<Response> {
-  const [res] = await Promise.all([page.waitForResponse(match), act()]);
+/**
+ * Runs `act` and returns the response to the first request `match` accepts; neither promise is left to reject
+ * unobserved. A request that gets no response (aborted as a write, refused) fails at once, with `problems`.
+ */
+export async function responseTo(w: Watched, match: (r: Request) => boolean, act: () => Promise<unknown>): Promise<Response> {
+  const [req] = await Promise.all([w.page.waitForRequest(match), act()]);
+  const res = await req.response();
+  if (!res) {
+    throw new Error(`${req.method()} ${new URL(req.url()).pathname} got no response (${req.failure()?.errorText ?? 'failed'}): ${w.problems.join('; ')}`);
+  }
   return res;
 }
 
 /** Loads `path` on the admin host and waits for its first GET under `api`; asserts 200 and the heading. */
 export async function visit(w: Watched, path: string, heading: RegExp, api: RegExp): Promise<Response> {
-  const res = await responseTo(w.page, adminGet(api), () => w.page.goto(`${TARGET.origin}${path}`));
+  const res = await responseTo(w, adminGet(api), () => w.page.goto(`${TARGET.origin}${path}`));
   if (res.status() === 403 && /NOT_SUPER_ADMIN/.test(await res.text())) {
     throw new Error(`NOT_SUPER_ADMIN on ${path}: the golden admin login is not a super admin here; ${PRE_CHECK}.`);
   }

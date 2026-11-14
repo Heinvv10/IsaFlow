@@ -72,7 +72,7 @@ test('dashboard and the companies list load; the list sorts by Name both ways an
 
   /** Sorts by a column; the table must show one row per company the API returned, the first row being its first. */
   const sortedBy = async (column: string, by: string, dir: 'asc' | 'desc'): Promise<string[]> => {
-    const res = await responseTo(w.page, adminGet(/^\/api\/admin\/companies$/, { sort_by: by, sort_dir: dir }),
+    const res = await responseTo(w, adminGet(/^\/api\/admin\/companies$/, { sort_by: by, sort_dir: dir }),
       () => header(w.page, column).click());
     expect(res.status(), `sort ${by} ${dir}`).toBe(200);
     const names = ((await res.json()) as { data: { items: Array<{ name: string }> } }).data.items.map((c) => c.name);
