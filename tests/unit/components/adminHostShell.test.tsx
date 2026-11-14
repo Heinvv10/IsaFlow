@@ -75,8 +75,9 @@ describe('AppLayout on the admin host', () => {
     setAdminHost(true);
     render(<AppLayout><p>page</p></AppLayout>);
     fireEvent.keyDown(document, { key: 'k', ctrlKey: true });
+    // next/dynamic: the admin palette is its own chunk, so it arrives a tick later.
+    const box = await screen.findByRole('combobox');
     expect(screen.queryByTestId('tenant-palette')).toBeNull();
-    const box = screen.getByRole('combobox');
     fireEvent.change(box, { target: { value: 'plans' } });
     expect(screen.getAllByRole('option')[0]!.textContent).toContain('Plans');
     await waitFor(() => expect(h.apiFetch).toHaveBeenCalledTimes(2));

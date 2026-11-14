@@ -4,20 +4,17 @@
  * - On app.isaflow.co.za or localhost: returns '/admin' (prefixed paths like /admin/companies)
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 
 const ADMIN_HOSTS = ['admin.isaflow.co.za'];
 
+/**
+ * Read on the first render, not in an effect: an effect left the first frame with /admin/* hrefs on the admin host
+ * (the drawer and the palette mount with links already drawn). The server has no hostname and renders '/admin';
+ * nothing the admin pages render from this reaches the prerendered HTML, which is the auth skeleton.
+ */
 export function useAdminPrefix(): string {
-  const [prefix, setPrefix] = useState('/admin');
-
-  useEffect(() => {
-    const host = window.location.hostname;
-    if (ADMIN_HOSTS.includes(host)) {
-      setPrefix('');
-    }
-  }, []);
-
+  const [prefix] = useState(() => (isAdminSubdomain() ? '' : '/admin'));
   return prefix;
 }
 

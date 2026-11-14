@@ -38,6 +38,7 @@ beforeEach(() => {
     const p = String(url).split('?')[0]!;
     if (p === '/api/admin/users/x-1') return success(USER);
     if (p === '/api/admin/companies/x-1') return success(COMPANY);
+    if (p === '/api/admin/users/x-1/impersonate') return success({ redirect: '/accounting' });
     if (p.endsWith('/impersonate')) return success({ token: 'tok 1' });
     return success([]);
   });
@@ -55,29 +56,51 @@ async function impersonateFromCompany() {
   fireEvent.click(screen.getByRole('button', { name: /^impersonate$/i }));
 }
 
+async function loginAs() {
+  render(<UserDetailPage />);
+  expect((await screen.findAllByText(/Ann Lee/)).length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole('button', { name: /login as/i }));
+  fireEvent.click(await screen.findByRole('button', { name: /confirm & login as/i }));
+  fireEvent.click(await screen.findByRole('button', { name: /open impersonated session/i }));
+}
+
+describe('Login As opens the tenant app through the same rule', () => {
+  it('on the admin host with no NEXT_PUBLIC_APP_URL: app.isaflow.co.za', async () => {
+    onHost('https://admin.isaflow.co.za/users/x-1');
+    await loginAs();
+    await waitFor(() => expect(open).toHaveBeenCalledWith('https://app.isaflow.co.za/accounting', '_blank', 'noopener,noreferrer'));
+  });
+
+  it('in dev (/admin/* on the app origin): this origin, not production', async () => {
+    onHost('http://localhost:3200/admin/users/x-1');
+    await loginAs();
+    await waitFor(() => expect(open).toHaveBeenCalledWith('http://localhost:3200/accounting', '_blank', 'noopener,noreferrer'));
+  });
+});
+
 describe('Impersonate opens the tenant app', () => {
   it('user detail on the admin host opens app.isaflow.co.za/accounting, not the admin host', async () => {
     onHost('https://admin.isaflow.co.za/users/x-1');
     await impersonateFromUser();
-    await waitFor(() => expect(open).toHaveBeenCalledWith('https://app.isaflow.co.za/accounting?impersonate=tok%201', '_blank'));
+    await waitFor(() => expect(open).toHaveBeenCalledWith('https://app.isaflow.co.za/accounting?impersonate=tok%201', '_blank', 'noopener,noreferrer'));
   });
 
   it('user detail uses NEXT_PUBLIC_APP_URL when it is set', async () => {
     onHost('https://admin.isaflow.co.za/users/x-1');
     vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.example.test/');
     await impersonateFromUser();
-    await waitFor(() => expect(open).toHaveBeenCalledWith('https://app.example.test/accounting?impersonate=tok%201', '_blank'));
+    await waitFor(() => expect(open).toHaveBeenCalledWith('https://app.example.test/accounting?impersonate=tok%201', '_blank', 'noopener,noreferrer'));
   });
 
   it('user detail off the admin host (dev, /admin/*) stays on this origin', async () => {
     onHost('http://localhost:3200/admin/users/x-1');
     await impersonateFromUser();
-    await waitFor(() => expect(open).toHaveBeenCalledWith('http://localhost:3200/accounting?impersonate=tok%201', '_blank'));
+    await waitFor(() => expect(open).toHaveBeenCalledWith('http://localhost:3200/accounting?impersonate=tok%201', '_blank', 'noopener,noreferrer'));
   });
 
   it('company detail on the admin host with no NEXT_PUBLIC_APP_URL opens the tenant app too', async () => {
     onHost('https://admin.isaflow.co.za/companies/x-1');
     await impersonateFromCompany();
-    await waitFor(() => expect(open).toHaveBeenCalledWith('https://app.isaflow.co.za/accounting?impersonate=tok%201', '_blank'));
+    await waitFor(() => expect(open).toHaveBeenCalledWith('https://app.isaflow.co.za/accounting?impersonate=tok%201', '_blank', 'noopener,noreferrer'));
   });
 });

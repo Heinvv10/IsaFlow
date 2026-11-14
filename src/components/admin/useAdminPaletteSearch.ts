@@ -2,9 +2,11 @@
  * Record search for the admin host's Ctrl+K: companies and users, through the console's own list APIs
  * (GET /api/admin/companies and /api/admin/users, both behind withAdmin), five of each. No new search endpoint.
  *
- * Debounced; 2+ characters; a newer query aborts the older requests, and a late reply to an older query is dropped.
+ * Debounced; 2+ characters. Staleness has one mechanism, the AbortSignal: a newer query (or closing) aborts the
+ * older run, and an aborted run never touches state, whatever stage it was at. Separately, `records` only ever shows
+ * the reply to the query in the box, so the previous query's rows vanish while the new one is debounced or in flight.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { adminFetch } from '@/lib/admin/adminFetch';
 import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import type { SearchResult } from '@/components/layout/paletteRank';
@@ -57,7 +59,6 @@ export function useAdminPaletteSearch(isOpen: boolean, href: (path: string) => s
   const [reply, setReply] = useState<{ q: string; results: SearchResult[] }>({ q: '', results: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const latest = useRef('');
 
   // Cleared while CLOSED, so the next open starts empty on its first frame.
   if (!isOpen && query) setQuery('');
@@ -69,19 +70,19 @@ export function useAdminPaletteSearch(isOpen: boolean, href: (path: string) => s
         listOf<CompanyRow>('/api/admin/companies', q, signal),
         listOf<UserRow>('/api/admin/users', q, signal),
       ]);
-      if (latest.current === q) setReply({ q, results: toResults(companies, users, href) });
+      if (!signal.aborted) setReply({ q, results: toResults(companies, users, href) });
     } catch (err) {
-      if (signal.aborted || latest.current !== q) return;
+      if (signal.aborted) return;
       setReply({ q, results: [] });
       setError(apiErrorMessage(err, FAILED));
     } finally {
-      if (latest.current === q) setLoading(false);
+      // An aborted run leaves the spinner to the run that replaced it (or to the reset below).
+      if (!signal.aborted) setLoading(false);
     }
   }, [href]);
 
   useEffect(() => {
     const q = query.trim();
-    latest.current = q;
     if (!isOpen || q.length < MIN_ADMIN_QUERY) {
       setReply({ q: '', results: [] });
       setError('');

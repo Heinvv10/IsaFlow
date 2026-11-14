@@ -29,6 +29,7 @@ export function AdminCommandPalette({ isOpen, onClose }: AdminCommandPaletteProp
   const router = useRouter();
   const href = useAdminHref();
   const dialogRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const uid = useId();
   const listId = `${uid}-list`;
   const [selected, setSelected] = useState(0);
@@ -49,6 +50,10 @@ export function AdminCommandPalette({ isOpen, onClose }: AdminCommandPaletteProp
 
   useEffect(() => { setSelected(0); }, [query]);
   const current = Math.min(selected, Math.max(rows.length - 1, 0));
+  // The arrow keys move the highlight past the list's visible edge: keep the highlighted row on screen.
+  useEffect(() => {
+    listRef.current?.querySelector(`[data-idx="${current}"]`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [current]);
 
   const choose = useCallback((row: SearchResult) => {
     onClose();
@@ -67,6 +72,7 @@ export function AdminCommandPalette({ isOpen, onClose }: AdminCommandPaletteProp
   const optionId = (i: number) => `${uid}-opt-${i}`;
   const positionOf = new Map(rows.map((r, n) => [r, n]));
   const showEmpty = query.trim().length > 0 && rows.length === 0 && !loading && !error;
+  const status = !query.trim() ? '' : loading ? 'Searching…' : error ? 'Search failed' : `${rows.length} results`;
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center pt-[10vh]" onClick={onClose}>
@@ -98,7 +104,7 @@ export function AdminCommandPalette({ isOpen, onClose }: AdminCommandPaletteProp
           <kbd className="hidden sm:flex items-center px-2 py-0.5 text-xs text-ink-muted bg-surface-sunken border border-line rounded">Esc</kbd>
         </div>
 
-        <div id={listId} role="listbox" aria-label="Results" className="overflow-y-auto flex-1">
+        <div ref={listRef} id={listId} role="listbox" aria-label="Results" className="overflow-y-auto flex-1">
           {sections.map(section => (
             <div key={section.id} role="group" aria-labelledby={`${uid}-h-${section.id}`} className="py-2">
               <p id={`${uid}-h-${section.id}`} className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-ink-muted">
@@ -120,7 +126,7 @@ export function AdminCommandPalette({ isOpen, onClose }: AdminCommandPaletteProp
 
         {error && <p role="alert" className="px-4 py-3 text-sm text-ink border-t border-line">{error}</p>}
         {showEmpty && <p className="px-4 py-8 text-center text-sm text-ink-muted">No results for &ldquo;{query}&rdquo;</p>}
-        <p className="sr-only" role="status" aria-live="polite">{query.trim() ? `${rows.length} results` : ''}</p>
+        <p className="sr-only" role="status" aria-live="polite">{status}</p>
       </div>
     </div>
   );

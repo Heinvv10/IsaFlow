@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useRouter } from 'next/router';
+import dynamic from 'next/dynamic';
 import { useTrackPageVisit } from '@/hooks/useTrackPageVisit';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -19,7 +20,6 @@ import { SecondaryModuleNav } from '@/components/accounting/SecondaryModuleNav';
 import { getActiveModuleId } from '@/components/accounting/accountingNavConfig';
 import { MODULE_BY_ID } from '@/components/accounting/navSections/secondaryNav';
 import { CommandPalette } from '@/components/layout/CommandPalette';
-import { AdminCommandPalette } from '@/components/admin/AdminCommandPalette';
 import { ShortcutHelpOverlay } from '@/components/layout/ShortcutHelpOverlay';
 import { AccountingTour } from '@/components/onboarding/AccountingTour';
 import { ImpersonationBanner } from '@/components/layout/ImpersonationBanner';
@@ -32,6 +32,12 @@ import { useGlobalShortcuts } from '@/components/layout/useGlobalShortcuts';
 import { SHELL_HEIGHTS } from '@/components/layout/shellHeights';
 import { isDashboardPath, isPayrollPath } from '@/components/layout/shellRoutes';
 import { readShellPrefs, writeShellPrefs, type NavMode } from '@/components/layout/shellPrefs';
+
+// Only the admin host renders it: a separate chunk keeps it out of the tenant app's bundle.
+const AdminCommandPalette = dynamic(
+  () => import('@/components/admin/AdminCommandPalette').then(m => m.AdminCommandPalette),
+  { ssr: false },
+);
 
 
 // ─── Props ──────────────────────────────────────────────────────────────────

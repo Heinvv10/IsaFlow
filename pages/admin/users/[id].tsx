@@ -138,7 +138,7 @@ export default function AdminUserDetailPage() {
       await assertOk(res, 'Could not start impersonation - try again');
       const json = await res.json();
       const token = (json.data as { token: string }).token;
-      window.open(tenantAppUrl(`/accounting?impersonate=${encodeURIComponent(token)}`), '_blank');
+      window.open(tenantAppUrl(`/accounting?impersonate=${encodeURIComponent(token)}`), '_blank', 'noopener,noreferrer');
       showToast('Impersonation session opened');
     } catch (err) {
       log.error('Impersonation failed', { userId: user.id, error: err }, 'admin-ui');
@@ -178,8 +178,7 @@ export default function AdminUserDetailPage() {
       setActionError('Server returned an unexpected redirect target');
       return;
     }
-    const appOrigin = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
-    window.open(`${appOrigin}${loginAsRedirect}`, '_blank', 'noopener,noreferrer');
+    window.open(tenantAppUrl(loginAsRedirect), '_blank', 'noopener,noreferrer');
     setLoginAsModalOpen(false);
     showToast('Impersonation session opened in new tab');
   }

@@ -94,17 +94,120 @@ describe('AdminCommandPalette', () => {
     expect(screen.queryByText(/No results/)).toBeNull();
   });
 
-  it('a reply to an older query never shows under a newer one', async () => {
-    const pending: Array<() => void> = [];
-    h.apiFetch.mockImplementation((url: string) => new Promise<Response>((resolve) => {
-      const items = String(url).includes('search=old') && String(url).startsWith('/api/admin/companies') ? [{ ...COMPANY, name: 'Old Co' }] : [];
-      pending.push(() => resolve(reply(200, { success: true, data: { items, total: items.length, page: 1, limit: 5 } })));
-    }));
+  it('the arrow keys keep the highlighted row scrolled into view', () => {
+    const scroll = vi.fn();
+    const before = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scroll;
+    try {
+      render(<AdminCommandPalette isOpen onClose={() => undefined} />);
+      scroll.mockClear();
+      fireEvent.keyDown(box(), { key: 'ArrowDown' });
+      fireEvent.keyDown(box(), { key: 'ArrowDown' });
+      expect(scroll).toHaveBeenLastCalledWith({ block: 'nearest' });
+      expect((scroll.mock.contexts.at(-1) as HTMLElement).getAttribute('data-idx')).toBe('2');
+    } finally {
+      Element.prototype.scrollIntoView = before;
+    }
+  });
+});
+
+/**
+ * A fetch that honours its AbortSignal, as the browser's does: each call waits until the test answers it, and
+ * rejects with AbortError when aborted first. `late` answers with the body read deferred (the response was in hand
+ * before the abort), so only the hook's own aborted-check can stop it.
+ */
+interface Pending { url: string; signal: AbortSignal; answer: (items: unknown[]) => void; late: (items: unknown[]) => () => void }
+function pendingServe(): Pending[] {
+  const calls: Pending[] = [];
+  h.apiFetch.mockImplementation((url: string, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
+    const signal = init!.signal!;
+    signal.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')));
+    const body = (items: unknown[]) => ({ success: true, data: { items, total: items.length, page: 1, limit: 5 } });
+    calls.push({
+      url: String(url), signal,
+      answer: (items) => resolve(reply(200, body(items))),
+      late: (items) => {
+        let release: () => void = () => undefined;
+        const json = new Promise((r) => { release = () => r(body(items)); });
+        resolve({ ok: true, status: 200, headers: new Headers(), json: () => json } as unknown as Response);
+        return release;
+      },
+    });
+  }));
+  return calls;
+}
+const forQuery = (calls: Pending[], q: string, path: string) => calls.find(c => c.url.startsWith(path) && c.url.includes(`search=${q}&`))!;
+const status = () => screen.getByRole('status').textContent;
+const settle = () => act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+describe('AdminCommandPalette: stale replies and the live region', () => {
+  it('a newer query aborts the older requests', async () => {
+    const calls = pendingServe();
     render(<AdminCommandPalette isOpen onClose={() => undefined} />);
     await type('old');
     await type('new');
-    // The newer reply lands first, the older one last: the late one must not replace it.
-    await act(async () => { for (const r of [...pending].reverse()) r(); await vi.advanceTimersByTimeAsync(0); });
+    expect(calls.filter(c => c.url.includes('search=old&')).map(c => c.signal.aborted)).toEqual([true, true]);
+    expect(calls.filter(c => c.url.includes('search=new&')).map(c => c.signal.aborted)).toEqual([false, false]);
+  });
+
+  it('an older reply whose body lands after the newer reply does not replace it', async () => {
+    const calls = pendingServe();
+    render(<AdminCommandPalette isOpen onClose={() => undefined} />);
+    await type('old');
+    const releaseOld = forQuery(calls, 'old', '/api/admin/companies').late([{ ...COMPANY, id: 'co-old', name: 'Old Co' }]);
+    forQuery(calls, 'old', '/api/admin/users').late([])();
+    await type('new');
+    forQuery(calls, 'new', '/api/admin/companies').answer([{ ...COMPANY, id: 'co-new', name: 'New Co' }]);
+    forQuery(calls, 'new', '/api/admin/users').answer([]);
+    await settle();
+    expect(screen.getByText('New Co')).toBeTruthy();
+    releaseOld();
+    await settle();
+    expect(screen.getByText('New Co')).toBeTruthy();
     expect(screen.queryByText('Old Co')).toBeNull();
+  });
+
+  it('an aborted request is not reported as a failed search', async () => {
+    pendingServe();
+    render(<AdminCommandPalette isOpen onClose={() => undefined} />);
+    await type('acme');
+    await type('acme ');
+    await settle();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('the previous query\'s records vanish as soon as the query changes', async () => {
+    serve([COMPANY], []);
+    render(<AdminCommandPalette isOpen onClose={() => undefined} />);
+    await type('acme');
+    expect(screen.getByText('Acme Holdings')).toBeTruthy();
+    fireEvent.change(box(), { target: { value: 'acmex' } });
+    expect(screen.queryByText('Acme Holdings')).toBeNull();
+  });
+
+  it('the live region says Searching while records load, even after an older run was aborted', async () => {
+    const calls = pendingServe();
+    render(<AdminCommandPalette isOpen onClose={() => undefined} />);
+    await type('acme');
+    expect(status()).toBe('Searching…');
+    await type('acme ');
+    await settle();
+    expect(status()).toBe('Searching…');
+    for (const c of calls.filter(c => !c.signal.aborted)) c.answer(c.url.startsWith('/api/admin/companies') ? [COMPANY] : [USER]);
+    await settle();
+    expect(status()).toBe('2 results');
+  });
+
+  it('the live region counts pages and records together, and says when the search failed', async () => {
+    serve([COMPANY], []);
+    render(<AdminCommandPalette isOpen onClose={() => undefined} />);
+    await type('plans');
+    expect(status()).toBe(`${screen.getAllByRole('option').length} results`);
+    expect(screen.getAllByRole('option').length).toBe(2);
+    cleanup();
+    serve([], [], 500);
+    render(<AdminCommandPalette isOpen onClose={() => undefined} />);
+    await type('zzz');
+    expect(status()).toBe('Search failed');
   });
 });

@@ -269,7 +269,7 @@ export default function AdminCompanyDetailPage() {
       const json = await res.json();
       const token = (json.data as { token: string })?.token;
       if (token) {
-        window.open(tenantAppUrl(`/accounting?impersonate=${encodeURIComponent(token)}`), '_blank');
+        window.open(tenantAppUrl(`/accounting?impersonate=${encodeURIComponent(token)}`), '_blank', 'noopener,noreferrer');
       } else {
         throw new ApiEnvelopeError('No token was returned, so impersonation could not start');
       }
