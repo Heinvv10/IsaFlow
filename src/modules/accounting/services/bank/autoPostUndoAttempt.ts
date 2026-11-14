@@ -67,8 +67,7 @@ export async function attemptUndoRow(
       tally.skippedBy.failed += 1;
       log.error(
         outcome === 'reReversed'
-          ? 'Auto-post undo skipped a transaction whose provisional journal reversal was itself reversed — '
-            + 'the posting stands; run stays open'
+          ? 'Auto-post undo skipped a transaction whose provisional journal reversal was itself reversed — the posting stands; run stays open'
           : 'Auto-post undo skipped a transaction marked posted with nothing linked to reverse — run stays open',
         { companyId, runId, txId, status: ctx.status },
         'auto-post-undo',
@@ -85,8 +84,7 @@ export async function attemptUndoRow(
       if (!final) return 'creditRefused';
       tally.skippedBy.creditCeiling += 1;
       log.warn('Auto-post undo refused a transaction: cancelling its payment or receipt would leave the contact owing '
-        + 'the company (a refund already returned that cash) — run stays open',
-      { companyId, runId, txId }, 'auto-post-undo');
+        + 'the company (a refund already returned that cash) — run stays open', { companyId, runId, txId }, 'auto-post-undo');
     } else if (isRetryableContention(err) || isHeldRowError(err)) {
       tally.contention ??= err;
       tally.skippedBy.contended += 1;

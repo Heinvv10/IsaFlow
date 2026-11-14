@@ -1,5 +1,5 @@
 /**
- * apply_receipt_to_invoice answers a HELD ROW as every tool answers a retryable lock error (review round 2, LOW 4):
+ * apply_receipt_to_invoice answers a HELD ROW as every tool answers a retryable lock error:
  * thrown, so the registry's savepoint rolls the call back and `thrownToolErrorText` keeps the "retry" wording — not a
  * plain refusal. The receipt credit lock (ar/customerCreditLock) refuses this way when a refund or another write of
  * the customer's cash holds the row. A refusal about the books stays a tool error.

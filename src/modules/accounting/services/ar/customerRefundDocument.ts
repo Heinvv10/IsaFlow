@@ -65,39 +65,17 @@ function round2(n: number): number {
 }
 
 /**
- * What this customer has sitting on account, as at a date. See the AP twin for
- * why the allocation cap is `GREATEST(total, 0)` and not `LEAST(alloc, total)`.
+ * What this customer has sitting on account, as at a date: the receipt credit rule's one basis
+ * (`customerRunningCredit.customerCreditDays`, summed up to the date by `creditAsAt`). See the AP twin for why the
+ * allocation cap is `GREATEST(total, 0)` and not `LEAST(alloc, total)`.
  */
 export async function getCustomerOnAccountCredit(
   companyId: string,
   customerId: string,
   asAt: string,
 ): Promise<{ credit: number; customerName: string }> {
-  const rows = (await sql`
-    SELECT COALESCE(SUM(
-             cp.total_amount
-             - LEAST(COALESCE(alloc.allocated, 0), GREATEST(cp.total_amount, 0))
-           ), 0) AS credit,
-           MAX(c.name) AS customer_name
-    FROM customers c
-    LEFT JOIN customer_payments cp
-      ON cp.client_id = c.id
-     AND cp.company_id = c.company_id
-     AND cp.status <> 'cancelled'
-     AND cp.payment_date <= ${asAt}::DATE
-    LEFT JOIN LATERAL (
-      SELECT SUM(cpa.amount_allocated) AS allocated
-      FROM customer_payment_allocations cpa
-      WHERE cpa.payment_id = cp.id
-    ) alloc ON TRUE
-    WHERE c.company_id = ${companyId}::UUID
-      AND c.id = ${customerId}::UUID
-  `) as DbRow[];
-
-  return {
-    credit: round2(Number(rows[0]?.credit ?? 0)),
-    customerName: rows[0]?.customer_name ? String(rows[0].customer_name) : 'this customer',
-  };
+  const { customerName, days } = await customerCreditDays(companyId, customerId, []);
+  return { credit: round2(creditAsAt(days, asAt)), customerName };
 }
 
 /**
@@ -117,7 +95,11 @@ export async function planCustomerRefund(
   paymentDate: string,
 ): Promise<CustomerRefundPlan> {
   const gross = round2(Math.abs(amount));
-  await lockContactForRefund(companyId, 'customer', customerId);
+  // Fail closed: a customer that is not this company's has no credit here to judge, and its lock serialises nothing.
+  if (!(await lockContactForRefund(companyId, 'customer', customerId))) {
+    throw new SupplierRefundRefusal('This refund names a customer that is not one of this company\'s customers — '
+      + 'nothing was recorded. Allocate it to the right customer.');
+  }
   // ONE basis with the receipt writes (`customerRunningCredit`): the as-at figure is the running credit up to its date.
   const { customerName, days } = await customerCreditDays(companyId, customerId, []);
   const asAtDate = round2(creditAsAt(days, paymentDate));

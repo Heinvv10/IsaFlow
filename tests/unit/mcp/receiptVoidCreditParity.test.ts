@@ -6,7 +6,7 @@
  * keeps its idempotency key free. The per-day figures are a fixture (`customerCreditDays` stands in for its SQL); the
  * rule on them is the real `judgeCreditDays` (pinned in tests/unit/services/ar/customerVoidCredit.test.ts) and the
  * whole path runs on a real ledger in tests/integration/ar-receipt-void-after-refund-bulk.int.test.ts and
- * ar-receipt-credit-breaker.int.test.ts (a customer already below zero on an unrelated later date: breaker B).
+ * ar-receipt-credit-breaker.int.test.ts (a customer already below zero on an unrelated later date).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../helpers/bankControlGateMocks')).importerGateOpen());
@@ -49,6 +49,7 @@ vi.mock('@/modules/accounting/services/ar/customerRunningCredit', async (orig) =
 }));
 vi.mock('@/modules/accounting/services/ar/customerCreditLock', () => ({
   tryLockCustomerCredit: vi.fn(async () => { state.lockCalls += 1; }),
+  assertCustomerOfCompany: vi.fn(async () => {}),
 }));
 vi.mock('@/modules/accounting/services/shared/journalChainHead', () => ({ findJournalChainRoot: vi.fn(async (_c: string, je: string) => je) }));
 vi.mock('@/modules/accounting/services/ap/supplierVoidCredit', async (orig) => ({

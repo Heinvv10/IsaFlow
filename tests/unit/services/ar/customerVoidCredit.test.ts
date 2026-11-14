@@ -3,12 +3,15 @@
  * figures) and the refusals built on it (ar/customerVoidCredit): wording, when the customer lock is taken, and the
  * bulk judgment's verification. The SQL that reads the figures, and the lock's behaviour against a refund, are proven
  * on a real ledger in tests/integration/ar-receipt-*.int.test.ts.
+ *
+ * The `sqlMock` chains below are POSITIONAL (the order of the reads is part of what the bulk tests pin); the SQL behind
+ * each read is not exercised here — the ar-receipt integration suites are the proof of it.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const sqlMock = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
-vi.mock('@/modules/accounting/services/ar/customerCreditLock', () => ({ tryLockCustomerCredit: vi.fn() }));
+vi.mock('@/modules/accounting/services/ar/customerCreditLock', () => ({ tryLockCustomerCredit: vi.fn(), assertCustomerOfCompany: vi.fn() }));
 vi.mock('@/modules/accounting/services/ar/customerRunningCredit', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/ar/customerRunningCredit')>()),
   customerCreditDays: vi.fn(),
@@ -17,9 +20,9 @@ vi.mock('@/modules/accounting/services/ar/customerRunningCredit', async (orig) =
 import { creditAsAt, judgeCreditDays, customerCreditDays, withDatedRemovals, type CreditDay } from '@/modules/accounting/services/ar/customerRunningCredit';
 import {
   CustomerVoidCreditRefusal, assertReceiptApplicationKeepsCredit, assertReceiptVoidKeepsCredit, customerCreditFall,
-  isCustomerVoidCreditRefusal, withReceiptCancellationsJudged,
+  isCustomerVoidCreditRefusal, judgeReceiptCancellations, withReceiptCancellationsJudged,
 } from '@/modules/accounting/services/ar/customerVoidCredit';
-import { tryLockCustomerCredit } from '@/modules/accounting/services/ar/customerCreditLock';
+import { assertCustomerOfCompany, tryLockCustomerCredit } from '@/modules/accounting/services/ar/customerCreditLock';
 import { ReceiptRefusal, isRetryableReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
 import { safeErrorText } from '@/lib/mcp/tools/toolHelpers';
 
@@ -27,7 +30,7 @@ const day = (d: string, amount: number, removed = 0, others = amount - removed):
   ({ d, amount, removed, lowers: Math.max(removed, 0), others });
 
 describe('judgeCreditDays — the rule', () => {
-  it('one receipt: refused exactly when its remainder exceeds the lowest running credit from its date (R2-2)', () => {
+  it('one receipt: refused exactly when its remainder exceeds the lowest running credit from its date — a later receipt does not hide it', () => {
     // receipt 500 on 05-05, refund -500 on 05-10, a later receipt 500 on 05-20: the all-dates figure is 500
     const days = [day('05-05', 500, 500), day('05-10', -500), day('05-20', 500)];
     expect(judgeCreditDays(days)).toEqual({ fromDate: '05-05', lowers: 500, lowest: 0, lowestAfter: -500 });
@@ -93,6 +96,12 @@ describe('assertReceiptVoidKeepsCredit / assertReceiptApplicationKeepsCredit', (
     expect(tryLockCustomerCredit).not.toHaveBeenCalled();
     expect(customerCreditDays).not.toHaveBeenCalled();
   });
+  it('the unlocked bulk judgment (a dry run) asks the customer is this company\'s, as the live lock does', async () => {
+    sqlMock.mockResolvedValueOnce(rows(['r1', 'foreign', 100]));
+    vi.mocked(assertCustomerOfCompany).mockRejectedValueOnce(new ReceiptRefusal('not one of this company\'s customers'));
+    await expect(judgeReceiptCancellations('co', ['r1'])).rejects.toThrow(/not one of this company's customers/);
+    expect(tryLockCustomerCredit).not.toHaveBeenCalled();
+  });
   it('a plain receipt refusal is not the credit refusal', () => {
     expect(isCustomerVoidCreditRefusal(new ReceiptRefusal('x'))).toBe(false);
   });
@@ -110,7 +119,7 @@ describe('withReceiptCancellationsJudged — judged once, each receipt only veri
       .mockResolvedValueOnce({ customerName: 'Acme', days: nowDays });
     return withReceiptCancellationsJudged('co', ['ref', 'rec'], () => assertReceiptVoidKeepsCredit('co', ['rec']));
   }
-  it('passes a set that lowers no date, and the receipt inside it is not judged again (breaker B)', async () => {
+  it('passes a set that lowers no date, and the receipt inside it is not judged again', async () => {
     await expect(inJudgedCall(judgedDays)).resolves.toBeUndefined();
     expect(customerCreditDays).toHaveBeenCalledTimes(2); // the judgment, then the verification — no second judgment
     expect(tryLockCustomerCredit).toHaveBeenCalledTimes(1); // judged unlocked; locked at the receipt's own step

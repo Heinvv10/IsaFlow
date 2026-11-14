@@ -12,6 +12,7 @@ import { Pool } from 'pg';
 import { voidReceiptTool } from '@/lib/mcp/tools/writeVoidPayments';
 import { reverseBankAllocationTool } from '@/lib/mcp/tools/writeBankAllocate';
 import { cancelCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
+import { planCustomerRefund } from '@/modules/accounting/services/ar/customerRefundDocument';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupK074, seedK074, type K074Fixture } from './helpers/k074Fixture';
 import { receiptLedger, verdict } from './ar-receipt-void-after-refund.helpers';
@@ -112,5 +113,18 @@ describe('cancelling a receipt whose cash a refund has returned', () => {
     } finally { await holder.query('ROLLBACK'); holder.release(); }
     expect(await L.statusOf(r.receipt)).toBe('confirmed');
     expect(await verdict(voidReceipt(r.receipt))).toBe('passed'); // the retry, once the refund is done
+  }, 60_000);
+
+  it('FAILS CLOSED: a receipt whose customer is another company\'s is refused by name — cancel and refund alike', async () => {
+    const foreign = crypto.randomUUID(); // client_id is an FK on id only: a row can name another company's customer
+    await pool.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3)', [foreign, fx.otherCompany, 'RVC foreign']);
+    const receipt = await handReceipt(foreign, 200, '2026-05-05');
+    for (const out of [await verdict(voidReceipt(receipt)), await verdict(L.inTx(() => cancelCustomerPayment(fx.company, receipt, fx.user)))]) {
+      expect(out).toBe('RECEIPT_REFUSED');
+    }
+    const err = await voidReceipt(receipt).catch((e: Error) => e);
+    expect((err as Error).message).toMatch(/not one of this company's customers/);
+    expect(await L.statusOf(receipt)).toBe('confirmed');
+    expect(await verdict(L.inTx(() => planCustomerRefund(fx.company, foreign, 50, '2026-05-10')))).toBe('SUPPLIER_REFUND_REFUSED');
   }, 60_000);
 });

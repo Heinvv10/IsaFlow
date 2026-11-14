@@ -9,12 +9,12 @@
  * reversal raises the credit and is never refused, so every refund in the call is reversed by then, and the payments
  * left each lower it — they all pass exactly when the call's net leaves the supplier at zero or above
  * (`assertLinesKeepCredit`, the dry run's answer). Refused again, the refusal is thrown and the call stays
- * all-or-nothing. A set-aside line leaves nothing behind, but it may have WRITTEN before the refusal: on a split
- * line a customer arm is unwound (its receipt cancelled, its customer's credit lock taken) before the supplier arm is
- * refused. `reverseReconciledTransaction` runs every write inside its own savepoint (`bank_reverse_reconciled`, or
- * `bank_reverse_chain_line` for a document chain), so the refusal rolls all of that
- * back — and RELEASES the row locks taken inside the savepoint (the customer's included). The bank line itself is
- * locked before that savepoint and stays held; the retry re-takes the rest.
+ * all-or-nothing. A set-aside line may have written before its refusal — on a split line a customer arm is unwound
+ * (its receipt cancelled, its customer's credit lock taken) before the supplier arm is refused — but none of it
+ * survives: `reverseReconciledTransaction` runs every write inside its own savepoint (`bank_reverse_reconciled`, or
+ * `bank_reverse_chain_line` for a document chain), so the refusal rolls it all back and RELEASES the row locks taken
+ * inside the savepoint (the customer's included). The bank line is locked before that savepoint and stays held; the
+ * retry re-takes the rest.
  *
  * CUSTOMERS (`ar/customerVoidCredit`): no retry. The receipts and refunds on the call's lines are judged TOGETHER,
  * ONCE, up front (`judgeReceiptCancellations`, by date) — the dry run and the live call run that one function, so they

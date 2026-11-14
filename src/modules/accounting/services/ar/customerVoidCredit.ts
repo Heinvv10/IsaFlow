@@ -27,7 +27,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { tryLockCustomerCredit } from './customerCreditLock';
+import { assertCustomerOfCompany, tryLockCustomerCredit } from './customerCreditLock';
 import { customerCreditDays, dayKey, judgeCreditDays, lowersBelowZero, type CreditDay, type CreditRemoval } from './customerRunningCredit';
 import { cents } from './receiptInvoiceLock';
 import { ReceiptRefusal, isReceiptRefusal } from './receiptRefusal';
@@ -96,6 +96,7 @@ async function judge(companyId: string, removals: readonly CreditRemoval[], lock
     if (rows.every((r) => cents(r.removes) <= 0)) continue; // lowers nothing: no lock, never refused
     if (deferred && sameId(deferred, customerId)) continue;
     if (lock) await tryLockCustomerCredit(companyId, customerId);
+    else await assertCustomerOfCompany(companyId, customerId);
     const { customerName, days } = await customerCreditDays(companyId, customerId,
       rows.map((r) => ({ paymentId: r.paymentId, amount: r.removes })));
     snapshots.push({ customerId, days, rows });

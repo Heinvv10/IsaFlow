@@ -1,5 +1,5 @@
 /**
- * `planReceiptApplication` asks the receipt credit ceiling (ar/customerVoidCredit, review round 1 HIGH 1): applying
+ * `planReceiptApplication` asks the receipt credit ceiling (ar/customerVoidCredit): applying
  * an EXISTING receipt's remainder a refund already returned is refused in the plan — so before any write, and in a dry
  * run exactly as live — after the receipt row and the invoice locks (payments → invoices → customers). A receipt the
  * request itself recorded is not asked. The rule's SQL and the routes are proven in

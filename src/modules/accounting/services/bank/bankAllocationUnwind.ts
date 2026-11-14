@@ -122,9 +122,8 @@ export async function unwindOnePayment(
   let invoicesReopened = 0;
   let amountUnapplied = 0;
 
-  // (1) THE PAYMENT FIRST, AND BEFORE ITS ROWS ARE READ: its row lock
-  // (`lockCustomerPaymentForUpdate` / `lockSupplierPaymentForUpdate` below, then
-  // the cancel flip). The flip used to be the lock and ran AFTER the loop, so
+  // (1) THE PAYMENT FIRST, AND BEFORE ITS ROWS ARE READ. Its row lock is
+  // taken first (below). The flip used to run AFTER the loop, so
   // `reverseReconciledTransaction` — the only caller that does not already
   // hold the payment — took bank -> invoices -> payment, the inverse of
   // `planReceiptApplication` / `planSupplierPaymentApplication`, which lock the

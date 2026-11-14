@@ -33,7 +33,7 @@ vi.mock('@/modules/accounting/services/bank/bankReallocationCredit', () => ({
   assertReallocationKeepsCredit: vi.fn(), assertReallocationLeftCredit: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/ar/customerRunningCredit', () => ({ customerCreditDays: vi.fn(async () => ({ customerName: 'A', days: [] })) }));
-vi.mock('@/modules/accounting/services/ar/customerCreditLock', () => ({ tryLockCustomerCredit: vi.fn() }));
+vi.mock('@/modules/accounting/services/ar/customerCreditLock', () => ({ tryLockCustomerCredit: vi.fn(), assertCustomerOfCompany: vi.fn() }));
 // The unwind runs inside the reallocation's receipt judgment (ar/customerVoidCredit); here it is transparent.
 vi.mock('@/modules/accounting/services/ar/customerVoidCredit', () => ({
   withReceiptCancellationsJudged: vi.fn(async (_c: string, _ids: readonly string[], fn: () => Promise<unknown>) => fn()),
