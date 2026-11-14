@@ -360,6 +360,8 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   reapply_customer_payment_terms: null,
   unapply_supplier_payment: null,
   unapply_credit_note: null,
+  // Moves an existing application up or down: the same correction as apply/unapply, so free.
+  adjust_credit_note_application: null,
 
   // A reversal is a correction, and every other reversal here is free for the
   // same reason: pricing the control the agent-safety model depends on is the
