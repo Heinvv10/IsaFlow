@@ -34,8 +34,3 @@ P4's UI on P2's budget grid (spec `docs/plans/budgets/P4-drivers-forecast-spec.m
 - Contrast: a closed month's cell and its "A" marker (and the column's "Actual" label, all text-xs: 12px, the scale's smallest) are `--ff-text-tertiary` on `--ff-bg-tertiary`: 5.37:1 light, 5.04:1 dark (on the selected fill 4.94 / 5.80); pinned by `driverContrast.test.ts`.
 - Tooltips are React text (`title`, text nodes), never HTML strings, so `charts/escapeHtml.ts` does not apply (escaping would show `&amp;` to the user).
 - Tests: `tests/unit/components/budgets/drivers/` (happy-dom, `vitest.components.config.ts`); mutation log `~/.cache/redchk/budgets-p4/pr5-mutations/`.
-
-## Recent changes
-- 2026-10-29 (P4 PR-5): created.
-- 2026-10-30: reader fallbacks for per-head detail (decision 15).
-- 2026-10-29 (PR-5 review round 1): roll answer handling (unplaced, warnings, skipped), reopened banner, status unplaced; separate refresh sequencing + failure message; spread over open months; editor refocus, delete confirms, headcount read errors; Reset in-flight guard; note follows scroll; dirty driver-cell clear reverts.

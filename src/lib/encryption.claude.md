@@ -23,7 +23,3 @@ AES-256-GCM encryption/decryption for data at rest (OAuth tokens, admin imperson
 - IV is 12 bytes (GCM standard), generated fresh per encryption via `crypto.randomBytes`.
 - `ENCRYPTION_KEY` must be in `validateEnv` REQUIRED_VARS — app fails to start without it. Removing it would silently allow `encryptToken` to store tokens as plaintext.
 - Never log plaintext secrets; the fallback-decrypt path logs a warning (empty context) so operators know a legacy row was just decrypted.
-
-## Recent changes
-- 2026-04-24: Pentest M1+M6+M14+M15+M20+M21+L4 batch — `decryptToken` now rethrows on tag mismatch.
-- 2026-04-04: PBKDF2 key derivation introduced; legacy raw key kept as decrypt-fallback.

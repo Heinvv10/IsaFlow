@@ -31,7 +31,3 @@ GET/POST response (`ThreeWayMatchState`, what `ThreeWayMatchPanel` renders):
 ## Related files
 - `src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts` — `performThreeWayMatch`
 - `src/modules/accounting/services/ap/` — core AP services (bills, payments, GRN)
-
-## Recent changes
-- 2026-04-22: three-way-match 500 — supplier_invoice_items has no company_id
-- 2026-04-22: PRD-05 Phase 4 — native 3/4-way match + tolerance config

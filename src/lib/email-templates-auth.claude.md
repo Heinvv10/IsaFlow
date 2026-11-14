@@ -17,6 +17,3 @@ Auth-flow email HTML templates — welcome email sent on account creation and pa
 - Reset-link expiry copy says "1 hour" — the generating service (`pages/api/auth/forgot-password`) must keep the token TTL aligned.
 - Feature icons are HTML entities (`&#128203;` clipboard, `&#127968;` bank, `&#128200;` chart) for broad email-client compat.
 - File imports from `@/lib/email-templates` (the barrel), not `email-templates-shared` directly — diverges from sibling templates.
-
-## Recent changes
-- 2026-03-30: Added with the initial user management, onboarding, and email system rollout.

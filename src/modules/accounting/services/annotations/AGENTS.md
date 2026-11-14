@@ -37,6 +37,3 @@ statement page mounts them.
 - `rowIds` is capped at `MAX_ROW_IDS`; an unbounded id list is how one request reads the whole table. Row ids are opaque adapter strings (`acc:4000`, `total:grossProfit`) and are parameterised, so length is the only guard needed.
 - Resolved notes are still returned. A thread that hides its own history is worse than one that shows it settled.
 - The rate-limit bucket is per company AND per user — `checkReportRateLimit` adds the company, `annotationRateLimitKey` adds the user — so one colleague cannot spend a teammate's capacity.
-
-## Recent changes
-- 2026-09-06: the resolve route's uuid guard is now `isUuidParam` from `@/lib/validation` rather than a fourth copy of the regex.

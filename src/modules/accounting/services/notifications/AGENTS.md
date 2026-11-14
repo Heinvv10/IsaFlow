@@ -15,8 +15,3 @@ Per-user in-app notifications (migration 954 `user_notifications`; budgets P5-1)
 - Bell (`NotificationBell.tsx`): refetches on the window event `isaflow:notifications-changed` (`@/lib/notificationsSignal`; Evaluate now sends it), through the same sequence check; no fetch without an active company; a stale response (older sequence number) is dropped; a failed refresh keeps the last good list and badge beside the error; the panel is a non-modal dialog that takes focus and gives it back to the bell on Escape.
 - Bell (`NotificationBell.tsx`): no fetch without an active company; a stale response (older sequence number) is dropped; a failed refresh keeps the last good list and badge beside the error; the panel is a non-modal dialog that takes focus and gives it back to the bell on Escape.
 - `kind` ∈ budget_alert | budget_slice | budget_reminder | comment_mention (table CHECK; comment_mention from M14 `services/comments/`, mig 986). Producers: P5-4 alerts; P5-6 `budgets/sliceReviewState.ts` (submit → owners/admins, approve/return → holders, from the request), `budgets/budgetHolders.ts` (assignment → the holder) and `budgets/sliceReminders.ts` (the cron, as isaflow_service).
-
-## Recent changes
-- 2026-11-03 (P5-4): bell refetches on `isaflow:notifications-changed`.
-- 2026-11-02 (PR #1066 review r2): member-only recipients, href control chars, fitted text, bell focus/stale/last-good.
-- 2026-11-02 (P5-1): module created.

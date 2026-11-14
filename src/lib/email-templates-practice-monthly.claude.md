@@ -19,6 +19,3 @@ Monthly practice management report email — KPI grid, top-staff utilisation, to
 - WIP aging section only renders rows where `bucket31plus > 0`; section is omitted entirely when no aged client.
 - `reportUrl` embeds `periodLabel.replace(' ', '-')` — crude; a period containing multiple spaces would break the query string. Payload is cron-generated so this is acceptable.
 - `recipientName` nullable — when null the greeting becomes "Practice Report" instead of "Hi <name>,".
-
-## Recent changes
-- 2026-04-19: Added during PRD-01 Phase 5B cron automation rollout (PR #27).

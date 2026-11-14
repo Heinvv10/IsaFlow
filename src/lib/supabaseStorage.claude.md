@@ -28,8 +28,3 @@ Singleton `@supabase/storage-js` client for the self-hosted Supabase Storage at 
 - The bucket-provision cache is per-process (`customerInvoicesBucketChecked`). Cold-start workers repeat the check once.
 - `signedUrlForCapturedDocument` default TTL is 1 hour — increase judiciously since signed URLs cannot be revoked. No public bucket path: direct GET returns 400.
 - Captured-docs bucket content is originally scanned slips/PDFs; customer-invoices bucket is sealed PDF snapshots that are legally the sent invoice (PRD-06 evidence chain).
-
-## Recent changes
-- 2026-10-25: S-07e part B — `removeCapturedDocument` takes the company and refuses a pointer outside its prefix; `getStorageClient` no longer exported; a refusal logs the path cut to 200 characters.
-- 2026-04-23: PRD-06 Phase 1 — added `uploadCustomerInvoicePdf` + `ensureCustomerInvoicesBucket` for invoice-as-evidence sealed snapshots.
-- 2026-04-22: File introduced — capture module migrated from BYTEA columns to Supabase Storage pointers.

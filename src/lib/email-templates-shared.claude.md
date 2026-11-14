@@ -20,9 +20,3 @@ Brand constants, `<!DOCTYPE>` HTML layout wrapper, CTA button helper, and signat
 - **Content must be table rows.** `content` sits directly inside the card `<table>`; bare `<h2>`/`<p>` there are hoisted by the HTML parser above the card and logo. Wrap free-flowing HTML in `emailContentRow`, never twice. `tests/unit/lib/emailCardPlacement.test.ts` renders each such email through its real path and checks placement.
 - Footer hardcodes a `/preferences` link — keep the route live.
 - Empty/whitespace signatures short-circuit: `appendSignatureToHtml` returns html unchanged. Post-sanitisation empty output also short-circuits.
-
-## Recent changes
-- 2026-10-22: Added `emailContentRow`; register, contact, password reset, management pack and 4 portal emails now render inside the card (S-04/S-08 follow-up D).
-- 2026-04-24: Hardened signature sanitisation during pentest Critical+High batch.
-- 2026-04-13: Switched logo to inline CID with dark-bg-safe variant.
-- 2026-04-12: Split from email-templates.ts for the ≤300-line refactor.

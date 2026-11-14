@@ -15,6 +15,3 @@
 - Escape in a box holding text keeps its Escape (`data-keeps-escape`, honoured by `useFocusTrap`): add box leaves the box, edit box cancels the edit; the drawer stays open and the draft is kept. Empty box: Escape closes the drawer as before. Escape in an open Select closes only its list.
 - Focus never falls to BODY: post, then the add box; Edit, then the edit box; Save or cancel, then that comment's Edit button; Delete, then the add box.
 - Over 4000 characters: a sentence tied to the box (`aria-describedby`), Comment disabled.
-
-## Recent changes
-- 2026-11-13 (M14): created; review round 1: kit Select, Escape and focus rules, per-host mount tests.

@@ -30,7 +30,3 @@
 - `src/modules/accounting/services/capture/auditTrailExportService.ts` — list/create/get/sessions/revoke, the PDF builder
 - `src/modules/accounting/services/audit/packExport.ts` — the snapshot pack (build, store, verify)
 - `src/lib/supabaseStorage.ts` — `downloadCapturedDocument`
-
-## Recent changes
-- 2026-04-22: PRD-05 Phase 12 — audit-trail-as-a-product (initial drop)
-- 2026-10-12: forensic step 4 (migration 891) — packs built from sealed snapshots (ZIP); the live-data PDF build is gone

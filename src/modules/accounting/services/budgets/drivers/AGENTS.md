@@ -61,9 +61,3 @@ Budget drivers (Budgets P4, spec `docs/plans/budgets/P4-drivers-forecast-spec.md
 
 ## Tests
 `tests/unit/services/budgets/drivers/*.test.ts`, each red under its spec §9 mutation (logs under `~/.cache/redchk/budgets-p4/pr1-mutations/`).
-
-## Recent changes
-- 2026-10-29: created (P4 PR-1); per-driver `rounding`; review round 1: single rounding, re-sourcing, reopened-month actuals, pct / headcount bounds.
-- 2026-10-29 (P4 PR-3): services, routes, payroll headcount reader, grid-save hook.
-- 2026-10-29 (P4 PR-4): reforecast from actuals, rolling forecast (after-commit roll on close, Roll now, toggle, status).
-- 2026-10-30: per-head rates and headcount for budget writers only (`perHeadAccess.ts`, decision 15, POPIA).

@@ -114,6 +114,8 @@ run_step "raw-input-allowlist" bun scripts/ci/check-raw-input-allowlist.ts
 # over; their count may only fall (scripts/ci/raw-muted-text-stops.baseline.json).
 run_step "raw-muted-text-stops" bun scripts/ci/check-raw-muted-text-stops.ts
 run_step "agent-docs"        bun run agent-docs:check
+run_step "no-recent-changes"  bun scripts/ci/check-no-recent-changes.ts
+run_step "new-migration-prefixes" bun scripts/ci/check-new-migration-prefixes.ts
 run_step "security-guards"   bash scripts/ci/check-internal-apis.sh
 # User identity is a string in this schema (users.id varchar,
 # company_users.user_id text). A ::UUID cast on either throws at RUNTIME, not

@@ -28,8 +28,3 @@
 - `res.headersSent` guard prevents double-send when a handler already responded before throwing.
 - `finally` always emits `logRequestCompleted` with `userId`/`companyId` read off `req` (populated by `withAuth`).
 - CORS uses `safeCorsOrigin` — never re-inline origin strings here (pentest M11: allow-list previously duplicated across two files).
-
-## Recent changes
-- 2026-04-24: Pentest M10–M23 batch hardened CORS and moved allow-list to `src/lib/cors.ts`.
-- 2026-04-18: withAuth codemod — handler generic changed so `withCompany`/`withUserAuth` no longer need `as any` casts.
-- 2026-04-15: BL-53 defensive isolation scope + sanitised route tag.
