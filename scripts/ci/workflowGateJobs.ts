@@ -7,11 +7,13 @@
  *            where `static` runs. Its output only chooses between the two
  *            label sets written out in static's runs-on, so a wrong value
  *            cannot strand static on a label no runner has.
- *   static   `bun run ci static`, GitHub-hosted (or velo, as route says).
- *   velo     `bun run ci velo`, GitHub-hosted (or velo, as route says).
+ *   static   `bun run ci static <part>`, GitHub-hosted (or velo, as route
+ *            says): hosted a matrix of three parts, on velo the one part 1/1.
+ *   velo     `bun run ci velo <part>`, likewise: hosted five parts.
  *   quality  the required check: runs always() and passes only when route
- *            static and velo concluded success. A failed, cancelled,
- *            timed-out or skipped group makes it red, never green.
+ *            static and velo concluded success (a matrix job's result is
+ *            success only when every part's was). A failed, cancelled,
+ *            timed-out or skipped group or part makes it red, never green.
  * There is no velo fallback for a hosted job GitHub refuses to start: a job
  * pinned to velo's labels would queue forever once velo's runners are paused,
  * and the required check would never report. CI_HOSTED=off is the switch.
@@ -41,17 +43,37 @@ const GATE_ENV = new Set(['CI_READ_TOKEN', 'DATABASE_URL', 'JWT_SECRET', 'NODE_E
 const GATE_TZ = 'Africa/Johannesburg';
 /** CI_READ_TOKEN must be the job's own token: the merge check trusts what the API answers. */
 const CI_READ_TOKEN = '${{ github.token }}';
-/**
- * A timeout too short to finish ends the job cancelled. quality turns that red,
- * but a red check that only ever times out blocks every PR, so velo keeps a
- * floor (integration measured 18 min at load ~40, 2026-10-30).
- */
-const MIN_VELO_TIMEOUT = 20;
 const MIN_QUALITY_TIMEOUT = 2;
 
 const HOSTED = "needs.route.outputs.hosted == 'true'";
 const STATIC_RUNS_ON = `\${{ fromJSON(${HOSTED} && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}`;
-const STATIC_TIMEOUT = `\${{ ${HOSTED} && 60 || 75 }}`;
+/**
+ * A timeout too short to finish ends the job cancelled. quality turns that red,
+ * but a red check that only ever times out blocks every PR, so both are pinned
+ * exactly (hosted: one part, about 2x its measured time plus setup; velo: the
+ * whole group). See ci.yml for the arithmetic.
+ */
+const STATIC_TIMEOUT = `\${{ ${HOSTED} && 40 || 75 }}`;
+const VELO_TIMEOUT = `\${{ ${HOSTED} && 45 || 90 }}`;
+/**
+ * The parts each group runs in (run-ci.sh's PART/PARTS argument), pinned
+ * exactly: a dropped or repeated entry would skip a share of the gates, and
+ * fail-fast would cancel the other parts of a red run. On velo, one part 1/1:
+ * the whole group, as before the split.
+ */
+const partsMatrix = (parts: number): string => {
+  const hosted = Array.from({ length: parts }, (_, i) => `"${i + 1}/${parts}"`).join(',');
+  return `\${{ fromJSON(${HOSTED} && '[${hosted}]' || '["1/1"]') }}`;
+};
+const STATIC_PARTS = 3;
+const VELO_PARTS = 5;
+const STRATEGY: Record<string, Obj> = {
+  static: { 'fail-fast': false, matrix: { part: partsMatrix(STATIC_PARTS) } },
+  velo: { 'fail-fast': false, matrix: { part: partsMatrix(VELO_PARTS) } },
+};
+/** The job name per part; 1/1 (velo) keeps the name the group had before the split. */
+export const partName = (base: string): string =>
+  `\${{ matrix.part == '1/1' && '${base}' || format('${base}, part {0}', matrix.part) }}`;
 /**
  * route's one step. It may run on velo before static (which may run on velo
  * too), so an unpinned step could replace the runner's bun before any gate
@@ -153,7 +175,7 @@ function checkHostedStep(step: unknown, want: HostedStep, at: string, errors: st
 
 /** checkout, [hosted setup], install, [hosted browsers], `bun run ci <group>`: nothing else, in that order. */
 function checkGateSteps(id: string, allSteps: unknown, group: string, hosted: boolean, errors: string[]): void {
-  const run = `bun run ci ${group}`;
+  const run = `bun run ci ${group} \${{ matrix.part }}`;
   const before = hosted ? [...HOSTED_TOOLS, HOSTED_APT[group]] : [];
   const after = hosted ? HOSTED_AFTER_INSTALL : [];
   const want = 3 + before.length + after.length;
@@ -202,27 +224,31 @@ function checkRoute(job: Obj, errors: string[]): void {
   }
 }
 
-function checkStatic(job: Obj, errors: string[]): void {
-  const extra = extraKeys(job, ['name', 'needs', 'runs-on', 'timeout-minutes', 'permissions', 'steps']);
-  if (extra.length) errors.push(`jobs.static sets ${extra.join(', ')}; if/continue-on-error/defaults/env/strategy can skip or neutralise the gate`);
-  if (job.needs !== 'route') errors.push('jobs.static.needs must be exactly `route`');
-  if (job['runs-on'] !== STATIC_RUNS_ON) {
-    errors.push(`jobs.static.runs-on must be exactly ${STATIC_RUNS_ON}; any other label set can queue forever and never go red`);
+function checkStrategy(id: 'static' | 'velo', job: Obj, errors: string[]): void {
+  const want = STRATEGY[id] as Obj;
+  const got = job.strategy;
+  const matrix = isObj(got) ? got.matrix : undefined;
+  if (!isObj(got) || extraKeys(got, Object.keys(want)).length || got['fail-fast'] !== false
+    || !isObj(matrix) || !sameMap(matrix, want.matrix as Obj)) {
+    errors.push(`jobs.${id}.strategy must be exactly ${JSON.stringify(want)}; another matrix skips a share of the gates, and fail-fast cancels the other parts`);
   }
-  if (job['timeout-minutes'] !== STATIC_TIMEOUT) errors.push(`jobs.static.timeout-minutes must be exactly ${STATIC_TIMEOUT}`);
-  checkGateSteps('static', job.steps, 'static', true, errors);
 }
 
-function checkVelo(job: Obj, errors: string[]): void {
-  const extra = extraKeys(job, ['name', 'needs', 'runs-on', 'timeout-minutes', 'permissions', 'steps']);
-  if (extra.length) errors.push(`jobs.velo sets ${extra.join(', ')}; if/continue-on-error/defaults/env/strategy can skip or neutralise the gate`);
-  if (job.needs !== 'route') errors.push('jobs.velo.needs must be exactly `route`');
+/** static and velo: one shape, their own group, matrix and timeout. */
+function checkGroupJob(id: 'static' | 'velo', timeout: string, job: Obj, errors: string[]): void {
+  const extra = extraKeys(job, ['name', 'needs', 'runs-on', 'strategy', 'timeout-minutes', 'permissions', 'steps']);
+  if (extra.length) errors.push(`jobs.${id} sets ${extra.join(', ')}; if/continue-on-error/defaults/env can skip or neutralise the gate`);
+  if (job.needs !== 'route') errors.push(`jobs.${id}.needs must be exactly \`route\``);
   if (job['runs-on'] !== STATIC_RUNS_ON) {
-    errors.push(`jobs.velo.runs-on must be exactly ${STATIC_RUNS_ON}; any other label set can queue forever and never go red`);
+    errors.push(`jobs.${id}.runs-on must be exactly ${STATIC_RUNS_ON}; any other label set can queue forever and never go red`);
   }
-  checkTimeout('velo', job, MIN_VELO_TIMEOUT, errors);
-  checkGateSteps('velo', job.steps, 'velo', true, errors);
+  checkStrategy(id, job, errors);
+  if (job['timeout-minutes'] !== timeout) errors.push(`jobs.${id}.timeout-minutes must be exactly ${timeout}`);
+  checkGateSteps(id, job.steps, id, true, errors);
 }
+
+const checkStatic = (job: Obj, errors: string[]): void => checkGroupJob('static', STATIC_TIMEOUT, job, errors);
+const checkVelo = (job: Obj, errors: string[]): void => checkGroupJob('velo', VELO_TIMEOUT, job, errors);
 
 function checkQuality(job: Obj, errors: string[]): void {
   const extra = extraKeys(job, ['name', 'needs', 'if', 'runs-on', 'timeout-minutes', 'steps']);

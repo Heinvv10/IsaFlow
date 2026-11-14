@@ -23,7 +23,3 @@ Server-side PDF→PNG conversion using the `pdftoppm` binary (poppler-utils) at 
 - Throws `Error: pdftoppm did not produce output file: ...` when poppler silently fails (e.g. encrypted PDF) — callers should treat as a user-facing "unsupported PDF" error.
 - Input must be a `data:application/pdf;base64,...` URL — the regex strip allows either exact prefix or plain base64.
 - Single-page mode passes `-singlefile` so the output path is stable (`<stem>.png`); multi-page mode omits it so poppler numbers the files.
-
-## Recent changes
-- 2026-04-24: Added `pdfToImages` multi-page variant for CIPC COR39 director extraction.
-- 2026-04-10: VLM service refactor adopted this module.

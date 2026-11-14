@@ -48,20 +48,33 @@ jobs:
   # lint, the text guards, unit and component tests, migration naming, the
   # production build). See the group list at the top of scripts/ci/run-ci.sh.
   # Measured on velo 2026-10-30 (load ~40): 13.5 min of gates + 7 min build.
+  #
+  # Hosted, the group runs as THREE parallel jobs (matrix part 1/3..3/3; the
+  # run-ci.sh header says which gates each part runs): part 1 the type checks,
+  # lint, text guards and build; parts 2 and 3 half of the unit and component
+  # tests each. As one job, queue run 43614931000 (2026-11-14) took 27 min:
+  # 1 min setup, 3.5 min of gates, unit tests 11, component tests 7, build 5.
+  # quality's needs.static.result is success only when every part succeeded.
+  # On velo the matrix is the single entry 1/1: the whole group in one job, as
+  # before, under the old name.
   static:
-    name: Static gates
+    name: ${{ matrix.part == '1/1' && 'Static gates' || format('Static gates, part {0}', matrix.part) }}
     needs: route
     runs-on: ${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}
-    # Hosted: 60. Was 40, which cancelled healthy runs: queue run 43530071847
-    # (2026-11-14) took 1 min setup, unit tests 22 min, component tests 10 min,
-    # then hit the cap in the remaining steps; #1348's queue run took 38 min.
-    # PR #977 had measured 26 min on ubuntu-24.04 (4 vCPU) when the suite was
-    # smaller. On velo, the old bound for these steps: 58 min at load 150-250,
-    # plus install.
+    strategy:
+      # One red part must not cancel the others: the run lists every red gate.
+      fail-fast: false
+      matrix:
+        part: ${{ fromJSON(needs.route.outputs.hosted == 'true' && '["1/3","2/3","3/3"]' || '["1/1"]') }}
+    # Hosted: 40 for a part of ~10 min (2 min setup, 8-9 of gates). As one job
+    # it was 60, after 40 cancelled healthy runs: queue run 43530071847 took
+    # unit tests 22 min and component tests 10, so a part may take twice the
+    # estimate. On velo, the whole group: the old bound for these steps, 58 min
+    # at load 150-250, plus install.
     # ubuntu-24.04, not ubuntu-latest: -latest moves to Ubuntu 26 from
     # 2026-10-19 (actions/runner-images#14748), and a moving image is a
     # moving gate.
-    timeout-minutes: ${{ needs.route.outputs.hosted == 'true' && 60 || 75 }}
+    timeout-minutes: ${{ needs.route.outputs.hosted == 'true' && 40 || 75 }}
     # Read-only. actions + pull-requests: mq-merge-already-tested.ts reads the
     # merged PR and its CI run's jobs (CI_READ_TOKEN below).
     permissions:
@@ -128,7 +141,7 @@ jobs:
       # already passed both required checks as a pull_request run; if so it
       # exits 0 without running the gates. Any doubt or error runs them all.
       - name: CI gate (scripts/ci/run-ci.sh static)
-        run: bun run ci static
+        run: bun run ci static ${{ matrix.part }}
         env:
           CI_READ_TOKEN: ${{ github.token }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -146,19 +159,35 @@ jobs:
   # image). The step prints every suite that skipped and why
   # (scripts/ci/report-skipped-integration.ts), and skips the suites on a
   # Markdown-only change (scripts/ci/integration/scope.ts).
+  #
+  # Hosted, the group runs as FIVE parallel jobs (matrix part 1/5..5/5): part k
+  # runs browser-tests --shard=k/5, dealt by measured seconds
+  # (scripts/ci/printShard.ts), and integration part k/5 of the suites
+  # (scripts/ci/integration/suiteRoute.ts sliceSuites), on its own clusters.
+  # As one job, queue run 43614931000 (2026-11-14) took 63 min: browser-tests
+  # 26.5 min (one 416 s file), integration 36 (3 shards). A part: ~1 min setup,
+  # browser-tests 4.5-7, integration ~7. On velo the matrix is the single
+  # entry 1/1: the whole group in one job, as before, under the old name.
   velo:
-    name: Browser & integration
+    name: ${{ matrix.part == '1/1' && 'Browser & integration' || format('Browser & integration, part {0}', matrix.part) }}
     needs: route
     runs-on: ${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}
-    # Hosted (PR #977, 3 runs): setup ~4 min, browser-tests 2-3 min,
-    # integration 18-24 min, ~35 min in all. On velo 2026-10-30: browser-tests
-    # 2m15s, integration 18 min at load ~40.
-    # Integration's own bounds: 4 schema-build commands at 300 s + 30 s kill
-    # grace (CI_INT_MIGRATE_TIMEOUT), shards cut at 30 min
-    # (CI_INT_SHARD_TIMEOUT). Not bounded by those: postgres start retries
-    # (up to 5 x 120 s per cluster), the 10 s TERM-to-KILL graces, initdb and
-    # plan. 22 + 30 + ~10 + browser-tests ~10 under load + install = ~75, so 90.
-    timeout-minutes: 90
+    strategy:
+      # As in static.
+      fail-fast: false
+      matrix:
+        part: ${{ fromJSON(needs.route.outputs.hosted == 'true' && '["1/5","2/5","3/5","4/5","5/5"]' || '["1/1"]') }}
+    # Hosted: 45 for a part of ~15 min. Integration bounds its shards itself
+    # (CI_INT_SHARD_TIMEOUT: 20 min in a part, run.sh), so a hung suite ends the
+    # part red before this cap: setup ~3 + browser-tests up to 14 (twice the
+    # estimate) + 20 + reporting = ~38.
+    # On velo, the whole group: integration's own bounds are 4 schema-build
+    # commands at 300 s + 30 s kill grace (CI_INT_MIGRATE_TIMEOUT), shards cut
+    # at 30 min (CI_INT_SHARD_TIMEOUT). Not bounded by those: postgres start
+    # retries (up to 5 x 120 s per cluster), the 10 s TERM-to-KILL graces,
+    # initdb and plan. 22 + 30 + ~10 + browser-tests ~10 under load + install =
+    # ~75, so 90.
+    timeout-minutes: ${{ needs.route.outputs.hosted == 'true' && 45 || 90 }}
     # As in static (the merge check).
     permissions:
       contents: read
@@ -211,7 +240,7 @@ jobs:
         run: 'for i in 1 2; do timeout 900 bunx playwright install --with-deps chromium && break; [ "$i" = 2 ] && exit 1; echo ''::warning::playwright install stalled or failed; retrying once''; sudo dpkg --configure -a; done'
 
       - name: CI gate (scripts/ci/run-ci.sh velo)
-        run: bun run ci velo
+        run: bun run ci velo ${{ matrix.part }}
         env:
           CI_READ_TOKEN: ${{ github.token }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

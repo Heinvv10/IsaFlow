@@ -93,7 +93,7 @@ describe('MCP write-tool role fence (S-01)', () => {
     'list_import_batches', 'list_invoices', 'list_items', 'list_job_categories',
     'list_journals', 'list_payroll_components', 'list_pay_runs', 'list_practice_clients',
     'list_quotes', 'list_supplier_invoices', 'list_supplier_payments', 'list_suppliers',
-    'list_time_entries', 'list_unapplied_payments', 'list_unapplied_receipts', 'list_unsupported_transactions',
+    'list_time_entries', 'list_unapplied_payments', 'list_unapplied_receipts', 'list_unsupported_transactions', 'list_missing_documents',
     'list_work_items', 'party_ledger_check', 'period_close_checklist', 'profit_and_loss', 'project_profitability',
     'propose_reclassification', 'reconcile_fixed_assets', 'reconcile_subledger', 'search_gl',
     'stock_valuation', 'suggest_receipt_matches', 'supplier_statement', 'token_info', 'trial_balance',

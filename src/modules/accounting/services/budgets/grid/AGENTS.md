@@ -31,7 +31,3 @@ The budget planning grid's pure model (Budgets P2, spec `docs/plans/budgets/P2-b
 
 ## Tests
 `tests/unit/services/budgets/grid/*.test.ts`, one per module, each red under the mutation named in spec §14 (the run is recorded in the PR body).
-
-## Recent changes
-- 2026-10-26: created (P2 PR-A).
-- 2026-10-27: `splitByWeights` + `residueFlipsSign` (PR-C round 1, R3 / QA-15e).

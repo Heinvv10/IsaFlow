@@ -93,7 +93,7 @@ function stripSqlComments(text: string): string {
  * which is <= 693, so such a file was skipped entirely and a table-level
  * re-grant inside it was invisible while this gate printed OK. Nothing else
  * in CI enforces a 3-digit prefix: audit-migration-naming.ts accepts any
- * digit count and always exits 0.
+ * digit count (it fails only on a version clash).
  *
  * `244b_` (this repo's form for inserting between numbers) yields 244 — the
  * letter orders within a number, it does not change it.
