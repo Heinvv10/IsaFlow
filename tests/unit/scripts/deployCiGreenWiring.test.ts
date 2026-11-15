@@ -32,14 +32,18 @@ writeFileSync(stub, [
 ].join('\n'));
 chmodSync(stub, 0o755);
 
+// Inside a git hook (pre-push runs the unit tests) git exports GIT_DIR and friends. Inherited, they point
+// this throwaway repo's init, config and commit at the REAL repository. Every git child here runs without them.
+const NO_GIT_ENV = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
 const repo = join(dir, 'repo');
-const git = (...a: string[]) => spawnSync('git', ['-C', repo, ...a], { encoding: 'utf8' });
-spawnSync('git', ['init', '-q', repo]);
+const git = (...a: string[]) => spawnSync('git', ['-C', repo, ...a], { encoding: 'utf8', env: NO_GIT_ENV });
+spawnSync('git', ['init', '-q', repo], { env: NO_GIT_ENV });
 git('config', 'status.showUntrackedFiles', 'no'); // as in the real repo: the gate must still see untracked files
 writeFileSync(join(repo, 'a.txt'), 'a\n');
 git('add', 'a.txt');
 git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'one');
 const HEAD = git('rev-parse', 'HEAD').stdout.trim();
+if (!/^[0-9a-f]{40}$/.test(HEAD) || git('log', '--format=%s').stdout.trim() !== 'one') throw new Error('throwaway repo setup failed');
 const SHORT = HEAD.slice(0, 10);
 const verified = (sha: string) => `[deploy-ci] evidence\\n[deploy-ci] verified HEAD ${sha}\\n`;
 
