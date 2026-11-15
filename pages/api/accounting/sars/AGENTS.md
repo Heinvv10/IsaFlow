@@ -6,7 +6,7 @@
 SARS return preparation + eFiling submissions tracking + compliance calendar. VAT201, EMP201, EMP501 bi-annual, IRP6 provisional. All handlers at same depth (no subdirs).
 
 ## Endpoints
-- `GET /api/accounting/sars/sars-compliance` — DB-backed calendar (`?year=YYYY`); returns `{ events }`; delegates to `getComplianceCalendarWithDB`
+- `GET /api/accounting/sars/sars-compliance` — DB-backed calendar (`?year=YYYY`); returns `{ events }`; delegates to `getComplianceCalendarWithDB` (VAT201 events follow the company's VAT category/cadence; none for a non-vendor)
 - `GET /api/accounting/sars/compliance-calendar` — pure calendar (no DB); `?year=YYYY`; returns `{ year, deadlines, total }`
 - `GET|POST /api/accounting/sars/sars-submissions` — list / mark-submitted `{ id, action: 'mark_submitted', reference, overrideReason? }`. For a VAT201 submission, refuses with getVatExceptions' blocking exceptions UNLESS the caller is owner/admin and supplies `overrideReason` — recorded in `vat_gate_overrides` (migration 704, `reports/vatGateOverrideService`), never consulted by the ISV `efiling-submit` gate below. No MCP equivalent (this route has no MCP tool at all today)
 - `GET|POST /api/accounting/sars/sars-vat201` — GET `?from=&to=` build; POST `{ periodStart, periodEnd }` save draft. Both answer from `getVat201Return` (vat201Return.ts) = `getLedgerVAT201` (journal-derived) + `sarsFields` (the SARS VAT201 form), `warnings` (classification calls to confirm) and `filability` (fields 1, 1A, 2, 2A, 3, 4, 4A, 5-20; `vat201SarsFields.ts`); the invoice-derived `generateVAT201` is the exceptions recon's input only
