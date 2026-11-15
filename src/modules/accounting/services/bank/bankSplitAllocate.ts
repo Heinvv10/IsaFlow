@@ -128,7 +128,7 @@ export async function splitAllocateTransaction(
         SET status = 'allocated', matched_journal_line_id = ${journalLineId}::UUID,
             allocation_type = 'account', allocated_entity_name = ${SPLIT_ALLOCATION_NAME}, updated_at = NOW(),
             allocation_rule_id = NULL, allocation_rule_name = NULL,
-            allocation_batch_id = NULL
+            allocation_batch_id = NULL, linked_po_id = NULL -- a split pays no purchase order
         WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
     });
   }

@@ -254,7 +254,8 @@ export async function unmatchTransaction(
       UPDATE bank_transactions
       SET status = 'imported', matched_journal_line_id = NULL,
           allocation_type = NULL, allocated_entity_name = NULL,
-          allocation_rule_id = NULL, allocation_rule_name = NULL
+          allocation_rule_id = NULL, allocation_rule_name = NULL,
+          linked_po_id = NULL -- an unmatched line pays no purchase order (as resetBankLine)
       WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
     if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
     if (userId) await recordAutoPostUndone(companyId, bankTxId, userId, before); // none: a payment void's unwind
