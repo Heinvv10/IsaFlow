@@ -24,11 +24,13 @@ export async function fetchVat201LateClaims(from: string, to: string, signal?: A
 function Original({ r }: { r: Vat201LateClaimRow }) {
   if (!r.original) return <span className="text-[var(--ff-text-secondary)]">Not found</span>;
   return (
-    <span>
-      {r.document && <span className="mr-1">{r.document.invoiceNumber}{r.document.supplierName ? ` (${r.document.supplierName})` : ''}</span>}
-      <Link href={`/accounting/journal-entries/${r.original.journalEntryId}`} className={link}>{r.original.entryNumber}</Link>
-      <span className="ml-1 text-[var(--ff-text-secondary)]">{formatDate(r.original.entryDate)}</span>
-    </span>
+    <div>
+      {r.document && <div>{r.document.invoiceNumber}{r.document.supplierName ? ` (${r.document.supplierName})` : ''}</div>}
+      <div className="whitespace-nowrap">
+        <Link href={`/accounting/journal-entries/${r.original.journalEntryId}`} className={link}>{r.original.entryNumber}</Link>
+        <span className="ml-1 text-[var(--ff-text-secondary)]">{formatDate(r.original.entryDate)}</span>
+      </div>
+    </div>
   );
 }
 
@@ -37,7 +39,7 @@ function Rows({ data }: { data: Vat201LateClaims }) {
     <div>
       <p className="mb-1 text-xs text-[var(--ff-text-secondary)] sm:hidden">Scroll sideways for every column.</p>
       <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Late input VAT claims in this period">
-        <table className="w-full min-w-[640px] text-xs" data-testid="vat201-late-claims-rows">
+        <table className="w-full min-w-[720px] text-xs" data-testid="vat201-late-claims-rows">
           <thead>
             <tr className="text-left text-[var(--ff-text-secondary)]">
               <th scope="col" className="py-1 pr-2 font-medium">Claim journal</th>
@@ -56,7 +58,7 @@ function Rows({ data }: { data: Vat201LateClaims }) {
                   {r.kind === 'reversal' && <span className="ml-1 text-[var(--ff-text-secondary)]">(reversal)</span>}
                 </td>
                 <td className="whitespace-nowrap py-1 pr-2">{formatDate(r.claimDate)}</td>
-                <td className="py-1 pr-2"><Original r={r} /></td>
+                <td className="min-w-[14rem] py-1 pr-2"><Original r={r} /></td>
                 <td className="whitespace-nowrap py-1 pr-2">
                   {r.filedPeriod ? `${formatDate(r.filedPeriod.start)} to ${formatDate(r.filedPeriod.end)}` : 'Not found'}
                 </td>
