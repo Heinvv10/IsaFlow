@@ -1,7 +1,8 @@
 /**
  * A company_users row whose user has NO users row: an orphan as one written before
- * migration 996 added company_users_user_id_fkey (NOT VALID, so such rows survive it;
- * production holds one). The FK refuses a new one at COMMIT, so the write runs with
+ * migration 996 added company_users_user_id_fkey. 997 validated the FK, so production
+ * holds none; the code's orphan paths stay as defence and these suites still exercise
+ * them. The FK refuses a new one at COMMIT, so the write runs with
  * the RI triggers off (session_replication_role = replica, superuser only: the suites'
  * `postgres`), for this one statement. That also skips the row's other triggers (role
  * guard, entity_change_capture), which judge nothing for a superuser's seed anyway.

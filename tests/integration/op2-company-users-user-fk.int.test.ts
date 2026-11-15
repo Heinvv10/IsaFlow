@@ -1,23 +1,24 @@
 /**
  * OP-2 (admin audit 2026-11-14): company_users.user_id names a users row.
  *
- * Migration 996 adds company_users_user_id_fkey -> users(id), NOT VALID (step 1 of 2:
- * production holds one orphan membership today, so VALIDATE waits) and DEFERRABLE
- * INITIALLY DEFERRED: checked at COMMIT, because the tenant writers insert the
+ * Migration 996 adds company_users_user_id_fkey -> users(id), NOT VALID, and 997
+ * validates it once no orphan is left. DEFERRABLE INITIALLY DEFERRED: checked at
+ * COMMIT, because the tenant writers insert the
  * membership BEFORE the users row in one transaction (provisionTenant, invite accept
  * for a new member), and deleteUser deletes the users row before its final membership
  * sweep (adminUserActionsService).
  *
  * Pinned here, on real Postgres:
- *   · the constraint's exact shape (NO ACTION, deferred, not validated);
+ *   · the constraint's exact shape after both (NO ACTION, deferred, validated);
  *   · a membership for a user that does not exist is refused at COMMIT (23503) and
  *     nothing is stored;
  *   · membership first, users row second, in one transaction, commits;
  *   · deleting a users row a membership still names is refused; deleting the users
  *     row and then sweeping the membership in one transaction commits;
- *   · an orphan written before the FK is left alone: the migration applies over it
- *     (no scan), and the orphan's role can still be changed;
- *   · the migration is idempotent.
+ *   · an orphan written with RI off survives, and its role can still be changed;
+ *   · 996 applies over an orphan (no scan) and is idempotent;
+ *   · 997 validates a clean table, refuses (23503) a table holding an orphan, is
+ *     idempotent, and refuses to run without 996's constraint.
  * Every DDL runs in a transaction that is rolled back.
  */
 import { readFileSync } from 'fs';
@@ -31,9 +32,11 @@ import { insertPreFkOrphanMembership } from './helpers/preFkOrphanMembership';
 assertDisposableDb('OP-2 writes companies, users and memberships it removes again.');
 
 const FK = 'company_users_user_id_fkey';
-const FK_DEF = 'FOREIGN KEY (user_id) REFERENCES users(id) DEFERRABLE INITIALLY DEFERRED NOT VALID';
-const migration = () => readFileSync(
-  path.join(__dirname, '../../scripts/migrations/sql/996_company_users_user_fk_not_valid.sql'), 'utf8');
+const FK_DEF = 'FOREIGN KEY (user_id) REFERENCES users(id) DEFERRABLE INITIALLY DEFERRED';
+const SHAPE = { condeferrable: true, condeferred: true, confupdtype: 'a', confdeltype: 'a' };
+const sqlFile = (name: string) => () => readFileSync(path.join(__dirname, '../../scripts/migrations/sql', name), 'utf8');
+const migration = sqlFile('996_company_users_user_fk_not_valid.sql');
+const validate = sqlFile('997_company_users_user_fk_validate.sql');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const company = randomUUID();
@@ -74,7 +77,7 @@ const constraintState = async (c: PoolClient | Pool) => (await c.query(
 
 beforeAll(async () => {
   await pool.query('INSERT INTO companies (id, name) VALUES ($1, $2)', [company, `OP-2 ${company}`]);
-  // An orphan as production holds one.
+  // An orphan as production held one before 997 (written with RI off; the FK is validated here).
   await insertPreFkOrphanMembership(pool, company, orphan, 'owner');
 }, 60_000);
 
@@ -89,10 +92,8 @@ afterAll(async () => {
 }, 60_000);
 
 describe('OP-2 company_users.user_id -> users(id)', () => {
-  it('the FK is NO ACTION, deferred to COMMIT and not validated', async () => {
-    expect(await constraintState(pool)).toEqual([{
-      convalidated: false, condeferrable: true, condeferred: true, confupdtype: 'a', confdeltype: 'a', def: FK_DEF,
-    }]);
+  it('after 996 and 997 the FK is NO ACTION, deferred to COMMIT and validated', async () => {
+    expect(await constraintState(pool)).toEqual([{ convalidated: true, ...SHAPE, def: FK_DEF }]);
   });
 
   it('a membership for a user that does not exist is refused at COMMIT and nothing is stored', async () => {
@@ -130,7 +131,7 @@ describe('OP-2 company_users.user_id -> users(id)', () => {
     expect(await memberships(leaving)).toEqual([]);
   });
 
-  it('an existing orphan is untouched (NOT VALID) and its role can still change', async () => {
+  it('an orphan written with RI off survives, and its role can still change (key unchanged: not re-checked)', async () => {
     expect(await memberships(orphan)).toEqual([{ role: 'owner' }]);
     expect(await inTx(c => c.query(
       `UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2`, [company, orphan],
@@ -138,7 +139,7 @@ describe('OP-2 company_users.user_id -> users(id)', () => {
     expect(await memberships(orphan)).toEqual([{ role: 'admin' }]);
   });
 
-  it('the migration applies over an orphan without validating, and a rerun changes nothing', async () => {
+  it('996 applies over an orphan without validating, and a rerun changes nothing', async () => {
     const c = await pool.connect();
     try {
       await c.query('BEGIN');
@@ -148,14 +149,66 @@ describe('OP-2 company_users.user_id -> users(id)', () => {
       const once = await constraintState(c);
       await c.query(migration());
       expect(await constraintState(c)).toEqual(once);
-      expect(once).toEqual([{
-        convalidated: false, condeferrable: true, condeferred: true, confupdtype: 'a', confdeltype: 'a', def: FK_DEF,
-      }]);
+      expect(once).toEqual([{ convalidated: false, ...SHAPE, def: `${FK_DEF} NOT VALID` }]);
       expect((await c.query('SELECT 1 FROM company_users WHERE company_id = $1 AND user_id = $2', [company, orphan])).rowCount)
         .toBe(1);
     } finally {
       await c.query('ROLLBACK');
       c.release();
     }
+  });
+
+  describe('997 VALIDATE', () => {
+    /** In a transaction that is rolled back: 996's NOT VALID FK in place of the validated one, then `steps`. */
+    async function onNotValidFk(steps: (c: PoolClient) => Promise<void>, removeOrphans: boolean): Promise<void> {
+      const c = await pool.connect();
+      try {
+        await c.query('BEGIN');
+        // Every orphan, not only this suite's: an earlier suite on this database may have left one. Rolled back.
+        if (removeOrphans) {
+          await c.query('DELETE FROM company_users cu WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.id = cu.user_id)');
+        }
+        await c.query(`ALTER TABLE company_users DROP CONSTRAINT ${FK}`);
+        await c.query(migration());
+        expect((await constraintState(c))[0]?.convalidated).toBe(false);
+        await steps(c);
+      } finally {
+        await c.query('ROLLBACK');
+        c.release();
+      }
+    }
+
+    it('validates a table with no orphan, and a rerun changes nothing', async () => {
+      await onNotValidFk(async (c) => {
+        await c.query(validate());
+        expect(await constraintState(c)).toEqual([{ convalidated: true, ...SHAPE, def: FK_DEF }]);
+        await c.query(validate());
+        expect(await constraintState(c)).toEqual([{ convalidated: true, ...SHAPE, def: FK_DEF }]);
+      }, true);
+    });
+
+    it('refuses a table holding an orphan (23503), leaving the FK NOT VALID', async () => {
+      await onNotValidFk(async (c) => {
+        await c.query('SAVEPOINT v');
+        const err = await c.query(validate()).then(() => null, (e: { code?: string; constraint?: string }) => e);
+        await c.query('ROLLBACK TO SAVEPOINT v');
+        expect({ code: err?.code, constraint: err?.constraint }).toEqual({ code: '23503', constraint: FK });
+        expect((await constraintState(c))[0]?.convalidated).toBe(false);
+      }, false);
+    });
+
+    it('is a no-op on the validated FK, and refuses to run without 996\'s constraint', async () => {
+      const c = await pool.connect();
+      try {
+        await c.query('BEGIN');
+        await c.query(validate());
+        expect(await constraintState(c)).toEqual([{ convalidated: true, ...SHAPE, def: FK_DEF }]);
+        await c.query(`ALTER TABLE company_users DROP CONSTRAINT ${FK}`);
+        await expect(c.query(validate())).rejects.toThrow(/996 must run first/);
+      } finally {
+        await c.query('ROLLBACK');
+        c.release();
+      }
+    });
   });
 });
