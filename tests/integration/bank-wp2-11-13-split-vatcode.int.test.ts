@@ -15,6 +15,7 @@ import {
 } from '@/modules/accounting/services/bank/bankAllocationService';
 import { applyRules } from '@/modules/accounting/services/bank/bankRulesMatchingService';
 import type { SplitLine } from '@/modules/accounting/services/bank/bankAllocationTypes';
+import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import { dropFixture, inTx, seedBankTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -76,6 +77,16 @@ describeIfDb('WP2 rows 11 + 13: exact split totals, known VAT codes only', () =>
       [{ contraAccountId: expense, amount: 0.1 }, { contraAccountId: expense, amount: 0.2 }], fx.userId));
     expect(await lineStatus(tx)).toBe('allocated');
     expect(await journalLines(out.journalEntryId)).toEqual(['1000:0.00/0.30:-', '6000:0.10/0.00:-', '6000:0.20/0.00:-']);
+  }, 60000);
+
+  it('refuses an empty split as a typed allocation refusal (400), before anything is written', async () => {
+    const tx = await seedBankTx(fx, { date: '2026-10-05', amount: -5, description: 'split no lines' });
+    const before = await journalCount();
+    const err = await inTx(fx, () => splitAllocateTransaction(fx.companyId, tx, [], fx.userId)).catch((e: unknown) => e);
+    expect(isBankAllocationRefusal(err), String(err)).toBe(true);
+    expect((err as Error).message).toBe('At least one split line is required');
+    expect(await journalCount()).toBe(before);
+    expect(await lineStatus(tx)).toBe('imported');
   }, 60000);
 
   // ── Row 13 ──────────────────────────────────────────────────────────────────

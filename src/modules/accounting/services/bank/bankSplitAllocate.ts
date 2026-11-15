@@ -25,9 +25,8 @@ import { SPLIT_ALLOCATION_NAME } from './splitJournalDocuments';
 import { recordAllocationDecision } from './codingDecisionLog';
 import type { SplitLine } from './bankAllocationTypes';
 import { assertAllocationVatCode } from './bankVatCodes';
-import { toCents } from '../ap/billAllocatable';
 import { hasWholeCents } from '@/lib/money/wholeCents';
-import { formatMoney } from '@/lib/money/formatMoney';
+import { splitTotalMismatch } from './bankSplitTotal';
 
 type Row = DbRow;
 
@@ -58,7 +57,7 @@ export async function splitAllocateTransaction(
   if (tx.status !== 'imported') {
     throw new BankAllocationRefusal(`Transaction already ${tx.status} — cannot split allocate`);
   }
-  if (!lines || lines.length === 0) throw new Error('At least one split line is required');
+  if (!lines || lines.length === 0) throw new BankAllocationRefusal('At least one split line is required'); // 400, pre-write
 
   const totalAmount = Math.abs(Number(tx.amount));
   // WP2 row 11: the lines must equal the line in INTEGER CENTS, exactly. The float tolerance this replaces (`> 0.01`)
@@ -70,11 +69,8 @@ export async function splitAllocateTransaction(
     }
     assertAllocationVatCode(l.vatCode, `Split line ${i + 1}`);
   }
-  const linesCents = lines.reduce((sum, l) => sum + toCents(Number(l.amount)), 0);
-  if (linesCents !== toCents(totalAmount)) {
-    throw new BankAllocationRefusal(`Split lines total ${formatMoney(linesCents / 100)} does not equal the transaction amount `
-      + `${formatMoney(totalAmount)}. Nothing was posted.`);
-  }
+  const mismatch = splitTotalMismatch(lines.map((l) => Number(l.amount)), totalAmount); // the MCP split asks the same
+  if (mismatch) throw new BankAllocationRefusal(mismatch);
   // Supplier / customer lines: every refusal for them, from reads, before any write (bankSplitContacts.ts).
   const contactPlan = await planSplitContacts(companyId, tx, lines, userId);
   const parts = splitParts(lines, contactPlan);

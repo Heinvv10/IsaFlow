@@ -240,6 +240,22 @@ describe('postProvisional', () => {
     expect(result.skipped).toContain('low confidence');
   });
 
+  // WP2 row 13: the history holds whatever its writers recorded (a supplier's VAT NUMBER among them on dev). A code
+  // outside the four used to post the gross with nobody watching; it is skipped and reported, before any write.
+  it.each(['4240294944', 'S', 'STANDARD'])('skips a prediction whose VAT code %j is unknown, posting nothing', async (code) => {
+    vi.mocked(sqlMock).mockResolvedValueOnce([
+      { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', feed_state: 'posted', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
+    ] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, code, 4) as never);
+
+    const result = await postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID);
+
+    expect(result).toMatchObject({ journalEntryId: null, skipped: `unknown VAT code "${code}"` });
+    expect(vi.mocked(createJournalEntry)).not.toHaveBeenCalled();
+    expect(vi.mocked(sqlMock)).toHaveBeenCalledTimes(3); // the line, the suppliers, the history: no write
+  });
+
   it('creates a journal entry and returns its id on the happy path', async () => {
     // bank_tx
     vi.mocked(sqlMock).mockResolvedValueOnce([
@@ -248,7 +264,7 @@ describe('postProvisional', () => {
     // Suppliers
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
     // History → 4 rows → confidence 0.9
-    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'S', 4) as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'none', 4) as never);
     // UPDATE gl_journal_entries (needs_evidence=true)
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
     // UPDATE bank_transactions (status=provisional)
@@ -266,7 +282,7 @@ describe('postProvisional', () => {
       { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', feed_state: 'posted', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
     ] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'S', 4) as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'none', 4) as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // UPDATE gl_journal_entries
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // UPDATE bank_transactions
 
@@ -281,7 +297,7 @@ describe('postProvisional', () => {
       { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', feed_state: 'posted', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
     ] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'S', 4) as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'none', 4) as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
 
