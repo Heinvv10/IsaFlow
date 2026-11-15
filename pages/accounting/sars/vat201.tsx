@@ -164,7 +164,6 @@ export default function VAT201Page() {
               <Vat201FieldsSection data={data} />
 
               <VAT201ReviewNotices warnings={data.warnings} filability={data.filability} />
-
               <VAT201LateClaimsSection from={data.periodStart} to={data.periodEnd} />
 
               <VAT201ExceptionsPanel from={data.periodStart} to={data.periodEnd} reloadKey={exceptionsKey} onLoaded={setExceptionsReport} />
