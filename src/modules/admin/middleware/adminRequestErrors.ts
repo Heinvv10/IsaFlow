@@ -12,7 +12,7 @@
  * Input helpers (adminUuid, adminPaging, adminDate) validate what reaches a SQL cast BEFORE any SQL runs: a
  * malformed id or page is the caller's mistake (400), not a 500 from Postgres.
  */
-import type { NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from 'next';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { isRealCalendarDate, isRealTimestamp, UUID_RE } from '@/lib/validation';
 
@@ -55,6 +55,23 @@ export function respondIfAdminRequestError(res: NextApiResponse, err: unknown): 
 /** A Postgres error with this SQLSTATE (e.g. '23505' unique violation). */
 export function isPgError(err: unknown, sqlState: string): boolean {
   return (err as { code?: unknown } | null)?.code === sqlState;
+}
+
+/**
+ * `handler` with its AdminRequestErrors answered (respondIfAdminRequestError) and everything else rethrown. withAdmin
+ * wraps every admin route in it; a unit test that mocks withAdmin away can wrap the route in it the same way.
+ */
+export function withAdminRefusals<Req extends NextApiRequest>(
+  handler: (req: Req, res: NextApiResponse) => Promise<void> | void,
+): (req: Req, res: NextApiResponse) => Promise<void> {
+  return async (req, res) => {
+    try {
+      await handler(req, res);
+    } catch (err) {
+      if (respondIfAdminRequestError(res, err)) return;
+      throw err;
+    }
+  };
 }
 
 /** A required UUID (a path id): throws a 400 AdminRequestError when it is missing, repeated or malformed. */
