@@ -23,7 +23,7 @@ interface LineInput {
   creditAmount: string;
 }
 
-const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
+const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-base md:text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
@@ -176,8 +176,8 @@ export default function NewJournalEntryPage() {
                       <Plus className="h-3 w-3" />Add Line
                     </button>
                   </div>
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800">
+                  <table className="block md:table w-full text-sm" aria-label="Journal lines">
+                    <thead className="hidden md:table-header-group bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800">
                       <tr>
                         <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 w-8">#</th>
                         <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Account</th>
@@ -187,16 +187,16 @@ export default function NewJournalEntryPage() {
                         <th className="w-10" />
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    <tbody className="block md:table-row-group divide-y divide-slate-100 dark:divide-slate-800">
                       {lines.map((line, idx) => (
-                        <tr key={line.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
-                          <td className="px-4 py-2 text-xs text-slate-500 dark:text-slate-400">{idx + 1}</td>
-                          <td className="px-3 py-2">
+                        <tr key={line.key} className="group grid grid-cols-2 gap-2 p-3 md:table-row md:p-0 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
+                          <td className="col-span-2 px-1 text-xs font-semibold text-slate-500 dark:text-slate-400 md:table-cell md:px-4 md:py-2 md:font-normal"><span className="md:hidden">Line </span>{idx + 1}</td>
+                          <td className="col-span-2 md:table-cell md:px-3 md:py-2">
                             <Select label={`Account, line ${idx + 1}`} labelClassName="sr-only" size="sm" placeholder="Select account…" searchable
                               value={line.accountId || null} onChange={v => updateLine(line.key, 'accountId', v ?? '')}
                               options={accounts.map(a => ({ value: a.id, label: `${a.accountCode} - ${a.accountName}` }))} />
                           </td>
-                          <td className="px-3 py-2">
+                          <td className="col-span-2 md:table-cell md:px-3 md:py-2">
                             <DescriptionAutocomplete
                               value={line.description}
                               onChange={v => updateLine(line.key, 'description', v)}
@@ -205,14 +205,16 @@ export default function NewJournalEntryPage() {
                               className={inp}
                             />
                           </td>
-                          <td className="px-3 py-2">
-                            <input type="number" value={line.debitAmount} onChange={e => updateLine(line.key, 'debitAmount', e.target.value)} placeholder="0.00" step="0.01" min="0" className={`${inp} text-right`} />
+                          <td className="md:table-cell md:px-3 md:py-2">
+                            <span className="md:hidden block text-xs text-ink-muted mb-1">Debit</span>
+                            <input type="number" inputMode="decimal" aria-label={`Debit, line ${idx + 1}`} value={line.debitAmount} onChange={e => updateLine(line.key, 'debitAmount', e.target.value)} placeholder="0.00" step="0.01" min="0" className={`${inp} text-right`} />
                           </td>
-                          <td className="px-3 py-2">
-                            <input type="number" value={line.creditAmount} onChange={e => updateLine(line.key, 'creditAmount', e.target.value)} placeholder="0.00" step="0.01" min="0" className={`${inp} text-right`} />
+                          <td className="md:table-cell md:px-3 md:py-2">
+                            <span className="md:hidden block text-xs text-ink-muted mb-1">Credit</span>
+                            <input type="number" inputMode="decimal" aria-label={`Credit, line ${idx + 1}`} value={line.creditAmount} onChange={e => updateLine(line.key, 'creditAmount', e.target.value)} placeholder="0.00" step="0.01" min="0" className={`${inp} text-right`} />
                           </td>
-                          <td className="px-2 py-2">
-                            <button type="button" aria-label="Remove line" onClick={() => removeLine(line.key)} disabled={lines.length <= 2} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-20">
+                          <td className="col-span-2 flex justify-end md:table-cell md:px-2 md:py-2">
+                            <button type="button" aria-label={`Remove line ${idx + 1}`} onClick={() => removeLine(line.key)} disabled={lines.length <= 2} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors min-h-[44px] min-w-[44px] inline-flex items-center justify-center md:min-h-0 md:min-w-0 md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-20">
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </td>
