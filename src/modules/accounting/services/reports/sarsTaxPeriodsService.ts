@@ -4,6 +4,7 @@
  * and a static compliance event calendar.
  */
 import { vatQuickPeriods, type VatAlignment, type VatSetting } from '@/modules/bureau/services/vatPeriodHelper';
+import { backToFriday } from '@/modules/bureau/services/complianceCalendarEngine';
 
 export interface TaxPeriod {
   type: 'VAT' | 'PAYE';
@@ -41,7 +42,9 @@ interface VatFilingPeriod { start: string; end: string; dueDate: string; label: 
  * VAT periods that END in `year`, derived from vatPeriodHelper (the single
  * source of truth for SARS categories): 'odd' = Category A (ends Jan/Mar/...),
  * 'even' = Category B (ends Feb/Apr/...), 'monthly' = Category C.
- * A non-vendor ('none') has none. Due on the 25th of the month after the end.
+ * A non-vendor ('none') has none. Due on the 25th of the month after the end,
+ * moved back to the Friday when that is a weekend. Public holidays are not
+ * shifted (no holiday calendar); eFiling's later deadline is not shown.
  */
 function vatFilingPeriods(year: number, alignment: VatAlignment, setting: VatSetting): VatFilingPeriod[] {
   if (setting === 'none') return [];
@@ -50,7 +53,7 @@ function vatFilingPeriods(year: number, alignment: VatAlignment, setting: VatSet
     const endMonth = Number(q.to.slice(5, 7));
     const dueYear = endMonth === 12 ? endYear + 1 : endYear;
     const dueMonth = endMonth === 12 ? 1 : endMonth + 1;
-    return { start: q.from, end: q.to, dueDate: `${dueYear}-${pad(dueMonth)}-25`, label: q.label };
+    return { start: q.from, end: q.to, dueDate: backToFriday(dueYear, dueMonth, 25), label: q.label };
   });
 }
 

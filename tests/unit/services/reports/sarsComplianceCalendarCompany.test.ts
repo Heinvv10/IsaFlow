@@ -38,19 +38,19 @@ describe('getComplianceCalendarWithDB reads the company VAT cycle', () => {
 
   it('a Category A company row yields Category A due dates', async () => {
     serveCompany(CAT_A);
-    expect(await vat201Dues()).toEqual(['2026-02-25', '2026-04-25', '2026-06-25', '2026-08-25', '2026-10-25', '2026-12-25', '2027-02-25']);
+    expect(await vat201Dues()).toEqual(['2026-02-25', '2026-04-24', '2026-06-25', '2026-08-25', '2026-10-23', '2026-12-25', '2027-02-25']);
   });
 
   it('a Category B company row yields Category B due dates', async () => {
     serveCompany({ vat_period: 'Bi-Monthly', vat_period_alignment: 'even', vat_system_type: 'invoice' });
-    expect(await vat201Dues()).toEqual(['2026-01-25', '2026-03-25', '2026-05-25', '2026-07-25', '2026-09-25', '2026-11-25', '2027-01-25', '2027-03-25']);
+    expect(await vat201Dues()).toEqual(['2026-01-23', '2026-03-25', '2026-05-25', '2026-07-24', '2026-09-25', '2026-11-25', '2027-01-25', '2027-03-25']);
   });
 
   it('a monthly vendor gets one VAT201 event per month in the window', async () => {
     serveCompany({ ...CAT_C, vat_period_alignment: 'even' });
     const dues = await vat201Dues();
     expect(dues).toHaveLength(15);
-    expect(dues[0]).toBe('2026-01-25');
+    expect(dues[0]).toBe('2026-01-23');
     expect(dues.at(-1)).toBe('2027-03-25');
   });
 
@@ -112,8 +112,8 @@ describe('getComplianceCalendarWithDB failure and DB-row shapes', () => {
   });
 
   it('overlays a stored event whose due_date arrives as a YYYY-MM-DD string', async () => {
-    serveCompany(CAT_A, [{ id: 'e2', event_type: 'VAT201_DUE', due_date: '2026-04-25', status: 'completed', submission_id: null }]);
+    serveCompany(CAT_A, [{ id: 'e2', event_type: 'VAT201_DUE', due_date: '2026-06-25', status: 'completed', submission_id: null }]);
     const events = await getComplianceCalendarWithDB(COMPANY_ID, 2026);
-    expect(events.find((e) => e.dueDate === '2026-04-25' && e.eventType === 'VAT201_DUE')?.status).toBe('completed');
+    expect(events.find((e) => e.dueDate === '2026-06-25' && e.eventType === 'VAT201_DUE')?.status).toBe('completed');
   });
 });

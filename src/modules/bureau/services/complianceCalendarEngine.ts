@@ -61,8 +61,8 @@ function prevMonth(y: number, m: number): { y: number; m: number } {
   return m === 1 ? { y: y - 1, m: 12 } : { y, m: m - 1 };
 }
 
-/** Pull a weekend due day back to the preceding Friday. */
-function backToFriday(y: number, m: number, d: number): string {
+/** Pull a weekend due day back to the preceding Friday (also used for VAT201 by sarsTaxPeriodsService). */
+export function backToFriday(y: number, m: number, d: number): string {
   const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
   if (dow === 6) return iso(y, m, d - 1); // Saturday → Friday
   if (dow === 0) return iso(y, m, d - 2); // Sunday → Friday

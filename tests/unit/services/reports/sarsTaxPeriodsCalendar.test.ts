@@ -3,7 +3,8 @@
  *   Category A ('odd')  — bi-monthly periods END Jan/Mar/May/Jul/Sep/Nov
  *   Category B ('even') — bi-monthly periods END Feb/Apr/Jun/Aug/Oct/Dec
  *   Category C          — monthly
- * VAT201 is due on the 25th of the month after the period ends.
+ * VAT201 is due on the 25th of the month after the period ends, moved back to
+ * the Friday when the 25th is a Saturday or Sunday (public holidays not shifted).
  * sarsTaxPeriodsService must agree with vatPeriodHelper (the single source).
  */
 import { describe, it, expect } from 'vitest';
@@ -26,6 +27,7 @@ describe('getTaxPeriods — SARS VAT categories', () => {
     const first = vatOf(2026, 'odd')[0]!;
     expect(first).toMatchObject({ periodStart: '2025-12-01', periodEnd: '2026-01-31', dueDate: '2026-02-25' });
     expect(vatOf(2026, 'odd')[5]).toMatchObject({ periodStart: '2026-10-01', periodEnd: '2026-11-30', dueDate: '2026-12-25' });
+    expect(vatOf(2027, 'odd')[0]).toMatchObject({ periodStart: '2026-12-01', periodEnd: '2027-01-31', dueDate: '2027-02-25' });
   });
 
   it('Category B (even) periods end in Feb/Apr/Jun/Aug/Oct/Dec', () => {
@@ -64,15 +66,15 @@ describe('getTaxPeriods — SARS VAT categories', () => {
 });
 
 describe('getComplianceCalendar — VAT201 due dates', () => {
-  it('Category A: due 25 Feb/Apr/Jun/Aug/Oct/Dec', () => {
+  it('Category A: due 25 Feb/Apr/Jun/Aug/Oct/Dec (weekend 25ths moved to Friday)', () => {
     expect(vat201Dues(getComplianceCalendar(2026, 'odd'))).toEqual([
-      '2026-02-25', '2026-04-25', '2026-06-25', '2026-08-25', '2026-10-25', '2026-12-25',
+      '2026-02-25', '2026-04-24', '2026-06-25', '2026-08-25', '2026-10-23', '2026-12-25',
     ]);
   });
 
-  it('Category B: due 25 Mar/May/Jul/Sep/Nov and 25 Jan next year', () => {
+  it('Category B: due 25 Mar/May/Jul/Sep/Nov and 25 Jan next year (weekend 25ths moved to Friday)', () => {
     expect(vat201Dues(getComplianceCalendar(2026, 'even'))).toEqual([
-      '2026-03-25', '2026-05-25', '2026-07-25', '2026-09-25', '2026-11-25', '2027-01-25',
+      '2026-03-25', '2026-05-25', '2026-07-24', '2026-09-25', '2026-11-25', '2027-01-25',
     ]);
   });
 
@@ -92,5 +94,30 @@ describe('getComplianceCalendar — VAT201 due dates', () => {
   it('labels the Category A year-boundary period Dec–Jan 2025/2026', () => {
     const first = getComplianceCalendar(2026, 'odd').find((e) => e.eventType === 'VAT201_DUE')!;
     expect(first.description).toBe('VAT201 return for Dec–Jan 2025/2026');
+  });
+});
+
+describe('VAT201 due date — weekend shift', () => {
+  const dueFor = (periodEnd: string, alignment: VatAlignment, year: number) =>
+    vatOf(year, alignment).find((p) => p.periodEnd === periodEnd)!.dueDate;
+
+  it('a Saturday 25th moves back to Friday the 24th (Cat A Feb–Mar 2026, 25 Apr 2026 is a Saturday)', () => {
+    expect(dueFor('2026-03-31', 'odd', 2026)).toBe('2026-04-24');
+  });
+
+  it('a Sunday 25th moves back to Friday the 23rd (Cat A Aug–Sep 2026, 25 Oct 2026 is a Sunday)', () => {
+    expect(dueFor('2026-09-30', 'odd', 2026)).toBe('2026-10-23');
+  });
+
+  it('a Sunday 25th across the year boundary moves back too (Cat B Nov–Dec 2025, 25 Jan 2026 is a Sunday)', () => {
+    expect(dueFor('2025-12-31', 'even', 2025)).toBe('2026-01-23');
+  });
+
+  it('a public holiday on a weekday is not shifted (no holiday calendar): 25 Dec 2026 stays', () => {
+    expect(dueFor('2026-11-30', 'odd', 2026)).toBe('2026-12-25');
+  });
+
+  it('a weekday 25th is unchanged', () => {
+    expect(dueFor('2026-01-31', 'odd', 2026)).toBe('2026-02-25');
   });
 });
