@@ -21,7 +21,7 @@ import { listActiveConnections, scanAllDueConnections } from '@/modules/accounti
 import { callRoute } from './s07-users-privilege-columns.helpers';
 import { fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
-const imap = vi.hoisted(() => ({ connectError: null as string | null,
+const imap = vi.hoisted(() => ({ connectError: null as string | null, connectCode: null as string | null,
   metas: [] as Array<{ uid: number; size?: number; envelope: { subject: string; from: Array<{ address: string }> } }> }));
 // The create route and the scan resolve the IMAP host first (imapTargetGuard): the fake .test names are a public address here.
 vi.mock('node:dns/promises', () => ({ lookup: async () => [{ address: '93.184.216.34', family: 4 }] }));
@@ -29,7 +29,7 @@ vi.mock('imapflow', () => ({
   ImapFlow: class {
     streamer = { write: () => true, push: () => true }; // what the scan's byte meter wraps
     on() { /* the mirror registers an 'error' listener */ }
-    async connect() { if (imap.connectError) throw new Error(imap.connectError); }
+    async connect() { if (imap.connectError) throw Object.assign(new Error(imap.connectError), imap.connectCode ? { code: imap.connectCode } : {}); }
     async getMailboxLock() { return { release: () => undefined }; }
     async *fetch() { for (const m of imap.metas) yield m; }
     async fetchOne() { return false; }
@@ -59,7 +59,7 @@ afterAll(async () => {
   await teardown(ids, [getAuthPool(), getDbPool(), migrationAdminPool(), billingAdminPool(), routeAdminPool()]);
 });
 
-beforeEach(() => { imap.connectError = null; imap.metas = []; });
+beforeEach(() => { imap.connectError = null; imap.connectCode = null; imap.metas = []; });
 
 describe('S-07e part B (946): IMAP mirror connections, through the routes on the production logins', () => {
   it('create, list, update, disconnect, reactivate, delete; the mailbox password is stored encrypted and wiped on disconnect', async () => {
@@ -132,6 +132,17 @@ describe('S-07e part B (946): IMAP mirror connections, through the routes on the
     // Written on migration_admin just after the request's COMMIT (round 6: mirrorScanError.ts queues it with the other stamps).
     await vi.waitFor(async () => expect(await row(id)).toMatchObject({ status: 'error', last_error: 'connect ECONNREFUSED' }));
     expect((await row(id))!.last_scan_at).not.toBeNull();
+  });
+
+  it('a scan the network refused (ECONNREFUSED) stamps a generic error and leaves the connection active, so it is scanned again', async () => {
+    const id = String(conn(await create()).id);
+    imap.connectError = 'connect ECONNREFUSED 93.184.216.34:993';
+    imap.connectCode = 'ECONNREFUSED';
+    const scan = await as(scanNowRoute, 'POST', { id });
+    expect(scan.status).toBe(200);
+    expect((scan.body as { data: Record<string, number> }).data.errors).toBe(1);
+    await vi.waitFor(async () => expect((await row(id))!.last_scan_at).not.toBeNull());
+    expect(await row(id)).toMatchObject({ status: 'active', last_error: 'Mail server could not be reached; will retry' }); // status 'active': the due selection picks it again next interval
   });
 });
 

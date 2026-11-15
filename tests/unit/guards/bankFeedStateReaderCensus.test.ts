@@ -72,6 +72,7 @@ const EXTRA_FILES: readonly string[] = ['pages/api/accounting/nl-query.ts'];
  */
 const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/core/anomalyScanService.ts': 'filtered',
+  'src/modules/accounting/services/capture/pop/popListService.ts': "filtered (list_proofs_of_payment: the line a POP's document is linked to (bankLineDocumentSql linkedCapturedDocSql) counts as attached_manually only when not feed_state 'removed'; a status, not a total)",
   'src/modules/accounting/services/core/missingDocumentsQuery.ts': "filtered (list_missing_documents: bank SPEND lines, feed_state = 'posted', not excluded, not a transfer)",
   'src/modules/accounting/services/core/bankLineDocumentRouting.ts': 'exempt: ownership check and same-file probe of ONE named bank line before attaching or listing its documents, not a total',
   'pages/api/accounting/bank-accounts.ts': 'exempt: group-promotion usage guard, not a financial total',

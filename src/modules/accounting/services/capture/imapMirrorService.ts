@@ -19,7 +19,7 @@ import type { ImapFlow } from 'imapflow';
 import { simpleParser, type Attachment } from 'mailparser';
 import { sql } from '@/lib/neon';
 import { ensureMirrorInbox, isTransientIngestError } from './imapMirrorInbox';
-import { markMirrorScanError } from './mirrorScanError';
+import { recordScanFailure } from './mirrorScanError';
 import { readCursor } from './mirrorCursor';
 import { openImapClient } from './imapMirrorClient';
 import { isOversizedMessage, runGuardedScan, type ScanGuard, type ScanOptions } from './mirrorScanGuard';
@@ -264,7 +264,7 @@ async function scanBody(conn: MirrorConnection, result: ScanResult, guard: ScanG
     const msg = err instanceof Error ? err.message : String(err);
     log.error('mirror scan failed', { connectionId: conn.id, err: msg }, 'imap-mirror');
     result.errors += 1;
-    await markMirrorScanError('imap', conn, msg);
+    await recordScanFailure('imap', conn, err);
   } finally {
     if (client && !guard.expired) {
       try { await client.logout(); } catch (err) {

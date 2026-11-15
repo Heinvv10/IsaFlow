@@ -47,7 +47,7 @@ vi.mock('@/lib/encryption', () => ({ decrypt: () => 'password' }));
 vi.mock('@/lib/documentStorage', () => ({ sha256: vi.fn(), storeCapturedBytes: vi.fn() }));
 vi.mock('@/modules/accounting/services/capture/captureRouterService', () => ({ routeEvent: vi.fn() }));
 vi.mock('@/modules/accounting/services/capture/imapMirrorInbox', () => ({ ensureMirrorInbox: vi.fn(), isTransientIngestError: vi.fn() }));
-vi.mock('@/modules/accounting/services/capture/mirrorScanError', () => ({ markMirrorScanError: h.markError }));
+vi.mock('@/modules/accounting/services/capture/mirrorScanError', () => ({ recordScanFailure: h.markError }));
 vi.mock('@/lib/afterCommit', () => ({ runAfterCommit: vi.fn() }));
 
 import { log } from '@/lib/logger';

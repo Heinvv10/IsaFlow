@@ -39,7 +39,7 @@ vi.mock('@/modules/accounting/services/capture/captureRouterService', () => ({ r
 vi.mock('@/modules/accounting/services/capture/imapMirrorInbox', () => ({ ensureMirrorInbox: vi.fn(), isTransientIngestError: vi.fn() }));
 vi.mock('@/lib/afterCommit', () => ({ runAfterCommit: vi.fn() }));
 vi.mock('@/modules/accounting/services/capture/mirrorScanError', async (orig) => ({
-  ...(await orig<typeof import('@/modules/accounting/services/capture/mirrorScanError')>()), markMirrorScanError: h.markError,
+  ...(await orig<typeof import('@/modules/accounting/services/capture/mirrorScanError')>()), recordScanFailure: h.markError,
 }));
 
 import { log } from '@/lib/logger';
