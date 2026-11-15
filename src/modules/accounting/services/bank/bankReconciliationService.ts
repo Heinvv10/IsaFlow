@@ -3,7 +3,7 @@
  * Bank Reconciliation Service — reconciliation CRUD, allocation, and auto-match
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql, withSavepoint, withTransaction } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
@@ -137,8 +137,16 @@ export async function completeReconciliation(
     log.info('Completed bank reconciliation', { id }, 'accounting');
     return mapReconRow(completedRow);
   } catch (err) {
-    if (isReconciliationNotBalanced(err)) log.info('Reconciliation not completed: difference is not zero', { id, difference: err.difference }, 'accounting');
-    else if (isReconciliationReviewRequired(err)) log.info('Reconciliation not completed: lines unreviewed', { id, unreviewed: err.unreviewed }, 'accounting');
+    if (isReconciliationNotBalanced(err)) {
+      log.info('Reconciliation not completed: difference is not zero', { id, difference: err.difference }, 'accounting');
+      // The refusal rolled back commitReconciliation's savepoint, taking its recompute with it, and a 4xx commits the
+      // request: refresh the stored figure here (header still locked FOR UPDATE by this request) so the screen shows
+      // the difference that was refused, not the stale R0.00 that let the first check through.
+      // In its own savepoint: an SQL error here would otherwise abort the request transaction and withAuth's COMMIT
+      // would silently roll the whole request back.
+      await withSavepoint('recon_refusal_refresh', () => updateReconciledBalance(companyId, id)).catch((refreshErr: unknown) =>
+        log.error('Failed to refresh reconciliation after refusal', { id, error: refreshErr }, 'accounting'));
+    } else if (isReconciliationReviewRequired(err)) log.info('Reconciliation not completed: lines unreviewed', { id, unreviewed: err.unreviewed }, 'accounting');
     else log.error('Failed to complete reconciliation', { id, error: err }, 'accounting');
     throw err;
   }
