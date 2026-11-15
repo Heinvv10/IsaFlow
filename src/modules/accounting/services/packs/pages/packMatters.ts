@@ -4,7 +4,8 @@
  * This is the page a board pack exists for: the issues a director has to
  * decide on, not the numbers everyone can already read on the statements.
  * Spec §4.A names four sources — aged debtor concentration, unreconciled
- * bank items, unusual journals, overdue statutory filings — ranked by
+ * bank items (printed "unallocated bank items": what the figure counts),
+ * unusual journals, overdue statutory filings — ranked by
  * quantum, largest first.
  *
  * The rule this file exists to enforce: a source that fails becomes a NAMED

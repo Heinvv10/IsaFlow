@@ -167,6 +167,11 @@ async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]>
   // names, which are on no row it returns — so the count was always 0 and
   // the matter could not fire on any tenant.
   //
+  // NAMED FOR WHAT IT COUNTS: "unallocated bank items" (Hein, 2026-11-15,
+  // #1442). It printed "unreconciled", but an allocated line that no
+  // reconciliation has covered is not in this count, so the word told a board
+  // the opposite of what the figure measures.
+  //
   // AND THE COUNT IS OF WHAT THE AMOUNT SUMS. `unreconciledBalance` is every
   // posted line with no journal line that is not excluded: it pairs with the
   // card's Δ, NOT reconciliation state. The service's `unreconciledCount` is
@@ -178,7 +183,7 @@ async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]>
   // THE COUNT RAISES THE MATTER, NOT THE AMOUNT. `unreconciledBalance` is each
   // account's NET unmatched amount, and it was also the gate: an unmatched
   // receipt and an unmatched payment of the same size net to nil, and took
-  // every other unreconciled item on the account off the page with them.
+  // every other unallocated item on the account off the page with them.
   if (items === 0) return [];
   // What the service can give: the net per account. Added WITHOUT sign across
   // accounts, so an inflow on one cannot cancel an outflow on another — and
@@ -201,7 +206,7 @@ async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]>
     // as-at date, so a pack dated to an earlier period end prints the bank
     // position at the moment it was extracted. Every other matter on this
     // page is read as at the window's end; this one cannot be, and says so.
-    issue: `${plural(items, 'unreconciled bank item')} across ${plural(accountCount, 'bank account')}`
+    issue: `${plural(items, 'unallocated bank item')} across ${plural(accountCount, 'bank account')}`
       + ', as at the time this pack was extracted rather than at the period end'
       + amountClause,
     // NOT STATED WHERE THE ITEMS NET TO NIL, rather than 0: the sentence says
@@ -282,7 +287,7 @@ export const SOURCES: ReadonlyArray<{
   build: (companyId: string, window: PeriodWindow) => Promise<SourceResult>;
 }> = [
   { label: 'aged debtors', check: 'aged debtor concentration', build: agedDebtorConcentrationMatters },
-  { label: 'unreconciled bank items', check: 'unreconciled bank items', build: async (companyId) => ({ matters: await unreconciledBankMatters(companyId) }) },
+  { label: 'unallocated bank items', check: 'unallocated bank items', build: async (companyId) => ({ matters: await unreconciledBankMatters(companyId) }) },
   { label: 'unusual journals', check: 'unusual journals', build: unusualJournalMatters },
   { label: 'overdue statutory filings', check: 'overdue statutory filings', build: async (c, w) => ({ matters: await overdueFilingMatters(c, w) }) },
 ];

@@ -2,7 +2,9 @@
  * THE definition of an unreconciled bank LINE, for every "unreconciled" count: the bank-account card
  * (`bankAccountStatusService` unreconciled_count — bank_accounts_status, the bank_accounts export), the workbench and
  * attention panel (`workbenchService.getUnreconciledBankTxns`), the bureau cockpit's Bank reconciliation signal and the
- * period-close check (`gl/closeReadinessChecks/bankReconciledCheck`, the period's lines only).
+ * period-close check (`gl/closeReadinessChecks/bankReconciledCheck`, the period's lines only). That check's `fail`
+ * blocks only MCP `close_fiscal_period` today; the app's Close, Bulk Close and Close Year and the year-end close run no
+ * readiness check yet (follow-up PR) — see bankReconciledCheck's header.
  *
  * The line test is shared; the ACCOUNTS each count covers are not. The card is per account, over leaf bank-subtype
  * accounts only (a rollup bank account with a bank child has no card; inactive accounts only with includeInactive), so
