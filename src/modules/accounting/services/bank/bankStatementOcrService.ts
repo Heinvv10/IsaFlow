@@ -11,8 +11,8 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { runAfterCommit } from '@/lib/afterCommit';
-import { parsedDayWindowError } from '../../utils/journalDateWindow';
 import { runBankStatementExtraction } from './bankStatementExtractionJob';
+import { rowsToCommit } from './bankStatementDedupHelpers';
 import {
   effectiveExtractionState, explainRefusal, STALE_AFTER_MINUTES,
 } from './statementExtractionState';
@@ -216,7 +216,7 @@ export async function commitImport(
   if (imp.status === 'committed') throw new Error('Import already committed');
   if (imp.status === 'rolled_back') throw new Error('Import has been rolled back');
 
-  const nonDupes = imp.rows.filter((r) => !r.isDuplicate && r.date && parsedDayWindowError(r.date) === null);
+  const nonDupes = await rowsToCommit(companyId, imp.bankAccountId, imp.rows); // under the ingest lock (WP2-2)
   log.info('bankStatementOcr: committing import', { importId, nonDupeCount: nonDupes.length }, 'bank-stmt-ocr');
 
   // Step 2 provenance: the batch the lines name (its id is this import's), recording as the importer the person who
