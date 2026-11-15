@@ -8,11 +8,11 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
 import { suspendCompany } from '@/modules/admin/services/adminCompanyService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
-import { isUuidParam } from '@/lib/validation';
 
 const PostBody = z.object({
   // trim() first: "   " is no reason (WP13 review M2).
@@ -20,8 +20,7 @@ const PostBody = z.object({
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const companyId = req.query.id;
-  if (!isUuidParam(companyId)) return apiResponse.badRequest(res, 'Invalid company id');
+  const companyId = adminUuid(req.query.id, 'company id'); // 400 'Invalid company id'; the canonical spelling
 
   if (req.method === 'POST') {
     const parsed = PostBody.safeParse(req.body);

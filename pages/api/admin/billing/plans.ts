@@ -9,8 +9,8 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { isPgError } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import { listPlans, createPlan } from '@/modules/admin/services/planService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
@@ -29,14 +29,9 @@ const PostBody = z.object({
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
-    try {
-      const includeArchived = req.query.include_archived === 'true';
-      const plans = await listPlans(includeArchived);
-      return apiResponse.success(res, plans);
-    } catch (err) {
-      log.error('Failed to list plans', { error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to list plans');
-    }
+    const includeArchived = req.query.include_archived === 'true';
+    const plans = await listPlans(includeArchived);
+    return apiResponse.success(res, plans);
   }
 
   if (req.method === 'POST') {
@@ -45,10 +40,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
     }
 
-    try {
-      const { code, name, description, monthly_price_cents, annual_price_cents, currency, features, limits, display_order } = parsed.data;
+    const { code, name, description, monthly_price_cents, annual_price_cents, currency, features, limits, display_order } = parsed.data;
 
-      const plan = await createPlan({
+    let plan: Awaited<ReturnType<typeof createPlan>>;
+    try {
+      plan = await createPlan({
         code,
         name,
         description,
@@ -59,21 +55,22 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         limits,
         display_order,
       });
-
-      await logAdminAction(
-        req.user.id,
-        'plan.create',
-        'plan',
-        plan.id,
-        { code: parsed.data.code, name: parsed.data.name, monthly_price_cents: parsed.data.monthly_price_cents },
-        getIp(req)
-      );
-
-      return apiResponse.success(res, plan);
     } catch (err) {
-      log.error('Failed to create plan', { error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to create plan');
+      // The INSERT is the first write: the refusal aborted the transaction, so nothing lands.
+      if (isPgError(err, '23505', 'plans_code_key')) return apiResponse.conflict(res, 'A plan with that code already exists');
+      throw err;
     }
+
+    await logAdminAction(
+      req.user.id,
+      'plan.create',
+      'plan',
+      plan.id,
+      { code: parsed.data.code, name: parsed.data.name, monthly_price_cents: parsed.data.monthly_price_cents },
+      getIp(req)
+    );
+
+    return apiResponse.success(res, plan);
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);

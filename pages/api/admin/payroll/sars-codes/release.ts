@@ -12,7 +12,6 @@ import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 import { setCurrentRelease } from '@/modules/admin/services/sarsCodesAdminService';
@@ -29,23 +28,18 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
   }
 
-  try {
-    await setCurrentRelease(parsed.data.taxYear);
+  await setCurrentRelease(parsed.data.taxYear);
 
-    await logAdminAction(
-      req.user.id,
-      'sars_codes.set_current',
-      'sars_code_release',
-      String(parsed.data.taxYear),
-      { tax_year: parsed.data.taxYear },
-      getIp(req)
-    );
+  await logAdminAction(
+    req.user.id,
+    'sars_codes.set_current',
+    'sars_code_release',
+    String(parsed.data.taxYear),
+    { tax_year: parsed.data.taxYear },
+    getIp(req)
+  );
 
-    return apiResponse.success(res, { taxYear: parsed.data.taxYear, isCurrent: true });
-  } catch (err) {
-    log.error('Failed to set current SARS release', { error: err }, 'admin-api');
-    return apiResponse.badRequestFromError(res, err, 'Failed');
-  }
+  return apiResponse.success(res, { taxYear: parsed.data.taxYear, isCurrent: true });
 }
 
 export default withAdmin(withCsrf(handler));

@@ -6,8 +6,8 @@
 import type { NextApiResponse } from 'next';
 import type { PlatformAdminRequest } from '@/lib/auth/withPlatformAdmin';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminPaging } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import { listWaitlistSignups } from '@/modules/onboarding/services/waitlistPromotionService';
 
 async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise<void> {
@@ -15,22 +15,16 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
 
-  try {
-    const { status, search, page, limit } = req.query;
-    const statusFilter = (status === 'promoted' || status === 'all') ? status : 'pending';
+  const { status, search, page, limit } = req.query;
+  const statusFilter = (status === 'promoted' || status === 'all') ? status : 'pending';
 
-    const result = await listWaitlistSignups({
-      status: statusFilter,
-      search: typeof search === 'string' ? search : undefined,
-      page:   page  ? Number(page)  : undefined,
-      limit:  limit ? Number(limit) : undefined,
-    });
+  const result = await listWaitlistSignups({
+    status: statusFilter,
+    search: typeof search === 'string' ? search : undefined,
+    ...adminPaging({ page, limit }),
+  });
 
-    return apiResponse.success(res, result);
-  } catch (err) {
-    log.error('Failed to list waitlist signups', { error: err }, 'admin-api');
-    return apiResponse.badRequest(res, 'Failed to list waitlist signups');
-  }
+  return apiResponse.success(res, result);
 }
 
 export default withAdmin(handler);

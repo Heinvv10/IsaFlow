@@ -5,7 +5,11 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@/modules/admin/middleware/withAdmin', () => ({ withAdmin: (h: unknown) => h }));
+// withAdmin's own refusal mapping (an invalid sort is a refusal it answers 400); the auth half is mocked away.
+vi.mock('@/modules/admin/middleware/withAdmin', async () => {
+  const { withAdminRefusals } = await import('@/modules/admin/middleware/adminRequestErrors');
+  return { withAdmin: withAdminRefusals };
+});
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 const fx = vi.hoisted(() => ({ calls: 0 }));

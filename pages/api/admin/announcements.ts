@@ -9,41 +9,38 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminPaging } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import {
   listAnnouncements,
   createAnnouncement,
 } from '@/modules/admin/services/announcementService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
-import { announcementWindowError, ANNOUNCEMENT_TITLE_MAX, ANNOUNCEMENT_MESSAGE_MAX, firstValidationMessage } from '@/modules/admin/services/announcementWindow';
+import {
+  announcementInstant, announcementWindowError, AnnouncementTarget, AnnouncementTargetIds, AnnouncementType,
+  ANNOUNCEMENT_TITLE_MAX, ANNOUNCEMENT_MESSAGE_MAX, firstValidationMessage,
+} from '@/modules/admin/services/announcementWindow';
 import { getIp } from '@/utils/getIp';
 
 const PostBody = z.object({
   title:          z.string().min(1).max(ANNOUNCEMENT_TITLE_MAX, `Title must be at most ${ANNOUNCEMENT_TITLE_MAX} characters`),
   message:        z.string().min(1).max(ANNOUNCEMENT_MESSAGE_MAX, `Message must be at most ${ANNOUNCEMENT_MESSAGE_MAX} characters`),
-  type:           z.string().optional(),
-  target:         z.string().optional(),
-  target_ids:     z.array(z.string()).optional(),
-  starts_at:      z.string().min(1),
-  ends_at:        z.string().optional(),
+  type:           AnnouncementType.optional(),
+  target:         AnnouncementTarget.optional(),
+  target_ids:     AnnouncementTargetIds.optional(),
+  starts_at:      announcementInstant('Start'),
+  ends_at:        announcementInstant('End').optional(),
   is_dismissible: z.boolean().optional(),
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
-    try {
-      const { active_only, page, limit } = req.query;
-      const result = await listAnnouncements({
-        active_only: active_only === 'true',
-        page:  page  ? Number(page)  : undefined,
-        limit: limit ? Number(limit) : undefined,
-      });
-      return apiResponse.success(res, result);
-    } catch (err) {
-      log.error('Failed to list announcements', { error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to list announcements');
-    }
+    const { active_only, page, limit } = req.query;
+    const result = await listAnnouncements({
+      active_only: active_only === 'true',
+      ...adminPaging({ page, limit }),
+    });
+    return apiResponse.success(res, result);
   }
 
   if (req.method === 'POST') {
@@ -55,35 +52,30 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const windowError = announcementWindowError(parsed.data.starts_at, parsed.data.ends_at);
     if (windowError) return apiResponse.badRequest(res, windowError);
 
-    try {
-      const { title, message, type, target, target_ids, starts_at, ends_at, is_dismissible } = parsed.data;
+    const { title, message, type, target, target_ids, starts_at, ends_at, is_dismissible } = parsed.data;
 
-      const id = await createAnnouncement({
-        title,
-        message,
-        type,
-        target,
-        target_ids,
-        starts_at,
-        ends_at,
-        is_dismissible,
-        created_by: req.user.id,
-      });
+    const id = await createAnnouncement({
+      title,
+      message,
+      type,
+      target,
+      target_ids,
+      starts_at,
+      ends_at,
+      is_dismissible,
+      created_by: req.user.id,
+    });
 
-      await logAdminAction(
-        req.user.id,
-        'announcement.create',
-        'announcement',
-        id,
-        { title: String(title) },
-        getIp(req)
-      );
+    await logAdminAction(
+      req.user.id,
+      'announcement.create',
+      'announcement',
+      id,
+      { title: String(title) },
+      getIp(req)
+    );
 
-      return apiResponse.success(res, { id });
-    } catch (err) {
-      log.error('Failed to create announcement', { error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to create announcement');
-    }
+    return apiResponse.success(res, { id });
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);

@@ -73,7 +73,15 @@ export async function extendTrial(companyId: string, days: number): Promise<stri
 }
 
 /** Extend multiple companies' trials by N days (same rule as extendTrial); deleted and paying ones are skipped. */
+/** How many companies bulkExtendTrialsDetailed moved. */
 export async function bulkExtendTrials(companyIds: string[], days: number): Promise<number> {
+  return (await bulkExtendTrialsDetailed(companyIds, days)).length;
+}
+
+/** The companies a bulk extension moved (each with its new trial end): one audit row each (review #1405 round 7). */
+export async function bulkExtendTrialsDetailed(
+  companyIds: string[], days: number,
+): Promise<Array<{ id: string; trialEndsAt: string }>> {
   // RETURNING id, not .count: a tagged-template result has no .count, and the
   // predicates mean the rows updated are not the ids that were asked for.
   const rows = (await sql`
@@ -94,11 +102,14 @@ export async function bulkExtendTrials(companyIds: string[], days: number): Prom
       WHERE s.company_id = m.id AND s.status = 'trial'
       RETURNING s.id
     )
-    SELECT id FROM moved
+    SELECT id, trial_ends_at FROM moved
   `) as Record<string, unknown>[];
 
   log.info('Bulk trial extension applied', { requested: companyIds.length, extended: rows.length, days }, 'trialService');
-  return rows.length;
+  return rows.map((r) => ({
+    id: String(r.id),
+    trialEndsAt: r.trial_ends_at instanceof Date ? r.trial_ends_at.toISOString() : String(r.trial_ends_at),
+  }));
 }
 
 export interface ConvertResult {

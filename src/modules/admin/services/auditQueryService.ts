@@ -80,6 +80,17 @@ export async function getUnifiedAuditLog(
   const filterCompanyId  = filters.company_id  ?? null;
   const filterUserId     = filters.user_id     ?? null;
   const filterEntityId   = filters.entity_id   ?? null;
+  // One company's admin rows: its own (target) rows, and rows about a user or record that name it in their details
+  // (add-to-company, company-role, remove-from-company, subscription.create, invoice.create, waitlist.promote): no
+  // new rows needed for a membership change to show in the company's view (review #1405 round 7). Parameterised.
+  const companyView = filterEntityId !== null && filterEntityType?.toLowerCase() === 'company';
+  const adminEntityFilter = companyView
+    ? sql`(al.target_type ILIKE 'company' AND al.target_id::text = ${filterEntityId})
+          OR al.details->>'company_id' = ${filterEntityId}
+          OR (jsonb_typeof(al.details->'company_ids') = 'array'
+              AND al.details->'company_ids' @> jsonb_build_array(${filterEntityId}::text))`
+    : sql`(${filterEntityId ? sql`al.target_id::text = ${filterEntityId}` : sql`TRUE`})
+          AND (${filterEntityType ? sql`al.target_type ILIKE ${filterEntityType}` : sql`TRUE`})`;
 
   try {
     const rows = await sql`
@@ -104,8 +115,7 @@ export async function getUnifiedAuditLog(
         WHERE ${includeAdmin ? sql`TRUE` : sql`FALSE`}
           AND (${filterCompanyId ? sql`FALSE` : sql`TRUE`})
           AND (${filterUserId    ? sql`al.admin_user_id::text = ${filterUserId}` : sql`TRUE`})
-          AND (${filterEntityId  ? sql`al.target_id::text = ${filterEntityId}` : sql`TRUE`})
-          AND (${filterEntityType ? sql`al.target_type ILIKE ${filterEntityType}` : sql`TRUE`})
+          AND (${adminEntityFilter})
       ),
       accounting_rows AS (
         SELECT
@@ -184,8 +194,7 @@ export async function getUnifiedAuditLog(
         WHERE ${includeAdmin ? sql`TRUE` : sql`FALSE`}
           AND (${filterCompanyId ? sql`FALSE` : sql`TRUE`})
           AND (${filterUserId ? sql`al.admin_user_id::text = ${filterUserId}` : sql`TRUE`})
-          AND (${filterEntityId  ? sql`al.target_id::text = ${filterEntityId}` : sql`TRUE`})
-          AND (${filterEntityType ? sql`al.target_type ILIKE ${filterEntityType}` : sql`TRUE`})
+          AND (${adminEntityFilter})
       ),
       accounting_rows AS (
         SELECT al.user_id::text, al.company_id, al.action, al.entity_type,

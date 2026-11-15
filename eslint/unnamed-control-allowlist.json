@@ -11,7 +11,6 @@
   "pages/accounting/bank/statements/import-pdf.tsx": 1,
   "pages/accounting/cash-flow-forecast.tsx": 1,
   "pages/accounting/cashbook.tsx": 1,
-  "pages/accounting/customer-quotes/index.tsx": 1,
   "pages/accounting/customer-sales-orders/index.tsx": 1,
   "pages/accounting/depreciation/index.tsx": 1,
   "pages/accounting/document-capture/[docId].tsx": 2,

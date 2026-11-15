@@ -100,7 +100,7 @@ export async function claimInvoiceForSend(invoiceId: string, confirmedTo: string
       notes: r.notes == null ? null : String(r.notes),
     };
     await logAdminAction(requireCtx().userId, 'invoice.send_started', 'invoice', invoiceId,
-      { recipient: email, invoice_number: invoiceNumber, total_cents: invoice.total_cents }, ip);
+      { company_id: invoice.company_id, recipient: email, invoice_number: invoiceNumber, total_cents: invoice.total_cents }, ip);
     return { ok: true, invoice };
   });
 }
@@ -144,7 +144,7 @@ export async function finaliseInvoiceSent(invoice: InvoiceForSend, ip: string | 
       throw new Error(`finaliseInvoiceSent: ${invoice.invoice_number} is no longer a claimed draft; the email left, the claim was not settled`);
     }
     await logAdminAction(requireCtx().userId, 'invoice.send', 'invoice', invoice.id,
-      { recipient: invoice.billing_email, invoice_number: invoice.invoice_number, message_id: messageId }, ip);
+      { company_id: invoice.company_id, recipient: invoice.billing_email, invoice_number: invoice.invoice_number, message_id: messageId }, ip);
   });
   log.info('finaliseInvoiceSent', { invoiceId: invoice.id }, 'InvoiceSendService');
 }
@@ -154,14 +154,14 @@ export async function releaseInvoiceClaim(invoice: InvoiceForSend, ip: string | 
   await withOwnPlatformAdminTx(async () => {
     await sql`UPDATE admin_invoices SET send_claimed_at = NULL WHERE id = ${invoice.id}::uuid AND status = 'draft'`;
     await logAdminAction(requireCtx().userId, 'invoice.send_failed', 'invoice', invoice.id,
-      { recipient: invoice.billing_email, invoice_number: invoice.invoice_number, error }, ip);
+      { company_id: invoice.company_id, recipient: invoice.billing_email, invoice_number: invoice.invoice_number, error }, ip);
   });
 }
 
 /** The email may have left: the claim stays; the audit row says so. */
 export async function recordSendUnknown(invoice: InvoiceForSend, ip: string | null, error: string): Promise<void> {
   await withOwnPlatformAdminTx(() => logAdminAction(requireCtx().userId, 'invoice.send_unknown', 'invoice', invoice.id,
-    { recipient: invoice.billing_email, invoice_number: invoice.invoice_number, error }, ip));
+    { company_id: invoice.company_id, recipient: invoice.billing_email, invoice_number: invoice.invoice_number, error }, ip));
 }
 
 export type SettleOutcome = 'sent' | 'released';
@@ -182,11 +182,11 @@ export async function settleInvoiceSend(invoiceId: string, outcome: SettleOutcom
     ? await sql`UPDATE admin_invoices SET status = 'sent', send_claimed_at = NULL
                 WHERE id = ${invoiceId}::uuid AND status = 'draft'
                   AND send_claimed_at < NOW() - make_interval(secs => ${settleAfterSecs})
-                RETURNING invoice_number`
+                RETURNING invoice_number, company_id`
     : await sql`UPDATE admin_invoices SET send_claimed_at = NULL
                 WHERE id = ${invoiceId}::uuid AND status = 'draft'
                   AND send_claimed_at < NOW() - make_interval(secs => ${settleAfterSecs})
-                RETURNING invoice_number`) as DbRow[];
+                RETURNING invoice_number, company_id`) as DbRow[];
   if (rows.length === 0) {
     const current = (await sql`
       SELECT status, send_claimed_at IS NOT NULL AS claimed
@@ -197,6 +197,8 @@ export async function settleInvoiceSend(invoiceId: string, outcome: SettleOutcom
     return { ok: false, reason: r.status === 'draft' && r.claimed === true ? 'too_fresh' : 'not_claimed' };
   }
   const invoiceNumber = String(rows[0]!.invoice_number);
-  await logAdminAction(actorId, 'invoice.send_settled', 'invoice', invoiceId, { outcome, invoice_number: invoiceNumber }, ip);
+  // company_id: the company's audit view reads it from the details (review #1405 round 8).
+  await logAdminAction(actorId, 'invoice.send_settled', 'invoice', invoiceId,
+    { company_id: String(rows[0]!.company_id), outcome, invoice_number: invoiceNumber }, ip);
   return { ok: true, invoice_number: invoiceNumber };
 }

@@ -11,8 +11,9 @@ import type { AuthenticatedNextApiRequest } from '@/lib/auth';
 
 const { cancelSubscriptionMock, updateSubscriptionMock, getSubscriptionMock, logAdminActionMock } =
   vi.hoisted(() => ({
-    cancelSubscriptionMock: vi.fn(),
-    updateSubscriptionMock: vi.fn(),
+    // Both return the subscription's company, which the audit row's details carry (review #1405 round 8).
+    cancelSubscriptionMock: vi.fn(async () => ({ companyId: 'company-1' })),
+    updateSubscriptionMock: vi.fn(async () => ({ companyId: 'company-1' })),
     getSubscriptionMock: vi.fn(),
     logAdminActionMock: vi.fn(),
   }));

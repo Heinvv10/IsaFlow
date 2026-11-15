@@ -7,18 +7,12 @@ import type { NextApiResponse } from 'next';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import { listFeatureFlags } from '@/modules/admin/services/featureFlagService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
-    try {
-      const flags = await listFeatureFlags();
-      return apiResponse.success(res, flags);
-    } catch (err) {
-      log.error('Failed to list feature flags', { error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to list feature flags');
-    }
+    const flags = await listFeatureFlags();
+    return apiResponse.success(res, flags);
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);

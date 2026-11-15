@@ -105,16 +105,17 @@ export async function createPlan(data: CreatePlanData): Promise<Plan> {
   return plan;
 }
 
+/** False when no plan has this id (nothing was updated). */
 export async function updatePlan(
   planId: string,
   data: Partial<Plan>
-): Promise<void> {
+): Promise<boolean> {
   const {
     name, description, monthly_price_cents, annual_price_cents,
     currency, features, limits, is_active, display_order,
   } = data;
 
-  await sql`
+  const rows = await sql`
     UPDATE plans SET
       name                 = COALESCE(${name ?? null}, name),
       description          = COALESCE(${description ?? null}, description),
@@ -127,17 +128,24 @@ export async function updatePlan(
       display_order        = COALESCE(${display_order ?? null}, display_order),
       updated_at           = NOW()
     WHERE id = ${planId}
+    RETURNING id
   `;
+  if (rows.length === 0) return false;
 
   log.info('updatePlan', { planId, fields: Object.keys(data) }, 'PlanService');
+  return true;
 }
 
-export async function archivePlan(planId: string): Promise<void> {
-  await sql`
+/** False when no plan has this id (nothing was archived). */
+export async function archivePlan(planId: string): Promise<boolean> {
+  const rows = await sql`
     UPDATE plans
     SET is_active  = false,
         updated_at = NOW()
     WHERE id = ${planId}
+    RETURNING id
   `;
+  if (rows.length === 0) return false;
   log.info('archivePlan', { planId }, 'PlanService');
+  return true;
 }

@@ -7,8 +7,8 @@ import type { NextApiResponse } from 'next';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminStoredUser } from '@/modules/admin/services/storedUserId';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import { resetOnboarding, SoleOwnerError } from '@/modules/admin/services/adminUserActionsService';
 import { PayRunApproverProtectedError } from '@/modules/accounting/services/core/payRunApproverGuard';
 import { logAdminAction } from '@/modules/admin/services/auditService';
@@ -16,7 +16,7 @@ import { getIp } from '@/utils/getIp';
 
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const userId = req.query.id as string;
+  const userId = (await adminStoredUser(req.query.id)).id; // the stored id: acted on and audited exactly
 
   if (req.method === 'POST') {
     try {
@@ -35,8 +35,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     } catch (err) {
       // A company's only owner (migration 908b): nothing was reset.
       if (err instanceof SoleOwnerError || err instanceof PayRunApproverProtectedError) return apiResponse.conflict(res, err.message);
-      log.error('Failed to reset onboarding', { userId, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to reset onboarding');
+      throw err; // anything else is a 500 that rolls back
     }
   }
 

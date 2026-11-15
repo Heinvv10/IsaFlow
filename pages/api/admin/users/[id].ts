@@ -9,8 +9,8 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminStoredUser } from '@/modules/admin/services/storedUserId';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import {
   getUserDetail,
   updateUser,
@@ -34,19 +34,14 @@ const PatchBody = z.object({
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const userId = req.query.id as string;
+  const userId = (await adminStoredUser(req.query.id)).id; // the stored id: acted on and audited exactly
 
   if (req.method === 'GET') {
-    try {
-      const user = await getUserDetail(userId);
-      if (!user) {
-        return apiResponse.notFound(res, 'User', userId);
-      }
-      return apiResponse.success(res, user);
-    } catch (err) {
-      log.error('Failed to get user detail', { userId, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to get user detail');
+    const user = await getUserDetail(userId);
+    if (!user) {
+      return apiResponse.notFound(res, 'User', userId);
     }
+    return apiResponse.success(res, user);
   }
 
   if (req.method === 'PATCH') {
@@ -114,8 +109,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     } catch (err) {
       // A company's only owner (migration 908b): nothing was deleted.
       if (err instanceof SoleOwnerError) return apiResponse.conflict(res, err.message);
-      log.error('Failed to delete user', { userId, error: err }, 'admin-api');
-      return apiResponse.badRequestFromError(res, err, 'Failed to delete user');
+      throw err; // not found / super admin are AdminRequestErrors (withAdmin answers them); the rest is a 500
     }
   }
 
