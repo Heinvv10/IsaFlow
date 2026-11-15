@@ -8,6 +8,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
+import { contactIssues } from '@/components/onboarding/contactValidation';
 import {
   Check, Building2, MapPin, Image, Landmark, Briefcase,
   Settings, FileText, ChevronLeft, ChevronRight, Loader2, LayoutGrid,
@@ -45,6 +46,7 @@ const STEPS = [
 const SMART_SETUP = -1;    // pre-step between the business type and the details
 const ENTITY_STEP = 0;
 const DETAILS_STEP = 1;
+const ADDRESS_STEP = 2;
 const COA_STEP_INDEX = 6;
 const DOCUMENTS_STEP_INDEX = 7; // skipped once the required certificate came in through Smart Setup
 const LAST_STEP = STEPS.length - 1;
@@ -84,6 +86,7 @@ export default function OnboardingWizard() {
   const skipDocsStep = entity !== null && hasRequiredProofDocument(entity, d.documents.map(doc => doc.type));
   const canContinue = step === ENTITY_STEP ? entity !== null
                     : step === DETAILS_STEP ? d.name.trim().length > 0
+                    : step === ADDRESS_STEP ? contactIssues(d).length === 0
                     : step === DOCUMENTS_STEP_INDEX ? proofIssues(factsOf(d)).length === 0 // the entity's one required proof
                     : true;
   const isLast      = step === LAST_STEP;
