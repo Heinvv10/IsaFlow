@@ -170,6 +170,7 @@ export default function PracticeJobsPage() {
           {/* Filters + view toggle */}
           <div className="flex flex-wrap items-center gap-3 mb-6">
             <select
+              aria-label="Status"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
               className="py-2 px-3 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
@@ -179,6 +180,7 @@ export default function PracticeJobsPage() {
               ))}
             </select>
             <select
+              aria-label="Client"
               value={clientFilter}
               onChange={(e) => setClientFilter(e.target.value)}
               className="py-2 px-3 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
@@ -237,7 +239,7 @@ export default function PracticeJobsPage() {
                     <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Priority</th>
                     <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Due Date</th>
                     <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Status</th>
-                    <th className="py-3 px-4" />
+                    <th className="py-3 px-4"><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>

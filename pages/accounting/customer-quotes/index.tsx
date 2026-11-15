@@ -92,7 +92,7 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
                   <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-20">Qty</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-28">Unit Price</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-24">Total</th>
-                  <th className="w-8" />
+                  <th className="w-8"><span className="sr-only">Remove line</span></th>
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {lines.map((l, i) => (
@@ -254,7 +254,7 @@ export default function CustomerQuotesPage() {
                 <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
                   <tr>
                     {['Quote #', 'Customer', 'Date', 'Expiry', 'Total', 'Status', ''].map((h, i) => (
-                      <th key={i} className={`px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider ${i === 4 ? 'text-right' : i === 6 ? 'text-right' : 'text-left'}`}>{h}</th>
+                      <th key={i} className={`px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider ${i === 4 ? 'text-right' : i === 6 ? 'text-right' : 'text-left'}`}>{h || <span className="sr-only">Actions</span>}</th>
                     ))}
                   </tr>
                 </thead>
