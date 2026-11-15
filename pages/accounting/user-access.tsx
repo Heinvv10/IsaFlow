@@ -169,7 +169,7 @@ export default function UserAccessPage() {
                         {/* Name */}
                         <div className="flex-1 text-slate-900 dark:text-white min-w-0">
                           <span className="font-medium">{u.name}</span>
-                          {isSelf && <span className="ml-2 text-xs text-gray-500">(you)</span>}
+                          {isSelf && <span className="ml-2 text-xs text-gray-600 dark:text-gray-400">(you)</span>}
                         </div>
                         {/* Email */}
                         <div className="hidden sm:block w-52 text-gray-600 dark:text-gray-400 truncate">{u.email}</div>
