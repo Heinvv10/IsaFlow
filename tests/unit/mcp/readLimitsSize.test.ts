@@ -37,6 +37,7 @@ vi.mock('@/modules/accounting/services/practice/practiceJobCategoryService', () 
 }));
 vi.mock('@/modules/accounting/services/practice/practiceClientService', () => ({ listPracticeClients: vi.fn() }));
 vi.mock('@/modules/accounting/services/practice/practiceTimeEntryService', () => ({ listPracticeEntries: vi.fn() }));
+vi.mock('@/modules/accounting/services/capture/pop/popListService', () => ({ listProofsOfPayment: vi.fn() }));
 
 import { listCustomers } from '@/modules/accounting/services/core/contactDirectoryService';
 import { getChartOfAccounts } from '@/modules/accounting/services/gl/chartOfAccountsService';
@@ -45,6 +46,7 @@ import { listSupplierPayments } from '@/modules/accounting/services/ap/supplierP
 import { listBankAttachments, listEntityDocuments } from '@/modules/accounting/services/core/documentQueryService';
 import { getRules } from '@/modules/accounting/services/bank/bankRulesService';
 import { listWorkItems } from '@/modules/accounting/services/practice/practiceJobCategoryService';
+import { listProofsOfPayment } from '@/modules/accounting/services/capture/pop/popListService';
 import { listCustomersTool, CUSTOMERS_DEFAULT_LIMIT, CUSTOMERS_MAX_LIMIT } from '@/lib/mcp/tools/contacts';
 import { listGlAccountsTool, GL_ACCOUNTS_DEFAULT_LIMIT, GL_ACCOUNTS_MAX_LIMIT } from '@/lib/mcp/tools/reports';
 import { listCreditNotesTool, CREDIT_NOTES_DEFAULT_LIMIT, CREDIT_NOTES_MAX_LIMIT } from '@/lib/mcp/tools/creditNotes';
@@ -54,6 +56,9 @@ import {
 import { listDocumentsTool, DOCUMENTS_DEFAULT_LIMIT, DOCUMENTS_MAX_LIMIT } from '@/lib/mcp/tools/listDocuments';
 import { listBankRulesTool, BANK_RULES_DEFAULT_LIMIT, BANK_RULES_MAX_LIMIT } from '@/lib/mcp/tools/bankRules';
 import { listWorkItemsTool, WORK_ITEMS_DEFAULT_LIMIT, WORK_ITEMS_MAX_LIMIT } from '@/lib/mcp/tools/practice';
+import {
+  listProofsOfPaymentTool, PROOFS_OF_PAYMENT_DEFAULT_LIMIT, PROOFS_OF_PAYMENT_MAX_LIMIT,
+} from '@/lib/mcp/tools/listProofsOfPayment';
 import { MAX_READ_RESULT_BYTES } from '@/lib/mcp/resultSize';
 import type { McpTool, McpToolContext } from '@/lib/mcp/types';
 
@@ -107,6 +112,16 @@ const rule = (i: number) => ({
   matchPattern: long(60, 'Pattern'), priority: i, vatCode: 'standard', glAccountId: uuid(i + 1), glAccountCode: '6000/0001',
   glAccountName: long(50, 'Account'), supplierId: uuid(i + 2), supplierName: long(50, 'Supplier'), clientId: uuid(i + 3),
   clientName: long(50, 'Customer'), descriptionTemplate: long(80, 'Template'), autoApply: 'fifo',
+});
+/** A POP with every optional field filled: an ambiguous match with candidates, a failed copy with its last error, a long SharePoint URL and path. */
+const pop = (i: number) => ({
+  popId: uuid(i), transactionNumber: `80${String(i).padStart(8, '0')}-01`, paymentDate: '2026-11-13', amount: 1234567.89,
+  beneficiary: long(60, 'Beneficiary'), payerProfile: long(60, 'Payer'), capturedDocumentId: uuid(i + 1), createdAt: '2026-11-13T08:00:00.000Z',
+  match: { status: 'ambiguous', bankTransactionId: uuid(i + 2), candidateBankTransactionIds: [uuid(i + 3), uuid(i + 4), uuid(i + 5)], refusal: long(64, 'Refusal'), checkedAt: '2026-11-13T08:00:00.000Z' },
+  archive: {
+    status: 'failed', webUrl: `https://example.sharepoint.com/sites/Finance/Shared%20Documents/${long(200, 'Url')}`, path: long(180, 'Path'),
+    settledAt: '2026-11-13T08:00:00.000Z', attempts: 10, tries: 999, lastAttemptAt: '2026-11-13T08:00:00.000Z', lastError: long(300, 'Error'),
+  },
 });
 const workItem = (i: number) => ({ id: uuid(i), categoryId: uuid(i + 1), name: long(60, 'Work item'), isActive: true, defaultBillable: true });
 
@@ -176,6 +191,17 @@ const cases: Record<string, Case> = {
     tool: listBankRulesTool, dflt: BANK_RULES_DEFAULT_LIMIT, max: BANK_RULES_MAX_LIMIT, key: 'rules', more: nextOffset,
     arm: () => vi.mocked(getRules).mockResolvedValue(Array.from({ length: BOOK }, (_, i) => rule(i)) as never),
     served: () => -1,
+  },
+  list_proofs_of_payment: {
+    tool: listProofsOfPaymentTool, dflt: PROOFS_OF_PAYMENT_DEFAULT_LIMIT, max: PROOFS_OF_PAYMENT_MAX_LIMIT, key: 'proofs_of_payment', more: nextOffset,
+    arm: () => vi.mocked(listProofsOfPayment).mockImplementation(async (_c, f) => ({
+      rows: Array.from({ length: page(f.limit, f.offset) }, (_, i) => pop(i)), total: BOOK, archiveConfigured: true,
+      summary: {
+        byMatch: { attached: 1, attached_manually: 1, ambiguous: 1, not_found: 1, refused: 1, pending: 1 },
+        byArchive: { archived: 1, too_large: 1, failed: 1, pending: 1 },
+      },
+    }) as never),
+    served: () => vi.mocked(listProofsOfPayment).mock.calls.at(-1)![1].limit,
   },
   list_work_items: {
     tool: listWorkItemsTool, dflt: WORK_ITEMS_DEFAULT_LIMIT, max: WORK_ITEMS_MAX_LIMIT, key: 'work_items', more: nextOffset,

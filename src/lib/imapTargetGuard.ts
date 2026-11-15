@@ -20,7 +20,12 @@
  * The user sees only that the address is not allowed (or, when DNS gave no
  * answer at all, that it could not be resolved: a typo or an outage, not a
  * policy); which address it resolved to is logged, never returned (it would
- * map the internal DNS).
+ * map the internal DNS). The result says, for the scan only, when the failure
+ * depended on what DNS answered for a host name (`transient`: no answer, or an
+ * answer in private space): the scan then retries the connection, a bounded
+ * number of times, the same way for both, so that neither the message nor the
+ * connection's status tells a tenant which internal names resolve. Static
+ * refusals (port, host characters, an IP literal) are not transient.
  */
 import net from 'node:net';
 import { resolvePublicHostname } from '@/lib/safeFetch';
@@ -38,12 +43,20 @@ const HOST_CHARS = /^[A-Za-z0-9._:-]+$/;
 export type ImapTarget =
   /** `address` to connect to; `servername` the host name for TLS (absent when the host is an IP literal). */
   | { ok: true; address: string; servername?: string }
-  /** `message` is fit to show the user. */
-  | { ok: false; message: string };
+  /** `message` is fit to show the user; `transient` (never shown) when the refusal depended on DNS's answer for a name. */
+  | { ok: false; message: string; transient?: true };
 
-const refuse = (message: string, detail: string, host: unknown, port: unknown): ImapTarget => {
-  log.warn('IMAP target refused', { host: typeof host === 'string' ? host.slice(0, 255) : typeof host, port, detail }, 'imap-target-guard');
-  return { ok: false, message };
+/** What a scan throws when its target check failed; `transient` as in ImapTarget. */
+export class ImapTargetError extends Error {
+  constructor(message: string, readonly transient: boolean) {
+    super(message);
+    this.name = 'ImapTargetError';
+  }
+}
+
+const refuse = (message: string, detail: string, host: unknown, port: unknown, transient = false): ImapTarget => {
+  log.warn('IMAP target refused', { host: typeof host === 'string' ? host.slice(0, 255) : typeof host, port, detail, transient }, 'imap-target-guard');
+  return transient ? { ok: false, message, transient } : { ok: false, message };
 };
 
 export async function checkImapTarget(host: unknown, port: unknown): Promise<ImapTarget> {
@@ -56,6 +69,7 @@ export async function checkImapTarget(host: unknown, port: unknown): Promise<Ima
     const address = await resolvePublicHostname(host);
     return net.isIP(host) ? { ok: true, address } : { ok: true, address, servername: host };
   } catch (err) {
-    return refuse(IMAP_HOST_REFUSED, err instanceof Error ? err.message : 'invalid host', host, port);
+    // A name: what DNS answered (nothing, or private space) may change, and the two must look alike. An IP literal is static.
+    return refuse(IMAP_HOST_REFUSED, err instanceof Error ? err.message : 'invalid host', host, port, net.isIP(host) === 0);
   }
 }

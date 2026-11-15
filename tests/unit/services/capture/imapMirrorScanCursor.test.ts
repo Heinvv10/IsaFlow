@@ -172,6 +172,7 @@ describe('IMAP mirror scan: the cursor and a failed ingest', () => {
       await scanConnection(conn);
       expect(stamps()).toHaveLength(2);
       expect(stamps()[0]!.text).toContain('SET scan_cursor = $1::jsonb');
+      expect(stamps()[0]!.text).toContain('consecutive_scan_failures = 0'); // a scan that got through resets the failure count (995)
       expect(stamps()[1]!.text).toContain('messages_ingested_total = messages_ingested_total + $1');
       expect(stamps().every(keyed)).toBe(true);
       expect(onAppPool()).toEqual([]);
@@ -181,7 +182,7 @@ describe('IMAP mirror scan: the cursor and a failed ingest', () => {
       h.empty = true;
       await scanConnection(conn);
       expect(stamps()).toHaveLength(1);
-      expect(stamps()[0]!.text).toContain('last_success_at = NOW(), last_error = NULL');
+      expect(stamps()[0]!.text).toContain('last_success_at = NOW(), last_error = NULL, consecutive_scan_failures = 0');
       expect(stamps().every(keyed)).toBe(true);
       expect(onAppPool()).toEqual([]);
     });

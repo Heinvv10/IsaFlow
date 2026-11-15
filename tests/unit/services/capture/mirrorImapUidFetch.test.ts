@@ -49,7 +49,7 @@ vi.mock('@/modules/accounting/services/capture/captureRouterService', () => ({ r
 vi.mock('@/modules/accounting/services/capture/imapMirrorInbox', () => ({
   ensureMirrorInbox: vi.fn(async () => 'inbox-1'), isTransientIngestError: vi.fn(() => false),
 }));
-vi.mock('@/modules/accounting/services/capture/mirrorScanError', () => ({ markMirrorScanError: vi.fn() }));
+vi.mock('@/modules/accounting/services/capture/mirrorScanError', () => ({ recordScanFailure: vi.fn() }));
 
 import { scanConnection, type MirrorConnection } from '@/modules/accounting/services/capture/imapMirrorService';
 import { scanSentConnection, type SentMirrorConnection } from '@/modules/accounting/services/ar/sentMirrorService';
