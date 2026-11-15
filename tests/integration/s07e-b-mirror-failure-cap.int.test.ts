@@ -14,11 +14,13 @@ import { migrationAdminPool, billingAdminPool } from '@/lib/auth/migrationAdminP
 import { routeAdminPool } from '@/lib/auth/routeAdminPool';
 import { createImapConnection } from '@/modules/accounting/services/capture/mirrorConnectionService';
 import { scanConnection, type MirrorConnection } from '@/modules/accounting/services/capture/imapMirrorService';
+import { scanSentConnection, type SentMirrorConnection } from '@/modules/accounting/services/ar/sentMirrorService';
 import { createSentImapConnection } from '@/modules/accounting/services/ar/sentMirrorAdmin';
 import { recordScanFailure } from '@/modules/accounting/services/capture/mirrorScanError';
 import { fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
-const fake = vi.hoisted(() => ({ dns: new Map<string, 'fail' | string>(), connectCode: null as string | null }));
+const fake = vi.hoisted(() => ({ dns: new Map<string, 'fail' | string>(), connectCode: null as string | null,
+  metas: [] as Array<{ uid: number; size: number; envelope: { subject: string; to: Array<{ address: string }> } }> }));
 vi.mock('node:dns/promises', () => ({
   lookup: async (host: string) => {
     const answer = fake.dns.get(host) ?? '93.184.216.34';
@@ -34,7 +36,7 @@ vi.mock('imapflow', () => ({
       if (fake.connectCode) throw Object.assign(new Error(`connect ${fake.connectCode} 93.184.216.34:993`), { code: fake.connectCode });
     }
     async getMailboxLock() { return { release: () => undefined }; }
-    async *fetch() { /* an empty mailbox: the scan succeeds with nothing new */ }
+    async *fetch() { for (const m of fake.metas) yield m; } // empty by default: the scan succeeds with nothing new
     async fetchOne() { return false; }
     async logout() { return undefined; }
   },
@@ -77,6 +79,7 @@ afterAll(async () => {
 beforeEach(async () => {
   fake.dns.clear();
   fake.connectCode = null;
+  fake.metas = [];
   // At most 5 active connections per company (mirrorLimits.ts): each test starts with none.
   await q('DELETE FROM imap_mirror_connections WHERE company_id = $1', [company]);
 });
@@ -144,6 +147,36 @@ describe('migration 995: consecutive transient scan failures are capped', () => 
     await recordScanFailure('sent', { id, companyId: company }, err);
     expect(await state('sent_mirror_connections', id)).toEqual({
       status: 'error', last_error: 'Mail server could not be reached; will retry', consecutive_scan_failures: CAP });
+  });
+
+  it('a sent mirror that recovers clears its error and its count, on both the success and the cursor stamp', async () => {
+    await q('DELETE FROM sent_mirror_connections WHERE company_id = $1', [company]);
+    const { id } = await createSentImapConnection({ companyId: company, displayName: 'Recover', accountEmail: 'recover@cap.test',
+      imapHost: 'imap.recover.cap.test', imapPort: 993, imapUsername: 'ap', imapPassword: 'mailbox-pw' });
+    const enc = (await q('SELECT imap_password_enc FROM sent_mirror_connections WHERE id = $1', [id])).rows[0] as { imap_password_enc: string };
+    const conn: SentMirrorConnection = { id, companyId: company, provider: 'imap', accountEmail: 'recover@cap.test', sentFolder: 'Sent',
+      scanCursor: {}, imapHost: 'imap.recover.cap.test', imapPort: 993, imapUseTls: true, imapUsername: 'ap',
+      imapPasswordEnc: enc.imap_password_enc, oauthRefreshTokenEnc: null };
+    const failed = { status: 'active', last_error: 'Mail server could not be reached; will retry', consecutive_scan_failures: 2 };
+    const recovered = { status: 'active', last_error: null, consecutive_scan_failures: 0 };
+
+    fake.connectCode = 'ECONNREFUSED';
+    await scanSentConnection(conn);
+    await scanSentConnection(conn);
+    expect(await state('sent_mirror_connections', id)).toEqual(failed);
+    fake.connectCode = null;
+    expect((await scanSentConnection(conn)).errors).toBe(0); // nothing new: the success stamp
+    expect(await state('sent_mirror_connections', id)).toEqual(recovered);
+
+    fake.connectCode = 'ECONNREFUSED';
+    await scanSentConnection(conn);
+    await scanSentConnection(conn);
+    expect(await state('sent_mirror_connections', id)).toEqual(failed);
+    fake.connectCode = null;
+    fake.metas = [{ uid: 7, size: 100, envelope: { subject: 'Invoice', to: [{ address: 'c@x.test' }] } }]; // one new message: the cursor stamp
+    await scanSentConnection(conn);
+    expect(await state('sent_mirror_connections', id)).toEqual(recovered);
+    expect((await q('SELECT scan_cursor FROM sent_mirror_connections WHERE id = $1', [id])).rows[0]).toEqual({ scan_cursor: { Sent: 7 } });
   });
 
   it('at the shortest interval the cap is a day of scans (288 at 5 minutes)', async () => {
