@@ -20,7 +20,7 @@ vi.mock('@/lib/encryption', () => ({ decrypt: m.decrypt }));
 vi.mock('@/lib/documentStorage', () => ({ sha256: vi.fn(), storeCapturedBytes: vi.fn() }));
 vi.mock('@/modules/accounting/services/capture/captureRouterService', () => ({ routeEvent: vi.fn() }));
 vi.mock('@/modules/accounting/services/capture/imapMirrorInbox', () => ({ ensureMirrorInbox: vi.fn(), isTransientIngestError: vi.fn() }));
-vi.mock('@/modules/accounting/services/capture/mirrorScanError', () => ({ markMirrorScanError: m.markError }));
+vi.mock('@/modules/accounting/services/capture/mirrorScanError', () => ({ recordScanFailure: m.markError }));
 vi.mock('@/lib/afterCommit', () => ({ runAfterCommit: vi.fn() }));
 
 import { scanConnection, type MirrorConnection } from '@/modules/accounting/services/capture/imapMirrorService';
@@ -115,6 +115,6 @@ describe.each(SERVICES)('%s: the scan connects to the address the guard vetted',
     expect(m.decrypt).not.toHaveBeenCalled();
     // Generic text to the tenant (last_error): no resolved address.
     expect(m.markError).toHaveBeenCalledTimes(1);
-    expect(m.markError.mock.calls[0]![2]).toBe('This mail server address is not allowed or could not be resolved');
+    expect(m.markError.mock.calls[0]![2]).toMatchObject({ message: 'This mail server address is not allowed or could not be resolved', transient: true }); // retried, bounded, as an unresolvable name
   });
 });

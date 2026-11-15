@@ -82,13 +82,32 @@ export function AccountCategorySidebar({
   const total = accounts.length;
 
   return (
-    <div className="w-52 flex-shrink-0 flex flex-col gap-3 bg-slate-100 dark:bg-slate-800/50 border border-white/10 rounded-xl p-4">
+    <div className="w-full lg:w-52 flex-shrink-0 flex flex-col gap-3 bg-slate-100 dark:bg-slate-800/50 border border-white/10 rounded-xl p-4">
+      {/* Phones: one compact selector instead of the category list */}
+      <div className="lg:hidden">
+        <label htmlFor="coa-type-select" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+          Account type
+        </label>
+        <select
+          id="coa-type-select"
+          value={searchPrefix ? 'all' : selectedType}
+          onChange={e => { onSelectType(e.target.value as AccountCategoryType); onSearchPrefixChange(''); }}
+          className="w-full min-h-11 px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/50 text-slate-800 dark:text-slate-200"
+        >
+          <option value="all">All Accounts ({total})</option>
+          {ACCOUNT_CATEGORIES.map(cat => (
+            <option key={cat.type} value={cat.type}>{cat.prefix} {cat.label} ({countByType(accounts, cat.type)})</option>
+          ))}
+        </select>
+      </div>
+
       {/* Prefix search */}
       <div>
-        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+        <label htmlFor="coa-prefix-input" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
           Jump to prefix
         </label>
         <input
+          id="coa-prefix-input"
           type="text"
           value={searchPrefix}
           onChange={e => onSearchPrefixChange(e.target.value)}
@@ -99,17 +118,17 @@ export function AccountCategorySidebar({
         {searchPrefix && (
           <button
             onClick={() => onSearchPrefixChange('')}
-            className="mt-1 text-xs text-teal-400 hover:text-teal-300 transition-colors"
+            className="mt-1 min-h-11 lg:min-h-0 text-xs text-teal-400 hover:text-teal-300 transition-colors"
           >
             Clear
           </button>
         )}
       </div>
 
-      <div className="border-t border-white/10" />
+      <div className="hidden lg:block border-t border-white/10" />
 
       {/* Category list */}
-      <div>
+      <div className="hidden lg:block">
         <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-2">
           Account Type
         </p>
