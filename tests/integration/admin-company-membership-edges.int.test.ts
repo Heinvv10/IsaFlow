@@ -26,6 +26,9 @@ async function call(route: Route, method: string, target: string, body: unknown)
 const remove = (u: string, c: unknown) => call(removeRoute as Route, 'DELETE', u, { company_id: c });
 const setRole = (u: string, c: string, role: unknown) => call(roleRoute as Route, 'PATCH', u, { company_id: c, role });
 async function link(user: string, role: string, companyId = company) {
+  // The user exists: the admin user routes resolve the stored users.id before acting (review #1405 round 7), so a
+  // membership whose user has no users row is a 404 there.
+  await mkUser(user);
   await pool.query(`INSERT INTO company_users (user_id, company_id, role) VALUES ($1,$2,$3)`, [user, companyId, role]);
 }
 async function roles(): Promise<Record<string, string>> {

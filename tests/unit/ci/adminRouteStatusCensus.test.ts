@@ -5,7 +5,7 @@
  *   1. a catch block that answers a 4xx must END by rethrowing the error it caught (`throw <err>` as its last
  *      statement, review #1405 L7): only the refusals it recognised above that line may be a 4xx, everything else
  *      must reach withErrorHandler's 500 and roll back. Pinned files below are the only exceptions, with reasons.
- *   2. a route with a dynamic id segment validates it before any SQL (adminUuid / isUuidParam / UUID.safeParse / AdminUuid.safeParse;
+ *   2. a route with a dynamic id segment validates it before any SQL (adminUuid / adminStoredUser / isUuidParam / UUID.safeParse / AdminUuid.safeParse;
  *      adminUserId for users' TEXT ids): a malformed id is a 400, not a 500 from a Postgres cast.
  *   3. no route turns page / limit / offset into a number by hand (Number(page) / parseInt(page) is NaN for "abc",
  *      which reached SQL): adminPaging / adminPositiveInt / adminNonNegativeInt answer 400 for garbage.
@@ -132,7 +132,7 @@ describe('admin route status census (audit section 6)', () => {
     const unvalidated = files.filter((f) => {
       const segments = f.match(/\[[^\]]+\]/g) ?? [];
       if (segments.length === 0 || segments.every((s) => NON_UUID_SEGMENTS.has(s))) return false;
-      return !/\badminUuid\(|\badminUserId\(|\bisUuidParam\(|\b(?:UUID|AdminUuid)\.safeParse\(/.test(readFileSync(f, 'utf8'));
+      return !/\badminUuid\(|\badminUserId\(|\badminStoredUser\(|\bisUuidParam\(|\b(?:UUID|AdminUuid)\.safeParse\(/.test(readFileSync(f, 'utf8'));
     });
     expect(unvalidated).toEqual([]);
   });
