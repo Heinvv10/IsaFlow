@@ -113,11 +113,12 @@ async function lockSettlementRows(tx: TxSql, c: string, s: string): Promise<{ pa
   return { payments: payments.length, invoices: invoices.length };
 }
 
-/** Documents: every customer column moves independently; a NULL stays NULL. Returns the other documents moved.
+/** Documents: every customer column moves independently; a NULL stays NULL. Returns the other documents moved, and the receipts.
  * A credit note's client (R-035 PR3), an invoice's customer_id/client_id and a quote's or order's customer (PR4) are
  * approval content: the merging user `by` becomes an author of each it moves; an old approval goes stale (Q10). */
-async function moveDocuments(tx: TxSql, c: string, s: string, t: string, by: string): Promise<number> {
+async function moveDocuments(tx: TxSql, c: string, s: string, t: string, by: string): Promise<{ others: number; movedReceipts: string[] }> {
   await tx`UPDATE bank_transactions SET suggested_client_id = ${t}::UUID WHERE suggested_client_id = ${s}::UUID AND company_id = ${c}::UUID`;
+  const movedReceipts = await moveReceipts(tx, c, s, t); // after the bank lines: the order every settlement takes
   await tx`
     UPDATE customer_invoices SET customer_id = ${t}::UUID,
       content_authors = approval_add_author(content_authors, ${by}::UUID), content_edited_at = NOW()
@@ -152,7 +153,7 @@ async function moveDocuments(tx: TxSql, c: string, s: string, t: string, by: str
     WHERE client_id = ${s}::UUID
       AND invoice_id IN (SELECT id FROM customer_invoices WHERE company_id = ${c}::UUID)
   `;
-  return notes.length + quotes.length + orders.length;
+  return { others: notes.length + quotes.length + orders.length, movedReceipts };
 }
 
 /** Customer records: the target's primary contact, default address and custom fields win. */
@@ -271,12 +272,10 @@ async function mergeInSavepoint(
   const locked = await lockSettlementRows(tx, companyId, sourceId);
   await refuseOrLock(tx, companyId, sourceId, targetId);
   await moveRulesToCustomer(tx, companyId, sourceId, targetId); // may refuse (bank_rule): before any other write
-  const movedReceipts = await moveReceipts(tx, companyId, sourceId, targetId);
-  const others = await moveDocuments(tx, companyId, sourceId, targetId, mergedBy);
+  const { others, movedReceipts } = await moveDocuments(tx, companyId, sourceId, targetId, mergedBy);
   await moveRecords(tx, companyId, sourceId, targetId);
   const pausedRecurring = await moveRecurring(tx, companyId, sourceId, targetId, mergedBy);
-  // Judged on the target's real rows under the locks above; a refusal rolls the merge back.
-  await assertMergeKeepsCredit(tx, companyId, sourceId, targetId, movedReceipts);
+  await assertMergeKeepsCredit(tx, companyId, sourceId, targetId, movedReceipts); // real rows, under the locks; rolls back
   // Under RLS (977) and scoped through the customer refuseOrLock proved is ours. Removed, not
   // deactivated: no app role may UPDATE portal_access (S-07d, 937), which could revive it.
   const revoked = await tx`
