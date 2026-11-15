@@ -25,22 +25,39 @@ export interface InviteeProfile {
 
 /**
  * Creates the users row, or fills an existing row's missing names. Returns
- * 'email_in_use' when another users row holds this address under a different id:
- * that 23505 has aborted the transaction, so the caller must roll back before
- * anything else runs on `client`. Any other error is thrown.
+ * 'email_in_use', having created nothing, when the row would be new and another
+ * users row holds this address under a different id, in any letter case. The caller
+ * must roll back before anything else runs on `client` (a 23505 has aborted the
+ * transaction). Any other error is thrown.
+ *
+ * Letter case (brk-1440): users_email_key is UNIQUE (email), case-sensitive, so an
+ * address held as `A@x` let a new row take `a@x`, a second profile for one mailbox.
+ * The SELECT below refuses that first. It runs only when this id has no row yet: an
+ * existing profile's email is never written here, so it accepts as before. Two NEW
+ * invitees whose addresses differ only in case, accepting at the same instant, can
+ * still both pass it; a unique index on lower(email) would close that (production
+ * held no mixed-case or case-duplicate address on 2026-11-15).
  *
  * `users` carries users_email_key UNIQUE (email) as well as its primary key, and the
  * INSERT arbitrates only on `id`. Another row holding this address under a different
  * id (a pre-GoTrue-cutover profile, a deleted-and-recreated GoTrue identity) raised
- * 23505, which escaped as an opaque 500 the invitee could do nothing about. Answered
- * from the violation itself rather than from a preceding SELECT: a pre-check cannot
- * close the window between the read and the write, so the same condition answered a
- * clear 409 when it was pre-existing and an opaque 500 when it was concurrent, and it
- * cost an extra round-trip on every accept. The unique index is the authority.
+ * 23505, which escaped as an opaque 500 the invitee could do nothing about. The
+ * exact-case conflict is still answered from the violation itself, not only from the
+ * SELECT: a read cannot close the window before the write, and a concurrent row would
+ * otherwise turn the same condition into an opaque 500. The unique index is the
+ * authority for exact case.
  */
 export async function upsertInviteeProfile(
   client: PoolClient, p: InviteeProfile,
 ): Promise<'ok' | 'email_in_use'> {
+  const held = await client.query(
+    `SELECT 1 FROM users o
+      WHERE lower(o.email) = lower($2) AND o.id <> $1
+        AND NOT EXISTS (SELECT 1 FROM users s WHERE s.id = $1)
+      LIMIT 1`,
+    [p.userId, p.email],
+  );
+  if ((held.rowCount ?? 0) > 0) return 'email_in_use';
   try {
     await client.query(
       // No `email = EXCLUDED.email` on the conflict branch: that reverted the

@@ -90,7 +90,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   // membership write (migration 916); the app pools must not be able to make
   // it from a request (S-07b).
   const tokenHash = hashInviteToken(token);
-  const userId = authReq.user.id;
+  // One canonical id for every write and read below (brk-1440 L1): the membership took
+  // the ::UUID cast's canonical text while the users row took the raw sub, so a sub in
+  // another spelling wrote a users row the membership did not name, and the FK refused
+  // the COMMIT. Set from the cast once the transaction is open; a sub that is no UUID
+  // fails it (22P02, a 500), as the membership cast did before.
+  let userId = authReq.user.id;
   const client = await migrationAdminPool().connect();
   let opened = false;
   let unusable = false;
@@ -98,6 +103,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   try {
     opened = true; // before BEGIN (R-176): a BEGIN that reached the server but failed is rolled back too
     await client.query('BEGIN');
+    userId = (await client.query<{ id: string }>('SELECT $1::uuid::text AS id', [userId])).rows[0]!.id;
     const rows = (await client.query(
       `SELECT id, company_id, email, role
          FROM company_invitations

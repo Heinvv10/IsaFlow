@@ -117,6 +117,44 @@ describe('OP-2: POST /api/invite/<token> writes the invitee\'s users row', () =>
     expect(await acceptedAt(u.email)).toBeNull();
   });
 
+  // brk-1440 M: users_email_key is case-sensitive; the helper refuses a case variant itself.
+  it('another users row holding the address in a different case: the same 409, no second users row', async () => {
+    const u = await newIdentity();
+    const legacy = crypto.randomUUID();
+    created.push(legacy);
+    const token = await invitedToken(u.email);
+    await fixture.query(`INSERT INTO users (id, email, is_active) VALUES ($1, $2, true)`, [legacy, u.email.toUpperCase()]);
+    const r = await accept(u.id, token);
+    expect(r.status, JSON.stringify(r.body)).toBe(409);
+    expect((r.body as { error?: { message?: string } }).error?.message).toMatch(/already attached to a different IsaFlow profile/);
+    expect((await fixture.query('SELECT id FROM users WHERE lower(email) = lower($1)', [u.email])).rows).toEqual([{ id: legacy }]);
+    expect(await memberships(u.id)).toEqual([]);
+    expect(await acceptedAt(u.email)).toBeNull();
+  });
+
+  it('an existing profile accepts as before even when another row holds its address in a different case', async () => {
+    const u = await newIdentity({ firstName: 'Mine' });
+    const legacy = crypto.randomUUID();
+    created.push(legacy);
+    await fixture.query(`INSERT INTO users (id, email, is_active) VALUES ($1, $2, true)`, [legacy, u.email.toUpperCase()]);
+    const r = await accept(u.id, await invitedToken(u.email, 'viewer'));
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect((await profile(u.id))[0]).toMatchObject({ email: u.email, first_name: 'Mine' });
+    expect(await memberships(u.id)).toEqual([{ role: 'viewer' }]);
+  });
+
+  // brk-1440 L1: the membership was written under $2::UUID (canonical) and the users row under the raw sub.
+  it('an upper-case session id: the users row and the membership are both written under the canonical lower-case id', async () => {
+    const u = await newIdentity();
+    const upper = u.id.toUpperCase();
+    created.push(upper);
+    const r = await accept(upper, await invitedToken(u.email, 'viewer'));
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect((await fixture.query('SELECT id FROM users WHERE lower(id) = $1', [u.id])).rows).toEqual([{ id: u.id }]);
+    expect((await fixture.query('SELECT user_id FROM company_users WHERE company_id = $1 AND lower(user_id) = $2', [company, u.id])).rows)
+      .toEqual([{ user_id: u.id }]);
+  });
+
   it('a session whose email is not the invitation\'s: 403, and no profile or membership is written', async () => {
     const [u, other] = [await newIdentity(), await newIdentity()];
     const r = await accept(other.id, await invitedToken(u.email));
