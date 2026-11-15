@@ -15,6 +15,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser } from './r035-approval.helpers';
 import { relinkTransferCounterparts } from '../../src/modules/accounting/services/bank/bankTransferLinkService';
+import { fetchJournalLineCandidates } from '../../src/modules/accounting/services/bank/bankMatchDbQueries';
 import { actionRoute, asToken, bankCompany, cleanupBankControlsA, refusalOf, type BankCompany } from './bank-controls-a.helpers';
 import { confirmRoute, linkOf, plantBankLine, plantJe, UNTOUCHED } from './bank-match-targets.helpers';
 
@@ -129,5 +130,29 @@ describe('the unattended writers skip a line that does not fit', () => {
       { source: 'page_load', linkBatchId: crypto.randomUUID() }));
     expect({ linked: r.linked, failed: r.failed, line: await linkOf(pool, deposit) })
       .toEqual({ linked: 0, failed: false, line: UNTOUCHED });
+  });
+});
+
+describe('the match picker offers exactly what the confirm accepts', () => {
+  it('lists the exact posted bank leg, never a near amount, the other direction, another account, a draft or a reversed journal', async () => {
+    const g = await bankCompany(pool, [[a, 'admin']], companies);
+    const line = await plantBankLine(pool, g.c, g.bank, -500);
+    const exact = (await plantJe(pool, g.c, a, [[g.expA, 500, 0], [g.bank, 0, 500]])).lines[1]!;
+    const near = (await plantJe(pool, g.c, a, [[g.expA, 500.01, 0], [g.bank, 0, 500.01]])).lines[1]!;
+    const deposit = (await plantJe(pool, g.c, a, [[g.bank, 500, 0], [g.expA, 0, 500]])).lines[0]!;
+    const otherBank = (await plantJe(pool, g.c, a, [[g.expA, 500, 0], [g.bank2, 0, 500]])).lines[1]!;
+    const draft = (await plantJe(pool, g.c, a, [[g.expA, 500, 0], [g.bank, 0, 500]], { status: 'draft' })).lines[1]!;
+    // Reversed in the GL: the original carries reversed_at, its posted contra moves the money back.
+    const undone = await plantJe(pool, g.c, a, [[g.expA, 500, 0], [g.bank, 0, 500]]);
+    const contra = await plantJe(pool, g.c, a, [[g.bank, 500, 0], [g.expA, 0, 500]]);
+    await pool.query('UPDATE gl_journal_entries SET reversal_of_id = $1 WHERE id = $2', [undone.je, contra.je]);
+    await pool.query('UPDATE gl_journal_entries SET reversed_at = now() WHERE id = $1', [undone.je]);
+    const offered = (await asToken(pool, a, g.c, () => fetchJournalLineCandidates(g.c, -500, '2026-09-01', 'MT line', g.bank)))
+      .map((x) => x.id);
+    expect(offered).toEqual([exact]);
+    for (const refused of [near, deposit, otherBank, draft, undone.lines[1]!]) expect(offered).not.toContain(refused);
+    // And what it offers, the confirm takes.
+    const ok = await confirm(a, g.c, { bankTransactionId: line, candidateType: 'journal_line', candidateId: exact });
+    expect(ok.state.statusCode, JSON.stringify(ok.state.body)).toBe(200);
   });
 });

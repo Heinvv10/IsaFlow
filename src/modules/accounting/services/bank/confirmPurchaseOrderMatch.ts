@@ -25,14 +25,12 @@ import { toCents } from '../ap/billAllocatable';
 import { allocateTransaction } from './bankAllocationService';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { refuseLineOfCompletedReconciliation } from './reconciledCash';
+import { PAYABLE_PO_STATUSES, purchaseOrderOutstandingSql } from './purchaseOrderOutstanding';
 
 export type ConfirmPurchaseOrderMatchOutcome =
   | { ok: false; kind: 'not_found' }
   | { ok: false; kind: 'refused'; message: string }
   | { ok: true };
-
-/** The statuses a payment may be matched against: an order that was approved, whatever it has received since. */
-const PAYABLE_PO_STATUSES = new Set(['approved', 'partially_received', 'received']);
 
 /**
  * @param paymentAmount The ABSOLUTE value of the bank line. The route has already refused a line pointing the wrong
@@ -51,17 +49,17 @@ export async function confirmPurchaseOrderMatch(
   if (!po) return { ok: false, kind: 'not_found' };
 
   const status = String(po.status);
-  if (!PAYABLE_PO_STATUSES.has(status)) {
+  if (!PAYABLE_PO_STATUSES.includes(status)) {
     return { ok: false, kind: 'refused', message: `This purchase order is ${status.replace(/_/g, ' ')}. Only an `
       + 'approved order can be paid against — approve it first, or match the line to the supplier\'s invoice.' };
   }
 
-  // What the order has already been paid through other statement lines, read under the order's lock.
-  const [paid] = (await sql`
-    SELECT COALESCE(SUM(ABS(amount)), 0) AS paid FROM bank_transactions
-    WHERE company_id = ${companyId}::UUID AND linked_po_id = ${purchaseOrderId}::UUID
-      AND id <> ${bankTransactionId}::UUID AND status IN ('allocated', 'reconciled')`) as Record<string, unknown>[];
-  const outstandingCents = toCents(Number(po.total ?? 0)) - toCents(Number(paid?.paid ?? 0));
+  // What is left after the other statement lines linked to the order — the picker's own figure
+  // (purchaseOrderOutstanding), read in a NEW statement under the order's lock so a peer's committed link is seen.
+  const [left] = (await sql`
+    SELECT ${purchaseOrderOutstandingSql(bankTransactionId)} AS outstanding FROM purchase_orders po
+    WHERE po.id = ${purchaseOrderId}::UUID AND po.company_id = ${companyId}::UUID`) as Record<string, unknown>[];
+  const outstandingCents = toCents(Number(left?.outstanding ?? 0));
   const lineCents = toCents(paymentAmount);
   if (outstandingCents <= 0) {
     return { ok: false, kind: 'refused', message: 'Nothing is outstanding on this purchase order: earlier statement '

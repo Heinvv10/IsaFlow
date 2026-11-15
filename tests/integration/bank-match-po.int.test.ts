@@ -14,8 +14,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser } from './r035-approval.helpers';
-import { actionRoute, bankCompany, cleanupBankControlsA, refusalOf, type BankCompany } from './bank-controls-a.helpers';
+import { actionRoute, asToken, bankCompany, cleanupBankControlsA, refusalOf, type BankCompany } from './bank-controls-a.helpers';
 import { confirmRoute, linkOf, plantBankLine, UNTOUCHED, writesOf } from './bank-match-targets.helpers';
+import { fetchPurchaseOrderCandidates } from '../../src/modules/accounting/services/bank/bankMatchDbQueries';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -111,5 +112,25 @@ describe('confirming a statement line against a purchase order', () => {
     const line = await plantBankLine(pool, f.c, f.bank, -500);
     expect({ status: refusalOf(await matchPo(f, line, po)).status, line: await linkOf(pool, line) })
       .toEqual({ status: 404, line: UNTOUCHED });
+  });
+});
+
+describe('the PO picker offers what the confirm accepts, at what is outstanding', () => {
+  it('shows outstanding, includes a received order, hides a paid, draft or too-small order', async () => {
+    const f = await bankCompany(pool, [[a, 'admin']], companies);
+    const part = await plantPo(f, 500);
+    expect((await matchPo(f, await plantBankLine(pool, f.c, f.bank, -300), part)).state.statusCode).toBe(200);
+    const paid = await plantPo(f, 500);
+    expect((await matchPo(f, await plantBankLine(pool, f.c, f.bank, -500), paid)).state.statusCode).toBe(200);
+    const received = await plantPo(f, 1000, 'received');
+    const draft = await plantPo(f, 1000, 'draft');
+    const small = await plantPo(f, 150);
+    const offered = await asToken(pool, a, f.c, () => fetchPurchaseOrderCandidates(f.c, 200, -200, '2026-09-01', '', '', []));
+    const amountOf = (id: string) => offered.find((x) => x.id === id)?.amount;
+    expect({ part: amountOf(part), received: amountOf(received), paid: amountOf(paid), draft: amountOf(draft), small: amountOf(small) })
+      .toEqual({ part: 200, received: 1000, paid: undefined, draft: undefined, small: undefined });
+    // What it offers, the confirm takes: the R200 left on the part-paid order.
+    const rest = await plantBankLine(pool, f.c, f.bank, -200);
+    expect((await matchPo(f, rest, part)).state.statusCode).toBe(200);
   });
 });
