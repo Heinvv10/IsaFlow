@@ -14,7 +14,7 @@ POP inbox (Hein, 2026-11-14): ABSA "Notice of payment" mail reaching a mirrored 
 - `popMatchRules.ts` (pure: name test, decision) + `popMatchSweep.ts` (SQL, attach) — phase 2.
 - `popArchiveName.ts` (pure: path) + `popGraphClient.ts` (Graph, injected fetch) + `popArchiveSweep.ts` — the SharePoint copy.
 - `popSweeps.ts` — `runPopSweeps({ deadline })`: both sweeps, company by company, under the cron request's deadline (start + 270 s; curl allows 300), matching at most 60 s of it. Never throws: a sweep failure never fails the scan.
-- `popListService.ts` (+ pure `popListStatus.ts`) — read-only list of POPs with match and archive status, for MCP `list_proofs_of_payment`.
+- `popListService.ts` (+ pure `popListStatus.ts`) — read-only list of POPs with match and archive status, for MCP `list_proofs_of_payment`; a POP the matcher did not attach but a person linked by hand reads `attached_manually`.
 
 ## Business rules
 - **Whose payment**: DKIM proves ABSA sent the notice, not that this company paid (any ABSA customer can mail a genuine notice anywhere). A notice files only when its "Dear <profile>" is in `pop_trusted_payers` for the company (case/space-insensitive). That table is ops config: app_user SELECT only; seed it as migration_admin. An unlisted payer goes to capture review.

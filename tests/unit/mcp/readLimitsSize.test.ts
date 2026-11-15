@@ -197,7 +197,7 @@ const cases: Record<string, Case> = {
     arm: () => vi.mocked(listProofsOfPayment).mockImplementation(async (_c, f) => ({
       rows: Array.from({ length: page(f.limit, f.offset) }, (_, i) => pop(i)), total: BOOK, archiveConfigured: true,
       summary: {
-        byMatch: { attached: 1, ambiguous: 1, not_found: 1, refused: 1, pending: 1 },
+        byMatch: { attached: 1, attached_manually: 1, ambiguous: 1, not_found: 1, refused: 1, pending: 1 },
         byArchive: { archived: 1, too_large: 1, failed: 1, pending: 1 },
       },
     }) as never),

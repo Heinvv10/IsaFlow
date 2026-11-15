@@ -6,11 +6,17 @@
  * still names the company in every join and the WHERE, as every service does. The page rows, the total and the
  * summary splice ONE FROM + predicate, so the counts always describe the rows they stand for.
  *
+ * A POP the matcher did not attach whose document is linked to a bank line anyway (a person attached it in the app)
+ * is 'attached_manually': it needs no attention. "Linked" is bank/bankLineDocumentSql's `linkedCapturedDocSql`, the one
+ * definition of "this captured document is one of this line's documents" (captured_documents.matched_bank_tx_id, the
+ * document and the line in the same company, stored, not rejected), on a line not feed_state 'removed'.
+ *
  * ORDER BY payment_date DESC, id DESC: a total order (many POPs share a date), so offset pages neither skip nor repeat.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { containsLikePattern } from '@/lib/sqlLikeLiteral';
+import { linkedCapturedDocSql } from '../../bank/bankLineDocumentSql';
 import {
   POP_ARCHIVE_STATUSES, POP_MATCH_STATUSES,
   type PopArchiveStatus, type PopMatchFilter, type PopMatchStatus,
@@ -36,7 +42,7 @@ export interface PopListRow {
   createdAt: string;
   match: {
     status: PopMatchStatus;
-    /** The bank line the POP was attached to ('attached' only). */
+    /** The bank line the POP is on: the matcher's ('attached') or the one a person linked it to ('attached_manually'). */
     bankTransactionId: string | null;
     /** The lines a person should look at: every candidate of an 'ambiguous' POP, the refused line of a 'refused' one. */
     candidateBankTransactionIds: string[];
@@ -76,7 +82,16 @@ function popListFrom() {
     FROM proof_of_payments p
     LEFT JOIN proof_of_payment_matches m ON m.proof_of_payment_id = p.id AND m.company_id = p.company_id
     LEFT JOIN pop_archive_copies c ON c.proof_of_payment_id = p.id AND c.company_id = p.company_id
-    LEFT JOIN pop_archive_attempts a ON a.proof_of_payment_id = p.id AND a.company_id = p.company_id`;
+    LEFT JOIN pop_archive_attempts a ON a.proof_of_payment_id = p.id AND a.company_id = p.company_id
+    LEFT JOIN captured_documents cd ON cd.id = p.captured_document_id AND cd.company_id = p.company_id
+    LEFT JOIN bank_transactions bt ON ${sql.unsafe(linkedCapturedDocSql('bt', 'cd'))} AND bt.feed_state <> 'removed'`;
+}
+
+/** The POP's match status (see the header), one expression for the rows, the filter and the summary. Built per call:
+ *  a module-level `sql.unsafe` would run at import, under every test that mocks `@/lib/neon` without it. */
+function matchStatusSql() {
+  return sql.unsafe(`CASE WHEN m.outcome IS DISTINCT FROM 'attached' AND bt.id IS NOT NULL THEN 'attached_manually'
+    ELSE COALESCE(m.outcome, 'pending') END`);
 }
 
 function popListWhere(companyId: string, f: PopListFilters) {
@@ -85,10 +100,11 @@ function popListWhere(companyId: string, f: PopListFilters) {
   const from = f.dateFrom || null;
   const to = f.dateTo || null;
   const term = containsLikePattern(f.beneficiary?.trim() || undefined);
+  const status = matchStatusSql();
   return sql`p.company_id = ${companyId}::UUID
     AND (${match}::TEXT IS NULL
-         OR (${match}::TEXT = 'unmatched' AND m.outcome IS DISTINCT FROM 'attached')
-         OR COALESCE(m.outcome, 'pending') = ${match}::TEXT)
+         OR (${match}::TEXT = 'unmatched' AND ${status} NOT IN ('attached', 'attached_manually'))
+         OR ${status} = ${match}::TEXT)
     AND (${archive}::TEXT IS NULL OR COALESCE(c.outcome, 'pending') = ${archive}::TEXT)
     AND (${from}::DATE IS NULL OR p.payment_date >= ${from}::DATE)
     AND (${to}::DATE IS NULL OR p.payment_date <= ${to}::DATE)
@@ -101,11 +117,13 @@ export async function listProofsOfPayment(
 ): Promise<PopListPage> {
   const from = popListFrom();
   const where = popListWhere(companyId, f);
+  const status = matchStatusSql();
   // One after another: under MCP all three run on the request's one transaction client.
   const rows = await sql`
       SELECT p.id, p.transaction_number, to_char(p.payment_date, 'YYYY-MM-DD') AS payment_date, p.amount,
              p.beneficiary, p.payer_profile, p.captured_document_id, p.created_at,
-             m.outcome AS match_outcome, m.candidate_bank_tx_ids::TEXT[] AS candidates, m.refusal, m.checked_at,
+             ${status} AS match_status, bt.id AS linked_bank_tx_id,
+             m.candidate_bank_tx_ids::TEXT[] AS candidates, m.refusal, m.checked_at,
              c.outcome AS archive_outcome, c.web_url, c.path, c.archived_at,
              a.attempts, a.tries, a.last_attempt_at, a.last_error
       ${from}
@@ -113,7 +131,7 @@ export async function listProofsOfPayment(
       ORDER BY p.payment_date DESC, p.id DESC
       LIMIT ${f.limit} OFFSET ${f.offset}`;
   const groups = await sql`
-      SELECT COALESCE(m.outcome, 'pending') AS match_status, COALESCE(c.outcome, 'pending') AS archive_status,
+      SELECT ${status} AS match_status, COALESCE(c.outcome, 'pending') AS archive_status,
              COUNT(*) AS n
       ${from}
       WHERE ${where}
@@ -142,7 +160,8 @@ const iso = (v: unknown): string | null => (v == null ? null : v instanceof Date
 const num = (v: unknown): number | null => (v == null ? null : Number(v));
 
 function toRow(r: DbRow): PopListRow {
-  const matchStatus = (r.match_outcome ?? 'pending') as PopMatchStatus;
+  const matchStatus = String(r.match_status) as PopMatchStatus;
+  const onLine = matchStatus === 'attached' || matchStatus === 'attached_manually';
   const candidates = Array.isArray(r.candidates) ? (r.candidates as unknown[]).map(String) : [];
   return {
     popId: String(r.id),
@@ -155,8 +174,8 @@ function toRow(r: DbRow): PopListRow {
     createdAt: iso(r.created_at)!,
     match: {
       status: matchStatus,
-      bankTransactionId: matchStatus === 'attached' ? (candidates[0] ?? null) : null,
-      candidateBankTransactionIds: matchStatus === 'attached' ? [] : candidates,
+      bankTransactionId: matchStatus === 'attached' ? (candidates[0] ?? null) : matchStatus === 'attached_manually' ? str(r.linked_bank_tx_id) : null,
+      candidateBankTransactionIds: onLine ? [] : candidates,
       refusal: str(r.refusal),
       checkedAt: iso(r.checked_at),
     },

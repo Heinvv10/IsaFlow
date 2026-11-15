@@ -2,7 +2,8 @@
  * listProofsOfPayment (MCP list_proofs_of_payment) on real PostgreSQL, run as the MCP transport runs it: app_user,
  * request.jwt.claims and app.current_company_id set (bearerPipeline), the statements on one ALS-bound connection.
  * Pins: company B's POPs are invisible (the service's own company filter, and RLS under app_user); each 991/992
- * outcome and "no row = pending" reach the reply; every filter; the beneficiary search is literal; the summary
+ * outcome and "no row = pending" reach the reply; a POP a person linked to a line by hand is attached_manually (only on
+ * a line of its own company that is not removed), never unmatched; every filter; the beneficiary search is literal; the summary
  * counts the whole filter, not the page; a walk serves every POP once.
  *
  * Fixture route: isaflow_test (assertNotProductionDb).
@@ -17,7 +18,7 @@ import { listProofsOfPayment, type PopListFilters, type PopListPage } from '@/mo
 const url = process.env.DATABASE_URL ?? '';
 const describeIfDb = url && !url.includes('dummy') ? describe : describe.skip;
 const pool = new Pool({ connectionString: url, max: 3 });
-const [A, B, C] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+const [A, B, C, D] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
 const SAME_DATE_COUNT = 23;
 let fx: PopFixture;
 const ids: Record<string, string> = {};
@@ -44,9 +45,9 @@ const q = (text: string, params: unknown[]) => pool.query(text, params);
 describeIfDb('list_proofs_of_payment: each POP and what became of it', () => {
   beforeAll(async () => {
     assertNotProductionDb('list-proofs-of-payment inserts companies, bank lines and proofs of payment');
-    fx = await setUpPopFixture(pool, [A, B, C]);
-    const D = fx.day(10);
-    for (const k of ['l1', 'l2', 'l3']) lines[k] = await seedLine(fx, A, D, '-3000.00', `ABSA BANK LINE ${k}`);
+    fx = await setUpPopFixture(pool, [A, B, C, D]);
+    const lineDay = fx.day(10);
+    for (const k of ['l1', 'l2', 'l3']) lines[k] = await seedLine(fx, A, lineDay, '-3000.00', `ABSA BANK LINE ${k}`);
     const pop = async (key: string, beneficiary: string, date: string, company = A) => {
       ids[key] = (await seedPop(fx, company, { beneficiary, date })).popId;
     };
@@ -146,12 +147,50 @@ describeIfDb('list_proofs_of_payment: each POP and what became of it', () => {
     expect(page.total).toBe(6);
     expect(page.archiveConfigured).toBe(true);
     expect(page.summary).toEqual({
-      byMatch: { attached: 1, ambiguous: 1, not_found: 1, refused: 1, pending: 2 },
+      byMatch: { attached: 1, attached_manually: 0, ambiguous: 1, not_found: 1, refused: 1, pending: 2 },
       byArchive: { archived: 1, too_large: 1, failed: 1, pending: 3 },
     });
     const filtered = await asTenant(A, { matchStatus: 'unmatched', limit: 1 });
     expect(filtered.total).toBe(5);
-    expect(filtered.summary.byMatch).toEqual({ attached: 0, ambiguous: 1, not_found: 1, refused: 1, pending: 2 });
+    expect(filtered.summary.byMatch).toEqual({ attached: 0, attached_manually: 0, ambiguous: 1, not_found: 1, refused: 1, pending: 2 });
+  });
+
+  it('reads a POP linked to a bank line by hand as attached_manually, whatever the matcher decided, never unmatched', async () => {
+    const day = fx.day(12);
+    const line = (n: number) => seedLine(fx, D, day, '-3000.00', `ABSA BANK HAND ${n}`);
+    const [l1, l2, l3, l4, l5, l6] = [await line(1), await line(2), await line(3), await line(4), await line(5), await line(6)];
+    const removed = await seedLine(fx, D, day, '-3000.00', 'ABSA BANK HAND REMOVED', { feedState: 'removed' });
+    const bLine = await seedLine(fx, B, day, '-3000.00', 'ABSA BANK OTHER COMPANY');
+    const pop = async (name: string, matchedTo: string) => (await seedPop(fx, D, { beneficiary: name, date: day, matchedTo })).popId;
+    const decide = (popId: string, outcome: string, cands: string[], refusal: string | null = null) => q(
+      'INSERT INTO proof_of_payment_matches (company_id, proof_of_payment_id, outcome, candidate_bank_tx_ids, refusal) VALUES ($1, $2, $3, $4, $5)',
+      [D, popId, outcome, cands, refusal]);
+    const noRow = await pop('Hand No Row', l1);
+    const notFound = await pop('Hand Not Found', l2);
+    await decide(notFound, 'not_found', []);
+    const ambiguous = await pop('Hand Ambiguous', l3);
+    await decide(ambiguous, 'ambiguous', [l3, l4]);
+    const refused = await pop('Hand Refused', l5);
+    await decide(refused, 'refused', [l5], 'document_backs_other_claim');
+    const byMatcher = await pop('Matcher Attached', l6);
+    await decide(byMatcher, 'attached', [l6]);
+    const onRemoved = await pop('Hand Removed Line', removed);
+    const forged = await pop('Hand Other Company', bLine);
+
+    const page = await asTenant(D);
+    const byId = new Map(page.rows.map((r) => [r.popId, r.match]));
+    for (const [id, l] of [[noRow, l1], [notFound, l2], [ambiguous, l3], [refused, l5]] as const) {
+      expect(byId.get(id)).toMatchObject({ status: 'attached_manually', bankTransactionId: l, candidateBankTransactionIds: [] });
+    }
+    expect(byId.get(byMatcher)).toMatchObject({ status: 'attached', bankTransactionId: l6 });
+    // A link to a removed line, or to another company's line, puts the POP on no line of this company.
+    expect(byId.get(onRemoved)).toMatchObject({ status: 'pending', bankTransactionId: null });
+    expect(byId.get(forged)).toMatchObject({ status: 'pending', bankTransactionId: null });
+    expect(page.summary.byMatch).toEqual({ attached: 1, attached_manually: 4, ambiguous: 0, not_found: 0, refused: 0, pending: 2 });
+
+    expect(popIds(await asTenant(D, { matchStatus: 'attached_manually' }))).toEqual([noRow, notFound, ambiguous, refused].sort());
+    expect(popIds(await asTenant(D, { matchStatus: 'unmatched' }))).toEqual([onRemoved, forged].sort());
+    expect(popIds(await asTenant(D, { matchStatus: 'ambiguous' }))).toEqual([]);
   });
 
   it('walks every POP exactly once, newest payment first, although many share a date', async () => {
@@ -166,5 +205,8 @@ describeIfDb('list_proofs_of_payment: each POP and what became of it', () => {
     expect(seen).toHaveLength(SAME_DATE_COUNT + 1);
     expect(new Set(seen).size).toBe(SAME_DATE_COUNT + 1);
     expect([...dates].sort().reverse()).toEqual(dates);
+    // The tiebreak itself: within a date, id descending (uuid order is its lower-case hex order).
+    const keyed = seen.map((id, i) => `${dates[i]} ${id}`);
+    expect([...keyed].sort().reverse()).toEqual(keyed);
   });
 });

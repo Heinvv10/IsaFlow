@@ -15,7 +15,7 @@ const COMPANY = 'cccccccc-0000-4000-8000-cccccccccccc';
 const ctx = { companyId: COMPANY, userId: 'u-1', scopes: ['read:reports'] } as McpToolContext;
 const text = (r: { content: { text: string }[] }) => r.content[0]!.text;
 const zeroSummary = {
-  byMatch: { attached: 0, ambiguous: 0, not_found: 0, refused: 0, pending: 0 },
+  byMatch: { attached: 0, attached_manually: 0, ambiguous: 0, not_found: 0, refused: 0, pending: 0 },
   byArchive: { archived: 0, too_large: 0, failed: 0, pending: 0 },
 };
 const empty: PopListPage = { rows: [], total: 0, summary: zeroSummary, archiveConfigured: true };
@@ -35,7 +35,7 @@ describe('list_proofs_of_payment', () => {
 
   it('refuses a status outside the enums before querying (the schema enum is documentation only)', async () => {
     expect(text(await call({ match_status: 'matched' })))
-      .toBe('match_status must be one of: attached, ambiguous, not_found, refused, pending, unmatched');
+      .toBe('match_status must be one of: attached, attached_manually, ambiguous, not_found, refused, pending, unmatched');
     expect(text(await call({ archive_status: 'uploaded' })))
       .toBe('archive_status must be one of: archived, too_large, failed, pending');
     expect(listProofsOfPayment).not.toHaveBeenCalled();

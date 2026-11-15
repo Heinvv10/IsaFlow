@@ -26,18 +26,20 @@ export const listProofsOfPaymentTool: McpTool = {
   name: 'list_proofs_of_payment',
   description:
     'Every ABSA proof of payment (POP) filed from the company\'s mirrored mailbox, newest payment first, with what became '
-    + 'of it. match.status: attached (the POP was attached to its bank line, bank_transaction_id), ambiguous (several '
-    + 'lines, or another POP, matched: nothing attached; candidate_bank_transaction_ids is the suggestion for a person), '
-    + 'not_found (no single free line yet; re-checked until payment_date + 45 days), refused (one line matched but the '
-    + 'attach was refused: refusal), pending (not looked at yet). archive.status: archived (copied to SharePoint: web_url, '
-    + 'path), too_large (over 4 MB, never uploaded), failed (gave up after repeated failures: last_error), pending (not '
-    + 'copied yet; attempts / tries / last_error when it has failed before). archive_configured false means the company '
-    + 'has no SharePoint target, so every POP stays archive pending. Filters: match_status (a status above, or unmatched = '
-    + 'every POP not attached), archive_status, date_from / date_to on the payment date (YYYY-MM-DD), beneficiary '
+    + 'of it. match.status: attached (the matcher attached the POP to its bank line, bank_transaction_id), '
+    + 'attached_manually (the matcher did not, whatever it decided, but a person linked the POP\'s document to a bank '
+    + 'line in the app: bank_transaction_id; nothing to do), ambiguous (several lines, or another POP, matched: nothing '
+    + 'attached; candidate_bank_transaction_ids is the suggestion for a person), not_found (no single free line yet; '
+    + 're-checked until payment_date + 45 days), refused (one line matched but the attach was refused: refusal), pending '
+    + '(not looked at yet). archive.status: archived (copied to SharePoint: web_url, path), too_large (over 4 MB, never '
+    + 'uploaded), failed (gave up after repeated failures: last_error), pending (not copied yet; attempts / tries / '
+    + 'last_error when it has failed before). archive_configured false means the company has no SharePoint target, so '
+    + 'every POP stays archive pending. Filters: match_status (a status above, or unmatched = every POP on no bank line: '
+    + 'neither attached nor attached_manually), archive_status, date_from / date_to on the payment date (YYYY-MM-DD), '
+    + 'beneficiary '
     + '(case-insensitive substring, literal). total and summary (counts by match status and by archive status) are over '
     + `the WHOLE filter, not just the page. Up to limit rows (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}); call again `
-    + 'with offset=next_offset until it is null. A POP attached to a line by hand in the app is not seen by the matcher '
-    + 'and reads pending. Read-only.',
+    + 'with offset=next_offset until it is null. Read-only.',
   scope: 'read:reports',
   write: false,
   inputSchema: {
