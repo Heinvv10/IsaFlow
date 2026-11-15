@@ -93,10 +93,11 @@ export function runThreeWay(input: EngineInput): EngineOutput {
   const L = input.lookback.length;
   const vat = vatBookOf(input, a, r, opening);
   const short = { receivables: [] as string[], payables: [] as string[], inventory: [] as string[] };
-  // §13.26: at the days limit, the opening above month 1's days level is unwound evenly over the version.
-  const atLimit = { receivables: r.debtorDays >= MAX_TRADE_DAYS, payables: r.creditorDays >= MAX_TRADE_DAYS };
-  const excess = { receivables: 0, payables: 0 };
+  // §13.26: at the days limit, the opening above month 1's days level is unwound evenly over the version
+  // (a 1-month version has nothing to spread over: month 1 takes it, unwarned).
   const n = input.months.length;
+  const atLimit = { receivables: n > 1 && r.debtorDays >= MAX_TRADE_DAYS, payables: n > 1 && r.creditorDays >= MAX_TRADE_DAYS };
+  const excess = { receivables: 0, payables: 0 };
 
   const b: Buckets = { ...opening };
   const payrollDebit = Math.max(0, opening.payrollLiabilities);

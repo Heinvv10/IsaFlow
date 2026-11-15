@@ -124,6 +124,19 @@ describe('the spread is gated on the days being at the 365-day limit, per series
     expect(spread(out)).toEqual([]);
     assertInvariants(inp, out, '28d');
   });
+  it('a 1-month version at the limit: month 1 collects (pays) the whole excess, no warning', () => {
+    const ms = monthsFrom('2026-03', 1);
+    const inp = input({
+      months: ms, lookback, pnl: [pnl({ turnover: 10000, otherOpex: 5000 })],
+      opening: buckets(opening), assumptions: assumptions(ms, {}, derived365),
+    });
+    const out = runThreeWay(inp);
+    // AR: 600 000 + 10 000 − 120 000; AP: 300 000 + 5 000 − 60 000.
+    expect(receipts(out)).toEqual([R(490000)]);
+    expect(payments(out)).toEqual([-R(245000)]);
+    expect(out.warnings).toEqual([]);
+    assertInvariants(inp, out, 'n1');
+  });
   it('derived 200 days: below the limit, month 1 collects the whole excess, no warning', () => {
     const { inp, out } = run(opening, a => {
       a.workingCapital.debtorDays = { value: 200, source: 'derived' };
