@@ -202,7 +202,7 @@ export default function TrialBalancePage() {
               <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">Select a fiscal period with posted journal entries</p>
             </div>
           ) : (
-            <div role="region" aria-label="Trial balance accounts" tabIndex={0} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] max-md:overflow-x-auto">
+            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
