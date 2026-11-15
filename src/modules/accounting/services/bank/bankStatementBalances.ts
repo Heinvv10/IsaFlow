@@ -28,7 +28,8 @@
  *     parser reads a printed closing, so a dropped row (garbled, or split over two lines) leaves the survivors
  *     chaining to a closing nothing can check. 'pdf_read' says "taken from the PDF's running-balance column; not
  *     checked against a printed closing"; it is stored and compared like any figure, so an error shows as a
- *     Difference instead of passing as checked.
+ *     Difference instead of passing as checked. Nor is a text-parsed PDF ever 'printed': a closing a PDF parser
+ *     stated is only checked against the chain (disagreement: 'unverified').
  * `asAt` is the latest YYYY-MM-DD line date in the file.
  *
  * batchBalanceColumns is the write rule: figures only for 'printed' / 'running_balance' / 'pdf_read' whose asAt is on or before
@@ -88,7 +89,8 @@ export function deriveStatementBalances(raw: BankCsvParseResult, opts: { textPdf
   if (raw.transactions.some((t) => t.printedAmount !== undefined
     && toCents(Math.abs(t.amount)) !== toCents(t.printedAmount))) return none('unverified', asAt);
 
-  if (statedClosing !== null) {
+  // Never for a text-parsed PDF (round 5): its figures are at most pdf_read, whatever a parser stated (rule 6).
+  if (statedClosing !== null && !opts.textPdf) {
     if (statedOpening !== null && statedOpening + (sumCents(amt) ?? Number.NaN) !== statedClosing) return none('unverified', asAt);
     return { source: 'printed', openingCents: statedOpening, closingCents: statedClosing, asAt };
   }
@@ -118,6 +120,7 @@ export function deriveStatementBalances(raw: BankCsvParseResult, opts: { textPdf
     return none('unverified', asAt);
   }
   if (statedOpening !== null && statedOpening !== figures.openingCents) return none('unverified', asAt);
+  if (statedClosing !== null && statedClosing !== figures.closingCents) return none('unverified', asAt);
   return { source: opts.textPdf ? 'pdf_read' : 'running_balance', ...figures, asAt };
 }
 
