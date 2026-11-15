@@ -43,6 +43,8 @@ export const closeFiscalPeriodTool: McpTool = {
   scope: 'write:journals',
   write: true,
   requiresPost: true,
+  // The HTTP period controls are withRole('admin'): a manager may not close, reopen or year-end close here either.
+  requiresRole: 'admin',
   inputSchema: {
     type: 'object',
     properties: {
@@ -76,9 +78,10 @@ export const closeFiscalPeriodTool: McpTool = {
         ...(dryRun ? DRY : {}),
       };
     } catch (err) {
-      // Both refusals are raised BEFORE closePeriod runs, so nothing is
-      // half-applied and a tool error is safe. Anything else rethrows — the
-      // registry's savepoint unwinds on a throw and not on a returned error.
+      // Both refusals are raised by the guards and the readiness gate, under the
+      // period row lock but BEFORE the UPDATE (dry run and live alike), so
+      // nothing was written and a tool error is safe. Anything else rethrows —
+      // the registry's savepoint unwinds on a throw and not on a returned error.
       if (err instanceof PeriodCloseBlockedError) {
         return toolError(
           `${err.message}. Nothing was closed. Fix these and retry, or call `
@@ -103,6 +106,8 @@ export const reopenFiscalPeriodTool: McpTool = {
   scope: 'write:journals',
   write: true,
   requiresPost: true,
+  // The HTTP period controls are withRole('admin'): a manager may not close, reopen or year-end close here either.
+  requiresRole: 'admin',
   inputSchema: {
     type: 'object',
     properties: {
@@ -137,7 +142,14 @@ export const reopenFiscalPeriodTool: McpTool = {
       };
     }
 
-    const reopened = await reopenPeriod(ctx.companyId, periodId);
+    let reopened;
+    try {
+      reopened = await reopenPeriod(ctx.companyId, periodId);
+    } catch (err) {
+      // The status changed between the read above and the locked re-read (a racing close or lock).
+      if (err instanceof PeriodNotCloseableError) return toolError(err.message);
+      throw err;
+    }
     return ok({
       fiscal_period_id: periodId,
       period_name: reopened.periodName,
@@ -165,6 +177,8 @@ export const yearEndCloseTool: McpTool = {
   scope: 'write:journals',
   write: true,
   requiresPost: true,
+  // The HTTP period controls are withRole('admin'): a manager may not close, reopen or year-end close here either.
+  requiresRole: 'admin',
   inputSchema: {
     type: 'object',
     properties: {

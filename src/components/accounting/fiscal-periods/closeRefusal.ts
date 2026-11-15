@@ -7,7 +7,7 @@
  */
 
 import { log } from '@/lib/logger';
-import { PERIOD_CLOSE_NOT_READY, type BlockedPeriod } from '@/modules/accounting/services/gl/periodCloseErrors';
+import { PERIOD_CLOSE_NOT_READY, type BlockedPeriod } from '@/modules/accounting/services/gl/periodCloseRefusalShape';
 
 export interface CloseRefusal {
   /** Set when a whole year was refused. */

@@ -59,6 +59,16 @@ export interface ChecklistItem {
   fixHref: string;
 }
 
+/**
+ * Company-scoped check results shared across the periods ONE close request
+ * judges (Bulk Close, Close Year, the year-end lock): `orphan_period_journals`
+ * reads the whole company, so it runs once per request, not once per period.
+ * Create one per request; never keep one across requests.
+ */
+export interface CloseCheckMemo {
+  orphan?: ChecklistItem;
+}
+
 export interface CloseReadiness {
   periodId: string;
   periodLabel: string;
@@ -114,6 +124,7 @@ function aggregateStatus(items: ChecklistItem[]): ChecklistItemStatus {
 export async function getCloseReadiness(
   companyId: string,
   periodId: string,
+  memo?: CloseCheckMemo,
 ): Promise<CloseReadiness | null> {
   const period = await getFiscalPeriodById(companyId, periodId);
   if (!period) return null;
@@ -143,8 +154,8 @@ export async function getCloseReadiness(
     () => vatReviewedCheck(companyId, { startDate, endDate }),
     () => tbBalancedCheck(companyId, { id: periodId }),
     () => openingBalanceEquityCheck(companyId, { endDate }),
-    // Company-scoped by design — see the note at the top of this file.
-    () => orphanPeriodJournalsCheck(companyId),
+    // Company-scoped by design — see the note at the top of this file. Once per request when memoised.
+    async () => memo?.orphan ?? orphanPeriodJournalsCheck(companyId),
   ];
 
   const items: ChecklistItem[] = [];
@@ -162,6 +173,8 @@ export async function getCloseReadiness(
       });
     }
   }
+
+  if (memo && !memo.orphan) memo.orphan = items[items.length - 1];
 
   return {
     periodId,

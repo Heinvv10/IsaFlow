@@ -10,11 +10,12 @@ import { useState } from 'react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { BulkAction } from '@/components/accounting/fiscal-periods/BulkConfirmModal';
-import type { BlockedPeriod } from '@/modules/accounting/services/gl/periodCloseErrors';
+import type { BlockedPeriod } from '@/modules/accounting/services/gl/periodCloseRefusalShape';
 import { bulkCloseRefusal, readCloseRefusal, type CloseRefusal } from './closeRefusal';
 
 export type PeriodAction = 'close' | 'lock' | 'reopen';
-export interface BulkResult { ok: number; total: number; failures: Array<{ id: string; error: string }> }
+/** `failures` excludes periods the close checks refused: those are counted in `refused` and listed in CloseRefusalNotice. */
+export interface BulkResult { ok: number; total: number; refused: number; failures: Array<{ id: string; error: string }> }
 
 interface Deps {
   reload: () => Promise<void>;
@@ -47,11 +48,14 @@ export function usePeriodActions({ reload, showSentence, clearSelection }: Deps)
       type Row = { id: string; ok: boolean; error?: string; code?: string; periods?: BlockedPeriod[] };
       const json = await res.json() as { data?: { results: Row[]; okCount: number; total: number } };
       const data = json.data!;
-      setCloseRefusal(bulkCloseRefusal(data.results));
+      const refusal = bulkCloseRefusal(data.results);
+      setCloseRefusal(refusal);
       setBulkResult({
         ok: data.okCount,
         total: data.total,
-        failures: data.results.filter(r => !r.ok).map(r => ({ id: r.id, error: r.error || 'This period could not be updated' })),
+        refused: data.results.filter(r => !r.ok && r.periods).length,
+        failures: data.results.filter(r => !r.ok && !r.periods)
+          .map(r => ({ id: r.id, error: r.error || 'This period could not be updated' })),
       });
       clearSelection();
       await reload();
@@ -64,6 +68,7 @@ export function usePeriodActions({ reload, showSentence, clearSelection }: Deps)
       setBulkResult({
         ok: 0,
         total: ids.length,
+        refused: 0,
         failures: ids.map(id => ({ id, error: `${msg} (partial success possible, list reloaded)` })),
       });
       await reload();

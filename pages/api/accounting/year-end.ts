@@ -20,6 +20,7 @@ import { listFiscalYears, closeFiscalYear } from '@/modules/accounting/services/
 import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { isHeaderAccountRefusal } from '@/modules/accounting/services/gl/headerAccountGuard';
 import { yearEndCloseRefusal, type YearEndCloseRefusal } from '@/lib/yearEndCloseRefusal';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 
 /**
  * Postgres "undefined_table" / "undefined_column" SQLSTATEs. Schema-not-ready
@@ -132,6 +133,8 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     if (respondIfImpersonationForbidden(res, err)) return;
     // The retained-earnings leg on a balance-sheet header (D1): postClosingJournal asks before its first INSERT.
     if (isHeaderAccountRefusal(err)) return apiResponse.badRequest(res, err.message);
+    // A period another request holds: 503 + Retry-After, and the request rolls back.
+    if (respondIfLockTimeout(res, err)) return;
     log.error('Failed to process year-end', { error: err, yearLabel, module: 'accounting' });
     return apiResponse.databaseError(res, err, 'Failed to process year-end');
   }

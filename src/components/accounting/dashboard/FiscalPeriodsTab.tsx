@@ -114,11 +114,12 @@ export function FiscalPeriodsTab() {
       </div>
 
       {bulkResult && (
-        <div className={`p-3 rounded-lg text-sm ${bulkResult.failures.length === 0 ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'}`}>
+        <div className={`p-3 rounded-lg text-sm ${bulkResult.failures.length + bulkResult.refused === 0 ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'}`}>
           <div className="flex items-center justify-between">
             <span>
               {bulkResult.ok} of {bulkResult.total} period{bulkResult.total !== 1 ? 's' : ''} updated
-              {bulkResult.failures.length > 0 && ` · ${bulkResult.failures.length} failed`}
+              {bulkResult.failures.length + bulkResult.refused > 0 && ` · ${bulkResult.failures.length + bulkResult.refused} failed`}
+              {bulkResult.refused > 0 && ` (${bulkResult.refused} by the close checks, listed above)`}
             </span>
             <button onClick={() => setBulkResult(null)} className="text-xs underline opacity-70 hover:opacity-100">Dismiss</button>
           </div>

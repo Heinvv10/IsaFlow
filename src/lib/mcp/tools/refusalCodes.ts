@@ -116,6 +116,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Inactive or not-this-company line account (gl/documentLineAccountGuard): names only the caller's own account.
   'DOCUMENT_LINE_ACCOUNT_REFUSED',
   'DOCUMENT_NUMBER_LOCK_TIMEOUT',
+  // gl/periodCloseErrors: a fiscal period row another request holds (close, lock, reopen, year end). Fixed sentence;
+  // the request rolled back, nothing was written.
+  'FISCAL_PERIOD_LOCK_TIMEOUT',
   // approvalDocumentErrors: a request for a credit note that is no longer a draft. Names the caller's own note id, type
   // and status; raised before any row is written.
   'DOCUMENT_NOT_DRAFT',

@@ -57,6 +57,15 @@ import type {
 } from './yearEndCloseTypes';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { scheduleAutoSnapshot } from '@/modules/accounting/services/audit/autoSnapshotQueue';
+import { assertYearCloseReady, withPeriodLockBudget } from './periodCloseGate';
+import { YearCloseBlockedError } from './periodCloseErrors';
+import { YearEndPeriodsNotClosedError } from './yearEndPeriodGate';
+
+type OpenPeriod = { id: string; periodName: string; periodNumber: number };
+const openPeriodsResult = (openPeriods: OpenPeriod[]): CloseYearError =>
+  ({ error: 'open_periods', count: openPeriods.length, openPeriods });
+const checksFailed = (err: YearCloseBlockedError): CloseYearError =>
+  ({ error: 'close_checks_failed', fiscalYear: err.fiscalYear, periods: err.periods });
 
 export async function closeFiscalYear(
   companyId: string,
@@ -71,23 +80,18 @@ export async function closeFiscalYear(
 
   // 1. Every period must be closed. Named, not counted: "3 periods are open" is
   //    not something a caller can act on. Anything not closed or locked counts
-  //    ('closing' too): lockYear below locks every period of the year, so each
-  //    one must have been closed through the readiness gate (periodCloseGate) first.
+  //    ('closing', and a NULL status). An early answer only: the write
+  //    transaction locks the rows and checks again (yearEndPeriodGate).
   const openRows = (await sql`
     SELECT id, period_name, period_number FROM fiscal_periods
-    WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId} AND status NOT IN ('closed', 'locked')
+    WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId}
+      AND (status IS NULL OR status NOT IN ('closed', 'locked'))
     ORDER BY period_number
   `) as Record<string, unknown>[];
   if (openRows.length > 0) {
-    return {
-      error: 'open_periods',
-      count: openRows.length,
-      openPeriods: openRows.map((r) => ({
-        id: String(r.id),
-        periodName: String(r.period_name),
-        periodNumber: Number(r.period_number),
-      })),
-    };
+    return openPeriodsResult(openRows.map((r) => ({
+      id: String(r.id), periodName: String(r.period_name), periodNumber: Number(r.period_number),
+    })));
   }
 
   // 2. The year's date range.
@@ -163,6 +167,20 @@ export async function closeFiscalYear(
   }
 
   if (dryRun) {
+    // The readiness gate on every period the close would lock, as the live
+    // call runs it under the row locks (dry-run parity): a refusal here is the
+    // refusal the close would answer.
+    const toLock = (await sql`
+      SELECT id, period_name AS "periodName" FROM fiscal_periods
+      WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId} AND status = 'closed'
+      ORDER BY period_number
+    `) as Array<{ id: string; periodName: string }>;
+    try {
+      await assertYearCloseReady(companyId, Number(yearLabel), toLock, {}, 'locked');
+    } catch (err) {
+      if (err instanceof YearCloseBlockedError) return checksFailed(err);
+      throw err;
+    }
     // RE-READ for the same reason `alreadyClosedResult` re-reads: the netIncome
     // above was read before the closing-journal lookup, so a close that
     // committed in between would have it report the winner's own movement as
@@ -214,10 +232,14 @@ export async function closeFiscalYear(
       if (!fiscalPeriodId) return { error: 'no_fiscal_period', entryDate: preview.entryDate };
     }
 
-    ({ entry: closingEntry, periodsLocked } = await postClosingJournal(
+    // Every period lock waits a bounded time (503 + Retry-After when it runs out).
+    ({ entry: closingEntry, periodsLocked } = await withPeriodLockBudget(() => postClosingJournal(
       companyId, userId, yearLabel, preview, fiscalPeriodId,
-    ));
+    )));
   } catch (err) {
+    // Both raised inside the write transaction, before its first write; it rolled back.
+    if (err instanceof YearCloseBlockedError) return checksFailed(err);
+    if (err instanceof YearEndPeriodsNotClosedError) return openPeriodsResult(err.openPeriods);
     // The lookup above is a separate statement from the INSERT, so two
     // simultaneous closes both read `null` and both arrive here. The unique
     // index holds the ledger — one journal, never two — and the loser's whole

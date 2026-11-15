@@ -11,16 +11,17 @@
  * Bulk actions:      'bulk_close' | 'bulk_lock' | 'bulk_reopen'  (require `ids`)
  * Year-level action: 'close_year'  (requires `fiscalYear`)
  *
- * Bulk paths process each id sequentially and return { results: [{ id, ok, error? }] }
- * so the caller can show partial-success state. We DO NOT abort on the first
- * failure — the user's expectation in the UI is "do as much as you can".
+ * Bulk paths (gl/fiscalPeriodBulk.ts) lock every id up front in period order,
+ * run each in its own savepoint and return { results: [{ id, ok, error? }] } so
+ * the caller can show partial success: a REFUSED period does not stop the rest.
  *
- * Every close (close, bulk_close, close_year) goes through the readiness gate
- * (`gl/periodCloseGate.ts`). A refused close or close_year answers 409 with
- * `error.details = { code: 'PERIOD_CLOSE_NOT_READY', fiscalYear?, periods:
- * [{ periodId, periodName, blockers: [{ key, label, reason, fixHref }] }] }`.
- * A refused bulk_close period carries `code` and `periods` on its result row
- * (the envelope stays 200: other periods in the request may have closed).
+ * Close, Bulk Close, Close Year, Lock and Bulk Lock go through the readiness
+ * gate (`gl/periodCloseGate.ts`). A refused close, lock or close_year answers
+ * 409 with `error.details = { code: 'PERIOD_CLOSE_NOT_READY', fiscalYear?,
+ * periods: [{ periodId, periodName, blockers: [{ key, label, reason, fixHref }] }] }`;
+ * a refused bulk period carries `code` and `periods` on its result row.
+ * A period another request holds (lock wait ran out, or a deadlock) is 503 +
+ * Retry-After and the whole request rolls back, bulk included.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -29,18 +30,20 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withRole } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { isCallerSafeError } from '@/lib/lockTimeout';
 import {
   closePeriod,
   lockPeriod,
   reopenPeriod,
   closeYear,
 } from '@/modules/accounting/services/gl/fiscalPeriodService';
-import { ImpersonationForbiddenError, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
-import {
-  PERIOD_CLOSE_NOT_READY, PeriodCloseBlockedError, YearCloseBlockedError, closeRefusalDetails, type BlockedPeriod,
-} from '@/modules/accounting/services/gl/periodCloseErrors';
+import { runBulkPeriodAction, type BulkPeriodAction } from '@/modules/accounting/services/gl/fiscalPeriodBulk';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { closeRefusalDetails, isCloseRefusal } from '@/modules/accounting/services/gl/periodCloseErrors';
 
 const CONFIRM_REQUIRED = new Set(['close', 'lock', 'bulk_close', 'bulk_lock', 'close_year']);
+const BULK = new Set<string>(['bulk_close', 'bulk_lock', 'bulk_reopen']);
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -69,16 +72,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Use authenticated user ID — never trust userId from request body
     const userId = (req as AuthenticatedNextApiRequest).user.id;
 
-    // closePeriod takes userId for the audit trail; lockPeriod and reopenPeriod
-    // currently don't (per the service signature). If you ever add audit-log
-    // arguments to lock/reopen, plumb them through here.
-    const bulkOp = (
-      action === 'bulk_close' ? (id: string) => closePeriod(companyId, id, userId)
-      : action === 'bulk_lock' ? (id: string) => lockPeriod(companyId, id)
-      : action === 'bulk_reopen' ? (id: string) => reopenPeriod(companyId, id)
-      : null
-    );
-    if (bulkOp) {
+    if (BULK.has(action)) {
       if (!Array.isArray(ids) || ids.length === 0 || !ids.every((v): v is string => typeof v === 'string' && v.length > 0)) {
         return apiResponse.badRequest(res, 'ids (non-empty array of strings) is required for bulk actions');
       }
@@ -86,24 +80,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (ids.length > 60) {
         return apiResponse.badRequest(res, 'bulk action limit is 60 periods per request');
       }
-      const results: Array<{ id: string; ok: boolean; error?: string; code?: string; periods?: BlockedPeriod[] }> = [];
-      for (const periodId of ids) {
-        try {
-          await bulkOp(periodId);
-          results.push({ id: periodId, ok: true });
-        } catch (err) {
-          // R-032: the session, not this period, is refused — every id would be. Answer 403.
-          if (err instanceof ImpersonationForbiddenError) throw err;
-          if (err instanceof PeriodCloseBlockedError) {
-            results.push({ id: periodId, ok: false, error: err.message, code: PERIOD_CLOSE_NOT_READY, periods: err.periods });
-            continue;
-          }
-          results.push({ id: periodId, ok: false, error: err instanceof Error ? err.message : 'Failed' });
-        }
-      }
-      const okCount = results.filter(r => r.ok).length;
-      log.info('Bulk fiscal period action', { action, total: ids.length, ok: okCount }, 'accounting-api');
-      return apiResponse.success(res, { results, okCount, total: ids.length });
+      return apiResponse.success(res, await runBulkPeriodAction(companyId, action as BulkPeriodAction, ids, userId));
     }
 
     let result;
@@ -134,12 +111,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   } catch (err) {
     if (respondIfImpersonationForbidden(res, err)) return;
     // Written nothing: the gate refuses before the UPDATE.
-    if (err instanceof PeriodCloseBlockedError || err instanceof YearCloseBlockedError) {
-      return apiResponse.conflict(res, err.message, { ...closeRefusalDetails(err) });
-    }
-    const message = err instanceof Error ? err.message : 'Failed to perform period action';
-    log.error('Failed to perform period action', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, message);
+    if (isCloseRefusal(err)) return apiResponse.conflict(res, err.message, { ...closeRefusalDetails(err) });
+    // A held period: 503 + Retry-After, and the request (a bulk's earlier periods too) rolls back.
+    if (respondIfLockTimeout(res, err)) return;
+    // A driver error (it carries a SQLSTATE) is a fault, not a refusal: rethrown, it is a 500 and the
+    // request rolls back whole. A 4xx would COMMIT whatever an earlier bulk period wrote.
+    if (!isCallerSafeError(err)) throw err;
+    log.warn('Fiscal period action refused', { error: err.message }, 'accounting-api');
+    return apiResponse.badRequest(res, err.message);
   }
 }
 
