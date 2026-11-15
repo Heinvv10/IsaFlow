@@ -19,6 +19,7 @@ vi.mock('@/lib/billing/withFlowMeter', () => ({ withFlowMeter: () => (h: unknown
 vi.mock('@/modules/accounting/services/core/companySettingsService', async (orig) => ({ ...(await orig<object>()), reserveNextDocumentNumber: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/companyService', async (orig) => ({ ...(await orig<object>()), reserveNextDocumentNumber: vi.fn() }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: (_n: string, fn: () => unknown) => fn(), withTransaction: vi.fn() }));
+vi.mock('@/modules/accounting/services/bank/bankAccountGuard', async () => (await import('../helpers/bankControlGateMocks')).bankAccountGuardOpen());
 
 vi.mock('@/modules/accounting/services/items/adjustmentService', async (orig) => ({ ...(await orig<object>()), createAdjustment: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankReconciliationService', async (orig) => ({ ...(await orig<object>()), completeReconciliation: vi.fn(), startReconciliation: vi.fn() }));

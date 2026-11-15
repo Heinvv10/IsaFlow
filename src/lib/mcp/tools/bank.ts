@@ -51,7 +51,9 @@ function toCompact(tx: BankTransaction): CompactBankTx {
 export const bankAccountsStatusTool: McpTool = {
   name: 'bank_accounts_status',
   description:
-    'Bank accounts with balances, reconciled/unreconciled amounts, and allocation counts. '
+    'Bank accounts with balances, allocation counts and unreconciledCount (posted lines neither reconciled nor '
+    + 'excluded). reconciledBalance / unreconciledBalance are JOURNAL-based despite their names: the net of lines '
+    + 'with / without a journal line (unreconciledBalance excludes excluded lines), not reconciliation state. '
     + 'Includes inactive (deactivated) accounts: this is a question about money, and an inactive account '
     + 'still holds a balance and an unreconciled backlog. Each row carries isActive — false means '
     + 'the account is no longer offered when coding new transactions, so report its balance but '

@@ -38,6 +38,7 @@ import webhookRoute from '../../pages/api/admin/webhooks/[id]';
 import removeFromCompanyRoute from '../../pages/api/admin/users/[id]/remove-from-company';
 import activateRoute from '../../pages/api/admin/users/[id]/activate';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import { insertPreFkOrphanMembership } from './helpers/preFkOrphanMembership';
 import { signSession } from './r-032-fake-gotrue.helpers';
 
 assertDisposable();
@@ -140,7 +141,7 @@ describe('subscriptions/[id] PATCH writes an audit row only for a real update (f
 describe('L2: a user created while the orphan path runs makes it a normal removal', () => {
   it('re-checked under the membership lock: removed, audited under the stored id without orphan:true', async () => {
     const id = `Late-${TAG}`;
-    await pool.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'viewer')`, [company, id]);
+    await insertPreFkOrphanMembership(pool, company, id, 'viewer');
     // The route has looked the user up (none) and is about to lock the membership: the user is created now.
     hook.onOrphanLock = async () => {
       await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'viewer', true)`, [id, `${TAG}-late@test.local`]);

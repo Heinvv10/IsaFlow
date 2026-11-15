@@ -22,6 +22,7 @@ import {
   listImports,
 } from '@/modules/accounting/services/bank/bankStatementOcrService';
 import { magicBytesMatchMime } from '@/lib/fileMagic';
+import { assertBankAccountInCompany, isBankAccountGuardRefusal } from '@/modules/accounting/services/bank/bankAccountGuard';
 
 export const config = { api: { bodyParser: false } };
 
@@ -104,13 +105,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const bankAccountId = firstField(fields, 'bankAccountId');
   if (!bankAccountId) return apiResponse.badRequest(res, 'bankAccountId is required');
 
-  // Verify bank account belongs to company
-  const acctRows = (await sql`
-    SELECT id FROM gl_accounts
-    WHERE id = ${bankAccountId}::uuid AND company_id = ${companyId}
-    LIMIT 1
-  `) as DbRow[];
-  if (acctRows.length === 0) return apiResponse.notFound(res, 'Bank account not found');
+  // An active bank account of this company, before anything is written (audit 2026-11-15 WP2-1: any account was taken).
+  try {
+    await assertBankAccountInCompany(companyId, bankAccountId);
+  } catch (err) {
+    if (isBankAccountGuardRefusal(err)) return apiResponse.badRequest(res, err.message);
+    throw err;
+  }
 
   const fileField = files.file ?? files.files;
   const fileList = Array.isArray(fileField) ? fileField : fileField ? [fileField] : [];

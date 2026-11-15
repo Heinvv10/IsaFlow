@@ -38,7 +38,15 @@ async function company(members: Array<[string, string]> = [[o, 'owner'], [o2, 'o
   const c = crypto.randomUUID();
   companies.push(c);
   await fixture.query(`INSERT INTO companies (id, name, is_active) VALUES ($1, 'S07d members', true)`, [c]);
-  for (const [u, r] of members) await fixture.query('INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, $3)', [c, u, r]);
+  for (const [u, r] of members) {
+    // A case-variant id gets its own users row: company_users_user_id_fkey (996) refuses a membership without one.
+    if (!users.includes(u)) {
+      users.push(u);
+      await fixture.query(`INSERT INTO users (id, email, first_name, last_name, is_active, status)
+        VALUES ($1, $2, 'S07d', 'S07d', true, 'active') ON CONFLICT (id) DO NOTHING`, [u, `${u}@test.local`]);
+    }
+    await fixture.query('INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, $3)', [c, u, r]);
+  }
   return c;
 }
 const roleOf = async (c: string, u: string) => (await fixture.query(

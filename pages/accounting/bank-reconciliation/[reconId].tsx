@@ -15,6 +15,7 @@ import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 import { ReconciliationBalances } from '@/components/accounting/bank/ReconciliationBalances';
 import { NotReviewedChip, ReconUnreviewedNotice } from '@/components/accounting/bank/ReconUnreviewed';
 import type { BankReconciliation, BankTransaction } from '@/modules/accounting/types/bank.types';
+import { isExactlyBalanced } from '@/modules/accounting/services/bank/reconciliationBalanced';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -245,7 +246,7 @@ export default function ReconciliationDetailPage() {
   const matchedTxs = transactions.filter(t => t.status === 'matched' || t.status === 'reconciled'
     || (t.status === 'allocated' && !!t.matchedJournalLineId));
   const isCompleted = recon.status === 'completed';
-  const canComplete = Math.abs(recon.difference) < 0.01 && !isCompleted;
+  const canComplete = isExactlyBalanced(recon.difference) && !isCompleted;
 
   return (
     <AppLayout>

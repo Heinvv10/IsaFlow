@@ -48,6 +48,7 @@ vi.mock('@/lib/neon', async (orig) => {
 import removeFromCompanyRoute from '../../pages/api/admin/users/[id]/remove-from-company';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { signSession } from './r-032-fake-gotrue.helpers';
+import { insertPreFkOrphanMembership } from './helpers/preFkOrphanMembership';
 
 assertDisposable();
 const asPlatformAdmin = new URL(process.env.DATABASE_URL!);
@@ -94,8 +95,8 @@ describe('R1: an orphan owner and the other owner removed at once', () => {
     const orphan = `${TAG}-orphan-${run}`; // no users row
     await pool.query(`INSERT INTO companies (id, name) VALUES ($1, $2)`, [company, `${TAG} co ${run}`]);
     await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'viewer', true)`, [owner, `${owner}@test.local`]);
-    await pool.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner'), ($1, $3, 'owner')`,
-      [company, owner, orphan]);
+    await pool.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner')`, [company, owner]);
+    await insertPreFkOrphanMembership(pool, company, orphan, 'owner');
     setStages();
     const statuses = await Promise.all([call(orphan, company), call(owner, company)]);
     expect(statuses.filter((s) => s >= 500)).toEqual([]);
