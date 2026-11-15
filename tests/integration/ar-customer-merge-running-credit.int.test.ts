@@ -34,11 +34,13 @@ beforeEach(async () => {
 });
 
 /** A receipt (amount > 0) or a refund (amount < 0, as the refund path stores it) on `cust`. */
-async function row(cust: string, amount: number, date: string, company = h.companyA): Promise<string> {
+async function row(
+  cust: string, amount: number, date: string, company = h.companyA, status = 'confirmed',
+): Promise<string> {
   const { rows } = await pool.query<{ id: string }>(
     `INSERT INTO customer_payments(company_id,client_id,payment_date,total_amount,payment_method,status,created_by)
-     VALUES($1,$2,$3::DATE,$4,$5,'confirmed',$6) RETURNING id`,
-    [company, cust, date, amount, amount < 0 ? 'refund' : 'eft', h.admin]);
+     VALUES($1,$2,$3::DATE,$4,$5,$6,$7) RETURNING id`,
+    [company, cust, date, amount, amount < 0 ? 'refund' : 'eft', status, h.admin]);
   return rows[0]!.id;
 }
 
@@ -209,6 +211,34 @@ describe('what counts as credit: the remainder basis, and this company only', ()
     await row(target, -500, '2026-05-02', h.companyB); // client_id is an FK on id only; not this company's ledger
     await row(source, 10, '2026-05-03');
     expect(await merged(source, target)).toBe(200);
+  });
+});
+
+describe('which statuses count as credit: every row but cancelled (the AR basis)', () => {
+  it('a DRAFT receipt covers a moved refund, in both directions', async () => {
+    await bothWays(async (a, b) => {
+      await row(a, 100, '2026-05-01', h.companyA, 'draft');
+      await row(b, -100, '2026-05-10');
+    }, 'allowed');
+  });
+
+  it('a RECONCILED receipt covers a moved refund, in both directions', async () => {
+    await bothWays(async (a, b) => {
+      await row(a, 100, '2026-05-01', h.companyA, 'reconciled');
+      await row(b, -100, '2026-05-10');
+    }, 'allowed');
+  });
+
+  it('a CANCELLED receipt covers nothing, in both directions (a cancelled refund deepens nothing either)', async () => {
+    await bothWays(async (a, b) => {
+      await row(a, 100, '2026-05-01', h.companyA, 'cancelled');
+      await row(b, -100, '2026-05-10');
+    }, 'refused');
+    await bothWays(async (a, b) => {
+      await row(a, 100, '2026-05-01');
+      await row(b, -100, '2026-05-10');
+      await row(b, -500, '2026-05-11', h.companyA, 'cancelled');
+    }, 'allowed');
   });
 });
 
