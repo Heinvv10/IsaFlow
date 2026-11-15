@@ -83,7 +83,9 @@ describeIfDb('bank reconciliation — completion needs exactly R0.00', () => {
          matched_journal_line_id,reconciliation_id,reviewed_at)
        VALUES($1,$2,$3,'2025-04-10',100,'toctou line','allocated',$4,$5,NOW())`, [line, company, bank, bankLine, id]);
     await pool.query(`CREATE FUNCTION ec_sleep() RETURNS trigger LANGUAGE plpgsql AS
-      $$ BEGIN PERFORM set_config('application_name', 'ec_sleeper_${company}', false); PERFORM pg_sleep(2); PERFORM set_config('application_name', '', false); RETURN NEW; END $$`);
+      $$ DECLARE prior text := current_setting('application_name');
+      BEGIN PERFORM set_config('application_name', 'ec_sleeper_${company}', false); PERFORM pg_sleep(2);
+        PERFORM set_config('application_name', prior, false); RETURN NEW; END $$`);
     await pool.query(`CREATE TRIGGER ec_sleep_trg BEFORE UPDATE OF status ON bank_transactions FOR EACH ROW
       WHEN (NEW.status = 'reconciled' AND NEW.id = '${line}') EXECUTE FUNCTION ec_sleep()`);
     const completion = completeReconciliation(company, id, user);
