@@ -33,6 +33,11 @@ interface Props {
   onClearFilters?: () => void;
 }
 
+const MOBILE_SORTS: ReadonlyArray<readonly [SortKey, string]> = [
+  ['invoice_number', 'Invoice #'], ['supplier_name', 'Supplier'], ['reference', 'Reference'],
+  ['invoice_date', 'Date'], ['total_amount', 'Total'], ['balance', 'Outstanding'], ['status', 'Status'],
+];
+
 export function InvoiceTable({
   invoices, selected, toggleRow, toggleAll,
   sort, sortOrder, onSort,
@@ -63,6 +68,18 @@ export function InvoiceTable({
 
   return (
     <>
+      {/* The sort headers are hidden with the header row below lg, so phones get a control for the same sort. */}
+      <div className="lg:hidden flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800">
+        <label htmlFor="supplier-invoice-sort" className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Sort by</label>
+        <select id="supplier-invoice-sort" value={sort} onChange={(e) => onSort(e.target.value as SortKey)}
+          className="min-h-11 flex-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-slate-900 dark:text-slate-100">
+          {MOBILE_SORTS.map(([col, label]) => <option key={col} value={col}>{label}</option>)}
+        </select>
+        <button type="button" onClick={() => onSort(sort)} aria-label={`Sort order: ${sortOrder === 'asc' ? 'ascending' : 'descending'}. Tap to reverse`}
+          className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200">
+          {sortOrder === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+        </button>
+      </div>
       <table className="table-cards w-full text-sm">
         <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
           <tr>
