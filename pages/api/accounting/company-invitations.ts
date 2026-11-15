@@ -81,7 +81,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const companyRows = (await sql`
         SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1
       `) as Row[];
-      const companyName = (companyRows[0]?.name as string | undefined) ?? 'ISaFlow';
+      const companyName = (companyRows[0]?.name as string | undefined) ?? 'IsaFlow';
 
       const invitationId = result.invitation.id;
       const token = result.invitation.token;

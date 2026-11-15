@@ -47,13 +47,13 @@ export default function SigningPage({ token, signumBaseUrl }: PageProps) {
   return (
     <>
       <Head>
-        <title>Sign Document — ISaFlow</title>
+        <title>Sign Document — IsaFlow</title>
         <meta name="robots" content="noindex" />
       </Head>
 
       {/* Header — branding only, no nav */}
       <header style={styles.header}>
-        <span style={styles.logoText}>ISaFlow</span>
+        <span style={styles.logoText}>IsaFlow</span>
         <span style={styles.headerLabel}>Document Signing</span>
       </header>
 
