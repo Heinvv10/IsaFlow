@@ -354,7 +354,7 @@ describe('contact + bank + vat tools', () => {
     parseOk(await tool('bank_accounts_status').handler({}, ctx()));
     parseOk(await tool('list_bank_transactions').handler({ allocation_filter: 'unallocated' }, ctx()));
 
-    expect(listCustomers).toHaveBeenCalledWith(COMPANY_ID, 'brit', { limit: 201, offset: 0 });
+    expect(listCustomers).toHaveBeenCalledWith(COMPANY_ID, 'brit', { limit: 101, offset: 0 });
     expect(listSuppliers).toHaveBeenCalledWith(COMPANY_ID, expect.any(Object));
     // companyId stays first — the point of this test. The options arg opts the
     // tool into inactive accounts: an agent asking for status is asking about

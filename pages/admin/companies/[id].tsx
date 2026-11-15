@@ -8,101 +8,18 @@ import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
 import { CompanyBillingTab } from '@/components/admin/companies/CompanyBillingTab';
+import { CompanyActionBar } from '@/components/admin/companies/CompanyActionBar';
+import { CompanyInfoTab } from '@/components/admin/companies/CompanyInfoTab';
+import { CompanyUsersTab } from '@/components/admin/companies/CompanyUsersTab';
+import type { CompanyDetail, CompanyUser } from '@/components/admin/companies/companyDetailModel';
+import { useCompanyEdit } from '@/components/admin/companies/useCompanyEdit';
+import { useCompanyFeatures } from '@/components/admin/companies/useCompanyFeatures';
 import { ApiEnvelopeError, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import type { CompanyEffectiveFeature } from '@/modules/admin/types/admin-billing.types';
-import { formatDate } from '@/utils/formatters';
-import { formatLastSeen } from '@/components/admin/formatLastSeen';
 import { useAdminHref, tenantAppUrl } from '@/hooks/useAdminPrefix';
-import {
-  ArrowLeft, AlertCircle, Loader2, Building2, ShieldOff, ShieldCheck,
-  Trash2, Download, UserCog, ToggleLeft, ToggleRight, RotateCcw,
-  Pencil, Check, X,
-} from 'lucide-react';
+import { ArrowLeft, AlertCircle, Loader2, ToggleLeft, ToggleRight, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
 import { adminFetch } from '@/lib/admin/adminFetch';
 
-interface CompanyDetail {
-  id: string;
-  name: string;
-  trading_name: string | null;
-  registration_number: string | null;
-  vat_number: string | null;
-  email: string | null;
-  phone: string | null;
-  website: string | null;
-  billing_email: string | null;
-  billing_contact: string | null;
-  address_line1: string | null;
-  city: string | null;
-  province: string | null;
-  postal_code: string | null;
-  plan_name: string;
-  billing_cycle: string;
-  status: string;
-  created_at: string;
-  last_active: string | null;
-}
-
-type EditableKey =
-  | 'name' | 'trading_name' | 'email' | 'phone' | 'website'
-  | 'billing_email' | 'billing_contact'
-  | 'address_line1' | 'city' | 'province' | 'postal_code';
-
-type EditForm = Record<EditableKey, string>;
-
-const EDITABLE_KEYS: EditableKey[] = [
-  'name', 'trading_name', 'email', 'phone', 'website',
-  'billing_email', 'billing_contact',
-  'address_line1', 'city', 'province', 'postal_code',
-];
-
-function toEditForm(c: CompanyDetail): EditForm {
-  return {
-    name:            c.name ?? '',
-    trading_name:    c.trading_name ?? '',
-    email:           c.email ?? '',
-    phone:           c.phone ?? '',
-    website:         c.website ?? '',
-    billing_email:   c.billing_email ?? '',
-    billing_contact: c.billing_contact ?? '',
-    address_line1:   c.address_line1 ?? '',
-    city:            c.city ?? '',
-    province:        c.province ?? '',
-    postal_code:     c.postal_code ?? '',
-  };
-}
-
-// The API's shape (getCompanyUsers): one `name`, the full name or the email (audit 4.6: the page read
-// first_name/last_name, which the API never sends, so every Name cell was blank).
-interface CompanyUser {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  last_login: string | null;
-}
-
-// Deliberately the server's own type, not a local copy. A local duplicate that
-// claimed an `id` the API never sent is what made every feature toggle post
-// `feature_id: undefined` and silently 400.
-type CompanyFeature = CompanyEffectiveFeature;
-
-const STATUS_BADGE: Record<string, string> = {
-  active:    'bg-teal-500/10 text-teal-600 dark:text-teal-400',
-  trial:     'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
-  suspended: 'bg-red-500/10 text-red-500',
-  cancelled: 'bg-gray-500/10 text-gray-500',
-  deleted:   'bg-orange-500/10 text-orange-600 dark:text-orange-400',
-};
-
-function Field({ label, value }: { label: string; value: string | null | undefined }) {
-  return (
-    <div>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{label}</p>
-      <p className="text-sm text-gray-900 dark:text-white">{value || '\u2014'}</p>
-    </div>
-  );
-}
 
 export default function AdminCompanyDetailPage() {
   const router    = useRouter();
@@ -111,11 +28,8 @@ export default function AdminCompanyDetailPage() {
 
   const [company, setCompany]   = useState<CompanyDetail | null>(null);
   const [users, setUsers]       = useState<CompanyUser[]>([]);
-  const [features, setFeatures] = useState<CompanyFeature[]>([]);
   const [loading, setLoading]   = useState(true);
   const [usersLoading, setUsersLoading]       = useState(false);
-  const [featuresLoading, setFeaturesLoading] = useState(false);
-  const [featureActionId, setFeatureActionId] = useState<string | null>(null);
   const [error, setError]         = useState('');
   const [activeTab, setActiveTab] = useState<'info' | 'users' | 'features' | 'billing'>('info');
   const [actionLoading, setActionLoading] = useState(false);
@@ -123,10 +37,9 @@ export default function AdminCompanyDetailPage() {
   const [suspendOpen, setSuspendOpen]     = useState(false);
   const [suspendReason, setSuspendReason] = useState('');
   const [deleteOpen, setDeleteOpen]       = useState(false);
-  const [editMode, setEditMode]           = useState(false);
-  const [editForm, setEditForm]           = useState<EditForm | null>(null);
-  const [editSaving, setEditSaving]       = useState(false);
-  const [editError, setEditError]         = useState('');
+  const edit = useCompanyEdit(id, company, setCompany);
+  const { features, featuresLoading, featureActionId, loadFeatures, handleFeatureToggle, handleFeatureClearOverride } =
+    useCompanyFeatures(id, setActionError);
 
   const load = useCallback(async () => {
     if (!id || typeof id !== 'string') return;
@@ -150,18 +63,6 @@ export default function AdminCompanyDetailPage() {
       setUsers((json.data as CompanyUser[]) || []);
     } catch (err) { setUsers([]); setActionError(apiErrorMessage(err, 'Could not load the company users - try again')); }
     finally { setUsersLoading(false); }
-  }, [id]);
-
-  const loadFeatures = useCallback(async () => {
-    if (!id || typeof id !== 'string') return;
-    setFeaturesLoading(true);
-    try {
-      const res  = await adminFetch(`/api/admin/companies/${id}/features`);
-      await assertOk(res, 'Could not load the company features - try again');
-      const json = await res.json();
-      setFeatures((json.data as CompanyFeature[]) || []);
-    } catch (err) { setFeatures([]); setActionError(apiErrorMessage(err, 'Could not load the company features - try again')); }
-    finally { setFeaturesLoading(false); }
   }, [id]);
 
   useEffect(() => { void load(); }, [load]);
@@ -205,50 +106,6 @@ export default function AdminCompanyDetailPage() {
     } catch (err) { setActionError(apiErrorMessage(err, 'Could not delete the company - try again')); setActionLoading(false); }
   }
 
-  function startEdit() {
-    if (!company) return;
-    setEditForm(toEditForm(company));
-    setEditError('');
-    setEditMode(true);
-  }
-
-  function cancelEdit() {
-    setEditMode(false);
-    setEditForm(null);
-    setEditError('');
-  }
-
-  async function handleEditSave() {
-    if (!id || typeof id !== 'string' || !editForm) return;
-    const name = editForm.name.trim();
-    if (!name) { setEditError('Name is required'); return; }
-
-    // A blanked field is sent as null, which clears it (audit 4.17); dropping it kept the old value.
-    const body: Partial<Record<EditableKey, string | null>> = {};
-    for (const key of EDITABLE_KEYS) {
-      const v = editForm[key].trim();
-      body[key] = v === '' ? null : v; // name is never blank here (checked above)
-    }
-
-    setEditSaving(true); setEditError('');
-    try {
-      const res  = await adminFetch(`/api/admin/companies/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      await assertOk(res, 'Could not save the company - try again');
-      const json = await res.json();
-      setCompany(json.data as CompanyDetail);
-      setEditMode(false);
-      setEditForm(null);
-    } catch (err) {
-      setEditError(apiErrorMessage(err, 'Could not save the company - try again'));
-    } finally {
-      setEditSaving(false);
-    }
-  }
-
   async function handleExport() {
     if (!id || typeof id !== 'string') return;
     setActionLoading(true); setActionError('');
@@ -281,44 +138,6 @@ export default function AdminCompanyDetailPage() {
     finally { setActionLoading(false); }
   }
 
-  async function handleFeatureToggle(feature: CompanyFeature) {
-    if (!id || typeof id !== 'string') return;
-    setFeatureActionId(feature.id); setActionError('');
-    try {
-      const res = await adminFetch(`/api/admin/companies/${id}/features`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ feature_id: feature.id, enabled: !feature.enabled, reason: 'Toggled via admin' }),
-      });
-      await assertOk(res, `Could not change ${feature.name} - try again`);
-      void loadFeatures();
-    } catch (err) {
-      setActionError(apiErrorMessage(err, `Could not change ${feature.name} - try again`));
-    }
-    finally { setFeatureActionId(null); }
-  }
-
-  async function handleFeatureClearOverride(feature: CompanyFeature) {
-    if (!id || typeof id !== 'string') return;
-    setFeatureActionId(feature.id); setActionError('');
-    try {
-      const res = await adminFetch(`/api/admin/companies/${id}/features`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ feature_id: feature.id }),
-      });
-      await assertOk(res, `Could not reset ${feature.name} - try again`);
-      void loadFeatures();
-    } catch (err) {
-      setActionError(apiErrorMessage(err, `Could not reset ${feature.name} - try again`));
-    }
-    finally { setFeatureActionId(null); }
-  }
-
-  const address = company
-    ? [company.address_line1, company.city, company.province, company.postal_code].filter(Boolean).join(', ')
-    : null;
-
   return (
     <AdminLayout title="Company Detail">
       <Link href={adminHref('/admin/companies')}
@@ -336,41 +155,15 @@ export default function AdminCompanyDetailPage() {
 
       {company && (
         <>
-          <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-teal-500/10 rounded-lg"><Building2 className="w-6 h-6 text-teal-500" /></div>
-              <div>
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white">{company.name}</h2>
-                <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_BADGE[company.status] ?? ''}`}>{company.status}</span>
-              </div>
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              <button onClick={() => void handleExport()} disabled={actionLoading}
-                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50">
-                <Download className="w-4 h-4" /> Export Data
-              </button>
-              <button onClick={() => void handleImpersonate()} disabled={actionLoading}
-                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-blue-400 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors disabled:opacity-50">
-                <UserCog className="w-4 h-4" /> Impersonate
-              </button>
-              {company.status !== 'suspended' && company.status !== 'deleted'
-                ? <button onClick={() => setSuspendOpen(true)} disabled={actionLoading}
-                    className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-yellow-400 text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 transition-colors disabled:opacity-50">
-                    <ShieldOff className="w-4 h-4" /> Suspend
-                  </button>
-                : <button onClick={() => void handleActivate()} disabled={actionLoading}
-                    className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-teal-400 text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition-colors disabled:opacity-50">
-                    <ShieldCheck className="w-4 h-4" /> {company.status === 'deleted' ? 'Restore' : 'Activate'}
-                  </button>
-              }
-              {company.status !== 'deleted' && (
-                <button onClick={() => setDeleteOpen(true)} disabled={actionLoading}
-                  className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-red-400 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50">
-                  <Trash2 className="w-4 h-4" /> Delete
-                </button>
-              )}
-            </div>
-          </div>
+          <CompanyActionBar
+            company={company}
+            actionLoading={actionLoading}
+            onExport={() => void handleExport()}
+            onImpersonate={() => void handleImpersonate()}
+            onSuspend={() => setSuspendOpen(true)}
+            onActivate={() => void handleActivate()}
+            onDelete={() => setDeleteOpen(true)}
+          />
 
           <div className="flex gap-1 mb-5 border-b border-gray-200 dark:border-gray-700">
             {(['info', 'users', 'features', 'billing'] as const).map(tab => (
@@ -381,132 +174,9 @@ export default function AdminCompanyDetailPage() {
             ))}
           </div>
 
-          {activeTab === 'info' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Company Information</h3>
-                  {!editMode && (
-                    <button
-                      onClick={startEdit}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                    >
-                      <Pencil className="w-3.5 h-3.5" /> Edit
-                    </button>
-                  )}
-                </div>
+          {activeTab === 'info' && <CompanyInfoTab company={company} edit={edit} />}
 
-                {editMode && editForm ? (
-                  <>
-                    {editError && (
-                      <div className="flex items-center gap-2 p-2.5 rounded-lg bg-red-500/10 text-red-400 text-xs mb-3">
-                        <AlertCircle className="w-4 h-4 flex-shrink-0" /> {editError}
-                      </div>
-                    )}
-                    <div className="grid grid-cols-2 gap-3">
-                      {([
-                        ['name',            'Name'],
-                        ['trading_name',    'Trading Name'],
-                        ['email',           'Email'],
-                        ['phone',           'Phone'],
-                        ['website',         'Website'],
-                        ['billing_email',   'Billing Email'],
-                        ['billing_contact', 'Billing Contact'],
-                        ['address_line1',   'Address Line 1'],
-                        ['city',            'City'],
-                        ['province',        'Province'],
-                        ['postal_code',     'Postal Code'],
-                      ] as const).map(([key, label]) => (
-                        <div key={key} className={key === 'address_line1' ? 'col-span-2' : ''}>
-                          <label htmlFor={`company-edit-${key}`} className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{label}</label>
-                          <input
-                            id={`company-edit-${key}`}
-                            type={key === 'email' || key === 'billing_email' ? 'email' : key === 'website' ? 'url' : 'text'}
-                            value={editForm[key]}
-                            onChange={e => setEditForm(f => f ? { ...f, [key]: e.target.value } : f)}
-                            disabled={editSaving}
-                            className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-60"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex items-center justify-end gap-2 mt-4">
-                      <button
-                        onClick={cancelEdit}
-                        disabled={editSaving}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
-                      >
-                        <X className="w-3.5 h-3.5" /> Cancel
-                      </button>
-                      <button
-                        onClick={() => void handleEditSave()}
-                        disabled={editSaving}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors disabled:opacity-60"
-                      >
-                        {editSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                        Save Changes
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="grid grid-cols-2 gap-4">
-                    <Field label="Registration #"  value={company.registration_number} />
-                    <Field label="VAT Number"       value={company.vat_number} />
-                    <Field label="Trading Name"     value={company.trading_name} />
-                    <Field label="Website"          value={company.website} />
-                    <Field label="Email"            value={company.email} />
-                    <Field label="Phone"            value={company.phone} />
-                    <Field label="Billing Email"    value={company.billing_email} />
-                    <Field label="Billing Contact"  value={company.billing_contact} />
-                    <Field label="Created"          value={formatDate(company.created_at)} />
-                    <Field label="Last Active"      value={formatLastSeen(company.last_active)} />
-                    <div className="col-span-2"><Field label="Address" value={address} /></div>
-                  </div>
-                )}
-              </div>
-              <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 shadow-sm">
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Subscription</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <Field label="Plan"          value={company.plan_name} />
-                  <Field label="Billing Cycle" value={company.billing_cycle} />
-                  <Field label="Status"        value={company.status} />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'users' && (
-            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm overflow-hidden">
-              {usersLoading
-                ? <div className="flex items-center justify-center py-12"><Loader2 className="w-5 h-5 animate-spin text-teal-500" /></div>
-                : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-                          <th className="px-4 py-3 font-medium">Name</th>
-                          <th className="px-4 py-3 font-medium">Email</th>
-                          <th className="px-4 py-3 font-medium">Role</th>
-                          <th className="px-4 py-3 font-medium">Last Login</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {users.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-600 dark:text-gray-400">No users</td></tr>}
-                        {users.map(u => (
-                          <tr key={u.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
-                            <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{u.name}</td>
-                            <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{u.email}</td>
-                            <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{u.role}</td>
-                            <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{formatLastSeen(u.last_login)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )
-              }
-            </div>
-          )}
+          {activeTab === 'users' && <CompanyUsersTab users={users} usersLoading={usersLoading} />}
 
           {activeTab === 'billing' && (
             <CompanyBillingTab companyId={company.id} />
@@ -584,6 +254,7 @@ export default function AdminCompanyDetailPage() {
         confirmLabel="Suspend"
         confirmClass="bg-yellow-500 hover:bg-yellow-600"
         loading={actionLoading}
+        confirmDisabled={suspendReason.trim() === ''}
         onConfirm={() => void handleSuspend()}
         onCancel={() => setSuspendOpen(false)}
       >

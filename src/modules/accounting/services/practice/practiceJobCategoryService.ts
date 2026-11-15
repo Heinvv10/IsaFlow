@@ -129,25 +129,25 @@ export async function listWorkItems(companyId: string, categoryId?: string, incl
     rows = (await sql`
       SELECT * FROM practice_work_items
       WHERE company_id = ${companyId}::UUID AND category_id = ${categoryId}::UUID
-      ORDER BY sort_order ASC, name ASC
+      ORDER BY sort_order ASC, name ASC, id ASC
     `) as DbRow[];
   } else if (categoryId) {
     rows = (await sql`
       SELECT * FROM practice_work_items
       WHERE company_id = ${companyId}::UUID AND category_id = ${categoryId}::UUID AND is_active = true
-      ORDER BY sort_order ASC, name ASC
+      ORDER BY sort_order ASC, name ASC, id ASC
     `) as DbRow[];
   } else if (includeInactive) {
     rows = (await sql`
       SELECT * FROM practice_work_items
       WHERE company_id = ${companyId}::UUID
-      ORDER BY sort_order ASC, name ASC
+      ORDER BY sort_order ASC, name ASC, id ASC
     `) as DbRow[];
   } else {
     rows = (await sql`
       SELECT * FROM practice_work_items
       WHERE company_id = ${companyId}::UUID AND is_active = true
-      ORDER BY sort_order ASC, name ASC
+      ORDER BY sort_order ASC, name ASC, id ASC
     `) as DbRow[];
   }
   return rows.map(mapWorkItem);

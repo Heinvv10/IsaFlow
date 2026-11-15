@@ -10,20 +10,25 @@ import {
 import { clampLimit, ok, strArg, toolError } from './toolHelpers';
 import { OFFSET_SCHEMA, nextOffsetFromTotal, parseOffset } from './pageArgs';
 
+/** A customer row is about 500 bytes of JSON: 150 of them stay well under a client's ~90 KB result limit. */
+export const CUSTOMERS_DEFAULT_LIMIT = 100;
+export const CUSTOMERS_MAX_LIMIT = 150;
+
 export const listCustomersTool: McpTool = {
   name: 'list_customers',
   description:
     'Customers of the connected company (name, contact details, payment terms, VAT number, '
     + 'default_revenue_account_id), ordered by '
-    + 'name. Optional free-text search. Returns {customers, next_offset}: up to `limit` rows (default and '
-    + 'max 200); when next_offset is not null, call again with offset=next_offset for the next page.',
+    + 'name. Optional free-text search. Returns {customers, next_offset}: up to `limit` rows (default '
+    + `${CUSTOMERS_DEFAULT_LIMIT}, max ${CUSTOMERS_MAX_LIMIT}); when next_offset is not null, call again with `
+    + 'offset=next_offset for the next page (null means that was the last page).',
   scope: 'read:contacts',
   write: false,
   inputSchema: {
     type: 'object',
     properties: {
       search: { type: 'string', description: 'Matches name, email, VAT number, or contact person' },
-      limit: { type: 'integer', minimum: 1, maximum: 200 },
+      limit: { type: 'integer', minimum: 1, maximum: CUSTOMERS_MAX_LIMIT, description: `Default ${CUSTOMERS_DEFAULT_LIMIT}, max ${CUSTOMERS_MAX_LIMIT}` },
       offset: OFFSET_SCHEMA,
     },
     additionalProperties: false,
@@ -31,7 +36,7 @@ export const listCustomersTool: McpTool = {
   handler: async (args, ctx) => {
     const offset = parseOffset(args);
     if (typeof offset === 'string') return toolError(offset);
-    const limit = clampLimit(args, 200, 200);
+    const limit = clampLimit(args, CUSTOMERS_DEFAULT_LIMIT, CUSTOMERS_MAX_LIMIT);
     // One row past the page: its presence is what says another page exists,
     // without a second COUNT query.
     const rows = await listCustomers(ctx.companyId, strArg(args, 'search') ?? null, {
