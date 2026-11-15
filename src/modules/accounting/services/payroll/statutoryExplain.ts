@@ -16,6 +16,15 @@ import { SOURCES, footed, pct, sourceFor, type ExplainStep, type FigureExplanati
 
 const r = (n: number) => formatMoney(n);
 
+/**
+ * The pay UIF is on. Where the engine floored a negative base (a clawback; UIC Act 4 of 2002 s6(1)), the step foots:
+ * the pay plus a "Not below nil" part (the EX-core convention). A comparison only; the amount is the engine's.
+ */
+function leviableStep(leviable: number, pay: number): ExplainStep {
+  const step = { key: 'uif.leviable', label: 'Pay the contribution is on', amount: leviable, formula: 'the lesser of the pay and the ceiling, never below nil' };
+  return leviable > pay ? footed(step, [{ key: 'uif.leviable.pay', label: 'Pay that UIF applies to this period', amount: pay }]) : step;
+}
+
 export function explainUif(input: {
   taxYear: number; uif: UifResult; leviable: number | null; uifRemuneration: number; parts: EarningPart[]; outsideReason: string | null;
 }): FigureExplanation {
@@ -30,7 +39,7 @@ export function explainUif(input: {
       footed({ key: 'uif.remuneration', label: 'Pay that UIF applies to this period', amount: input.uifRemuneration, note: 'Earnings flagged as UIF-applicable.' },
         input.parts.filter((p) => p.uif).map((p, i) => earningStep(`uif.earning.${i}`, p))),
       { key: 'uif.ceiling', label: 'Monthly ceiling', amount: getTaxYearConfig(taxYear).uifCeiling, source: sourceFor(SOURCES.uif, taxYear) },
-      { key: 'uif.leviable', label: 'Pay the contribution is on', amount: leviable, formula: 'the lesser of the pay and the ceiling' },
+      leviableStep(leviable, input.uifRemuneration),
       { key: 'uif.rate', label: 'Rate, each of employee and employer', amount: UIF_RATE, unit: 'percent' },
       { key: 'uif.employee', label: 'Employee contribution', amount: uif.employeeContribution, formula: `${pct(UIF_RATE)} × ${r(leviable)}, rounded to the cent` },
       { key: 'uif.employer', label: 'Employer contribution', amount: uif.employerContribution },
