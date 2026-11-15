@@ -106,6 +106,31 @@ describe.each(TYPES)('a draft cancel and an approval request raised together ($t
     expect(await requestsFor(id)).toBe(0);
   }, 30_000);
 
+  it('a re-raise on a note approved behind a still-pending request is a refusal; the old request is left exactly as it was', async () => {
+    const id = await draft(note);
+    const first = await openRequest(pool, f, f.manager);
+    try {
+      await first.run(() => requestApproval(f.co, { documentType: type, documentId: id, requestedBy: f.manager }));
+      await first.commit();
+    } finally { await first.rollback(); }
+    const snapshot = async () => (await pool.query('SELECT to_jsonb(a) AS row FROM approval_requests a WHERE document_id = $1', [id])).rows.map((r) => r.row);
+    const before = await snapshot();
+    expect(before).toHaveLength(1);
+    expect(before[0]).toMatchObject({ status: 'pending' });
+
+    // Approved behind the request (enforcement is off for these rules, so nothing stops the status move).
+    await pool.query("UPDATE credit_notes SET status = 'approved' WHERE id = $1", [id]);
+
+    const again = await openRequest(pool, f, f.manager);
+    try {
+      const err = await again.run(() => requestApproval(f.co, { documentType: type, documentId: id, requestedBy: f.manager })).then(() => null, (e: unknown) => e);
+      expect(err).toBeInstanceOf(ApprovalDocumentNotDraftError);
+      expect((err as ApprovalDocumentNotDraftError).code).toBe('DOCUMENT_NOT_DRAFT');
+      expect((err as Error).message).toContain('is approved, not a draft');
+    } finally { await again.rollback(); }
+    expect(await snapshot()).toEqual(before); // not re-bound, not duplicated, not touched
+  }, 30_000);
+
   it('a request on a draft still raises normally', async () => {
     const id = await draft(note);
     const t = await openRequest(pool, f, f.manager);
