@@ -169,6 +169,9 @@ describe('deleteDraftCreditNote', () => {
       const e = await refusalOf(deleteDraftCreditNote(COMPANY, ID, USER));
       expect(e.code).toBe('OWN_SEQUENCE');
       expect(e.message).toContain('supplier return sequence');
+      // The exit is the draft cancel (no journal, number kept), not approve-then-cancel.
+      expect(e.message).toContain('cancel it with cancel_credit_note, which sets it to cancelled without a journal');
+      expect(e.message).not.toMatch(/approve it/i);
       expect(wrote()).toBe(false);
       expect(logAuditOrThrow).not.toHaveBeenCalled();
     },

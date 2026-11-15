@@ -65,26 +65,26 @@ describe('supplier-credit-notes/[id]', () => {
     expect(screen.getByRole('button', { name: /^Post$/ })).toBeTruthy();
   });
 
-  it('a refused delete shows the server message and does not navigate', async () => {
+  it('a refused draft cancel shows the server message and does not navigate', async () => {
     script(() => ok(NOTE), () => envelope());
     render(<SupplierCreditNotePage />);
-    fireEvent.click(await screen.findByRole('button', { name: /^Delete$/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Cancel draft$/ }));
     expect(await screen.findByText(MSG)).toBeTruthy();
     expect(route.push).not.toHaveBeenCalled();
   });
 
-  it('a delete answered with an empty 500 shows a plain sentence', async () => {
+  it('a draft cancel answered with an empty 500 shows a plain sentence', async () => {
     script(() => ok(NOTE), empty500);
     render(<SupplierCreditNotePage />);
-    fireEvent.click(await screen.findByRole('button', { name: /^Delete$/ }));
-    expect(await screen.findByText(/Could not delete the credit note - try again/)).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: /^Cancel draft$/ }));
+    expect(await screen.findByText(/Could not cancel the draft credit note - try again/)).toBeTruthy();
     noJsonLeak();
   });
 
-  it('a successful delete navigates to the list', async () => {
+  it('a successful draft cancel navigates to the list', async () => {
     script(() => ok(NOTE), () => ok({}));
     render(<SupplierCreditNotePage />);
-    fireEvent.click(await screen.findByRole('button', { name: /^Delete$/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Cancel draft$/ }));
     await waitFor(() => expect(route.push).toHaveBeenCalledWith('/accounting/supplier-credit-notes'));
   });
 });
