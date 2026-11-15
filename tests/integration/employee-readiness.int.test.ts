@@ -1,8 +1,7 @@
 /**
  * Wave 6 UXR: GET /api/payroll/employees/[id]/readiness through the real route (withAuth, app_user, RLS) against the
  * disposable fixture. One read answers bank on file (active row only), the latest worked-out run (calculated,
- * approved or paid; never a later-dated run of another company) and the final-run verdict, which must equal
- * `employeeHasFinalRun` for every employee. Another company's employee is 404.
+ * approved or paid; never a later-dated run of another company) and the final-run verdict, fixed per fixture employee. Another company's employee is 404.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import readiness from '../../pages/api/payroll/employees/[id]/readiness';
@@ -11,7 +10,6 @@ import { rig, type Route } from './brkr.helpers';
 import { callRoute } from './r035-approval.helpers';
 import { outsideRls } from './k1-employee-bank-details.helpers';
 import { readEmployeeReadiness, type EmployeeReadinessRead } from '../../src/modules/accounting/services/payroll/employeeReadinessRead';
-import { employeeHasFinalRun } from '../../src/modules/accounting/services/payroll/employeeFinalRun';
 
 let r: Awaited<ReturnType<typeof rig>>;
 let cleared = '', otherCompany = '', otherEmp = '';
@@ -90,12 +88,13 @@ describe('GET readiness', () => {
     expect(read.runs).toEqual([{ periodYear: 2029, periodMonth: 1, status: 'calculated' }]);
   });
 
-  it('hasFinalRun equals the has-final-run service for every employee', async () => {
-    for (const e of [cleared, ids.draft!, ids.unreviewed!, ids.grandfathered!, ids.many!, ids.none!]) {
-      expect((await answer(e)).hasFinalRun, e).toBe(await employeeHasFinalRun(r.company, e));
-    }
-    expect((await answer(cleared)).hasFinalRun).toBe(true);
-    expect((await answer(ids.draft!)).hasFinalRun).toBe(false);
+  it('hasFinalRun is fixed per fixture employee (the R-035 guard, not the status column)', async () => {
+    const expected: Array<[string, string, boolean]> = [
+      ['unreviewed approved row', ids.unreviewed!, false], ['grandfathered', ids.grandfathered!, true],
+      ['approved and cleared', cleared, true], ['25 newer drafts, one older final', ids.many!, true],
+      ['draft only', ids.draft!, false], ['no run', ids.none!, false],
+    ];
+    for (const [label, e, want] of expected) expect((await answer(e)).hasFinalRun, label).toBe(want);
   });
 
   it("another company's employee is 404 through the route", async () => {
