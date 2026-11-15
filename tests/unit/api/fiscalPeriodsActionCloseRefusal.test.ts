@@ -90,7 +90,13 @@ describe('fiscal-periods-action: a refused close', () => {
     bulk.runBulkPeriodAction.mockRejectedValueOnce(new FiscalPeriodLockTimeoutError());
     const r = await call(body);
     expect(r.status).toBe(503);
-    expect(r.body.error!.message).toMatch(/being changed by another request/);
+    expect(r.body.error!.message).toMatch(/^Another request is holding a fiscal period or its financial year/);
+  });
+
+  it('arch C: an untyped error from a bulk action is rethrown (a 500 that rolls back), never a 400 that commits', async () => {
+    const boom = new Error('an untyped fault inside the close');
+    bulk.runBulkPeriodAction.mockRejectedValueOnce(boom);
+    await expect(call({ action: 'bulk_close', ids: ['p1', 'p2'] })).rejects.toBe(boom);
   });
 
   it('a driver error (SQLSTATE) is rethrown — a 500 that rolls back — never a 400 that commits', async () => {

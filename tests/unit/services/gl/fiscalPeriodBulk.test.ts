@@ -12,18 +12,24 @@ const h = vi.hoisted(() => ({
   queries: [] as Array<{ text: string; values: unknown[] }>,
   locked: [] as string[],
   savepoints: [] as string[],
+  inBudget: false,
+  sqlInBudget: [] as boolean[],
 }));
 
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     h.queries.push({ text: strings.join('?').replace(/\s+/g, ' ').trim(), values });
+    h.sqlInBudget.push(h.inBudget);
     return h.locked.map((id) => ({ id }));
   }),
   withSavepoint: vi.fn(async (name: string, fn: () => Promise<unknown>) => { h.savepoints.push(name); return fn(); }),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/periodCloseGate', () => ({
-  withPeriodLockBudget: (fn: () => Promise<unknown>) => fn(),
+  withPeriodLockBudget: vi.fn(async (fn: () => Promise<unknown>) => {
+    h.inBudget = true;
+    try { return await fn(); } finally { h.inBudget = false; }
+  }),
 }));
 vi.mock('@/modules/accounting/services/gl/fiscalPeriodCloseWrites', () => ({
   closePeriodWithVerdict: vi.fn(async () => ({})),
@@ -31,7 +37,8 @@ vi.mock('@/modules/accounting/services/gl/fiscalPeriodCloseWrites', () => ({
   reopenPeriod: vi.fn(async () => ({})),
 }));
 
-import { closePeriodWithVerdict, lockPeriod } from '@/modules/accounting/services/gl/fiscalPeriodCloseWrites';
+import { closePeriodWithVerdict, lockPeriod, reopenPeriod } from '@/modules/accounting/services/gl/fiscalPeriodCloseWrites';
+import { withPeriodLockBudget } from '@/modules/accounting/services/gl/periodCloseGate';
 import { runBulkPeriodAction } from '@/modules/accounting/services/gl/fiscalPeriodBulk';
 import {
   FiscalPeriodLockTimeoutError, PeriodCloseBlockedError, PeriodNotCloseableError,
@@ -47,7 +54,7 @@ const BANK = { key: 'bank_reconciled' as const, label: 'Bank reconciled', status
 
 beforeEach(() => {
   vi.clearAllMocks();
-  h.queries = []; h.savepoints = [];
+  h.queries = []; h.savepoints = []; h.sqlInBudget = []; h.inBudget = false;
   h.locked = [JAN, FEB, MAR]; // what the ordered lock statement returns: period order
 });
 
@@ -62,7 +69,7 @@ describe('runBulkPeriodAction', () => {
   it('closes in period order, not click order, each in its own savepoint, sharing one check memo', async () => {
     await runBulkPeriodAction(C, 'bulk_close', [MAR, FEB, JAN], 'u1');
     expect(vi.mocked(closePeriodWithVerdict).mock.calls.map((c) => c[1])).toEqual([JAN, FEB, MAR]);
-    expect(h.savepoints).toEqual(['fp_bulk_0', 'fp_bulk_1', 'fp_bulk_2']);
+    expect(h.savepoints).toEqual(['fp_bulk', 'fp_bulk_0', 'fp_bulk_1', 'fp_bulk_2']);
     const memos = vi.mocked(closePeriodWithVerdict).mock.calls.map((c) => c[3]);
     expect(memos[0]).toBeDefined();
     expect(memos.every((m) => m === memos[0])).toBe(true);
@@ -94,6 +101,33 @@ describe('runBulkPeriodAction', () => {
     vi.mocked(closePeriodWithVerdict).mockResolvedValueOnce({} as never).mockRejectedValueOnce(err);
     await expect(runBulkPeriodAction(C, 'bulk_close', [JAN, FEB, MAR], 'u1')).rejects.toBe(err);
     expect(closePeriodWithVerdict).toHaveBeenCalledTimes(2);
+  });
+
+  it('C2: the up-front lock and every period run inside the lock budget', async () => {
+    let opInBudget = false;
+    vi.mocked(closePeriodWithVerdict).mockImplementation(async () => { opInBudget = h.inBudget; return {} as never; });
+    await runBulkPeriodAction(C, 'bulk_close', [JAN], 'u1');
+    expect(withPeriodLockBudget).toHaveBeenCalledTimes(1);
+    expect(h.sqlInBudget).toEqual([true]);
+    expect(opInBudget).toBe(true);
+  });
+
+  it('arch C: an untyped error (no SQLSTATE, no refusal type) fails the request, inside the outer savepoint', async () => {
+    const boom = new Error('an untyped fault');
+    vi.mocked(closePeriodWithVerdict).mockResolvedValueOnce({} as never).mockRejectedValueOnce(boom);
+    await expect(runBulkPeriodAction(C, 'bulk_close', [JAN, FEB], 'u1')).rejects.toBe(boom);
+    expect(h.savepoints[0]).toBe('fp_bulk'); // every period's write sits inside it, so it is rolled back with it
+  });
+
+  it.each(['bulk_close', 'bulk_lock', 'bulk_reopen'] as const)('N2a %s: a repeated id is one period, one write, one row', async (action) => {
+    h.locked = [JAN];
+    const out = await runBulkPeriodAction(C, action, [JAN, JAN, 'nope', 'nope'], 'u1');
+    const op = action === 'bulk_close' ? closePeriodWithVerdict : action === 'bulk_lock' ? lockPeriod : reopenPeriod;
+    expect(op).toHaveBeenCalledTimes(1);
+    expect(out).toEqual({
+      okCount: 1, total: 2,
+      results: [{ id: JAN, ok: true }, { id: 'nope', ok: false, error: 'Fiscal period not found' }],
+    });
   });
 
   it('Bulk Lock goes through lockPeriod (the gated lock) with the shared memo', async () => {

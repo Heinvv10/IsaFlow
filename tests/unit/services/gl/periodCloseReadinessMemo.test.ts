@@ -40,6 +40,18 @@ describe('getCloseReadiness with a CloseCheckMemo', () => {
     expect(b!.items.map((i) => i.key)).toContain('orphan_period_journals');
   });
 
+  it.each([['55P03'], ['40P01']])('3b: a check that hit a busy row (%s) is rethrown, not degraded to "Could not compute"', async (code) => {
+    const busy = Object.assign(new Error('lock timeout'), { code });
+    vi.mocked(bankReconciledCheck).mockRejectedValueOnce(busy);
+    await expect(getCloseReadiness('co', 'p1')).rejects.toBe(busy);
+  });
+
+  it('a check that failed for any other reason still degrades to "Could not compute" (which blocks a close)', async () => {
+    vi.mocked(bankReconciledCheck).mockRejectedValueOnce(Object.assign(new Error('relation does not exist'), { code: '42P01' }));
+    const r = await getCloseReadiness('co', 'p1');
+    expect(r!.items[0]).toMatchObject({ key: 'bank_reconciled', status: 'warn', reason: expect.stringMatching(/^Could not compute/) });
+  });
+
   it('without a memo it runs every time', async () => {
     await getCloseReadiness('co', 'p1');
     await getCloseReadiness('co', 'p2');

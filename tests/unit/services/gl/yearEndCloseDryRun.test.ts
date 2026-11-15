@@ -38,7 +38,7 @@ vi.mock('@/modules/accounting/services/gl/yearEndPeriodGate', async (importOrigi
 // The readiness gate the dry run runs on every period it would lock (periodCloseGate.test.ts): passes unless a test says.
 vi.mock('@/modules/accounting/services/gl/periodCloseGate', () => ({
   assertYearCloseReady: vi.fn(async () => undefined),
-  withPeriodLockBudget: (fn: () => Promise<unknown>) => fn(),
+  withPeriodLockBudget: vi.fn((fn: () => Promise<unknown>) => fn()),
 }));
 // The year's real dates are the registry's (a stored fiscal_years row), not the declared start month.
 vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry',
@@ -51,7 +51,7 @@ import { sql } from '@/lib/neon';
 import { getSystemAccountCandidates } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
 import { fakeRegistry, resetFakeRegistry, TRANSITION_YEARS, type FakeYear } from '../../../helpers/fiscalYearSqlFake';
-import { assertYearCloseReady } from '@/modules/accounting/services/gl/periodCloseGate';
+import { assertYearCloseReady, withPeriodLockBudget } from '@/modules/accounting/services/gl/periodCloseGate';
 import { YearCloseBlockedError } from '@/modules/accounting/services/gl/periodCloseErrors';
 import { lockAndJudgeYear, YearEndPeriodsNotClosedError } from '@/modules/accounting/services/gl/yearEndPeriodGate';
 
@@ -337,6 +337,13 @@ describe('closeFiscalYear — the periods it locks are judged (B1 / B2, 2026-11-
     const result = await closeFiscalYear(COMPANY, '2027', USER);
     expect(result).toMatchObject({ error: 'close_checks_failed', fiscalYear: 2027 });
     expect(writes.filter((w) => w.includes('INSERT'))).toEqual([]);
+  });
+
+  it('3a: the live close runs under the lock budget, and a busy answer names every lock it can wait on', async () => {
+    mockReads();
+    await closeFiscalYear(COMPANY, '2027', USER);
+    expect(withPeriodLockBudget).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(withPeriodLockBudget).mock.calls[0]![1]).toMatch(/fiscal periods, the financial year, the VAT period lock or the journal numbering lock/);
   });
 
   it('live: a period reopened after the early read is open_periods, named, and nothing is written', async () => {

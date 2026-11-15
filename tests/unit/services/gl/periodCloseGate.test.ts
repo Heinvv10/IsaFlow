@@ -178,6 +178,15 @@ describe('withPeriodLockBudget (Q7: bounded, tighten only)', () => {
     expect(await run('30s')).toBeLessThanOrEqual(5000);
   });
 
+  it('3a: the busy message says what may be held: the default, and the caller\'s own', async () => {
+    store.client = { query: vi.fn(async () => ({ rows: [{ v: '0' }] })) };
+    const busy = () => { throw Object.assign(new Error('x'), { code: '55P03' }); };
+    await expect(withPeriodLockBudget(async () => busy())).rejects.toThrow(
+      'Another request is holding a fiscal period or its financial year. Nothing was changed; retry in a moment.');
+    await expect(withPeriodLockBudget(async () => busy(), 'the VAT period lock')).rejects.toThrow(
+      'Another request is holding the VAT period lock. Nothing was changed; retry in a moment.');
+  });
+
   it.each([['55P03'], ['40P01']])('a %s inside is FiscalPeriodLockTimeoutError (503 at the routes)', async (code) => {
     store.client = { query: vi.fn(async () => ({ rows: [{ v: '0' }] })) };
     await expect(withPeriodLockBudget(async () => { throw Object.assign(new Error('x'), { code }); }))
