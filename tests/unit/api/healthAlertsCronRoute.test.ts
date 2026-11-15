@@ -26,6 +26,8 @@ const { buildSystemHealth, checkAndAlert } = vi.hoisted(() => ({
 }));
 vi.mock('@/modules/admin/services/systemHealthService', () => ({ buildSystemHealth }));
 vi.mock('@/modules/admin/services/healthAlertService', () => ({ checkAndAlert }));
+const recordScheduledRun = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock('@/modules/admin/services/healthAlertState', () => ({ recordScheduledRun }));
 
 import cronRoute from '../../../pages/api/cron/health-alerts';
 
@@ -58,6 +60,14 @@ describe('/api/cron/health-alerts', () => {
     expect(fx.queries).toEqual(['BEGIN READ ONLY', 'COMMIT']);
     expect(checkAndAlert).toHaveBeenCalledTimes(1);
     expect(checkAndAlert).toHaveBeenCalledWith(SNAPSHOT);
+    expect(recordScheduledRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('an alert that reached no channel answers 500 and does not record the run', async () => {
+    checkAndAlert.mockRejectedValueOnce(new Error('Health alert (critical) reached no channel'));
+    const r = await call({ method: 'POST', headers: { 'x-cron-secret': KEY } });
+    expect(r.statusCode).toBe(500);
+    expect(recordScheduledRun).not.toHaveBeenCalled();
   });
 
   it.each([[{}], [{ 'x-cron-secret': 'wrong' }], [{ 'x-cron-secret': `${KEY}x` }]])(
@@ -65,6 +75,7 @@ describe('/api/cron/health-alerts', () => {
       expect((await call({ method: 'POST', headers })).statusCode).toBe(401);
       expect(buildSystemHealth).not.toHaveBeenCalled();
       expect(checkAndAlert).not.toHaveBeenCalled();
+      expect(recordScheduledRun).not.toHaveBeenCalled();
     });
 
   it('a snapshot that fails answers 500, rolls back and alerts nothing', async () => {
@@ -73,6 +84,7 @@ describe('/api/cron/health-alerts', () => {
     expect(r.statusCode).toBe(500);
     expect(fx.queries).toEqual(['BEGIN READ ONLY', 'ROLLBACK']);
     expect(checkAndAlert).not.toHaveBeenCalled();
+    expect(recordScheduledRun).not.toHaveBeenCalled();
   });
 
   it('GET is 405; an unset CRON_SECRET is 500; neither runs', async () => {

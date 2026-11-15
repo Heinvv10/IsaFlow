@@ -2,7 +2,8 @@
  * OP-1: the scheduled health-alert pass takes the route's snapshot on the
  * platform_admin pool (read-only, under an ALS context on that client), then
  * calls the SAME checkAndAlert once, after the snapshot's transaction ended and
- * outside any ALS context (where the route's runAfterCommit starts it). A
+ * outside any ALS context (where the route's runAfterCommit starts it), and
+ * records the run only when all of that succeeded. A
  * failure is thrown so the timer's run fails, and alerts are never sent off a
  * snapshot that could not be taken. Alert delivery itself is mocked.
  */
@@ -47,6 +48,9 @@ vi.mock('@/modules/admin/services/healthAlertService', async () => {
   };
 });
 
+const recordScheduledRun = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock('@/modules/admin/services/healthAlertState', () => ({ recordScheduledRun }));
+
 import { runScheduledHealthAlert } from '@/modules/admin/services/healthAlertRun';
 import { checkAndAlert } from '@/modules/admin/services/healthAlertService';
 
@@ -59,6 +63,7 @@ beforeEach(() => {
   fx.alertError = null;
   fx.status = 'degraded';
   vi.mocked(checkAndAlert).mockClear();
+  recordScheduledRun.mockClear();
 });
 
 describe('runScheduledHealthAlert', () => {
@@ -71,6 +76,8 @@ describe('runScheduledHealthAlert', () => {
     expect(checkAndAlert).toHaveBeenCalledTimes(1);
     expect(checkAndAlert).toHaveBeenCalledWith({ overall_status: 'degraded', checked_at: '2026-11-15T10:00:00.000Z' });
     expect(fx.storeDuringAlert).toBeUndefined();
+    expect(recordScheduledRun).toHaveBeenCalledTimes(1);
+    expect(recordScheduledRun.mock.invocationCallOrder[0]).toBeGreaterThan(vi.mocked(checkAndAlert).mock.invocationCallOrder[0]!);
   });
 
   it('passes a healthy snapshot through too, so checkAndAlert can reset the debounce state', async () => {
@@ -83,6 +90,7 @@ describe('runScheduledHealthAlert', () => {
     fx.alertError = new Error('admin_settings unreachable');
     await expect(runScheduledHealthAlert()).rejects.toThrow('admin_settings unreachable');
     expect(checkAndAlert).toHaveBeenCalledTimes(1);
+    expect(recordScheduledRun).not.toHaveBeenCalled();
   });
 
   it('rolls back, releases, never alerts and throws when the snapshot fails', async () => {
@@ -91,5 +99,6 @@ describe('runScheduledHealthAlert', () => {
     expect(fx.queries).toEqual(['BEGIN READ ONLY', 'ROLLBACK']);
     expect(fx.released).toEqual([false]);
     expect(checkAndAlert).not.toHaveBeenCalled();
+    expect(recordScheduledRun).not.toHaveBeenCalled();
   });
 });

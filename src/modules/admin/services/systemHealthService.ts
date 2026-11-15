@@ -15,6 +15,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { getTrialStats } from '@/modules/admin/services/trialQueries';
 import { percentOrNull } from '@/modules/admin/services/metrics/revenueMath';
+import { SCHEDULED_RUN_KEY, settingText } from '@/modules/admin/services/healthAlertState';
 
 type Row = DbRow;
 
@@ -63,6 +64,8 @@ export interface SystemHealthResponse {
   recent_errors: RecentError[];
   overall_status: 'healthy' | 'degraded' | 'critical';
   checked_at: string;
+  /** When the 5-minute cron pass last succeeded (admin_settings); null when it never has. */
+  scheduled_check: { last_run_at: string | null };
 }
 
 // ─── DB Health ────────────────────────────────────────────────────────────────
@@ -197,13 +200,26 @@ function deriveOverallStatus(
   return 'healthy';
 }
 
+// ─── Scheduled check ──────────────────────────────────────────────────────────
+
+async function getScheduledCheck(): Promise<SystemHealthResponse['scheduled_check']> {
+  try {
+    const rows = await sql`SELECT value FROM admin_settings WHERE key = ${SCHEDULED_RUN_KEY}`;
+    return { last_run_at: rows.length ? settingText((rows[0] as Row).value) : null };
+  } catch (err) {
+    log.error('Scheduled health check state could not be read', { error: err }, 'admin-health-api');
+    throw err;
+  }
+}
+
 // ─── Snapshot ─────────────────────────────────────────────────────────────────
 
 export async function buildSystemHealth(): Promise<SystemHealthResponse> {
-  const [db, scalars, recent_errors] = await Promise.all([
+  const [db, scalars, recent_errors, scheduled_check] = await Promise.all([
     getDbHealth(),
     getScalarHealthMetrics(),
     getRecentErrors(),
+    getScheduledCheck(),
   ]);
   const { job_queue, email, users_signed_in_24h, trials } = scalars;
   return {
@@ -215,5 +231,6 @@ export async function buildSystemHealth(): Promise<SystemHealthResponse> {
     recent_errors,
     overall_status: deriveOverallStatus(db, job_queue, email),
     checked_at: new Date().toISOString(),
+    scheduled_check,
   };
 }

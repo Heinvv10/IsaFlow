@@ -4,9 +4,11 @@
  * Takes the same system-health snapshot as GET /api/admin/health, on the
  * platform_admin pool, and hands it to the same checkAndAlert, so a degraded or
  * critical system alerts without an admin having /admin/health open. The alert
- * debounce (status change, else once an hour) lives in checkAndAlert and is
- * shared with the route (healthAlertRun.ts). A snapshot that cannot be taken is
- * a 500 that sends nothing, so the timer's curl --fail reports the failed run.
+ * debounce (status change, else once an hour) is claimed under an advisory lock
+ * before sending (healthAlertState.ts), so this pass and an open Health tab never
+ * both send one change. A snapshot that cannot be taken, or an alert that reached
+ * no channel, is a 500 (the timer's curl --fail reports it) and the run is not
+ * recorded; a successful pass records the time the Health page shows.
  *
  * Authentication: X-Cron-Secret header must match CRON_SECRET env var.
  * System-level endpoint — no withAuth.

@@ -49,6 +49,23 @@ export interface SystemHealthData {
   recent_errors: RecentError[];
   overall_status: 'healthy' | 'degraded' | 'critical';
   checked_at: string;
+  /** When the 5-minute cron pass last succeeded; absent from an older server. */
+  scheduled_check?: { last_run_at: string | null };
+}
+
+/** The timer fires every 5 minutes: three missed passes means it is not running. */
+export const SCHEDULED_CHECK_STALE_MS = 15 * 60 * 1000;
+
+/**
+ * Whether the scheduled health-alert pass is running, judged on the server's
+ * clock (its last run against this snapshot's checked_at), never the browser's.
+ * Returns the last-run time when it is, null when it is not.
+ */
+export function scheduledCheckLastRun(data: Pick<SystemHealthData, 'checked_at' | 'scheduled_check'>): string | null {
+  const last = data.scheduled_check?.last_run_at;
+  if (!last) return null;
+  const age = new Date(data.checked_at).getTime() - new Date(last).getTime();
+  return Number.isFinite(age) && age < SCHEDULED_CHECK_STALE_MS ? last : null;
 }
 
 // ─── Status primitives ────────────────────────────────────────────────────────
