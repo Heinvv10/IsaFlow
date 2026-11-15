@@ -1,6 +1,6 @@
 /**
- * Page 11's four spec §4.A sources — aged debtor concentration, unreconciled
- * bank items, unusual journals, overdue statutory filings — and the list
+ * Page 11's four spec §4.A sources — aged debtor concentration, unallocated
+ * bank items (the spec's "unreconciled bank items"), unusual journals, overdue statutory filings — and the list
  * `buildMatters` walks. Moved out of `packMatters.ts` unchanged to keep that
  * file under the 300-line cap; `packMatters.ts` re-exports `SOURCES` and
  * `NO_PRIOR_MEETING_RECORD`, so existing import paths still resolve.
@@ -178,6 +178,9 @@ async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]>
   // reconciliation state (bank/unreconciledLineSql: not reconciled, journal or
   // not), a different population; `suggestedCount` and `unallocatedCount` split the amount's
   // own population in two, so their sum is the count that belongs beside it.
+  // TWO "UNALLOCATED"S: the printed "unallocated bank items" is that SUM (no
+  // journal line, not excluded); the service's `unallocatedCount` alone is the
+  // narrower part with no suggestion or category either. Never print it alone.
   const itemsOn = (r: BankAccountStatusRow): number => r.suggestedCount + r.unallocatedCount;
   const items = rows.reduce((s, r) => s + itemsOn(r), 0);
   // THE COUNT RAISES THE MATTER, NOT THE AMOUNT. `unreconciledBalance` is each
