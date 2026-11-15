@@ -4,6 +4,7 @@
  */
 
 import { isRealCalendarDate } from '@/lib/validation';
+import type { BankCsvParseResult } from '../types/bank.types';
 
 /**
  * Parse a CSV string into lines, handling quoted fields.
@@ -73,6 +74,31 @@ export function parseAmount(value: string): number | null {
 
   const num = parseFloat(cleaned);
   return isNaN(num) ? null : num;
+}
+
+// A plain number as SA exports print one: an optional leading sign, digits (optionally grouped by space, NBSP or
+// comma), and an optional decimal part ('.' + 1-2 digits, or ',' + exactly 2, as parseAmount reads it).
+const PLAIN_NUMBER = /^[+-]?(?:\d{1,3}(?:[\s\u00A0,]\d{3})+|\d+)(?:\.\d{1,2}|,\d{2})?$/;
+
+/**
+ * A running-balance cell, read strictly (WP1 PR-A review round 2). parseAmount is lenient — parseFloat stops at the
+ * first character it cannot read, so "50.00 Dr" and "100.00-" read as +50 and +100 — and a sign-flipped balance
+ * column can still chain (all amounts equal), storing a wrong opening/closing as 'running_balance'. A blank cell is
+ * absent (undefined). Anything that is not a plain number (a Dr/Cr mark, a trailing or bracketed sign, a currency
+ * symbol) leaves the line without a balance AND flags the file (`balancesUnverifiable`), so it is 'unverified'.
+ * No CSV format here is known to mark balances with Dr/Cr, so none is read as a sign.
+ */
+export function readBalanceCell(result: BankCsvParseResult, fields: string[], index: number, row: number): number | undefined {
+  if (fields.length <= index) return undefined;
+  const raw = fields[index]!;
+  const cell = raw.trim().replace(/^["']|["']$/g, '').trim();
+  if (cell === '') return undefined;
+  const value = PLAIN_NUMBER.test(cell) ? parseAmount(cell) : null;
+  if (value === null) {
+    result.balancesUnverifiable ??= `row ${row}: balance "${cell.slice(0, 30)}" is not a plain number`;
+    return undefined;
+  }
+  return value;
 }
 
 /**

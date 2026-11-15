@@ -18,7 +18,7 @@
  */
 
 import type { BankCsvParseResult, ParsedBankTransaction } from '../types/bank.types';
-import { parseCsvLines, parseAmount, normalizeDateFlexible } from './bankCsvParserUtils';
+import { parseCsvLines, parseAmount, normalizeDateFlexible, readBalanceCell } from './bankCsvParserUtils';
 
 export interface MappedColumns {
   date: number;
@@ -182,9 +182,9 @@ export function parseHeaderMappedCsv(
       if (reference !== '') tx.reference = reference;
     }
 
-    if (columns.balance !== null && fields.length > columns.balance) {
-      const balance = parseAmount(fields[columns.balance]!);
-      if (balance !== null) tx.balance = balance;
+    if (columns.balance !== null) {
+      const balance = readBalanceCell(result, fields, columns.balance, i + 1);
+      if (balance !== undefined) tx.balance = balance;
     }
 
     result.transactions.push(tx);

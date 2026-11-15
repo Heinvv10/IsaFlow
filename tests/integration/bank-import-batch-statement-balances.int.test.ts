@@ -122,25 +122,45 @@ describe('statement balances on every import batch', () => {
     expect(await stored(id)).toEqual({ opening: null, closing: '5330.00', source: 'printed', lines: 2 });
   });
 
-  it('(g) OCR commit: the closing balance the read found is copied as printed; none found is not_in_file', async () => {
-    const commitOcr = async (tag: string, opening: number | null, closing: number | null) => {
+  it('(g) OCR commit: the closing balance the read found is stored as ai_read (never printed); none found is not_in_file', async () => {
+    const commitOcr = async (tag: string, opening: number | null, closing: number | null,
+      period: [string | null, string | null] = ['2026-09-01', '2026-09-30'], date = '2026-09-07') => {
       const doc = (await pool.query(
         `INSERT INTO captured_documents(company_id, file_name, file_type, document_type, uploaded_by)
          VALUES($1,'stmt.pdf','pdf','statement',$2) RETURNING id`, [f.c, a])).rows[0].id as string;
-      const rows = [{ date: '2026-09-07', description: `G ${tag}`, reference: null, amount: -55, runningBalance: null,
+      const rows = [{ date, description: `G ${tag}`, reference: null, amount: -55, runningBalance: null,
         isDuplicate: false, duplicateOfBankTxId: null, duplicateMatchConfidence: 0 }];
       const imp = (await pool.query(
         `INSERT INTO bank_statement_imports(company_id, bank_account_id, source_document_id, period_start, period_end,
            opening_balance, closing_balance, row_count, extraction_summary, created_by)
-         VALUES($1,$2,$3,DATE '2026-09-01',DATE '2026-09-30',$4,$5,1,$6::jsonb,$7) RETURNING id`,
-        [f.c, f.bank, doc, opening, closing, JSON.stringify({ rows }), a])).rows[0].id as string;
+         VALUES($1,$2,$3,$4::DATE,$5::DATE,$6,$7,1,$8::jsonb,$9) RETURNING id`,
+        [f.c, f.bank, doc, period[0], period[1], opening, closing, JSON.stringify({ rows }), a])).rows[0].id as string;
       const res = await callRoute(ocrCommit as never, tokens[a]!, f.c, 'POST', undefined,
         `/api/accounting/bank-statements/${imp}/commit`, { id: imp });
       expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
       return imp;
     };
-    expect(await stored(await commitOcr('READ', 1055.5, 1000.5))).toEqual({ opening: '1055.50', closing: '1000.50', source: 'printed', lines: 1 });
+    expect(await stored(await commitOcr('READ', 1055.5, 1000.5))).toEqual({ opening: '1055.50', closing: '1000.50', source: 'ai_read', lines: 1 });
     expect(await stored(await commitOcr('NONE', null, null))).toEqual({ opening: null, closing: null, source: 'not_in_file', lines: 1 });
+    // Round 2 repros: each was stored as printed. Now none of them stores a figure.
+    const doubted = { opening: null, closing: null, source: 'unverified', lines: 1 };
+    expect(await stored(await commitOcr('AFTER END', null, 1000.5, ['2026-09-01', '2026-09-30'], '2026-10-15'))).toEqual(doubted);
+    expect(await stored(await commitOcr('NO END', null, 1000.5, ['2026-09-01', null]))).toEqual(doubted);
+    expect(await stored(await commitOcr('BACKWARDS', null, 1000.5, ['2026-09-30', '2026-09-01']))).toEqual(doubted);
+    expect(await stored(await commitOcr('NOT ADDING UP', 1055.5, 1000))).toEqual(doubted);
+  });
+
+  it('(k) a generic CSV with a "Balance" header, statement dated its last line exactly: running_balance', async () => {
+    const csv = ['Date,Description,Amount,Balance', '2026-12-01,K ONE,100.00,1100.00', '2026-12-02,K TWO,-40.00,1060.00'].join('\n');
+    const id = await upload(csv, '2026-12-02', 'generic');
+    expect(await stored(id)).toEqual({ opening: '1000.00', closing: '1060.00', source: 'running_balance', lines: 2 });
+  });
+
+  it('(l) round 2 repro: a generic CSV whose last row has a bad date imports the rest, and stores no figure', async () => {
+    const csv = ['Date,Description,Amount,Balance', '2026-12-10,L ONE,100.00,1100.00', '2026-12-11,L TWO,100.00,1200.00',
+      '31/31/2026,L THREE,100.00,1300.00'].join('\n');
+    const id = await upload(csv, '2026-12-31', 'generic');
+    expect(await stored(id)).toEqual({ opening: null, closing: null, source: 'unverified', lines: 2 });
   });
 
   it('(h) extension feed (ingestBankBatch): not_in_file', async () => {

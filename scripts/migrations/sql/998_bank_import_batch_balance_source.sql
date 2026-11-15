@@ -1,10 +1,12 @@
 -- scripts/migrations/sql/998_bank_import_batch_balance_source.sql
 -- Where an import batch's opening/closing balance came from, or why it has none (WP1 PR-A).
---   printed          the file states it (OFX BALAMT, MT940 :60F:/:62F:, an AI-read PDF's closing balance)
+--   printed          the file states it (OFX LEDGERBAL BALAMT, MT940 :60F:/:62F:)
 --   running_balance  derived from the lines' own running balance, whose chain agrees with every line's amount
+--   ai_read          a PDF statement's balance as read by the AI model (bank-statements commit): never 'printed'
 --   not_in_file      the file format carries no balance (QIF, a CSV without a balance column, a feed, a worksheet)
---   unverified       the file carries one, but the chain breaks, a brought-forward figure disagrees, or a line is
---                    dated after the statement date: the figures are NOT written
+--   unverified       the file carries one, but it cannot be trusted (a skipped line, a broken or ambiguous chain, an
+--                    unreadable balance, two accounts in one file, a line after the statement date, ...): the
+--                    figures are NOT written
 -- NULL is a batch imported before this column existed. No backfill.
 --
 -- Additive and idempotent. The app writes the column only at INSERT (nothing UPDATEs a batch, 877), which
@@ -21,7 +23,7 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_import_batches_balance_source_ck'
                  AND conrelid = 'bank_import_batches'::regclass) THEN
     ALTER TABLE bank_import_batches ADD CONSTRAINT bank_import_batches_balance_source_ck
-      CHECK (balance_source IS NULL OR balance_source IN ('printed','running_balance','not_in_file','unverified')) NOT VALID;
+      CHECK (balance_source IS NULL OR balance_source IN ('printed','running_balance','ai_read','not_in_file','unverified')) NOT VALID;
     ALTER TABLE bank_import_batches VALIDATE CONSTRAINT bank_import_batches_balance_source_ck;
   END IF;
 END $$;
