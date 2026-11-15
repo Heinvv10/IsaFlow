@@ -87,16 +87,21 @@ export class YearCloseBlockedError extends Error {
   }
 }
 
+/** What a close / lock / reopen holds while it runs: the period rows, and the year row their status writes lock. */
+export const PERIOD_LOCKS_HELD = 'a fiscal period or its financial year';
+
 /**
- * A period row lock not acquired within its budget (55P03), or this close was a
- * deadlock victim (40P01). The `_LOCK_TIMEOUT` code makes it a held row
- * (`isLockTimeoutError`): the routes answer 503 + Retry-After and roll the
- * request back, and MCP shows the message.
+ * A lock not acquired within its budget (55P03), or this flow was a deadlock
+ * victim (40P01), anywhere inside a period flow (withPeriodLockBudget). The
+ * message names what the flow could have been waiting for (`what`), because
+ * the SQLSTATE does not say which lock it was. The `_LOCK_TIMEOUT` code makes
+ * it a held row (`isLockTimeoutError`): the routes answer 503 + Retry-After and
+ * roll the request back, and MCP shows the message.
  */
 export class FiscalPeriodLockTimeoutError extends Error {
   readonly code = 'FISCAL_PERIOD_LOCK_TIMEOUT';
-  constructor() {
-    super('This fiscal period is being changed by another request. Nothing was changed; retry in a moment.');
+  constructor(what: string = PERIOD_LOCKS_HELD) {
+    super(`Another request is holding ${what}. Nothing was changed; retry in a moment.`);
     this.name = 'FiscalPeriodLockTimeoutError';
   }
 }

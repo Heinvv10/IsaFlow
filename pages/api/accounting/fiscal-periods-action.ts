@@ -51,6 +51,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
+  let bulk = false;
 
   try {
     const { id, ids, action, fiscalYear, confirm } = req.body as {
@@ -80,6 +81,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (ids.length > 60) {
         return apiResponse.badRequest(res, 'bulk action limit is 60 periods per request');
       }
+      bulk = true;
       return apiResponse.success(res, await runBulkPeriodAction(companyId, action as BulkPeriodAction, ids, userId));
     }
 
@@ -115,8 +117,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // A held period: 503 + Retry-After, and the request (a bulk's earlier periods too) rolls back.
     if (respondIfLockTimeout(res, err)) return;
     // A driver error (it carries a SQLSTATE) is a fault, not a refusal: rethrown, it is a 500 and the
-    // request rolls back whole. A 4xx would COMMIT whatever an earlier bulk period wrote.
-    if (!isCallerSafeError(err)) throw err;
+    // request rolls back whole. A 4xx would COMMIT whatever an earlier bulk period wrote. A bulk run
+    // answers every refusal as a result row, so anything else it throws is a fault too, typed or not.
+    if (bulk || !isCallerSafeError(err)) throw err;
     log.warn('Fiscal period action refused', { error: err.message }, 'accounting-api');
     return apiResponse.badRequest(res, err.message);
   }

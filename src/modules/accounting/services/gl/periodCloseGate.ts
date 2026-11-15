@@ -104,16 +104,21 @@ export function lockTimeoutMs(setting: string): number | null {
  * budget: a transaction-local `lock_timeout` of 5 s, or the caller's own when
  * that is tighter (tighten only, never loosen), restored afterwards. A wait that
  * runs out, or a deadlock this flow lost, is `FiscalPeriodLockTimeoutError`:
- * 503 + Retry-After at the routes, and the whole request rolls back.
+ * 503 + Retry-After at the routes, and the whole request rolls back. `what`
+ * names the locks the flow takes (default: a fiscal period or its year), since
+ * any lock wait inside `fn` lands here, not only the period rows'.
+ * A lock wait inside a readiness check is rethrown by the check, not degraded
+ * to "Could not compute" (getCloseReadiness, subLedgerTieCheck), so it is busy
+ * (503) here too, never a refusal.
  * No `statement_timeout` is set: a check cancelled by one degrades to "Could not
  * compute", which refuses the close, so a tight one would turn load into refusals.
  */
-export async function withPeriodLockBudget<T>(fn: () => Promise<T>): Promise<T> {
+export async function withPeriodLockBudget<T>(fn: () => Promise<T>, what?: string): Promise<T> {
   const client = als.getStore()?.client;
   let deadline = Date.now() + ROW_LOCK_BUDGET_MS;
   if (client) {
     const current = lockTimeoutMs(await currentLockTimeout(client));
     if (current !== null && current > 0) deadline = Math.min(deadline, Date.now() + current);
   }
-  return withRowLockBudget(fn, () => new FiscalPeriodLockTimeoutError(), { deadline, isTimeout: isLockContention });
+  return withRowLockBudget(fn, () => new FiscalPeriodLockTimeoutError(what), { deadline, isTimeout: isLockContention });
 }

@@ -61,6 +61,9 @@ import { assertYearCloseReady, withPeriodLockBudget } from './periodCloseGate';
 import { YearCloseBlockedError } from './periodCloseErrors';
 import { YearEndPeriodsNotClosedError } from './yearEndPeriodGate';
 
+/** Every lock the live year-end close can wait on, for the busy (503) message. */
+const YEAR_END_LOCKS = "a lock the year-end close needs (the year's fiscal periods, the financial year, the VAT period lock or "
+  + 'the journal numbering lock)';
 type OpenPeriod = { id: string; periodName: string; periodNumber: number };
 const openPeriodsResult = (openPeriods: OpenPeriod[]): CloseYearError =>
   ({ error: 'open_periods', count: openPeriods.length, openPeriods });
@@ -232,10 +235,11 @@ export async function closeFiscalYear(
       if (!fiscalPeriodId) return { error: 'no_fiscal_period', entryDate: preview.entryDate };
     }
 
-    // Every period lock waits a bounded time (503 + Retry-After when it runs out).
+    // Every lock wait is bounded (503 + Retry-After when it runs out). Inside: the year's period rows and
+    // year row, the VAT period lock (assertJournalVatPeriodOpen) and the journal numbering lock.
     ({ entry: closingEntry, periodsLocked } = await withPeriodLockBudget(() => postClosingJournal(
       companyId, userId, yearLabel, preview, fiscalPeriodId,
-    )));
+    ), YEAR_END_LOCKS));
   } catch (err) {
     // Both raised inside the write transaction, before its first write; it rolled back.
     if (err instanceof YearCloseBlockedError) return checksFailed(err);

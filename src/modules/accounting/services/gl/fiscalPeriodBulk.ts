@@ -12,10 +12,15 @@
  * ── PARTIAL SUCCESS, NEVER FALSE SUCCESS ────────────────────────────────────
  * Each period runs in its own savepoint. A REFUSAL (the readiness gate, a
  * status or order guard) is that period's `ok: false` row and the rest go on.
- * Anything else — a lock wait that ran out, a deadlock, a driver error, a
- * Login-as session — is rethrown: the route answers 503 / 403 / 500 and the
- * request rolls back whole, so no response can report `ok: true` for a write
- * the database did not keep.
+ * Anything else — a lock wait that ran out, a deadlock, a driver error, an
+ * untyped Error, a Login-as session — is rethrown out of an OUTER savepoint
+ * around the whole run, which rolls back every period this request closed,
+ * whatever status the route then answers (503 / 403 / 500). No response can
+ * report `ok: true`, or commit a period while saying "failed".
+ *
+ * ── ONE ROW PER PERIOD ──────────────────────────────────────────────────────
+ * The ids are de-duplicated first: a period clicked twice is one write and one
+ * result row, and `total` counts distinct ids.
  */
 
 import { sql, withSavepoint, type DbRow } from '@/lib/neon';
@@ -65,8 +70,9 @@ function refusalRow(id: string, err: unknown): BulkPeriodRow | null {
 export async function runBulkPeriodAction(
   companyId: string, action: BulkPeriodAction, ids: readonly string[], userId: string,
 ): Promise<BulkPeriodResult> {
-  return withPeriodLockBudget(async () => {
-    const valid = [...new Set(ids.filter((id) => UUID_RE.test(id)))];
+  const unique = [...new Set(ids)];
+  return withPeriodLockBudget(() => withSavepoint('fp_bulk', async () => {
+    const valid = unique.filter((id) => UUID_RE.test(id));
     const locked = valid.length === 0 ? [] : (await sql`
       SELECT id FROM fiscal_periods
       WHERE company_id = ${companyId}::UUID AND id = ANY(${valid}::UUID[])
@@ -88,9 +94,9 @@ export async function runBulkPeriodAction(
       }
     }
 
-    const results = ids.map((id) => byId.get(id) ?? { id, ok: false, error: NOT_FOUND });
+    const results = unique.map((id) => byId.get(id) ?? { id, ok: false, error: NOT_FOUND });
     const okCount = results.filter((r) => r.ok).length;
-    log.info('Bulk fiscal period action', { action, total: ids.length, ok: okCount }, 'accounting');
-    return { results, okCount, total: ids.length };
-  });
+    log.info('Bulk fiscal period action', { action, total: unique.length, ok: okCount }, 'accounting');
+    return { results, okCount, total: unique.length };
+  }));
 }

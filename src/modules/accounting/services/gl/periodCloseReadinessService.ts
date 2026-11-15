@@ -27,6 +27,7 @@
 
 import { log } from '@/lib/logger';
 import { withSavepoint } from '@/lib/neon';
+import { isLockContention } from '@/modules/accounting/services/core/lockContention';
 import { getFiscalPeriodById } from './fiscalPeriodService';
 import { bankReconciledCheck } from './closeReadinessChecks/bankReconciledCheck';
 import { unpostedJournalsCheck } from './closeReadinessChecks/unpostedJournalsCheck';
@@ -163,6 +164,9 @@ export async function getCloseReadiness(
     try {
       items.push(await withSavepoint(`close_check_${idx}`, runners[idx]!));
     } catch (err) {
+      // A lock wait that ran out (55P03) or a lost deadlock (40P01) is "busy, retry", not "could not
+      // compute": rethrown (its savepoint already rolled back), it is the close's 503, never a refusal.
+      if (isLockContention(err)) throw err;
       log.error('close-readiness check failed', { error: err, checkIndex: idx }, 'accounting');
       items.push({
         key: CHECK_KEYS[idx]!,
