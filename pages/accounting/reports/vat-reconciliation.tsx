@@ -61,8 +61,9 @@ export default function VatReconciliationPage() {
       {/* Controls */}
       <div className="mb-6 flex flex-wrap items-end gap-4">
         <div>
-          <label className="mb-1 block text-xs text-zinc-400">View</label>
+          <label htmlFor="vat-recon-view" className="mb-1 block text-xs text-zinc-400">View</label>
           <select
+            id="vat-recon-view"
             value={mode}
             onChange={(e) => setMode(e.target.value as ViewMode)}
             className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white"

@@ -151,7 +151,7 @@ export default function EmployeesListPage() {
                     <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Type</th>
                     {mayWrite && <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Start</th>}
                     <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Status</th>
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium"></th>
+                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium"><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>

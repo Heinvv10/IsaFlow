@@ -122,24 +122,24 @@ export default function TrialBalancePage() {
           className="mb-0"
           actions={
             <>
-              <select value={selectedPeriod} onChange={e => setSelectedPeriod(e.target.value)} className={selectClass}>
+              <select aria-label="Fiscal period" value={selectedPeriod} onChange={e => setSelectedPeriod(e.target.value)} className={selectClass}>
                 {periods.map(p => (
                   <option key={p.id} value={p.id}>{p.periodName} ({p.status})</option>
                 ))}
               </select>
-              <select value={comparePeriodId} onChange={e => setComparePeriodId(e.target.value)} className={selectClass}>
+              <select aria-label="Compare with period" value={comparePeriodId} onChange={e => setComparePeriodId(e.target.value)} className={selectClass}>
                 <option value="">No comparison</option>
                 {periods.filter(p => p.id !== selectedPeriod).map(p => (
                   <option key={p.id} value={p.id}>{p.periodName}</option>
                 ))}
               </select>
-              <select value={costCentreId} onChange={e => setCostCentreId(e.target.value)} className={selectClass}>
+              <select aria-label="Cost centre" value={costCentreId} onChange={e => setCostCentreId(e.target.value)} className={selectClass}>
                 <option value="">All Cost Centres</option>
                 {costCentres.map(cc => (
                   <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
                 ))}
               </select>
-              <select value={businessUnitId} onChange={e => setBusinessUnitId(e.target.value)} className={selectClass}>
+              <select aria-label="Business unit" value={businessUnitId} onChange={e => setBusinessUnitId(e.target.value)} className={selectClass}>
                 <option value="">All Business Units</option>
                 {businessUnitId && !businessUnits.some(bu => bu.id === businessUnitId) && (
                   <option value={businessUnitId}>Selected Business Unit (unavailable)</option>

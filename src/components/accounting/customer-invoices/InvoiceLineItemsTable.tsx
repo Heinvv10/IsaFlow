@@ -150,7 +150,7 @@ export function InvoiceLineItemsTable({
             <th className={`${th} text-right w-32`}>Unit Price{pricesIncludeVat && <span className="font-normal"> (incl. VAT)</span>}</th>
             {showDiscount && <th className={`${th} text-right w-20`}>Disc.%</th>}
             <th className={`${th} px-4 text-right w-32`}>Total{pricesIncludeVat && <span className="font-normal"> (excl. VAT)</span>}</th>
-            <th className="w-9" />
+            <th className="w-9"><span className="sr-only">Remove line</span></th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
