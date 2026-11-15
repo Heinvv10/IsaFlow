@@ -9,15 +9,23 @@
  *
  * Both are `requiresPost`: voiding a posted receipt writes a reversing journal,
  * which is the same authority `reverse_bank_allocation` asks for.
+ *
+ * void_payment also takes `undo_share` + `share_journal_id` and `dry_run` (step 6,
+ * `writeVoidPaymentUndoShare.ts`).
  */
 import type { McpTool } from '../types';
 import {
   isVoidRefusal,
   voidPaymentDocument,
   type PaymentKind,
+  type VoidRefusal,
 } from '@/modules/accounting/services/core/paymentVoidService';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import {
+  UNDO_SHARE_PROPERTIES, hasUndoShare, parseUndoArgs, runVoidPayment, undoShareReply, undoShareScopeRefusal,
+  type VoidOutcome,
+} from './writeVoidPaymentUndoShare';
 
 const REVERSAL_DATE_PROPERTY = {
   reversal_date: {
@@ -45,6 +53,7 @@ function voidTool(
       properties: {
         [idKey]: { type: 'string' },
         ...REVERSAL_DATE_PROPERTY,
+        ...(kind === 'supplier' ? UNDO_SHARE_PROPERTIES : {}),
         idempotency_key: { type: 'string' },
       },
       required: [idKey, 'idempotency_key'],
@@ -57,54 +66,37 @@ function voidTool(
       if (bad) return bad;
 
       const reversalDate = strArg(args, 'reversal_date');
+      const undo = kind === 'supplier' ? parseUndoArgs(args) : null;
+      if (undo && 'content' in undo) return undo;
+      const scopeRefusal = undo ? undoShareScopeRefusal(ctx, undo) : null;
+      if (scopeRefusal) return scopeRefusal;
 
       // No catch. Every refusal below is answered from a READ, before the first
       // write; anything that throws after that must reach the registry's
       // savepoint rather than being flattened into a tool error, because a
       // refusal is audited with a NULL idempotency key and the agent's retry on
       // that key would void a second time.
-      const result = await voidPaymentDocument(
-        ctx.companyId,
-        kind,
-        paymentId,
-        ctx.userId,
-        {
-          ...mcpPostingOpts(ctx, name),
-          ...(reversalDate === undefined ? {} : { reversalDate }),
-        },
-      );
-
-      if (isVoidRefusal(result)) {
-        // NOT_FOUND covers a foreign id too: a distinct "belongs to another
-        // company" reply is an existence oracle. The other two name the
-        // document's own status, which the agent can already read.
-        if (result.refusal === 'not_found') return toolError(NOT_FOUND);
-        if (result.refusal === 'already_cancelled') {
-          return toolError('This document is already cancelled.');
-        }
-        if (result.refusal === 'ambiguous_bank_lines') {
-          return toolError(
-            `This document's journal settles ${result.count} bank transactions, so voiding it `
-            + 'would reverse the journal while leaving the others allocated against it. '
-            + 'Reverse each bank line with reverse_bank_allocation instead.',
-          );
-        }
-        if (result.refusal === 'split_part') return toolError(result.message);
-        if (result.refusal === 'batch_member') {
-          // The HTTP void's wording (supplierPaymentGates.refuseBatchMember): the batch's one journal paid it.
-          return toolError(`Payment ${result.paymentNumber ?? paymentId} belongs to batch ${result.batchId} — `
-            + 'it was paid by that batch; reverse the batch (Batch Payments page) instead.');
-        }
-        return toolError(
-          `Only a document whose cash has been applied can be voided (status: ${result.status}). `
-          + 'An unapplied document has not moved any invoice balance — cancel it instead.',
+      const result: VoidOutcome = undo
+        ? await runVoidPayment(ctx, paymentId, reversalDate, undo)
+        : await voidPaymentDocument(
+          ctx.companyId,
+          kind,
+          paymentId,
+          ctx.userId,
+          {
+            ...mcpPostingOpts(ctx, name),
+            ...(reversalDate === undefined ? {} : { reversalDate }),
+          },
         );
-      }
 
-      return ok({
+      if (isVoidRefusal(result)) return refusalReply(result, paymentId);
+
+      const dryRun = undo?.dryRun === true;
+      const reply = ok({
+        ...(dryRun ? { dryRun: true, would_void: true } : {}),
         [idKey]: result.paymentId,
         payment_number: result.paymentNumber,
-        voided: true,
+        voided: !dryRun,
         invoices_reopened: result.invoicesReopened,
         amount_unapplied: result.amountUnapplied,
         journal_entry_id: result.journalEntryId,
@@ -113,9 +105,46 @@ function voidTool(
         reversal_date_roll: result.vatLockRoll,
         // A bank-first settlement undo also reverses its reclass (R-127).
         reclass_reversal_date_roll: result.reclassVatLockRoll ?? null,
+        ...(hasUndoShare(result) ? {
+          undo_share: undoShareReply(result, dryRun),
+          reverse_with: 'reverse_journal_entry, once per id in undo_share.journal_entry_ids',
+        } : {}),
       });
+      // A dry run wrote nothing: the key stays free for the live call (registry, CONTRACTS §6), and it is not billed.
+      if (dryRun) {
+        reply.wroteNothing = true;
+        reply.billable = false;
+      }
+      return reply;
     },
   };
+}
+
+function refusalReply(result: VoidRefusal, paymentId: string) {
+  // NOT_FOUND covers a foreign id too: a distinct "belongs to another
+  // company" reply is an existence oracle. The other two name the
+  // document's own status, which the agent can already read.
+  if (result.refusal === 'not_found') return toolError(NOT_FOUND);
+  if (result.refusal === 'already_cancelled') {
+    return toolError('This document is already cancelled.');
+  }
+  if (result.refusal === 'ambiguous_bank_lines') {
+    return toolError(
+      `This document's journal settles ${result.count} bank transactions, so voiding it `
+      + 'would reverse the journal while leaving the others allocated against it. '
+      + 'Reverse each bank line with reverse_bank_allocation instead.',
+    );
+  }
+  if (result.refusal === 'split_part') return toolError(result.message);
+  if (result.refusal === 'batch_member') {
+    // The HTTP void's wording (supplierPaymentGates.refuseBatchMember): the batch's one journal paid it.
+    return toolError(`Payment ${result.paymentNumber ?? paymentId} belongs to batch ${result.batchId} — `
+      + 'it was paid by that batch; reverse the batch (Batch Payments page) instead.');
+  }
+  return toolError(
+    `Only a document whose cash has been applied can be voided (status: ${result.status}). `
+    + 'An unapplied document has not moved any invoice balance — cancel it instead.',
+  );
 }
 
 export const voidReceiptTool = voidTool(
@@ -136,5 +165,30 @@ export const voidPaymentTool = voidTool(
   'Void a supplier payment: takes the cash back off every bill it was applied to, '
   + 'reverses its journal, and cancels the document. If the payment settled a bank line, that line returns to unallocated too. '
   + 'Use to correct a payment captured in error — the original and its reversal both remain in the audit trail. '
-  + 'Requires the write:post permission. Already-cancelled documents are refused.',
+  + 'Requires the write:post permission. Already-cancelled documents are refused. '
+  + 'undo_share: true with share_journal_id ALSO undoes, per bill the payment settled, the share a person took out of '
+  + "a CONTRA payment's clearing account (the journal that reversed the bill's expense and input VAT against it): "
+  + "one journal per bill, DR the bill's expense legs (with their dimensions) + VAT Input / CR the clearing account, "
+  + "for what THIS payment applied to the bill, split pro rata over the bill's own posting, dated on the share "
+  + "journal's date (refused, never rolled, when that period is closed or VAT-locked), reference "
+  + 'undo-share:<payment_id>:<bill_id>; a second undo of the same bill and payment is refused. Posted after the '
+  + 'void in the same call; each is reversible with reverse_journal_entry. Refused unless the payment is a contra '
+  + "and the share journal still HOLDS what is undone — cumulatively: its debit on the clearing account and its credit "
+  + 'on each bill account, less every earlier live undo of that share. A share that debits the clearing account by '
+  + 'more than this payment applied carries other bills: then undo_amounts (how much of each bill it reversed, from '
+  + "the share's own working) is required. Hand undos count against what the share holds, like an earlier undo: ANY "
+  + "journal not linked to a share, dated in the share's month or a bill's month, that credits the clearing account "
+  + "and debits the share's accounts — counted GROSS (a correction netting the clearing account to nil still counts), "
+  + 'netted only with its own reversals — even one that undid a different share or bill. Another REVERSED journal of the '
+  + "share's shape (debits the clearing account, credits the share's accounts; any source) dated on or after the "
+  + 'earliest undone bill or the share — a share re-dated by reverse-and-repost — refuses the undo outright. Either can refuse a '
+  + 'legitimate undo; then post that undo by hand. A hand undo dated outside both months is not seen. Only a manual '
+  + 'journal (entered, imported or recurring) can be a share, and an undo is linked to its share by source record, '
+  + 'not by its reference text. Also '
+  + 'refused: a late-claimed bill and a deactivated account. A share with live undos cannot be reversed (re-dating a '
+  + 'share by reverse-and-repost): reverse its undos first. The undo journals carry no source document, so the '
+  + 'pre-filing VAT input check lists their VAT Input lines as no_document; the bill is the evidence. Under manual-journal '
+  + 'approval enforcement a matching rule refuses the call (a person must enter it). undo_share also needs the '
+  + 'write:journals permission. '
+  + 'Run with dry_run first: it performs the whole call and rolls it back, writing nothing.',
 );
