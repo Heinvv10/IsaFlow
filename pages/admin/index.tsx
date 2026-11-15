@@ -7,19 +7,11 @@ import { StatsCard } from '@/components/admin/StatsCard';
 import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
-import { AlertCircle, Building2, Users, ArrowRight, Loader2, Activity, Clock } from 'lucide-react';
+import { AlertCircle, Building2, Users, ArrowRight, Loader2, Activity } from 'lucide-react';
 import Link from 'next/link';
-import { formatDisplayDate } from '@/utils/dateFormat';
 import { adminFetch } from '@/lib/admin/adminFetch';
-
-interface TrialRow {
-  id: string;
-  name: string;
-  trial_ends_at: string;
-  user_count: number;
-  days_left: number;
-  status: string;
-}
+import { formatRate, MRR_SCOPE_NOTE } from '@/components/admin/formatMetric';
+import { TrialsExpiringSoon, type TrialRow } from '@/components/admin/dashboard/TrialsExpiringSoon';
 
 interface ActivityRow {
   id: string;
@@ -46,7 +38,7 @@ interface PlatformHealth {
   active_users_7d: number;
   active_users_30d: number;
   db_size_mb: number;
-  error_rate_percent: number;
+  error_rate_percent: number | null;
 }
 
 function fmtRelative(dateStr: string) {
@@ -57,17 +49,6 @@ function fmtRelative(dateStr: string) {
   if (hrs < 24)   return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
   return `${days}d ago`;
-}
-
-function trialDaysBadge(days: number) {
-  if (days <= 0) return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300">Expired</span>;
-  if (days <= 2) return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-500/20 text-red-400">{days}d</span>;
-  if (days <= 5) return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-500/20 text-orange-400">{days}d</span>;
-  return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-500/20 text-yellow-400">{days}d</span>;
-}
-
-function fmtTrialDate(iso: string): string {
-  return formatDisplayDate(iso);
 }
 
 export default function AdminDashboard() {
@@ -144,38 +125,37 @@ export default function AdminDashboard() {
             <StatsCard title="Active Companies"      value={stats.active_companies} />
             <StatsCard title="Total Users"           value={stats.total_users} />
             <StatsCard title="Active Users (30d)"    value={stats.active_users_30d} />
-            <StatsCard title="MRR"                   value={formatCurrency(stats.mrr_cents / 100)} />
+            <StatsCard title="MRR"                   value={formatCurrency(stats.mrr_cents / 100)} subtitle={MRR_SCOPE_NOTE} />
             <StatsCard title="New Signups (30d)"     value={stats.new_signups_30d} />
           </div>
 
-          {/* Platform Health */}
-          {health && (
-            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm mb-6">
-              <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-teal-500" />
-                  <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Platform Health</h2>
-                </div>
-                <Link href={adminHref('/admin/analytics')} className="text-xs text-teal-500 hover:text-teal-400 font-medium">
-                  View Full Analytics
-                </Link>
+          {/* Platform Health (a failed load says so instead of vanishing) */}
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm mb-6">
+            <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Activity className="w-4 h-4 text-teal-500" />
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Platform Health</h2>
               </div>
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-px bg-gray-200 dark:bg-gray-700">
-                {[
-                  { label: 'Active (24h)',  value: health.active_users_24h },
-                  { label: 'Active (7d)',   value: health.active_users_7d },
-                  { label: 'Active (30d)',  value: health.active_users_30d },
-                  { label: 'DB Size',       value: `${health.db_size_mb} MB` },
-                  { label: 'Error Rate',    value: `${health.error_rate_percent}%` },
-                ].map((item) => (
-                  <div key={item.label} className="bg-white dark:bg-gray-900 px-5 py-4">
-                    <p className="text-xs text-gray-500 dark:text-gray-400 font-medium uppercase tracking-wider mb-1">{item.label}</p>
-                    <p className="text-xl font-bold text-gray-900 dark:text-white">{item.value}</p>
-                  </div>
-                ))}
-              </div>
+              <Link href={adminHref('/admin/analytics')} className="text-xs text-teal-500 hover:text-teal-400 font-medium">
+                View Full Analytics
+              </Link>
             </div>
-          )}
+            {!health && <p className="px-5 py-4 text-sm text-red-400">Could not load platform health - reload to try again</p>}
+            {health && <div className="grid grid-cols-2 lg:grid-cols-5 gap-px bg-gray-200 dark:bg-gray-700">
+              {[
+                { label: 'Signed in (24h)', value: health.active_users_24h },
+                { label: 'Signed in (7d)',  value: health.active_users_7d },
+                { label: 'Signed in (30d)', value: health.active_users_30d },
+                { label: 'DB Size',         value: `${health.db_size_mb} MB` },
+                { label: 'Admin error rate (24h)', value: formatRate(health.error_rate_percent) },
+              ].map((item) => (
+                <div key={item.label} className="bg-white dark:bg-gray-900 px-5 py-4">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 font-medium uppercase tracking-wider mb-1">{item.label}</p>
+                  <p className="text-xl font-bold text-gray-900 dark:text-white">{item.value}</p>
+                </div>
+              ))}
+            </div>}
+          </div>
 
           {/* Recent Activity */}
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm mb-8">
@@ -223,62 +203,7 @@ export default function AdminDashboard() {
 
       {/* Trials Expiring Soon */}
       {trials.length > 0 && (
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm mb-8">
-          <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-yellow-500" />
-              <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Trials Expiring Soon</h2>
-              <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-500/20 text-yellow-400">{trials.length}</span>
-            </div>
-            <Link href={adminHref('/admin/trials')} className="text-xs text-teal-500 hover:text-teal-400 font-medium">
-              View All Trials
-            </Link>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
-                  <th className="px-5 py-3 font-medium">Company</th>
-                  <th className="px-5 py-3 font-medium">Trial Ends</th>
-                  <th className="px-5 py-3 font-medium">Users</th>
-                  <th className="px-5 py-3 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {trials.map((trial) => (
-                  <tr key={trial.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40">
-                    <td className="px-5 py-3 font-medium text-gray-900 dark:text-white">{trial.name}</td>
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtTrialDate(trial.trial_ends_at)}</span>
-                        {trialDaysBadge(trial.days_left)}
-                      </div>
-                    </td>
-                    <td className="px-5 py-3 text-gray-500 dark:text-gray-400">{trial.user_count}</td>
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => void extendTrial(trial.id)}
-                          disabled={extendingId === trial.id}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-teal-600/20 hover:bg-teal-600/40 text-teal-400 rounded-md transition-colors disabled:opacity-40"
-                        >
-                          {extendingId === trial.id && <Loader2 className="w-3 h-3 animate-spin" />}
-                          +7 days
-                        </button>
-                        <Link
-                          href={adminHref(`/admin/companies/${trial.id}`)}
-                          className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-700/40 hover:bg-gray-100 dark:hover:bg-gray-700/70 text-gray-700 dark:text-gray-300 rounded-md transition-colors"
-                        >
-                          Upgrade
-                        </Link>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <TrialsExpiringSoon trials={trials} extendingId={extendingId} onExtend={(id) => void extendTrial(id)} />
       )}
 
       {/* Quick Actions */}

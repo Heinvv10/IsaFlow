@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import type { CreditNote, CreditNoteCreateInput, CreditNoteStatus } from '../../types/ar.types';
 import { validateCreditNoteLinks } from './creditNoteLinkService';
 import { mapRow } from './creditNoteMapper';
+import { creditNoteListWhere } from './creditNoteListQuery';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { deriveLineDimensions } from '../gl/dimensions/dimensionDerivation';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
@@ -37,38 +38,19 @@ export async function getCreditNotes(companyId: string, filters?: CreditNoteFilt
   try {
     const limit = Math.min(filters?.limit || 50, 200);
     const offset = filters?.offset || 0;
-    let rows: Record<string, unknown>[];
-    let countRows: Record<string, unknown>[];
-
-    if (filters?.type) {
-      rows = (await sql`
-        SELECT cn.*, c.name AS client_name, COALESCE(s.company_name, s.name) AS supplier_name,
-          COALESCE(ci.invoice_number, si.invoice_number) AS invoice_number
-        FROM credit_notes cn
-        LEFT JOIN customers c ON c.id = cn.client_id AND c.company_id = cn.company_id
-        LEFT JOIN suppliers s ON s.id = cn.supplier_id AND s.company_id = cn.company_id
-        LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id AND ci.company_id = cn.company_id
-        LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id AND si.company_id = cn.company_id
-        WHERE cn.company_id = ${companyId} AND cn.type = ${filters.type}
-        ORDER BY cn.credit_date DESC, cn.created_at DESC, cn.id LIMIT ${limit} OFFSET ${offset}
-      `) as Record<string, unknown>[];
-      countRows = (await sql`
-        SELECT COUNT(*) AS cnt FROM credit_notes WHERE company_id = ${companyId} AND type = ${filters.type}
-      `) as Record<string, unknown>[];
-    } else {
-      rows = (await sql`
-        SELECT cn.*, c.name AS client_name, COALESCE(s.company_name, s.name) AS supplier_name,
-          COALESCE(ci.invoice_number, si.invoice_number) AS invoice_number
-        FROM credit_notes cn
-        LEFT JOIN customers c ON c.id = cn.client_id AND c.company_id = cn.company_id
-        LEFT JOIN suppliers s ON s.id = cn.supplier_id AND s.company_id = cn.company_id
-        LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id AND ci.company_id = cn.company_id
-        LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id AND si.company_id = cn.company_id
-        WHERE cn.company_id = ${companyId}
-        ORDER BY cn.credit_date DESC, cn.created_at DESC, cn.id LIMIT ${limit} OFFSET ${offset}
-      `) as Record<string, unknown>[];
-      countRows = (await sql`SELECT COUNT(*) AS cnt FROM credit_notes WHERE company_id = ${companyId}`) as Record<string, unknown>[];
-    }
+    const where = creditNoteListWhere(companyId, { type: filters?.type, status: filters?.status });
+    const rows = (await sql`
+      SELECT cn.*, c.name AS client_name, COALESCE(s.company_name, s.name) AS supplier_name,
+        COALESCE(ci.invoice_number, si.invoice_number) AS invoice_number
+      FROM credit_notes cn
+      LEFT JOIN customers c ON c.id = cn.client_id AND c.company_id = cn.company_id
+      LEFT JOIN suppliers s ON s.id = cn.supplier_id AND s.company_id = cn.company_id
+      LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id AND ci.company_id = cn.company_id
+      LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id AND si.company_id = cn.company_id
+      WHERE ${where}
+      ORDER BY cn.credit_date DESC, cn.created_at DESC, cn.id LIMIT ${limit} OFFSET ${offset}
+    `) as Record<string, unknown>[];
+    const countRows = (await sql`SELECT COUNT(*) AS cnt FROM credit_notes cn WHERE ${where}`) as Record<string, unknown>[];
 
     return { creditNotes: rows.map(mapRow), total: Number(countRows[0]!.cnt) };
   } catch (err) {

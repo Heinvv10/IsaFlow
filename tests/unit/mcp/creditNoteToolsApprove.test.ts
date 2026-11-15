@@ -125,12 +125,12 @@ describe('read tools', () => {
     expect(getCreditNotes).not.toHaveBeenCalled();
   });
 
-  it('list_credit_notes clamps limit to 200 and passes the filters through', async () => {
+  it('list_credit_notes clamps limit to 75 and passes the filters through', async () => {
     vi.mocked(getCreditNotes).mockResolvedValue({ creditNotes: [], total: 0 } as never);
     await listCreditNotesTool.handler({ type: 'supplier', status: 'applied', limit: 5000 }, ctx());
     expect(getCreditNotes).toHaveBeenCalledWith(
       COMPANY,
-      expect.objectContaining({ type: 'supplier', status: 'applied', limit: 200 }),
+      expect.objectContaining({ type: 'supplier', status: 'applied', limit: 75 }),
     );
   });
 

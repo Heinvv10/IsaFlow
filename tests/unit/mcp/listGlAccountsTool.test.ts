@@ -181,7 +181,7 @@ describe('list_gl_accounts', () => {
     expect((both.accounts as { id: string }[]).map((a) => a.id)).toEqual(['a3']);
   });
 
-  it('defaults to 200 rows and clamps limit at 500, reporting the unclamped total', async () => {
+  it('defaults to 200 rows and clamps limit at 250, reporting the unclamped total', async () => {
     vi.mocked(getChartOfAccounts).mockResolvedValue(
       Array.from({ length: 600 }, (_, i) => account({ id: `id-${i}`, accountCode: String(i) })),
     );
@@ -191,7 +191,7 @@ describe('list_gl_accounts', () => {
     expect(dflt.total).toBe(600);
 
     const clamped = parseOk(await listGlAccountsTool.handler({ limit: 9999 }, ctx()));
-    expect((clamped.accounts as unknown[]).length).toBe(500);
+    expect((clamped.accounts as unknown[]).length).toBe(250);
 
     const asked = parseOk(await listGlAccountsTool.handler({ limit: 5 }, ctx()));
     expect((asked.accounts as unknown[]).length).toBe(5);

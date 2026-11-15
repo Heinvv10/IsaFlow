@@ -103,6 +103,7 @@ describe('admin company detail completes on a success envelope', () => {
     render(<CompanyDetailPage />);
     expect((await screen.findAllByText('Pelican Traders')).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: /^suspend$/i }));
+    fireEvent.change(screen.getByLabelText('Reason for suspension'), { target: { value: 'Unpaid' } }); // Suspend needs a reason (#1400)
     const suspend = screen.getAllByRole('button', { name: /^suspend$/i });
     fireEvent.click(suspend[suspend.length - 1]!);
     expect(await screen.findByRole('button', { name: /^activate$/i })).toBeTruthy();
