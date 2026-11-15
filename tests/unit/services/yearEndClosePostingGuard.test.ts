@@ -44,6 +44,14 @@ vi.mock('@/lib/neon', () => {
   return { sql, tx, withTransaction: vi.fn((cb: (t: typeof tx) => unknown) => cb(tx)) };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
+// The year's period lock + readiness gate is yearEndPeriodGate's (tests/unit/services/gl/yearEndPeriodGate.test.ts):
+// here it passes, and the lock is one UPDATE on the transaction whose RETURNING is counted.
+vi.mock('@/modules/accounting/services/gl/yearEndPeriodGate', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/yearEndPeriodGate')>()),
+  lockAndJudgeYear: vi.fn(async () => ['period-1']),
+  lockYear: vi.fn(async (tx: (s: TemplateStringsArray) => Promise<unknown[]>) =>
+    (await tx`UPDATE fiscal_periods SET status = 'locked' RETURNING id`).length),
+}));
 
 const buildPreviewMock = vi.fn();
 vi.mock('@/modules/accounting/services/gl/yearEndJournalBuilder', async (importOriginal) => ({

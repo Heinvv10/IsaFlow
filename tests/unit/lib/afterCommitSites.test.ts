@@ -39,7 +39,8 @@ vi.mock('@/modules/accounting/services/core/webhookService', () => ({ fireWebhoo
 vi.mock('@/modules/accounting/services/budgets/drivers/budgetRollJob', () => ({ runBudgetRolls: m.runBudgetRolls }));
 // The close-readiness gate is not under test here (periodCloseGate.test.ts): it passes.
 vi.mock('@/modules/accounting/services/gl/periodCloseGate', () => ({
-  assertPeriodCloseReady: vi.fn(async () => undefined), assertYearCloseReady: vi.fn(async () => undefined),
+  assertPeriodCloseReady: vi.fn(async () => ({ items: [] })), assertYearCloseReady: vi.fn(async () => undefined),
+  withPeriodLockBudget: (fn: () => Promise<unknown>) => fn(),
 }));
 // The period paths queue the automatic snapshot too; its work is not under test here.
 vi.mock('@/modules/accounting/services/audit/autoSnapshot', () => ({ runAutoSnapshots: vi.fn(async () => undefined) }));
@@ -103,15 +104,16 @@ describe.each(sites)('%s', (_name, run, calls) => {
  * a request there is no principal to roll as: nothing is queued or started, and the close succeeds.
  */
 describe('fiscal period close paths → rolling forecast roll', () => {
-  const period = { id: 'p1', period_name: 'P1', period_number: 1, fiscal_year: 2027, start_date: '2026-03-01', end_date: '2026-03-31', cnt: 0 };
+  const P1 = '11111111-1111-4111-8111-111111111111';
+  const period = { id: P1, period_name: 'P1', period_number: 1, fiscal_year: 2027, start_date: '2026-03-01', end_date: '2026-03-31', cnt: 0 };
   const paths: Array<[string, () => Promise<unknown>, string]> = [
-    ['closePeriod', () => closePeriod(COMPANY, 'p1', 'u'), 'open'],
-    ['lockPeriod', () => lockPeriod(COMPANY, 'p1'), 'closed'],
+    ['closePeriod', () => closePeriod(COMPANY, P1, 'u'), 'open'],
+    ['lockPeriod', () => lockPeriod(COMPANY, P1), 'closed'],
     ['closeYear', () => closeYear(COMPANY, 2027, 'u'), 'open'],
   ];
 
   it.each(paths)('%s: queued, not started until the owner drains after COMMIT', async (_name, run, status) => {
-    m.sql.mockImplementation(async () => [{ ...period, status }]);
+    m.sql.mockImplementation(async (q: TemplateStringsArray) => (q.join('').includes('period_number <') ? [] : [{ ...period, status }]));
     const ctx = { client: { query: vi.fn() }, userId: 'u', companyId: COMPANY, claims: { sub: 'u' }, afterCommit: [] } as unknown as RequestContext;
     await runOwnedContext(ctx, async () => { await run(); });
     await new Promise((r) => setTimeout(r, 5));
@@ -123,8 +125,8 @@ describe('fiscal period close paths → rolling forecast roll', () => {
   });
 
   it('outside a request: the close succeeds and no roll is queued or started', async () => {
-    m.sql.mockImplementation(async () => [{ ...period, status: 'open' }]);
-    await expect(closePeriod(COMPANY, 'p1', 'u')).resolves.toMatchObject({ endDate: '2026-03-31' });
+    m.sql.mockImplementation(async (q: TemplateStringsArray) => (q.join('').includes('period_number <') ? [] : [{ ...period, status: 'open' }]));
+    await expect(closePeriod(COMPANY, P1, 'u')).resolves.toMatchObject({ endDate: '2026-03-31' });
     await new Promise((r) => setTimeout(r, 5));
     expect(m.runBudgetRolls).not.toHaveBeenCalled();
   });

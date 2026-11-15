@@ -9,11 +9,14 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 const svc = vi.hoisted(() => ({
   closeFiscalYear: vi.fn(), listFiscalYears: vi.fn(),
   closePeriod: vi.fn(), lockPeriod: vi.fn(), reopenPeriod: vi.fn(), closeYear: vi.fn(),
+  runBulkPeriodAction: vi.fn(),
   meterCalls: 0,
 }));
 vi.mock('@/modules/accounting/services/gl/yearEndService', () => ({
   closeFiscalYear: svc.closeFiscalYear, listFiscalYears: svc.listFiscalYears,
 }));
+// The bulk actions run each period through gl/fiscalPeriodBulk (ordered locks, per-period savepoints).
+vi.mock('@/modules/accounting/services/gl/fiscalPeriodBulk', () => ({ runBulkPeriodAction: svc.runBulkPeriodAction }));
 vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
   closePeriod: svc.closePeriod, lockPeriod: svc.lockPeriod, reopenPeriod: svc.reopenPeriod, closeYear: svc.closeYear,
 }));
@@ -118,8 +121,8 @@ describe('POST /api/accounting/fiscal-periods-action needs confirm: true', () =>
   const GATED: Array<[string, Record<string, unknown>, () => ReturnType<typeof vi.fn>]> = [
     ['close', { id: 'p1' }, () => svc.closePeriod],
     ['lock', { id: 'p1' }, () => svc.lockPeriod],
-    ['bulk_close', { ids: ['p1'] }, () => svc.closePeriod],
-    ['bulk_lock', { ids: ['p1'] }, () => svc.lockPeriod],
+    ['bulk_close', { ids: ['p1'] }, () => svc.runBulkPeriodAction],
+    ['bulk_lock', { ids: ['p1'] }, () => svc.runBulkPeriodAction],
     ['close_year', { fiscalYear: 2026 }, () => svc.closeYear],
   ];
 
@@ -141,8 +144,9 @@ describe('POST /api/accounting/fiscal-periods-action needs confirm: true', () =>
 
   it.each(['reopen', 'bulk_reopen'])('%s needs no confirmation', async (action) => {
     svc.reopenPeriod.mockResolvedValue({ id: 'p1' });
+    svc.runBulkPeriodAction.mockResolvedValue({ results: [], okCount: 0, total: 1 });
     const r = await call(periodsAction as Handler, 'POST', action === 'reopen' ? { action, id: 'p1' } : { action, ids: ['p1'] });
     expect(r.status).toBe(200);
-    expect(svc.reopenPeriod).toHaveBeenCalled();
+    expect(action === 'reopen' ? svc.reopenPeriod : svc.runBulkPeriodAction).toHaveBeenCalled();
   });
 });

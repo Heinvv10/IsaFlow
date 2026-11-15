@@ -98,6 +98,9 @@ describe('Fiscal Periods tab', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'confirm bulk' }));
     const panel = await screen.findByTestId('close-refusal');
     expectBlockers(panel, 'February 2026', [BANK]);
+    // Shown ONCE (Q6): the results banner counts it and points at the panel, it does not list it again.
+    expect(screen.getByText(/1 of 2 periods updated · 1 failed \(1 by the close checks, listed above\)/)).toBeTruthy();
+    expect(screen.queryByText(/^February 2026: /)).toBeNull();
   });
 
   it('Dismiss clears the panel', async () => {

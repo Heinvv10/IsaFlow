@@ -9,7 +9,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const svc = vi.hoisted(() => ({ closePeriod: vi.fn(), lockPeriod: vi.fn(), reopenPeriod: vi.fn(), closeYear: vi.fn() }));
+const bulk = vi.hoisted(() => ({ runBulkPeriodAction: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => svc);
+vi.mock('@/modules/accounting/services/gl/fiscalPeriodBulk', () => bulk);
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/auth', () => ({ withAuth: (fn: unknown) => fn, withRole: () => (fn: unknown) => fn }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
@@ -19,7 +21,9 @@ vi.mock('@/lib/auth/impersonationGuard', () => ({
 }));
 
 import periodsAction from '../../../pages/api/accounting/fiscal-periods-action';
-import { PeriodCloseBlockedError, YearCloseBlockedError } from '@/modules/accounting/services/gl/periodCloseErrors';
+import {
+  FiscalPeriodLockTimeoutError, PeriodCloseBlockedError, PeriodNotCloseableError, YearCloseBlockedError,
+} from '@/modules/accounting/services/gl/periodCloseErrors';
 import type { ChecklistItem } from '@/modules/accounting/services/gl/periodCloseReadinessService';
 
 const BANK: ChecklistItem = {
@@ -40,7 +44,9 @@ async function call(body: Record<string, unknown>) {
   return out as { status: number; body: { success: boolean; data?: unknown; error?: { message: string; details?: unknown } } };
 }
 
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => {
+  vi.resetAllMocks(); // resets the once-queues too: a test that leaves one must not feed the next
+});
 
 describe('fiscal-periods-action: a refused close', () => {
   it('single close → 409 naming the failing checks', async () => {
@@ -67,26 +73,33 @@ describe('fiscal-periods-action: a refused close', () => {
     });
   });
 
-  it('bulk close → per-period results; a refused period carries its blockers, the rest close', async () => {
-    svc.closePeriod
-      .mockResolvedValueOnce({ id: 'p1' })
-      .mockRejectedValueOnce(new PeriodCloseBlockedError('February 2026', [BANK], [BANK], 'p2'))
-      .mockRejectedValueOnce(new Error('Cannot close period while prior periods are still open'));
-    const r = await call({ action: 'bulk_close', ids: ['p1', 'p2', 'p3'] });
+  it('bulk close → the bulk service answers per period, as a 200 (refused rows carry their blockers)', async () => {
+    const data = { okCount: 1, total: 2, results: [{ id: 'p1', ok: true }, { id: 'p2', ok: false, code: 'PERIOD_CLOSE_NOT_READY' }] };
+    bulk.runBulkPeriodAction.mockResolvedValueOnce(data);
+    const r = await call({ action: 'bulk_close', ids: ['p2', 'p1'] });
     expect(r.status).toBe(200);
-    expect(r.body.data).toEqual({
-      okCount: 1, total: 3,
-      results: [
-        { id: 'p1', ok: true },
-        { id: 'p2', ok: false, error: expect.stringMatching(/^February 2026 cannot be closed/), code: 'PERIOD_CLOSE_NOT_READY',
-          periods: [{ periodId: 'p2', periodName: 'February 2026', blockers: [BANK_OUT] }] },
-        { id: 'p3', ok: false, error: 'Cannot close period while prior periods are still open' },
-      ],
-    });
+    expect(bulk.runBulkPeriodAction).toHaveBeenCalledWith('c1', 'bulk_close', ['p2', 'p1'], 'u1');
+    expect(r.body.data).toEqual(data);
+  });
+
+  it.each([
+    ['close', { action: 'close', id: 'p1' }],
+    ['bulk_close', { action: 'bulk_close', ids: ['p1', 'p2'] }],
+  ])('%s: a held period is 503 + Retry-After (the request rolls back), never a 4xx that commits', async (_n, body) => {
+    svc.closePeriod.mockRejectedValueOnce(new FiscalPeriodLockTimeoutError());
+    bulk.runBulkPeriodAction.mockRejectedValueOnce(new FiscalPeriodLockTimeoutError());
+    const r = await call(body);
+    expect(r.status).toBe(503);
+    expect(r.body.error!.message).toMatch(/being changed by another request/);
+  });
+
+  it('a driver error (SQLSTATE) is rethrown — a 500 that rolls back — never a 400 that commits', async () => {
+    bulk.runBulkPeriodAction.mockRejectedValueOnce(Object.assign(new Error('current transaction is aborted'), { code: '25P02' }));
+    await expect(call({ action: 'bulk_close', ids: ['p1'] })).rejects.toMatchObject({ code: '25P02' });
   });
 
   it('any other refusal stays a 400 with its message', async () => {
-    svc.closePeriod.mockRejectedValueOnce(new Error('Period is already closed'));
+    svc.closePeriod.mockRejectedValueOnce(new PeriodNotCloseableError('Period is already closed'));
     const r = await call({ action: 'close', id: 'p1' });
     expect(r.status).toBe(400);
     expect(r.body.error!.message).toBe('Period is already closed');
