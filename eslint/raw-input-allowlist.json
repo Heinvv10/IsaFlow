@@ -41,7 +41,6 @@
   "pages/accounting/item-opening-balances.tsx": 3,
   "pages/accounting/item-pricing.tsx": 2,
   "pages/accounting/items/index.tsx": 1,
-  "pages/accounting/journal-entries/new.tsx": 2,
   "pages/accounting/loans/index.tsx": 1,
   "pages/accounting/loans/new.tsx": 8,
   "pages/accounting/loans/rate-curves.tsx": 1,

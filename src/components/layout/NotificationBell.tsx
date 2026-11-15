@@ -146,10 +146,10 @@ export function NotificationBell() {
   };
 
   // No company yet: keep the 32px slot (as AppHeader keeps the setup guide's) so the cog beside it does not move.
-  if (companyId === null) return <div data-testid="notification-bell-slot" aria-hidden="true" className="w-8 h-8 flex-shrink-0" />;
+  if (companyId === null) return <div data-testid="notification-bell-slot" aria-hidden="true" className="w-11 h-11 lg:w-8 lg:h-8 flex-shrink-0" />;
   const unread = feed?.unread ?? 0;
   return (
-    <div ref={root} className="relative w-8 flex-shrink-0">
+    <div ref={root} className="relative w-11 lg:w-8 flex-shrink-0">
       <button
         ref={button}
         type="button"

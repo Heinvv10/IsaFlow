@@ -22,6 +22,7 @@ interface MobileHeaderMenuProps {
 export function MobileHeaderMenu({ className, name, navMode, onToggleNavMode, onLogout }: MobileHeaderMenuProps) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -29,7 +30,10 @@ export function MobileHeaderMenu({ className, name, navMode, onToggleNavMode, on
       if (root.current && !root.current.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') {
+        setOpen(false);
+        trigger.current?.focus();
+      }
     };
     document.addEventListener('mousedown', onPointer);
     document.addEventListener('keydown', onKey);
@@ -39,16 +43,17 @@ export function MobileHeaderMenu({ className, name, navMode, onToggleNavMode, on
     };
   }, [open]);
 
-  const row = 'flex items-center justify-between gap-3 px-3 py-2 text-sm text-ink';
+  const row = 'flex items-center justify-between gap-3 px-3 py-2 min-h-11 text-sm text-ink';
   return (
     <div ref={root} className={`relative ${className}`}>
       <button
+        ref={trigger}
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-haspopup="true"
         aria-label="Account and display settings"
-        className="p-2 rounded-lg text-ink-muted hover:text-ink hover:bg-surface-sunken transition-colors"
+        className="inline-flex items-center justify-center min-h-11 min-w-11 lg:min-h-0 lg:min-w-0 p-2 rounded-lg text-ink-muted hover:text-ink hover:bg-surface-sunken transition-colors"
       >
         <User className="w-4 h-4" />
       </button>
