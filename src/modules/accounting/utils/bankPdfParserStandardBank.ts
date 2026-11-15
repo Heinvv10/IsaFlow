@@ -11,7 +11,6 @@
  */
 
 import { log } from '@/lib/logger';
-import { looksLikeSbColumnRow, noteUnreadRow } from './bankPdfRowCensus';
 import type { BankCsvParseResult } from '../types/bank.types';
 import { parseDate, parseAmount, cleanDescription, extractAccountNumber } from './bankPdfParserUtils';
 
@@ -70,7 +69,6 @@ function parseStandardBankColumnFormat(text: string): BankCsvParseResult {
   for (const line of lines) {
     const m = line.match(rowPat);
     if (!m) {
-      if (looksLikeSbColumnRow(line)) noteUnreadRow(result, 0, line); // a row rowPat could not read (round 3)
       // Description continuation line (e.g. "STNDRDBANK BOL OVO21 JUN 25")
       if (last && !/^(page|date|details|service|statement|\*\*|--|account)/i.test(line)) {
         const tx = result.transactions[last.idx];

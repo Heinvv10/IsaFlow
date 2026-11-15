@@ -1,7 +1,8 @@
 /**
- * WP1 PR-A review round 3: migration 998 always ends with the five-value balance_source CHECK, on a re-run and on a
- * database that applied an earlier draft of 998 (four values, no 'ai_read'): it drops the constraint if present and
- * adds it again NOT VALID, then validates. Run here as the runner runs a file (applyOne: one transaction per file).
+ * WP1 PR-A review rounds 3-4: migration 998 always ends with the six-value balance_source CHECK, on a re-run and over
+ * an earlier draft's CHECK (four values, no 'ai_read' / 'pdf_read'): it drops the constraint if present and adds it
+ * again NOT VALID, then validates. Run here by hand, in one transaction as applyOne runs a file. (The RUNNER itself
+ * refuses a database that applied an earlier draft of the file: its checksum no longer matches.)
  */
 import { readFileSync } from 'node:fs';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -14,7 +15,7 @@ afterAll(async () => { await pool.end(); });
 
 const FILE = readFileSync('scripts/migrations/sql/998_bank_import_batch_balance_source.sql', 'utf8');
 const NAME = 'bank_import_batches_balance_source_ck';
-const FIVE = ['ai_read', 'not_in_file', 'printed', 'running_balance', 'unverified'];
+const SIX = ['ai_read', 'not_in_file', 'pdf_read', 'printed', 'running_balance', 'unverified'];
 
 async function applyFile(): Promise<void> {
   const client = await pool.connect();
@@ -38,17 +39,17 @@ async function check(): Promise<{ values: string[]; validated: boolean }> {
 }
 
 describe('migration 998: the balance_source CHECK', () => {
-  it('re-running the file keeps exactly the five-value, validated CHECK', async () => {
+  it('re-running the file keeps exactly the six-value, validated CHECK', async () => {
     await applyFile();
     await applyFile();
-    expect(await check()).toEqual({ values: FIVE, validated: true });
+    expect(await check()).toEqual({ values: SIX, validated: true });
   });
 
-  it('replaces an earlier four-value CHECK (a database that applied the first draft of 998)', async () => {
+  it('replaces an earlier draft\'s four-value CHECK when the file is re-run by hand', async () => {
     await pool.query(`ALTER TABLE bank_import_batches DROP CONSTRAINT IF EXISTS ${NAME}`);
     await pool.query(`ALTER TABLE bank_import_batches ADD CONSTRAINT ${NAME}
       CHECK (balance_source IS NULL OR balance_source IN ('printed','running_balance','not_in_file','unverified'))`);
     await applyFile();
-    expect(await check()).toEqual({ values: FIVE, validated: true });
+    expect(await check()).toEqual({ values: SIX, validated: true });
   });
 });

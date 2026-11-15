@@ -1,9 +1,10 @@
 /**
- * WP1 PR-A review round 3: a PDF text parser that passes over a line it cannot read leaves the survivors still
- * chaining, so a dropped LAST row stored a wrong closing as running_balance. A PDF now earns running_balance only when
- * every line the parser saw that looks like a transaction row (by that parser's own row shape: a date where its rows
- * put one, plus an amount) was read — otherwise balancesUnverifiable → 'unverified'. The ABSA date-amount FALLBACK
- * (another bank's or an unknown layout) is never trusted.
+ * WP1 PR-A review round 4 (decision, orchestrator 2026-11-15): a text-parsed PDF never gets 'running_balance'. No
+ * PDF parser reads a printed closing or carried-forward figure, so a dropped row (a garbled one, or one split over
+ * two lines — the round-4 breaker repro) leaves the survivors chaining to a wrong closing that nothing can check.
+ * A PDF whose chain holds is stored as 'pdf_read' ("taken from the PDF's running-balance column; not checked against
+ * a printed closing"), so a wrong figure shows up as a Difference instead of passing as checked. Every doubt rule
+ * still gives 'unverified', and the ABSA date-amount FALLBACK (another bank's or an unknown layout) is never trusted.
  *
  * Synthetic statements only (tests/unit/helpers/syntheticPdf.ts), end to end through parseStatement.
  */
@@ -29,21 +30,30 @@ const SB = ['THE STANDARD BANK OF SOUTH AFRICA LIMITED', 'Statement',
   '1 CREDIT TRANSFER 0.00 0.00 250.00 20260903 1,150.00'];
 const SB_LAST = '1 PAYMENT TO SHOP 0.00 -50.00 0.00 20260904 1,100.00';
 
-describe('PDF: a row the parser could not read makes the statement unverified', () => {
-  it('ABSA: the honest statement has figures; a garbled LAST row (survivors still chain) is unverified', async () => {
-    expect(await balancesOf([...ABSA, ABSA_LAST])).toMatchObject({ source: 'running_balance', openingCents: 100000, closingCents: 110000 });
-    // Before: the three survivors chained and stored closing R1 150.00 as running_balance.
-    expect(await balancesOf([...ABSA, `${ABSA_LAST} X`])).toMatchObject(UNVERIFIED);
+describe('PDF: a chain that holds is pdf_read, never running_balance', () => {
+  it('ABSA honest statement: pdf_read with the chain\'s figures', async () => {
+    expect(await balancesOf([...ABSA, ABSA_LAST])).toEqual({ source: 'pdf_read', openingCents: 100000, closingCents: 110000, asAt: '2026-09-04' });
   });
 
-  it('ABSA: a dated line that repeats the running balance (no movement) is not a dropped row', async () => {
-    expect(await balancesOf([...ABSA, '03/09/2026 Notification Fee 5.00 T 1 150.00', ABSA_LAST]))
-      .toMatchObject({ source: 'running_balance', closingCents: 110000 });
+  it('Standard Bank column layout honest statement: pdf_read', async () => {
+    expect(await balancesOf([...SB, SB_LAST])).toMatchObject({ source: 'pdf_read', openingCents: 100000, closingCents: 110000 });
   });
 
-  it('Standard Bank column layout: the honest statement has figures; a garbled LAST row is unverified', async () => {
-    expect(await balancesOf([...SB, SB_LAST])).toMatchObject({ source: 'running_balance', openingCents: 100000, closingCents: 110000 });
-    expect(await balancesOf([...SB, SB_LAST.replace('20260904', '2026094')])).toMatchObject(UNVERIFIED);
+  it('the breaker\'s repro: the LAST row split over two lines is dropped, and the wrong closing is labelled pdf_read', async () => {
+    // Date and description on one line, the amounts on the next: the parser reads three rows, which chain to
+    // R1 150.00. That figure is wrong (true R1 100.00) and cannot be checked; it is stored as pdf_read — shown with
+    // that label and compared in the Difference — and never as running_balance.
+    const split = [...ABSA, '04/09/2026 Card Purchase Shop', '50.00 1 100.00'];
+    expect(await balancesOf(split)).toEqual({ source: 'pdf_read', openingCents: 100000, closingCents: 115000, asAt: '2026-09-03' });
+    const sbSplit = [...SB, '1 PAYMENT TO SHOP', '0.00 -50.00 0.00 20260904 1,100.00'];
+    expect(await balancesOf(sbSplit)).toMatchObject({ source: 'pdf_read', closingCents: 115000 });
+  });
+
+  it('the doubt rules still apply to a PDF: a brought-forward figure the chain disagrees with is unverified', async () => {
+    const wrongOpening = ['ABSA BANK LIMITED', '01/09/2026 Bal Brought Forward 1 000.00',
+      '02/09/2026 Debit Order Insurer 100.00 905.00', '03/09/2026 Deposit Client 245.00 1 150.00'];
+    // ABSA derives each amount from the balances: the first row's derived −95.00 is not the −100.00 it printed.
+    expect(await balancesOf(wrongOpening)).toMatchObject(UNVERIFIED);
   });
 
   it('the ABSA date-amount fallback on an unrecognised layout is never trusted', async () => {
@@ -52,5 +62,11 @@ describe('PDF: a row the parser could not read makes the statement unverified', 
     const parsed = await parseStatement({ fileType: 'pdf', pdfBase64: pdf(other) });
     expect(parsed.parser).toBe('fallback');
     expect(parsed.statementBalances).toMatchObject(UNVERIFIED);
+  });
+
+  it('a CSV with the same chain is still running_balance (the PDF rule is the PDF\'s alone)', async () => {
+    const csv = ['Date,Description,Amount,Balance', '2026-09-02,A,-100.00,900.00', '2026-09-03,B,250.00,1150.00'].join('\n');
+    expect((await parseStatement({ fileType: 'csv', csvContent: csv, bankFormat: 'generic' })).statementBalances)
+      .toMatchObject({ source: 'running_balance', openingCents: 100000, closingCents: 115000 });
   });
 });

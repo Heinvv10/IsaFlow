@@ -20,12 +20,12 @@ export interface ParsedBankTransaction {
  * Where a statement's opening/closing balance came from, or why there is none (bank_import_batches.balance_source,
  * migration 998). See bankStatementBalances.ts for the rules.
  */
-export type BalanceSource = 'printed' | 'running_balance' | 'ai_read' | 'not_in_file' | 'unverified';
+export type BalanceSource = 'printed' | 'running_balance' | 'pdf_read' | 'ai_read' | 'not_in_file' | 'unverified';
 
 /** A statement's balances, worked out from the WHOLE file (before the ledger-window filter and dedupe), in cents. */
 export interface StatementBalances {
   source: BalanceSource;
-  /** Null unless `source` is 'printed' or 'running_balance' (and, for 'printed', only when the file states one). */
+  /** Null unless `source` is 'printed', 'running_balance' or 'pdf_read' (for 'printed', only when the file states one). */
   openingCents: number | null;
   closingCents: number | null;
   /** The latest YYYY-MM-DD transaction date in the file; null when no line has one. */
