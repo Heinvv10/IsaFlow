@@ -1,7 +1,7 @@
 /**
  * Admin dashboard "Trials Expiring Soon" card: the companies whose trial ends
  * within 7 days (GET /api/admin/trials?within=7), each with "+7 days" and
- * "Upgrade". The page owns the data and the extend call.
+ * "Upgrade". The page owns the data, the extend call and when to show it.
  */
 import Link from 'next/link';
 import { Clock, Loader2 } from 'lucide-react';
@@ -34,7 +34,6 @@ export function TrialsExpiringSoon({ trials, extendingId, onExtend }: {
   onExtend: (companyId: string) => void;
 }) {
   const adminHref = useAdminHref();
-  if (trials.length === 0) return null;
   return (
     <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm mb-8">
       <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">

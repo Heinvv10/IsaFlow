@@ -202,7 +202,9 @@ export default function AdminDashboard() {
       )}
 
       {/* Trials Expiring Soon */}
-      <TrialsExpiringSoon trials={trials} extendingId={extendingId} onExtend={(id) => void extendTrial(id)} />
+      {trials.length > 0 && (
+        <TrialsExpiringSoon trials={trials} extendingId={extendingId} onExtend={(id) => void extendTrial(id)} />
+      )}
 
       {/* Quick Actions */}
       <div className="flex gap-3 flex-wrap">
