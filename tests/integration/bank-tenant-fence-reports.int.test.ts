@@ -20,6 +20,9 @@ const group = uuid();
 beforeAll(async () => {
   u = await newSetupUser(pool);
   c = await seedCompanies(pool, u.homeCompanyId);
+  // The caller also belongs to B (a bureau user): RLS lets the app role read both companies' rows, so only the
+  // query's own company fence keeps B's lines out of A's report.
+  await pool.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner')`, [c.b, u.userId]);
   // A's own lines on A's bank: before the period (opening) and inside it.
   await bankLine(pool, c.a, c.bankA, '2025-03-10', 40);
   await bankLine(pool, c.a, c.bankA, '2025-04-10', 100);
