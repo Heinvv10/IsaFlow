@@ -76,6 +76,18 @@ export function parseAmount(value: string): number | null {
   return isNaN(num) ? null : num;
 }
 
+/**
+ * True when the row is padding rather than data: blank, or a total / closing-balance summary row (its FIRST cell says
+ * so exactly). Shared by every CSV layout (round 3): an honest export with a trailing "Total" row or a blank line
+ * otherwise reads as a skipped line and its balances as unverified. Narrow on purpose: any other row a parser cannot
+ * read is still an error.
+ */
+export function isNoiseRow(fields: string[]): boolean {
+  if (fields.every(f => f.trim() === '')) return true;
+  const first = (fields[0] ?? '').trim().toLowerCase();
+  return first === 'total' || first === 'totals' || first === 'closing balance';
+}
+
 // A plain number as SA exports print one: an optional leading sign, digits (optionally grouped by space, NBSP or
 // comma), and an optional decimal part ('.' + 1-2 digits, or ',' + exactly 2, as parseAmount reads it).
 const PLAIN_NUMBER = /^[+-]?(?:\d{1,3}(?:[\s\u00A0,]\d{3})+|\d+)(?:\.\d{1,2}|,\d{2})?$/;

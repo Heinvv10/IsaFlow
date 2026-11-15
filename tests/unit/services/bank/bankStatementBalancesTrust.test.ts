@@ -12,7 +12,9 @@ import { describe, expect, it } from 'vitest';
 import {
   batchBalanceColumns, deriveStatementBalances, ocrBalanceColumns,
 } from '@/modules/accounting/services/bank/bankStatementBalances';
-import { parseFNBStatement, parseGenericStatement, parseStandardBankStatement } from '@/modules/accounting/utils/bankCsvParsers';
+import {
+  parseCapitecStatement, parseFNBStatement, parseGenericStatement, parseNedbankStatement, parseStandardBankStatement,
+} from '@/modules/accounting/utils/bankCsvParsers';
 import type { BankCsvParseResult, ParsedBankTransaction } from '@/modules/accounting/types/bank.types';
 
 const row = (transactionDate: string, amount: number, balance?: number, printedAmount?: number): ParsedBankTransaction =>
@@ -135,5 +137,38 @@ describe('2. ocrBalanceColumns: the AI-read figures under the write rule', () =>
     expect(ocrBalanceColumns({ ...base, rows: [{ date: '', amount: -55 }, rows[1]!] })).toEqual(none);
     expect(ocrBalanceColumns({ ...base, closingBalance: 1046 })).toEqual(none);
     expect(ocrBalanceColumns({ ...base, openingBalance: null, closingBalance: 1e13 })).toEqual(none);
+  });
+});
+
+describe('round 3: padding rows in the bank CSV layouts are skipped, a garbled row is still an error', () => {
+  const fnb = (...rows: string[]) => parseFNBStatement(['"Date","Description","Amount","Balance","Reference"',
+    '"2026/09/01","A","100.00","1100.00","R"', '"2026/09/02","B","-40.00","1060.00","R"', ...rows].join('\n'));
+  const sb = (...rows: string[]) => parseStandardBankStatement(['Date,Description,Debit,Credit,Balance',
+    '01/09/2026,A,,100.00,1100.00', '02/09/2026,B,40.00,,1060.00', ...rows].join('\n'));
+  const FIGURES = { source: 'running_balance', openingCents: 100000, closingCents: 106000 };
+
+  it('FNB: a trailing Total row and a blank line in the middle are padding: the figures are stored', () => {
+    expect(deriveStatementBalances(fnb('"Total","","60.00","",""'))).toMatchObject(FIGURES);
+    const blankMiddle = parseFNBStatement(['"Date","Description","Amount","Balance","Reference"',
+      '"2026/09/01","A","100.00","1100.00","R"', ',,,,', '', '"2026/09/02","B","-40.00","1060.00","R"'].join('\n'));
+    expect(blankMiddle.errors).toEqual([]);
+    expect(deriveStatementBalances(blankMiddle)).toMatchObject(FIGURES);
+  });
+
+  it('Standard Bank (and the Nedbank / Capitec layouts beside it): a Totals or Closing balance row is padding', () => {
+    expect(deriveStatementBalances(sb('Totals,,40.00,100.00,'))).toMatchObject(FIGURES);
+    expect(deriveStatementBalances(sb('Closing Balance,,,,1060.00'))).toMatchObject(FIGURES);
+    const ned = parseNedbankStatement(['Transaction Date,Value Date,Description,Debit,Credit,Balance',
+      '2026-09-01,2026-09-01,A,,100.00,1100.00', '2026-09-02,2026-09-02,B,40.00,,1060.00', 'Total,,,40.00,100.00,'].join('\n'));
+    expect(deriveStatementBalances(ned)).toMatchObject(FIGURES);
+    const cap = parseCapitecStatement(['Date,Description,Debit,Credit,Balance',
+      '01/09/2026,A,,100.00,1100.00', '02/09/2026,B,40.00,,1060.00', '', 'Total,,40.00,100.00,'].join('\n'));
+    expect(deriveStatementBalances(cap)).toMatchObject(FIGURES);
+  });
+
+  it('a garbled transaction row is still an error, so the statement is unverified', () => {
+    expect(deriveStatementBalances(fnb('"2026/13/45","C","-10.00","1050.00","R"'))).toMatchObject(UNVERIFIED);
+    expect(deriveStatementBalances(sb('03/09/2026,C,ten,,1050.00'))).toMatchObject(UNVERIFIED);
+    expect(deriveStatementBalances(fnb('"Totally not a date","C","-10.00","1050.00","R"'))).toMatchObject(UNVERIFIED);
   });
 });

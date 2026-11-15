@@ -10,8 +10,9 @@
 -- NULL is a batch imported before this column existed. No backfill.
 --
 -- Additive and idempotent. The app writes the column only at INSERT (nothing UPDATEs a batch, 877), which
--- app_user's table-level INSERT grant (442) already covers. The CHECK is added NOT VALID and then validated in the
--- same transaction: every existing row is NULL, so the validation scan passes.
+-- app_user's table-level INSERT grant (442) already covers. On a first run every existing row is NULL, so the
+-- validation scan passes. The runner applies each file in one transaction (scripts/lib/migrationFiles.ts applyOne),
+-- which SET LOCAL needs.
 --
 -- ADD COLUMN without a default rewrites nothing, but takes the table's ACCESS EXCLUSIVE lock for an instant and
 -- would queue requests behind a long transaction while it waits: lock_timeout makes it fail fast instead.
@@ -19,11 +20,11 @@ SET LOCAL lock_timeout = '5s';
 
 ALTER TABLE bank_import_batches ADD COLUMN IF NOT EXISTS balance_source TEXT;
 
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_import_batches_balance_source_ck'
-                 AND conrelid = 'bank_import_batches'::regclass) THEN
-    ALTER TABLE bank_import_batches ADD CONSTRAINT bank_import_batches_balance_source_ck
-      CHECK (balance_source IS NULL OR balance_source IN ('printed','running_balance','ai_read','not_in_file','unverified')) NOT VALID;
-    ALTER TABLE bank_import_batches VALIDATE CONSTRAINT bank_import_batches_balance_source_ck;
-  END IF;
-END $$;
+-- The CHECK is dropped if present and added again, so every run ends with exactly these five values: a re-run, and
+-- a database that applied an earlier draft of this file (four values, before 'ai_read'), alike. Added NOT VALID, then
+-- validated. In this one transaction the ADD's ACCESS EXCLUSIVE lock is held to the end anyway (lock_timeout bounds
+-- the wait for it); the scan is one pass over bank_import_batches, one row per imported statement.
+ALTER TABLE bank_import_batches DROP CONSTRAINT IF EXISTS bank_import_batches_balance_source_ck;
+ALTER TABLE bank_import_batches ADD CONSTRAINT bank_import_batches_balance_source_ck
+  CHECK (balance_source IS NULL OR balance_source IN ('printed','running_balance','ai_read','not_in_file','unverified')) NOT VALID;
+ALTER TABLE bank_import_batches VALIDATE CONSTRAINT bank_import_batches_balance_source_ck;
