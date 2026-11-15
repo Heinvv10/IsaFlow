@@ -4,6 +4,7 @@
  * =, +, -, @, tab or CR neutralised (CWE-1236), as in the server exports.
  */
 import { csvCell } from '@/lib/csv';
+import { localISODate } from '@/lib/dateUtils';
 
 export interface CompanySelectionRow {
   name: string;
@@ -26,4 +27,15 @@ export function companiesSelectionCsv(rows: readonly CompanySelectionRow[]): str
     r.created_at.slice(0, 10),
   ].map(csvCell).join(','));
   return [HEADER.map(csvCell).join(','), ...lines].join('\n');
+}
+
+/** Builds the CSV of `rows` and hands it to the browser as companies-export-<today>.csv. */
+export function downloadCompaniesSelectionCsv(rows: readonly CompanySelectionRow[]): void {
+  const blob = new Blob([companiesSelectionCsv(rows)], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `companies-export-${localISODate()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
