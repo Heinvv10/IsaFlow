@@ -1,0 +1,104 @@
+// Admin invoice dialogs (admin audit 4.13 follow-up): Create Invoice and Settle send are real modal dialogs.
+// role=dialog + aria-modal named by their title, focus moves in on open, Tab / Shift+Tab wrap inside, Escape closes
+// (not while the request is running, when Close and Cancel are disabled too), focus goes back to the opener, and every
+// Create Invoice field is labelled.
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { useState, type ReactNode } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { apiFetch } from '@/lib/apiFetch';
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
+import { CreateInvoiceModal } from '@/components/admin/billing/CreateInvoiceModal';
+import { SettleSendModal } from '@/components/admin/billing/SettleSendModal';
+import type { Invoice } from '@/components/admin/billing/invoiceModel';
+
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
+useApiJsonOverMock();
+
+let release: () => void = () => undefined;
+beforeEach(() => {
+  vi.mocked(apiFetch).mockReset().mockImplementation(async () => {
+    await new Promise<void>((r) => { release = r; });
+    return new Response(JSON.stringify({ success: true, data: {} }), { status: 200 });
+  });
+});
+afterEach(() => { cleanup(); });
+
+const INVOICE: Invoice = { id: 'i-1', invoice_number: 'INV-1', company_id: 'c-1', company_name: 'Acme Ltd', billing_email: 'a@b.test',
+  status: 'draft', subtotal_cents: 10000, tax_cents: 1500, total_cents: 11500, currency: 'ZAR', due_date: null, paid_at: null,
+  payment_method: null, created_at: '2026-11-01T00:00:00Z', send_claimed_at: '2026-11-14T10:00:00Z' };
+
+function Host({ label, dialog }: { label: string; dialog: (close: () => void) => ReactNode }) {
+  const [shown, setShown] = useState(false);
+  return (<><button onClick={() => setShown(true)}>{label}</button>{shown && dialog(() => setShown(false))}</>);
+}
+const key = (k: string, shiftKey = false) => fireEvent.keyDown(document.activeElement ?? document.body, { key: k, shiftKey });
+
+const CASES = [
+  { name: 'Create Invoice', title: /create invoice/i, start: /^create$/i,
+    host: (onClose: () => void) => <Host label="Open" dialog={(close) => <CreateInvoiceModal onClose={() => { onClose(); close(); }} onCreated={close} />} />,
+    fill: (d: HTMLElement) => {
+      fireEvent.change(within(d).getByLabelText('Company ID'), { target: { value: 'c-1' } });
+      fireEvent.change(within(d).getByLabelText('Subtotal (R)'), { target: { value: '100' } });
+    } },
+  { name: 'Settle send', title: /settle send of inv-1/i, start: /mark as sent/i,
+    host: (onClose: () => void) => <Host label="Open" dialog={(close) => <SettleSendModal invoice={INVOICE} onClose={() => { onClose(); close(); }} onSettled={close} />} />,
+    fill: () => undefined },
+] as const;
+
+async function openDialog(c: (typeof CASES)[number], onClose = vi.fn()) {
+  render(c.host(onClose));
+  const opener = screen.getByRole('button', { name: 'Open' });
+  opener.focus();
+  fireEvent.click(opener);
+  const dialog = await screen.findByRole('dialog', { name: c.title });
+  return { opener, dialog, onClose };
+}
+
+describe.each(CASES)('$name dialog', (c) => {
+  it('is modal, takes focus, closes on Escape and gives focus back to the opener', async () => {
+    const { opener, dialog, onClose } = await openDialog(c);
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    key('Escape');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('Tab from the last control wraps to the first, Shift+Tab from the first to the last', async () => {
+    const { dialog } = await openDialog(c);
+    const buttons = within(dialog).getAllByRole('button').filter((b) => !(b as HTMLButtonElement).disabled);
+    const first = within(dialog).getByRole('button', { name: 'Close' });
+    const last = buttons[buttons.length - 1]!;
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    first.focus();
+    key('Tab', true);
+    expect(document.activeElement).toBe(last);
+    key('Tab');
+    expect(document.activeElement).toBe(first);
+  });
+
+  it('while the request runs: Escape is ignored and Close / Cancel are disabled', async () => {
+    const { dialog, onClose } = await openDialog(c);
+    c.fill(dialog);
+    fireEvent.click(within(dialog).getByRole('button', { name: c.start }));
+    await waitFor(() => expect(vi.mocked(apiFetch)).toHaveBeenCalled());
+    expect((within(dialog).getByRole('button', { name: 'Close' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(dialog).getByRole('button', { name: 'Cancel' }) as HTMLButtonElement).disabled).toBe(true);
+    key('Escape');
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    release();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+});
+
+describe('Create Invoice labels', () => {
+  it('names every field', async () => {
+    const { dialog } = await openDialog(CASES[0]);
+    for (const [label, tag] of [['Company ID', 'INPUT'], ['Subtotal (R)', 'INPUT'], ['Due Date (optional)', 'INPUT'], ['Notes (optional)', 'TEXTAREA']] as const) {
+      expect(within(dialog).getByLabelText(label).tagName, label).toBe(tag);
+    }
+  });
+});

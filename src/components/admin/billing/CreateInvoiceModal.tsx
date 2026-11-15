@@ -4,7 +4,7 @@
  * function, invoiceAmountsFromSubtotal, so what is shown is what is stored. A blank due date or notes is left
  * out of the request, never sent as null.
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { AlertCircle, Check, Loader2, X } from 'lucide-react';
 import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { adminFetch } from '@/lib/admin/adminFetch';
@@ -12,6 +12,7 @@ import { formatCurrency } from '@/utils/formatters';
 import { DateField } from '@/components/ui/DateField';
 import { invoiceAmountsFromSubtotal, MAX_INVOICE_SUBTOTAL_CENTS } from '@/modules/admin/services/invoiceAmounts';
 import { EMPTY_FORM, type InvForm } from './invoiceModel';
+import { useFocusTrap } from '@/components/ui/useFocusTrap';
 
 interface Props {
   onClose: () => void;
@@ -35,6 +36,9 @@ export function CreateInvoiceModal({ onClose, onCreated }: Props) {
   const [dueDateValid, setDueDateValid] = useState(true);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  // A real dialog (audit 4.13): focus inside, Tab trapped, Escape closes (not mid-request), focus back to the opener.
+  const boxRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(boxRef, true, () => { if (!saving) onClose(); });
   const cents = toCents(form.subtotal);
   // Only an amount the server would take gets a preview; anything else shows a dash (a huge one used to throw).
   const preview = cents === null || cents > MAX_INVOICE_SUBTOTAL_CENTS ? null : invoiceAmountsFromSubtotal(cents);
@@ -69,10 +73,10 @@ export function CreateInvoiceModal({ onClose, onCreated }: Props) {
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="invoice-modal-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
+      <div ref={boxRef} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
           <h3 id="invoice-modal-title" className="text-sm font-semibold text-gray-900 dark:text-white">Create Invoice</h3>
-          <button onClick={onClose} aria-label="Close" className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} disabled={saving} aria-label="Close" className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 disabled:opacity-50"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-5 space-y-4">
           {error && (
@@ -106,7 +110,7 @@ export function CreateInvoiceModal({ onClose, onCreated }: Props) {
           </div>
         </div>
         <div className="px-5 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">Cancel</button>
+          <button onClick={onClose} disabled={saving} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors disabled:opacity-50">Cancel</button>
           <button onClick={() => void create()} disabled={saving}
             className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Create
