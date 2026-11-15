@@ -141,6 +141,7 @@ export default function ItemsListPage() {
               />
             </div>
             <select
+              aria-label="Item type"
               value={typeFilter}
               onChange={e => setTypeFilter(e.target.value)}
               className="ff-select text-sm"
@@ -151,6 +152,7 @@ export default function ItemsListPage() {
             </select>
             {categories.length > 0 && (
               <select
+                aria-label="Category"
                 value={categoryFilter}
                 onChange={e => setCategoryFilter(e.target.value)}
                 className="ff-select text-sm"

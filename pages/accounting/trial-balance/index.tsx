@@ -122,24 +122,24 @@ export default function TrialBalancePage() {
           className="mb-0"
           actions={
             <>
-              <select value={selectedPeriod} onChange={e => setSelectedPeriod(e.target.value)} className={selectClass}>
+              <select aria-label="Fiscal period" value={selectedPeriod} onChange={e => setSelectedPeriod(e.target.value)} className={selectClass}>
                 {periods.map(p => (
                   <option key={p.id} value={p.id}>{p.periodName} ({p.status})</option>
                 ))}
               </select>
-              <select value={comparePeriodId} onChange={e => setComparePeriodId(e.target.value)} className={selectClass}>
+              <select aria-label="Compare with period" value={comparePeriodId} onChange={e => setComparePeriodId(e.target.value)} className={selectClass}>
                 <option value="">No comparison</option>
                 {periods.filter(p => p.id !== selectedPeriod).map(p => (
                   <option key={p.id} value={p.id}>{p.periodName}</option>
                 ))}
               </select>
-              <select value={costCentreId} onChange={e => setCostCentreId(e.target.value)} className={selectClass}>
+              <select aria-label="Cost centre" value={costCentreId} onChange={e => setCostCentreId(e.target.value)} className={selectClass}>
                 <option value="">All Cost Centres</option>
                 {costCentres.map(cc => (
                   <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
                 ))}
               </select>
-              <select value={businessUnitId} onChange={e => setBusinessUnitId(e.target.value)} className={selectClass}>
+              <select aria-label="Business unit" value={businessUnitId} onChange={e => setBusinessUnitId(e.target.value)} className={selectClass}>
                 <option value="">All Business Units</option>
                 {businessUnitId && !businessUnits.some(bu => bu.id === businessUnitId) && (
                   <option value={businessUnitId}>Selected Business Unit (unavailable)</option>
@@ -165,9 +165,9 @@ export default function TrialBalancePage() {
           }
         />
 
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           {!loading && rows.length > 0 && (
-            <div className="grid grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
               <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
                 <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Total Debits</p>
                 <p className="text-xl font-bold text-[var(--ff-text-primary)]">{fmt(totalDebit)}</p>
@@ -178,7 +178,7 @@ export default function TrialBalancePage() {
               </div>
               <div className={`rounded-lg border p-4 ${balanced ? 'bg-teal-500/5 border-teal-500/30' : 'bg-red-500/5 border-red-500/30'}`}>
                 <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Difference</p>
-                <p className={`text-xl font-bold flex items-center gap-1.5 ${balanced ? 'text-teal-700 dark:text-teal-400' : 'text-red-700 dark:text-red-400'}`}>
+                <p className={`text-xl font-bold flex flex-wrap items-center gap-1.5 ${balanced ? 'text-teal-700 dark:text-teal-400' : 'text-red-700 dark:text-red-400'}`}>
                   {balanced ? <CheckCircle2 className="h-5 w-5" aria-hidden="true" /> : <AlertTriangle className="h-5 w-5" aria-hidden="true" />}
                   {fmt(Math.abs(difference))}
                   <span className="text-sm ml-1 font-normal">{balanced ? 'Balanced' : 'Out of Balance'}</span>
