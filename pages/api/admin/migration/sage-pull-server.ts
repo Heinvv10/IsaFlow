@@ -13,7 +13,8 @@
  * Pulls all six Sage endpoints server-to-server using the supplied
  * authenticated session cookie, maps them, and returns a payload shaped
  * like the existing in-browser pulled-data structure so it can be passed
- * straight into /api/admin/migration/sage-commit.
+ * straight into /api/admin/migration/sage-commit, with `pullToken`, which
+ * binds the commit to this payload and company (sagePullBinding).
  *
  * Why server-side: cross-origin restrictions and HttpOnly cookies make
  * it impossible to do this fully in the browser without either a
@@ -28,6 +29,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { log } from '@/lib/logger';
 import { safeFetch, checkPublicUrl } from '@/lib/safeFetch';
+import { issuePullToken } from '@/modules/admin/services/sagePullBinding';
 import {
   mapSageAccounts,
   mapSageCustomers,
@@ -167,7 +169,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       },
     }, 'migration');
 
-    return apiResponse.success(res, { pulled });
+    // The commit must come back with exactly this, for this company (sagePullBinding, audit 3.4).
+    return apiResponse.success(res, { pulled, pullToken: issuePullToken(companyId, pulled) });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('Sage server-side pull failed', { companyId, message: msg }, 'migration');

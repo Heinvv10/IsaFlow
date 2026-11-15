@@ -65,6 +65,8 @@ it('the admin migration tool shows why the migration was refused', async () => {
   answer();
   const { container } = render(<AdminMigrationsPage />);
   await screen.findByRole('option', { name: 'Acme' });
+  fireEvent.change(screen.getAllByRole('combobox')[0]!, { target: { value: 'co-1' } }); // no company is pre-selected (audit 3.4)
+  vi.stubGlobal('confirm', () => true); // Execute confirms first (audit 3.4)
   upload(container.querySelectorAll('input[type="file"]')[0]!);
   fireEvent.click(await screen.findByRole('button', { name: /execute migration/i }));
   expect(await screen.findByText(new RegExp(CAP.slice(0, 60)))).toBeTruthy();
