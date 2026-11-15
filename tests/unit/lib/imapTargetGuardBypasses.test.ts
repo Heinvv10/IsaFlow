@@ -16,6 +16,9 @@ import { ipReason } from '@/lib/safeFetch';
 
 const PUBLIC = '93.184.216.34';
 const REFUSED = { ok: false, message: 'This mail server address is not allowed or could not be resolved' };
+// A host NAME refused on what DNS answered: the same message, flagged for the scan to retry (bounded) exactly as a
+// name DNS gave no answer for, so the connection's status cannot tell a tenant which internal names resolve.
+const REFUSED_NAME = { ...REFUSED, transient: true };
 const resolvesTo = (...addresses: string[]) =>
   m.lookup.mockResolvedValue(addresses.map((address) => ({ address, family: address.includes(':') ? 6 : 4 })));
 
@@ -75,7 +78,7 @@ describe('names a resolver reads as an address are not literals: refused on the 
     ['rooted localhost', 'localhost.'],
   ])('%s (%s)', async (_what, host) => {
     resolvesTo('127.0.0.1');
-    expect(await checkImapTarget(host, 993)).toEqual(REFUSED);
+    expect(await checkImapTarget(host, 993)).toEqual(REFUSED_NAME);
     expect(m.lookup).toHaveBeenCalledTimes(1);
   });
 });
@@ -83,7 +86,7 @@ describe('names a resolver reads as an address are not literals: refused on the 
 describe('the reserved ranges that stay public-looking are refused as DNS answers too', () => {
   it.each([['6to4 relay anycast', '192.88.99.1'], ['documentation', '2001:db8::5'], ['discard-only', '100::5']])('%s', async (_what, address) => {
     resolvesTo(address);
-    expect(await checkImapTarget('reserved.example', 993)).toEqual(REFUSED);
+    expect(await checkImapTarget('reserved.example', 993)).toEqual(REFUSED_NAME);
   });
 
   it('their neighbours are still public', async () => {
@@ -93,41 +96,39 @@ describe('the reserved ranges that stay public-looking are refused as DNS answer
   });
 });
 
-describe('a name DNS cannot answer for is not a policy refusal', () => {
-  const UNRESOLVED = { ok: false, message: 'This mail server address is not allowed or could not be resolved' };
-
+describe('a name DNS cannot answer for looks exactly like a name it answers privately for', () => {
   it('a resolver failure (ENOTFOUND, EAI_AGAIN)', async () => {
     for (const code of ['ENOTFOUND', 'EAI_AGAIN']) {
       m.lookup.mockRejectedValueOnce(Object.assign(new Error(code), { code }));
-      expect(await checkImapTarget('typo.example', 993)).toEqual(UNRESOLVED);
+      expect(await checkImapTarget('typo.example', 993)).toEqual(REFUSED_NAME);
     }
   });
 
   it('an answer with no records', async () => {
     m.lookup.mockResolvedValue([]);
-    expect(await checkImapTarget('empty.example', 993)).toEqual(UNRESOLVED);
+    expect(await checkImapTarget('empty.example', 993)).toEqual(REFUSED_NAME);
   });
 
-  it('an answer that is private stays the generic refusal, whatever else is wrong with the name', async () => {
+  it('an answer that is private: the same result, flag included', async () => {
     resolvesTo('10.0.0.1');
-    expect(await checkImapTarget('private.example', 993)).toEqual(REFUSED);
+    expect(await checkImapTarget('private.example', 993)).toEqual(REFUSED_NAME);
   });
 });
 
 describe('a name with one private address among its answers is refused whole', () => {
   it('public and private A records', async () => {
     resolvesTo(PUBLIC, '10.0.0.1');
-    expect(await checkImapTarget('mixed.example', 993)).toEqual(REFUSED);
+    expect(await checkImapTarget('mixed.example', 993)).toEqual(REFUSED_NAME);
   });
 
   it('a public A record and an IPv4-mapped loopback AAAA', async () => {
     resolvesTo(PUBLIC, '::ffff:127.0.0.1');
-    expect(await checkImapTarget('mixed6.example', 993)).toEqual(REFUSED);
+    expect(await checkImapTarget('mixed6.example', 993)).toEqual(REFUSED_NAME);
   });
 
   it('a public A record and a SIIT AAAA', async () => {
     resolvesTo(PUBLIC, '::ffff:0:7f00:1');
-    expect(await checkImapTarget('siit.example', 993)).toEqual(REFUSED);
+    expect(await checkImapTarget('siit.example', 993)).toEqual(REFUSED_NAME);
   });
 });
 
