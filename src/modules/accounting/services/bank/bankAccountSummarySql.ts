@@ -8,7 +8,7 @@
  *     (./bankLineBucket LINE_BUCKET_SQL) and the New tab (./bankTxTabCond NEW_TAB_SQL). Posted lines only, except
  *     `pending_at_bank`. In / out are the to-code lines' amounts split by sign, in integer cents.
  *   - Ledger: `bankGlBalancesAsAt` — the grouped form of `bankGlBalanceAsAt`, built from the same predicate
- *     (./bankReconciliationBalance postedBankLedger), the reconciliation's own definition (K-020): posted journals,
+ *     (./bankReconciliationBalance postedBankLedgerSum), the reconciliation's own definition (K-020): posted journals,
  *     both companies checked, entry_date <= the date. ONE pass over the (account, date) pairs `pairs` names: every
  *     account as at `as_at` (today in SAST unless the caller pins it) and every account's lastWithBalance statement
  *     date. It equals the Trial Balance bank row at period end; `gl_accounts.bank_opening_balance` (display

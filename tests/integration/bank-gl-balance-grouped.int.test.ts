@@ -1,7 +1,7 @@
 /**
  * WP1 PR-B: the grouped bank ledger (`bankGlBalancesAsAt`, the bank card) answers exactly what the per-account one
  * (`bankGlBalanceAsAt`, the reconciliation, K-020) answers, for several accounts and dates — and both answer the
- * hand-computed figures, so a change to their shared predicate (`postedBankLedger`) shows in BOTH.
+ * hand-computed figures, so a change to their shared statement (`postedBankLedgerSum`) shows in BOTH.
  *
  * Fixture (cents): bank DR 100 000 on 01-15, CR 25 050 on 06-30, a 7 777 DR left a DRAFT on 07-01, DR 1 000 on 12-31;
  * bank 2 DR 50 000 on 03-01, CR 12 525 on 09-15; a credit card (liability) CR 150 000 on 09-10; an empty bank account;
