@@ -53,12 +53,11 @@ async function exportedPlans(): Promise<Record<string, string>> {
   const req = request(jar, 'GET') as ReturnType<typeof request> & { query: Record<string, string> };
   req.query = {};
   const result = response();
-  const chunks: string[] = [];
-  Object.assign(result.state, { write(chunk: string) { chunks.push(chunk); return true; } });
   await (exportRoute as (q: never, s: never) => Promise<unknown>)(req as never, result.res as never);
   expect(result.state.statusCode).toBe(200);
-  const lines = chunks.join('').trim().split('\n');
-  expect(lines[0]).toBe('"id","name","status","plan_name","mrr_cents","created_at","trial_ends_at","user_count"');
+  // The route sends the whole CSV in one res.send (sendAuditedCsv, adminCsvExport.ts).
+  const lines = String(result.state.body).trim().split('\n');
+  expect(lines[0]).toBe('"id","name","status","plan_name","mrr_cents","created_at","trial_ends_at","user_count","last_active"');
   const mine = new Set(Object.values(ids));
   const out: Record<string, string> = {};
   for (const line of lines.slice(1)) {
