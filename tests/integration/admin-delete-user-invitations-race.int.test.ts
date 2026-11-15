@@ -68,7 +68,7 @@ async function expectConsistent(u: { id: string; email: string }, token: string,
   expect(await memberships(u.id)).toBe(0);
   expect(await pendingFor(u.email)).toBe(0);
   if (accept.status === 200) {
-    expect((await invitationRow(token))?.accepted_at).not.toBeNull();
+    expect(await invitationRow(token)).toEqual({ accepted_at: expect.any(Date) });
     expect(await deleteAudit(u.id)).toEqual([expect.objectContaining({ invitations_cancelled: 0 })]);
   } else {
     expect(accept.status, JSON.stringify(accept.body)).toBe(refused);

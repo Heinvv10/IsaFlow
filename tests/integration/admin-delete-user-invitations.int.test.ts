@@ -66,7 +66,7 @@ describe('deleting a user cancels their pending invitations', () => {
     const del = await adminDelete(u.id);
     expect(del.status, JSON.stringify(del.body)).toBe(200);
     expect(await pendingFor(u.email)).toBe(0);
-    expect((await invitationRow(accepted))?.accepted_at).not.toBeNull();
+    expect(await invitationRow(accepted)).toEqual({ accepted_at: expect.any(Date) });
     expect(await invitationRow(otherAddress)).toEqual({ accepted_at: null });
     expect(await invitationRow(lookalike)).toEqual({ accepted_at: null });
     expect(await deleteAudit(u.id)).toEqual([expect.objectContaining({ invitations_cancelled: 4 })]);
