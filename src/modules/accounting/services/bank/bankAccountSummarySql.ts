@@ -10,7 +10,8 @@
  *     definition (K-020): posted journals, both companies checked, entry_date <= as_at. It equals the Trial Balance
  *     bank row at period end; `gl_accounts.bank_opening_balance` (display metadata, no journal) is never added.
  *   - Statement: `latest` = newest batch by statement_date, then import time, then id; `last_with_balance` = the newest
- *     in that order carrying a closing balance. The difference is that closing balance less the ledger AS AT THAT
+ *     in that order carrying a closing balance (an `ai_read` one included: it is a figure, labelled as read by AI).
+ *     Both skip a batch with no live line left. The difference is that closing balance less the ledger AS AT THAT
  *     STATEMENT'S DATE — the same formula for an asset bank account and a credit-card (liability) one (Hein
  *     2026-11-15). Line counts are live (lines naming the batch now, not removed).
  *   - Inactive accounts: returned only while they still hold a ledger balance or lines awaiting review.
@@ -28,7 +29,11 @@ import { LINE_BUCKET_SQL } from './bankLineBucket';
 import { NEW_TAB_SQL } from './bankTxTabCond';
 import { bankGlBalanceAsAt } from './bankReconciliationBalance';
 
-/** The newest batch of account `a` (optionally: the newest carrying a closing balance), with its live line count. */
+/**
+ * The newest batch of account `a` (optionally: the newest carrying a closing balance), with its live line count. A
+ * batch with no live line is skipped: every line it wrote was undone or deleted, so its balances describe lines that
+ * are no longer there (team-lead decision, 2026-11-15).
+ */
 function newestBatch(withBalance: boolean) {
   return sql`
     SELECT b.id, b.statement_date, b.bank_format, b.import_channel, b.balance_source, b.created_at,
@@ -40,6 +45,8 @@ function newestBatch(withBalance: boolean) {
     FROM bank_import_batches b
     WHERE b.company_id = a.company_id AND b.bank_account_id = a.id
       ${sql.unsafe(withBalance ? 'AND b.closing_balance IS NOT NULL' : '')}
+      AND EXISTS (SELECT 1 FROM bank_transactions x
+                   WHERE x.company_id = b.company_id AND x.import_batch_id = b.id AND x.feed_state <> 'removed')
     ORDER BY b.statement_date DESC NULLS LAST, b.created_at DESC, b.id DESC
     LIMIT 1`;
 }

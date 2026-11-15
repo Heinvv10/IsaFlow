@@ -6,7 +6,9 @@
  *   - No batch at all: every statement field is null.
  *   - A credit-card (liability) bank account gets the same formula as an asset one: closing − (debit − credit)
  *     (Hein 2026-11-15).
- *   - Line counts are live.
+ *   - Line counts are live, and a batch with NO live line (every line undone or deleted) is never `latest` or
+ *     `lastWithBalance`: its balances describe lines that are no longer there (team-lead decision, 2026-11-15).
+ *   - An AI-read closing balance ('ai_read') is a figure: shown, and the difference is computed from it.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -115,11 +117,28 @@ describe('bank account summary — statement', () => {
     await journal('2026-09-10', f.expA, card, 1500.00); // card spend: CR the card
     await journal('2026-09-20', card, f.expB, 200.00); //  a refund: DR the card
     await journal('2026-10-05', f.expA, card, 99.99); //   after the statement
-    await batch(card, '2026-09-30', '2026-10-01T09:00:00Z', { closing: -1400.00 });
+    await batch(card, '2026-09-30', '2026-10-01T09:00:00Z', { closing: -1400.00, lines: 1 });
     const s = await summary(card);
     expect(s.accountType).toBe('liability');
     expect(s.ledgerCents).toBe(-130000 - 9999);
     expect(s.statement.ledgerAtStatementCents).toBe(-130000);
     expect(s.statement.differenceCents).toBe(-140000 - -130000);
+  });
+
+  it('skips a batch with no live line: neither latest nor lastWithBalance, even with the newest date and a balance', async () => {
+    const before = (await summary(f.bank)).statement;
+    const emptied = await batch(f.bank, '2026-11-30', '2026-12-01T08:00:00Z', { opening: 1, closing: 2, lines: 2 });
+    expect((await summary(f.bank)).statement.latest?.batchId).toBe(emptied); // live: it is the newest statement
+    await pool.query('DELETE FROM bank_transactions WHERE company_id = $1 AND import_batch_id = $2', [f.c, emptied]);
+    await batch(f.bank, '2026-12-15', '2026-12-16T08:00:00Z', { closing: 5, lines: 0 }); // never had a line
+    expect((await summary(f.bank)).statement).toEqual(before);
+  });
+
+  it('an AI-read closing balance is a figure: shown as ai_read, and the difference is computed from it', async () => {
+    const ai = await batch(f.bank2, '2026-09-30', '2026-10-01T10:00:00Z', { closing: 250.00, source: 'ai_read', lines: 1 });
+    await journal('2026-09-05', f.bank2, f.expA, 200.00);
+    const s = (await summary(f.bank2)).statement;
+    expect(s.lastWithBalance).toMatchObject({ batchId: ai, balanceSource: 'ai_read', closingCents: 25000 });
+    expect({ ledger: s.ledgerAtStatementCents, difference: s.differenceCents }).toEqual({ ledger: 20000, difference: 5000 });
   });
 });
