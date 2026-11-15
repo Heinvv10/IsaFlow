@@ -154,7 +154,7 @@
   "pages/oauth/authorize.tsx": 3,
   "pages/admin/audit.tsx": 13,
   "pages/admin/analytics.tsx": 5,
-  "pages/admin/index.tsx": 5,
+  "pages/admin/index.tsx": 2,
   "pages/admin/tools/index.tsx": 1,
   "pages/admin/tools/announcements.tsx": 3,
   "pages/admin/tools/sage-import.tsx": 5,
