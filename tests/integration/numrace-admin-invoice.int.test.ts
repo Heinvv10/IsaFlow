@@ -24,7 +24,7 @@ const platformAdmin = crypto.randomUUID();
 const companyId = crypto.randomUUID();
 const prefix = `INV-${new Date().toISOString().slice(0, 7).replace('-', '')}-`;
 const fx = { pool, companyId, userId: platformAdmin } as unknown as Fixture;
-const input = (notes: string) => ({ company_id: companyId, subtotal_cents: 100, tax_cents: 15, total_cents: 115, notes });
+const input = (notes: string) => ({ company_id: companyId, subtotal_cents: 100, notes });
 
 async function numberOf(id: string): Promise<string> {
   return String((await pool.query('SELECT invoice_number FROM admin_invoices WHERE id = $1', [id])).rows[0].invoice_number);

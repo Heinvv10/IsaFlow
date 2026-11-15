@@ -48,11 +48,7 @@
  */
 import { withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import {
-  PaymentPostedDuringVoidError,
-  lockCustomerPaymentForUpdate,
-  lockSupplierPaymentForUpdate,
-} from './paymentLock';
+import { PaymentPostedDuringVoidError } from './paymentLock';
 import {
   unwindBankAllocationApplication,
   unwindOnePayment,
@@ -60,7 +56,7 @@ import {
 import { reverseReconciledTransaction } from '../bank/bankAllocationService';
 import { splitPartRefusal } from '../bank/splitJournalDocuments';
 import { lockBankTransactionsInIdOrder } from '../bank/bankTxLock';
-import { findBankTransactions, peekPaymentJournal } from './paymentVoidReads';
+import { findBankTransactions, loadPayment, peekPaymentJournal } from './paymentVoidReads';
 import { findChainBankLines } from '../bank/chainBankLines';
 import { reconciliationLockOf, refuseLockedCash } from '../bank/reconciledCash';
 import { voidSettlementDocument } from '../ap/provisionalSettlementVoid';
@@ -70,6 +66,13 @@ import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import type { VatLockRoll } from '../gl/journalEntryReversalVatRoll';
 
 export type PaymentKind = 'customer' | 'supplier';
+/** The payment as the void holds it, locked, when `beforeFirstWrite` runs. */
+export interface VoidingPayment {
+  id: string; paymentNumber: string | null; journalEntryId: string | null; settlesProvisionalJeId: string | null;
+  bankTransactionId: string | null;
+}
+/** `beforeFirstWrite` (void_payment undo_share, ap/voidPaymentUndoShare): runs with every lock held, before any write; a throw refuses. */
+export type VoidOpts = PostingActorOpts & { reversalDate?: string; beforeFirstWrite?: (p: VoidingPayment) => Promise<void> };
 const LABEL: Record<PaymentKind, string> = { customer: 'This receipt', supplier: 'This payment' };
 
 export interface VoidPaymentResult {
@@ -124,51 +127,13 @@ export function isVoidRefusal(v: VoidPaymentResult | VoidRefusal): v is VoidRefu
   return 'refusal' in v;
 }
 
-interface PaymentRow {
-  id: string;
-  paymentNumber: string | null;
-  status: string;
-  journalEntryId: string | null;
-  settlesProvisionalJeId: string | null;
-  batchId: string | null;
-}
-
-/**
- * Read the payment back UNDER company_id — the only tenant check there is —
- * holding a row lock for the rest of the transaction.
- *
- * The lock is not decoration. The registry's idempotency lock only serialises
- * calls carrying the SAME key, so two `void_receipt` calls on one receipt with
- * different keys would both read `confirmed`, both read the not-yet-deleted
- * allocation rows, and both subtract from `amount_paid` — twice, on an invoice
- * carrying other receipts' cash, which `GREATEST(...,0)` only floors at zero.
- */
-async function loadPayment(
-  companyId: string,
-  kind: PaymentKind,
-  paymentId: string,
-): Promise<PaymentRow | null> {
-  const row = kind === 'customer'
-    ? await lockCustomerPaymentForUpdate(companyId, paymentId)
-    : await lockSupplierPaymentForUpdate(companyId, paymentId);
-  if (!row) return null;
-  return {
-    id: String(row.id),
-    paymentNumber: row.payment_number == null ? null : String(row.payment_number),
-    status: String(row.status),
-    journalEntryId: row.gl_journal_entry_id == null ? null : String(row.gl_journal_entry_id),
-    settlesProvisionalJeId: row.settles_provisional_je_id == null ? null : String(row.settles_provisional_je_id),
-    batchId: row.batch_id == null ? null : String(row.batch_id),
-  };
-}
-
 /** Every lock of the void under ONE budget, plain UPDATEs included (D8 round 10, core/rowLockBudget). */
 export async function voidPaymentDocument(
   companyId: string,
   kind: PaymentKind,
   paymentId: string,
   userId: string,
-  opts?: PostingActorOpts & { reversalDate?: string },
+  opts?: VoidOpts,
 ): Promise<VoidPaymentResult | VoidRefusal> {
   return underFlowLockBudget(`Payment ${paymentId}`, () => voidPaymentDocumentInner(companyId, kind, paymentId, userId, opts));
 }
@@ -178,8 +143,10 @@ async function voidPaymentDocumentInner(
   kind: PaymentKind,
   paymentId: string,
   userId: string,
-  opts?: PostingActorOpts & { reversalDate?: string },
+  voidOpts?: VoidOpts,
 ): Promise<VoidPaymentResult | VoidRefusal> {
+  const { beforeFirstWrite, ...rest } = voidOpts ?? {};
+  const opts = voidOpts ? rest : undefined;
   // LOCK ORDER: bank line, then payment — see the header.
   const peekedJournalId = await peekPaymentJournal(companyId, kind, paymentId);
   if (peekedJournalId === undefined) return { refusal: 'not_found' };
@@ -210,6 +177,7 @@ async function voidPaymentDocumentInner(
     return { refusal: 'not_applied', status: payment.status };
   }
   if (payment.batchId) return { refusal: 'batch_member', paymentNumber: payment.paymentNumber, batchId: payment.batchId };
+  if (beforeFirstWrite) await beforeFirstWrite({ ...payment, bankTransactionId });
   if (payment.settlesProvisionalJeId) return voidSettlementDocument(companyId, payment, userId, opts); // R-127
   if (payment.journalEntryId !== peekedJournalId) {
     // `gl_journal_entry_id` is written once, when the payment posts, and never

@@ -48,6 +48,7 @@ describe('admin billing actions show the server message', () => {
     });
     render(<InvoicesPage />);
     fireEvent.click(await screen.findByTitle('Send'));
+    fireEvent.click(await screen.findByRole('button', { name: /^send invoice$/i })); // WP7: Send asks first
     expect(await screen.findByText(msg)).toBeTruthy();
   });
 
@@ -63,7 +64,6 @@ describe('admin billing actions show the server message', () => {
     const inputs = container.querySelectorAll('[role="dialog"] input');
     fireEvent.change(inputs[0]!, { target: { value: 'c9' } });
     fireEvent.change(inputs[1]!, { target: { value: '100' } });
-    fireEvent.change(inputs[3]!, { target: { value: '115' } });
     fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
     expect(await screen.findByText(msg)).toBeTruthy();
   });

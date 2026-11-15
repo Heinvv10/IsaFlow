@@ -24,6 +24,9 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 // FX PR0: the currency gate reads the company row; it has its own tests (fx-pr0-*).
 vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
   (await import('../../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));
+// Step 6: a share journal with live undo-share journals is refused (gl/shareUndoReversalGuard, real-ledger proof in
+// breaker6-r2.int.test.ts); none here, and the positional sql queue must not see its read.
+vi.mock('@/modules/accounting/services/gl/shareUndoReversalGuard', () => ({ assertNoLiveUndoShares: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/gl/vatLateClaimSplit', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/gl/vatLateClaimSplit')>()),
   planLateClaimCompanionReversal: vi.fn(async () => null),
