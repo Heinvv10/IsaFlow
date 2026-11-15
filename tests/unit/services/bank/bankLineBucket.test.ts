@@ -13,25 +13,25 @@ const line = (over: Partial<Record<keyof LineBucketFields, unknown>>): LineBucke
 
 describe('lineBucketOf', () => {
   it.each([
-    ['imported, nothing set', {}, 'unallocated'],
-    ['NULL status (mapTxRow renders it "null")', { status: 'null' }, 'unallocated'],
-    ['imported with a suggested account', { suggestedGlAccountId: 'g' }, 'suggested'],
-    ['imported with a suggested supplier', { suggestedSupplierId: 's' }, 'suggested'],
-    ['imported with a suggested customer', { suggestedClientId: 'c' }, 'suggested'],
-    ['imported with only an allocation type', { allocationType: 'account' }, 'suggested'],
-    ['NULL status with a suggestion', { status: 'null', suggestedGlAccountId: 'g' }, 'suggested'],
-    ['imported with a matched line', { matchedJournalLineId: 'jl' }, 'allocated'],
-    ['provisional', { status: 'provisional' }, 'allocated'],
-    ['allocated', { status: 'allocated', matchedJournalLineId: 'jl' }, 'allocated'],
-    ['matched', { status: 'matched' }, 'allocated'],
-    ['reconciled with no matched line (Sage)', { status: 'reconciled' }, 'allocated'],
-    ['provisional with a suggestion still allocated', { status: 'provisional', suggestedGlAccountId: 'g' }, 'allocated'],
-    ['excluded', { status: 'excluded' }, 'excluded'],
-    ['excluded that kept its match', { status: 'excluded', matchedJournalLineId: 'jl' }, 'excluded'],
-    ['excluded with a suggestion', { status: 'excluded', suggestedGlAccountId: 'g' }, 'excluded'],
-    ['pending at the bank', { feedState: 'pending' }, 'pending'],
-    ['removed by the bank', { feedState: 'removed' }, 'pending'],
-  ] as const)('%s → %s', (_name, over, bucket) => {
+    ['imported, nothing set', 'unallocated', {}],
+    ['NULL status (mapTxRow renders it "null")', 'unallocated', { status: 'null' }],
+    ['imported with a suggested account', 'suggested', { suggestedGlAccountId: 'g' }],
+    ['imported with a suggested supplier', 'suggested', { suggestedSupplierId: 's' }],
+    ['imported with a suggested customer', 'suggested', { suggestedClientId: 'c' }],
+    ['imported with only an allocation type', 'suggested', { allocationType: 'account' }],
+    ['NULL status with a suggestion', 'suggested', { status: 'null', suggestedGlAccountId: 'g' }],
+    ['imported with a matched line', 'allocated', { matchedJournalLineId: 'jl' }],
+    ['provisional', 'allocated', { status: 'provisional' }],
+    ['allocated', 'allocated', { status: 'allocated', matchedJournalLineId: 'jl' }],
+    ['matched', 'allocated', { status: 'matched' }],
+    ['reconciled with no matched line (Sage)', 'allocated', { status: 'reconciled' }],
+    ['provisional with a suggestion still allocated', 'allocated', { status: 'provisional', suggestedGlAccountId: 'g' }],
+    ['excluded', 'excluded', { status: 'excluded' }],
+    ['excluded that kept its match', 'excluded', { status: 'excluded', matchedJournalLineId: 'jl' }],
+    ['excluded with a suggestion', 'excluded', { status: 'excluded', suggestedGlAccountId: 'g' }],
+    ['pending at the bank', 'pending', { feedState: 'pending' }],
+    ['removed by the bank', 'pending', { feedState: 'removed' }],
+  ] as const)('%s → %s', (_name, bucket, over) => {
     expect(lineBucketOf(line(over))).toBe(bucket);
   });
 });
