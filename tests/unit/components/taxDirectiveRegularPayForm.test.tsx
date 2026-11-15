@@ -5,6 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
+import { pickKit } from '../../helpers/kitSelect';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok } from '../helpers/d2R3a1Serve';
 
@@ -40,9 +41,9 @@ const fill = (label: string | RegExp, value: string) => {
 async function openWith(type: string, posted: Array<Record<string, unknown>>, onCreated = vi.fn()) {
   serve(posted);
   render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={onCreated} />);
-  const employee = await screen.findByLabelText('Employee *') as HTMLSelectElement;
-  await waitFor(() => expect(employee.options.length).toBe(2));
-  fireEvent.change(employee, { target: { value: 'e-1' } });
+  const employee = await screen.findByRole('combobox', { name: 'Employee *' });
+  await waitFor(() => expect(employee.getAttribute('aria-disabled')).toBe('false'));
+  await pickKit(employee, /E001|Test/);
   fireEvent.click(screen.getByRole('combobox', { name: /Directive Type/ }));
   fireEvent.click(await within(await screen.findByRole('listbox')).findByRole('option', { name: type }));
   return employee.closest('form')!;

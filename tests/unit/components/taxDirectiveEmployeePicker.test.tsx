@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
+import { pickKit, openKit } from '../../helpers/kitSelect';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { empty500, noRawText, ok, route } from '../helpers/d2R3a1Serve';
 
@@ -44,14 +45,22 @@ const fill = (label: string | RegExp, value: string) => {
   fireEvent.blur(el);
 };
 
+/** The kit picker, once the employees have loaded (it is disabled until then). */
+async function employeeBox(): Promise<HTMLElement> {
+  const box = await screen.findByRole('combobox', { name: 'Employee *' });
+  await waitFor(() => expect(box.getAttribute('aria-disabled')).toBe('false'));
+  return box;
+}
+const LANDA = /Test, Wanda/;
+const SAM = /Other, Sam/;
+
 describe('CreateTaxDirectiveModal: employee picker', () => {
   it('lists the company\'s employees, leavers included, from the employees route', async () => {
     serve([]);
     render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={() => {}} />);
-    const select = await screen.findByLabelText('Employee *') as HTMLSelectElement;
-    await waitFor(() => expect(select.options.length).toBe(3));
-    expect([...select.options].map(o => o.text)).toEqual(['Select an employee', 'Test, Wanda (E001)', 'Other, Sam (E002)']);
-    expect(select.required).toBe(true);
+    const box = await employeeBox();
+    openKit(box);
+    expect((await screen.findAllByRole('option')).map(o => o.textContent)).toEqual(['Test, Wanda (E001)', 'Other, Sam (E002)']);
     expect(vi.mocked(apiFetch).mock.calls.map(c => String(c[0]))).toContain('/api/payroll/employees?include=terminated');
   });
 
@@ -60,9 +69,8 @@ describe('CreateTaxDirectiveModal: employee picker', () => {
     serve(posted);
     const onCreated = vi.fn();
     render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={onCreated} />);
-    const select = await screen.findByLabelText('Employee *') as HTMLSelectElement;
-    await waitFor(() => expect(select.options.length).toBe(3));
-    fireEvent.change(select, { target: { value: 'e-1' } });
+    const select = await employeeBox();
+    await pickKit(select, LANDA);
     expect((screen.getByLabelText('Employee Name *') as HTMLInputElement).value).toBe('Wanda Test');
     // The name is the employee record's (the server stores that one whatever is sent): shown, not typed.
     expect((screen.getByLabelText('Employee Name *') as HTMLInputElement).readOnly).toBe(true);
@@ -80,10 +88,9 @@ describe('CreateTaxDirectiveModal: employee picker', () => {
   it('going back to no employee clears what the last pick showed', async () => {
     serve([]);
     render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={() => {}} />);
-    const select = await screen.findByLabelText('Employee *') as HTMLSelectElement;
-    await waitFor(() => expect(select.options.length).toBe(3));
-    fireEvent.change(select, { target: { value: 'e-1' } });
-    fireEvent.change(select, { target: { value: '' } });
+    const select = await employeeBox();
+    await pickKit(select, LANDA);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
     expect((screen.getByLabelText('Employee Name *') as HTMLInputElement).value).toBe('');
     expect((screen.getByLabelText('Tax Number') as HTMLInputElement).value).toBe('');
   });
@@ -91,10 +98,9 @@ describe('CreateTaxDirectiveModal: employee picker', () => {
   it('an employee with no tax number clears the one a previous pick filled', async () => {
     serve([]);
     render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={() => {}} />);
-    const select = await screen.findByLabelText('Employee *') as HTMLSelectElement;
-    await waitFor(() => expect(select.options.length).toBe(3));
-    fireEvent.change(select, { target: { value: 'e-1' } });
-    fireEvent.change(select, { target: { value: 'e-2' } });
+    const select = await employeeBox();
+    await pickKit(select, LANDA);
+    await pickKit(select, SAM);
     expect((screen.getByLabelText('Employee Name *') as HTMLInputElement).value).toBe('Sam Other');
     const taxNumber = screen.getByLabelText('Tax Number') as HTMLInputElement;
     expect(taxNumber.value).toBe('');
@@ -130,7 +136,8 @@ describe('CreateTaxDirectiveModal: employee picker', () => {
     route(url => (url.startsWith('/api/payroll/employees') ? empty500() : ok([])));
     render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={() => {}} />);
     expect(await screen.findByText('Could not load the employees - try again')).toBeTruthy();
-    expect((screen.getByLabelText('Employee *') as HTMLSelectElement).options.length).toBe(1);
+    openKit(screen.getByRole('combobox', { name: 'Employee *' }));
+    expect(screen.queryAllByRole('option')).toHaveLength(0);
     expect((screen.getByRole('button', { name: /Create Directive/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -138,8 +145,7 @@ describe('CreateTaxDirectiveModal: employee picker', () => {
     const posted: unknown[] = [];
     serve(posted);
     render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={() => {}} />);
-    const select = await screen.findByLabelText('Employee *') as HTMLSelectElement;
-    await waitFor(() => expect(select.options.length).toBe(3));
+    const select = await employeeBox();
     fireEvent.submit(select.closest('form')!);
     expect(await screen.findByText('Choose the employee the directive is paid to')).toBeTruthy();
     expect(posted).toEqual([]);
@@ -150,10 +156,9 @@ describe('CreateTaxDirectiveModal: employee picker', () => {
     serve(posted as unknown[]);
     const onCreated = vi.fn();
     render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={onCreated} />);
-    const select = await screen.findByLabelText('Employee *') as HTMLSelectElement;
-    await waitFor(() => expect(select.options.length).toBe(3));
-    fireEvent.change(select, { target: { value: 'e-1' } });
-    fireEvent.change(select, { target: { value: 'e-2' } });
+    const select = await employeeBox();
+    await pickKit(select, LANDA);
+    await pickKit(select, SAM);
     fill('Gross Amount (ZAR) *', '10000');
     fill(/^Effective Date/, '2026-05-01');
     fireEvent.submit(select.closest('form')!);
@@ -173,8 +178,7 @@ describe('CreateTaxDirectiveModal: employee picker', () => {
     render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={() => {}} />);
     expect(await screen.findByText('Could not load the employees - try again')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-    const select = await screen.findByLabelText('Employee *') as HTMLSelectElement;
-    await waitFor(() => expect(select.options.length).toBe(3));
+    await employeeBox();
     expect(screen.queryByText('Could not load the employees - try again')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
     expect(calls).toBe(2);

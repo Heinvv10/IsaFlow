@@ -65,7 +65,7 @@ export function DirectiveEmployeeSelect({ value, onChange, employees, loading, e
     : employees.length === 0 ? 'No payroll employees yet - add the employee under Payroll > Employees first' : '');
   return (
     <div className="col-span-2">
-      <Select id="td-employee" label="Employee *" labelClassName={labelCls} placeholder="Select an employee" searchable
+      <Select id="td-employee" label="Employee *" labelClassName={labelCls} placeholder="Select an employee" searchable clearable
         options={employees.map(emp => ({ value: emp.id, label: `${emp.lastName}, ${emp.firstName} (${emp.employeeNumber})` }))}
         value={value || null} disabled={loading} onChange={v => onChange(v ?? '')} />
       {status && <p className={`text-xs mt-1 ${error ? 'text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>{status}</p>}

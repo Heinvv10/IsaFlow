@@ -76,6 +76,7 @@ export function SelectDropdown({
   return (
     <div
       ref={panelRef}
+      data-select-panel="true"
       // A press in the panel must not take focus from the trigger (its keys are what drive the list); the search box keeps its own.
       onMouseDown={(e) => { if (!(e.target instanceof HTMLInputElement)) e.preventDefault(); }}
       style={{ top: pos.top, bottom: pos.bottom, left: pos.left, width: pos.width, minWidth, maxHeight: pos.maxHeight }}

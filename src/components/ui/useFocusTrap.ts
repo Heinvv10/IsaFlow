@@ -48,6 +48,9 @@ export function useFocusTrap(
         return;
       }
       if (e.key !== 'Tab') return;
+      // Tab from an open Select's portalled panel (its list or search box) belongs to the Select: it puts focus back on
+      // its trigger and the browser moves on from there. Treating the panel as "outside" would send focus to the first control.
+      if (document.activeElement?.closest('[data-select-panel="true"]')) return;
       const list = items();
       const first = list[0];
       const last = list[list.length - 1];
