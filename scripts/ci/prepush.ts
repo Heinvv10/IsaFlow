@@ -29,10 +29,16 @@ export function changedFiles(base: string): string[] {
   return [...new Set([...committed.out.split('\n'), ...working.out.split('\n')].filter(Boolean))];
 }
 
-function exec(cmd: string, args: string[]): number {
-  const r = spawnSync(cmd, args, { stdio: 'inherit', env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=4096' } });
+function exec(cmd: string, args: string[], extraEnv: Record<string, string> = {}): number {
+  const r = spawnSync(cmd, args, {
+    stdio: 'inherit', env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=4096', ...extraEnv },
+  });
   return r.status ?? 1;
 }
+
+/** Bun sets NODE_ENV=development in this process and vitest keeps an inherited NODE_ENV, so a unit run spawned
+ * from here ran outside `test` (test-only hooks such as setAuthUpstreamBoundForTests then throw). Pin it. */
+const UNIT_ENV: Record<string, string> = { NODE_ENV: 'test' };
 
 function lint(base: string | null): number {
   if (base === null) {
@@ -51,10 +57,10 @@ function lint(base: string | null): number {
 function unit(base: string | null): number {
   if (base === null) {
     process.stdout.write('[prepush] no merge base with origin/master: running every unit test\n');
-    return exec('bun', ['run', 'test:unit']);
+    return exec('bun', ['run', 'test:unit'], UNIT_ENV);
   }
   process.stdout.write(`[prepush] unit tests affected by the diff against ${base.slice(0, 10)}\n`);
-  return exec('bunx', ['vitest', 'run', '--changed', base, '--passWithNoTests']);
+  return exec('bunx', ['vitest', 'run', '--changed', base, '--passWithNoTests'], UNIT_ENV);
 }
 
 const step = process.argv[2];
