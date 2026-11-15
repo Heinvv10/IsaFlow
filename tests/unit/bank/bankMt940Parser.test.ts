@@ -92,6 +92,41 @@ describe('parseMt940Statement', () => {
     expect(r.errors.length).toBe(1);
   });
 
+  it('reads the opening :60F: and closing :62F: balances, signed by their D/C mark (WP1 PR-A)', () => {
+    const r = parseMt940Statement(SAMPLE);
+    expect(r.openingBalance).toBe(10000);
+    expect(r.closingBalance).toBe(33299.5);
+    const overdrawn = [':20:S', ':25:9999', ':60F:D260101ZAR1500,25', ':61:260102C100,00NTRFa//1', ':86:in',
+      ':62F:D260131ZAR1400,25'].join('\n');
+    const o = parseMt940Statement(overdrawn);
+    expect(o.openingBalance).toBe(-1500.25);
+    expect(o.closingBalance).toBe(-1400.25);
+  });
+
+  it('a multi-statement file opens at the FIRST :60F: and closes at the LAST :62F:; :60M:/:62M: page balances are not used', () => {
+    const multi = [
+      ':20:S1', ':25:9999', ':60F:C260101ZAR100,00', ':61:260102C10,00NTRFa//1', ':86:a', ':62M:C260102ZAR110,00',
+      ':20:S2', ':25:9999', ':60M:C260102ZAR110,00', ':61:260103C5,00NTRFb//2', ':86:b', ':62F:C260103ZAR115,00',
+      ':20:S3', ':25:9999', ':60F:C260104ZAR115,00', ':61:260105D15,00NTRFc//3', ':86:c', ':62F:C260105ZAR100,00',
+    ].join('\n');
+    const r = parseMt940Statement(multi);
+    expect(r.openingBalance).toBe(100);
+    expect(r.closingBalance).toBe(100);
+  });
+
+  it('leaves both balances undefined when the file states none, or states one it cannot read', () => {
+    const none = parseMt940Statement([':25:9999', ':61:260101C100,00NTRFa//1', ':86:x'].join('\n'));
+    expect(none.openingBalance).toBeUndefined();
+    expect(none.closingBalance).toBeUndefined();
+    const bad = parseMt940Statement([':25:9999', ':60F:X260101ZAR1,00', ':61:260101C100,00NTRFa//1', ':86:x', ':62F:C26013ZAR1,00'].join('\n'));
+    expect(bad.openingBalance).toBeUndefined();
+    expect(bad.closingBalance).toBeUndefined();
+    // A readable :62F: followed by an unreadable last one: the file's closing is unknown, not the earlier figure.
+    const lastBad = parseMt940Statement([':25:9999', ':61:260101C100,00NTRFa//1', ':86:x', ':62F:C260101ZAR100,00',
+      ':61:260102C1,00NTRFb//2', ':86:y', ':62F:C2601ZAR101,00'].join('\n'));
+    expect(lastBad.closingBalance).toBeUndefined();
+  });
+
   it('does not throw on empty or non-MT940 input', () => {
     expect(parseMt940Statement('').transactions).toEqual([]);
     const r = parseMt940Statement('just some random text\nno swift tags here');

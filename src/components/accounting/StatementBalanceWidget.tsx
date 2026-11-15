@@ -24,7 +24,8 @@ interface ImportBatch {
   bankFormat: string | null;
   openingBalance: number | null;
   closingBalance: number | null;
-  transactionCount: number;
+  /** Lines on this statement now (live: an undo or delete takes them off). */
+  transactionsRemaining: number;
   createdAt: string;
 }
 
@@ -180,7 +181,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
         </span>
         <span className="flex items-center gap-1">
           <Hash className="h-3 w-3" />
-          {batch.transactionCount} transactions
+          {batch.transactionsRemaining} transactions
         </span>
         <span className="ml-auto">Imported {importedOn}</span>
       </div>

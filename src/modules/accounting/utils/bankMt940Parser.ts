@@ -14,8 +14,11 @@
  *   :61:  Statement line (one per txn)      → date + signed amount + reference
  *   :86:  Information to account owner      → free-text description (may continue
  *                                              over multiple lines)
- * Opening/closing balances (:60F:/:62F:) are not per-line, so we do not synthesise
- * a running balance — `balance` is left undefined (faithful to the source).
+ *   :60F: Opening balance (first)          → openingBalance (the file's FIRST :60F:)
+ *   :62F: Closing balance (final)          → closingBalance (the file's LAST :62F:)
+ * :60M:/:62M: are a page's intermediate balances and are not used. The balances are
+ * not per-line, so no running balance is synthesised: each line's `balance` is left
+ * undefined (faithful to the source).
  */
 
 import { log } from '@/lib/logger';
@@ -25,6 +28,7 @@ import type { ParsedBankTransaction, BankCsvParseResult } from '../types/bank.ty
 
 interface Mt940Tag {
   tag: string;       // e.g. '25', '61', '86'
+  full: string;      // the tag with its letter option, e.g. '60F', '62M'
   value: string[];   // first-line content + continuation lines
 }
 
@@ -45,7 +49,7 @@ function groupTags(content: string): Mt940Tag[] {
     const m = TAG_RE.exec(line);
     if (m) {
       if (current) tags.push(current);
-      current = { tag: m[1]!.replace(/[A-Z]$/, ''), value: [m[2]!] };
+      current = { tag: m[1]!.replace(/[A-Z]$/, ''), full: m[1]!, value: [m[2]!] };
     } else if (current) {
       current.value.push(line);
     }
@@ -86,6 +90,16 @@ function parseAmount(raw: string, mark: string): number | null {
   // RD = reversal of debit (net +).
   const negative = mark === 'D' || mark === 'RC';
   return negative ? -Math.abs(n) : Math.abs(n);
+}
+
+/**
+ * A :60F:/:62F: balance: mark(C|D) date(YYMMDD) currency(3) amount, e.g. `D260131ZAR1500,25` → −1500.25.
+ * Null when the field does not have that shape.
+ */
+function parseBalanceField(value: string): number | null {
+  const m = /^(C|D)(\d{6})([A-Z]{3})([0-9]+(?:,[0-9]*)?)$/.exec(value.trim());
+  if (!m || !parseYYMMDD(m[2]!)) return null;
+  return parseAmount(m[4]!, m[1]!);
 }
 
 // :61: value date(6) [entry date(4)] mark fundsCode? amount typeCode? refs
@@ -132,6 +146,7 @@ export function parseMt940Statement(content: string): BankCsvParseResult {
 
   let pendingLine: Mt940Line | null = null;
   let lineCounter = 0;
+  let openingSeen = false;
 
   const flush = (description: string) => {
     if (!pendingLine) return;
@@ -145,7 +160,7 @@ export function parseMt940Statement(content: string): BankCsvParseResult {
     pendingLine = null;
   };
 
-  for (const { tag, value } of tags) {
+  for (const { tag, full, value } of tags) {
     if (tag === '25' && !result.accountNumber) {
       result.accountNumber = parseAccountNumber(value.join(''));
     } else if (tag === '61') {
@@ -158,6 +173,16 @@ export function parseMt940Statement(content: string): BankCsvParseResult {
       }
     } else if (tag === '86') {
       flush(cleanDescription(value));
+    } else if (full === '60F' && !openingSeen) {
+      // The FIRST :60F: only: an unreadable one leaves the opening unknown rather than taking a later statement's.
+      openingSeen = true;
+      const opening = parseBalanceField(value[0] ?? '');
+      if (opening !== null) result.openingBalance = opening;
+    } else if (full === '62F') {
+      // The LAST :62F: wins, and an unreadable last one leaves the closing unknown.
+      const closing = parseBalanceField(value[0] ?? '');
+      if (closing !== null) result.closingBalance = closing;
+      else delete result.closingBalance;
     }
   }
   flush(''); // trailing :61: with no :86:

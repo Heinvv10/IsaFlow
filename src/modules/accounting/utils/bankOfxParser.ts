@@ -108,13 +108,15 @@ export function parseOfxStatement(content: string): BankCsvParseResult {
     return result;
   }
 
-  // Extract closing balance if present
+  // Extract closing balance if present: the ledger balance's BALAMT, not AVAILBAL's (available ≠ booked).
   let closingBalance: number | undefined;
-  const balAmtRaw = extractTag(content, 'BALAMT');
+  const ledgerBal = /<LEDGERBAL>([\s\S]*?)(?:<\/LEDGERBAL>|<AVAILBAL>|$)/i.exec(content)?.[1];
+  const balAmtRaw = extractTag(ledgerBal ?? content, 'BALAMT');
   if (balAmtRaw !== null) {
-    const parsed = parseFloat(balAmtRaw);
+    const parsed = parseFloat(balAmtRaw.replace(/,/g, '')); // as TRNAMT below: a grouped 5,330.00 is not R5
     if (!isNaN(parsed)) closingBalance = parsed;
   }
+  if (closingBalance !== undefined) result.closingBalance = closingBalance;
 
   // Extract transaction blocks
   const txBlocks = extractBlocks(content, 'STMTTRN');
