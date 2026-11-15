@@ -2,7 +2,8 @@
  * A-3 / F-M1 — bank-match-confirm answers a pending/removed feed row 409 in
  * both shapes it can arrive in: the bare BankTransactionNotPostedError
  * (matchTransaction, journal_line / bank_transfer) and allocateTransaction's
- * BankAllocationRefusal carrying the feed state (purchase_order). Every other
+ * BankAllocationRefusal carrying the feed state (purchase_order, raised through
+ * confirmPurchaseOrderMatch, whose own reads are all before that). Every other
  * BankAllocationRefusal keeps its 400. Both are raised before the first write.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,6 +24,7 @@ vi.mock('@/modules/accounting/services/bank/bankReconciliationService', () => ({
 }));
 vi.mock('@/modules/accounting/services/bank/confirmSupplierMatch', () => ({ confirmSupplierInvoiceMatch: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/confirmCustomerMatch', () => ({ confirmCustomerInvoiceMatch: vi.fn() }));
+vi.mock('@/modules/accounting/services/bank/confirmPurchaseOrderMatch', () => ({ confirmPurchaseOrderMatch: vi.fn() }));
 vi.mock('@/lib/apiResponse', () => ({
   apiResponse: {
     success: vi.fn((_r: unknown, data: unknown) => ({ kind: 'success', data })),
@@ -36,7 +38,8 @@ vi.mock('@/lib/apiResponse', () => ({
 }));
 
 import handler from '../../../../pages/api/accounting/bank-match-confirm';
-import { allocateTransaction, matchTransaction } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { matchTransaction } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { confirmPurchaseOrderMatch } from '@/modules/accounting/services/bank/confirmPurchaseOrderMatch';
 import { BankTransactionNotPostedError, assertPostedForAllocation } from '@/modules/accounting/services/bank/bankFeedStateGuard';
 import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 
@@ -63,14 +66,14 @@ describe('bank-match-confirm — pending feed row', () => {
     expect(out).toEqual({ kind: 'conflict', message: expect.stringMatching(/still pending at the bank/) });
   });
 
-  it("purchase_order: allocateTransaction's feed-state refusal is 409", async () => {
-    vi.mocked(allocateTransaction).mockRejectedValue(pendingAllocationRefusal());
+  it("purchase_order: allocateTransaction's feed-state refusal (through the PO arm) is 409", async () => {
+    vi.mocked(confirmPurchaseOrderMatch).mockRejectedValue(pendingAllocationRefusal());
     const out = await handler(req('purchase_order'), {} as NextApiResponse) as { kind: string; message: string };
     expect(out).toEqual({ kind: 'conflict', message: expect.stringMatching(/still pending at the bank/) });
   });
 
   it('any other BankAllocationRefusal keeps 400', async () => {
-    vi.mocked(allocateTransaction).mockRejectedValue(new BankAllocationRefusal('Transaction already allocated'));
+    vi.mocked(confirmPurchaseOrderMatch).mockRejectedValue(new BankAllocationRefusal('Transaction already allocated'));
     const out = await handler(req('purchase_order'), {} as NextApiResponse) as { kind: string };
     expect(out.kind).toBe('badRequest');
   });
