@@ -38,6 +38,7 @@ const PatchBody = z.object({
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const rawId = req.query.id;
+  // Not adminUuid (a 400): a malformed id here is an announcement that does not exist, a 404 by design.
   if (!isUuidParam(rawId)) return apiResponse.notFound(res, 'Announcement');
   const id = rawId.toLowerCase(); // the canonical spelling it is queried and audited by (breaker #1405 round 5)
 

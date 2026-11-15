@@ -3,7 +3,8 @@
  *
  *   - (M) A UUID in an admin path is used in its canonical lower-case spelling: companies/[id]/impersonate with an
  *     upper-cased id minted its token and wrote its company.impersonate audit row under the UPPER spelling, and the
- *     company's audit view (entity_id matched exactly) never showed it. Same for companies/[id] PATCH.
+ *     company's audit view (entity_id matched exactly) never showed it. Same for companies/[id] PATCH (adminUuid)
+ *     and invoices/[id]/mark-paid (AdminUuid, the zod form).
  *   - (L1) users.id is TEXT, so two rows can differ only in case. reset-password resolves the id once, an exact
  *     match first, and resets and audits that exact row: `lower(id) = lower($1) LIMIT 1` with no order could pick
  *     the other row, and the refusal check and the send could pick different rows.
@@ -17,6 +18,7 @@ vi.mock('@/modules/accounting/services/core/emailService', () => ({ sendEmail })
 
 import impersonateCompany from '../../pages/api/admin/companies/[id]/impersonate';
 import companyRoute from '../../pages/api/admin/companies/[id]';
+import markPaidRoute from '../../pages/api/admin/billing/invoices/[id]/mark-paid';
 import auditRoute from '../../pages/api/admin/audit';
 import resetPassword from '../../pages/api/admin/users/[id]/reset-password';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
@@ -67,6 +69,7 @@ afterAll(async () => {
   try {
     await pool.query('DELETE FROM admin_audit_log WHERE admin_user_id = $1', [admin]);
     await pool.query('DELETE FROM auth_password_reset_tokens WHERE user_id = $1::uuid', [lowerUser]);
+    await pool.query('DELETE FROM admin_invoices WHERE company_id = $1', [company]);
     await pool.query('DELETE FROM company_users WHERE user_id = $1', [admin]);
     await pool.query('DELETE FROM companies WHERE id = $1', [company]);
     await pool.query('DELETE FROM users WHERE id = ANY($1)', [[admin, lowerUser, upperUser]]);
@@ -94,6 +97,18 @@ describe('(M) a path UUID is used in its canonical lower-case spelling', () => {
     expect(r.status).toBe(200);
     expect(await audits('company.update', company)).toBe(1);
     expect(await audits('company.update', company.toUpperCase())).toBe(0);
+  });
+});
+
+describe('(M) the zod form, AdminUuid', () => {
+  it('invoices/[id]/mark-paid with an upper-cased id: paid, audited under the lower-case id', async () => {
+    const invoice = String((await pool.query(
+      `INSERT INTO admin_invoices (company_id, invoice_number, status, subtotal_cents, tax_cents, total_cents, currency)
+       VALUES ($1, $2, 'sent', 10000, 1500, 11500, 'ZAR') RETURNING id`, [company, `R6-${company.slice(0, 8)}`])).rows[0].id);
+    const r = await call(markPaidRoute, 'POST', { id: invoice.toUpperCase() }, { payment_method: 'EFT' });
+    expect(r.status).toBe(200);
+    expect(await audits('invoice.mark_paid', invoice)).toBe(1);
+    expect(await audits('invoice.mark_paid', invoice.toUpperCase())).toBe(0);
   });
 });
 
