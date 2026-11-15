@@ -5,6 +5,23 @@
 import type { VatDecisionKind } from './vatGuardRules';
 
 /**
+ * Files that BUILD the journal lines a poster in another file posts, mapped to
+ * that poster. The rule is file-scoped (vatGuardRules KNOWN LIMITS: a split
+ * between the file carrying `vatType` and the file that posts puts neither in
+ * scope), so a builder split out of a poster is declared here and its VAT
+ * fields are judged as the poster's were. The check fails when a builder is
+ * gone, carries no VAT field any more, or is no longer imported by its poster.
+ */
+export const LINE_BUILDERS: Record<string, string> = {
+  // allocateTransaction's arms, split out of bankAllocationService (2026-11-15, line cap).
+  'src/modules/accounting/services/bank/bankAllocationArms.ts':
+    'src/modules/accounting/services/bank/bankAllocationService.ts',
+  // splitAllocateTransaction's lines, split out of bankAllocationService (PR #711): its view restored 2026-11-15.
+  'src/modules/accounting/services/bank/bankSplitJournal.ts':
+    'src/modules/accounting/services/bank/bankSplitAllocate.ts',
+};
+
+/**
  * Paths that decide or forward a VAT claim and are ALLOWED not to guard.
  *
  * Every entry carries the reason, because the reason is the only thing that
@@ -26,23 +43,6 @@ import type { VatDecisionKind } from './vatGuardRules';
  * pass, when the gate was excused only for a rate that bounds a refusal. A
  * kind the file shows outside its entry fails the check like any other.
  */
-/**
- * Files that BUILD the journal lines a poster in another file posts, mapped to
- * that poster. The rule is file-scoped (vatGuardRules KNOWN LIMITS: a split
- * between the file carrying `vatType` and the file that posts puts neither in
- * scope), so a builder split out of a poster is declared here and its VAT
- * fields are judged as the poster's were. The check fails when a builder is
- * gone, carries no VAT field any more, or is no longer imported by its poster.
- */
-export const LINE_BUILDERS: Record<string, string> = {
-  // allocateTransaction's arms, split out of bankAllocationService (2026-11-15, line cap).
-  'src/modules/accounting/services/bank/bankAllocationArms.ts':
-    'src/modules/accounting/services/bank/bankAllocationService.ts',
-  // splitAllocateTransaction's lines, split out of bankAllocationService (PR #711): its view restored 2026-11-15.
-  'src/modules/accounting/services/bank/bankSplitJournal.ts':
-    'src/modules/accounting/services/bank/bankSplitAllocate.ts',
-};
-
 interface AllowedEntry {
   kinds: VatDecisionKind[];
   reason: string;
