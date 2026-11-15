@@ -66,6 +66,7 @@ describe('admin billing', () => {
     script((p) => p.endsWith('/send'), empty500, (p) => (p === '/api/admin/billing/invoices' ? { items: [INVOICE], total: 1, page: 1, limit: 25 } : {}));
     render(<InvoicesPage />);
     fireEvent.click(await screen.findByTitle('Send'));
+    fireEvent.click(await screen.findByRole('button', { name: /^send invoice$/i })); // WP7: Send asks first
     expect(await screen.findByText('Could not send the invoice - try again')).toBeTruthy(); noRaw();
   });
   it('invoice create over a dropped connection: a plain sentence', async () => {
@@ -73,7 +74,7 @@ describe('admin billing', () => {
     const { container } = render(<InvoicesPage />);
     fireEvent.click(await screen.findByRole('button', { name: /create invoice/i }));
     const inputs = container.querySelectorAll('[role="dialog"] input');
-    fireEvent.change(inputs[0]!, { target: { value: 'c9' } }); fireEvent.change(inputs[1]!, { target: { value: '100' } }); fireEvent.change(inputs[3]!, { target: { value: '115' } });
+    fireEvent.change(inputs[0]!, { target: { value: 'c9' } }); fireEvent.change(inputs[1]!, { target: { value: '100' } });
     fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
     expect(await screen.findByText('Could not create the invoice - try again')).toBeTruthy();
   });

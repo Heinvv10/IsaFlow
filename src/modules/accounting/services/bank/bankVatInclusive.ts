@@ -4,8 +4,10 @@
  * file is at its line cap, and the manual-journal gate needed the room).
  */
 
-/** Standard SA VAT rate; update if SARS changes the statutory rate. */
-export const SA_VAT_RATE_PCT = 15;
+import { SA_STANDARD_VAT_RATE_PCT } from '@/lib/vat/standardRate';
+
+/** Standard SA VAT rate (the one definition is @/lib/vat/standardRate). */
+export const SA_VAT_RATE_PCT = SA_STANDARD_VAT_RATE_PCT;
 
 /** `amount` split into net and VAT at the standard rate when `hasVat`, else all net; each rounded to cents. */
 export function vatInclusiveSplit(amount: number, hasVat: boolean): { vatRate: number; netAmount: number; vatAmount: number } {

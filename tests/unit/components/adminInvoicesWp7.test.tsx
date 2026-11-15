@@ -1,0 +1,177 @@
+/**
+ * WP7 (admin audit 2026-11-14 items 1.7-1.9, 2.10, 3.7 for invoices): the admin Invoices page
+ *  - sends the date filters as from_date / to_date, the names the API reads (it sent date_from / date_to);
+ *  - creates with a blank due date and notes by leaving them out (it sent null, which the API refused), and sends
+ *    only the subtotal: VAT and total are the server's, shown here as a preview from the same function;
+ *  - asks before Send (emails the customer) and before Mark Paid, and sends nothing on Cancel;
+ *  - sends X-Admin-Request on every write.
+ */
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mockedApiFetchModule, useApiJsonOverMock } from '../helpers/apiJsonOverMock';
+
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
+vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
+vi.mock('@/components/admin/AdminLayout', () => ({ AdminLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
+vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, push: vi.fn() }) }));
+
+import { apiFetch } from '@/lib/apiFetch';
+import { formatCurrency } from '@/utils/formatters';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
+import InvoicesPage from '../../../pages/admin/billing/invoices';
+
+void mockedApiFetchModule;
+useApiJsonOverMock();
+
+const success = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
+const INVOICE = { id: 'inv-1', invoice_number: 'INV-WP7-1', company_id: 'c1', company_name: 'Acme', billing_email: 'billing@acme.example.test', status: 'draft',
+  subtotal_cents: 10000, tax_cents: 1500, total_cents: 11500, currency: 'ZAR', due_date: null, paid_at: null,
+  payment_method: null, created_at: '2026-01-01T00:00:00Z' };
+
+function serve(items: unknown[], post: (path: string) => unknown = () => ({})) {
+  vi.mocked(apiFetch).mockReset().mockImplementation(async (url, init) => {
+    const path = String(url).split('?')[0]!;
+    if ((init?.method ?? 'GET') === 'GET') return success({ items, total: items.length, page: 1, limit: 25 });
+    return success(post(path));
+  });
+}
+const calls = () => vi.mocked(apiFetch).mock.calls.map(([u, i]) => ({ url: String(u), init: (i ?? {}) as RequestInit }));
+const posts = (suffix: string) => calls().filter((c) => c.init.method === 'POST' && c.url.split('?')[0]!.endsWith(suffix));
+
+afterEach(() => { cleanup(); });
+
+describe('admin invoices page (WP7)', () => {
+  it('sends the date filters as from_date / to_date', { timeout: 15000 }, async () => {
+    serve([]);
+    render(<InvoicesPage />);
+    for (const [label, iso] of [['From date', '2026-03-01'], ['To date', '2026-03-31']] as const) {
+      const field = await screen.findByLabelText(label);
+      fireEvent.change(field, { target: { value: iso } });
+      fireEvent.blur(field);
+    }
+    await waitFor(() => expect(calls().some((c) => c.url.includes('from_date=2026-03-01') && c.url.includes('to_date=2026-03-31'))).toBe(true),
+      { timeout: 5000 });
+    expect(calls().some((c) => /date_from|date_to/.test(c.url))).toBe(false);
+  });
+
+  it('creates with a blank due date and notes left out, and the subtotal only; previews 15% VAT', async () => {
+    serve([], () => ({ id: 'inv-2' }));
+    const { container } = render(<InvoicesPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /create invoice/i }));
+    fireEvent.change(screen.getByLabelText('Company ID'), { target: { value: 'c9' } });
+    fireEvent.change(screen.getByLabelText('Subtotal (R)'), { target: { value: '100' } });
+    expect(screen.getByTestId('invoice-vat-preview').textContent).toContain(formatCurrency(15));
+    expect(screen.getByTestId('invoice-total-preview').textContent).toContain(formatCurrency(115));
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    await waitFor(() => expect(posts('/api/admin/billing/invoices')).toHaveLength(1));
+    const sent = posts('/api/admin/billing/invoices')[0]!;
+    expect(JSON.parse(String(sent.init.body))).toEqual({ company_id: 'c9', subtotal_cents: 10000 });
+    expect(new Headers(sent.init.headers).get('X-Admin-Request')).toBe('true');
+    await waitFor(() => expect(container.querySelector('[role="dialog"]')).toBeNull());
+  });
+
+  it('Send asks first: Cancel sends nothing; confirming sends once with the admin header', async () => {
+    serve([INVOICE], () => ({ sent: true, recipient: 'billing@acme.example.test' }));
+    render(<InvoicesPage />);
+    fireEvent.click(await screen.findByTitle('Send'));
+    // The dialog names the address the email goes to (review L3), not just "the billing email".
+    expect(await screen.findByText(/to billing@acme\.example\.test, Acme's billing email\?/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+    expect(screen.queryByText(/billing email/i)).toBeNull();
+    expect(posts('/send')).toHaveLength(0);
+
+    fireEvent.click(screen.getByTitle('Send'));
+    fireEvent.click(await screen.findByRole('button', { name: /^send invoice$/i }));
+    await waitFor(() => expect(posts('/api/admin/billing/invoices/inv-1/send')).toHaveLength(1));
+    expect(new Headers(posts('/send')[0]!.init.headers).get('X-Admin-Request')).toBe('true');
+    // The address the dialog showed: the server refuses the send if the billing email changed since (review L3).
+    expect(JSON.parse(String(posts('/send')[0]!.init.body))).toEqual({ confirmed_to: 'billing@acme.example.test' });
+    expect(await screen.findByText(/billing@acme\.example\.test/)).toBeTruthy();
+  });
+
+  it('Mark Paid asks first: Cancel sends nothing; confirming sends once', async () => {
+    serve([{ ...INVOICE, status: 'sent' }], () => ({ paid: true, payment_method: 'manual' }));
+    render(<InvoicesPage />);
+    fireEvent.click(await screen.findByTitle('Mark Paid'));
+    fireEvent.click(await screen.findByRole('button', { name: /^cancel$/i }));
+    expect(posts('/mark-paid')).toHaveLength(0);
+
+    fireEvent.click(screen.getByTitle('Mark Paid'));
+    fireEvent.click(await screen.findByRole('button', { name: /^mark as paid$/i }));
+    await waitFor(() => expect(posts('/api/admin/billing/invoices/inv-1/mark-paid')).toHaveLength(1));
+    expect(JSON.parse(String(posts('/mark-paid')[0]!.init.body))).toEqual({ payment_method: 'manual' });
+  });
+
+  it('says a company without a billing email will be refused, before anything is sent', async () => {
+    serve([{ ...INVOICE, billing_email: null }]);
+    render(<InvoicesPage />);
+    fireEvent.click(await screen.findByTitle('Send'));
+    expect(await screen.findByText(/Acme has no billing email/)).toBeTruthy();
+    expect(posts('/send')).toHaveLength(0);
+  });
+
+  it('a subtotal past the cap shows a dash, a clear message, and sends nothing (it used to throw)', async () => {
+    serve([], () => ({ id: 'inv-9' }));
+    render(<InvoicesPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /create invoice/i }));
+    fireEvent.change(screen.getByLabelText('Company ID'), { target: { value: 'c9' } });
+    for (const huge of ['1e30', '18000000.01']) {
+      fireEvent.change(screen.getByLabelText('Subtotal (R)'), { target: { value: huge } });
+      expect(screen.getByTestId('invoice-vat-preview').textContent).toBe('—');
+      expect(screen.getByTestId('invoice-total-preview').textContent).toBe('—');
+      expect(screen.getByRole('alert').textContent).toMatch(/Subtotal may be at most/);
+    }
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    expect((await screen.findAllByText(/Subtotal may be at most/)).length).toBeGreaterThan(0);
+    expect(posts('/api/admin/billing/invoices')).toHaveLength(0);
+    // The cap itself is accepted and previewed.
+    fireEvent.change(screen.getByLabelText('Subtotal (R)'), { target: { value: '18000000' } });
+    expect(screen.getByTestId('invoice-total-preview').textContent).toContain(formatCurrency(20_700_000));
+  });
+
+  it.each([['Release, not sent', 'released'], ['Mark as sent', 'sent']] as const)(
+    'a claimed row shows its unknown outcome, has no Send, and settles with "%s"', async (label, outcome) => {
+      const claimedAt = new Date(Date.now() - 12 * 60_000).toISOString(); // past the 10-minute settle bound
+      serve([{ ...INVOICE, send_claimed_at: claimedAt }], () => ({ settled: true, outcome }));
+      render(<InvoicesPage />);
+      expect(await screen.findByText(new RegExp(`Sending — outcome unknown since ${formatDisplayDateTime(claimedAt)}`))).toBeTruthy();
+      expect(screen.queryByTitle('Send')).toBeNull();
+      fireEvent.click(screen.getByTitle('Settle send'));
+      expect(await screen.findByText(/Check the email log for INV-WP7-1 first/)).toBeTruthy();
+      expect(screen.getByText(/\(12 minutes ago\)/)).toBeTruthy(); // the dialog states the claim's age
+      fireEvent.click(screen.getByRole('button', { name: label }));
+      await waitFor(() => expect(posts('/api/admin/billing/invoices/inv-1/settle-send')).toHaveLength(1));
+      const call = posts('/settle-send')[0]!;
+      expect(JSON.parse(String(call.init.body))).toEqual({ outcome });
+      expect(new Headers(call.init.headers).get('X-Admin-Request')).toBe('true');
+      expect(posts('/send')).toHaveLength(0);
+    });
+
+  it('a claim younger than 10 minutes shows "Sending…": no Settle and no Send yet', async () => {
+    serve([{ ...INVOICE, send_claimed_at: new Date(Date.now() - 10_000).toISOString() }]);
+    render(<InvoicesPage />);
+    expect(await screen.findByText('Sending…')).toBeTruthy();
+    expect(screen.queryByText(/outcome unknown/)).toBeNull();
+    expect(screen.queryByTitle('Settle send')).toBeNull();
+    expect(screen.queryByTitle('Send')).toBeNull();
+  });
+
+  it('a claim reaching the settle age re-renders on its own, without a reload: "Sending…" becomes Settle', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      serve([{ ...INVOICE, send_claimed_at: new Date(Date.now() - (10 * 60_000 - 5_000)).toISOString() }]);
+      render(<InvoicesPage />);
+      expect(await screen.findByText('Sending…')).toBeTruthy();
+      expect(screen.queryByTitle('Settle send')).toBeNull();
+      const gets = () => calls().filter((c) => (c.init.method ?? 'GET') === 'GET').length;
+      await waitFor(() => expect(gets()).toBe(2)); // mount + the 300 ms debounce: both settled before the clock moves
+      await act(async () => { await vi.advanceTimersByTimeAsync(6_000); });
+      expect(screen.getByText(/Sending — outcome unknown since/)).toBeTruthy();
+      expect(screen.getByTitle('Settle send')).toBeTruthy();
+      expect(gets()).toBe(2); // the row changed from a timer, not from a refetch
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

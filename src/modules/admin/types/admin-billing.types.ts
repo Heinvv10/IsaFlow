@@ -40,6 +40,8 @@ export interface InvoiceListItem {
   id: string;
   company_id: string;
   company_name: string;
+  /** companies.billing_email: where a Send would go (shown in its confirm dialog); null when none. */
+  billing_email: string | null;
   invoice_number: string;
   status: string;
   subtotal_cents: number;
@@ -50,6 +52,8 @@ export interface InvoiceListItem {
   paid_at: string | null;
   payment_method: string | null;
   created_at: string;
+  /** Set while a Send is in flight or its outcome is unknown (migration 993); an admin settles it. */
+  send_claimed_at: string | null;
 }
 
 export interface BillingOverview {
