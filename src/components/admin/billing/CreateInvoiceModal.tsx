@@ -4,7 +4,7 @@
  * function, invoiceAmountsFromSubtotal, so what is shown is what is stored. A blank due date or notes is left
  * out of the request, never sent as null.
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Check, Loader2, X } from 'lucide-react';
 import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { adminFetch } from '@/lib/admin/adminFetch';
@@ -39,6 +39,14 @@ export function CreateInvoiceModal({ onClose, onCreated }: Props) {
   // A real dialog (audit 4.13): focus inside, Tab trapped, Escape closes (not mid-request), focus back to the opener.
   const boxRef = useRef<HTMLDivElement>(null);
   useFocusTrap(boxRef, true, () => { if (!saving) onClose(); });
+  // Opens on the first field (the trap alone would land on the Close X). Declared after the trap: its effect runs later.
+  const companyRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { companyRef.current?.focus(); }, []);
+  // A failure is announced and takes focus, so it is not lost on a button that just turned disabled.
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  // A field holding a draft keeps Escape (useFocusTrap's opt-out): Escape must not throw the typed invoice away.
+  const keepsEscape = (v: string) => (v !== '' ? 'true' : undefined);
   const cents = toCents(form.subtotal);
   // Only an amount the server would take gets a preview; anything else shows a dash (a huge one used to throw).
   const preview = cents === null || cents > MAX_INVOICE_SUBTOTAL_CENTS ? null : invoiceAmountsFromSubtotal(cents);
@@ -50,6 +58,7 @@ export function CreateInvoiceModal({ onClose, onCreated }: Props) {
     if (cents > MAX_INVOICE_SUBTOTAL_CENTS) { setError(TOO_LARGE); return; }
     if (!dueDateValid) { setError('Due date is not a date - correct it or clear it'); return; }
     setSaving(true);
+    boxRef.current?.focus(); // every control is disabled while the request runs: focus stays in the dialog
     try {
       const notes = form.notes.trim();
       const res = await adminFetch('/api/admin/billing/invoices', {
@@ -73,25 +82,27 @@ export function CreateInvoiceModal({ onClose, onCreated }: Props) {
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="invoice-modal-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div ref={boxRef} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
+      <div ref={boxRef} tabIndex={-1} className="outline-none bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
           <h3 id="invoice-modal-title" className="text-sm font-semibold text-gray-900 dark:text-white">Create Invoice</h3>
           <button onClick={onClose} disabled={saving} aria-label="Close" className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 disabled:opacity-50"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-5 space-y-4">
           {error && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-xs">
+            <div ref={errorRef} role="alert" tabIndex={-1} className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-xs outline-none">
               <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
             </div>
           )}
           <div>
             <label htmlFor="invoice-company-id" className={LABEL}>Company ID</label>
-            <input id="invoice-company-id" type="text" value={form.company_id} className={INPUT}
+            <input id="invoice-company-id" ref={companyRef} type="text" value={form.company_id} className={INPUT}
+              data-keeps-escape={keepsEscape(form.company_id)} disabled={saving}
               onChange={(e) => setForm((f) => ({ ...f, company_id: e.target.value }))} />
           </div>
           <div>
             <label htmlFor="invoice-subtotal" className={LABEL}>Subtotal (R)</label>
             <input id="invoice-subtotal" type="number" min="0" step="0.01" value={form.subtotal} className={INPUT}
+              data-keeps-escape={keepsEscape(form.subtotal)} disabled={saving}
               onChange={(e) => setForm((f) => ({ ...f, subtotal: e.target.value }))} />
             {cents !== null && cents > MAX_INVOICE_SUBTOTAL_CENTS && <p role="alert" className="mt-1 text-xs text-red-500">{TOO_LARGE}</p>}
           </div>
@@ -101,11 +112,12 @@ export function CreateInvoiceModal({ onClose, onCreated }: Props) {
             <dt className="text-ink-muted">Total</dt>
             <dd data-testid="invoice-total-preview" className="text-right tabular-nums font-semibold text-gray-900 dark:text-white">{preview ? formatCurrency(preview.total_cents / 100) : '—'}</dd>
           </dl>
-          <DateField label="Due Date (optional)" value={form.due_date || null}
+          <DateField label="Due Date (optional)" value={form.due_date || null} disabled={saving}
             onChange={(iso, v) => { setDueDateValid(v.valid); setForm((f) => ({ ...f, due_date: iso ?? '' })); }} />
           <div>
             <label htmlFor="invoice-notes" className={LABEL}>Notes (optional)</label>
             <textarea id="invoice-notes" rows={3} value={form.notes} className={INPUT}
+              data-keeps-escape={keepsEscape(form.notes)} disabled={saving}
               onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
           </div>
         </div>

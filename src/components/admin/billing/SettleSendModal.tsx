@@ -3,7 +3,7 @@
  * left. The admin checks the email log first, then marks it sent (it was delivered) or releases it (it was not,
  * so it can be sent again). POST /api/admin/billing/invoices/[id]/settle-send, audited `invoice.send_settled`.
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Loader2, X } from 'lucide-react';
 import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { adminFetch } from '@/lib/admin/adminFetch';
@@ -27,10 +27,14 @@ export function SettleSendModal({ invoice, onClose, onSettled }: Props) {
   // A real dialog (audit 4.13): focus inside, Tab trapped, Escape closes (not mid-request), focus back to the opener.
   const boxRef = useRef<HTMLDivElement>(null);
   useFocusTrap(boxRef, true, () => { if (busy === null) onClose(); });
+  // A failure is announced and takes focus, so it is not lost on a button that just turned disabled.
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
 
   async function settle(outcome: Outcome) {
     setBusy(outcome);
     setError('');
+    boxRef.current?.focus(); // every control is disabled while the request runs: focus stays in the dialog
     try {
       const res = await adminFetch(`/api/admin/billing/invoices/${invoice.id}/settle-send`, {
         method: 'POST',
@@ -49,7 +53,7 @@ export function SettleSendModal({ invoice, onClose, onSettled }: Props) {
   const btn = 'inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50';
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="settle-send-title" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
-      <div ref={boxRef} className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6">
+      <div ref={boxRef} tabIndex={-1} className="outline-none bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 id="settle-send-title" className="font-semibold text-gray-900 dark:text-white">Settle send of {invoice.invoice_number}</h3>
           <button onClick={onClose} disabled={busy !== null} aria-label="Close" className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 disabled:opacity-50"><X className="w-5 h-5" /></button>
@@ -61,7 +65,7 @@ export function SettleSendModal({ invoice, onClose, onSettled }: Props) {
           If it was not, release it so it can be sent again.
         </p>
         {error && (
-          <div className="flex items-center gap-2 p-3 mb-4 rounded-lg bg-red-500/10 text-red-400 text-xs"><AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}</div>
+          <div ref={errorRef} role="alert" tabIndex={-1} className="flex items-center gap-2 p-3 mb-4 rounded-lg bg-red-500/10 text-red-400 text-xs outline-none"><AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}</div>
         )}
         <div className="flex gap-3 justify-end">
           <button onClick={onClose} disabled={busy !== null} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors disabled:opacity-50">Cancel</button>

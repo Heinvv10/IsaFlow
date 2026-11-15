@@ -1,7 +1,8 @@
 // Admin invoice dialogs (admin audit 4.13 follow-up): Create Invoice and Settle send are real modal dialogs.
 // role=dialog + aria-modal named by their title, focus moves in on open, Tab / Shift+Tab wrap inside, Escape closes
-// (not while the request is running, when Close and Cancel are disabled too), focus goes back to the opener, and every
-// Create Invoice field is labelled.
+// (not while the request is running, when every control is disabled and focus stays in the dialog; nor while a
+// Create Invoice field holds a draft), focus goes back to the opener, Create Invoice opens on its first field, a
+// failure is announced (role=alert) and takes focus, and every Create Invoice field is labelled.
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useState, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -79,19 +80,57 @@ describe.each(CASES)('$name dialog', (c) => {
     expect(document.activeElement).toBe(first);
   });
 
-  it('while the request runs: Escape is ignored and Close / Cancel are disabled', async () => {
+  it('while the request runs: Escape is ignored, every control is disabled, Tab keeps focus inside', async () => {
     const { dialog, onClose } = await openDialog(c);
     c.fill(dialog);
     fireEvent.click(within(dialog).getByRole('button', { name: c.start }));
     await waitFor(() => expect(vi.mocked(apiFetch)).toHaveBeenCalled());
-    expect((within(dialog).getByRole('button', { name: 'Close' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((within(dialog).getByRole('button', { name: 'Cancel' }) as HTMLButtonElement).disabled).toBe(true);
+    const controls = [...dialog.querySelectorAll<HTMLElement>('button, input, textarea, select')]
+      .filter((el) => !(el instanceof HTMLInputElement && el.type === 'hidden'));
+    expect(controls.length).toBeGreaterThan(0);
+    // :disabled, not .disabled: a field inside a disabled <fieldset> is disabled without its own attribute.
+    expect(controls.filter((el) => !el.matches(':disabled')).map((el) => el.outerHTML.slice(0, 60))).toEqual([]);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    key('Tab');
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    key('Tab', true);
+    expect(dialog.contains(document.activeElement)).toBe(true);
     key('Escape');
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog')).toBe(dialog);
     release();
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
+
+  it('a failed request is announced and takes focus', async () => {
+    vi.mocked(apiFetch).mockReset().mockImplementation(async () =>
+      new Response(JSON.stringify({ success: false, error: { message: 'The server said no' } }), { status: 400 }));
+    const { dialog } = await openDialog(c);
+    c.fill(dialog);
+    fireEvent.click(within(dialog).getByRole('button', { name: c.start }));
+    const alert = await within(dialog).findByRole('alert');
+    expect(alert.textContent).toContain('The server said no');
+    await waitFor(() => expect(document.activeElement).toBe(alert));
+  });
+});
+
+describe('Create Invoice draft and first focus', () => {
+  it('opens with focus on Company ID', async () => {
+    const { dialog } = await openDialog(CASES[0]);
+    await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByLabelText('Company ID')));
+  });
+
+  it.each([['Company ID', 'c-9'], ['Subtotal (R)', '12'], ['Notes (optional)', 'half a sentence']])(
+    'Escape in %s with something typed keeps the dialog (and the draft)', async (label, text) => {
+      const { dialog, onClose } = await openDialog(CASES[0]);
+      const field = within(dialog).getByLabelText(label);
+      fireEvent.change(field, { target: { value: text } });
+      field.focus();
+      key('Escape');
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByRole('dialog')).toBe(dialog);
+      expect((field as HTMLInputElement).value).toBe(text);
+    });
 });
 
 describe('Create Invoice labels', () => {
