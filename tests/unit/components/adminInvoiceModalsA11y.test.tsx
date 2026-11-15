@@ -90,7 +90,9 @@ describe.each(CASES)('$name dialog', (c) => {
     expect(controls.length).toBeGreaterThan(0);
     // :disabled, not .disabled: a field inside a disabled <fieldset> is disabled without its own attribute.
     expect(controls.filter((el) => !el.matches(':disabled')).map((el) => el.outerHTML.slice(0, 60))).toEqual([]);
+    // Focus sits on the dialog itself, not on a control that just turned disabled (a browser drops that to body).
     expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement?.matches(':disabled')).toBe(false);
     key('Tab');
     expect(dialog.contains(document.activeElement)).toBe(true);
     key('Tab', true);
