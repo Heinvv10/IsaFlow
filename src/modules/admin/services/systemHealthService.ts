@@ -3,7 +3,7 @@
  * trials, recent errors, and the overall status the health alerts key on.
  *
  * Shared by GET /api/admin/health and the scheduled alert run
- * (scripts/ops/run-health-alerts.ts). The reads span every tenant, so callers run
+ * (POST /api/cron/health-alerts). The reads span every tenant, so callers run
  * it on the platform_admin pool (BYPASSRLS), as withPlatformAdmin does.
  *
  * A metric that cannot be read is an error (thrown, logged), never a zero or a

@@ -11,8 +11,10 @@
  * cooldown live in checkAndAlert (admin_settings), shared with the route, so a
  * scheduled pass and an open page never both alert on the same state.
  *
- * Unlike the route, a failure is thrown, not swallowed: the caller (the timer's
- * script) exits non-zero so systemd records the failed run.
+ * Unlike the route, a failure is thrown, not swallowed: the caller
+ * (POST /api/cron/health-alerts, every 5 minutes from
+ * scripts/isaflow-health-alerts.timer) answers 500, so curl --fail and systemd
+ * record the failed run. A snapshot that fails sends nothing.
  */
 
 import { getPlatformAdminPool } from '@/lib/auth/withPlatformAdmin.pools';
