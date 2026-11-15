@@ -47,6 +47,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // bank-role holder, two claimants, or a supplied bankAccountId that is not an active bank account of the company). Names
   // only the company's own account codes and names; raised before any write. No MCP tool makes these payments today.
   'BANK_ACCOUNT_REFUSED',
+  // bank/bankAccountGuard: a request-named bank account that is not an active bank account of the company; pre-write.
+  // Another company's account reads as "not found", else names only the company's own account. No MCP tool calls it.
+  'BANK_ACCOUNT_GUARD_REFUSED',
   'BANK_ALLOCATION_REFUSED',
   // sync_bank_dimensions / the tag write-through (gl/dimensions/dimensionBankSync): a window over the row cap, a bank row
   // changed while the sync ran (rolled back), an idempotency key that names a batch of the other kind or window. Names
