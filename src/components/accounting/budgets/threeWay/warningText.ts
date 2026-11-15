@@ -12,11 +12,9 @@ const list = (xs: readonly string[]): string => xs.join(', ');
 
 const FLOW: Record<string, string> = { receipts: 'Receipts', stock_purchases: 'Stock purchases', supplier_payments: 'Supplier payments' };
 
-function daysCappedText(w: Extract<AnyWarning, { code: 'days_capped' }>): string {
+function excessSpreadText(w: Extract<AnyWarning, { code: 'opening_excess_spread' }>): string {
   const [who, side, verb] = w.series === 'receivables' ? ['Debtor', 'debtors', 'collected'] : ['Creditor', 'creditors', 'paid'];
-  const capped = `${who} days are capped at ${w.days}`;
-  if (w.excess <= 0) return `${capped}.`;
-  return `${capped}: the ${R(w.excess)} of opening ${side} above that level is ${verb} evenly over the ${w.months} months.`;
+  return `${who} days are at the ${w.days}-day limit, so the ${R(w.excess)} of opening ${side} above that level is ${verb} evenly over the ${w.months} months.`;
 }
 
 export function warningText(w: AnyWarning): string {
@@ -34,7 +32,7 @@ export function warningText(w: AnyWarning): string {
     case 'top_up_offset_not_sars': return `The tax top-up month (${w.value} months after the prior year end) differs from SARS's ${w.sars}.`;
     case 'opening_debit_carried': return `A debit opening ${w.bucket === 'payrollLiabilities' ? 'payroll liability' : 'income tax payable'} of ${R(w.amount)} is carried flat, not refunded.`;
     case 'negative_flow': return `${FLOW[w.flow] ?? w.flow} came out negative in ${w.month} (${R(w.amount)}); kept so the balance sheet holds.`;
-    case 'days_capped': return daysCappedText(w);
+    case 'opening_excess_spread': return excessSpreadText(w);
     case 'payable_account_conflict': return 'The same account is named as income tax payable and dividends payable; it is used for income tax only.';
     case 'opening_cash_difference': return `Opening cash differs from the cash book by ${R(w.differenceCents)} (accounts ${list(w.accounts)}).`;
   }

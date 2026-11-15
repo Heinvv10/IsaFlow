@@ -43,7 +43,7 @@ export function prov<T extends z.ZodType>(value: T) {
   }).strict();
 }
 
-/** The cap on debtor and creditor days (a derived value above it is clamped and warned, §13.26). */
+/** The limit on debtor and creditor days; at it, an opening excess is spread over the version (§13.26). */
 export const MAX_TRADE_DAYS = 365;
 
 export const WorkingCapitalSchema = z.object({

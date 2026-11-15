@@ -1,9 +1,10 @@
 /**
  * Opening working-capital excess (spec §13.26, Hein 2026-11-15, "spread + warn").
  *
- * An opening AR (AP) above the days level of month 1 is collected (paid) in
- * equal slices over the version's months, never all in month 1. A shortfall
- * keeps the residual behaviour. Derived days at the 365-day cap are warned.
+ * When the days in use are at the 365-day limit (derived or manual, per
+ * series), an opening AR (AP) above month 1's days level is collected (paid)
+ * in equal slices over the version's months, never all in month 1, and warned.
+ * Below the limit, and for a shortfall, month 1 takes the difference as before.
  *
  * Fixture: 12 months from 2026-03, not VAT-registered, 11 lookback months.
  * 365 days from any month of the version cover exactly 12 whole months (no
@@ -34,6 +35,7 @@ function run(opening: Parameters<typeof buckets>[0], patch: (a: ThreeWayAssumpti
 }
 
 const receipts = (o: ReturnType<typeof runThreeWay>) => o.months.map(m => m.cashFlow.direct.cash_received_from_customers);
+const spread = (o: ReturnType<typeof runThreeWay>) => o.warnings.filter(w => w.code === 'opening_excess_spread');
 const payments = (o: ReturnType<typeof runThreeWay>) => o.months.map(m => m.cashFlow.direct.cash_paid_to_suppliers);
 
 describe('Demo-like opening: AR 600 000 and AP 300 000 against R10 000 / R5 000 a month, days capped at 365', () => {
@@ -62,10 +64,10 @@ describe('Demo-like opening: AR 600 000 and AP 300 000 against R10 000 / R5 000 
     assertInvariants(inp, out, 'excess');
   });
 
-  it('warns that debtor and creditor days are capped, with the excess and the months it is spread over', () => {
-    expect(out.warnings.filter(w => w.code === 'days_capped')).toEqual([
-      { code: 'days_capped', series: 'receivables', days: 365, excess: R(480000), months: 12 },
-      { code: 'days_capped', series: 'payables', days: 365, excess: R(240000), months: 12 },
+  it('warns per series that the excess is spread, with the days, excess and months', () => {
+    expect(spread(out)).toEqual([
+      { code: 'opening_excess_spread', series: 'receivables', days: 365, excess: R(480000), months: 12 },
+      { code: 'opening_excess_spread', series: 'payables', days: 365, excess: R(240000), months: 12 },
     ]);
   });
 });
@@ -99,38 +101,58 @@ describe('shortfall (opening BELOW the days level) keeps the residual behaviour'
     expect(payments(out)[0]).toBe(R(15000));
     expect(out.months.map(m => -m.closing.payables)).toEqual(months.map(() => R(60000)));
   });
-  it('still capped (derived 365), so warned, with no excess', () => {
-    expect(out.warnings.filter(w => w.code === 'days_capped')).toEqual([
-      { code: 'days_capped', series: 'receivables', days: 365, excess: 0, months: 12 },
-      { code: 'days_capped', series: 'payables', days: 365, excess: 0, months: 12 },
-    ]);
+  it('at the limit but nothing spread: no warning', () => {
+    expect(spread(out)).toEqual([]);
     assertInvariants(inp, out, 'shortfall');
   });
 });
 
-describe('days_capped is present iff the derived days sit at the cap', () => {
+describe('the spread is gated on the days being at the 365-day limit, per series', () => {
   const opening = { receivables: 600000, payables: -300000, otherEquity: -300000 };
-  it('derived 200 days: spread applies, no capped warning', () => {
-    const { out } = run(opening, a => {
+  it('regression (review): derived 28 days, sales halve in month 1: the opening AR is collected in month 1, no warning', () => {
+    const ms = monthsFrom('2026-03', 12);
+    const inp = input({
+      months: ms, lookback: lookbackMonths('2025-03', Array.from({ length: 12 }, () => ({ turnover: 20000 }))),
+      pnl: ms.map(() => pnl({ turnover: 10000 })),
+      opening: buckets({ receivables: 20000, otherEquity: -20000 }),
+      assumptions: assumptions(ms, {}, a => { a.workingCapital.debtorDays = { value: 28, source: 'derived', derivedAsAt: '2026-02-28', basis: 'x' }; }),
+    });
+    const out = runThreeWay(inp);
+    // Days level 28/31 × 10 000 = 9 032.26; receipts 20 000 + 10 000 − 9 032.26.
+    expect(receipts(out)[0]).toBe(R(20967.74));
+    expect(out.months[0]?.closing.receivables).toBe(R(9032.26));
+    expect(spread(out)).toEqual([]);
+    assertInvariants(inp, out, '28d');
+  });
+  it('derived 200 days: below the limit, month 1 collects the whole excess, no warning', () => {
+    const { inp, out } = run(opening, a => {
       a.workingCapital.debtorDays = { value: 200, source: 'derived' };
       a.workingCapital.creditorDays = { value: 200, source: 'derived' };
     });
-    expect(out.warnings.filter(w => w.code === 'days_capped')).toEqual([]);
-    expect(receipts(out)[0]).toBeLessThan(R(100000));
+    // 200 days back from March (31+28+31+31+30+31 = 182, + 18/30 of Sep) = 6.6 months of 10 000.
+    const level = out.months[0]?.closing.receivables ?? NaN;
+    expect(receipts(out)[0]).toBe(R(600000) + R(10000) - level);
+    expect(spread(out)).toEqual([]);
+    assertInvariants(inp, out, '200d');
   });
-  it('manual 365 days: the user chose it, not capped; the spread still applies', () => {
+  it('manual 365 days: spread AND warned', () => {
     const { out } = run(opening, a => {
       a.workingCapital.debtorDays = { value: 365, source: 'manual' };
       a.workingCapital.creditorDays = { value: 365, source: 'manual' };
     });
-    expect(out.warnings.filter(w => w.code === 'days_capped')).toEqual([]);
     expect(receipts(out)).toEqual(months.map(() => R(50000)));
+    expect(payments(out)).toEqual(months.map(() => -R(25000)));
+    expect(spread(out).map(w => (w as { series: string }).series)).toEqual(['receivables', 'payables']);
   });
-  it('only debtor days capped: one warning, receivables', () => {
-    const { out } = run(opening, a => {
+  it('only debtor days at the limit: AR spread and warned; AP (30 days) paid down in month 1, not warned', () => {
+    const { inp, out } = run(opening, a => {
       a.workingCapital.debtorDays = { value: 365, source: 'derived' };
       a.workingCapital.creditorDays = { value: 30, source: 'derived' };
     });
-    expect(out.warnings.filter(w => w.code === 'days_capped').map(w => (w as { series: string }).series)).toEqual(['receivables']);
+    expect(receipts(out)[0]).toBe(R(50000));
+    // AP: 30/31 of March's 5 000 = 4 838.71; payments 300 000 + 5 000 − 4 838.71.
+    expect(payments(out)[0]).toBe(-R(300161.29));
+    expect(spread(out).map(w => (w as { series: string }).series)).toEqual(['receivables']);
+    assertInvariants(inp, out, 'ar-only');
   });
 });
