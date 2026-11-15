@@ -40,3 +40,20 @@ export function getRequestId(): string | undefined {
 export function generateRequestId(): string {
   return ulid();
 }
+
+/**
+ * Marks everything run inside `fn` as a DRY RUN: the writes will be rolled back (`core/rolledBackSavepoint`), so the
+ * log lines they emit ("Reversed journal entry", "Cancelled credit note") describe nothing that happened. The logger
+ * tags them `dryRun: true` and prefixes the message, so a journal reader does not take a preview for a posting.
+ */
+const dryRunStorage: AsyncLocalStorage<true> | null =
+  typeof AsyncLocalStorage === 'function' ? new AsyncLocalStorage<true>() : null;
+
+export function runAsDryRun<T>(fn: () => Promise<T> | T): Promise<T> | T {
+  if (!dryRunStorage) return fn();
+  return dryRunStorage.run(true, fn);
+}
+
+export function isDryRun(): boolean {
+  return dryRunStorage?.getStore() === true;
+}

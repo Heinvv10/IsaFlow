@@ -8,6 +8,7 @@
  *   customer note  approve → DR Revenue + DR VAT Output / CR Accounts Receivable
  *   supplier note  approve → DR Accounts Payable / CR Expense + CR VAT Input
  *   cancel         → reverses that journal and un-applies the invoice credit
+ *                    (a DRAFT is cancelled with no journal at all: `cancelDraft` below)
  *
  * The sharp edge worth knowing before reading further: approving a note that
  * carries an invoice link does NOT stop at the ledger. `approveCreditNote`
@@ -16,7 +17,12 @@
  * reduce a customer's outstanding balance — which is why it sits behind
  * `write:post` and is stamped for `list_agent_postings`.
  */
-import type { McpTool } from '../types';
+import type { McpTool, McpToolContext, McpToolResult } from '../types';
+import type { CreditNote } from '@/modules/accounting/types/ar.types';
+import { MUTATION_ARG_SCHEMA } from '@/lib/mcp/contracts';
+import { CreditNoteDeleteRefusal } from '@/modules/accounting/services/ar/creditNoteDeleteService';
+import { cancelDraftCreditNote } from '@/modules/accounting/services/ar/creditNoteDraftCancelService';
+import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolledBackSavepoint';
 import {
   approveCreditNote,
   cancelCreditNote,
@@ -150,9 +156,11 @@ export const approveCreditNoteTool: McpTool = {
 export const cancelCreditNoteTool: McpTool = {
   name: 'cancel_credit_note',
   description:
-    'Cancel an approved or applied credit note. Requires the write:post permission. ' +
-    'REVERSES the note\'s journal entry with a reversing entry (the original stays posted) and un-applies the credit from EVERY document it was applied to — each one\'s amount_paid drops back and its status is recomputed, in the same transaction. ' +
-    'Only "approved", "partially_applied" and "applied" notes can be cancelled; a draft has nothing to reverse.',
+    'Cancel a credit note. Requires the write:post permission. ' +
+    'An approved, partially applied or applied note: REVERSES its journal entry with a reversing entry (the original stays posted) and un-applies the credit from EVERY document it was applied to — each one\'s amount_paid drops back and its status is recomputed, in the same transaction. ' +
+    'A DRAFT note is cancelled WITHOUT a journal: it is set to cancelled, nothing is posted or reversed, no balance moves and the number stays on the books (no gap). That is the way out for a draft that cannot be deleted (delete_draft_credit_note refuses one numbered from the supplier return sequence). ' +
+    'A draft is refused when it carries a journal or applied credit (inconsistent data), when a dispute resolution raised it, or when it has a pending approval request. A cancelled note stays cancelled. ' +
+    'Run with dry_run first: it runs the real cancel and rolls it back, so it refuses exactly what the live call would, and writes nothing.',
   scope: 'write:invoices',
   write: true,
   requiresPost: true,
@@ -161,7 +169,7 @@ export const cancelCreditNoteTool: McpTool = {
     properties: {
       credit_note_id: { type: 'string' },
       reason: { type: 'string', description: 'Recorded on the note as cancel_reason' },
-      idempotency_key: { type: 'string' },
+      ...MUTATION_ARG_SCHEMA,
     },
     required: ['credit_note_id', 'idempotency_key'],
     additionalProperties: false,
@@ -175,6 +183,10 @@ export const cancelCreditNoteTool: McpTool = {
     // Same reasoning as approve: refuse from a read, never from a catch.
     const note = await getCreditNoteById(ctx.companyId, id);
     if (!note) return toolError(NOT_FOUND);
+    const dryRun = args.dry_run === true;
+    const reason = strArg(args, 'reason');
+    // A draft has no journal to reverse: its own path (ar/creditNoteDraftCancelService), no VAT-lock preflight.
+    if (note.status === 'draft') return cancelDraft(ctx, id, reason, dryRun);
     if (note.status !== 'approved' && note.status !== 'partially_applied' && note.status !== 'applied') {
       return toolError(`Cannot cancel credit note with status: ${note.status}`);
     }
@@ -198,21 +210,60 @@ export const cancelCreditNoteTool: McpTool = {
       }
     }
 
-    const updated = await cancelCreditNote(
-      ctx.companyId,
-      id,
-      ctx.userId,
-      strArg(args, 'reason'),
-      mcpPostingOpts(ctx, 'cancel_credit_note'),
-    );
+    const run = () => cancelCreditNote(ctx.companyId, id, ctx.userId, reason, mcpPostingOpts(ctx, 'cancel_credit_note'));
+    let updated: CreditNote;
+    if (dryRun) {
+      // The real cancel in a savepoint that is always rolled back: it meets every guard the live call meets.
+      const held: { cn?: CreditNote } = {};
+      await inRolledBackSavepoint('mcp_cn_cancel_dry_run', async () => { held.cn = await run(); });
+      updated = held.cn!;
+    } else {
+      updated = await run();
+    }
 
-    return ok({
+    const out = {
       id: updated.id,
       credit_note_number: updated.creditNoteNumber,
       status: updated.status,
       total_amount: updated.totalAmount,
       // Non-null when the reversal was dated past a locked (filed) VAT period.
       reversal_date_roll: roll,
-    });
+    };
+    return dryRun ? { ...ok({ dry_run: true, would_cancel: out }), wroteNothing: true } : ok(out);
   },
 };
+
+/**
+ * Cancel a DRAFT. Every refusal the service raises comes before its single write, so the typed refusal is safe as a
+ * toolError (no write to repeat on retry); anything else is rethrown for the registry's savepoint. The dry run is the
+ * same call inside a rolled-back savepoint, so it meets the row lock and every guard.
+ */
+async function cancelDraft(ctx: McpToolContext, id: string, reason: string | undefined, dryRun: boolean): Promise<McpToolResult> {
+  try {
+    const opts = mcpPostingOpts(ctx, 'cancel_credit_note');
+    let updated: CreditNote;
+    if (dryRun) {
+      const held: { cn?: CreditNote } = {};
+      await inRolledBackSavepoint('mcp_cn_cancel_draft_dry_run', async () => {
+        held.cn = await cancelDraftCreditNote(ctx.companyId, id, ctx.userId, reason, opts);
+      });
+      updated = held.cn!;
+    } else {
+      updated = await cancelDraftCreditNote(ctx.companyId, id, ctx.userId, reason, opts);
+    }
+    const out = {
+      id: updated.id,
+      credit_note_number: updated.creditNoteNumber,
+      status: updated.status,
+      total_amount: updated.totalAmount,
+      reversal_date_roll: null,
+      journal_reversed: false,
+      note: 'Draft cancelled: no journal was posted or reversed, no balance moved, and the number stays on the books.',
+    };
+    return dryRun ? { ...ok({ dry_run: true, would_cancel: out }), wroteNothing: true } : ok(out);
+  } catch (err) {
+    // A missing and a foreign id read alike (the lock read is company-scoped).
+    if (err instanceof CreditNoteDeleteRefusal) return toolError(err.code === 'NOT_FOUND' ? NOT_FOUND : err.message);
+    throw err;
+  }
+}

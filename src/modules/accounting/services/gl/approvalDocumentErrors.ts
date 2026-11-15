@@ -13,6 +13,15 @@ export class ApprovalDocumentNotFoundError extends Error {
   }
 }
 
+/** A request for a credit note that is no longer a draft: there is nothing left to approve (it posted, or was cancelled). */
+export class ApprovalDocumentNotDraftError extends Error {
+  readonly code = 'DOCUMENT_NOT_DRAFT';
+  constructor(documentType: string, documentId: string, status: string) {
+    super(`Credit note ${documentId} (${documentType}) is ${status}, not a draft, so it cannot be submitted for approval.`);
+    this.name = 'ApprovalDocumentNotDraftError';
+  }
+}
+
 /** approve on a request whose document no longer has the content it was raised for. */
 export class ApprovalDocumentChangedError extends Error {
   readonly code = 'DOCUMENT_CHANGED';

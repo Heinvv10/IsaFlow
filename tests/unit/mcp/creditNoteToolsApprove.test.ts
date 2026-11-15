@@ -93,10 +93,10 @@ describe('approve_credit_note', () => {
 });
 
 describe('cancel_credit_note', () => {
-  it('refuses a draft — there is no journal to reverse', async () => {
-    vi.mocked(getCreditNoteById).mockResolvedValue(draftNote as never);
+  it('refuses an already cancelled note from the read (a draft is cancelled: cancelDraftCreditNoteTool.test.ts)', async () => {
+    vi.mocked(getCreditNoteById).mockResolvedValue({ ...draftNote, status: 'cancelled' } as never);
     const r = await cancelCreditNoteTool.handler({ credit_note_id: NOTE, ...KEY }, ctx());
-    expect(errText(r)).toContain('status: draft');
+    expect(errText(r)).toContain('status: cancelled');
     expect(cancelCreditNote).not.toHaveBeenCalled();
   });
 

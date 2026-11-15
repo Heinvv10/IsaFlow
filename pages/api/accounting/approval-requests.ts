@@ -19,7 +19,7 @@ import {
   ApprovalRequestNotFoundError,
 } from '@/modules/accounting/services/gl/approvalAuthority';
 import {
-  ApprovalDocumentNotFoundError, resolveApprovalDocument,
+  ApprovalDocumentNotDraftError, ApprovalDocumentNotFoundError, resolveApprovalDocument,
 } from '@/modules/accounting/services/gl/approvalDocuments';
 import {
   ApprovalDocumentChangedError, ApprovalExpectedDigestRequiredError,
@@ -121,6 +121,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             || error instanceof ApprovalDocumentNotFoundError) {
           return apiResponse.badRequest(res, error.message);
         }
+        // A credit note that posted or was cancelled before the raise took its row: nothing to submit.
+        if (error instanceof ApprovalDocumentNotDraftError) {
+          return apiResponse.conflict(res, error.message, { reason: error.code });
+        }
+        // The note's row was held past the 5s budget (a cancel or approve in flight): retry, 503 rolls back.
+        if (respondIfLockTimeout(res, error)) return;
         // The rules or the document moved under the raise twice running
         // (R-035 N1): nothing was written; submitting again is the answer.
         if (error instanceof ApprovalRequestStaleError) {

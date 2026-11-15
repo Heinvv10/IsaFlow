@@ -1,16 +1,17 @@
 /**
  * Credit-note DELETE — the removal of a DRAFT note that never posted.
  *
- * The app has no draft-credit-note delete: `credit_notes` has no `deleted_at`, the soft-delete service does not
- * list it, and the supplier note page's Delete button posts `cancel`, which refuses a draft. This is therefore a
- * HARD delete, taken under the same row lock approve and cancel take (`lockCreditNoteForUpdate`), with the status
- * re-read inside it: a concurrent `approve_credit_note` either holds the row first (this waits, then sees
- * `approved` and refuses) or waits behind this (and finds the note gone).
+ * The app has no draft-credit-note delete: `credit_notes` has no `deleted_at` and the soft-delete service does not
+ * list it. This is therefore a HARD delete, taken under the row lock approve and cancel take
+ * (`lockCreditNoteForUpdate`), with the status re-read inside it: a concurrent `approve_credit_note` either holds
+ * the row first (this waits, then sees `approved` and refuses) or waits behind this (and finds the note gone).
  *
  * A draft numbered from the supplier return sequence (anything but the trigger's CN-<year>-<n>, or anything starting
  * with the company's current supplier_return prefix) is refused: its
  * number came off a sequential series and a hard delete would leave a permanent gap. The delete writes an
  * `audit_log` row ('delete', entity_type 'credit_note', the note's values) in the same transaction.
+ * A draft can instead be CANCELLED (no journal, number kept): creditNoteDraftCancelService, which shares
+ * `assertNothingHoldsTheNote` below.
  *
  * Every refusal is raised BEFORE the first write, as a `CreditNoteDeleteRefusal`; once the attachment update has
  * run, a failure is a plain throw so the caller's savepoint unwinds both statements.
@@ -98,12 +99,18 @@ function notDraftMessage(number: string, status: string): string {
     + 'Use cancel_credit_note to reverse it (needs the write:post permission).';
 }
 
-/** Reads that must all come back empty for a draft; each hit is a refusal. */
-async function assertNothingHoldsTheNote(companyId: string, id: string, number: string, cn: DbRow): Promise<void> {
+/**
+ * Reads that must all come back empty for a draft; each hit is a refusal. Shared with the draft CANCEL
+ * (creditNoteDraftCancelService): `verb` words the refusals for the caller's action; the delete's text is unchanged.
+ */
+export async function assertNothingHoldsTheNote(
+  companyId: string, id: string, number: string, cn: DbRow, verb: 'delete' | 'cancel' = 'delete',
+): Promise<void> {
+  const past = verb === 'cancel' ? 'cancelled' : 'deleted';
   if (cn.gl_journal_entry_id) {
     throw new CreditNoteDeleteRefusal('HAS_JOURNAL',
       `Credit note ${number} is a draft but carries a ledger journal (${String(cn.gl_journal_entry_id)}). `
-      + 'That is inconsistent data and it was not deleted: report it so it can be repaired.');
+      + `That is inconsistent data and it was not ${past}: report it so it can be repaired.`);
   }
   const [alloc] = (await sql`
     SELECT
@@ -115,7 +122,7 @@ async function assertNothingHoldsTheNote(companyId: string, id: string, number: 
   if (Number(alloc?.n ?? 0) > 0 || Number(cn.applied_amount ?? 0) !== 0) {
     throw new CreditNoteDeleteRefusal('HAS_APPLICATIONS',
       `Credit note ${number} is a draft but already has credit applied or allocated. `
-      + 'That is inconsistent data and it was not deleted: report it so it can be repaired.');
+      + `That is inconsistent data and it was not ${past}: report it so it can be repaired.`);
   }
   const [dispute] = (await sql`
     SELECT id FROM customer_invoice_disputes
@@ -124,7 +131,7 @@ async function assertNothingHoldsTheNote(companyId: string, id: string, number: 
   if (dispute) {
     throw new CreditNoteDeleteRefusal('DISPUTE_NOTE',
       `Credit note ${number} was raised by resolving a dispute and the dispute still points at it, `
-      + 'so it cannot be deleted here. Approve it, or deal with the dispute in the app.');
+      + `so it cannot be ${past} here. Approve it, or deal with the dispute in the app.`);
   }
   const [pending] = (await sql`
     SELECT id FROM approval_requests
@@ -133,7 +140,7 @@ async function assertNothingHoldsTheNote(companyId: string, id: string, number: 
   `) as DbRow[];
   if (pending) {
     throw new CreditNoteDeleteRefusal('APPROVAL_PENDING',
-      `Credit note ${number} has a pending approval request. Reject or withdraw the request first, then delete the draft.`);
+      `Credit note ${number} has a pending approval request. Reject or withdraw the request first, then ${verb} the draft.`);
   }
 }
 
@@ -149,8 +156,8 @@ export async function deleteDraftCreditNote(companyId: string, id: string, userI
   if (!CREDIT_NOTE_SERIES.test(number) || (returnPrefix !== '' && number.startsWith(returnPrefix))) {
     throw new CreditNoteDeleteRefusal('OWN_SEQUENCE',
       `Credit note ${number} was numbered from the supplier return sequence, not the credit-note series, so deleting it `
-      + 'would leave a permanent gap in that sequence. It cannot be deleted. Leave it as a draft, or approve it and then '
-      + 'cancel it with cancel_credit_note (needs write:post), which keeps the number on the books.');
+      + 'would leave a permanent gap in that sequence. It cannot be deleted. Leave it as a draft, or cancel it with '
+      + 'cancel_credit_note, which sets it to cancelled without a journal and keeps the number on the books.');
   }
   await assertNothingHoldsTheNote(companyId, id, number, cn);
 
