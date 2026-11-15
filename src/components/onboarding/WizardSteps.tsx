@@ -3,6 +3,7 @@
  * the documents step adapt to the business type chosen first (EntityTypeStep).
  */
 
+import * as React from 'react';
 import { useRef, useState } from 'react';
 import { Upload, X, Loader2, ScanLine, Check } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
@@ -10,6 +11,7 @@ import type { CoaTemplate } from '@/modules/accounting/services/gl/chartOfAccoun
 import { DEFAULT_ENTITY_TYPE, getEntityType } from '@/lib/entityTypes';
 import { businessNameLabel, documentSlotsFor } from '@/modules/onboarding/services/entityOnboardingRules';
 import { MAX_UPLOAD_BYTES, UPLOAD_ACCEPT } from '@/modules/onboarding/uploadLimits';
+import { emailError, phoneError } from './contactValidation';
 import type { DocFile, Director, WizardData, SetFn } from './wizardTypes';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -66,15 +68,20 @@ function levenshtein(a: string, b: string): number {
 const inputCls = 'w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition';
 const labelCls = 'block text-xs font-medium text-gray-400 mb-1.5';
 
-function Field({ label, value, onChange, placeholder, required, type = 'text' }: {
+function Field({ label, value, onChange, placeholder, required, type = 'text', error, inputMode, autoComplete }: {
   label: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; required?: boolean; type?: string;
+  placeholder?: string; required?: boolean; type?: string; error?: string;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode']; autoComplete?: string;
 }) {
+  const id = React.useId();
   return (
     <div>
-      <label className={labelCls}>{label}{required && <span className="text-red-400 ml-0.5">*</span>}</label>
-      <input type={type} value={value} onChange={e => onChange(e.target.value)}
-        placeholder={placeholder} className={inputCls} />
+      <label htmlFor={id} className={labelCls}>{label}{required && <span className="text-red-400 ml-0.5">*</span>}</label>
+      <input id={id} type={type} value={value} onChange={e => onChange(e.target.value)}
+        placeholder={placeholder} inputMode={inputMode} autoComplete={autoComplete}
+        aria-invalid={error ? true : undefined} aria-describedby={error ? `${id}-error` : undefined}
+        className={error ? `${inputCls} border-red-500` : inputCls} />
+      {error && <p id={`${id}-error`} role="alert" className="mt-1.5 text-xs text-red-400">{error}</p>}
     </div>
   );
 }
@@ -83,10 +90,11 @@ function Select({ label, value, onChange, children }: {
   label: string; value: string | number; onChange: (v: string) => void;
   children: React.ReactNode;
 }) {
+  const id = React.useId();
   return (
     <div>
-      <label className={labelCls}>{label}</label>
-      <select value={value} onChange={e => onChange(e.target.value)} className={inputCls}>
+      <label htmlFor={id} className={labelCls}>{label}</label>
+      <select id={id} value={value} onChange={e => onChange(e.target.value)} className={inputCls}>
         {children}
       </select>
     </div>
@@ -340,21 +348,21 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
 export function Step2({ d, set }: { d: WizardData; set: SetFn }) {
   return (
     <div className="grid gap-4">
-      <Field label="Address Line 1" value={d.addressLine1} onChange={v => set('addressLine1', v)} />
-      <Field label="Address Line 2" value={d.addressLine2} onChange={v => set('addressLine2', v)} />
+      <Field label="Address Line 1" value={d.addressLine1} onChange={v => set('addressLine1', v)} autoComplete="address-line1" />
+      <Field label="Address Line 2" value={d.addressLine2} onChange={v => set('addressLine2', v)} autoComplete="address-line2" />
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Field label="City" value={d.city} onChange={v => set('city', v)} />
         <Select label="Province" value={d.province} onChange={v => set('province', v)}>
           <option value="">Select...</option>
           {PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
         </Select>
-        <Field label="Postal Code" value={d.postalCode} onChange={v => set('postalCode', v)} />
+        <Field label="Postal Code" value={d.postalCode} onChange={v => set('postalCode', v)} inputMode="numeric" autoComplete="postal-code" />
       </div>
       <Field label="Country" value={d.country} onChange={v => set('country', v)} />
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Field label="Phone" value={d.phone} onChange={v => set('phone', v)} type="tel" />
-        <Field label="Email" value={d.email} onChange={v => set('email', v)} type="email" />
-        <Field label="Website" value={d.website} onChange={v => set('website', v)} />
+        <Field label="Phone" value={d.phone} onChange={v => set('phone', v)} type="tel" autoComplete="tel" error={phoneError(d.phone)} />
+        <Field label="Email" value={d.email} onChange={v => set('email', v)} type="email" autoComplete="email" error={emailError(d.email)} />
+        <Field label="Website" value={d.website} onChange={v => set('website', v)} type="url" inputMode="url" autoComplete="url" />
       </div>
     </div>
   );

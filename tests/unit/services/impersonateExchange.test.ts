@@ -74,7 +74,7 @@ function routeSql(hasMembership: boolean) {
     if (/FROM companies/i.test(text)) {
       return Promise.resolve(hasMembership ? [{ id: COMPANY_ID, name: 'Target Co' }] : []);
     }
-    if (/FROM company_users/i.test(text)) return Promise.resolve(hasMembership ? [{ '?column?': 1 }] : []);
+    if (/FROM (public\.)?company_users/i.test(text)) return Promise.resolve(hasMembership ? [{ '?column?': 1 }] : []);
     return Promise.resolve([]);
   });
 }
