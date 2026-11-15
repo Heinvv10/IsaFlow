@@ -43,11 +43,11 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
   const searchIcon = showSidebar ? '2xl:hidden' : 'xl:hidden';
 
   return (
-    <header className="flex flex-wrap items-center px-4 gap-x-2 sm:gap-x-3 gap-y-1 py-1 flex-shrink-0" style={{ minHeight: SHELL_HEIGHTS.header, background: 'var(--ff-canvas-mid)', borderBottom: '1px solid var(--ff-canvas-border)' }}>
+    <header className="flex flex-wrap items-center px-1 sm:px-4 gap-x-0 sm:gap-x-3 gap-y-1 py-1 flex-shrink-0 max-lg:[&_button]:min-h-11 max-lg:[&_button]:min-w-11" style={{ minHeight: SHELL_HEIGHTS.header, background: 'var(--ff-canvas-mid)', borderBottom: '1px solid var(--ff-canvas-border)' }}>
       {/* Mobile hamburger */}
       <button
         ref={menuButtonRef}
-        className="lg:hidden text-ink-muted hover:text-ink transition-colors"
+        className="lg:hidden inline-flex items-center justify-center text-ink-muted hover:text-ink transition-colors"
         onClick={onToggleMobileNav}
         aria-label="Open menu"
         aria-expanded={mobileNavOpen}
@@ -93,7 +93,7 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
       {/* Setup guide (hidden on admin subdomain). It renders once its progress loads; the slot keeps its 32px from the
           start so the search box beside it does not jump left when it appears. When the guide fails to load the slot
           stays as a blank 32px gap: a gap is the lesser evil next to a header that moves on every page load. */}
-      {!isAdminHost && <div className="w-8 flex-shrink-0"><SetupGuideButton /></div>}
+      {!isAdminHost && <div className="hidden sm:block w-8 max-lg:w-11 flex-shrink-0"><SetupGuideButton /></div>}
 
       {/* Notifications bell (budgets P5; hidden on admin subdomain). Inline at every width, like the cog: its
           unread badge must show on a phone too, so it is not folded into MobileHeaderMenu. */}
