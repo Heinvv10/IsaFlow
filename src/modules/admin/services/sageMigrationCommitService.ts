@@ -34,7 +34,6 @@ export type {
   MappedSupplier,
   MappedARInvoice,
   MappedAPInvoice,
-  BankTx,
   CommitOutcome,
   CommitPayload,
   CommitSummary,
