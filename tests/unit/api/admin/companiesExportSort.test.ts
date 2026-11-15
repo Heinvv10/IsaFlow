@@ -52,7 +52,8 @@ async function call(query: Record<string, string>) {
   await (route as unknown as (q: unknown, s: unknown) => Promise<void>)(req, res);
   return state;
 }
-const orderBy = () => /ORDER BY (.*)$/.exec(fx.queries.find((q) => q.includes('FROM companies c')) ?? '')?.[1];
+// The outer ORDER BY: the last one (the current-subscription lateral join has its own).
+const orderBy = () => /.*ORDER BY (.*)$/.exec(fx.queries.find((q) => q.includes('FROM companies c')) ?? '')?.[1];
 
 beforeEach(() => { fx.queries = []; });
 

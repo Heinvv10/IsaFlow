@@ -10,6 +10,7 @@ import type { PlatformAdminRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
+import { companyMrrCents, currentSubscriptionJoin } from '@/modules/admin/services/metrics/metricsSql';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { isRealCalendarDate } from '@/lib/validation';
@@ -81,13 +82,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
       c.name,
       COALESCE(c.status, 'active')                          AS status,
       p.name                                                AS plan_name,
-      COALESCE(
-        CASE
-          WHEN s.billing_cycle = 'monthly' THEN p.monthly_price_cents
-          WHEN s.billing_cycle = 'annual'  THEN ROUND(p.annual_price_cents / 12.0)
-          ELSE 0
-        END, 0
-      )::int                                                AS mrr_cents,
+      ${companyMrrCents()}                                  AS mrr_cents,
       c.created_at,
       c.trial_ends_at,
       (SELECT COUNT(*) FROM company_users cu WHERE cu.company_id = c.id)::int AS user_count,
@@ -95,8 +90,8 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
       (SELECT MAX(u.last_login) FROM company_users cu JOIN users u ON u.id = cu.user_id
         WHERE cu.company_id = c.id AND u.is_active = true) AS last_active
     FROM companies c
-    LEFT JOIN subscriptions s ON s.company_id = c.id AND s.status IN ('active','trial')
-    LEFT JOIN plans p ON p.id = s.plan_id
+    ${currentSubscriptionJoin()}
+    LEFT JOIN plans p ON p.id = cur.plan_id
     WHERE (c.status IS DISTINCT FROM 'deleted' OR ${statusFilter}::text = 'deleted')
       AND (${statusFilter}::text IS NULL OR COALESCE(c.status,'active') = ${statusFilter})
       AND (${searchPattern}::text IS NULL
