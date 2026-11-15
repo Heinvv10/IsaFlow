@@ -177,6 +177,7 @@ export default function UserAccessPage() {
                         <div className="w-36">
                           {isAdmin && !isSelf && !ownerLocked ? (
                             <select
+                              aria-label={`Role for ${u.name || u.email}`}
                               value={u.role}
                               onClick={(e) => e.stopPropagation()}
                               onChange={(e) => handleRoleChange(u.userId, e.target.value)}
@@ -200,7 +201,7 @@ export default function UserAccessPage() {
                                   <button onClick={() => setConfirmRemove(null)} className="text-xs text-gray-500 hover:text-gray-300">Cancel</button>
                                 </span>
                               ) : (
-                                <button onClick={() => setConfirmRemove(u.userId)} className="text-gray-500 hover:text-red-400">
+                                <button onClick={() => setConfirmRemove(u.userId)} aria-label={`Remove ${u.name || u.email}`} className="text-gray-500 hover:text-red-400">
                                   <Trash2 className="h-4 w-4" />
                                 </button>
                               )
@@ -242,7 +243,7 @@ export default function UserAccessPage() {
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Role</label>
-                    <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}
+                    <select aria-label="Role" value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}
                       className="rounded-lg border border-gray-300 dark:border-gray-700 bg-slate-100 dark:bg-gray-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-teal-500 focus:outline-none">
                       {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                     </select>

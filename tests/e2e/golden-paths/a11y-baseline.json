@@ -1,13 +1,6 @@
 {
  "_doc": "Serious/critical axe violations that existed when the golden-path a11y gate was introduced (2026-10-24), recorded on dev. May only SHRINK: fix a violation and delete its entry (an entry that no longer occurs FAILS the run), or lower its max. Never add an entry or raise a max to make a red run green. Keyed by page path (ids -> :id); '<page>#rows' is the page's data table scanned apart; 'shell:*' is a piece of the app shell scanned on its own. selector = nearest anchor + the tags/names down to the node (tests/e2e/golden-paths/helpers/a11yDescribe.ts); max = most nodes allowed to match. dataDriven = how many nodes match (even none) is decided by the data behind `source` (an API route), so the entry is never stale; its selector is anchored on a data-testid or aria-label, and maxHint is a hard cap where the UI has one. A dev/CI gate: scripts/verify-deploy.sh excludes it.",
  "pages": {
-  "/accounting/assets": [
-   {
-    "rule": "select-name",
-    "selector": "main > div > div > div > div > select",
-    "max": 2
-   }
-  ],
   "/accounting/customer-quotes": [
    {
     "rule": "color-contrast",
