@@ -206,11 +206,11 @@ export default function NewJournalEntryPage() {
                             />
                           </td>
                           <td className="md:table-cell md:px-3 md:py-2">
-                            <span className="md:hidden block text-xs text-slate-500 dark:text-slate-400 mb-1">Debit</span>
+                            <span className="md:hidden block text-xs text-ink-muted mb-1">Debit</span>
                             <input type="number" inputMode="decimal" aria-label={`Debit, line ${idx + 1}`} value={line.debitAmount} onChange={e => updateLine(line.key, 'debitAmount', e.target.value)} placeholder="0.00" step="0.01" min="0" className={`${inp} text-right`} />
                           </td>
                           <td className="md:table-cell md:px-3 md:py-2">
-                            <span className="md:hidden block text-xs text-slate-500 dark:text-slate-400 mb-1">Credit</span>
+                            <span className="md:hidden block text-xs text-ink-muted mb-1">Credit</span>
                             <input type="number" inputMode="decimal" aria-label={`Credit, line ${idx + 1}`} value={line.creditAmount} onChange={e => updateLine(line.key, 'creditAmount', e.target.value)} placeholder="0.00" step="0.01" min="0" className={`${inp} text-right`} />
                           </td>
                           <td className="col-span-2 flex justify-end md:table-cell md:px-2 md:py-2">
