@@ -23,7 +23,7 @@ import { log } from '@/lib/logger';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 import { magicBytesMatchMime } from '@/lib/fileMagic';
-import { parseSarsCodesXlsxBuffer } from '@/modules/admin/services/sarsCodesParser';
+import { parseSarsCodesXlsxBuffer, SarsWorkbookUnreadableError } from '@/modules/admin/services/sarsCodesParser';
 import {
   importRows,
   diffAgainstYear,
@@ -116,7 +116,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'File content does not match declared type');
   }
 
-  const parsed = await parseSarsCodesXlsxBuffer(buffer);
+  let parsed: Awaited<ReturnType<typeof parseSarsCodesXlsxBuffer>>;
+  try {
+    parsed = await parseSarsCodesXlsxBuffer(buffer);
+  } catch (err) {
+    // A PK-signed file that is not a readable zip: the caller's file (400). Any other failure is a 500.
+    if (err instanceof SarsWorkbookUnreadableError) return apiResponse.badRequest(res, err.message);
+    throw err;
+  }
   if (parsed.errors.length > 0) {
     return apiResponse.badRequest(res, `Parse errors: ${parsed.errors.slice(0, 5).join('; ')}`);
   }

@@ -161,9 +161,10 @@ export async function resetPassword(userId: string): Promise<void> {
  * failure instead of a false "logged out"), THEN clear the app sessions.
  */
 export async function forceLogout(userId: string): Promise<void> {
-  // A missing user is a 404 before GoTrue is called and before the audit row (review #1405 round 3, D6). The users
-  // row first, as every writer of a user's rows takes it (LOCK ORDER below).
-  if (!(await lockUserRow(userId))) throw new AdminRequestError(404, 'User not found');
+  // A missing user is a 404 before GoTrue is called and before the audit row (review #1405 round 3, D6). A plain
+  // read: no row lock is held across the GoTrue call, and only user_sessions is written (LOCK ORDER below).
+  const user = await sql`SELECT 1 FROM users WHERE id = ${userId}`;
+  if (user.length === 0) throw new AdminRequestError(404, 'User not found');
   await adminRevokeAllUserSessions(userId);
   await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`;
   log.info('forceLogout — GoTrue tokens revoked + app sessions cleared', { userId }, 'AdminUserActionsService');
@@ -217,6 +218,11 @@ async function assertOwnsNoCompanyAlone(userId: string): Promise<void> {
 async function removeFromEveryCompany(userId: string, refuseStranding: boolean): Promise<void> {
   await assertOwnsNoCompanyAlone(userId);
   if (refuseStranding) await assertPayRunApproverRetainedEverywhere(userId);
+  await deleteMemberships(userId);
+}
+
+/** Every company_users row of `userId`; a last owner's row is the trigger's RC011, answered as SoleOwnerError. */
+async function deleteMemberships(userId: string): Promise<void> {
   try {
     await sql`DELETE FROM company_users WHERE user_id = ${userId}`;
   } catch (err) {
@@ -225,17 +231,13 @@ async function removeFromEveryCompany(userId: string, refuseStranding: boolean):
   }
 }
 
-/**
- * LOCK ORDER (breaker #1405 round 3): every admin writer that touches a user's `users` row AND their `company_users`
- * or `user_sessions` rows takes the users row FIRST (this lock, or its own UPDATE of the row), then company_users
- * (with the per-company owner and pay-run approver advisory locks that come with it), then user_sessions. A writer
- * that took company_users first (resetOnboarding did) deadlocked against deleteUser, which holds the users row. The
- * census of every writer is in the admin .claude.md ("Lock order for a user's rows").
+/*
+ * LOCK ORDER for a user's rows (review #1405 round 4): company_users, then users, then user_sessions, the order the
+ * tenant invite-accept routes already use (they upsert the membership, then write the users row). deleteUser and
+ * resetOnboarding take their company_users rows first and decide by the users statement's RETURNING; suspendUser,
+ * activateUser and forceLogout write no company_users. A users-first writer deadlocked against invite accept and
+ * reset-onboarding. Census of every writer: the admin .claude.md ("Lock order for a user's rows").
  */
-async function lockUserRow(userId: string): Promise<{ role: string } | null> {
-  const rows = await sql<{ role: string }>`SELECT role FROM users WHERE id = ${userId} FOR UPDATE`;
-  return rows[0] ?? null;
-}
 
 /**
  * Permanently delete a user and all associated company links / sessions.
@@ -243,19 +245,24 @@ async function lockUserRow(userId: string): Promise<{ role: string } | null> {
  * Throws SoleOwnerError, having written nothing, when the user is a company's only owner.
  */
 export async function deleteUser(userId: string): Promise<StrandedPayRunRequest[]> {
-  // Locked (LOCK ORDER above): of two concurrent deletes the second waits here, then finds no row (404) instead of
-  // deleting nothing and being audited as a delete (breaker #1405 round 2).
-  const user = await lockUserRow(userId);
-  if (!user) throw new AdminRequestError(404, 'User not found');
-  if (user.role === 'super_admin') {
+  const users = await sql<{ role: string }>`SELECT role FROM users WHERE id = ${userId}`;
+  if (users.length === 0) throw new AdminRequestError(404, 'User not found');
+  if (users[0]!.role === 'super_admin') {
     throw new AdminRequestError(403, 'Cannot delete a super_admin user');
   }
 
   // Never refused for a pending pay-run approval (see suspendUser): reported instead.
   const stranded = await strandedOrNone(userId);
-  await removeFromEveryCompany(userId, false);
-  await sql`DELETE FROM user_sessions   WHERE user_id = ${userId}`;
-  await sql`DELETE FROM users           WHERE id      = ${userId}`;
+  await removeFromEveryCompany(userId, false); // company_users first (LOCK ORDER above)
+  // The DELETE decides: the loser of two concurrent deletes matches nothing and is a 404 before the route's audit row
+  // (its company_users DELETE above matched nothing either). It also waits for an in-flight add-to-company, which
+  // holds the users row FOR KEY SHARE (companyMembershipService.addUserToCompany).
+  const deleted = await sql`DELETE FROM users WHERE id = ${userId} RETURNING id`;
+  if (deleted.length === 0) throw new AdminRequestError(404, 'User not found');
+  await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`; // the FK cascade already did; hygiene
+  // company_users.user_id has no foreign key to users: a membership an add-to-company committed while this request
+  // waited above would outlive the user (breaker #1405 round 4, E1). Sweep it.
+  await deleteMemberships(userId);
 
   reportStranded('deleteUser', userId, stranded);
   log.info('deleteUser', { userId }, 'AdminUserActionsService');
@@ -268,16 +275,17 @@ export async function deleteUser(userId: string): Promise<StrandedPayRunRequest[
  * SoleOwnerError, having written nothing, when the user is a company's only owner.
  */
 export async function resetOnboarding(userId: string): Promise<void> {
-  // The users row first (LOCK ORDER above), and a missing user is a 404 before anything is written or audited
-  // (breaker #1405 round 3, D1 and D2).
-  if (!(await lockUserRow(userId))) throw new AdminRequestError(404, 'User not found');
-  await removeFromEveryCompany(userId, true);
-  await sql`
+  await removeFromEveryCompany(userId, true); // company_users first (LOCK ORDER above)
+  // The UPDATE decides existence: a missing user is a 404 before the route's audit row (breaker #1405 round 3, D2).
+  // Its company_users DELETE above matched nothing (or only memberships of a user that no longer exists).
+  const updated = await sql`
     UPDATE users
     SET onboarding_completed = false,
         updated_at           = NOW()
     WHERE id = ${userId}
+    RETURNING id
   `;
+  if (updated.length === 0) throw new AdminRequestError(404, 'User not found');
   await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`;
   log.info('resetOnboarding — user must re-onboard', { userId }, 'AdminUserActionsService');
 }

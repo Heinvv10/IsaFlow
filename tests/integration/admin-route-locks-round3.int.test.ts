@@ -1,51 +1,21 @@
 /**
  * PR #1405 breaker + review round 3 (WP14b), through the real admin stack on the disposable fixture.
  *
- *   - D1: deleting a user while their onboarding is reset (or they are removed from a company) never deadlocks.
- *     deleteUser held the users row and wanted company_users; resetOnboarding held company_users and wanted the
- *     users row: 40P01 in 5 of 6 runs. Both now take the users row first. Each pair is held at a barrier at the
- *     statement each takes its SECOND lock with (released after both arrive, or after 1.5 s when the lock order
- *     keeps one from getting there), so the old interleaving is forced every run.
  *   - D2: reset-onboarding for a missing user is a 404 with no audit row (it was 200 {reset:true} plus a row).
  *   - D6: force-logout for a missing user is a 404 before GoTrue is called and with no audit row.
  *   - D3/D4: a lone UTF-16 surrogate in a body string or key is a 400 (jsonb refused it: a 500), and the field path
  *     in the message is capped at 200 characters.
+ * The lock-order races (D1, E1) are tests/integration/admin-user-lock-order.int.test.ts.
  * Tokens are aal2; GoTrue is a stubbed fetch. Disposable fixture only.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
-import userRoute from '../../pages/api/admin/users/[id]';
 import resetOnboardingRoute from '../../pages/api/admin/users/[id]/reset-onboarding';
-import removeFromCompanyRoute from '../../pages/api/admin/users/[id]/remove-from-company';
 import forceLogoutRoute from '../../pages/api/admin/users/[id]/force-logout';
 import plansRoute from '../../pages/api/admin/billing/plans';
 import announcementsRoute from '../../pages/api/admin/announcements';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { signSession } from './r-032-fake-gotrue.helpers';
-
-/** A statement matching `barrier.match` waits until `need` have arrived or `maxMs` passed, then all go on. */
-const probe = vi.hoisted(() => ({
-  barrier: null as null | { match: RegExp; need: number; arrived: number; open: () => void; opened: Promise<void> },
-}));
-vi.mock('@/lib/neon', async (orig) => {
-  const real = await orig<Record<string, unknown>>();
-  const realSql = real.sql as (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>;
-  const sql = Object.assign(async (strings: TemplateStringsArray, ...values: unknown[]) => {
-    const b = probe.barrier;
-    if (b && b.match.test(strings.join('?').trim())) {
-      b.arrived += 1;
-      if (b.arrived >= b.need) b.open();
-      await Promise.race([b.opened, new Promise((resolve) => setTimeout(resolve, 1500))]);
-    }
-    return realSql(strings, ...values);
-  }, realSql);
-  return { ...real, sql };
-});
-function setBarrier(match: RegExp) {
-  let open = () => undefined as void;
-  const opened = new Promise<void>((resolve) => { open = resolve; });
-  probe.barrier = { match, need: 2, arrived: 0, open, opened };
-}
 
 assertDisposable();
 const asPlatformAdmin = new URL(process.env.DATABASE_URL!);
@@ -83,7 +53,6 @@ beforeAll(async () => {
   await pool.query(`INSERT INTO companies (id, name) VALUES ($1, $2)`, [company, `${TAG} co`]);
 }, 60000);
 beforeEach(async () => {
-  probe.barrier = null;
   vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 204 })));
   await pool.query("DELETE FROM rate_limit_counters WHERE key = 'admin:127.0.0.79'");
 });
@@ -99,37 +68,6 @@ afterAll(async () => {
     await pool.query('DELETE FROM users WHERE id = $1', [admin]);
     await pool.query("DELETE FROM rate_limit_counters WHERE key = 'admin:127.0.0.79'");
   } finally { await pool.end(); }
-});
-
-/** Each answer is a 200 with its one audit row or a 404 with none; never a 5xx (a deadlock is a 500/503). */
-async function expectCoherent(userId: string, rs: Array<{ status: number }>, actions: [string, string]) {
-  expect(rs.map((r) => r.status).filter((s) => s >= 500)).toEqual([]);
-  for (const [i, r] of rs.entries()) {
-    const rows = await n('SELECT count(*)::int n FROM admin_audit_log WHERE target_id = $1 AND action = $2', [userId, actions[i]]);
-    expect([r.status, rows]).toEqual(r.status === 200 ? [200, 1] : [404, 0]);
-  }
-  expect(await n('SELECT count(*)::int n FROM users WHERE id = $1', [userId])).toBe(0);
-}
-
-describe('D1: a user DELETE racing another writer of the same user never deadlocks', () => {
-  it.each([1, 2, 3])('DELETE vs reset-onboarding, run %i', async () => {
-    const u = await member();
-    setBarrier(/^(DELETE FROM company_users WHERE user_id|UPDATE users\s+SET onboarding_completed)/i);
-    const rs = await Promise.all([call(userRoute, 'DELETE', { id: u }), call(resetOnboardingRoute, 'POST', { id: u })]);
-    await expectCoherent(u, rs, ['user.delete', 'user.reset_onboarding']);
-  }, 20000);
-
-  it.each([1, 2, 3])('DELETE vs remove-from-company, run %i', async () => {
-    const u = await member();
-    setBarrier(/^DELETE FROM company_users/i);
-    const rs = await Promise.all([
-      call(userRoute, 'DELETE', { id: u }),
-      call(removeFromCompanyRoute, 'DELETE', { id: u }, { company_id: company }),
-    ]);
-    expect(rs.map((r) => r.status).filter((s) => s >= 500)).toEqual([]);
-    expect(rs[0]!.status).toBe(200);
-    expect(await n('SELECT count(*)::int n FROM users WHERE id = $1', [u])).toBe(0);
-  }, 20000);
 });
 
 describe('D2 / D6: a missing user is a 404 before anything is written, called or audited', () => {
