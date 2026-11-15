@@ -33,20 +33,10 @@ export class AdminRequestError extends Error {
   }
 }
 
-/**
- * adminCompanyService (owned by another open package, #1367) still throws plain Errors for a bad sort; matched
- * by their exact leading words until it throws AdminRequestError. Nothing else is matched by message.
- */
-const LEGACY_SORT_REFUSAL = /^Invalid sort (column|direction)\b/;
-
 /** Answers a known refusal and returns true; returns false for anything else, which the caller must rethrow. */
 export function respondIfAdminRequestError(res: NextApiResponse, err: unknown): boolean {
   if (err instanceof AdminRequestError) {
     apiResponse.error(res, CODE_FOR_STATUS[err.status], err.message);
-    return true;
-  }
-  if (err instanceof Error && LEGACY_SORT_REFUSAL.test(err.message)) {
-    apiResponse.badRequest(res, err.message);
     return true;
   }
   return false;
