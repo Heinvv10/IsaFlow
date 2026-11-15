@@ -41,6 +41,12 @@ vi.mock('@/lib/neon', () => {
     fmtDate: (d: unknown) => (d instanceof Date ? d.toISOString().split('T')[0] : String(d)),
   };
 });
+// The live close's period lock + readiness gate is yearEndPeriodGate's (yearEndPeriodGate.test.ts): it passes here.
+vi.mock('@/modules/accounting/services/gl/yearEndPeriodGate', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/yearEndPeriodGate')>()),
+  lockAndJudgeYear: vi.fn(async () => []),
+  lockYear: vi.fn(async () => 12),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
