@@ -4,7 +4,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, AlertTriangle } from 'lucide-react';
-import { loadBankState, loadHasFinalRun, loadRunMonth } from './employeeBankState';
+import { loadReadiness } from './employeeBankState';
 import { employeeReadiness, readinessSummary, type BankRead, type ReadinessAssignment } from './employeeReadiness';
 
 interface Props {
@@ -30,28 +30,22 @@ function goTo(e: React.MouseEvent<HTMLAnchorElement>, href: string) {
 }
 
 export function EmployeeReadinessCard({ employeeId, employee, assignments, refreshKey = 0, mayWrite = true }: Props) {
-  // Each read lands on its own, so the card shows what it knows (the tax number) at once and fills in the rest.
+  // One read answers all three facts; until it does the card shows what it knows (the tax number) and "Checking".
   const [bank, setBank] = useState<BankRead>('pending');
   const [runMonth, setRunMonth] = useState<string | null>(null);
   const [hasFinalRun, setHasFinalRun] = useState<boolean | null | 'pending'>('pending');
   // Pending on first load and for another employee; a re-read after the bank details change keeps the last answer on screen.
-  const bankFor = useRef(employeeId);
+  const readFor = useRef(employeeId);
   useEffect(() => {
     let stale = false;
     if (!mayWrite) return undefined;
-    if (bankFor.current !== employeeId) { bankFor.current = employeeId; setBank('pending'); setHasFinalRun('pending'); }
-    void loadBankState(employeeId).then(b => { if (!stale) setBank(b); });
-    // Re-read with the bank (a first run may have just become a final one), keeping the last answer meanwhile.
-    void loadHasFinalRun(employeeId).then(f => { if (!stale) setHasFinalRun(f); });
+    if (readFor.current !== employeeId) { readFor.current = employeeId; setBank('pending'); setRunMonth(null); setHasFinalRun('pending'); }
+    void loadReadiness(employeeId).then(r => {
+      if (stale) return;
+      setBank(r.bank); setRunMonth(r.runMonth); setHasFinalRun(r.hasFinalRun);
+    });
     return () => { stale = true; };
   }, [employeeId, refreshKey, mayWrite]);
-  useEffect(() => {
-    let stale = false;
-    if (!mayWrite) return undefined;
-    setRunMonth(null);
-    void loadRunMonth().then(m => { if (!stale) setRunMonth(m); });
-    return () => { stale = true; };
-  }, [employeeId, mayWrite]);
 
   if (!mayWrite) return null;
 
