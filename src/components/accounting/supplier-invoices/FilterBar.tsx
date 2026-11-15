@@ -75,6 +75,7 @@ export function FilterBar({
 
         <select
           name="datePreset"
+          aria-label="Date range"
           value={filters.datePreset}
           onChange={(e) => setDatePreset(e.target.value as DatePreset)}
           className="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100"

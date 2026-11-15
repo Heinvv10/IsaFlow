@@ -58,7 +58,7 @@ export default function NewPayrollRunPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4 flex items-center gap-3">
-            <Link href="/payroll/runs" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)]">
+            <Link href="/payroll/runs" aria-label="Back to payroll runs" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)]">
               <ArrowLeft className="h-5 w-5 text-[var(--ff-text-secondary)]" />
             </Link>
             <div className="p-2 rounded-lg bg-teal-500/10">
@@ -77,14 +77,14 @@ export default function NewPayrollRunPage() {
           )}
           <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4 space-y-4">
             <div>
-              <label className={label}>Month</label>
-              <select className={field} value={month} onChange={e => setMonth(Number(e.target.value))}>
+              <label htmlFor="run-month" className={label}>Month</label>
+              <select id="run-month" className={field} value={month} onChange={e => setMonth(Number(e.target.value))}>
                 {MONTHS.map(m => <option key={m.v} value={m.v}>{m.n}</option>)}
               </select>
             </div>
             <div>
-              <label className={label}>Year</label>
-              <input type="number" min="2020" max="2099" className={field}
+              <label htmlFor="run-year" className={label}>Year</label>
+              <input id="run-year" type="number" min="2020" max="2099" className={field}
                 value={year} onChange={e => setYear(Number(e.target.value) || today.getFullYear())} />
             </div>
           </div>

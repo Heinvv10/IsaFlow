@@ -118,7 +118,7 @@ export default function CreditNotesPage() {
                 <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
                   <tr>
                     {['CN #', 'Type', 'Client / Supplier', 'Invoice', 'Date', 'Amount', 'Status', ''].map((h, i) => (
-                      <th key={i} className={`px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider ${i === 5 ? 'text-right' : i === 7 ? 'text-right' : 'text-left'}`}>{h}</th>
+                      <th key={i} className={`px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider ${i === 5 ? 'text-right' : i === 7 ? 'text-right' : 'text-left'}`}>{h || <span className="sr-only">Actions</span>}</th>
                     ))}
                   </tr>
                 </thead>

@@ -63,6 +63,7 @@ export function JournalEntriesTab() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <select
+            aria-label="Status"
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
             className="ff-select text-sm py-2 px-3 min-w-[160px]"
@@ -129,7 +130,7 @@ export function JournalEntriesTab() {
                     </td>
                     <td className="px-6 py-3"><StatusBadge status={entry.status} /></td>
                     <td className="px-6 py-3 text-right">
-                      <Link href={`/accounting/journal-entries/${entry.id}`} className="text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">
+                      <Link href={`/accounting/journal-entries/${entry.id}`} aria-label={`View journal entry ${entry.entryNumber}`} className="text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">
                         <ChevronRight className="h-4 w-4 inline" />
                       </Link>
                     </td>
