@@ -24,9 +24,12 @@ export interface JobQueueHealth {
 }
 
 export interface EmailHealth {
+  /** Accepted by the SMTP server: not proof of delivery. */
   sent_24h: number;
   failed_24h: number;
-  success_rate_percent: number;
+  bounced_24h?: number;
+  /** null when no email was attempted. */
+  success_rate_percent: number | null;
 }
 
 export interface RecentError {
@@ -41,7 +44,7 @@ export interface SystemHealthData {
   db: DbHealth;
   job_queue: JobQueueHealth;
   email: EmailHealth;
-  active_sessions_24h: number;
+  users_signed_in_24h: number;
   trials: { expiring_in_7d: number };
   recent_errors: RecentError[];
   overall_status: 'healthy' | 'degraded' | 'critical';
