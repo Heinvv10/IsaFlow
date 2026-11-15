@@ -14,7 +14,7 @@
  * apply the very same rule to removals it is only simulating.
  */
 import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import type { DbRow, TxSql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { cents } from './receiptInvoiceLock';
 
@@ -56,13 +56,16 @@ export const creditAsAt = (days: readonly CreditDay[], date: string | Date): num
 /** One spelling of a day for every comparison here: what `fmtDate` makes of a Date or a date string. */
 export const dayKey = (d: string | Date): string => fmtDate(d);
 
-/** The per-day figures for `customerId`, with `removals` (this customer's rows only count). */
+/**
+ * The per-day figures for `customerId`, with `removals` (this customer's rows only count). `db`: read through this
+ * transaction instead of the request's `sql` (the merge reads rows it has just moved, whichever connection it runs on).
+ */
 export async function customerCreditDays(
-  companyId: string, customerId: string, removals: readonly CreditRemoval[],
+  companyId: string, customerId: string, removals: readonly CreditRemoval[], db: TxSql = sql,
 ): Promise<{ customerName: string; days: CreditDay[] }> {
   const ids = removals.map((r) => r.paymentId);
   const amounts = removals.map((r) => (r.amount === undefined ? null : r.amount));
-  const rows = (await sql`
+  const rows = (await db`
     WITH gone AS (
       SELECT g.id, g.amt FROM unnest(${ids}::UUID[], ${amounts}::NUMERIC[]) AS g(id, amt)
     ), pay AS (
@@ -84,7 +87,7 @@ export async function customerCreditDays(
     GROUP BY p.d
     ORDER BY p.d`) as DbRow[];
   // A customer with no live rows has no row to carry the name: read it on its own (company-scoped).
-  const named = rows[0] ?? ((await sql`
+  const named = rows[0] ?? ((await db`
     SELECT c.name AS customer_name FROM customers c
     WHERE c.id = ${customerId}::UUID AND c.company_id = ${companyId}::UUID`) as DbRow[])[0];
   return {

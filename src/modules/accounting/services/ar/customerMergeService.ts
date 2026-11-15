@@ -1,25 +1,24 @@
 /**
  * Customer merge (K-061): move everything that belongs to `sourceId` onto
- * `targetId`, then soft-delete the source. One transaction; every refusal is
- * raised before the first write, because withAuth COMMITs on a 4xx.
+ * `targetId`, then soft-delete the source. One transaction; a refusal either comes before
+ * the first write or rolls the merge's savepoint back (the credit refusal), as withAuth COMMITs on a 4xx.
  *
  * The tables moved are the census in docs/audits/remediation/K-061/fix.md. A new table that stores a customer id
- * must be added here AND to `MOVED` in tests/integration/k061-customer-merge.helpers.ts, or a merge strands its
- * rows on the merged-away customer.
+ * must be added here AND to `MOVED` in tests/integration/k061-customer-merge.helpers.ts, or a merge strands its rows.
  *
  * Product rules (Hein, 2026-09-26):
  *   - both customers with a dunning override → refused, nothing written;
  *   - the source's portal logins are deactivated, never moved;
- *   - the source's active recurring invoices AND recurring transaction
- *     templates (customer id inside template_data) move PAUSED, and are counted;
- *   - the source keeps its name + ' [MERGED]' and its Sage history. A Sage
- *     re-sync matches customers by name and so re-creates the old name as a
- *     new, empty customer; the moved Sage invoices are not booked twice.
+ *   - the source's active recurring invoices AND recurring transaction templates (customer id inside template_data)
+ *     move PAUSED, and are counted;
+ *   - the source keeps its name + ' [MERGED]' and its Sage history. A Sage re-sync matches customers by name and so
+ *     re-creates the old name as a new, empty customer; the moved Sage invoices are not booked twice.
  */
 import { withTransaction, type TxSql } from '@/lib/neon';
 import { ArRequestError } from './arErrors';
 import { isLockContention } from '../core/lockContention';
 import { moveRulesToCustomer } from '../bank/bankRuleChangeControl';
+import { assertMergeKeepsCredit, moveReceipts } from './customerMergeCredit';
 
 /**
  * The two unique keys a concurrent writer can collide with mid-merge: the
@@ -119,7 +118,6 @@ async function lockSettlementRows(tx: TxSql, c: string, s: string): Promise<{ pa
  * approval content: the merging user `by` becomes an author of each it moves; an old approval goes stale (Q10). */
 async function moveDocuments(tx: TxSql, c: string, s: string, t: string, by: string): Promise<number> {
   await tx`UPDATE bank_transactions SET suggested_client_id = ${t}::UUID WHERE suggested_client_id = ${s}::UUID AND company_id = ${c}::UUID`;
-  await tx`UPDATE customer_payments SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`
     UPDATE customer_invoices SET customer_id = ${t}::UUID,
       content_authors = approval_add_author(content_authors, ${by}::UUID), content_edited_at = NOW()
@@ -273,9 +271,12 @@ async function mergeInSavepoint(
   const locked = await lockSettlementRows(tx, companyId, sourceId);
   await refuseOrLock(tx, companyId, sourceId, targetId);
   await moveRulesToCustomer(tx, companyId, sourceId, targetId); // may refuse (bank_rule): before any other write
+  const movedReceipts = await moveReceipts(tx, companyId, sourceId, targetId);
   const others = await moveDocuments(tx, companyId, sourceId, targetId, mergedBy);
   await moveRecords(tx, companyId, sourceId, targetId);
   const pausedRecurring = await moveRecurring(tx, companyId, sourceId, targetId, mergedBy);
+  // Judged on the target's real rows under the locks above; a refusal rolls the merge back.
+  await assertMergeKeepsCredit(tx, companyId, sourceId, targetId, movedReceipts);
   // Under RLS (977) and scoped through the customer refuseOrLock proved is ours. Removed, not
   // deactivated: no app role may UPDATE portal_access (S-07d, 937), which could revive it.
   const revoked = await tx`
