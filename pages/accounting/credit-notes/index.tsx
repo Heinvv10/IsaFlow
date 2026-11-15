@@ -114,7 +114,7 @@ export default function CreditNotesPage() {
                 <Link href="/accounting/credit-notes/new" className="inline-flex mt-5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors">Create Credit Note</Link>
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
                   <tr>
                     {['CN #', 'Type', 'Client / Supplier', 'Invoice', 'Date', 'Amount', 'Status', ''].map((h, i) => (
@@ -126,12 +126,12 @@ export default function CreditNotesPage() {
                   {creditNotes.map(cn => (
                       <tr key={cn.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors cursor-pointer" onClick={() => { window.location.href = `/accounting/credit-notes/${cn.id}`; }}>
                         <td className="px-5 py-3.5 font-id text-amber-500 font-semibold">{cn.creditNoteNumber}</td>
-                        <td className="px-5 py-3.5"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${TYPE_CLS[cn.type] || ''}`}>{cn.type}</span></td>
-                        <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{cn.type === 'customer' ? cn.clientName : cn.supplierName || '—'}</td>
-                        <td className="px-5 py-3.5 font-id text-xs text-slate-500 dark:text-slate-400">{cn.invoiceNumber || '—'}</td>
-                        <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400">{formatDisplayDate(cn.creditDate)}</td>
-                        <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{formatCurrency(cn.totalAmount)}</td>
-                        <td className="px-5 py-3.5"><StatusPill status={cn.status} /></td>
+                        <td data-label="Type" className="px-5 py-3.5"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${TYPE_CLS[cn.type] || ''}`}>{cn.type}</span></td>
+                        <td data-label="Client / Supplier" className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{cn.type === 'customer' ? cn.clientName : cn.supplierName || '—'}</td>
+                        <td data-label="Invoice" className="px-5 py-3.5 font-id text-xs text-slate-500 dark:text-slate-400">{cn.invoiceNumber || '—'}</td>
+                        <td data-label="Date" className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400">{formatDisplayDate(cn.creditDate)}</td>
+                        <td data-label="Amount" className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{formatCurrency(cn.totalAmount)}</td>
+                        <td data-label="Status" className="px-5 py-3.5"><StatusPill status={cn.status} /></td>
                         <td className="px-4 py-3.5 text-right"><ChevronRight className="h-4 w-4 text-slate-500 dark:text-slate-400 ml-auto" /></td>
                       </tr>
                     ))}

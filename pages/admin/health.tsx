@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import {
   MetricCard, Stat, StatusBadge, OverallStatusBar,
-  type SystemHealthData, type StatusLevel, type RecentError,
+  scheduledCheckLastRun, type SystemHealthData, type StatusLevel, type RecentError,
 } from '@/components/admin/HealthWidgets';
 import { formatDisplayTimeSeconds } from '@/utils/dateFormat';
 import { adminFetch } from '@/lib/admin/adminFetch';
@@ -72,6 +72,7 @@ export default function SystemHealthPage() {
   const jobStatus:   StatusLevel = !data ? 'ok' : data.job_queue.failed > 50 ? 'error' : data.job_queue.failed > 10 ? 'warn' : 'ok';
   const emailRate = data?.email.success_rate_percent ?? null;
   const emailStatus: StatusLevel = emailRate === null ? 'ok' : emailRate < 80 ? 'error' : emailRate < 95 ? 'warn' : 'ok';
+  const scheduledRun = data ? scheduledCheckLastRun(data) : null;
 
   return (
     <AdminLayout title="System Health" ownHeading>
@@ -84,7 +85,13 @@ export default function SystemHealthPage() {
           </h1>
           {data && (
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Last checked at {fmtTime(data.checked_at)} — auto-refreshes every 30s. Health alerts (email/webhook) are only sent while an admin has this page open.
+              Last checked at {fmtTime(data.checked_at)} — auto-refreshes every 30s.{' '}
+              {scheduledRun
+                ? `Scheduled check: last ran ${fmtTime(scheduledRun)}.`
+                : 'Scheduled check is not running: alerts only fire while this page is open.'}
+              {data.scheduled_check?.last_delivery_failed
+                ? ' Last alert could not be delivered: check the alert email/webhook settings.'
+                : ''}
             </p>
           )}
         </div>

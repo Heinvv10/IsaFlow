@@ -36,7 +36,7 @@ export async function notifyMagicLinkRequested(
       <p style="margin:16px 0 0;"><strong>${escapeHtml(l.companyName)}</strong></p>
       ${ctaButton('Sign In to Portal', l.url)}`).join('');
     const html = emailLayout(emailContentRow(`
-        <h2>ISaFlow Portal — Sign-in Link</h2>
+        <h2>IsaFlow Portal — Sign-in Link</h2>
         <p>Hi ${escapeHtml(recipient.name)},</p>
         <p>${links.length > 1 ? 'Choose the company whose financial documents you want to access.' : 'Click the button below to access your financial documents.'} Each link works once and expires in 30 minutes.</p>
         ${companies}
@@ -44,7 +44,7 @@ export async function notifyMagicLinkRequested(
     `));
     await sendEmail({
       to: recipient.email,
-      subject: 'ISaFlow Portal — Your sign-in link',
+      subject: 'IsaFlow Portal — Your sign-in link',
       html,
       // email_log takes one company: the first. The info line below names them all.
       _log: { companyId: links[0]!.companyId, emailType: 'other', sentBy: null },
