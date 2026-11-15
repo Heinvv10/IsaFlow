@@ -28,6 +28,7 @@ beforeEach(() => {
   sqlMock.mockReset().mockImplementation(async (strings: TemplateStringsArray) => {
     const q = strings.join('?');
     if (q.includes('SELECT role FROM users')) return [{ role: 'viewer' }];
+    if (q.includes('SELECT 1 FROM users')) return [{ '?column?': 1 }]; // resetOnboarding's existence read
     if (q.includes('DELETE FROM company_users')) throw Object.assign(new Error('only owner'), { code: 'RC011' });
     return [];
   });
