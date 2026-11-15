@@ -18,6 +18,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateImpersonationToken } from '@/modules/admin/services/impersonationService';
+import { isMemberForImpersonation, NOT_A_MEMBER_FOR_IMPERSONATION } from '@/lib/auth/impersonationMembership';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -64,16 +65,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // under RLS, making this check reachable and honest. withAuth
     // hard-requires membership on every later request anyway (no
     // super_admin bypass, by design) — never set a label-only response.
-    const membership = await sql`
-      SELECT 1 FROM company_users
-      WHERE user_id = ${req.user.id} AND company_id = ${payload.company_id}::UUID
-      LIMIT 1
-    `;
-    if (membership.length === 0) {
-      return apiResponse.forbidden(
-        res,
-        'You are not a member of this company — use user-impersonation (admin platform → Users → Impersonate), which signs you in as an actual member',
-      );
+    // The admin route that mints the token runs the same check first.
+    if (!(await isMemberForImpersonation(req.user.id, payload.company_id))) {
+      return apiResponse.forbidden(res, NOT_A_MEMBER_FOR_IMPERSONATION);
     }
 
     // The same standing test withAuth applies (src/lib/auth/liveCompanies.ts):

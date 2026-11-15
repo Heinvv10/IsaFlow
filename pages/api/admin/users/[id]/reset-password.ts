@@ -10,15 +10,26 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { PasswordResetEmailNotSentError } from '@/lib/auth/passwordResetEmail';
 import { log } from '@/lib/logger';
-import { resetPassword } from '@/modules/admin/services/adminUserActionsService';
+import { resetPassword, resetPasswordRefusal } from '@/modules/admin/services/adminUserActionsService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const userId = req.query.id as string;
+  const requestedId = req.query.id as string;
 
   if (req.method === 'POST') {
+    // F-11: a refusal is answered with its reason before the audit row, any token or any email (it was a 500).
+    const target = await resetPasswordRefusal(requestedId);
+    // Review #1407: a refusal writes no audit row, so it leaves this trace (the id and reason; never the address).
+    if (target.refusal !== null) {
+      log.warn('Admin password reset refused', { userId: requestedId, reason: target.refusal }, 'admin-api');
+      if (target.refusal === 'not_found') return apiResponse.notFound(res, 'User');
+      return apiResponse.forbidden(res, "A super admin's password cannot be reset from the admin console");
+    }
+    // From here on the user's real id, so the audit row and the reset name the stored id, not the URL's spelling.
+    const userId = target.userId;
+
     try {
       // M6: audit-then-act. The reset email is an external side-effect a tx
       // rollback cannot undo, so the (critical) audit row is written first: a
