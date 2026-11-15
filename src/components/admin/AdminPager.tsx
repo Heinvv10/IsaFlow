@@ -12,10 +12,10 @@ export function AdminPager({ page, totalPages, setPage }: { page: number; totalP
     <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700 text-sm">
       <span className="text-ink-faint dark:text-gray-400">Page {page} of {totalPages}</span>
       <div className="flex gap-2">
-        <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className={BUTTON}>
+        <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} aria-label="Previous page" className={BUTTON}>
           <ChevronLeft className="w-4 h-4" />
         </button>
-        <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} className={BUTTON}>
+        <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} aria-label="Next page" className={BUTTON}>
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>

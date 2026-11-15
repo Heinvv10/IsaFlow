@@ -254,6 +254,7 @@ export default function AdminCompanyDetailPage() {
         confirmLabel="Suspend"
         confirmClass="bg-yellow-500 hover:bg-yellow-600"
         loading={actionLoading}
+        confirmDisabled={suspendReason.trim() === ''}
         onConfirm={() => void handleSuspend()}
         onCancel={() => setSuspendOpen(false)}
       >

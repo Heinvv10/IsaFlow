@@ -1,5 +1,5 @@
 /**
- * Subscriptions: the Add Subscription dialog. The page owns its state and its focus trap (`dialogRef`).
+ * Subscriptions: the Add Subscription dialog. The page owns its state and its focus trap (`formRef`).
  */
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { AlertCircle, Check, Loader2, X } from 'lucide-react';
