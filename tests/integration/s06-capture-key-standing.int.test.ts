@@ -20,6 +20,7 @@ import { randomUUID } from 'crypto';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { mockRes, slowUploadReq, uploadReq } from './s06-capture-key-standing.helpers';
+import { insertPreFkOrphanMembership } from './helpers/preFkOrphanMembership';
 
 const { storeCapturedBytes, routeEvent } = vi.hoisted(() => ({
   storeCapturedBytes: vi.fn(),
@@ -90,7 +91,12 @@ describeIfDb('S-06: a capture API key answers for its company standing and its c
   async function seedMember(companyId: string, role: string, profile = true): Promise<string> {
     const id = randomUUID();
     users.push(id);
-    if (profile) await admin.query(`INSERT INTO users (id, email, is_active) VALUES ($1, $2, true)`, [id, `s06-${id}@test.local`]);
+    if (!profile) {
+      // No profile: a membership as one written before migration 996's NOT VALID FK.
+      await insertPreFkOrphanMembership(admin, companyId, id, role);
+      return id;
+    }
+    await admin.query(`INSERT INTO users (id, email, is_active) VALUES ($1, $2, true)`, [id, `s06-${id}@test.local`]);
     await admin.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, $3)`, [companyId, id, role]);
     return id;
   }

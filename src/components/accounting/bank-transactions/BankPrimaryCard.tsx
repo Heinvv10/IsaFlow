@@ -6,6 +6,9 @@ import type { BankAcct } from './BankTxBankCards';
 export function BankPrimaryCard({ b, active, onSelect }: { b: BankAcct; active: boolean; onSelect: () => void }) {
   const gap = b.unreconciledBalance;
   const hasGap = Math.abs(gap) >= 0.01;
+  // Δ is the net of lines with no journal (not excluded); its count is those lines, suggested + unallocated — not
+  // unreconciledCount, which counts every line not yet reconciled.
+  const gapLines = (b.suggestedCount ?? 0) + b.unallocatedCount;
   return (
     <button
       data-testid="bank-account-card"
@@ -37,7 +40,7 @@ export function BankPrimaryCard({ b, active, onSelect }: { b: BankAcct; active: 
           {hasGap && (
             <span
               className="text-xs text-amber-800 dark:text-amber-400 tabular-nums"
-              title={`${b.unreconciledCount} unallocated transaction${b.unreconciledCount !== 1 ? 's' : ''}`}
+              title={`${gapLines} unallocated transaction${gapLines !== 1 ? 's' : ''}`}
             >
               Δ&nbsp;{fmtCurrency(Math.abs(gap))}
             </span>

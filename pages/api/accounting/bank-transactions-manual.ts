@@ -23,6 +23,7 @@ import { sql } from '@/lib/neon';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { DuplicateTransferError } from '@/modules/accounting/services/bank/transferDuplicateGuard';
 import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
+import { assertBankAccountInCompany, isBankAccountGuardRefusal } from '@/modules/accounting/services/bank/bankAccountGuard';
 import { isSupplierRefundRefusal } from '@/modules/accounting/services/ap/supplierRefundDocument';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { ClosedFiscalPeriodError, InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
@@ -93,11 +94,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // R-067 / R-068: `entityId` comes from the body. allocateTransaction fences it,
   // but only after step 1 has written the bank line, so refuse it here first —
   // a typed 400 that commits nothing, not a 500 whose rollback is the only guard.
+  // So does `bankAccountId` (audit 2026-11-15 WP2-1): any GL account id became the line's bank.
   try {
+    await assertBankAccountInCompany(companyId, bankAccountId);
     if (allocationType === 'supplier') await assertSupplierInCompany(companyId, entityId);
     if (allocationType === 'customer') await assertCustomerInCompany(companyId, entityId);
   } catch (err) {
-    if (err instanceof SupplierNotInCompanyError || err instanceof CustomerNotInCompanyError) {
+    if (isBankAccountGuardRefusal(err) || err instanceof SupplierNotInCompanyError || err instanceof CustomerNotInCompanyError) {
       return apiResponse.badRequest(res, err.message);
     }
     throw err;

@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposableDb, isDisposableDb } from '../helpers/assertDisposableDb';
 import { updateCompanyUserRole, removeCompanyUser } from '@/modules/accounting/services/core/memberWrites';
-import { asRole, cleanup, outcome, ownersOf, roleOf, seedCompany } from './s0408-owner-rules.helpers';
+import { asRole, cleanup, outcome, ownersOf, roleOf, seedCompany, seedUsers } from './s0408-owner-rules.helpers';
 
 assertDisposableDb('908b seeds companies and members.');
 
@@ -129,6 +129,7 @@ describe.skipIf(!isDisposableDb(process.env.DATABASE_URL))('908b — owner rules
       const [o, v, x] = [id(), id(), id()];
       const c = await seedCompany(pool, companies, [[o, 'owner'], [v, 'viewer']]);
       await asRole(pool, 'platform_admin', c, "UPDATE company_users SET role = 'accountant' WHERE company_id = $1 AND user_id = $2", [c, v]);
+      await seedUsers(pool, [x]);
       await asRole(pool, 'platform_admin', c, "INSERT INTO company_users(company_id, user_id, role) VALUES ($1, $2, 'viewer')", [c, x]);
       await asRole(pool, 'platform_admin', c, DEL, [c, v]);
       expect([await roleOf(pool, c, v), await roleOf(pool, c, x)]).toEqual([null, 'viewer']);

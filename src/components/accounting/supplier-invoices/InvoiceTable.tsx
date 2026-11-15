@@ -63,7 +63,7 @@ export function InvoiceTable({
 
   return (
     <>
-      <table className="w-full text-sm">
+      <table className="table-cards w-full text-sm">
         <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
           <tr>
             <th className="px-4 py-3 w-10">
@@ -106,15 +106,15 @@ export function InvoiceTable({
                     {inv.invoiceNumber}
                   </Link>
                 </td>
-                <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{inv.supplierName || '—'}</td>
-                <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 max-w-[200px] truncate" title={inv.reference}>{inv.reference || '—'}</td>
-                <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">{formatDate(inv.invoiceDate)}</td>
-                <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{formatCurrency(inv.totalAmount)}</td>
-                <td className={`px-5 py-3.5 text-right tabular-nums font-semibold ${outstanding > 0 ? 'text-amber-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                <td data-label="Supplier" className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{inv.supplierName || '—'}</td>
+                <td data-label="Reference" className="px-5 py-3.5 text-slate-500 dark:text-slate-400 max-w-[200px] truncate" title={inv.reference}>{inv.reference || '—'}</td>
+                <td data-label="Date" className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">{formatDate(inv.invoiceDate)}</td>
+                <td data-label="Total" className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{formatCurrency(inv.totalAmount)}</td>
+                <td data-label="Outstanding" className={`px-5 py-3.5 text-right tabular-nums font-semibold ${outstanding > 0 ? 'text-amber-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
                   {formatCurrency(outstanding)}
                 </td>
-                <td className="px-5 py-3.5"><StatusPill status={inv.status} /></td>
-                <td className="px-3 py-3.5">
+                <td data-label="Status" className="px-5 py-3.5"><StatusPill status={inv.status} /></td>
+                <td data-label="Signals" className="px-3 py-3.5">
                   <SignalBadges inv={inv} />
                 </td>
                 <td className="px-4 py-3.5 text-right">

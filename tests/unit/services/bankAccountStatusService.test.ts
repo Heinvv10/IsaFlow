@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: (s: string) => s }) }));
 
 import { sql } from '@/lib/neon';
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';

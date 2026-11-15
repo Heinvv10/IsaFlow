@@ -258,6 +258,8 @@ describe('936: signup provisions a tenant on migration_admin (POST /api/auth/ver
         .toEqual([{ role: 'owner' }]);
     } finally {
       vi.unstubAllGlobals();
+      // Its memberships first: company_users_user_id_fkey (996) refuses a users row a membership names.
+      await fixture.query('DELETE FROM company_users WHERE user_id = $1', [userId]);
       await fixture.query('DELETE FROM users WHERE id = $1', [userId]);
     }
   }, 60000);
