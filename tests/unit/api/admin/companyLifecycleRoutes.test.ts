@@ -9,7 +9,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const fx = vi.hoisted(() => ({ result: true }));
-vi.mock('@/modules/admin/middleware/withAdmin', () => ({ withAdmin: (h: unknown) => h }));
+// withAdmin's refusal mapping (an AdminRequestError such as adminUuid's 400 is answered), without the auth gate.
+vi.mock('@/modules/admin/middleware/withAdmin', async () => {
+  const { withAdminRefusals } = await import('@/modules/admin/middleware/adminRequestErrors');
+  return { withAdmin: (h: Parameters<typeof withAdminRefusals>[0]) => withAdminRefusals(h) };
+});
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 const service = {
