@@ -50,9 +50,6 @@ import { isReconciliationReviewRequired } from '@/modules/accounting/services/ba
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
-/** Tolerance a reconciliation is considered balanced within. Matches the service. */
-const BALANCED_TOLERANCE = 0.01;
-
 export const performBankReconciliationTool: McpTool = {
   name: 'perform_bank_reconciliation',
   description:
@@ -196,7 +193,7 @@ export const performBankReconciliationTool: McpTool = {
     // matching, and completeReconciliation checks the CURRENT difference.
     const current = await getReconciliationById(ctx.companyId, started.id);
     const difference = current?.difference ?? started.difference;
-    const balanced = Math.abs(difference) < BALANCED_TOLERANCE;
+    const balanced = Math.round(difference * 100) === 0;
     // Session count: self-matched allocated lines plus whatever auto-match applied.
     const matchedCount = current?.matchedCount ?? started.selfMatched + (matchResult?.matched ?? 0);
 

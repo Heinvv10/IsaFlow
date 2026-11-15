@@ -14,7 +14,7 @@ const TILE =
   'p-4 rounded-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)]';
 
 export function ReconciliationBalances({ recon }: { recon: BankReconciliation }) {
-  const balanced = Math.abs(recon.difference) < 0.01;
+  const balanced = Math.round(recon.difference * 100) === 0;
   // Rows written before the K-020 fix stored reconciled_balance as the GL balance
   // PLUS the matched amounts, so it is not the GL balance, and the difference is
   // derived from it. Say so rather than showing a tile that silently disagrees

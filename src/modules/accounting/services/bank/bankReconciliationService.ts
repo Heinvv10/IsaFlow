@@ -129,7 +129,8 @@ export async function completeReconciliation(
     await updateReconciledBalance(companyId, id);
     const recon = await getReconciliationById(companyId, id);
     if (!recon) throw new Error(`Reconciliation ${id} not found`);
-    if (Math.abs(recon.difference) > 0.01) {
+    // Exact cents (WP2 row 3): a R0.01 difference is not reconciled. `difference` is numeric(15,2).
+    if (Math.round(recon.difference * 100) !== 0) {
       throw new Error(`Cannot complete: difference is R${recon.difference.toFixed(2)} (must be R0.00)`);
     }
     // Both UPDATEs must be atomic: if the reconciliation header update fails
