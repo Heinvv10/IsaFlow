@@ -58,7 +58,7 @@ vi.mock('@/modules/accounting/services/capture/captureRouterService', () => ({ r
 vi.mock('@/modules/accounting/services/capture/imapMirrorInbox', () => ({
   ensureMirrorInbox: vi.fn(async () => 'inbox-1'), isTransientIngestError: vi.fn(() => false),
 }));
-vi.mock('@/modules/accounting/services/capture/mirrorScanError', () => ({ markMirrorScanError: h.markError }));
+vi.mock('@/modules/accounting/services/capture/mirrorScanError', () => ({ recordScanFailure: h.markError }));
 vi.mock('@/lib/auth/routeAdminPool', () => ({
   routeAdminQuery: vi.fn(async (_label: string, text: string) => {
     const t = text.replace(/\s+/g, ' ').trim();

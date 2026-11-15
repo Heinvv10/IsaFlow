@@ -157,6 +157,7 @@ export async function reactivateConnection(id: string, companyId: string): Promi
     `UPDATE imap_mirror_connections
         SET status = 'active',
             last_error = NULL,
+            consecutive_scan_failures = 0,
             disconnected_at = NULL
       WHERE id = $1::uuid AND company_id = $2::uuid
       RETURNING id`,
