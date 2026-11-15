@@ -137,8 +137,14 @@ export async function completeReconciliation(
     log.info('Completed bank reconciliation', { id }, 'accounting');
     return mapReconRow(completedRow);
   } catch (err) {
-    if (isReconciliationNotBalanced(err)) log.info('Reconciliation not completed: difference is not zero', { id, difference: err.difference }, 'accounting');
-    else if (isReconciliationReviewRequired(err)) log.info('Reconciliation not completed: lines unreviewed', { id, unreviewed: err.unreviewed }, 'accounting');
+    if (isReconciliationNotBalanced(err)) {
+      log.info('Reconciliation not completed: difference is not zero', { id, difference: err.difference }, 'accounting');
+      // The refusal rolled back commitReconciliation's savepoint, taking its recompute with it, and a 4xx commits the
+      // request: refresh the stored figure here (header still locked FOR UPDATE by this request) so the screen shows
+      // the difference that was refused, not the stale R0.00 that let the first check through.
+      await updateReconciledBalance(companyId, id).catch((refreshErr: unknown) =>
+        log.error('Failed to refresh reconciliation after refusal', { id, error: refreshErr }, 'accounting'));
+    } else if (isReconciliationReviewRequired(err)) log.info('Reconciliation not completed: lines unreviewed', { id, unreviewed: err.unreviewed }, 'accounting');
     else log.error('Failed to complete reconciliation', { id, error: err }, 'accounting');
     throw err;
   }

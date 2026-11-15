@@ -88,12 +88,16 @@ describeIfDb('bank reconciliation — completion needs exactly R0.00', () => {
       WHEN (NEW.status = 'reconciled' AND NEW.id = '${line}') EXECUTE FUNCTION ec_sleep()`);
     const completion = completeReconciliation(company, id, user);
     const outcome = completion.then(() => 'completed', (e: Error) => e.message);
-    for (let i = 0; i < 100; i++) {
-      const { rowCount } = await pool.query(
-        "SELECT 1 FROM pg_stat_activity WHERE wait_event = 'PgSleep' AND datname = current_database()");
-      if (rowCount) break;
-      await new Promise((r) => setTimeout(r, 50));
+    // Wait for OUR completion's line UPDATE to be asleep in the trigger (not any pg_sleep on a shared shard DB), and
+    // fail loudly if it never is: posting the journal early would leave this test green without testing the guard.
+    let sleeping = 0;
+    for (let i = 0; i < 200 && !sleeping; i++) {
+      sleeping = (await pool.query(
+        `SELECT 1 FROM pg_stat_activity WHERE wait_event = 'PgSleep' AND datname = current_database()
+           AND pid <> pg_backend_pid() AND query ILIKE '%UPDATE bank_transactions%'`)).rowCount ?? 0;
+      if (!sleeping) await new Promise((r) => setTimeout(r, 25));
     }
+    expect(sleeping, 'the completion UPDATE was never found asleep in the trigger').toBe(1);
     const late = uuid();
     await pool.query(
       `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,status,created_by,fiscal_period_id,posted_at,posted_by)
@@ -104,5 +108,7 @@ describeIfDb('bank reconciliation — completion needs exactly R0.00', () => {
     expect(await outcome).toContain('difference is R-50.00');
     expect(await status(id)).toBe('in_progress');
     expect((await pool.query('SELECT status FROM bank_transactions WHERE id=$1', [line])).rows[0].status).toBe('allocated');
+    // The refusal must not leave the stale R0.00 on the header: the screen reads the stored figure.
+    expect(Number((await pool.query('SELECT difference FROM bank_reconciliations WHERE id=$1', [id])).rows[0].difference)).toBe(-50);
   });
 });

@@ -17,7 +17,8 @@ import { ReconciliationReviewRequiredError } from './reconciliationReviewGate';
  * The header UPDATE re-derives the ledger figure IN THE SAME STATEMENT and completes only when the statement
  * balance equals it to the cent. Journal posting does not take the header lock, so a back-dated journal can commit
  * between the caller's difference check and this write; completing on the checked figure would sign off a session
- * that is out by that journal. Zero rows → typed refusal (400) carrying the current difference; the transaction
+ * that is out by that journal. The window that remains runs from this UPDATE's snapshot until the request commits (a journal that
+ * lands inside it is not seen). Zero rows → typed refusal (400) carrying the current difference; the transaction
  * rolls back, so the lines stay unreconciled and the session stays in progress.
  */
 export async function commitReconciliation(companyId: string, id: string, userId: string): Promise<DbRow> {

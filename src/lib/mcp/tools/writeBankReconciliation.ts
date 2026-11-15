@@ -46,7 +46,7 @@ import {
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { bankGlAccountBelongsToCompany } from '@/modules/accounting/services/bank/bankStatementImportService';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
-import { isExactlyBalanced } from '@/modules/accounting/services/bank/reconciliationBalanced';
+import { isExactlyBalanced, isReconciliationNotBalanced } from '@/modules/accounting/services/bank/reconciliationBalanced';
 import { isReconciliationReviewRequired } from '@/modules/accounting/services/bank/reconciliationReviewGate';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
@@ -193,8 +193,8 @@ export const performBankReconciliationTool: McpTool = {
     // Re-read: startReconciliation computed the reconciled balance before any
     // matching, and completeReconciliation checks the CURRENT difference.
     const current = await getReconciliationById(ctx.companyId, started.id);
-    const difference = current?.difference ?? started.difference;
-    const balanced = isExactlyBalanced(difference);
+    let difference = current?.difference ?? started.difference;
+    let balanced = isExactlyBalanced(difference);
     // Session count: self-matched allocated lines plus whatever auto-match applied.
     const matchedCount = current?.matchedCount ?? started.selfMatched + (matchResult?.matched ?? 0);
 
@@ -210,13 +210,20 @@ export const performBankReconciliationTool: McpTool = {
     // Hein 2026-11-12: completion refuses while a line it covers is unreviewed — a person reviews, not the agent.
     // Refused inside completion's own savepoint before any write, so the session stays in progress, as for !balanced.
     let unreviewed = 0;
+    let raced = null as number | null; // the ledger moved after the check above: completion's own write refused
     const completed = complete && balanced && provedSomething
       ? await completeReconciliation(ctx.companyId, started.id, ctx.userId).catch((err: unknown) => {
+        if (isReconciliationNotBalanced(err)) {
+          raced = err.difference;
+          return null;
+        }
         if (!isReconciliationReviewRequired(err)) throw err;
         unreviewed = err.unreviewed;
         return null;
       })
       : null;
+
+    if (raced !== null) { difference = raced; balanced = false; } // report the figure completion actually found
 
     return ok({
       dry_run: false,
