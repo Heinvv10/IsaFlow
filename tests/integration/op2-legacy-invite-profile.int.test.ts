@@ -1,0 +1,128 @@
+// tests/integration/op2-legacy-invite-profile.int.test.ts
+//
+// OP-2: POST /api/invite/<token> (the signed-in accept, pages/invite/[token].tsx)
+// writes the invitee's users row in its transaction, as
+// /api/invitations/<token>/accept does (one shared helper, inviteeProfile.ts).
+//
+// Before, it wrote only the membership. A signed-in GoTrue user with no users
+// row got a 200 and a membership withAuth then refused (MISSING_PROFILE); with
+// company_users_user_id_fkey (996/997) the COMMIT failed and the route
+// answered 500. Pinned here, on the production migration_admin login:
+//   · a no-profile invitee gets 200, a users row (the invitation's address,
+//     active, onboarding done), the membership at the invited role, and
+//     withAuth then admits them to the company;
+//   · an existing profile keeps its names and email;
+//   · another users row holding the address under another id is a 409 that
+//     writes nothing, with the other accept route's EMAIL_IN_USE message;
+//   · a session whose email is not the invitation's is still a 403 that
+//     writes nothing, no users row included.
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import type { NextApiRequest, NextApiResponse } from 'next';
+import invitationsRoute from '../../pages/api/accounting/company-invitations';
+import inviteRoute from '../../pages/api/invite/[token]';
+import { withAuth } from '@/lib/auth';
+import { getAuthPool } from '@/lib/auth/authPool';
+import { getDbPool } from '@/lib/neon';
+import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
+import { callRoute } from './s07-users-privilege-columns.helpers';
+import { fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
+
+const mail = vi.hoisted(() => ({ sent: [] as Array<{ recipientEmail: string; inviteToken: string }> }));
+vi.mock('@/modules/accounting/services/core/emailService', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  sendInviteEmail: vi.fn(async (o: { recipientEmail: string; inviteToken: string }) => {
+    mail.sent.push({ recipientEmail: o.recipientEmail, inviteToken: o.inviteToken });
+    return { success: true };
+  }),
+}));
+
+const ids = newIds();
+const { me, company } = ids;
+const created: string[] = [];
+
+beforeAll(() => setup(ids), 60000);
+afterAll(async () => {
+  await fixture.query('DELETE FROM company_users WHERE user_id = ANY($1)', [created]);
+  await fixture.query('DELETE FROM users WHERE id = ANY($1)', [created]);
+  await teardown(ids, [getAuthPool(), getDbPool(), migrationAdminPool()]);
+});
+beforeEach(() => fixture.query(`DELETE FROM rate_limit_counters WHERE key LIKE '%company-invitations%'`));
+
+/** A GoTrue identity: the session's email claim is `${id}@test.local` (signSession). No users row unless `profile`. */
+async function newIdentity(profile?: { firstName: string }): Promise<{ id: string; email: string }> {
+  const id = crypto.randomUUID();
+  created.push(id);
+  const email = `${id}@test.local`;
+  if (profile) {
+    await fixture.query(`INSERT INTO users (id, email, first_name, last_name, is_active, status, onboarding_completed)
+      VALUES ($1, $2, $3, 'Kept', true, 'active', false)`, [id, email, profile.firstName]);
+  }
+  return { id, email };
+}
+
+async function invitedToken(email: string, role = 'manager'): Promise<string> {
+  const r = await callRoute(invitationsRoute, { sub: me, method: 'POST', companyId: company, body: { email, role } });
+  expect(r.status).toBe(200);
+  const m = mail.sent.filter((s) => s.recipientEmail === email).at(-1);
+  if (!m) throw new Error(`no invite mailed to ${email}`);
+  return m.inviteToken;
+}
+
+const accept = (sub: string, token: string) => callRoute(inviteRoute, { sub, method: 'POST', query: { token } });
+const memberships = async (userId: string) =>
+  (await fixture.query('SELECT role FROM company_users WHERE company_id = $1 AND user_id = $2', [company, userId])).rows;
+const profile = async (userId: string) => (await fixture.query(
+  'SELECT email, first_name, last_name, is_active, status, onboarding_completed FROM users WHERE id = $1', [userId])).rows;
+const acceptedAt = async (email: string) => (await fixture.query(
+  'SELECT accepted_at FROM company_invitations WHERE company_id = $1 AND email = $2', [company, email])).rows[0]?.accepted_at;
+
+/** withAuth's own verdict for `sub` in the company: a handler that answers 200 if admitted. */
+const admitted = withAuth(async (_req: NextApiRequest, res: NextApiResponse) => { res.status(200).json({ ok: true }); });
+
+describe('OP-2: POST /api/invite/<token> writes the invitee\'s users row', () => {
+  it('a signed-in invitee with no users row: 200, a profile, the membership, and withAuth admits them', async () => {
+    const u = await newIdentity();
+    const r = await accept(u.id, await invitedToken(u.email, 'manager'));
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(await profile(u.id)).toEqual([{
+      email: u.email, first_name: null, last_name: null, is_active: true, status: 'active', onboarding_completed: true,
+    }]);
+    expect(await memberships(u.id)).toEqual([{ role: 'manager' }]);
+    expect(await acceptedAt(u.email)).not.toBeNull();
+    const gate = await callRoute(admitted, { sub: u.id, method: 'GET', companyId: company });
+    expect(gate.status, JSON.stringify(gate.body)).toBe(200);
+  });
+
+  it('an existing profile keeps its names and email; onboarding is marked done as before', async () => {
+    const u = await newIdentity({ firstName: 'Mine' });
+    const r = await accept(u.id, await invitedToken(u.email, 'viewer'));
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(await profile(u.id)).toEqual([{
+      email: u.email, first_name: 'Mine', last_name: 'Kept', is_active: true, status: 'active', onboarding_completed: true,
+    }]);
+    expect(await memberships(u.id)).toEqual([{ role: 'viewer' }]);
+  });
+
+  it('another users row holding the address under another id: 409 with the EMAIL_IN_USE message, nothing written', async () => {
+    const u = await newIdentity();
+    const legacy = crypto.randomUUID();
+    created.push(legacy);
+    const token = await invitedToken(u.email);
+    await fixture.query(`INSERT INTO users (id, email, is_active) VALUES ($1, $2, true)`, [legacy, u.email]);
+    const r = await accept(u.id, token);
+    expect(r.status, JSON.stringify(r.body)).toBe(409);
+    expect((r.body as { error?: { message?: string } }).error?.message).toMatch(/already attached to a different IsaFlow profile/);
+    expect(await profile(u.id)).toEqual([]);
+    expect(await memberships(u.id)).toEqual([]);
+    expect(await acceptedAt(u.email)).toBeNull();
+  });
+
+  it('a session whose email is not the invitation\'s: 403, and no profile or membership is written', async () => {
+    const [u, other] = [await newIdentity(), await newIdentity()];
+    const r = await accept(other.id, await invitedToken(u.email));
+    expect(r.status).toBe(403);
+    expect(await profile(other.id)).toEqual([]);
+    expect(await memberships(other.id)).toEqual([]);
+    expect(await acceptedAt(u.email)).toBeNull();
+  });
+});

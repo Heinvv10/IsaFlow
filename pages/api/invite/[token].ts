@@ -16,6 +16,7 @@ import { isLiveCompanyForUser } from '@/lib/auth/liveCompanies';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import { maskInviteEmail } from '@/lib/auth/maskInviteEmail';
+import { EMAIL_IN_USE_MESSAGE, upsertInviteeProfile } from '@/lib/auth/inviteeProfile';
 type Row = Record<string, unknown>;
 
 /**
@@ -138,6 +139,24 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
          WHERE public.company_member_role_is_owner(company_users.role) IS NOT TRUE`,
       [inv.company_id, userId, inv.role],
     );
+
+    // The profile row, after the membership (lock order), in this transaction: a signed-in
+    // user may have no users row yet (signed up, never provisioned), and
+    // company_users_user_id_fkey (996/997) refuses the membership at COMMIT without one.
+    // Shared with /api/invitations/[token]/accept (inviteeProfile.ts).
+    const profile = await upsertInviteeProfile(client, {
+      userId, email: inv.email as string, firstName: null, lastName: null,
+    });
+    if (profile === 'email_in_use') {
+      // 23505 aborted the transaction: roll back first. The membership INSERT above goes with it.
+      unusable = await rollbackFailed(client, 'invite accept');
+      opened = false;
+      log.error('invite accept blocked: email already held by another user row', {
+        inviteId: inv.id,
+        companyId: inv.company_id,
+      }, 'invite');
+      return apiResponse.conflict(res, EMAIL_IN_USE_MESSAGE);
+    }
 
     // Mark invitation accepted
     await client.query(`UPDATE company_invitations SET accepted_at = NOW() WHERE id = $1::UUID`, [inv.id]);
