@@ -57,11 +57,11 @@ describe('list_customers — paging', () => {
     expect(out.next_offset).toBeNull();
   });
 
-  it('defaults to the old 200-row page from offset 0, so an unpaged caller sees what it saw', async () => {
+  it('defaults to a 100-row page from offset 0 (was 200: 200 full rows outgrew a client\'s ~90 KB result)', async () => {
     vi.mocked(listCustomers).mockResolvedValue(rows(3));
     await listCustomersTool.handler({ search: 'brit' }, ctx);
 
-    expect(listCustomers).toHaveBeenCalledWith(COMPANY_ID, 'brit', { limit: 201, offset: 0 });
+    expect(listCustomers).toHaveBeenCalledWith(COMPANY_ID, 'brit', { limit: 101, offset: 0 });
   });
 
   it('refuses a negative, fractional or absurd offset rather than guessing', async () => {

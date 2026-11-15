@@ -18,7 +18,12 @@ import {
   listWorkItems,
 } from '@/modules/accounting/services/practice/practiceJobCategoryService';
 import { listPracticeEntries } from '@/modules/accounting/services/practice/practiceTimeEntryService';
-import { clampLimit, guardCastableArgs, ok, strArg } from './toolHelpers';
+import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { OFFSET_SCHEMA, nextOffsetFromTotal, parseOffset } from './pageArgs';
+
+/** A work item row is about 200 bytes of JSON: 300 of them stay well under a client's ~90 KB result limit. */
+export const WORK_ITEMS_DEFAULT_LIMIT = 200;
+export const WORK_ITEMS_MAX_LIMIT = 300;
 
 const CLIENT_STATUSES = ['prospect', 'onboarding', 'active', 'inactive', 'archived'] as const;
 const ENTRY_STATUSES = [
@@ -91,7 +96,8 @@ export const listJobCategoriesTool: McpTool = {
 export const listWorkItemsTool: McpTool = {
   name: 'list_work_items',
   description:
-    'List work items — the second level of the time-entry taxonomy. A time entry REQUIRES a work item, and work items are NOT seeded when a company is set up, so a category with zero work items cannot be booked against. Omit category_id to audit every category at once; an empty result for a category is the signal to call create_work_item.',
+    'List work items — the second level of the time-entry taxonomy. A time entry REQUIRES a work item, and work items are NOT seeded when a company is set up, so a category with zero work items cannot be booked against. Omit category_id to audit every category at once; an empty result for a category is the signal to call create_work_item. ' +
+    `Returns {work_items, total, next_offset}: up to limit rows (default ${WORK_ITEMS_DEFAULT_LIMIT}, max ${WORK_ITEMS_MAX_LIMIT}); when next_offset is not null, call again with offset=next_offset for the next page. total is the whole match count, so total 0 is the "no work items" signal.`,
   scope: 'read:practice',
   write: false,
   inputSchema: {
@@ -99,6 +105,8 @@ export const listWorkItemsTool: McpTool = {
     properties: {
       category_id: { type: 'string', description: 'Job category UUID from list_job_categories.' },
       include_inactive: { type: 'boolean' },
+      limit: { type: 'integer', minimum: 1, maximum: WORK_ITEMS_MAX_LIMIT, description: `Default ${WORK_ITEMS_DEFAULT_LIMIT}, max ${WORK_ITEMS_MAX_LIMIT}` },
+      offset: OFFSET_SCHEMA,
     },
     additionalProperties: false,
   },
@@ -106,13 +114,20 @@ export const listWorkItemsTool: McpTool = {
     const guard = guardCastableArgs(args, { uuid: ['category_id'] });
     if (guard) return guard;
 
+    const offset = parseOffset(args);
+    if (typeof offset === 'string') return toolError(offset);
+    const limit = clampLimit(args, WORK_ITEMS_DEFAULT_LIMIT, WORK_ITEMS_MAX_LIMIT);
+
     const items = await listWorkItems(
       ctx.companyId,
       strArg(args, 'category_id'),
       args.include_inactive === true,
     );
+    const page = items.slice(offset, offset + limit);
     return ok({
-      work_items: items.map((w) => ({
+      total: items.length,
+      next_offset: nextOffsetFromTotal(offset, page.length, items.length),
+      work_items: page.map((w) => ({
         id: w.id,
         category_id: w.categoryId,
         name: w.name,

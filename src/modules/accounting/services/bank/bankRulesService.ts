@@ -40,7 +40,7 @@ export async function getRules(companyId: string): Promise<BankCategorisationRul
     LEFT JOIN suppliers s ON s.id = r.supplier_id
     LEFT JOIN customers c ON c.id = r.client_id AND c.company_id = r.company_id
     WHERE r.company_id = ${companyId}::UUID
-    ORDER BY r.priority ASC, r.rule_name ASC
+    ORDER BY r.priority ASC, r.rule_name ASC, r.id ASC
   `) as Record<string, unknown>[];
   return rows.map(mapRuleRow);
 }

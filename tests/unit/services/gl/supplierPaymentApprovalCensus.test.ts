@@ -234,7 +234,6 @@ describe('batch membership', () => {
     [`${AP}supplierBatchAllocationPlan.ts`]: READS,
     [`${AP}supplierPaymentAuthors.ts`]: 'reads the batch set of a supplier (stamping authors writes content_authors only)',
     [`${AP}supplierPaymentCancel.ts`]: READS,
-    [`${AP}supplierPaymentListService.ts`]: READS,
     [`${AP}supplierPaymentRow.ts`]: 'row mapper',
     [`${AP}supplierPaymentUnapply.ts`]: READS,
     'src/modules/accounting/services/bank/bankAllocationService.ts': 'allocation_batch_id (bank_transactions); the substring matches',

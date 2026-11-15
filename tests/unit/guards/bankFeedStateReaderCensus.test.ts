@@ -167,6 +167,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/core/businessUnitUsage.ts': 'exempt: FK/usage guard before delete — must see every feed_state to prevent orphaned refs',
   'src/modules/accounting/services/core/costCentreUsageGuard.ts': 'exempt: FK/usage guard before delete/merge — must see every feed_state',
   'src/modules/accounting/services/core/documentQueryService.ts': 'filtered',
+  'src/modules/accounting/services/core/bankAttachmentSummaryService.ts': 'exempt: MCP list_documents summary — counts the same documents-on-bank-lines set as bankAttachmentQuery (it reads bank_transactions only for the line\'s transaction_date), not a total or the review queue',
   'src/modules/accounting/services/core/bankAttachmentQuery.ts': 'exempt: MCP list_documents — documents on bank lines by date (an evidence listing moved unchanged out of documentQueryService), not a total or the review queue',
   'src/modules/accounting/services/core/globalSearchRecords.ts': 'filtered',
   'src/modules/accounting/services/ap/settlementKind.ts': "exempt: classifies one supplier payment (find_double_settlements, void_payment undo_share) — the statement-line test keys on matched_journal_line_id, which a non-posted row cannot carry (trigger 675); the money-account test is an EXISTS on bank_account_id asking whether the account holds statement lines at all, where a pending row is evidence too; no total or queue scope",
