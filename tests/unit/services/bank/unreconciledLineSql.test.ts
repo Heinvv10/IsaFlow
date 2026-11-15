@@ -1,8 +1,9 @@
 /**
  * One definition of an unreconciled bank line (#1308 follow-up): a posted statement line that is neither reconciled
- * (completion, or the Sage import) nor excluded. The bank-account card, the workbench / attention count and the
- * bureau cockpit all splice it. What each population actually returns is proved against a real database in
- * tests/integration/bank-unreconciled-counts.int.test.ts; this pins the wiring.
+ * (completion, or the Sage import) nor excluded. The bank-account card, the workbench / attention count, the bureau
+ * cockpit and the period-close bank_reconciled check all splice it. What each returns is proved against a real
+ * database in tests/integration/bank-unreconciled-counts.int.test.ts and bank-reconciled-close-check.int.test.ts;
+ * this pins the wiring.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -15,6 +16,7 @@ import { UNRECONCILED_LINE_SQL } from '@/modules/accounting/services/bank/unreco
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { getUnreconciledBankTxns } from '@/modules/accounting/services/dashboard/workbenchService';
 import { aggregateBureauWork, type CompanyMeta } from '@/modules/bureau/services/bureauWorkAggregatorService';
+import { bankReconciledCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/bankReconciledCheck';
 
 const COMPANY = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa';
 type Call = [TemplateStringsArray, ...unknown[]];
@@ -64,5 +66,13 @@ describe('every unreconciled count splices the one definition', () => {
     expect(recon).toHaveLength(1);
     expect(splices(recon[0]!)).toBe(true);
     expect(text(recon[0]!)).not.toMatch(/'matched'/);
+  });
+  it('the period-close bank_reconciled check, inside the period and the company', async () => {
+    vi.mocked(sql).mockResolvedValueOnce([{ unreconciled_count: 0 }] as never);
+    await bankReconciledCheck(COMPANY, { startDate: '2025-06-01', endDate: '2025-06-30' });
+    const [c] = bankTxCalls();
+    expect(splices(c!)).toBe(true);
+    expect(text(c!)).not.toMatch(/status IN/);
+    expect(c!.slice(1)).toEqual(expect.arrayContaining([COMPANY, '2025-06-01', '2025-06-30']));
   });
 });

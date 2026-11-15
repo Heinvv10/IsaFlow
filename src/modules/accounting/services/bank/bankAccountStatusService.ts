@@ -63,8 +63,14 @@ export interface BankAccountStatusRow {
   totalDebits: number;
   totalCredits: number;
   balance: number;
+  /** JOURNAL-based, despite the name: the net of posted lines that have a journal line (allocated / matched). */
   reconciledBalance: number;
+  /**
+   * JOURNAL-based, despite the name: the net of posted lines with NO journal line, not excluded — suggested +
+   * unallocated, not "not reconciled". Kept under this name because the API, export and MCP shapes are stable.
+   */
   unreconciledBalance: number;
+  /** Posted lines neither reconciled nor excluded (bank/unreconciledLineSql), on this account. */
   unreconciledCount: number;
   allocatedCount: number;
   suggestedCount: number;
@@ -121,9 +127,9 @@ export async function getBankAccountsStatus(
         SUM(CASE WHEN bt.amount < 0 THEN ABS(bt.amount) ELSE 0 END) AS total_debits,
         SUM(CASE WHEN bt.amount > 0 THEN bt.amount ELSE 0 END)      AS total_credits,
         SUM(bt.amount)                                               AS balance,
-        -- Reconciled = transactions matched to a GL journal entry
+        -- Journal-based, whatever the names say: "reconciled" = has a journal line (allocated / matched),
+        -- "unreconciled" = no journal line and not excluded. Reconciliation state is unreconciled_count.
         SUM(CASE WHEN bt.matched_journal_line_id IS NOT NULL THEN bt.amount ELSE 0 END) AS reconciled_balance,
-        -- Unreconciled = imported/suggested but not yet matched
         SUM(CASE WHEN bt.matched_journal_line_id IS NULL AND bt.status != 'excluded' THEN bt.amount ELSE 0 END) AS unreconciled_balance,
         -- Not reconciled and not excluded: the one definition, ./unreconciledLineSql (#1308 follow-up).
         COUNT(CASE WHEN ${sql.unsafe(UNRECONCILED_LINE_SQL)} THEN 1 END)::INT AS unreconciled_count,
