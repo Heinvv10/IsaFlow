@@ -17,6 +17,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { UUID } from '@/lib/schemas/common';
+import { logAdminAction } from '@/modules/admin/services/auditService';
+import { getIp } from '@/utils/getIp';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -130,12 +132,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (action === 'retry') {
     const result = await retryBulk(data.ids);
+    await logAdminAction(req.user.id, 'job.bulk_retry', 'background_job', null,
+      { ids: data.ids, processed: result.processed, failed: result.errors.length }, getIp(req));
     log.info('Bulk retry', { processed: result.processed, errors: result.errors.length }, 'admin-job-bulk');
     return apiResponse.success(res, result, `Retried ${result.processed} job(s)`);
   }
 
   if (action === 'cancel') {
     const result = await cancelBulk(data.ids);
+    await logAdminAction(req.user.id, 'job.bulk_cancel', 'background_job', null,
+      { ids: data.ids, processed: result.processed, failed: result.errors.length }, getIp(req));
     log.info('Bulk cancel', { processed: result.processed, errors: result.errors.length }, 'admin-job-bulk');
     return apiResponse.success(res, result, `Cancelled ${result.processed} job(s)`);
   }
@@ -143,6 +149,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (action === 'delete_old') {
     const days = data.olderThanDays ?? 30;
     const result = await deleteOldJobs(days);
+    await logAdminAction(req.user.id, 'job.delete_old', 'background_job', null,
+      { older_than_days: days, deleted: result.processed }, getIp(req));
     log.info('Bulk delete old jobs', { days, processed: result.processed }, 'admin-job-bulk');
     return apiResponse.success(res, result, `Deleted ${result.processed} old job(s)`);
   }

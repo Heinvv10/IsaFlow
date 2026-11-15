@@ -31,6 +31,8 @@ import type { PlatformAdminRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { commitSageMigration } from '@/modules/admin/services/sageMigrationOrchestrator';
 import { PullBindingError, verifyPullToken } from '@/modules/admin/services/sagePullBinding';
+import { logAdminAction } from '@/modules/admin/services/auditService';
+import { getIp } from '@/utils/getIp';
 import type {
   MappedAccount,
   MappedCustomer,
@@ -86,6 +88,17 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
 
   const summary = await withJournalDateRefusal(res, () => commitSageMigration({ companyId, userId, pulled }));
   if (summary === JOURNAL_DATE_REFUSED) return;
+  // Fails closed: no audit row, no commit (withPlatformAdmin rolls the journals back). Counts only, no record data.
+  const counts = (c: { created: number; skipped: number; failed: string[] }) =>
+    ({ created: c.created, skipped: c.skipped, failed: c.failed.length });
+  await logAdminAction(userId, 'sage.commit', 'company', companyId, {
+    accounts: counts(summary.accounts),
+    customers: counts(summary.customers),
+    suppliers: counts(summary.suppliers),
+    arInvoices: counts(summary.arInvoices),
+    apInvoices: counts(summary.apInvoices),
+    warnings: summary.warnings.length,
+  }, getIp(req));
   return apiResponse.success(res, summary);
 }
 

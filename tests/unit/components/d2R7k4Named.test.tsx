@@ -72,17 +72,17 @@ describe('webhook delivery log', () => {
   });
   it('an empty-500 redeliver is a plain sentence, never a JSON error or the old "Redeliver failed"', async () => {
     script((u, m) => (m === 'POST' ? empty500() : ok(DETAIL))); render(<DeliveryLog webhookId="w1" />); await redeliver();
-    expect(await screen.findByText('Could not queue the redelivery - try again')).toBeTruthy(); expectNoRawError();
+    expect(await screen.findByText('Could not redeliver - try again')).toBeTruthy(); expectNoRawError();
   });
-  it('a good redeliver queues and reloads', async () => {
-    script((u, m) => ok(m === 'POST' ? {} : DETAIL)); render(<DeliveryLog webhookId="w1" />); await redeliver();
-    expect(await screen.findByText('Delivery queued for retry')).toBeTruthy();
+  it('a good redeliver says it was redelivered and reloads', async () => {
+    script((u, m) => ok(m === 'POST' ? { delivered: true, responseStatus: 200 } : DETAIL)); render(<DeliveryLog webhookId="w1" />); await redeliver();
+    expect(await screen.findByText('Redelivered')).toBeTruthy();
     await waitFor(() => expect(calls('GET', '/api/admin/webhooks/w1').length).toBe(2));
   });
-  it('a good redeliver whose reload fails still says it was queued', async () => {
+  it('a good redeliver whose reload fails still says it was redelivered', async () => {
     let gets = 0;
-    script((u, m) => (m === 'POST' ? ok({}) : ++gets === 1 ? ok(DETAIL) : empty500())); render(<DeliveryLog webhookId="w1" />); await redeliver();
-    expect(await screen.findByText(/^Delivery queued for retry, but the list could not be refreshed/)).toBeTruthy(); expectNoRawError();
+    script((u, m) => (m === 'POST' ? ok({ delivered: true, responseStatus: 200 }) : ++gets === 1 ? ok(DETAIL) : empty500())); render(<DeliveryLog webhookId="w1" />); await redeliver();
+    expect(await screen.findByText(/^Redelivered, but the list could not be refreshed/)).toBeTruthy(); expectNoRawError();
   });
   it('a failed load is said once and does not re-request in a loop', async () => {
     script(() => empty500()); render(<DeliveryLog webhookId="w1" />);

@@ -56,16 +56,28 @@ source scripts/ci/integration/pg-cluster.sh
 # shellcheck source=report.sh
 source scripts/ci/integration/report.sh
 
+# Optional PART/PARTS (run-ci.sh passes it when ci.yml splits the velo group
+# over jobs): this run plans and runs only that part of the suites (plan.ts,
+# which refuses a malformed one). Default: every suite.
+SLICE=${1:-1/1}
+SLICES=${SLICE#*/}
 # One shard per CPU less one, at most 6; CI_INT_SHARDS overrides (shards.ts).
 SHARDS=$(bun scripts/ci/integration/shards.ts)
 # Each shard's time limit (shard.sh): 30 min at 6 shards, scaled up as fewer
-# shards each carry more, but kept under the job's 90 min.
+# shards each carry more, but kept under the job's 90 min. Split over jobs, a
+# shard carries 1/PARTS of that, so the limit scales down too, to no less than
+# 20 min (a hosted part's shard measured ~7 min), inside the job's hosted 45.
 if [ -z "${CI_INT_SHARD_TIMEOUT:-}" ]; then
-  CI_INT_SHARD_TIMEOUT=$(( 1800 * 6 / SHARDS ))
+  if [[ "$SLICES" =~ ^[1-9][0-9]*$ ]] && [ "$SLICES" -gt 1 ]; then
+    CI_INT_SHARD_TIMEOUT=$(( 1800 * 6 / (SHARDS * SLICES) ))
+    [ "$CI_INT_SHARD_TIMEOUT" -lt 1200 ] && CI_INT_SHARD_TIMEOUT=1200
+  else
+    CI_INT_SHARD_TIMEOUT=$(( 1800 * 6 / SHARDS ))
+  fi
   [ "$CI_INT_SHARD_TIMEOUT" -gt 4500 ] && CI_INT_SHARD_TIMEOUT=4500
 fi
 export CI_INT_SHARD_TIMEOUT
-echo "[integration] $SHARDS shards, ${CI_INT_SHARD_TIMEOUT}s each"
+echo "[integration] part $SLICE: $SHARDS shards, ${CI_INT_SHARD_TIMEOUT}s each"
 pg_require_extensions
 
 # 0. Sweep this user's runs that died without cleaning up (lifecycle.sh).
@@ -92,7 +104,7 @@ JWT=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
 export PGPASSWORD JWT
 START=$(date +%s)
 
-bun scripts/ci/integration/plan.ts "$SHARDS" > "$WORK/plan.tsv"
+bun scripts/ci/integration/plan.ts "$SHARDS" "$SLICE" > "$WORK/plan.tsv"
 
 # bounded <what> <command...>: each schema-building command gets
 # CI_INT_MIGRATE_TIMEOUT seconds (default 300; the whole build takes under 30 s),

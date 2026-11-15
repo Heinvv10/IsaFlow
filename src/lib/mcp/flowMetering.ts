@@ -86,6 +86,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   list_documents: null,
   get_document: null,
   list_unsupported_transactions: null,
+  list_missing_documents: null,
   list_supplier_invoices: null,
   get_supplier_invoice: null,
   // Seeing the rules is the control an agent needs BEFORE it imports anything.
@@ -349,6 +350,8 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   cancel_supplier_invoice: null,
   // Cancelling a duplicate draft: a correction, never a new document.
   cancel_customer_invoice: null,
+  // Deleting a draft that never posted: a correction, the create already paid for the document.
+  delete_draft_credit_note: null,
   ...RECURRING_JOURNAL_FLOW_OPERATIONS,
   // Registering an asset: POST /api/accounting/assets carries no meter, so neither does the tool.
   create_fixed_asset: null,
