@@ -6,61 +6,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { SubscriptionCompanyPicker } from '@/components/admin/SubscriptionCompanyPicker';
+import { AdminPager } from '@/components/admin/AdminPager';
+import { AddSubscriptionModal } from '@/components/admin/billing/AddSubscriptionModal';
+import { EMPTY_FORM, STATUS_BADGE, type PagedResponse, type Plan, type SubForm, type Subscription } from '@/components/admin/billing/subscriptionModel';
 import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { adminExportHref } from '@/components/admin/adminExportHref';
 import { useFocusTrap } from '@/components/ui/useFocusTrap';
-import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check, Ban, Download } from 'lucide-react';
+import { AlertCircle, Loader2, Search, Plus, Check, Ban, Download } from 'lucide-react';
 import { adminFetch } from '@/lib/admin/adminFetch';
 
-interface Subscription {
-  id: string;
-  company_id: string;
-  company_name: string;
-  plan_id: string;
-  plan_name: string;
-  plan_code: string;
-  status: 'trial' | 'active' | 'past_due' | 'cancelled' | 'paused';
-  billing_cycle: string;
-  discount_percent: number;
-  monthly_amount_cents: number;
-  current_period_start: string | null;
-  current_period_end: string | null;
-  created_at: string;
-}
-
-interface Plan {
-  id: string;
-  name: string;
-  code: string;
-}
-
-interface PagedResponse {
-  items: Subscription[];
-  total: number;
-  page: number;
-  limit: number;
-}
-
-interface SubForm {
-  company_id: string;
-  plan_id: string;
-  billing_cycle: string;
-  discount_pct: string;
-}
-
-const EMPTY_FORM: SubForm = { company_id: '', plan_id: '', billing_cycle: 'monthly', discount_pct: '0' };
-
-const STATUS_BADGE: Record<string, string> = {
-  active:    'bg-teal-500/10 text-teal-600 dark:text-teal-400',
-  trial:     'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
-  past_due:  'bg-red-500/10 text-red-500',
-  cancelled: 'bg-gray-500/10 text-gray-500',
-  paused:    'bg-blue-500/10 text-blue-400',
-};
 
 export default function SubscriptionsPage() {
   const adminHref = useAdminHref();
@@ -226,55 +183,17 @@ export default function SubscriptionsPage() {
 
       {/* Add Subscription Modal */}
       {showForm && (
-        <div role="dialog" aria-modal="true" aria-labelledby="subscription-modal-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div ref={formRef} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-              <h3 id="subscription-modal-title" className="text-sm font-semibold text-gray-900 dark:text-white">Add Subscription</h3>
-              <button onClick={() => setShowForm(false)} aria-label="Close" className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-4 h-4" /></button>
-            </div>
-            <div className="p-5 space-y-4">
-              {formError && (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-xs">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" /> {formError}
-                </div>
-              )}
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Company</label>
-                <SubscriptionCompanyPicker companyId={form.company_id} onChange={id => setForm(f => ({ ...f, company_id: id }))} onNamedChange={setCompanyNamed} />
-              </div>
-              <div>
-                <label htmlFor="sub-plan" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Plan</label>
-                <select id="sub-plan" value={form.plan_id} onChange={e => setForm(f => ({ ...f, plan_id: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500">
-                  <option value="">Select a plan...</option>
-                  {plans.map(p => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="sub-cycle" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Billing Cycle</label>
-                  <select id="sub-cycle" value={form.billing_cycle} onChange={e => setForm(f => ({ ...f, billing_cycle: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500">
-                    <option value="monthly">Monthly</option>
-                    <option value="annual">Annual</option>
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="sub-discount" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Discount %</label>
-                  <input id="sub-discount" type="number" min="0" max="50" value={form.discount_pct} onChange={e => setForm(f => ({ ...f, discount_pct: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
-                </div>
-              </div>
-            </div>
-            <div className="px-5 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-              <button onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">Cancel</button>
-              <button onClick={() => void handleAdd()} disabled={saving}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Create
-              </button>
-            </div>
-          </div>
-        </div>
+        <AddSubscriptionModal
+          formRef={formRef}
+          form={form}
+          setForm={setForm}
+          formError={formError}
+          plans={plans}
+          saving={saving}
+          setCompanyNamed={setCompanyNamed}
+          onClose={() => setShowForm(false)}
+          onCreate={() => void handleAdd()}
+        />
       )}
 
       {/* Table */}
@@ -352,19 +271,7 @@ export default function SubscriptionsPage() {
             </tbody>
           </table>
         </div>
-        <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700 text-sm">
-          <span className="text-gray-500 dark:text-gray-400">Page {page} of {totalPages}</span>
-          <div className="flex gap-2">
-            <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}
-              className="p-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-900 dark:hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}
-              className="p-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-900 dark:hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+        <AdminPager page={page} totalPages={totalPages} setPage={setPage} />
       </div>
     </AdminLayout>
   );
