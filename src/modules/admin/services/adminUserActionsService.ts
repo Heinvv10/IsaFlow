@@ -1,15 +1,14 @@
 /**
  * Admin User Actions Service
- * Suspend, activate, delete, password reset, session management,
- * and onboarding reset. Linking, re-roling or removing one company membership:
+ * Suspend, activate, delete, session management and onboarding reset (password reset: adminPasswordResetService.ts,
+ * re-exported here). Linking, re-roling or removing one company membership:
  * companyMembershipService.ts.
  * All mutations should be followed by logAdminAction from auditService.
  */
 
 import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import { AdminRequestError } from '@/modules/admin/middleware/adminRequestErrors';
 import { log } from '@/lib/logger';
-import { sendPasswordResetEmail } from '@/lib/auth/passwordResetEmail';
 import { adminRevokeAllUserSessions } from '@/lib/auth/gotrue';
 import { revokeAllUserPats } from '@/lib/auth/personalAccessTokens';
 import { revokeAllUserAuthorisations } from '@/lib/auth/oauth';
@@ -17,7 +16,8 @@ import {
   assertPayRunApproverRetainedEverywhere, findStrandedPayRunRequests, type StrandedPayRunRequest,
 } from '@/modules/accounting/services/core/payRunApproverGuard';
 
-type Row = DbRow;
+// Admin password reset lives in its own module (this one passed 300 lines); re-exported so callers keep one import.
+export { resetPassword, resetPasswordRefusal, type ResetPasswordRefusal, type ResetPasswordTarget } from './adminPasswordResetService';
 
 /**
  * Suspend a user and revoke every credential they hold.
@@ -120,53 +120,20 @@ function reportStranded(action: string, userId: string, stranded: StrandedPayRun
     { userId, stranded }, 'AdminUserActionsService');
 }
 
-export async function activateUser(userId: string): Promise<void> {
-  await sql`
+/** False when no user has this id (nothing was updated). */
+export async function activateUser(userId: string): Promise<boolean> {
+  const rows = await sql`
     UPDATE users
     SET is_active        = true,
         suspended_reason = NULL,
         suspended_at     = NULL,
         updated_at       = NOW()
     WHERE id = ${userId}
+    RETURNING id
   `;
+  if (rows.length === 0) return false;
   log.info('activateUser', { userId }, 'AdminUserActionsService');
-}
-
-/** Why an admin may not reset this user's password, or null when they may (F-11: checked before anything is written). */
-export type ResetPasswordRefusal = 'not_found' | 'super_admin';
-
-/** The refusal, or the user's real id (users.id as stored) when an admin may reset their password. */
-export type ResetPasswordTarget =
-  | { refusal: ResetPasswordRefusal; userId: null }
-  | { refusal: null; userId: string };
-
-/**
- * users.id is TEXT holding a UUID: the id is matched case-insensitively (review #1407), so an upper-cased id is the
- * same user, and the caller gets the stored id back to reset and audit by (never the spelling in the URL).
- */
-export async function resetPasswordRefusal(userId: string): Promise<ResetPasswordTarget> {
-  const rows = await sql<{ id: string; role: string }>`SELECT id, role FROM users WHERE lower(id) = lower(${userId}) LIMIT 1`;
-  if (!rows[0]) return { refusal: 'not_found', userId: null };
-  if (rows[0].role === 'super_admin') return { refusal: 'super_admin', userId: null };
-  return { refusal: null, userId: String(rows[0].id) };
-}
-
-/**
- * Email a user our self-owned, single-use reset link (the forgot-password flow).
- * Returns nothing a caller could hand on: the link exists only in the email.
- * Throws PasswordResetEmailNotSentError when the email could not be sent.
- */
-export async function resetPassword(userId: string): Promise<void> {
-  type UserRow = { id: string; email: string; role: string };
-  const rows = await sql<UserRow>`
-    SELECT id, email, role FROM users WHERE lower(id) = lower(${userId}) LIMIT 1
-  `;
-  const target = rows[0];
-  if (!target) throw new Error(`User ${userId} not found`);
-  if (target.role === 'super_admin') throw new Error('CANNOT_RESET_SUPER_ADMIN');
-
-  await sendPasswordResetEmail(target.id, target.email);
-  log.info('resetPassword — reset email sent', { userId }, 'AdminUserActionsService');
+  return true;
 }
 
 /**
@@ -178,6 +145,10 @@ export async function resetPassword(userId: string): Promise<void> {
  * failure instead of a false "logged out"), THEN clear the app sessions.
  */
 export async function forceLogout(userId: string): Promise<void> {
+  // A missing user is a 404 before GoTrue is called and before the audit row (review #1405 round 3, D6). A plain
+  // read: no row lock is held across the GoTrue call, and only user_sessions is written (LOCK ORDER below).
+  const user = await sql`SELECT 1 FROM users WHERE id = ${userId}`;
+  if (user.length === 0) throw new AdminRequestError(404, 'User not found');
   await adminRevokeAllUserSessions(userId);
   await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`;
   log.info('forceLogout — GoTrue tokens revoked + app sessions cleared', { userId }, 'AdminUserActionsService');
@@ -231,6 +202,11 @@ async function assertOwnsNoCompanyAlone(userId: string): Promise<void> {
 async function removeFromEveryCompany(userId: string, refuseStranding: boolean): Promise<void> {
   await assertOwnsNoCompanyAlone(userId);
   if (refuseStranding) await assertPayRunApproverRetainedEverywhere(userId);
+  await deleteMemberships(userId);
+}
+
+/** Every company_users row of `userId`; a last owner's row is the trigger's RC011, answered as SoleOwnerError. */
+async function deleteMemberships(userId: string): Promise<void> {
   try {
     await sql`DELETE FROM company_users WHERE user_id = ${userId}`;
   } catch (err) {
@@ -239,25 +215,38 @@ async function removeFromEveryCompany(userId: string, refuseStranding: boolean):
   }
 }
 
+/*
+ * LOCK ORDER for a user's rows (review #1405 round 4): company_users, then users, then user_sessions, the order the
+ * tenant invite-accept routes already use (they upsert the membership, then write the users row). deleteUser and
+ * resetOnboarding take their company_users rows first and decide by the users statement's RETURNING; suspendUser,
+ * activateUser and forceLogout write no company_users. A users-first writer deadlocked against invite accept and
+ * reset-onboarding. Census of every writer: the admin .claude.md ("Lock order for a user's rows").
+ */
+
 /**
  * Permanently delete a user and all associated company links / sessions.
  * Super-admins are protected — throws if the target user has role = 'super_admin'.
  * Throws SoleOwnerError, having written nothing, when the user is a company's only owner.
  */
 export async function deleteUser(userId: string): Promise<StrandedPayRunRequest[]> {
-  const rows = await sql`
-    SELECT role FROM users WHERE id = ${userId} LIMIT 1
-  `;
-  if (rows.length === 0) throw new Error(`User ${userId} not found`);
-  if ((rows[0] as Row).role === 'super_admin') {
-    throw new Error('Cannot delete a super_admin user');
+  const users = await sql<{ role: string }>`SELECT role FROM users WHERE id = ${userId}`;
+  if (users.length === 0) throw new AdminRequestError(404, 'User not found');
+  if (users[0]!.role === 'super_admin') {
+    throw new AdminRequestError(403, 'Cannot delete a super_admin user');
   }
 
   // Never refused for a pending pay-run approval (see suspendUser): reported instead.
   const stranded = await strandedOrNone(userId);
-  await removeFromEveryCompany(userId, false);
-  await sql`DELETE FROM user_sessions   WHERE user_id = ${userId}`;
-  await sql`DELETE FROM users           WHERE id      = ${userId}`;
+  await removeFromEveryCompany(userId, false); // company_users first (LOCK ORDER above)
+  // The DELETE decides: the loser of two concurrent deletes matches nothing and is a 404 before the route's audit row
+  // (its company_users DELETE above matched nothing either). It also waits for an in-flight add-to-company, which
+  // holds the users row FOR KEY SHARE (companyMembershipService.addUserToCompany).
+  const deleted = await sql`DELETE FROM users WHERE id = ${userId} RETURNING id`;
+  if (deleted.length === 0) throw new AdminRequestError(404, 'User not found');
+  await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`; // the FK cascade already did; hygiene
+  // company_users.user_id has no foreign key to users: a membership an add-to-company committed while this request
+  // waited above would outlive the user (breaker #1405 round 4, E1). Sweep it.
+  await deleteMemberships(userId);
 
   reportStranded('deleteUser', userId, stranded);
   log.info('deleteUser', { userId }, 'AdminUserActionsService');
@@ -270,13 +259,21 @@ export async function deleteUser(userId: string): Promise<StrandedPayRunRequest[
  * SoleOwnerError, having written nothing, when the user is a company's only owner.
  */
 export async function resetOnboarding(userId: string): Promise<void> {
-  await removeFromEveryCompany(userId, true);
-  await sql`
+  // A missing user is a 404 before anything is written (review #1405 round 5, L3): the company_users DELETE below would
+  // remove orphan memberships left under that id, and the 404 commits what it wrote. A plain read (no lock), as
+  // deleteUser and forceLogout do; the UPDATE below still decides when the user goes concurrently.
+  if ((await sql`SELECT 1 FROM users WHERE id = ${userId}`).length === 0) throw new AdminRequestError(404, 'User not found');
+  await removeFromEveryCompany(userId, true); // company_users first (LOCK ORDER above)
+  // The UPDATE decides existence when the user was deleted since the read above: a 404 before the route's audit row
+  // (breaker #1405 round 3, D2). The concurrent delete removed the memberships itself, so nothing is lost.
+  const updated = await sql`
     UPDATE users
     SET onboarding_completed = false,
         updated_at           = NOW()
     WHERE id = ${userId}
+    RETURNING id
   `;
+  if (updated.length === 0) throw new AdminRequestError(404, 'User not found');
   await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`;
   log.info('resetOnboarding — user must re-onboard', { userId }, 'AdminUserActionsService');
 }

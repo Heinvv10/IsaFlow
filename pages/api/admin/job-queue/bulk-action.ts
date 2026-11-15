@@ -16,7 +16,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { UUID } from '@/lib/schemas/common';
+import { adminDistinctUuids } from '@/modules/admin/middleware/adminRequestErrors';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
@@ -25,11 +25,11 @@ import { getIp } from '@/utils/getIp';
 const PostBody = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('retry'),
-    ids:    z.array(UUID).min(1).max(200),
+    ids:    adminDistinctUuids(200),
   }).strict(),
   z.object({
     action: z.literal('cancel'),
-    ids:    z.array(UUID).min(1).max(200),
+    ids:    adminDistinctUuids(200),
   }).strict(),
   z.object({
     action:        z.literal('delete_old'),
@@ -42,64 +42,61 @@ interface BulkResult {
   errors: string[];
 }
 
-// ─── Handlers ─────────────────────────────────────────────────────────────────
-
-async function retryBulk(ids: string[]): Promise<BulkResult> {
-  const errors: string[] = [];
-  let processed = 0;
-
-  for (const id of ids) {
-    try {
-      const rows = await sql`
-        UPDATE background_jobs
-        SET status = 'pending',
-            error_message = NULL,
-            started_at = NULL,
-            scheduled_at = NOW()
-        WHERE id = ${id}::UUID AND status = 'failed'
-        RETURNING id
-      ` as Array<{ id: string }>;
-
-      if (rows.length > 0) {
-        processed++;
-      } else {
-        errors.push(`Job ${id}: not found or not in failed status`);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`Job ${id}: ${msg}`);
-    }
-  }
-
-  return { processed, errors };
+/** A retry / cancel batch: the answer, plus the jobs it changed (each gets its own audit row). */
+interface JobBatch extends BulkResult {
+  changedIds: string[];
 }
 
-async function cancelBulk(ids: string[]): Promise<BulkResult> {
+// ─── Handlers ─────────────────────────────────────────────────────────────────
+
+// "Not found / wrong status" is a per-item answer (RETURNING). A thrown error is not a per-item refusal: it aborts
+// the batch (500, rolled back), never a 200 whose earlier items the poisoned transaction would not keep (#1405 L8).
+async function retryBulk(ids: string[]): Promise<JobBatch> {
   const errors: string[] = [];
-  let processed = 0;
+  const changedIds: string[] = [];
 
   for (const id of ids) {
-    try {
-      const rows = await sql`
-        UPDATE background_jobs
-        SET status = 'cancelled',
-            completed_at = NOW()
-        WHERE id = ${id}::UUID AND status IN ('pending', 'running')
-        RETURNING id
-      ` as Array<{ id: string }>;
+    const rows = await sql`
+      UPDATE background_jobs
+      SET status = 'pending',
+          error_message = NULL,
+          started_at = NULL,
+          scheduled_at = NOW()
+      WHERE id = ${id}::UUID AND status = 'failed'
+      RETURNING id
+    ` as Array<{ id: string }>;
 
-      if (rows.length > 0) {
-        processed++;
-      } else {
-        errors.push(`Job ${id}: not found or not cancellable`);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`Job ${id}: ${msg}`);
+    if (rows.length > 0) {
+      changedIds.push(id);
+    } else {
+      errors.push(`Job ${id}: not found or not in failed status`);
     }
   }
 
-  return { processed, errors };
+  return { processed: changedIds.length, errors, changedIds };
+}
+
+async function cancelBulk(ids: string[]): Promise<JobBatch> {
+  const errors: string[] = [];
+  const changedIds: string[] = [];
+
+  for (const id of ids) {
+    const rows = await sql`
+      UPDATE background_jobs
+      SET status = 'cancelled',
+          completed_at = NOW()
+      WHERE id = ${id}::UUID AND status IN ('pending', 'running')
+      RETURNING id
+    ` as Array<{ id: string }>;
+
+    if (rows.length > 0) {
+      changedIds.push(id);
+    } else {
+      errors.push(`Job ${id}: not found or not cancellable`);
+    }
+  }
+
+  return { processed: changedIds.length, errors, changedIds };
 }
 
 async function deleteOldJobs(olderThanDays: number): Promise<BulkResult> {
@@ -124,24 +121,23 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const parsed = PostBody.safeParse(req.body);
   if (!parsed.success) {
-    return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
+    return apiResponse.badRequest(res, parsed.error.issues[0]?.message ?? 'Invalid input');
   }
 
   const data = parsed.data;
   const { action } = data;
 
   if (action === 'retry') {
-    const result = await retryBulk(data.ids);
-    await logAdminAction(req.user.id, 'job.bulk_retry', 'background_job', null,
-      { ids: data.ids, processed: result.processed, failed: result.errors.length }, getIp(req));
+    const { changedIds, ...result } = await retryBulk(data.ids);
+    // One row per job it changed, as the single retry writes (review #1405 round 7): each job's own view lists it.
+    for (const id of changedIds) await logAdminAction(req.user.id, 'job.retry', 'background_job', id, { bulk: true }, getIp(req));
     log.info('Bulk retry', { processed: result.processed, errors: result.errors.length }, 'admin-job-bulk');
     return apiResponse.success(res, result, `Retried ${result.processed} job(s)`);
   }
 
   if (action === 'cancel') {
-    const result = await cancelBulk(data.ids);
-    await logAdminAction(req.user.id, 'job.bulk_cancel', 'background_job', null,
-      { ids: data.ids, processed: result.processed, failed: result.errors.length }, getIp(req));
+    const { changedIds, ...result } = await cancelBulk(data.ids);
+    for (const id of changedIds) await logAdminAction(req.user.id, 'job.cancel', 'background_job', id, { bulk: true }, getIp(req));
     log.info('Bulk cancel', { processed: result.processed, errors: result.errors.length }, 'admin-job-bulk');
     return apiResponse.success(res, result, `Cancelled ${result.processed} job(s)`);
   }

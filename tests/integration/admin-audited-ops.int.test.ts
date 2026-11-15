@@ -70,23 +70,21 @@ describe('job queue', () => {
     expect((await auditRows(pool, admin, 'job.retry')).length).toBe(before);
   }, 30000);
 
-  it('bulk retry and bulk cancel are audited with the ids asked for and the count processed', async () => {
+  it('bulk retry and bulk cancel write one row per job they changed (review #1405 round 7)', async () => {
     const failed = await job('failed');
     const pending = await job('pending');
+    const retryBefore = (await auditRows(pool, admin, 'job.retry')).length;
     const retry = await callAdminRoute(admin, bulkRoute, 'POST', '/api/admin/job-queue/bulk-action', {},
       { action: 'retry', ids: [failed, pending] });
     expect(retry.status, retry.text).toBe(200);
-    expect(await auditRows(pool, admin, 'job.bulk_retry')).toEqual([{
-      action: 'job.bulk_retry', target_type: 'background_job', target_id: null,
-      details: { ids: [failed, pending], processed: 1, failed: 1 },
-    }]);
+    const retried = (await auditRows(pool, admin, 'job.retry')).slice(retryBefore);
+    expect(retried).toEqual([{ action: 'job.retry', target_type: 'background_job', target_id: failed, details: { bulk: true } }]);
 
     const cancel = await callAdminRoute(admin, bulkRoute, 'POST', '/api/admin/job-queue/bulk-action', {},
       { action: 'cancel', ids: [pending] });
     expect(cancel.status, cancel.text).toBe(200);
-    expect(await auditRows(pool, admin, 'job.bulk_cancel')).toEqual([{
-      action: 'job.bulk_cancel', target_type: 'background_job', target_id: null,
-      details: { ids: [pending], processed: 1, failed: 0 },
+    expect(await auditRows(pool, admin, 'job.cancel')).toEqual([{
+      action: 'job.cancel', target_type: 'background_job', target_id: pending, details: { bulk: true },
     }]);
   }, 30000);
 

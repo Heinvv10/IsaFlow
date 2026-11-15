@@ -61,6 +61,8 @@ async function draft(): Promise<string> {
 const row = async (id: string) => (await pool.query('SELECT * FROM admin_invoices WHERE id=$1', [id])).rows[0];
 const audits = async (id: string, action: string) =>
   (await pool.query('SELECT COUNT(*)::int AS n FROM admin_audit_log WHERE target_id=$1 AND action=$2', [id, action])).rows[0].n as number;
+const auditCompanyIds = async (id: string, action: string) =>
+  (await pool.query("SELECT details->>'company_id' AS c FROM admin_audit_log WHERE target_id=$1 AND action=$2", [id, action])).rows.map((r) => r.c);
 const sentLog = async (invoiceNumber: string) =>
   (await pool.query("SELECT status FROM email_log WHERE company_id=$1 AND subject LIKE $2", [company, `%${invoiceNumber}%`])).rows.map((r) => r.status);
 function gate() {
@@ -162,6 +164,8 @@ describe('WP7 send: claim, then email, then finalise', () => {
     expect(held.send_claimed_at).not.toBeNull();
     expect(await audits(id, 'invoice.send_started')).toBe(1);
     expect(await sentLog(number)).toEqual(['sent']);
+    // Every send row names its company (review #1405 final round): the company's audit view reads details.company_id.
+    expect(await auditCompanyIds(id, 'invoice.send_started')).toEqual([company]);
 
     const retry = await send(id);
     expect(retry.status, JSON.stringify(retry.body)).toBe(409);
@@ -181,6 +185,7 @@ describe('WP7 send: claim, then email, then finalise', () => {
     expect(r.body.error?.message).toMatch(/did not confirm/);
     expect((await row(id)).send_claimed_at).not.toBeNull();
     expect(await audits(id, 'invoice.send_unknown')).toBe(1);
+    expect(await auditCompanyIds(id, 'invoice.send_unknown')).toEqual([company]);
     const retry = await send(id);
     expect(retry.status).toBe(409);
     expect(mail.sendMail).toHaveBeenCalledTimes(1);

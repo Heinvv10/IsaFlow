@@ -61,9 +61,27 @@ function cellText(cell: ExcelJS.Cell): string | null {
   return trimmed === '' ? null : trimmed;
 }
 
+/** The upload is not a zip container the workbook reader can open (a caller's bad file, not a server fault). */
+export class SarsWorkbookUnreadableError extends Error {
+  constructor(cause: string) {
+    super(`The file is not a readable .xlsx workbook (${cause})`);
+    this.name = 'SarsWorkbookUnreadableError';
+  }
+}
+
+/** JSZip's messages for a container it cannot read (jszip/lib/zipEntries.js, zipEntry.js, load.js, DataReader.js). */
+const CORRUPT_ZIP = /^(Corrupted zip\b|Can't find end of central directory|End of data reached)/;
+
 export async function parseSarsCodesXlsxBuffer(buffer: Buffer): Promise<ParseResult> {
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer as unknown as ArrayBuffer);
+  try {
+    await wb.xlsx.load(buffer as unknown as ArrayBuffer);
+  } catch (err) {
+    // Only the zip reader's refusal is the caller's (a 400, breaker #1405 round 4 E3); anything else stays a 500.
+    const message = err instanceof Error ? err.message : '';
+    if (CORRUPT_ZIP.test(message)) throw new SarsWorkbookUnreadableError(message.slice(0, 120));
+    throw err;
+  }
   return parseWorkbook(wb);
 }
 

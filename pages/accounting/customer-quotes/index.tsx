@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { useOpenOnAction } from '@/hooks/useOpenOnAction';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { Modal } from '@/components/ui/Modal';
 import { FileText, Plus, Search, Loader2, Send, Check, X, ArrowRight,
   ExternalLink, ClipboardList, Trash2, Download } from 'lucide-react';
 import { StatusPill, PageHeader, DateField } from '@/components/ui';
@@ -56,52 +57,44 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-10 pb-8 px-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-        <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center"><FileText className="w-4 h-4 text-amber-500" /></div>
-            <div><h2 className="text-base font-semibold text-slate-900 dark:text-white">New Quote</h2><p className="text-xs text-slate-500 dark:text-slate-400">Fill in the quote details below</p></div>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors"><X className="w-4 h-4" /></button>
-        </div>
-
-        <div className="p-6 space-y-5">
+    <Modal open onClose={onClose} title="New Quote" size="xl">
+      <Modal.Body className="space-y-5">
+        <p className="text-xs text-slate-500 dark:text-slate-400">Fill in the quote details below</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="col-span-3">
-              <label className={lbl}>Customer *</label>
-              <select value={form.clientId} onChange={e => { const s = customers.find(c => c.id === e.target.value); setForm(p => ({ ...p, clientId: e.target.value, customerName: s?.name ?? '' })); }} className={inp}>
+            <div className="sm:col-span-3">
+              <label htmlFor="quote-customer" className={lbl}>Customer *</label>
+              <select id="quote-customer" value={form.clientId} onChange={e => { const s = customers.find(c => c.id === e.target.value); setForm(p => ({ ...p, clientId: e.target.value, customerName: s?.name ?? '' })); }} className={inp}>
                 <option value="">Select a customer…</option>
                 {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <DateField label="Quote Date" name="quoteDate" value={form.quoteDate || null} onChange={dates.bind('quoteDate', iso => setForm(p => ({ ...p, quoteDate: iso })), form.quoteDate)} />
             <DateField label="Expiry Date" name="expiryDate" value={form.expiryDate || null} onChange={dates.bind('expiryDate', iso => setForm(p => ({ ...p, expiryDate: iso })), form.expiryDate)} />
-            <div><label className={lbl}>Notes</label><input value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional" className={inp} /></div>
+            <div><label htmlFor="quote-notes" className={lbl}>Notes</label><input id="quote-notes" value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional" className={inp} /></div>
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className={lbl}>Line items</label>
-              <button onClick={() => setLines(l => [...l, { desc: '', qty: 1, price: 0 }])} className="text-xs text-amber-500 hover:text-amber-400 flex items-center gap-1 font-semibold transition-colors"><Plus className="w-3 h-3" />Add line</button>
+              <span className={lbl}>Line items</span>
+              <button type="button" onClick={() => setLines(l => [...l, { desc: '', qty: 1, price: 0 }])} className="text-xs text-amber-500 hover:text-amber-400 flex items-center gap-1 font-semibold transition-colors"><Plus className="w-3 h-3" />Add line</button>
             </div>
             <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-800/60"><tr>
+              <table className="block md:table w-full text-sm" aria-label="Quote line items">
+                <thead className="hidden md:table-header-group bg-slate-50 dark:bg-slate-800/60"><tr>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Description</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-20">Qty</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-28">Unit Price</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-24">Total</th>
                   <th className="w-8"><span className="sr-only">Remove line</span></th>
                 </tr></thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                <tbody className="block md:table-row-group divide-y divide-slate-100 dark:divide-slate-800">
                   {lines.map((l, i) => (
-                    <tr key={i} className="group">
-                      <td className="px-2 py-2"><input value={l.desc} onChange={e => { const n = [...lines]; n[i] = { ...l, desc: e.target.value }; setLines(n); }} placeholder="Item description" className={inp} /></td>
-                      <td className="px-2 py-2"><input type="number" value={l.qty} min={1} onChange={e => { const n = [...lines]; n[i] = { ...l, qty: Number(e.target.value) }; setLines(n); }} className={`${inp} text-right`} /></td>
-                      <td className="px-2 py-2"><input type="number" value={l.price} min={0} step={0.01} onChange={e => { const n = [...lines]; n[i] = { ...l, price: Number(e.target.value) }; setLines(n); }} className={`${inp} text-right`} /></td>
-                      <td className="px-3 py-2 text-right tabular-nums text-xs font-semibold text-slate-700 dark:text-slate-300">{fmt(quoteLineTotal(l, mode, tax.rate))}</td>
-                      <td className="px-2 py-2"><button onClick={() => lines.length > 1 && setLines(lines.filter((_, j) => j !== i))} className="p-1 rounded text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button></td>
+                    <tr key={i} className="group grid grid-cols-3 gap-2 p-3 md:table-row md:p-0">
+                      <td className="col-span-3 md:table-cell px-0 md:px-2 py-0 md:py-2"><input aria-label={`Description, line ${i + 1}`} value={l.desc} onChange={e => { const n = [...lines]; n[i] = { ...l, desc: e.target.value }; setLines(n); }} placeholder="Item description" className={inp} /></td>
+                      <td className="md:table-cell px-0 md:px-2 py-0 md:py-2"><span className="md:hidden block text-xs text-slate-600 dark:text-slate-400 mb-1">Qty</span><input type="number" inputMode="decimal" aria-label={`Quantity, line ${i + 1}`} value={l.qty} min={1} onChange={e => { const n = [...lines]; n[i] = { ...l, qty: Number(e.target.value) }; setLines(n); }} className={`${inp} text-right`} /></td>
+                      <td className="md:table-cell px-0 md:px-2 py-0 md:py-2"><span className="md:hidden block text-xs text-slate-600 dark:text-slate-400 mb-1">Unit price</span><input type="number" inputMode="decimal" aria-label={`Unit price, line ${i + 1}`} value={l.price} min={0} step={0.01} onChange={e => { const n = [...lines]; n[i] = { ...l, price: Number(e.target.value) }; setLines(n); }} className={`${inp} text-right`} /></td>
+                      <td className="md:table-cell px-0 md:px-3 py-0 md:py-2 text-right tabular-nums text-xs font-semibold text-slate-700 dark:text-slate-300"><span className="md:hidden block text-xs font-normal text-slate-600 dark:text-slate-400 mb-1">Total</span>{fmt(quoteLineTotal(l, mode, tax.rate))}</td>
+                      <td className="col-span-3 flex justify-end md:table-cell px-0 md:px-2 py-0 md:py-2"><button type="button" aria-label={`Remove line ${i + 1}`} onClick={() => lines.length > 1 && setLines(lines.filter((_, j) => j !== i))} className="p-1 min-h-11 min-w-11 md:min-h-0 md:min-w-0 inline-flex items-center justify-center rounded text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -109,20 +102,17 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
             </div>
             <QuoteVatFields registration={vat} mode={mode} rate={tax.rate} totals={quoteTotals(lines, mode, tax.rate)} onModeChange={pickMode} onRateChange={rate => setTax(t => ({ ...t, rate }))} />
           </div>
-        </div>
 
-        {error && (
-          <div className="px-6 pt-2 text-sm text-red-600 dark:text-red-400">{error}</div>
-        )}
-        <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-800/20">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
-          <button onClick={handleCreate} disabled={saving || dates.blocked || !form.clientId || lines.every(l => !l.desc)} className="px-5 py-2 text-sm font-semibold bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-2">
+        {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      </Modal.Body>
+      <Modal.Footer>
+        <button type="button" onClick={onClose} className="px-4 py-2 min-h-11 sm:min-h-0 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
+          <button type="button" onClick={handleCreate} disabled={saving || dates.blocked || !form.clientId || lines.every(l => !l.desc)} className="px-5 py-2 text-sm font-semibold bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-2">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
             {saving ? 'Creating…' : 'Create Quote'}
           </button>
-        </div>
-      </div>
-    </div>
+      </Modal.Footer>
+    </Modal>
   );
 }
 
@@ -218,7 +208,7 @@ export default function CustomerQuotesPage() {
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
               {TABS.map(t => (
-                <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>{t}</button>
+                <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-amber-700 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>{t}</button>
               ))}
             </div>
             <div className="relative">

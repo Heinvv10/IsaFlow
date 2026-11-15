@@ -23,7 +23,7 @@
   "pages/accounting/customer-invoices/[invoiceId].tsx": 1,
   "pages/accounting/customer-payments/index.tsx": 1,
   "pages/accounting/customer-payments/new.tsx": 3,
-  "pages/accounting/customer-quotes/index.tsx": 5,
+  "pages/accounting/customer-quotes/index.tsx": 1,
   "pages/accounting/customer-sales-orders/index.tsx": 6,
   "pages/accounting/customer-statements/[clientId].tsx": 1,
   "pages/accounting/customer-statements/index.tsx": 1,

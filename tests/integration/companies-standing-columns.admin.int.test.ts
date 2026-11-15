@@ -26,6 +26,7 @@ import trialsRoute from '../../pages/api/admin/trials';
 import convertRoute from '../../pages/api/admin/trials/convert';
 import eligibilityRoute from '../../pages/api/admin/billing/payg/[companyId]/eligibility';
 import promoteRoute from '../../pages/api/admin/waitlist/[id]/promote';
+import auditRoute from '../../pages/api/admin/audit';
 import verifyEmailRoute from '../../pages/api/auth/verify-email';
 import { callRoute } from './s07-users-privilege-columns.helpers';
 import { gotruePath } from './mfa-impersonation-postgres.helpers';
@@ -221,6 +222,10 @@ describe('936: the admin site on a real platform_admin login', () => {
     expect(await column(companyId, 'annual_turnover_cents')).toBe('50000000');
     expect((await fixture.query('SELECT promoted_company_id FROM waitlist_signups WHERE id = $1', [waitlistId])).rows)
       .toEqual([{ promoted_company_id: companyId }]);
+    // The promotion is in the new company's own audit view: its details carry company_id (review #1405 round 8).
+    const view = ok(await asAdmin(auditRoute, 'GET',
+      { query: { source: 'admin', entity_type: 'company', entity_id: companyId, limit: '100' } }));
+    expect((data(view).items as Array<{ action: string }>).map((i) => i.action)).toContain('waitlist.promote');
   });
 });
 

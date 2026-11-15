@@ -16,6 +16,7 @@ import type {
   SubscriptionListItem,
   PaginatedResult,
 } from '../types/admin.types';
+import { AdminRequestError } from '@/modules/admin/middleware/adminRequestErrors';
 
 type Row = DbRow;
 
@@ -123,10 +124,10 @@ export async function listSubscriptions(filters: {
   const limit = Math.min(100, Math.max(1, filters.limit ?? 25));
   const offset = (page - 1) * limit;
   const sortColKey = filters.sort_by ?? '';
-  if (sortColKey && !ALLOWED_SUB_SORT[sortColKey]) throw new Error(`Invalid sort column: ${sortColKey}`);
+  if (sortColKey && !ALLOWED_SUB_SORT[sortColKey]) throw new AdminRequestError(400, `Invalid sort column: ${sortColKey}`);
   const sortCol = ALLOWED_SUB_SORT[sortColKey] ?? 's.created_at';
   const rawDir = (filters.sort_dir ?? 'desc').toUpperCase();
-  if (rawDir !== 'ASC' && rawDir !== 'DESC') throw new Error('Invalid sort direction');
+  if (rawDir !== 'ASC' && rawDir !== 'DESC') throw new AdminRequestError(400, 'Invalid sort direction');
   const sortDir = rawDir === 'ASC' ? sql`ASC` : sql`DESC`;
   const search = filters.search ? `%${filters.search}%` : null;
   const companyIdFilter = filters.company_id ?? null;

@@ -24,6 +24,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { ErrorCode } from '@/lib/apiResponse';
+import { isPgError } from '@/modules/admin/middleware/adminRequestErrors';
 import { ALLOWED_COMPANY_ROLES, ONLY_OWNER_MESSAGE, isOnlyOwnerRefusal } from './adminUserActionsService';
 import { PayRunApproverProtectedError, assertPayRunApproverRetained } from '@/modules/accounting/services/core/payRunApproverGuard';
 
@@ -111,6 +112,12 @@ async function assertAnotherOwner(userId: string, companyId: string): Promise<vo
 /** Link a user to a company. An existing link is refused (ALREADY_LINKED), never re-roled. */
 export async function addUserToCompany(userId: string, companyId: string, role: string): Promise<void> {
   assertGrantable(role);
+  // The user must exist (breaker #1405 round 4, E2: a missing id got a membership, a 200 and an audit row), and stay
+  // until this commits: FOR KEY SHARE makes a concurrent deleteUser's DELETE FROM users wait for it, and deleteUser
+  // then sweeps the membership this adds (E1). company_users.user_id has no foreign key to users to do either. The
+  // weakest row lock: it conflicts only with a DELETE or key change of the user, never with an UPDATE of the row.
+  const user = await sql`SELECT 1 FROM users WHERE id = ${userId} FOR KEY SHARE`;
+  if (user.length === 0) throw new CompanyMembershipError('NOT_FOUND', 'That user does not exist');
   const rows = await sql<{ id: string }>`
     INSERT INTO company_users (user_id, company_id, role, created_at)
     SELECT ${userId}, ${companyId}::uuid, ${role}, NOW()
@@ -123,7 +130,7 @@ export async function addUserToCompany(userId: string, companyId: string, role: 
   `.catch((err: unknown) => {
     // A missing company (company_users_company_id_fkey). The failed statement has
     // aborted the transaction, so the 404's COMMIT writes nothing.
-    if ((err as { code?: string }).code === '23503') {
+    if (isPgError(err, '23503', 'company_users_company_id_fkey')) {
       throw new CompanyMembershipError('NOT_FOUND', 'That company does not exist');
     }
     throw err;
@@ -147,6 +154,33 @@ export async function removeUserFromCompany(userId: string, companyId: string): 
   `);
   log.info('removeUserFromCompany', { userId, companyId, previousRole }, 'AdminCompanyMembership');
   return { previousRole };
+}
+
+/**
+ * Remove a membership whose user has NO users row (an orphan: company_users.user_id has no foreign key to users),
+ * matched on exactly this user_id. Lingering access if the identity comes back, so an admin must be able to remove it
+ * (review #1405 round 7). Only for a caller that found no stored user. Returns the removed role, null when no such
+ * membership exists, or 'user_exists' when a users row appeared meanwhile (nothing removed). A last owner's row is
+ * still refused (the role guard's RC011, LAST_OWNER).
+ */
+export async function removeOrphanMembership(
+  userId: string, companyId: string,
+): Promise<{ previousRole: string } | null | 'user_exists'> {
+  const rows = await sql<{ role: string }>`
+    SELECT role FROM company_users WHERE user_id = ${userId} AND company_id = ${companyId}::uuid FOR UPDATE
+  `;
+  if (rows.length === 0) return null;
+  // Re-checked under the membership lock (review #1405 round 8): a user created since the caller's look-up makes it no
+  // orphan; the caller then takes the normal path (and audits without orphan:true).
+  const user = await sql`SELECT 1 FROM users WHERE lower(id) = lower(${userId}) LIMIT 1`;
+  if (user.length > 0) return 'user_exists';
+  // The member writers' lock order (payRunApproverGuard.ts header): rows, then the company's owner lock, then the
+  // approver lock. Taking the approver lock first deadlocked against a concurrent owner removal (review #1405 round 8).
+  if (isOwner(rows[0]!.role)) await assertAnotherOwner(userId, companyId);
+  await assertKeepsPayRunApprover(companyId, userId, null);
+  await lastOwnerGuarded(sql`DELETE FROM company_users WHERE user_id = ${userId} AND company_id = ${companyId}::uuid`);
+  log.info('removeOrphanMembership', { userId, companyId, previousRole: rows[0]!.role }, 'AdminCompanyMembership');
+  return { previousRole: rows[0]!.role };
 }
 
 /** Change a link's role; `changed` is false (and nothing is written) when it already has that role. */

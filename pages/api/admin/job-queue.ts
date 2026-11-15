@@ -7,18 +7,18 @@
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminNonNegativeInt, adminOptionalUuid, adminPositiveInt, AdminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { listJobs, retryJob } from '@/modules/accounting/services/core/jobQueueService';
-import { UUID } from '@/lib/schemas/common';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
 const PostBody = z.object({
   action: z.literal('retry'),
-  jobId:  UUID,
+  jobId:  AdminUuid,
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -28,12 +28,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const { status, job_type, company_id, limit, offset } = req.query;
 
     const result = await listJobs(
-      (company_id as string | undefined) ?? null,
+      adminOptionalUuid(company_id, 'company_id') ?? null,
       {
         status: status as string | undefined,
         jobType: job_type as string | undefined,
-        limit: limit ? parseInt(limit as string, 10) : 50,
-        offset: offset ? parseInt(offset as string, 10) : 0,
+        limit: adminPositiveInt(limit, 'limit') ?? 50,
+        offset: adminNonNegativeInt(offset, 'offset') ?? 0,
       }
     );
 

@@ -15,6 +15,7 @@ import type {
   AdminListFilters,
   PaginatedResult,
 } from '../types/admin.types';
+import { AdminRequestError } from '@/modules/admin/middleware/adminRequestErrors';
 
 type Row = DbRow;
 
@@ -44,14 +45,14 @@ export async function listCompanies(
   const sortColKey = filters.sort_by ?? '';
   // Own keys only: `constructor` & co. are on every object's prototype (WP13 review L3).
   const allowed = sortColKey !== '' && Object.hasOwn(ALLOWED_SORT_COLUMNS, sortColKey);
-  if (sortColKey && !allowed) throw new Error(`Invalid sort column: ${sortColKey}`);
+  if (sortColKey && !allowed) throw new AdminRequestError(400, `Invalid sort column: ${sortColKey}`);
   const sortCol = allowed ? ALLOWED_SORT_COLUMNS[sortColKey]! : 'c.created_at';
   const rawDir = (filters.sort_dir ?? 'desc').toUpperCase();
   // F-06: sortDir is validated against an explicit two-value allowlist and then passed
   // through a tagged-template literal (sql`ASC` / sql`DESC`), never via sql.unsafe().
   // sortCol is safe because it is resolved from the ALLOWED_SORT_COLUMNS map above —
   // sql.unsafe() is only used on the resolved column reference, never on raw user input.
-  if (rawDir !== 'ASC' && rawDir !== 'DESC') throw new Error('Invalid sort direction');
+  if (rawDir !== 'ASC' && rawDir !== 'DESC') throw new AdminRequestError(400, 'Invalid sort direction');
   const sortDir = rawDir === 'ASC' ? sql`ASC` : sql`DESC`;
 
   const searchPattern = filters.search ? `%${filters.search}%` : null;

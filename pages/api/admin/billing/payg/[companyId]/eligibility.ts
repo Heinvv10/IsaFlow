@@ -6,6 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { logAdminAction } from '@/modules/admin/services/auditService';
@@ -23,10 +24,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req.query;
-  if (typeof companyId !== 'string' || !companyId) {
-    return apiResponse.badRequest(res, 'companyId is required');
-  }
+  const companyId = adminUuid(req.query.companyId, 'company id');
 
   const parsed = Body.safeParse(req.body);
   if (!parsed.success) {

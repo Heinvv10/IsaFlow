@@ -206,6 +206,9 @@ describe('WP7 send invoice', () => {
     const logged = (await emailLog(company)).filter((e) => String(e.subject).includes(inv.invoice_number));
     expect(logged.map((e) => e.status)).toEqual(['failed']);
     expect(await audits(id, 'invoice.send_failed')).toBe(1);
+    // It names its company (review #1405 final round): the company's audit view reads details.company_id.
+    expect((await pool.query(`SELECT details->>'company_id' AS c FROM admin_audit_log WHERE target_id = $1 AND action = 'invoice.send_failed'`,
+      [id])).rows.map((r) => r.c)).toEqual([company]);
   }, 60000);
 });
 

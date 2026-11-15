@@ -25,6 +25,8 @@ vi.mock('@/modules/admin/services/superAdminRosterService', () => ({
 vi.mock('@/modules/admin/services/adminUserService', () => ({ updateUser: m.updateUser, getUserDetail: m.getUserDetail }));
 vi.mock('@/modules/admin/services/adminUserActionsService', () => ({ deleteUser: vi.fn(), SoleOwnerError: class extends Error {} }));
 vi.mock('@/modules/admin/services/auditService', () => ({ logAdminAction: m.logAdminAction }));
+// The route resolves the stored user first (adminStoredUser); here it exists under the id asked for.
+vi.mock('@/modules/admin/services/storedUserId', () => ({ adminStoredUser: vi.fn(async (id: string) => ({ id, role: 'viewer' })) }));
 
 import handler from '../../../../pages/api/admin/users/[id]';
 

@@ -31,6 +31,11 @@ describe('the failure row target', () => {
     expect(targetOf()).toBe(OTHER);
   });
 
+  it('is the canonical lower-case spelling of an upper-cased uuid segment (review #1405 round 7)', async () => {
+    await auditFailedAdminRequest(req(`/api/admin/companies/${OTHER.toUpperCase()}/suspend`, { id: OTHER.toUpperCase() }), 'admin', 500, 'threw');
+    expect(targetOf()).toBe(OTHER);
+  });
+
   it('is null for a segment that only contains a uuid (a suffix)', async () => {
     await auditFailedAdminRequest(req(`/api/admin/users/${VICTIM}zzz/reset-password`, { id: `${VICTIM}zzz` }), 'admin', 500, 'threw');
     expect(targetOf()).toBeNull();

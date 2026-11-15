@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import { refreshCache } from '@/modules/accounting/services/payroll/sarsCodesService';
 import type { ParsedSarsRow } from './sarsCodesParser';
+import { AdminRequestError } from '@/modules/admin/middleware/adminRequestErrors';
 
 export interface SarsCodeAdminRow {
   code: string;
@@ -178,13 +179,16 @@ export async function importRows(opts: {
 }
 
 export async function setCurrentRelease(effectiveYear: number): Promise<void> {
+  // Checked before the first write: a 404 answers below 500, which commits (admin audit section 6).
+  const exists = (await sql`SELECT 1 FROM sars_code_releases WHERE effective_year = ${effectiveYear}`) as unknown[];
+  if (exists.length === 0) throw new AdminRequestError(404, `No release found for tax year ${effectiveYear}`);
   await sql`UPDATE sars_code_releases SET is_current = false WHERE is_current = true`;
   const updated = (await sql`
     UPDATE sars_code_releases SET is_current = true WHERE effective_year = ${effectiveYear}
     RETURNING effective_year
   `) as unknown as Array<{ effective_year: number }>;
   if (updated.length === 0) {
-    throw new Error(`No release found for tax year ${effectiveYear}`);
+    throw new Error(`No release found for tax year ${effectiveYear}`); // raced a delete after the check: a 500 rolls back
   }
   refreshCache();
 }
@@ -196,7 +200,7 @@ export async function deprecateCode(code: string, effectiveYear: number): Promis
     RETURNING code
   `) as unknown as Array<{ code: string }>;
   if (updated.length === 0) {
-    throw new Error(`Code ${code} not found for tax year ${effectiveYear}`);
+    throw new AdminRequestError(404, `Code ${code} not found for tax year ${effectiveYear}`); // the UPDATE matched nothing
   }
   refreshCache();
 }
@@ -208,7 +212,7 @@ export async function restoreCode(code: string, effectiveYear: number): Promise<
     RETURNING code
   `) as unknown as Array<{ code: string }>;
   if (updated.length === 0) {
-    throw new Error(`Code ${code} not found for tax year ${effectiveYear}`);
+    throw new AdminRequestError(404, `Code ${code} not found for tax year ${effectiveYear}`); // the UPDATE matched nothing
   }
   refreshCache();
 }

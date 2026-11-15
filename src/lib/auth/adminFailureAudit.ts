@@ -36,7 +36,7 @@ function pathTarget(route: string | undefined): string | null {
     } catch {
       continue; // a malformed escape names nothing; Next would have refused the route anyway
     }
-    if (UUID.test(decoded)) return decoded;
+    if (UUID.test(decoded)) return decoded.toLowerCase(); // canonical, as every other admin audit row (#1405 round 7)
   }
   return null;
 }
