@@ -35,7 +35,7 @@ describe('healthAlertService H3 — webhook goes through safeFetch', () => {
 
   it('posts the alert via safeFetch, not a raw fetch', async () => {
     safeFetchMock.mockResolvedValue({ ok: true, status: 200 });
-    await sendWebhookAlert(HEALTH, 'https://hooks.example.com/x');
+    await expect(sendWebhookAlert(HEALTH, 'https://hooks.example.com/x')).resolves.toBe(true);
     expect(safeFetchMock).toHaveBeenCalledTimes(1);
     expect(safeFetchMock.mock.calls[0][0]).toBe('https://hooks.example.com/x');
     expect(safeFetchMock.mock.calls[0][1]).toMatchObject({ method: 'POST' });
@@ -45,7 +45,7 @@ describe('healthAlertService H3 — webhook goes through safeFetch', () => {
     safeFetchMock.mockRejectedValue(new Error('blocked address 10.0.0.5: private'));
     await expect(
       sendWebhookAlert(HEALTH, 'https://10.0.0.5/x'),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     expect(safeFetchMock).toHaveBeenCalledTimes(1);
   });
 });

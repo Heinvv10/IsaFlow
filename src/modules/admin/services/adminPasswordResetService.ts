@@ -4,11 +4,12 @@
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { isValidUUID } from '@/lib/validation';
 import { sendPasswordResetEmail } from '@/lib/auth/passwordResetEmail';
 import { findStoredUser } from './storedUserId';
 
 /** Why an admin may not reset this user's password, or null when they may (F-11: checked before anything is written). */
-export type ResetPasswordRefusal = 'not_found' | 'super_admin';
+export type ResetPasswordRefusal = 'not_found' | 'super_admin' | 'id_not_uuid';
 
 /** The refusal, or the user's real id (users.id as stored) when an admin may reset their password. */
 export type ResetPasswordTarget =
@@ -25,6 +26,9 @@ export async function resetPasswordRefusal(userId: string): Promise<ResetPasswor
   const user = await findStoredUser(userId);
   if (!user) return { refusal: 'not_found', userId: null };
   if (user.role === 'super_admin') return { refusal: 'super_admin', userId: null };
+  // OP-3: users.id is TEXT, but auth_password_reset_tokens.user_id is uuid (the GoTrue id), so a stored id that is
+  // not a UUID cannot hold a token: minting one threw 22P02 (a 500). Refuse before any audit row, token or email.
+  if (!isValidUUID(user.id)) return { refusal: 'id_not_uuid', userId: null };
   return { refusal: null, userId: user.id };
 }
 

@@ -175,7 +175,7 @@ export default function SuppliersPage() {
             />
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
                     <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Name</th>
@@ -203,10 +203,10 @@ export default function SuppliersPage() {
                           <div className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">VAT: {s.vat_number}</div>
                         )}
                       </td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{s.email ?? '-'}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{s.phone ?? '-'}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{s.contact_person ?? '-'}</td>
-                      <td className="py-3 px-4">
+                      <td data-label="Email" className="py-3 px-4 text-[var(--ff-text-secondary)]">{s.email ?? '-'}</td>
+                      <td data-label="Phone" className="py-3 px-4 text-[var(--ff-text-secondary)]">{s.phone ?? '-'}</td>
+                      <td data-label="Contact Person" className="py-3 px-4 text-[var(--ff-text-secondary)]">{s.contact_person ?? '-'}</td>
+                      <td data-label="Category" className="py-3 px-4">
                         {s.category ? (
                           <span className="px-2 py-0.5 rounded-full text-xs bg-blue-500/10 text-blue-400">
                             {s.category}
@@ -215,7 +215,7 @@ export default function SuppliersPage() {
                           <span className="text-[var(--ff-text-tertiary)]">-</span>
                         )}
                       </td>
-                      <td className="py-3 px-4">
+                      <td data-label="Status" className="py-3 px-4">
                         <StatusBadge active={s.is_active} />
                       </td>
                     </tr>

@@ -46,8 +46,8 @@ vi.mock('@/lib/auth/gotrue-admin-link', () => ({ generateLink: (...a: unknown[])
 import handler from '../../../../pages/api/admin/users/[id]/reset-password';
 import { log } from '@/lib/logger';
 
-function call() {
-  const req = { method: 'POST', query: { id: target.id }, user: { id: 'platform-admin' }, headers: {},
+function call(id: string = target.id) {
+  const req = { method: 'POST', query: { id }, user: { id: 'platform-admin' }, headers: {},
     socket: { remoteAddress: '127.0.0.1' } } as unknown as NextApiRequest;
   const state = { statusCode: 200, body: undefined as unknown };
   const res = {
@@ -116,6 +116,25 @@ describe('POST /api/admin/users/[id]/reset-password', () => {
     expect(logged).toHaveLength(1);
     expect(logged[0]![1]).toMatchObject({ userId: target.id });
     expect(JSON.stringify(logged)).not.toContain('ours-single-use-token');
+  });
+
+  it('refuses a user whose stored id is not a UUID with a 409, before any audit row, token or email (OP-3)', async () => {
+    // users.id is TEXT, but auth_password_reset_tokens.user_id is uuid: minting the token threw 22P02 (a 500).
+    fx.userRow = { ...target, id: 'tenant-only-test-user' };
+    const state = await call('tenant-only-test-user');
+    expect(state.statusCode).toBe(409);
+    expect(JSON.stringify(state.body)).toContain("This account's id format can't receive a reset link");
+    expect(calls).toEqual([]);
+    expect(logAdminAction).not.toHaveBeenCalled();
+    expect(issuePasswordResetToken).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it('still resets a user whose UUID id is stored upper-case (a valid uuid literal)', async () => {
+    fx.userRow = { ...target, id: target.id.toUpperCase() };
+    const state = await call(target.id.toUpperCase());
+    expect(state.statusCode).toBe(200);
+    expect(issuePasswordResetToken).toHaveBeenCalledWith(target.id.toUpperCase());
   });
 
   it('still refuses to reset a super_admin, and emails nobody', async () => {

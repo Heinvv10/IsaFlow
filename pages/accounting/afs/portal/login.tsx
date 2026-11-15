@@ -57,7 +57,7 @@ export default function PortalLoginPage() {
   return (
     <>
       <Head>
-        <title>Client Portal — ISaFlow</title>
+        <title>Client Portal — IsaFlow</title>
         <meta name="robots" content="noindex" />
       </Head>
 
@@ -66,7 +66,7 @@ export default function PortalLoginPage() {
           {/* Header */}
           <div style={styles.header}>
             <div style={styles.logo}>
-              <span style={styles.logoText}>ISaFlow</span>
+              <span style={styles.logoText}>IsaFlow</span>
             </div>
             <p style={styles.tagline}>Client Portal</p>
           </div>

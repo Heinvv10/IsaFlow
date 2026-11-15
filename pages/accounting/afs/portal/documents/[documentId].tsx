@@ -1,6 +1,6 @@
 // pages/accounting/afs/portal/documents/[documentId].tsx
 // Document viewer for portal contacts. Shows sections with annotation UI for directors/CFOs.
-// SECURITY: section.content is HTML from ISaFlow's own renderer (not user input).
+// SECURITY: section.content is HTML from IsaFlow's own renderer (not user input).
 
 import { useState } from 'react';
 import Head from 'next/head';
@@ -128,7 +128,7 @@ export default function PortalDocumentPage({
   return (
     <>
       <Head>
-        <title>{typeLabel}{doc.fiscal_year ? ` — ${doc.fiscal_year}` : ''} — ISaFlow Portal</title>
+        <title>{typeLabel}{doc.fiscal_year ? ` — ${doc.fiscal_year}` : ''} — IsaFlow Portal</title>
         <meta name="robots" content="noindex" />
       </Head>
       <div style={{ minHeight: '100vh', background: '#f8fafc', fontFamily: 'system-ui,sans-serif' }}>
