@@ -143,7 +143,7 @@ export default function EmployeesListPage() {
             />
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-x-auto bg-[var(--ff-surface-primary)]">
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
                     <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Emp #</th>
@@ -170,9 +170,9 @@ export default function EmployeesListPage() {
                           {e.firstName} {e.lastName}
                         </Link>
                       </td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)] capitalize">{e.employmentType}</td>
-                      {mayWrite && <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{e.startDate ? formatDisplayDate(e.startDate) : '—'}</td>}
-                      <td className="py-3 px-4"><StatusBadge active={!e.endDate || new Date(e.endDate) > new Date()} /></td>
+                      <td data-label="Type" className="py-3 px-4 text-[var(--ff-text-secondary)] capitalize">{e.employmentType}</td>
+                      {mayWrite && <td data-label="Start" className="py-3 px-4 text-[var(--ff-text-secondary)]">{e.startDate ? formatDisplayDate(e.startDate) : '—'}</td>}
+                      <td data-label="Status" className="py-3 px-4"><StatusBadge active={!e.endDate || new Date(e.endDate) > new Date()} /></td>
                       <td className="py-3 px-4 whitespace-nowrap">
                         <button
                           type="button"
