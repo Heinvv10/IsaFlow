@@ -107,6 +107,31 @@ export const FK_PAIRS = new Set<string>([
   'supplier_purchase_orders.supplier_id|suppliers.id',
 ]);
 
+/**
+ * FK_PAIRS entries whose FK is on the parent's `id` ALONE, so the schema does not stop a row pointing at ANOTHER
+ * company's parent (nothing at the DB level; RLS shows a user who belongs to two companies both). Joining across such
+ * an edge does not keep a row in-tenant, so it must NOT propagate scope: both aliases must be seeded
+ * (`X.company_id = '<caller>'` on each). Every bank-account pointer is here, plus the bank_transactions_posted
+ * edges (bank_account_id, matched_journal_line_id, provisional_je_id, reconciliation_id, predicted_supplier_id).
+ * Other single-column FKs in FK_PAIRS carry the same theoretical gap; they are left as edges because the app writes
+ * them in-tenant and the NL prompt already requires company_id on every table.
+ */
+export const SEED_BOTH_PAIRS = new Set<string>([
+  'bank_accounts.gl_account_id|gl_accounts.id',
+  'bank_reconciliations.bank_account_id|gl_accounts.id',
+  'bank_reconciliations.id|bank_transactions_posted.reconciliation_id',
+  'bank_transactions_posted.bank_account_id|gl_accounts.id',
+  'bank_transactions_posted.matched_journal_line_id|gl_journal_lines.id',
+  'bank_transactions_posted.predicted_supplier_id|suppliers.id',
+  'bank_transactions_posted.provisional_je_id|gl_journal_entries.id',
+  'customer_payments.bank_account_id|gl_accounts.id',
+  'gl_accounts.id|supplier_payment_batches.bank_account_id',
+  'gl_accounts.id|supplier_payments.bank_account_id',
+]);
+for (const pair of SEED_BOTH_PAIRS) {
+  if (!FK_PAIRS.has(pair)) throw new Error(`nlQueryFkPairs: SEED_BOTH_PAIRS entry is not in FK_PAIRS: ${pair}`);
+}
+
 // Invariant: the tenant key `company_id` is NEVER a modeled FK edge. An edge
 // exists only to propagate scope across a real FK->PK join; allowing a
 // `company_id` column as an edge endpoint would let a non-tenant-preserving
