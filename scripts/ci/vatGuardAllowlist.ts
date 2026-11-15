@@ -89,11 +89,18 @@ export const ALLOWED: Record<string, AllowedEntry> = {
     + 'its guard would change before the service runs (writeBankSplit). Decides no claim of its own.',
   },
   'src/modules/accounting/services/bank/bankAllocationService.ts': {
-    kinds: ['vat_field_on_a_posting_path', 'allocate_call', 'vat_inclusive_split'],
+    kinds: ['allocate_call'],
     reason: 'THE attended path. The bank screen shows the s17(2)(a) and non-supply '
     + 'warnings and the user\'s choice stands. Its unattended callers guard '
     + 'BEFORE calling it; moving a coercion in here would turn every attended '
-    + 'override into a no-op.',
+    + 'override into a no-op. Its VAT split (bankAllocationPlan) and journal lines '
+    + '(bankAllocationArms) moved verbatim into their own files (line cap); it still posts them.',
+  },
+  'src/modules/accounting/services/bank/bankAllocationPlan.ts': {
+    kinds: ['vat_inclusive_split'],
+    reason: 'allocateTransaction\'s posting plan, moved verbatim out of bankAllocationService (line cap): '
+    + 'the same attended path. It splits the gross by the code the user chose and changes no code; it picks '
+    + 'no account and posts nothing.',
   },
   'src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts': {
     kinds: ['vat_field_on_a_posting_path'],

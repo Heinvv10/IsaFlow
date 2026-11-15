@@ -51,6 +51,7 @@ const GATED: Record<string, string> = {
   [`${A}gl/closeRun/closeRunService.ts`]: 'close-run post_draft_journal approval: posts any draft by id, gated like the UI post (Hein, decision (b))',
   [`${A}bank/bankReconciliationService.ts`]: 'recon adjustment: a person names the contra and amount — refused up front (Hein H1)',
   [`${A}bank/bankAllocationService.ts`]: 'bank line to an account: evidenced lines exempt (D2); a hand-keyed one refused up front (Hein H2)',
+  [`${A}bank/bankSplitAllocate.ts`]: 'split of a bank line with an account part: the same H2 refusal, at the whole line\'s amount, up front',
   [`${A}capture/pettyCashJournalService.ts`]: 'petty-cash capture autoPost: held as draft + request, like receipt-to-journal (Hein)',
   [`${A}bank/bankTransferService.ts`]: 'bank transfer: a person composes it with no bank line as evidence (Hein H2 round 4) — held as a marked draft + request raised as the person (Hein, step-2 decision 6), posted only when the gate does not hold it',
   [`${A}bank/bankRuleAutoPostLine.ts`]: 'bank-rule sweep: evidenced lines exempt (decision 2); a hand-keyed line to an account skipped (Hein H2, round 4)',
@@ -126,6 +127,7 @@ describe('the callers of postJournalEntry', () => {
     before(`${A}bank/bankTransferService.ts`, 'markManualJournal(', 'requestApproval(');
     expect(textOf(`${A}bank/bankTransferService.ts`)).not.toMatch(/newManualJournalRefusal\(/);
     before(`${A}bank/bankAllocationService.ts`, "if (allocType === 'account' || allocType === 'transfer') await assertBankLineMayPostToAccounts(", 'createJournalEntry(');
+    before(`${A}bank/bankSplitAllocate.ts`, 'await assertBankLineMayPostToAccounts(companyId, tx, totalAmount);', 'createJournalEntry(');
     before(`${A}capture/provisionalPostingService.ts`, "if (!isBankEvidenced(tx) && await handKeyedLineJournalRefusal(", 'createJournalEntry(');
     before(`${A}bank/bankRuleAutoPostLine.ts`, "if (allocType === 'account' && !isBankEvidenced(locked) && await handKeyedLineJournalRefusal(", 'createJournalEntry(');
     before(`${A}capture/pettyCashJournalService.ts`, 'newManualJournalGate(', 'claimCapturedDocumentForPosting(');
