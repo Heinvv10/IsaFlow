@@ -2,7 +2,8 @@
  * /admin/health says whether the 5-minute scheduled alert check runs (admin audit OP-1, review M2),
  * from the server's record of its last successful pass, judged against the snapshot's own
  * checked_at: under 15 minutes old reads "Scheduled check: last ran <time>"; older, absent, or a
- * server that does not send it reads that alerts only fire while the page is open.
+ * server that does not send it reads that alerts only fire while the page is open. When the last
+ * alert reached no channel the line adds that it could not be delivered.
  */
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -37,13 +38,23 @@ function serve(data: unknown) {
     new Response(JSON.stringify({ success: true, data }), { status: 200 }));
 }
 const NOT_RUNNING = 'Scheduled check is not running: alerts only fire while this page is open.';
+const UNDELIVERED = 'Last alert could not be delivered: check the alert email/webhook settings.';
 
 describe('health page: scheduled check line', () => {
-  it('a pass 4 minutes before the snapshot: "last ran" with its time', async () => {
-    serve({ ...base, scheduled_check: { last_run_at: ago(4) } });
+  it('a pass 4 minutes before the snapshot: "last ran" with its time, no delivery warning', async () => {
+    serve({ ...base, scheduled_check: { last_run_at: ago(4), last_delivery_failed: false } });
     render(<HealthPage />);
     expect(await screen.findByText(new RegExp(`Scheduled check: last ran ${formatDisplayTimeSeconds(ago(4))}`))).toBeDefined();
     expect(screen.queryByText(new RegExp(NOT_RUNNING))).toBeNull();
+    expect(screen.queryByText(/could not be delivered/)).toBeNull();
+  });
+
+  it('the last alert reached no channel: "last ran" plus the delivery warning', async () => {
+    serve({ ...base, scheduled_check: { last_run_at: ago(4), last_delivery_failed: true } });
+    render(<HealthPage />);
+    const line = await screen.findByText(/Scheduled check: last ran/);
+    expect(line.textContent).toContain(UNDELIVERED);
+    expect(line.textContent).not.toContain(NOT_RUNNING);
   });
 
   it('a pass 16 minutes before the snapshot: not running', async () => {

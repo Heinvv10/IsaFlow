@@ -15,7 +15,9 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { getTrialStats } from '@/modules/admin/services/trialQueries';
 import { percentOrNull } from '@/modules/admin/services/metrics/revenueMath';
-import { SCHEDULED_RUN_KEY, settingText } from '@/modules/admin/services/healthAlertState';
+import {
+  DELIVERED_KEY, DELIVERY_FAILED_KEY, SCHEDULED_RUN_KEY, lastDeliveryFailed, settingText,
+} from '@/modules/admin/services/healthAlertState';
 
 type Row = DbRow;
 
@@ -64,8 +66,11 @@ export interface SystemHealthResponse {
   recent_errors: RecentError[];
   overall_status: 'healthy' | 'degraded' | 'critical';
   checked_at: string;
-  /** When the 5-minute cron pass last succeeded (admin_settings); null when it never has. */
-  scheduled_check: { last_run_at: string | null };
+  /**
+   * When the 5-minute cron pass last took a snapshot (null: never), and whether the last
+   * alert sent (by it or by this page) reached no channel.
+   */
+  scheduled_check: { last_run_at: string | null; last_delivery_failed: boolean };
 }
 
 // ─── DB Health ────────────────────────────────────────────────────────────────
@@ -204,8 +209,15 @@ function deriveOverallStatus(
 
 async function getScheduledCheck(): Promise<SystemHealthResponse['scheduled_check']> {
   try {
-    const rows = await sql`SELECT value FROM admin_settings WHERE key = ${SCHEDULED_RUN_KEY}`;
-    return { last_run_at: rows.length ? settingText((rows[0] as Row).value) : null };
+    const rows = await sql`
+      SELECT key, value FROM admin_settings
+      WHERE key IN (${SCHEDULED_RUN_KEY}, ${DELIVERED_KEY}, ${DELIVERY_FAILED_KEY})
+    `;
+    const at = new Map((rows as Row[]).map((r) => [String(r.key ?? ''), settingText(r.value)]));
+    return {
+      last_run_at: at.get(SCHEDULED_RUN_KEY) ?? null,
+      last_delivery_failed: lastDeliveryFailed(at.get(DELIVERED_KEY) ?? null, at.get(DELIVERY_FAILED_KEY) ?? null),
+    };
   } catch (err) {
     log.error('Scheduled health check state could not be read', { error: err }, 'admin-health-api');
     throw err;

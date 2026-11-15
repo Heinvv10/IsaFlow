@@ -49,8 +49,8 @@ export interface SystemHealthData {
   recent_errors: RecentError[];
   overall_status: 'healthy' | 'degraded' | 'critical';
   checked_at: string;
-  /** When the 5-minute cron pass last succeeded; absent from an older server. */
-  scheduled_check?: { last_run_at: string | null };
+  /** When the 5-minute cron pass last ran, and whether the last alert reached no channel; absent from an older server. */
+  scheduled_check?: { last_run_at: string | null; last_delivery_failed?: boolean };
 }
 
 /** The timer fires every 5 minutes: three missed passes means it is not running. */

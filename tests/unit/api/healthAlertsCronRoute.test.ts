@@ -63,11 +63,11 @@ describe('/api/cron/health-alerts', () => {
     expect(recordScheduledRun).toHaveBeenCalledTimes(1);
   });
 
-  it('an alert that reached no channel answers 500 and does not record the run', async () => {
+  it('an alert that reached no channel answers 500, but the pass still counts as run', async () => {
     checkAndAlert.mockRejectedValueOnce(new Error('Health alert (critical) reached no channel'));
     const r = await call({ method: 'POST', headers: { 'x-cron-secret': KEY } });
     expect(r.statusCode).toBe(500);
-    expect(recordScheduledRun).not.toHaveBeenCalled();
+    expect(recordScheduledRun).toHaveBeenCalledTimes(1);
   });
 
   it.each([[{}], [{ 'x-cron-secret': 'wrong' }], [{ 'x-cron-secret': `${KEY}x` }]])(

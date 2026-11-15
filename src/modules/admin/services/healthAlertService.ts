@@ -14,7 +14,9 @@ import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { BRAND, emailLayout } from '@/lib/email-templates';
 import { safeFetch } from '@/lib/safeFetch';
 import type { SystemHealthResponse } from './systemHealthService';
-import { claimAlert, markHealthy, releaseClaim, settingText, type AlertableStatus } from './healthAlertState';
+import {
+  claimAlert, markHealthy, recordDeliveryOutcome, releaseClaim, settingText, type AlertableStatus,
+} from './healthAlertState';
 
 type Row = DbRow;
 
@@ -130,6 +132,13 @@ export async function sendWebhookAlert(
 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
+/** The Health page's "could not be delivered" warning reads this; failing to write it never changes the alert's outcome. */
+async function noteOutcome(delivered: boolean): Promise<void> {
+  await recordDeliveryOutcome(delivered).catch((err: unknown) => {
+    log.error('Health alert delivery outcome could not be recorded', { delivered, error: err }, 'healthAlertService');
+  });
+}
+
 /**
  * Alert on a degraded/critical snapshot unless this status was already alerted (see the
  * header). Throws when the alert reached no channel, after releasing the claim.
@@ -165,9 +174,14 @@ export async function checkAndAlert(health: SystemHealthResponse): Promise<void>
     sendEmailAlert(health, alertEmail),
     webhookUrl ? sendWebhookAlert(health, webhookUrl) : Promise.resolve(false),
   ]);
-  if (emailSent || webhookSent) return; // one channel is enough: the claim stands
+  // One channel is enough: the claim stands and the failed one is not retried, by design.
+  if (emailSent || webhookSent) {
+    await noteOutcome(true);
+    return;
+  }
 
   const released = await releaseClaim(claim);
+  await noteOutcome(false);
   log.error('Health alert reached no channel; the next pass retries',
     { status, webhook: Boolean(webhookUrl), claimReleased: released }, 'healthAlertService');
   throw new Error(`Health alert (${status}) reached no channel`);

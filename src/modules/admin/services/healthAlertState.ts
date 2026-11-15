@@ -13,6 +13,19 @@
  * If no channel delivers, the claim is RELEASED (review L-b): the previous
  * state is written back under the same lock, so the next pass retries. Only
  * when the state is still this claim's; a later claim or a healthy reset wins.
+ * The outcome of every send is recorded (health_alerts_last_delivered_at /
+ * _last_delivery_failed_at), so the Health page can say the last alert could
+ * not be delivered. A partial delivery
+ * (one channel OK) counts as sent: the claim stands and the failed channel is
+ * not retried, by design (one alert reached someone; retrying would re-send it
+ * on the channel that worked).
+ *
+ * NEVER inside a request transaction (an ALS store): there, withTransaction is
+ * a SAVEPOINT on the request's connection, so the claim would commit only with
+ * the request, the advisory lock would be held until the request ends, and a
+ * send after "claiming" could precede the commit, which is the double send this
+ * module exists to stop. Every entry point asserts there is no store; callers
+ * reach it through runAfterCommit (detached) or the cron route.
  *
  * The keys are platform-global (admin_settings has no company_id). Values are
  * JSONB scalars: a string is stored as a JSON string.
@@ -20,6 +33,7 @@
 
 import { withTransaction, type TxSql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { als } from '@/lib/als';
 
 export type AlertableStatus = 'degraded' | 'critical';
 
@@ -27,8 +41,11 @@ export const ALERT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 const STATUS_KEY = 'health_alert_last_status';
 const SENT_AT_KEY = 'health_alert_last_sent_at';
-/** Written by each successful scheduled pass; the Health page shows whether the timer runs (review M2). */
+/** Written by each scheduled pass whose snapshot was taken; the Health page shows whether the timer runs (review M2). */
 export const SCHEDULED_RUN_KEY = 'health_alerts_last_scheduled_run';
+/** When an alert last reached a channel / last reached none. The later of the two is the last alert's outcome. */
+export const DELIVERED_KEY = 'health_alerts_last_delivered_at';
+export const DELIVERY_FAILED_KEY = 'health_alerts_last_delivery_failed_at';
 
 const LOCK_KEY = 'admin:health-alert-state';
 /** What a released claim writes back for "never sent": cooldown long over, so the next pass may alert. */
@@ -54,6 +71,12 @@ export function settingText(raw: unknown): string | null {
     }
   }
   return String(raw);
+}
+
+function assertOutsideRequestTx(fn: string): void {
+  if (als.getStore()) {
+    throw new Error(`healthAlertState.${fn} must run outside a request transaction (see the module header)`);
+  }
 }
 
 async function lock(tx: TxSql): Promise<void> {
@@ -88,6 +111,7 @@ export function shouldAlert(state: RawState, status: string, now = Date.now()): 
  * sent (debounced), else the claim, with the state already written.
  */
 export async function claimAlert(status: AlertableStatus): Promise<AlertClaim | null> {
+  assertOutsideRequestTx('claimAlert');
   return withTransaction(async (tx) => {
     await lock(tx);
     const previous = await readState(tx);
@@ -101,6 +125,7 @@ export async function claimAlert(status: AlertableStatus): Promise<AlertClaim | 
 
 /** Undo a claim whose alert reached no channel. False when another pass changed the state since. */
 export async function releaseClaim(claim: AlertClaim): Promise<boolean> {
+  assertOutsideRequestTx('releaseClaim');
   return withTransaction(async (tx) => {
     await lock(tx);
     const current = await readState(tx);
@@ -115,6 +140,7 @@ export async function releaseClaim(claim: AlertClaim): Promise<boolean> {
 
 /** Healthy: clear the status so the next degraded/critical always alerts. */
 export async function markHealthy(): Promise<void> {
+  assertOutsideRequestTx('markHealthy');
   await withTransaction(async (tx) => {
     await lock(tx);
     await write(tx, STATUS_KEY, 'healthy');
@@ -122,5 +148,20 @@ export async function markHealthy(): Promise<void> {
 }
 
 export async function recordScheduledRun(at: Date = new Date()): Promise<void> {
+  assertOutsideRequestTx('recordScheduledRun');
   await withTransaction(async (tx) => { await write(tx, SCHEDULED_RUN_KEY, at.toISOString()); });
+}
+
+export async function recordDeliveryOutcome(delivered: boolean, at: Date = new Date()): Promise<void> {
+  assertOutsideRequestTx('recordDeliveryOutcome');
+  await withTransaction(async (tx) => { await write(tx, delivered ? DELIVERED_KEY : DELIVERY_FAILED_KEY, at.toISOString()); });
+}
+
+/** Whether the last alert sent reached no channel, from the two outcome stamps. */
+export function lastDeliveryFailed(deliveredAt: string | null, failedAt: string | null): boolean {
+  if (!failedAt) return false;
+  const failed = new Date(failedAt).getTime();
+  if (Number.isNaN(failed)) return false;
+  const delivered = deliveredAt ? new Date(deliveredAt).getTime() : NaN;
+  return Number.isNaN(delivered) || failed > delivered;
 }

@@ -15,9 +15,11 @@
  * Unlike the route, a failure is thrown, not swallowed: the caller
  * (POST /api/cron/health-alerts, every 5 minutes from
  * scripts/isaflow-health-alerts.timer) answers 500, so curl --fail and systemd
- * record the failed run. A snapshot that fails sends nothing. A successful pass
- * records `health_alerts_last_scheduled_run`, which the Health page shows, so a
- * timer that stopped (or was never installed) is visible there.
+ * record the failed run. A snapshot that fails sends nothing and records
+ * nothing. A pass with a snapshot records `health_alerts_last_scheduled_run`
+ * before the alert step (the Health page shows it, so a timer that stopped or
+ * was never installed is visible there); an alert that then reaches no channel
+ * is recorded by checkAndAlert and shown as a separate warning.
  */
 
 import { getPlatformAdminPool } from '@/lib/auth/withPlatformAdmin.pools';
@@ -44,8 +46,9 @@ export async function runScheduledHealthAlert(): Promise<SystemHealthResponse['o
   } finally {
     client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
   }
-  await checkAndAlert(health);
-  // Only a pass that got this far counts: the Health page reads it to say whether the timer runs.
+  // The pass ran once it has a snapshot, whatever the alert step does next: the Health page reads
+  // this to say whether the timer runs (an undeliverable alert is shown on its own).
   await recordScheduledRun();
+  await checkAndAlert(health);
   return health.overall_status;
 }

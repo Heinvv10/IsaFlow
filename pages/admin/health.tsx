@@ -89,6 +89,9 @@ export default function SystemHealthPage() {
               {scheduledRun
                 ? `Scheduled check: last ran ${fmtTime(scheduledRun)}.`
                 : 'Scheduled check is not running: alerts only fire while this page is open.'}
+              {data.scheduled_check?.last_delivery_failed
+                ? ' Last alert could not be delivered: check the alert email/webhook settings.'
+                : ''}
             </p>
           )}
         </div>

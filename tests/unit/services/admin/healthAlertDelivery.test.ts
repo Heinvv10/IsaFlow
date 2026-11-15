@@ -1,7 +1,8 @@
 /**
  * checkAndAlert (admin audit OP-1, review M1 + L-b): it sends only after winning the claim
  * (healthAlertState.claimAlert), and when every enabled channel fails it releases the claim
- * so the next pass retries, then throws. One channel delivering is enough: the claim stands.
+ * so the next pass retries, records the failure for the Health page, then throws. One channel
+ * delivering is enough: the claim stands and the failed channel is not retried, by design.
  * The claim itself (advisory lock, real rows) is pinned in
  * tests/integration/admin-health-alert-claim.int.test.ts. No email or webhook leaves this test.
  */
@@ -16,6 +17,7 @@ const state = vi.hoisted(() => ({
   claimAlert: vi.fn(async () => { fx.order.push('claim'); return CLAIM as unknown; }),
   releaseClaim: vi.fn(async () => true),
   markHealthy: vi.fn(async () => undefined),
+  recordDeliveryOutcome: vi.fn(async () => undefined),
   settingText: (raw: unknown) => (raw == null ? null : String(raw)),
 }));
 const sendEmail = vi.hoisted(() => vi.fn(async () => { fx.order.push('email'); return { success: true } as { success: boolean; error?: string }; }));
@@ -39,7 +41,7 @@ const HEALTH = {
   overall_status: 'critical', checked_at: '2026-11-15T10:00:00.000Z',
   db: { status: 'error', latency_ms: 5, size_mb: 1 }, job_queue: { pending: 0, running: 0, failed: 0, oldest_pending_age_minutes: null },
   email: { sent_24h: 0, failed_24h: 0, bounced_24h: 0, success_rate_percent: null },
-  users_signed_in_24h: 0, trials: { expiring_in_7d: 0 }, recent_errors: [], scheduled_check: { last_run_at: null },
+  users_signed_in_24h: 0, trials: { expiring_in_7d: 0 }, recent_errors: [], scheduled_check: { last_run_at: null, last_delivery_failed: false },
 } as const;
 const run = () => checkAndAlert(HEALTH as never);
 
@@ -56,6 +58,13 @@ describe('checkAndAlert claims before it sends', () => {
     expect(fx.order).toEqual(['read:health_alert_email', 'read:health_alert_webhook_url', 'claim', 'email']);
     expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'ops@example.test' }));
     expect(state.releaseClaim).not.toHaveBeenCalled();
+    expect(state.recordDeliveryOutcome).toHaveBeenCalledWith(true);
+  });
+
+  it('a failure to record the outcome never turns a delivered alert into a failed one', async () => {
+    state.recordDeliveryOutcome.mockRejectedValueOnce(new Error('admin_settings locked'));
+    await expect(run()).resolves.toBeUndefined();
+    expect(state.releaseClaim).not.toHaveBeenCalled();
   });
 
   it('sends nothing when the claim is lost (already alerted)', async () => {
@@ -63,6 +72,7 @@ describe('checkAndAlert claims before it sends', () => {
     await run();
     expect(sendEmail).not.toHaveBeenCalled();
     expect(safeFetch).not.toHaveBeenCalled();
+    expect(state.recordDeliveryOutcome).not.toHaveBeenCalled();
   });
 
   it('healthy: resets the state and neither claims nor sends', async () => {
@@ -78,6 +88,7 @@ describe('every enabled channel failing releases the claim (L-b)', () => {
     sendEmail.mockResolvedValueOnce({ success: false, error: 'SMTP 550' });
     await expect(run()).rejects.toThrow('reached no channel');
     expect(state.releaseClaim).toHaveBeenCalledWith(CLAIM);
+    expect(state.recordDeliveryOutcome).toHaveBeenCalledWith(false);
   });
 
   it('email throws and the webhook answers 500: releases and throws', async () => {
@@ -88,12 +99,14 @@ describe('every enabled channel failing releases the claim (L-b)', () => {
     expect(state.releaseClaim).toHaveBeenCalledTimes(1);
   });
 
-  it('email refused but the webhook delivered: the claim stands', async () => {
+  it('email refused but the webhook delivered: counts as sent, the claim stands, the email is not retried', async () => {
     fx.settings.health_alert_webhook_url = 'https://hooks.example.test/x';
     sendEmail.mockResolvedValueOnce({ success: false, error: 'SMTP 550' });
     await expect(run()).resolves.toBeUndefined();
     expect(safeFetch).toHaveBeenCalledTimes(1);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
     expect(state.releaseClaim).not.toHaveBeenCalled();
+    expect(state.recordDeliveryOutcome).toHaveBeenCalledWith(true);
   });
 
   it('email sent but the webhook refused: the claim stands', async () => {
