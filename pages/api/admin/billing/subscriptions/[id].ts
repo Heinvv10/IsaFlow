@@ -30,7 +30,11 @@ const PatchBody = z.object({
   // `true` is accepted — clearing a scheduled cancellation is a reactivation,
   // which goes through `status`.
   cancel_at_period_end: z.literal(true).optional(),
-}).strict();
+}).strict()
+  // An empty PATCH changes nothing and must not be audited as an update (review #1405 final round): a 400. Any other
+  // body runs updateSubscription or cancelSubscription, both of which answer 404 for a missing subscription before
+  // the audit row below.
+  .refine((b) => Object.keys(b).length > 0, 'Nothing to update: give at least one field');
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const id = adminUuid(req.query.id);

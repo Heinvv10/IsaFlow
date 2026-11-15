@@ -100,7 +100,7 @@ export async function claimInvoiceForSend(invoiceId: string, confirmedTo: string
       notes: r.notes == null ? null : String(r.notes),
     };
     await logAdminAction(requireCtx().userId, 'invoice.send_started', 'invoice', invoiceId,
-      { recipient: email, invoice_number: invoiceNumber, total_cents: invoice.total_cents }, ip);
+      { company_id: invoice.company_id, recipient: email, invoice_number: invoiceNumber, total_cents: invoice.total_cents }, ip);
     return { ok: true, invoice };
   });
 }
@@ -154,14 +154,14 @@ export async function releaseInvoiceClaim(invoice: InvoiceForSend, ip: string | 
   await withOwnPlatformAdminTx(async () => {
     await sql`UPDATE admin_invoices SET send_claimed_at = NULL WHERE id = ${invoice.id}::uuid AND status = 'draft'`;
     await logAdminAction(requireCtx().userId, 'invoice.send_failed', 'invoice', invoice.id,
-      { recipient: invoice.billing_email, invoice_number: invoice.invoice_number, error }, ip);
+      { company_id: invoice.company_id, recipient: invoice.billing_email, invoice_number: invoice.invoice_number, error }, ip);
   });
 }
 
 /** The email may have left: the claim stays; the audit row says so. */
 export async function recordSendUnknown(invoice: InvoiceForSend, ip: string | null, error: string): Promise<void> {
   await withOwnPlatformAdminTx(() => logAdminAction(requireCtx().userId, 'invoice.send_unknown', 'invoice', invoice.id,
-    { recipient: invoice.billing_email, invoice_number: invoice.invoice_number, error }, ip));
+    { company_id: invoice.company_id, recipient: invoice.billing_email, invoice_number: invoice.invoice_number, error }, ip));
 }
 
 export type SettleOutcome = 'sent' | 'released';

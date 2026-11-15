@@ -10,7 +10,12 @@
  *   - an identifier declared `const` (never reassigned) and initialised to one of those.
  * <arg> is one simple argument: a name or property chain (`req.query.id`, `requestedId`), or `adminUserId(<that>)`.
  * No `??`, `||` or `&&` anywhere in an initialiser (a fallback to the request's spelling, review round 8 R2). An
- * audit whose type argument is not a string literal is flagged too: it might be 'user' (R3).
+ * audit whose type argument is not a string literal is flagged too: it might be 'user' (R3). A name declared more
+ * than once in a file (in another function, block or as a parameter) counts as not stored: the census reads names per
+ * file, not per scope, so a same-named const elsewhere could otherwise vouch for it (final round).
+ *
+ * Known limit, accepted: only calls spelled `logAdminAction(` are seen. An alias (`const audit = logAdminAction`) or a
+ * wrapper that forwards a 'user' target escapes this census.
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'child_process';
@@ -31,16 +36,21 @@ const ORPHAN_PATH = { file: 'pages/api/admin/users/[id]/remove-from-company.ts',
 
 const files = execFileSync('git', ['ls-files', 'pages/api/admin'], { encoding: 'utf8' }).split('\n').filter((f) => f.endsWith('.ts'));
 
-/** `const` declarations (initialiser text) of identifiers never reassigned in the file. */
+/** `const` declarations (initialiser text) of identifiers declared once in the file and never reassigned. */
 function constDeclarations(source: ts.SourceFile): Map<string, string> {
   const out = new Map<string, string>();
   const notConst = new Set<string>();
+  const declared = new Set<string>();
+  const declare = (name: string) => { if (declared.has(name)) notConst.add(name); declared.add(name); };
   const visit = (n: ts.Node) => {
     if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name)) {
+      declare(n.name.text);
       const isConst = (ts.getCombinedNodeFlags(n) & ts.NodeFlags.Const) !== 0;
       if (!isConst || !n.initializer) notConst.add(n.name.text);
       else out.set(n.name.text, n.initializer.getText());
     }
+    if (ts.isParameter(n) && ts.isIdentifier(n.name)) declare(n.name.text);
+    if (ts.isBindingElement(n) && ts.isIdentifier(n.name)) { declare(n.name.text); notConst.add(n.name.text); }
     // Any assignment to a name (x = …, x ??= …, ({ x } = …) via its identifier) disqualifies it.
     if (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
       && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment) {
