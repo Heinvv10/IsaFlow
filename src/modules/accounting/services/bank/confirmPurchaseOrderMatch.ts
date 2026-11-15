@@ -19,6 +19,7 @@
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { formatCents } from '@/lib/money/formatMoney';
 import { withRowLockBudget, RowLockTimeoutError } from '../core/rowLockBudget';
 import { toCents } from '../ap/billAllocatable';
 import { allocateTransaction } from './bankAllocationService';
@@ -32,8 +33,6 @@ export type ConfirmPurchaseOrderMatchOutcome =
 
 /** The statuses a payment may be matched against: an order that was approved, whatever it has received since. */
 const PAYABLE_PO_STATUSES = new Set(['approved', 'partially_received', 'received']);
-
-const rand = (cents: number): string => `R${(cents / 100).toFixed(2)}`;
 
 /**
  * @param paymentAmount The ABSOLUTE value of the bank line. The route has already refused a line pointing the wrong
@@ -69,7 +68,7 @@ export async function confirmPurchaseOrderMatch(
       + 'lines already pay its full total.' };
   }
   if (lineCents > outstandingCents) {
-    return { ok: false, kind: 'refused', message: `This line is ${rand(lineCents)} but only ${rand(outstandingCents)} `
+    return { ok: false, kind: 'refused', message: `This line is ${formatCents(lineCents)} but only ${formatCents(outstandingCents)} `
       + `is outstanding on the purchase order. Split the line, or match it to the supplier's invoice instead.` };
   }
 

@@ -22,10 +22,11 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { formatCents } from '@/lib/money/formatMoney';
 import { toCents } from '../ap/billAllocatable';
 import { BankMatchTargetError } from './bankTxStatusErrors';
 
-const rand = (cents: number): string => `R${(Math.abs(cents) / 100).toFixed(2)}`;
+const rand = (cents: number): string => formatCents(Math.abs(cents));
 const way = (cents: number): string => (cents > 0 ? 'money in' : cents < 0 ? 'money out' : 'no movement');
 
 /**
