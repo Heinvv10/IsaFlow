@@ -34,8 +34,8 @@ const USER_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 
 describe('forceLogout — GoTrue token revocation + app session clear', () => {
   beforeEach(() => {
-    // The first statement is the users-row lock (the user exists); the rest answer nothing.
-    sqlMock.mockReset().mockResolvedValue([]).mockResolvedValueOnce([{ role: 'viewer' }]);
+    // The first statement is the existence read (the user exists); the rest answer nothing.
+    sqlMock.mockReset().mockResolvedValue([]).mockResolvedValueOnce([{ '?column?': 1 }]);
     adminRevokeAllUserSessions.mockReset().mockResolvedValue(undefined);
   });
 
@@ -43,8 +43,10 @@ describe('forceLogout — GoTrue token revocation + app session clear', () => {
     await forceLogout(USER_ID);
     expect(adminRevokeAllUserSessions).toHaveBeenCalledTimes(1);
     expect(adminRevokeAllUserSessions).toHaveBeenCalledWith(USER_ID);
-    // App-level user_sessions still deleted (belt-and-braces), after the users-row lock.
-    expect(sqlTexts().map((t) => t.trim().split(/\s+/).slice(0, 3).join(' '))).toEqual(['SELECT role FROM', 'DELETE FROM user_sessions']);
+    // App-level user_sessions still deleted (belt-and-braces), after the existence read (no row lock).
+    const texts = sqlTexts().map((t) => t.trim());
+    expect(texts.map((t) => t.split(/\s+/).slice(0, 3).join(' '))).toEqual(['SELECT 1 FROM', 'DELETE FROM user_sessions']);
+    expect(texts[0]).not.toMatch(/FOR\s+(UPDATE|NO KEY UPDATE|SHARE|KEY SHARE)/);
   });
 
   it('fails closed: if GoTrue revocation throws, forceLogout throws and does NOT delete app sessions', async () => {
