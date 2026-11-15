@@ -104,14 +104,16 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     opened = true; // before BEGIN (R-176): a BEGIN that reached the server but failed is rolled back too
     await client.query('BEGIN');
     userId = (await client.query<{ id: string }>('SELECT $1::uuid::text AS id', [userId])).rows[0]!.id;
+    // A plain read, no FOR UPDATE: the invitation row is locked LAST, by the UPDATE that marks it accepted below,
+    // as /api/invitations/[token]/accept and an admin's deleteUser (which cancels it) take it. Locking it first
+    // deadlocked (40P01) against both: they hold the membership and users rows when they reach the invitation.
     const rows = (await client.query(
       `SELECT id, company_id, email, role
          FROM company_invitations
         WHERE token = $1
           AND accepted_at IS NULL
           AND expires_at > NOW()
-        LIMIT 1
-          FOR UPDATE`,
+        LIMIT 1`,
       [tokenHash],
     )).rows as Row[];
 
@@ -164,8 +166,19 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.conflict(res, EMAIL_IN_USE_MESSAGE);
     }
 
-    // Mark invitation accepted
-    await client.query(`UPDATE company_invitations SET accepted_at = NOW() WHERE id = $1::UUID`, [inv.id]);
+    // Mark it accepted, still pending under its token, or nothing commits: a cancel (an admin deleting the user,
+    // a revoke), a re-send or a competing accept since the read above leaves no row to mark, and the membership
+    // and users row written above roll back with it.
+    const marked = await client.query(
+      `UPDATE company_invitations SET accepted_at = NOW()
+        WHERE id = $1::UUID AND token = $2 AND accepted_at IS NULL AND expires_at > NOW()`,
+      [inv.id, tokenHash],
+    );
+    if (marked.rowCount !== 1) {
+      unusable = await rollbackFailed(client, 'invite accept');
+      opened = false;
+      return apiResponse.notFound(res, 'Invitation');
+    }
 
     // Mark onboarding completed for this user (they're joining an existing company)
     await client.query(`UPDATE users SET onboarding_completed = true WHERE id = $1`, [userId]);

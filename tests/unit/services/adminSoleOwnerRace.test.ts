@@ -65,13 +65,19 @@ describe('deleteUser is never stopped by the look-up of pay-run approvals it str
     sqlMock.mockReset().mockImplementation(async (strings: TemplateStringsArray) => {
       const q = strings.join('?');
       if (q.includes('SELECT role FROM users')) return [{ role: 'viewer' }];
-      if (q.includes('DELETE FROM users')) return [{ id: USER }]; // RETURNING: the row was there
+      if (q.includes('DELETE FROM users')) return [{ email: 'gone@test.local' }]; // RETURNING: the row was there
+      if (q.includes('admin_cancel_user_invitations')) return [{ n: 2 }];
       return [];
     });
-    await expect(deleteUser(USER)).resolves.toEqual([]);
-    const writes = sqlMock.mock.calls.map(text).filter((q) => /^\s*DELETE\b/i.test(q)).map((q) => q.trim().split(' ').slice(0, 3).join(' '));
-    // company_users -> users -> user_sessions (the one lock order), then the sweep of a membership added meanwhile.
-    expect(writes).toEqual(['DELETE FROM company_users', 'DELETE FROM users', 'DELETE FROM user_sessions', 'DELETE FROM company_users']);
+    await expect(deleteUser(USER)).resolves.toEqual({ stranded: [], invitationsCancelled: 2 });
+    const writes = sqlMock.mock.calls.map(text).filter((q) => /^\s*(DELETE\b|SELECT public\.admin_cancel)/i.test(q))
+      .map((q) => q.trim().split(' ').slice(0, 3).join(' '));
+    // company_users -> users -> user_sessions (the one lock order), the sweep of a membership added meanwhile, then
+    // the invitations, last (follow-up A), for the address the users DELETE returned.
+    expect(writes).toEqual(['DELETE FROM company_users', 'DELETE FROM users', 'DELETE FROM user_sessions', 'DELETE FROM company_users',
+      'SELECT public.admin_cancel_user_invitations(?) AS']);
+    const cancel = sqlMock.mock.calls.find((c) => text(c).includes('admin_cancel_user_invitations'))!;
+    expect(cancel.slice(1)).toEqual(['gone@test.local']);
   });
 
   it('returns what it strands, for the admin audit row', async () => {
@@ -79,8 +85,8 @@ describe('deleteUser is never stopped by the look-up of pay-run approvals it str
     sqlMock.mockReset().mockImplementation(async (strings: TemplateStringsArray) => {
       const q = strings.join('?');
       if (q.includes('SELECT role FROM users')) return [{ role: 'viewer' }];
-      return q.includes('DELETE FROM users') ? [{ id: USER }] : [];
+      return q.includes('DELETE FROM users') ? [{ email: 'gone@test.local' }] : [];
     });
-    await expect(deleteUser(USER)).resolves.toEqual([{ companyId: 'c1', requestId: 'r1' }]);
+    await expect(deleteUser(USER)).resolves.toEqual({ stranded: [{ companyId: 'c1', requestId: 'r1' }], invitationsCancelled: 0 });
   });
 });
