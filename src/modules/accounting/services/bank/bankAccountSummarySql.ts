@@ -3,7 +3,8 @@
  * ./bankAccountSummaryService). Per company: every leaf bank account (the same leaf-only rule and group-parent join as
  * `getBankAccountsStatus`), its line counts by bucket, its ledger balance, and its latest statement.
  *
- *   - Counts: one pass over the account's lines (`bt.company_id` AND `bt.bank_account_id`), FILTERed on the bucket
+ *   - Counts: ONE grouped pass over the company's lines (`bt.company_id`; grouped by account, joined to `accts` by
+ *     id, so a line of another company filed against this account id is in no group), FILTERed on the bucket
  *     (./bankLineBucket LINE_BUCKET_SQL) and the New tab (./bankTxTabCond NEW_TAB_SQL). Posted lines only, except
  *     `pending_at_bank`. In / out are the to-code lines' amounts split by sign, in integer cents.
  *   - Ledger: `bankGlBalancesAsAt` — the grouped form of `bankGlBalanceAsAt`, built from the same predicate
@@ -96,11 +97,39 @@ export function bankAccountSummaryQuery(companyId: string, asAt: string | null) 
       SELECT s.account_id, s.lb_statement_date FROM stmt s WHERE s.lb_id IS NOT NULL
     ),
     ledgers AS (${bankGlBalancesAsAt(companyId, sql`SELECT account_id, as_at FROM pairs`)}),
+    counts AS (
+      SELECT
+        l.account_id,
+        COUNT(*) FILTER (WHERE l.feed_state = 'posted')::INT AS posted,
+        COUNT(*) FILTER (WHERE l.bucket = 'allocated')::INT AS allocated,
+        COUNT(*) FILTER (WHERE l.bucket = 'allocated' AND l.status = 'provisional')::INT AS provisional,
+        COUNT(*) FILTER (WHERE l.bucket = 'suggested')::INT AS suggested,
+        COUNT(*) FILTER (WHERE l.bucket = 'unallocated')::INT AS unallocated,
+        COUNT(*) FILTER (WHERE l.bucket = 'excluded')::INT AS excluded,
+        COUNT(*) FILTER (WHERE l.feed_state = 'posted' AND l.is_new)::INT AS awaiting_review,
+        COUNT(*) FILTER (WHERE l.feed_state = 'pending')::INT AS pending_at_bank,
+        ROUND(COALESCE(SUM(l.amount) FILTER (WHERE l.bucket IN ('suggested', 'unallocated') AND l.amount > 0), 0)
+              * 100)::BIGINT AS to_code_in_cents,
+        ROUND(COALESCE(SUM(l.amount) FILTER (WHERE l.bucket IN ('suggested', 'unallocated') AND l.amount < 0), 0)
+              * 100)::BIGINT AS to_code_out_cents,
+        MAX(l.transaction_date) FILTER (WHERE l.feed_state = 'posted') AS last_date
+      FROM (
+        SELECT bt.bank_account_id AS account_id, bt.feed_state, bt.status, bt.amount, bt.transaction_date,
+               (${bucket}) AS bucket, ${newTab} AS is_new
+        FROM bank_transactions bt
+        WHERE bt.company_id = ${companyId}::UUID
+      ) l
+      GROUP BY l.account_id
+    ),
     summary AS (
       SELECT a.id, a.account_code, a.account_name, a.account_type, a.bank_account_number, a.is_active,
              a.group_id, a.group_name, a.group_code,
-             n.posted, n.allocated, n.provisional, n.suggested, n.unallocated, n.excluded,
-             n.awaiting_review, n.pending_at_bank, n.to_code_in_cents, n.to_code_out_cents, n.last_date,
+             COALESCE(n.posted, 0) AS posted, COALESCE(n.allocated, 0) AS allocated,
+             COALESCE(n.provisional, 0) AS provisional, COALESCE(n.suggested, 0) AS suggested,
+             COALESCE(n.unallocated, 0) AS unallocated, COALESCE(n.excluded, 0) AS excluded,
+             COALESCE(n.awaiting_review, 0) AS awaiting_review, COALESCE(n.pending_at_bank, 0) AS pending_at_bank,
+             COALESCE(n.to_code_in_cents, 0) AS to_code_in_cents, COALESCE(n.to_code_out_cents, 0) AS to_code_out_cents,
+             n.last_date,
              ROUND(COALESCE(led.gl_balance, 0) * 100)::BIGINT AS ledger_cents,
              s.lt_id, s.lt_statement_date, s.lt_bank_format, s.lt_import_channel, s.lt_balance_source,
              s.lt_opening_cents, s.lt_closing_cents, s.lt_line_count, s.lt_created_at,
@@ -111,31 +140,10 @@ export function bankAccountSummaryQuery(companyId: string, asAt: string | null) 
       FROM accts a
       CROSS JOIN p
       JOIN stmt s ON s.account_id = a.id
-      CROSS JOIN LATERAL (
-        SELECT
-          COUNT(*) FILTER (WHERE l.feed_state = 'posted')::INT AS posted,
-          COUNT(*) FILTER (WHERE l.bucket = 'allocated')::INT AS allocated,
-          COUNT(*) FILTER (WHERE l.bucket = 'allocated' AND l.status = 'provisional')::INT AS provisional,
-          COUNT(*) FILTER (WHERE l.bucket = 'suggested')::INT AS suggested,
-          COUNT(*) FILTER (WHERE l.bucket = 'unallocated')::INT AS unallocated,
-          COUNT(*) FILTER (WHERE l.bucket = 'excluded')::INT AS excluded,
-          COUNT(*) FILTER (WHERE l.feed_state = 'posted' AND l.is_new)::INT AS awaiting_review,
-          COUNT(*) FILTER (WHERE l.feed_state = 'pending')::INT AS pending_at_bank,
-          ROUND(COALESCE(SUM(l.amount) FILTER (WHERE l.bucket IN ('suggested', 'unallocated') AND l.amount > 0), 0)
-                * 100)::BIGINT AS to_code_in_cents,
-          ROUND(COALESCE(SUM(l.amount) FILTER (WHERE l.bucket IN ('suggested', 'unallocated') AND l.amount < 0), 0)
-                * 100)::BIGINT AS to_code_out_cents,
-          MAX(l.transaction_date) FILTER (WHERE l.feed_state = 'posted') AS last_date
-        FROM (
-          SELECT bt.feed_state, bt.status, bt.amount, bt.transaction_date,
-                 (${bucket}) AS bucket, ${newTab} AS is_new
-          FROM bank_transactions bt
-          WHERE bt.company_id = a.company_id AND bt.bank_account_id = a.id
-        ) l
-      ) n
+      LEFT JOIN counts n ON n.account_id = a.id
       LEFT JOIN ledgers led ON led.account_id = a.id AND led.as_at = p.as_at
       LEFT JOIN ledgers ls ON ls.account_id = a.id AND ls.as_at = s.lb_statement_date
-      WHERE a.is_active OR COALESCE(led.gl_balance, 0) <> 0 OR n.awaiting_review > 0
+      WHERE a.is_active OR COALESCE(led.gl_balance, 0) <> 0 OR COALESCE(n.awaiting_review, 0) > 0
     )
     SELECT p.as_at, s.*
     FROM p
