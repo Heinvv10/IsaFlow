@@ -142,6 +142,9 @@ describeIfDb('list_proofs_of_payment: each POP and what became of it', () => {
   });
 
   it('counts the summary over the whole filter, not the page', async () => {
+    // No LEFT JOIN can repeat a POP: 991 and 992 allow one row per POP (UNIQUE proof_of_payment_id on
+    // proof_of_payment_matches, pop_archive_copies and pop_archive_attempts), and captured_documents / bank_transactions
+    // are joined on their primary keys. So the counts are POPs, not join rows.
     const page = await asTenant(A, { limit: 1 });
     expect(page.rows).toHaveLength(1);
     expect(page.total).toBe(6);
@@ -175,21 +178,36 @@ describeIfDb('list_proofs_of_payment: each POP and what became of it', () => {
     const byMatcher = await pop('Matcher Attached', l6);
     await decide(byMatcher, 'attached', [l6]);
     const onRemoved = await pop('Hand Removed Line', removed);
+    // D's document linked to company B's line (fails linkedCapturedDocSql's cd.company_id = bt.company_id).
     const forged = await pop('Hand Other Company', bLine);
+    // D's POP naming company B's document, which B linked to B's own line (fails the cd.company_id = p.company_id join).
+    const { rows: [bDoc] } = await q(`INSERT INTO captured_documents (company_id, file_name, file_type, status, document_type,
+        storage_bucket, storage_path, matched_bank_tx_id)
+      VALUES ($1, 'B POP.pdf', 'application/pdf', 'processed', 'proof_of_payment', 'test', 'pop/b-foreign', $2) RETURNING id`, [B, bLine]);
+    const { rows: [fd] } = await q(`INSERT INTO proof_of_payments (company_id, captured_document_id, source, transaction_number,
+        payment_date, amount, beneficiary, payer_profile)
+      VALUES ($1, $2, 'absa_notice', $3, $4, '3000.00', 'Foreign Document', 'EXAMPLE TRADING PTY LTD') RETURNING id`,
+    [D, bDoc.id, `80${crypto.randomUUID().slice(0, 8).toUpperCase()}-01`, day]);
+    const foreignDoc = String(fd.id);
 
-    const page = await asTenant(D);
-    const byId = new Map(page.rows.map((r) => [r.popId, r.match]));
-    for (const [id, l] of [[noRow, l1], [notFound, l2], [ambiguous, l3], [refused, l5]] as const) {
-      expect(byId.get(id)).toMatchObject({ status: 'attached_manually', bankTransactionId: l, candidateBankTransactionIds: [] });
+    // Both as app_user (as MCP runs it) and as the pool's owner (RLS bypassed). The owner run is the one that pins the
+    // service's own company clauses: bank_transactions' and captured_documents' RLS admits every company the member
+    // belongs to (the fixture member is in all of them), not only the current one, so RLS alone does not hide B's rows.
+    for (const page of [await asTenant(D), await listProofsOfPayment(D, { limit: 50, offset: 0 })]) {
+      const byId = new Map(page.rows.map((r) => [r.popId, r.match]));
+      for (const [id, l] of [[noRow, l1], [notFound, l2], [ambiguous, l3], [refused, l5]] as const) {
+        expect(byId.get(id)).toMatchObject({ status: 'attached_manually', bankTransactionId: l, candidateBankTransactionIds: [] });
+      }
+      expect(byId.get(byMatcher)).toMatchObject({ status: 'attached', bankTransactionId: l6 });
+      // A link to a removed line or to another company's line, or another company's document, is on no line of D's.
+      for (const id of [onRemoved, forged, foreignDoc]) expect(byId.get(id)).toMatchObject({ status: 'pending', bankTransactionId: null });
+      expect(page.summary.byMatch).toEqual({ attached: 1, attached_manually: 4, ambiguous: 0, not_found: 0, refused: 0, pending: 3 });
     }
-    expect(byId.get(byMatcher)).toMatchObject({ status: 'attached', bankTransactionId: l6 });
-    // A link to a removed line, or to another company's line, puts the POP on no line of this company.
-    expect(byId.get(onRemoved)).toMatchObject({ status: 'pending', bankTransactionId: null });
-    expect(byId.get(forged)).toMatchObject({ status: 'pending', bankTransactionId: null });
-    expect(page.summary.byMatch).toEqual({ attached: 1, attached_manually: 4, ambiguous: 0, not_found: 0, refused: 0, pending: 2 });
 
     expect(popIds(await asTenant(D, { matchStatus: 'attached_manually' }))).toEqual([noRow, notFound, ambiguous, refused].sort());
-    expect(popIds(await asTenant(D, { matchStatus: 'unmatched' }))).toEqual([onRemoved, forged].sort());
+    expect(popIds(await asTenant(D, { matchStatus: 'unmatched' }))).toEqual([onRemoved, forged, foreignDoc].sort());
+    expect(popIds(await listProofsOfPayment(D, { matchStatus: 'unmatched', limit: 50, offset: 0 })))
+      .toEqual([onRemoved, forged, foreignDoc].sort());
     expect(popIds(await asTenant(D, { matchStatus: 'ambiguous' }))).toEqual([]);
   });
 
