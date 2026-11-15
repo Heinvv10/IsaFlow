@@ -603,3 +603,48 @@ html[data-density='compact'] table:not([data-density-exempt], [role='grid']) > t
     font-size: 16px;
   }
 }
+
+/* Phone and tablet list cards (M03/M04): put `table-cards` on a <table> and `data-label="Column"` on each <td>. Below 1024px
+   every row becomes a card with the label beside each value; the header row stays for screen readers. From 1024px
+   the table is unchanged. A cell without a data-label (the name/identity cell) spans the card. */
+@media (max-width: 1023px) {
+  table.table-cards,
+  table.table-cards tbody,
+  table.table-cards tr,
+  table.table-cards td {
+    display: block;
+    width: 100%;
+  }
+  table.table-cards thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+  table.table-cards tr {
+    padding: 0.5rem 0;
+  }
+  table.table-cards td {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.25rem 1rem;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+  table.table-cards td[data-label]::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    text-align: left;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ff-text-secondary);
+  }
+  table.table-cards td:not([data-label]) {
+    text-align: left;
+    display: block;
+  }
+}
