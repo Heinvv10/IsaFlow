@@ -9,16 +9,15 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
-import { adminOptionalUuid, adminPaging, isPgError } from '@/modules/admin/middleware/adminRequestErrors';
+import { adminOptionalUuid, adminPaging, isPgError, AdminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
 import { listSubscriptions, createSubscription } from '@/modules/admin/services/billingService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
-import { UUID } from '@/lib/schemas/common';
 
 const PostBody = z.object({
-  company_id:       UUID,
-  plan_id:          UUID,
+  company_id:       AdminUuid,
+  plan_id:          AdminUuid,
   billing_cycle:    z.enum(['monthly', 'annual']),
   discount_percent: z.number().min(0).max(50).optional(),
   notes:            z.string().max(2000).optional(),

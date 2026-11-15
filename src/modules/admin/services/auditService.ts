@@ -7,6 +7,8 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
+import { UUID_RE } from '@/lib/validation';
+import { findStoredUser } from './storedUserId';
 import type { AuditLogEntry, PaginatedResult } from '../types/admin.types';
 
 /**
@@ -65,6 +67,17 @@ export interface AuditLogFilters {
  */
 export const BEST_EFFORT_ACTIONS = new Set<string>([]);
 
+/**
+ * The spelling every audit row names its target by, so a view that matches target_id exactly finds it whatever case
+ * the request used (breaker #1405 round 6): a user is their stored users.id (findStoredUser; the given value when no
+ * row exists, e.g. after a delete); any other UUID-shaped id is lower case; anything else is kept as given.
+ */
+async function canonicalTargetId(targetType: string, targetId: string | null): Promise<string | null> {
+  if (targetId === null) return null;
+  if (targetType === 'user') return (await findStoredUser(targetId))?.id ?? targetId;
+  return UUID_RE.test(targetId) ? targetId.toLowerCase() : targetId;
+}
+
 export async function logAdminAction(
   adminUserId: string,
   action: string,
@@ -81,6 +94,7 @@ export async function logAdminAction(
     // describes disappears behind a 2xx. The catch below then decides whether
     // the request itself may survive an unlogged mutation.
     await withSavepoint('admin_audit_log_write', async () => {
+      const canonicalTarget = await canonicalTargetId(targetType, targetId);
       await sql`
         INSERT INTO admin_audit_log (
           admin_user_id,
@@ -94,7 +108,7 @@ export async function logAdminAction(
           ${adminUserId},
           ${action},
           ${targetType},
-          ${targetId},
+          ${canonicalTarget},
           ${details ? JSON.stringify(details) : null},
           ${ipAddress},
           NOW()

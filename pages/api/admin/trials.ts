@@ -8,6 +8,7 @@
 
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
+import { AdminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
@@ -22,17 +23,16 @@ import {
   bulkExtendTrials,
 } from '@/modules/admin/services/trialService';
 import { TrialExtendError } from '@/modules/admin/services/trialErrors';
-import { UUID } from '@/lib/schemas/common';
 
 const PostBody = z.union([
   z.object({
-    company_id:  UUID,
+    company_id:  AdminUuid,
     company_ids: z.undefined().optional(),
     days:        z.number().int().min(1).max(90),
   }).strict(),
   z.object({
     company_id:  z.undefined().optional(),
-    company_ids: z.array(UUID).min(1).max(100),
+    company_ids: z.array(AdminUuid).min(1).max(100),
     days:        z.number().int().min(1).max(90),
   }).strict(),
 ]);

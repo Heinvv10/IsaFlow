@@ -8,6 +8,7 @@
 
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
+import { AdminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
@@ -17,11 +18,10 @@ import { markAsConverted } from '@/modules/admin/services/trialService';
 import { TrialConvertError } from '@/modules/admin/services/trialErrors';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
-import { UUID } from '@/lib/schemas/common';
 
 const PostBody = z.object({
-  companyId: UUID,
-  planId:    UUID,
+  companyId: AdminUuid,
+  planId:    AdminUuid,
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {

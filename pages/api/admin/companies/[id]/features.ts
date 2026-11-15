@@ -10,9 +10,8 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
-import { adminUuid, isPgError } from '@/modules/admin/middleware/adminRequestErrors';
+import { adminUuid, isPgError, AdminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
-import { UUID } from '@/lib/schemas/common';
 import {
   getCompanyEffectiveFeatures,
   setCompanyFeatureOverride,
@@ -22,13 +21,13 @@ import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
 const PostBody = z.object({
-  feature_id: UUID,
+  feature_id: AdminUuid,
   enabled:    z.boolean(),
   reason:     z.string().min(1).max(500),
 }).strict();
 
 const DeleteBody = z.object({
-  feature_id: UUID,
+  feature_id: AdminUuid,
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {

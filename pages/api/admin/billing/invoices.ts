@@ -9,14 +9,13 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
-import { adminOptionalDate, adminOptionalUuid, adminPaging } from '@/modules/admin/middleware/adminRequestErrors';
+import { adminOptionalDate, adminOptionalUuid, adminPaging, AdminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { listInvoices, createInvoice } from '@/modules/admin/services/invoiceService';
 import { invoiceAmountsFromSubtotal, MAX_INVOICE_SUBTOTAL_CENTS } from '@/modules/admin/services/invoiceAmounts';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
-import { UUID } from '@/lib/schemas/common';
 
 /** A real calendar day: 2026-02-31 matches the pattern but is not one. */
 const isRealIsoDate = (v: string): boolean => {
@@ -28,8 +27,8 @@ const isRealIsoDate = (v: string): boolean => {
 // client-sent tax_cents / total_cents. A blank due date or notes may come as null or be left out; blank notes
 // are stored as NULL.
 const PostBody = z.object({
-  company_id:      UUID,
-  subscription_id: UUID.optional(),
+  company_id:      AdminUuid,
+  subscription_id: AdminUuid.optional(),
   subtotal_cents:  z.number().int().nonnegative()
     .max(MAX_INVOICE_SUBTOTAL_CENTS, `subtotal_cents may be at most ${MAX_INVOICE_SUBTOTAL_CENTS} (the total must fit the invoice columns)`),
   due_date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'due_date must be YYYY-MM-DD')

@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
-import { adminUuid } from '@/modules/admin/middleware/adminRequestErrors';
+import { adminUuid, AdminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   cancelSubscription,
@@ -18,10 +18,9 @@ import {
 } from '@/modules/admin/services/billingService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
-import { UUID } from '@/lib/schemas/common';
 
 const PatchBody = z.object({
-  plan_id:          UUID.optional(),
+  plan_id:          AdminUuid.optional(),
   billing_cycle:    z.enum(['monthly', 'annual']).optional(),
   discount_percent: z.number().min(0).max(50).optional(),
   status:           z.enum(['active', 'trial', 'past_due', 'cancelled']).optional(),

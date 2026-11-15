@@ -7,19 +7,18 @@
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
-import { adminNonNegativeInt, adminOptionalUuid, adminPositiveInt } from '@/modules/admin/middleware/adminRequestErrors';
+import { adminNonNegativeInt, adminOptionalUuid, adminPositiveInt, AdminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { listJobs, retryJob } from '@/modules/accounting/services/core/jobQueueService';
-import { UUID } from '@/lib/schemas/common';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
 const PostBody = z.object({
   action: z.literal('retry'),
-  jobId:  UUID,
+  jobId:  AdminUuid,
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {

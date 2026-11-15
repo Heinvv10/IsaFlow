@@ -15,10 +15,9 @@ import { apiResponse } from '@/lib/apiResponse';
 import { getClientIp } from '@/lib/rateLimit';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { redeliverWebhook } from '@/modules/admin/services/adminWebhookService';
-import { UUID } from '@/lib/schemas/common';
 
 const PostBody = z.object({
-  deliveryId: UUID.optional(),
+  deliveryId: AdminUuid.optional(),
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {

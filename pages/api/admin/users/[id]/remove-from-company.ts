@@ -13,17 +13,16 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
-import { adminUserId } from '@/modules/admin/middleware/adminRequestErrors';
+import { adminUserId, AdminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   removeUserFromCompany, CompanyMembershipError, MEMBERSHIP_ERROR_CODE,
 } from '@/modules/admin/services/companyMembershipService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
-import { UUID } from '@/lib/schemas/common';
 
 const DeleteBody = z.object({
-  company_id: UUID,
+  company_id: AdminUuid,
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
