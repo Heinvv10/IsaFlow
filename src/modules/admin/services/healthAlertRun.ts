@@ -1,0 +1,43 @@
+/**
+ * One scheduled health-alert pass (admin audit OP-1): take the same snapshot
+ * GET /api/admin/health takes, then hand it to the same checkAndAlert, so the
+ * alerts no longer depend on an admin having /admin/health open.
+ *
+ * Roles match the route. The snapshot reads every tenant's rows, so it runs in
+ * a read-only transaction on the platform_admin pool (BYPASSRLS) under an ALS
+ * context pointing at that client, as withPlatformAdmin runs the handler.
+ * checkAndAlert runs after that transaction, outside any ALS context, on the
+ * app pool: exactly where the route's runAfterCommit starts it. Debounce and
+ * cooldown live in checkAndAlert (admin_settings), shared with the route, so a
+ * scheduled pass and an open page never both alert on the same state.
+ *
+ * Unlike the route, a failure is thrown, not swallowed: the caller (the timer's
+ * script) exits non-zero so systemd records the failed run.
+ */
+
+import { getPlatformAdminPool } from '@/lib/auth/withPlatformAdmin.pools';
+import { runOwnedContext } from '@/lib/afterCommit';
+import { rollbackFailed } from '@/lib/rollbackFailed';
+import { checkAndAlert } from './healthAlertService';
+import { buildSystemHealth, type SystemHealthResponse } from './systemHealthService';
+
+/** Stands in for the admin user id the route's context carries; nothing here writes an audit row. */
+const SCHEDULED_ACTOR = 'system:health-alert-timer';
+
+export async function runScheduledHealthAlert(): Promise<SystemHealthResponse['overall_status']> {
+  const client = await getPlatformAdminPool().connect();
+  let unusable = false;
+  let health: SystemHealthResponse;
+  try {
+    await client.query('BEGIN READ ONLY');
+    health = await runOwnedContext({ client, userId: SCHEDULED_ACTOR, claims: {} }, buildSystemHealth);
+    await client.query('COMMIT');
+  } catch (err) {
+    unusable = await rollbackFailed(client, 'scheduled health alert');
+    throw err;
+  } finally {
+    client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
+  }
+  await checkAndAlert(health);
+  return health.overall_status;
+}

@@ -11,7 +11,7 @@ import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { BRAND, emailLayout } from '@/lib/email-templates';
 import { safeFetch } from '@/lib/safeFetch';
  
-import type { SystemHealthResponse } from '../../../../pages/api/admin/health';
+import type { SystemHealthResponse } from './systemHealthService';
 
 type Row = DbRow;
 
