@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
   ArrowLeft, FileText, Loader2, AlertCircle,
-  CheckCircle2, RotateCcw, Pencil, Trash2,
+  CheckCircle2, RotateCcw, Pencil, XCircle,
 } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
@@ -92,22 +92,23 @@ export default function SupplierCreditNoteDetailPage() {
     }
   };
 
-  const doDelete = async () => {
-    if (!note || !confirm('Delete this draft credit note? This cannot be undone.')) return;
-    setActionLoading('delete');
+  // A draft is CANCELLED, not deleted: it posts nothing, stays on the books as cancelled and keeps its number.
+  // `cancel_draft` is draft-only: a note approved since this page loaded is refused, not reversed (`cancel` would reverse it).
+  const doCancelDraft = async () => {
+    if (!note || !confirm('Cancel this draft credit note? It stays on the books as cancelled and cannot be reopened.')) return;
+    setActionLoading('cancel');
     setError('');
     try {
-      // Draft deletion via cancel action
       const res = await apiFetch('/api/accounting/credit-notes-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'cancel', creditNoteId: note.id }),
+        body: JSON.stringify({ action: 'cancel_draft', creditNoteId: note.id }),
       });
-      await assertOk(res, 'Could not delete the credit note - try again');
+      await assertOk(res, 'Could not cancel the draft credit note - try again');
       try { await router.push('/accounting/supplier-credit-notes'); } catch (e) { log.warn('navigation failed', { error: e }, 'supplier-credit-notes-id'); }
       setActionLoading('');
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not delete the credit note - try again'));
+      setError(apiErrorMessage(err, 'Could not cancel the draft credit note - try again'));
       setActionLoading('');
     }
   };
@@ -195,12 +196,12 @@ export default function SupplierCreditNoteDetailPage() {
                     <Pencil className="h-4 w-4" /> Edit
                   </Link>
                   <button
-                    onClick={() => { void doDelete(); }}
+                    onClick={() => { void doCancelDraft(); }}
                     disabled={!!actionLoading}
                     className="inline-flex items-center gap-1.5 px-3 py-2 border border-red-500/40 text-red-400 rounded-lg text-sm hover:bg-red-500/10 disabled:opacity-50"
                   >
-                    <Trash2 className="h-4 w-4" />
-                    {actionLoading === 'delete' ? 'Deleting...' : 'Delete'}
+                    <XCircle className="h-4 w-4" />
+                    {actionLoading === 'cancel' ? 'Cancelling...' : 'Cancel draft'}
                   </button>
                 </>
               )}

@@ -116,6 +116,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Inactive or not-this-company line account (gl/documentLineAccountGuard): names only the caller's own account.
   'DOCUMENT_LINE_ACCOUNT_REFUSED',
   'DOCUMENT_NUMBER_LOCK_TIMEOUT',
+  // approvalDocumentErrors: a request for a credit note that is no longer a draft. Names the caller's own note id, type
+  // and status; raised before any row is written.
+  'DOCUMENT_NOT_DRAFT',
   // Budget driver refusals (budgets/drivers/driverTypes + driverErrors, P4): a loop, a row / month /
   // base the driver may not name, an amount or result beyond the budget range, a driver or planned
   // hire this version does not hold. They name only the caller's own accounts, months and figures;

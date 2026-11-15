@@ -15,6 +15,7 @@
  */
 import { withSavepoint } from '@/lib/neon';
 import { assertTxUsable } from '@/lib/als';
+import { runAsDryRun } from '@/lib/observability/requestContext';
 import { requireRequestTransaction } from './requestTransaction';
 
 class RolledBack extends Error {
@@ -28,7 +29,8 @@ export async function inRolledBackSavepoint(name: string, fn: () => Promise<unkn
   requireRequestTransaction(name);
   try {
     await withSavepoint(name, async () => {
-      await fn();
+      // Its log lines say dry run: what they describe is rolled back below.
+      await runAsDryRun(fn);
       throw new RolledBack();
     });
   } catch (err) {

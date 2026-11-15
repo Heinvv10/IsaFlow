@@ -6,7 +6,7 @@
  * Zero Tolerance Enforcement: No console.* statements allowed
  */
 
-import { getRequestId } from '@/lib/observability/requestContext';
+import { getRequestId, isDryRun } from '@/lib/observability/requestContext';
 
 // Global type declarations for log storage
 declare global {
@@ -136,12 +136,14 @@ class Logger {
     } else {
       // Node.js environment — always write to stdout/stderr for systemd/journald visibility
       const requestId = getRequestId();
+      const dryRun = isDryRun();
       const payload = {
         level,
-        message,
+        message: dryRun ? `[dry run, rolled back] ${message}` : message,
         timestamp,
         component,
         ...(requestId !== undefined ? { requestId } : {}),
+        ...(dryRun ? { dryRun: true } : {}),
         ...(data !== undefined ? { data } : {}),
       };
       // N3: JSON.stringify drops Error message/stack (non-enumerable) — every
