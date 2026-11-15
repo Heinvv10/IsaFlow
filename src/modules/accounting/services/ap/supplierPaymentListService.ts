@@ -12,18 +12,14 @@
  * skip some and repeat others.
  *
  * `payment_allocations` carries no company_id; it is reached only through a
- * payment already fenced to the company.
+ * payment already fenced to the company (the FROM and predicate live in
+ * ./supplierPaymentListScope, shared with the MCP summary).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { supplierPaymentFrom, supplierPaymentWhere, type SupplierPaymentScope } from './supplierPaymentListScope';
 
-export interface SupplierPaymentListFilters {
-  supplierId?: string | null;
-  status?: string | null;
-  fromDate?: string | null;
-  toDate?: string | null;
-  /** Matches payment number, reference or description (case-insensitive substring). */
-  search?: string | null;
+export interface SupplierPaymentListFilters extends SupplierPaymentScope {
   limit: number;
   offset: number;
 }
@@ -57,11 +53,8 @@ export async function listSupplierPayments(
   companyId: string,
   f: SupplierPaymentListFilters,
 ): Promise<{ rows: SupplierPaymentListRow[]; total: number; totals: SupplierPaymentTotals }> {
-  const supplierId = f.supplierId || null;
-  const status = f.status || null;
-  const fromDate = f.fromDate || null;
-  const toDate = f.toDate || null;
-  const search = f.search && f.search.trim() ? `%${f.search.trim()}%` : null;
+  const from = supplierPaymentFrom();
+  const where = supplierPaymentWhere(companyId, f);
 
   const [rows, agg] = await Promise.all([
     sql`
@@ -69,36 +62,15 @@ export async function listSupplierPayments(
              sp.supplier_id, s.name AS supplier_name, sp.total_amount,
              COALESCE(a.allocated, 0) AS allocated, sp.status, sp.payment_method,
              sp.reference, sp.description, sp.gl_journal_entry_id, sp.batch_id
-      FROM supplier_payments sp
-      LEFT JOIN suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
-      LEFT JOIN LATERAL (
-        SELECT SUM(pa.amount_allocated) AS allocated
-        FROM payment_allocations pa WHERE pa.payment_id = sp.id
-      ) a ON TRUE
-      WHERE sp.company_id = ${companyId}::UUID
-        AND (${supplierId}::UUID IS NULL OR sp.supplier_id = ${supplierId}::UUID)
-        AND (${status}::TEXT IS NULL OR sp.status = ${status}::TEXT)
-        AND (${fromDate}::DATE IS NULL OR sp.payment_date >= ${fromDate}::DATE)
-        AND (${toDate}::DATE IS NULL OR sp.payment_date <= ${toDate}::DATE)
-        AND (${search}::TEXT IS NULL OR sp.payment_number ILIKE ${search}::TEXT
-             OR sp.reference ILIKE ${search}::TEXT OR sp.description ILIKE ${search}::TEXT)
+      ${from}
+      WHERE ${where}
       ORDER BY sp.payment_date DESC, sp.id DESC
       LIMIT ${f.limit} OFFSET ${f.offset}`,
     sql`
       SELECT COUNT(*) AS n, COALESCE(SUM(sp.total_amount), 0) AS paid,
              COALESCE(SUM(COALESCE(a.allocated, 0)), 0) AS allocated
-      FROM supplier_payments sp
-      LEFT JOIN LATERAL (
-        SELECT SUM(pa.amount_allocated) AS allocated
-        FROM payment_allocations pa WHERE pa.payment_id = sp.id
-      ) a ON TRUE
-      WHERE sp.company_id = ${companyId}::UUID
-        AND (${supplierId}::UUID IS NULL OR sp.supplier_id = ${supplierId}::UUID)
-        AND (${status}::TEXT IS NULL OR sp.status = ${status}::TEXT)
-        AND (${fromDate}::DATE IS NULL OR sp.payment_date >= ${fromDate}::DATE)
-        AND (${toDate}::DATE IS NULL OR sp.payment_date <= ${toDate}::DATE)
-        AND (${search}::TEXT IS NULL OR sp.payment_number ILIKE ${search}::TEXT
-             OR sp.reference ILIKE ${search}::TEXT OR sp.description ILIKE ${search}::TEXT)`,
+      ${from}
+      WHERE ${where}`,
   ]);
 
   const a = (agg as DbRow[])[0]!;

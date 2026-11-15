@@ -119,12 +119,16 @@ interface GlAccountRow {
   parent_account_id: string | null;
 }
 
+/** An account row is about 270 bytes of JSON: 250 of them stay well under a client's ~90 KB result limit. */
+export const GL_ACCOUNTS_DEFAULT_LIMIT = 200;
+export const GL_ACCOUNTS_MAX_LIMIT = 250;
+
 export const listGlAccountsTool: McpTool = {
   name: 'list_gl_accounts',
   description:
     "The company's chart of accounts — resolve account codes to UUIDs in one call before allocate/journal tools, instead of one search_gl per code. " +
     'Optionally filter by account_type or by a case-insensitive substring of the code or name. ' +
-    'Returns at most 500 rows per call (default 200), ordered by account_code. ' +
+    `Returns at most ${GL_ACCOUNTS_MAX_LIMIT} rows per call (default ${GL_ACCOUNTS_DEFAULT_LIMIT}), ordered by account_code. ` +
     'Paging: the reply carries next_cursor whenever more rows match; call again with cursor set and every other argument unchanged until next_cursor is null. total is the full match count.',
   scope: searchGlTool.scope,
   write: false,
@@ -144,7 +148,7 @@ export const listGlAccountsTool: McpTool = {
         type: 'boolean',
         description: 'Exclude deactivated accounts. Defaults to true.',
       },
-      limit: { type: 'integer', minimum: 1, maximum: 500, description: 'Default 200, max 500' },
+      limit: { type: 'integer', minimum: 1, maximum: GL_ACCOUNTS_MAX_LIMIT, description: `Default ${GL_ACCOUNTS_DEFAULT_LIMIT}, max ${GL_ACCOUNTS_MAX_LIMIT}` },
       cursor: { type: 'string', description: 'next_cursor from the previous page.' },
     },
     additionalProperties: false,
@@ -181,7 +185,7 @@ export const listGlAccountsTool: McpTool = {
       if (!cursor) return toolError('invalid cursor');
       start = startIndexAfter(matched, cursor);
     }
-    const limit = clampLimit(args, 200, 500);
+    const limit = clampLimit(args, GL_ACCOUNTS_DEFAULT_LIMIT, GL_ACCOUNTS_MAX_LIMIT);
     const page = matched.slice(start, start + limit);
     const last = page[page.length - 1];
     const nextCursor = last && start + limit < matched.length ? encodeGlAccountCursor(last) : null;
