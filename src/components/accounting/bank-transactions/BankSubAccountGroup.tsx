@@ -24,6 +24,8 @@ interface CardProps {
 export function BankGroupCard({ group, containsSelection, expanded, onToggle, resume, onResume }: CardProps) {
   const active = containsSelection || expanded;
   const hasGap = Math.abs(group.unreconciledBalance) >= 0.01;
+  // The lines behind Δ (no journal, not excluded): suggested + unallocated, as on BankPrimaryCard.
+  const gapLines = group.suggestedCount + group.unallocatedCount;
   return (
     <div data-testid="bank-group-card"
       className={`h-full w-[280px] shrink-0 rounded-lg border-2 transition-all ${
@@ -51,7 +53,7 @@ export function BankGroupCard({ group, containsSelection, expanded, onToggle, re
         <div className="mt-0.5 flex items-baseline justify-between gap-2 text-xs text-amber-800 dark:text-amber-400 tabular-nums">
           <span>{group.unallocatedCount > 0 ? `${group.unallocatedCount} open` : ''}</span>
           {hasGap && (
-            <span title={`${group.unreconciledCount} unallocated transaction${group.unreconciledCount !== 1 ? 's' : ''} across this group`}>
+            <span title={`${gapLines} unallocated transaction${gapLines !== 1 ? 's' : ''} across this group`}>
               Δ&nbsp;{fmtCurrency(Math.abs(group.unreconciledBalance))}
             </span>
           )}

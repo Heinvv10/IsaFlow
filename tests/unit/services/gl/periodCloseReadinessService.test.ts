@@ -21,7 +21,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, type MockedFunction } from 'vitest';
-import { mockUnsafe } from '../../helpers/sqlFragmentMock';
+import { MockSqlFragment, mockUnsafe } from '../../helpers/sqlFragmentMock';
+import { UNRECONCILED_LINE_SQL } from '@/modules/accounting/services/bank/unreconciledLineSql';
 import { fakeRegistry, resetFakeRegistry } from '../../../helpers/fiscalYearSqlFake';
 
 vi.mock('@/lib/neon', () => ({
@@ -442,7 +443,7 @@ describe('getCloseReadiness — orchestrator', () => {
     const result = await getCloseReadiness(COMPANY_A, PERIOD_ID);
     const byKey = Object.fromEntries(result!.items.map(i => [i.key, i]));
 
-    expect(byKey['bank_reconciled']!.fixHref).toBe('/accounting/bank-transactions');
+    expect(byKey['bank_reconciled']!.fixHref).toBe('/accounting/bank-reconciliation');
     expect(byKey['unposted_journals']!.fixHref).toContain('/accounting/journal-entries');
     expect(byKey['ar_ties']!.fixHref).toContain('/accounting/customer-invoices');
     expect(byKey['ap_ties']!.fixHref).toContain('/accounting/supplier-invoices');
@@ -483,16 +484,15 @@ describe('bankReconciledCheck', () => {
     expect(item.reason).toContain('5');
   });
 
-  it('SQL filters status IN imported/matched — does NOT use NOT IN', async () => {
+  it('SQL counts the shared unreconciled-line predicate, not a hand-written status list (Hein 2026-11-15)', async () => {
     mockSql.mockResolvedValueOnce([{ unreconciled_count: '0' }]);
     await bankReconciledCheck(COMPANY_A, PERIOD);
 
     const call = mockSql.mock.calls[0]!;
-    const template = call[0] as TemplateStringsArray;
-    const fullQuery = template.join('?');
-    // Must use positive IN filter, not NOT IN
-    expect(fullQuery).toContain("status IN ('imported', 'matched')");
-    expect(fullQuery).not.toContain('NOT IN');
+    const fullQuery = (call[0] as TemplateStringsArray).join('?');
+    // imported/matched only let a period of allocated-but-unreconciled lines pass; the rule is bank/unreconciledLineSql.
+    expect(call.slice(1).some((v) => v instanceof MockSqlFragment && v.text === UNRECONCILED_LINE_SQL)).toBe(true);
+    expect(fullQuery).not.toMatch(/status IN/);
   });
 
   it('SQL references bank_transactions table', async () => {

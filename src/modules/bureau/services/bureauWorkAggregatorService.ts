@@ -13,6 +13,7 @@ import { vatDueSignal } from './bureauVatSignal';
 import { complianceSignal } from './complianceSignal';
 import { bankQuerySignal } from './bankQuerySignal';
 import { directiveEndsOnSql } from '@/modules/accounting/services/payroll/taxDirectiveOverlap';
+import { UNRECONCILED_LINE_SQL } from '@/modules/accounting/services/bank/unreconciledLineSql';
 import {
   formatPeriod,
   endOfNextMonth,
@@ -145,12 +146,11 @@ export function shapeUnreconciled(rows: UnreconciledRow[], meta: Map<string, Com
 
 async function unreconciledSignal(companyIds: string[], meta: Map<string, CompanyMeta>): Promise<WorkItem[]> {
   const rows = (await sql`
-    SELECT company_id, COUNT(*)::int AS cnt, SUM(ABS(amount)) AS amount_total
-      FROM bank_transactions
-     WHERE company_id = ANY(${companyIds})
-       AND status NOT IN ('reconciled','matched','excluded')
-       AND feed_state = 'posted'
-     GROUP BY company_id
+    SELECT bt.company_id, COUNT(*)::int AS cnt, SUM(ABS(bt.amount)) AS amount_total
+      FROM bank_transactions bt
+     WHERE bt.company_id = ANY(${companyIds})
+       AND ${sql.unsafe(UNRECONCILED_LINE_SQL)}
+     GROUP BY bt.company_id
   `) as unknown as UnreconciledRow[];
   return shapeUnreconciled(rows, meta);
 }
