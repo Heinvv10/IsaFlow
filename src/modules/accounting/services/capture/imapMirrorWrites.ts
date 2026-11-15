@@ -27,9 +27,9 @@ export interface ScanLogEntry {
 const DUE = dueConnectionsSql('imap_mirror_connections');
 
 const SET_CURSOR = `UPDATE imap_mirror_connections
-  SET scan_cursor = $1::jsonb, last_scan_at = NOW(), last_success_at = NOW(), last_error = NULL
+  SET scan_cursor = $1::jsonb, last_scan_at = NOW(), last_success_at = NOW(), last_error = NULL, consecutive_scan_failures = 0
   WHERE id = $2::uuid AND company_id = $3::uuid`;
-const SET_SUCCESS = `UPDATE imap_mirror_connections SET last_scan_at = NOW(), last_success_at = NOW(), last_error = NULL
+const SET_SUCCESS = `UPDATE imap_mirror_connections SET last_scan_at = NOW(), last_success_at = NOW(), last_error = NULL, consecutive_scan_failures = 0
   WHERE id = $1::uuid AND company_id = $2::uuid`;
 const SET_STOPPED = `UPDATE imap_mirror_connections SET last_scan_at = NOW(), last_error = $1
   WHERE id = $2::uuid AND company_id = $3::uuid`;

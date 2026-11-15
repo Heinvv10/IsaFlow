@@ -10,11 +10,16 @@
  *     'error' (the connection is not scanned again until it is reconnected);
  *   - stampScanStopped: last_scan_at and last_error only, status untouched (a
  *     scan stopped by its deadline or its byte meter: retried next interval).
- * recordScanFailure picks between them for a scan that threw: a transient failure
- * (isTransientScanFailure: DNS gave no answer, or the network refused, timed out or
- * dropped the connection) is stamped and retried next interval, since one DNS blip
- * once disabled a new mailbox for good (2026-11-15); anything else, a rejected login,
- * a refused target and every unclassified error included, still marks it 'error'.
+ * recordScanFailure picks for a scan that threw. A transient failure (isTransientScanFailure:
+ * a host name whose DNS gave no answer or an answer the guard refuses, or the network refused,
+ * timed out or dropped the connection) is stamped and counted (COUNT_FAILURE,
+ * consecutive_scan_failures, migration 995): retried next interval, since one DNS blip once
+ * disabled a new mailbox for good (2026-11-15), until about a day of scans has failed in a row,
+ * when 'active' becomes 'error'. Any successful scan and a reactivation reset the count. An
+ * unresolvable name and one that resolves to private space take this same path with the same
+ * text, so neither status nor last_error tells a tenant which internal names resolve. Anything
+ * else, a rejected login, a static refusal (port, host characters, an IP literal) and every
+ * unclassified error, still marks it 'error' at once.
  * Inside a request (scan-now) the write is queued with the scan's other stamps and
  * runs after the request COMMITs (mirrorScanWrite.ts afterRequestCommit), in order:
  * a cursor stamp made earlier in the scan must not land after, and clear, this error.
@@ -28,6 +33,7 @@ import { log } from '@/lib/logger';
 import { routeAdminQuery } from '@/lib/auth/routeAdminPool';
 import { ImapTargetError } from '@/lib/imapTargetGuard';
 import { LOCK_NOT_AVAILABLE, afterRequestCommit } from './mirrorScanWrite';
+import { MIN_SCAN_INTERVAL_MINUTES } from './mirrorLimits';
 
 export type MirrorKind = 'imap' | 'sent';
 export interface MirrorRef { id: string; companyId: string }
@@ -40,6 +46,20 @@ const MARK_ERROR = {
   sent: `UPDATE sent_mirror_connections
             SET last_scan_at = NOW(), last_error = $1,
                 status = CASE WHEN status = 'active' THEN 'error' ELSE status END
+          WHERE id = $2::uuid AND company_id = $3::uuid`,
+} as const;
+
+/** Retry for about a day of scans at the row's own interval, and at least this often whatever the interval. */
+export const FAILURE_WINDOW_MINUTES = 1440;
+export const MIN_FAILURES_BEFORE_ERROR = 3;
+const FAILURE_CAP = `GREATEST(${MIN_FAILURES_BEFORE_ERROR}, CEIL(${FAILURE_WINDOW_MINUTES}.0 / GREATEST(scan_interval_minutes, ${MIN_SCAN_INTERVAL_MINUTES})))`;
+const COUNT_SET = `last_scan_at = NOW(), last_error = $1, consecutive_scan_failures = consecutive_scan_failures + 1,
+                status = CASE WHEN status = 'active' AND consecutive_scan_failures + 1 >= ${FAILURE_CAP} THEN 'error' ELSE status END`;
+
+const COUNT_FAILURE = {
+  imap: `UPDATE imap_mirror_connections SET ${COUNT_SET}
+          WHERE id = $2::uuid AND company_id = $3::uuid`,
+  sent: `UPDATE sent_mirror_connections SET ${COUNT_SET}
           WHERE id = $2::uuid AND company_id = $3::uuid`,
 } as const;
 
@@ -72,10 +92,10 @@ const TRANSIENT_CODES: ReadonlySet<string> = new Set([
 
 /** True only for a failure worth retrying as is; unknown errors are permanent (fail closed). */
 export function isTransientScanFailure(err: unknown): boolean {
-  if (err instanceof ImapTargetError) return err.transient;
   if (typeof err !== 'object' || err === null) return false;
   const e = err as { code?: unknown; authenticationFailed?: unknown };
-  if (e.authenticationFailed === true) return false;
+  if (e.authenticationFailed === true) return false; // first: a rejected login is never retried, whatever else it carries
+  if (err instanceof ImapTargetError) return err.transient;
   return typeof e.code === 'string' && TRANSIENT_CODES.has(e.code);
 }
 
@@ -111,10 +131,11 @@ export async function stampScanStopped(kind: MirrorKind, conn: MirrorRef, reason
   await write(kind, conn, STAMP_STOPPED[kind], reason, 'scan stop stamp');
 }
 
-/** A scan that threw: stamped and retried when transient, else marked 'error' with its message. Never throws. */
+/** A scan that threw: counted and retried when transient (COUNT_FAILURE), else marked 'error' with its message. Never throws. */
 export async function recordScanFailure(kind: MirrorKind, conn: MirrorRef, err: unknown): Promise<void> {
   if (isTransientScanFailure(err)) {
-    await stampScanStopped(kind, conn, err instanceof ImapTargetError ? err.message : MAIL_SERVER_UNREACHABLE);
+    const text = err instanceof ImapTargetError ? err.message : MAIL_SERVER_UNREACHABLE;
+    await write(kind, conn, COUNT_FAILURE[kind], text, 'scan failure count');
   } else {
     await markMirrorScanError(kind, conn, err instanceof Error ? err.message : String(err));
   }

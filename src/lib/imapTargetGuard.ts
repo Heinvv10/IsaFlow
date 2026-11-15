@@ -21,12 +21,14 @@
  * answer at all, that it could not be resolved: a typo or an outage, not a
  * policy); which address it resolved to is logged, never returned (it would
  * map the internal DNS). The result says, for the scan only, when the failure
- * was that DNS gave no answer (`transient`): the scan then retries the
- * connection next interval instead of disabling it; the tenant still sees the
- * one message.
+ * depended on what DNS answered for a host name (`transient`: no answer, or an
+ * answer in private space): the scan then retries the connection, a bounded
+ * number of times, the same way for both, so that neither the message nor the
+ * connection's status tells a tenant which internal names resolve. Static
+ * refusals (port, host characters, an IP literal) are not transient.
  */
 import net from 'node:net';
-import { DnsResolutionError, resolvePublicHostname } from '@/lib/safeFetch';
+import { resolvePublicHostname } from '@/lib/safeFetch';
 import { log } from '@/lib/logger';
 
 export const ALLOWED_IMAP_PORTS: readonly number[] = [143, 993];
@@ -41,7 +43,7 @@ const HOST_CHARS = /^[A-Za-z0-9._:-]+$/;
 export type ImapTarget =
   /** `address` to connect to; `servername` the host name for TLS (absent when the host is an IP literal). */
   | { ok: true; address: string; servername?: string }
-  /** `message` is fit to show the user; `transient` (never shown) when DNS gave no answer, not when it refused the answer. */
+  /** `message` is fit to show the user; `transient` (never shown) when the refusal depended on DNS's answer for a name. */
   | { ok: false; message: string; transient?: true };
 
 /** What a scan throws when its target check failed; `transient` as in ImapTarget. */
@@ -67,6 +69,7 @@ export async function checkImapTarget(host: unknown, port: unknown): Promise<Ima
     const address = await resolvePublicHostname(host);
     return net.isIP(host) ? { ok: true, address } : { ok: true, address, servername: host };
   } catch (err) {
-    return refuse(IMAP_HOST_REFUSED, err instanceof Error ? err.message : 'invalid host', host, port, err instanceof DnsResolutionError);
+    // A name: what DNS answered (nothing, or private space) may change, and the two must look alike. An IP literal is static.
+    return refuse(IMAP_HOST_REFUSED, err instanceof Error ? err.message : 'invalid host', host, port, net.isIP(host) === 0);
   }
 }

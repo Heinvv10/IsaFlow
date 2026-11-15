@@ -77,6 +77,7 @@ describe('sent-mirror scan stamps are keyed on id AND company_id', () => {
     expect([r.captured, r.errors]).toEqual([2, 0]);
     expect(stamps()).toHaveLength(2);
     expect(stamps()[0]!.text).toContain('SET scan_cursor = $1::jsonb');
+    expect(stamps()[0]!.text).toContain('consecutive_scan_failures = 0'); // a scan that got through resets the failure count (995)
     expect(stamps()[1]!.text).toContain('messages_captured_total = messages_captured_total + $1');
     expect(stamps().every(keyed)).toBe(true);
     expect(onAppPool()).toEqual([]);
@@ -95,7 +96,7 @@ describe('sent-mirror scan stamps are keyed on id AND company_id', () => {
     h.uidNext = 11;
     await scanSentConnection(conn);
     expect(stamps()).toHaveLength(1);
-    expect(stamps()[0]!.text).toContain('last_scan_at = NOW(), last_success_at = NOW()');
+    expect(stamps()[0]!.text).toContain('last_scan_at = NOW(), last_success_at = NOW(), consecutive_scan_failures = 0');
     expect(stamps().every(keyed)).toBe(true);
     expect(onAppPool()).toEqual([]);
   });

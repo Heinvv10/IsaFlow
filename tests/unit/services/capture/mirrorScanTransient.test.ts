@@ -4,8 +4,9 @@
  * 'error', and nothing sets it back, so it was never scanned again). isTransientScanFailure
  * says which failures pass: the resolver gave no answer, or the network failed to connect or
  * dropped the socket. Everything else (a rejected login, a host refused by policy, anything
- * unclassified) stays permanent, as before. recordScanFailure stamps a transient failure
- * without touching status (retried next interval) and marks a permanent one 'error'.
+ * unclassified) stays permanent, as before. recordScanFailure counts a transient failure
+ * (consecutive_scan_failures, migration 995; status flips only at the row's cap) and marks a
+ * permanent one 'error' at once.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -25,6 +26,9 @@ import { MAIL_SERVER_UNREACHABLE, isTransientScanFailure, recordScanFailure } fr
 const conn = { id: '22222222-2222-4222-8222-222222222222', companyId: '11111111-1111-4111-8111-111111111111' };
 const coded = (code: string, message = `failed: ${code}`) => Object.assign(new Error(message), { code });
 const FLIPS = "status = CASE WHEN status = 'active' THEN 'error' ELSE status END";
+const COUNTS = new RegExp("SET last_scan_at = NOW\\(\\), last_error = \\$1, consecutive_scan_failures = consecutive_scan_failures \\+ 1, "
+  + "status = CASE WHEN status = 'active' AND consecutive_scan_failures \\+ 1 >= GREATEST\\(3, CEIL\\(1440\\.0 / GREATEST\\(scan_interval_minutes, 5\\)\\)\\) "
+  + "THEN 'error' ELSE status END WHERE id = \\$2::uuid AND company_id = \\$3::uuid$");
 
 beforeEach(() => { h.route.length = 0; });
 
@@ -46,6 +50,7 @@ describe('isTransientScanFailure', () => {
     ['a port that is not allowed', new ImapTargetError(IMAP_PORT_REFUSED, false)],
     ['a rejected login', Object.assign(new Error('Command failed'), { authenticationFailed: true })],
     ['a rejected login whose socket also closed', Object.assign(coded('NoConnection'), { authenticationFailed: true })],
+    ['a rejected login that is also a transient target error (the login check comes first)', Object.assign(new ImapTargetError(IMAP_HOST_REFUSED, true), { authenticationFailed: true })],
     ['an error with no code', new Error('connect ECONNREFUSED 1.2.3.4:993')],
     ['an unclassified code', coded('ERR_SSL_WRONG_VERSION_NUMBER')],
     ['a code that is not a string', Object.assign(new Error('x'), { code: 61 })],
@@ -58,17 +63,17 @@ describe('isTransientScanFailure', () => {
 });
 
 describe.each([['imap', 'imap_mirror_connections'], ['sent', 'sent_mirror_connections']] as const)('%s mirror: recordScanFailure', (kind, table) => {
-  it('a DNS failure is stamped with the target message, status untouched', async () => {
+  it('a DNS-dependent target failure is counted with the target message; status flips only at the cap (a day of scans, at least 3)', async () => {
     await recordScanFailure(kind, conn, new ImapTargetError(IMAP_HOST_REFUSED, true));
     expect(h.route).toHaveLength(1);
-    expect(h.route[0]!.text).toMatch(new RegExp(`^UPDATE ${table} SET last_scan_at = NOW\\(\\), last_error = \\$1 WHERE`));
-    expect(h.route[0]!.text).not.toContain('status');
+    expect(h.route[0]!.text).toMatch(new RegExp(`^UPDATE ${table} `));
+    expect(h.route[0]!.text).toMatch(COUNTS);
     expect(h.route[0]!.values).toEqual([IMAP_HOST_REFUSED, conn.id, conn.companyId]);
   });
 
-  it('a network failure is stamped with a generic message (never the address it tried), status untouched', async () => {
+  it('a network failure is counted with a generic message (never the address it tried)', async () => {
     await recordScanFailure(kind, conn, coded('ECONNREFUSED', 'connect ECONNREFUSED 93.184.216.34:993'));
-    expect(h.route[0]!.text).not.toContain('status');
+    expect(h.route[0]!.text).toMatch(COUNTS);
     expect(h.route[0]!.values).toEqual([MAIL_SERVER_UNREACHABLE, conn.id, conn.companyId]);
     expect(MAIL_SERVER_UNREACHABLE).toBe('Mail server could not be reached; will retry');
   });
@@ -83,6 +88,7 @@ describe.each([['imap', 'imap_mirror_connections'], ['sent', 'sent_mirror_connec
     expect(h.route).toHaveLength(1);
     expect(h.route[0]!.text).toContain(`UPDATE ${table}`);
     expect(h.route[0]!.text).toContain(FLIPS);
+    expect(h.route[0]!.text).not.toContain('consecutive_scan_failures');
     expect(h.route[0]!.values).toEqual([message, conn.id, conn.companyId]);
   });
 });

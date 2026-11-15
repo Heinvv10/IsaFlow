@@ -27,9 +27,9 @@ export interface ScanLogEntry {
 const DUE = dueConnectionsSql('sent_mirror_connections');
 
 const SET_CURSOR = `UPDATE sent_mirror_connections
-  SET scan_cursor = $1::jsonb, last_scan_at = NOW(), last_success_at = NOW()
+  SET scan_cursor = $1::jsonb, last_scan_at = NOW(), last_success_at = NOW(), consecutive_scan_failures = 0
   WHERE id = $2::uuid AND company_id = $3::uuid`;
-const SET_SUCCESS = `UPDATE sent_mirror_connections SET last_scan_at = NOW(), last_success_at = NOW()
+const SET_SUCCESS = `UPDATE sent_mirror_connections SET last_scan_at = NOW(), last_success_at = NOW(), consecutive_scan_failures = 0
   WHERE id = $1::uuid AND company_id = $2::uuid`;
 const ADD_COUNTERS = `UPDATE sent_mirror_connections
   SET messages_captured_total = messages_captured_total + $1, messages_linked_total = messages_linked_total + $2

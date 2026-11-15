@@ -56,13 +56,13 @@ describe('checkImapTarget: host', () => {
     ['a name pointing at a LAN host', ['192.168.0.9']],
     ['a name pointing at a ULA v6', ['fd00::1']],
     ['a name that also resolves to a private address (rebinding)', [PUBLIC, '10.1.1.1']],
-  ])('refuses %s, which resolves to a non-public address', async (_what, addresses) => {
+  ])('refuses %s, which resolves to a non-public address (flagged for a bounded retry, as an unresolvable name is)', async (_what, addresses) => {
     resolvesTo(...addresses);
-    expect(await checkImapTarget('imap.evil.test', 993)).toEqual(HOST_REFUSED);
+    expect(await checkImapTarget('imap.evil.test', 993)).toEqual({ ...HOST_REFUSED, transient: true });
     expect(vi.mocked(log.warn).mock.calls[0]![1]).toMatchObject({ detail: expect.stringMatching(/^imap\.evil\.test resolves to blocked address /) });
   });
 
-  it('a name that does not resolve gets the same message, flagged transient (the scan retries it) for the caller only', async () => {
+  it('a name that does not resolve gets the same message and the same flag as one resolving to private space', async () => {
     m.lookup.mockRejectedValue(new Error('ENOTFOUND'));
     expect(await checkImapTarget('nope.invalid', 993)).toEqual({ ok: false, message: 'This mail server address is not allowed or could not be resolved', transient: true });
     expect(vi.mocked(log.warn).mock.calls[0]![1]).toMatchObject({ detail: 'DNS resolution failed for nope.invalid' });
@@ -73,12 +73,18 @@ describe('checkImapTarget: host', () => {
     expect(await checkImapTarget('empty.test', 993)).toEqual({ ok: false, message: IMAP_HOST_REFUSED, transient: true });
   });
 
+  it('an unresolvable name and a name resolving to private space give identical results', async () => {
+    m.lookup.mockRejectedValueOnce(new Error('ENOTFOUND'));
+    const unresolved = await checkImapTarget('a.test', 993);
+    resolvesTo('10.1.1.1');
+    expect(await checkImapTarget('b.test', 993)).toEqual(unresolved);
+  });
+
   it.each([
-    ['a name that resolves to private space', 'imap.evil.test', 993, () => resolvesTo('10.1.1.1')],
     ['a private IP literal', '10.0.0.5', 993, () => undefined],
     ['a port that is not IMAP', 'imap.gmail.com', 25, () => undefined],
     ['a host that is not a host name', 'a b', 993, () => undefined],
-  ])('%s is a refusal, never transient', async (_what, host, port, arrange) => {
+  ])('%s is a static refusal, never transient', async (_what, host, port, arrange) => {
     arrange();
     const r = await checkImapTarget(host, port);
     expect(r.ok).toBe(false);
@@ -92,7 +98,7 @@ describe('checkImapTarget: host', () => {
   it('never puts a resolved address, a host or a port in the message the tenant sees', async () => {
     resolvesTo('10.1.2.3');
     const r = await checkImapTarget('internal.corp.test', 993);
-    expect(r).toEqual(HOST_REFUSED);
+    expect(r).toEqual({ ...HOST_REFUSED, transient: true });
     expect(JSON.stringify(r)).not.toMatch(/10\.1\.2\.3|internal|corp|993/);
     expect(IMAP_HOST_REFUSED).toBe('This mail server address is not allowed or could not be resolved');
   });
