@@ -73,14 +73,14 @@ export default function PortalDashboardPage({
   return (
     <>
       <Head>
-        <title>My Documents — ISaFlow Portal</title>
+        <title>My Documents — IsaFlow Portal</title>
         <meta name="robots" content="noindex" />
       </Head>
 
       <div style={styles.page}>
         {/* Header */}
         <header style={styles.header}>
-          <span style={styles.logoText}>ISaFlow Portal</span>
+          <span style={styles.logoText}>IsaFlow Portal</span>
           <div style={styles.headerRight}>
             <span style={styles.roleLabel}>{session.role.replace(/_/g, ' ')}</span>
             <form action="/api/accounting/portal/auth/logout" method="post">

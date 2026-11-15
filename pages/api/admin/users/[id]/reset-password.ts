@@ -26,6 +26,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (target.refusal !== null) {
       log.warn('Admin password reset refused', { userId: requestedId, reason: target.refusal }, 'admin-api');
       if (target.refusal === 'not_found') return apiResponse.notFound(res, 'User');
+      if (target.refusal === 'id_not_uuid') return apiResponse.conflict(res, "This account's id format can't receive a reset link");
       return apiResponse.forbidden(res, "A super admin's password cannot be reset from the admin console");
     }
     // From here on the user's real id, so the audit row and the reset name the stored id, not the URL's spelling.
