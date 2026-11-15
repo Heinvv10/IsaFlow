@@ -259,9 +259,13 @@ export async function deleteUser(userId: string): Promise<StrandedPayRunRequest[
  * SoleOwnerError, having written nothing, when the user is a company's only owner.
  */
 export async function resetOnboarding(userId: string): Promise<void> {
+  // A missing user is a 404 before anything is written (review #1405 round 5, L3): the company_users DELETE below would
+  // remove orphan memberships left under that id, and the 404 commits what it wrote. A plain read (no lock), as
+  // deleteUser and forceLogout do; the UPDATE below still decides when the user goes concurrently.
+  if ((await sql`SELECT 1 FROM users WHERE id = ${userId}`).length === 0) throw new AdminRequestError(404, 'User not found');
   await removeFromEveryCompany(userId, true); // company_users first (LOCK ORDER above)
-  // The UPDATE decides existence: a missing user is a 404 before the route's audit row (breaker #1405 round 3, D2).
-  // Its company_users DELETE above matched nothing (or only memberships of a user that no longer exists).
+  // The UPDATE decides existence when the user was deleted since the read above: a 404 before the route's audit row
+  // (breaker #1405 round 3, D2). The concurrent delete removed the memberships itself, so nothing is lost.
   const updated = await sql`
     UPDATE users
     SET onboarding_completed = false,
