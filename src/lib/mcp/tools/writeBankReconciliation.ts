@@ -223,7 +223,9 @@ export const performBankReconciliationTool: McpTool = {
       })
       : null;
 
-    if (raced !== null) { difference = raced; balanced = false; } // report the figure completion actually found
+    // Completion found a figure other than the one checked above: report what it found, with the header it refreshed.
+    const refreshed = raced !== null ? await getReconciliationById(ctx.companyId, started.id) : null;
+    if (raced !== null) { difference = refreshed?.difference ?? raced; balanced = false; }
 
     return ok({
       dry_run: false,
@@ -232,7 +234,7 @@ export const performBankReconciliationTool: McpTool = {
       statement_date: statementDate,
       statement_balance: statementBalance,
       gl_balance: started.glBalance,
-      reconciled_balance: completed?.reconciledBalance ?? current?.reconciledBalance ?? started.reconciledBalance,
+      reconciled_balance: completed?.reconciledBalance ?? refreshed?.reconciledBalance ?? current?.reconciledBalance ?? started.reconciledBalance,
       difference,
       balanced,
       status: completed?.status ?? current?.status ?? started.status,

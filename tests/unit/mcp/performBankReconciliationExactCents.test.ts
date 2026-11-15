@@ -73,10 +73,13 @@ describe('perform_bank_reconciliation — exactly R0.00', () => {
   });
 
   it('the ledger moved after the check: completion refuses, the tool answers completed:false with the new difference', async () => {
-    vi.mocked(getReconciliationById).mockResolvedValue({ ...session, difference: 0, matchedCount: 5, unmatchedCount: 0 });
+    vi.mocked(getReconciliationById)
+      .mockResolvedValueOnce({ ...session, difference: 0, matchedCount: 5, unmatchedCount: 0 })
+      // the header completion's catch refreshed: statement 3626.98, ledger now 50 higher
+      .mockResolvedValueOnce({ ...session, glBalance: 3676.98, reconciledBalance: 3676.98, difference: -50, matchedCount: 5, unmatchedCount: 0 });
     vi.mocked(completeReconciliation).mockRejectedValue(new ReconciliationNotBalancedError(-50));
     const b = body(await performBankReconciliationTool.handler({ ...base, complete: true }, ctx));
-    expect(b).toMatchObject({ completed: false, balanced: false, difference: -50, status: 'in_progress' });
+    expect(b).toMatchObject({ completed: false, balanced: false, difference: -50, reconciled_balance: 3676.98, status: 'in_progress' });
     expect(String(b.note)).toContain('R-50.00');
   });
 });
