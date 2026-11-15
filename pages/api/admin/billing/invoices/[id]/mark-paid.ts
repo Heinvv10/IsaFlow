@@ -8,13 +8,13 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { AdminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { markInvoicePaid } from '@/modules/admin/services/invoiceService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
-import { UUID } from '@/lib/schemas/common';
 
 const PostBody = z.object({
   payment_method: z.string().min(1).max(100),
@@ -22,7 +22,7 @@ const PostBody = z.object({
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
-    const parsedId = UUID.safeParse(req.query.id);
+    const parsedId = AdminUuid.safeParse(req.query.id);
     if (!parsedId.success) return apiResponse.badRequest(res, 'Invoice id must be a valid id');
     const id = parsedId.data;
     const parsed = PostBody.safeParse(req.body);

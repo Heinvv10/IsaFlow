@@ -11,10 +11,10 @@
 
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
-import { UUID } from '@/lib/schemas/common';
 import type { PlatformAdminRequest } from '@/lib/auth/withPlatformAdmin';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { AdminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
 import { promoteWaitlistSignup } from '@/modules/onboarding/services/waitlistPromotionService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
@@ -30,7 +30,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
   }
 
   const { id } = req.query;
-  const parsedId = UUID.safeParse(id);
+  const parsedId = AdminUuid.safeParse(id);
   if (!parsedId.success) return apiResponse.badRequest(res, 'Invalid waitlist id');
 
   const parsedBody = Body.safeParse(req.body ?? {});

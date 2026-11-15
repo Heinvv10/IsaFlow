@@ -131,8 +131,13 @@ export function assertNoNulInAdminBody(body: unknown, root = ''): void {
 /** A required UUID (a path id): throws a 400 AdminRequestError when it is missing, repeated or malformed. */
 export function adminUuid(value: unknown, name = 'id'): string {
   if (typeof value !== 'string' || !UUID_RE.test(value)) throw new AdminRequestError(400, `Invalid ${name}`);
-  return value;
+  // Canonical (lower-case), so a route queries, mints and audits one spelling: an upper-cased id was audited under
+  // its own spelling and the company's audit view (exact target_id match) never showed it (breaker #1405 round 5).
+  return value.toLowerCase();
 }
+
+/** UUID (@/lib/schemas/common) that yields the canonical lower-case spelling, as adminUuid does. */
+export const AdminUuid = UUID.transform((id) => id.toLowerCase());
 
 /**
  * A user id from the path. users.id is TEXT (GoTrue's ids are UUIDs, but the column admits others), so no cast
@@ -193,13 +198,14 @@ export function adminPaging(query: Record<string, unknown>): { page?: number; li
 }
 
 /**
- * A bulk action's id list: 1..max UUIDs, none repeated (compared case-insensitively, as Postgres compares uuids). A
+ * A bulk action's id list: 1..max UUIDs in their canonical lower-case spelling, none repeated (so compared as Postgres
+ * compares uuids). A
  * repeated id would be acted on twice: a trial extended twice, two audit rows (breaker #1405 round 2). Refused, so
  * the caller sees the mistake instead of a silent dedupe.
  */
 export function adminDistinctUuids(max: number) {
-  return z.array(UUID).min(1).max(max).refine(
-    (ids) => new Set(ids.map((id) => id.toLowerCase())).size === ids.length,
+  return z.array(AdminUuid).min(1).max(max).refine(
+    (ids) => new Set(ids).size === ids.length,
     'The same id is given more than once',
   );
 }

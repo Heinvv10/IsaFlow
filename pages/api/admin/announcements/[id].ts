@@ -37,8 +37,9 @@ const PatchBody = z.object({
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const id = req.query.id;
-  if (!isUuidParam(id)) return apiResponse.notFound(res, 'Announcement');
+  const rawId = req.query.id;
+  if (!isUuidParam(rawId)) return apiResponse.notFound(res, 'Announcement');
+  const id = rawId.toLowerCase(); // the canonical spelling it is queried and audited by (breaker #1405 round 5)
 
   if (req.method === 'GET') {
     const item = await getAnnouncement(id);

@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { AdminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
 import { getClientIp } from '@/lib/rateLimit';
 import { logAdminAction } from '@/modules/admin/services/auditService';
@@ -25,7 +26,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const idParsed = UUID.safeParse(req.query.id);
+  const idParsed = AdminUuid.safeParse(req.query.id);
   if (!idParsed.success) return apiResponse.notFound(res, 'Webhook not found');
   const webhookId = idParsed.data;
 

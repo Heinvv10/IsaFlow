@@ -21,11 +21,11 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { AdminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
 import { ErrorCode } from '@/lib/apiResponse.types';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { log } from '@/lib/logger';
-import { UUID } from '@/lib/schemas/common';
 import {
   claimInvoiceForSend, emailInvoice, finaliseInvoiceSent, InvoiceEmailNotStartedError, recordSendUnknown, releaseInvoiceClaim,
 } from '@/modules/admin/services/invoiceSendService';
@@ -39,7 +39,7 @@ const UNKNOWN_OUTCOME = `A send of this invoice is in progress or its outcome is
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
 
-  const parsedId = UUID.safeParse(req.query.id);
+  const parsedId = AdminUuid.safeParse(req.query.id);
   if (!parsedId.success) return apiResponse.badRequest(res, 'Invoice id must be a valid id');
   const body = PostBody.safeParse(req.body);
   if (!body.success) return apiResponse.badRequest(res, 'confirmed_to: the address the confirm dialog showed is required');

@@ -13,8 +13,8 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { AdminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
-import { UUID } from '@/lib/schemas/common';
 import { settleInvoiceSend } from '@/modules/admin/services/invoiceSendService';
 import { getIp } from '@/utils/getIp';
 
@@ -22,7 +22,7 @@ const PostBody = z.object({ outcome: z.enum(['sent', 'released']) }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
-  const parsedId = UUID.safeParse(req.query.id);
+  const parsedId = AdminUuid.safeParse(req.query.id);
   if (!parsedId.success) return apiResponse.badRequest(res, 'Invoice id must be a valid id');
   const body = PostBody.safeParse(req.body);
   if (!body.success) return apiResponse.badRequest(res, "outcome: must be 'sent' or 'released'");

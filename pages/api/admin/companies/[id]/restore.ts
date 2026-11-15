@@ -7,15 +7,14 @@ import type { NextApiResponse } from 'next';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
 import { restoreCompany } from '@/modules/admin/services/companyLifecycleService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
-import { isUuidParam } from '@/lib/validation';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const companyId = req.query.id;
-  if (!isUuidParam(companyId)) return apiResponse.badRequest(res, 'Invalid company id');
+  const companyId = adminUuid(req.query.id, 'company id'); // 400 'Invalid company id'; the canonical spelling
 
   if (req.method === 'POST') {
     // A failure is thrown, not answered 4xx: withPlatformAdmin rolls a 5xx back.

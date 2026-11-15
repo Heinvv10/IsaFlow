@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   getCompanyDetail,
@@ -18,7 +19,6 @@ import {
 import { deleteCompany } from '@/modules/admin/services/companyLifecycleService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
-import { isUuidParam } from '@/lib/validation';
 import { Email } from '@/lib/schemas/common';
 
 // null clears an optional field (audit 4.17); an absent key leaves it as it is. The name is required.
@@ -37,8 +37,7 @@ const PatchBody = z.object({
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const companyId = req.query.id;
-  if (!isUuidParam(companyId)) return apiResponse.badRequest(res, 'Invalid company id');
+  const companyId = adminUuid(req.query.id, 'company id'); // 400 'Invalid company id'; the canonical spelling
 
   if (req.method === 'GET') {
     const company = await getCompanyDetail(companyId);
