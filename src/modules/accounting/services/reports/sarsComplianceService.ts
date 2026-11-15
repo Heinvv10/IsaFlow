@@ -8,7 +8,7 @@ import { als } from '@/lib/als';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { getComplianceCalendar } from './sarsTaxPeriodsService';
-import { getCompanyVatCycle } from './companyVatCycle';
+import { readCompanyVatRow, vatCycleOfRow, type VatCycle } from './companyVatCycle';
 
 
 export type { TaxPeriod, ComplianceEvent } from './sarsTaxPeriodsService';
@@ -199,20 +199,38 @@ export async function markSubmitted(companyId: string,
 // ---------------------------------------------------------------------------
 
 /**
+ * Events due from 1 Jan `y` to 31 Mar `y + 1`: the year plus the SARS page's
+ * 90-day look-ahead past it, so a return due across the year boundary (Cat A
+ * Dec–Jan, Cat B / monthly December) is never missed. Built from the
+ * calendars of y-1, y and y+1, de-duplicated by event type + due date.
+ */
+function calendarWindow(y: number, cycle: VatCycle | null): ComplianceEvent[] {
+  const from = `${y}-01-01`;
+  const to = `${y + 1}-03-31`;
+  const byKey = new Map<string, ComplianceEvent>();
+  for (const cy of [y - 1, y, y + 1]) {
+    const events = cycle ? getComplianceCalendar(cy, cycle.alignment, cycle.cadence) : getComplianceCalendar(cy, 'odd', 'none');
+    for (const e of events) {
+      if (e.dueDate >= from && e.dueDate <= to) byKey.set(`${e.eventType}_${e.dueDate}`, e);
+    }
+  }
+  return [...byKey.values()].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+}
+
+/**
  * Load compliance events from the database (if any exist), merged with
  * the static calendar. DB events can override status (e.g. marked completed).
  * VAT201 events follow the company's own VAT cycle (category, cadence; none
- * for a non-vendor). A failure reading that cycle propagates: a calendar for
- * the wrong category is worse than an error.
+ * for a non-vendor). A failure reading that cycle, or a missing company row,
+ * propagates: a calendar for the wrong category is worse than an error.
  */
 export async function getComplianceCalendarWithDB(companyId: string, year?: number): Promise<ComplianceEvent[]> {
-  const cycle = await getCompanyVatCycle(companyId);
-  const staticEvents = cycle
-    ? getComplianceCalendar(year, cycle.alignment, cycle.cadence)
-    : getComplianceCalendar(year, 'odd', 'none');
+  const row = await readCompanyVatRow(companyId);
+  if (!row) throw new Error(`Compliance calendar: company ${companyId} not found`);
+  const y = year || new Date().getFullYear();
+  const staticEvents = calendarWindow(y, vatCycleOfRow(row));
 
   try {
-    const y = year || new Date().getFullYear();
     const dbEvents = (await sql`
       SELECT
         ce.id, ce.event_type, ce.due_date, ce.description,
@@ -226,7 +244,7 @@ export async function getComplianceCalendarWithDB(companyId: string, year?: numb
 
     const dbMap = new Map<string, DbRow>();
     for (const dbe of dbEvents) {
-      const key = `${dbe.event_type}_${String(dbe.due_date).slice(0, 10)}`;
+      const key = `${dbe.event_type}_${fmtDate(dbe.due_date)}`;
       dbMap.set(key, dbe);
     }
 
