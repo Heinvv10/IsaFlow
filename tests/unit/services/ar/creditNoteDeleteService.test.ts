@@ -107,12 +107,16 @@ describe('deleteDraftCreditNote', () => {
     const e = await refusalOf(deleteDraftCreditNote(COMPANY, ID, USER));
     expect(e.code).toBe('HAS_JOURNAL');
     expect(e.message).toContain('je-1');
+    // The delete's text is byte-identical to what it was before the cancel shared the helper.
+    expect(e.message).toBe('Credit note CN-2026-00001 is a draft but carries a ledger journal (je-1). That is inconsistent data and it was not deleted: report it so it can be repaired.');
     expect(wrote()).toBe(false);
   });
 
   it('a "draft" with allocation rows or applied_amount is corrupt state: refused', async () => {
     db({ alloc: 1 });
-    expect((await refusalOf(deleteDraftCreditNote(COMPANY, ID, USER))).code).toBe('HAS_APPLICATIONS');
+    const alloc = await refusalOf(deleteDraftCreditNote(COMPANY, ID, USER));
+    expect(alloc.code).toBe('HAS_APPLICATIONS');
+    expect(alloc.message).toBe('Credit note CN-2026-00001 is a draft but already has credit applied or allocated. That is inconsistent data and it was not deleted: report it so it can be repaired.');
     db();
     vi.mocked(lockCreditNoteForUpdate).mockResolvedValue(note({ applied_amount: '10.00' }) as never);
     expect((await refusalOf(deleteDraftCreditNote(COMPANY, ID, USER))).code).toBe('HAS_APPLICATIONS');

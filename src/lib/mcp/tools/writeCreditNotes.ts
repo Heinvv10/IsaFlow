@@ -240,15 +240,16 @@ export const cancelCreditNoteTool: McpTool = {
  */
 async function cancelDraft(ctx: McpToolContext, id: string, reason: string | undefined, dryRun: boolean): Promise<McpToolResult> {
   try {
+    const opts = mcpPostingOpts(ctx, 'cancel_credit_note');
     let updated: CreditNote;
     if (dryRun) {
       const held: { cn?: CreditNote } = {};
       await inRolledBackSavepoint('mcp_cn_cancel_draft_dry_run', async () => {
-        held.cn = await cancelDraftCreditNote(ctx.companyId, id, ctx.userId, reason);
+        held.cn = await cancelDraftCreditNote(ctx.companyId, id, ctx.userId, reason, opts);
       });
       updated = held.cn!;
     } else {
-      updated = await cancelDraftCreditNote(ctx.companyId, id, ctx.userId, reason);
+      updated = await cancelDraftCreditNote(ctx.companyId, id, ctx.userId, reason, opts);
     }
     const out = {
       id: updated.id,

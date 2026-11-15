@@ -14,6 +14,9 @@ import { deleteDraftCreditNoteTool } from '@/lib/mcp/tools/writeDeleteDraftCredi
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteApproveService';
 import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { cancelCreditNote } from '@/modules/accounting/services/ar/creditNoteCancelService';
+import { cancelDraftCreditNote } from '@/modules/accounting/services/ar/creditNoteDraftCancelService';
+import { McpRegistry } from '@/lib/mcp/registry';
+import { CreditNoteDeleteRefusal } from '@/modules/accounting/services/ar/creditNoteDeleteService';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { dropFixture, inTx, runOn, seedBill, seedFixture, seedInvoice, type Fixture } from './helpers/l1FifoFixture';
@@ -25,7 +28,7 @@ const describeIfDb = DATABASE_URL ? describe : describe.skip;
 let fx: Fixture;
 let other: Fixture;
 const KEY = { idempotency_key: 'k-int' };
-const ctxFor = (f: Fixture) => ({ companyId: f.companyId, userId: f.userId, tokenJti: 'jti', companyRole: 'owner' }) as unknown as McpToolContext;
+const ctxFor = (f: Fixture) => ({ companyId: f.companyId, userId: f.userId, tokenJti: 'jti', companyRole: 'owner', scopes: ['write:invoices', 'write:post'], oauthAppId: null }) as unknown as McpToolContext;
 const cancel = (id: string, extra: Record<string, unknown> = {}, f: Fixture = fx) =>
   inTx(f, () => cancelCreditNoteTool.handler({ credit_note_id: id, ...KEY, ...extra }, ctxFor(f)));
 const text = (r: { content: { text: string }[] }) => r.content[0]!.text;
@@ -65,11 +68,20 @@ async function allocCount(id: string): Promise<number> {
   return Number(((await sql`SELECT COUNT(*) AS n FROM credit_note_allocations WHERE credit_note_id = ${id}::UUID`) as { n: string }[])[0]!.n);
 }
 
+async function auditRows(id: string) {
+  return (await sql`SELECT user_id, action, entity_type, changes FROM audit_log WHERE entity_id = ${id}::UUID`) as
+    { user_id: string; action: string; entity_type: string; changes: { fields: { field: string; old: string | null; new: string | null; label: string }[]; metadata: Record<string, string> } }[];
+}
+
 describeIfDb('cancel_credit_note on a draft — over a real database', () => {
   beforeAll(async () => {
     assertNotProductionDb('This test creates and cancels credit notes.');
     fx = await seedFixture('CDC', DATABASE_URL!);
     other = await seedFixture('CDX', DATABASE_URL!);
+    // audit_log.user_id references users: the fixture's actor needs a row, as every real caller has one.
+    for (const f of [fx, other]) {
+      await sql`INSERT INTO users (id, email, role, is_active) VALUES (${f.userId}, ${`${f.userId}@test.local`}, 'viewer', true)`;
+    }
     await sql`
       INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance, is_active, is_system_account)
       VALUES (${fx.companyId}::UUID, '4000', ${`Revenue ${fx.tag}`}, 'revenue', 'default_revenue', 'credit', true, true)`;
@@ -81,7 +93,9 @@ describeIfDb('cancel_credit_note on a draft — over a real database', () => {
       await sql`DELETE FROM customer_invoice_disputes WHERE company_id = ${f.companyId}::UUID`;
       await sql`DELETE FROM credit_note_allocations WHERE company_id = ${f.companyId}::UUID`;
       await sql`DELETE FROM credit_notes WHERE company_id = ${f.companyId}::UUID`;
+      await sql`DELETE FROM mcp_tool_calls WHERE company_id = ${f.companyId}::UUID`;
       await dropFixture(f);
+      await sql`DELETE FROM users WHERE id = ${f.userId}`;
     }
   }, 120000);
 
@@ -123,13 +137,41 @@ describeIfDb('cancel_credit_note on a draft — over a real database', () => {
     expect({ b: [b.status, Number(b.amount_paid)], i: [i.status, Number(i.amount_paid)] }).toEqual({ b: ['approved', 0], i: ['sent', 0] });
   });
 
-  it('the service path the Cancel draft button uses (cancelCreditNote) cancels the draft with no journal', async () => {
+  it('the route\'s draft-only service (cancel_draft) cancels the draft with no journal and the person\'s audit row', async () => {
     const id = await seedNote({ type: 'supplier' });
     const before = await journalCount();
-    const out = await inTx(fx, () => cancelCreditNote(fx.companyId, id, fx.userId, 'ui'));
+    const out = await inTx(fx, () => cancelDraftCreditNote(fx.companyId, id, fx.userId, 'ui'));
     expect(out.status).toBe('cancelled');
     expect(await row(id)).toMatchObject({ status: 'cancelled', cancelled_by: fx.userId, cancel_reason: 'ui' });
     expect(await journalCount()).toBe(before);
+    expect((await auditRows(id))[0]!.changes.metadata).toEqual({ source: 'cancel_draft_credit_note' });
+  });
+
+  it('the generic cancelCreditNote (credit-notes-action `cancel`, supplier PATCH `reverse`) still refuses a draft and writes nothing', async () => {
+    const id = await seedNote({ type: 'supplier' });
+    const before = await journalCount();
+    await expect(inTx(fx, () => cancelCreditNote(fx.companyId, id, fx.userId, 'x'))).rejects.toThrow('Cannot cancel credit note with status: draft');
+    expect(await row(id)).toMatchObject({ status: 'draft', cancelled_by: null, cancelled_at: null });
+    expect(await journalCount()).toBe(before);
+    expect(await auditRows(id)).toHaveLength(0);
+  });
+
+  it('an MCP cancel leaves an audit row naming the agent and token; a dry run or a refusal leaves none', async () => {
+    const id = await seedNote({ type: 'customer' });
+    await cancel(id, { dry_run: true });
+    const corrupt = await seedNote({ journal: true });
+    await cancel(corrupt);
+    expect(await auditRows(id)).toHaveLength(0);
+    expect(await auditRows(corrupt)).toHaveLength(0);
+    await cancel(id, { reason: 'dup' });
+    const rows = await auditRows(id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ user_id: fx.userId, action: 'update', entity_type: 'credit_note' });
+    expect(rows[0]!.changes.fields).toEqual([
+      { field: 'status', old: 'draft', new: 'cancelled', label: 'status' },
+      { field: 'cancel_reason', old: null, new: 'dup', label: 'cancel_reason' },
+    ]);
+    expect(rows[0]!.changes.metadata).toEqual({ source: 'mcp:cancel_credit_note:v1', actor_type: 'agent', actor_token_jti: 'jti' });
   });
 
   it('a second cancel is refused: a cancelled note stays cancelled', async () => {
@@ -145,6 +187,7 @@ describeIfDb('cancel_credit_note on a draft — over a real database', () => {
     const r = await cancel(id);
     expect(r.isError).toBe(true);
     expect(text(r)).toContain('is a draft but carries a ledger journal');
+    expect(text(r)).toContain('it was not cancelled:');
     expect(await row(id)).toMatchObject({ status: 'draft', cancelled_by: null, cancelled_at: null });
   });
 
@@ -294,6 +337,29 @@ describeIfDb('cancel_credit_note on a draft — over a real database', () => {
     expect((await row(id))!.status).toBe('draft');
   }, 30000);
 
+  it('through the REAL registry: a dry run frees the idempotency key, the live call with the same key then cancels', async () => {
+    const id = await seedNote({ type: 'customer' });
+    const registry = new McpRegistry();
+    registry.register(cancelCreditNoteTool);
+    const key = `reg-${id}`;
+    const call = (extra: Record<string, unknown>) =>
+      inTx(fx, () => registry.call('cancel_credit_note', { credit_note_id: id, idempotency_key: key, ...extra }, ctxFor(fx)));
+
+    const dry = await call({ dry_run: true });
+    expect(dry.isError).toBeFalsy();
+    expect(JSON.parse(text(dry))).toMatchObject({ dry_run: true, would_cancel: { status: 'cancelled' } });
+    expect((await row(id))!.status).toBe('draft');
+
+    const live = await call({});
+    expect(live.isError).toBeFalsy();
+    expect(JSON.parse(text(live))).toMatchObject({ id, status: 'cancelled', journal_reversed: false });
+    expect(JSON.parse(text(live))).not.toHaveProperty('dry_run'); // not the dry run's reply served back as a replay
+    expect(await row(id)).toMatchObject({ status: 'cancelled', cancelled_by: fx.userId });
+    const logged = (await sql`SELECT status, idempotency_key FROM mcp_tool_calls WHERE company_id = ${fx.companyId}::UUID AND tool = 'cancel_credit_note'
+      AND args_hash IS NOT NULL ORDER BY created_at`) as { status: string; idempotency_key: string | null }[];
+    expect(logged.filter((r) => r.idempotency_key === key)).toHaveLength(1); // only the live call holds the key
+  });
+
   it('runs as app_user under forced RLS: grants and policies allow the draft cancel', async () => {
     const id = await seedNote();
     await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${fx.companyId}::UUID, ${fx.userId}::UUID, 'owner') ON CONFLICT DO NOTHING`;
@@ -340,6 +406,23 @@ describeIfDb('cancel_credit_note on a draft — over a real database', () => {
       expect(reversal).toHaveLength(1);
       const i = ((await sql`SELECT amount_paid FROM customer_invoices WHERE id = ${inv}::UUID`) as { amount_paid: string }[])[0]!;
       expect(Number(i.amount_paid)).toBe(0);
+    });
+
+    it('a "Cancel draft" clicked AFTER the note was approved is refused: nothing is reversed, written or un-applied', async () => {
+      const inv = await seedInvoice(fx, { number: 'A3', date: '2026-03-01', total: 300 });
+      const id = await approvedNote(inv); // the page loaded this note as a draft; someone approved it before the click
+      const posted = (await row(id))!;
+      const journals = await journalCount();
+      const paid = Number(((await sql`SELECT amount_paid FROM customer_invoices WHERE id = ${inv}::UUID`) as { amount_paid: string }[])[0]!.amount_paid);
+      expect(paid).toBeGreaterThan(0);
+
+      const err = await inTx(fx, () => cancelDraftCreditNote(fx.companyId, id, fx.userId, 'stale page')).then(() => null, (e: unknown) => e);
+      expect(err).toBeInstanceOf(CreditNoteDeleteRefusal);
+      expect((err as CreditNoteDeleteRefusal).code).toBe('NOT_DRAFT');
+      expect(await row(id)).toMatchObject({ status: posted.status, cancelled_by: null, cancelled_at: null, gl_journal_entry_id: posted.gl_journal_entry_id });
+      expect(await journalCount()).toBe(journals);
+      expect(Number(((await sql`SELECT amount_paid FROM customer_invoices WHERE id = ${inv}::UUID`) as { amount_paid: string }[])[0]!.amount_paid)).toBe(paid);
+      expect(await auditRows(id)).toHaveLength(0);
     });
 
     it('its dry run rolls everything back: still approved, invoice credit intact, no journal added', async () => {

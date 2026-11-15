@@ -93,3 +93,41 @@ export async function lockCreditNoteForUpdate(
     await restoreLockTimeout(client, previousLockTimeout, failure);
   }
 }
+
+/**
+ * The note's status, read FOR SHARE under the same 5s budget, until the end of the request transaction. For the
+ * writers that attach something to a DRAFT without rewriting the row (raising an approval request): the share lock
+ * waits for a cancel or approve that holds the row (then reads its settled status) and makes a cancel that arrives
+ * later wait for this transaction, so the cancel's pending-request read sees what was raised. `null` when the note
+ * does not exist or is another company's. Write paths ONLY, like `lockCreditNoteForUpdate`.
+ */
+export async function shareLockCreditNoteStatus(
+  companyId: string,
+  creditNoteId: string,
+): Promise<string | null> {
+  const client = als.getStore()?.client;
+  if (!client) {
+    throw new Error(
+      'shareLockCreditNoteStatus requires a request transaction (withAuth / als.run). '
+      + 'Outside one, FOR SHARE is released immediately and locks nothing.',
+    );
+  }
+
+  assertTxUsable();
+  const previousLockTimeout = await currentLockTimeout(client);
+  await client.query("SET LOCAL lock_timeout = '5s'");
+  let failure: unknown = null;
+  try {
+    const rows = (await sql`
+      SELECT status FROM credit_notes
+      WHERE id = ${creditNoteId}::UUID AND company_id = ${companyId}::UUID
+      FOR SHARE`) as DbRow[];
+    return rows[0] ? String(rows[0].status) : null;
+  } catch (err) {
+    failure = err;
+    if (isLockTimeout(err)) throw new CreditNoteLockTimeoutError(creditNoteId);
+    throw err;
+  } finally {
+    await restoreLockTimeout(client, previousLockTimeout, failure);
+  }
+}

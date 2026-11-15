@@ -1,11 +1,12 @@
 /**
  * The supplier credit-note page's draft button used to post `cancel`, which refused every draft, and was labelled
  * Delete. A draft is now CANCELLED (no journal, number kept), so the button is "Cancel draft" and must post exactly
- * the cancel action for THIS note. Pins the wire: the endpoint, method, action and id, that the confirm gates it, and
- * that the page leaves for the list only after the server accepted.
+ * the DRAFT-ONLY action (`cancel_draft`, never `cancel`, which would reverse a posted note) for THIS note. Pins the
+ * wire (endpoint, method, action, id), that the confirm gates it, and that the page leaves for the list only after
+ * the server accepted.
  */
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, act, waitFor, fireEvent } from '@testing-library/react';
 
@@ -39,6 +40,8 @@ beforeEach(() => {
   fetchMock.mockImplementation(async (_u: unknown, init?: RequestInit) => (init?.method === 'POST' ? ok({ ...draft, status: 'cancelled' }) : ok(draft)));
 });
 
+afterEach(() => { vi.unstubAllGlobals(); });
+
 describe('supplier credit note page — Cancel draft', () => {
   it('offers Cancel draft (not Delete) on a draft', async () => {
     render(<SupplierCreditNoteDetailPage />);
@@ -46,13 +49,13 @@ describe('supplier credit note page — Cancel draft', () => {
     expect(screen.queryByRole('button', { name: /^Delete$/ })).toBeNull();
   });
 
-  it('clicking it posts the cancel action for this note, then leaves for the list', async () => {
+  it('clicking it posts cancel_draft (not cancel) for this note, then leaves for the list', async () => {
     render(<SupplierCreditNoteDetailPage />);
     const button = await screen.findByRole('button', { name: /^Cancel draft$/ });
     await act(async () => { fireEvent.click(button); });
     await waitFor(() => expect(writes()).toEqual([{
       url: '/api/accounting/credit-notes-action',
-      body: { action: 'cancel', creditNoteId: 'cn-1' },
+      body: { action: 'cancel_draft', creditNoteId: 'cn-1' },
     }]));
     expect(vi.mocked(globalThis.confirm)).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(route.push).toHaveBeenCalledWith('/accounting/supplier-credit-notes'));

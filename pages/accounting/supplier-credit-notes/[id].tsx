@@ -93,6 +93,7 @@ export default function SupplierCreditNoteDetailPage() {
   };
 
   // A draft is CANCELLED, not deleted: it posts nothing, stays on the books as cancelled and keeps its number.
+  // `cancel_draft` is draft-only: a note approved since this page loaded is refused, not reversed (`cancel` would reverse it).
   const doCancelDraft = async () => {
     if (!note || !confirm('Cancel this draft credit note? It stays on the books as cancelled and cannot be reopened.')) return;
     setActionLoading('cancel');
@@ -101,7 +102,7 @@ export default function SupplierCreditNoteDetailPage() {
       const res = await apiFetch('/api/accounting/credit-notes-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'cancel', creditNoteId: note.id }),
+        body: JSON.stringify({ action: 'cancel_draft', creditNoteId: note.id }),
       });
       await assertOk(res, 'Could not cancel the draft credit note - try again');
       try { await router.push('/accounting/supplier-credit-notes'); } catch (e) { log.warn('navigation failed', { error: e }, 'supplier-credit-notes-id'); }

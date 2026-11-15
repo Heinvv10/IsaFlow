@@ -19,7 +19,8 @@ import { checkApproval as checkApprovalRules, mapRequest } from './approvalMatch
 import { ApprovalNotRequiredError, ApprovalRuleNotFoundError } from './approvalAuthority';
 import { rebindPendingRequest } from './approvalRebind';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
-import { ApprovalDocumentNotFoundError, ApprovalRequestStaleError } from './approvalDocumentErrors';
+import { ApprovalDocumentNotDraftError, ApprovalDocumentNotFoundError, ApprovalRequestStaleError } from './approvalDocumentErrors';
+import { shareLockCreditNoteStatus } from '../ar/creditNoteLock';
 import { insertRequestRow, raiseRefusal } from './approvalRequestWrites';
 import { withSupplierInvoiceLock } from '../ap/supplierInvoiceLock';
 
@@ -34,7 +35,9 @@ async function shareLockSupplierInvoice(companyId: string, invoiceId: string): P
     SELECT 1 FROM supplier_invoices WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID FOR SHARE`);
 }
 
-export { ApprovalDocumentNotFoundError } from './approvalDocumentErrors';
+const CREDIT_NOTE_TYPES: ReadonlySet<string> = new Set(['credit_note', 'customer_credit_note', 'supplier_credit_note']);
+
+export { ApprovalDocumentNotDraftError, ApprovalDocumentNotFoundError } from './approvalDocumentErrors';
 
 export interface ApprovalDocument {
   /** The amount the rules are matched against, read from the stored row. */
@@ -244,6 +247,12 @@ async function raiseOnce(companyId: string, input: {
   // the bill first makes the raise wait for such a write and hash its result; nothing after this in the raise locks
   // a bank line, journal or captured document, so it adds no cycle with the attach (bank → journal → document → bill).
   if (input.documentType === 'supplier_invoice') await shareLockSupplierInvoice(companyId, input.documentId);
+  // A credit note's request is only for a DRAFT, and the draft cancel reads "pending request?" under the note's row
+  // lock: share-locking the note here makes the two serialise, so a request is never raised on a note being cancelled.
+  if (CREDIT_NOTE_TYPES.has(input.documentType)) {
+    const status = await shareLockCreditNoteStatus(companyId, input.documentId);
+    if (status !== null && status !== 'draft') throw new ApprovalDocumentNotDraftError(input.documentType, input.documentId, status);
+  }
   const document = await resolveApprovalDocument(companyId, input.documentType, input.documentId);
   const check = await checkApprovalRules(companyId, input.documentType, input.documentId, document.amount);
   // One pending request per document — enforced by uq_approval_requests_pending

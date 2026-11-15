@@ -17,7 +17,6 @@ import { getSystemAccount } from '../gl/systemAccountResolver';
 import type { CreditNote } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { lockCreditNoteForUpdate } from './creditNoteLock';
-import { cancelLockedDraftCreditNote } from './creditNoteDraftCancelService';
 import { withCustomerInvoiceLock } from './customerInvoiceLock';
 import { withSupplierInvoiceLock } from '../ap/supplierInvoiceLock';
 import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
@@ -31,7 +30,7 @@ import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { lockStandingChainHead } from '../shared/journalChainHead';
 import { underFlowLockBudget } from '../core/rowLockBudget';
 
-/** The states that have something to reverse. A draft has posted nothing (it takes the draft path above). */
+/** The states that have something to reverse. A draft has posted nothing. */
 const CANCELLABLE_STATUSES = new Set(['approved', 'partially_applied', 'applied']);
 
 export async function cancelCreditNote(companyId: string, 
@@ -56,10 +55,6 @@ async function cancelCreditNoteInner(
     // credit removed twice.
     const cn = await lockCreditNoteForUpdate(companyId, id);
     if (!cn) throw new Error(`Credit note ${id} not found`);
-    // A DRAFT has no journal and no application: it is set to cancelled with nothing reversed (its own file, which
-    // refuses a corrupt draft, a disputed one and one with a pending approval request). Everything below is the
-    // posted-note path and does not change.
-    if (String(cn.status) === 'draft') return await cancelLockedDraftCreditNote(companyId, cn, userId, reason);
     // 'applied' is cancellable too (PR #203 review HIGH): linked notes land
     // 'applied' at approve (N6), and the un-apply + GL-reversal below already
     // handles the applied state — restricting to 'approved' made every

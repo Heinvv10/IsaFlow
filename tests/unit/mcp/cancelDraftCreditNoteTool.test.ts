@@ -50,7 +50,8 @@ describe('cancel_credit_note — a draft', () => {
     const r = await call({ reason: 'duplicate' });
     expect(r.isError).toBeFalsy();
     expect(r.wroteNothing).toBeUndefined();
-    expect(cancelDraftCreditNote).toHaveBeenCalledWith(COMPANY, NOTE, expect.any(String), 'duplicate');
+    expect(cancelDraftCreditNote).toHaveBeenCalledWith(COMPANY, NOTE, expect.any(String), 'duplicate',
+      { postingAgent: 'mcp:cancel_credit_note:v1', actorType: 'agent', actorTokenJti: 'jti' });
     expect(cancelCreditNote).not.toHaveBeenCalled();
     expect(inRolledBackSavepoint).not.toHaveBeenCalled();
     expect(JSON.parse(text(r))).toMatchObject({
