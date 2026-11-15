@@ -10,7 +10,7 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { PasswordResetEmailNotSentError } from '@/lib/auth/passwordResetEmail';
 import { log } from '@/lib/logger';
-import { resetPassword } from '@/modules/admin/services/adminUserActionsService';
+import { resetPassword, resetPasswordRefusal } from '@/modules/admin/services/adminUserActionsService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
@@ -19,6 +19,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const userId = req.query.id as string;
 
   if (req.method === 'POST') {
+    // F-11: a refusal is answered with its reason before the audit row, any token or any email (it was a 500).
+    const refusal = await resetPasswordRefusal(userId);
+    if (refusal === 'not_found') return apiResponse.notFound(res, 'User');
+    if (refusal === 'super_admin') {
+      return apiResponse.forbidden(res, "A super admin's password cannot be reset from the admin console");
+    }
+
     try {
       // M6: audit-then-act. The reset email is an external side-effect a tx
       // rollback cannot undo, so the (critical) audit row is written first: a

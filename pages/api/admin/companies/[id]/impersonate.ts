@@ -11,7 +11,7 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
-import { createImpersonationToken } from '@/modules/admin/services/impersonationService';
+import { companyCanBeImpersonated, createImpersonationToken } from '@/modules/admin/services/impersonationService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
@@ -30,6 +30,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       error: { code: 'RATE_LIMITED', message: 'Too many impersonation attempts. Please wait a minute.' },
     });
   }
+
+  // F-13: no token for a company that does not exist or was deleted, and nothing audited as a success.
+  if (!(await companyCanBeImpersonated(companyId))) return apiResponse.notFound(res, 'Company');
 
   try {
     const { token, expires_at } = await createImpersonationToken(req.user.id, companyId);

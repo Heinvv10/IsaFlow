@@ -9,6 +9,8 @@
 
 import { SignJWT, jwtVerify } from 'jose';
 import { log } from '@/lib/logger';
+import { sql } from '@/lib/neon';
+import { isUuidParam } from '@/lib/validation';
 
 const IMPERSONATION_EXPIRY_MINUTES = 30;
 
@@ -24,7 +26,18 @@ export interface ImpersonationTokenPayload {
 }
 
 /**
- * Create a short-lived impersonation JWT.
+ * Whether `companyId` names a company that can be impersonated: it exists and is not deleted (a deleted company is
+ * only visible in the admin's Deleted filter, and withAuth refuses it). Suspended companies can be: an admin may need
+ * to look at one. Checked before anything is minted (admin audit 2026-11-14 F-13).
+ */
+export async function companyCanBeImpersonated(companyId: string): Promise<boolean> {
+  if (!isUuidParam(companyId)) return false;
+  const rows = await sql<{ status: string | null }>`SELECT status FROM companies WHERE id = ${companyId}::uuid LIMIT 1`;
+  return rows.length > 0 && rows[0]!.status !== 'deleted';
+}
+
+/**
+ * Create a short-lived impersonation JWT. Callers check companyCanBeImpersonated first.
  * Returns the token string and an ISO expiry timestamp.
  */
 export async function createImpersonationToken(

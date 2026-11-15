@@ -132,6 +132,15 @@ export async function activateUser(userId: string): Promise<void> {
   log.info('activateUser', { userId }, 'AdminUserActionsService');
 }
 
+/** Why an admin may not reset this user's password, or null when they may (F-11: checked before anything is written). */
+export type ResetPasswordRefusal = 'not_found' | 'super_admin';
+
+export async function resetPasswordRefusal(userId: string): Promise<ResetPasswordRefusal | null> {
+  const rows = await sql<{ role: string }>`SELECT role FROM users WHERE id = ${userId} LIMIT 1`;
+  if (!rows[0]) return 'not_found';
+  return rows[0].role === 'super_admin' ? 'super_admin' : null;
+}
+
 /**
  * Email a user our self-owned, single-use reset link (the forgot-password flow).
  * Returns nothing a caller could hand on: the link exists only in the email.
