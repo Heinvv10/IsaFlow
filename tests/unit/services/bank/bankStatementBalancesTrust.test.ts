@@ -184,3 +184,20 @@ describe('round 4: pdf_read figures are stored under the same write rule', () =>
     expect(batchBalanceColumns({ ...read, closingCents: 1e15 }, '2026-09-30')).toEqual(none);
   });
 });
+
+describe('round 5: a text-parsed PDF is never printed, even if a parser sets closingBalance', () => {
+  const rows = [row('2026-09-02', -100, 900), row('2026-09-03', 250, 1150)];
+  it('a stated closing that the chain agrees with: pdf_read, not printed', () => {
+    expect(deriveStatementBalances(parse(rows, { closingBalance: 1150, parser: 'native' }), { textPdf: true }))
+      .toMatchObject({ source: 'pdf_read', openingCents: 100000, closingCents: 115000 });
+  });
+  it('a stated closing the chain disagrees with: unverified', () => {
+    expect(deriveStatementBalances(parse(rows, { closingBalance: 1100, parser: 'native' }), { textPdf: true })).toMatchObject(UNVERIFIED);
+  });
+  it('a stated closing with no running balance on the lines: unverified, not printed', () => {
+    expect(deriveStatementBalances(parse([row('2026-09-02', -100)], { closingBalance: 900 }), { textPdf: true })).toMatchObject(UNVERIFIED);
+  });
+  it('the same raw result from a non-PDF file is still printed', () => {
+    expect(deriveStatementBalances(parse(rows, { closingBalance: 1150 })).source).toBe('printed');
+  });
+});
