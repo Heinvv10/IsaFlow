@@ -83,7 +83,7 @@ export function InvoiceTable({
             <SortHeader col="balance" label="Outstanding" sort={sort} order={sortOrder} onClick={onSort} align="right" />
             <SortHeader col="status" label="Status" sort={sort} order={sortOrder} onClick={onSort} />
             <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">Signals</th>
-            <th className="w-10" />
+            <th className="w-10"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -118,7 +118,7 @@ export function InvoiceTable({
                   <SignalBadges inv={inv} />
                 </td>
                 <td className="px-4 py-3.5 text-right">
-                  <Link href={`/accounting/supplier-invoices/${inv.id}`} className="text-slate-500 dark:text-slate-400 hover:text-amber-500 transition-colors">
+                  <Link href={`/accounting/supplier-invoices/${inv.id}`} aria-label={`View invoice ${inv.invoiceNumber}`} className="text-slate-500 dark:text-slate-400 hover:text-amber-500 transition-colors">
                     <ChevronRight className="h-4 w-4" />
                   </Link>
                 </td>
@@ -135,6 +135,7 @@ export function InvoiceTable({
           </span>
           <select
             name="perPage"
+            aria-label="Rows per page"
             value={perPage}
             onChange={(e) => onPerPage(Number(e.target.value) as PerPage)}
             className="px-2 py-1 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"

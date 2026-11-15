@@ -36,7 +36,7 @@ export function CompanySwitcher() {
         aria-label={`Switch company (current: ${activeCompany.tradingName || activeCompany.name})`}
         aria-expanded={open}
         // Tighter below sm (logo + chevron only there), so the header stays one row at 390 px.
-        className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700"
+        className="flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700"
       >
         {/* Company logo or fallback icon */}
         {activeCompany.logoData ? (
@@ -55,7 +55,7 @@ export function CompanySwitcher() {
           {activeCompany.tradingName || activeCompany.name}
         </span>
 
-        <ChevronDown className={`w-3.5 h-3.5 text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`hidden sm:block w-3.5 h-3.5 text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {/* Dropdown */}

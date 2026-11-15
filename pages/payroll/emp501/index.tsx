@@ -107,6 +107,7 @@ export default function Emp501Page() {
             </div>
             <div className="flex items-center gap-3">
               <select
+                aria-label="Tax year"
                 value={taxYear}
                 onChange={e => setTaxYear(Number(e.target.value))}
                 className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"

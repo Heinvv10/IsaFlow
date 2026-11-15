@@ -131,7 +131,7 @@ export default function AssetsListPage() {
                 className="ff-input pl-9 text-sm w-64"
               />
             </div>
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="ff-select text-sm">
+            <select aria-label="Status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="ff-select text-sm">
               <option value="">All Status</option>
               <option value="available">Available</option>
               <option value="assigned">Assigned</option>
@@ -139,7 +139,7 @@ export default function AssetsListPage() {
               <option value="disposed">Disposed</option>
               <option value="written_off">Written Off</option>
             </select>
-            <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="ff-select text-sm">
+            <select aria-label="Category" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="ff-select text-sm">
               <option value="">All Categories</option>
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
