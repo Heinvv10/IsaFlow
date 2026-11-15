@@ -169,8 +169,8 @@ async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]>
   //
   // AND THE COUNT IS OF WHAT THE AMOUNT SUMS. `unreconciledBalance` is every
   // posted line with no journal line that is not excluded. The service's
-  // `unreconciledCount` is a different population (status imported or
-  // allocated); `suggestedCount` and `unallocatedCount` split the amount's
+  // `unreconciledCount` is a different population (not reconciled, journal or
+  // not: bank/unreconciledLineSql); `suggestedCount` and `unallocatedCount` split the amount's
   // own population in two, so their sum is the count that belongs beside it.
   const itemsOn = (r: BankAccountStatusRow): number => r.suggestedCount + r.unallocatedCount;
   const items = rows.reduce((s, r) => s + itemsOn(r), 0);

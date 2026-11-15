@@ -7,8 +7,8 @@
  *    bank/bankAccountStatusService.getBankAccountsStatus — the Banking screen's
  *    list and the bank_accounts_status tool, inactive accounts INCLUDED (this
  *    is a question about money). Unreconciled_Line_Count is its
- *    unreconciledCount (posted feed lines still imported or allocated, not
- *    reconciled); Unallocated_Line_Count its unallocatedCount (no journal, no
+ *    unreconciledCount (posted feed lines neither reconciled nor excluded,
+ *    bank/unreconciledLineSql); Unallocated_Line_Count its unallocatedCount (no journal, no
  *    category, not excluded); Last_Transaction_Date its last posted feed line.
  *  - Ledger_Balance from bank/cashBalanceService.getCashBalance
  *    (`cash.balance.v1`, posted GL debit less credit up to today). That figure

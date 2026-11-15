@@ -12,6 +12,7 @@
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
+import { UNRECONCILED_LINE_SQL } from './unreconciledLineSql';
 
 /**
  * `includeInactive` defaults to FALSE, deliberately.
@@ -124,7 +125,8 @@ export async function getBankAccountsStatus(
         SUM(CASE WHEN bt.matched_journal_line_id IS NOT NULL THEN bt.amount ELSE 0 END) AS reconciled_balance,
         -- Unreconciled = imported/suggested but not yet matched
         SUM(CASE WHEN bt.matched_journal_line_id IS NULL AND bt.status != 'excluded' THEN bt.amount ELSE 0 END) AS unreconciled_balance,
-        COUNT(CASE WHEN bt.status IN ('imported', 'allocated') THEN 1 END)::INT AS unreconciled_count,
+        -- Not reconciled and not excluded: the one definition, ./unreconciledLineSql (#1308 follow-up).
+        COUNT(CASE WHEN ${sql.unsafe(UNRECONCILED_LINE_SQL)} THEN 1 END)::INT AS unreconciled_count,
         -- PRD-11 §2: allocated = a journal line was posted. A suggestion is NOT an allocation.
         COUNT(CASE WHEN bt.matched_journal_line_id IS NOT NULL THEN 1 END)::INT AS allocated_count,
         -- Suggested = no journal line yet, but an AI suggestion or saved category exists
