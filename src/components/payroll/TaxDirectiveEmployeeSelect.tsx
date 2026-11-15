@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { Select } from '@/components/ui/Select';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 /** What the picker reads from GET /api/payroll/employees (a write role gets the full record). */
@@ -51,27 +52,22 @@ export function useDirectiveEmployees(): { employees: PickerEmployee[]; loading:
 
 interface SelectProps {
   value: string;
-  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
+  onChange: (employeeId: string) => void;
   employees: PickerEmployee[];
   loading: boolean;
   error: string;
-  inputCls: string;
   labelCls: string;
   onRetry: () => void;
 }
 
-export function DirectiveEmployeeSelect({ value, onChange, employees, loading, error, inputCls, labelCls, onRetry }: SelectProps) {
+export function DirectiveEmployeeSelect({ value, onChange, employees, loading, error, labelCls, onRetry }: SelectProps) {
   const status = error || (loading ? 'Loading employees...'
     : employees.length === 0 ? 'No payroll employees yet - add the employee under Payroll > Employees first' : '');
   return (
     <div className="col-span-2">
-      <label htmlFor="td-employee" className={labelCls}>Employee *</label>
-      <select id="td-employee" className={inputCls} value={value} onChange={onChange} required disabled={loading}>
-        <option value="">Select an employee</option>
-        {employees.map(emp => (
-          <option key={emp.id} value={emp.id}>{`${emp.lastName}, ${emp.firstName} (${emp.employeeNumber})`}</option>
-        ))}
-      </select>
+      <Select id="td-employee" label="Employee *" labelClassName={labelCls} placeholder="Select an employee" searchable
+        options={employees.map(emp => ({ value: emp.id, label: `${emp.lastName}, ${emp.firstName} (${emp.employeeNumber})` }))}
+        value={value || null} disabled={loading} onChange={v => onChange(v ?? '')} />
       {status && <p className={`text-xs mt-1 ${error ? 'text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>{status}</p>}
       {error && (
         <button type="button" onClick={onRetry} className="text-xs mt-1 text-teal-400 hover:text-teal-300">Try again</button>

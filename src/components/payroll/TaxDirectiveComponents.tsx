@@ -62,8 +62,8 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
   // read-only and never posted (the server stores the record's, and a posted tax number would only reach the log).
   const picked = employees.find(emp => emp.id === form.employee_id);
   const regular = isRegularPayDirectiveType(form.directive_type);
-  const pickEmployee = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setForm(f => ({ ...f, employee_id: e.target.value }));
+  const pickEmployee = (employeeId: string) => {
+    setForm(f => ({ ...f, employee_id: employeeId }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -124,7 +124,7 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
           )}
           <div className="grid grid-cols-2 gap-4">
             <DirectiveEmployeeSelect value={form.employee_id} onChange={pickEmployee} employees={employees}
-              loading={employeesLoading} error={employeesError} inputCls={inputCls} labelCls={labelCls} onRetry={reloadEmployees} />
+              loading={employeesLoading} error={employeesError} labelCls={labelCls} onRetry={reloadEmployees} />
             <div className="col-span-2">
               <label htmlFor="td-employee-name" className={labelCls}>Employee Name *</label>
               <input id="td-employee-name" className={inputCls} value={picked ? `${picked.firstName} ${picked.lastName}` : ''} readOnly required placeholder="From the employee picked" />

@@ -1,6 +1,7 @@
 /** One entity's block of 12 user-defined-field slots (split out of UdfTab.tsx, no behaviour change). */
 
 import { useState, useEffect, useCallback } from 'react';
+import { Select } from '@/components/ui';
 import { Save, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { INPUT_CLS, SECTION_CLS, Toggle } from './settingsTypes';
@@ -163,14 +164,9 @@ export function EntitySection({ entityType, label }: { entityType: UdfEntityType
                       />
                     </div>
                     <div className="col-span-3">
-                      <select aria-label={`${label} field ${n} type`}
-                        value={slot.fieldType}
-                        onChange={e => updateSlot(n, { fieldType: e.target.value as UdfFieldType })}
-                        disabled={isEmpty}
-                        className={INPUT_CLS}
-                      >
-                        {FIELD_TYPES.map(ft => <option key={ft.value} value={ft.value}>{ft.label}</option>)}
-                      </select>
+                      <Select id={`udf-${entityType}-${n}-type`} label={`${label} field ${n} type`} labelClassName="sr-only" options={FIELD_TYPES}
+                        value={slot.fieldType} disabled={isEmpty}
+                        onChange={v => { if (v) updateSlot(n, { fieldType: v as UdfFieldType }); }} />
                     </div>
                     <div className="col-span-2">
                       {slot.fieldType === 'select' && (
