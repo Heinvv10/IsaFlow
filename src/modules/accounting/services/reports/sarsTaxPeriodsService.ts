@@ -3,8 +3,7 @@
  * Pure computations — no DB calls. Returns SA VAT and PAYE periods,
  * and a static compliance event calendar.
  */
-import { lastDayOf, vatQuickPeriods, type VatAlignment, type VatSetting } from '@/modules/bureau/services/vatPeriodHelper';
-import { backToFriday } from '@/modules/bureau/services/complianceCalendarEngine';
+import { backToFriday, lastDayOf, vatQuickPeriods, type VatAlignment, type VatSetting } from '@/modules/bureau/services/vatPeriodHelper';
 
 export interface TaxPeriod {
   type: 'VAT' | 'PAYE';
