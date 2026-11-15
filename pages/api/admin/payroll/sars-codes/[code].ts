@@ -15,7 +15,6 @@ import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 import { deprecateCode, restoreCode } from '@/modules/admin/services/sarsCodesAdminService';
@@ -42,27 +41,22 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
   }
 
-  try {
-    if (parsed.data.status === 'deprecated') {
-      await deprecateCode(code, taxYear);
-    } else {
-      await restoreCode(code, taxYear);
-    }
-
-    await logAdminAction(
-      req.user.id,
-      `sars_codes.${parsed.data.status === 'deprecated' ? 'deprecate' : 'restore'}`,
-      'sars_source_code',
-      `${code}@${taxYear}`,
-      { code, tax_year: taxYear, status: parsed.data.status },
-      getIp(req)
-    );
-
-    return apiResponse.success(res, { code, taxYear, status: parsed.data.status });
-  } catch (err) {
-    log.error('Failed to update SARS code status', { error: err, code, taxYear }, 'admin-api');
-    return apiResponse.badRequestFromError(res, err, 'Failed');
+  if (parsed.data.status === 'deprecated') {
+    await deprecateCode(code, taxYear);
+  } else {
+    await restoreCode(code, taxYear);
   }
+
+  await logAdminAction(
+    req.user.id,
+    `sars_codes.${parsed.data.status === 'deprecated' ? 'deprecate' : 'restore'}`,
+    'sars_source_code',
+    `${code}@${taxYear}`,
+    { code, tax_year: taxYear, status: parsed.data.status },
+    getIp(req)
+  );
+
+  return apiResponse.success(res, { code, taxYear, status: parsed.data.status });
 }
 
 export default withAdmin(withCsrf(handler));

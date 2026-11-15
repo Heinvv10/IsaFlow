@@ -5,6 +5,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminOptionalTimestamp, adminOptionalUuid, adminPositiveInt } from '@/modules/admin/middleware/adminRequestErrors';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
@@ -34,9 +35,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     limit: limitParam,
   } = req.query;
 
-  const page  = Math.max(1, parseInt((pageParam  as string) || '1',  10));
-  const limit = Math.min(100, Math.max(1, parseInt((limitParam as string) || '25', 10)));
+  const page  = adminPositiveInt(pageParam, 'page') ?? 1;
+  const limit = Math.min(100, adminPositiveInt(limitParam, 'limit') ?? 25);
   const offset = (page - 1) * limit;
+  const companyId = adminOptionalUuid(company_id, 'company_id');
+  const dateFrom = adminOptionalTimestamp(date_from, 'date_from');
+  const dateTo = adminOptionalTimestamp(date_to, 'date_to');
 
   try {
     // ── Stats (30 days) ─────────────────────────────────────────────────────
@@ -64,9 +68,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const bindValues: (string | number | null)[] = [];
     let bindIdx = 1;
 
-    if (company_id) {
+    if (companyId) {
       conditions.push(`el.company_id = $${bindIdx}::UUID`);
-      bindValues.push(company_id as string);
+      bindValues.push(companyId);
       bindIdx++;
     }
     if (status && ['sent', 'failed', 'bounced'].includes(status as string)) {
@@ -79,14 +83,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       bindValues.push(email_type as string);
       bindIdx++;
     }
-    if (date_from) {
+    if (dateFrom) {
       conditions.push(`el.sent_at >= $${bindIdx}::TIMESTAMPTZ`);
-      bindValues.push(date_from as string);
+      bindValues.push(dateFrom);
       bindIdx++;
     }
-    if (date_to) {
+    if (dateTo) {
       conditions.push(`el.sent_at <= $${bindIdx}::TIMESTAMPTZ`);
-      bindValues.push(date_to as string);
+      bindValues.push(dateTo);
       bindIdx++;
     }
     if (search) {

@@ -8,6 +8,7 @@ import { withPlatformAdmin, type PlatformAdminRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
+import { withAdminRefusals } from './adminRequestErrors';
 
 export function withAdmin(
   handler: (req: PlatformAdminRequest, res: NextApiResponse) => Promise<void>
@@ -29,7 +30,9 @@ export function withAdmin(
       return;
     }
 
-    return handler(req as PlatformAdminRequest, res);
+    // A known refusal (AdminRequestError) is the route's 4xx; anything else propagates to withErrorHandler's 500,
+    // which withPlatformAdmin rolls back (adminRequestErrors.ts).
+    return withAdminRefusals(handler)(req as PlatformAdminRequest, res);
   };
   const errorWrapped = withErrorHandler(rateLimitedHandler);
   return withPlatformAdmin(errorWrapped) as NextApiHandler;

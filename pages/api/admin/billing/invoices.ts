@@ -9,14 +9,13 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminOptionalDate, adminOptionalUuid, adminPaging, AdminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
-import { log } from '@/lib/logger';
 import { listInvoices, createInvoice } from '@/modules/admin/services/invoiceService';
 import { invoiceAmountsFromSubtotal, MAX_INVOICE_SUBTOTAL_CENTS } from '@/modules/admin/services/invoiceAmounts';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
-import { UUID } from '@/lib/schemas/common';
 
 /** A real calendar day: 2026-02-31 matches the pattern but is not one. */
 const isRealIsoDate = (v: string): boolean => {
@@ -28,8 +27,8 @@ const isRealIsoDate = (v: string): boolean => {
 // client-sent tax_cents / total_cents. A blank due date or notes may come as null or be left out; blank notes
 // are stored as NULL.
 const PostBody = z.object({
-  company_id:      UUID,
-  subscription_id: UUID.optional(),
+  company_id:      AdminUuid,
+  subscription_id: AdminUuid.optional(),
   subtotal_cents:  z.number().int().nonnegative()
     .max(MAX_INVOICE_SUBTOTAL_CENTS, `subtotal_cents may be at most ${MAX_INVOICE_SUBTOTAL_CENTS} (the total must fit the invoice columns)`),
   due_date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'due_date must be YYYY-MM-DD')
@@ -48,26 +47,20 @@ function firstIssue(error: z.ZodError): string {
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
-    try {
-      const { company_id, status, from_date, to_date, search, page, limit, sort_by, sort_dir } = req.query;
+    const { company_id, status, from_date, to_date, search, page, limit, sort_by, sort_dir } = req.query;
 
-      const result = await listInvoices({
-        company_id: company_id as string | undefined,
-        status: status as string | undefined,
-        from_date: from_date as string | undefined,
-        to_date: to_date as string | undefined,
-        search: search as string | undefined,
-        page: page ? Number(page) : undefined,
-        limit: limit ? Number(limit) : undefined,
-        sort_by: sort_by as string | undefined,
-        sort_dir: sort_dir === 'asc' || sort_dir === 'desc' ? sort_dir : undefined,
-      });
+    const result = await listInvoices({
+      company_id: adminOptionalUuid(company_id, 'company_id'),
+      status: status as string | undefined,
+      from_date: adminOptionalDate(from_date, 'from_date'),
+      to_date: adminOptionalDate(to_date, 'to_date'),
+      search: search as string | undefined,
+      ...adminPaging({ page, limit }),
+      sort_by: sort_by as string | undefined,
+      sort_dir: sort_dir === 'asc' || sort_dir === 'desc' ? sort_dir : undefined,
+    });
 
-      return apiResponse.success(res, result);
-    } catch (err) {
-      log.error('Failed to list invoices', { error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to list invoices');
-    }
+    return apiResponse.success(res, result);
   }
 
   if (req.method === 'POST') {

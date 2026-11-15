@@ -20,15 +20,16 @@
 //      row stands, so a retry or a failure cannot leave the removal unrecorded.
 import type { NextApiResponse } from 'next';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUserId } from '@/modules/admin/middleware/adminRequestErrors';
 import type { PlatformAdminRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { adminListUserFactors, adminUnenrollFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 import { AuthUpstreamUnavailableError, respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
 import { withOwnPlatformAdminTx } from '@/lib/auth/platformAdminOwnTx';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
-import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { logAdminAction } from '@/modules/admin/services/auditService';
+import { findStoredUser } from '@/modules/admin/services/storedUserId';
 import { getIp } from '@/utils/getIp';
 
 type Outcome = { removed: string[]; gone: string[]; refused: string[]; unknown: string[]; notAttempted: string[] };
@@ -57,11 +58,11 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required' } });
     return;
   }
-  const targetUserId = req.query.id;
-  if (typeof targetUserId !== 'string') {
-    res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'User id required' } });
-    return;
-  }
+  // The stored user first (breaker #1405 round 6): GoTrue, the role read and both audit rows use users.id as stored,
+  // never the URL's spelling, so an upper-cased id of a super admin still records target_super_admin under the real id.
+  const target = await findStoredUser(adminUserId(req.query.id));
+  if (!target) return apiResponse.notFound(res, 'User');
+  const targetUserId = target.id;
 
   let factors;
   try {
@@ -75,13 +76,12 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     throw err;
   }
 
-  const [target] = await sql<{ role: string | null }>`SELECT role FROM users WHERE id = ${targetUserId} LIMIT 1`;
   const ip = getIp(req);
   const factorIds = factors.map((f) => f.id);
   const started = {
     factors_found: factorIds.length,
     factor_ids: factorIds,
-    ...(target?.role === 'super_admin' ? { target_super_admin: true } : {}),
+    ...(target.role === 'super_admin' ? { target_super_admin: true } : {}),
   };
   await withOwnPlatformAdminTx(() => logAdminAction(req.user.id, 'user.reset_2fa_started', 'user', targetUserId, started, ip));
 

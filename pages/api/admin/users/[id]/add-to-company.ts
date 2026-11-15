@@ -15,21 +15,22 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { AdminUuid } from '@/modules/admin/middleware/adminRequestErrors';
+import { adminStoredUser } from '@/modules/admin/services/storedUserId';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   addUserToCompany, CompanyMembershipError, MEMBERSHIP_ERROR_CODE,
 } from '@/modules/admin/services/companyMembershipService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
-import { UUID } from '@/lib/schemas/common';
 
 const PostBody = z.object({
-  company_id: UUID,
+  company_id: AdminUuid,
   role:       z.string().min(1).max(50),
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const userId = req.query.id as string;
+  const userId = (await adminStoredUser(req.query.id)).id; // the stored id: acted on and audited exactly
 
   if (req.method === 'POST') {
     const parsed = PostBody.safeParse(req.body);

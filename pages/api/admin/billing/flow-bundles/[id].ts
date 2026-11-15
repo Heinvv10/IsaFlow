@@ -7,6 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { logAdminAction } from '@/modules/admin/services/auditService';
@@ -23,10 +24,7 @@ const PatchBody = z.object({
 }).strict();
 
 async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
-  const { id } = req.query;
-  if (typeof id !== 'string' || !id) {
-    return apiResponse.badRequest(res, 'id is required');
-  }
+  const id = adminUuid(req.query.id);
 
   if (req.method === 'GET') {
     const rows = (await sql`

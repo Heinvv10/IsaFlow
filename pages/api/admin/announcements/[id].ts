@@ -11,42 +11,41 @@ import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import {
   getAnnouncement,
   updateAnnouncement,
   deleteAnnouncement,
 } from '@/modules/admin/services/announcementService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
-import { announcementWindowError, WINDOW_ORDER_ERROR, ANNOUNCEMENT_TITLE_MAX, ANNOUNCEMENT_MESSAGE_MAX, firstValidationMessage } from '@/modules/admin/services/announcementWindow';
+import {
+  announcementInstant, announcementWindowError, AnnouncementTarget, AnnouncementTargetIds, AnnouncementType,
+  WINDOW_ORDER_ERROR, ANNOUNCEMENT_TITLE_MAX, ANNOUNCEMENT_MESSAGE_MAX, firstValidationMessage,
+} from '@/modules/admin/services/announcementWindow';
 import { isUuidParam } from '@/lib/validation';
 import { getIp } from '@/utils/getIp';
 
 const PatchBody = z.object({
   title:          z.string().min(1).max(ANNOUNCEMENT_TITLE_MAX, `Title must be at most ${ANNOUNCEMENT_TITLE_MAX} characters`).optional(),
   message:        z.string().min(1).max(ANNOUNCEMENT_MESSAGE_MAX, `Message must be at most ${ANNOUNCEMENT_MESSAGE_MAX} characters`).optional(),
-  type:           z.string().optional(),
-  target:         z.string().optional(),
-  target_ids:     z.array(z.string()).optional(),
-  starts_at:      z.string().optional(),
+  type:           AnnouncementType.optional(),
+  target:         AnnouncementTarget.optional(),
+  target_ids:     AnnouncementTargetIds.optional(),
+  starts_at:      announcementInstant('Start').optional(),
   /** null clears the end (no end); omitted keeps it. */
-  ends_at:        z.string().nullable().optional(),
+  ends_at:        announcementInstant('End').nullable().optional(),
   is_dismissible: z.boolean().optional(),
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const id = req.query.id;
-  if (!isUuidParam(id)) return apiResponse.notFound(res, 'Announcement');
+  const rawId = req.query.id;
+  // Not adminUuid (a 400): a malformed id here is an announcement that does not exist, a 404 by design.
+  if (!isUuidParam(rawId)) return apiResponse.notFound(res, 'Announcement');
+  const id = rawId.toLowerCase(); // the canonical spelling it is queried and audited by (breaker #1405 round 5)
 
   if (req.method === 'GET') {
-    try {
-      const item = await getAnnouncement(id);
-      if (!item) return apiResponse.notFound(res, 'Announcement', id);
-      return apiResponse.success(res, item);
-    } catch (err) {
-      log.error('Failed to get announcement', { id, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to get announcement');
-    }
+    const item = await getAnnouncement(id);
+    if (!item) return apiResponse.notFound(res, 'Announcement', id);
+    return apiResponse.success(res, item);
   }
 
   if (req.method === 'PATCH') {
@@ -55,55 +54,46 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, firstValidationMessage(parsed.error));
     }
 
-    try {
-      // The window is judged on what will be stored: the body's value, else the stored one, for each side.
-      const current = await getAnnouncement(id);
-      if (!current) return apiResponse.notFound(res, 'Announcement', id);
-      const windowError = announcementWindowError(
-        parsed.data.starts_at ?? current.starts_at,
-        parsed.data.ends_at === undefined ? current.ends_at : parsed.data.ends_at,
-      );
-      if (windowError) return apiResponse.badRequest(res, windowError);
+    // The window is judged on what will be stored: the body's value, else the stored one, for each side.
+    const current = await getAnnouncement(id);
+    if (!current) return apiResponse.notFound(res, 'Announcement', id);
+    const windowError = announcementWindowError(
+      parsed.data.starts_at ?? current.starts_at,
+      parsed.data.ends_at === undefined ? current.ends_at : parsed.data.ends_at,
+    );
+    if (windowError) return apiResponse.badRequest(res, windowError);
 
-      const outcome = await updateAnnouncement(id, parsed.data);
-      if (outcome === 'not_found') return apiResponse.notFound(res, 'Announcement', id);
-      // The pre-check above gives the friendly text; this is the write-time guard it cannot replace.
-      if (outcome === 'window') return apiResponse.badRequest(res, WINDOW_ORDER_ERROR);
+    const outcome = await updateAnnouncement(id, parsed.data);
+    if (outcome === 'not_found') return apiResponse.notFound(res, 'Announcement', id);
+    // The pre-check above gives the friendly text; this is the write-time guard it cannot replace.
+    if (outcome === 'window') return apiResponse.badRequest(res, WINDOW_ORDER_ERROR);
 
-      await logAdminAction(
-        req.user.id,
-        'announcement.update',
-        'announcement',
-        id,
-        parsed.data as Record<string, unknown>,
-        getIp(req)
-      );
+    await logAdminAction(
+      req.user.id,
+      'announcement.update',
+      'announcement',
+      id,
+      parsed.data as Record<string, unknown>,
+      getIp(req)
+    );
 
-      return apiResponse.success(res, { updated: true });
-    } catch (err) {
-      log.error('Failed to update announcement', { id, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to update announcement');
-    }
+    return apiResponse.success(res, { updated: true });
   }
 
   if (req.method === 'DELETE') {
-    try {
-      await deleteAnnouncement(id);
+    // A missing announcement is a 404 before the audit row (breaker #1405 round 2).
+    if (!(await deleteAnnouncement(id))) return apiResponse.notFound(res, 'Announcement', id);
 
-      await logAdminAction(
-        req.user.id,
-        'announcement.delete',
-        'announcement',
-        id,
-        null,
-        getIp(req)
-      );
+    await logAdminAction(
+      req.user.id,
+      'announcement.delete',
+      'announcement',
+      id,
+      null,
+      getIp(req)
+    );
 
-      return apiResponse.success(res, { deleted: true });
-    } catch (err) {
-      log.error('Failed to delete announcement', { id, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to delete announcement');
-    }
+    return apiResponse.success(res, { deleted: true });
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PATCH', 'DELETE']);

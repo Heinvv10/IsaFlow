@@ -8,8 +8,8 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import { cancelSubscription } from '@/modules/admin/services/billingService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
@@ -19,7 +19,7 @@ const PostBody = z.object({
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const id = req.query.id as string;
+  const id = adminUuid(req.query.id);
 
   if (req.method === 'POST') {
     const parsed = PostBody.safeParse(req.body);
@@ -27,24 +27,19 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
     }
 
-    try {
-      const atPeriodEnd = parsed.data.at_period_end === true;
-      await cancelSubscription(id, atPeriodEnd);
+    const atPeriodEnd = parsed.data.at_period_end === true;
+    const { companyId } = await cancelSubscription(id, atPeriodEnd);
 
-      await logAdminAction(
-        req.user.id,
-        'subscription.cancel',
-        'subscription',
-        id,
-        { at_period_end: atPeriodEnd },
-        getIp(req)
-      );
+    await logAdminAction(
+      req.user.id,
+      'subscription.cancel',
+      'subscription',
+      id,
+      { company_id: companyId, at_period_end: atPeriodEnd },
+      getIp(req)
+    );
 
-      return apiResponse.success(res, { cancelled: true, at_period_end: atPeriodEnd });
-    } catch (err) {
-      log.error('Failed to cancel subscription', { id, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to cancel subscription');
-    }
+    return apiResponse.success(res, { cancelled: true, at_period_end: atPeriodEnd });
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);

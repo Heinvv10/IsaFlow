@@ -28,6 +28,7 @@ beforeEach(() => {
   sqlMock.mockReset().mockImplementation(async (strings: TemplateStringsArray) => {
     const q = strings.join('?');
     if (q.includes('SELECT role FROM users')) return [{ role: 'viewer' }];
+    if (q.includes('SELECT 1 FROM users')) return [{ '?column?': 1 }]; // resetOnboarding's existence read
     if (q.includes('DELETE FROM company_users')) throw Object.assign(new Error('only owner'), { code: 'RC011' });
     return [];
   });
@@ -62,17 +63,24 @@ describe('deleteUser is never stopped by the look-up of pay-run approvals it str
   it('a failed look-up is logged and the deletion goes ahead, every write made', async () => {
     findStranded.mockRejectedValueOnce(new Error('migration_admin pool down'));
     sqlMock.mockReset().mockImplementation(async (strings: TemplateStringsArray) => {
-      if (strings.join('?').includes('SELECT role FROM users')) return [{ role: 'viewer' }];
+      const q = strings.join('?');
+      if (q.includes('SELECT role FROM users')) return [{ role: 'viewer' }];
+      if (q.includes('DELETE FROM users')) return [{ id: USER }]; // RETURNING: the row was there
       return [];
     });
     await expect(deleteUser(USER)).resolves.toEqual([]);
     const writes = sqlMock.mock.calls.map(text).filter((q) => /^\s*DELETE\b/i.test(q)).map((q) => q.trim().split(' ').slice(0, 3).join(' '));
-    expect(writes).toEqual(['DELETE FROM company_users', 'DELETE FROM user_sessions', 'DELETE FROM users']);
+    // company_users -> users -> user_sessions (the one lock order), then the sweep of a membership added meanwhile.
+    expect(writes).toEqual(['DELETE FROM company_users', 'DELETE FROM users', 'DELETE FROM user_sessions', 'DELETE FROM company_users']);
   });
 
   it('returns what it strands, for the admin audit row', async () => {
     findStranded.mockResolvedValueOnce([{ companyId: 'c1', requestId: 'r1' }]);
-    sqlMock.mockReset().mockImplementation(async (strings: TemplateStringsArray) => (strings.join('?').includes('SELECT role FROM users') ? [{ role: 'viewer' }] : []));
+    sqlMock.mockReset().mockImplementation(async (strings: TemplateStringsArray) => {
+      const q = strings.join('?');
+      if (q.includes('SELECT role FROM users')) return [{ role: 'viewer' }];
+      return q.includes('DELETE FROM users') ? [{ id: USER }] : [];
+    });
     await expect(deleteUser(USER)).resolves.toEqual([{ companyId: 'c1', requestId: 'r1' }]);
   });
 });

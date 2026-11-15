@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import type { InvoiceListItem, PaginatedResult } from '../types/admin.types';
 import { ADMIN_INVOICE_NUMBER_SEED } from '@/modules/accounting/services/core/numberLock';
 import { invoiceAmountsFromSubtotal } from './invoiceAmounts';
+import { AdminRequestError } from '@/modules/admin/middleware/adminRequestErrors';
 type Row = DbRow;
 
 
@@ -43,10 +44,10 @@ export async function listInvoices(filters: {
   const limit = Math.min(100, Math.max(1, filters.limit ?? 25));
   const offset = (page - 1) * limit;
   const sortColKey = filters.sort_by ?? '';
-  if (sortColKey && !ALLOWED_SORT[sortColKey]) throw new Error(`Invalid sort column: ${sortColKey}`);
+  if (sortColKey && !ALLOWED_SORT[sortColKey]) throw new AdminRequestError(400, `Invalid sort column: ${sortColKey}`);
   const sortCol = ALLOWED_SORT[sortColKey] ?? 'i.created_at';
   const rawDir = (filters.sort_dir ?? 'desc').toUpperCase();
-  if (rawDir !== 'ASC' && rawDir !== 'DESC') throw new Error('Invalid sort direction');
+  if (rawDir !== 'ASC' && rawDir !== 'DESC') throw new AdminRequestError(400, 'Invalid sort direction');
   const sortDir = rawDir === 'ASC' ? sql`ASC` : sql`DESC`;
   const search = filters.search ? `%${filters.search}%` : null;
 
@@ -184,7 +185,7 @@ export async function createInvoice(data: {
 
 /** Why a status change did nothing: no such invoice, or it is not in a status the change starts from. */
 export type InvoiceTransition =
-  | { ok: true }
+  | { ok: true; companyId: string }
   | { ok: false; reason: 'not_found' }
   | { ok: false; reason: 'wrong_status'; status: string };
 
@@ -200,11 +201,11 @@ export async function markInvoicePaid(
         payment_method = ${paymentMethod}
     WHERE id = ${invoiceId}::uuid
       AND status IN ('sent', 'overdue')
-    RETURNING id
+    RETURNING id, company_id
   `;
   if (rows.length > 0) {
     log.info('markInvoicePaid', { invoiceId, paymentMethod }, 'InvoiceService');
-    return { ok: true };
+    return { ok: true, companyId: String((rows[0] as Row).company_id) };
   }
   const current = (await sql`SELECT status FROM admin_invoices WHERE id = ${invoiceId}::uuid`) as Row[];
   if (current.length === 0) return { ok: false, reason: 'not_found' };

@@ -8,6 +8,7 @@
 
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
+import { AdminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
@@ -19,20 +20,19 @@ import {
   getAllTrials,
   getExpiringTrials,
   extendTrial,
-  bulkExtendTrials,
+  bulkExtendTrialsDetailed,
 } from '@/modules/admin/services/trialService';
 import { TrialExtendError } from '@/modules/admin/services/trialErrors';
-import { UUID } from '@/lib/schemas/common';
 
 const PostBody = z.union([
   z.object({
-    company_id:  UUID,
+    company_id:  AdminUuid,
     company_ids: z.undefined().optional(),
     days:        z.number().int().min(1).max(90),
   }).strict(),
   z.object({
     company_id:  z.undefined().optional(),
-    company_ids: z.array(UUID).min(1).max(100),
+    company_ids: z.array(AdminUuid).min(1).max(100),
     days:        z.number().int().min(1).max(90),
   }).strict(),
 ]);
@@ -40,18 +40,13 @@ const PostBody = z.union([
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   /* ------------------------------------------------------------------ GET */
   if (req.method === 'GET') {
-    try {
-      if (req.query.scope === 'all') return apiResponse.success(res, await getAllTrials());
-      const within = req.query.within ? Number(req.query.within) : 30;
-      if (isNaN(within) || within < 1 || within > 365) {
-        return apiResponse.badRequest(res, 'within must be 1–365');
-      }
-      const trials = await getExpiringTrials(within);
-      return apiResponse.success(res, trials);
-    } catch (err) {
-      log.error('Failed to fetch trials', { error: err }, 'admin-trials-api');
-      return apiResponse.badRequest(res, 'Failed to fetch trials');
+    if (req.query.scope === 'all') return apiResponse.success(res, await getAllTrials());
+    const within = req.query.within ? Number(req.query.within) : 30;
+    if (isNaN(within) || within < 1 || within > 365) {
+      return apiResponse.badRequest(res, 'within must be 1–365');
     }
+    const trials = await getExpiringTrials(within);
+    return apiResponse.success(res, trials);
   }
 
   /* ----------------------------------------------------------------- POST */
@@ -84,15 +79,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       /* Bulk extend */
       if (Array.isArray(company_ids) && company_ids.length > 0) {
-        const count = await bulkExtendTrials(company_ids, days);
-        await logAdminAction(
-          adminId,
-          'trial.bulk_extend',
-          'company',
-          null,
-          { company_ids, days, affected: count },
-          ip
-        );
+        // One trial.extend row per company it moved (as companies/bulk-action writes), so each company's audit view lists
+        // its own extension; a single row with no target was in nobody's view (review #1405 round 7).
+        const moved = await bulkExtendTrialsDetailed(company_ids, days);
+        for (const company of moved) {
+          await logAdminAction(adminId, 'trial.extend', 'company', company.id,
+            { days, new_trial_ends_at: company.trialEndsAt, bulk: true }, ip);
+        }
+        const count = moved.length;
         log.info('Bulk trial extension', { count, days }, 'admin-trials-api');
         return apiResponse.success(res, { extended: count, days });
       }
@@ -105,8 +99,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           ? apiResponse.notFound(res, 'Company')
           : apiResponse.conflict(res, err.message);
       }
-      log.error('Failed to extend trial', { error: err }, 'admin-trials-api');
-      return apiResponse.badRequestFromError(res, err, 'Failed to extend trial');
+      throw err; // anything else is a 500 that rolls back
     }
   }
 
