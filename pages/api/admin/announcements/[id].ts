@@ -79,7 +79,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'DELETE') {
-    await deleteAnnouncement(id);
+    // A missing announcement is a 404 before the audit row (breaker #1405 round 2).
+    if (!(await deleteAnnouncement(id))) return apiResponse.notFound(res, 'Announcement', id);
 
     await logAdminAction(
       req.user.id,

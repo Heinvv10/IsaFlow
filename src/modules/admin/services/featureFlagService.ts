@@ -176,17 +176,21 @@ export async function setCompanyFeatureOverride(
   log.info('setCompanyFeatureOverride', { companyId, featureId, enabled }, 'FeatureFlagService');
 }
 
+/** False when the company has no override for this feature (nothing was removed). */
 export async function removeCompanyFeatureOverride(
   companyId: string,
   featureId: string
-): Promise<void> {
-  await sql`
+): Promise<boolean> {
+  const rows = await sql`
     DELETE FROM company_feature_overrides
     WHERE company_id = ${companyId}
       AND feature_id = ${featureId}
+    RETURNING feature_id
   `;
+  if (rows.length === 0) return false;
 
   log.info('removeCompanyFeatureOverride', { companyId, featureId }, 'FeatureFlagService');
+  return true;
 }
 
 export async function hasFeature(

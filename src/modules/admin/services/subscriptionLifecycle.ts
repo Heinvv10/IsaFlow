@@ -63,6 +63,12 @@ export async function updateSubscription(
   if (status && !ALLOWED_STATUSES.includes(status)) {
     throw new AdminRequestError(400, `Invalid subscription status: ${status}`);
   }
+  // An unknown plan is the caller's mistake (400), refused FIRST: before the status branch below can void charges,
+  // which a 4xx would commit (review #1405 round 2). Plans are archived, never deleted; the FK stays the backstop.
+  if (plan_id) {
+    const plan = await sql`SELECT 1 FROM plans WHERE id = ${plan_id}::uuid`;
+    if (plan.length === 0) throw new AdminRequestError(400, 'No such plan');
+  }
 
   if (status) {
     const before = await lockStatus(subscriptionId);

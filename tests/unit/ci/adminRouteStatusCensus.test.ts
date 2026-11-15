@@ -50,7 +50,9 @@ function answers4xx(node: ts.Node): boolean {
         const codeArg = name === 'error' ? n.arguments[1]?.getText() ?? '' : '';
         if (name !== 'error' || !/SERVICE_UNAVAILABLE|INTERNAL_ERROR|DATABASE_ERROR|GATEWAY_TIMEOUT/.test(codeArg)) found = true;
       }
-      if (name === 'status' && n.arguments[0] && ts.isNumericLiteral(n.arguments[0]) && /^4\d\d$/.test(n.arguments[0].text)) found = true;
+      // res.status(4xx), and res.status(<variable>): a computed status may be a 4xx (review #1405 round 2).
+      const arg = n.arguments[0];
+      if (name === 'status' && arg && (ts.isNumericLiteral(arg) ? /^4\d\d$/.test(arg.text) : true)) found = true;
     }
     if (!ts.isFunctionLike(n) || n === node) ts.forEachChild(n, visit);
   };
@@ -58,11 +60,17 @@ function answers4xx(node: ts.Node): boolean {
   return found;
 }
 
-/** The catch's last statement is `throw <its own variable>`: whatever it did not answer above that line propagates. */
+/**
+ * The catch's last statement is `throw <its own variable>` and is reachable: no earlier statement of the block
+ * returns or throws unconditionally (`return badRequest(...); throw err;` is a dead throw, review #1405 round 2).
+ * Whatever the catch did not answer above that line propagates.
+ */
 function endsByRethrowing(clause: ts.CatchClause): boolean {
   const name = clause.variableDeclaration?.name.getText();
-  const last = clause.block.statements[clause.block.statements.length - 1];
-  return !!name && !!last && ts.isThrowStatement(last) && last.expression?.getText() === name;
+  const statements = clause.block.statements;
+  const last = statements[statements.length - 1];
+  const exitsEarly = statements.slice(0, -1).some((st) => ts.isReturnStatement(st) || ts.isThrowStatement(st));
+  return !!name && !!last && ts.isThrowStatement(last) && last.expression?.getText() === name && !exitsEarly;
 }
 
 /** Calls of the adminRequestErrors validators (adminUuid, adminPaging, adminOptionalDate, ...) inside `node`. */

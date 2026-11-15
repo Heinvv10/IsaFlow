@@ -82,7 +82,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     const { feature_id } = delParsed.data;
 
-    await removeCompanyFeatureOverride(companyId, feature_id);
+    // No override to remove is a 404 before the audit row (breaker #1405 round 2 sweep).
+    if (!(await removeCompanyFeatureOverride(companyId, feature_id))) return apiResponse.notFound(res, 'Feature override');
 
     await logAdminAction(
       req.user.id,

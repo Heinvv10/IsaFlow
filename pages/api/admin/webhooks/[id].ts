@@ -62,7 +62,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const webhook = await getAdminWebhookById(id);
     if (!webhook) return apiResponse.notFound(res, 'Webhook not found');
 
-    await deleteAdminWebhook(id);
+    // The DELETE decides, not the read above: of two concurrent deletes only one removes the row and is audited.
+    if (!(await deleteAdminWebhook(id))) return apiResponse.notFound(res, 'Webhook not found');
     await logAdminAction(
       req.user.id,
       'webhook.delete',

@@ -192,11 +192,14 @@ export async function updateAnnouncement(
   }
 }
 
-export async function deleteAnnouncement(id: string): Promise<void> {
+/** False when no announcement has this id: nothing was deleted (a concurrent delete that won finds it gone too). */
+export async function deleteAnnouncement(id: string): Promise<boolean> {
   try {
     // Both in the request's transaction: no user is left holding a dismissal of an announcement that is gone.
+    const deleted = await sql`DELETE FROM system_announcements WHERE id = ${id} RETURNING id`;
+    if (deleted.length === 0) return false;
     await sql`DELETE FROM user_preferences WHERE key = ${DISMISS_KEY_PREFIX + id}`;
-    await sql`DELETE FROM system_announcements WHERE id = ${id}`;
+    return true;
   } catch (err) {
     log.error('deleteAnnouncement failed', { id, error: err }, 'announcementService');
     throw err;

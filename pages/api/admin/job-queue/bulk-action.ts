@@ -16,7 +16,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { UUID } from '@/lib/schemas/common';
+import { adminDistinctUuids } from '@/modules/admin/middleware/adminRequestErrors';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
@@ -25,11 +25,11 @@ import { getIp } from '@/utils/getIp';
 const PostBody = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('retry'),
-    ids:    z.array(UUID).min(1).max(200),
+    ids:    adminDistinctUuids(200),
   }).strict(),
   z.object({
     action: z.literal('cancel'),
-    ids:    z.array(UUID).min(1).max(200),
+    ids:    adminDistinctUuids(200),
   }).strict(),
   z.object({
     action:        z.literal('delete_old'),
@@ -116,7 +116,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const parsed = PostBody.safeParse(req.body);
   if (!parsed.success) {
-    return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
+    return apiResponse.badRequest(res, parsed.error.issues[0]?.message ?? 'Invalid input');
   }
 
   const data = parsed.data;

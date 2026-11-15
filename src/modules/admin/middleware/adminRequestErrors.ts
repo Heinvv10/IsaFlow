@@ -13,6 +13,8 @@
  * malformed id or page is the caller's mistake (400), not a 500 from Postgres.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
+import { UUID } from '@/lib/schemas/common';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { isRealCalendarDate, isRealTimestamp, UUID_RE } from '@/lib/validation';
 
@@ -62,6 +64,7 @@ export function withAdminRefusals<Req extends NextApiRequest>(
   return async (req, res) => {
     try {
       assertCleanAdminQuery(req.query);
+      assertNoNulInAdminBody(req.body);
       await handler(req, res);
     } catch (err) {
       if (respondIfAdminRequestError(res, err)) return;
@@ -77,8 +80,30 @@ export function withAdminRefusals<Req extends NextApiRequest>(
  */
 export function assertCleanAdminQuery(query: NextApiRequest['query'] | undefined): void {
   for (const [key, value] of Object.entries(query ?? {})) {
+    if (key.includes('\u0000')) throw new AdminRequestError(400, 'A query parameter name must not contain a NUL character');
     if (Array.isArray(value)) throw new AdminRequestError(400, `${key} must be given once`);
     if (typeof value === 'string' && value.includes('\u0000')) throw new AdminRequestError(400, `${key} must not contain a NUL character`);
+  }
+}
+
+/**
+ * A NUL byte anywhere in a JSON body (a string value or an object key) is a 400 naming the field (rev/breaker #1405
+ * round 2: Postgres text cannot hold one, so it was a 500 "invalid byte sequence"). Not hasNul: that also refuses a
+ * body past its size budget, and sage-commit's ledgers are legitimately large; a parsed JSON body has no cycles, so
+ * this walks all of it and refuses only a real NUL.
+ */
+export function assertNoNulInAdminBody(body: unknown): void {
+  const stack: Array<[unknown, string]> = [[body, 'body']];
+  while (stack.length > 0) {
+    const [value, path] = stack.pop()!;
+    if (typeof value === 'string') {
+      if (value.includes('\u0000')) throw new AdminRequestError(400, `${path} must not contain a NUL character`);
+    } else if (value !== null && typeof value === 'object') {
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        if (key.includes('\u0000')) throw new AdminRequestError(400, `A field name in ${path} must not contain a NUL character`);
+        stack.push([child, path === 'body' ? key : `${path}.${key}`]);
+      }
+    }
   }
 }
 
@@ -144,4 +169,16 @@ export function adminNonNegativeInt(value: unknown, name: string): number | unde
 /** `page` and `limit` from the query string: absent stays undefined (the service default), garbage is a 400. */
 export function adminPaging(query: Record<string, unknown>): { page?: number; limit?: number } {
   return { page: adminPositiveInt(query.page, 'page'), limit: adminPositiveInt(query.limit, 'limit') };
+}
+
+/**
+ * A bulk action's id list: 1..max UUIDs, none repeated (compared case-insensitively, as Postgres compares uuids). A
+ * repeated id would be acted on twice: a trial extended twice, two audit rows (breaker #1405 round 2). Refused, so
+ * the caller sees the mistake instead of a silent dedupe.
+ */
+export function adminDistinctUuids(max: number) {
+  return z.array(UUID).min(1).max(max).refine(
+    (ids) => new Set(ids.map((id) => id.toLowerCase())).size === ids.length,
+    'The same id is given more than once',
+  );
 }

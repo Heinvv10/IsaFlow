@@ -231,8 +231,10 @@ async function removeFromEveryCompany(userId: string, refuseStranding: boolean):
  * Throws SoleOwnerError, having written nothing, when the user is a company's only owner.
  */
 export async function deleteUser(userId: string): Promise<StrandedPayRunRequest[]> {
+  // Locked: of two concurrent deletes the second waits here, then finds no row (404) instead of deleting nothing and
+  // being audited as a delete (breaker #1405 round 2).
   const rows = await sql`
-    SELECT role FROM users WHERE id = ${userId} LIMIT 1
+    SELECT role FROM users WHERE id = ${userId} LIMIT 1 FOR UPDATE
   `;
   if (rows.length === 0) throw new AdminRequestError(404, 'User not found');
   if ((rows[0] as Row).role === 'super_admin') {

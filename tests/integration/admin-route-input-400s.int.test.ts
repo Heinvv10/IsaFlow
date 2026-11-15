@@ -7,7 +7,8 @@
  *     ends_at are real ISO instants (Date.parse also read JS Date strings, "+275760-..." and "2026-02-30");
  *   - webhooks GET: page=abc / companyId=x are 400s (a catch-all around the validators made them 500s);
  *   - sars-codes GET: taxYear outside 2000..2100 is a 400 (3000000000 overflowed int4 as a 500);
- *   - any admin route: a repeated query parameter or one holding a NUL byte is a 400 before any SQL;
+ *   - any admin route: a repeated query parameter or one holding a NUL byte (in its name or value) is a 400 before
+ *     any SQL, and so is a NUL in any string or key of a JSON body (Postgres text cannot hold one: it was a 500);
  *   - refusals that already were right stay right (missing SARS release year, missing user / company / bureau user).
  * Tokens are aal2; GoTrue is not called. Disposable fixture only.
  */
@@ -26,6 +27,7 @@ import bureauRoute from '../../pages/api/admin/users/[id]/convert-to-bureau';
 import auditRoute from '../../pages/api/admin/audit';
 import emailLogRoute from '../../pages/api/admin/email-log';
 import usersRoute from '../../pages/api/admin/users';
+import plansRoute from '../../pages/api/admin/billing/plans';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { signSession } from './r-032-fake-gotrue.helpers';
 
@@ -153,6 +155,12 @@ describe('query parameters are checked before any SQL', () => {
     expect(r.body.error?.message).toMatch(named);
   });
 
+  it('a NUL in a query parameter NAME: 400', async () => {
+    const r = await call(usersRoute, 'GET', { 'k\u0000': 'v' });
+    expect(r.status).toBe(400);
+    expect(r.body.error?.message).toMatch(/NUL/);
+  });
+
   it('valid parameters still answer 200', async () => {
     expect((await call(webhooksRoute, 'GET', { page: '1', limit: '5' })).status).toBe(200);
     expect((await call(sarsIndexRoute, 'GET', { taxYear: '2026' })).status).toBe(200);
@@ -190,5 +198,28 @@ describe('refusals that write nothing', () => {
     expect((await call(bureauRoute, 'POST', { id: ghost }, { bureauName: 'B' })).status).toBe(404);
     expect(await n('SELECT count(*)::int n FROM bureaus WHERE owner_user_id = $1', [ghost])).toBe(0);
     expect(await auditRows(ghost)).toBe(0);
+  });
+});
+
+describe('a NUL anywhere in a JSON body is a 400 naming the field, nothing written', () => {
+  it.each([
+    ['announcements POST title', announcementsRoute, 'POST', {}, { title: `${TAG} nul\u0000`, message: 'm', starts_at: '2026-11-20T08:00:00.000Z' }, /^title /],
+    ['announcements POST target_ids entry', announcementsRoute, 'POST', {}, { title: `${TAG} nul2`, message: 'm', starts_at: '2026-11-20T08:00:00.000Z', target_ids: ['a\u0000'] }, /^target_ids\.0 /],
+    ['companies POST name', companiesRoute, 'POST', {}, { name: `${TAG} nul\u0000` }, /^name /],
+    ['billing/plans POST code', plansRoute, 'POST', {}, { code: `${TAG}\u0000`, name: 'n', monthly_price_cents: 0 }, /^code /],
+    ['companies/[id] PATCH city', companyRoute, 'PATCH', { id: '__company__' }, { city: 'x\u0000' }, /^city /],
+    ['a NUL in a key', companiesRoute, 'POST', {}, { ['name\u0000']: 'x' }, /field name/],
+  ])('%s', async (_name, route, method, query, body, named) => {
+    const q = Object.fromEntries(Object.entries(query).map(([k, v]) => [k, v === '__company__' ? company : v]));
+    const before = await n('SELECT count(*)::int n FROM companies WHERE name LIKE $1', [`${TAG}%`]);
+    const announcementsBefore = await announcementCount();
+    const r = await call(route, method, q, body);
+    expect(r.status).toBe(400);
+    expect(r.body.error?.message).toMatch(named);
+    expect(r.body.error?.message).toMatch(/NUL/);
+    expect(await n('SELECT count(*)::int n FROM companies WHERE name LIKE $1', [`${TAG}%`])).toBe(before);
+    expect(await announcementCount()).toBe(announcementsBefore);
+    expect(await n('SELECT count(*)::int n FROM plans WHERE code LIKE $1', [`${TAG}%`])).toBe(0);
+    expect(await auditRows(company)).toBe(0);
   });
 });

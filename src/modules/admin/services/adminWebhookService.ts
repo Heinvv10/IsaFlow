@@ -238,9 +238,12 @@ export async function updateAdminWebhook(
   return mapWebhook(rows[0]!, lastDel[0] ?? null);
 }
 
-export async function deleteAdminWebhook(id: string): Promise<void> {
-  await sql`DELETE FROM webhook_endpoints WHERE id = ${id}::UUID`;
+/** False when no webhook has this id: nothing was deleted (the loser of two concurrent deletes finds it gone). */
+export async function deleteAdminWebhook(id: string): Promise<boolean> {
+  const rows = (await sql`DELETE FROM webhook_endpoints WHERE id = ${id}::UUID RETURNING id`) as Row[];
+  if (rows.length === 0) return false;
   log.info('Admin: deleted webhook', { id }, 'admin-webhook-service');
+  return true;
 }
 
 /**

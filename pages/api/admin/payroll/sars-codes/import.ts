@@ -95,7 +95,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // Our own temp file: failing to read it is a server fault (500), not the caller's.
     buffer = fs.readFileSync(uploaded.filepath);
   } finally {
-    try { fs.unlinkSync(uploaded.filepath); } catch { /* ignore */ }
+    try {
+      fs.unlinkSync(uploaded.filepath);
+    } catch (err) {
+      // The upload is already read (or failed to be): a temp file left behind is not the request's failure.
+      log.warn('SARS import: could not remove the uploaded temp file', { error: err instanceof Error ? err.message : String(err) }, 'admin-sars-import');
+    }
   }
 
   // Cross-validate actual file bytes against the declared MIME — XLSX is a ZIP/OOXML

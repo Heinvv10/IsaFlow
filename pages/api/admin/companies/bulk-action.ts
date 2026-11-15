@@ -14,20 +14,20 @@ import { suspendCompany } from '@/modules/admin/services/adminCompanyService';
 import { extendTrialIfExists } from '@/modules/admin/services/trialService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
-import { UUID } from '@/lib/schemas/common';
+import { adminDistinctUuids } from '@/modules/admin/middleware/adminRequestErrors';
 
 const MAX_BULK_IDS = 100;
 
 const PostBody = z.discriminatedUnion('action', [
   z.object({
     action:      z.literal('suspend'),
-    company_ids: z.array(UUID).min(1).max(MAX_BULK_IDS),
+    company_ids: adminDistinctUuids(MAX_BULK_IDS),
     // Required and trimmed: the admin types why (audit 3.7); no placeholder reason.
     reason:      z.string().trim().min(1).max(500),
   }).strict(),
   z.object({
     action:      z.literal('extend_trial'),
-    company_ids: z.array(UUID).min(1).max(MAX_BULK_IDS),
+    company_ids: adminDistinctUuids(MAX_BULK_IDS),
     days:        z.number().int().min(1).max(90),
   }).strict(),
 ]);
@@ -39,7 +39,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const bodyParsed = PostBody.safeParse(req.body);
   if (!bodyParsed.success) {
-    return apiResponse.badRequest(res, bodyParsed.error.flatten().formErrors[0] ?? 'Invalid input');
+    return apiResponse.badRequest(res, bodyParsed.error.issues[0]?.message ?? 'Invalid input');
   }
 
   const body = bodyParsed.data;
