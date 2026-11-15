@@ -121,4 +121,16 @@ describe('C2: the erasure placeholder carries the whole user id', () => {
       expect(await userRow(id)).toMatchObject({ first_name: 'Anonymized', email: `anonymized_${id}@deleted.invalid` });
     }
   });
+
+  // 999: every writer stores lower(btrim(email)); an id in another letter case must not leave a mixed-case address.
+  it('an upper-case user id: the placeholder is stored lower-cased', async () => {
+    const id = `${crypto.randomUUID().slice(0, 8)}-AAAA-4AAA-8AAA-${crypto.randomUUID().slice(-12)}`.toUpperCase();
+    twins.push(id);
+    await fixture.query(`INSERT INTO users (id, email, first_name, last_name, is_active, status)
+      VALUES ($1, $2, 'Up', 'Case', true, 'active')`, [id, `${id.toLowerCase()}@test.local`]);
+    await fixture.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'admin')`, [ids.company, id]);
+    const r = await callRoute(dsrRoute, { sub: id, method: 'POST', companyId: ids.company, body: { action: 'erasure' } });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(await userRow(id)).toMatchObject({ first_name: 'Anonymized', email: `anonymized_${id.toLowerCase()}@deleted.invalid` });
+  });
 });
