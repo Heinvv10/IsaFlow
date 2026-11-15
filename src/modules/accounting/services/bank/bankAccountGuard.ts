@@ -83,21 +83,39 @@ async function underAccountLockBudget<T>(fn: () => PromiseLike<T>): Promise<T> {
   }
 }
 
+export interface BankAccountGuardOpts {
+  /**
+   * Default true: hold the row FOR SHARE (5 s bound) to the end of the transaction — the race protection a WRITE
+   * needs. `false` for a READ-ONLY caller (round 4): the same predicate, a plain read, so a chart edit of the account
+   * never waits behind it and it never waits behind one.
+   */
+  lock?: boolean;
+}
+
+type GuardRow = {
+  id: string; account_code: string; account_name: string; account_subtype: string | null;
+  is_active: boolean | null; bank_account_number: string | null;
+};
+
 /**
  * The company's active bank account `glAccountId`, or a BankAccountGuardRefusal.
- * Writes nothing; locks the row FOR SHARE. `glAccountId` is `unknown` because a form field is unvalidated.
+ * Writes nothing; locks the row FOR SHARE unless `{ lock: false }`. `glAccountId` is `unknown` because a form field is
+ * unvalidated.
  */
-export async function assertBankAccountInCompany(companyId: string, glAccountId: unknown): Promise<GuardedBankAccount> {
+export async function assertBankAccountInCompany(
+  companyId: string, glAccountId: unknown, opts: BankAccountGuardOpts = {},
+): Promise<GuardedBankAccount> {
   if (!isUuidParam(glAccountId)) throw new BankAccountGuardRefusal('Selected bank account is not a valid id');
-  const rows = (await underAccountLockBudget(() => sql`
-    SELECT id, account_code, account_name, account_subtype, is_active, bank_account_number
-    FROM gl_accounts
-    WHERE id = ${glAccountId}::UUID AND company_id = ${companyId}::UUID
-    FOR SHARE
-  `)) as Array<{
-    id: string; account_code: string; account_name: string; account_subtype: string | null;
-    is_active: boolean | null; bank_account_number: string | null;
-  }>;
+  const rows = (opts.lock === false
+    ? await sql`
+      SELECT id, account_code, account_name, account_subtype, is_active, bank_account_number
+      FROM gl_accounts
+      WHERE id = ${glAccountId}::UUID AND company_id = ${companyId}::UUID`
+    : await underAccountLockBudget(() => sql`
+      SELECT id, account_code, account_name, account_subtype, is_active, bank_account_number
+      FROM gl_accounts
+      WHERE id = ${glAccountId}::UUID AND company_id = ${companyId}::UUID
+      FOR SHARE`)) as GuardRow[];
   const acc = rows[0];
   if (!acc) throw new BankAccountGuardRefusal(NOT_FOUND);
   const label = `${acc.account_code} ${acc.account_name}`;

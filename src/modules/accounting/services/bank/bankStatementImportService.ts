@@ -36,7 +36,7 @@ import {
   type HashableTransaction,
 } from '../../utils/bankTransactionHash';
 import type { BankFormat, ParsedBankTransaction } from '../../types/bank.types';
-import { assertBankAccountInCompany, isBankAccountGuardRefusal } from './bankAccountGuard';
+import { assertBankAccountInCompany, isBankAccountGuardRefusal, type BankAccountGuardOpts } from './bankAccountGuard';
 import { dateRangeOf } from './bankStatementDateRange';
 import type { ImportProvenance } from './importProvenance';
 
@@ -80,10 +80,12 @@ export interface AgentImportResult {
 export async function bankGlAccountBelongsToCompany(
   companyId: string,
   bankAccountId: string,
+  opts: BankAccountGuardOpts = {},
 ): Promise<boolean> {
-  // The guard's own test (round 3, WP2-1): isBankSubtype, active, the row held FOR SHARE (5 s bound) to the call's end.
+  // The guard's own test (WP2-1 r3): isBankSubtype, active, the row held FOR SHARE (5 s bound) to the call's end —
+  // or, for a read-only tool, `{ lock: false }`: the same test, no lock (r4).
   try {
-    await assertBankAccountInCompany(companyId, bankAccountId);
+    await assertBankAccountInCompany(companyId, bankAccountId, opts);
     return true;
   } catch (err) {
     if (isBankAccountGuardRefusal(err)) return false;
