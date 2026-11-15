@@ -237,13 +237,13 @@ if [ "$GROUP" = prepush ]; then
   run_step "pack-fixture-types"  bun run type-check:pack-fixtures
   run_step "paystack-export-types" bun run type-check:paystack-exports
   run_step "ci-script-types"     bun run type-check:ci-scripts
-  run_step "lint (changed files)" bun scripts/ci/prepush.ts lint
+  run_step "lint (changed files)" bun --no-env-file scripts/ci/prepush.ts lint
   run_step "raw-input-allowlist" bun scripts/ci/check-raw-input-allowlist.ts
   run_step "agent-docs"          bun run agent-docs:check
   run_step "workflow-runs-ci"    bun scripts/ci/check-workflow-runs-ci.ts
   run_step "migration-naming"    bun scripts/audit-migration-naming.ts
   run_step "check-routes"        bun run check:routes
-  run_step "unit-tests (affected)" bun scripts/ci/prepush.ts unit
+  run_step "unit-tests (affected)" bun --no-env-file scripts/ci/prepush.ts unit
 fi
 
 echo ""
