@@ -1,7 +1,8 @@
 /**
  * Fiscal Periods Tab — period management with open/close/lock/reopen actions.
  * Single Close and Lock ask first (PeriodActionConfirm); Close is not offered on
- * a period that has not started (audit P3.2).
+ * a period that has not started (audit P3.2). A close the readiness checks refuse
+ * lists the failing checks with Fix links (CloseRefusalNotice).
  */
 
 import { useState, useEffect } from 'react';
@@ -17,6 +18,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { usePeriodActions } from '@/components/accounting/fiscal-periods/usePeriodActions';
 import { PeriodActionConfirm, type PendingPeriodAction } from '@/components/accounting/fiscal-periods/PeriodActionConfirm';
+import { CloseRefusalNotice } from '@/components/accounting/fiscal-periods/CloseRefusalNotice';
 
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
@@ -41,7 +43,7 @@ export function FiscalPeriodsTab() {
     } finally { setIsLoading(false); }
   };
 
-  const { actionLoading, bulkBusy, bulkResult, setBulkResult, runBulk, runSingle } = usePeriodActions({
+  const { actionLoading, bulkBusy, bulkResult, setBulkResult, closeRefusal, setCloseRefusal, runBulk, runSingle } = usePeriodActions({
     reload: loadPeriods, showSentence: setLoadError, clearSelection: () => setChecked(new Set()),
   });
 
@@ -66,6 +68,7 @@ export function FiscalPeriodsTab() {
   return (
     <div className="space-y-4">
       {loadError && <div className="p-3 rounded-lg text-sm bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400">{loadError}</div>}
+      {closeRefusal && <CloseRefusalNotice refusal={closeRefusal} onDismiss={() => setCloseRefusal(null)} />}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <p className="text-sm text-slate-500 dark:text-slate-400">
           {periods.length} period{periods.length !== 1 ? 's' : ''} across {[...new Set(periods.map(p => p.fiscalYear))].length} year{[...new Set(periods.map(p => p.fiscalYear))].length !== 1 ? 's' : ''}

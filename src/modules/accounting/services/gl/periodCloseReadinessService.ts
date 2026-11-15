@@ -20,7 +20,8 @@
  * period, so no period-scoped query can find it — and a close asserts a period
  * is complete, which is exactly what an invisible journal defeats.
  *
- * All checks are ADVISORY — they do not block period close.
+ * This service only REPORTS. Whether a close may proceed is decided by
+ * `periodCloseGate.ts` (a fail, or a check that could not be computed, blocks).
  * Every SQL query is scoped by company_id (multi-tenant safe).
  */
 

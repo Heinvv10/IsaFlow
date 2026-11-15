@@ -14,6 +14,13 @@
  * Bulk paths process each id sequentially and return { results: [{ id, ok, error? }] }
  * so the caller can show partial-success state. We DO NOT abort on the first
  * failure — the user's expectation in the UI is "do as much as you can".
+ *
+ * Every close (close, bulk_close, close_year) goes through the readiness gate
+ * (`gl/periodCloseGate.ts`). A refused close or close_year answers 409 with
+ * `error.details = { code: 'PERIOD_CLOSE_NOT_READY', fiscalYear?, periods:
+ * [{ periodId, periodName, blockers: [{ key, label, reason, fixHref }] }] }`.
+ * A refused bulk_close period carries `code` and `periods` on its result row
+ * (the envelope stays 200: other periods in the request may have closed).
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -29,6 +36,9 @@ import {
   closeYear,
 } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { ImpersonationForbiddenError, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import {
+  PERIOD_CLOSE_NOT_READY, PeriodCloseBlockedError, YearCloseBlockedError, closeRefusalDetails, type BlockedPeriod,
+} from '@/modules/accounting/services/gl/periodCloseErrors';
 
 const CONFIRM_REQUIRED = new Set(['close', 'lock', 'bulk_close', 'bulk_lock', 'close_year']);
 
@@ -76,7 +86,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (ids.length > 60) {
         return apiResponse.badRequest(res, 'bulk action limit is 60 periods per request');
       }
-      const results: Array<{ id: string; ok: boolean; error?: string }> = [];
+      const results: Array<{ id: string; ok: boolean; error?: string; code?: string; periods?: BlockedPeriod[] }> = [];
       for (const periodId of ids) {
         try {
           await bulkOp(periodId);
@@ -84,6 +94,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         } catch (err) {
           // R-032: the session, not this period, is refused — every id would be. Answer 403.
           if (err instanceof ImpersonationForbiddenError) throw err;
+          if (err instanceof PeriodCloseBlockedError) {
+            results.push({ id: periodId, ok: false, error: err.message, code: PERIOD_CLOSE_NOT_READY, periods: err.periods });
+            continue;
+          }
           results.push({ id: periodId, ok: false, error: err instanceof Error ? err.message : 'Failed' });
         }
       }
@@ -119,6 +133,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, result);
   } catch (err) {
     if (respondIfImpersonationForbidden(res, err)) return;
+    // Written nothing: the gate refuses before the UPDATE.
+    if (err instanceof PeriodCloseBlockedError || err instanceof YearCloseBlockedError) {
+      return apiResponse.conflict(res, err.message, { ...closeRefusalDetails(err) });
+    }
     const message = err instanceof Error ? err.message : 'Failed to perform period action';
     log.error('Failed to perform period action', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

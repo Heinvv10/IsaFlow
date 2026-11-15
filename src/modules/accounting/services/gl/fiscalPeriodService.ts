@@ -11,6 +11,8 @@ import type { FiscalPeriod, FiscalPeriodStatus } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { scheduleAutoSnapshot } from '@/modules/accounting/services/audit/autoSnapshotQueue';
 import { scheduleBudgetRoll } from '@/modules/accounting/services/budgets/drivers/budgetRollQueue';
+import { assertPeriodCloseReady, assertYearCloseReady } from './periodCloseGate';
+import { isCloseRefusal } from './periodCloseErrors';
 
 type Row = DbRow;
 
@@ -143,7 +145,11 @@ export {
 export async function closePeriod(companyId: string, id: string, userId: string): Promise<FiscalPeriod> {
   await assertNotImpersonating(); // R-032: period controls are refused to a Login-as session
   try {
-    const period = await getFiscalPeriodById(companyId, id);
+    // Row-locked to the end of the transaction, so the gate's verdict and the UPDATE judge the same period.
+    const locked = (await sql`
+      SELECT * FROM fiscal_periods WHERE id = ${id} AND company_id = ${companyId} FOR NO KEY UPDATE
+    `) as Row[];
+    const period = locked[0] ? mapRow(locked[0]) : null;
     if (!period) throw new Error(`Fiscal period ${id} not found`);
     if (period.status === 'locked') throw new Error('Cannot close a locked period');
     if (period.status === 'closed') throw new Error('Period is already closed');
@@ -158,6 +164,7 @@ export async function closePeriod(companyId: string, id: string, userId: string)
     if (Number(openPrior[0]!.cnt) > 0) {
       throw new Error('Cannot close period while prior periods are still open');
     }
+    await assertPeriodCloseReady(companyId, id); // the shared readiness gate: throws PeriodCloseBlockedError
 
     const rows = (await sql`
       UPDATE fiscal_periods
@@ -170,7 +177,7 @@ export async function closePeriod(companyId: string, id: string, userId: string)
     scheduleBudgetRoll(companyId, closed.endDate); // budgets P4: re-roll the year's rolling forecast after commit
     return closed;
   } catch (err) {
-    log.error('Failed to close period', { id, error: err }, 'accounting');
+    if (!isCloseRefusal(err)) log.error('Failed to close period', { id, error: err }, 'accounting'); // a refusal is logged by the gate
     throw err;
   }
 }
@@ -219,11 +226,16 @@ export async function reopenPeriod(companyId: string, id: string): Promise<Fisca
 export async function closeYear(companyId: string, fiscalYear: number, userId: string): Promise<FiscalPeriod[]> {
   await assertNotImpersonating(); // R-032: period controls are refused to a Login-as session
   try {
-    const periods = await getFiscalPeriods(companyId, fiscalYear);
+    const periods = ((await sql`
+      SELECT * FROM fiscal_periods WHERE company_id = ${companyId} AND fiscal_year = ${fiscalYear}
+      ORDER BY period_number FOR NO KEY UPDATE
+    `) as Row[]).map(mapRow);
     if (periods.length === 0) throw new Error(`No periods found for fiscal year ${fiscalYear}`);
 
-    const allDone = periods.every(p => p.status === 'closed' || p.status === 'locked');
-    if (allDone) throw new Error(`Fiscal year ${fiscalYear} is already closed`);
+    const toClose = periods.filter(p => p.status !== 'closed' && p.status !== 'locked');
+    if (toClose.length === 0) throw new Error(`Fiscal year ${fiscalYear} is already closed`);
+    // All or nothing, like the one UPDATE below: a blocked period refuses the year, naming every one.
+    await assertYearCloseReady(companyId, fiscalYear, toClose);
 
     const rows = (await sql`
       UPDATE fiscal_periods
@@ -240,7 +252,7 @@ export async function closeYear(companyId: string, fiscalYear: number, userId: s
     for (const p of closed) scheduleBudgetRoll(companyId, p.endDate); // one roll per fiscal year
     return closed;
   } catch (err) {
-    log.error('Failed to close fiscal year', { fiscalYear, error: err }, 'accounting');
+    if (!isCloseRefusal(err)) log.error('Failed to close fiscal year', { fiscalYear, error: err }, 'accounting');
     throw err;
   }
 }

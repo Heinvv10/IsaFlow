@@ -37,6 +37,10 @@ vi.mock('@/modules/accounting/services/core/emailService', () => ({
 }));
 vi.mock('@/modules/accounting/services/core/webhookService', () => ({ fireWebhook: m.fireWebhook }));
 vi.mock('@/modules/accounting/services/budgets/drivers/budgetRollJob', () => ({ runBudgetRolls: m.runBudgetRolls }));
+// The close-readiness gate is not under test here (periodCloseGate.test.ts): it passes.
+vi.mock('@/modules/accounting/services/gl/periodCloseGate', () => ({
+  assertPeriodCloseReady: vi.fn(async () => undefined), assertYearCloseReady: vi.fn(async () => undefined),
+}));
 // The period paths queue the automatic snapshot too; its work is not under test here.
 vi.mock('@/modules/accounting/services/audit/autoSnapshot', () => ({ runAutoSnapshots: vi.fn(async () => undefined) }));
 

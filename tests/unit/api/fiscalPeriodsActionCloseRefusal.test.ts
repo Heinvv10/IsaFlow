@@ -1,0 +1,94 @@
+/**
+ * A close the readiness gate refuses is a 409 the screen can act on (Hein,
+ * 2026-11-15): `error.details.code` is PERIOD_CLOSE_NOT_READY and
+ * `error.details.periods` names each period with its failing checks (key,
+ * label, reason, fixHref). Bulk Close keeps its per-period envelope (200, some
+ * periods may have closed) and carries the same per-period blockers.
+ */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { NextApiRequest, NextApiResponse } from 'next';
+
+const svc = vi.hoisted(() => ({ closePeriod: vi.fn(), lockPeriod: vi.fn(), reopenPeriod: vi.fn(), closeYear: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => svc);
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
+vi.mock('@/lib/auth', () => ({ withAuth: (fn: unknown) => fn, withRole: () => (fn: unknown) => fn }));
+vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
+vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (fn: unknown) => fn }));
+vi.mock('@/lib/auth/impersonationGuard', () => ({
+  respondIfImpersonationForbidden: () => false, ImpersonationForbiddenError: class extends Error {},
+}));
+
+import periodsAction from '../../../pages/api/accounting/fiscal-periods-action';
+import { PeriodCloseBlockedError, YearCloseBlockedError } from '@/modules/accounting/services/gl/periodCloseErrors';
+import type { ChecklistItem } from '@/modules/accounting/services/gl/periodCloseReadinessService';
+
+const BANK: ChecklistItem = {
+  key: 'bank_reconciled', label: 'Bank reconciled', status: 'fail',
+  reason: '1 unreconciled bank transaction remains in this period.', fixHref: '/accounting/bank-transactions',
+};
+const BANK_OUT = { key: BANK.key, label: BANK.label, reason: BANK.reason, fixHref: BANK.fixHref };
+
+async function call(body: Record<string, unknown>) {
+  const out = { status: 0, body: undefined as unknown };
+  const res = {
+    status(c: number) { out.status = c; return res; },
+    json(b: unknown) { out.body = b; return res; },
+    setHeader: vi.fn(),
+  } as unknown as NextApiResponse;
+  await (periodsAction as unknown as (q: NextApiRequest, s: NextApiResponse) => Promise<void>)(
+    { method: 'POST', body: { ...body, confirm: true }, companyId: 'c1', user: { id: 'u1' } } as unknown as NextApiRequest, res);
+  return out as { status: number; body: { success: boolean; data?: unknown; error?: { message: string; details?: unknown } } };
+}
+
+beforeEach(() => { vi.clearAllMocks(); });
+
+describe('fiscal-periods-action: a refused close', () => {
+  it('single close → 409 naming the failing checks', async () => {
+    svc.closePeriod.mockRejectedValueOnce(new PeriodCloseBlockedError('January 2026', [BANK], [BANK], 'p1'));
+    const r = await call({ action: 'close', id: 'p1' });
+    expect(r.status).toBe(409);
+    expect(r.body.error!.message).toMatch(/^January 2026 cannot be closed/);
+    expect(r.body.error!.details).toEqual({
+      code: 'PERIOD_CLOSE_NOT_READY',
+      periods: [{ periodId: 'p1', periodName: 'January 2026', blockers: [BANK_OUT] }],
+    });
+  });
+
+  it('close_year → 409 naming every failing period', async () => {
+    svc.closeYear.mockRejectedValueOnce(new YearCloseBlockedError(2026, [
+      { periodId: 'p1', periodName: 'January 2026', blockers: [BANK_OUT] },
+      { periodId: 'p5', periodName: 'May 2026', blockers: [BANK_OUT] },
+    ]));
+    const r = await call({ action: 'close_year', fiscalYear: 2026 });
+    expect(r.status).toBe(409);
+    expect(r.body.error!.details).toMatchObject({
+      code: 'PERIOD_CLOSE_NOT_READY', fiscalYear: 2026,
+      periods: [{ periodId: 'p1' }, { periodId: 'p5' }],
+    });
+  });
+
+  it('bulk close → per-period results; a refused period carries its blockers, the rest close', async () => {
+    svc.closePeriod
+      .mockResolvedValueOnce({ id: 'p1' })
+      .mockRejectedValueOnce(new PeriodCloseBlockedError('February 2026', [BANK], [BANK], 'p2'))
+      .mockRejectedValueOnce(new Error('Cannot close period while prior periods are still open'));
+    const r = await call({ action: 'bulk_close', ids: ['p1', 'p2', 'p3'] });
+    expect(r.status).toBe(200);
+    expect(r.body.data).toEqual({
+      okCount: 1, total: 3,
+      results: [
+        { id: 'p1', ok: true },
+        { id: 'p2', ok: false, error: expect.stringMatching(/^February 2026 cannot be closed/), code: 'PERIOD_CLOSE_NOT_READY',
+          periods: [{ periodId: 'p2', periodName: 'February 2026', blockers: [BANK_OUT] }] },
+        { id: 'p3', ok: false, error: 'Cannot close period while prior periods are still open' },
+      ],
+    });
+  });
+
+  it('any other refusal stays a 400 with its message', async () => {
+    svc.closePeriod.mockRejectedValueOnce(new Error('Period is already closed'));
+    const r = await call({ action: 'close', id: 'p1' });
+    expect(r.status).toBe(400);
+    expect(r.body.error!.message).toBe('Period is already closed');
+  });
+});

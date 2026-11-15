@@ -70,10 +70,12 @@ export async function closeFiscalYear(
   if (!dryRun) await assertNotImpersonating();
 
   // 1. Every period must be closed. Named, not counted: "3 periods are open" is
-  //    not something a caller can act on.
+  //    not something a caller can act on. Anything not closed or locked counts
+  //    ('closing' too): lockYear below locks every period of the year, so each
+  //    one must have been closed through the readiness gate (periodCloseGate) first.
   const openRows = (await sql`
     SELECT id, period_name, period_number FROM fiscal_periods
-    WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId} AND status = 'open'
+    WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId} AND status NOT IN ('closed', 'locked')
     ORDER BY period_number
   `) as Record<string, unknown>[];
   if (openRows.length > 0) {

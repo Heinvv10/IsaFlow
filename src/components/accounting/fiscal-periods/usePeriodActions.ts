@@ -2,13 +2,16 @@
  * The fiscal-periods-action calls behind the Fiscal Periods tab, single and
  * bulk. Moved out of FiscalPeriodsTab (300-line cap). Close, lock, bulk close
  * and bulk lock send `confirm: true`: the caller only runs them after its
- * confirmation dialog (audit P3.2).
+ * confirmation dialog (audit P3.2). A close the readiness checks refuse (single
+ * 409, or bulk result rows) lands in `closeRefusal`, for CloseRefusalNotice.
  */
 
 import { useState } from 'react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { BulkAction } from '@/components/accounting/fiscal-periods/BulkConfirmModal';
+import type { BlockedPeriod } from '@/modules/accounting/services/gl/periodCloseErrors';
+import { bulkCloseRefusal, readCloseRefusal, type CloseRefusal } from './closeRefusal';
 
 export type PeriodAction = 'close' | 'lock' | 'reopen';
 export interface BulkResult { ok: number; total: number; failures: Array<{ id: string; error: string }> }
@@ -33,15 +36,18 @@ export function usePeriodActions({ reload, showSentence, clearSelection }: Deps)
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState<BulkAction | null>(null);
   const [bulkResult, setBulkResult] = useState<BulkResult | null>(null);
+  const [closeRefusal, setCloseRefusal] = useState<CloseRefusal | null>(null);
 
   const runBulk = async (action: BulkAction, ids: string[]) => {
     if (ids.length === 0) return;
-    setBulkBusy(action); setBulkResult(null);
+    setBulkBusy(action); setBulkResult(null); setCloseRefusal(null);
     try {
       const res = await post(action === 'bulk_reopen' ? { action, ids } : { action, ids, confirm: true });
       await assertOk(res, 'Could not run the bulk action - try again');
-      const json = await res.json() as { data?: { results: Array<{ id: string; ok: boolean; error?: string }>; okCount: number; total: number } };
+      type Row = { id: string; ok: boolean; error?: string; code?: string; periods?: BlockedPeriod[] };
+      const json = await res.json() as { data?: { results: Row[]; okCount: number; total: number } };
       const data = json.data!;
+      setCloseRefusal(bulkCloseRefusal(data.results));
       setBulkResult({
         ok: data.okCount,
         total: data.total,
@@ -65,9 +71,11 @@ export function usePeriodActions({ reload, showSentence, clearSelection }: Deps)
   };
 
   const runSingle = async (periodId: string, action: PeriodAction) => {
-    setActionLoading(periodId);
+    setActionLoading(periodId); setCloseRefusal(null);
     try {
       const res = await post(action === 'reopen' ? { id: periodId, action } : { id: periodId, action, confirm: true });
+      const refusal = await readCloseRefusal(res);
+      if (refusal) { setCloseRefusal(refusal); return; }
       await assertOk(res, 'Could not update the fiscal period - try again');
       await reload();
     } catch (err) {
@@ -76,5 +84,5 @@ export function usePeriodActions({ reload, showSentence, clearSelection }: Deps)
     } finally { setActionLoading(null); }
   };
 
-  return { actionLoading, bulkBusy, bulkResult, setBulkResult, runBulk, runSingle };
+  return { actionLoading, bulkBusy, bulkResult, setBulkResult, closeRefusal, setCloseRefusal, runBulk, runSingle };
 }
