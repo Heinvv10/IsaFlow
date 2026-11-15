@@ -26,8 +26,12 @@ vi.mock('@/lib/auth/liveCompanies', () => ({ isLiveCompanyForUser: vi.fn(async (
 vi.mock('@/lib/auth/migrationAdminPool', () => ({
   migrationAdminPool: () => ({
     connect: async () => ({
-      async query(text: string) {
+      async query(text: string, params: unknown[] = []) {
         h.queries.push(text);
+        // The route's canonical id (the ::uuid cast's text), and upsertInviteeProfile's
+        // case-insensitive address check (no other row holds it).
+        if (/SELECT \$1::uuid::text AS id/.test(text)) return { rows: [{ id: String(params[0]).toLowerCase() }], rowCount: 1 };
+        if (/lower\(o\.email\) = lower\(\$2\)/.test(text)) return { rows: [], rowCount: 0 };
         if (/FROM company_invitations/.test(text)) {
           return { rows: [{ id: 'inv-1', company_id: 'co-joined', email: 'invitee@example.test', role: 'viewer' }], rowCount: 1 };
         }
