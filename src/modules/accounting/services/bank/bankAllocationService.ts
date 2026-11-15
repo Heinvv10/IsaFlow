@@ -33,6 +33,7 @@ import { recordAllocationDecision } from './codingDecisionLog';
 import { planAllocationPosting } from './bankAllocationPlan';
 import { buildAllocationArm } from './bankAllocationArms';
 import { invoiceSourceDocumentOf, recordAllocationDocuments } from './bankAllocationDocuments';
+import { assertAllocationVatCode } from './bankVatCodes';
 
 export { splitAllocateTransaction } from './bankSplitAllocate';
 export { reverseReconciledTransaction } from './bankReverseReconciled';
@@ -81,6 +82,9 @@ export async function allocateTransaction(
   /** Present only for a supplier/customer line that named no document. */
   application?: AllocationApplicationResult;
 }> {
+  // WP2 row 13: a code outside none / standard / zero_rated / exempt posted the gross with no VAT, silently, on every
+  // arm. Refused from the request itself, before the lock and every write (bankVatCodes).
+  assertAllocationVatCode(vatCode, 'This allocation');
   // FOR UPDATE: hold the row for the rest of the request so a concurrent
   // allocate blocks here rather than passing the same status check and posting
   // a second journal for one transaction.

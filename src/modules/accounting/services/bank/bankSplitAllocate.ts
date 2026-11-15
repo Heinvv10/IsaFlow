@@ -24,6 +24,10 @@ import { buildSplitJournalLines, splitParts } from './bankSplitJournal';
 import { SPLIT_ALLOCATION_NAME } from './splitJournalDocuments';
 import { recordAllocationDecision } from './codingDecisionLog';
 import type { SplitLine } from './bankAllocationTypes';
+import { assertAllocationVatCode } from './bankVatCodes';
+import { toCents } from '../ap/billAllocatable';
+import { hasWholeCents } from '@/lib/money/wholeCents';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 type Row = DbRow;
 
@@ -57,9 +61,19 @@ export async function splitAllocateTransaction(
   if (!lines || lines.length === 0) throw new Error('At least one split line is required');
 
   const totalAmount = Math.abs(Number(tx.amount));
-  const linesTotal = lines.reduce((sum, l) => sum + Number(l.amount), 0);
-  if (Math.abs(linesTotal - totalAmount) > 0.01) {
-    throw new Error(`Split lines total R${linesTotal.toFixed(2)} does not equal transaction amount R${totalAmount.toFixed(2)}`);
+  // WP2 row 11: the lines must equal the line in INTEGER CENTS, exactly. The float tolerance this replaces (`> 0.01`)
+  // let R5.01 of lines through for an R5.00 line (5.01 - 5.00 is 0.00999… in IEEE-754). Row 13: a VAT code outside
+  // the known four would post the part gross, silently. Both refused from the request, before any write.
+  for (const [i, l] of lines.entries()) {
+    if (!hasWholeCents(Number(l.amount))) {
+      throw new BankAllocationRefusal(`Split line ${i + 1}: ${String(l.amount)} is not an amount in whole cents. Nothing was posted.`);
+    }
+    assertAllocationVatCode(l.vatCode, `Split line ${i + 1}`);
+  }
+  const linesCents = lines.reduce((sum, l) => sum + toCents(Number(l.amount)), 0);
+  if (linesCents !== toCents(totalAmount)) {
+    throw new BankAllocationRefusal(`Split lines total ${formatMoney(linesCents / 100)} does not equal the transaction amount `
+      + `${formatMoney(totalAmount)}. Nothing was posted.`);
   }
   // Supplier / customer lines: every refusal for them, from reads, before any write (bankSplitContacts.ts).
   const contactPlan = await planSplitContacts(companyId, tx, lines, userId);
