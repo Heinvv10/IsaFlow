@@ -15,6 +15,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from '../reports/vatSubmissionClearing';
 import { getHeadlineCounts } from '../reports/headlineFigures';
+import { UNRECONCILED_LINE_SQL } from '../bank/unreconciledLineSql';
 
 export interface WorkbenchMetrics {
   unreconciledBankTxns: number;
@@ -27,14 +28,13 @@ export interface WorkbenchMetrics {
 
 type Row = DbRow;
 
-/** Count bank_transactions not yet reconciled or matched for the company. */
+/** Count the company's unreconciled bank lines: the one definition, bank/unreconciledLineSql. */
 export async function getUnreconciledBankTxns(companyId: string): Promise<number> {
   const rows = (await sql`
     SELECT COUNT(*)::int AS cnt
-    FROM bank_transactions
-    WHERE company_id = ${companyId}::UUID
-      AND status NOT IN ('reconciled', 'matched', 'excluded')
-      AND feed_state = 'posted'
+    FROM bank_transactions bt
+    WHERE bt.company_id = ${companyId}::UUID
+      AND ${sql.unsafe(UNRECONCILED_LINE_SQL)}
   `) as Row[];
   return Number(rows[0]?.cnt ?? 0);
 }

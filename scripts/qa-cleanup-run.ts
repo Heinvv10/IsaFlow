@@ -12,7 +12,8 @@
  *
  * Deletion order respects FK constraints:
  *   company_documents → company_directors → page_visits →
- *   company_users → user_sessions → user_preferences →
+ *   company_users (by company, then the QA users' other memberships) →
+ *   user_sessions → user_preferences →
  *   companies → users
  */
 import { createSql } from './_pg';
@@ -108,6 +109,7 @@ async function main() {
     ['company_directors', 'company', await countByCompany('company_directors')],
     ['page_visits',       'company', await countByCompany('page_visits')],
     ['company_users',     'company', await countByCompany('company_users')],
+    ['company_users',     'user',    await countByUser('company_users', userIds)],
     ['user_sessions',     'user',    await countByUser('user_sessions', userIds)],
     ['user_preferences',  'user',    await countByUser('user_preferences', userIds)],
   ];
@@ -137,6 +139,10 @@ async function main() {
   console.log(`  company_users          deleted ${d4}`);
 
   if (userIds.length > 0) {
+    // The QA users' memberships in any other company: company_users_user_id_fkey (996/997)
+    // refuses the users DELETE below while one still names them.
+    const d4b = await deleteByUser('company_users', userIds);
+    console.log(`  company_users (by user) deleted ${d4b}`);
     const d5 = await deleteByUser('user_sessions', userIds);
     console.log(`  user_sessions          deleted ${d5}`);
     const d6 = await deleteByUser('user_preferences', userIds);

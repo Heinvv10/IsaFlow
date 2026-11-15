@@ -16,6 +16,7 @@ import { isLiveCompanyForUser } from '@/lib/auth/liveCompanies';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import { maskInviteEmail } from '@/lib/auth/maskInviteEmail';
+import { EMAIL_IN_USE_MESSAGE, upsertInviteeProfile } from '@/lib/auth/inviteeProfile';
 type Row = Record<string, unknown>;
 
 /**
@@ -89,7 +90,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   // membership write (migration 916); the app pools must not be able to make
   // it from a request (S-07b).
   const tokenHash = hashInviteToken(token);
-  const userId = authReq.user.id;
+  // One canonical id for every write and read below (brk-1440 L1): the membership took
+  // the ::UUID cast's canonical text while the users row took the raw sub, so a sub in
+  // another spelling wrote a users row the membership did not name, and the FK refused
+  // the COMMIT. Set from the cast once the transaction is open; a sub that is no UUID
+  // fails it (22P02, a 500), as the membership cast did before.
+  let userId = authReq.user.id;
   const client = await migrationAdminPool().connect();
   let opened = false;
   let unusable = false;
@@ -97,6 +103,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   try {
     opened = true; // before BEGIN (R-176): a BEGIN that reached the server but failed is rolled back too
     await client.query('BEGIN');
+    userId = (await client.query<{ id: string }>('SELECT $1::uuid::text AS id', [userId])).rows[0]!.id;
     const rows = (await client.query(
       `SELECT id, company_id, email, role
          FROM company_invitations
@@ -138,6 +145,24 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
          WHERE public.company_member_role_is_owner(company_users.role) IS NOT TRUE`,
       [inv.company_id, userId, inv.role],
     );
+
+    // The profile row, after the membership (lock order), in this transaction: a signed-in
+    // user may have no users row yet (signed up, never provisioned), and
+    // company_users_user_id_fkey (996/997) refuses the membership at COMMIT without one.
+    // Shared with /api/invitations/[token]/accept (inviteeProfile.ts).
+    const profile = await upsertInviteeProfile(client, {
+      userId, email: inv.email as string, firstName: null, lastName: null,
+    });
+    if (profile === 'email_in_use') {
+      // 23505 aborted the transaction: roll back first. The membership INSERT above goes with it.
+      unusable = await rollbackFailed(client, 'invite accept');
+      opened = false;
+      log.error('invite accept blocked: email already held by another user row', {
+        inviteId: inv.id,
+        companyId: inv.company_id,
+      }, 'invite');
+      return apiResponse.conflict(res, EMAIL_IN_USE_MESSAGE);
+    }
 
     // Mark invitation accepted
     await client.query(`UPDATE company_invitations SET accepted_at = NOW() WHERE id = $1::UUID`, [inv.id]);

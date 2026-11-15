@@ -18,6 +18,7 @@ import {
   getReconciliationById,
   startReconciliation,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { assertBankAccountInCompany, isBankAccountGuardRefusal } from '@/modules/accounting/services/bank/bankAccountGuard';
 
 const StartReconSchema = z.object({
   bankAccountId: UUID,
@@ -59,6 +60,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const { bankAccountId, statementDate, statementBalance } = parsed.data;
       // User identity comes from JWT (req.user), never from client request body
       const userId = req.user.id;
+      // An active bank account of this company, before the session is written (audit 2026-11-15 WP2-1: any id was taken).
+      await assertBankAccountInCompany(companyId, bankAccountId);
 
       const recon = await startReconciliation(
         companyId, bankAccountId, statementDate, statementBalance, userId,
@@ -66,6 +69,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.created(res, recon);
     } catch (err) {
       if (respondIfLockTimeout(res, err)) return;
+      if (isBankAccountGuardRefusal(err)) return apiResponse.badRequest(res, err.message);
       const message = err instanceof Error ? err.message : 'Failed to start reconciliation';
       log.error('Failed to start reconciliation', { error: err }, 'accounting-api');
       return apiResponse.badRequest(res, message);

@@ -22,6 +22,7 @@ import {
 import { cancelReconciliation } from '@/modules/accounting/services/bank/bankReconciliationCancelService';
 import { reopenReconciliation } from '@/modules/accounting/services/bank/bankReconciliationReopenService';
 import { isReconciliationReviewRequired } from '@/modules/accounting/services/bank/reconciliationReviewGate';
+import { isReconciliationNotBalanced } from '@/modules/accounting/services/bank/reconciliationBalanced';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 
 const ActionSchema = z.discriminatedUnion('action', [
@@ -79,7 +80,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (respondIfApprovalRequired(res, err)) return; // R-035 PR6 H1: an adjustment a manual-journal rule holds, pre-write
     const message = err instanceof Error ? err.message : 'Action failed';
     // Mig 980: an unreviewed line is an expected refusal, not a fault — kept out of the error tracker.
-    if (isReconciliationReviewRequired(err)) return apiResponse.badRequest(res, message);
+    if (isReconciliationReviewRequired(err) || isReconciliationNotBalanced(err)) return apiResponse.badRequest(res, message);
     log.error('Bank reconciliation action failed', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);
   }

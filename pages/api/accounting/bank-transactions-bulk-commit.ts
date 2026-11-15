@@ -59,7 +59,7 @@ import { log } from '@/lib/logger';
 import { runAfterCommit } from '@/lib/afterCommit';
 import { sql, withSavepoint } from '@/lib/neon';
 import { importParsedTransactions, uploadProvenance } from '@/modules/accounting/services/bank/bankImportService';
-import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
+import { assertBankAccountInCompany, isBankAccountGuardRefusal } from '@/modules/accounting/services/bank/bankAccountGuard';
 import { applyRules as applyBankRulesService } from '@/modules/accounting/services/bank/bankRulesService';
 import {
   parseStatement,
@@ -114,20 +114,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.tooManyRequests(res);
   }
 
-  // 1. Verify the chosen bank account belongs to this company.
-  const accountRows = (await sql`
-    SELECT bank_account_number
-    FROM gl_accounts
-    WHERE id = ${bankAccountId}
-      AND company_id = ${companyId}
-      AND account_subtype = ANY(${BANK_SUBTYPES as string[]})
-      AND is_active = true
-    LIMIT 1
-  `) as Array<{ bank_account_number: string | null }>;
-  if (accountRows.length === 0) {
-    return apiResponse.badRequest(res, 'Selected bank account not found for this company');
+  // 1. The chosen bank account: an active bank account of this company (bank/bankAccountGuard).
+  let storedAccountNumber: string | null;
+  try {
+    storedAccountNumber = (await assertBankAccountInCompany(companyId, bankAccountId)).bankAccountNumber;
+  } catch (err) {
+    if (isBankAccountGuardRefusal(err)) return apiResponse.badRequest(res, err.message);
+    throw err;
   }
-  const storedAccountNumber = accountRows[0]?.bank_account_number ?? null;
 
   const resolvedFileType: StatementFileType = fileType ?? (pdfBase64 ? 'pdf' : 'csv');
 

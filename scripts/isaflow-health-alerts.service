@@ -1,0 +1,28 @@
+[Unit]
+Description=IsaFlow — admin health alerts (admin audit OP-1)
+After=network-online.target isaflow.service
+Wants=network-online.target
+
+# Takes the /admin/health snapshot and runs its email/webhook alert check, so the
+# alerts no longer need the page open. A failed snapshot answers 500, sends nothing,
+# and curl --fail marks the run failed. The X-Cron-Secret header reaches curl on
+# stdin (-H @-), never its argv, which /proc/<pid>/cmdline shows every local account
+# (scripts/isaflow-management-packs.service).
+[Service]
+Type=oneshot
+User=velo
+Group=velo
+EnvironmentFile=/home/velo/isaflow/.env.local
+ExecStart=/bin/sh -c 'printf "X-Cron-Secret: %%s\\n" "$$CRON_SECRET" | exec /usr/bin/curl --silent --show-error --fail \
+  --max-time 120 \
+  -X POST \
+  -H @- \
+  -H "Content-Type: application/json" \
+  http://127.0.0.1:3101/api/cron/health-alerts'
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isaflow-health-alerts
+
+NoNewPrivileges=true
+ProtectSystem=strict

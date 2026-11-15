@@ -126,6 +126,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/bank/bankMatchDbQueries.ts': "exempt: writer (Task 3) plan-phase reads; matched_journal_line_id exclusion cannot carry it on a non-posted row (trigger 675)",
   'src/modules/accounting/services/bank/bankReconciliationCancelService.ts': "exempt: non-posted rows cannot carry reconciliation_id (trigger 675)",
   'src/modules/accounting/services/bank/bankReconciliationClaim.ts': 'filtered',
+  'src/modules/accounting/services/bank/bankReconciliationCommit.ts': "filtered (feed_state = 'posted' on the unreviewed gate and the reconcile UPDATE)",
   'src/modules/accounting/services/bank/bankReconciliationReopenService.ts': "exempt: dry-run count of rows by reconciliation_id + status 'reconciled'; non-posted rows cannot carry reconciliation_id (trigger 675)",
   'src/modules/accounting/services/bank/bankReconciliationService.ts': 'filtered',
   'src/modules/accounting/services/bank/bankRulesMatchingHelpers.ts': 'exempt: writer (Task 3)',

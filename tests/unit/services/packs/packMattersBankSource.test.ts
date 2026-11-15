@@ -18,7 +18,7 @@ const { sqlSpy, agingSpy } = vi.hoisted(() => ({ sqlSpy: vi.fn(), agingSpy: vi.f
 
 vi.mock('@/lib/neon', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
-  sql: sqlSpy,
+  sql: Object.assign(sqlSpy, { unsafe: (s: string) => s }),
 }));
 vi.mock('@/modules/accounting/services/reports/agingReportService', () => ({
   getAgingReport: agingSpy,
