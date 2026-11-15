@@ -69,12 +69,14 @@ export interface DateFieldProps {
   getToday?: () => Date;
   className?: string;
   onBlur?: React.FocusEventHandler<HTMLInputElement>;
+  /** Inside a dialog using useFocusTrap: while the box holds text, Escape is the field's, so the draft is not closed away. */
+  keepsEscape?: boolean;
 }
 
 export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(function DateField(
   {
     label, value, onChange, id, name, minDate, maxDate, anchorDate, minMessage, maxMessage, error: externalError, helperText, help, resetKey,
-    placeholder = 'dd MMM yyyy', required, disabled, getToday, className, onBlur,
+    placeholder = 'dd MMM yyyy', required, disabled, getToday, className, onBlur, keepsEscape,
   },
   ref,
 ) {
@@ -122,6 +124,7 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
         value={field.text}
         placeholder={placeholder}
         disabled={disabled}
+        data-keeps-escape={keepsEscape && field.text !== '' ? 'true' : undefined}
         aria-required={required || undefined}
         aria-invalid={Boolean(error)}
         aria-describedby={describedBy(inputId, frame)}
