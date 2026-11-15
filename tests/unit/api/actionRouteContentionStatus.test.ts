@@ -32,6 +32,7 @@ vi.mock('@/lib/auth', () => ({
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: (_n: string, fn: () => unknown) => fn() }));
+vi.mock('@/modules/accounting/services/bank/bankAccountGuard', async () => (await import('../helpers/bankControlGateMocks')).bankAccountGuardOpen());
 vi.mock('@/modules/accounting/services/bank/bankReconciliationService', () => ({
   matchTransaction: vi.fn(),
   unmatchTransaction: vi.fn(),

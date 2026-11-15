@@ -47,7 +47,9 @@ import {
 } from '@/modules/accounting/utils/bankTransactionHash';
 import { compareBankAccountNumbers } from '@/modules/accounting/utils/bankAccountNumberMatch';
 import type { BankCsvParseResult } from '@/modules/accounting/types/bank.types';
-import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
+import {
+  assertBankAccountInCompany, isBankAccountGuardRefusal, type GuardedBankAccount,
+} from '@/modules/accounting/services/bank/bankAccountGuard';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '30mb' } },
@@ -91,20 +93,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // 1. Verify the chosen bank account exists in this company and grab
   //    its stored account number for the per-file match check.
-  const accountRows = (await sql`
-    SELECT id, account_name, bank_account_number
-    FROM gl_accounts
-    WHERE id = ${bankAccountId}
-      AND company_id = ${companyId}
-      AND account_subtype = ANY(${BANK_SUBTYPES as string[]})
-      AND is_active = true
-    LIMIT 1
-  `) as Array<{ id: string; account_name: string; bank_account_number: string | null }>;
-  if (accountRows.length === 0) {
-    return apiResponse.badRequest(res, 'Selected bank account not found for this company');
+  //    (bank/bankAccountGuard: an active bank account of this company).
+  let account: GuardedBankAccount;
+  try {
+    account = await assertBankAccountInCompany(companyId, bankAccountId);
+  } catch (err) {
+    if (isBankAccountGuardRefusal(err)) return apiResponse.badRequest(res, err.message);
+    throw err;
   }
-  const storedAccountNumber = accountRows[0]!.bank_account_number;
-  const accountName = accountRows[0]!.account_name;
+  const storedAccountNumber = account.bankAccountNumber;
+  const accountName = account.accountName;
 
   // 2. Parse the file. Parser failures are returned as a parse_error
   //    row rather than a 4xx so the UI can render the row with an
