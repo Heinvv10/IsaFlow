@@ -12,7 +12,8 @@
  *   - DELETE user vs reset-onboarding, vs remove-from-company, vs an invitation accept of an existing member (its SQL
  *     replayed statement for statement from pages/api/invitations/[token]/accept.ts, on its own connection).
  *   - E1: DELETE user vs add-to-company leaves no membership of a deleted user (company_users.user_id has no foreign
- *     key to users): add holds the user FOR KEY SHARE, so the DELETE FROM users waits for it, then sweeps.
+ *     key to users): add holds the user FOR KEY SHARE, so the DELETE FROM users waits for it, then sweeps. The add's
+ *     commit is held until the delete answers, which forces the orphan whenever either half is missing.
  *   - E2: add-to-company for a user that does not exist is a 404 with no row and no audit row.
  * Tokens are aal2. Disposable fixture only.
  */
@@ -30,6 +31,8 @@ const LOCKING = /^(DELETE FROM|UPDATE|INSERT INTO)\s+(public\.)?(company_users|u
 
 const probe = vi.hoisted(() => ({
   barrier: null as null | { need: number; arrived: number; open: () => void; opened: Promise<void> },
+  /** Holds add-to-company's audit INSERT (so its commit) until this settles, or 2.5 s pass. */
+  holdAdd: null as null | Promise<unknown>,
 }));
 /** Wait at the barrier (after a first lock) until `need` requests arrived, or 1.5 s passed. */
 async function arrive() {
@@ -44,6 +47,9 @@ vi.mock('@/lib/neon', async (orig) => {
   const real = await orig<Record<string, unknown>>();
   const realSql = real.sql as (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>;
   const sql = Object.assign(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    if (probe.holdAdd && values.includes('user.add_to_company')) {
+      await Promise.race([probe.holdAdd, new Promise((resolve) => setTimeout(resolve, 2500))]);
+    }
     const result = await realSql(strings, ...values);
     const b = probe.barrier;
     if (b && b.arrived < b.need && LOCKING.test(strings.join('?').trim())) await arrive();
@@ -124,6 +130,7 @@ beforeAll(async () => {
 }, 60000);
 beforeEach(async () => {
   probe.barrier = null;
+  probe.holdAdd = null;
   await pool.query("DELETE FROM rate_limit_counters WHERE key = 'admin:127.0.0.79'");
 });
 afterAll(async () => {
@@ -177,8 +184,13 @@ describe('E1 / E2: add-to-company and DELETE user', () => {
   it.each([1, 2, 3])('racing: no membership outlives the deleted user, run %i', async () => {
     const u = await member();
     setBarrier();
+    // The add is held before its commit until the delete has answered: without the KEY SHARE the delete finishes
+    // (its sweep cannot see the uncommitted membership) and the add then commits an orphan. With it, the delete's
+    // DELETE FROM users waits for the add, so the hold times out, the add commits, and the sweep removes the row.
+    const deleting = call(userRoute, 'DELETE', { id: u });
+    probe.holdAdd = deleting.catch(() => undefined);
     const [del, add] = await Promise.all([
-      call(userRoute, 'DELETE', { id: u }),
+      deleting,
       call(addToCompanyRoute, 'POST', { id: u }, { company_id: company2, role: 'viewer' }),
     ]);
     no5xx([del, add]);
