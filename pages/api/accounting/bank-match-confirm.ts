@@ -165,7 +165,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       ));
       if (outcome === JOURNAL_DATE_REFUSED) return;
       if (!outcome.ok) {
-        if (outcome.kind === 'not_found') return apiResponse.notFound(res, 'Purchase order', candidateId);
+        if (outcome.kind === 'not_found') {
+          return apiResponse.notFound(res, outcome.resource,
+            outcome.resource === 'Bank transaction' ? bankTransactionId : candidateId);
+        }
         return apiResponse.badRequest(res, outcome.message);
       }
 

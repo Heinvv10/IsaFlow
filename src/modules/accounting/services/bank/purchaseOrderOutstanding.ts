@@ -6,7 +6,9 @@
  * A purchase order has no paid-to-date column. The statement lines confirmed against it are the record: each carries
  * `bank_transactions.linked_po_id`, set only by the confirm after `allocateTransaction` (so only on a posted feed row),
  * and cleared by the Reverse (`resetBankLine`) and the auto-post undo. Outstanding = `total` less the absolute amount of
- * every such line still `allocated`/`reconciled`.
+ * every such line that still PAYS the order: `allocated`/`reconciled` AS A SUPPLIER PAYMENT. A line re-pointed elsewhere
+ * (`reallocate_bank_transaction` to an account) may still carry the link; it no longer pays the order, so it is not
+ * counted (PR #1458 round 2 — defence in depth beside clearing the link at the re-allocation).
  */
 import { sql } from '@/lib/neon';
 
@@ -23,7 +25,7 @@ export const PAYABLE_PO_STATUSES: readonly string[] = ['approved', 'partially_re
 export function purchaseOrderOutstandingSql(excludeBankTxId: string | null) {
   return sql.unsafe(
     `(COALESCE(po.total, 0) - COALESCE((SELECT SUM(ABS(b.amount)) FROM bank_transactions b
-        WHERE b.company_id = po.company_id AND b.linked_po_id = po.id
+        WHERE b.company_id = po.company_id AND b.linked_po_id = po.id AND b.allocation_type = 'supplier'
           AND b.status IN ('allocated', 'reconciled') AND b.id IS DISTINCT FROM $1::UUID), 0))`,
     [excludeBankTxId],
   );

@@ -25,10 +25,12 @@ import { toCents } from '../ap/billAllocatable';
 import { allocateTransaction } from './bankAllocationService';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { refuseLineOfCompletedReconciliation } from './reconciledCash';
+import { assertPostedForAllocation } from './bankFeedStateGuard';
+import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { PAYABLE_PO_STATUSES, purchaseOrderOutstandingSql } from './purchaseOrderOutstanding';
 
 export type ConfirmPurchaseOrderMatchOutcome =
-  | { ok: false; kind: 'not_found' }
+  | { ok: false; kind: 'not_found'; resource: 'Bank transaction' | 'Purchase order' }
   | { ok: false; kind: 'refused'; message: string }
   | { ok: true };
 
@@ -39,14 +41,22 @@ export type ConfirmPurchaseOrderMatchOutcome =
 export async function confirmPurchaseOrderMatch(
   companyId: string, bankTransactionId: string, purchaseOrderId: string, userId: string, paymentAmount: number,
 ): Promise<ConfirmPurchaseOrderMatchOutcome> {
-  // Bank line first. A line in a completed reconciliation is the shared 409, before anything.
-  await refuseLineOfCompletedReconciliation(companyId, await lockBankTransactionForUpdate(companyId, bankTransactionId));
+  // Bank line first, and every refusal `allocateTransaction` would raise from it, BEFORE the order is read: the
+  // line's own state (missing, pending at the bank, completed reconciliation, provisional or already allocated) is the
+  // accurate refusal, not "over the order". Same checks, same order, same classes as allocateTransaction's.
+  const line = await lockBankTransactionForUpdate(companyId, bankTransactionId);
+  if (!line) return { ok: false, kind: 'not_found', resource: 'Bank transaction' };
+  assertPostedForAllocation(line, bankTransactionId, 'allocate'); // 409 at the route
+  await refuseLineOfCompletedReconciliation(companyId, line); // D12: the shared 409
+  if (line.status !== 'imported') {
+    throw new BankAllocationRefusal(`Transaction already ${String(line.status)} — cannot allocate`); // 400
+  }
 
   const [po] = await withRowLockBudget(async () => (await sql`
     SELECT id, supplier_id, status, total FROM purchase_orders
     WHERE id = ${purchaseOrderId}::UUID AND company_id = ${companyId}::UUID
     FOR UPDATE`) as Record<string, unknown>[], () => new RowLockTimeoutError('This purchase order'));
-  if (!po) return { ok: false, kind: 'not_found' };
+  if (!po) return { ok: false, kind: 'not_found', resource: 'Purchase order' };
 
   const status = String(po.status);
   if (!PAYABLE_PO_STATUSES.includes(status)) {

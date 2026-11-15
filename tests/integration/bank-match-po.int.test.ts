@@ -15,7 +15,8 @@ import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser } from './r035-approval.helpers';
 import { actionRoute, asToken, bankCompany, cleanupBankControlsA, refusalOf, type BankCompany } from './bank-controls-a.helpers';
-import { confirmRoute, linkOf, plantBankLine, UNTOUCHED, writesOf } from './bank-match-targets.helpers';
+import { confirmRoute, linkOf, plantBankLine, plantJe, UNTOUCHED, writesOf } from './bank-match-targets.helpers';
+import { confirmPurchaseOrderMatch } from '../../src/modules/accounting/services/bank/confirmPurchaseOrderMatch';
 import { fetchPurchaseOrderCandidates } from '../../src/modules/accounting/services/bank/bankMatchDbQueries';
 
 assertDisposable();
@@ -132,5 +133,59 @@ describe('the PO picker offers what the confirm accepts, at what is outstanding'
     // What it offers, the confirm takes: the R200 left on the part-paid order.
     const rest = await plantBankLine(pool, f.c, f.bank, -200);
     expect((await matchPo(f, rest, part)).state.statusCode).toBe(200);
+  });
+});
+
+describe('round 2: what counts against the order, and which refusal wins', () => {
+  it('a line still linked to the order but no longer a supplier payment (reallocated) does not use up the order', async () => {
+    const f = await bankCompany(pool, [[a, 'admin']], companies);
+    const po = await plantPo(f, 500);
+    // What reallocate_bank_transaction leaves today: reconciled, re-pointed to an account, the PO link not cleared.
+    await pool.query(
+      `INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description, status,
+         allocation_type, linked_po_id)
+       VALUES($1,$2,DATE '2026-09-01',-400,'MT reallocated','reconciled','account',$3)`, [f.c, f.bank, po]);
+    const offered = await asToken(pool, a, f.c, () => fetchPurchaseOrderCandidates(f.c, 500, -500, '2026-09-01', '', '', []));
+    expect(offered.find((x) => x.id === po)?.amount).toBe(500);
+    const line = await plantBankLine(pool, f.c, f.bank, -500);
+    const res = await matchPo(f, line, po);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+  });
+
+  it('a pending feed line is refused as pending (409), not as over the order, nothing written', async () => {
+    const f = await bankCompany(pool, [[a, 'admin']], companies);
+    const po = await plantPo(f, 100);
+    const conn = (await pool.query(
+      `INSERT INTO bank_feed_connections(company_id, bank_account_id, provider, status) VALUES($1,$2,'extension','active') RETURNING id`,
+      [f.c, f.bank])).rows[0].id as string;
+    const line = (await pool.query(
+      `INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description,
+         bank_feed_connection_id, provider_transaction_id, feed_state)
+       VALUES($1,$2,DATE '2026-09-01',-500,'MT pending',$3,$4,'pending') RETURNING id`,
+      [f.c, f.bank, conn, `pend-${crypto.randomUUID()}`])).rows[0].id as string;
+    const before = await writesOf(pool, f);
+    const res = refusalOf(await matchPo(f, line, po));
+    expect({ status: res.status, writes: await writesOf(pool, f) }).toEqual({ status: 409, writes: before });
+    expect(res.message).toMatch(/pending/i);
+  });
+
+  it('a provisional line is refused as provisional, not as over the order, nothing written', async () => {
+    const f = await bankCompany(pool, [[a, 'admin']], companies);
+    const po = await plantPo(f, 100);
+    const line = await plantBankLine(pool, f.c, f.bank, -500);
+    const pj = (await plantJe(pool, f.c, a, [[f.expA, 500, 0], [f.bank, 0, 500]])).je;
+    await pool.query("UPDATE bank_transactions SET status = 'provisional', provisional_je_id = $2 WHERE id = $1", [line, pj]);
+    const before = await writesOf(pool, f);
+    const res = refusalOf(await matchPo(f, line, po));
+    expect({ status: res.status, writes: await writesOf(pool, f) }).toEqual({ status: 400, writes: before });
+    expect(res.message).toMatch(/provisional/i);
+    expect(res.message).not.toMatch(/outstanding/i);
+  });
+
+  it('a bank line that is not there is not_found, before the order is read', async () => {
+    const f = await bankCompany(pool, [[a, 'admin']], companies);
+    const po = await plantPo(f, 500);
+    const out = await asToken(pool, a, f.c, () => confirmPurchaseOrderMatch(f.c, crypto.randomUUID(), po, a, 100));
+    expect(out).toEqual({ ok: false, kind: 'not_found', resource: 'Bank transaction' });
   });
 });
