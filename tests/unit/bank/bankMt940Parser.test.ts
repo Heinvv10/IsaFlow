@@ -5,6 +5,7 @@
 // Output conforms to BankCsvParseResult, same as the OFX/CSV/QIF parsers.
 import { describe, it, expect } from 'vitest';
 import { parseMt940Statement } from '@/modules/accounting/utils/bankMt940Parser';
+import { deriveStatementBalances } from '@/modules/accounting/services/bank/bankStatementBalances';
 
 const SAMPLE = [
   ':20:STMT260131',
@@ -145,6 +146,23 @@ describe('parseMt940Statement', () => {
     const r = parseMt940Statement([':25:9999', ':60F:C260101ZAR1,00', ':61:260101C100,00NTRFa//1', ':86:x', ':62F:C2601ZAR101,00'].join('\n'));
     expect(r.closingBalance).toBeUndefined();
     expect(r.balancesUnverifiable).toMatch(/:62F:/);
+  });
+
+  it(':62M: only (no final :62F:): no closing balance, and the statement is unverified (round 3)', () => {
+    const r = parseMt940Statement([':20:S1', ':25:1111', ':60F:C260101ZAR100,00', ':61:260102C10,00NTRFa//1', ':86:a',
+      ':62M:C260102ZAR110,00'].join('\n'));
+    expect(r.openingBalance).toBe(100);
+    expect(r.closingBalance).toBeUndefined();
+    expect(deriveStatementBalances(r)).toMatchObject({ source: 'unverified', openingCents: null, closingCents: null });
+  });
+
+  it('a truncated last statement whose lines do not net to zero: unverified (round 3)', () => {
+    // S1 opens 100, +10, closes 110; S2 opens 110 and its +5 line is there but its :62F: is cut off. The last :62F: is
+    // S1's 110, and 100 + 10 + 5 is not 110.
+    const r = parseMt940Statement([':20:S1', ':25:1111', ':60F:C260101ZAR100,00', ':61:260102C10,00NTRFa//1', ':86:a',
+      ':62F:C260102ZAR110,00', ':20:S2', ':25:1111', ':60F:C260102ZAR110,00', ':61:260103C5,00NTRFb//2', ':86:b'].join('\n'));
+    expect(r.balancesUnverifiable).toBeUndefined();
+    expect(deriveStatementBalances(r)).toMatchObject({ source: 'unverified', openingCents: null, closingCents: null });
   });
 
   it('does not throw on empty or non-MT940 input', () => {

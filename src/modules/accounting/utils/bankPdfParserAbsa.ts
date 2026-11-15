@@ -7,6 +7,7 @@ import { log } from '@/lib/logger';
 import type { BankCsvParseResult } from '../types/bank.types';
 import { extractAccountNumber } from './bankPdfParserUtils';
 import { ignoreContinuation, isPageBoundary } from './bankPdfParserAbsaContinuation';
+import { looksLikeAbsaTextRow, noteUnreadRow, sameCents } from './bankPdfRowCensus';
 
 // Month name lookup for ABSA PDF date parsing ("15 Jan 2026")
 const MONTH_MAP: Record<string, string> = {
@@ -95,6 +96,8 @@ export function parseAbsaSlashDateLines(text: string): BankCsvParseResult {
         prevBalance = signed(cleanNum(m1[2]!), m1[3]!);
         // The first one, before any row, is where the statement opened.
         if (result.transactions.length === 0 && result.openingBalance === undefined) result.openingBalance = prevBalance;
+      } else if (!(m1 && prevBalance !== null && sameCents(signed(cleanNum(m1[2]!), m1[3]!), prevBalance))) {
+        noteUnreadRow(result, lineNum, rest!); // a dated line with an amount, not read; one repeating the balance is no movement
       }
       continue;
     }
@@ -150,7 +153,7 @@ export function parseAbsaTextLines(text: string): BankCsvParseResult {
     if (!line) continue;
 
     const match = line.match(linePattern);
-    if (!match) continue;
+    if (!match) { if (looksLikeAbsaTextRow(line)) noteUnreadRow(result, lineNum, line); continue; }
 
     const [, day, mon, year, desc, amountRaw, balanceRaw] = match;
 
@@ -231,7 +234,10 @@ export function parseAbsaInvestmentLines(text: string): BankCsvParseResult {
     }
 
     const amts = [...rest!.matchAll(saAmtPat)];
-    if (amts.length < 2) continue;
+    if (amts.length < 2) {
+      if (amts.length === 1 && !(prevBalance !== null && sameCents(parseSAAmount(amts[0]![1]!), prevBalance))) noteUnreadRow(result, i + 1, rest!);
+      continue;
+    }
 
     const txMatch = amts[amts.length - 2]!;
     const balMatch = amts[amts.length - 1]!;

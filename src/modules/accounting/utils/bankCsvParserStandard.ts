@@ -5,7 +5,7 @@
  */
 
 import type { BankCsvParseResult } from '../types/bank.types';
-import { parseCsvLines, parseAmount, normalizeDate, readBalanceCell } from './bankCsvParserUtils';
+import { parseCsvLines, parseAmount, normalizeDate, readBalanceCell, isNoiseRow } from './bankCsvParserUtils';
 
 // ── Standard Bank ─────────────────────────────────────────────────────────────
 // Columns: Date, Description, Debit, Credit, Balance
@@ -23,6 +23,7 @@ export function parseStandardBankStatement(csv: string): BankCsvParseResult {
 
   for (let i = 1; i < lines.length; i++) {
     const fields = lines[i]!;
+    if (isNoiseRow(fields)) continue; // a blank line or a Total row
     if (fields.length < 4) {
       result.errors.push({ row: i + 1, error: 'Insufficient columns' });
       continue;
@@ -76,6 +77,7 @@ export function parseNedbankStatement(csv: string): BankCsvParseResult {
 
   for (let i = 1; i < lines.length; i++) {
     const fields = lines[i]!;
+    if (isNoiseRow(fields)) continue; // a blank line or a Total row
     if (fields.length < 5) {
       result.errors.push({ row: i + 1, error: 'Insufficient columns' });
       continue;
@@ -128,7 +130,7 @@ export function parseCapitecStatement(csv: string): BankCsvParseResult {
 
   for (let i = 1; i < lines.length; i++) {
     const fields = lines[i]!;
-    if (fields.every(f => f === '')) continue;
+    if (isNoiseRow(fields)) continue; // a blank line or a Total row
     if (fields.length < 4) {
       result.errors.push({ row: i + 1, error: 'Insufficient columns' });
       continue;

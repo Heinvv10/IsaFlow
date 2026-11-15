@@ -6,7 +6,7 @@
  */
 
 import type { BankCsvParseResult } from '../types/bank.types';
-import { parseCsvLines, parseAmount, normalizeDate, readBalanceCell } from './bankCsvParserUtils';
+import { parseCsvLines, parseAmount, normalizeDate, readBalanceCell, isNoiseRow } from './bankCsvParserUtils';
 
 export function parseFNBStatement(csv: string): BankCsvParseResult {
   const result: BankCsvParseResult = {
@@ -20,6 +20,7 @@ export function parseFNBStatement(csv: string): BankCsvParseResult {
 
   for (let i = 1; i < lines.length; i++) {
     const fields = lines[i]!;
+    if (isNoiseRow(fields)) continue; // a blank line or a Total row
     if (fields.length < 3) {
       result.errors.push({ row: i + 1, error: 'Insufficient columns' });
       continue;
