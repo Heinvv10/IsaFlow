@@ -174,6 +174,9 @@ export async function removeOrphanMembership(
   // orphan; the caller then takes the normal path (and audits without orphan:true).
   const user = await sql`SELECT 1 FROM users WHERE lower(id) = lower(${userId}) LIMIT 1`;
   if (user.length > 0) return 'user_exists';
+  // The member writers' lock order (payRunApproverGuard.ts header): rows, then the company's owner lock, then the
+  // approver lock. Taking the approver lock first deadlocked against a concurrent owner removal (review #1405 round 8).
+  if (isOwner(rows[0]!.role)) await assertAnotherOwner(userId, companyId);
   await assertKeepsPayRunApprover(companyId, userId, null);
   await lastOwnerGuarded(sql`DELETE FROM company_users WHERE user_id = ${userId} AND company_id = ${companyId}::uuid`);
   log.info('removeOrphanMembership', { userId, companyId, previousRole: rows[0]!.role }, 'AdminCompanyMembership');
