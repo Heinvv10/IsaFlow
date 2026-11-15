@@ -114,7 +114,8 @@ export async function addUserToCompany(userId: string, companyId: string, role: 
   assertGrantable(role);
   // The user must exist (breaker #1405 round 4, E2: a missing id got a membership, a 200 and an audit row), and stay
   // until this commits: FOR KEY SHARE makes a concurrent deleteUser's DELETE FROM users wait for it, and deleteUser
-  // then sweeps the membership this adds (E1). company_users.user_id has no foreign key to users to do either. The
+  // then sweeps the membership this adds (E1). company_users_user_id_fkey (996) does neither: it is checked only at
+  // COMMIT, too late for this 404 and for deleteUser's wait. The
   // weakest row lock: it conflicts only with a DELETE or key change of the user, never with an UPDATE of the row.
   const user = await sql`SELECT 1 FROM users WHERE id = ${userId} FOR KEY SHARE`;
   if (user.length === 0) throw new CompanyMembershipError('NOT_FOUND', 'That user does not exist');
@@ -157,7 +158,7 @@ export async function removeUserFromCompany(userId: string, companyId: string): 
 }
 
 /**
- * Remove a membership whose user has NO users row (an orphan: company_users.user_id has no foreign key to users),
+ * Remove a membership whose user has NO users row (an orphan written before migration 996's foreign key, NOT VALID),
  * matched on exactly this user_id. Lingering access if the identity comes back, so an admin must be able to remove it
  * (review #1405 round 7). Only for a caller that found no stored user. Returns the removed role, null when no such
  * membership exists, or 'user_exists' when a users row appeared meanwhile (nothing removed). A last owner's row is

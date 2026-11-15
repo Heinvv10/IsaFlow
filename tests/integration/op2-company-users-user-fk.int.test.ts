@@ -26,6 +26,7 @@ import { randomUUID } from 'crypto';
 import { Pool, type PoolClient } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertDisposableDb } from '../helpers/assertDisposableDb';
+import { insertPreFkOrphanMembership } from './helpers/preFkOrphanMembership';
 
 assertDisposableDb('OP-2 writes companies, users and memberships it removes again.');
 
@@ -73,16 +74,8 @@ const constraintState = async (c: PoolClient | Pool) => (await c.query(
 
 beforeAll(async () => {
   await pool.query('INSERT INTO companies (id, name) VALUES ($1, $2)', [company, `OP-2 ${company}`]);
-  // An orphan as production holds one: written with the RI triggers off, as if before the FK.
-  const c = await pool.connect();
-  try {
-    await c.query('BEGIN');
-    await c.query('SET LOCAL session_replication_role = replica');
-    await addMembership(c, orphan, 'owner');
-    await c.query('COMMIT');
-  } finally {
-    c.release();
-  }
+  // An orphan as production holds one.
+  await insertPreFkOrphanMembership(pool, company, orphan, 'owner');
 }, 60_000);
 
 afterAll(async () => {
