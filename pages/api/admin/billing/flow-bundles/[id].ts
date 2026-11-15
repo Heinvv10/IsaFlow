@@ -25,9 +25,6 @@ const PatchBody = z.object({
 
 async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   const id = adminUuid(req.query.id);
-  if (typeof id !== 'string' || !id) {
-    return apiResponse.badRequest(res, 'id is required');
-  }
 
   if (req.method === 'GET') {
     const rows = (await sql`

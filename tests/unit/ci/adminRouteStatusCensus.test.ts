@@ -2,13 +2,17 @@
  * Admin audit 2026-11-14 section 6 (WP14b): admin API status codes, by census over pages/api/admin/** (git ls-files).
  *
  * A request transaction COMMITS on any answer below 500 (withPlatformAdmin), so:
- *   1. a catch block that answers a 4xx must also rethrow the error it caught (`throw <err>`): only known refusals
- *      may be a 4xx, everything else must reach withErrorHandler's 500 and roll back. Pinned files below are the
- *      only exceptions, each with its reason.
+ *   1. a catch block that answers a 4xx must END by rethrowing the error it caught (`throw <err>` as its last
+ *      statement, review #1405 L7): only the refusals it recognised above that line may be a 4xx, everything else
+ *      must reach withErrorHandler's 500 and roll back. Pinned files below are the only exceptions, with reasons.
  *   2. a route with a dynamic id segment validates it before any SQL (adminUuid / isUuidParam / UUID.safeParse;
  *      adminUserId for users' TEXT ids): a malformed id is a 400, not a 500 from a Postgres cast.
  *   3. no route turns page / limit / offset into a number by hand (Number(page) / parseInt(page) is NaN for "abc",
  *      which reached SQL): adminPaging / adminPositiveInt / adminNonNegativeInt answer 400 for garbage.
+ *   4. an admin validator (adminUuid, adminPaging, ...) is never called inside a try whose catch does not end by
+ *      rethrowing: such a catch turned the validator's 400 into a 500 (breaker #1405 B2).
+ *   5. no body field named like an id (`*_id`, `*Id`, `*_ids`) is a bare z.string(): a malformed id reached a uuid
+ *      cast or foreign key as a 500 (review #1405 M2). UUID ids use UUID from @/lib/schemas/common.
  * Limits: a catch is judged by its own text (a helper that answers 4xx for it is not seen); rule 2 sees that a
  * validator is called in the file, not that it runs before the first query. The routes' behaviour is pinned by
  * tests/integration/admin-route-statuses.int.test.ts.
@@ -54,23 +58,47 @@ function answers4xx(node: ts.Node): boolean {
   return found;
 }
 
-function rethrows(clause: ts.CatchClause): boolean {
+/** The catch's last statement is `throw <its own variable>`: whatever it did not answer above that line propagates. */
+function endsByRethrowing(clause: ts.CatchClause): boolean {
   const name = clause.variableDeclaration?.name.getText();
-  if (!name) return false;
+  const last = clause.block.statements[clause.block.statements.length - 1];
+  return !!name && !!last && ts.isThrowStatement(last) && last.expression?.getText() === name;
+}
+
+/** Calls of the adminRequestErrors validators (adminUuid, adminPaging, adminOptionalDate, ...) inside `node`. */
+function callsAdminValidator(node: ts.Node): boolean {
   let found = false;
   const visit = (n: ts.Node) => {
-    if (ts.isThrowStatement(n) && n.expression?.getText() === name) found = true;
-    if (!ts.isFunctionLike(n)) ts.forEachChild(n, visit);
+    if (found) return;
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && ADMIN_VALIDATORS.has(n.expression.text)) found = true;
+    ts.forEachChild(n, visit);
   };
-  visit(clause.block);
+  visit(node);
   return found;
+}
+
+const ADMIN_VALIDATORS = new Set(
+  [...readFileSync('src/modules/admin/middleware/adminRequestErrors.ts', 'utf8').matchAll(/export function (admin[A-Z]\w*)/g)]
+    .map((m) => m[1]!),
+);
+
+function triesSwallowingAValidator(file: string): number {
+  const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+  let n = 0;
+  const visit = (node: ts.Node) => {
+    if (ts.isTryStatement(node) && node.catchClause && !endsByRethrowing(node.catchClause)
+      && callsAdminValidator(node.tryBlock)) n += 1;
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return n;
 }
 
 function catchesAnswering4xxWithoutRethrow(file: string): number {
   const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
   let n = 0;
   const visit = (node: ts.Node) => {
-    if (ts.isCatchClause(node) && answers4xx(node.block) && !rethrows(node)) n += 1;
+    if (ts.isCatchClause(node) && answers4xx(node.block) && !endsByRethrowing(node)) n += 1;
     ts.forEachChild(node, visit);
   };
   visit(source);
@@ -104,5 +132,16 @@ describe('admin route status census (audit section 6)', () => {
   it('3. no route parses page / limit / offset with a bare Number() or parseInt()', () => {
     const raw = files.filter((f) => /\b(?:Number|parseInt)\(\s*\(?\s*(?:page|limit|offset)\w*/.test(readFileSync(f, 'utf8')));
     expect(raw).toEqual([]);
+  });
+
+  it('4. no admin validator runs inside a try whose catch swallows its 400', () => {
+    expect(ADMIN_VALIDATORS.size).toBeGreaterThan(5);
+    const found = Object.fromEntries(files.map((f) => [f, triesSwallowingAValidator(f)]).filter(([, n]) => n !== 0));
+    expect(found).toEqual({});
+  });
+
+  it('5. no id-named body field is a bare z.string()', () => {
+    const ID_AS_STRING = /\b\w*(?:_id|Id|_ids|Ids)\s*:\s*z\s*\.\s*(?:string\(|array\(\s*z\s*\.\s*string\()/;
+    expect(files.filter((f) => ID_AS_STRING.test(readFileSync(f, 'utf8')))).toEqual([]);
   });
 });

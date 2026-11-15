@@ -66,20 +66,24 @@ export async function getFeatureFlag(id: string): Promise<FeatureFlag | null> {
   };
 }
 
+/** False when no flag has this id (nothing was updated). */
 export async function updateFeatureFlag(
   id: string,
   data: { name?: string; description?: string; is_global?: boolean }
-): Promise<void> {
-  await sql`
+): Promise<boolean> {
+  const rows = await sql`
     UPDATE feature_flags
     SET
       name        = COALESCE(${data.name ?? null}, name),
       description = COALESCE(${data.description ?? null}, description),
       is_global   = COALESCE(${data.is_global ?? null}, is_global)
     WHERE id = ${id}
+    RETURNING id
   `;
+  if (rows.length === 0) return false;
 
   log.info('updateFeatureFlag', { id, data }, 'FeatureFlagService');
+  return true;
 }
 
 export async function getCompanyEffectiveFeatures(

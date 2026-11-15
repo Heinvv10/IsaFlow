@@ -42,9 +42,14 @@ export function respondIfAdminRequestError(res: NextApiResponse, err: unknown): 
   return false;
 }
 
-/** A Postgres error with this SQLSTATE (e.g. '23505' unique violation). */
-export function isPgError(err: unknown, sqlState: string): boolean {
-  return (err as { code?: unknown } | null)?.code === sqlState;
+/**
+ * A Postgres error with this SQLSTATE (e.g. '23505' unique violation) on one of these constraints: a route maps only
+ * the refusal it expects (review #1405 L1), never another constraint's failure (that stays a 500).
+ */
+export function isPgError(err: unknown, sqlState: string, constraint: string | readonly string[]): boolean {
+  const e = err as { code?: unknown; constraint?: unknown } | null;
+  const names: readonly string[] = typeof constraint === 'string' ? [constraint] : constraint;
+  return e?.code === sqlState && typeof e.constraint === 'string' && names.includes(e.constraint);
 }
 
 /**
@@ -56,12 +61,25 @@ export function withAdminRefusals<Req extends NextApiRequest>(
 ): (req: Req, res: NextApiResponse) => Promise<void> {
   return async (req, res) => {
     try {
+      assertCleanAdminQuery(req.query);
       await handler(req, res);
     } catch (err) {
       if (respondIfAdminRequestError(res, err)) return;
       throw err;
     }
   };
+}
+
+/**
+ * Every admin query parameter, before any route reads one (breaker #1405 B3/B4): a repeated parameter (an array)
+ * reached services typed as a string (a TypeError, or an array bound as text), and a NUL byte reached Postgres as
+ * "invalid byte sequence 0x00". Both are the caller's mistake: 400. No admin route takes a repeated parameter.
+ */
+export function assertCleanAdminQuery(query: NextApiRequest['query'] | undefined): void {
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (Array.isArray(value)) throw new AdminRequestError(400, `${key} must be given once`);
+    if (typeof value === 'string' && value.includes('\u0000')) throw new AdminRequestError(400, `${key} must not contain a NUL character`);
+  }
 }
 
 /** A required UUID (a path id): throws a 400 AdminRequestError when it is missing, repeated or malformed. */
@@ -102,11 +120,14 @@ export function adminOptionalTimestamp(value: unknown, name: string): string | u
   return value;
 }
 
-/** One optional positive whole number from the query string (page, limit, ...). */
-export function adminPositiveInt(value: unknown, name: string): number | undefined {
+/** Postgres int4's largest value: the default ceiling, so a number never overflows an integer column or bind. */
+export const INT4_MAX = 2147483647;
+
+/** One optional positive whole number from the query string (page, limit, ...), at most `max` (default int4). */
+export function adminPositiveInt(value: unknown, name: string, max = INT4_MAX): number | undefined {
   if (value === undefined || value === '') return undefined;
-  if (typeof value !== 'string' || !/^\d+$/.test(value) || Number(value) < 1 || !Number.isSafeInteger(Number(value))) {
-    throw new AdminRequestError(400, `${name} must be a whole number of at least 1`);
+  if (typeof value !== 'string' || !/^\d+$/.test(value) || Number(value) < 1 || Number(value) > max) {
+    throw new AdminRequestError(400, `${name} must be a whole number from 1 to ${max}`);
   }
   return Number(value);
 }
@@ -114,8 +135,8 @@ export function adminPositiveInt(value: unknown, name: string): number | undefin
 /** One optional whole number of at least 0 from the query string (an offset). */
 export function adminNonNegativeInt(value: unknown, name: string): number | undefined {
   if (value === undefined || value === '') return undefined;
-  if (typeof value !== 'string' || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) {
-    throw new AdminRequestError(400, `${name} must be a whole number of at least 0`);
+  if (typeof value !== 'string' || !/^\d+$/.test(value) || Number(value) > INT4_MAX) {
+    throw new AdminRequestError(400, `${name} must be a whole number from 0 to ${INT4_MAX}`);
   }
   return Number(value);
 }

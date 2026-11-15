@@ -16,17 +16,20 @@ import {
   createAnnouncement,
 } from '@/modules/admin/services/announcementService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
-import { announcementWindowError, ANNOUNCEMENT_TITLE_MAX, ANNOUNCEMENT_MESSAGE_MAX, firstValidationMessage } from '@/modules/admin/services/announcementWindow';
+import {
+  announcementInstant, announcementWindowError, AnnouncementTarget, AnnouncementTargetIds, AnnouncementType,
+  ANNOUNCEMENT_TITLE_MAX, ANNOUNCEMENT_MESSAGE_MAX, firstValidationMessage,
+} from '@/modules/admin/services/announcementWindow';
 import { getIp } from '@/utils/getIp';
 
 const PostBody = z.object({
   title:          z.string().min(1).max(ANNOUNCEMENT_TITLE_MAX, `Title must be at most ${ANNOUNCEMENT_TITLE_MAX} characters`),
   message:        z.string().min(1).max(ANNOUNCEMENT_MESSAGE_MAX, `Message must be at most ${ANNOUNCEMENT_MESSAGE_MAX} characters`),
-  type:           z.string().optional(),
-  target:         z.string().optional(),
-  target_ids:     z.array(z.string()).optional(),
-  starts_at:      z.string().min(1),
-  ends_at:        z.string().optional(),
+  type:           AnnouncementType.optional(),
+  target:         AnnouncementTarget.optional(),
+  target_ids:     AnnouncementTargetIds.optional(),
+  starts_at:      announcementInstant('Start'),
+  ends_at:        announcementInstant('End').optional(),
   is_dismissible: z.boolean().optional(),
 }).strict();
 

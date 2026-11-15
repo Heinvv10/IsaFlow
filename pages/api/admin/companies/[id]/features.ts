@@ -12,6 +12,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { adminUuid, isPgError } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
+import { UUID } from '@/lib/schemas/common';
 import {
   getCompanyEffectiveFeatures,
   setCompanyFeatureOverride,
@@ -21,13 +22,13 @@ import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
 const PostBody = z.object({
-  feature_id: z.string().min(1),
+  feature_id: UUID,
   enabled:    z.boolean(),
   reason:     z.string().min(1).max(500),
 }).strict();
 
 const DeleteBody = z.object({
-  feature_id: z.string().min(1),
+  feature_id: UUID,
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -56,7 +57,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       );
     } catch (err) {
       // The INSERT is the first write: the refusal aborted the transaction, so nothing lands.
-      if (isPgError(err, '23503')) return apiResponse.notFound(res, 'Company or feature');
+      if (isPgError(err, '23503', ['company_feature_overrides_company_id_fkey', 'company_feature_overrides_feature_id_fkey'])) return apiResponse.notFound(res, 'Company or feature');
       throw err;
     }
 

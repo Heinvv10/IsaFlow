@@ -44,7 +44,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     const body = parsed.data;
-    await updatePlan(id, body);
+    // A missing plan is a 404 before the audit row: the refusal writes nothing (breaker #1405 B5).
+    if (!(await updatePlan(id, body))) return apiResponse.notFound(res, 'Plan', id);
 
     await logAdminAction(
       req.user.id,
@@ -59,7 +60,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'DELETE') {
-    await archivePlan(id);
+    if (!(await archivePlan(id))) return apiResponse.notFound(res, 'Plan', id);
 
     await logAdminAction(
       req.user.id,

@@ -10,10 +10,9 @@ import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import { suspendCompany } from '@/modules/admin/services/adminCompanyService';
 import { extendTrialIfExists } from '@/modules/admin/services/trialService';
-import { logAdminAction, CriticalAuditError } from '@/modules/admin/services/auditService';
+import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 import { UUID } from '@/lib/schemas/common';
 
@@ -53,24 +52,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (action === 'suspend') {
     const { reason } = body;
 
+    // The per-item refusals (missing, deleted) are answers, not throws. Anything thrown (a failed critical audit,
+    // a database error) aborts the whole batch: a 500 that rolls every item back, never a 200 reporting items that
+    // the poisoned transaction would not keep (review #1405 L8).
     for (const companyId of company_ids) {
-      try {
-        // A deleted company is skipped, never suspended (that would undelete it).
-        if (!(await suspendCompany(companyId, reason))) {
-          errors.push(`${companyId}: not found or deleted`);
-          continue;
-        }
-        await logAdminAction(req.user.id, 'company.suspend', 'company', companyId, { reason, bulk: true }, ip);
-        processed++;
-      } catch (err) {
-        // M6: a failed CRITICAL audit must abort the whole bulk op (the shared
-        // tx is poisoned anyway) — never swallow it into a per-item "error" and
-        // continue, which would report success while the tx rolls back.
-        if (err instanceof CriticalAuditError) throw err;
-        const msg = err instanceof Error ? err.message : 'Unknown error';
-        errors.push(`${companyId}: ${msg}`);
-        log.error('bulk suspend failed for company', { companyId, error: err }, 'admin-bulk-action');
+      // A deleted company is skipped, never suspended (that would undelete it).
+      if (!(await suspendCompany(companyId, reason))) {
+        errors.push(`${companyId}: not found or deleted`);
+        continue;
       }
+      await logAdminAction(req.user.id, 'company.suspend', 'company', companyId, { reason, bulk: true }, ip);
+      processed++;
     }
 
     return apiResponse.success(res, { processed, errors });
@@ -79,31 +71,24 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (action === 'extend_trial') {
     const { days } = body;
 
+    // Same as suspend: refusals are answers; anything thrown aborts the whole batch (500, rolled back).
     for (const companyId of company_ids) {
-      try {
-        // Same rule as the Trials page: from the later of the current end and
-        // today, never on a deleted, missing or already-paying company (not "processed").
-        const result = await extendTrialIfExists(companyId, days);
-        if (result.kind !== 'extended') {
-          errors.push(`${companyId}: ${result.kind === 'already_paid' ? 'already on a paid plan' : 'not found or deleted'}`);
-          continue;
-        }
-        await logAdminAction(
-          req.user.id,
-          'company.extend_trial',
-          'company',
-          companyId,
-          { days, bulk: true },
-          ip
-        );
-        processed++;
-      } catch (err) {
-        // Same as suspend above: a failed CRITICAL audit aborts the whole bulk op.
-        if (err instanceof CriticalAuditError) throw err;
-        const msg = err instanceof Error ? err.message : 'Unknown error';
-        errors.push(`${companyId}: ${msg}`);
-        log.error('bulk extend_trial failed for company', { companyId, error: err }, 'admin-bulk-action');
+      // Same rule as the Trials page: from the later of the current end and
+      // today, never on a deleted, missing or already-paying company (not "processed").
+      const result = await extendTrialIfExists(companyId, days);
+      if (result.kind !== 'extended') {
+        errors.push(`${companyId}: ${result.kind === 'already_paid' ? 'already on a paid plan' : 'not found or deleted'}`);
+        continue;
       }
+      await logAdminAction(
+        req.user.id,
+        'company.extend_trial',
+        'company',
+        companyId,
+        { days, bulk: true },
+        ip
+      );
+      processed++;
     }
 
     return apiResponse.success(res, { processed, errors });

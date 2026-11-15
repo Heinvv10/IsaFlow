@@ -41,7 +41,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     const { name, description, is_global } = parsed.data;
 
-    await updateFeatureFlag(id, { name, description, is_global });
+    // A missing flag is a 404 before the audit row: the refusal writes nothing (review #1405 M1).
+    if (!(await updateFeatureFlag(id, { name, description, is_global }))) {
+      return apiResponse.notFound(res, 'FeatureFlag', id);
+    }
 
     await logAdminAction(
       req.user.id,

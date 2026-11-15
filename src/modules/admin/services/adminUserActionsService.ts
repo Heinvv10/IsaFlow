@@ -121,16 +121,20 @@ function reportStranded(action: string, userId: string, stranded: StrandedPayRun
     { userId, stranded }, 'AdminUserActionsService');
 }
 
-export async function activateUser(userId: string): Promise<void> {
-  await sql`
+/** False when no user has this id (nothing was updated). */
+export async function activateUser(userId: string): Promise<boolean> {
+  const rows = await sql`
     UPDATE users
     SET is_active        = true,
         suspended_reason = NULL,
         suspended_at     = NULL,
         updated_at       = NOW()
     WHERE id = ${userId}
+    RETURNING id
   `;
+  if (rows.length === 0) return false;
   log.info('activateUser', { userId }, 'AdminUserActionsService');
+  return true;
 }
 
 /**

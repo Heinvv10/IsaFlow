@@ -17,7 +17,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
 
-  const taxYearParam = adminPositiveInt(req.query.taxYear, 'taxYear') ?? null;
+  // The same range [code].ts accepts (review #1405 L6); a repeated or NUL parameter is refused by withAdmin.
+  const taxYearParam = adminPositiveInt(req.query.taxYear, 'taxYear', 2100) ?? null;
+  if (taxYearParam !== null && taxYearParam < 2000) {
+    return apiResponse.badRequest(res, 'taxYear must be a whole number from 2000 to 2100');
+  }
   const releases = await listReleases();
 
   const taxYear =

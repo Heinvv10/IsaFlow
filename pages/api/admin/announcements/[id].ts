@@ -17,19 +17,22 @@ import {
   deleteAnnouncement,
 } from '@/modules/admin/services/announcementService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
-import { announcementWindowError, WINDOW_ORDER_ERROR, ANNOUNCEMENT_TITLE_MAX, ANNOUNCEMENT_MESSAGE_MAX, firstValidationMessage } from '@/modules/admin/services/announcementWindow';
+import {
+  announcementInstant, announcementWindowError, AnnouncementTarget, AnnouncementTargetIds, AnnouncementType,
+  WINDOW_ORDER_ERROR, ANNOUNCEMENT_TITLE_MAX, ANNOUNCEMENT_MESSAGE_MAX, firstValidationMessage,
+} from '@/modules/admin/services/announcementWindow';
 import { isUuidParam } from '@/lib/validation';
 import { getIp } from '@/utils/getIp';
 
 const PatchBody = z.object({
   title:          z.string().min(1).max(ANNOUNCEMENT_TITLE_MAX, `Title must be at most ${ANNOUNCEMENT_TITLE_MAX} characters`).optional(),
   message:        z.string().min(1).max(ANNOUNCEMENT_MESSAGE_MAX, `Message must be at most ${ANNOUNCEMENT_MESSAGE_MAX} characters`).optional(),
-  type:           z.string().optional(),
-  target:         z.string().optional(),
-  target_ids:     z.array(z.string()).optional(),
-  starts_at:      z.string().optional(),
+  type:           AnnouncementType.optional(),
+  target:         AnnouncementTarget.optional(),
+  target_ids:     AnnouncementTargetIds.optional(),
+  starts_at:      announcementInstant('Start').optional(),
   /** null clears the end (no end); omitted keeps it. */
-  ends_at:        z.string().nullable().optional(),
+  ends_at:        announcementInstant('End').nullable().optional(),
   is_dismissible: z.boolean().optional(),
 }).strict();
 

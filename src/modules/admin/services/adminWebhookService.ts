@@ -200,6 +200,9 @@ export async function updateAdminWebhook(
   id: string,
   updates: UpdateWebhookParams,
 ): Promise<AdminWebhook> {
+  // Existence first, locked so it cannot vanish under the UPDATEs: a missing webhook is a 404 before any write (#1405 L2).
+  const existing = (await sql`SELECT id FROM webhook_endpoints WHERE id = ${id}::UUID FOR UPDATE`) as Row[];
+  if (existing.length === 0) throw new AdminRequestError(404, 'Webhook not found');
   if (updates.status !== undefined) {
     const isActive = updates.status === 'active';
     await sql`
@@ -224,7 +227,7 @@ export async function updateAdminWebhook(
     WHERE we.id = ${id}::UUID
   `) as Row[];
 
-  if (!rows[0]) throw new AdminRequestError(404, 'Webhook not found'); // the UPDATEs above matched nothing
+  if (!rows[0]) throw new AdminRequestError(404, 'Webhook not found'); // its company is gone
 
   const lastDel = (await sql`
     SELECT id, success, delivered_at FROM webhook_deliveries

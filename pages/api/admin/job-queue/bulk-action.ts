@@ -44,30 +44,27 @@ interface BulkResult {
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
+// "Not found / wrong status" is a per-item answer (RETURNING). A thrown error is not a per-item refusal: it aborts
+// the batch (500, rolled back), never a 200 whose earlier items the poisoned transaction would not keep (#1405 L8).
 async function retryBulk(ids: string[]): Promise<BulkResult> {
   const errors: string[] = [];
   let processed = 0;
 
   for (const id of ids) {
-    try {
-      const rows = await sql`
-        UPDATE background_jobs
-        SET status = 'pending',
-            error_message = NULL,
-            started_at = NULL,
-            scheduled_at = NOW()
-        WHERE id = ${id}::UUID AND status = 'failed'
-        RETURNING id
-      ` as Array<{ id: string }>;
+    const rows = await sql`
+      UPDATE background_jobs
+      SET status = 'pending',
+          error_message = NULL,
+          started_at = NULL,
+          scheduled_at = NOW()
+      WHERE id = ${id}::UUID AND status = 'failed'
+      RETURNING id
+    ` as Array<{ id: string }>;
 
-      if (rows.length > 0) {
-        processed++;
-      } else {
-        errors.push(`Job ${id}: not found or not in failed status`);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`Job ${id}: ${msg}`);
+    if (rows.length > 0) {
+      processed++;
+    } else {
+      errors.push(`Job ${id}: not found or not in failed status`);
     }
   }
 
@@ -79,23 +76,18 @@ async function cancelBulk(ids: string[]): Promise<BulkResult> {
   let processed = 0;
 
   for (const id of ids) {
-    try {
-      const rows = await sql`
-        UPDATE background_jobs
-        SET status = 'cancelled',
-            completed_at = NOW()
-        WHERE id = ${id}::UUID AND status IN ('pending', 'running')
-        RETURNING id
-      ` as Array<{ id: string }>;
+    const rows = await sql`
+      UPDATE background_jobs
+      SET status = 'cancelled',
+          completed_at = NOW()
+      WHERE id = ${id}::UUID AND status IN ('pending', 'running')
+      RETURNING id
+    ` as Array<{ id: string }>;
 
-      if (rows.length > 0) {
-        processed++;
-      } else {
-        errors.push(`Job ${id}: not found or not cancellable`);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`Job ${id}: ${msg}`);
+    if (rows.length > 0) {
+      processed++;
+    } else {
+      errors.push(`Job ${id}: not found or not cancellable`);
     }
   }
 

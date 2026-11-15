@@ -58,7 +58,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       });
     } catch (err) {
       // The INSERT is the first write: the refusal aborted the transaction, so nothing lands.
-      if (isPgError(err, '23503')) return apiResponse.badRequest(res, 'No such company or plan');
+      if (isPgError(err, '23503', ['subscriptions_company_id_fkey', 'subscriptions_plan_id_fkey'])) return apiResponse.badRequest(res, 'No such company or plan');
       throw err;
     }
 

@@ -42,7 +42,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     });
   } catch (err) {
     // A missing user is refused by the bureau owner foreign key on the first INSERT: the transaction aborted, nothing lands.
-    if (isPgError(err, '23503')) return apiResponse.notFound(res, 'User', userId);
+    if (isPgError(err, '23503', 'bureaus_owner_user_id_fkey')) return apiResponse.notFound(res, 'User', userId);
     throw err;
   }
 

@@ -25,9 +25,6 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   }
 
   const companyId = adminUuid(req.query.companyId, 'company id');
-  if (typeof companyId !== 'string' || !companyId) {
-    return apiResponse.badRequest(res, 'companyId is required');
-  }
 
   const parsed = Body.safeParse(req.body);
   if (!parsed.success) {

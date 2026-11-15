@@ -57,7 +57,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       });
     } catch (err) {
       // The INSERT is the first write: the refusal aborted the transaction, so nothing lands.
-      if (isPgError(err, '23505')) return apiResponse.conflict(res, 'A plan with that code already exists');
+      if (isPgError(err, '23505', 'plans_code_key')) return apiResponse.conflict(res, 'A plan with that code already exists');
       throw err;
     }
 

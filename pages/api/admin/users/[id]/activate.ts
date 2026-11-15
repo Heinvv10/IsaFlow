@@ -18,7 +18,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const userId = adminUserId(req.query.id);
 
   if (req.method === 'POST') {
-    await activateUser(userId);
+    // A missing user is a 404 before the audit row: the refusal writes nothing (breaker #1405 B5).
+    if (!(await activateUser(userId))) return apiResponse.notFound(res, 'User', userId);
 
     await logAdminAction(
       req.user.id,

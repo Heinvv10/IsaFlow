@@ -16,9 +16,6 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   }
 
   const companyId = adminUuid(req.query.companyId, 'company id');
-  if (typeof companyId !== 'string' || !companyId) {
-    return apiResponse.badRequest(res, 'companyId is required');
-  }
 
   const [wallet, ledger] = await Promise.all([
     getWallet(companyId),

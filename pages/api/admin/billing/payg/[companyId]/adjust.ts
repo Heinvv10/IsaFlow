@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
-import { adminUuid } from '@/modules/admin/middleware/adminRequestErrors';
+import { adminUuid, isPgError } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
 import { adminAdjust, InsufficientFlowsError } from '@/modules/billing/services/flowWalletService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
@@ -26,9 +26,6 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   }
 
   const companyId = adminUuid(req.query.companyId, 'company id');
-  if (typeof companyId !== 'string' || !companyId) {
-    return apiResponse.badRequest(res, 'companyId is required');
-  }
 
   const parsed = Body.safeParse(req.body);
   if (!parsed.success) {
@@ -50,6 +47,8 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
     if (err instanceof InsufficientFlowsError) {
       return apiResponse.badRequest(res, 'Adjustment would leave a negative balance');
     }
+    // A missing company is refused by the wallet's foreign key on the first write: nothing lands (review #1405 L5).
+    if (isPgError(err, '23503', 'flow_wallet_company_id_fkey')) return apiResponse.notFound(res, 'Company', companyId);
     throw err;
   }
 }

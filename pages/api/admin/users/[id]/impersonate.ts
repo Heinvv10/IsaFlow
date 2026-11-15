@@ -43,7 +43,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
   } catch (err) {
     // Only the target refusals validateImpersonationTarget raises are a 4xx; a database failure is a 500 (section 6).
     const code = err instanceof Error ? err.message : '';
-    const status = IMPERSONATION_REFUSALS[code];
+    const status = Object.hasOwn(IMPERSONATION_REFUSALS, code) ? IMPERSONATION_REFUSALS[code] : undefined;
     if (status === undefined) throw err;
     res.status(status).json({ success: false, error: { code, message: code } });
     return;

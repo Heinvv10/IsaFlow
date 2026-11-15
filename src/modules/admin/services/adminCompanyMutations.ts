@@ -7,6 +7,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { AdminRequestError } from '@/modules/admin/middleware/adminRequestErrors';
 import { trialEndsAt } from '@/modules/onboarding/services/trialPeriod';
 import type { AdminCompanyDetail } from '../types/admin.types';
 
@@ -96,6 +97,12 @@ export async function createCompany(input: {
 }): Promise<{ id: string; name: string }> {
   // A plan means a trial subscription ending when provisioning's trials end.
   const trialEnd = input.plan_id ? trialEndsAt(new Date()) : null;
+  // An unknown plan is the caller's mistake (400), refused before the company row is written (review #1405 L5);
+  // plans are archived, never deleted, so it cannot vanish before the subscription INSERT below.
+  if (input.plan_id) {
+    const plan = await sql`SELECT 1 FROM plans WHERE id = ${input.plan_id}::uuid`;
+    if (plan.length === 0) throw new AdminRequestError(400, 'No such plan');
+  }
   const rows = await sql`
     INSERT INTO companies (
       name, registered_name, trading_name, email, phone, country, default_currency, status,
