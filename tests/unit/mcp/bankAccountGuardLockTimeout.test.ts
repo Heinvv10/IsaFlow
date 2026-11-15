@@ -1,5 +1,6 @@
 /**
- * WP2-1 round 4: an MCP WRITE tool whose bank-account check (bankGlAccountBelongsToCompany → bank/bankAccountGuard)
+ * WP2-1 round 4 — pins the agent-facing TEXT mapping only (the 5 s bound itself is integration-tested in
+ * bank-account-guard-routes.int.test.ts): an MCP WRITE tool whose bank-account check (bankGlAccountBelongsToCompany → bank/bankAccountGuard)
  * waits out its 5 s bound gets the guard's RowLockTimeoutError — code ROW_LOCK_TIMEOUT, not a raw 55P03, so
  * `lockWaitErrorText` does not see it. The agent must still read the retry wording, not GENERIC_FAILURE: that holds
  * because ROW_LOCK_TIMEOUT is on REFUSAL_CODES. Driven through McpRegistry.call, with the REAL guard converting the
@@ -52,8 +53,8 @@ beforeEach(() => {
   });
 });
 
-describe('an MCP write tool whose bank-account read times out behind a held account', () => {
-  it('answers the retry wording (ROW_LOCK_TIMEOUT is a refusal code), not GENERIC_FAILURE', async () => {
+describe('agent-facing TEXT for the guard\'s RowLockTimeoutError (the text mapping, not the 5 s bound — that is pinned in bank-account-guard-routes.int)', () => {
+  it('an MCP write tool whose guard read timed out replies with the retry wording (ROW_LOCK_TIMEOUT on REFUSAL_CODES), not GENERIC_FAILURE', async () => {
     const registry = new McpRegistry();
     registry.register(writeTool);
     const r = await als.run({ client, userId: 'user-1', companyId: COMPANY, claims: {} } as never,
