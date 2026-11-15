@@ -100,10 +100,8 @@ export interface EmployeeComponent {
   employerFundAsCash?: boolean;
 }
 
-export interface PayrollPeriod {
-  month: number;
-  year: number;
-}
+export type { PayrollPeriod } from './payrollTypesRun';
+import type { PayrollPeriod } from './payrollTypesRun';
 
 export interface PayeInput {
   annualTaxableIncome: number;
