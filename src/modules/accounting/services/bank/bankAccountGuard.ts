@@ -17,6 +17,11 @@
  * for the request's write instead of landing between check and write. FOR KEY
  * SHARE would not block either. Lock order: callers take it before any bank
  * line, payment, invoice or journal (`.claude.md`, the lock-order table).
+ * The wait for it is BOUNDED at 5 s, tighten-only (round 3: an open chart edit
+ * of the account held a request indefinitely): 5 s when the caller's
+ * lock_timeout is 0 or looser, a tighter one kept, the caller's value restored.
+ * A wait that runs out is `RowLockTimeoutError` — 503 + Retry-After at the
+ * routes (`respondIfLockTimeout`); the 55P03 has aborted the transaction.
  *
  * It deliberately does NOT require `account_type = 'asset'` (unlike
  * `gl/paymentBankAccount`): a credit card or an overdraft is a liability with a
@@ -27,8 +32,10 @@
  * company reads exactly as a missing one, so the refusal says nothing about
  * another tenant's chart.
  */
+import { als, assertTxUsable } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import { isUuidParam } from '@/lib/validation';
+import { restoreLockTimeout, RowLockTimeoutError } from '../core/rowLockBudget';
 import { isBankSubtype } from '../gl/accountSubtypes';
 
 export class BankAccountGuardRefusal extends Error {
@@ -52,18 +59,42 @@ export interface GuardedBankAccount {
 
 const NOT_FOUND = 'Selected bank account not found for this company';
 
+/** Postgres `lock_not_available`: the bounded wait below ran out. */
+const LOCK_NOT_AVAILABLE = '55P03';
+
+/** `fn` with every lock wait in it bounded at 5 s, tighten-only (as migrations 858/864 and documentNumberLockBudget). */
+async function underAccountLockBudget<T>(fn: () => PromiseLike<T>): Promise<T> {
+  const client = als.getStore()?.client;
+  if (!client) return fn(); // no request transaction: FOR SHARE outlives nothing, so there is nothing to bound
+  assertTxUsable();
+  const { rows } = await client.query<{ prev: string }>(
+    `SELECT s.prev, set_config('lock_timeout', CASE WHEN s.prev::interval = interval '0'
+       OR s.prev::interval > interval '5s' THEN '5s' ELSE s.prev END, true)
+     FROM (SELECT current_setting('lock_timeout') AS prev) s`);
+  let failure: unknown = null;
+  try {
+    return await fn();
+  } catch (err) {
+    failure = err;
+    if ((err as { code?: unknown } | null)?.code === LOCK_NOT_AVAILABLE) throw new RowLockTimeoutError('This bank account');
+    throw err;
+  } finally {
+    await restoreLockTimeout(client, rows[0]!.prev, failure);
+  }
+}
+
 /**
  * The company's active bank account `glAccountId`, or a BankAccountGuardRefusal.
  * Writes nothing; locks the row FOR SHARE. `glAccountId` is `unknown` because a form field is unvalidated.
  */
 export async function assertBankAccountInCompany(companyId: string, glAccountId: unknown): Promise<GuardedBankAccount> {
   if (!isUuidParam(glAccountId)) throw new BankAccountGuardRefusal('Selected bank account is not a valid id');
-  const rows = (await sql`
+  const rows = (await underAccountLockBudget(() => sql`
     SELECT id, account_code, account_name, account_subtype, is_active, bank_account_number
     FROM gl_accounts
     WHERE id = ${glAccountId}::UUID AND company_id = ${companyId}::UUID
     FOR SHARE
-  `) as Array<{
+  `)) as Array<{
     id: string; account_code: string; account_name: string; account_subtype: string | null;
     is_active: boolean | null; bank_account_number: string | null;
   }>;

@@ -71,14 +71,14 @@ export async function writtenRows(pool: Pool, x: GuardFixture): Promise<Record<s
  * An account stored with `subtype` spelled as it was before trg_gl_accounts_normalise_subtype existed (the trigger
  * rewrites it on every write, so only a legacy row can still hold e.g. 'Bank Account'). Triggers off for the insert.
  */
-export async function legacySpelledAccount(pool: Pool, c: string, subtype: string): Promise<string> {
+export async function legacySpelledAccount(pool: Pool, c: string, subtype: string, tag = 'LG'): Promise<string> {
   const db = await pool.connect();
   try {
     await db.query('BEGIN');
     await db.query('SET LOCAL session_replication_role = replica');
     const id = (await db.query(
       `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,is_active,account_subtype)
-       VALUES ($1,$2,'BAG legacy spelling','asset','debit',true,$3) RETURNING id`, [c, `LG${c.slice(0, 6)}`, subtype],
+       VALUES ($1,$2,'BAG legacy spelling','asset','debit',true,$3) RETURNING id`, [c, `${tag}${c.slice(0, 6)}`, subtype],
     )).rows[0].id as string;
     await db.query('COMMIT');
     return id;
@@ -99,12 +99,13 @@ export async function seedStatementImport(pool: Pool, x: GuardFixture, bankAccou
     [x.f.c, bankAccountId, doc, JSON.stringify({ rows }), x.user])).rows[0].id as string;
 }
 
-export const messageOf =(res: { state: { body: unknown } }) =>
+export const messageOf = (res: { state: { body: unknown } }) =>
   (res.state.body as { error?: { message?: string } }).error?.message ?? '';
 
 export async function cleanupGuardFixture(pool: Pool, x: GuardFixture | undefined): Promise<void> {
   if (!x) { await pool.end(); return; }
   await pool.query('UPDATE bank_transactions SET reconciliation_id = NULL WHERE company_id = ANY($1)', [x.companies]);
+  await pool.query('DELETE FROM bank_feed_sync_logs WHERE company_id = ANY($1)', [x.companies]);
   await pool.query('DELETE FROM bank_reconciliations WHERE company_id = ANY($1)', [x.companies]);
   await cleanupBankControlsA(pool, x.companies, [x.user]);
 }

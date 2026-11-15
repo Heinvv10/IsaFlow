@@ -17,6 +17,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { assertBankAccountInCompany, isBankAccountGuardRefusal } from '@/modules/accounting/services/bank/bankAccountGuard';
 type Row = Record<string, unknown>;
 
@@ -197,6 +198,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       unresolvedCategories: unresolvedCategories.length > 0 ? unresolvedCategories : undefined,
     });
   } catch (err) {
+    // A held ingest lock (or any lock wait) aborted the transaction: 503 + Retry-After rolls it back; a 400 would COMMIT it.
+    if (respondIfLockTimeout(res, err)) return;
     if (isBankAccountGuardRefusal(err)) return apiResponse.badRequest(res, err.message);
     const message = err instanceof Error ? err.message : 'Failed to import classified transactions';
     log.error('Failed to import classified bank transactions', { error: err }, 'accounting-api');

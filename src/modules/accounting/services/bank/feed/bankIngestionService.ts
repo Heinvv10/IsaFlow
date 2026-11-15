@@ -11,7 +11,6 @@
 import { sql, withSavepoint, assertTxUsable } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { BANK_SUBTYPES } from '../../gl/accountSubtypes';
 import { applySuggestionRules } from '../bankRulesSuggestionPass';
 import { decideFeedTransition } from './bankFeedLifecycle';
 import { identityModeFor, validateBatch } from './bankIngestionValidation';
@@ -63,7 +62,7 @@ async function preflight(companyId: string, conn: LeasedConnection, batch: BankI
   if (!conn.active) {
     throw new BankIngestionRefusal('CONNECTION_INACTIVE', 'Bank feed connection is not active.');
   }
-  if (!conn.bankAccountId || !(await bankAccountIsValid(companyId, conn.bankAccountId, BANK_SUBTYPES))) {
+  if (!conn.bankAccountId || !(await bankAccountIsValid(companyId, conn.bankAccountId))) {
     throw new BankIngestionRefusal('BANK_ACCOUNT_INVALID', 'The connection is not linked to an active bank account in this company.');
   }
   validateBatch(batch, identityModeFor(conn.provider));

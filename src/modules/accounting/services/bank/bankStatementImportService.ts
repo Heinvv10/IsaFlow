@@ -36,7 +36,7 @@ import {
   type HashableTransaction,
 } from '../../utils/bankTransactionHash';
 import type { BankFormat, ParsedBankTransaction } from '../../types/bank.types';
-import { BANK_SUBTYPES } from '../gl/accountSubtypes';
+import { assertBankAccountInCompany, isBankAccountGuardRefusal } from './bankAccountGuard';
 import { dateRangeOf } from './bankStatementDateRange';
 import type { ImportProvenance } from './importProvenance';
 
@@ -64,10 +64,10 @@ export interface AgentImportResult {
 
 /**
  * A "bank account" for import purposes is a GL account with
- * account_subtype='bank' — NOT a bank_accounts row. Migration 446 dropped
+ * a bank subtype (bank/bankAccountGuard) — NOT a bank_accounts row. Migration 446 dropped
  * bank_import_batches' FK to bank_accounts for exactly this reason ("drop the
- * broken FK so writes succeed"). This mirrors the check in
- * bank-transactions-bulk-commit so both paths accept the same ids.
+ * broken FK so writes succeed"). It IS the guard bulk commit and every
+ * bank-account route run, so all of them accept the same ids.
  *
  * It deliberately does NOT require `account_type = 'asset'`. Whether a balance
  * counts as CASH is a different question, owned by `cashBalanceService`, and
@@ -81,15 +81,14 @@ export async function bankGlAccountBelongsToCompany(
   companyId: string,
   bankAccountId: string,
 ): Promise<boolean> {
-  const rows = (await sql`
-    SELECT id FROM gl_accounts
-    WHERE id = ${bankAccountId}::UUID
-      AND company_id = ${companyId}::UUID
-      AND account_subtype = ANY(${BANK_SUBTYPES as string[]})
-      AND is_active = true
-    LIMIT 1
-  `) as Array<{ id: string }>;
-  return rows.length > 0;
+  // The guard's own test (round 3, WP2-1): isBankSubtype, active, the row held FOR SHARE (5 s bound) to the call's end.
+  try {
+    await assertBankAccountInCompany(companyId, bankAccountId);
+    return true;
+  } catch (err) {
+    if (isBankAccountGuardRefusal(err)) return false;
+    throw err;
+  }
 }
 
 /**

@@ -5,6 +5,7 @@ import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { bankTransactionHash } from '@/modules/accounting/utils/bankTransactionHash';
 import { feedStateOf } from '../bankFeedStateGuard';
+import { assertBankAccountInCompany, isBankAccountGuardRefusal } from '../bankAccountGuard';
 import type { ConflictReason, ExistingFeedRow } from './bankFeedLifecycle';
 import type { BankIngestionCounts, NormalizedBankTransaction } from './bankIngestionTypes';
 
@@ -30,12 +31,15 @@ export async function lockBankAccountForIngest(companyId: string, bankAccountId:
   await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`bank_tx_ingest:${companyId}:${bankAccountId}`}::TEXT, 0))`;
 }
 
-export async function bankAccountIsValid(companyId: string, bankAccountId: string, subtypes: readonly string[]): Promise<boolean> {
-  const rows = (await sql`
-    SELECT 1 FROM gl_accounts
-    WHERE id = ${bankAccountId}::UUID AND company_id = ${companyId}::UUID
-      AND account_subtype = ANY(${subtypes as string[]}) AND is_active = true`) as DbRow[];
-  return rows.length > 0;
+/** The connection's account is an active bank account of the company: the guard's own test (WP2-1 round 3). */
+export async function bankAccountIsValid(companyId: string, bankAccountId: string): Promise<boolean> {
+  try {
+    await assertBankAccountInCompany(companyId, bankAccountId);
+    return true;
+  } catch (err) {
+    if (isBankAccountGuardRefusal(err)) return false;
+    throw err;
+  }
 }
 
 export async function openSyncLog(companyId: string, connectionId: string): Promise<string> {

@@ -105,3 +105,34 @@ describe('bank-reconciliations POST: the bank a reconciliation session reconcile
     expect(rows).toEqual([{ bank_account_id: x.f.bank2 }]);
   });
 });
+
+// Round 3 (brk-1449 MEDIUM, measured): the guard's FOR SHARE waited UNBOUNDED behind an open chart edit of the account
+// (no lock_timeout on app_user, the pool or the database). It is bounded at 5 s, tighten-only, and answered 503.
+describe('a chart edit holding the bank account: the guard waits at most 5 s, then 503 and nothing written', () => {
+  const sleep = (ms: number) => new Promise<null>((r) => { setTimeout(() => r(null), ms); });
+  for (const [what, call] of [
+    ['bank-transactions-manual', () => manual(x.f.bank)],
+    ['bank-transactions-import-classified (its catch-all no longer turns it into a 400)', () => classified(x.f.bank, 'held')],
+  ] as const) {
+    it(what, async () => {
+      const writer = await pool.connect();
+      await writer.query('BEGIN');
+      await writer.query('UPDATE gl_accounts SET account_name = account_name WHERE id = $1', [x.f.bank]);
+      const before = await writtenRows(pool, x);
+      const t0 = Date.now();
+      try {
+        const settled = await Promise.race([call().then((res) => ({ res })), sleep(9000)]);
+        expect(settled, 'the request was still waiting on the account after 9 s').not.toBeNull();
+        const elapsed = Date.now() - t0;
+        expect(settled!.res.state.statusCode, JSON.stringify(settled!.res.state.body)).toBe(503);
+        expect(elapsed, `answered after ${elapsed} ms`).toBeGreaterThanOrEqual(4500);
+        expect(elapsed, `answered after ${elapsed} ms`).toBeLessThan(8000);
+        expect(messageOf(settled!.res)).toMatch(/retry/i);
+      } finally {
+        await writer.query('ROLLBACK');
+        writer.release();
+      }
+      expect(await writtenRows(pool, x)).toEqual(before);
+    }, 20_000);
+  }
+});

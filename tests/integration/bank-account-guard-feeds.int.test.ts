@@ -11,10 +11,12 @@ import { Pool } from 'pg';
 import feedsRoute from '../../pages/api/accounting/bank-feeds/index';
 import pairRoute from '../../pages/api/accounting/bank-feeds/extension-pair';
 import { assertBankAccountInCompany } from '../../src/modules/accounting/services/bank/bankAccountGuard';
+import { bankGlAccountBelongsToCompany } from '../../src/modules/accounting/services/bank/bankStatementImportService';
+import { ingestBankBatch } from '../../src/modules/accounting/services/bank/feed/bankIngestionService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute } from './r035-approval.helpers';
 import { inRequest } from './r035-pr5.helpers';
-import { cleanupGuardFixture, guardFixture, refusedIds, type GuardFixture } from './bank-account-guard.helpers';
+import { cleanupGuardFixture, guardFixture, legacySpelledAccount, refusedIds, type GuardFixture } from './bank-account-guard.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -66,31 +68,95 @@ describe('bank-feeds/extension-pair: the bank the extension feeds', () => {
   });
 });
 
+/** Runs `check` in a request transaction; `change` on another connection must time out while it is open, then land. */
+async function expectHeldUntilEnd(check: (bank: string) => Promise<unknown>, change: string, tag: string) {
+  // Its own account per case, so a change that lands under a mutant cannot leak into the next case.
+  const bank = (await pool.query(
+    `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,is_active,account_subtype)
+     VALUES ($1,$2,'BAG race','asset','debit',true,'bank') RETURNING id`, [x.f.c, `${tag}${x.f.c.slice(0, 6)}`],
+  )).rows[0].id as string;
+  const other = await pool.connect();
+  try {
+    await other.query("SET lock_timeout = '300ms'");
+    await inRequest(pool, x.user, x.f.c, async () => {
+      await check(bank);
+      await expect(other.query(change, [bank])).rejects.toMatchObject({ code: '55P03' });
+    });
+    await other.query('BEGIN');
+    await other.query(change, [bank]);
+    await other.query('ROLLBACK');
+  } finally {
+    await other.query('RESET lock_timeout');
+    other.release();
+  }
+}
+
+// Round 3: the MCP tools' check (bankGlAccountBelongsToCompany) and feed ingest's (bankAccountIsValid) kept the exact
+// spelling list, so an account the guard accepts could be connected and then never ingest, and MCP refused it.
+describe('the MCP tools and feed ingest judge the account as the guard does', () => {
+  it("MCP: a legacy 'Bank Account' row belongs to the company's banks; a revenue / foreign / inactive one does not", async () => {
+    const legacy = await legacySpelledAccount(pool, x.f.c, 'Bank Account');
+    await inRequest(pool, x.user, x.f.c, async () => {
+      expect(await bankGlAccountBelongsToCompany(x.f.c, legacy)).toBe(true);
+      for (const [what, id] of refusedIds(x)) expect(await bankGlAccountBelongsToCompany(x.f.c, id), what).toBe(false);
+    });
+  });
+
+  it('MCP: the check holds the account until the call ends (a deactivation waits)', async () => {
+    await expectHeldUntilEnd((bank) => bankGlAccountBelongsToCompany(x.f.c, bank),
+      'UPDATE gl_accounts SET is_active = false WHERE id = $1', 'MC');
+  });
+
+  it("feed ingest: a connection on a legacy 'Bank Account' row ingests", async () => {
+    const legacy = await legacySpelledAccount(pool, x.f.c, 'Bank Account', 'LF');
+    const conn = (await pool.query(
+      `INSERT INTO bank_feed_connections(company_id,bank_account_id,provider,status,is_active,config)
+       VALUES($1,$2,'test_provider','active',true,'{}') RETURNING id`, [x.f.c, legacy])).rows[0].id as string;
+    const out = await inRequest(pool, x.user, x.f.c, () => ingestBankBatch(x.f.c, {
+      source: { kind: 'feed', connectionId: conn }, fetchedAt: '2026-09-11T08:00:00Z',
+      transactions: [{ identity: { kind: 'provider', providerTransactionId: `bag-${conn}` }, state: 'posted',
+        transactionDate: '2026-09-05', amount: -120, currency: 'ZAR', description: 'BAG FEED', providerUpdatedAt: '2026-09-05T10:00:00Z' }],
+    } as never, { userId: x.user, sourceLabel: 'extension', bankFormat: null }));
+    expect(out.counts.inserted).toBe(1);
+  });
+});
+
 describe('the guard holds the account until the request ends', () => {
   for (const [what, change] of [
     ['a deactivation', 'UPDATE gl_accounts SET is_active = false WHERE id = $1'],
     ['a retype', "UPDATE gl_accounts SET account_subtype = 'current_asset' WHERE id = $1"],
   ] as const) {
     it(`${what} waits for a request that passed the guard, and lands once it ends`, async () => {
-      // Its own account per case, so a change that lands under a mutant cannot leak into the next case.
-      const bank = (await pool.query(
-        `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,is_active,account_subtype)
-         VALUES ($1,$2,'BAG race','asset','debit',true,'bank') RETURNING id`, [x.f.c, `R${what.length}${x.f.c.slice(0, 6)}`],
-      )).rows[0].id as string;
-      const other = await pool.connect();
-      try {
-        await other.query("SET lock_timeout = '300ms'");
-        await inRequest(pool, x.user, x.f.c, async () => {
-          await assertBankAccountInCompany(x.f.c, bank);
-          await expect(other.query(change, [bank])).rejects.toMatchObject({ code: '55P03' });
-        });
-        await other.query('BEGIN');
-        await other.query(change, [bank]);
-        await other.query('ROLLBACK');
-      } finally {
-        await other.query('RESET lock_timeout');
-        other.release();
-      }
+      await expectHeldUntilEnd((bank) => assertBankAccountInCompany(x.f.c, bank), change, `R${what.length}`);
     });
   }
+});
+
+describe('the guard bounds its wait tighten-only and restores the caller\'s lock_timeout', () => {
+  const setting = async (c: import('pg').PoolClient) => (await c.query("SELECT current_setting('lock_timeout') AS v")).rows[0].v as string;
+
+  it('an unbounded caller (0) gets 0 back; a tighter caller (1s) keeps 1s for the wait and gets it back', async () => {
+    await inRequest(pool, x.user, x.f.c, async (c) => {
+      await assertBankAccountInCompany(x.f.c, x.f.bank);
+      expect(await setting(c)).toBe('0');
+    });
+    const writer = await pool.connect();
+    await writer.query('BEGIN');
+    await writer.query('UPDATE gl_accounts SET account_name = account_name WHERE id = $1', [x.f.bank2]);
+    try {
+      await inRequest(pool, x.user, x.f.c, async (c) => {
+        await c.query("SELECT set_config('lock_timeout', '1s', true)");
+        await assertBankAccountInCompany(x.f.c, x.f.bank);
+        expect(await setting(c)).toBe('1s');
+        const t0 = Date.now();
+        await c.query('SAVEPOINT held');
+        await expect(assertBankAccountInCompany(x.f.c, x.f.bank2)).rejects.toMatchObject({ code: 'ROW_LOCK_TIMEOUT' });
+        expect(Date.now() - t0, 'waited the caller\'s 1 s, not 5 s').toBeLessThan(3000);
+        await c.query('ROLLBACK TO SAVEPOINT held');
+      });
+    } finally {
+      await writer.query('ROLLBACK');
+      writer.release();
+    }
+  });
 });
