@@ -106,7 +106,7 @@ function isoYmd(y: number, m: number, d: number): string {
 }
 
 /** Last calendar day of month m (1..12) in year y — leap-aware. */
-function lastDayOf(y: number, m: number): number {
+export function lastDayOf(y: number, m: number): number {
   return new Date(Date.UTC(y, m, 0)).getUTCDate();
 }
 

@@ -3,7 +3,7 @@
  * Pure computations — no DB calls. Returns SA VAT and PAYE periods,
  * and a static compliance event calendar.
  */
-import { vatQuickPeriods, type VatAlignment, type VatSetting } from '@/modules/bureau/services/vatPeriodHelper';
+import { lastDayOf, vatQuickPeriods, type VatAlignment, type VatSetting } from '@/modules/bureau/services/vatPeriodHelper';
 import { backToFriday } from '@/modules/bureau/services/complianceCalendarEngine';
 
 export interface TaxPeriod {
@@ -84,7 +84,7 @@ export function getTaxPeriods(year?: number, alignment: VatAlignment = 'odd', se
       type: 'PAYE',
       periodStart: `${y}-${pad(m)}-01`,
       periodEnd: `${y}-${pad(m)}-${pad(lastDay)}`,
-      dueDate: `${dueYear}-${pad(dueM)}-07`,
+      dueDate: backToFriday(dueYear, dueM, 7),
       label: `EMP201 — ${payeMonthNames[m - 1]} ${y}`,
     });
   }
@@ -118,18 +118,21 @@ export function getComplianceCalendar(year?: number, alignment: VatAlignment = '
     const dueMonth = m + 1;
     const dueYear = dueMonth > 12 ? y + 1 : y;
     const dueM = dueMonth > 12 ? 1 : dueMonth;
+    const dueDate = backToFriday(dueYear, dueM, 7);
     events.push({
       eventType: 'EMP201_DUE',
-      dueDate: `${dueYear}-${pad(dueM)}-07`,
+      dueDate,
       description: `EMP201 (PAYE/UIF/SDL) for ${calMonthNames[m - 1]} ${y}`,
-      status: getDeadlineStatus(`${dueYear}-${pad(dueM)}-07`),
+      status: getDeadlineStatus(dueDate),
     });
   }
 
-  events.push({ eventType: 'EMP501_DUE', dueDate: `${y}-05-31`, description: `EMP501 Interim Reconciliation — Tax Year ending Feb ${y}`, status: getDeadlineStatus(`${y}-05-31`) });
-  events.push({ eventType: 'EMP501_DUE', dueDate: `${y}-10-31`, description: `EMP501 Annual Reconciliation — Tax Year ending Feb ${y}`, status: getDeadlineStatus(`${y}-10-31`) });
-  events.push({ eventType: 'PROVISIONAL_TAX', dueDate: `${y}-08-31`, description: `IRP6 First Provisional Tax Payment — Tax Year ending Feb ${y + 1}`, status: getDeadlineStatus(`${y}-08-31`) });
-  events.push({ eventType: 'PROVISIONAL_TAX', dueDate: `${y + 1}-02-28`, description: `IRP6 Second Provisional Tax Payment — Tax Year ending Feb ${y + 1}`, status: getDeadlineStatus(`${y + 1}-02-28`) });
+  events.push({ eventType: 'EMP501_DUE', dueDate: `${y}-05-31`, description: `EMP501 Annual Reconciliation — Tax Year ending Feb ${y}`, status: getDeadlineStatus(`${y}-05-31`) });
+  events.push({ eventType: 'EMP501_DUE', dueDate: `${y}-10-31`, description: `EMP501 Interim Reconciliation (Mar–Aug ${y}) — Tax Year ending Feb ${y + 1}`, status: getDeadlineStatus(`${y}-10-31`) });
+  const irp6First = backToFriday(y, 8, 31);
+  const irp6Second = backToFriday(y + 1, 2, lastDayOf(y + 1, 2));
+  events.push({ eventType: 'PROVISIONAL_TAX', dueDate: irp6First, description: `IRP6 First Provisional Tax Payment — Tax Year ending Feb ${y + 1}`, status: getDeadlineStatus(irp6First) });
+  events.push({ eventType: 'PROVISIONAL_TAX', dueDate: irp6Second, description: `IRP6 Second Provisional Tax Payment — Tax Year ending Feb ${y + 1}`, status: getDeadlineStatus(irp6Second) });
 
   events.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   return events;
