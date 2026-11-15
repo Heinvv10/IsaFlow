@@ -71,6 +71,8 @@ vi.mock('@/lib/auth/migrationAdminPool', () => ({
           const hit = h.establishedIds.has(params[0] as string);
           return { rows: hit ? [{ id: params[0] }] : [], rowCount: hit ? 1 : 0 };
         }
+        // upsertInviteeProfile's case-insensitive address check: no other row holds it.
+        if (/lower\(o\.email\) = lower\(\$2\)/.test(text)) return { rows: [], rowCount: 0 };
         // As Postgres answers: an accepted-meanwhile row still matches an UPDATE without
         // `AND accepted_at IS NULL`, so only the predicate makes the race visible.
         if (/SET accepted_at = now\(\)/.test(text)) {

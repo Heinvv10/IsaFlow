@@ -22,6 +22,7 @@ import { randomUUID } from 'crypto';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { ingestReq, mockRes, type Res } from './s06b-extension-token-standing.helpers';
+import { deleteUserLeavingPreFkOrphans } from './helpers/preFkOrphanMembership';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const REAL_DB = !!DATABASE_URL && !DATABASE_URL.includes('dummy');
@@ -212,7 +213,8 @@ describeIfDb('S-06b: an extension pairing token answers for its company standing
 
   it('(8) is refused when its pairer has no users row behind the membership', async () => {
     const p = await paired();
-    await admin.query('DELETE FROM users WHERE id = $1', [p.userId]);
+    // Its membership left behind, as one written before migration 996's NOT VALID FK.
+    await deleteUserLeavingPreFkOrphans(admin, p.userId);
     await expectRefused(p, 'pairer has no users profile');
   });
 

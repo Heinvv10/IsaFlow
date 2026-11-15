@@ -115,7 +115,7 @@ export function withAuth(handler: Handler): NextApiHandler {
       // flips is_active/suspended_at but cannot revoke a live GoTrue cookie,
       // so without this the suspended user keeps full access until the token
       // expires. The join is LEFT so a membership with no profile behind it
-      // (company_users.user_id has no FK to users) is denied by the predicate
+      // (one written before migration 996's NOT VALID FK to users) is denied by the predicate
       // rather than silently disappearing into the membership-missing branch.
       // Neither user_id nor users.id is cast: both are TEXT columns.
       let membership: { rows: CompanyMembershipRow[] };
