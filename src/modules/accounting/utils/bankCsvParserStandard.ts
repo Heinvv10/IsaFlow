@@ -5,7 +5,7 @@
  */
 
 import type { BankCsvParseResult } from '../types/bank.types';
-import { parseCsvLines, parseAmount, normalizeDate } from './bankCsvParserUtils';
+import { parseCsvLines, parseAmount, normalizeDate, readBalanceCell } from './bankCsvParserUtils';
 
 // ── Standard Bank ─────────────────────────────────────────────────────────────
 // Columns: Date, Description, Debit, Credit, Balance
@@ -53,7 +53,7 @@ export function parseStandardBankStatement(csv: string): BankCsvParseResult {
       transactionDate: date,
       amount,
       description: fields[1]!.trim(),
-      balance: fields.length > 4 ? parseAmount(fields[4]!) ?? undefined : undefined,
+      balance: readBalanceCell(result, fields, 4, i + 1),
     });
   }
 
@@ -105,7 +105,7 @@ export function parseNedbankStatement(csv: string): BankCsvParseResult {
       valueDate: valueDate || undefined,
       amount,
       description: fields[2]!.trim(),
-      balance: fields.length > 5 ? parseAmount(fields[5]!) ?? undefined : undefined,
+      balance: readBalanceCell(result, fields, 5, i + 1),
     });
   }
 
@@ -159,7 +159,7 @@ export function parseCapitecStatement(csv: string): BankCsvParseResult {
       transactionDate: date,
       amount,
       description: fields[1]!.trim(),
-      balance: fields.length > 4 ? parseAmount(fields[4]!) ?? undefined : undefined,
+      balance: readBalanceCell(result, fields, 4, i + 1),
     });
   }
 

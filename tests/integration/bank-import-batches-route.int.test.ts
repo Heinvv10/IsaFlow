@@ -77,4 +77,25 @@ describe('GET /api/accounting/bank-import-batches', () => {
     expect(mine.map((b) => b.id)).toEqual([september, august]);
     expect((await list(f.bank, other.c)).map((b) => b.id)).toEqual([foreign]);
   });
+
+  it('a bankAccountId that is not a UUID is a 400', async () => {
+    for (const bad of ['not-a-uuid', `${f.bank}' OR '1'='1`]) {
+      const res = await callRoute(bankImportBatches as never, tokens[a]!, f.c, 'GET', undefined,
+        '/api/accounting/bank-import-batches', { bankAccountId: bad });
+      expect(res.state.statusCode, bad).toBe(400);
+    }
+  });
+
+  it('a failed read is a 500, not an empty list', async () => {
+    // A real DB error on this disposable fixture: the column the read selects is briefly missing.
+    await pool.query('ALTER TABLE bank_import_batches RENAME COLUMN balance_source TO balance_source_gone');
+    try {
+      const res = await callRoute(bankImportBatches as never, tokens[a]!, f.c, 'GET', undefined,
+        '/api/accounting/bank-import-batches', { bankAccountId: f.bank });
+      expect(res.state.statusCode).toBe(500);
+      expect(JSON.stringify(res.state.body)).not.toContain('"batches"');
+    } finally {
+      await pool.query('ALTER TABLE bank_import_batches RENAME COLUMN balance_source_gone TO balance_source');
+    }
+  });
 });

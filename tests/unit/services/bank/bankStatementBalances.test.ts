@@ -34,9 +34,9 @@ describe('deriveStatementBalances', () => {
     });
   });
 
-  it('one row chains both ways and reads ascending', () => {
+  it('one row proves nothing about whether its balance is before or after the line: unverified (round 2)', () => {
     expect(deriveStatementBalances(parse([row('2026-09-05', -40, 960)]))).toEqual({
-      source: 'running_balance', openingCents: 100000, closingCents: 96000, asAt: '2026-09-05',
+      source: 'unverified', openingCents: null, closingCents: null, asAt: '2026-09-05',
     });
   });
 

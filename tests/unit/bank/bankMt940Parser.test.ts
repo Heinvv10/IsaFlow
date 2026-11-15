@@ -127,6 +127,26 @@ describe('parseMt940Statement', () => {
     expect(lastBad.closingBalance).toBeUndefined();
   });
 
+  it('two different :25: accounts in one file: the balances are doubted (round 2)', () => {
+    const two = [':20:S1', ':25:1111', ':60F:C260101ZAR100,00', ':61:260102C10,00NTRFa//1', ':86:a', ':62F:C260102ZAR110,00',
+      ':20:S2', ':25:2222', ':60F:C260101ZAR500,00', ':61:260102C5,00NTRFb//2', ':86:b', ':62F:C260102ZAR505,00'].join('\n');
+    expect(parseMt940Statement(two).balancesUnverifiable).toMatch(/2 accounts/);
+  });
+
+  it('chained statements of one account must join: each closing equals the next opening (round 2)', () => {
+    const chain = (secondOpening: string) => [':20:S1', ':25:1111', ':60F:C260101ZAR100,00', ':61:260102C10,00NTRFa//1', ':86:a',
+      ':62F:C260102ZAR110,00', ':20:S2', ':25:1111', `:60F:C260102ZAR${secondOpening}`, ':61:260103C5,00NTRFb//2', ':86:b',
+      ':62F:C260103ZAR115,00'].join('\n');
+    expect(parseMt940Statement(chain('110,00')).balancesUnverifiable).toBeUndefined();
+    expect(parseMt940Statement(chain('111,00')).balancesUnverifiable).toMatch(/does not join/);
+  });
+
+  it('an unreadable balance field is doubted, not silently dropped (round 2)', () => {
+    const r = parseMt940Statement([':25:9999', ':60F:C260101ZAR1,00', ':61:260101C100,00NTRFa//1', ':86:x', ':62F:C2601ZAR101,00'].join('\n'));
+    expect(r.closingBalance).toBeUndefined();
+    expect(r.balancesUnverifiable).toMatch(/:62F:/);
+  });
+
   it('does not throw on empty or non-MT940 input', () => {
     expect(parseMt940Statement('').transactions).toEqual([]);
     const r = parseMt940Statement('just some random text\nno swift tags here');

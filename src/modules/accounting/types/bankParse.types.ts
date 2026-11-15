@@ -20,7 +20,7 @@ export interface ParsedBankTransaction {
  * Where a statement's opening/closing balance came from, or why there is none (bank_import_batches.balance_source,
  * migration 998). See bankStatementBalances.ts for the rules.
  */
-export type BalanceSource = 'printed' | 'running_balance' | 'not_in_file' | 'unverified';
+export type BalanceSource = 'printed' | 'running_balance' | 'ai_read' | 'not_in_file' | 'unverified';
 
 /** A statement's balances, worked out from the WHOLE file (before the ledger-window filter and dedupe), in cents. */
 export interface StatementBalances {
@@ -49,6 +49,12 @@ export interface BankCsvParseResult {
   openingBalance?: number;
   /** The balance the file states at its end: OFX `BALAMT` (LEDGERBAL), MT940 `:62F:`. */
   closingBalance?: number;
+  /**
+   * Set by a parser that read something which makes its balances untrustworthy: a balance cell that is not a plain
+   * number, a file holding more than one account or statement, chained statements that do not join. The text says
+   * what; deriveStatementBalances then answers 'unverified'.
+   */
+  balancesUnverifiable?: string;
   /** Set by parseStatement from the raw parse (deriveStatementBalances); importParsedTransactions writes it. */
   statementBalances?: StatementBalances;
   /**
