@@ -8,6 +8,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getImport, notReadyError } from './bankStatementOcrRead';
 import { rowsToCommit } from './bankStatementDedupHelpers';
+import { assertBankAccountInCompany } from './bankAccountGuard';
 import { ocrBalanceColumns } from './bankStatementBalances';
 
 export async function commitImport(
@@ -23,6 +24,7 @@ export async function commitImport(
   if (notReady) throw notReady;
   if (imp.status === 'committed') throw new Error('Import already committed');
   if (imp.status === 'rolled_back') throw new Error('Import has been rolled back');
+  await assertBankAccountInCompany(companyId, imp.bankAccountId); // stored at upload: since deactivated, retyped, pre-guard?
 
   const { commit: nonDupes, rows } = await rowsToCommit(companyId, imp.bankAccountId, imp.rows); // ingest lock (WP2-2)
   log.info('bankStatementOcr: committing import', { importId, nonDupeCount: nonDupes.length }, 'bank-stmt-ocr');
