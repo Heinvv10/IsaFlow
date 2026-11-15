@@ -127,7 +127,6 @@
   "src/components/loans/LoanEventsTab.tsx": 1,
   "src/components/loans/LoanOverviewTab.tsx": 1,
   "src/components/onboarding/FirstInvoiceWizard.tsx": 1,
-  "src/components/onboarding/WizardSteps.tsx": 1,
   "src/components/payroll/TaxDirectiveComponents.tsx": 1,
   "src/components/practice/ClientRateOverrides.tsx": 1,
   "src/components/practice/JobBudgetPicker.tsx": 1,
