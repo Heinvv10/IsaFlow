@@ -3,8 +3,8 @@
  *   EMP201 — the 7th of the following month;
  *   EMP501 — ANNUAL reconciliation due 31 May, INTERIM (Mar–Aug) due 31 Oct;
  *   IRP6   — 1st payment 31 Aug, 2nd payment the last day of February (leap-aware).
- * An EMP201 / IRP6 due date on a Saturday or Sunday moves back to the Friday
- * (no holiday calendar). EMP501 dates are not shifted.
+ * An EMP201 / EMP501 / IRP6 due date on a Saturday or Sunday moves back to the
+ * Friday (TAA s244; no holiday calendar).
  */
 import { describe, it, expect } from 'vitest';
 import { getComplianceCalendar, getTaxPeriods } from '@/modules/accounting/services/reports/sarsTaxPeriodsService';
@@ -58,5 +58,15 @@ describe('EMP201 weekend shift', () => {
     expect(paye[0]!.dueDate).toBe('2026-02-06');
     expect(paye[4]!.dueDate).toBe('2026-06-05');
     expect(paye[2]!.dueDate).toBe('2026-04-07');
+  });
+});
+
+describe('EMP501 weekend shift', () => {
+  it('annual due Sunday 31 May 2026 moves back to Friday 29 May', () => {
+    expect(ofType(2026, 'EMP501_DUE').find((e) => /Annual/.test(e.description))!.dueDate).toBe('2026-05-29');
+  });
+
+  it('interim due Saturday 31 Oct 2026 moves back to Friday 30 Oct', () => {
+    expect(ofType(2026, 'EMP501_DUE').find((e) => /Interim/.test(e.description))!.dueDate).toBe('2026-10-30');
   });
 });

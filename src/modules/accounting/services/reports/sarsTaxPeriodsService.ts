@@ -127,8 +127,10 @@ export function getComplianceCalendar(year?: number, alignment: VatAlignment = '
     });
   }
 
-  events.push({ eventType: 'EMP501_DUE', dueDate: `${y}-05-31`, description: `EMP501 Annual Reconciliation — Tax Year ending Feb ${y}`, status: getDeadlineStatus(`${y}-05-31`) });
-  events.push({ eventType: 'EMP501_DUE', dueDate: `${y}-10-31`, description: `EMP501 Interim Reconciliation (Mar–Aug ${y}) — Tax Year ending Feb ${y + 1}`, status: getDeadlineStatus(`${y}-10-31`) });
+  const emp501Annual = backToFriday(y, 5, 31);
+  const emp501Interim = backToFriday(y, 10, 31);
+  events.push({ eventType: 'EMP501_DUE', dueDate: emp501Annual, description: `EMP501 Annual Reconciliation — Tax Year ending Feb ${y}`, status: getDeadlineStatus(emp501Annual) });
+  events.push({ eventType: 'EMP501_DUE', dueDate: emp501Interim, description: `EMP501 Interim Reconciliation (Mar–Aug ${y}) — Tax Year ending Feb ${y + 1}`, status: getDeadlineStatus(emp501Interim) });
   const irp6First = backToFriday(y, 8, 31);
   const irp6Second = backToFriday(y + 1, 2, lastDayOf(y + 1, 2));
   events.push({ eventType: 'PROVISIONAL_TAX', dueDate: irp6First, description: `IRP6 First Provisional Tax Payment — Tax Year ending Feb ${y + 1}`, status: getDeadlineStatus(irp6First) });
