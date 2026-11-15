@@ -12,6 +12,8 @@
  *        is sent or the reset is audited. Review #1407: each refusal is logged (user id and reason, never an email
  *        address), and the TEXT user id is matched case-insensitively (an upper-cased id is the same user, and the
  *        audit row and the reset use that user's real id).
+ *   OP-3 users.id is TEXT but auth_password_reset_tokens.user_id is uuid, so a user whose stored id is not a UUID
+ *        cannot hold a token: minting one threw 22P02 (a 500). Now a 409 before any audit row, token or email.
  * sendEmail is mocked: no email leaves the test. Tokens are aal2.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -40,8 +42,10 @@ const suspendedAtCompany = crypto.randomUUID();
 const inactiveCompany = crypto.randomUUID();
 const notMemberCompany = crypto.randomUUID();
 const member = crypto.randomUUID();
-const allCompanies = [company, deletedCompany, suspendedCompany, suspendedAtCompany, inactiveCompany, notMemberCompany];
 const TAG = `wp14d-${Date.now()}`;
+/** A stored users.id that is not a UUID (dev holds such ids: tenant-only-test-user, ...). */
+const nonUuidUser = `op3-not-a-uuid-${TAG}`;
+const allCompanies = [company, deletedCompany, suspendedCompany, suspendedAtCompany, inactiveCompany, notMemberCompany];
 
 type Body = { success?: boolean; data?: { token?: string }; error?: { code?: string; message?: string } };
 async function call(route: unknown, id: string, url: string) {
@@ -61,7 +65,8 @@ beforeAll(async () => {
   vi.stubEnv('IMPERSONATION_JWT_SECRET', 'wp14d-synthetic-impersonation-signing-key-over-32');
   vi.stubEnv('ENCRYPTION_KEY', 'disposable-r032-stash-encryption-key-over-32-characters');
   await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'super_admin', true), ($3, $4, 'super_admin', true),
-    ($5, $6, 'viewer', true)`, [admin, `${admin}@test.local`, otherSuper, `${otherSuper}@test.local`, member, `${member}@test.local`]);
+    ($5, $6, 'viewer', true), ($7, $8, 'viewer', true)`, [admin, `${admin}@test.local`, otherSuper, `${otherSuper}@test.local`,
+    member, `${member}@test.local`, nonUuidUser, `${nonUuidUser}@test.local`]);
   await pool.query(`INSERT INTO companies (id, name) VALUES ($1, $2), ($3, $4)`,
     [company, `${TAG} live`, notMemberCompany, `${TAG} live, admin not a member`]);
   await pool.query(`INSERT INTO companies (id, name, status) VALUES ($1, $2, 'deleted'), ($3, $4, 'suspended')`,
@@ -83,7 +88,7 @@ afterAll(async () => {
     await pool.query('DELETE FROM auth_password_reset_tokens WHERE user_id = $1::uuid', [member]);
     await pool.query('DELETE FROM company_users WHERE user_id = $1', [admin]);
     await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [allCompanies]);
-    await pool.query('DELETE FROM users WHERE id = ANY($1)', [[admin, otherSuper, member]]);
+    await pool.query('DELETE FROM users WHERE id = ANY($1)', [[admin, otherSuper, member, nonUuidUser]]);
     await pool.query("DELETE FROM rate_limit_counters WHERE key = 'admin:127.0.0.79' OR key LIKE $1", [`impersonate:${admin}%`]);
   } finally {
     await pool.end();
@@ -162,6 +167,22 @@ describe('F-11: reset-password refuses with the reason, before anything is writt
     expect(r.status).toBe(403);
     expect(await tokens(otherSuper)).toBe(0);
     expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it('a user whose stored id is not a UUID: 409 saying so; no token, no email, no audit row (OP-3)', async () => {
+    const allTokens = async () => (await pool.query('SELECT count(*)::int AS n FROM auth_password_reset_tokens')).rows[0].n as number;
+    const before = await allTokens();
+    const warn = vi.spyOn(log, 'warn');
+    const r = await call(resetPassword, nonUuidUser, `/api/admin/users/${nonUuidUser}/reset-password`);
+    const warned = refusalWarns(warn);
+    warn.mockRestore();
+    expect(r.status).toBe(409);
+    expect(r.body.error?.message).toBe("This account's id format can't receive a reset link");
+    expect(warned.map((c) => c[1])).toEqual([{ userId: nonUuidUser, reason: 'id_not_uuid' }]);
+    expect(await tokens(nonUuidUser)).toBe(0);
+    expect(await allTokens()).toBe(before);
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(await audits('user.reset_password', nonUuidUser)).toBe(0);
   });
 
   it('an upper-cased user id resets that user: one token, the email to their address', async () => {
