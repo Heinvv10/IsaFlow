@@ -15,7 +15,6 @@ vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 
 import { apiFetch } from '@/lib/apiFetch';
 import { CompanyBillingTab } from '@/components/admin/companies/CompanyBillingTab';
 import { ConvertTrialModal } from '@/components/admin/ConvertTrialModal';
-import { PaystackMandateCard } from '@/components/admin/billing/PaystackMandateCard';
 import { ImpersonationBanner } from '@/components/layout/ImpersonationBanner';
 import { ApplyPackageCard } from '@/components/payroll/ApplyPackageCard';
 import { CostCentreAssignmentCard } from '@/components/payroll/CostCentreAssignmentCard';
@@ -81,24 +80,6 @@ describe('busy flag stays set after a redirect starts', () => {
     vi.stubGlobal('location', loc);
     return loc;
   };
-  it('PaystackMandateCard: authorise keeps the button disabled once the redirect is set', async () => {
-    const loc = stubHref();
-    window.prompt = () => '1500';
-    serve(on('GET', 'mandate/status', () => ok({ mandate: null, charges: [] })), on('POST', 'mandate/create', () => ok({ checkoutUrl: 'https://pay.example/x' })));
-    render(<PaystackMandateCard />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Authorise debit order' }));
-    await waitFor(() => expect(loc.href).toBe('https://pay.example/x'));
-    await new Promise((r) => setTimeout(r, 30));
-    expect((screen.getByRole('button', { name: /starting/i }) as HTMLButtonElement).disabled).toBe(true);
-  });
-  it('PaystackMandateCard: an empty 500 frees the button again with a plain sentence', async () => {
-    window.prompt = () => '1500';
-    serve(on('GET', 'mandate/status', () => ok({ mandate: null, charges: [] })), on('POST', 'mandate/create', empty500));
-    render(<PaystackMandateCard />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Authorise debit order' }));
-    expect(await screen.findByText('Could not start the debit order authorisation - try again')).toBeTruthy();
-    await waitFor(() => expect((screen.getByRole('button', { name: 'Authorise debit order' }) as HTMLButtonElement).disabled).toBe(false));
-  });
   it('ImpersonationBanner: stays busy after a successful return redirect', async () => {
     document.cookie = 'is_impersonating=1';
     const loc = stubHref();

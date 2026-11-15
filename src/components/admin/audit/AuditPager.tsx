@@ -7,7 +7,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 export function AuditPager({ page, totalPages, total, setPage }: { page: number; totalPages: number; total: number; setPage: Dispatch<SetStateAction<number>> }) {
   return (
     <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700 text-sm">
-      <span className="text-gray-500 dark:text-gray-400">
+      <span className="text-ink-faint dark:text-gray-400">
         Page {page} of {totalPages} &nbsp;·&nbsp; {total.toLocaleString()} total entries
       </span>
       <div className="flex gap-2">

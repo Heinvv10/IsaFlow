@@ -66,7 +66,7 @@ const ACTION_COLORS: Record<string, string> = {
 };
 
 export function actionBadge(action: string) {
-  const cls = ACTION_COLORS[action.toLowerCase()] ?? 'bg-gray-500/15 text-gray-400';
+  const cls = ACTION_COLORS[action.toLowerCase()] ?? 'bg-gray-500/15 text-ink-faint dark:text-gray-400';
   return (
     <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${cls}`}>
       {action.replaceAll('_', ' ')}

@@ -14,7 +14,7 @@ export function CompanyUsersTab({ users, usersLoading }: { users: CompanyUser[];
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                <tr className="text-left text-xs text-ink-faint dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
                   <th className="px-4 py-3 font-medium">Name</th>
                   <th className="px-4 py-3 font-medium">Email</th>
                   <th className="px-4 py-3 font-medium">Role</th>
@@ -28,7 +28,7 @@ export function CompanyUsersTab({ users, usersLoading }: { users: CompanyUser[];
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{u.name}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{u.email}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{u.role}</td>
-                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{formatLastSeen(u.last_login)}</td>
+                    <td className="px-4 py-3 text-ink-faint dark:text-gray-400">{formatLastSeen(u.last_login)}</td>
                   </tr>
                 ))}
               </tbody>

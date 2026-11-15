@@ -73,6 +73,6 @@ export const STATUS_BADGE: Record<string, string> = {
   active:    'bg-teal-500/10 text-teal-600 dark:text-teal-400',
   trial:     'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
   suspended: 'bg-red-500/10 text-red-500',
-  cancelled: 'bg-gray-500/10 text-gray-500',
+  cancelled: 'bg-gray-500/10 text-ink-faint dark:text-gray-500',
   deleted:   'bg-orange-500/10 text-orange-600 dark:text-orange-400',
 };

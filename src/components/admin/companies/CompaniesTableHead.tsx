@@ -20,7 +20,7 @@ export function CompaniesTableHead({ allSelected, someSelected, toggleSelectAll,
 
   return (
     <thead>
-      <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+      <tr className="text-left text-xs text-ink-faint dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
         <th className="px-3 py-3 w-8">
           <input
             type="checkbox"

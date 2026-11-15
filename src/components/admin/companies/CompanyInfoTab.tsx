@@ -11,7 +11,7 @@ import type { CompanyEdit } from './useCompanyEdit';
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
   return (
     <div>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{label}</p>
+      <p className="text-xs text-ink-faint dark:text-gray-400 mb-0.5">{label}</p>
       <p className="text-sm text-gray-900 dark:text-white">{value || '\u2014'}</p>
     </div>
   );
@@ -58,7 +58,7 @@ export function CompanyInfoTab({ company, edit }: { company: CompanyDetail; edit
                 ['postal_code',     'Postal Code'],
               ] as const).map(([key, label]) => (
                 <div key={key} className={key === 'address_line1' ? 'col-span-2' : ''}>
-                  <label htmlFor={`company-edit-${key}`} className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{label}</label>
+                  <label htmlFor={`company-edit-${key}`} className="block text-xs font-medium text-ink-faint dark:text-gray-400 mb-1">{label}</label>
                   <input
                     id={`company-edit-${key}`}
                     type={key === 'email' || key === 'billing_email' ? 'email' : key === 'website' ? 'url' : 'text'}

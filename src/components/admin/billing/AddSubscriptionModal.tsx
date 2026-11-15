@@ -33,11 +33,11 @@ export function AddSubscriptionModal({ formRef, form, setForm, formError, plans,
             </div>
           )}
           <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Company</label>
+            <label className="block text-xs font-medium text-ink-faint dark:text-gray-400 mb-1">Company</label>
             <SubscriptionCompanyPicker companyId={form.company_id} onChange={id => setForm(f => ({ ...f, company_id: id }))} onNamedChange={setCompanyNamed} />
           </div>
           <div>
-            <label htmlFor="sub-plan" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Plan</label>
+            <label htmlFor="sub-plan" className="block text-xs font-medium text-ink-faint dark:text-gray-400 mb-1">Plan</label>
             <select id="sub-plan" value={form.plan_id} onChange={e => setForm(f => ({ ...f, plan_id: e.target.value }))}
               className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500">
               <option value="">Select a plan...</option>
@@ -46,7 +46,7 @@ export function AddSubscriptionModal({ formRef, form, setForm, formError, plans,
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="sub-cycle" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Billing Cycle</label>
+              <label htmlFor="sub-cycle" className="block text-xs font-medium text-ink-faint dark:text-gray-400 mb-1">Billing Cycle</label>
               <select id="sub-cycle" value={form.billing_cycle} onChange={e => setForm(f => ({ ...f, billing_cycle: e.target.value }))}
                 className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500">
                 <option value="monthly">Monthly</option>
@@ -54,7 +54,7 @@ export function AddSubscriptionModal({ formRef, form, setForm, formError, plans,
               </select>
             </div>
             <div>
-              <label htmlFor="sub-discount" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Discount %</label>
+              <label htmlFor="sub-discount" className="block text-xs font-medium text-ink-faint dark:text-gray-400 mb-1">Discount %</label>
               <input id="sub-discount" type="number" min="0" max="50" value={form.discount_pct} onChange={e => setForm(f => ({ ...f, discount_pct: e.target.value }))}
                 className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
             </div>

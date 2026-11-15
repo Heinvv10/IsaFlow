@@ -11,7 +11,8 @@ import { formatDate } from '@/utils/formatters';
 import { formatLastSeen } from '@/components/admin/formatLastSeen';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { adminExportHref } from '@/components/admin/adminExportHref';
-import { Search, Building2, AlertCircle, Loader2, ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { Search, Building2, AlertCircle, Loader2, Download } from 'lucide-react';
+import { AdminPager } from '@/components/admin/AdminPager';
 import { UserDeleteCell } from '@/components/admin/UserDeleteCell';
 import { adminFetch } from '@/lib/admin/adminFetch';
 
@@ -281,25 +282,7 @@ export default function AdminUsersPage() {
         </div>
 
         {/* Pagination */}
-        <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700 text-sm">
-          <span className="text-gray-500 dark:text-gray-400">Page {page} of {totalPages}</span>
-          <div className="flex gap-2">
-            <button
-              disabled={page <= 1}
-              onClick={() => setPage(p => p - 1)}
-              className="p-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-900 dark:hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button
-              disabled={page >= totalPages}
-              onClick={() => setPage(p => p + 1)}
-              className="p-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-900 dark:hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+        <AdminPager page={page} totalPages={totalPages} setPage={setPage} />
       </div>
     </AdminLayout>
   );
