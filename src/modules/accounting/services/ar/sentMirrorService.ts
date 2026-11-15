@@ -30,7 +30,7 @@ import { simpleParser, type Attachment } from 'mailparser';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sha256 } from '@/lib/documentStorage';
-import { markMirrorScanError } from '@/modules/accounting/services/capture/mirrorScanError';
+import { recordScanFailure } from '@/modules/accounting/services/capture/mirrorScanError';
 import { readCursor } from '@/modules/accounting/services/capture/mirrorCursor';
 import { captureOutbound, openImapClient } from './sentMirrorClient';
 import { isOversizedMessage, runGuardedScan, type ScanGuard, type ScanOptions } from '@/modules/accounting/services/capture/mirrorScanGuard';
@@ -242,7 +242,7 @@ async function scanBody(conn: SentMirrorConnection, result: SentMirrorScanResult
     const msg = err instanceof Error ? err.message : String(err);
     log.error('sent mirror scan failed', { connectionId: conn.id, err: msg }, 'sent-mirror');
     result.errors += 1;
-    await markMirrorScanError('sent', conn, msg);
+    await recordScanFailure('sent', conn, err);
   } finally {
     if (client && !guard.expired) {
       try { await client.logout(); } catch (err) {

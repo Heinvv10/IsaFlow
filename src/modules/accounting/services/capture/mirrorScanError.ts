@@ -10,6 +10,11 @@
  *     'error' (the connection is not scanned again until it is reconnected);
  *   - stampScanStopped: last_scan_at and last_error only, status untouched (a
  *     scan stopped by its deadline or its byte meter: retried next interval).
+ * recordScanFailure picks between them for a scan that threw: a transient failure
+ * (isTransientScanFailure: DNS gave no answer, or the network refused, timed out or
+ * dropped the connection) is stamped and retried next interval, since one DNS blip
+ * once disabled a new mailbox for good (2026-11-15); anything else, a rejected login,
+ * a refused target and every unclassified error included, still marks it 'error'.
  * Inside a request (scan-now) the write is queued with the scan's other stamps and
  * runs after the request COMMITs (mirrorScanWrite.ts afterRequestCommit), in order:
  * a cursor stamp made earlier in the scan must not land after, and clear, this error.
@@ -21,6 +26,7 @@
 
 import { log } from '@/lib/logger';
 import { routeAdminQuery } from '@/lib/auth/routeAdminPool';
+import { ImapTargetError } from '@/lib/imapTargetGuard';
 import { LOCK_NOT_AVAILABLE, afterRequestCommit } from './mirrorScanWrite';
 
 export type MirrorKind = 'imap' | 'sent';
@@ -49,6 +55,29 @@ export const SCAN_TIMED_OUT = 'Scan timed out';
 
 /** What a tenant sees when its mail server sent more for one message than the size it reported allows. */
 export const MESSAGE_TOO_LARGE = 'A message was larger than its server said; the scan was stopped';
+
+/** What a tenant sees when the network failed its scan; never the address it tried. The log has the details. */
+export const MAIL_SERVER_UNREACHABLE = 'Mail server could not be reached; will retry';
+
+/**
+ * Codes of a connect or socket that failed on the way, not on the server's say-so: Node's
+ * (net, dns) and ImapFlow's own (socket idle, connect/greeting/STARTTLS deadlines, a socket
+ * already gone, a close straight after connecting).
+ */
+const TRANSIENT_CODES: ReadonlySet<string> = new Set([
+  'ETIMEDOUT', 'ECONNREFUSED', 'ECONNRESET', 'ECONNABORTED', 'EPIPE', 'EHOSTUNREACH', 'ENETUNREACH', 'EAI_AGAIN',
+  'ETIMEOUT', 'CONNECT_TIMEOUT', 'GREETING_TIMEOUT', 'UPGRADE_TIMEOUT',
+  'NoConnection', 'EConnectionClosed', 'ClosedAfterConnectTLS', 'ClosedAfterConnectText',
+]);
+
+/** True only for a failure worth retrying as is; unknown errors are permanent (fail closed). */
+export function isTransientScanFailure(err: unknown): boolean {
+  if (err instanceof ImapTargetError) return err.transient;
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as { code?: unknown; authenticationFailed?: unknown };
+  if (e.authenticationFailed === true) return false;
+  return typeof e.code === 'string' && TRANSIENT_CODES.has(e.code);
+}
 
 const SCOPE = { imap: 'imap-mirror', sent: 'sent-mirror' } as const;
 
@@ -80,4 +109,13 @@ export async function markMirrorScanError(kind: MirrorKind, conn: MirrorRef, err
  */
 export async function stampScanStopped(kind: MirrorKind, conn: MirrorRef, reason: string): Promise<void> {
   await write(kind, conn, STAMP_STOPPED[kind], reason, 'scan stop stamp');
+}
+
+/** A scan that threw: stamped and retried when transient, else marked 'error' with its message. Never throws. */
+export async function recordScanFailure(kind: MirrorKind, conn: MirrorRef, err: unknown): Promise<void> {
+  if (isTransientScanFailure(err)) {
+    await stampScanStopped(kind, conn, err instanceof ImapTargetError ? err.message : MAIL_SERVER_UNREACHABLE);
+  } else {
+    await markMirrorScanError(kind, conn, err instanceof Error ? err.message : String(err));
+  }
 }

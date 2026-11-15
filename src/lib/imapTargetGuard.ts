@@ -20,10 +20,13 @@
  * The user sees only that the address is not allowed (or, when DNS gave no
  * answer at all, that it could not be resolved: a typo or an outage, not a
  * policy); which address it resolved to is logged, never returned (it would
- * map the internal DNS).
+ * map the internal DNS). The result says, for the scan only, when the failure
+ * was that DNS gave no answer (`transient`): the scan then retries the
+ * connection next interval instead of disabling it; the tenant still sees the
+ * one message.
  */
 import net from 'node:net';
-import { resolvePublicHostname } from '@/lib/safeFetch';
+import { DnsResolutionError, resolvePublicHostname } from '@/lib/safeFetch';
 import { log } from '@/lib/logger';
 
 export const ALLOWED_IMAP_PORTS: readonly number[] = [143, 993];
@@ -38,12 +41,20 @@ const HOST_CHARS = /^[A-Za-z0-9._:-]+$/;
 export type ImapTarget =
   /** `address` to connect to; `servername` the host name for TLS (absent when the host is an IP literal). */
   | { ok: true; address: string; servername?: string }
-  /** `message` is fit to show the user. */
-  | { ok: false; message: string };
+  /** `message` is fit to show the user; `transient` (never shown) when DNS gave no answer, not when it refused the answer. */
+  | { ok: false; message: string; transient?: true };
 
-const refuse = (message: string, detail: string, host: unknown, port: unknown): ImapTarget => {
-  log.warn('IMAP target refused', { host: typeof host === 'string' ? host.slice(0, 255) : typeof host, port, detail }, 'imap-target-guard');
-  return { ok: false, message };
+/** What a scan throws when its target check failed; `transient` as in ImapTarget. */
+export class ImapTargetError extends Error {
+  constructor(message: string, readonly transient: boolean) {
+    super(message);
+    this.name = 'ImapTargetError';
+  }
+}
+
+const refuse = (message: string, detail: string, host: unknown, port: unknown, transient = false): ImapTarget => {
+  log.warn('IMAP target refused', { host: typeof host === 'string' ? host.slice(0, 255) : typeof host, port, detail, transient }, 'imap-target-guard');
+  return transient ? { ok: false, message, transient } : { ok: false, message };
 };
 
 export async function checkImapTarget(host: unknown, port: unknown): Promise<ImapTarget> {
@@ -56,6 +67,6 @@ export async function checkImapTarget(host: unknown, port: unknown): Promise<Ima
     const address = await resolvePublicHostname(host);
     return net.isIP(host) ? { ok: true, address } : { ok: true, address, servername: host };
   } catch (err) {
-    return refuse(IMAP_HOST_REFUSED, err instanceof Error ? err.message : 'invalid host', host, port);
+    return refuse(IMAP_HOST_REFUSED, err instanceof Error ? err.message : 'invalid host', host, port, err instanceof DnsResolutionError);
   }
 }

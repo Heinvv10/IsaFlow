@@ -6,7 +6,9 @@
  * there is no app-pool fallback any more (round 5). (mirrorScanError.test.ts pins
  * the helper itself.) A scan also refuses, before
  * it connects, a host that is or resolves to private space and any port but
- * 143/993: the connection is marked errored with the reason.
+ * 143/993: the connection is marked errored with the reason. A transient failure (the
+ * name did not resolve, the network refused or dropped the connection) is stamped with
+ * status untouched, so the connection is scanned again next interval (2026-11-15).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -16,18 +18,23 @@ const h = vi.hoisted(() => ({
   adminFails: false,
   connects: 0,
   resolves: ['93.184.216.34'],
+  connectError: (): unknown => new Error('connect ECONNREFUSED'),
+  lookupFails: false,
 }));
 
 vi.mock('imapflow', () => ({
   ImapFlow: class {
     streamer = { write: () => true, push: () => true }; // what the scan's byte meter wraps
     on() { /* the mirror registers an 'error' listener */ }
-    async connect() { h.connects += 1; throw new Error('connect ECONNREFUSED'); }
+    async connect() { h.connects += 1; throw h.connectError(); }
     async logout() { /* fake mailbox */ }
   },
 }));
 vi.mock('node:dns/promises', () => ({
-  lookup: async () => h.resolves.map((address) => ({ address, family: 4 })),
+  lookup: async () => {
+    if (h.lookupFails) throw Object.assign(new Error('getaddrinfo EAI_AGAIN imap.test'), { code: 'EAI_AGAIN' });
+    return h.resolves.map((address) => ({ address, family: 4 }));
+  },
 }));
 vi.mock('mailparser', () => ({ simpleParser: async () => ({}) }));
 vi.mock('@/lib/encryption', () => ({ decrypt: () => 'password' }));
@@ -74,6 +81,8 @@ beforeEach(() => {
   h.adminFails = false;
   h.connects = 0;
   h.resolves = ['93.184.216.34'];
+  h.connectError = () => new Error('connect ECONNREFUSED');
+  h.lookupFails = false;
 });
 
 describe.each([
@@ -131,5 +140,42 @@ describe.each([
     await scan({ imapPort: 143 });
     await scan({ imapPort: 993 });
     expect(h.connects).toBe(2);
+  });
+});
+
+describe.each([
+  ['imap_mirror_connections', 'c1', () => scanConnection(imapConn)],
+  ['sent_mirror_connections', 's1', () => scanSentConnection(sentConn)],
+] as const)('%s transient scan failure', (table, id, scan) => {
+  const expectStampOnly = (message: string) => {
+    expect(h.admin).toHaveLength(1);
+    expect(h.admin[0]!.text).toMatch(new RegExp(`^UPDATE ${table} SET last_scan_at = NOW\\(\\), last_error = \\$1 WHERE`));
+    expect(h.admin[0]!.text).not.toContain('status');
+    expect(h.admin[0]!.values).toEqual([message, id, COMPANY]);
+  };
+
+  it('a DNS lookup that fails leaves the connection active and stamps the generic target message; never connects', async () => {
+    h.lookupFails = true;
+    const r = await scan();
+    expect(r.errors).toBe(1);
+    expect(h.connects).toBe(0);
+    expectStampOnly('This mail server address is not allowed or could not be resolved');
+  });
+
+  it.each(['ECONNREFUSED', 'ETIMEDOUT', 'ECONNRESET', 'EHOSTUNREACH', 'CONNECT_TIMEOUT', 'NoConnection'])(
+    'a connect that fails with %s leaves the connection active and stamps a generic message', async (code) => {
+      h.connectError = () => Object.assign(new Error(`connect ${code} 93.184.216.34:993`), { code });
+      const r = await scan();
+      expect(r.errors).toBe(1);
+      expectStampOnly('Mail server could not be reached; will retry');
+    });
+
+  it('a rejected login still marks the connection errored', async () => {
+    h.connectError = () => Object.assign(new Error('Command failed'), { authenticationFailed: true, response: 'NO [AUTHENTICATIONFAILED]' });
+    const r = await scan();
+    expect(r.errors).toBe(1);
+    expect(h.admin).toHaveLength(1);
+    expect(h.admin[0]!.text).toContain("status = CASE WHEN status = 'active' THEN 'error' ELSE status END");
+    expect(h.admin[0]!.values).toEqual(['Command failed', id, COMPANY]);
   });
 });

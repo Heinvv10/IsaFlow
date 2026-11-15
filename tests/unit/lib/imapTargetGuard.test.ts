@@ -62,10 +62,27 @@ describe('checkImapTarget: host', () => {
     expect(vi.mocked(log.warn).mock.calls[0]![1]).toMatchObject({ detail: expect.stringMatching(/^imap\.evil\.test resolves to blocked address /) });
   });
 
-  it('a name that does not resolve is told so, not that its address is "not allowed"', async () => {
+  it('a name that does not resolve gets the same message, flagged transient (the scan retries it) for the caller only', async () => {
     m.lookup.mockRejectedValue(new Error('ENOTFOUND'));
-    expect(await checkImapTarget('nope.invalid', 993)).toEqual({ ok: false, message: 'This mail server address is not allowed or could not be resolved' });
+    expect(await checkImapTarget('nope.invalid', 993)).toEqual({ ok: false, message: 'This mail server address is not allowed or could not be resolved', transient: true });
     expect(vi.mocked(log.warn).mock.calls[0]![1]).toMatchObject({ detail: 'DNS resolution failed for nope.invalid' });
+  });
+
+  it('a name with no records at all is transient too', async () => {
+    m.lookup.mockResolvedValue([]);
+    expect(await checkImapTarget('empty.test', 993)).toEqual({ ok: false, message: IMAP_HOST_REFUSED, transient: true });
+  });
+
+  it.each([
+    ['a name that resolves to private space', 'imap.evil.test', 993, () => resolvesTo('10.1.1.1')],
+    ['a private IP literal', '10.0.0.5', 993, () => undefined],
+    ['a port that is not IMAP', 'imap.gmail.com', 25, () => undefined],
+    ['a host that is not a host name', 'a b', 993, () => undefined],
+  ])('%s is a refusal, never transient', async (_what, host, port, arrange) => {
+    arrange();
+    const r = await checkImapTarget(host, port);
+    expect(r.ok).toBe(false);
+    expect(r).not.toHaveProperty('transient');
   });
 
   it.each([[''], ['   '], ['imap.test/x'], ['a b'], ['imap.test\n'], ['me@imap.test'], ['[::1]'], [undefined], [null], [42], [{ toString: () => 'x' }]])('refuses a host that is not a plain host name: %j', async (host) => {

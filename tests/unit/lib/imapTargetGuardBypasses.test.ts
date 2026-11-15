@@ -94,7 +94,8 @@ describe('the reserved ranges that stay public-looking are refused as DNS answer
 });
 
 describe('a name DNS cannot answer for is not a policy refusal', () => {
-  const UNRESOLVED = { ok: false, message: 'This mail server address is not allowed or could not be resolved' };
+  // Same text as a refusal; `transient` is for the scan (retry next interval), not the tenant.
+  const UNRESOLVED = { ok: false, message: 'This mail server address is not allowed or could not be resolved', transient: true };
 
   it('a resolver failure (ENOTFOUND, EAI_AGAIN)', async () => {
     for (const code of ['ENOTFOUND', 'EAI_AGAIN']) {
