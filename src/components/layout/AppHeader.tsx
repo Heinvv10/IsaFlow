@@ -43,7 +43,7 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
   const searchIcon = showSidebar ? '2xl:hidden' : 'xl:hidden';
 
   return (
-    <header className="flex flex-nowrap lg:flex-wrap items-center px-1 sm:px-4 gap-x-0 sm:gap-x-3 gap-y-1 py-1 flex-shrink-0 max-lg:[&_button]:min-h-11 max-lg:[&_button]:min-w-11" style={{ minHeight: SHELL_HEIGHTS.header, background: 'var(--ff-canvas-mid)', borderBottom: '1px solid var(--ff-canvas-border)' }}>
+    <header className="flex flex-wrap items-center px-1 sm:px-4 gap-x-0 sm:gap-x-3 gap-y-1 py-1 flex-shrink-0 max-lg:[&_button]:min-h-11 max-lg:[&_button]:min-w-11" style={{ minHeight: SHELL_HEIGHTS.header, background: 'var(--ff-canvas-mid)', borderBottom: '1px solid var(--ff-canvas-border)' }}>
       {/* Mobile hamburger */}
       <button
         ref={menuButtonRef}

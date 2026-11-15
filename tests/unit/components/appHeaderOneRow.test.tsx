@@ -47,11 +47,12 @@ describe('AppHeader fits one row with the bell', () => {
     expect(screen.getByRole('button', { name: 'Open search' }).className.split(/\s+/)).toContain('2xl:hidden');
   });
 
-  it('no gap below sm (the 44px touch boxes space the icons), 12px from sm; one row until lg', async () => {
+  it('no gap below sm (the 44px touch boxes space the icons), 12px from sm; wraps rather than overflow', async () => {
     const h = await header();
-    expect(h.className.split(/\s+/)).toEqual(expect.arrayContaining(['gap-x-0', 'sm:gap-x-3', 'flex-nowrap', 'lg:flex-wrap']));
+    // Wraps, never nowrap: at a 20px root font the controls must stay on screen (s2-shell-menus-keyboard golden).
+    expect(h.className.split(/\s+/)).toEqual(expect.arrayContaining(['gap-x-0', 'sm:gap-x-3', 'flex-wrap']));
     expect(h.className.split(/\s+/)).not.toContain('gap-x-3');
-    expect(h.className.split(/\s+/)).not.toContain('flex-wrap');
+    expect(h.className.split(/\s+/)).not.toContain('flex-nowrap');
   });
 
   it('the company switcher is tighter below sm and keeps its accessible name', async () => {
