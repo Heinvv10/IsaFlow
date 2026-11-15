@@ -57,8 +57,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   try {
     [fields, files] = await form.parse(req);
   } catch (err) {
-    log.error('SARS codes upload parse failed', { error: err }, 'admin-api');
-    return apiResponse.badRequest(res, 'Failed to parse upload');
+    // formidable refusing the upload (size, type, a malformed body) carries a 4xx httpCode: the caller's request.
+    const httpCode = (err as { httpCode?: unknown } | null)?.httpCode;
+    if (typeof httpCode === 'number' && httpCode >= 400 && httpCode < 500) {
+      log.warn('SARS codes upload refused', { httpCode }, 'admin-api');
+      return apiResponse.badRequest(res, 'Failed to parse upload');
+    }
+    throw err;
   }
 
   const pickField = (name: string): string | undefined => {
@@ -87,10 +92,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   let buffer: Buffer;
   try {
+    // Our own temp file: failing to read it is a server fault (500), not the caller's.
     buffer = fs.readFileSync(uploaded.filepath);
-  } catch (err) {
-    log.error('Failed to read uploaded SARS file', { error: err }, 'admin-api');
-    return apiResponse.badRequest(res, 'Could not read uploaded file');
   } finally {
     try { fs.unlinkSync(uploaded.filepath); } catch { /* ignore */ }
   }
@@ -124,43 +127,38 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     });
   }
 
-  try {
-    const result = await importRows({
-      rows: parsed.rows,
-      effectiveYear: taxYear,
-      brsVersion,
-      setCurrent,
-      importedBy: req.user.id,
-    });
+  const result = await importRows({
+    rows: parsed.rows,
+    effectiveYear: taxYear,
+    brsVersion,
+    setCurrent,
+    importedBy: req.user.id,
+  });
 
-    await logAdminAction(
-      req.user.id,
-      'sars_codes.import',
-      'sars_code_release',
-      String(taxYear),
-      {
-        brs_version: brsVersion,
-        rows: result.upserted,
-        added: result.diff.added.length,
-        removed: result.diff.removed.length,
-        changed: result.diff.changed.length,
-        set_current: setCurrent,
-      },
-      getIp(req)
-    );
-
-    log.info('SARS codes imported', {
-      adminUserId: req.user.id,
-      taxYear,
-      brsVersion,
+  await logAdminAction(
+    req.user.id,
+    'sars_codes.import',
+    'sars_code_release',
+    String(taxYear),
+    {
+      brs_version: brsVersion,
       rows: result.upserted,
-    }, 'admin-api');
+      added: result.diff.added.length,
+      removed: result.diff.removed.length,
+      changed: result.diff.changed.length,
+      set_current: setCurrent,
+    },
+    getIp(req)
+  );
 
-    return apiResponse.success(res, result);
-  } catch (err) {
-    log.error('SARS codes import failed', { error: err, taxYear, brsVersion }, 'admin-api');
-    return apiResponse.badRequestFromError(res, err, 'Import failed');
-  }
+  log.info('SARS codes imported', {
+    adminUserId: req.user.id,
+    taxYear,
+    brsVersion,
+    rows: result.upserted,
+  }, 'admin-api');
+
+  return apiResponse.success(res, result);
 }
 
 export default withAdmin(withCsrf(handler));

@@ -7,6 +7,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { deliverToEndpoint } from '@/modules/accounting/services/core/webhookService';
+import { AdminRequestError } from '@/modules/admin/middleware/adminRequestErrors';
 
 type Row = DbRow;
 
@@ -223,7 +224,7 @@ export async function updateAdminWebhook(
     WHERE we.id = ${id}::UUID
   `) as Row[];
 
-  if (!rows[0]) throw new Error('Webhook not found after update');
+  if (!rows[0]) throw new AdminRequestError(404, 'Webhook not found'); // the UPDATEs above matched nothing
 
   const lastDel = (await sql`
     SELECT id, success, delivered_at FROM webhook_deliveries
@@ -251,8 +252,8 @@ export async function redeliverWebhook(
 ): Promise<{ delivered: boolean; responseStatus: number | null; deliveryId: string }> {
   const endpoints = (await sql`SELECT * FROM webhook_endpoints WHERE id = ${webhookId}::UUID`) as Row[];
   const endpoint = endpoints[0];
-  if (!endpoint) throw new Error('Webhook not found');
-  if (!endpoint.is_active) throw new Error('This webhook is disabled. Enable it before redelivering.');
+  if (!endpoint) throw new AdminRequestError(404, 'Webhook not found');
+  if (!endpoint.is_active) throw new AdminRequestError(409, 'This webhook is disabled. Enable it before redelivering.');
 
   const srcRows = (deliveryId
     ? await sql`
@@ -263,7 +264,7 @@ export async function redeliverWebhook(
         WHERE webhook_id = ${webhookId}::UUID AND success = false
         ORDER BY delivered_at DESC LIMIT 1`) as Row[];
   const src = srcRows[0];
-  if (!src) throw new Error(deliveryId ? 'Delivery not found for this webhook' : 'No failed delivery found to redeliver');
+  if (!src) throw new AdminRequestError(404, deliveryId ? 'Delivery not found for this webhook' : 'No failed delivery found to redeliver');
 
   const payload = (typeof src.payload === 'string' ? JSON.parse(src.payload) : src.payload) as Record<string, unknown>;
   const result = await deliverToEndpoint(String(endpoint.company_id), endpoint, String(src.event), payload);

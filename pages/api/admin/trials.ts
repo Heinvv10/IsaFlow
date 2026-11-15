@@ -40,18 +40,13 @@ const PostBody = z.union([
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   /* ------------------------------------------------------------------ GET */
   if (req.method === 'GET') {
-    try {
-      if (req.query.scope === 'all') return apiResponse.success(res, await getAllTrials());
-      const within = req.query.within ? Number(req.query.within) : 30;
-      if (isNaN(within) || within < 1 || within > 365) {
-        return apiResponse.badRequest(res, 'within must be 1–365');
-      }
-      const trials = await getExpiringTrials(within);
-      return apiResponse.success(res, trials);
-    } catch (err) {
-      log.error('Failed to fetch trials', { error: err }, 'admin-trials-api');
-      return apiResponse.badRequest(res, 'Failed to fetch trials');
+    if (req.query.scope === 'all') return apiResponse.success(res, await getAllTrials());
+    const within = req.query.within ? Number(req.query.within) : 30;
+    if (isNaN(within) || within < 1 || within > 365) {
+      return apiResponse.badRequest(res, 'within must be 1–365');
     }
+    const trials = await getExpiringTrials(within);
+    return apiResponse.success(res, trials);
   }
 
   /* ----------------------------------------------------------------- POST */
@@ -105,8 +100,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           ? apiResponse.notFound(res, 'Company')
           : apiResponse.conflict(res, err.message);
       }
-      log.error('Failed to extend trial', { error: err }, 'admin-trials-api');
-      return apiResponse.badRequestFromError(res, err, 'Failed to extend trial');
+      throw err; // anything else is a 500 that rolls back
     }
   }
 

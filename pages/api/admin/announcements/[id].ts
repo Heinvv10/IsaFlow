@@ -11,7 +11,6 @@ import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import {
   getAnnouncement,
   updateAnnouncement,
@@ -39,14 +38,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (!isUuidParam(id)) return apiResponse.notFound(res, 'Announcement');
 
   if (req.method === 'GET') {
-    try {
-      const item = await getAnnouncement(id);
-      if (!item) return apiResponse.notFound(res, 'Announcement', id);
-      return apiResponse.success(res, item);
-    } catch (err) {
-      log.error('Failed to get announcement', { id, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to get announcement');
-    }
+    const item = await getAnnouncement(id);
+    if (!item) return apiResponse.notFound(res, 'Announcement', id);
+    return apiResponse.success(res, item);
   }
 
   if (req.method === 'PATCH') {
@@ -55,55 +49,45 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, firstValidationMessage(parsed.error));
     }
 
-    try {
-      // The window is judged on what will be stored: the body's value, else the stored one, for each side.
-      const current = await getAnnouncement(id);
-      if (!current) return apiResponse.notFound(res, 'Announcement', id);
-      const windowError = announcementWindowError(
-        parsed.data.starts_at ?? current.starts_at,
-        parsed.data.ends_at === undefined ? current.ends_at : parsed.data.ends_at,
-      );
-      if (windowError) return apiResponse.badRequest(res, windowError);
+    // The window is judged on what will be stored: the body's value, else the stored one, for each side.
+    const current = await getAnnouncement(id);
+    if (!current) return apiResponse.notFound(res, 'Announcement', id);
+    const windowError = announcementWindowError(
+      parsed.data.starts_at ?? current.starts_at,
+      parsed.data.ends_at === undefined ? current.ends_at : parsed.data.ends_at,
+    );
+    if (windowError) return apiResponse.badRequest(res, windowError);
 
-      const outcome = await updateAnnouncement(id, parsed.data);
-      if (outcome === 'not_found') return apiResponse.notFound(res, 'Announcement', id);
-      // The pre-check above gives the friendly text; this is the write-time guard it cannot replace.
-      if (outcome === 'window') return apiResponse.badRequest(res, WINDOW_ORDER_ERROR);
+    const outcome = await updateAnnouncement(id, parsed.data);
+    if (outcome === 'not_found') return apiResponse.notFound(res, 'Announcement', id);
+    // The pre-check above gives the friendly text; this is the write-time guard it cannot replace.
+    if (outcome === 'window') return apiResponse.badRequest(res, WINDOW_ORDER_ERROR);
 
-      await logAdminAction(
-        req.user.id,
-        'announcement.update',
-        'announcement',
-        id,
-        parsed.data as Record<string, unknown>,
-        getIp(req)
-      );
+    await logAdminAction(
+      req.user.id,
+      'announcement.update',
+      'announcement',
+      id,
+      parsed.data as Record<string, unknown>,
+      getIp(req)
+    );
 
-      return apiResponse.success(res, { updated: true });
-    } catch (err) {
-      log.error('Failed to update announcement', { id, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to update announcement');
-    }
+    return apiResponse.success(res, { updated: true });
   }
 
   if (req.method === 'DELETE') {
-    try {
-      await deleteAnnouncement(id);
+    await deleteAnnouncement(id);
 
-      await logAdminAction(
-        req.user.id,
-        'announcement.delete',
-        'announcement',
-        id,
-        null,
-        getIp(req)
-      );
+    await logAdminAction(
+      req.user.id,
+      'announcement.delete',
+      'announcement',
+      id,
+      null,
+      getIp(req)
+    );
 
-      return apiResponse.success(res, { deleted: true });
-    } catch (err) {
-      log.error('Failed to delete announcement', { id, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to delete announcement');
-    }
+    return apiResponse.success(res, { deleted: true });
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PATCH', 'DELETE']);

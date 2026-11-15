@@ -10,8 +10,8 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUuid, isPgError } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import {
   getCompanyEffectiveFeatures,
   setCompanyFeatureOverride,
@@ -31,16 +31,11 @@ const DeleteBody = z.object({
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const companyId = req.query.id as string;
+  const companyId = adminUuid(req.query.id, 'company id');
 
   if (req.method === 'GET') {
-    try {
-      const features = await getCompanyEffectiveFeatures(companyId);
-      return apiResponse.success(res, features);
-    } catch (err) {
-      log.error('Failed to get company features', { companyId, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to get company features');
-    }
+    const features = await getCompanyEffectiveFeatures(companyId);
+    return apiResponse.success(res, features);
   }
 
   if (req.method === 'POST') {
@@ -49,9 +44,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
     }
 
-    try {
-      const { feature_id, enabled, reason } = parsed.data;
+    const { feature_id, enabled, reason } = parsed.data;
 
+    try {
       await setCompanyFeatureOverride(
         companyId,
         feature_id,
@@ -59,22 +54,23 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         reason,
         req.user.id
       );
-
-      await logAdminAction(
-        req.user.id,
-        'company_feature.override_set',
-        'company',
-        companyId,
-        { feature_id, enabled, reason },
-        getIp(req)
-      );
-
-      const updated = await getCompanyEffectiveFeatures(companyId);
-      return apiResponse.success(res, updated);
     } catch (err) {
-      log.error('Failed to set company feature override', { companyId, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to set feature override');
+      // The INSERT is the first write: the refusal aborted the transaction, so nothing lands.
+      if (isPgError(err, '23503')) return apiResponse.notFound(res, 'Company or feature');
+      throw err;
     }
+
+    await logAdminAction(
+      req.user.id,
+      'company_feature.override_set',
+      'company',
+      companyId,
+      { feature_id, enabled, reason },
+      getIp(req)
+    );
+
+    const updated = await getCompanyEffectiveFeatures(companyId);
+    return apiResponse.success(res, updated);
   }
 
   if (req.method === 'DELETE') {
@@ -83,26 +79,21 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, delParsed.error.flatten().formErrors[0] ?? 'Invalid input');
     }
 
-    try {
-      const { feature_id } = delParsed.data;
+    const { feature_id } = delParsed.data;
 
-      await removeCompanyFeatureOverride(companyId, feature_id);
+    await removeCompanyFeatureOverride(companyId, feature_id);
 
-      await logAdminAction(
-        req.user.id,
-        'company_feature.override_removed',
-        'company',
-        companyId,
-        { feature_id },
-        getIp(req)
-      );
+    await logAdminAction(
+      req.user.id,
+      'company_feature.override_removed',
+      'company',
+      companyId,
+      { feature_id },
+      getIp(req)
+    );
 
-      const updated = await getCompanyEffectiveFeatures(companyId);
-      return apiResponse.success(res, updated);
-    } catch (err) {
-      log.error('Failed to remove company feature override', { companyId, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to remove feature override');
-    }
+    const updated = await getCompanyEffectiveFeatures(companyId);
+    return apiResponse.success(res, updated);
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST', 'DELETE']);

@@ -16,7 +16,6 @@ import type { PlatformAdminRequest } from '@/lib/auth/withPlatformAdmin';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import { promoteWaitlistSignup } from '@/modules/onboarding/services/waitlistPromotionService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
@@ -39,41 +38,36 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     return apiResponse.badRequest(res, parsedBody.error.flatten().formErrors[0] ?? 'Invalid input');
   }
 
-  try {
-    const result = await promoteWaitlistSignup(parsedId.data, {
-      planCodeOverride: parsedBody.data.planCodeOverride ?? null,
-    });
+  const result = await promoteWaitlistSignup(parsedId.data, {
+    planCodeOverride: parsedBody.data.planCodeOverride ?? null,
+  });
 
-    if (result.status === 'not_found') {
-      return apiResponse.notFound(res, 'Waitlist signup not found');
-    }
-
-    if (result.status === 'promoted') {
-      await logAdminAction(
-        req.user.id,
-        'waitlist.promote',
-        'waitlist_signup',
-        parsedId.data,
-        {
-          companyId:     result.companyId,
-          planCode:      result.planCode,
-          paygEligible:  result.seed?.paygEligible ?? false,
-          turnoverCents: result.seed?.annualTurnoverCents ?? null,
-        },
-        getIp(req),
-      );
-    }
-
-    return apiResponse.success(res, {
-      status:    result.status,
-      companyId: result.companyId,
-      planCode:  result.planCode,
-      seed:      result.seed,
-    });
-  } catch (err) {
-    log.error('Failed to promote waitlist signup', { id: parsedId.data, error: err }, 'admin-api');
-    return apiResponse.badRequest(res, 'Failed to promote waitlist signup');
+  if (result.status === 'not_found') {
+    return apiResponse.notFound(res, 'Waitlist signup not found');
   }
+
+  if (result.status === 'promoted') {
+    await logAdminAction(
+      req.user.id,
+      'waitlist.promote',
+      'waitlist_signup',
+      parsedId.data,
+      {
+        companyId:     result.companyId,
+        planCode:      result.planCode,
+        paygEligible:  result.seed?.paygEligible ?? false,
+        turnoverCents: result.seed?.annualTurnoverCents ?? null,
+      },
+      getIp(req),
+    );
+  }
+
+  return apiResponse.success(res, {
+    status:    result.status,
+    companyId: result.companyId,
+    planCode:  result.planCode,
+    seed:      result.seed,
+  });
 }
 
 export default withAdmin(withCsrf(handler));

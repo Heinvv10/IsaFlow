@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUserId } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   addUserToCompany, CompanyMembershipError, MEMBERSHIP_ERROR_CODE,
@@ -29,7 +30,7 @@ const PostBody = z.object({
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const userId = req.query.id as string;
+  const userId = adminUserId(req.query.id);
 
   if (req.method === 'POST') {
     const parsed = PostBody.safeParse(req.body);

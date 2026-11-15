@@ -14,6 +14,7 @@ import type {
   AdminListFilters,
   PaginatedResult,
 } from '../types/admin.types';
+import { AdminRequestError } from '@/modules/admin/middleware/adminRequestErrors';
 
 type Row = DbRow;
 
@@ -39,10 +40,10 @@ export async function listUsers(
   const limit = Math.min(100, Math.max(1, filters.limit ?? 25));
   const offset = (page - 1) * limit;
   const sortColKey = filters.sort_by ?? '';
-  if (sortColKey && !ALLOWED_SORT_COLUMNS[sortColKey]) throw new Error(`Invalid sort column: ${sortColKey}`);
+  if (sortColKey && !ALLOWED_SORT_COLUMNS[sortColKey]) throw new AdminRequestError(400, `Invalid sort column: ${sortColKey}`);
   const sortCol = ALLOWED_SORT_COLUMNS[sortColKey] ?? 'u.created_at';
   const rawDir = (filters.sort_dir ?? 'desc').toUpperCase();
-  if (rawDir !== 'ASC' && rawDir !== 'DESC') throw new Error('Invalid sort direction');
+  if (rawDir !== 'ASC' && rawDir !== 'DESC') throw new AdminRequestError(400, 'Invalid sort direction');
   const sortDir = rawDir === 'ASC' ? sql`ASC` : sql`DESC`;
 
   const searchPattern = filters.search ? `%${filters.search}%` : null;
@@ -236,10 +237,10 @@ export async function updateUser(
   data: { first_name?: string; last_name?: string; role?: string; phone?: string }
 ): Promise<void> {
   if (data.role === 'super_admin') {
-    throw new Error('Cannot promote to super_admin via API');
+    throw new AdminRequestError(400, 'Cannot promote to super_admin via API');
   }
   if (data.role && !ALLOWED_ROLES.includes(data.role)) {
-    throw new Error(`Invalid role: ${data.role}`);
+    throw new AdminRequestError(400, `Invalid role: ${data.role}`);
   }
   await sql`
     UPDATE users SET

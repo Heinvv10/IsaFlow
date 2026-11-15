@@ -6,6 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminOptionalUuid, adminPositiveInt } from '@/modules/admin/middleware/adminRequestErrors';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
@@ -33,9 +34,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const result = await listAdminWebhooks({
       search: search as string | undefined,
       status: parsedStatus,
-      companyId: companyId as string | undefined,
-      page: page ? Number(page) : 1,
-      limit: limit ? Number(limit) : 25,
+      companyId: adminOptionalUuid(companyId, 'companyId'),
+      page: adminPositiveInt(page, 'page') ?? 1,
+      limit: adminPositiveInt(limit, 'limit') ?? 25,
     });
 
     return apiResponse.success(res, result);

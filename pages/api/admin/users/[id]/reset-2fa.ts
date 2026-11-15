@@ -20,6 +20,7 @@
 //      row stands, so a retry or a failure cannot leave the removal unrecorded.
 import type { NextApiResponse } from 'next';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUserId } from '@/modules/admin/middleware/adminRequestErrors';
 import type { PlatformAdminRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { adminListUserFactors, adminUnenrollFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
@@ -57,11 +58,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required' } });
     return;
   }
-  const targetUserId = req.query.id;
-  if (typeof targetUserId !== 'string') {
-    res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'User id required' } });
-    return;
-  }
+  const targetUserId = adminUserId(req.query.id);
 
   let factors;
   try {

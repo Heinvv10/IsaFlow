@@ -7,6 +7,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { AdminRequestError } from '@/modules/admin/middleware/adminRequestErrors';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendPasswordResetEmail } from '@/lib/auth/passwordResetEmail';
@@ -229,9 +230,9 @@ export async function deleteUser(userId: string): Promise<StrandedPayRunRequest[
   const rows = await sql`
     SELECT role FROM users WHERE id = ${userId} LIMIT 1
   `;
-  if (rows.length === 0) throw new Error(`User ${userId} not found`);
+  if (rows.length === 0) throw new AdminRequestError(404, 'User not found');
   if ((rows[0] as Row).role === 'super_admin') {
-    throw new Error('Cannot delete a super_admin user');
+    throw new AdminRequestError(403, 'Cannot delete a super_admin user');
   }
 
   // Never refused for a pending pay-run approval (see suspendUser): reported instead.

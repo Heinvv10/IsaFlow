@@ -9,8 +9,8 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminOptionalUuid, adminPaging, isPgError } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import { listSubscriptions, createSubscription } from '@/modules/admin/services/billingService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
@@ -26,23 +26,17 @@ const PostBody = z.object({
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
-    try {
-      const { company_id, status, plan_id, search, page, limit } = req.query;
+    const { company_id, status, plan_id, search, page, limit } = req.query;
 
-      const result = await listSubscriptions({
-        company_id: company_id as string | undefined,
-        status: status as string | undefined,
-        plan_id: plan_id as string | undefined,
-        search: search as string | undefined,
-        page: page ? Number(page) : undefined,
-        limit: limit ? Number(limit) : undefined,
-      });
+    const result = await listSubscriptions({
+      company_id: adminOptionalUuid(company_id, 'company_id'),
+      status: status as string | undefined,
+      plan_id: adminOptionalUuid(plan_id, 'plan_id'),
+      search: search as string | undefined,
+      ...adminPaging({ page, limit }),
+    });
 
-      return apiResponse.success(res, result);
-    } catch (err) {
-      log.error('Failed to list subscriptions', { error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to list subscriptions');
-    }
+    return apiResponse.success(res, result);
   }
 
   if (req.method === 'POST') {
@@ -51,31 +45,33 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
     }
 
-    try {
-      const { company_id, plan_id, billing_cycle, discount_percent, notes } = parsed.data;
+    const { company_id, plan_id, billing_cycle, discount_percent, notes } = parsed.data;
 
-      const subscriptionId = await createSubscription({
+    let subscriptionId: string;
+    try {
+      subscriptionId = await createSubscription({
         company_id,
         plan_id,
         billing_cycle,
         discount_percent,
         notes,
       });
-
-      await logAdminAction(
-        req.user.id,
-        'subscription.create',
-        'subscription',
-        subscriptionId,
-        { company_id: parsed.data.company_id, plan_id: parsed.data.plan_id, billing_cycle: parsed.data.billing_cycle },
-        getIp(req)
-      );
-
-      return apiResponse.success(res, { id: subscriptionId });
     } catch (err) {
-      log.error('Failed to create subscription', { error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to create subscription');
+      // The INSERT is the first write: the refusal aborted the transaction, so nothing lands.
+      if (isPgError(err, '23503')) return apiResponse.badRequest(res, 'No such company or plan');
+      throw err;
     }
+
+    await logAdminAction(
+      req.user.id,
+      'subscription.create',
+      'subscription',
+      subscriptionId,
+      { company_id: parsed.data.company_id, plan_id: parsed.data.plan_id, billing_cycle: parsed.data.billing_cycle },
+      getIp(req)
+    );
+
+    return apiResponse.success(res, { id: subscriptionId });
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);

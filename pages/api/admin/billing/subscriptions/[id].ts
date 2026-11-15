@@ -9,8 +9,8 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import {
   cancelSubscription,
   getSubscription,
@@ -34,17 +34,12 @@ const PatchBody = z.object({
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const id = req.query.id as string;
+  const id = adminUuid(req.query.id);
 
   if (req.method === 'GET') {
-    try {
-      const subscription = await getSubscription(id);
-      if (!subscription) return apiResponse.notFound(res, 'Subscription not found');
-      return apiResponse.success(res, subscription);
-    } catch (err) {
-      log.error('Failed to get subscription', { id, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to get subscription');
-    }
+    const subscription = await getSubscription(id);
+    if (!subscription) return apiResponse.notFound(res, 'Subscription not found');
+    return apiResponse.success(res, subscription);
   }
 
   if (req.method === 'PATCH') {
@@ -53,26 +48,21 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
     }
 
-    try {
-      const { cancel_at_period_end, ...fields } = parsed.data;
-      const body = parsed.data;
-      if (Object.keys(fields).length > 0) await updateSubscription(id, fields);
-      if (cancel_at_period_end) await cancelSubscription(id, true);
+    const { cancel_at_period_end, ...fields } = parsed.data;
+    const body = parsed.data;
+    if (Object.keys(fields).length > 0) await updateSubscription(id, fields);
+    if (cancel_at_period_end) await cancelSubscription(id, true);
 
-      await logAdminAction(
-        req.user.id,
-        'subscription.update',
-        'subscription',
-        id,
-        body as Record<string, unknown>,
-        getIp(req),
-      );
+    await logAdminAction(
+      req.user.id,
+      'subscription.update',
+      'subscription',
+      id,
+      body as Record<string, unknown>,
+      getIp(req),
+    );
 
-      return apiResponse.success(res, { updated: true });
-    } catch (err) {
-      log.error('Failed to update subscription', { id, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to update subscription');
-    }
+    return apiResponse.success(res, { updated: true });
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'PATCH']);

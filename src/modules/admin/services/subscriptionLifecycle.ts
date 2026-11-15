@@ -16,6 +16,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { voidOpenChargesForSubscription } from './subscriptionChargeVoid';
+import { AdminRequestError } from '@/modules/admin/middleware/adminRequestErrors';
 
 /** Statuses an admin may set. 'paused' is DB-valid but not settable here; 'suspended' is not DB-valid. */
 const ALLOWED_STATUSES = ['active', 'trial', 'past_due', 'cancelled'];
@@ -60,7 +61,7 @@ export async function updateSubscription(
 ): Promise<void> {
   const { plan_id, billing_cycle, discount_percent, status, notes } = data;
   if (status && !ALLOWED_STATUSES.includes(status)) {
-    throw new Error(`Invalid subscription status: ${status}`);
+    throw new AdminRequestError(400, `Invalid subscription status: ${status}`);
   }
 
   if (status) {

@@ -8,6 +8,7 @@ import { withPlatformAdmin, type PlatformAdminRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
+import { respondIfAdminRequestError } from './adminRequestErrors';
 
 export function withAdmin(
   handler: (req: PlatformAdminRequest, res: NextApiResponse) => Promise<void>
@@ -29,7 +30,14 @@ export function withAdmin(
       return;
     }
 
-    return handler(req as PlatformAdminRequest, res);
+    // A known refusal (AdminRequestError, a Postgres integrity refusal) is the route's 4xx; anything else
+    // propagates to withErrorHandler's 500, which withPlatformAdmin rolls back (adminRequestErrors.ts).
+    try {
+      return await handler(req as PlatformAdminRequest, res);
+    } catch (err) {
+      if (respondIfAdminRequestError(res, err)) return;
+      throw err;
+    }
   };
   const errorWrapped = withErrorHandler(rateLimitedHandler);
   return withPlatformAdmin(errorWrapped) as NextApiHandler;

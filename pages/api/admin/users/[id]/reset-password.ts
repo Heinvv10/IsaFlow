@@ -7,6 +7,7 @@ import type { NextApiResponse } from 'next';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUserId } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { PasswordResetEmailNotSentError } from '@/lib/auth/passwordResetEmail';
 import { log } from '@/lib/logger';
@@ -16,7 +17,7 @@ import { getIp } from '@/utils/getIp';
 
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const userId = req.query.id as string;
+  const userId = adminUserId(req.query.id);
 
   if (req.method === 'POST') {
     try {

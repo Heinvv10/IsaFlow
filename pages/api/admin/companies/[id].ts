@@ -11,7 +11,6 @@ import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import {
   getCompanyDetail,
   updateCompany,
@@ -42,16 +41,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (!isUuidParam(companyId)) return apiResponse.badRequest(res, 'Invalid company id');
 
   if (req.method === 'GET') {
-    try {
-      const company = await getCompanyDetail(companyId);
-      if (!company) {
-        return apiResponse.notFound(res, 'Company', companyId);
-      }
-      return apiResponse.success(res, company);
-    } catch (err) {
-      log.error('Failed to get company detail', { companyId, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to get company detail');
+    const company = await getCompanyDetail(companyId);
+    if (!company) {
+      return apiResponse.notFound(res, 'Company', companyId);
     }
+    return apiResponse.success(res, company);
   }
 
   if (req.method === 'PATCH') {
@@ -60,42 +54,37 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
     }
 
-    try {
-      const { name, trading_name, phone, email, website, billing_email, billing_contact, address_line1, city, province, postal_code } = parsed.data;
+    const { name, trading_name, phone, email, website, billing_email, billing_contact, address_line1, city, province, postal_code } = parsed.data;
 
-      await updateCompany(companyId, {
-        name,
-        trading_name,
-        phone,
-        email,
-        website,
-        billing_email,
-        billing_contact,
-        address_line1,
-        city,
-        province,
-        postal_code,
-      });
+    await updateCompany(companyId, {
+      name,
+      trading_name,
+      phone,
+      email,
+      website,
+      billing_email,
+      billing_contact,
+      address_line1,
+      city,
+      province,
+      postal_code,
+    });
 
-      const updated = await getCompanyDetail(companyId);
-      if (!updated) {
-        return apiResponse.notFound(res, 'Company', companyId);
-      }
-
-      await logAdminAction(
-        req.user.id,
-        'company.update',
-        'company',
-        companyId,
-        { fields: Object.keys(parsed.data) },
-        getIp(req)
-      );
-
-      return apiResponse.success(res, updated);
-    } catch (err) {
-      log.error('Failed to update company', { companyId, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to update company');
+    const updated = await getCompanyDetail(companyId);
+    if (!updated) {
+      return apiResponse.notFound(res, 'Company', companyId);
     }
+
+    await logAdminAction(
+      req.user.id,
+      'company.update',
+      'company',
+      companyId,
+      { fields: Object.keys(parsed.data) },
+      getIp(req)
+    );
+
+    return apiResponse.success(res, updated);
   }
 
   if (req.method === 'DELETE') {

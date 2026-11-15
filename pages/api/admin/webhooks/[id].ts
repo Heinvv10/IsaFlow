@@ -8,10 +8,10 @@
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
 import { getClientIp } from '@/lib/rateLimit';
-import { log } from '@/lib/logger';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import {
   getAdminWebhookById,
@@ -27,19 +27,13 @@ const PatchBody = z.object({
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const id = req.query.id as string;
-  if (!id) return apiResponse.badRequest(res, 'id is required');
+  const id = adminUuid(req.query.id);
 
   // ── GET ──────────────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
-    try {
-      const webhook = await getAdminWebhookById(id);
-      if (!webhook) return apiResponse.notFound(res, 'Webhook not found');
-      return apiResponse.success(res, webhook);
-    } catch (err) {
-      log.error('Admin: failed to get webhook', { id, error: err }, 'admin-webhooks-id-api');
-      return apiResponse.badRequest(res, 'Failed to get webhook');
-    }
+    const webhook = await getAdminWebhookById(id);
+    if (!webhook) return apiResponse.notFound(res, 'Webhook not found');
+    return apiResponse.success(res, webhook);
   }
 
   // ── PATCH ─────────────────────────────────────────────────────────────────
@@ -51,43 +45,33 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     const { status, url, events } = parsed.data as UpdateWebhookParams;
 
-    try {
-      const updated = await updateAdminWebhook(id, { status, url, events });
-      await logAdminAction(
-        req.user.id,
-        'webhook.update',
-        'webhook',
-        id,
-        { status, url, events: events?.join(',') },
-        getClientIp(req),
-      );
-      return apiResponse.success(res, updated);
-    } catch (err) {
-      log.error('Admin: failed to update webhook', { id, error: err }, 'admin-webhooks-id-api');
-      return apiResponse.badRequestFromError(res, err, 'Update failed');
-    }
+    const updated = await updateAdminWebhook(id, { status, url, events });
+    await logAdminAction(
+      req.user.id,
+      'webhook.update',
+      'webhook',
+      id,
+      { status, url, events: events?.join(',') },
+      getClientIp(req),
+    );
+    return apiResponse.success(res, updated);
   }
 
   // ── DELETE ────────────────────────────────────────────────────────────────
   if (req.method === 'DELETE') {
-    try {
-      const webhook = await getAdminWebhookById(id);
-      if (!webhook) return apiResponse.notFound(res, 'Webhook not found');
+    const webhook = await getAdminWebhookById(id);
+    if (!webhook) return apiResponse.notFound(res, 'Webhook not found');
 
-      await deleteAdminWebhook(id);
-      await logAdminAction(
-        req.user.id,
-        'webhook.delete',
-        'webhook',
-        id,
-        { companyId: webhook.companyId, url: webhook.url },
-        getClientIp(req),
-      );
-      return apiResponse.success(res, { deleted: true });
-    } catch (err) {
-      log.error('Admin: failed to delete webhook', { id, error: err }, 'admin-webhooks-id-api');
-      return apiResponse.badRequestFromError(res, err, 'Delete failed');
-    }
+    await deleteAdminWebhook(id);
+    await logAdminAction(
+      req.user.id,
+      'webhook.delete',
+      'webhook',
+      id,
+      { companyId: webhook.companyId, url: webhook.url },
+      getClientIp(req),
+    );
+    return apiResponse.success(res, { deleted: true });
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PATCH', 'DELETE']);

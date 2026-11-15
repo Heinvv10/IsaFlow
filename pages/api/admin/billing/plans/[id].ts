@@ -10,8 +10,8 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import { getPlan, updatePlan, archivePlan } from '@/modules/admin/services/planService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
@@ -29,17 +29,12 @@ const PatchBody = z.object({
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const id = req.query.id as string;
+  const id = adminUuid(req.query.id);
 
   if (req.method === 'GET') {
-    try {
-      const plan = await getPlan(id);
-      if (!plan) return apiResponse.notFound(res, 'Plan not found');
-      return apiResponse.success(res, plan);
-    } catch (err) {
-      log.error('Failed to get plan', { id, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to get plan');
-    }
+    const plan = await getPlan(id);
+    if (!plan) return apiResponse.notFound(res, 'Plan not found');
+    return apiResponse.success(res, plan);
   }
 
   if (req.method === 'PATCH') {
@@ -48,44 +43,34 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
     }
 
-    try {
-      const body = parsed.data;
-      await updatePlan(id, body);
+    const body = parsed.data;
+    await updatePlan(id, body);
 
-      await logAdminAction(
-        req.user.id,
-        'plan.update',
-        'plan',
-        id,
-        body,
-        getIp(req)
-      );
+    await logAdminAction(
+      req.user.id,
+      'plan.update',
+      'plan',
+      id,
+      body,
+      getIp(req)
+    );
 
-      return apiResponse.success(res, { updated: true });
-    } catch (err) {
-      log.error('Failed to update plan', { id, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to update plan');
-    }
+    return apiResponse.success(res, { updated: true });
   }
 
   if (req.method === 'DELETE') {
-    try {
-      await archivePlan(id);
+    await archivePlan(id);
 
-      await logAdminAction(
-        req.user.id,
-        'plan.archive',
-        'plan',
-        id,
-        null,
-        getIp(req)
-      );
+    await logAdminAction(
+      req.user.id,
+      'plan.archive',
+      'plan',
+      id,
+      null,
+      getIp(req)
+    );
 
-      return apiResponse.success(res, { archived: true });
-    } catch (err) {
-      log.error('Failed to archive plan', { id, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to archive plan');
-    }
+    return apiResponse.success(res, { archived: true });
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'PATCH', 'DELETE']);

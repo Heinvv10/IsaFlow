@@ -7,34 +7,29 @@ import type { NextApiResponse } from 'next';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUserId } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import { forceLogout } from '@/modules/admin/services/adminUserActionsService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const userId = req.query.id as string;
+  const userId = adminUserId(req.query.id);
 
   if (req.method === 'POST') {
-    try {
-      await forceLogout(userId);
+    await forceLogout(userId);
 
-      await logAdminAction(
-        req.user.id,
-        'user.force_logout',
-        'user',
-        userId,
-        null,
-        getIp(req)
-      );
+    await logAdminAction(
+      req.user.id,
+      'user.force_logout',
+      'user',
+      userId,
+      null,
+      getIp(req)
+    );
 
-      return apiResponse.success(res, { logged_out: true });
-    } catch (err) {
-      log.error('Failed to force logout user', { userId, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to force logout user');
-    }
+    return apiResponse.success(res, { logged_out: true });
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);

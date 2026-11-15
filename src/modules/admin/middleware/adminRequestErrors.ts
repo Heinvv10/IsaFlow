@@ -1,0 +1,119 @@
+/**
+ * Admin API status codes (admin audit 2026-11-14, section 6).
+ *
+ * A request transaction COMMITS on any answer below 500 (withPlatformAdmin), so an admin route may answer 4xx
+ * only for a KNOWN refusal, raised before anything was written. Everything unexpected must propagate:
+ * withErrorHandler answers 500 and withPlatformAdmin rolls the request back. The known refusal is
+ * AdminRequestError (bad input, or a domain refusal: not found, conflict), thrown before any write; withAdmin
+ * answers it (respondIfAdminRequestError), so routes need no catch of their own. A Postgres integrity refusal is
+ * NOT mapped here: only a route that knows the failing statement was its first write may answer it as a 4xx
+ * (isPgError), because a later savepointed failure would let the COMMIT keep the writes before it.
+ *
+ * Input helpers (adminUuid, adminPaging, adminDate) validate what reaches a SQL cast BEFORE any SQL runs: a
+ * malformed id or page is the caller's mistake (400), not a 500 from Postgres.
+ */
+import type { NextApiResponse } from 'next';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { isRealCalendarDate, isRealTimestamp, UUID_RE } from '@/lib/validation';
+
+const CODE_FOR_STATUS = {
+  400: ErrorCode.BAD_REQUEST,
+  403: ErrorCode.FORBIDDEN,
+  404: ErrorCode.NOT_FOUND,
+  409: ErrorCode.CONFLICT,
+} as const;
+
+export type AdminRefusalStatus = keyof typeof CODE_FOR_STATUS;
+
+/** A known refusal of an admin request, raised before anything was written. withAdmin answers it. */
+export class AdminRequestError extends Error {
+  constructor(readonly status: AdminRefusalStatus, message: string) {
+    super(message);
+    this.name = 'AdminRequestError';
+  }
+}
+
+/**
+ * adminCompanyService (owned by another open package, #1367) still throws plain Errors for a bad sort; matched
+ * by their exact leading words until it throws AdminRequestError. Nothing else is matched by message.
+ */
+const LEGACY_SORT_REFUSAL = /^Invalid sort (column|direction)\b/;
+
+/** Answers a known refusal and returns true; returns false for anything else, which the caller must rethrow. */
+export function respondIfAdminRequestError(res: NextApiResponse, err: unknown): boolean {
+  if (err instanceof AdminRequestError) {
+    apiResponse.error(res, CODE_FOR_STATUS[err.status], err.message);
+    return true;
+  }
+  if (err instanceof Error && LEGACY_SORT_REFUSAL.test(err.message)) {
+    apiResponse.badRequest(res, err.message);
+    return true;
+  }
+  return false;
+}
+
+/** A Postgres error with this SQLSTATE (e.g. '23505' unique violation). */
+export function isPgError(err: unknown, sqlState: string): boolean {
+  return (err as { code?: unknown } | null)?.code === sqlState;
+}
+
+/** A required UUID (a path id): throws a 400 AdminRequestError when it is missing, repeated or malformed. */
+export function adminUuid(value: unknown, name = 'id'): string {
+  if (typeof value !== 'string' || !UUID_RE.test(value)) throw new AdminRequestError(400, `Invalid ${name}`);
+  return value;
+}
+
+/**
+ * A user id from the path. users.id is TEXT (GoTrue's ids are UUIDs, but the column admits others), so no cast
+ * can fail on it and a strict UUID check could lock a legacy row out of the console: this refuses only what can
+ * never be an id (missing, repeated, empty, over 255 characters, or outside [A-Za-z0-9._:@-]).
+ */
+export function adminUserId(value: unknown): string {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9._:@-]{1,255}$/.test(value)) throw new AdminRequestError(400, 'Invalid user id');
+  return value;
+}
+
+/** An optional UUID filter: undefined when absent or empty, else as adminUuid. */
+export function adminOptionalUuid(value: unknown, name: string): string | undefined {
+  if (value === undefined || value === '') return undefined;
+  return adminUuid(value, name);
+}
+
+/** An optional calendar date filter (YYYY-MM-DD, a real date): undefined when absent or empty. */
+export function adminOptionalDate(value: unknown, name: string): string | undefined {
+  if (value === undefined || value === '') return undefined;
+  if (typeof value !== 'string' || !isRealCalendarDate(value)) throw new AdminRequestError(400, `${name} must be a date (YYYY-MM-DD)`);
+  return value;
+}
+
+/** An optional timestamp filter (ISO 8601 or a calendar date) for a TIMESTAMPTZ cast. */
+export function adminOptionalTimestamp(value: unknown, name: string): string | undefined {
+  if (value === undefined || value === '') return undefined;
+  if (typeof value !== 'string' || !(isRealTimestamp(value) || isRealCalendarDate(value))) {
+    throw new AdminRequestError(400, `${name} must be a date or timestamp`);
+  }
+  return value;
+}
+
+/** One optional positive whole number from the query string (page, limit, ...). */
+export function adminPositiveInt(value: unknown, name: string): number | undefined {
+  if (value === undefined || value === '') return undefined;
+  if (typeof value !== 'string' || !/^\d+$/.test(value) || Number(value) < 1 || !Number.isSafeInteger(Number(value))) {
+    throw new AdminRequestError(400, `${name} must be a whole number of at least 1`);
+  }
+  return Number(value);
+}
+
+/** One optional whole number of at least 0 from the query string (an offset). */
+export function adminNonNegativeInt(value: unknown, name: string): number | undefined {
+  if (value === undefined || value === '') return undefined;
+  if (typeof value !== 'string' || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) {
+    throw new AdminRequestError(400, `${name} must be a whole number of at least 0`);
+  }
+  return Number(value);
+}
+
+/** `page` and `limit` from the query string: absent stays undefined (the service default), garbage is a 400. */
+export function adminPaging(query: Record<string, unknown>): { page?: number; limit?: number } {
+  return { page: adminPositiveInt(query.page, 'page'), limit: adminPositiveInt(query.limit, 'limit') };
+}

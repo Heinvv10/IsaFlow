@@ -8,8 +8,8 @@ import type { NextApiResponse } from 'next';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { createImpersonationToken } from '@/modules/admin/services/impersonationService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
@@ -21,7 +21,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const companyId = req.query.id as string;
+  const companyId = adminUuid(req.query.id, 'company id');
 
   // Per-user impersonation limit: 5 per minute to prevent abuse
   if (!(await checkRateLimit(`impersonate:${req.user.id}`, { max: 5, windowSecs: 60 }))) {
@@ -31,23 +31,18 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     });
   }
 
-  try {
-    const { token, expires_at } = await createImpersonationToken(req.user.id, companyId);
+  const { token, expires_at } = await createImpersonationToken(req.user.id, companyId);
 
-    await logAdminAction(
-      req.user.id,
-      'company.impersonate',
-      'company',
-      companyId,
-      { expires_at },
-      getIp(req)
-    );
+  await logAdminAction(
+    req.user.id,
+    'company.impersonate',
+    'company',
+    companyId,
+    { expires_at },
+    getIp(req)
+  );
 
-    return apiResponse.success(res, { token, expires_at });
-  } catch (err) {
-    log.error('Failed to create impersonation token', { companyId, error: err }, 'admin-api');
-    return apiResponse.badRequest(res, 'Failed to create impersonation token');
-  }
+  return apiResponse.success(res, { token, expires_at });
 }
 
 export default withAdmin(withCsrf(handler));

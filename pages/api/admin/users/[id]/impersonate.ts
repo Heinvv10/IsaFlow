@@ -8,6 +8,7 @@ import { registerImpersonationSession } from '@/lib/auth/impersonationSessions';
  */
 import type { NextApiResponse } from 'next';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUserId } from '@/modules/admin/middleware/adminRequestErrors';
 import type { PlatformAdminRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
@@ -24,23 +25,26 @@ import { purgeExpiredStashesBestEffort } from '@/lib/auth/loginAsRecord';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
+/** validateImpersonationTarget's refusals (userImpersonationService) and their status. */
+const IMPERSONATION_REFUSALS: Record<string, number> = {
+  TARGET_NOT_FOUND: 404, CANNOT_IMPERSONATE_SUPER_ADMIN: 403, TARGET_INACTIVE: 400,
+};
+
 async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'POST') {
     res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required' } });
     return;
   }
-  const targetId = req.query.id;
-  if (typeof targetId !== 'string') {
-    res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'User id required' } });
-    return;
-  }
+  const targetId = adminUserId(req.query.id);
 
   let target;
   try {
     target = await validateImpersonationTarget(targetId);
   } catch (err) {
-    const code = err instanceof Error ? err.message : 'TARGET_INVALID';
-    const status = code === 'TARGET_NOT_FOUND' ? 404 : code === 'CANNOT_IMPERSONATE_SUPER_ADMIN' ? 403 : 400;
+    // Only the target refusals validateImpersonationTarget raises are a 4xx; a database failure is a 500 (section 6).
+    const code = err instanceof Error ? err.message : '';
+    const status = IMPERSONATION_REFUSALS[code];
+    if (status === undefined) throw err;
     res.status(status).json({ success: false, error: { code, message: code } });
     return;
   }

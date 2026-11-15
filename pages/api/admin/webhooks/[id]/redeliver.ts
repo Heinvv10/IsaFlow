@@ -12,7 +12,6 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
 import { getClientIp } from '@/lib/rateLimit';
-import { log } from '@/lib/logger';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { redeliverWebhook } from '@/modules/admin/services/adminWebhookService';
 import { UUID } from '@/lib/schemas/common';
@@ -37,16 +36,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const { deliveryId } = bodyParsed.data;
 
-  let result: Awaited<ReturnType<typeof redeliverWebhook>>;
-  try {
-    result = await redeliverWebhook(webhookId, deliveryId);
-  } catch (err) {
-    log.error('Admin: redeliver webhook failed', { webhookId, deliveryId, error: err }, 'admin-webhooks-redeliver-api');
-    return apiResponse.badRequestFromError(res, err, 'Redeliver failed');
-  }
-  // Outside the catch: a failed audit write is a 500, not a committed 4xx. It rolls back only the
+  // A missing or disabled webhook, or no delivery to resend, is an AdminRequestError (404 / 409) raised before
+  // anything is sent; anything else is a 500. A failed audit write below is a 500 too. It rolls back only the
   // delivery row (request transaction): the request has already gone out, and the endpoint stamp
   // (stampDelivery) committed on its own migration_admin connection.
+  const result = await redeliverWebhook(webhookId, deliveryId);
   await logAdminAction(
     req.user.id,
     'webhook.redeliver',

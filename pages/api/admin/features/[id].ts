@@ -9,8 +9,8 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { adminUuid } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import {
   getFeatureFlag,
   updateFeatureFlag,
@@ -25,17 +25,12 @@ const PatchBody = z.object({
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const id = req.query.id as string;
+  const id = adminUuid(req.query.id);
 
   if (req.method === 'GET') {
-    try {
-      const flag = await getFeatureFlag(id);
-      if (!flag) return apiResponse.notFound(res, 'FeatureFlag', id);
-      return apiResponse.success(res, flag);
-    } catch (err) {
-      log.error('Failed to get feature flag', { id, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to get feature flag');
-    }
+    const flag = await getFeatureFlag(id);
+    if (!flag) return apiResponse.notFound(res, 'FeatureFlag', id);
+    return apiResponse.success(res, flag);
   }
 
   if (req.method === 'PATCH') {
@@ -44,27 +39,22 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
     }
 
-    try {
-      const { name, description, is_global } = parsed.data;
+    const { name, description, is_global } = parsed.data;
 
-      await updateFeatureFlag(id, { name, description, is_global });
+    await updateFeatureFlag(id, { name, description, is_global });
 
-      await logAdminAction(
-        req.user.id,
-        'feature_flag.update',
-        'feature_flag',
-        id,
-        { name, description, is_global },
-        getIp(req)
-      );
+    await logAdminAction(
+      req.user.id,
+      'feature_flag.update',
+      'feature_flag',
+      id,
+      { name, description, is_global },
+      getIp(req)
+    );
 
-      const updated = await getFeatureFlag(id);
-      if (!updated) return apiResponse.notFound(res, 'FeatureFlag', id);
-      return apiResponse.success(res, updated);
-    } catch (err) {
-      log.error('Failed to update feature flag', { id, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to update feature flag');
-    }
+    const updated = await getFeatureFlag(id);
+    if (!updated) return apiResponse.notFound(res, 'FeatureFlag', id);
+    return apiResponse.success(res, updated);
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'PATCH']);
