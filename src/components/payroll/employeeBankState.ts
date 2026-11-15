@@ -50,14 +50,15 @@ export async function loadHasFinalRun(employeeId: string): Promise<boolean | nul
   }
 }
 
-export interface ReadinessState { bank: BankState; runMonth: string; hasFinalRun: boolean | null }
+/** `runMonth` null = the read failed: the caller keeps the month it had, or falls back to the current one. */
+export interface ReadinessState { bank: BankState; runMonth: string | null; hasFinalRun: boolean | null }
 
 /**
  * The card's three facts in one read (wave 6 UXR). A failed or malformed read is the same fallback each separate
- * read had: bank 'unknown' (never ready), the current month, and a final-run answer of null ("next", never "first").
+ * read had: bank 'unknown' (never ready), no month (the card keeps its last, else the current one), and a final-run answer of null ("next", never "first").
  */
 export async function loadReadiness(employeeId: string): Promise<ReadinessState> {
-  const failed: ReadinessState = { bank: 'unknown', runMonth: nextRunMonth([]), hasFinalRun: null };
+  const failed: ReadinessState = { bank: 'unknown', runMonth: null, hasFinalRun: null };
   try {
     const res = await apiFetch(`/api/payroll/employees/${employeeId}/readiness`);
     if (!res.ok) {

@@ -3,8 +3,8 @@
  * which run month is next, and does the employee already have a line on a final run. The card used to make three
  * requests, each paying the full auth cost; the queries themselves are sub-millisecond.
  *
- * The bank fact is a boolean only (the masked view never needed the number). "Final" is the one rule of
- * `employeeFinalRun` (approved or paid, with an approval time). The run list is cut to the latest worked-out run,
+ * The bank fact is a boolean only (the masked view never needed the number). "Final" is the ONE predicate here (`employeeHasFinalRun` calls this), the rule of
+ * `payslipFinal.isPayRunFinal` (approved or paid, with an approval time). The run list is cut to the latest worked-out run,
  * which is all `nextRunMonth` reads. Company-scoped; another company's employee is null (404 at the route).
  */
 import { sql } from '@/lib/neon';

@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, AlertTriangle } from 'lucide-react';
 import { loadReadiness } from './employeeBankState';
-import { employeeReadiness, readinessSummary, type BankRead, type ReadinessAssignment } from './employeeReadiness';
+import { employeeReadiness, nextRunMonth, readinessSummary, type BankRead, type ReadinessAssignment } from './employeeReadiness';
 
 interface Props {
   employeeId: string;
@@ -42,7 +42,7 @@ export function EmployeeReadinessCard({ employeeId, employee, assignments, refre
     if (readFor.current !== employeeId) { readFor.current = employeeId; setBank('pending'); setRunMonth(null); setHasFinalRun('pending'); }
     void loadReadiness(employeeId).then(r => {
       if (stale) return;
-      setBank(r.bank); setRunMonth(r.runMonth); setHasFinalRun(r.hasFinalRun);
+      setBank(r.bank); setRunMonth(prev => r.runMonth ?? prev ?? nextRunMonth([])); setHasFinalRun(r.hasFinalRun);
     });
     return () => { stale = true; };
   }, [employeeId, refreshKey, mayWrite]);

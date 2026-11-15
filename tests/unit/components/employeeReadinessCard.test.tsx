@@ -155,6 +155,19 @@ describe('EmployeeReadinessCard', () => {
     expect(await screen.findByText('1 thing before the first pay run: a salary')).toBeTruthy();
   });
 
+  it('a failed re-read keeps the run month it had, so the salary verdict does not flip', async () => {
+    runs = [{ periodYear: 2026, periodMonth: 11, status: 'calculated' }];
+    serveBank(() => ok({ id: 'b1' }));
+    const endsNov = { ...salary, effectiveFrom: '2020-01-01', effectiveTo: '2026-11-30' };
+    const { rerender } = render(<EmployeeReadinessCard {...props} assignments={[endsNov]} refreshKey={0} />);
+    expect(await screen.findByText('1 thing before the first pay run: a salary')).toBeTruthy();
+    fetchMock.mockResolvedValue(fail(500));
+    rerender(<EmployeeReadinessCard {...props} assignments={[endsNov]} refreshKey={1} />);
+    await waitFor(() => expect(urls().filter(u => u.endsWith('/readiness')).length).toBe(2));
+    await waitFor(() => expect(screen.getByTestId('employee-readiness-card').textContent).toContain('Could not check bank details'));
+    expect(screen.getByTestId('employee-readiness-card').textContent).toContain('a salary');
+  });
+
   it('reads the bank again when the refresh key changes', async () => {
     const answers = [() => ok(null), () => ok({ id: 'b1' })];
     let n = 0;
