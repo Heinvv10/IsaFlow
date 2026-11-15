@@ -1,7 +1,9 @@
 /**
  * Credit Note Actions API
  * POST /api/accounting/credit-notes-action
- *   action: approve | cancel | apply
+ *   action: approve | cancel | cancel_draft | apply
+ *   `cancel` reverses a POSTED note and refuses a draft; `cancel_draft` cancels a DRAFT with no journal and refuses
+ *   anything else (a note approved meanwhile is refused, never reversed).
  */
 
 import { z } from 'zod';
@@ -15,6 +17,7 @@ import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { log } from '@/lib/logger';
 import { UUID } from '@/lib/schemas/common';
 import { approveCreditNote, cancelCreditNote, applyCreditNoteToInvoice } from '@/modules/accounting/services/ar/creditNoteService';
+import { cancelDraftCreditNote } from '@/modules/accounting/services/ar/creditNoteDraftCancelService';
 import { CreditNoteApplicationDriftError } from '@/modules/accounting/services/shared/creditNoteApplicationInvariant';
 import {
   CREDIT_NOTE_AUTO_APPLY,
@@ -36,6 +39,7 @@ const CreditNoteActionSchema = z.discriminatedUnion('action', [
     autoApply: z.enum(CREDIT_NOTE_AUTO_APPLY).optional(),
   }),
   z.object({ action: z.literal('cancel'), creditNoteId: UUID, reason: z.string().max(500).optional() }),
+  z.object({ action: z.literal('cancel_draft'), creditNoteId: UUID, reason: z.string().max(500).optional() }),
   z.object({ action: z.literal('apply'), creditNoteId: UUID, invoiceId: UUID }),
 ]);
 
@@ -82,6 +86,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         const cancelled = await withJournalDateRefusal(res, () => cancelCreditNote(companyId, creditNoteId, userId, reason));
         if (cancelled === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, cancelled);
+      }
+      case 'cancel_draft': {
+        // Draft-only by construction: the service refuses (under the row lock) any note that is not a draft, before a write.
+        const { creditNoteId, reason } = parsed.data;
+        return apiResponse.success(res, await cancelDraftCreditNote(companyId, creditNoteId, userId, reason));
       }
       case 'apply': {
         const applied = await applyCreditNoteToInvoice(companyId, parsed.data.creditNoteId, parsed.data.invoiceId, userId);
