@@ -41,6 +41,7 @@ self.IsaflowApi = {
 
   retryDelayMs(resp) {
     const raw = resp.headers && resp.headers.get ? resp.headers.get('Retry-After') : null;
+    // Seconds only: an HTTP-date Retry-After is not parsed (it falls back to 2 s); the server only sends seconds.
     const secs = raw == null || String(raw).trim() === '' ? NaN : Number(raw);
     return (Number.isFinite(secs) && secs >= 0 ? Math.min(secs, this.RETRY_AFTER_MAX_S) : this.RETRY_AFTER_DEFAULT_S) * 1000;
   },
