@@ -1,0 +1,14 @@
+[Unit]
+Description=5-minute trigger for IsaFlow admin health alerts (admin audit OP-1)
+
+[Timer]
+# Every 5 minutes, so a degraded/critical system alerts without an admin having
+# /admin/health open. checkAndAlert debounces (status change, else once an hour),
+# so frequent firing adds checks, not mail.
+OnBootSec=5min
+OnUnitActiveSec=5min
+RandomizedDelaySec=60
+Persistent=false
+
+[Install]
+WantedBy=timers.target
