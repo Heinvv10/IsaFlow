@@ -10,6 +10,8 @@
  * a user's rows or an invitation until the other has taken its own (or 1.5 s pass). One lock order serialises the
  * pair; two orders both take their first lock and then deadlock. Two shapes each: the invitation is to a company the
  * user is not in (the accept INSERTs a membership) and to one they are in (it locks the existing membership row).
+ * Last: the two accept routes racing each other on one token. Both now take company_users -> users -> invitation, so
+ * that pair no longer deadlocks either (it did while the legacy route locked the invitation first, brk-1440 L3).
  * Disposable fixture only.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -95,5 +97,18 @@ describe.each([
     setBarrier();
     const [del, acc] = await Promise.all([adminDelete(u.id), accept(u, token)]);
     await expectConsistent(u, token, del, acc, refused);
+  }, 20000);
+});
+
+describe('the two accept routes racing on one token', () => {
+  it.each([1, 2, 3])('one accepts, the other is refused, no deadlock, run %i', async () => {
+    const u = await seedUser({ memberOf: [HOME] });
+    const token = await invite(OTHER, u.email, { gotrueUserId: u.id });
+    setBarrier();
+    const [legacy, fresh] = await Promise.all([legacyAccept(u.id, token), newAccept(token)]);
+    expect([legacy.status, fresh.status].filter((s) => s >= 500), JSON.stringify({ legacy: legacy.body, fresh: fresh.body })).toEqual([]);
+    expect([legacy.status, fresh.status].sort()).toEqual(legacy.status === 200 ? [200, 410] : [200, 404]);
+    expect(await invitationRow(token)).toEqual({ accepted_at: expect.any(Date) });
+    expect(await memberships(u.id)).toBe(2);
   }, 20000);
 });
