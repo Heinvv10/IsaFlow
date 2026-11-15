@@ -38,9 +38,22 @@ const INPUTS: ReadonlyArray<readonly [string, string]> = [
 const elapsed = (fn: () => unknown): number => { const start = performance.now(); fn(); return performance.now() - start; };
 
 describe('tenant text of any length', () => {
-  it.each(INPUTS)('%s: segmented and measured well under a second', (unused, text) => {
-    expect(elapsed(() => graphemes(text))).toBeLessThan(1_000);
-    expect(elapsed(() => proseLines(text, PROSE.mattersCell, 90.7))).toBeLessThan(1_000);
+  // Not an absolute bound: a loaded CI box turned 700ms into 1105 (#1418, #1270). Time an eighth of the text and all of it,
+  // after a warm-up (the first call pays one-off setup), best of three each: linear work is about 8x, quadratic about 64x; the floor stops a near-instant eighth from inflating the ratio.
+  const GROWTH_LIMIT = 32;
+  const NOISE_FLOOR_MS = 5;
+  const best = (fn: () => unknown): number => Math.min(...[0, 1, 2].map(() => { forgetLongLines(); return elapsed(fn); }));
+  const expectLinear = (run: (text: string) => unknown, text: string): void => {
+    const eighth = text.slice(0, Math.floor(text.length / 8));
+    run(eighth);
+    const small = best(() => run(eighth));
+    const full = best(() => run(text));
+    expect(full).toBeLessThan(GROWTH_LIMIT * Math.max(small, NOISE_FLOOR_MS));
+  };
+
+  it.each(INPUTS)('%s: segmented and measured in time that grows linearly with the text, not quadratically', (unused, text) => {
+    expectLinear((t) => graphemes(t), text);
+    expectLinear((t) => proseLines(t, PROSE.mattersCell, 90.7), text);
   });
 
   it.each(INPUTS)('%s: the dense company\'s pack, with it in every journal description, composes (or is refused) in seconds, not minutes', (unused, text) => {
