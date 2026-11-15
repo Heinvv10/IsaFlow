@@ -18,6 +18,15 @@ vi.mock('@/lib/neon', () => ({
   }),
 }));
 
+// Revenue by plan and feature adoption read through the metrics module and the feature-flag reader (WP8);
+// this test is about churn signals only.
+vi.mock('@/modules/admin/services/metrics/metricsSql', () => ({
+  loadSubscriptionFacts: async () => [], loadLiveCompanyIds: async () => [],
+}));
+vi.mock('@/modules/admin/services/featureFlagService', () => ({
+  listFeatureFlags: async () => [], companiesWithFeature: async () => new Set(),
+}));
+
 import { getUsageAnalytics } from '@/modules/admin/services/analyticsService';
 
 describe('getUsageAnalytics churn signals', () => {

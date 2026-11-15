@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { companyOutOfMetrics, getRevenueSummary } from './metrics/metricsSql';
 import type { DashboardStats, ActivityEvent } from '../types/admin.types';
 type Row = DbRow;
 
@@ -49,48 +50,41 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   return stats;
 }
 
-/** Single query: all scalar KPIs in one round-trip. */
+/** The scalar KPIs in one query; MRR and ARR from the metrics module. */
 async function getKpis(): Promise<{
   total_companies: number; active_companies: number;
   total_users: number; active_users_30d: number;
   mrr_cents: number; arr_cents: number;
   new_signups_30d: number;
 }> {
-  const rows = await sql`
+  const [rows, revenue] = await Promise.all([sql`
     SELECT
-      (SELECT COUNT(*)            FROM companies WHERE status IS DISTINCT FROM 'deleted')                AS total_companies,
-      (SELECT COUNT(*)            FROM companies WHERE status = 'active')                               AS active_companies,
-      (SELECT COUNT(*)            FROM companies WHERE created_at >= NOW() - INTERVAL '30 days'
-                                                   AND status IS DISTINCT FROM 'deleted')              AS new_signups_30d,
+      -- Companies: never deleted or internal ones (metrics module).
+      (SELECT COUNT(*) FROM companies c WHERE NOT ${companyOutOfMetrics()})                              AS total_companies,
+      (SELECT COUNT(*) FROM companies c WHERE c.status = 'active' AND NOT ${companyOutOfMetrics()})      AS active_companies,
+      (SELECT COUNT(*) FROM companies c WHERE c.created_at >= NOW() - INTERVAL '30 days'
+                                          AND NOT ${companyOutOfMetrics()})                             AS new_signups_30d,
       (SELECT COUNT(*)            FROM users     WHERE is_active = true)                               AS total_users,
       (SELECT COUNT(*)            FROM users     WHERE is_active = true
-                                                   AND last_login >= NOW() - INTERVAL '30 days')       AS active_users_30d,
-      (SELECT COALESCE(SUM(
-        CASE
-          WHEN s.billing_cycle = 'monthly' THEN ROUND(p.monthly_price_cents::numeric * (100 - COALESCE(s.discount_percent,0)::numeric) / 100.0)
-          WHEN s.billing_cycle = 'annual'  THEN ROUND(p.annual_price_cents::numeric  * (100 - COALESCE(s.discount_percent,0)::numeric) / 1200.0)
-          ELSE 0
-        END), 0)
-       FROM subscriptions s INNER JOIN plans p ON p.id = s.plan_id
-       WHERE s.status = 'active')                                                                       AS mrr_cents
-  `;
+                                                   AND last_login >= NOW() - INTERVAL '30 days')       AS active_users_30d
+  `, getRevenueSummary()]);
   const row = rows[0] as Row;
-  const mrr = parseInt(row.mrr_cents as string, 10);
   return {
     total_companies:  parseInt(row.total_companies  as string, 10),
     active_companies: parseInt(row.active_companies as string, 10),
     new_signups_30d:  parseInt(row.new_signups_30d  as string, 10),
     total_users:      parseInt(row.total_users      as string, 10),
     active_users_30d: parseInt(row.active_users_30d as string, 10),
-    mrr_cents: mrr,
-    arr_cents: mrr * 12,
+    mrr_cents: revenue.mrr_cents,
+    arr_cents: revenue.arr_cents,
   };
 }
 
 const UUID_RE = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
 
 /**
- * Most recent 50 events from admin_audit_log + recent user_sessions.
+ * Most recent 50 events: admin_audit_log rows, plus each user's latest sign-in
+ * of the last 7 days (`users.last_login`; `user_sessions` is no longer written).
  */
 async function getRecentActivity(): Promise<ActivityEvent[]> {
   const rows = await sql`
@@ -119,15 +113,14 @@ async function getRecentActivity(): Promise<ActivityEvent[]> {
     UNION ALL
 
     SELECT
-      s.id::text                                                     AS id,
+      u.id::text                                                     AS id,
       'user_login'                                                   AS type,
       'User login'                                                   AS description,
       COALESCE(u.first_name || ' ' || u.last_name, u.email)          AS user_name,
       NULL::text                                                     AS company_name,
-      s.created_at
-    FROM user_sessions s
-    INNER JOIN users u ON u.id = s.user_id
-    WHERE s.created_at >= NOW() - INTERVAL '7 days'
+      u.last_login                                                   AS created_at
+    FROM users u
+    WHERE u.last_login >= NOW() - INTERVAL '7 days'
 
     ORDER BY created_at DESC
     LIMIT 50

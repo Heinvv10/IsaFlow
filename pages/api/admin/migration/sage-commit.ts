@@ -17,6 +17,9 @@
  * Per-record errors don't abort the batch — the response includes a
  * counts summary plus a list of failures.
  *
+ * Refused (409) unless `pullToken` from sage-pull-server matches this company
+ * and every section sent (sagePullBinding, audit 3.4).
+ *
  * Staff-only via withAdmin.
  */
 
@@ -27,6 +30,7 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import type { PlatformAdminRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { commitSageMigration } from '@/modules/admin/services/sageMigrationOrchestrator';
+import { PullBindingError, verifyPullToken } from '@/modules/admin/services/sagePullBinding';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 import type {
@@ -35,18 +39,18 @@ import type {
   MappedSupplier,
   MappedARInvoice,
   MappedAPInvoice,
-  BankTx,
 } from '@/modules/admin/services/sageMigrationTypes';
 
 interface CommitBody {
   companyId?: string;
+  /** From sage-pull-server: binds this commit to that pull's company and payload (sagePullBinding). */
+  pullToken?: string;
   pulled?: {
     accounts?:         { records?: MappedAccount[] };
     customers?:        { records?: MappedCustomer[] };
     suppliers?:        { records?: MappedSupplier[] };
     arInvoices?:       { records?: MappedARInvoice[] };
     apInvoices?:       { records?: MappedAPInvoice[] };
-    bankTransactions?: { bankAccountId: string; records: BankTx[] };
   };
 }
 
@@ -60,6 +64,12 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
 
   if (!companyId) return apiResponse.validationError(res, { companyId: 'companyId is required' });
   if (!pulled)    return apiResponse.validationError(res, { pulled: 'pulled data is required' });
+  try {
+    verifyPullToken(body.pullToken, companyId, pulled as Record<string, unknown>);
+  } catch (err) {
+    if (err instanceof PullBindingError) return apiResponse.conflict(res, err.message);
+    throw err;
+  }
 
   const userId = req.user.id;
 
@@ -73,7 +83,6 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
       suppliers:        pulled.suppliers?.records?.length        ?? 0,
       arInvoices:       pulled.arInvoices?.records?.length       ?? 0,
       apInvoices:       pulled.apInvoices?.records?.length       ?? 0,
-      bankTransactions: pulled.bankTransactions?.records?.length ?? 0,
     },
   }, 'sage-migration');
 
@@ -88,7 +97,6 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
     suppliers: counts(summary.suppliers),
     arInvoices: counts(summary.arInvoices),
     apInvoices: counts(summary.apInvoices),
-    bankTransactions: counts(summary.bankTransactions),
     warnings: summary.warnings.length,
   }, getIp(req));
   return apiResponse.success(res, summary);

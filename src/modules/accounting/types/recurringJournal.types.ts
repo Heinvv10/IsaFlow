@@ -1,5 +1,5 @@
 /**
- * Recurring journal templates (`recurring_journals`, migrations 206 / 220 / 869 / 989). Re-exported from gl.types.ts,
+ * Recurring journal templates (`recurring_journals`, migrations 206 / 220 / 869 / 994). Re-exported from gl.types.ts,
  * which every existing caller imports them from.
  */
 import type { JournalLineInput } from './gl.types';
@@ -20,7 +20,7 @@ export interface RecurringJournal {
   status: RecurringStatus;
   lines: JournalLineInput[];
   totalAmount: number;
-  /** A run posts its journal (true) or leaves it a draft (migration 989). */
+  /** A run posts its journal (true) or leaves it a draft (migration 994). */
   autoPost: boolean;
   createdBy: string;
   createdAt: string;
@@ -45,7 +45,7 @@ export interface RecurringJournalRun {
   heldForApproval: string[];
   /** A template line's cost-centre pick the run dropped (dimensions/costCentrePick); absent when none. */
   warnings?: string[];
-  /** False when the journal was left a draft: the template does not auto-post (migration 989), or approval holds it. */
+  /** False when the journal was left a draft: the template does not auto-post (migration 994), or approval holds it. */
   posted: boolean;
 }
 

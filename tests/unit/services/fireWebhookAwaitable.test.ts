@@ -50,6 +50,7 @@ beforeEach(() => {
   m.sql.mockImplementation(async (parts: string[]) => {
     const text = parts.join('');
     if (text.includes('FROM webhook_endpoints')) return [endpoint(ENDPOINT)];
+    if (text.includes('INSERT INTO webhook_deliveries')) return [{ id: 'delivery-1' }]; // INSERT ... RETURNING id
     return [];
   });
   // Resolves a tick later, so a floating body cannot finish inside the await.
@@ -107,7 +108,7 @@ describe('fireWebhook', () => {
     it('a stamp that is refused (55P03 after its 2 s) is logged, not thrown, and the next endpoint is still delivered', async () => {
       m.routeFails = true;
       m.sql.mockImplementation(async (parts: string[]) => (parts.join('').includes('FROM webhook_endpoints')
-        ? [endpoint(ENDPOINT), endpoint(SECOND)] : []));
+        ? [endpoint(ENDPOINT), endpoint(SECOND)] : [{ id: 'delivery-1' }]));
       await expect(fireWebhook(COMPANY, 'invoice.sent', {})).resolves.toBeUndefined();
       expect(m.order).toEqual([`fetch:https://hook.test/${ENDPOINT}`, `route:${ENDPOINT}`, `fetch:https://hook.test/${SECOND}`, `route:${SECOND}`]);
       expect(vi.mocked(log.error).mock.calls.filter((c) => c[0] === 'Webhook delivery stamp failed')).toHaveLength(2);
