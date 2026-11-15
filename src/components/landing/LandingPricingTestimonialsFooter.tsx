@@ -13,7 +13,7 @@ export function LandingPricing() {
     <section id="pricing" className="py-20 lg:py-28 bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-2xl mx-auto mb-16">
-          <p className="text-sm font-semibold text-teal-600 tracking-widest uppercase mb-3">
+          <p className="text-sm font-semibold text-teal-700 tracking-widest uppercase mb-3">
             Pricing
           </p>
           <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4 text-gray-900">
@@ -22,7 +22,7 @@ export function LandingPricing() {
           <p className="text-lg text-gray-500">
             Start with a 30-day free trial on any plan. No credit card required.
           </p>
-          <p className="text-sm text-gray-400 mt-2">All prices include 15% VAT.</p>
+          <p className="text-sm text-gray-600 mt-2">All prices include 15% VAT.</p>
         </div>
 
         <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
@@ -80,7 +80,7 @@ export function LandingFAQ({ openFaq, onToggle }: FAQProps) {
     <section id="faq" className="py-20 lg:py-28 bg-gray-50">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-16">
-          <p className="text-sm font-semibold text-teal-600 tracking-widest uppercase mb-3">FAQ</p>
+          <p className="text-sm font-semibold text-teal-700 tracking-widest uppercase mb-3">FAQ</p>
           <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900">
             Common questions
           </h2>
