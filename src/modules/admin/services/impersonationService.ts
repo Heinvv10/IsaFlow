@@ -9,6 +9,8 @@
 
 import { SignJWT, jwtVerify } from 'jose';
 import { log } from '@/lib/logger';
+import { listLiveCompanies } from '@/lib/auth/liveCompanies';
+import { isUuidParam } from '@/lib/validation';
 
 const IMPERSONATION_EXPIRY_MINUTES = 30;
 
@@ -24,7 +26,18 @@ export interface ImpersonationTokenPayload {
 }
 
 /**
- * Create a short-lived impersonation JWT.
+ * Whether `companyId` names a company that can be impersonated: one a session may be scoped to (listLiveCompanies,
+ * the predicate impersonate-exchange and withAuth apply): it exists, is_active, and is neither deleted nor suspended
+ * (status or suspended_at). Anything else the exchange refuses, so no token is minted or audited for it (admin audit
+ * 2026-11-14 F-13; review #1407).
+ */
+export async function companyCanBeImpersonated(companyId: string): Promise<boolean> {
+  if (!isUuidParam(companyId)) return false;
+  return (await listLiveCompanies([companyId])).length > 0;
+}
+
+/**
+ * Create a short-lived impersonation JWT. Callers check companyCanBeImpersonated first.
  * Returns the token string and an ISO expiry timestamp.
  */
 export async function createImpersonationToken(
