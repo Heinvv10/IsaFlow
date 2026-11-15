@@ -60,7 +60,7 @@ function ActionButton({ action }: { action: InvoiceAction }) {
       onClick={action.onClick}
       disabled={action.disabled || action.loading}
       className={cn(
-        'inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium',
+        'inline-flex items-center gap-1.5 px-3 py-2 min-h-11 lg:min-h-0 rounded-lg text-sm font-medium',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50',
         'disabled:opacity-50 disabled:cursor-not-allowed transition-colors',
         isSecondary
@@ -88,7 +88,7 @@ function ActionGroup({ group }: { group: InvoiceActionGroup }) {
       <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-tertiary)] px-0.5">
         {group.label}
       </span>
-      <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1">
         {group.actions.map(action => (
           <ActionButton key={action.label} action={action} />
         ))}
@@ -105,11 +105,11 @@ export function InvoiceActionBar({ groups, overflowActions = [], className }: In
   const visibleGroups = groups.filter(g => g.actions.length > 0);
 
   return (
-    <div className={cn('flex items-end gap-3', className)}>
+    <div className={cn('flex flex-wrap items-end gap-x-3 gap-y-3 max-w-full', className)}>
       {visibleGroups.map((group, idx) => (
         <React.Fragment key={group.label}>
           {idx > 0 && (
-            <div className="self-stretch border-l border-[var(--ff-border-light)] mt-4" aria-hidden="true" />
+            <div className="hidden sm:block self-stretch border-l border-[var(--ff-border-light)] mt-4" aria-hidden="true" />
           )}
           <ActionGroup group={group} />
         </React.Fragment>
@@ -118,7 +118,7 @@ export function InvoiceActionBar({ groups, overflowActions = [], className }: In
       {overflowActions.length > 0 && (
         <>
           {visibleGroups.length > 0 && (
-            <div className="self-stretch border-l border-[var(--ff-border-light)] mt-4" aria-hidden="true" />
+            <div className="hidden sm:block self-stretch border-l border-[var(--ff-border-light)] mt-4" aria-hidden="true" />
           )}
           <div className="flex flex-col gap-1">
             <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-tertiary)] px-0.5">
