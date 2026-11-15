@@ -8,6 +8,7 @@
 // Fixture, one bank account, period June 2025. Passing set first:
 //   K  reconciled          S  reconciled (Sage, no recon)   X  excluded
 //   N  imported, pending   M  imported, removed             J  allocated, dated July (outside the period)
+//   and another company's imported June line (must not count here)
 // then the blocking lines are added one at a time:
 //   B  allocated (own journal), reviewed      P  provisional
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -24,7 +25,8 @@ import type { McpToolContext } from '@/lib/mcp/types';
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const uuid = () => crypto.randomUUID();
-const [company, user, bank, contra, period, conn] = [uuid(), uuid(), uuid(), uuid(), uuid(), uuid()];
+const [company, user, bank, contra, period, conn, other, otherBank] =
+  [uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), uuid()];
 const JUNE = { startDate: '2025-06-01', endDate: '2025-06-30' };
 const ctx: McpToolContext = { userId: user, companyId: company, scopes: [], tokenJti: null, oauthAppId: null, companyRole: 'admin' };
 const text = (r: { content: Array<{ text?: string }> }) => r.content.map((c) => c.text ?? '').join('');
@@ -76,24 +78,31 @@ describe('bank_reconciled close check: every posted line in the period that is n
     await line('imported', { feed: 'pending' });
     await line('imported', { feed: 'removed' });
     await line('allocated', { date: '2025-07-01', journal: true });
+    await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [other, 'Close-check other']);
+    await pool.query(
+      `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance)
+       VALUES($1,$2,'CCO','CC Other Bank','asset','bank','debit')`, [otherBank, other]);
+    await pool.query(
+      `INSERT INTO bank_transactions(company_id,bank_account_id,transaction_date,amount,description)
+       VALUES($1,$2,'2025-06-10',10,'close-check other tenant')`, [other, otherBank]);
   });
 
   afterAll(async () => {
     try {
-      await pool.query('DELETE FROM bank_transactions WHERE company_id=$1', [company]);
+      await pool.query('DELETE FROM bank_transactions WHERE company_id=ANY($1::uuid[])', [[company, other]]);
       await pool.query('DELETE FROM bank_feed_connections WHERE company_id=$1', [company]);
       await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [company]);
       await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [company]);
-      await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id=ANY($1::uuid[])', [[bank, contra]]);
-      await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [company]);
+      await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id=ANY($1::uuid[])', [[bank, contra, otherBank]]);
+      await pool.query('DELETE FROM gl_accounts WHERE company_id=ANY($1::uuid[])', [[company, other]]);
       await pool.query('DELETE FROM fiscal_periods WHERE company_id=$1', [company]);
       await pool.query('DELETE FROM company_users WHERE company_id=$1', [company]);
-      await pool.query('DELETE FROM companies WHERE id=$1', [company]);
+      await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])', [[company, other]]);
       await pool.query('DELETE FROM users WHERE id=$1', [user]);
     } finally { await pool.end(); }
   });
 
-  it('passes when the period holds only reconciled, excluded, pending and removed lines (and one outside it)', async () => {
+  it('passes on reconciled, excluded, pending and removed lines, one outside the period, one of another tenant', async () => {
     expect(await check()).toMatchObject({
       key: 'bank_reconciled', status: 'pass',
       reason: 'Every bank transaction in this period is reconciled or excluded.',
