@@ -14,6 +14,7 @@ import type { BankReconciliation } from '@/modules/accounting/types/bank.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { EmptyState } from '@/components/ui';
+import { isExactlyBalanced } from '@/modules/accounting/services/bank/reconciliationBalanced';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
 function StatusBadge({ status }: { status: string }) {
@@ -97,25 +98,25 @@ export default function BankReconciliationListPage() {
   const renderRow = (r: BankReconciliation, indent = false) => (
     <tr key={r.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] transition-colors">
       <td className={`px-4 py-3 text-[var(--ff-text-primary)] ${indent ? 'pl-8' : ''}`}>{r.bankAccountName || '—'}</td>
-      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
+      <td data-label="Statement Date" className="px-4 py-3 text-[var(--ff-text-secondary)]">
         {formatDisplayDate(r.statementDate)}
       </td>
-      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
+      <td data-label="Statement Bal" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
         {formatCurrency(r.statementBalance)}
       </td>
-      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
+      <td data-label="Reconciled Bal" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
         {formatCurrency(r.reconciledBalance)}
       </td>
-      <td className={`px-4 py-3 text-right tabular-nums font-bold ${Math.abs(r.difference) < 0.01 ? 'text-teal-400' : 'text-red-400'}`}>
+      <td data-label="Difference" className={`px-4 py-3 text-right tabular-nums font-bold ${isExactlyBalanced(r.difference) ? 'text-teal-400' : 'text-red-400'}`}>
         {formatCurrency(r.difference)}
       </td>
-      <td className="px-4 py-3 text-center">
+      <td data-label="Matched" className="px-4 py-3 text-center">
         <span className="text-[var(--ff-text-secondary)]">
           {r.matchedCount ?? 0}
           {r.unmatchedCount !== undefined && <span className="text-[var(--ff-text-tertiary)]"> / {(r.matchedCount ?? 0) + (r.unmatchedCount ?? 0)}</span>}
         </span>
       </td>
-      <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
+      <td data-label="Status" className="px-4 py-3"><StatusBadge status={r.status} /></td>
       <td className="px-4 py-3">
         <div className="flex items-center justify-end gap-3">
           {r.status === 'in_progress' && (
@@ -192,7 +193,7 @@ export default function BankReconciliationListPage() {
             />
           ) : (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)]">
                     <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Bank Account</th>

@@ -38,6 +38,7 @@ import userRoute from '../../pages/api/admin/users/[id]';
 import addToCompanyRoute from '../../pages/api/admin/users/[id]/add-to-company';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { signSession } from './r-032-fake-gotrue.helpers';
+import { insertPreFkOrphanMembership } from './helpers/preFkOrphanMembership';
 
 assertDisposable();
 const asPlatformAdmin = new URL(process.env.DATABASE_URL!);
@@ -121,7 +122,7 @@ describe('H1: a user target is the stored users.id', () => {
 describe('the orphan path: a membership whose user has no users row', () => {
   it('remove-from-company removes it, audits it under that id with orphan:true, and the company view lists it', async () => {
     const orphan = `Orphan-${TAG}`;
-    await pool.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'viewer')`, [company2, orphan]);
+    await insertPreFkOrphanMembership(pool, company2, orphan, 'viewer');
     // company-role does not act on a user that does not exist
     expect((await call(companyRoleRoute, 'PATCH', { id: orphan }, { company_id: company2, role: 'accountant' })).status).toBe(404);
     const r = await call(removeFromCompanyRoute, 'DELETE', { id: orphan }, { company_id: company2 });

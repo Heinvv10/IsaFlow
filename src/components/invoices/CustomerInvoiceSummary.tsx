@@ -82,7 +82,7 @@ export function CustomerInvoiceSummary({
 
       <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
         <div className="px-6 py-4 border-b border-[var(--ff-border-light)]">
-          <h3 className="text-lg font-semibold text-[var(--ff-text-primary)]">Line Items</h3>
+          <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">Line Items</h2>
         </div>
         <table className="w-full">
           <thead>

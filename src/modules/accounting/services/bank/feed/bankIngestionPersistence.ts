@@ -20,16 +20,6 @@ export async function leaseConnection(companyId: string, connectionId: string): 
   return rows[0] ?? null;
 }
 
-/**
- * Serialise every feed ingest into one bank account, whichever connection leased
- * it: the content-hash dedup read below is otherwise a check-then-insert race
- * between two connections on the same account. Transaction-scoped; released at
- * COMMIT/ROLLBACK. Taken after the lease, before any bank_transactions read.
- */
-export async function lockBankAccountForIngest(companyId: string, bankAccountId: string): Promise<void> {
-  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`bank_tx_ingest:${companyId}:${bankAccountId}`}::TEXT, 0))`;
-}
-
 export async function bankAccountIsValid(companyId: string, bankAccountId: string, subtypes: readonly string[]): Promise<boolean> {
   const rows = (await sql`
     SELECT 1 FROM gl_accounts

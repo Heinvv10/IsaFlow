@@ -74,11 +74,23 @@ export async function waitsOnLock(pool: Pool, pid: number, event?: string): Prom
   throw new Error(`backend ${pid} never waited on a ${event ?? ''} lock`);
 }
 
+const seededUsers: string[] = [];
+
+/** A users row for each id (company_users_user_id_fkey, 996, refuses a membership without one); removed by cleanup. */
+export async function seedUsers(pool: Pool, ids: string[]): Promise<void> {
+  for (const user of ids) {
+    const made = await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'viewer', true)
+      ON CONFLICT (id) DO NOTHING RETURNING id`, [user, `908b-${user}@test.local`]);
+    if (made.rowCount === 1) seededUsers.push(user);
+  }
+}
+
 /** A company with `members` ([user, role]); ids are pushed to `companies` for cleanup. */
 export async function seedCompany(pool: Pool, companies: string[], members: [string, string][]): Promise<string> {
   const id = crypto.randomUUID();
   await pool.query('INSERT INTO companies(id, name) VALUES ($1, $2)', [id, `908b ${id.slice(0, 8)}`]);
   companies.push(id);
+  await seedUsers(pool, members.map(([user]) => user));
   for (const [user, role] of members) {
     await pool.query('INSERT INTO company_users(company_id, user_id, role) VALUES ($1, $2, $3)', [id, user, role]);
   }
@@ -93,9 +105,11 @@ export const ownersOf = async (pool: Pool, c: string): Promise<string[]> => (awa
 
 /** The test pool is a superuser, which the last-owner rule outside app_user exempts. */
 export async function cleanup(pool: Pool, companies: string[]): Promise<void> {
-  if (companies.length === 0) return;
-  await pool.query('DELETE FROM company_users WHERE company_id = ANY($1::uuid[])', [companies]);
-  await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [companies]);
+  if (companies.length > 0) {
+    await pool.query('DELETE FROM company_users WHERE company_id = ANY($1::uuid[])', [companies]);
+    await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [companies]);
+  }
+  if (seededUsers.length > 0) await pool.query('DELETE FROM users WHERE id = ANY($1::text[])', [seededUsers]);
 }
 
 export const ownerLockKey = (c: string) => `company_owners:${c}`;

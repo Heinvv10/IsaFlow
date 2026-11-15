@@ -47,11 +47,17 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // bank-role holder, two claimants, or a supplied bankAccountId that is not an active bank account of the company). Names
   // only the company's own account codes and names; raised before any write. No MCP tool makes these payments today.
   'BANK_ACCOUNT_REFUSED',
+  // bank/bankAccountGuard: a request-named bank account that is not an active bank account of the company; pre-write.
+  // Another company's account reads as "not found", else names only the company's own account. No MCP tool calls it.
+  'BANK_ACCOUNT_GUARD_REFUSED',
   'BANK_ALLOCATION_REFUSED',
   // sync_bank_dimensions / the tag write-through (gl/dimensions/dimensionBankSync): a window over the row cap, a bank row
   // changed while the sync ran (rolled back), an idempotency key that names a batch of the other kind or window. Names
   // only the caller's own key, window and counts.
   'BANK_DIMENSION_SYNC_REFUSED',
+  // WP2-2 (bank/bankIngestLock): another import into the same bank account held its ingest lock past 5 s. Retryable,
+  // nothing written; the message says "retry in a moment" (import_bank_statement).
+  'BANK_IMPORT_LOCK_TIMEOUT',
   'BANK_MATCH_UNAVAILABLE',
   'BANK_TX_ALLOCATED',
   'BANK_TX_LOCK_TIMEOUT',
@@ -213,6 +219,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'RECONCILIATION_COMPLETED',
   // Mig 980: completion refused while a line it would reconcile is unreviewed. Counts only, raised before any write.
   'RECONCILIATION_REVIEW_REQUIRED',
+  // Completion refused: the difference is not exactly R0.00 (at the check or in the completing UPDATE). Amount in rands only.
+  'RECONCILIATION_NOT_BALANCED',
   // reallocate_bank_transaction (bank/bankReallocationGuards): a reconciled line that cannot be re-pointed in place
   // (not reconciled, stale expected journal, a shape v1 does not handle, a date that cannot be kept). Names only the
   // caller's own line, journal id and dates; raised before any write, or inside the savepoint that rolls it back.

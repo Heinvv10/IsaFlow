@@ -95,7 +95,7 @@ export default function SupplierPaymentsPage() {
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Record your first supplier payment</p>
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
                   <tr>
                     {['Payment #', 'Supplier', 'Date', 'Amount', 'Method', 'Status', ''].map((h, i) => (
@@ -107,11 +107,11 @@ export default function SupplierPaymentsPage() {
                   {payments.map(p => (
                     <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                       <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{p.paymentNumber}</td>
-                      <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{p.supplierName || '—'}</td>
-                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(p.paymentDate)}</td>
-                      <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{formatCurrency(p.totalAmount)}</td>
-                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 uppercase text-xs">{p.paymentMethod}</td>
-                      <td className="px-5 py-3.5"><StatusBadge status={p.status} /></td>
+                      <td data-label="Supplier" className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{p.supplierName || '—'}</td>
+                      <td data-label="Date" className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(p.paymentDate)}</td>
+                      <td data-label="Amount" className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{formatCurrency(p.totalAmount)}</td>
+                      <td data-label="Method" className="px-5 py-3.5 text-slate-500 dark:text-slate-400 uppercase text-xs">{p.paymentMethod}</td>
+                      <td data-label="Status" className="px-5 py-3.5"><StatusBadge status={p.status} /></td>
                       <td className="px-4 py-3.5 text-right">
                         <Link href={`/accounting/supplier-payments/${p.id}`} aria-label={`View payment ${p.paymentNumber}`} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 inline-flex transition-colors">
                           <ChevronRight className="h-4 w-4" />

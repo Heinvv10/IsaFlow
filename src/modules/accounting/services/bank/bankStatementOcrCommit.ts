@@ -6,8 +6,8 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { parsedDayWindowError } from '../../utils/journalDateWindow';
 import { getImport, notReadyError } from './bankStatementOcrRead';
+import { rowsToCommit } from './bankStatementDedupHelpers';
 import { ocrBalanceColumns } from './bankStatementBalances';
 
 export async function commitImport(
@@ -24,7 +24,7 @@ export async function commitImport(
   if (imp.status === 'committed') throw new Error('Import already committed');
   if (imp.status === 'rolled_back') throw new Error('Import has been rolled back');
 
-  const nonDupes = imp.rows.filter((r) => !r.isDuplicate && r.date && parsedDayWindowError(r.date) === null);
+  const { commit: nonDupes, rows } = await rowsToCommit(companyId, imp.bankAccountId, imp.rows); // ingest lock (WP2-2)
   log.info('bankStatementOcr: committing import', { importId, nonDupeCount: nonDupes.length }, 'bank-stmt-ocr');
 
   // Step 2 provenance: the batch the lines name (its id is this import's), recording as the importer the person who
@@ -72,8 +72,9 @@ export async function commitImport(
     UPDATE bank_statement_imports
     SET status = 'committed',
         imported_count = ${insertedCount},
-        committed_at = NOW(),
-        committed_by = ${userId}::uuid,
+        committed_at = NOW(), committed_by = ${userId}::uuid,
+        extraction_summary = jsonb_set(extraction_summary, '{rows}', ${JSON.stringify(rows)}::jsonb), -- commit-time duplicates
+        duplicate_count = ${rows.filter((r) => r.isDuplicate).length},
         updated_at = NOW()
     WHERE id = ${importId}::uuid AND company_id = ${companyId}
   `;

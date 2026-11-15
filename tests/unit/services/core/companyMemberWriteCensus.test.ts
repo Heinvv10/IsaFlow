@@ -110,7 +110,8 @@ const KNOWN_WRITERS = [
  * rules, patching the exemption line in place (pg_get_functiondef), read as
  * 886 was; 930 (S-07c) revokes INSERT and UPDATE on both from app_user and
  * grants back only UPDATE (role) on company_users; 937 (S-07d) revokes that
- * and DELETE on company_users too.
+ * and DELETE on company_users too. 996 (OP-2) adds company_users_user_id_fkey
+ * (NOT VALID, deferred) and 997 validates it: no trigger, guard or grant is touched.
  */
 const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '220_multi_company_scoping.sql': ['writes'],
@@ -131,6 +132,8 @@ const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '930_credential_membership_writes_off_app_pools.sql': ['grants'],
   // 937 grants nothing on either table; its REVOKE names TRUNCATE, which the truncate pattern reads as a write.
   '937_credential_tables_off_app_pools.sql': ['writes'],
+  '996_company_users_user_fk_not_valid.sql': ['alters'],
+  '997_company_users_user_fk_validate.sql': ['alters'],
 };
 
 const all = (() => { let cache: SourceFile[] | undefined; return () => (cache ??= sourceFiles()); })();

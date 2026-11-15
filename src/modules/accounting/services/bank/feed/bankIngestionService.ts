@@ -17,10 +17,11 @@ import { decideFeedTransition } from './bankFeedLifecycle';
 import { identityModeFor, validateBatch } from './bankIngestionValidation';
 import {
   applyFeedUpdate, bankAccountIsValid, closeSyncLogFailed, closeSyncLogSuccess, createImportBatch,
-  existingContentHashes, insertFeedRow, leaseConnection, lockBankAccountForIngest,
+  existingContentHashes, insertFeedRow, leaseConnection,
   lockExistingByProviderIds, openSyncLog, touchSeen, upsertConflict, type IngestConnection,
 } from './bankIngestionPersistence';
 import { importedInLastDay } from './bankFeedSyncLog';
+import { lockBankAccountIngest } from '../bankIngestLock';
 import {
   BankIngestionRefusal, isBankIngestionRefusal, type BankIngestionBatch, type BankIngestionCounts,
   type BankIngestionResult, type NormalizedBankTransaction,
@@ -159,7 +160,9 @@ export async function ingestBankBatch(
   const warnings: string[] = [];
   let importBatchId: string | null = null;
   if (batch.transactions.length > 0) {
-    await lockBankAccountForIngest(companyId, conn.bankAccountId);
+    // Every writer into this account queues on its ingest key (WP2-2, ../bankIngestLock), bounded at 5 s: taken after
+    // the lease, before any bank_transactions read, so the content-hash dedup below is not a check-then-insert race.
+    await lockBankAccountIngest(companyId, conn.bankAccountId);
     const batchId = crypto.randomUUID();
     if (identityModeFor(conn.provider) === 'provider') await persistProviderRows(companyId, conn, batchId, batch.transactions, counts);
     else await persistContentHashRows(companyId, conn, batchId, batch.transactions, counts);

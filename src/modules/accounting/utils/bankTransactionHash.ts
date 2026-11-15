@@ -38,11 +38,31 @@ function normaliseDesc(desc: string): string {
   return desc.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+/**
+ * Round to 2dp the way Postgres does, not the way JS does.
+ *
+ * `bank_transactions.amount` is NUMERIC(15,2): the driver sends the number as
+ * its decimal string and Postgres rounds THAT, halves AWAY FROM ZERO.
+ * `Math.round(n * 100)` differs twice: it rounds halves toward +Infinity
+ * (-25.005 stores as -25.01, Math.round gives -25.00), and `n * 100` is binary
+ * (1.005 * 100 is 100.49999999999999, so 1.005 stores as 1.01 but rounds to
+ * 1.00). Either way the stored row and the statement line it came from hash
+ * differently forever, and the line is re-imported on every retry. So the
+ * decimal point is moved in the decimal string, and the magnitude is rounded.
+ * Every import path hashes through here (WP2-2), so they all round alike.
+ */
+export function round2(n: number): number {
+  if (!Number.isFinite(n)) return n;
+  const [mantissa, exponent = '0'] = String(Math.abs(n)).split('e');
+  const cents = Math.round(Number(`${mantissa}e${Number(exponent) + 2}`));
+  return (n < 0 ? -cents : cents) / 100;
+}
+
 /** Format a number to fixed 2dp string (same output for 100 and 100.00). */
 function toFixedStr(n: number): string {
   if (!Number.isFinite(n)) return '';
   // Round to avoid floating-point artefacts (e.g. 0.1 + 0.2).
-  return (Math.round(n * 100) / 100).toFixed(2);
+  return round2(n).toFixed(2);
 }
 
 /** Normalise a date to YYYY-MM-DD (strips any time part). */
