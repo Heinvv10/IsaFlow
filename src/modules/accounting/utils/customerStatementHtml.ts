@@ -69,6 +69,7 @@ export function buildStatementHtml(
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Statement — ${clientData.name}</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
@@ -90,6 +91,21 @@ export function buildStatementHtml(
   .num { text-align:right; font-family: monospace; }
   .bal { font-weight:bold; }
   .footer { margin-top: 8mm; font-size: 8px; color: #999; border-top: 1px solid #eee; padding-top: 3mm; }
+  .table-scroll { overflow-x: auto; }
+  @media screen and (max-width: 700px) {
+    body { font-size: 14px; padding: 16px; }
+    h1 { font-size: 22px; }
+    .header { flex-direction: column; gap: 12px; }
+    .header-right { text-align: left; }
+    .header-left .company { font-size: 14px; }
+    .summary { flex-wrap: wrap; gap: 12px; padding: 12px; }
+    .summary-box { flex: 1 1 40%; }
+    .summary-box .label { font-size: 11px; }
+    .summary-box .value { font-size: 16px; }
+    table { min-width: 600px; }
+    th, td { font-size: 13px; padding: 8px; white-space: nowrap; }
+    .footer { font-size: 11px; }
+  }
   @media print { @page { size: A4 portrait; margin: 15mm; } body { padding:0; } }
 </style>
 </head>
@@ -116,10 +132,12 @@ export function buildStatementHtml(
   <div class="summary-box"><div class="label">Credits Applied</div><div class="value">${fmtZAR(summary.totalCredits)}</div></div>
   <div class="summary-box"><div class="label">Balance Due</div><div class="value" style="color:${summary.balance > 0 ? '#b43232' : '#16a34a'}">${fmtZAR(summary.balance)}</div></div>
 </div>
+<div class="table-scroll" role="region" aria-label="Statement transactions" tabindex="0">
 <table>
   <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
   <tbody>${rows || '<tr><td colspan="7" style="text-align:center;padding:8px">No transactions in this period</td></tr>'}</tbody>
 </table>
+</div>
 <div class="footer">IsaFlow Customer Statement — Confidential &nbsp;|&nbsp; ${clientData.name} &nbsp;|&nbsp; ${from} – ${to}</div>
 <script>window.onload = function() { window.print(); }</script>
 </body>
