@@ -112,6 +112,7 @@ describe('admin company detail', () => {
     script((p, m) => p.endsWith('/suspend') && m === 'POST', empty500, get('active'));
     render(<CompanyDetailPage />);
     fireEvent.click(await screen.findByRole('button', { name: /^suspend$/i }));
+    fireEvent.change(screen.getByLabelText('Reason for suspension'), { target: { value: 'Unpaid' } }); // Suspend needs a reason (#1400)
     const b = screen.getAllByRole('button', { name: /^suspend$/i }); fireEvent.click(b[b.length - 1]!);
     expect(await screen.findByText('Could not suspend the company - try again')).toBeTruthy(); noRaw();
   });
