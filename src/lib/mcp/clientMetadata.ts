@@ -64,6 +64,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'get_document',
   'list_unsupported_transactions',
   'list_missing_documents',
+  'list_proofs_of_payment',
   'list_supplier_invoices',
   'get_supplier_invoice',
   'list_bank_rules',
