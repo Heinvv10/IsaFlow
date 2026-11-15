@@ -155,10 +155,18 @@ EARLY_DB=$(owner_database_url_for "$DEPLOY_DIR/.env.local" sudo || true)
 bg_midday_migration_check "$EARLY_DB" "$REPO_DIR" || exit 1
 unset EARLY_DB
 
-# 1a. CI gate — type-check, lint, unit tests must pass before we build
+# 1a. CI gate — type-check, lint, unit tests must pass before we build.
+# Skipped only when GitHub shows every required check green for this exact,
+# clean HEAD on origin/master (scripts/lib/deployCiGreen.ts exits 10; it prints
+# the check-run evidence). Any other exit, a crash included, runs the full gate.
 if [ "${SKIP_CI:-0}" != "1" ]; then
-  echo "Running CI gate (bun run ci)..."
-  $BUN run ci
+  CI_GREEN_RC=0; $BUN "$REPO_DIR/scripts/lib/deployCiGreen.ts" || CI_GREEN_RC=$?
+  if [ "$CI_GREEN_RC" -eq 10 ]; then
+    echo "CI gate: GitHub already passed every required check on $(git rev-parse HEAD); local bun run ci skipped"
+  else
+    echo "Running CI gate (bun run ci)..."
+    $BUN run ci
+  fi
 else
   echo "WARNING: SKIP_CI=1 — CI gate bypassed"
 fi
