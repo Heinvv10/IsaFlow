@@ -66,10 +66,9 @@ import {
   type StatementFileType,
 } from '@/modules/accounting/services/bank/bankStatementParseService';
 import { compareBankAccountNumbers } from '@/modules/accounting/utils/bankAccountNumberMatch';
-import {
-  bankTransactionHash,
-  type HashableTransaction,
-} from '@/modules/accounting/utils/bankTransactionHash';
+import { existingStatementHashes, statementLineHash } from '@/modules/accounting/services/bank/bankStatementDedupe';
+import { dateRangeOf } from '@/modules/accounting/services/bank/bankStatementDateRange';
+import { lockBankAccountIngest } from '@/modules/accounting/services/bank/bankIngestLock';
 import type { BankCsvParseResult } from '@/modules/accounting/types/bank.types';
 
 export const config = {
@@ -160,49 +159,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
-  // 4. Dedupe against the DB.
-  let dedupedTxs = parseResult.transactions;
-  let duplicateCount = 0;
-  if (parseResult.transactions.length > 0) {
-    const dates = parseResult.transactions
-      .map(t => t.transactionDate)
-      .filter(d => /^\d{4}-\d{2}-\d{2}/.test(d))
-      .sort();
-    const from = dates[0];
-    const to = dates[dates.length - 1];
-    if (from && to) {
-      const existing = (await sql`
-        SELECT transaction_date::text AS transaction_date, amount, description
-        FROM bank_transactions
-        WHERE bank_account_id = ${bankAccountId}
-          AND company_id = ${companyId}
-          AND transaction_date BETWEEN ${from} AND ${to}
-          AND feed_state <> 'removed' -- a removed feed row never posted; it claims no hash
-      `) as Array<{ transaction_date: string; amount: string | number; description: string | null }>;
-
-      const existingHashes = new Set<string>();
-      for (const row of existing) {
-        const hashable: HashableTransaction = {
-          transactionDate: row.transaction_date,
-          amount: Number(row.amount),
-          description: row.description ?? '',
-        };
-        existingHashes.add(bankTransactionHash(hashable));
-      }
-      dedupedTxs = parseResult.transactions.filter(tx => {
-        const h = bankTransactionHash({
-          transactionDate: tx.transactionDate,
-          amount: tx.amount,
-          description: tx.description ?? '',
-        });
-        if (existingHashes.has(h)) {
-          duplicateCount++;
-          return false;
-        }
-        return true;
-      });
-    }
-  }
+  // 4. Dedupe against the DB — under the account's ingest lock, taken BEFORE the read (WP2-2): a concurrent import of
+  //    the same statement (another upload, the agent, the feed) waits here for this one to commit, then reads its lines.
+  //    A held lock past 5 s is BankImportLockTimeoutError: 503 + Retry-After via withErrorHandler, nothing written.
+  await lockBankAccountIngest(companyId, bankAccountId);
+  const range = dateRangeOf(parseResult.transactions);
+  const seen = range ? await existingStatementHashes(companyId, bankAccountId, range) : new Set<string>();
+  const dedupedTxs = parseResult.transactions.filter((tx) => !seen.has(statementLineHash(tx)));
+  const duplicateCount = parseResult.transactions.length - dedupedTxs.length;
 
   if (dedupedTxs.length === 0) {
     log.info('Bulk commit: all rows duplicates, nothing inserted', {

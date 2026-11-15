@@ -28,11 +28,14 @@ vi.mock('@/modules/accounting/services/bank/bankImportService', () => ({
 vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', () => ({
   deleteTransactions: vi.fn(),
 }));
+// The ingest lock (WP2-2) is its own statement; mocked here so `sql`'s first call is still the dedup read.
+vi.mock('@/modules/accounting/services/bank/bankIngestLock', () => ({ lockBankAccountIngest: vi.fn() }));
 
 import { sql } from '@/lib/neon';
 import { parseStatement } from '@/modules/accounting/services/bank/bankStatementParseService';
 import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
 import { deleteTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
+import { lockBankAccountIngest } from '@/modules/accounting/services/bank/bankIngestLock';
 import {
   bankGlAccountBelongsToCompany,
   importStatementForAgent,
@@ -79,6 +82,18 @@ describe('importStatementForAgent', () => {
     expect(res.duplicates).toBe(0);
     expect(res.batchId).toBeNull();
     expect(importParsedTransactions).not.toHaveBeenCalled();
+    expect(lockBankAccountIngest).not.toHaveBeenCalled(); // it writes nothing, so it does not queue behind an import
+  });
+
+  it('takes the account\'s ingest lock BEFORE the dedup read (WP2-2: else two imports both read, then both insert)', async () => {
+    vi.mocked(parseStatement).mockResolvedValue(parsed([TX_A]) as never);
+
+    await importStatementForAgent(baseArgs);
+
+    expect(lockBankAccountIngest).toHaveBeenCalledWith(COMPANY, ACCOUNT);
+    const read = vi.mocked(sql).mock.invocationCallOrder[0]!;
+    expect(String((vi.mocked(sql).mock.calls[0]![0] as unknown as string[]).join('?'))).toMatch(/FROM bank_transactions/);
+    expect(vi.mocked(lockBankAccountIngest).mock.invocationCallOrder[0]!).toBeLessThan(read);
   });
 
   it('skips transactions already in the account and imports only the new ones', async () => {
