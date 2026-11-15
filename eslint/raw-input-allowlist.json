@@ -115,7 +115,6 @@
   "pages/payroll/pay-packages/[id].tsx": 1,
   "pages/payroll/pay-packages/index.tsx": 3,
   "pages/payroll/pay-scales/index.tsx": 6,
-  "pages/payroll/runs/new.tsx": 1,
   "pages/payroll/tax-directives/index.tsx": 1,
   "pages/payroll/training/index.tsx": 5,
   "pages/payroll/training/wsp-atr.tsx": 1,

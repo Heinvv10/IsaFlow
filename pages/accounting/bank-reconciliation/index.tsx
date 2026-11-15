@@ -202,7 +202,7 @@ export default function BankReconciliationListPage() {
                     <th className="text-right px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Difference</th>
                     <th className="text-center px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Matched</th>
                     <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Status</th>
-                    <th className="px-4 py-3"></th>
+                    <th className="px-4 py-3"><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>

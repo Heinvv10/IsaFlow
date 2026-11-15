@@ -4,7 +4,7 @@
  * vetted address, not the name.
  */
 import type { ImapFlow } from 'imapflow';
-import { checkImapTarget } from '@/lib/imapTargetGuard';
+import { ImapTargetError, checkImapTarget } from '@/lib/imapTargetGuard';
 import { decrypt } from '@/lib/encryption';
 import { createMirrorClient } from './mirrorImapClient';
 import type { MirrorConnection } from './imapMirrorService';
@@ -16,7 +16,7 @@ export async function openImapClient(conn: MirrorConnection): Promise<ImapFlow> 
     }
     // Before the password is decrypted: never connect to private space. Connect to the vetted address, not the name.
     const target = await checkImapTarget(conn.imapHost, conn.imapPort);
-    if (!target.ok) throw new Error(target.message);
+    if (!target.ok) throw new ImapTargetError(target.message, target.transient === true);
     const password = decrypt(conn.imapPasswordEnc);
     return createMirrorClient({
       host: target.address, servername: target.servername, port: conn.imapPort, secure: conn.imapUseTls,

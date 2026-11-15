@@ -8,7 +8,7 @@ import type { ParsedMail, Attachment } from 'mailparser';
 import { sql } from '@/lib/neon';
 import { decrypt } from '@/lib/encryption';
 import { storeCapturedBytes } from '@/lib/documentStorage';
-import { checkImapTarget } from '@/lib/imapTargetGuard';
+import { ImapTargetError, checkImapTarget } from '@/lib/imapTargetGuard';
 import { createMirrorClient } from '@/modules/accounting/services/capture/mirrorImapClient';
 import { clipMirrorText } from '@/modules/accounting/services/capture/mirrorScanGuard';
 import type { SentMirrorConnection } from './sentMirrorService';
@@ -63,7 +63,7 @@ export async function openImapClient(conn: SentMirrorConnection): Promise<ImapFl
   }
   // Before the password is decrypted: never connect to private space. Connect to the vetted address, not the name.
   const target = await checkImapTarget(conn.imapHost, conn.imapPort);
-  if (!target.ok) throw new Error(target.message);
+  if (!target.ok) throw new ImapTargetError(target.message, target.transient === true);
   const password = decrypt(conn.imapPasswordEnc);
   return createMirrorClient({
     host: target.address, servername: target.servername, port: conn.imapPort, secure: conn.imapUseTls,

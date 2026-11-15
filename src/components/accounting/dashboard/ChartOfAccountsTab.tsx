@@ -212,7 +212,7 @@ export function ChartOfAccountsTab() {
             />
           </div>
           <div className="flex items-center gap-3">
-            <select value={filterType} onChange={e => setFilterType(e.target.value)} className="ff-select text-sm py-2 px-3 min-w-[160px]">
+            <select aria-label="Account type" value={filterType} onChange={e => setFilterType(e.target.value)} className="ff-select text-sm py-2 px-3 min-w-[160px]">
               <option value="all">All Types</option>
               <option value="asset">Assets</option>
               <option value="liability">Liabilities</option>

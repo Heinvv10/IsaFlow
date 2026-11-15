@@ -112,7 +112,10 @@ describe('Merchant Categories page', () => {
   it('auto-map reports what it did and what it left for a person', async () => {
     serve();
     render(<MerchantCategoriesPage />);
-    fireEvent.click(await screen.findByText('Auto-map by account name'));
+    // The button renders at once but stays disabled until the initial load settles; clicking it earlier is a no-op.
+    const button = await screen.findByRole('button', { name: 'Auto-map by account name' });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
     expect(await screen.findByText(/Auto-mapped 3 categories; 1 matched more than one account/)).toBeTruthy();
   });
 
