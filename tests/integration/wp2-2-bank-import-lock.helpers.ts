@@ -13,8 +13,12 @@ import { als } from '@/lib/als';
 
 export interface Race { armed: boolean; reads: number; gate: (() => Promise<void>) | null }
 
-/** The dedup read of every import path: bulk commit, the agent import, the classified import and the OCR commit. */
-export const DEDUP_READ = /^\s*SELECT\s+(?:id,\s*)?transaction_date::text AS transaction_date[\s\S]*\bFROM\s+bank_transactions\b/;
+/**
+ * The dedup read of every import path: bulk commit, the agent import, the classified import, the OCR commit
+ * (`SELECT [id,] transaction_date::text AS transaction_date, …`) and the feed's content-hash read
+ * (`SELECT transaction_date, amount, description`).
+ */
+export const DEDUP_READ = /^\s*SELECT\s+(?:id,\s*)?transaction_date(?:::text AS transaction_date)?,[\s\S]*\bFROM\s+bank_transactions\b/;
 
 /**
  * The feed writer's key, spelt exactly as `bankIngestionPersistence.lockBankAccountForIngest` spelt it before
@@ -27,18 +31,21 @@ const QUEUED = `
   WHERE locktype = 'advisory' AND NOT granted AND objsubid = 1
     AND ((classid::int8 << 32) | objid::int8) = hashtextextended($1, 0)`;
 
-/** Arm the race on `key`: the first dedup read waits (at most 10 s) until a second import read too or queued on the key. */
-export function arm(race: Race, pool: Pool, key: string): void {
+/**
+ * Arm the race on `key` for `writers` concurrent imports: the first dedup read waits (at most 10 s) until every
+ * writer has either read too (nothing serialised it) or is queued on the key — so each unlocked writer has read the
+ * account before the first one inserts, and each locked one will read after it commits.
+ */
+export function arm(race: Race, pool: Pool, key: string, writers = 2): void {
   race.reads = 0;
   race.armed = true;
   race.gate = async () => {
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
-      if (race.reads >= 2) return;
-      if ((await pool.query(QUEUED, [key])).rows[0].n > 0) return;
+      if (race.reads + (await pool.query(QUEUED, [key])).rows[0].n >= writers) return;
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    throw new Error('race gate: the second import neither read nor queued on the ingest lock within 10 s');
+    throw new Error(`race gate: ${writers} imports did not all read or queue on the ingest lock within 10 s`);
   };
 }
 
@@ -82,4 +89,31 @@ export async function inRequest<T>(pool: Pool, company: string, user: string, fn
 export function statementCsv(tag: string): string {
   return ['Date,Description,Amount',
     `2026-09-08,${tag} rent,-1500.00`, `2026-09-09,${tag} deposit,2400.10`, `2026-09-10,${tag} fee,-35.50`].join('\n');
+}
+
+/** The three lines `statementCsv(tag)` carries, as each non-CSV path takes them. */
+export const statementLines = (tag: string) => [
+  { date: '2026-09-08', description: `${tag} rent`, amount: -1500 },
+  { date: '2026-09-09', description: `${tag} deposit`, amount: 2400.1 },
+  { date: '2026-09-10', description: `${tag} fee`, amount: -35.5 },
+];
+
+/** An OCR import of `statementLines(tag)`, read and waiting for its commit, as the extraction job leaves one. */
+export async function extractedImport(pool: Pool, company: string, bank: string, user: string, tag: string): Promise<string> {
+  const doc = crypto.randomUUID();
+  await pool.query(`INSERT INTO captured_documents (id, company_id, file_name, file_type) VALUES ($1, $2, 'sept.pdf', 'application/pdf')`, [doc, company]);
+  const rows = statementLines(tag).map((l) => ({ ...l, reference: null, runningBalance: null,
+    isDuplicate: false, duplicateOfBankTxId: null, duplicateMatchConfidence: 0 }));
+  return (await pool.query(
+    `INSERT INTO bank_statement_imports (company_id, bank_account_id, source_document_id, row_count, status, extraction_summary, created_by)
+     VALUES ($1, $2, $3, 3, 'extracted', $4::JSONB, $5) RETURNING id`,
+    [company, bank, doc, JSON.stringify({ rows, warnings: [] }), user])).rows[0].id as string;
+}
+
+/** An active extension feed connection on the account. */
+export async function feedConnection(pool: Pool, company: string, bank: string): Promise<string> {
+  const conn = crypto.randomUUID();
+  await pool.query(`INSERT INTO bank_feed_connections (id, company_id, bank_account_id, provider, status, is_active, config)
+    VALUES ($1, $2, $3, 'extension', 'active', true, '{"bankId":"absa"}')`, [conn, company, bank]);
+  return conn;
 }

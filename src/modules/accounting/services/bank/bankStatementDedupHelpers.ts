@@ -86,8 +86,9 @@ export async function runDedupPass(
   const windowStart = addDays(minDate, -1);
   const windowEnd = addDays(maxDate, 1);
 
+  // description is nullable (feed and manual lines): '' keeps fingerprint() and the fuzzy pass from throwing on it.
   const existing = (await sql`
-    SELECT id, transaction_date::text AS transaction_date, amount::float AS amount, description
+    SELECT id, transaction_date::text AS transaction_date, amount::float AS amount, COALESCE(description, '') AS description
     FROM bank_transactions
     WHERE company_id = ${companyId}
       AND bank_account_id = ${bankAccountId}::uuid
@@ -138,18 +139,26 @@ export async function runDedupPass(
  * window, and STILL not on the account now. The dedup pass ran when the statement was read, which can be long before
  * the commit: a second upload of the same statement, a CSV of it or the feed may have landed the lines since. So the
  * commit takes the account's ingest lock (./bankIngestLock) and re-runs the same pass under it; a concurrent commit or
- * import then waits for this one and finds its lines.
+ * import then waits for this one and finds its lines. `rows` is the statement's rows with each one this pass dropped
+ * flagged a duplicate (naming the line it duplicates), for the commit to store, so the preview says what it did.
  */
 export async function rowsToCommit(
   companyId: string,
   bankAccountId: string,
   rows: BankStatementRow[],
-): Promise<BankStatementRow[]> {
+): Promise<{ commit: BankStatementRow[]; rows: BankStatementRow[] }> {
   const candidates = rows.filter((r) => !r.isDuplicate && r.date && parsedDayWindowError(r.date) === null);
   await lockBankAccountIngest(companyId, bankAccountId);
   const now = await runDedupPass(companyId, bankAccountId, candidates.map((r): ExtractedBankTransaction => ({
     date: r.date, description: r.description, amount: r.amount, balance: r.runningBalance,
     reference: r.reference, transactionType: null,
   })));
-  return candidates.filter((_, i) => !now[i]!.isDuplicate);
+  const late = new Map(candidates.map((r, i) => [r, now[i]!] as const).filter(([, d]) => d.isDuplicate));
+  return {
+    commit: candidates.filter((r) => !late.has(r)),
+    rows: rows.map((r) => {
+      const d = late.get(r);
+      return d ? { ...r, ...d } : r;
+    }),
+  };
 }

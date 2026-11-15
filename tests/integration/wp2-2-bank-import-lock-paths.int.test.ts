@@ -15,7 +15,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
 import { bankCompany, cleanupBankControlsA, type BankCompany } from './bank-controls-a.helpers';
 import {
-  arm, disarm, holdIngestKey, ingestKey, inRequest, lineCount, type Race,
+  arm, disarm, extractedImport, feedConnection, holdIngestKey, ingestKey, inRequest, lineCount, type Race,
 } from './wp2-2-bank-import-lock.helpers';
 
 const race = vi.hoisted((): Race => ({ armed: false, reads: 0, gate: null }));
@@ -71,18 +71,7 @@ const insertedOf = (a: Awaited<ReturnType<typeof classify>>) => {
   return (a.state.body as { data: { inserted: number; skippedDuplicates: number } }).data;
 };
 
-/** An OCR import of the 3-line statement, read and waiting for its commit, as the extraction job leaves one. */
-async function extractedImport(f: BankCompany): Promise<string> {
-  const doc = crypto.randomUUID();
-  await pool.query(`INSERT INTO captured_documents (id, company_id, file_name, file_type) VALUES ($1, $2, 'sept.pdf', 'application/pdf')`, [doc, f.c]);
-  const rows = [['2026-09-08', 'WP22 ocr rent', -1500], ['2026-09-09', 'WP22 ocr deposit', 2400.1], ['2026-09-10', 'WP22 ocr fee', -35.5]]
-    .map(([date, description, amount]) => ({ date, description, amount, reference: null, runningBalance: null,
-      isDuplicate: false, duplicateOfBankTxId: null, duplicateMatchConfidence: 0 }));
-  return (await pool.query(
-    `INSERT INTO bank_statement_imports (company_id, bank_account_id, source_document_id, row_count, status, extraction_summary, created_by)
-     VALUES ($1, $2, $3, 3, 'extracted', $4::JSONB, $5) RETURNING id`,
-    [f.c, f.bank, doc, JSON.stringify({ rows, warnings: [] }), user])).rows[0].id as string;
-}
+const extracted = (f: BankCompany) => extractedImport(pool, f.c, f.bank, user, 'WP22 ocr');
 const commit = (f: BankCompany, importId: string) => callRoute(commitStatement as never, tokens[user]!, f.c, 'POST', {},
   `/api/accounting/bank-statements/${importId}/commit`, { id: importId });
 const committedOf = (a: Awaited<ReturnType<typeof commit>>) => {
@@ -109,7 +98,7 @@ describe('WP2-2: the classified import and the OCR commit land a statement once'
 
   it('OCR: two extracted copies of one statement committed in parallel leave 3 lines', async () => {
     const f = await bankCompany(pool, [[user, 'admin']], companies);
-    const [a, b] = [await extractedImport(f), await extractedImport(f)];
+    const [a, b] = [await extracted(f), await extracted(f)];
     arm(race, pool, ingestKey(f.c, f.bank));
     const answers = (await Promise.all([commit(f, a), commit(f, b)])).map(committedOf);
     expect(await lineCount(pool, f.c)).toBe(3);
@@ -119,19 +108,34 @@ describe('WP2-2: the classified import and the OCR commit land a statement once'
 
   it('OCR: a copy read before the first was committed inserts nothing when committed after it', async () => {
     const f = await bankCompany(pool, [[user, 'admin']], companies);
-    const [a, b] = [await extractedImport(f), await extractedImport(f)];
+    const [a, b] = [await extracted(f), await extracted(f)];
     expect(committedOf(await commit(f, a))).toEqual({ inserted: 3, skipped: 0 });
     expect(committedOf(await commit(f, b))).toEqual({ inserted: 0, skipped: 3 });
     expect(await lineCount(pool, f.c)).toBe(3);
+    // The stored preview says what the commit did: each row it skipped is flagged, naming the line it duplicates.
+    const { rows: [stored] } = await pool.query(
+      'SELECT duplicate_count, extraction_summary FROM bank_statement_imports WHERE id = $1', [b]);
+    const lines = (await pool.query('SELECT id::TEXT AS id, description FROM bank_transactions WHERE company_id = $1', [f.c])).rows;
+    expect(stored.duplicate_count).toBe(3);
+    for (const row of stored.extraction_summary.rows as Array<{ description: string; isDuplicate: boolean; duplicateOfBankTxId: string }>) {
+      expect(row.isDuplicate).toBe(true);
+      expect(row.duplicateOfBankTxId).toBe(lines.find((l) => l.description === row.description)!.id);
+    }
+  });
+
+  it('OCR: a line with no description on the account inside the window does not fail the commit', async () => {
+    const f = await bankCompany(pool, [[user, 'admin']], companies);
+    await pool.query(`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description)
+      VALUES ($1, $2, '2026-09-09', 2400.10, NULL)`, [f.c, f.bank]); // same day and amount as the deposit: the fuzzy pass reads it
+    expect(committedOf(await commit(f, await extracted(f)))).toEqual({ inserted: 3, skipped: 0 });
+    expect(await lineCount(pool, f.c)).toBe(4);
   });
 });
 
 describe('WP2-2: the feed writer shares the key, and its wait is bounded', () => {
   it('a held ingest key refuses a feed batch within 5 s (BANK_IMPORT_LOCK_TIMEOUT), nothing written', async () => {
     const f = await bankCompany(pool, [[user, 'admin']], companies);
-    const conn = crypto.randomUUID();
-    await pool.query(`INSERT INTO bank_feed_connections (id, company_id, bank_account_id, provider, status, is_active, config)
-      VALUES ($1, $2, $3, 'extension', 'active', true, '{"bankId":"absa"}')`, [conn, f.c, f.bank]);
+    const conn = await feedConnection(pool, f.c, f.bank);
     const fields = { transactionDate: '2026-09-05', amount: -50, description: 'WP22 feed fee' };
     const batch = { source: { kind: 'feed' as const, connectionId: conn }, fetchedAt: '2026-09-11T08:00:00Z',
       transactions: [{ ...fields, identity: contentHashIdentity(fields), state: 'posted' as const, currency: 'ZAR' }] };
