@@ -34,7 +34,8 @@ const SENSITIVE_KEYS = new Set([
 // normalised (see normaliseKey). Kept narrow to avoid over-redacting benign
 // fields ('code' alone, a single-use auth code, is intentionally NOT a fragment
 // — too broad; 'accountno' would also match account_notes: see ACCOUNT_NUMBER_KEY).
-const SENSITIVE_FRAGMENTS = ['secret', 'token', 'password', 'apikey', 'verifier', 'accountnumber'];
+// 'cookie': a session cookie is a credential (sageCookie, admin Sage pull; audit 3.11).
+const SENSITIVE_FRAGMENTS = ['secret', 'token', 'password', 'apikey', 'verifier', 'accountnumber', 'cookie'];
 
 /** A client's spelling of a field does not matter: AccountNumber, account.number and `account number` are one key. */
 const normaliseKey = (key: string) => key.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');

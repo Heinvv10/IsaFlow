@@ -1,7 +1,7 @@
 /**
  * Recurring Journals API
  * GET  — list recurring journals
- * POST — create recurring journal. `autoPost` (migration 989) is optional and boolean only: omitted, the template
+ * POST — create recurring journal. `autoPost` (migration 994) is optional and boolean only: omitted, the template
  *        posts each run as it always has; false generates drafts. Anything else is a 400.
  */
 

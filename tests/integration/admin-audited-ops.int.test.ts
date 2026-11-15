@@ -12,6 +12,7 @@ import { Pool } from 'pg';
 import jobQueueRoute from '../../pages/api/admin/job-queue';
 import bulkRoute from '../../pages/api/admin/job-queue/bulk-action';
 import sageCommitRoute from '../../pages/api/admin/migration/sage-commit';
+import { issuePullToken } from '@/modules/admin/services/sagePullBinding';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { auditRows, callAdminRoute, seedSuperAdmin } from './admin-audited-exports.helpers';
 
@@ -105,10 +106,12 @@ describe('job queue', () => {
 
 describe('Sage commit', () => {
   const pulled = (name: string) => ({ customers: { records: [{ name }] } });
+  /** The commit as the UI sends it after a pull: sage-commit refuses one without its pull token. */
+  const commitBody = (name: string) => { const p = pulled(name); return { companyId: company, pulled: p, pullToken: issuePullToken(company, p) }; };
 
   it('is audited against the target company with the per-entity counts', async () => {
     const r = await callAdminRoute(admin, sageCommitRoute, 'POST', '/api/admin/migration/sage-commit', {},
-      { companyId: company, pulled: pulled(`${TAG} Cust A`) });
+      commitBody(`${TAG} Cust A`));
     expect(r.status, r.text).toBe(200);
     const rows = await auditRows(pool, admin, 'sage.commit');
     expect(rows).toHaveLength(1);
@@ -125,7 +128,7 @@ describe('Sage commit', () => {
       CHECK (action <> 'sage.commit' OR admin_user_id <> '${admin}') NOT VALID`);
     try {
       const r = await callAdminRoute(admin, sageCommitRoute, 'POST', '/api/admin/migration/sage-commit', {},
-        { companyId: company, pulled: pulled(`${TAG} Cust B`) });
+        commitBody(`${TAG} Cust B`));
       expect(r.status).toBe(500);
       const c = await pool.query('SELECT 1 FROM customers WHERE company_id = $1 AND name = $2', [company, `${TAG} Cust B`]);
       expect(c.rows).toHaveLength(0);

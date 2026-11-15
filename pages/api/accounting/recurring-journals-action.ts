@@ -61,7 +61,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
       case 'generate': {
         // heldForApproval (R-035 PR6): the journal left a draft awaiting approval, or nothing. posted false (a
-        // draft-only template, migration 989, or a hold): the page says the journal is a draft and names it.
+        // draft-only template, migration 994, or a hold): the page says the journal is a draft and names it.
         const run = await withJournalDateRefusal(res, () => runRecurringJournal(companyId, id, userId));
         if (run === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, {

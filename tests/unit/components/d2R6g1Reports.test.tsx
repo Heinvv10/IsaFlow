@@ -123,6 +123,8 @@ describe('admin migration tool', () => {
     script((u) => (u.includes('/api/admin/companies') ? ok({ items: [COMPANY] }) : rest(u)));
     const { container } = render(<AdminMigrationsPage />);
     await screen.findByRole('option', { name: 'D2 Acme' });
+    fireEvent.change(screen.getAllByRole('combobox')[0]!, { target: { value: 'c1' } }); // no company is pre-selected (audit 3.4)
+    vi.stubGlobal('confirm', () => true); // Execute confirms first (audit 3.4)
     fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [new File(['a,b'], 'a.csv', { type: 'text/csv' })] } });
   };
   it('a failed companies load says so instead of an empty picker', async () => {

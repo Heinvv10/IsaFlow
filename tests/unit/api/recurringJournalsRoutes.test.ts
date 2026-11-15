@@ -1,5 +1,5 @@
 /**
- * The app's recurring-journal routes after migration 989 (MCP brief step 7, review round 1):
+ * The app's recurring-journal routes after migration 994 (MCP brief step 7, review round 1):
  *  - resume reactivates only a PAUSED template (a completed one's next run is past its end date, a cancelled one is
  *    finished); anything else is a 400 and nothing is written — the page offers Resume on paused only, so this closes
  *    hand-crafted POSTs;
