@@ -49,15 +49,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     const { cancel_at_period_end, ...fields } = parsed.data;
     const body = parsed.data;
-    if (Object.keys(fields).length > 0) await updateSubscription(id, fields);
-    if (cancel_at_period_end) await cancelSubscription(id, true);
+    let companyId: string | undefined;
+    if (Object.keys(fields).length > 0) ({ companyId } = await updateSubscription(id, fields));
+    if (cancel_at_period_end) ({ companyId } = await cancelSubscription(id, true));
 
     await logAdminAction(
       req.user.id,
       'subscription.update',
       'subscription',
       id,
-      body as Record<string, unknown>,
+      { ...body, company_id: companyId } as Record<string, unknown>,
       getIp(req),
     );
 

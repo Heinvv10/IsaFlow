@@ -58,7 +58,7 @@ export async function updateSubscription(
     status?: string;
     notes?: string;
   }
-): Promise<void> {
+): Promise<{ companyId: string }> {
   const { plan_id, billing_cycle, discount_percent, status, notes } = data;
   if (status && !ALLOWED_STATUSES.includes(status)) {
     throw new AdminRequestError(400, `Invalid subscription status: ${status}`);
@@ -106,30 +106,33 @@ export async function updateSubscription(
       END,
       updated_at       = NOW()
     WHERE id = ${subscriptionId}
-    RETURNING id
-  `) as Array<{ id: string }>;
+    RETURNING id, company_id
+  `) as Array<{ id: string; company_id: string }>;
   // Missing: nothing was written (the status branch above only writes for an existing cancelled row). 404, no audit.
   if (updated.length === 0) throw new AdminRequestError(404, 'Subscription not found');
   if (status === 'cancelled') await voidOpenChargesForSubscription(subscriptionId);
 
   log.info('updateSubscription', { subscriptionId }, 'BillingService');
+  return { companyId: String(updated[0]!.company_id) }; // for the audit row's details (the company's view)
 }
 
 export async function cancelSubscription(
   subscriptionId: string,
   atPeriodEnd: boolean
-): Promise<void> {
+): Promise<{ companyId: string }> {
   // A missing subscription is a 404 before anything else is written and before the route's audit row (#1405 B5).
   const notFound = () => new AdminRequestError(404, 'Subscription not found');
+  let companyId: string;
   if (atPeriodEnd) {
     const rows = (await sql`
       UPDATE subscriptions
       SET cancel_at_period_end = true,
           updated_at           = NOW()
       WHERE id = ${subscriptionId}
-      RETURNING id
-    `) as Array<{ id: string }>;
+      RETURNING id, company_id
+    `) as Array<{ id: string; company_id: string }>;
     if (rows.length === 0) throw notFound();
+    companyId = String(rows[0]!.company_id);
   } else {
     const rows = (await sql`
       UPDATE subscriptions
@@ -138,10 +141,12 @@ export async function cancelSubscription(
           cancelled_at = CASE WHEN status = 'cancelled' THEN COALESCE(cancelled_at, NOW()) ELSE NOW() END,
           updated_at   = NOW()
       WHERE id = ${subscriptionId}
-      RETURNING id
-    `) as Array<{ id: string }>;
+      RETURNING id, company_id
+    `) as Array<{ id: string; company_id: string }>;
     if (rows.length === 0) throw notFound();
+    companyId = String(rows[0]!.company_id);
     await voidOpenChargesForSubscription(subscriptionId);
   }
   log.info('cancelSubscription', { subscriptionId, atPeriodEnd }, 'BillingService');
+  return { companyId }; // for the audit row's details (the company's view)
 }

@@ -51,7 +51,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       'webhook.update',
       'webhook',
       id,
-      { status, url, events: events?.join(',') },
+      { company_id: updated.companyId, status, url, events: events?.join(',') },
       getClientIp(req),
     );
     return apiResponse.success(res, updated);
@@ -69,7 +69,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       'webhook.delete',
       'webhook',
       id,
-      { companyId: webhook.companyId, url: webhook.url },
+      { company_id: webhook.companyId, url: webhook.url },
       getClientIp(req),
     );
     return apiResponse.success(res, { deleted: true });

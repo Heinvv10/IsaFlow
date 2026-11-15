@@ -46,7 +46,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         'invoice.mark_paid',
         'invoice',
         id,
-        { payment_method: trimmed },
+        { company_id: outcome.companyId, payment_method: trimmed },
         getIp(req)
       );
 

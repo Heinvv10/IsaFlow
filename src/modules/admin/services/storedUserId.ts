@@ -17,9 +17,14 @@ export async function findStoredUser(userId: string): Promise<StoredUser | null>
   const rows = await sql<{ id: string; role: string | null }>`
     SELECT id, role FROM users WHERE lower(id) = lower(${userId})
     ORDER BY (id = ${userId}) DESC, id
-    LIMIT 1
+    LIMIT 2
   `;
-  return rows[0] ? { id: String(rows[0].id), role: rows[0].role ?? null } : null;
+  const first = rows[0];
+  if (!first) return null;
+  // Two stored ids that differ only in case, and neither is the one asked for: which user is meant cannot be told,
+  // so refuse (409) rather than pick one (review #1405 round 8). An exact match always wins.
+  if (String(first.id) !== userId && rows.length > 1) throw new AdminRequestError(409, 'Ambiguous user id');
+  return { id: String(first.id), role: first.role ?? null };
 }
 
 /**

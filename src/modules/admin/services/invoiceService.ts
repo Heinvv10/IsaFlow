@@ -185,7 +185,7 @@ export async function createInvoice(data: {
 
 /** Why a status change did nothing: no such invoice, or it is not in a status the change starts from. */
 export type InvoiceTransition =
-  | { ok: true }
+  | { ok: true; companyId: string }
   | { ok: false; reason: 'not_found' }
   | { ok: false; reason: 'wrong_status'; status: string };
 
@@ -201,11 +201,11 @@ export async function markInvoicePaid(
         payment_method = ${paymentMethod}
     WHERE id = ${invoiceId}::uuid
       AND status IN ('sent', 'overdue')
-    RETURNING id
+    RETURNING id, company_id
   `;
   if (rows.length > 0) {
     log.info('markInvoicePaid', { invoiceId, paymentMethod }, 'InvoiceService');
-    return { ok: true };
+    return { ok: true, companyId: String((rows[0] as Row).company_id) };
   }
   const current = (await sql`SELECT status FROM admin_invoices WHERE id = ${invoiceId}::uuid`) as Row[];
   if (current.length === 0) return { ok: false, reason: 'not_found' };

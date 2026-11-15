@@ -28,14 +28,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     const atPeriodEnd = parsed.data.at_period_end === true;
-    await cancelSubscription(id, atPeriodEnd);
+    const { companyId } = await cancelSubscription(id, atPeriodEnd);
 
     await logAdminAction(
       req.user.id,
       'subscription.cancel',
       'subscription',
       id,
-      { at_period_end: atPeriodEnd },
+      { company_id: companyId, at_period_end: atPeriodEnd },
       getIp(req)
     );
 

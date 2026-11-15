@@ -53,7 +53,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
       'waitlist_signup',
       parsedId.data,
       {
-        companyId:     result.companyId,
+        company_id:    result.companyId, // the key the company's audit view reads (review #1405 round 8)
         planCode:      result.planCode,
         paygEligible:  result.seed?.paygEligible ?? false,
         turnoverCents: result.seed?.annualTurnoverCents ?? null,

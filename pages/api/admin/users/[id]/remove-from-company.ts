@@ -33,7 +33,6 @@ const DeleteBody = z.object({
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const requestedId = adminUserId(req.query.id);
-  const stored = await findStoredUser(requestedId);
 
   if (req.method === 'DELETE') {
     const parsed = DeleteBody.safeParse(req.body);
@@ -42,8 +41,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
     const { company_id } = parsed.data;
 
-    if (!stored) return removeOrphan(req, res, requestedId, company_id);
-    const userId = stored.id; // the stored id: acted on and audited exactly
+    // No users row: the orphan path. It returns false (nothing done) when a user was created meanwhile.
+    if (!(await findStoredUser(requestedId)) && (await removeOrphan(req, res, requestedId, company_id))) return;
+    // The stored id: acted on and audited exactly (read again: the orphan path may have found a new user).
+    const user = await findStoredUser(requestedId);
+    if (!user) return apiResponse.notFound(res, 'User');
+    const userId = user.id;
 
     let previousRole: string;
     try {
@@ -70,19 +73,32 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['DELETE']);
 }
 
-/** The orphan path (see the header): no users row, a membership under exactly `orphanUserId`. */
-async function removeOrphan(req: AuthenticatedNextApiRequest, res: NextApiResponse, orphanUserId: string, companyId: string) {
-  let removed: { previousRole: string } | null;
+/**
+ * The orphan path (see the header): no users row, a membership under exactly `orphanUserId`. True when it answered;
+ * false when a users row appeared meanwhile (nothing removed): the caller then takes the normal path.
+ */
+async function removeOrphan(
+  req: AuthenticatedNextApiRequest, res: NextApiResponse, orphanUserId: string, companyId: string,
+): Promise<boolean> {
+  let removed: Awaited<ReturnType<typeof removeOrphanMembership>>;
   try {
     removed = await removeOrphanMembership(orphanUserId, companyId);
   } catch (err) {
-    if (err instanceof CompanyMembershipError) return apiResponse.error(res, MEMBERSHIP_ERROR_CODE[err.code], err.message);
+    if (err instanceof CompanyMembershipError) {
+      apiResponse.error(res, MEMBERSHIP_ERROR_CODE[err.code], err.message);
+      return true;
+    }
     throw err;
   }
-  if (!removed) return apiResponse.notFound(res, 'User');
+  if (removed === 'user_exists') return false;
+  if (!removed) {
+    apiResponse.notFound(res, 'User');
+    return true;
+  }
   await logAdminAction(req.user.id, 'user.remove_from_company', 'user', orphanUserId,
     { company_id: companyId, previous_role: removed.previousRole, orphan: true }, getIp(req));
-  return apiResponse.success(res, { removed: true, orphan: true });
+  apiResponse.success(res, { removed: true, orphan: true });
+  return true;
 }
 
 export default withAdmin(withCsrf(handler));
