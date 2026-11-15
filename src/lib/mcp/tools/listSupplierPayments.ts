@@ -43,7 +43,9 @@ export const listSupplierPaymentsTool: McpTool = {
     + 'unapplied cash that explains aged_creditors vs the control account, use list_unapplied_payments. '
     + 'To size a large payment book without paging, use detail="summary" (count, payment_amount, allocated_amount and unapplied_amount '
     + 'over the WHOLE filter set, no rows) and group_by=supplier|status|month (groups sum to the totals; at most 200 groups, '
-    + 'the rest summed in other). A summary takes no offset.',
+    + 'the rest summed in other). A summary takes no offset. '
+    + 'Totals also count draft, approved and cancelled payments, which have not (or never) paid anything: pass status, or '
+    + 'group_by=status, to size what was actually paid.',
   scope: 'read:invoices',
   write: false,
   inputSchema: {

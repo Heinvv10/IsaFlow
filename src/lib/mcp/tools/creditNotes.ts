@@ -87,7 +87,9 @@ export const listCreditNotesTool: McpTool = {
     'Newest credit_date first. A note with status "applied" has ALREADY been credited against its linked invoice; "approved" means posted to the ledger but not applied to any invoice; "draft" posts nothing. ' +
     `Returns {credit_notes, total, next_offset}: up to limit rows (default ${CREDIT_NOTES_DEFAULT_LIMIT}, max ${CREDIT_NOTES_MAX_LIMIT}); when next_offset is not null, call again with offset=next_offset for the next page. ` +
     'To total a large book without paging, use detail="summary" (count, total_amount, tax_amount and applied_amount over the WHOLE filter set, no rows) ' +
-    'and group_by=status|type|party|month (party = the customer or supplier; groups sum to the totals; at most 200 groups, the rest summed in other). A summary takes no offset.',
+    'and group_by=status|type|party|month (party = the customer or supplier; groups sum to the totals; at most 200 groups, the rest summed in other). A summary takes no offset. ' +
+    'CAUTION: a customer note reduces a receivable and a supplier note a payable, so without type (or group_by=type) the summary adds the two together; the reply says so with mixes_types: true. ' +
+    'Totals also count draft and cancelled notes, which credited nothing: pass status, or group_by=status, to size what was actually credited.',
   scope: 'read:invoices',
   write: false,
   inputSchema: {
@@ -124,7 +126,10 @@ export const listCreditNotesTool: McpTool = {
       status: status as CreditNoteStatus | undefined,
     };
     if (wanted.summary) {
-      return ok(summaryBody(await summariseCreditNotes(ctx.companyId, scope, wanted.groupBy), wanted.groupBy));
+      const summary = await summariseCreditNotes(ctx.companyId, scope, wanted.groupBy);
+      // Customer and supplier notes pull opposite ledgers: say when the totals add them together.
+      const mixesTypes = scope.type === undefined && wanted.groupBy !== 'type';
+      return ok(summaryBody(summary, wanted.groupBy, mixesTypes ? { mixes_types: true } : {}));
     }
 
     const result = await getCreditNotes(ctx.companyId, {

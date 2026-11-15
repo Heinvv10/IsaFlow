@@ -105,6 +105,19 @@ describe('list_credit_notes', () => {
     expect(summariseCreditNotes).toHaveBeenLastCalledWith(CO, { type: undefined, status: undefined }, null);
   });
 
+  it('says when the totals add customer and supplier notes together, and only then', async () => {
+    expect(parse(await listCreditNotesTool.handler({ detail: 'summary' }, ctx)).mixes_types).toBe(true);
+    expect(parse(await listCreditNotesTool.handler({ group_by: 'status' }, ctx)).mixes_types).toBe(true);
+    expect(parse(await listCreditNotesTool.handler({ group_by: 'type' }, ctx))).not.toHaveProperty('mixes_types');
+    expect(parse(await listCreditNotesTool.handler({ detail: 'summary', type: 'customer' }, ctx))).not.toHaveProperty('mixes_types');
+  });
+
+  it('the descriptions warn that a summary counts draft and cancelled rows', () => {
+    expect(listCreditNotesTool.description).toContain('adds the two together');
+    expect(listCreditNotesTool.description).toContain('draft and cancelled');
+    expect(listSupplierPaymentsTool.description).toContain('group_by=status');
+  });
+
   it('refuses what a summary or a page cannot take', async () => {
     expect(fails(await listCreditNotesTool.handler({ detail: 'summary', offset: 5 }, ctx))).toContain('omit cursor and offset');
     expect(fails(await listCreditNotesTool.handler({ group_by: 'colour' }, ctx))).toContain('group_by must be one of: status, type, party, month');
