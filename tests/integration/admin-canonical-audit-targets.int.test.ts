@@ -118,6 +118,27 @@ describe('H1: a user target is the stored users.id', () => {
   });
 });
 
+describe('the orphan path: a membership whose user has no users row', () => {
+  it('remove-from-company removes it, audits it under that id with orphan:true, and the company view lists it', async () => {
+    const orphan = `Orphan-${TAG}`;
+    await pool.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'viewer')`, [company2, orphan]);
+    // company-role does not act on a user that does not exist
+    expect((await call(companyRoleRoute, 'PATCH', { id: orphan }, { company_id: company2, role: 'accountant' })).status).toBe(404);
+    const r = await call(removeFromCompanyRoute, 'DELETE', { id: orphan }, { company_id: company2 });
+    expect(r.status).toBe(200);
+    expect(await pool.query('SELECT 1 FROM company_users WHERE user_id = $1', [orphan]).then((x) => x.rowCount)).toBe(0);
+    const audit = await rows(orphan, 'user.remove_from_company');
+    expect(audit.map((x) => [x.target_id, x.details?.orphan, x.details?.company_id])).toEqual([[orphan, true, company2]]);
+    expect(await view(company2, 'company')).toContain('user.remove_from_company');
+  });
+
+  it('neither a user nor a membership: 404, no audit row', async () => {
+    const ghost = `Ghost-${TAG}`;
+    expect((await call(removeFromCompanyRoute, 'DELETE', { id: ghost }, { company_id: company2 })).status).toBe(404);
+    expect(await rows(ghost, 'user.remove_from_company')).toEqual([]);
+  });
+});
+
 describe('L-a: the company view lists rows that name it in their details', () => {
   it('add-to-company with an upper-cased company_id shows in that company\'s view', async () => {
     const r = await call(addToCompanyRoute, 'POST', { id: mixedUser }, { company_id: company2.toUpperCase(), role: 'viewer' });

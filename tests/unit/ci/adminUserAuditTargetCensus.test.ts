@@ -15,6 +15,12 @@ import ts from 'typescript';
 const ROW = /^await (adminStoredUser|findStoredUser|resetPasswordRefusal)\([^;]*\)$/;
 /** `(await adminStoredUser(…)).id` / `(await findStoredUser(…)).id`: the stored id in one expression. */
 const INLINE_ID = /^\(await (adminStoredUser|findStoredUser)\([^;]*\)\)\.id$/;
+/**
+ * The ONE named exception: remove-from-company's orphan path audits a membership whose user has no users row, under
+ * the id it was stored under (nothing else to name it by). Only this file, only this identifier, only once.
+ */
+const ORPHAN_PATH = { file: 'pages/api/admin/users/[id]/remove-from-company.ts', target: 'orphanUserId', calls: 1 };
+
 const files = execFileSync('git', ['ls-files', 'pages/api/admin'], { encoding: 'utf8' }).split('\n').filter((f) => f.endsWith('.ts'));
 
 function declarations(source: ts.SourceFile): Map<string, string> {
@@ -49,16 +55,20 @@ function unresolvedUserTargets(file: string): string[] {
   const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
   const decls = declarations(source);
   const found: string[] = [];
+  let orphanCalls = 0;
   const visit = (n: ts.Node) => {
     if (ts.isCallExpression(n) && n.expression.getText() === 'logAdminAction') {
       const [, , type, target] = n.arguments;
-      if (type && ts.isStringLiteral(type) && type.text === 'user' && target && !isStored(target.getText(), decls)) {
+      const orphan = file === ORPHAN_PATH.file && target?.getText() === ORPHAN_PATH.target;
+      if (orphan) orphanCalls += 1;
+      if (type && ts.isStringLiteral(type) && type.text === 'user' && target && !orphan && !isStored(target.getText(), decls)) {
         found.push(`${source.getLineAndCharacterOfPosition(n.getStart()).line + 1}: ${target.getText()}`);
       }
     }
     ts.forEachChild(n, visit);
   };
   visit(source);
+  if (file === ORPHAN_PATH.file && orphanCalls !== ORPHAN_PATH.calls) found.push(`orphan path audits ${orphanCalls}x, pinned ${ORPHAN_PATH.calls}`);
   return found;
 }
 

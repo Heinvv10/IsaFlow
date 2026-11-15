@@ -156,6 +156,23 @@ export async function removeUserFromCompany(userId: string, companyId: string): 
   return { previousRole };
 }
 
+/**
+ * Remove a membership whose user has NO users row (an orphan: company_users.user_id has no foreign key to users),
+ * matched on exactly this user_id. Lingering access if the identity comes back, so an admin must be able to remove it
+ * (review #1405 round 7). Only for a caller that found no stored user. Returns the removed role, or null when no such
+ * membership exists. A last owner's row is still refused (the role guard's RC011, LAST_OWNER).
+ */
+export async function removeOrphanMembership(userId: string, companyId: string): Promise<{ previousRole: string } | null> {
+  const rows = await sql<{ role: string }>`
+    SELECT role FROM company_users WHERE user_id = ${userId} AND company_id = ${companyId}::uuid FOR UPDATE
+  `;
+  if (rows.length === 0) return null;
+  await assertKeepsPayRunApprover(companyId, userId, null);
+  await lastOwnerGuarded(sql`DELETE FROM company_users WHERE user_id = ${userId} AND company_id = ${companyId}::uuid`);
+  log.info('removeOrphanMembership', { userId, companyId, previousRole: rows[0]!.role }, 'AdminCompanyMembership');
+  return { previousRole: rows[0]!.role };
+}
+
 /** Change a link's role; `changed` is false (and nothing is written) when it already has that role. */
 export async function setUserCompanyRole(
   userId: string,
