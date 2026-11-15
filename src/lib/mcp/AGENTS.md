@@ -79,7 +79,9 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON; bounded like ha
   `contra_account_id`, `bank_account_id`) must be checked against
   `ctx.companyId` BEFORE the service call — `accountsBelongToCompany` /
   `customerBelongsToCompany` / `supplierBelongsToCompany` /
-  `bankGlAccountBelongsToCompany`. The services do not re-check the tenant and
+  `bankGlAccountBelongsToCompany` (= `bank/bankAccountGuard`: canonical subtype, active, row held FOR SHARE ≤5 s
+  to the call's end; a held row throws `RowLockTimeoutError`, whose wording reaches the agent; a READ-ONLY tool
+  passes `{ lock: false }`). The services do not re-check the tenant and
   there is no composite `(id, company_id)` FK, so nothing downstream stops a
   cross-tenant write. Refuse with the shared `NOT_FOUND` constant: a distinct
   "belongs to another company" reply is an existence oracle.
