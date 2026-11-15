@@ -150,7 +150,7 @@ describe('emails with bare content sit inside the card, after the logo', () => {
   it('portal: sign-in link', async () => {
     await notifyMagicLinkRequested({ name: 'Jo', email: 'jo@example.co.za' },
       [{ companyId: 'co-1', companyName: 'Alpha', url: 'https://app/verify?token=a' }]);
-    expectInsideCard(sentHtml(), 'ISaFlow Portal — Sign-in Link', 'Hi Jo,');
+    expectInsideCard(sentHtml(), 'IsaFlow Portal — Sign-in Link', 'Hi Jo,');
   });
 
   it('portal: signature required', async () => {

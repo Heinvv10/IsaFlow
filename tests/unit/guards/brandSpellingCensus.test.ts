@@ -1,7 +1,7 @@
 /**
  * The brand is spelled "IsaFlow" in every user-visible string, alt text, email and comment under src/, pages/ and
- * public/. "ISAFlow" survives only where it is data or a wire identifier (see KEEP) and in the files below that
- * belong to other open work (ALLOWED), which only ever shrinks.
+ * public/. "ISAFlow" (or "ISaFlow", OP-3) survives only where it is data or a wire identifier (see KEEP) and in the
+ * files below that belong to other open work (ALLOWED), which only ever shrinks.
  *
  * Reads the working tree (tracked and untracked files), so a new file cannot slip past before it is added.
  */
@@ -42,20 +42,23 @@ const ALLOWED = new Set([
 ]);
 
 const stripKept = (text: string): string => text.replace(KEEP, '');
+/** The wrong spellings: "ISAFlow" and "ISaFlow" (OP-3: the AFS portal's sign-in email subject read "ISaFlow Portal"). */
+const WRONG = /IS[Aa]Flow/;
 const hits = (files: string[], root = ROOT): string[] => files.filter((f) => !ALLOWED.has(f)).flatMap((f) =>
   readFileSync(`${root}/${f}`, 'utf8').split('\n')
-    .map((line, i) => (stripKept(line).includes('ISAFlow') ? `${f}:${i + 1}` : ''))
+    .map((line, i) => (WRONG.test(stripKept(line)) ? `${f}:${i + 1}` : ''))
     .filter(Boolean));
 
 describe('brand spelling', () => {
-  it('has no "ISAFlow" under src/, pages/ or public/ outside the allowlist', () => {
+  it('has no "ISAFlow"/"ISaFlow" under src/, pages/ or public/ outside the allowlist', () => {
     expect(hits(listFiles())).toEqual([]);
   });
 
   it('keeps the allowlist honest: every entry exists and still needs it', () => {
     for (const f of ALLOWED) {
       expect(existsSync(`${ROOT}/${f}`), `${f} exists`).toBe(true);
-      expect(stripKept(readFileSync(`${ROOT}/${f}`, 'utf8')), `${f} still has ISAFlow, drop it from ALLOWED`).toContain('ISAFlow');
+      const text = stripKept(readFileSync(`${ROOT}/${f}`, 'utf8'));
+      expect(WRONG.test(text), `${f} has no ISAFlow/ISaFlow left, drop it from ALLOWED`).toBe(true);
     }
   });
 
@@ -64,17 +67,19 @@ describe('brand spelling', () => {
     expect(stripKept("'Sign in to your ISAFlow account'")).toContain('ISAFlow');
     expect(stripKept('ISAFlow Demo')).not.toContain('ISAFlow');
     expect(stripKept('Sign in to your IsaFlow account')).not.toContain('ISAFlow');
+    expect(WRONG.test(stripKept("subject: 'ISaFlow Portal — Your sign-in link'"))).toBe(true);
+    expect(WRONG.test(stripKept('IsaFlow Portal — Your sign-in link'))).toBe(false);
   });
 
   // In a throwaway git repo, never the real tree: a probe file under pages/ raced every other census that walks
   // pages/ in parallel (ENOENT on zzBrandProbe.tsx when it was removed between their listing and their read).
-  it('finds a new, untracked file that uses the old spelling', () => {
+  it('finds a new, untracked file that uses the ISAFlow/ISaFlow spelling', () => {
     const repo = mkdtempSync(join(tmpdir(), 'brand-probe-'));
     try {
       execFileSync('git', ['init', '-q'], { cwd: repo, env: ownRepoEnv() });
       mkdirSync(join(repo, 'pages'));
-      writeFileSync(join(repo, 'pages/zzBrandProbe.tsx'), "export const x = 'ISAFlow';\n");
-      expect(hits(listFiles(repo), repo)).toContain('pages/zzBrandProbe.tsx:1');
+      writeFileSync(join(repo, 'pages/zzBrandProbe.tsx'), "export const x = 'ISAFlow';\nexport const y = 'ISaFlow';\n");
+      expect(hits(listFiles(repo), repo)).toEqual(['pages/zzBrandProbe.tsx:1', 'pages/zzBrandProbe.tsx:2']);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
