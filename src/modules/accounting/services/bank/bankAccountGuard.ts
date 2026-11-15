@@ -6,10 +6,17 @@
  * company — or any id at all — as "the bank", so a revenue account could hold
  * bank lines and be reconciled. `assertBankAccountInCompany` is the one check
  * every such route runs BEFORE its first write: a valid UUID, an account of
- * THIS company, a bank subtype (`BANK_SUBTYPES`) and active. It is the
- * predicate bulk preview / bulk commit always applied inline, and the one
- * `bankStatementImportService.bankGlAccountBelongsToCompany` (the MCP tools)
- * applies.
+ * THIS company, a bank subtype and active. The subtype is judged by
+ * `isBankSubtype` (canonicalised: trim, lower case, space/hyphen to `_`), the
+ * test transfers and the bank pickers use, so the guard cannot refuse an
+ * account they offer (round 2: an exact SQL match refused a legacy 'Bank
+ * Account' row; trg_gl_accounts_normalise_subtype stops new ones).
+ *
+ * The row is read FOR SHARE and so held to the end of the request
+ * transaction: a deactivation or a retype (an UPDATE, FOR NO KEY UPDATE) waits
+ * for the request's write instead of landing between check and write. FOR KEY
+ * SHARE would not block either. Lock order: callers take it before any bank
+ * line, payment, invoice or journal (`.claude.md`, the lock-order table).
  *
  * It deliberately does NOT require `account_type = 'asset'` (unlike
  * `gl/paymentBankAccount`): a credit card or an overdraft is a liability with a
@@ -22,7 +29,7 @@
  */
 import { sql } from '@/lib/neon';
 import { isUuidParam } from '@/lib/validation';
-import { BANK_SUBTYPES } from '../gl/accountSubtypes';
+import { isBankSubtype } from '../gl/accountSubtypes';
 
 export class BankAccountGuardRefusal extends Error {
   readonly code = 'BANK_ACCOUNT_GUARD_REFUSED';
@@ -47,26 +54,23 @@ const NOT_FOUND = 'Selected bank account not found for this company';
 
 /**
  * The company's active bank account `glAccountId`, or a BankAccountGuardRefusal.
- * Reads only. `glAccountId` is `unknown` because a form field is unvalidated.
+ * Writes nothing; locks the row FOR SHARE. `glAccountId` is `unknown` because a form field is unvalidated.
  */
 export async function assertBankAccountInCompany(companyId: string, glAccountId: unknown): Promise<GuardedBankAccount> {
   if (!isUuidParam(glAccountId)) throw new BankAccountGuardRefusal('Selected bank account is not a valid id');
-  // The subtype test is the SQL one bulk preview / commit used (exact raw spellings), not the canonicalising
-  // `isBankSubtype`, so no id they refused is accepted now.
   const rows = (await sql`
-    SELECT id, account_code, account_name, is_active, bank_account_number,
-           COALESCE(account_subtype = ANY(${BANK_SUBTYPES as string[]}), false) AS is_bank
+    SELECT id, account_code, account_name, account_subtype, is_active, bank_account_number
     FROM gl_accounts
     WHERE id = ${glAccountId}::UUID AND company_id = ${companyId}::UUID
-    LIMIT 1
+    FOR SHARE
   `) as Array<{
-    id: string; account_code: string; account_name: string; is_active: boolean | null;
-    bank_account_number: string | null; is_bank: boolean;
+    id: string; account_code: string; account_name: string; account_subtype: string | null;
+    is_active: boolean | null; bank_account_number: string | null;
   }>;
   const acc = rows[0];
   if (!acc) throw new BankAccountGuardRefusal(NOT_FOUND);
   const label = `${acc.account_code} ${acc.account_name}`;
-  if (acc.is_bank !== true) {
+  if (!isBankSubtype(acc.account_subtype)) {
     throw new BankAccountGuardRefusal(`${label} is not a bank account. Choose one of the company's bank accounts.`);
   }
   if (acc.is_active !== true) {

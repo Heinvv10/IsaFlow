@@ -20,7 +20,7 @@ import {
   type BankFeedConnectionInput,
   type BankFeedSyncLog,
 } from './openBankingTypes';
-import { BANK_SUBTYPES } from '../gl/accountSubtypes';
+import { assertBankAccountInCompany } from './bankAccountGuard';
 
 
 // ── Connection CRUD ───────────────────────────────────────────────────────────
@@ -106,16 +106,8 @@ export async function createBankFeedConnection(
   // (account_subtype='bank'). bank_transactions FKs to gl_accounts; as of
   // migration 483, bank_feed_connections does too.
   if (input.accountId) {
-    const check = (await sql`
-      SELECT id FROM gl_accounts
-       WHERE id = ${input.accountId}::UUID
-         AND company_id = ${companyId}::UUID
-         AND account_subtype = ANY(${BANK_SUBTYPES as string[]})
-       LIMIT 1
-    `) as DbRow[];
-    if (check.length === 0) {
-      throw new Error('Bank account not found or does not belong to this company');
-    }
+    // An active bank account of this company (bank/bankAccountGuard): BankAccountGuardRefusal otherwise, before the insert.
+    await assertBankAccountInCompany(companyId, input.accountId);
   }
 
   const configJson = JSON.stringify(input.config ?? {});

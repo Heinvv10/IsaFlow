@@ -13,6 +13,7 @@ import { log } from '@/lib/logger';
 import { runAfterCommit } from '@/lib/afterCommit';
 import { parsedDayWindowError } from '../../utils/journalDateWindow';
 import { runBankStatementExtraction } from './bankStatementExtractionJob';
+import { assertBankAccountInCompany } from './bankAccountGuard';
 import {
   effectiveExtractionState, explainRefusal, STALE_AFTER_MINUTES,
 } from './statementExtractionState';
@@ -215,6 +216,7 @@ export async function commitImport(
   if (notReady) throw notReady;
   if (imp.status === 'committed') throw new Error('Import already committed');
   if (imp.status === 'rolled_back') throw new Error('Import has been rolled back');
+  await assertBankAccountInCompany(companyId, imp.bankAccountId); // stored at upload: since deactivated, retyped, pre-guard?
 
   const nonDupes = imp.rows.filter((r) => !r.isDuplicate && r.date && parsedDayWindowError(r.date) === null);
   log.info('bankStatementOcr: committing import', { importId, nonDupeCount: nonDupes.length }, 'bank-stmt-ocr');
