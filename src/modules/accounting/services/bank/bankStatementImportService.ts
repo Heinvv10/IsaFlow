@@ -1,13 +1,12 @@
 /**
  * Agent-facing bank statement import.
  *
- * Dedup for statement imports currently lives in the endpoint layer —
- * bank-transactions-bulk-commit, bank-transactions-bulk-preview and
- * bank-feeds/[id]/extension-ingest each carry their own copy, while
- * importParsedTransactions does none. A caller built on the service alone
- * therefore duplicates the bank on every retry, which an agent (unlike a
- * human clicking through a preview) will do routinely. This module is the
- * shared parse → dedup → persist path those callers should have had.
+ * importParsedTransactions does no dedup: its callers do. A caller built on
+ * that service alone therefore duplicates the bank on every retry, which an
+ * agent (unlike a human clicking through a preview) will do routinely. This
+ * module is the parse → dedup → persist path for the agent; the dedup read is
+ * the one bulk-commit shares (./bankStatementDedupe), taken under the
+ * account's ingest lock (./bankIngestLock, WP2-2).
  *
  * It posts nothing: the auto-post sweep is suppressed so that every
  * agent-caused posting keeps arriving through allocate_bank_transaction,
@@ -31,13 +30,11 @@ import { StatementNotImportableError } from './bankStatementImportErrors';
 import { parseStatement, type StatementFileType } from './bankStatementParseService';
 import { importParsedTransactions } from './bankImportService';
 import { deleteTransactions } from './bankTransactionQueryService';
-import {
-  bankTransactionHash,
-  type HashableTransaction,
-} from '../../utils/bankTransactionHash';
 import type { BankFormat, ParsedBankTransaction } from '../../types/bank.types';
 import { assertBankAccountInCompany, isBankAccountGuardRefusal, type BankAccountGuardOpts } from './bankAccountGuard';
 import { dateRangeOf } from './bankStatementDateRange';
+import { existingStatementHashes, statementLineHash } from './bankStatementDedupe';
+import { lockBankAccountIngest } from './bankIngestLock';
 import type { ImportProvenance } from './importProvenance';
 
 export interface AgentImportArgs {
@@ -93,64 +90,6 @@ export async function bankGlAccountBelongsToCompany(
   }
 }
 
-/**
- * Round to 2dp the way Postgres does, not the way JS does.
- *
- * `bank_transactions.amount` is NUMERIC(15,2), and Postgres rounds halves AWAY
- * FROM ZERO; `Math.round` (which bankTransactionHash uses internally) rounds
- * halves toward +Infinity. They disagree on every negative half-cent:
- * -25.005 stores as -25.01 but hashes as -25.00. The stored row and the
- * statement line it came from then hash differently forever, so the row is
- * re-imported on every retry — breaking exactly the "re-sending the same
- * statement is safe" property this service exists to provide.
- *
- * Applied to BOTH sides. On the DB side the value is already rounded, so this
- * is a no-op there; on the parsed side it is the fix.
- */
-function round2(n: number): number {
-  const scaled = n * 100;
-  return (scaled < 0 ? -Math.round(-scaled) : Math.round(scaled)) / 100;
-}
-
-function hashOf(tx: { transactionDate: string; amount: number; description?: string | null }): string {
-  const hashable: HashableTransaction = {
-    transactionDate: tx.transactionDate,
-    amount: round2(Number(tx.amount)),
-    description: tx.description ?? '',
-  };
-  return bankTransactionHash(hashable);
-}
-
-/** Hashes of rows already on this account inside the statement's date window. */
-async function existingHashes(
-  companyId: string,
-  bankAccountId: string,
-  range: { from: string; to: string },
-): Promise<Set<string>> {
-  // Scoped by company_id as well as bank_account_id. The sibling endpoints
-  // filter on bank_account_id alone; the account is company-scoped so it is
-  // not exploitable there, but the repo rule is company_id on every query.
-  const rows = (await sql`
-    SELECT transaction_date::text AS transaction_date, amount, description
-    FROM bank_transactions
-    WHERE company_id = ${companyId}::UUID
-      AND bank_account_id = ${bankAccountId}::UUID
-      AND transaction_date BETWEEN ${range.from}::DATE AND ${range.to}::DATE
-      -- A row the bank removed never posted; it must not claim a real line's hash.
-      AND feed_state <> 'removed'
-  `) as Array<{ transaction_date: string; amount: string | number; description: string | null }>;
-
-  const out = new Set<string>();
-  for (const row of rows) {
-    out.add(hashOf({
-      transactionDate: row.transaction_date,
-      amount: Number(row.amount),
-      description: row.description,
-    }));
-  }
-  return out;
-}
-
 export async function importStatementForAgent(args: AgentImportArgs): Promise<AgentImportResult> {
   const parseResult = await parseStatement({
     fileType: args.fileType,
@@ -176,12 +115,15 @@ export async function importStatementForAgent(args: AgentImportArgs): Promise<Ag
       'No transaction in this statement has a recognisable YYYY-MM-DD date, so duplicates cannot be detected. Check the statement dates and re-send.',
     );
   }
-  const seen = await existingHashes(args.companyId, args.bankAccountId, range);
+  // WP2-2: the account's ingest lock BEFORE the dedup read, so a concurrent import of the same statement waits here
+  // and then reads this one's lines. A dry run writes nothing, so it does not queue.
+  if (!args.dryRun) await lockBankAccountIngest(args.companyId, args.bankAccountId);
+  const seen = await existingStatementHashes(args.companyId, args.bankAccountId, range);
 
   const fresh: ParsedBankTransaction[] = [];
   let duplicates = 0;
   for (const tx of parseResult.transactions) {
-    if (seen.has(hashOf(tx))) {
+    if (seen.has(statementLineHash(tx))) {
       duplicates++;
       continue;
     }

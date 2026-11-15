@@ -21,6 +21,8 @@ export interface PopFixture {
 export async function setUpPopFixture(pool: Pool, companies: string[]): Promise<PopFixture> {
   const bankAccount = new Map<string, string>();
   const member = `pop-sweep-${crypto.randomUUID()}`;
+  // Its users row first: company_users_user_id_fkey (996) refuses a membership without one.
+  await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'viewer', true)`, [member, `${member}@test.local`]);
   for (const [i, company] of companies.entries()) {
     await pool.query('INSERT INTO companies (id, name) VALUES ($1, $2)', [company, `POP sweep ${i}`]);
     await pool.query('INSERT INTO company_users (company_id, user_id) VALUES ($1, $2)', [company, member]);
@@ -64,6 +66,8 @@ export async function tearDownPopFixture(fx: PopFixture): Promise<void> {
     'DELETE FROM gl_accounts WHERE company_id = ANY($1)',
     'DELETE FROM companies WHERE id = ANY($1)',
   ]) await fx.pool.query(stmt, [ids]);
+  // The memberships went with the companies (ON DELETE CASCADE).
+  await fx.pool.query('DELETE FROM users WHERE id = $1', [fx.member]);
 }
 
 export interface PopSeed {

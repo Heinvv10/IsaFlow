@@ -168,9 +168,10 @@ async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]>
   // the matter could not fire on any tenant.
   //
   // AND THE COUNT IS OF WHAT THE AMOUNT SUMS. `unreconciledBalance` is every
-  // posted line with no journal line that is not excluded. The service's
-  // `unreconciledCount` is a different population (status imported or
-  // allocated); `suggestedCount` and `unallocatedCount` split the amount's
+  // posted line with no journal line that is not excluded: it pairs with the
+  // card's Δ, NOT reconciliation state. The service's `unreconciledCount` is
+  // reconciliation state (bank/unreconciledLineSql: not reconciled, journal or
+  // not), a different population; `suggestedCount` and `unallocatedCount` split the amount's
   // own population in two, so their sum is the count that belongs beside it.
   const itemsOn = (r: BankAccountStatusRow): number => r.suggestedCount + r.unallocatedCount;
   const items = rows.reduce((s, r) => s + itemsOn(r), 0);

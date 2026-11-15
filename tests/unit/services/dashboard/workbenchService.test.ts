@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach, type MockInstance } from 'vitest'
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 vi.mock('@/lib/neon', () => {
-  const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
+  const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn(), unsafe: vi.fn((s: string) => s) });
   return { sql: sqlMock };
 });
 
