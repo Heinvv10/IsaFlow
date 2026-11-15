@@ -21,6 +21,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     // F-11: a refusal is answered with its reason before the audit row, any token or any email (it was a 500).
     const refusal = await resetPasswordRefusal(userId);
+    // Review #1407: a refusal writes no audit row, so it leaves this trace (the id and reason; never the address).
+    if (refusal) log.warn('Admin password reset refused', { userId, reason: refusal }, 'admin-api');
     if (refusal === 'not_found') return apiResponse.notFound(res, 'User');
     if (refusal === 'super_admin') {
       return apiResponse.forbidden(res, "A super admin's password cannot be reset from the admin console");

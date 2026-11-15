@@ -11,6 +11,7 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { isMemberForImpersonation, NOT_A_MEMBER_FOR_IMPERSONATION } from '@/lib/auth/impersonationMembership';
 import { companyCanBeImpersonated, createImpersonationToken } from '@/modules/admin/services/impersonationService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
@@ -31,8 +32,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     });
   }
 
-  // F-13: no token for a company that does not exist or was deleted, and nothing audited as a success.
+  // F-13 / review #1407: no token for a company impersonate-exchange would refuse, and nothing audited as a success.
+  // A company that is missing, deleted, suspended or inactive is a 404; one the admin is not a member of is the
+  // exchange's own 403.
   if (!(await companyCanBeImpersonated(companyId))) return apiResponse.notFound(res, 'Company');
+  if (!(await isMemberForImpersonation(req.user.id, companyId))) {
+    return apiResponse.forbidden(res, NOT_A_MEMBER_FOR_IMPERSONATION);
+  }
 
   try {
     const { token, expires_at } = await createImpersonationToken(req.user.id, companyId);

@@ -135,8 +135,12 @@ export async function activateUser(userId: string): Promise<void> {
 /** Why an admin may not reset this user's password, or null when they may (F-11: checked before anything is written). */
 export type ResetPasswordRefusal = 'not_found' | 'super_admin';
 
+/**
+ * users.id is TEXT holding a UUID: the id is matched case-insensitively here and in resetPassword (review #1407), so
+ * an upper-cased id is the same user (never a "not found" for one and a reset for the other).
+ */
 export async function resetPasswordRefusal(userId: string): Promise<ResetPasswordRefusal | null> {
-  const rows = await sql<{ role: string }>`SELECT role FROM users WHERE id = ${userId} LIMIT 1`;
+  const rows = await sql<{ role: string }>`SELECT role FROM users WHERE lower(id) = lower(${userId}) LIMIT 1`;
   if (!rows[0]) return 'not_found';
   return rows[0].role === 'super_admin' ? 'super_admin' : null;
 }
@@ -149,7 +153,7 @@ export async function resetPasswordRefusal(userId: string): Promise<ResetPasswor
 export async function resetPassword(userId: string): Promise<void> {
   type UserRow = { id: string; email: string; role: string };
   const rows = await sql<UserRow>`
-    SELECT id, email, role FROM users WHERE id = ${userId} LIMIT 1
+    SELECT id, email, role FROM users WHERE lower(id) = lower(${userId}) LIMIT 1
   `;
   const target = rows[0];
   if (!target) throw new Error(`User ${userId} not found`);
