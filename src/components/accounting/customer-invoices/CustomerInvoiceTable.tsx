@@ -63,7 +63,7 @@ export function CustomerInvoiceTable({ invoices, page, limit, total, onPage, onO
   };
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="table-cards w-full text-sm">
         <thead>
           <tr className="border-b border-[var(--ff-border-light)]">
             <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoice #</th>
@@ -92,20 +92,20 @@ export function CustomerInvoiceTable({ invoices, page, limit, total, onPage, onO
                   <Link href={invoicePath(inv.id)} onClick={(e) => { if (!withModifier(e)) e.preventDefault(); }}
                     className="text-blue-400 hover:text-blue-300">{inv.invoice_number}</Link>
                 </td>
-                <td className="py-3 px-4 text-[var(--ff-text-primary)]">{inv.client_name || '-'}</td>
-                <td className="py-3 px-4 text-[var(--ff-text-tertiary)] max-w-[200px] truncate" title={inv.reference}>
+                <td data-label="Client" className="py-3 px-4 text-[var(--ff-text-primary)]">{inv.client_name || '-'}</td>
+                <td data-label="Reference" className="py-3 px-4 text-[var(--ff-text-tertiary)] max-w-[200px] truncate" title={inv.reference}>
                   {inv.reference || inv.project_name || '-'}
                 </td>
-                <td className="py-3 px-4 text-[var(--ff-text-secondary)] whitespace-nowrap">{formatDate(inv.invoice_date)}</td>
-                <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">{money(inv, Number(inv.total_amount))}</td>
+                <td data-label="Date" className="py-3 px-4 text-[var(--ff-text-secondary)] whitespace-nowrap">{formatDate(inv.invoice_date)}</td>
+                <td data-label="Amount" className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">{money(inv, Number(inv.total_amount))}</td>
                 {showsARBalance(inv.status, outstanding) ? (
-                  <td className={`py-3 px-4 text-right tabular-nums ${outstanding > 0 ? 'text-amber-400' : 'text-teal-400'}`}>
+                  <td data-label="Outstanding" className={`py-3 px-4 text-right tabular-nums ${outstanding > 0 ? 'text-amber-400' : 'text-teal-400'}`}>
                     {money(inv, outstanding)}
                   </td>
                 ) : (
-                  <td className="py-3 px-4 text-right text-[var(--ff-text-tertiary)]">—</td>
+                  <td data-label="Outstanding" className="py-3 px-4 text-right text-[var(--ff-text-tertiary)]">—</td>
                 )}
-                <td className="py-3 px-4 whitespace-nowrap">
+                <td data-label="Aging" className="py-3 px-4 whitespace-nowrap">
                   {inv.status === 'paid' ? (
                     <span className="text-xs text-[var(--ff-text-tertiary)]">Paid</span>
                   ) : bucketLabel ? (
@@ -114,7 +114,7 @@ export function CustomerInvoiceTable({ invoices, page, limit, total, onPage, onO
                     <span className="text-xs text-[var(--ff-text-tertiary)]">—</span>
                   )}
                 </td>
-                <td className="py-3 px-4 whitespace-nowrap">
+                <td data-label="Last Viewed" className="py-3 px-4 whitespace-nowrap">
                   {inv.last_viewed_at ? (
                     <span
                       className="inline-flex items-center gap-1.5 text-xs text-[var(--ff-text-secondary)]"
@@ -127,7 +127,7 @@ export function CustomerInvoiceTable({ invoices, page, limit, total, onPage, onO
                     <span className="text-xs text-[var(--ff-text-tertiary)]">—</span>
                   )}
                 </td>
-                <td className="py-3 px-4">
+                <td data-label="Status" className="py-3 px-4">
                   <StatusPill status={inv.status} />
                 </td>
               </tr>
