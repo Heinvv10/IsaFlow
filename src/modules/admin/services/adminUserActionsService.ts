@@ -1,7 +1,7 @@
 /**
  * Admin User Actions Service
- * Suspend, activate, delete, password reset, session management,
- * and onboarding reset. Linking, re-roling or removing one company membership:
+ * Suspend, activate, delete, session management and onboarding reset (password reset: adminPasswordResetService.ts,
+ * re-exported here). Linking, re-roling or removing one company membership:
  * companyMembershipService.ts.
  * All mutations should be followed by logAdminAction from auditService.
  */
@@ -9,13 +9,15 @@
 import { sql } from '@/lib/neon';
 import { AdminRequestError } from '@/modules/admin/middleware/adminRequestErrors';
 import { log } from '@/lib/logger';
-import { sendPasswordResetEmail } from '@/lib/auth/passwordResetEmail';
 import { adminRevokeAllUserSessions } from '@/lib/auth/gotrue';
 import { revokeAllUserPats } from '@/lib/auth/personalAccessTokens';
 import { revokeAllUserAuthorisations } from '@/lib/auth/oauth';
 import {
   assertPayRunApproverRetainedEverywhere, findStrandedPayRunRequests, type StrandedPayRunRequest,
 } from '@/modules/accounting/services/core/payRunApproverGuard';
+
+// Admin password reset lives in its own module (this one passed 300 lines); re-exported so callers keep one import.
+export { resetPassword, resetPasswordRefusal, type ResetPasswordRefusal, type ResetPasswordTarget } from './adminPasswordResetService';
 
 /**
  * Suspend a user and revoke every credential they hold.
@@ -132,24 +134,6 @@ export async function activateUser(userId: string): Promise<boolean> {
   if (rows.length === 0) return false;
   log.info('activateUser', { userId }, 'AdminUserActionsService');
   return true;
-}
-
-/**
- * Email a user our self-owned, single-use reset link (the forgot-password flow).
- * Returns nothing a caller could hand on: the link exists only in the email.
- * Throws PasswordResetEmailNotSentError when the email could not be sent.
- */
-export async function resetPassword(userId: string): Promise<void> {
-  type UserRow = { id: string; email: string; role: string };
-  const rows = await sql<UserRow>`
-    SELECT id, email, role FROM users WHERE id = ${userId} LIMIT 1
-  `;
-  const target = rows[0];
-  if (!target) throw new Error(`User ${userId} not found`);
-  if (target.role === 'super_admin') throw new Error('CANNOT_RESET_SUPER_ADMIN');
-
-  await sendPasswordResetEmail(target.id, target.email);
-  log.info('resetPassword — reset email sent', { userId }, 'AdminUserActionsService');
 }
 
 /**
