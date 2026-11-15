@@ -28,8 +28,10 @@ export function SettleSendModal({ invoice, onClose, onSettled }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
   useFocusTrap(boxRef, true, () => { if (busy === null) onClose(); });
   // A failure is announced and takes focus, so it is not lost on a button that just turned disabled.
+  // Keyed on a count, not the text: the same error twice is a new failure (refocused and announced again).
+  const [errorSeq, setErrorSeq] = useState(0);
   const errorRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  useEffect(() => { if (errorSeq > 0) errorRef.current?.focus(); }, [errorSeq]);
 
   async function settle(outcome: Outcome) {
     setBusy(outcome);
@@ -45,6 +47,7 @@ export function SettleSendModal({ invoice, onClose, onSettled }: Props) {
       onSettled(outcome);
     } catch (err) {
       setError(apiErrorMessage(err, FAILURE));
+      setErrorSeq((n) => n + 1);
     } finally {
       setBusy(null);
     }
@@ -65,7 +68,7 @@ export function SettleSendModal({ invoice, onClose, onSettled }: Props) {
           If it was not, release it so it can be sent again.
         </p>
         {error && (
-          <div ref={errorRef} role="alert" tabIndex={-1} className="flex items-center gap-2 p-3 mb-4 rounded-lg bg-red-500/10 text-red-400 text-xs outline-none"><AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}</div>
+          <div key={errorSeq} ref={errorRef} role="alert" tabIndex={-1} className="flex items-center gap-2 p-3 mb-4 rounded-lg bg-red-500/10 text-red-400 text-xs outline-none"><AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}</div>
         )}
         <div className="flex gap-3 justify-end">
           <button onClick={onClose} disabled={busy !== null} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors disabled:opacity-50">Cancel</button>

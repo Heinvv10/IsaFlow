@@ -104,6 +104,40 @@ describe.each(CASES)('$name dialog', (c) => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
+  it('a successful request closes the dialog and gives focus back to the opener', async () => {
+    const { opener, dialog } = await openDialog(c);
+    c.fill(dialog);
+    fireEvent.click(within(dialog).getByRole('button', { name: c.start }));
+    await waitFor(() => expect(vi.mocked(apiFetch)).toHaveBeenCalled());
+    release();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('fail, retry, fail: the alert goes while retrying (focus on the dialog) and the new one takes focus', async () => {
+    let calls = 0;
+    let releaseRetry: () => void = () => undefined;
+    vi.mocked(apiFetch).mockReset().mockImplementation(async () => {
+      calls += 1;
+      if (calls === 2) await new Promise<void>((r) => { releaseRetry = r; });
+      return new Response(JSON.stringify({ success: false, error: { message: 'The server said no' } }), { status: 400 });
+    });
+    const { dialog } = await openDialog(c);
+    c.fill(dialog);
+    const start = within(dialog).getByRole('button', { name: c.start });
+    fireEvent.click(start);
+    const first = await within(dialog).findByRole('alert');
+    await waitFor(() => expect(document.activeElement).toBe(first));
+    fireEvent.click(start);
+    await waitFor(() => expect(within(dialog).queryByRole('alert')).toBeNull());
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement?.matches(':disabled')).toBe(false);
+    releaseRetry();
+    const second = await within(dialog).findByRole('alert');
+    expect(second.textContent).toContain('The server said no');
+    await waitFor(() => expect(document.activeElement).toBe(second));
+  });
+
   it('a failed request is announced and takes focus', async () => {
     vi.mocked(apiFetch).mockReset().mockImplementation(async () =>
       new Response(JSON.stringify({ success: false, error: { message: 'The server said no' } }), { status: 400 }));
@@ -133,6 +167,40 @@ describe('Create Invoice draft and first focus', () => {
       expect(screen.getByRole('dialog')).toBe(dialog);
       expect((field as HTMLInputElement).value).toBe(text);
     });
+});
+
+describe('Create Invoice repeated error and due-date draft', () => {
+  it('the same validation error twice takes focus again (and is a new alert)', async () => {
+    const { dialog } = await openDialog(CASES[0]);
+    const create = within(dialog).getByRole('button', { name: /^create$/i });
+    create.focus();
+    fireEvent.click(create);
+    const first = await within(dialog).findByRole('alert');
+    await waitFor(() => expect(document.activeElement).toBe(first));
+    create.focus();
+    fireEvent.click(create);
+    await waitFor(() => expect(document.activeElement?.getAttribute('role')).toBe('alert'));
+    expect(document.activeElement?.textContent).toContain('Company ID is required');
+    expect(document.activeElement).not.toBe(first); // remounted: re-announced
+  });
+
+  it.each([['12 Dec'], ['12 Dex']])('Escape in Due Date with %j typed keeps the dialog and the text', async (text) => {
+    const { dialog, onClose } = await openDialog(CASES[0]);
+    const due = within(dialog).getByLabelText('Due Date (optional)') as HTMLInputElement;
+    fireEvent.change(due, { target: { value: text } });
+    due.focus();
+    key('Escape');
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(due.value).toBe(text);
+  });
+
+  it('Escape in an empty Due Date still closes the dialog', async () => {
+    const { dialog, onClose } = await openDialog(CASES[0]);
+    within(dialog).getByLabelText('Due Date (optional)').focus();
+    key('Escape');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('Create Invoice labels', () => {

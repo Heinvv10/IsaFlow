@@ -43,8 +43,12 @@ export function CreateInvoiceModal({ onClose, onCreated }: Props) {
   const companyRef = useRef<HTMLInputElement>(null);
   useEffect(() => { companyRef.current?.focus(); }, []);
   // A failure is announced and takes focus, so it is not lost on a button that just turned disabled.
+  // Keyed on a count, not the text: the same error twice is a new failure (refocused, and the banner remounts so it is
+  // announced again).
+  const [errorSeq, setErrorSeq] = useState(0);
+  const fail = (message: string) => { setError(message); setErrorSeq((n) => n + 1); };
   const errorRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  useEffect(() => { if (errorSeq > 0) errorRef.current?.focus(); }, [errorSeq]);
   // A field holding a draft keeps Escape (useFocusTrap's opt-out): Escape must not throw the typed invoice away.
   const keepsEscape = (v: string) => (v !== '' ? 'true' : undefined);
   const cents = toCents(form.subtotal);
@@ -53,10 +57,10 @@ export function CreateInvoiceModal({ onClose, onCreated }: Props) {
 
   async function create() {
     setError('');
-    if (!form.company_id.trim()) { setError('Company ID is required'); return; }
-    if (cents === null) { setError('Subtotal is required'); return; }
-    if (cents > MAX_INVOICE_SUBTOTAL_CENTS) { setError(TOO_LARGE); return; }
-    if (!dueDateValid) { setError('Due date is not a date - correct it or clear it'); return; }
+    if (!form.company_id.trim()) { fail('Company ID is required'); return; }
+    if (cents === null) { fail('Subtotal is required'); return; }
+    if (cents > MAX_INVOICE_SUBTOTAL_CENTS) { fail(TOO_LARGE); return; }
+    if (!dueDateValid) { fail('Due date is not a date - correct it or clear it'); return; }
     setSaving(true);
     boxRef.current?.focus(); // every control is disabled while the request runs: focus stays in the dialog
     try {
@@ -74,7 +78,7 @@ export function CreateInvoiceModal({ onClose, onCreated }: Props) {
       await assertOk(res, FAILURE);
       onCreated();
     } catch (err) {
-      setError(apiErrorMessage(err, FAILURE));
+      fail(apiErrorMessage(err, FAILURE));
     } finally {
       setSaving(false);
     }
@@ -89,7 +93,7 @@ export function CreateInvoiceModal({ onClose, onCreated }: Props) {
         </div>
         <div className="p-5 space-y-4">
           {error && (
-            <div ref={errorRef} role="alert" tabIndex={-1} className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-xs outline-none">
+            <div key={errorSeq} ref={errorRef} role="alert" tabIndex={-1} className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-xs outline-none">
               <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
             </div>
           )}
@@ -112,7 +116,7 @@ export function CreateInvoiceModal({ onClose, onCreated }: Props) {
             <dt className="text-ink-muted">Total</dt>
             <dd data-testid="invoice-total-preview" className="text-right tabular-nums font-semibold text-gray-900 dark:text-white">{preview ? formatCurrency(preview.total_cents / 100) : '—'}</dd>
           </dl>
-          <DateField label="Due Date (optional)" value={form.due_date || null} disabled={saving}
+          <DateField label="Due Date (optional)" value={form.due_date || null} disabled={saving} keepsEscape
             onChange={(iso, v) => { setDueDateValid(v.valid); setForm((f) => ({ ...f, due_date: iso ?? '' })); }} />
           <div>
             <label htmlFor="invoice-notes" className={LABEL}>Notes (optional)</label>
