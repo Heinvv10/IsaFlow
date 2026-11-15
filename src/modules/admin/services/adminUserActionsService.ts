@@ -244,8 +244,8 @@ export async function deleteUser(userId: string): Promise<StrandedPayRunRequest[
   const deleted = await sql`DELETE FROM users WHERE id = ${userId} RETURNING id`;
   if (deleted.length === 0) throw new AdminRequestError(404, 'User not found');
   await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`; // the FK cascade already did; hygiene
-  // company_users.user_id has no foreign key to users: a membership an add-to-company committed while this request
-  // waited above would outlive the user (breaker #1405 round 4, E1). Sweep it.
+  // A membership an add-to-company committed while this request waited above would outlive the user (breaker #1405
+  // round 4, E1), and company_users_user_id_fkey (996, checked at COMMIT) would then refuse the whole delete. Sweep it.
   await deleteMemberships(userId);
 
   reportStranded('deleteUser', userId, stranded);

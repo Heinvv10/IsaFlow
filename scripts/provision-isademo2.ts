@@ -59,11 +59,23 @@ async function ensureCompany(): Promise<void> {
 }
 
 async function attachUsersFromOriginalDemo(): Promise<number> {
+  // Only memberships whose users row exists: company_users_user_id_fkey (migrations
+  // 996/997) refuses a membership for a missing user, so copying an orphan would fail.
   const users = (await sql`
-    SELECT user_id, role
-    FROM company_users
-    WHERE company_id = ${ORIGINAL_DEMO_ID}::uuid
+    SELECT cu.user_id, cu.role
+    FROM company_users cu
+    WHERE cu.company_id = ${ORIGINAL_DEMO_ID}::uuid
+      AND EXISTS (SELECT 1 FROM users u WHERE u.id = cu.user_id)
   `) as Array<{ user_id: string; role: string }>;
+  const orphans = (await sql`
+    SELECT count(*)::int AS n
+    FROM company_users cu
+    WHERE cu.company_id = ${ORIGINAL_DEMO_ID}::uuid
+      AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = cu.user_id)
+  `) as Array<{ n: number }>;
+  if ((orphans[0]?.n ?? 0) > 0) {
+    console.warn(`[users] Skipped ${orphans[0]!.n} original-demo membership(s) whose user has no users row`);
+  }
 
   if (users.length === 0) {
     console.warn('[users] No users on original demo to mirror — IsaDemo2 will have no logins');

@@ -17,6 +17,7 @@ import plansRoute from '../../pages/api/admin/billing/plans';
 import announcementsRoute from '../../pages/api/admin/announcements';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { signSession } from './r-032-fake-gotrue.helpers';
+import { insertPreFkOrphanMembership } from './helpers/preFkOrphanMembership';
 
 assertDisposable();
 const asPlatformAdmin = new URL(process.env.DATABASE_URL!);
@@ -74,8 +75,8 @@ afterAll(async () => {
 describe('D2 / D6: a missing user is a 404 before anything is written, called or audited', () => {
   it('reset-onboarding: an orphan membership under that id survives the 404 (review #1405 round 5, L3)', async () => {
     const ghost = `${TAG}-ghost-reset`;
-    // company_users.user_id has no foreign key to users: an orphan row for a missing user can exist.
-    await pool.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'viewer')`, [company, ghost]);
+    // An orphan row for a missing user, as one written before migration 996's NOT VALID FK.
+    await insertPreFkOrphanMembership(pool, company, ghost, 'viewer');
     expect((await call(resetOnboardingRoute, 'POST', { id: ghost })).status).toBe(404);
     expect(await auditRows(ghost)).toBe(0);
     expect(await n('SELECT count(*)::int n FROM company_users WHERE user_id = $1', [ghost])).toBe(1);
@@ -83,7 +84,7 @@ describe('D2 / D6: a missing user is a 404 before anything is written, called or
 
   it('DELETE user: the same orphan survives its 404', async () => {
     const ghost = `${TAG}-ghost-delete`;
-    await pool.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'viewer')`, [company, ghost]);
+    await insertPreFkOrphanMembership(pool, company, ghost, 'viewer');
     expect((await call(userRoute, 'DELETE', { id: ghost })).status).toBe(404);
     expect(await auditRows(ghost)).toBe(0);
     expect(await n('SELECT count(*)::int n FROM company_users WHERE user_id = $1', [ghost])).toBe(1);
