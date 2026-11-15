@@ -197,6 +197,7 @@ describe('run-ci.sh: gate groups (ci.yml runs static on GitHub-hosted, velo on v
     expect(r.status).toBe(0);
     expect([ranGates(r.calls), ranBuild(r.calls), ranBrowser(r.calls), ranIntegration(r.calls)]).toEqual([true, false, false, false]);
     expect(r.calls).toContain('bun --no-env-file scripts/ci/prepush.ts unit token=unset');
+    expect(r.calls).toContain('bun --no-env-file scripts/ci/prepush.ts lint token=unset');
     expect(r.calls.some((c) => c.startsWith('bun run test:unit') || c.startsWith('bun run lint'))).toBe(false);
   });
 
