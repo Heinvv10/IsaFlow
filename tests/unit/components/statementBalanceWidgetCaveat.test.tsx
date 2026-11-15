@@ -13,6 +13,8 @@ import { StatementBalanceWidget } from '@/components/accounting/StatementBalance
 
 const PDF_READ = "From the PDF's running balance (not checked against a printed closing)";
 const AI_READ = 'Read from the PDF by AI (not checked against the file)';
+// lucide's CheckCircle2, the widget's "reconciled" icon, under its class names across versions.
+const CHECK_ICON = 'svg.lucide-circle-check-big, svg.lucide-check-circle-2, svg.lucide-circle-check';
 
 const batch = (balanceSource: string | null) => ({
   id: 'b1', bankAccountId: 'acct-1', statementDate: '2026-09-30', bankFormat: 'absa', openingBalance: 1000,
@@ -37,6 +39,17 @@ describe('StatementBalanceWidget: an unchecked statement balance says so', () =>
     expect(screen.getByText(PDF_READ)).toBeTruthy();
     expect(screen.queryByText(AI_READ)).toBeNull();
     expect(screen.getByText(/Difference \(not checked\)/)).toBeTruthy();
+  });
+
+  it('pdf_read at a zero Difference (glBalance = the closing) is never shown as reconciled: no teal, no check icon', async () => {
+    await show('pdf_read'); // closing 1150, glBalance 1150
+    expect(document.querySelector('[class*="teal"]')).toBeNull();
+    expect(document.querySelector(CHECK_ICON)).toBeNull();
+    // The guard is what removes them: the same zero Difference from a running_balance IS shown reconciled.
+    cleanup();
+    await show('running_balance');
+    expect(document.querySelector('[class*="teal"]')).not.toBeNull();
+    expect(document.querySelector(CHECK_ICON)).not.toBeNull();
   });
 
   it('ai_read: its own caveat, and the Difference marked not checked', async () => {

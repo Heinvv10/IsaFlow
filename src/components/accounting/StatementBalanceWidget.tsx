@@ -157,7 +157,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
           </span>
         </div>
         {caveat && batch.closingBalance !== null && (
-          <p data-testid="statement-balance-caveat" className="px-4 py-1.5 text-xs text-amber-400">
+          <p data-testid="statement-balance-caveat" className="px-4 py-1.5 text-xs text-amber-700 dark:text-amber-400">
             {caveat}
           </p>
         )}
@@ -178,12 +178,12 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
             <span className="flex items-center gap-1.5 text-xs text-[var(--ff-text-tertiary)]">
               {isReconciled
                 ? <CheckCircle2 className="h-3.5 w-3.5 text-teal-500" />
-                : <AlertCircle className="h-3.5 w-3.5 text-amber-400" />}
+                : <AlertCircle className="h-3.5 w-3.5 text-amber-700 dark:text-amber-400" />}
               {caveat ? 'Difference (not checked)' : 'Difference'}
             </span>
             <span
               className={`tabular-nums text-sm font-semibold ${
-                isReconciled ? 'text-teal-500' : 'text-amber-400'
+                isReconciled ? 'text-teal-500' : 'text-amber-700 dark:text-amber-400'
               }`}
             >
               {isReconciled ? fmt(0) : fmt(difference)}
