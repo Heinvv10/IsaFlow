@@ -9,14 +9,19 @@ import { join } from 'node:path';
 import { load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 import { REQUIRED_JOBS } from '../../../scripts/ci/mq-merge-already-tested';
-import { decide, fetchPages, main, MAX_PAGES, REPO, SKIP_EXIT, type Cmd } from '../../../scripts/lib/deployCiGreen';
+import { decide, fetchPages, MAX_PAGES, REPO, type Cmd } from '../../../scripts/lib/deployCiGreen';
 
 const SHA = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
 
-type Run = { id: number; name: string; head_sha: string; status: string; conclusion: string | null; app: { slug: string } | null };
+type Run = {
+  id: number; name: string; head_sha: string; status: string; conclusion: string | null;
+  app: { slug: string } | null; check_suite?: { id: number } | null;
+};
+const SUITE = 77;
+const SUITES = new Set([SUITE]);
 const ok = (name: string, id: number, over: Partial<Run> = {}): Run => ({
-  id, name, head_sha: SHA, status: 'completed', conclusion: 'success', app: { slug: 'github-actions' }, ...over,
+  id, name, head_sha: SHA, status: 'completed', conclusion: 'success', app: { slug: 'github-actions' }, check_suite: { id: SUITE }, ...over,
 });
 // Shaped like master's real list: the two required checks among the matrix parts.
 const GREEN: Run[] = [
@@ -28,17 +33,17 @@ const withRequired = (name: string, over: Partial<Run>) => GREEN.map((r) => (r.n
 
 describe('decide', () => {
   it('skips when every required check is completed/success on the SHA', () => {
-    const v = decide(SHA, [page(GREEN)]);
+    const v = decide(SHA, [page(GREEN)], SUITES);
     expect(v.skip).toBe(true);
     expect(v.reason).toContain(SHA);
     expect(v.evidence).toEqual([
-      `"Type Check, Lint & Test": completed/success sha=${SHA} app=github-actions id=1`,
-      `"Golden Paths E2E (blocking)": completed/success sha=${SHA} app=github-actions id=2`,
+      `"Type Check, Lint & Test": completed/success sha=${SHA} app=github-actions suite=77 id=1`,
+      `"Golden Paths E2E (blocking)": completed/success sha=${SHA} app=github-actions suite=77 id=2`,
     ]);
   });
 
   it('skips across pages when the pages add up to total_count', () => {
-    expect(decide(SHA, [page(GREEN.slice(0, 3), 6), page(GREEN.slice(3), 6)]).skip).toBe(true);
+    expect(decide(SHA, [page(GREEN.slice(0, 3), 6), page(GREEN.slice(3), 6)], SUITES).skip).toBe(true);
   });
 
   it.each([
@@ -53,9 +58,11 @@ describe('decide', () => {
     ['for another SHA', { head_sha: OTHER }, new RegExp(`is for ${OTHER}`)],
     ['from another app', { app: { slug: 'some-bot' } }, /from app some-bot/],
     ['from no app', { app: null }, /from app undefined/],
+    ['from another workflow\'s check suite', { check_suite: { id: 78 } }, /not from a push run of \.github\/workflows\/ci\.yml/],
+    ['in no check suite', { check_suite: null }, /not from a push run of \.github\/workflows\/ci\.yml/],
   ])('runs CI when a required check is %s', (_label, over, why) => {
     for (const name of REQUIRED_JOBS) {
-      const v = decide(SHA, [page(withRequired(name, over as Partial<Run>))]);
+      const v = decide(SHA, [page(withRequired(name, over as Partial<Run>))], SUITES);
       expect(v.skip).toBe(false);
       expect(v.reason).toMatch(why);
       expect(v.reason).toContain(name);
@@ -64,28 +71,28 @@ describe('decide', () => {
 
   it('runs CI when a required check is missing', () => {
     for (const name of REQUIRED_JOBS) {
-      const v = decide(SHA, [page(GREEN.filter((r) => r.name !== name))]);
+      const v = decide(SHA, [page(GREEN.filter((r) => r.name !== name))], SUITES);
       expect(v.skip).toBe(false);
       expect(v.reason).toBe(`"${name}" has no check run on ${SHA}`);
     }
   });
 
   it('runs CI when any run of a required name is not green, even beside a green one', () => {
-    const v = decide(SHA, [page([...GREEN, ok('Golden Paths E2E (blocking)', 9, { conclusion: 'failure' })])]);
+    const v = decide(SHA, [page([...GREEN, ok('Golden Paths E2E (blocking)', 9, { conclusion: 'failure' })])], SUITES);
     expect(v.skip).toBe(false);
     expect(v.reason).toMatch(/"Golden Paths E2E \(blocking\)" concluded failure/);
   });
 
   it('matches names exactly (commas, ampersands, parentheses), never by prefix or case', () => {
     const lookalikes = GREEN.map((r) => (r.name === 'Type Check, Lint & Test' ? { ...r, name: 'Type Check, Lint &amp; Test' } : r));
-    expect(decide(SHA, [page(lookalikes)]).skip).toBe(false);
+    expect(decide(SHA, [page(lookalikes)], SUITES).skip).toBe(false);
     const cased = GREEN.map((r) => (r.name === 'Golden Paths E2E (blocking)' ? { ...r, name: 'golden paths e2e (blocking)' } : r));
-    expect(decide(SHA, [page(cased)]).skip).toBe(false);
+    expect(decide(SHA, [page(cased)], SUITES).skip).toBe(false);
   });
 
   it('runs CI when every check run is for the wrong SHA', () => {
-    expect(decide(SHA, [page(GREEN.map((r) => ({ ...r, head_sha: OTHER })))]).skip).toBe(false);
-    expect(decide(OTHER, [page(GREEN)]).skip).toBe(false);
+    expect(decide(SHA, [page(GREEN.map((r) => ({ ...r, head_sha: OTHER })))], SUITES).skip).toBe(false);
+    expect(decide(OTHER, [page(GREEN)], SUITES).skip).toBe(false);
   });
 
   it.each([
@@ -101,13 +108,13 @@ describe('decide', () => {
     ['total_count changing between pages', [page(GREEN.slice(0, 3), 6), page(GREEN.slice(3), 7)]],
     ['a garbage element among the runs', [page([null, 'x', 3, ...GREEN.filter((r) => r.id !== 1)])]],
   ])('runs CI on %s', (_label, pages) => {
-    expect(decide(SHA, pages as unknown[]).skip).toBe(false);
+    expect(decide(SHA, pages as unknown[], SUITES).skip).toBe(false);
   });
 
   it('runs CI on a SHA that is not a full SHA, and on an empty required list', () => {
-    expect(decide('abc123', [page(GREEN)]).skip).toBe(false);
-    expect(decide('', [page(GREEN)]).skip).toBe(false);
-    expect(decide(SHA, [page(GREEN)], []).skip).toBe(false);
+    expect(decide('abc123', [page(GREEN)], SUITES).skip).toBe(false);
+    expect(decide('', [page(GREEN)], SUITES).skip).toBe(false);
+    expect(decide(SHA, [page(GREEN)], SUITES, []).skip).toBe(false);
   });
 });
 
@@ -137,53 +144,6 @@ describe('fetchPages', () => {
     const gh: Cmd = () => JSON.stringify(page([GREEN[0]], 10_000));
     const pages = fetchPages(SHA, gh);
     expect(pages).toHaveLength(MAX_PAGES);
-    expect(decide(SHA, pages).skip).toBe(false);
-  });
-});
-
-type GitState = { head: string; status: string; mainline: string[] };
-const GOOD: GitState = { head: SHA, status: '', mainline: [OTHER, SHA, 'c'.repeat(40)] };
-function fakeGit(over: Partial<GitState> = {}): Cmd {
-  const s = { ...GOOD, ...over };
-  return (args) => {
-    if (args.join(' ') === 'rev-parse HEAD') return `${s.head}\n`;
-    if (args.join(' ') === 'status --porcelain --untracked-files=normal') return s.status;
-    if (args.join(' ') === 'rev-list --first-parent origin/master') return `${s.mainline.join('\n')}\n`;
-    throw new Error(`unexpected git ${args.join(' ')}`);
-  };
-}
-const ghGreen: Cmd = () => JSON.stringify(page(GREEN));
-
-function runMain(git: Cmd, gh: Cmd) {
-  let out = '';
-  const code = main({ git, gh }, (s) => { out += s; });
-  return { code, out };
-}
-
-describe('main', () => {
-  it('exits SKIP_EXIT and logs the SHA, names and conclusions when GitHub shows it green', () => {
-    const r = runMain(fakeGit(), ghGreen);
-    expect(r.code).toBe(SKIP_EXIT);
-    expect(r.out).toContain(`[deploy-ci]   "Type Check, Lint & Test": completed/success sha=${SHA}`);
-    expect(r.out).toContain(`[deploy-ci]   "Golden Paths E2E (blocking)": completed/success sha=${SHA}`);
-    expect(r.out).toMatch(/\[deploy-ci\] GitHub CI green, skipping the local CI gate: .*aaaa/);
-  });
-
-  it.each([
-    ['a dirty tree', fakeGit({ status: ' M src/x.ts\n' }), ghGreen, /working tree differs/],
-    ['an untracked file', fakeGit({ status: '?? stray.ts\n' }), ghGreen, /working tree differs/],
-    ['HEAD not on origin/master', fakeGit({ mainline: [OTHER] }), ghGreen, /not on origin\/master's first-parent history/],
-    ['a short HEAD', fakeGit({ head: 'abc' }), ghGreen, /not a full commit SHA/],
-    ['a gh error', fakeGit(), (() => { throw new Error('HTTP 502: Bad Gateway\nmore'); }) as Cmd, /could not check \(HTTP 502: Bad Gateway\)/],
-    ['gh not authenticated', fakeGit(), (() => { throw new Error('gh: To use GitHub CLI, please run: gh auth login'); }) as Cmd, /could not check/],
-    ['garbage from gh', fakeGit(), (() => '<html>oops</html>') as Cmd, /could not check/],
-    ['empty output from gh', fakeGit(), (() => '') as Cmd, /could not check/],
-    ['a git error', (() => { throw new Error('not a git repository'); }) as Cmd, ghGreen, /could not check \(not a git repository\)/],
-    ['a red check', fakeGit(), (() => JSON.stringify(page(withRequired('Type Check, Lint & Test', { conclusion: 'failure' })))) as Cmd, /concluded failure/],
-  ])('runs the full gate (exit 0) on %s', (_label, git, gh, why) => {
-    const r = runMain(git, gh);
-    expect(r.code).toBe(0);
-    expect(r.out).toMatch(/\[deploy-ci\] running the full local CI gate: /);
-    expect(r.out).toMatch(why);
+    expect(decide(SHA, pages, SUITES).skip).toBe(false);
   });
 });

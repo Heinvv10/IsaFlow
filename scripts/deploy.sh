@@ -158,11 +158,19 @@ unset EARLY_DB
 # 1a. CI gate — type-check, lint, unit tests must pass before we build.
 # Skipped only when GitHub shows every required check green for this exact,
 # clean HEAD on origin/master (scripts/lib/deployCiGreen.ts exits 10; it prints
-# the check-run evidence). Any other exit, a crash included, runs the full gate.
+# the check-run evidence). Any other exit, a crash included, runs the full gate,
+# and so does a "verified HEAD" SHA that, just before the build, is no longer
+# HEAD, has a dirty tree, or is not the commit GIT_SHA (the release tag) names.
+ci_tree_is() {
+  [ -n "$GIT_SHA" ] && [ "$(git rev-parse HEAD)" = "$1" ] && [ -z "$(git status --porcelain --untracked-files=normal)" ] &&
+    case "$1" in "$GIT_SHA"*) true ;; *) false ;; esac
+}
 if [ "${SKIP_CI:-0}" != "1" ]; then
-  CI_GREEN_RC=0; $BUN "$REPO_DIR/scripts/lib/deployCiGreen.ts" || CI_GREEN_RC=$?
-  if [ "$CI_GREEN_RC" -eq 10 ]; then
-    echo "CI gate: GitHub already passed every required check on $(git rev-parse HEAD); local bun run ci skipped"
+  CI_GREEN_RC=0; CI_GREEN_OUT=$($BUN "$REPO_DIR/scripts/lib/deployCiGreen.ts") || CI_GREEN_RC=$?
+  printf '%s\n' "$CI_GREEN_OUT"
+  CI_GREEN_SHA=$(printf '%s\n' "$CI_GREEN_OUT" | sed -n 's/^\[deploy-ci\] verified HEAD \([0-9a-f]\{40\}\)$/\1/p')
+  if [ "$CI_GREEN_RC" -eq 10 ] && [ -n "$CI_GREEN_SHA" ] && ci_tree_is "$CI_GREEN_SHA"; then
+    echo "CI gate: GitHub already passed every required check on $CI_GREEN_SHA (HEAD, release $GIT_SHA); local bun run ci skipped"
   else
     echo "Running CI gate (bun run ci)..."
     $BUN run ci
