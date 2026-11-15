@@ -19,7 +19,7 @@ const MOVEMENT = 'Not tracked — no prior board pack is stored to compare again
 /** As `unreconciledBankMatters` writes it where the items net to nil. */
 const BANK_NETS_TO_NIL: PackMatter = {
   kind: 'finding',
-  issue: '4 unreconciled bank items across 2 bank accounts, as at the time this pack was extracted '
+  issue: '4 unallocated bank items across 2 bank accounts, as at the time this pack was extracted '
     + 'rather than at the period end; receipts and payments among them net to nil on each account, '
     + 'so no amount is stated',
   quantum: null,
