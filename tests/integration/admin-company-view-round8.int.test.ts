@@ -111,6 +111,32 @@ describe('L1: subscription, invoice and webhook rows are in the company view', (
   });
 });
 
+describe('subscriptions/[id] PATCH writes an audit row only for a real update (final round)', () => {
+  const updates = async (id: string) => (await pool.query(`SELECT count(*)::int n FROM admin_audit_log
+    WHERE admin_user_id = $1 AND action = 'subscription.update' AND target_id = $2`, [admin, id])).rows[0].n as number;
+
+  it('an empty body is a 400, for a real subscription and a missing one; no audit row', async () => {
+    const plan = (await pool.query(`INSERT INTO plans (code, name, monthly_price_cents) VALUES ($1, 'p', 0) RETURNING id`, [`${TAG}-p2`])).rows[0].id;
+    const sub = (await pool.query(`INSERT INTO subscriptions (company_id, plan_id, status, billing_cycle) VALUES ($1, $2, 'active', 'monthly')
+      RETURNING id`, [company, plan])).rows[0].id as string;
+    const ghost = crypto.randomUUID();
+    for (const id of [sub, ghost]) {
+      const r = await call(subscriptionRoute, 'PATCH', { id }, {});
+      expect(r.status).toBe(400);
+      expect(r.body.error?.message).toMatch(/Nothing to update/);
+      expect(await updates(id)).toBe(0);
+    }
+  });
+
+  it('a non-empty body on a missing subscription is a 404; no audit row', async () => {
+    const ghost = crypto.randomUUID();
+    for (const body of [{ notes: 'x' }, { cancel_at_period_end: true }]) {
+      expect((await call(subscriptionRoute, 'PATCH', { id: ghost }, body)).status).toBe(404);
+    }
+    expect(await updates(ghost)).toBe(0);
+  });
+});
+
 describe('L2: a user created while the orphan path runs makes it a normal removal', () => {
   it('re-checked under the membership lock: removed, audited under the stored id without orphan:true', async () => {
     const id = `Late-${TAG}`;
