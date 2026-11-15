@@ -90,7 +90,7 @@ describeIfDb('MCP read limits against real rows', () => {
     for (const [f, sup, status, date, total, allocated] of payments) {
       const row = (await sql`
         INSERT INTO supplier_payments (company_id, supplier_id, payment_date, total_amount, status, created_by, payment_number, reference)
-        VALUES (${f.companyId}::UUID, ${sup}::UUID, ${date}::DATE, ${total}, ${status}, ${f.userId}::UUID, ${`MRL-PAY-${++n}`}, ${f === b ? 'SECRET' : 'ref'})
+        VALUES (${f.companyId}::UUID, ${sup}::UUID, ${date}::DATE, ${total}, ${status}, ${f.userId}::UUID, ${`MRL-PAY-${++n}`}, ${f === b ? 'SECRET' : (n % 2 ? 'ref odd' : 'ref even')})
         RETURNING id`) as Json[];
       if (allocated > 0) {
         await sql`INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated) VALUES (${row[0]!.id}::UUID, ${bill}::UUID, ${allocated})`;
@@ -184,7 +184,7 @@ describeIfDb('MCP read limits against real rows', () => {
 
   describe('list_supplier_payments', () => {
     const FILTERS: Array<Record<string, unknown>> = [
-      {}, { status: 'processed' }, { supplier_id: '$a' }, { from_date: '2026-02-01', to_date: '2026-03-31' }, { search: 'ref' }, { status: 'cancelled' },
+      {}, { status: 'processed' }, { supplier_id: '$a' }, { from_date: '2026-02-01', to_date: '2026-03-31' }, { search: 'odd' }, { search: 'MRL-PAY-1' }, { status: 'cancelled' },
     ];
     const measures = {
       count: () => 1, payment_amount: (r: Json) => Number(r.payment_amount), allocated_amount: (r: Json) => Number(r.allocated_amount), unapplied_amount: (r: Json) => Number(r.unapplied_amount),
@@ -265,6 +265,10 @@ describeIfDb('MCP read limits against real rows', () => {
       expect(new Set(ids(rows)).size).toBe(9);
       const priorities = rows.map((r) => Number(r.priority));
       expect(priorities).toEqual([...priorities].sort((x, y) => x - y));
+      // Six rules tie on (priority, name): the id breaks the tie, so a walk cannot skip or repeat one.
+      const tied = rows.filter((r) => r.rule_name === 'Same name').map((r) => String(r.id));
+      expect(tied).toHaveLength(6);
+      expect(tied).toEqual([...tied].sort());
       const first = await call(listBankRulesTool, { limit: 2 });
       expect(first.total).toBe(9);
       expect(first.auto_posting_rules).toBe(4); // even i, active: 0, 2, 6, 8 (4 is inactive)
@@ -276,6 +280,10 @@ describeIfDb('MCP read limits against real rows', () => {
       const rows = await walk(listWorkItemsTool, {}, 'work_items', 3);
       expect(rows).toHaveLength(10); // 11 minus the inactive one
       expect(new Set(ids(rows)).size).toBe(10);
+      // Four items tie on (sort_order, name): the id breaks the tie.
+      const tied = rows.filter((r) => r.name === 'Same').map((r) => String(r.id));
+      expect(tied).toHaveLength(4);
+      expect(tied).toEqual([...tied].sort());
       expect((await call(listWorkItemsTool, { limit: 3 })).total).toBe(10);
       expect((await call(listWorkItemsTool, { include_inactive: true, limit: 3 })).total).toBe(11);
       expect(JSON.stringify(await call(listWorkItemsTool, { include_inactive: true }))).not.toContain('SECRET');

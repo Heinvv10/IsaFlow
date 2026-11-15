@@ -77,16 +77,16 @@ export function bankAttachmentUnion(companyId: string, f: Pick<AttachmentFilters
 
 export async function listBankAttachments(companyId: string, f: AttachmentFilters): Promise<AttachmentPage> {
   try {
-    // One CTE for rows and count, so the two can never disagree about which documents exist.
-    const docs = sql`WITH docs AS (${bankAttachmentUnion(companyId, f)})`;
+    // One union for rows and count, so the two can never disagree about which documents exist.
+    const union = bankAttachmentUnion(companyId, f);
     const rows = (await sql`
-      ${docs}
+      WITH docs AS (${union})
       SELECT d.*, bt.transaction_date, bt.amount, bt.description AS tx_description, bt.reference
         FROM docs d JOIN bank_transactions bt ON bt.id = d.bank_transaction_id
        ORDER BY d.created_at DESC, d.id DESC
        LIMIT ${f.limit} OFFSET ${f.offset ?? 0}
     `) as DbRow[];
-    const [count] = (await sql`${docs} SELECT COUNT(*) AS cnt, MAX(created_at) AS latest FROM docs`) as DbRow[];
+    const [count] = (await sql`WITH docs AS (${union}) SELECT COUNT(*) AS cnt, MAX(created_at) AS latest FROM docs`) as DbRow[];
 
     return {
       rows: rows.map((r) => ({
