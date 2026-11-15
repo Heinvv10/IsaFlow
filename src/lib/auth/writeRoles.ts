@@ -36,6 +36,17 @@ export function canSetPayrollNetPay(role: string | null | undefined): boolean {
 }
 
 /**
+ * The roles that may delete a draft credit note over MCP: owner and admin. It is a hard delete with no restore, so the
+ * manager role that the write fence admits is not enough.
+ */
+export const DRAFT_CREDIT_NOTE_DELETE_ROLES = ['owner', 'admin'] as const;
+
+/** Whether a company role may delete a draft credit note. Null — role not known — may not. */
+export function canDeleteDraftCreditNote(role: string | null | undefined): boolean {
+  return (DRAFT_CREDIT_NOTE_DELETE_ROLES as readonly string[]).includes(role ?? '');
+}
+
+/**
  * The roles that may delete a fixed asset over MCP: owner and admin. It is the first path that removes an `assets` row
  * (security review 2026-11-13), so the manager role that the write fence admits is not enough.
  */

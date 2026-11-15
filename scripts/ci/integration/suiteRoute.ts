@@ -120,6 +120,33 @@ export function assignShards<T extends { file: string }>(
 }
 
 /**
+ * `PART/PARTS` (run-ci.sh's part argument, as `1/5`) parsed; null when it is
+ * not two positive integers with PART <= PARTS.
+ */
+export function parsePart(arg: string): { part: number; parts: number } | null {
+  const m = /^([1-9]\d*)\/([1-9]\d*)$/.exec(arg);
+  if (!m) return null;
+  const part = Number(m[1]);
+  const parts = Number(m[2]);
+  return part <= parts ? { part, parts } : null;
+}
+
+/**
+ * The suites one GitHub job runs when the gate is split over `parts` jobs
+ * (ci.yml's velo matrix): the same longest-first deal as assignShards, over
+ * jobs instead of shards, keeping job `part`'s share. Every job computes the
+ * same deal from the same files and weights, and it does not depend on the
+ * job's CPU count, so the parts together run every suite exactly once.
+ */
+export function sliceSuites<T extends { file: string }>(
+  suites: T[], part: number, parts: number, slow: Readonly<Record<string, number>>, fallback = 2,
+): T[] {
+  // assignShards keeps the input order, so index i is suite i's deal.
+  const dealt = assignShards(suites, parts, slow, fallback);
+  return suites.filter((_, i) => dealt[i]?.shard === part);
+}
+
+/**
  * How many shards the gate runs: one per CPU less one, at most MAX_SHARDS (6:
  * what velo's 32 cores ran for months). A shard is a vitest process plus its
  * own PostgreSQL, so more shards than CPUs only slows each one down, and the

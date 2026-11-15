@@ -16,6 +16,3 @@ User-invitation email HTML template, split out of `email-templates.ts` to keep f
 - `recipientEmail` is captured for logging but not rendered in the template.
 - 7-day expiry copy must stay aligned with the invite-token TTL enforced in the invite-acceptance handler.
 - Uses table-based layout with inline styles for email-client compat (Outlook, Gmail, Apple Mail).
-
-## Recent changes
-- 2026-04-12: Split from email-templates.ts during the ≤300-line refactor.

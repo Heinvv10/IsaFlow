@@ -59,6 +59,7 @@ const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
   'update_business_unit',
   'delete_business_unit',
   'cancel_customer_invoice',
+  'delete_draft_credit_note',
   // A template that auto-posts changes what later runs post; a run may post (write:post decided per template).
   'create_recurring_journal',
   'run_recurring_journals',

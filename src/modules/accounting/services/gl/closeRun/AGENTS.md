@@ -46,7 +46,3 @@ and its audit row commit together.
 - `close_runs(id, company_id, fiscal_period_id, period_label, status[open|completed|abandoned], overall_readiness, created_by, created_at, completed_at)`.
 - `close_run_proposals(id, company_id, close_run_id, kind, action_type[auto_post|advisory], title, reasoning, evidence JSONB, target_entity_type, target_entity_id, status[proposed|approved|posted|rejected|failed|dismissed], decided_by, decided_at, result JSONB, created_at)`.
 - Both RLS ENABLE+FORCE + `tenant_isolation` (membership predicate, mirrors mig 498). Primary guard remains the explicit `company_id =` filter.
-
-## Recent changes
-- 2026-09-26 (R-032 L5): `decideProposal` (approve, reject and dismiss) now call `assertNotImpersonating()` (`src/lib/auth/impersonationGuard.ts`) as their FIRST statement: a platform-admin "Login as" session gets `ImpersonationForbiddenError` → 403 `IMPERSONATION_FORBIDDEN` before anything is read or written. Bearer callers (MCP, PATs) and jobs carry no `session_id` and pass. The guard runs one `sql` query, so a unit test that mocks `sql` with a positional queue must also mock the guard (`vi.mock('@/lib/auth/impersonationGuard', ...)` with `assertNotImpersonating: async () => undefined`) or every later query shifts by one.
-- 2026-07-06: created (P5.1 close-run engine). Surface (Month-End tab home + bureau rollup) lands in P5.2.

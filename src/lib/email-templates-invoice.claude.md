@@ -16,6 +16,3 @@ Customer-facing invoice email HTML template — accompanies the PDF attachment w
 - `portalUrl` is NOT escaped — assumed system-generated. Do not pass untrusted URLs.
 - The CTA only renders when `portalUrl` is truthy, so sending with no portal link still produces a valid email.
 - Signature block is NOT attached here — the caller (invoicing service) uses `appendSignatureToHtml` from `email-templates-shared` after rendering.
-
-## Recent changes
-- 2026-04-12: Split from email-templates.ts during the ≤300-line refactor.

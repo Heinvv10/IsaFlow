@@ -53,6 +53,7 @@ import {
   getDocumentTool,
   listUnsupportedTransactionsTool,
 } from './tools/documents';
+import { listMissingDocumentsTool } from './tools/missingDocuments';
 import {
   createDraftInvoiceTool,
   createDraftQuoteTool,
@@ -75,6 +76,7 @@ import { applyCreditNoteTool } from './tools/writeApplyCreditNote';
 import { adjustCreditNoteApplicationTool } from './tools/writeAdjustCreditNoteApplication';
 import { cancelSupplierInvoiceTool } from './tools/writeCancelSupplierInvoice';
 import { cancelCustomerInvoiceTool } from './tools/writeCancelCustomerInvoice';
+import { deleteDraftCreditNoteTool } from './tools/writeDeleteDraftCreditNote';
 import { updateSupplierInvoiceTool } from './tools/writeUpdateSupplierInvoice';
 import { reapplyPaymentTermsTool } from './tools/writeReapplyPaymentTerms';
 import { reapplyCustomerPaymentTermsTool } from './tools/writeReapplyCustomerPaymentTerms';
@@ -216,6 +218,7 @@ export const MCP_TOOLS = [
   listDocumentsTool,
   getDocumentTool,
   listUnsupportedTransactionsTool,
+  listMissingDocumentsTool,
   listSupplierInvoicesTool,
   getSupplierInvoiceTool,
   listBankRulesTool,
@@ -283,6 +286,7 @@ export const MCP_TOOLS = [
   applyCreditNoteTool,
   cancelSupplierInvoiceTool,
   cancelCustomerInvoiceTool,
+  deleteDraftCreditNoteTool,
   ...RECURRING_JOURNAL_TOOLS,
   createFixedAssetTool,
   deleteFixedAssetTool,

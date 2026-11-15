@@ -24,6 +24,3 @@
 
 ## Related files
 - `src/modules/accounting/services/capture/supplierGraphService.ts` — scan/list/confirm/dismiss + cross-tenant correlation
-
-## Recent changes
-- 2026-04-22: PRD-05 Phase 11 — cross-tenant supplier graph + fraud signals (initial drop)
