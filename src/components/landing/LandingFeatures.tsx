@@ -6,7 +6,7 @@ export function LandingFeaturesGrid() {
     <section id="features" className="py-20 lg:py-28 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-2xl mx-auto mb-16">
-          <p className="text-sm font-semibold text-teal-600 tracking-widest uppercase mb-3">
+          <p className="text-sm font-semibold text-teal-700 tracking-widest uppercase mb-3">
             Features
           </p>
           <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4 text-gray-900">
