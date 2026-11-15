@@ -42,13 +42,18 @@ interface BulkResult {
   errors: string[];
 }
 
+/** A retry / cancel batch: the answer, plus the jobs it changed (each gets its own audit row). */
+interface JobBatch extends BulkResult {
+  changedIds: string[];
+}
+
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
 // "Not found / wrong status" is a per-item answer (RETURNING). A thrown error is not a per-item refusal: it aborts
 // the batch (500, rolled back), never a 200 whose earlier items the poisoned transaction would not keep (#1405 L8).
-async function retryBulk(ids: string[]): Promise<BulkResult> {
+async function retryBulk(ids: string[]): Promise<JobBatch> {
   const errors: string[] = [];
-  let processed = 0;
+  const changedIds: string[] = [];
 
   for (const id of ids) {
     const rows = await sql`
@@ -62,18 +67,18 @@ async function retryBulk(ids: string[]): Promise<BulkResult> {
     ` as Array<{ id: string }>;
 
     if (rows.length > 0) {
-      processed++;
+      changedIds.push(id);
     } else {
       errors.push(`Job ${id}: not found or not in failed status`);
     }
   }
 
-  return { processed, errors };
+  return { processed: changedIds.length, errors, changedIds };
 }
 
-async function cancelBulk(ids: string[]): Promise<BulkResult> {
+async function cancelBulk(ids: string[]): Promise<JobBatch> {
   const errors: string[] = [];
-  let processed = 0;
+  const changedIds: string[] = [];
 
   for (const id of ids) {
     const rows = await sql`
@@ -85,13 +90,13 @@ async function cancelBulk(ids: string[]): Promise<BulkResult> {
     ` as Array<{ id: string }>;
 
     if (rows.length > 0) {
-      processed++;
+      changedIds.push(id);
     } else {
       errors.push(`Job ${id}: not found or not cancellable`);
     }
   }
 
-  return { processed, errors };
+  return { processed: changedIds.length, errors, changedIds };
 }
 
 async function deleteOldJobs(olderThanDays: number): Promise<BulkResult> {
@@ -123,17 +128,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { action } = data;
 
   if (action === 'retry') {
-    const result = await retryBulk(data.ids);
-    await logAdminAction(req.user.id, 'job.bulk_retry', 'background_job', null,
-      { ids: data.ids, processed: result.processed, failed: result.errors.length }, getIp(req));
+    const { changedIds, ...result } = await retryBulk(data.ids);
+    // One row per job it changed, as the single retry writes (review #1405 round 7): each job's own view lists it.
+    for (const id of changedIds) await logAdminAction(req.user.id, 'job.retry', 'background_job', id, { bulk: true }, getIp(req));
     log.info('Bulk retry', { processed: result.processed, errors: result.errors.length }, 'admin-job-bulk');
     return apiResponse.success(res, result, `Retried ${result.processed} job(s)`);
   }
 
   if (action === 'cancel') {
-    const result = await cancelBulk(data.ids);
-    await logAdminAction(req.user.id, 'job.bulk_cancel', 'background_job', null,
-      { ids: data.ids, processed: result.processed, failed: result.errors.length }, getIp(req));
+    const { changedIds, ...result } = await cancelBulk(data.ids);
+    for (const id of changedIds) await logAdminAction(req.user.id, 'job.cancel', 'background_job', id, { bulk: true }, getIp(req));
     log.info('Bulk cancel', { processed: result.processed, errors: result.errors.length }, 'admin-job-bulk');
     return apiResponse.success(res, result, `Cancelled ${result.processed} job(s)`);
   }

@@ -18,7 +18,7 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
-import { adminUserId } from '@/modules/admin/middleware/adminRequestErrors';
+import { adminStoredUser } from '@/modules/admin/services/storedUserId';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { suspendUser, SESSIONS_NOT_REVOKED_MESSAGE } from '@/modules/admin/services/adminUserActionsService';
@@ -33,7 +33,7 @@ const PostBody = z.object({
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const userId = adminUserId(req.query.id);
+  const userId = (await adminStoredUser(req.query.id)).id; // the stored id: acted on and audited exactly
 
   if (req.method === 'POST') {
     const parsed = PostBody.safeParse(req.body);

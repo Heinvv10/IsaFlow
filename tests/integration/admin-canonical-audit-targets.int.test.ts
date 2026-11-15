@@ -1,11 +1,14 @@
 /**
- * PR #1405 breaker round 6 (WP14b): an audit row names its target by the canonical id, whatever spelling the request
- * used, so the audit view (GET /api/admin/audit?entity_id=<id>, matched exactly) lists it. Real admin routes on the
- * disposable fixture.
+ * PR #1405 breaker rounds 6-7 (WP14b): an audit row names its target by the canonical id, whatever spelling the
+ * request used, so the audit view (GET /api/admin/audit?entity_id=<id>, matched exactly) lists it. Real admin routes on
+ * the disposable fixture.
  *
- *   - H1 (logAdminAction): a 'user' target is the stored users.id (users.id is TEXT and can hold capitals); any other
- *     UUID-shaped target is lower case. company-role and remove-from-company with a mixed-case stored user id,
- *     addressed in lower case, used to audit the URL's spelling.
+ *   - H1 / M1: a user route resolves the stored users.id up front (adminStoredUser) and acts and audits on exactly that
+ *     id (users.id is TEXT and can hold capitals); logAdminAction lower-cases only non-user UUID targets. company-role
+ *     and remove-from-company with a mixed-case stored id, addressed in lower case, audit the stored id; deleting one
+ *     of two case-variant users audits the deleted one (a look-up after the delete named the survivor).
+ *   - M2 / L-a: a bulk trial extension writes one trial.extend row per company, and a membership change (whose
+ *     target is the user) shows in the company's view through details.company_id.
  *   - H2: body ids are AdminUuid: a trial extension / bulk extension / job retry with an upper-cased body id audits
  *     (and details) the lower-case id.
  *   - H3: reset-2fa resolves the stored user first, then calls GoTrue and writes both audit rows with that id: an
@@ -31,6 +34,8 @@ import jobQueueRoute from '../../pages/api/admin/job-queue';
 import companyRoleRoute from '../../pages/api/admin/users/[id]/company-role';
 import removeFromCompanyRoute from '../../pages/api/admin/users/[id]/remove-from-company';
 import reset2faRoute from '../../pages/api/admin/users/[id]/reset-2fa';
+import userRoute from '../../pages/api/admin/users/[id]';
+import addToCompanyRoute from '../../pages/api/admin/users/[id]/add-to-company';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { signSession } from './r-032-fake-gotrue.helpers';
 
@@ -46,6 +51,8 @@ const superAdmin = crypto.randomUUID();
 const job = crypto.randomUUID();
 const TAG = `wp14b-r7-${Date.now()}`;
 const mixedUser = `MixedCase-${TAG}`; // a stored id with capitals: users.id is TEXT and adminUserId admits it
+const caseLower = `casevar-${TAG}`.toLowerCase();
+const caseUpper = caseLower.toUpperCase();
 
 type Body = { data?: { items?: Array<{ action?: string }> }; error?: { message?: string } };
 async function call(route: unknown, method: string, query: Record<string, string>, body: unknown = {}) {
@@ -61,16 +68,17 @@ async function call(route: unknown, method: string, query: Record<string, string
 const rows = async (target: string, action: string) => (await pool.query(
   'SELECT target_id, details FROM admin_audit_log WHERE admin_user_id = $1 AND action = $2 AND lower(target_id) = lower($3)',
   [admin, action, target])).rows as Array<{ target_id: string; details: Record<string, unknown> | null }>;
-/** The actions the audit view lists for this exact id. */
-async function view(entityId: string): Promise<string[]> {
-  const r = await call(auditRoute, 'GET', { source: 'admin', entity_id: entityId, limit: '100' });
+/** The actions the audit view lists for this exact id (one entity type's view when given). */
+async function view(entityId: string, entityType?: string): Promise<string[]> {
+  const r = await call(auditRoute, 'GET', { source: 'admin', entity_id: entityId, limit: '100', ...(entityType ? { entity_type: entityType } : {}) });
   expect(r.status).toBe(200);
   return (r.body.data?.items ?? []).map((i) => i.action ?? '');
 }
 
 beforeAll(async () => {
   await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'super_admin', true), ($3, $4, 'super_admin', true),
-    ($5, $6, 'viewer', true)`, [admin, `${admin}@test.local`, superAdmin, `${superAdmin}@test.local`, mixedUser, `${TAG}-mixed@test.local`]);
+    ($5, $6, 'viewer', true), ($7, $8, 'viewer', true), ($9, $10, 'viewer', true)`, [admin, `${admin}@test.local`, superAdmin,
+    `${superAdmin}@test.local`, mixedUser, `${TAG}-mixed@test.local`, caseLower, `${TAG}-cl@test.local`, caseUpper, `${TAG}-cu@test.local`]);
   await pool.query(`INSERT INTO companies (id, name, trial_ends_at) VALUES ($1, $2, now() + interval '5 days'), ($3, $4, now() + interval '5 days')`,
     [company, `${TAG} co`, company2, `${TAG} co2`]);
   await pool.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'viewer')`, [company, mixedUser]);
@@ -86,7 +94,7 @@ afterAll(async () => {
     await pool.query('DELETE FROM company_users WHERE company_id = ANY($1::uuid[])', [[company, company2]]);
     await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[company, company2]]);
     await pool.query('DELETE FROM admin_audit_log WHERE admin_user_id = $1', [admin]);
-    await pool.query('DELETE FROM users WHERE id = ANY($1)', [[admin, superAdmin, mixedUser]]);
+    await pool.query('DELETE FROM users WHERE id = ANY($1)', [[admin, superAdmin, mixedUser, caseLower, caseUpper]]);
     await pool.query("DELETE FROM rate_limit_counters WHERE key = 'admin:127.0.0.79'");
   } finally { await pool.end(); }
 });
@@ -100,6 +108,24 @@ describe('H1: a user target is the stored users.id', () => {
     expect((await rows(mixedUser, 'user.remove_from_company')).map((r) => r.target_id)).toEqual([mixedUser]);
     expect(await view(mixedUser)).toEqual(expect.arrayContaining(['user.change_company_role', 'user.remove_from_company']));
   });
+
+  it('deleting one of two users whose ids differ only in case audits the deleted one', async () => {
+    expect((await call(userRoute, 'DELETE', { id: caseLower })).status).toBe(200);
+    expect((await pool.query('SELECT id FROM users WHERE id = ANY($1)', [[caseLower, caseUpper]])).rows.map((r) => r.id)).toEqual([caseUpper]);
+    const deleted = (await pool.query(`SELECT target_id FROM admin_audit_log WHERE admin_user_id = $1 AND action = 'user.delete'
+      AND lower(target_id) = $2`, [admin, caseLower])).rows.map((r) => r.target_id);
+    expect(deleted).toEqual([caseLower]);
+  });
+});
+
+describe('L-a: the company view lists rows that name it in their details', () => {
+  it('add-to-company with an upper-cased company_id shows in that company\'s view', async () => {
+    const r = await call(addToCompanyRoute, 'POST', { id: mixedUser }, { company_id: company2.toUpperCase(), role: 'viewer' });
+    expect(r.status).toBe(200);
+    expect(await view(company2, 'company')).toContain('user.add_to_company');
+    // and still in the user's own view
+    expect(await view(mixedUser)).toContain('user.add_to_company');
+  });
 });
 
 describe('H2: body ids are canonical', () => {
@@ -109,12 +135,14 @@ describe('H2: body ids are canonical', () => {
     expect(await view(company)).toContain('trial.extend');
   });
 
-  it('bulk trial extend with upper-cased company_ids: the details list the real ids', async () => {
+  it('bulk trial extend with upper-cased company_ids: one trial.extend row per company, each in its own view', async () => {
     const r = await call(trialsRoute, 'POST', {}, { company_ids: [company.toUpperCase(), company2.toUpperCase()], days: 2 });
     expect(r.status).toBe(200);
-    const audit = (await pool.query(`SELECT details FROM admin_audit_log WHERE admin_user_id = $1 AND action = 'trial.bulk_extend'`,
-      [admin])).rows.map((x) => (x.details as { company_ids: string[] }).company_ids);
-    expect(audit).toEqual([[company, company2]]);
+    for (const c of [company, company2]) {
+      const bulk = (await rows(c, 'trial.extend')).filter((x) => x.details?.bulk === true);
+      expect(bulk.map((x) => x.target_id)).toEqual([c]);
+      expect(await view(c, 'company')).toContain('trial.extend');
+    }
   });
 
   it('job retry with an upper-cased jobId: audited under the real id', async () => {

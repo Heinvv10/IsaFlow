@@ -8,7 +8,6 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
 import { UUID_RE } from '@/lib/validation';
-import { findStoredUser } from './storedUserId';
 import type { AuditLogEntry, PaginatedResult } from '../types/admin.types';
 
 /**
@@ -68,13 +67,13 @@ export interface AuditLogFilters {
 export const BEST_EFFORT_ACTIONS = new Set<string>([]);
 
 /**
- * The spelling every audit row names its target by, so a view that matches target_id exactly finds it whatever case
- * the request used (breaker #1405 round 6): a user is their stored users.id (findStoredUser; the given value when no
- * row exists, e.g. after a delete); any other UUID-shaped id is lower case; anything else is kept as given.
+ * The spelling an audit row names a non-user target by, so a view that matches target_id exactly finds it whatever
+ * case the request used (breaker #1405 round 6): a UUID-shaped id is lower case. A 'user' target is written exactly
+ * as given: users.id is TEXT and two rows can differ only in case, so re-mapping here could name a different user
+ * once the named one is gone (round 7). Routes pass the stored id (adminStoredUser); a census pins that.
  */
-async function canonicalTargetId(targetType: string, targetId: string | null): Promise<string | null> {
-  if (targetId === null) return null;
-  if (targetType === 'user') return (await findStoredUser(targetId))?.id ?? targetId;
+function canonicalTargetId(targetType: string, targetId: string | null): string | null {
+  if (targetId === null || targetType === 'user') return targetId;
   return UUID_RE.test(targetId) ? targetId.toLowerCase() : targetId;
 }
 
@@ -94,7 +93,7 @@ export async function logAdminAction(
     // describes disappears behind a 2xx. The catch below then decides whether
     // the request itself may survive an unlogged mutation.
     await withSavepoint('admin_audit_log_write', async () => {
-      const canonicalTarget = await canonicalTargetId(targetType, targetId);
+      const canonicalTarget = canonicalTargetId(targetType, targetId);
       await sql`
         INSERT INTO admin_audit_log (
           admin_user_id,

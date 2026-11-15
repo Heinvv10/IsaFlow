@@ -1,7 +1,8 @@
 /**
- * PR #1405 breaker round 6 (H1): logAdminAction writes target_id in its canonical spelling, so a view matching it
- * exactly finds the row: a 'user' target is the stored users.id (findStoredUser: exact match, else case-insensitive;
- * the given value when no row exists), any other UUID-shaped target is lower case, anything else is kept.
+ * PR #1405 breaker rounds 6-7 (H1, M1): logAdminAction writes a UUID-shaped non-user target in lower case, so a view
+ * matching target_id exactly finds the row. A 'user' target is written EXACTLY as given and never looked up: users.id
+ * is TEXT, and after a delete a case-insensitive look-up picked the surviving case variant (round 7). Routes pass the
+ * stored id (adminStoredUser; tests/unit/ci/adminUserAuditTargetCensus.test.ts pins that).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -26,15 +27,12 @@ const UPPER = 'AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE';
 beforeEach(() => { h.storedUser = null; h.inserted = []; });
 
 describe('logAdminAction: canonical target_id', () => {
-  it("a 'user' target is the stored users.id", async () => {
-    h.storedUser = { id: 'MixedCase-1', role: 'viewer' };
-    await logAdminAction('admin', 'user.x', 'user', 'mixedcase-1', null, null);
-    expect(insertedTarget()).toBe('MixedCase-1');
-  });
-
-  it("a 'user' target with no stored row keeps the given value (e.g. after a delete)", async () => {
-    await logAdminAction('admin', 'user.delete', 'user', 'Gone-User', null, null);
-    expect(insertedTarget()).toBe('Gone-User');
+  it("a 'user' target is written exactly as given, even when a case variant is stored", async () => {
+    h.storedUser = { id: 'CASEVAR-X', role: 'viewer' };
+    await logAdminAction('admin', 'user.delete', 'user', 'casevar-x', null, null);
+    expect(insertedTarget()).toBe('casevar-x');
+    await logAdminAction('admin', 'user.update', 'user', UPPER, null, null);
+    expect(insertedTarget()).toBe(UPPER); // a user's UUID-shaped TEXT id is not lower-cased either
   });
 
   it('any other UUID-shaped target is lower case', async () => {

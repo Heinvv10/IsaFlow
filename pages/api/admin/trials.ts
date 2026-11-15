@@ -20,7 +20,7 @@ import {
   getAllTrials,
   getExpiringTrials,
   extendTrial,
-  bulkExtendTrials,
+  bulkExtendTrialsDetailed,
 } from '@/modules/admin/services/trialService';
 import { TrialExtendError } from '@/modules/admin/services/trialErrors';
 
@@ -79,15 +79,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       /* Bulk extend */
       if (Array.isArray(company_ids) && company_ids.length > 0) {
-        const count = await bulkExtendTrials(company_ids, days);
-        await logAdminAction(
-          adminId,
-          'trial.bulk_extend',
-          'company',
-          null,
-          { company_ids, days, affected: count },
-          ip
-        );
+        // One trial.extend row per company it moved (as companies/bulk-action writes), so each company's audit view lists
+        // its own extension; a single row with no target was in nobody's view (review #1405 round 7).
+        const moved = await bulkExtendTrialsDetailed(company_ids, days);
+        for (const company of moved) {
+          await logAdminAction(adminId, 'trial.extend', 'company', company.id,
+            { days, new_trial_ends_at: company.trialEndsAt, bulk: true }, ip);
+        }
+        const count = moved.length;
         log.info('Bulk trial extension', { count, days }, 'admin-trials-api');
         return apiResponse.success(res, { extended: count, days });
       }

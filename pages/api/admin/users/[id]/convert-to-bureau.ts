@@ -14,7 +14,8 @@ import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
-import { adminUserId, isPgError } from '@/modules/admin/middleware/adminRequestErrors';
+import { isPgError } from '@/modules/admin/middleware/adminRequestErrors';
+import { adminStoredUser } from '@/modules/admin/services/storedUserId';
 import { apiResponse } from '@/lib/apiResponse';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
@@ -27,7 +28,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
-  const userId = adminUserId(req.query.id);
+  const userId = (await adminStoredUser(req.query.id)).id; // the stored id: acted on and audited exactly
 
   const parsed = Body.safeParse(req.body);
   if (!parsed.success) {
