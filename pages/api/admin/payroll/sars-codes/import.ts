@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import { assertNoNulInAdminBody } from '@/modules/admin/middleware/adminRequestErrors';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { logAdminAction } from '@/modules/admin/services/auditService';
@@ -103,6 +104,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
   }
 
+  // Multipart fields never reach withAdmin's JSON-body walk (bodyParser is off): a NUL or lone surrogate in
+  // brsVersion was a 500 from Postgres (breaker #1405 round 3). After the temp file is gone, so a refusal leaks none.
+  assertNoNulInAdminBody(fields, 'fields');
+
   // Cross-validate actual file bytes against the declared MIME — XLSX is a ZIP/OOXML
   // container (PK\x03\x04 signature), so this rejects any non-ZIP payload that slipped
   // past the client-controlled mimetype allowlist.
@@ -118,6 +123,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (parsed.rows.length === 0) {
     return apiResponse.badRequest(res, 'No rows found in Master_Codes sheet');
   }
+  // The sheet's cells are the caller's text too.
+  assertNoNulInAdminBody(parsed.rows, 'rows');
 
   if (dryRun) {
     const diff = await diffAgainstYear(parsed.rows, taxYear - 1);

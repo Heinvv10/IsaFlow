@@ -8,7 +8,6 @@
 
 import { sql } from '@/lib/neon';
 import { AdminRequestError } from '@/modules/admin/middleware/adminRequestErrors';
-import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendPasswordResetEmail } from '@/lib/auth/passwordResetEmail';
 import { adminRevokeAllUserSessions } from '@/lib/auth/gotrue';
@@ -17,8 +16,6 @@ import { revokeAllUserAuthorisations } from '@/lib/auth/oauth';
 import {
   assertPayRunApproverRetainedEverywhere, findStrandedPayRunRequests, type StrandedPayRunRequest,
 } from '@/modules/accounting/services/core/payRunApproverGuard';
-
-type Row = DbRow;
 
 /**
  * Suspend a user and revoke every credential they hold.
@@ -164,6 +161,9 @@ export async function resetPassword(userId: string): Promise<void> {
  * failure instead of a false "logged out"), THEN clear the app sessions.
  */
 export async function forceLogout(userId: string): Promise<void> {
+  // A missing user is a 404 before GoTrue is called and before the audit row (review #1405 round 3, D6). The users
+  // row first, as every writer of a user's rows takes it (LOCK ORDER below).
+  if (!(await lockUserRow(userId))) throw new AdminRequestError(404, 'User not found');
   await adminRevokeAllUserSessions(userId);
   await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`;
   log.info('forceLogout — GoTrue tokens revoked + app sessions cleared', { userId }, 'AdminUserActionsService');
@@ -226,18 +226,28 @@ async function removeFromEveryCompany(userId: string, refuseStranding: boolean):
 }
 
 /**
+ * LOCK ORDER (breaker #1405 round 3): every admin writer that touches a user's `users` row AND their `company_users`
+ * or `user_sessions` rows takes the users row FIRST (this lock, or its own UPDATE of the row), then company_users
+ * (with the per-company owner and pay-run approver advisory locks that come with it), then user_sessions. A writer
+ * that took company_users first (resetOnboarding did) deadlocked against deleteUser, which holds the users row. The
+ * census of every writer is in the admin .claude.md ("Lock order for a user's rows").
+ */
+async function lockUserRow(userId: string): Promise<{ role: string } | null> {
+  const rows = await sql<{ role: string }>`SELECT role FROM users WHERE id = ${userId} FOR UPDATE`;
+  return rows[0] ?? null;
+}
+
+/**
  * Permanently delete a user and all associated company links / sessions.
  * Super-admins are protected — throws if the target user has role = 'super_admin'.
  * Throws SoleOwnerError, having written nothing, when the user is a company's only owner.
  */
 export async function deleteUser(userId: string): Promise<StrandedPayRunRequest[]> {
-  // Locked: of two concurrent deletes the second waits here, then finds no row (404) instead of deleting nothing and
-  // being audited as a delete (breaker #1405 round 2).
-  const rows = await sql`
-    SELECT role FROM users WHERE id = ${userId} LIMIT 1 FOR UPDATE
-  `;
-  if (rows.length === 0) throw new AdminRequestError(404, 'User not found');
-  if ((rows[0] as Row).role === 'super_admin') {
+  // Locked (LOCK ORDER above): of two concurrent deletes the second waits here, then finds no row (404) instead of
+  // deleting nothing and being audited as a delete (breaker #1405 round 2).
+  const user = await lockUserRow(userId);
+  if (!user) throw new AdminRequestError(404, 'User not found');
+  if (user.role === 'super_admin') {
     throw new AdminRequestError(403, 'Cannot delete a super_admin user');
   }
 
@@ -258,6 +268,9 @@ export async function deleteUser(userId: string): Promise<StrandedPayRunRequest[
  * SoleOwnerError, having written nothing, when the user is a company's only owner.
  */
 export async function resetOnboarding(userId: string): Promise<void> {
+  // The users row first (LOCK ORDER above), and a missing user is a 404 before anything is written or audited
+  // (breaker #1405 round 3, D1 and D2).
+  if (!(await lockUserRow(userId))) throw new AdminRequestError(404, 'User not found');
   await removeFromEveryCompany(userId, true);
   await sql`
     UPDATE users

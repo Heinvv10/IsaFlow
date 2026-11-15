@@ -86,22 +86,43 @@ export function assertCleanAdminQuery(query: NextApiRequest['query'] | undefined
   }
 }
 
+/** Where a value sits in a walked body: its key and its parent's, built into a path only for the error. */
+type BodyPath = { key: string; parent: BodyPath | null } | null;
+const PATH_MAX = 200;
+
+function pathText(root: string, at: BodyPath): string {
+  const keys: string[] = [];
+  for (let p = at; p; p = p.parent) keys.push(p.key);
+  const text = [root, ...keys.reverse()].filter(Boolean).join('.') || 'body';
+  return text.length > PATH_MAX ? `${text.slice(0, PATH_MAX)}...` : text;
+}
+
+/** Why `s` cannot be stored as text / jsonb, or null: a NUL byte, or an unpaired UTF-16 surrogate. */
+function unstorable(s: string): string | null {
+  if (s.includes('\u0000')) return 'must not contain a NUL character';
+  if (!s.isWellFormed()) return 'must be well-formed text (it holds an unpaired UTF-16 surrogate)';
+  return null;
+}
+
 /**
- * A NUL byte anywhere in a JSON body (a string value or an object key) is a 400 naming the field (rev/breaker #1405
- * round 2: Postgres text cannot hold one, so it was a 500 "invalid byte sequence"). Not hasNul: that also refuses a
- * body past its size budget, and sage-commit's ledgers are legitimately large; a parsed JSON body has no cycles, so
- * this walks all of it and refuses only a real NUL.
+ * A string value or object key Postgres cannot store anywhere in a JSON body (or another parsed input) is a 400
+ * naming the field: a NUL byte (text cannot hold one: "invalid byte sequence", round 2) or a lone surrogate (jsonb
+ * refuses it, round 3). Both were 500s. Not hasNul: that also refuses a body past its size budget, and sage-commit's
+ * ledgers are legitimately large; a parsed body has no cycles, so this walks all of it, keeping only a parent link per
+ * value (the path is built, and capped at 200 characters, only for the error).
  */
-export function assertNoNulInAdminBody(body: unknown): void {
-  const stack: Array<[unknown, string]> = [[body, 'body']];
+export function assertNoNulInAdminBody(body: unknown, root = ''): void {
+  const stack: Array<[unknown, BodyPath]> = [[body, null]];
   while (stack.length > 0) {
-    const [value, path] = stack.pop()!;
+    const [value, at] = stack.pop()!;
     if (typeof value === 'string') {
-      if (value.includes('\u0000')) throw new AdminRequestError(400, `${path} must not contain a NUL character`);
+      const why = unstorable(value);
+      if (why) throw new AdminRequestError(400, `${pathText(root, at)} ${why}`);
     } else if (value !== null && typeof value === 'object') {
       for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-        if (key.includes('\u0000')) throw new AdminRequestError(400, `A field name in ${path} must not contain a NUL character`);
-        stack.push([child, path === 'body' ? key : `${path}.${key}`]);
+        const why = unstorable(key);
+        if (why) throw new AdminRequestError(400, `A field name in ${pathText(root, at)} ${why}`);
+        stack.push([child, { key, parent: at }]);
       }
     }
   }
