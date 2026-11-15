@@ -195,7 +195,7 @@ export function ChartOfAccountsTab() {
     : undefined;
 
   return (
-    <div className="flex gap-5">
+    <div className="flex flex-col lg:flex-row gap-3 lg:gap-5">
       <AccountCategorySidebar accounts={accounts} selectedType={sidebarType} searchPrefix={sidebarPrefix} onSelectType={setSidebarType} onSearchPrefixChange={setSidebarPrefix} />
       <div className="flex-1 min-w-0 space-y-4">
         {loadError && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{loadError}</div>}
@@ -256,7 +256,7 @@ export function ChartOfAccountsTab() {
           {isLoading ? (
             <div className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin text-[var(--ff-text-tertiary)] mx-auto" /></div>
           ) : (
-            <div className="overflow-x-auto">
+            <div role="region" aria-label="Chart of accounts" tabIndex={0} className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="bg-[var(--ff-bg-tertiary)] border-b border-[var(--ff-border-light)]">

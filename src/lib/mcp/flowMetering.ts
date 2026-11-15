@@ -87,6 +87,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   get_document: null,
   list_unsupported_transactions: null,
   list_missing_documents: null,
+  list_proofs_of_payment: null,
   list_supplier_invoices: null,
   get_supplier_invoice: null,
   // Seeing the rules is the control an agent needs BEFORE it imports anything.

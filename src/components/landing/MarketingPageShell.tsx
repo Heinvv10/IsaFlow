@@ -45,7 +45,7 @@ export function MarketingHeroBand({ eyebrow, title, children }: { eyebrow: strin
 export function MarketingSectionHeading({ eyebrow, title }: { eyebrow?: string; title: string }) {
   return (
     <>
-      {eyebrow && <p className="text-sm font-semibold text-teal-600 tracking-widest uppercase mb-3">{eyebrow}</p>}
+      {eyebrow && <p className="text-sm font-semibold text-teal-700 tracking-widest uppercase mb-3">{eyebrow}</p>}
       <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4 text-gray-900">{title}</h2>
     </>
   );
