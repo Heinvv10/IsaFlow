@@ -8,6 +8,7 @@ import { als } from '@/lib/als';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { getComplianceCalendar } from './sarsTaxPeriodsService';
+import { getCompanyVatCycle } from './companyVatCycle';
 
 
 export type { TaxPeriod, ComplianceEvent } from './sarsTaxPeriodsService';
@@ -200,9 +201,15 @@ export async function markSubmitted(companyId: string,
 /**
  * Load compliance events from the database (if any exist), merged with
  * the static calendar. DB events can override status (e.g. marked completed).
+ * VAT201 events follow the company's own VAT cycle (category, cadence; none
+ * for a non-vendor). A failure reading that cycle propagates: a calendar for
+ * the wrong category is worse than an error.
  */
 export async function getComplianceCalendarWithDB(companyId: string, year?: number): Promise<ComplianceEvent[]> {
-  const staticEvents = getComplianceCalendar(year);
+  const cycle = await getCompanyVatCycle(companyId);
+  const staticEvents = cycle
+    ? getComplianceCalendar(year, cycle.alignment, cycle.cadence)
+    : getComplianceCalendar(year, 'odd', 'none');
 
   try {
     const y = year || new Date().getFullYear();
