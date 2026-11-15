@@ -6,9 +6,12 @@
  *   - Counts: one pass over the account's lines (`bt.company_id` AND `bt.bank_account_id`), FILTERed on the bucket
  *     (./bankLineBucket LINE_BUCKET_SQL) and the New tab (./bankTxTabCond NEW_TAB_SQL). Posted lines only, except
  *     `pending_at_bank`. In / out are the to-code lines' amounts split by sign, in integer cents.
- *   - Ledger: `bankGlBalanceAsAt` as at `as_at` (today in SAST unless the caller pins it) — the reconciliation's own
- *     definition (K-020): posted journals, both companies checked, entry_date <= as_at. It equals the Trial Balance
- *     bank row at period end; `gl_accounts.bank_opening_balance` (display metadata, no journal) is never added.
+ *   - Ledger: `bankGlBalancesAsAt` — the grouped form of `bankGlBalanceAsAt`, built from the same predicate
+ *     (./bankReconciliationBalance postedBankLedger), the reconciliation's own definition (K-020): posted journals,
+ *     both companies checked, entry_date <= the date. ONE pass over the (account, date) pairs `pairs` names: every
+ *     account as at `as_at` (today in SAST unless the caller pins it) and every account's lastWithBalance statement
+ *     date. It equals the Trial Balance bank row at period end; `gl_accounts.bank_opening_balance` (display
+ *     metadata, no journal) is never added.
  *   - Statement: `latest` = newest batch by statement_date, then import time, then id; `last_with_balance` = the newest
  *     in that order carrying a closing balance (an `ai_read` one included: it is a figure, labelled as read by AI).
  *     Both skip a batch with no live line left. The difference is that closing balance less the ledger AS AT THAT
@@ -27,7 +30,7 @@ import { sql } from '@/lib/neon';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { LINE_BUCKET_SQL } from './bankLineBucket';
 import { NEW_TAB_SQL } from './bankTxTabCond';
-import { bankGlBalanceAsAt } from './bankReconciliationBalance';
+import { bankGlBalancesAsAt } from './bankReconciliationBalance';
 
 /**
  * The newest batch of account `a` (optionally: the newest carrying a closing balance), with its live line count. A
@@ -73,12 +76,8 @@ export function bankAccountSummaryQuery(companyId: string, asAt: string | null) 
            WHERE child.parent_account_id = ga.id AND child.company_id = ga.company_id
              AND child.account_subtype = ANY(${subtypes}))
     ),
-    summary AS (
-      SELECT a.id, a.account_code, a.account_name, a.account_type, a.bank_account_number, a.is_active,
-             a.group_id, a.group_name, a.group_code,
-             n.posted, n.allocated, n.provisional, n.suggested, n.unallocated, n.excluded,
-             n.awaiting_review, n.pending_at_bank, n.to_code_in_cents, n.to_code_out_cents, n.last_date,
-             led.ledger_cents,
+    stmt AS (
+      SELECT a.id AS account_id,
              lt.id AS lt_id, lt.statement_date AS lt_statement_date, lt.bank_format AS lt_bank_format,
              lt.import_channel AS lt_import_channel, lt.balance_source AS lt_balance_source,
              lt.opening_cents AS lt_opening_cents, lt.closing_cents AS lt_closing_cents,
@@ -86,10 +85,32 @@ export function bankAccountSummaryQuery(companyId: string, asAt: string | null) 
              lb.id AS lb_id, lb.statement_date AS lb_statement_date, lb.bank_format AS lb_bank_format,
              lb.import_channel AS lb_import_channel, lb.balance_source AS lb_balance_source,
              lb.opening_cents AS lb_opening_cents, lb.closing_cents AS lb_closing_cents,
-             lb.line_count AS lb_line_count, lb.created_at AS lb_created_at,
-             ls.cents AS ledger_at_statement_cents
+             lb.line_count AS lb_line_count, lb.created_at AS lb_created_at
+      FROM accts a
+      LEFT JOIN LATERAL (${newestBatch(false)}) lt ON TRUE
+      LEFT JOIN LATERAL (${newestBatch(true)}) lb ON TRUE
+    ),
+    pairs AS (
+      SELECT a.id AS account_id, p.as_at FROM accts a CROSS JOIN p
+      UNION
+      SELECT s.account_id, s.lb_statement_date FROM stmt s WHERE s.lb_id IS NOT NULL
+    ),
+    ledgers AS (${bankGlBalancesAsAt(companyId, sql`SELECT account_id, as_at FROM pairs`)}),
+    summary AS (
+      SELECT a.id, a.account_code, a.account_name, a.account_type, a.bank_account_number, a.is_active,
+             a.group_id, a.group_name, a.group_code,
+             n.posted, n.allocated, n.provisional, n.suggested, n.unallocated, n.excluded,
+             n.awaiting_review, n.pending_at_bank, n.to_code_in_cents, n.to_code_out_cents, n.last_date,
+             ROUND(COALESCE(led.gl_balance, 0) * 100)::BIGINT AS ledger_cents,
+             s.lt_id, s.lt_statement_date, s.lt_bank_format, s.lt_import_channel, s.lt_balance_source,
+             s.lt_opening_cents, s.lt_closing_cents, s.lt_line_count, s.lt_created_at,
+             s.lb_id, s.lb_statement_date, s.lb_bank_format, s.lb_import_channel, s.lb_balance_source,
+             s.lb_opening_cents, s.lb_closing_cents, s.lb_line_count, s.lb_created_at,
+             CASE WHEN s.lb_id IS NOT NULL THEN ROUND(COALESCE(ls.gl_balance, 0) * 100)::BIGINT END
+               AS ledger_at_statement_cents
       FROM accts a
       CROSS JOIN p
+      JOIN stmt s ON s.account_id = a.id
       CROSS JOIN LATERAL (
         SELECT
           COUNT(*) FILTER (WHERE l.feed_state = 'posted')::INT AS posted,
@@ -112,18 +133,9 @@ export function bankAccountSummaryQuery(companyId: string, asAt: string | null) 
           WHERE bt.company_id = a.company_id AND bt.bank_account_id = a.id
         ) l
       ) n
-      CROSS JOIN LATERAL (
-        SELECT ROUND(bal.gl_balance * 100)::BIGINT AS ledger_cents
-        FROM (${bankGlBalanceAsAt(companyId, sql`a.id`, sql`p.as_at`)}) bal
-      ) led
-      LEFT JOIN LATERAL (${newestBatch(false)}) lt ON TRUE
-      LEFT JOIN LATERAL (${newestBatch(true)}) lb ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT ROUND(bal.gl_balance * 100)::BIGINT AS cents
-        FROM (${bankGlBalanceAsAt(companyId, sql`a.id`, sql`lb.statement_date`)}) bal
-        WHERE lb.id IS NOT NULL
-      ) ls ON TRUE
-      WHERE a.is_active OR led.ledger_cents <> 0 OR n.awaiting_review > 0
+      LEFT JOIN ledgers led ON led.account_id = a.id AND led.as_at = p.as_at
+      LEFT JOIN ledgers ls ON ls.account_id = a.id AND ls.as_at = s.lb_statement_date
+      WHERE a.is_active OR COALESCE(led.gl_balance, 0) <> 0 OR n.awaiting_review > 0
     )
     SELECT p.as_at, s.*
     FROM p

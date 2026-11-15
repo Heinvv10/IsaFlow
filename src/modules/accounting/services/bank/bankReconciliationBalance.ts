@@ -30,6 +30,26 @@ export async function updateReconciledBalance(companyId: string, reconciliationI
 }
 
 /**
+ * THE posted bank-ledger lines as at a date: the one FROM and predicate both balance fragments below are built from,
+ * so the per-account figure (reconciliation, K-020) and the grouped one (the bank card, WP1) cannot drift. Posted
+ * journals only, the line AND the journal in this company, entry_date on or before `asAtDate`. Aliases `jl` / `je`;
+ * `extraJoin` lets a caller join its own rows before the WHERE.
+ */
+function postedBankLedger(
+  companyId: string,
+  asAtDate: ReturnType<typeof sql>,
+  extraJoin: ReturnType<typeof sql> = sql``,
+): ReturnType<typeof sql> {
+  return sql`
+    FROM gl_journal_lines jl
+    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+    ${extraJoin}
+    WHERE jl.company_id = ${companyId}::UUID
+      AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
+      AND je.entry_date <= ${asAtDate}`;
+}
+
+/**
  * Posted bank-account GL balance as at a date, as a composable fragment.
  * Both the startReconciliation snapshot and the updateReconciledBalance
  * recompute build on this one definition so the two cannot drift — drift
@@ -44,12 +64,25 @@ export function bankGlBalanceAsAt(
 ): ReturnType<typeof sql> {
   return sql`
     SELECT COALESCE(SUM(jl.debit) - SUM(jl.credit), 0) AS gl_balance
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    WHERE jl.gl_account_id = ${glAccount}
-      AND jl.company_id = ${companyId}::UUID
-      AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
-      AND je.entry_date <= ${asAtDate}`;
+    ${postedBankLedger(companyId, asAtDate)}
+      AND jl.gl_account_id = ${glAccount}`;
+}
+
+/**
+ * The same balance for many (account, date) pairs in ONE pass (WP1 PR-B, the bank card): `pairs` is a query yielding
+ * `account_id UUID, as_at DATE`. Answers (account_id, as_at, gl_balance) for every pair that has at least one posted
+ * line on or before its date; a pair with none is absent, so callers LEFT JOIN and COALESCE to 0. Duplicate pairs
+ * would double-count: pass distinct pairs. Per account, the summary called bankGlBalanceAsAt twice per account, each
+ * joining the company's whole posted journal set (2.5 s at 20 accounts × 20k lines).
+ */
+export function bankGlBalancesAsAt(
+  companyId: string,
+  pairs: ReturnType<typeof sql>,
+): ReturnType<typeof sql> {
+  return sql`
+    SELECT q.account_id, q.as_at, COALESCE(SUM(jl.debit) - SUM(jl.credit), 0) AS gl_balance
+    ${postedBankLedger(companyId, sql`q.as_at`, sql`JOIN (${pairs}) q ON q.account_id = jl.gl_account_id`)}
+    GROUP BY q.account_id, q.as_at`;
 }
 
 /**

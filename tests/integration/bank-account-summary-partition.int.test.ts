@@ -14,6 +14,7 @@ import { sql } from '@/lib/neon';
 import bankAccountSummaries from '../../pages/api/accounting/bank-account-summaries';
 import { getBankAccountSummaries, type BankAccountSummary } from '@/modules/accounting/services/bank/bankAccountSummaryService';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
+import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { mapTxRow } from '@/modules/accounting/services/bank/bankTxRowMapper';
 import { TX_SELECT } from '@/modules/accounting/services/bank/bankTxQueryFragments';
 import { LINE_BUCKET_SQL, lineBucketOf } from '@/modules/accounting/services/bank/bankLineBucket';
@@ -162,6 +163,26 @@ describe('GET bank-account-summaries — the counts partition the posted lines',
     const excludedTab = await listTotal({ status: 'excluded' });
     expect(s.counts.awaitingReview).toBe(newTab - s.counts.pendingAtBank);
     expect(s.counts.awaitingReview + reviewed + excludedTab).toBe(s.counts.posted);
+  });
+
+  it('spec §7 (#1442): posted − excluded − reconciled vs the card\'s unreconciledCount — two named disagreements', async () => {
+    // The identity does not hold as written, for two reasons, both pinned here and reported (not bent to agree):
+    //   1. the NULL-status line: UNRECONCILED_LINE_SQL is `status NOT IN ('reconciled', 'excluded')`, and
+    //      NULL NOT IN (...) is not true, so the card leaves it out; the bucket count keeps it (posted, not excluded,
+    //      not reconciled). −1.
+    //   2. the other company's line filed against THIS bank id: getBankAccountsStatus's LATERAL filters
+    //      bt.bank_account_id only, with no bt.company_id, and RLS does not hide it either, so the card counts it. +1.
+    // On this fixture the two cancel, which is why they are asserted separately rather than as one difference.
+    const s = await mine();
+    const one = async (where: string, company = f.c) => Number((await pool.query(
+      `SELECT COUNT(*) FROM bank_transactions bt WHERE bt.company_id = $1 AND bt.bank_account_id = $2
+         AND bt.feed_state = 'posted' AND ${where}`, [company, f.bank])).rows[0].count);
+    const reconciled = await one("bt.status = 'reconciled'");
+    const nullStatus = await one('bt.status IS NULL');
+    const foreign = await one('TRUE', other.c);
+    const card = (await asToken(pool, u, f.c, () => getBankAccountsStatus(f.c))).find((a) => a.id === f.bank)!;
+    expect({ reconciled, nullStatus, foreign }).toEqual({ reconciled: 2, nullStatus: 1, foreign: 1 });
+    expect(card.unreconciledCount).toBe(s.counts.posted - s.counts.excluded - reconciled - nullStatus + foreign);
   });
 
   it('in / out are the to-code lines\' amounts, exact cents', async () => {
