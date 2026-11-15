@@ -213,9 +213,10 @@ describe('automatic snapshots', { timeout: 3 * SNAPSHOT_WAIT_MS }, () => { // so
     const population = async (run: unknown) => (await pool.query(
       `SELECT population FROM audit_check_results WHERE run_id = $1 AND check_id = 'anomaly.statistical_outliers'`, [run])).rows[0].population;
     expect([await population(two[0]!.check_run_id), await population(two[1]!.check_run_id)]).toEqual([0, 1]);
-    // An invoice moves no journal either, but it moves the AR ageing: a new sealed copy. The close
-    // checks refuse a period whose AR does not tie to the GL, so the period is closed first (nothing
-    // moved: unchanged) and the LOCK after the invoice takes the snapshot.
+    // An invoice moves no journal either, but it moves the AR ageing: a new sealed copy. The period
+    // close and lock checks refuse a period whose AR does not tie to the GL (no AR control account
+    // here), so the period is closed first (nothing moved: unchanged) and a VAT lock at the same
+    // cutoff, which runs no close checks, takes the snapshot after the invoice.
     expect((await action(o, c, { action: 'close', id: periods[0] })).state.statusCode).toBe(200);
     expect((await waitForSnapshots(pool, c, 3)).map((x) => x.status)).toEqual(['sealed', 'unchanged', 'unchanged']);
     const customer = crypto.randomUUID();
@@ -223,7 +224,9 @@ describe('automatic snapshots', { timeout: 3 * SNAPSHOT_WAIT_MS }, () => { // so
     await pool.query(`INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date, due_date, status,
                         total_amount, amount_paid, created_by)
                       VALUES ($1, $2, $2, 'AGE-1', DATE '2026-01-10', DATE '2026-01-20', 'sent', 500, 0, $3)`, [c, customer, o]);
-    expect((await action(o, c, { action: 'lock', id: periods[0] })).state.statusCode).toBe(200);
+    const vat = await callRoute(vatPeriodLocks, tokens[o]!, c, 'POST',
+      { action: 'lock', periodStart: '2026-01-01', periodEnd: '2026-01-31' }, '/api/accounting/vat-period-locks');
+    expect(vat.state.statusCode, JSON.stringify(vat.state.body)).toBe(200);
     expect((await waitForSnapshots(pool, c, 4)).map((x) => x.status)).toEqual(['sealed', 'unchanged', 'unchanged', 'sealed']);
   });
 
