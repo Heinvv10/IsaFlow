@@ -8,13 +8,14 @@
 
 import { CheckCircle2 } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
+import { isExactlyBalanced } from '@/modules/accounting/services/bank/reconciliationBalanced';
 import type { BankReconciliation } from '@/modules/accounting/types/bank.types';
 
 const TILE =
   'p-4 rounded-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)]';
 
 export function ReconciliationBalances({ recon }: { recon: BankReconciliation }) {
-  const balanced = Math.round(recon.difference * 100) === 0;
+  const balanced = isExactlyBalanced(recon.difference);
   // Rows written before the K-020 fix stored reconciled_balance as the GL balance
   // PLUS the matched amounts, so it is not the GL balance, and the difference is
   // derived from it. Say so rather than showing a tile that silently disagrees

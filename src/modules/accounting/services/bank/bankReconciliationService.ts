@@ -19,7 +19,9 @@ import {
 import { lockSessionForHeaderChange, refuseCompletedSession, shareLockSession } from './reconciliationSessionLock';
 import { bankGlBalanceAsAt, refreshReconciledBalanceIfFree, updateReconciledBalance } from './bankReconciliationBalance';
 import { RowLockTimeoutError } from '../core/rowLockBudget';
-import { isReconciliationReviewRequired, ReconciliationReviewRequiredError } from './reconciliationReviewGate';
+import { isReconciliationReviewRequired } from './reconciliationReviewGate';
+import { isExactlyBalanced, isReconciliationNotBalanced, ReconciliationNotBalancedError } from './reconciliationBalanced';
+import { commitReconciliation } from './bankReconciliationCommit';
 import { newManualJournalRefusal } from '../gl/manualJournalApproval';
 import { ApprovalRequiredError } from '../gl/approvalGate';
 
@@ -129,42 +131,14 @@ export async function completeReconciliation(
     await updateReconciledBalance(companyId, id);
     const recon = await getReconciliationById(companyId, id);
     if (!recon) throw new Error(`Reconciliation ${id} not found`);
-    // Exact cents (WP2 row 3): a R0.01 difference is not reconciled. `difference` is numeric(15,2).
-    if (Math.round(recon.difference * 100) !== 0) {
-      throw new Error(`Cannot complete: difference is R${recon.difference.toFixed(2)} (must be R0.00)`);
-    }
-    // Both UPDATEs must be atomic: if the reconciliation header update fails
-    // after transactions are marked 'reconciled', they become stuck in a
-    // terminal state with no completed reconciliation to reference them.
-    const completedRow = await withTransaction(async (tx) => {
-      // Hein 2026-11-12 (mig 980): every line this completion reconciles must have been reviewed first. Read under
-      // the header FOR UPDATE above: review and every line writer hold the session FOR SHARE, so none moves between.
-      const [gate] = (await tx`
-        SELECT COUNT(*)::INT AS unreviewed FROM bank_transactions bt
-        JOIN bank_reconciliations br ON br.id = bt.reconciliation_id AND br.company_id = ${companyId}::UUID
-        WHERE bt.reconciliation_id = ${id}::UUID AND bt.company_id = ${companyId}::UUID
-          AND bt.feed_state = 'posted' AND bt.reviewed_at IS NULL
-          AND ${countsAsMatched(companyId, sql`br.statement_date`)}`) as DbRow[];
-      if (Number(gate?.unreviewed ?? 0) > 0) throw new ReconciliationReviewRequiredError(Number(gate!.unreviewed));
-      // BL-83: company_id guard. Reconciles exactly what the session counts as
-      // matched — matched lines and self-matched allocated lines.
-      await tx`
-        UPDATE bank_transactions bt SET status = 'reconciled', updated_at = NOW()
-        FROM bank_reconciliations br
-        WHERE bt.reconciliation_id = ${id}::UUID AND bt.company_id = ${companyId}::UUID
-          AND br.id = bt.reconciliation_id AND br.company_id = ${companyId}::UUID
-          AND bt.feed_state = 'posted'
-          AND ${countsAsMatched(companyId, sql`br.statement_date`)}`;
-      const rows = (await tx`
-        UPDATE bank_reconciliations
-        SET status = 'completed', completed_by = ${userId}::UUID, completed_at = NOW()
-        WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING *`) as DbRow[];
-      return rows[0]!;
-    });
+    // Exact cents (WP2 row 3): a R0.01 difference is not reconciled. The write below re-proves it (TOCTOU).
+    if (!isExactlyBalanced(recon.difference)) throw new ReconciliationNotBalancedError(recon.difference);
+    const completedRow = await commitReconciliation(companyId, id, userId);
     log.info('Completed bank reconciliation', { id }, 'accounting');
     return mapReconRow(completedRow);
   } catch (err) {
-    if (isReconciliationReviewRequired(err)) log.info('Reconciliation not completed: lines unreviewed', { id, unreviewed: err.unreviewed }, 'accounting');
+    if (isReconciliationNotBalanced(err)) log.info('Reconciliation not completed: difference is not zero', { id, difference: err.difference }, 'accounting');
+    else if (isReconciliationReviewRequired(err)) log.info('Reconciliation not completed: lines unreviewed', { id, unreviewed: err.unreviewed }, 'accounting');
     else log.error('Failed to complete reconciliation', { id, error: err }, 'accounting');
     throw err;
   }

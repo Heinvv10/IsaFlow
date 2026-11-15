@@ -14,6 +14,7 @@ import type { BankReconciliation } from '@/modules/accounting/types/bank.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { EmptyState } from '@/components/ui';
+import { isExactlyBalanced } from '@/modules/accounting/services/bank/reconciliationBalanced';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
 function StatusBadge({ status }: { status: string }) {
@@ -106,7 +107,7 @@ export default function BankReconciliationListPage() {
       <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
         {formatCurrency(r.reconciledBalance)}
       </td>
-      <td className={`px-4 py-3 text-right tabular-nums font-bold ${Math.abs(r.difference) < 0.01 ? 'text-teal-400' : 'text-red-400'}`}>
+      <td className={`px-4 py-3 text-right tabular-nums font-bold ${isExactlyBalanced(r.difference) ? 'text-teal-400' : 'text-red-400'}`}>
         {formatCurrency(r.difference)}
       </td>
       <td className="px-4 py-3 text-center">

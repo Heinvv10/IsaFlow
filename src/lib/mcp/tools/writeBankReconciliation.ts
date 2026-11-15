@@ -46,6 +46,7 @@ import {
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { bankGlAccountBelongsToCompany } from '@/modules/accounting/services/bank/bankStatementImportService';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
+import { isExactlyBalanced } from '@/modules/accounting/services/bank/reconciliationBalanced';
 import { isReconciliationReviewRequired } from '@/modules/accounting/services/bank/reconciliationReviewGate';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
@@ -193,7 +194,7 @@ export const performBankReconciliationTool: McpTool = {
     // matching, and completeReconciliation checks the CURRENT difference.
     const current = await getReconciliationById(ctx.companyId, started.id);
     const difference = current?.difference ?? started.difference;
-    const balanced = Math.round(difference * 100) === 0;
+    const balanced = isExactlyBalanced(difference);
     // Session count: self-matched allocated lines plus whatever auto-match applied.
     const matchedCount = current?.matchedCount ?? started.selfMatched + (matchResult?.matched ?? 0);
 

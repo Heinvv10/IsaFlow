@@ -8,6 +8,7 @@ const describeIfDb = url && !url.includes('dummy') ? describe : describe.skip;
 const pool = new Pool({ connectionString: url });
 const uuid = () => crypto.randomUUID();
 const [company, user, bank, contra, period, je] = [uuid(), uuid(), uuid(), uuid(), uuid(), uuid()];
+const bankLine = uuid();
 
 async function session(statementBalance: number): Promise<string> {
   const id = uuid();
@@ -36,11 +37,14 @@ describeIfDb('bank reconciliation — completion needs exactly R0.00', () => {
        VALUES($1,$2,'2025-04-10','exact cents','posted',$3,$4,NOW(),$3)`, [je, company, user, period]);
     await pool.query(
       `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit)
-       VALUES($1,$3,$4,$5,100,0),($2,$3,$4,$6,0,100)`, [uuid(), uuid(), company, je, bank, contra]);
+       VALUES($1,$3,$4,$5,100,0),($2,$3,$4,$6,0,100)`, [bankLine, uuid(), company, je, bank, contra]);
   });
 
   afterAll(async () => {
     try {
+      await pool.query('DROP TRIGGER IF EXISTS ec_sleep_trg ON bank_transactions');
+      await pool.query('DROP FUNCTION IF EXISTS ec_sleep()');
+      await pool.query('DELETE FROM bank_transactions WHERE company_id=$1', [company]);
       await pool.query('DELETE FROM bank_reconciliations WHERE company_id=$1', [company]);
       await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [company]);
       await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [company]);
@@ -66,5 +70,39 @@ describeIfDb('bank reconciliation — completion needs exactly R0.00', () => {
     const done = await completeReconciliation(company, id, user);
     expect(done.status).toBe('completed');
     expect(await status(id)).toBe('completed');
+  });
+
+  // TOCTOU: journal posting takes no header lock, so a back-dated journal can commit AFTER completion's difference
+  // check and before its UPDATE. A sleeping trigger on the line UPDATE (which runs between the two) holds the window
+  // open while a second connection commits a R50 journal dated inside the statement period.
+  it('refuses when a back-dated journal commits between the check and the completing UPDATE', async () => {
+    const id = await session(100);
+    const line = uuid();
+    await pool.query(
+      `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status,
+         matched_journal_line_id,reconciliation_id,reviewed_at)
+       VALUES($1,$2,$3,'2025-04-10',100,'toctou line','allocated',$4,$5,NOW())`, [line, company, bank, bankLine, id]);
+    await pool.query(`CREATE FUNCTION ec_sleep() RETURNS trigger LANGUAGE plpgsql AS
+      $$ BEGIN PERFORM pg_sleep(2); RETURN NEW; END $$`);
+    await pool.query(`CREATE TRIGGER ec_sleep_trg BEFORE UPDATE OF status ON bank_transactions FOR EACH ROW
+      WHEN (NEW.status = 'reconciled' AND NEW.id = '${line}') EXECUTE FUNCTION ec_sleep()`);
+    const completion = completeReconciliation(company, id, user);
+    const outcome = completion.then(() => 'completed', (e: Error) => e.message);
+    for (let i = 0; i < 100; i++) {
+      const { rowCount } = await pool.query(
+        "SELECT 1 FROM pg_stat_activity WHERE wait_event = 'PgSleep' AND datname = current_database()");
+      if (rowCount) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    const late = uuid();
+    await pool.query(
+      `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,status,created_by,fiscal_period_id,posted_at,posted_by)
+       VALUES($1,$2,'2025-04-11','back-dated','posted',$3,$4,NOW(),$3)`, [late, company, user, period]);
+    await pool.query(
+      `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit)
+       VALUES($1,$3,$4,$5,50,0),($2,$3,$4,$6,0,50)`, [uuid(), uuid(), company, late, bank, contra]);
+    expect(await outcome).toContain('difference is R-50.00');
+    expect(await status(id)).toBe('in_progress');
+    expect((await pool.query('SELECT status FROM bank_transactions WHERE id=$1', [line])).rows[0].status).toBe('allocated');
   });
 });
