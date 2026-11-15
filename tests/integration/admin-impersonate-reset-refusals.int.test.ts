@@ -10,7 +10,8 @@
  *   F-11 POST /api/admin/users/[id]/reset-password answered 500 for a missing user or a super-admin target (the
  *        service threw after the audit row): now 404 / 403 with the reason, before any token is written, any email
  *        is sent or the reset is audited. Review #1407: each refusal is logged (user id and reason, never an email
- *        address), and the TEXT user id is matched case-insensitively (an upper-cased id is the same user).
+ *        address), and the TEXT user id is matched case-insensitively (an upper-cased id is the same user, and the
+ *        audit row and the reset use that user's real id).
  * sendEmail is mocked: no email leaves the test. Tokens are aal2.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -169,5 +170,8 @@ describe('F-11: reset-password refuses with the reason, before anything is writt
     expect(r.status).toBe(200);
     expect(await tokens(member)).toBe(1);
     expect(sendEmail.mock.calls.map((c) => c[0].to)).toEqual([`${member}@test.local`]);
+    // The audit row names the user by their real id, so a search on it finds this reset.
+    expect(await audits('user.reset_password', member)).toBe(1);
+    expect(await audits('user.reset_password', upper)).toBe(0);
   });
 });

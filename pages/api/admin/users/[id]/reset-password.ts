@@ -16,17 +16,19 @@ import { getIp } from '@/utils/getIp';
 
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const userId = req.query.id as string;
+  const requestedId = req.query.id as string;
 
   if (req.method === 'POST') {
     // F-11: a refusal is answered with its reason before the audit row, any token or any email (it was a 500).
-    const refusal = await resetPasswordRefusal(userId);
+    const target = await resetPasswordRefusal(requestedId);
     // Review #1407: a refusal writes no audit row, so it leaves this trace (the id and reason; never the address).
-    if (refusal) log.warn('Admin password reset refused', { userId, reason: refusal }, 'admin-api');
-    if (refusal === 'not_found') return apiResponse.notFound(res, 'User');
-    if (refusal === 'super_admin') {
+    if (target.refusal !== null) {
+      log.warn('Admin password reset refused', { userId: requestedId, reason: target.refusal }, 'admin-api');
+      if (target.refusal === 'not_found') return apiResponse.notFound(res, 'User');
       return apiResponse.forbidden(res, "A super admin's password cannot be reset from the admin console");
     }
+    // From here on the user's real id, so the audit row and the reset name the stored id, not the URL's spelling.
+    const userId = target.userId;
 
     try {
       // M6: audit-then-act. The reset email is an external side-effect a tx

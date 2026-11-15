@@ -135,14 +135,20 @@ export async function activateUser(userId: string): Promise<void> {
 /** Why an admin may not reset this user's password, or null when they may (F-11: checked before anything is written). */
 export type ResetPasswordRefusal = 'not_found' | 'super_admin';
 
+/** The refusal, or the user's real id (users.id as stored) when an admin may reset their password. */
+export type ResetPasswordTarget =
+  | { refusal: ResetPasswordRefusal; userId: null }
+  | { refusal: null; userId: string };
+
 /**
- * users.id is TEXT holding a UUID: the id is matched case-insensitively here and in resetPassword (review #1407), so
- * an upper-cased id is the same user (never a "not found" for one and a reset for the other).
+ * users.id is TEXT holding a UUID: the id is matched case-insensitively (review #1407), so an upper-cased id is the
+ * same user, and the caller gets the stored id back to reset and audit by (never the spelling in the URL).
  */
-export async function resetPasswordRefusal(userId: string): Promise<ResetPasswordRefusal | null> {
-  const rows = await sql<{ role: string }>`SELECT role FROM users WHERE lower(id) = lower(${userId}) LIMIT 1`;
-  if (!rows[0]) return 'not_found';
-  return rows[0].role === 'super_admin' ? 'super_admin' : null;
+export async function resetPasswordRefusal(userId: string): Promise<ResetPasswordTarget> {
+  const rows = await sql<{ id: string; role: string }>`SELECT id, role FROM users WHERE lower(id) = lower(${userId}) LIMIT 1`;
+  if (!rows[0]) return { refusal: 'not_found', userId: null };
+  if (rows[0].role === 'super_admin') return { refusal: 'super_admin', userId: null };
+  return { refusal: null, userId: String(rows[0].id) };
 }
 
 /**
