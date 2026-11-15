@@ -10,7 +10,8 @@
  * writer to users-first turns these red.
  *
  *   - DELETE user vs reset-onboarding, vs remove-from-company, vs an invitation accept of an existing member (its SQL
- *     replayed statement for statement from pages/api/invitations/[token]/accept.ts, on its own connection).
+ *     replayed statement for statement from pages/api/invitations/[token]/accept.ts, on its own connection), and
+ *     reset-onboarding vs that accept. The double DELETE is in admin-route-races-round2.int.test.ts.
  *   - E1: DELETE user vs add-to-company leaves no membership of a deleted user (company_users.user_id has no foreign
  *     key to users): add holds the user FOR KEY SHARE, so the DELETE FROM users waits for it, then sweeps. The add's
  *     commit is held until the delete answers, which forces the orphan whenever either half is missing.
@@ -177,6 +178,15 @@ describe('one lock order: a user DELETE racing another writer of the same user n
     expect(accept).not.toBe('40P01');
     expect(accept).toBe('ok');
     expect(del.status).toBeLessThan(500);
+  }, 20000);
+
+  it.each([1, 2, 3])('reset-onboarding vs an invitation accept of an existing member (replayed), run %i', async () => {
+    const u = await member();
+    setBarrier();
+    const [reset, accept] = await Promise.all([call(resetOnboardingRoute, 'POST', { id: u }), replayInviteAccept(u)]);
+    expect(accept).toBe('ok');
+    expect(reset.status).toBe(200);
+    expect(await audits(u, 'user.reset_onboarding')).toBe(1);
   }, 20000);
 });
 
