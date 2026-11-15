@@ -96,7 +96,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   //    (bank/bankAccountGuard: an active bank account of this company).
   let account: GuardedBankAccount;
   try {
-    account = await assertBankAccountInCompany(companyId, bankAccountId);
+    account = await assertBankAccountInCompany(companyId, bankAccountId, { lock: false }); // a preview writes nothing
   } catch (err) {
     if (isBankAccountGuardRefusal(err)) return apiResponse.badRequest(res, err.message);
     throw err;

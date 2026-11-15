@@ -23,9 +23,12 @@ vi.mock('@/lib/afterCommit', async (importOriginal) => {
 import statementsRoute from '../../pages/api/accounting/bank-statements/index';
 import bulkPreview from '../../pages/api/accounting/bank-transactions-bulk-preview';
 import bulkCommit from '../../pages/api/accounting/bank-transactions-bulk-commit';
+import ocrCommit from '../../pages/api/accounting/bank-statements/[id]/commit';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { callRoute } from './r035-approval.helpers';
-import { cleanupGuardFixture, guardFixture, messageOf, refusedIds, writtenRows, type GuardFixture } from './bank-account-guard.helpers';
+import {
+  cleanupGuardFixture, guardFixture, legacySpelledAccount, messageOf, refusedIds, seedStatementImport, writtenRows, type GuardFixture,
+} from './bank-account-guard.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -120,5 +123,55 @@ describe('bank-transactions-bulk-commit: unchanged refusal through the shared gu
       'SELECT bank_account_id, (SELECT count(*)::INT FROM bank_transactions WHERE import_batch_id = $1) AS lines '
       + 'FROM bank_import_batches WHERE id = $1 AND company_id = $2', [batchId, x.f.c]);
     expect(row).toEqual({ bank_account_id: x.f.bank, lines: 2 });
+  });
+});
+
+// Round 2 (brk-1444 HIGH): the commit wrote the batch and the lines on the import's STORED bank_account_id, unchecked.
+const commitImport = (id: string) => callRoute(ocrCommit as never, x.tokens[x.user]!, x.f.c, 'POST', undefined,
+  `/api/accounting/bank-statements/${id}/commit`, { id });
+const importStatus = async (id: string) =>
+  (await pool.query('SELECT status FROM bank_statement_imports WHERE id = $1', [id])).rows[0].status as string;
+
+describe('bank-statements/[id]/commit: the stored bank of an import is re-checked when it is committed', () => {
+  it('refuses an import made before the guard on a revenue account: 400, nothing written, still uncommitted', async () => {
+    const id = await seedStatementImport(pool, x, x.revenue, 'rev');
+    const before = await writtenRows(pool, x);
+    const res = await commitImport(id);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
+    expect(messageOf(res)).toMatch(/bank account/i);
+    expect(await writtenRows(pool, x)).toEqual(before);
+    expect(await importStatus(id)).toBe('extracted');
+  });
+
+  it('refuses an import whose bank account was deactivated after the upload: 400, nothing written', async () => {
+    const bank = (await pool.query(
+      `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,is_active,account_subtype)
+       VALUES ($1,$2,'BAG later deactivated','asset','debit',true,'bank') RETURNING id`, [x.f.c, `LD${x.f.c.slice(0, 6)}`],
+    )).rows[0].id as string;
+    const id = await seedStatementImport(pool, x, bank, 'late');
+    await pool.query('UPDATE gl_accounts SET is_active = false WHERE id = $1', [bank]);
+    const before = await writtenRows(pool, x);
+    const res = await commitImport(id);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
+    expect(await writtenRows(pool, x)).toEqual(before);
+    expect(await importStatus(id)).toBe('extracted');
+  });
+
+  it('still commits an import on a real bank account', async () => {
+    const id = await seedStatementImport(pool, x, x.f.bank2, 'ok');
+    const res = await commitImport(id);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    const { rows } = await pool.query(
+      'SELECT bank_account_id FROM bank_transactions WHERE import_batch_id = $1 AND company_id = $2', [id, x.f.c]);
+    expect(rows).toEqual([{ bank_account_id: x.f.bank2 }]);
+    expect(await importStatus(id)).toBe('committed');
+  });
+});
+
+describe('the guard reads the subtype as every bank picker does (isBankSubtype), not by exact spelling', () => {
+  it("accepts a legacy row spelled 'Bank Account', which canonicalises to bank", async () => {
+    const legacy = await legacySpelledAccount(pool, x.f.c, 'Bank Account');
+    const res = await preview(legacy, 'legacy');
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
   });
 });

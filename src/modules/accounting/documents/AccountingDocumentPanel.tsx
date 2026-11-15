@@ -106,9 +106,9 @@ export function AccountingDocumentPanel({
       <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--ff-border-light)]">
         <div className="flex items-center gap-2">
           <FileText className="h-5 w-5 text-blue-400" />
-          <h3 className="font-semibold text-[var(--ff-text-primary)]">
+          <h2 className="font-semibold text-[var(--ff-text-primary)]">
             Documents {documents.length > 0 && `(${documents.length})`}
-          </h3>
+          </h2>
         </div>
         {!readOnly && (
           <button
