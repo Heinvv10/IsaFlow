@@ -23,6 +23,9 @@ function todayIso(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
+/** Both tools only read: the account is checked without the guard's FOR SHARE (WP2-1 r4). */
+const READ_ONLY = { lock: false } as const;
+
 export const bankStatementCoverageTool: McpTool = {
   name: 'bank_statement_coverage',
   description:
@@ -92,7 +95,7 @@ export const bankStatementCoverageTool: McpTool = {
     // Ownership before the service call: bank_account_id becomes a foreign key
     // and nothing downstream re-checks the tenant. A distinct "another
     // company's" reply would be an existence oracle, so it is the shared miss.
-    if (bankAccountId && !(await bankGlAccountBelongsToCompany(ctx.companyId, bankAccountId))) {
+    if (bankAccountId && !(await bankGlAccountBelongsToCompany(ctx.companyId, bankAccountId, READ_ONLY))) {
       return toolError(NOT_FOUND);
     }
 
@@ -175,7 +178,7 @@ export const getOpeningBalancesTool: McpTool = {
     const bankAccountId = strArg(args, 'bank_account_id');
     const bad = guardCastableArgs(args, { uuid: ['bank_account_id'] });
     if (bad) return bad;
-    if (bankAccountId && !(await bankGlAccountBelongsToCompany(ctx.companyId, bankAccountId))) {
+    if (bankAccountId && !(await bankGlAccountBelongsToCompany(ctx.companyId, bankAccountId, READ_ONLY))) {
       return toolError(NOT_FOUND);
     }
     const detail = strArg(args, 'detail') === 'summary' ? 'summary' : 'standard';
