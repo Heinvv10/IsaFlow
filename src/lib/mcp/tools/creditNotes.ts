@@ -22,7 +22,13 @@ import {
   getCreditNotes,
   getCreditNoteById,
 } from '@/modules/accounting/services/ar/creditNoteService';
+import {
+  CREDIT_NOTE_GROUP_BY,
+  summariseCreditNotes,
+} from '@/modules/accounting/services/ar/creditNoteSummaryService';
 import type { CreditNote, CreditNoteStatus } from '@/modules/accounting/types/ar.types';
+import { OFFSET_SCHEMA, nextOffsetFromTotal, parseOffset } from './pageArgs';
+import { SUMMARY_DETAIL_SCHEMA, groupBySchema, parseSummaryRequest, summaryBody } from './summaryMode';
 import {
   NOT_FOUND,
   clampLimit,
@@ -34,6 +40,9 @@ import {
 
 const STATUSES = ['draft', 'approved', 'partially_applied', 'applied', 'cancelled'] as const;
 const TYPES = ['customer', 'supplier'] as const;
+/** A credit-note row is about 700 bytes of JSON: 75 of them stay well under a client's ~90 KB result limit (reason is free text, so keep headroom). */
+export const CREDIT_NOTES_DEFAULT_LIMIT = 50;
+export const CREDIT_NOTES_MAX_LIMIT = 75;
 
 /**
  * Map DOWN to the fields an agent can act on.
@@ -75,7 +84,10 @@ export const listCreditNotesTool: McpTool = {
   name: 'list_credit_notes',
   description:
     'List credit notes. Filter by type ("customer" reduces a receivable, "supplier" reduces a payable) and by status. ' +
-    'Newest credit_date first. A note with status "applied" has ALREADY been credited against its linked invoice; "approved" means posted to the ledger but not applied to any invoice; "draft" posts nothing.',
+    'Newest credit_date first. A note with status "applied" has ALREADY been credited against its linked invoice; "approved" means posted to the ledger but not applied to any invoice; "draft" posts nothing. ' +
+    `Returns {credit_notes, total, next_offset}: up to limit rows (default ${CREDIT_NOTES_DEFAULT_LIMIT}, max ${CREDIT_NOTES_MAX_LIMIT}); when next_offset is not null, call again with offset=next_offset for the next page. ` +
+    'To total a large book without paging, use detail="summary" (count, total_amount, tax_amount and applied_amount over the WHOLE filter set, no rows) ' +
+    'and group_by=status|type|party|month (party = the customer or supplier; groups sum to the totals; at most 200 groups, the rest summed in other). A summary takes no offset.',
   scope: 'read:invoices',
   write: false,
   inputSchema: {
@@ -83,8 +95,13 @@ export const listCreditNotesTool: McpTool = {
     properties: {
       type: { type: 'string', enum: [...TYPES] },
       status: { type: 'string', enum: [...STATUSES] },
-      limit: { type: 'number', minimum: 1, maximum: 200, description: 'Default 50, max 200' },
-      offset: { type: 'number', minimum: 0 },
+      limit: {
+        type: 'integer', minimum: 1, maximum: CREDIT_NOTES_MAX_LIMIT,
+        description: `Default ${CREDIT_NOTES_DEFAULT_LIMIT}, max ${CREDIT_NOTES_MAX_LIMIT}`,
+      },
+      offset: OFFSET_SCHEMA,
+      detail: SUMMARY_DETAIL_SCHEMA,
+      group_by: groupBySchema(CREDIT_NOTE_GROUP_BY),
     },
     additionalProperties: false,
   },
@@ -98,23 +115,28 @@ export const listCreditNotesTool: McpTool = {
       return toolError(`status must be one of: ${STATUSES.join(', ')}`);
     }
 
-    const offsetRaw = args.offset;
-    let offset = 0;
-    if (offsetRaw !== undefined && offsetRaw !== null) {
-      offset = Number(offsetRaw);
-      if (!Number.isInteger(offset) || offset < 0) return toolError('offset must be a non-negative integer');
+    const wanted = parseSummaryRequest(args, CREDIT_NOTE_GROUP_BY);
+    if (!wanted.ok) return wanted.error;
+    const offset = parseOffset(args);
+    if (typeof offset === 'string') return toolError(offset);
+    const scope = {
+      type: type as (typeof TYPES)[number] | undefined,
+      status: status as CreditNoteStatus | undefined,
+    };
+    if (wanted.summary) {
+      return ok(summaryBody(await summariseCreditNotes(ctx.companyId, scope, wanted.groupBy), wanted.groupBy));
     }
 
     const result = await getCreditNotes(ctx.companyId, {
-      type: type as (typeof TYPES)[number] | undefined,
-      status: status as CreditNoteStatus | undefined,
-      limit: clampLimit(args, 50, 200),
+      ...scope,
+      limit: clampLimit(args, CREDIT_NOTES_DEFAULT_LIMIT, CREDIT_NOTES_MAX_LIMIT),
       offset,
     });
 
     return ok({
       credit_notes: result.creditNotes.map(compact),
       total: result.total,
+      next_offset: nextOffsetFromTotal(offset, result.creditNotes.length, result.total),
     });
   },
 };

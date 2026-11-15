@@ -14,12 +14,20 @@ import {
   listSupplierPayments,
   type SupplierPaymentListRow,
 } from '@/modules/accounting/services/ap/supplierPaymentListService';
+import {
+  SUPPLIER_PAYMENT_GROUP_BY,
+  summariseSupplierPayments,
+} from '@/modules/accounting/services/ap/supplierPaymentSummaryService';
 import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { OFFSET_SCHEMA, nextOffsetFromTotal, parseOffset } from './pageArgs';
+import { SUMMARY_DETAIL_SCHEMA, groupBySchema, parseSummaryRequest, summaryBody } from './summaryMode';
 
 const STATUSES = ['draft', 'approved', 'processed', 'reconciled', 'cancelled'] as const;
-const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 200;
+/** A payment row is about 600 bytes of JSON: 100 of them stay well under a client's ~90 KB result limit. */
+export const SUPPLIER_PAYMENTS_DEFAULT_LIMIT = 50;
+export const SUPPLIER_PAYMENTS_MAX_LIMIT = 100;
+const DEFAULT_LIMIT = SUPPLIER_PAYMENTS_DEFAULT_LIMIT;
+const MAX_LIMIT = SUPPLIER_PAYMENTS_MAX_LIMIT;
 
 export const listSupplierPaymentsTool: McpTool = {
   name: 'list_supplier_payments',
@@ -32,7 +40,10 @@ export const listSupplierPaymentsTool: McpTool = {
     + `totals, next_offset}: up to limit rows (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}); call again `
     + 'with offset=next_offset until it is null. Note: only processed and reconciled payments have '
     + 'posted a journal; a draft or approved payment\'s allocations are planned, not settled. For the '
-    + 'unapplied cash that explains aged_creditors vs the control account, use list_unapplied_payments.',
+    + 'unapplied cash that explains aged_creditors vs the control account, use list_unapplied_payments. '
+    + 'To size a large payment book without paging, use detail="summary" (count, payment_amount, allocated_amount and unapplied_amount '
+    + 'over the WHOLE filter set, no rows) and group_by=supplier|status|month (groups sum to the totals; at most 200 groups, '
+    + 'the rest summed in other). A summary takes no offset.',
   scope: 'read:invoices',
   write: false,
   inputSchema: {
@@ -45,6 +56,8 @@ export const listSupplierPaymentsTool: McpTool = {
       search: { type: 'string', description: 'Matches payment number, reference or description' },
       limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT },
       offset: OFFSET_SCHEMA,
+      detail: SUMMARY_DETAIL_SCHEMA,
+      group_by: groupBySchema(SUPPLIER_PAYMENT_GROUP_BY),
     },
     additionalProperties: false,
   },
@@ -56,18 +69,27 @@ export const listSupplierPaymentsTool: McpTool = {
     if (status && !(STATUSES as readonly string[]).includes(status)) {
       return toolError(`status must be one of: ${STATUSES.join(', ')}`);
     }
+    const wanted = parseSummaryRequest(args, SUPPLIER_PAYMENT_GROUP_BY);
+    if (!wanted.ok) return wanted.error;
     const offset = parseOffset(args);
     if (typeof offset === 'string') return toolError(offset);
     const fromDate = strArg(args, 'from_date');
     const toDate = strArg(args, 'to_date');
     if (fromDate && toDate && fromDate > toDate) return toolError('from_date must not be after to_date');
 
-    const result = await listSupplierPayments(ctx.companyId, {
+    const filters = {
       supplierId: strArg(args, 'supplier_id') ?? null,
       status: status ?? null,
       fromDate: fromDate ?? null,
       toDate: toDate ?? null,
       search: strArg(args, 'search') ?? null,
+    };
+    if (wanted.summary) {
+      return ok(summaryBody(await summariseSupplierPayments(ctx.companyId, filters, wanted.groupBy), wanted.groupBy));
+    }
+
+    const result = await listSupplierPayments(ctx.companyId, {
+      ...filters,
       limit: clampLimit(args, DEFAULT_LIMIT, MAX_LIMIT),
       offset,
     });

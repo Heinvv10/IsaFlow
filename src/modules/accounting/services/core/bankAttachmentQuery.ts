@@ -31,6 +31,8 @@ export interface AttachmentFilters {
   from?: string;
   to?: string;
   limit: number;
+  /** Rows to skip; 0 when omitted. The order (created_at, id) is total, so a walk serves every document once. */
+  offset?: number;
   bankTransactionId?: string;
 }
 
@@ -44,14 +46,16 @@ function iso(v: unknown): string {
   return v instanceof Date ? v.toISOString() : new Date(String(v)).toISOString();
 }
 
-export async function listBankAttachments(companyId: string, f: AttachmentFilters): Promise<AttachmentPage> {
-  try {
-    const txId = f.bankTransactionId ?? null;
-    const from = f.from ?? null;
-    const to = f.to ?? null;
-    // One CTE for rows and count, so the two can never disagree about which documents exist.
-    const docs = sql`
-      WITH docs AS (
+/**
+ * The ONE set of bank-line documents: uploads plus linked captured documents with no copy, for the filters' date
+ * window / line. The page rows, their count and the MCP summary (`bankAttachmentSummaryService`) all read this
+ * union, so a total can never describe a different set than the rows it stands in for.
+ */
+export function bankAttachmentUnion(companyId: string, f: Pick<AttachmentFilters, 'from' | 'to' | 'bankTransactionId'>) {
+  const txId = f.bankTransactionId ?? null;
+  const from = f.from ?? null;
+  const to = f.to ?? null;
+  return sql`
         SELECT a.id, 'bank_attachment'::text AS store, a.bank_transaction_id, a.file_name, a.file_size,
                a.uploaded_by, a.created_at
           FROM bank_transaction_attachments a
@@ -68,14 +72,19 @@ export async function listBankAttachments(companyId: string, f: AttachmentFilter
          WHERE bt.company_id = ${companyId}::UUID
            AND (${from}::DATE IS NULL OR bt.transaction_date >= ${from}::DATE) AND (${to}::DATE IS NULL OR bt.transaction_date <= ${to}::DATE)
            AND (${txId}::TEXT IS NULL OR bt.id::TEXT = ${txId})
-           AND ${sql.unsafe(linkedCapturedDocSql('bt', 'cd'))} AND ${sql.unsafe(hasNoCopySql('bt', 'cd'))}
-      )`;
+           AND ${sql.unsafe(linkedCapturedDocSql('bt', 'cd'))} AND ${sql.unsafe(hasNoCopySql('bt', 'cd'))}`;
+}
+
+export async function listBankAttachments(companyId: string, f: AttachmentFilters): Promise<AttachmentPage> {
+  try {
+    // One CTE for rows and count, so the two can never disagree about which documents exist.
+    const docs = sql`WITH docs AS (${bankAttachmentUnion(companyId, f)})`;
     const rows = (await sql`
       ${docs}
       SELECT d.*, bt.transaction_date, bt.amount, bt.description AS tx_description, bt.reference
         FROM docs d JOIN bank_transactions bt ON bt.id = d.bank_transaction_id
        ORDER BY d.created_at DESC, d.id DESC
-       LIMIT ${f.limit}
+       LIMIT ${f.limit} OFFSET ${f.offset ?? 0}
     `) as DbRow[];
     const [count] = (await sql`${docs} SELECT COUNT(*) AS cnt, MAX(created_at) AS latest FROM docs`) as DbRow[];
 
