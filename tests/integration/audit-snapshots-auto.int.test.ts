@@ -205,20 +205,26 @@ describe('automatic snapshots', { timeout: 3 * SNAPSHOT_WAIT_MS }, () => { // so
     };
     await cycle(1);
     // A bank line moves no journal and no total: a reference, whose own check run sees the line (the anomaly scan).
-    await pool.query(`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description)
-                      VALUES ($1, $2, DATE '2026-01-20', 777, 'unposted statement line')`, [c, l.bank]);
+    // Excluded, so the period still passes its close checks (every close is gated since 2026-11-15).
+    await pool.query(`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status)
+                      VALUES ($1, $2, DATE '2026-01-20', 777, 'unposted statement line', 'excluded')`, [c, l.bank]);
     const two = await cycle(2);
     expect(two.map((x) => x.status)).toEqual(['sealed', 'unchanged']);
     const population = async (run: unknown) => (await pool.query(
       `SELECT population FROM audit_check_results WHERE run_id = $1 AND check_id = 'anomaly.statistical_outliers'`, [run])).rows[0].population;
     expect([await population(two[0]!.check_run_id), await population(two[1]!.check_run_id)]).toEqual([0, 1]);
-    // An invoice moves no journal either, but it moves the AR ageing: a new sealed copy.
+    // An invoice moves no journal either, but it moves the AR ageing: a new sealed copy. The close
+    // checks refuse a period whose AR does not tie to the GL, so the period is closed first (nothing
+    // moved: unchanged) and the LOCK after the invoice takes the snapshot.
+    expect((await action(o, c, { action: 'close', id: periods[0] })).state.statusCode).toBe(200);
+    expect((await waitForSnapshots(pool, c, 3)).map((x) => x.status)).toEqual(['sealed', 'unchanged', 'unchanged']);
     const customer = crypto.randomUUID();
     await pool.query(`INSERT INTO customers (id, company_id, name) VALUES ($1, $2, 'Ageing customer')`, [customer, c]);
     await pool.query(`INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date, due_date, status,
                         total_amount, amount_paid, created_by)
                       VALUES ($1, $2, $2, 'AGE-1', DATE '2026-01-10', DATE '2026-01-20', 'sent', 500, 0, $3)`, [c, customer, o]);
-    expect((await cycle(3)).map((x) => x.status)).toEqual(['sealed', 'unchanged', 'sealed']);
+    expect((await action(o, c, { action: 'lock', id: periods[0] })).state.statusCode).toBe(200);
+    expect((await waitForSnapshots(pool, c, 4)).map((x) => x.status)).toEqual(['sealed', 'unchanged', 'unchanged', 'sealed']);
   });
 
   it('an unchanged ledger never points at a snapshot that does not verify: a fresh one is sealed instead', async () => {
