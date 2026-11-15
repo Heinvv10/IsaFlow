@@ -14,6 +14,7 @@ POP inbox (Hein, 2026-11-14): ABSA "Notice of payment" mail reaching a mirrored 
 - `popMatchRules.ts` (pure: name test, decision) + `popMatchSweep.ts` (SQL, attach) — phase 2.
 - `popArchiveName.ts` (pure: path) + `popGraphClient.ts` (Graph, injected fetch) + `popArchiveSweep.ts` — the SharePoint copy.
 - `popSweeps.ts` — `runPopSweeps({ deadline })`: both sweeps, company by company, under the cron request's deadline (start + 270 s; curl allows 300), matching at most 60 s of it. Never throws: a sweep failure never fails the scan.
+- `popListService.ts` (+ pure `popListStatus.ts`) — read-only list of POPs with match and archive status, for MCP `list_proofs_of_payment`.
 
 ## Business rules
 - **Whose payment**: DKIM proves ABSA sent the notice, not that this company paid (any ABSA customer can mail a genuine notice anywhere). A notice files only when its "Dear <profile>" is in `pop_trusted_payers` for the company (case/space-insensitive). That table is ops config: app_user SELECT only; seed it as migration_admin. An unlisted payer goes to capture review.
@@ -50,4 +51,4 @@ POP inbox (Hein, 2026-11-14): ABSA "Notice of payment" mail reaching a mirrored 
 - The sweeps write as app_user's grants (app_service inherits them), so a tenant's own session can mark its own POPs' decisions or archive records (e.g. `ambiguous`, archived): tenant-scoped by RLS, the composite FKs and 991's finality trigger. Tightening needs the S-07b policy sync (`app_service_wanted_policies`, 915) to mirror app_service-only grants: a separate, reviewed change.
 
 ## Not built yet
-- No reader for suggestions: `ambiguous` / `refused` rows and `too_large` / `failed` copies are only in the tables (no UI, no MCP tool, no report).
+- No UI or report for suggestions. MCP `list_proofs_of_payment` (`popListService.ts`, statuses in `popListStatus.ts`) lists every POP with its match and archive status, `ambiguous` candidates and `too_large` / `failed` copies included.

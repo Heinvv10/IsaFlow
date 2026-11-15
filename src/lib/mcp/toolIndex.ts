@@ -55,6 +55,7 @@ import {
   listUnsupportedTransactionsTool,
 } from './tools/documents';
 import { listMissingDocumentsTool } from './tools/missingDocuments';
+import { listProofsOfPaymentTool } from './tools/listProofsOfPayment';
 import {
   createDraftInvoiceTool,
   createDraftQuoteTool,
@@ -220,6 +221,8 @@ export const MCP_TOOLS = [
   getDocumentTool,
   listUnsupportedTransactionsTool,
   listMissingDocumentsTool,
+  // POP inbox: each ABSA proof of payment and whether it attached to a bank line / archived to SharePoint.
+  listProofsOfPaymentTool,
   listSupplierInvoicesTool,
   getSupplierInvoiceTool,
   listBankRulesTool,
