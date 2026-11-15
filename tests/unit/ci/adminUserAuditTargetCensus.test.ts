@@ -4,16 +4,17 @@
  * row they returned), never the request's own spelling (req.query, adminUserId). users.id is TEXT and two rows can
  * differ only in case, so the audit log itself does not re-map a user id: the route must pass the stored one.
  *
- * The 4th argument must be an identifier (or `x.id` / `x.userId`) whose declaration in the same file is initialised
- * from one of those resolvers, directly (`(await adminStoredUser(...)).id`) or through one hop (`const t = await
- * findStoredUser(...)`, `const userId = t.id`).
+ * The 4th argument must be exactly the stored id, by shape (see isStored).
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
 import ts from 'typescript';
 
-const RESOLVER = /\b(adminStoredUser|findStoredUser|resetPasswordRefusal)\(/;
+/** `await <resolver>(…)`: a stored-user row (the whole initialiser, nothing else mixed in). */
+const ROW = /^await (adminStoredUser|findStoredUser|resetPasswordRefusal)\([^;]*\)$/;
+/** `(await adminStoredUser(…)).id` / `(await findStoredUser(…)).id`: the stored id in one expression. */
+const INLINE_ID = /^\(await (adminStoredUser|findStoredUser)\([^;]*\)\)\.id$/;
 const files = execFileSync('git', ['ls-files', 'pages/api/admin'], { encoding: 'utf8' }).split('\n').filter((f) => f.endsWith('.ts'));
 
 function declarations(source: ts.SourceFile): Map<string, string> {
@@ -26,14 +27,21 @@ function declarations(source: ts.SourceFile): Map<string, string> {
   return out;
 }
 
-/** Whether `expr` (an audit target argument) is the stored id, per the rule above. */
+/**
+ * Whether `expr` (an audit target argument) is the stored id: exactly `(await adminStoredUser(…)).id`, or `x.id` /
+ * `x.userId` where `const x = await <resolver>(…)`, or an identifier initialised to one of those. Nothing else: an
+ * initialiser that also mentions the request (`… && req.query.id`) is not the stored id.
+ */
 function isStored(expr: string, decls: Map<string, string>, depth = 0): boolean {
-  if (depth > 3 || /req\.query|adminUserId\(/.test(expr) && !RESOLVER.test(expr)) return false;
-  if (RESOLVER.test(expr)) return true;
+  if (depth > 3) return false;
+  if (INLINE_ID.test(expr)) return true; // anchored: nothing may follow the resolver's .id
   const prop = /^(\w+)\.(id|userId)$/.exec(expr);
-  const name = prop ? prop[1]! : /^\w+$/.test(expr) ? expr : null;
-  const init = name ? decls.get(name) : undefined;
-  return init !== undefined && isStored(init, decls, depth + 1);
+  if (prop) return ROW.test(decls.get(prop[1]!) ?? '');
+  if (/^\w+$/.test(expr)) {
+    const init = decls.get(expr);
+    return init !== undefined && isStored(init, decls, depth + 1);
+  }
+  return false;
 }
 
 /** Every logAdminAction(…, 'user', <target>, …) in `file` whose target is NOT the stored id: "line: target". */
