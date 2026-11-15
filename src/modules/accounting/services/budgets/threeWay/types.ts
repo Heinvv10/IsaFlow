@@ -218,7 +218,9 @@ export type ThreeWayWarning =
   | { code: 'top_up_offset_not_sars'; value: 6 | 7; sars: 6 | 7 }
   /** A debit opening on a statutory liability: carried flat, never refunded as cash. */
   | { code: 'opening_debit_carried'; bucket: 'payrollLiabilities' | 'incomeTaxPayable'; amount: number }
-  | { code: 'negative_flow'; month: string; flow: ResidualFlow; amount: number };
+  | { code: 'negative_flow'; month: string; flow: ResidualFlow; amount: number }
+  /** Derived debtor/creditor days at MAX_TRADE_DAYS; `excess` (cents, ≥ 0) is the opening above month 1's days level, spread over `months` (§13.26). */
+  | { code: 'days_capped'; series: 'receivables' | 'payables'; days: number; excess: number; months: number };
 
 export interface FiscalInfo {
   /** Last month of the version (the year end). */

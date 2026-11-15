@@ -43,9 +43,12 @@ export function prov<T extends z.ZodType>(value: T) {
   }).strict();
 }
 
+/** The cap on debtor and creditor days (a derived value above it is clamped and warned, §13.26). */
+export const MAX_TRADE_DAYS = 365;
+
 export const WorkingCapitalSchema = z.object({
-  debtorDays: prov(Days(365)),
-  creditorDays: prov(Days(365)),
+  debtorDays: prov(Days(MAX_TRADE_DAYS)),
+  creditorDays: prov(Days(MAX_TRADE_DAYS)),
   inventoryDays: prov(Days(730)),
 }).strict();
 

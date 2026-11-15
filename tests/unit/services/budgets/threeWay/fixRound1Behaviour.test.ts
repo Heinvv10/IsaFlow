@@ -135,13 +135,16 @@ describe('item 11: VAT gaps', () => {
   });
   it('payment basis: opening VAT due excludes the VAT still inside opening AR', () => {
     // Opening VAT control 3 500 = 2 000 due (Feb) + 1 500 inside the opening AR of 11 500.
+    // D = 0, so the whole opening AR is excess: collected 5 750 a month (§13.26), VAT 750 in each receipt.
     const ms = monthsFrom('2026-03', 2);
     const out = runThreeWay(input({ months: ms, pnl: ms.map(() => pnl({})),
       opening: buckets({ receivables: 11500, vatControl: -3500, otherEquity: -8000 }),
       assumptions: assumptions(ms, { vat: { cadence: 'monthly', basis: 'payment' } }) }));
-    expectMonth(out, 0, { cash: 9500, vatControl: -1500, otherEquity: -8000 });
-    expectMonth(out, 1, { cash: 8000, otherEquity: -8000 });
-    expect(out.vatSettlements.map(s => [s.periodEnd, s.net, s.settleMonth])).toEqual([['2026-02', R(2000), '2026-03'], ['2026-03', R(1500), '2026-04']]);
+    expectMonth(out, 0, { cash: 3750, receivables: 5750, vatControl: -1500, otherEquity: -8000 });
+    expectMonth(out, 1, { cash: 8750, vatControl: -750, otherEquity: -8000 });
+    expect(out.vatSettlements.map(s => [s.periodEnd, s.net, s.settleMonth])).toEqual([
+      ['2026-02', R(2000), '2026-03'], ['2026-03', R(750), '2026-04'], ['2026-04', R(750), '2026-05'],
+    ]);
   });
 });
 
