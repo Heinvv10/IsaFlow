@@ -24,9 +24,14 @@
  *     'unverified'. ONE line chains both ways and cannot show whether its balance is before or after the line, and
  *     no format here is proven to print it after: 'unverified'.
  *  5. A PDF's printed "brought forward" (raw.openingBalance) that differs from the derived opening: 'unverified'.
+ *  6. A text-parsed PDF (opts.textPdf) whose chain holds is 'pdf_read', never 'running_balance' (round 4): no PDF
+ *     parser reads a printed closing, so a dropped row (garbled, or split over two lines) leaves the survivors
+ *     chaining to a closing nothing can check. 'pdf_read' says "taken from the PDF's running-balance column; not
+ *     checked against a printed closing"; it is stored and compared like any figure, so an error shows as a
+ *     Difference instead of passing as checked.
  * `asAt` is the latest YYYY-MM-DD line date in the file.
  *
- * batchBalanceColumns is the write rule: figures only for 'printed' / 'running_balance' whose asAt is on or before
+ * batchBalanceColumns is the write rule: figures only for 'printed' / 'running_balance' / 'pdf_read' whose asAt is on or before
  * the statement date and that the column can hold; otherwise NULL and 'unverified'; no balances at all write NULL
  * throughout. ocrBalanceColumns is the same rule for an AI-read statement ('ai_read', never 'printed').
  */
@@ -69,7 +74,7 @@ function sumCents(cents: Array<number | null>): number | null {
   return sum;
 }
 
-export function deriveStatementBalances(raw: BankCsvParseResult): StatementBalances {
+export function deriveStatementBalances(raw: BankCsvParseResult, opts: { textPdf?: boolean } = {}): StatementBalances {
   const asAt = latestDay(raw);
   const statedClosing = toCents(raw.closingBalance);
   const statedOpening = toCents(raw.openingBalance);
@@ -113,7 +118,7 @@ export function deriveStatementBalances(raw: BankCsvParseResult): StatementBalan
     return none('unverified', asAt);
   }
   if (statedOpening !== null && statedOpening !== figures.openingCents) return none('unverified', asAt);
-  return { source: 'running_balance', ...figures, asAt };
+  return { source: opts.textPdf ? 'pdf_read' : 'running_balance', ...figures, asAt };
 }
 
 export interface BatchBalanceColumns {
@@ -136,7 +141,7 @@ const fits = (cents: number | null) => cents === null || Math.abs(cents) < MAX_B
 /** What `bank_import_batches` stores for a batch written with `statementDate` (the write rule above). */
 export function batchBalanceColumns(sb: StatementBalances | undefined, statementDate: string): BatchBalanceColumns {
   if (!sb) return { openingBalance: null, closingBalance: null, balanceSource: null };
-  if (sb.source !== 'printed' && sb.source !== 'running_balance') {
+  if (sb.source !== 'printed' && sb.source !== 'running_balance' && sb.source !== 'pdf_read') {
     return { openingBalance: null, closingBalance: null, balanceSource: sb.source };
   }
   const statementDay = ISO_DAY.exec(statementDate)?.[1] ?? null;

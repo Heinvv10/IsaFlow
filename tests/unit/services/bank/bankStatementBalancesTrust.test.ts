@@ -172,3 +172,15 @@ describe('round 3: padding rows in the bank CSV layouts are skipped, a garbled r
     expect(deriveStatementBalances(fnb('"Totally not a date","C","-10.00","1050.00","R"'))).toMatchObject(UNVERIFIED);
   });
 });
+
+describe('round 4: pdf_read figures are stored under the same write rule', () => {
+  const read = { source: 'pdf_read' as const, openingCents: 100000, closingCents: 110000, asAt: '2026-09-04' };
+  it('stored with the pdf_read label when the last line is on or before the statement date', () => {
+    expect(batchBalanceColumns(read, '2026-09-30')).toEqual({ openingBalance: '1000.00', closingBalance: '1100.00', balanceSource: 'pdf_read' });
+  });
+  it('a line after the statement date, or a figure the column cannot hold: unverified', () => {
+    const none = { openingBalance: null, closingBalance: null, balanceSource: 'unverified' };
+    expect(batchBalanceColumns(read, '2026-09-03')).toEqual(none);
+    expect(batchBalanceColumns({ ...read, closingCents: 1e15 }, '2026-09-30')).toEqual(none);
+  });
+});
