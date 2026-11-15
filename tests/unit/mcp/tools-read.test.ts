@@ -164,7 +164,7 @@ interface CompactRow {
   date: string;
   amount: number;
   bank_reference: string | null;
-  allocation: 'allocated' | 'suggested' | 'unallocated' | 'excluded';
+  allocation: 'allocated' | 'suggested' | 'unallocated' | 'excluded' | 'pending';
 }
 
 const COMPANY_ID = '22222222-2222-2222-2222-222222222222';
@@ -409,7 +409,7 @@ describe('list_bank_transactions — paging and compact rows', () => {
   const ACCOUNT_UUID = '33333333-3333-4333-8333-333333333333';
   const baseTx = {
     id: '045ef594-d81d-4f21-84d6-1151ed71260d', bankAccountId: 'ba36a4ed-d92d-47c6-8d4e-05462aea603a', transactionDate: '2026-03-05', amount: -250.5,
-    bankReference: 'ABSA-991', status: 'imported' as const, createdAt: 'x', updatedAt: 'x',
+    bankReference: 'ABSA-991', status: 'imported' as const, feedState: 'posted' as const, createdAt: 'x', updatedAt: 'x',
   };
 
   it('passes the cursor through and surfaces next_cursor', async () => {
@@ -541,9 +541,8 @@ describe('list_bank_transactions — paging and compact rows', () => {
     expect(out.transactions.map((t) => t.allocation)).toEqual(['excluded', 'excluded', 'excluded']);
   });
 
-  it('a posted journal line still wins over an excluded status', async () => {
-    // A row can be excluded AFTER it was allocated; the money moved either way,
-    // so an agent must not read it as something still to deal with.
+  it('an excluded line that kept its journal match is excluded, not allocated (WP1 bucket)', async () => {
+    // Exclude keeps a line's match; it used to report 'allocated' here while the card counted it as Excluded too.
     vi.mocked(getBankTransactions).mockResolvedValue({
       transactions: [{ ...baseTx, id: 'x4', status: 'excluded', matchedJournalLineId: 'jl-9' }],
       total: 1,
@@ -551,11 +550,27 @@ describe('list_bank_transactions — paging and compact rows', () => {
     const out = parseOk(await tool('list_bank_transactions').handler({ fields: 'compact' }, ctx())) as {
       transactions: CompactRow[];
     };
-    expect(out.transactions[0]!.allocation).toBe('allocated');
+    expect(out.transactions[0]!.allocation).toBe('excluded');
   });
 
-  it('tells the agent what the fourth allocation value means', () => {
+  it('a booked status is allocated without a matched line; a line still pending at the bank is pending', async () => {
+    vi.mocked(getBankTransactions).mockResolvedValue({
+      transactions: [
+        { ...baseTx, id: 'p1', status: 'provisional', suggestedGlAccountId: 'gl-1' },
+        { ...baseTx, id: 'r1', status: 'reconciled' }, // the Sage import: reconciled, no matched line
+        { ...baseTx, id: 'f1', feedState: 'pending' },
+      ],
+      total: 3,
+    } as never);
+    const out = parseOk(await tool('list_bank_transactions').handler({ fields: 'compact' }, ctx())) as {
+      transactions: CompactRow[];
+    };
+    expect(out.transactions.map((t) => t.allocation)).toEqual(['allocated', 'allocated', 'pending']);
+  });
+
+  it('tells the agent what the excluded and pending allocation values mean', () => {
     expect(tool('list_bank_transactions').description).toContain('excluded');
+    expect(tool('list_bank_transactions').description).toMatch(/pending.*at the bank/);
   });
 
   it('maps an unusable cursor to a plain tool error, never a stack trace', async () => {
