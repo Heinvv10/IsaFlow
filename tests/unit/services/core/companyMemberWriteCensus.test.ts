@@ -74,7 +74,8 @@ const KNOWN_WRITERS = [
   'pages/api/invitations/index.ts: writes', // W7 second invitation system — migration_admin pool since S-07c (930), assertCanInvite
   'pages/api/invitations/revoke/[id].ts: writes', // W8 revoke — app_user
   // W10 /invite accept — migration_admin pool since S-07b (916), invitation's role. Since 2026-11-16 it takes no FOR UPDATE: the
-  // invitation is locked last, by the still-pending UPDATE that marks it accepted (rowCount 1 or roll back), as W9 does.
+  // invitation is locked last, by the still-pending UPDATE that marks it accepted (rowCount 1 or roll back), as W9 does,
+  // and the address is judged against GoTrue's current login email (adminGetUser, before the transaction), not the claim.
   'pages/api/invite/[token].ts: writes',
   'scripts/ci/userIdCastRules.ts: names as a string', // a lint's table list
   'scripts/ci/golden/slotProvision.ts: writes', // Golden Paths slot owner membership — isaflow_dev only (provision-slots.ts refuses any other database), one golden user per slot
@@ -121,8 +122,9 @@ const KNOWN_WRITERS = [
  * pinned to the given user id (gotrue_user_id) or addressed (lower(btrim())) to the given emails, and can
  * insert, update, re-open, re-point or accept no invitation and touches no company_users row, so it can only
  * take away a not-yet-used way into a company, never grant a membership or a role (930's rule: DELETE stays
- * where it only removes access). It refuses (RC012) while a users row with that id exists, so a live user's
- * GoTrue-pinned invitations are out of its reach. The email arm takes any address: the portal can already
+ * where it only removes access). It refuses (RC012) while the users row with that id exists, and its pinned
+ * arm is off while any case variant of the id lives, so a live user's GoTrue-pinned invitations are out of
+ * its reach. The email arm takes any address: the portal can already
  * delete the user, every membership and a whole company; at worst a platform admin cancels the pending
  * invitations of an address, which a re-invite restores and entity_change_capture records. RC008 still
  * refuses every direct portal write to the table; the one caller is deleteUser, after its users DELETE,
