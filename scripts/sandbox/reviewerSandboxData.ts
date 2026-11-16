@@ -5,9 +5,7 @@
  * name carries "(Fictional)" or "Demo" (the guard in
  * reviewerSandboxGuards.ts refuses anything else), every email is @example.com,
  * and no SA ID, tax or bank number is stored at all. Do not copy names from
- * scripts/seed-demo-data.ts (real SA company names), scripts/seed-payroll-data.ts
- * (realistic ID and tax numbers) or scripts/qa-seed/parties.ts (names that could
- * belong to real firms).
+ * scripts/qa-seed/parties.ts (names that could belong to real firms).
  *
  * Ids are deterministic so a re-run upserts instead of duplicating. Natural keys
  * (`code`) are what the parties are matched on, following the `notes = code`

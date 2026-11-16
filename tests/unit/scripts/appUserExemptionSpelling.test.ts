@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { migrationNumber } from '../helpers/sourceCensus';
 
 const DIR = join(process.cwd(), 'scripts', 'migrations', 'sql');
 // The two spellings 916 refuses, in either order (any of the four role functions, <> / != / IS DISTINCT FROM).
@@ -20,7 +21,7 @@ const exempts = (sql: string): boolean => OLD_SHAPE.some((re) => re.test(sql));
 
 describe('no migration after 916 exempts every role but app_user', () => {
   it('holds for every file', () => {
-    const later = readdirSync(DIR).filter((f) => f.endsWith('.sql') && f.slice(0, 3) >= '917');
+    const later = readdirSync(DIR).filter((f) => f.endsWith('.sql') && migrationNumber(f) >= 917);
     expect(later.length).toBeGreaterThan(0);
     expect(later.filter((f) => exempts(readFileSync(join(DIR, f), 'utf8')))).toEqual([]);
   });

@@ -101,9 +101,11 @@ describe('supplier-payment writers', () => {
     }
   });
 
+  // Named limit: scripts/lib/demoReseed/write.ts (insertRows) also inserts supplier_payments and
+  // payment_allocations (paid history for the Demo company only) through runtime-built SQL that this
+  // census cannot see; the table names come from SEED_TABLES in scripts/lib/demoReseed/types.ts.
   it('allocations are written only at creation and to posted payments', () => {
     expect(matching(/(INSERT\s+INTO|DELETE\s+FROM|UPDATE)\s+payment_allocations\b/)).toEqual([
-      'scripts/seed-demo-data.ts',
       `${AP}batchPaymentService.ts`, // createBatch
       `${AP}supplierPaymentApplicationService.ts`, // posted payments only (refuses draft / approved)
       `${AP}supplierPaymentService.ts`, // createSupplierPayment
@@ -246,7 +248,7 @@ describe('batch membership', () => {
     'src/modules/accounting/services/gl/approvalDocuments.ts': READS,
     'src/modules/accounting/services/gl/approvalEnforcementPreview.ts': READS,
     'src/modules/accounting/services/gl/approvalMatching.ts': READS,
-    'scripts/seed-demo-data.ts': 'offline seed; inserts payments without batch_id (via batchInsert, runtime-built names: named limit); import_batch_id is bank rows',
+    'scripts/lib/demoReseed/wipePlan.ts': 'Demo reseed wipe plan: batch_id is the FK column of payroll_batch_lines (payroll_batches) in a delete scope; seeded payments carry no batch_id',
   };
   it('only the pinned files mention both supplier_payments and batch_id', () => {
     expect(filesWhere((t) => /supplier_payments/i.test(t) && /batch_id/i.test(t))).toEqual(Object.keys(PINNED_FILES).sort());
