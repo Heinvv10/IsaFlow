@@ -5,6 +5,11 @@
  * approval gate returns it as a blocker; directive and reversal callers have their own tests).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+// Wave 6 FQa: the run-kind guard reads the database; its own tests are payrollRunKindGuard*.test.ts.
+vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
+  assertRunKindSupported: vi.fn(async () => undefined),
+}));
 
 vi.mock('@/modules/accounting/services/payroll/payrollRunLoanComponents', () => ({
   appendLoanComponents: (components: unknown[]) => components,
