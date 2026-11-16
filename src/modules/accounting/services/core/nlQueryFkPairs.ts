@@ -110,12 +110,15 @@ export const FK_PAIRS = new Set<string>([
 /**
  * FK_PAIRS entries backed by a COMPOSITE (id, company_id) foreign key: the schema itself stops a row pointing at
  * another company's parent, so a join across the edge keeps a row in-tenant and scope may propagate from one seeded
- * alias to the other. Checked against the schema baseline (3 of the pairs).
+ * alias to the other. Checked against the schema baseline (2 of the pairs, both VALID constraints).
  */
 export const COMPOSITE_FK_PAIRS = new Set<string>([
   'bank_categorisation_rules.gl_account_id|gl_accounts.id',
   'bank_categorisation_rules.supplier_id|suppliers.id',
-  'gl_accounts.id|gl_journal_lines.gl_account_id',
+  // NOT 'gl_accounts.id|gl_journal_lines.gl_account_id': its composite FK `gl_journal_lines_account_company_fk`
+  // (migration 664) is NOT VALID, so rows older than the migration can still point at another company's account.
+  // It needs both sides seeded until the constraint is VALIDATEd; that waits on a production census of cross-company
+  // journal lines and is Hein's call.
 ]);
 for (const pair of COMPOSITE_FK_PAIRS) {
   if (!FK_PAIRS.has(pair)) throw new Error(`nlQueryFkPairs: COMPOSITE_FK_PAIRS entry is not in FK_PAIRS: ${pair}`);

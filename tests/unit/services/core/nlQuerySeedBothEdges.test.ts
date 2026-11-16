@@ -64,9 +64,17 @@ describe('enforceTenantScope — id-only FK edges need both sides seeded', () =>
     expect(enforceTenantScope(sql, A).ok).toBe(true);
   });
 
-  it('lets scope flow across a composite (id, company_id) FK from one seeded side', () => {
-    const sql = `SELECT jl.debit FROM gl_accounts ga JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id
+  it('lets scope flow across a VALID composite (id, company_id) FK from one seeded side', () => {
+    const sql = `SELECT r.id FROM gl_accounts ga JOIN bank_categorisation_rules r ON r.gl_account_id = ga.id
       WHERE ga.company_id = '${A}'`;
     expect(enforceTenantScope(sql, A).ok).toBe(true);
+  });
+
+  it('needs both sides seeded for journal lines: their composite FK is NOT VALID (migration 664)', () => {
+    const one = `SELECT jl.debit FROM gl_accounts ga JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id
+      WHERE ga.company_id = '${A}'`;
+    const both = `${one} AND jl.company_id = '${A}'`;
+    expect(enforceTenantScope(one, A).ok).toBe(false);
+    expect(enforceTenantScope(both, A).ok).toBe(true);
   });
 });
