@@ -104,7 +104,8 @@ async function reverseReconciledInner(
       await refuseStaleUndo(companyId, bankTxId, chain, undoing); // this savepoint takes the unwind back with it
       const { reverseJournalEntry } = await import('../gl/journalEntryService');
       try {
-        const reversal = reverseId ? await reverseJournalEntry(companyId, reverseId, userId, opts) : null;
+        // The bank line's own undo: resetBankLine below frees the line in this same savepoint (liveBankLineReversal).
+        const reversal = reverseId ? await reverseJournalEntry(companyId, reverseId, userId, { ...opts, bankLinesHandled: true }) : null;
         // Carried out so reverse_bank_allocation / void_receipt can say the contra was dated past a locked VAT
         // period and, with the two dates, that a CLOSED fiscal period moved it to today
         // (2026-10-02: nine April-2025 contras landed in October while the reply

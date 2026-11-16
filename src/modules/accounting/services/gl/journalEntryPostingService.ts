@@ -36,7 +36,11 @@ export { resolveReversalDate, resolveReversalDateDetailed, ReversalPeriodError, 
 export type { ReversalEntry } from './reversalLines';
 
 type Row = DbRow;
-type ReverseOpts = PostingActorOpts & { reversalDate?: string; lateClaimCascade?: boolean; cashLinesLocked?: readonly string[] };
+type ReverseOpts = PostingActorOpts & {
+  reversalDate?: string; lateClaimCascade?: boolean; cashLinesLocked?: readonly string[];
+  /** The bank line's own undo (bank/liveBankLineReversal): it resets the line itself, so a live line is not refused. */
+  bankLinesHandled?: boolean;
+};
 
 
 import {
@@ -141,7 +145,8 @@ async function reverseJournalEntryInner(
     try {
       await refuseReversingSettlementJournal(companyId, entry);
       // D12 round 3: statement cash a COMPLETED reconciliation signed off — asked under the claim, read-only.
-      await refuseReversingCompletedCash(companyId, id, opts?.cashLinesLocked);
+      // ...and a LIVE statement line still booking it (bank/liveBankLineReversal): undo it from Bank Transactions.
+      await refuseReversingCompletedCash(companyId, id, opts?.cashLinesLocked, { bankLinesHandled: opts?.bankLinesHandled });
       // Step 6: a share journal with live undo-share journals — under the claim's row lock, the row an undo locks
       // FOR UPDATE (ap/shareUndoReads.lockShareJournal), so the two serialise: authoritative (gl/shareUndoReversalGuard).
       await assertNoLiveUndoShares(companyId, id, entry.entryNumber);

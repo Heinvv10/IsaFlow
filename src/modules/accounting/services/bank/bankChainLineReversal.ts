@@ -131,7 +131,8 @@ export async function reverseDocumentChainLine(
     } else {
       result = await unwindBankAllocationApplication(companyId, chain.rootId); // payment -> invoices, before the journal
       await lockJournalAndUnmatch(companyId, chain.rootId, leg, chain.doc.label);
-      reversal = leg.alreadyReversed ? null : await reverseJournalEntry(companyId, leg.reverseId, userId, opts);
+      // The bank line's own undo: it resets the line below (liveBankLineReversal).
+      reversal = leg.alreadyReversed ? null : await reverseJournalEntry(companyId, leg.reverseId, userId, { ...opts, bankLinesHandled: true });
     }
     for (const id of new Set([txId, ...allocated])) await resetBankLine(companyId, id, false);
     return {

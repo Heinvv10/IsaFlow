@@ -9,7 +9,8 @@ import bankTxAction from '../../pages/api/accounting/bank-transactions-action';
 import bankMatchConfirm from '../../pages/api/accounting/bank-match-confirm';
 import journalEntriesAction from '../../pages/api/accounting/journal-entries-action';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
-import { dropFixture } from './helpers/l1FifoFixture';
+import { dropFixture, inTx } from './helpers/l1FifoFixture';
+import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { callRoute, dropRouteUser, seedRouteUser } from './helpers/vatLateClaimRoutes';
 import { seedDateFixture, type DateFixture } from './helpers/numraceDateFixture';
 
@@ -37,6 +38,10 @@ const bankLine = async (account: string, date: string, amount: number, desc: str
   RETURNING id`) as Row[])[0]!.id);
 const allocTransfer = (line: string, contra: string) => callRoute(c.fx, token, bankTxAction,
   { action: 'allocate', bankTransactionId: line, allocationType: 'transfer', contraAccountId: contra });
+/** A GL reversal that leaves its statement line as it was: the pre-2026-11-16 state, which the GL now refuses while the
+ *  line books the journal (bank/liveBankLineReversal), planted through the internal opt-out. */
+const handReverse = async (je: string) => String((await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, je, c.fx.userId,
+  { bankLinesHandled: true }))).id);
 const lineOf = async (je: string, acct: string) => String(((await sql`SELECT id FROM gl_journal_lines
   WHERE journal_entry_id = ${je}::UUID AND gl_account_id = ${acct}::UUID AND company_id = ${c.fx.companyId}::UUID`) as Row[])[0]!.id);
 const lineState = async (id: string) => ((await sql`SELECT status, matched_journal_line_id AS m,
@@ -108,7 +113,7 @@ describeIfDb('the transfer guard on reversal chains', () => {
       const aOut = await bankLine(bankA, date, -amt, `O1 A OUT ${date}`);
       await bankLine(bankB, date, amt, `O1 B IN ${date}`); // auto-linked by the allocation below
       expect((await allocTransfer(aOut, bankB)).statusCode).toBe(200);
-      const r1 = await glReverse(String((await lineState(aOut))!.ptr));
+      const r1 = await handReverse(String((await lineState(aOut))!.ptr)); // the bounce, reversed in the GL as before
       const next = new Date(Date.parse(date) + 86400000).toISOString().slice(0, 10);
       const aBack = await bankLine(bankA, next, amt, `O1 A IN ${next}`);
       const bBack = await bankLine(bankB, next, -amt, `O1 B OUT ${next}`);

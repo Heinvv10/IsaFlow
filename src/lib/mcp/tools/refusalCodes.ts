@@ -167,6 +167,10 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // No MCP tool reaches it today (no tool writes a job); registered so the census holds.
   'JOB_CLIENT_HAS_ENTRIES',
   'JOURNAL_REVERSAL_LOCK_TIMEOUT',
+  // bank/liveBankLineReversal: a journal a live statement line is still allocated / matched to, reversed from the
+  // journal screens, MCP reverse_journal_entry, soft delete or another internal reversal. Names the caller's own line
+  // (date, amount, description) and the Bank Transactions undo; raised before any write.
+  'JOURNAL_HAS_LIVE_BANK_LINE',
   // A payroll line's due loan instalments exceed its available pay. Names only the employee and their loans;
   // the payment is refused before any loan balance changes, with a manual-review remedy.
   'LOAN_INSTALMENT_EXCEEDS_PAY',

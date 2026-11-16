@@ -112,7 +112,7 @@ describe('reverseReconciledTransaction — posting-agent attribution', () => {
     });
 
     expect(reverseJournalEntry).toHaveBeenCalledWith(COMPANY_ID, JE_ID, USER_ID, {
-      postingAgent: 'mcp:reverse_bank_allocation:v1',
+      postingAgent: 'mcp:reverse_bank_allocation:v1', bankLinesHandled: true,
     });
   });
 

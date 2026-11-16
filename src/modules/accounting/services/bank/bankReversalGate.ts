@@ -31,6 +31,7 @@ import { assertHumanSession, BankControlError } from './bankControlRefusal';
 import { allocationFacts, armEnforced, armLabel, isSoleAsCaller, sameUser, type BankArm } from './bankLineImporterGate';
 import { peekLineChain } from './bankChainLineReversal';
 import { refuseJournalCashOfCompletedReconciliation } from './reconciledCash';
+import { refuseLiveBankLines } from './liveBankLineReversal';
 import { findJournalChainRoot } from '../shared/journalChainHead';
 
 const NOBODY = '00000000-0000-0000-0000-000000000000';
@@ -88,14 +89,16 @@ export async function auditedReversal<T>(
  * sit, and it resets the line. Returns the locked set for reverseJournalEntry's
  * `cashLinesLocked`: a line matched to the chain AFTER this read is refused
  * under the reversal's claim (a typed retry, 503), and the retry is judged
- * here. Enforcement off: unchanged.
+ * here. Enforcement off: a line still allocated or matched to the journal is
+ * refused 400 (JOURNAL_HAS_LIVE_BANK_LINE), undone from Bank Transactions.
  */
 export async function lockJournalCashForGlReversal(companyId: string, journalEntryId: string): Promise<string[]> {
   const locked = await refuseJournalCashOfCompletedReconciliation(companyId, journalEntryId);
   if (locked.length === 0) return locked;
   const rootId = (await findJournalChainRoot(companyId, journalEntryId)) ?? journalEntryId;
   const lines = (await sql`
-    SELECT id, amount, auto_post_run_id FROM bank_transactions
+    SELECT id, amount, auto_post_run_id, status, matched_journal_line_id, provisional_je_id, transaction_date, description
+    FROM bank_transactions
     WHERE id = ANY(${locked}::UUID[]) AND company_id = ${companyId}::UUID
   `) as DbRow[];
   for (const line of lines) {
@@ -106,6 +109,9 @@ export async function lockJournalCashForGlReversal(companyId: string, journalEnt
         + 'line, not from Journal Entries: open the bank line in Banking and reverse it there.');
     }
   }
+  // Enforcement off: a line still allocated / matched to this journal is refused all the same (400), on the locked
+  // set, so the dry run agrees; reverseJournalEntry asks again under its claim (liveBankLineReversal).
+  await refuseLiveBankLines(companyId, journalEntryId, lines);
   return locked;
 }
 
