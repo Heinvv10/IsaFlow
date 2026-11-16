@@ -168,6 +168,13 @@ export async function rebuildUnusedFiscalPeriods(companyId: string, today: Date 
   const refs = await countFiscalPeriodReferences(companyId);
   if (periodsInUse(refs)) throw new FiscalPeriodsInUseError(refs);
 
+  // Periods before years, and the periods in (fiscal_year, period_number, id)
+  // order, as every period locker does (periodCloseGate): an unordered DELETE
+  // could deadlock against a Close Year or Bulk Close over the same rows.
+  await sql`
+    SELECT id FROM fiscal_periods WHERE company_id = ${companyId}::UUID
+     ORDER BY fiscal_year, period_number, id FOR UPDATE
+  `;
   await sql`DELETE FROM fiscal_periods WHERE company_id = ${companyId}::UUID`;
   await sql`DELETE FROM fiscal_years WHERE company_id = ${companyId}::UUID`;
   // No years now, so the template is the declared start month.

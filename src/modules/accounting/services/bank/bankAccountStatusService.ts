@@ -162,6 +162,7 @@ export async function getBankAccountsStatus(
         MAX(bt.transaction_date)                                     AS last_date
       FROM bank_transactions bt
       WHERE bt.bank_account_id = ga.id
+        AND bt.company_id = ga.company_id -- a foreign company's line pointing at this GL id is not ours (RLS does not hide it)
         AND bt.feed_state = 'posted'
     ) s ON TRUE
     WHERE ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})

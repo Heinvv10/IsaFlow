@@ -6,6 +6,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { isLockNotAvailable } from './bankTxLock';
+import { YEAR_END_JOURNAL_SOURCE } from '../gl/yearEndJournalSource';
 
 export async function updateReconciledBalance(companyId: string, reconciliationId: string): Promise<void> {
   // Single atomic UPDATE — avoids race condition from read-then-write pattern.
@@ -30,6 +31,35 @@ export async function updateReconciledBalance(companyId: string, reconciliationI
 }
 
 /**
+ * THE posted bank-ledger balance as at a date: the one statement both balance fragments below are built from, so the
+ * per-account figure (reconciliation, K-020) and the grouped one (the bank card, WP1) cannot drift. Posted journals
+ * only, the line AND the journal in this company, entry_date on or before `asAtDate`, debit − credit. Equal to the
+ * Trial Balance bank row by construction (PR #1475 review round 2): the year-end close is left out as the TB leaves it
+ * out (G-01 marker; the close posts to P&L and retained earnings, so no bank figure changes), and a NULL debit or
+ * credit counts as 0 per line, so an account whose lines leave one column NULL answers its real figure, not 0. Aliases `jl` /
+ * `je`; a caller adds leading columns (`select`), a join of its own rows (`join`), a further predicate (`where`) and
+ * its GROUP BY.
+ */
+function postedBankLedgerSum(
+  companyId: string,
+  asAtDate: ReturnType<typeof sql>,
+  parts: { select?: ReturnType<typeof sql>; join?: ReturnType<typeof sql>; where?: ReturnType<typeof sql>;
+    groupBy?: ReturnType<typeof sql> },
+): ReturnType<typeof sql> {
+  return sql`
+    SELECT ${parts.select ?? sql``} COALESCE(SUM(COALESCE(jl.debit, 0) - COALESCE(jl.credit, 0)), 0) AS gl_balance
+    FROM gl_journal_lines jl
+    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+    ${parts.join ?? sql``}
+    WHERE jl.company_id = ${companyId}::UUID
+      AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
+      AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
+      AND je.entry_date <= ${asAtDate}
+      ${parts.where ?? sql``}
+    ${parts.groupBy ?? sql``}`;
+}
+
+/**
  * Posted bank-account GL balance as at a date, as a composable fragment.
  * Both the startReconciliation snapshot and the updateReconciledBalance
  * recompute build on this one definition so the two cannot drift — drift
@@ -42,14 +72,25 @@ export function bankGlBalanceAsAt(
   glAccount: ReturnType<typeof sql>,
   asAtDate: ReturnType<typeof sql>,
 ): ReturnType<typeof sql> {
-  return sql`
-    SELECT COALESCE(SUM(jl.debit) - SUM(jl.credit), 0) AS gl_balance
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    WHERE jl.gl_account_id = ${glAccount}
-      AND jl.company_id = ${companyId}::UUID
-      AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
-      AND je.entry_date <= ${asAtDate}`;
+  return postedBankLedgerSum(companyId, asAtDate, { where: sql`AND jl.gl_account_id = ${glAccount}` });
+}
+
+/**
+ * The same balance for many (account, date) pairs in ONE pass (WP1 PR-B, the bank card): `pairs` is a query yielding
+ * `account_id UUID, as_at DATE`. Answers (account_id, as_at, gl_balance) for every pair that has at least one posted
+ * line on or before its date; a pair with none is absent, so callers LEFT JOIN and COALESCE to 0. Duplicate pairs
+ * would double-count: pass distinct pairs. Per account, the summary called bankGlBalanceAsAt twice per account, each
+ * joining the company's whole posted journal set (3.5 s at 20 accounts × 20k lines).
+ */
+export function bankGlBalancesAsAt(
+  companyId: string,
+  pairs: ReturnType<typeof sql>,
+): ReturnType<typeof sql> {
+  return postedBankLedgerSum(companyId, sql`q.as_at`, {
+    select: sql`q.account_id, q.as_at,`,
+    join: sql`JOIN (${pairs}) q ON q.account_id = jl.gl_account_id`,
+    groupBy: sql`GROUP BY q.account_id, q.as_at`,
+  });
 }
 
 /**

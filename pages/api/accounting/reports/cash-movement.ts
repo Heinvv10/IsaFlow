@@ -77,6 +77,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       FROM gl_accounts ga
       LEFT JOIN bank_transactions bt
         ON bt.bank_account_id = ga.id
+        AND bt.company_id = ga.company_id
         AND bt.transaction_date < ${from}::date
         AND bt.status != 'excluded'
         AND bt.feed_state = 'posted'
@@ -107,6 +108,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       FROM gl_accounts ga
       LEFT JOIN bank_transactions bt
         ON bt.bank_account_id = ga.id
+        AND bt.company_id = ga.company_id
         AND bt.transaction_date >= ${from}::date
         AND bt.transaction_date <= ${to}::date
         AND bt.status != 'excluded'

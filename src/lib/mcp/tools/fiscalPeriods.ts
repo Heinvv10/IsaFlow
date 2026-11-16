@@ -194,7 +194,7 @@ export const periodCloseChecklistTool: McpTool = {
     + 'orphan_period_journals is the only COMPANY-scoped check: a posted journal with no fiscal '
     + 'period belongs to no period at all, so no period-scoped query can find it, and it is '
     + 'absent from the trial balance, the VAT201 and the AFS while sitting in the ledger. '
-    + 'These checks are ADVISORY in the app — a person may close over them — but close_fiscal_period '
+    + 'Every close — close_fiscal_period and the app\'s Close, Bulk Close and Close Year — '
     + 'REFUSES on any failing check, so run this first to see what a close would refuse on. '
     + 'A check that could not be computed comes back as warn with the reason "Could not compute"; '
     + 'close_fiscal_period treats that as a blocker, because "the AP tie could not be checked" is '

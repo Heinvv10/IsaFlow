@@ -1,194 +1,69 @@
 /**
- * Closing a period through the assurance surface runs the readiness checks and
- * REFUSES with the itemised blockers.
- *
- * `closePeriod` has never had a readiness check. It refuses a locked period, an
- * already-closed one and one with open priors, and then closes — over
- * unreconciled banks, draft journals, an out-of-balance trial balance and a
- * subledger that does not tie. The Month-End Workbench runs those checks and
- * shows them to a person, who is free to close anyway; nothing carried them to
- * a caller that is not a person.
- *
- * An agent cannot respect a lock it cannot read, and a boolean is not a lock it
- * can read: "not ready" tells it nothing it can act on. So a refusal names every
- * failing check and its reason, and `dry_run` reports the same thing without
- * touching the period.
- *
- * The UI path is deliberately unchanged — `closePeriod` still closes advisorily.
- * Widening it in place would turn a screen that works today into one that
- * refuses, which is a product decision and not this programme's to make.
+ * closePeriodWithReadiness (MCP close_fiscal_period) judges nothing itself:
+ * the dry run IS `judgePeriodClose` and the live close IS
+ * `closePeriodWithVerdict`, the same lock, guards and readiness gate the app's
+ * Close runs (fiscalPeriodCloseWrites / periodCloseGate, tested there). So a
+ * dry run refuses wherever the live call would (B5: open prior periods
+ * included), and the checklist it returns is the verdict judged under the lock.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
-  getFiscalPeriodById: vi.fn(),
-  closePeriod: vi.fn(),
-}));
-vi.mock('@/modules/accounting/services/gl/periodCloseReadinessService', () => ({
-  getCloseReadiness: vi.fn(),
+  judgePeriodClose: vi.fn(),
+  closePeriodWithVerdict: vi.fn(),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { closePeriod, getFiscalPeriodById } from '@/modules/accounting/services/gl/fiscalPeriodService';
-import { getCloseReadiness } from '@/modules/accounting/services/gl/periodCloseReadinessService';
+import { closePeriodWithVerdict, judgePeriodClose } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import {
-  closePeriodWithReadiness,
-  PeriodCloseBlockedError,
-  PeriodNotCloseableError,
+  closePeriodWithReadiness, PeriodCloseBlockedError, PeriodNotCloseableError,
 } from '@/modules/accounting/services/gl/fiscalPeriodCloseService';
 import type { FiscalPeriod } from '@/modules/accounting/types/gl.types';
-import type { ChecklistItem } from '@/modules/accounting/services/gl/periodCloseReadinessService';
+import type { ChecklistItem, CloseReadiness } from '@/modules/accounting/services/gl/periodCloseReadinessService';
 
 const COMPANY = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const PERIOD = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 const USER = 'user-1';
 
-function period(overrides: Partial<FiscalPeriod> = {}): FiscalPeriod {
-  return {
-    id: PERIOD, periodName: 'March 2026', periodNumber: 1, fiscalYear: 2027,
-    startDate: '2026-03-01', endDate: '2026-03-31', status: 'open',
-    createdAt: 'now', updatedAt: 'now', ...overrides,
-  };
-}
-
-function item(key: string, status: ChecklistItem['status'], reason = 'because'): ChecklistItem {
-  return {
-    key: key as ChecklistItem['key'], label: key, status, reason, fixHref: `/x/${key}`,
-  };
-}
-
-function readiness(items: ChecklistItem[]) {
-  return {
-    periodId: PERIOD,
-    periodLabel: 'March 2026',
-    items,
-    overallStatus: items.some((i) => i.status === 'fail')
-      ? ('fail' as const)
-      : items.some((i) => i.status === 'warn') ? ('warn' as const) : ('pass' as const),
-  };
-}
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  vi.mocked(getFiscalPeriodById).mockResolvedValue(period());
-  vi.mocked(getCloseReadiness).mockResolvedValue(readiness([item('tb_balanced', 'pass')]));
-  vi.mocked(closePeriod).mockResolvedValue(period({ status: 'closed' }));
+const period = (status: FiscalPeriod['status']): FiscalPeriod => ({
+  id: PERIOD, periodName: 'March 2026', periodNumber: 1, fiscalYear: 2027,
+  startDate: '2026-03-01', endDate: '2026-03-31', status, createdAt: 'now', updatedAt: 'now',
 });
+const item = (key: string, status: ChecklistItem['status']): ChecklistItem =>
+  ({ key: key as ChecklistItem['key'], label: key, status, reason: 'r', fixHref: `/x/${key}` });
+const verdict = (items: ChecklistItem[]): CloseReadiness =>
+  ({ periodId: PERIOD, periodLabel: 'March 2026', items, overallStatus: 'pass' });
+
+beforeEach(() => { vi.resetAllMocks(); });
 
 describe('closePeriodWithReadiness', () => {
-  it('closes the period when every check passes', async () => {
-    const result = await closePeriodWithReadiness(COMPANY, PERIOD, USER, {});
-    expect(closePeriod).toHaveBeenCalledWith(COMPANY, PERIOD, USER);
-    expect(result.closed).toBe(true);
-    expect(result.period.status).toBe('closed');
+  it('live: closes through closePeriodWithVerdict and reports the verdict judged under its lock', async () => {
+    vi.mocked(closePeriodWithVerdict).mockResolvedValue({
+      period: period('closed'), readiness: verdict([item('tb_balanced', 'pass'), item('vat_reviewed', 'warn')]),
+    });
+    const r = await closePeriodWithReadiness(COMPANY, PERIOD, USER, {});
+    expect(closePeriodWithVerdict).toHaveBeenCalledWith(COMPANY, PERIOD, USER);
+    expect(judgePeriodClose).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ closed: true, dryRun: false, period: { status: 'closed' } });
+    expect(r.checklist.map((i) => i.key)).toEqual(['tb_balanced', 'vat_reviewed']);
+    expect(r.warnings.map((i) => i.key)).toEqual(['vat_reviewed']);
   });
 
-  it('REFUSES with every failing check itemised, not with a boolean', async () => {
-    vi.mocked(getCloseReadiness).mockResolvedValue(readiness([
-      item('bank_reconciled', 'fail', '412 transactions are not reconciled'),
-      item('unposted_journals', 'fail', '3 draft journals'),
-      item('vat_reviewed', 'warn', 'no VAT return covers this period'),
-      item('tb_balanced', 'pass'),
-    ]));
-
-    const err = await closePeriodWithReadiness(COMPANY, PERIOD, USER, {}).catch((e) => e);
-
-    expect(err).toBeInstanceOf(PeriodCloseBlockedError);
-    expect(err.blockers.map((b: ChecklistItem) => b.key))
-      .toEqual(['bank_reconciled', 'unposted_journals']);
-    expect(err.blockers[0].reason).toBe('412 transactions are not reconciled');
-    expect(err.message).toMatch(/412 transactions are not reconciled/);
+  it('dry run: the same judgement (judgePeriodClose), and no write', async () => {
+    vi.mocked(judgePeriodClose).mockResolvedValue({ period: period('open'), readiness: verdict([item('tb_balanced', 'pass')]) });
+    const r = await closePeriodWithReadiness(COMPANY, PERIOD, USER, { dryRun: true });
+    expect(judgePeriodClose).toHaveBeenCalledWith(COMPANY, PERIOD);
+    expect(closePeriodWithVerdict).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ closed: false, dryRun: true });
   });
 
-  it('does NOT close when a check fails', async () => {
-    vi.mocked(getCloseReadiness).mockResolvedValue(readiness([item('tb_balanced', 'fail')]));
-    await expect(closePeriodWithReadiness(COMPANY, PERIOD, USER, {})).rejects.toThrow();
-    expect(closePeriod).not.toHaveBeenCalled();
-  });
-
-  it('warns do not block — they are reported alongside the close', async () => {
-    vi.mocked(getCloseReadiness).mockResolvedValue(readiness([
-      item('vat_reviewed', 'warn', 'no VAT return covers this period'),
-    ]));
-
-    const result = await closePeriodWithReadiness(COMPANY, PERIOD, USER, {});
-
-    expect(result.closed).toBe(true);
-    expect(result.warnings.map((w) => w.key)).toEqual(['vat_reviewed']);
-  });
-
-  it('runs EVERY guard on a dry run and writes nothing', async () => {
-    const result = await closePeriodWithReadiness(COMPANY, PERIOD, USER, { dryRun: true });
-
-    expect(getCloseReadiness).toHaveBeenCalledWith(COMPANY, PERIOD);
-    expect(closePeriod).not.toHaveBeenCalled();
-    expect(result.closed).toBe(false);
-    expect(result.dryRun).toBe(true);
-  });
-
-  it('a dry run REFUSES wherever the live call would — that is the whole point', async () => {
-    vi.mocked(getCloseReadiness).mockResolvedValue(readiness([item('ar_ties', 'fail')]));
-    await expect(
-      closePeriodWithReadiness(COMPANY, PERIOD, USER, { dryRun: true }),
-    ).rejects.toBeInstanceOf(PeriodCloseBlockedError);
-  });
-
-  it('refuses a period in another company as NOT FOUND, before any check runs', async () => {
-    vi.mocked(getFiscalPeriodById).mockResolvedValue(null);
-    await expect(closePeriodWithReadiness(COMPANY, PERIOD, USER, {}))
-      .rejects.toBeInstanceOf(PeriodNotCloseableError);
-    expect(getCloseReadiness).not.toHaveBeenCalled();
-    expect(closePeriod).not.toHaveBeenCalled();
-  });
-
-  it('refuses an already-closed period before running the checks', async () => {
-    vi.mocked(getFiscalPeriodById).mockResolvedValue(period({ status: 'closed' }));
-    await expect(closePeriodWithReadiness(COMPANY, PERIOD, USER, {}))
-      .rejects.toThrow(/already closed/i);
-    expect(getCloseReadiness).not.toHaveBeenCalled();
-  });
-
-  it('refuses a locked period', async () => {
-    vi.mocked(getFiscalPeriodById).mockResolvedValue(period({ status: 'locked' }));
-    await expect(closePeriodWithReadiness(COMPANY, PERIOD, USER, {})).rejects.toThrow(/locked/i);
-  });
-
-  it('reports a check that could not be computed as a blocker, not as a pass', async () => {
-    // getCloseReadiness degrades a check that threw to `warn` with a fixed
-    // reason. Treating "could not compute" as a warning is right for a screen a
-    // person reads and wrong for a caller that is not a person, so the close is
-    // blocked and the reason says so.
-    vi.mocked(getCloseReadiness).mockResolvedValue(readiness([
-      item('ap_ties', 'warn', 'Could not compute — check the relevant module.'),
-    ]));
-
-    await expect(closePeriodWithReadiness(COMPANY, PERIOD, USER, {}))
-      .rejects.toBeInstanceOf(PeriodCloseBlockedError);
-  });
-
-  it('blocks on a check that names its own "Could not compute" cause (AR / AP tie)', async () => {
-    // The sub-ledger tie catches a failed reconciliation itself and says why,
-    // after the same prefix. It must refuse the close exactly as the fixed
-    // reason does.
-    vi.mocked(getCloseReadiness).mockResolvedValue(readiness([
-      item('ar_ties', 'warn', 'Could not compute — the AR sub-ledger reconciliation as at 2025-07-31 failed to run.'),
-    ]));
-
-    await expect(closePeriodWithReadiness(COMPANY, PERIOD, USER, {}))
-      .rejects.toBeInstanceOf(PeriodCloseBlockedError);
-  });
-
-  it('returns the full checklist either way, so a caller sees what it passed', async () => {
-    const items = [item('tb_balanced', 'pass'), item('vat_reviewed', 'warn')];
-    vi.mocked(getCloseReadiness).mockResolvedValue(readiness(items));
-    const result = await closePeriodWithReadiness(COMPANY, PERIOD, USER, {});
-    expect(result.checklist.map((i) => i.key)).toEqual(['tb_balanced', 'vat_reviewed']);
-  });
-
-  it('refuses when readiness cannot resolve the period at all', async () => {
-    vi.mocked(getCloseReadiness).mockResolvedValue(null);
-    await expect(closePeriodWithReadiness(COMPANY, PERIOD, USER, {}))
-      .rejects.toBeInstanceOf(PeriodNotCloseableError);
-    expect(closePeriod).not.toHaveBeenCalled();
+  it.each([
+    ['a failing check', new PeriodCloseBlockedError('March 2026', [item('bank_reconciled', 'fail')], [], PERIOD)],
+    ['open prior periods (B5)', new PeriodNotCloseableError('March 2026 cannot be closed: prior periods are still open (February 2026). Close them first.')],
+  ])('%s: the dry run and the live close refuse with the same typed error', async (_n, err) => {
+    vi.mocked(judgePeriodClose).mockRejectedValue(err);
+    vi.mocked(closePeriodWithVerdict).mockRejectedValue(err);
+    await expect(closePeriodWithReadiness(COMPANY, PERIOD, USER, { dryRun: true })).rejects.toBe(err);
+    await expect(closePeriodWithReadiness(COMPANY, PERIOD, USER, {})).rejects.toBe(err);
   });
 });

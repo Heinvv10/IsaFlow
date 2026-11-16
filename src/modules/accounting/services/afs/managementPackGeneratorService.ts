@@ -20,6 +20,7 @@ import {
 } from './managementPackComparison';
 import { readAgeing, readReconciliations, readSafely, unproducedSections } from './managementPackReads';
 import { getCashFlowDirect } from './cashFlowDirectService';
+import { loadPackForecast } from './managementPackForecast';
 import { loadPackVarianceNoteBlocks } from './managementPackVarianceNotes';
 import { checkExisting, removeDraftPack } from './managementPackExisting';
 import type { ManagementPackConfig } from './afsTypes';
@@ -163,6 +164,7 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   const debtorsAging = enabledSections.includes('debtors_ageing') ? await readAgeing(ctx, 'ar', end) : null;
   const creditorsAging = enabledSections.includes('creditors_ageing') ? await readAgeing(ctx, 'ap', end) : null;
   const reconciliations = enabledSections.includes('bank_reconciliation') ? await readReconciliations(ctx, end) : null;
+  const forecast = enabledSections.includes('cash_flow_forecast') ? await loadPackForecast(companyId, period, end) : null;
 
   // A section whose report was refused says so; a pack with such a section (or a budget-engine fault) is not signed off and sent on its own.
   const unproduced = unproducedSections([
@@ -174,6 +176,7 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
     { name: 'bank reconciliation', wanted: enabledSections.includes('bank_reconciliation'), report: reconciliations },
     // The budget engine refusing a month (no budget, out of window) is an expected sentence; failing is not.
     { name: 'budget', wanted: budget?.kind === 'unavailable' && budget.fault, report: null },
+    { name: 'cash flow forecast', wanted: forecast?.kind === 'unavailable' && forecast.fault, report: null },
   ]);
 
   const doc = await createAfsDocument({
@@ -205,7 +208,7 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   const packData: PackData = {
     kpis: kpiScorecard.kpis, income, priorIncome, priorYearIncome, incomeReports, balanceReports,
     cashFlowReports, debtorsAging, creditorsAging, reconciliations, periodEnd: end,
-    plan, budget, varianceNotes, enabledSections,
+    plan, budget, varianceNotes, forecast, enabledSections,
   };
   const narrative = narrativePrior(packData, plan);
 

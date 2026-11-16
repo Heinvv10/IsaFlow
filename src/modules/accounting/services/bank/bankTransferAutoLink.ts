@@ -9,6 +9,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { lineFitsBankLineFragment } from './bankMatchTargetFit';
 
 type Row = DbRow;
 
@@ -70,6 +71,10 @@ export async function autoLinkCounterpartyTransfer(input: TransferAutoLinkInput)
       if (cpTxRows.length === 0) return;
 
       const cpTxId = String(cpTxRows[0]!.id);
+      // Never WAIT for the counterparty line: its own request may hold it while queued on the transfer-pair lock this
+      // one holds (transferPairLock) — a wait here would close that cycle. Held -> 55P03 -> the savepoint rolls back and
+      // the link is skipped (non-fatal, below); the other leg then finds this journal and is refused as a duplicate.
+      await sql`SELECT id FROM bank_transactions WHERE id = ${cpTxId}::UUID AND company_id = ${companyId}::UUID FOR NO KEY UPDATE NOWAIT`;
       // Find the JE line on the counterparty account side
       const cpJeLines = (await sql`
         SELECT id FROM gl_journal_lines
@@ -79,8 +84,8 @@ export async function autoLinkCounterpartyTransfer(input: TransferAutoLinkInput)
         LIMIT 1
       `) as Row[];
       const cpJeLineId = cpJeLines.length > 0 ? String(cpJeLines[0]!.id) : null;
-      await sql`
-        UPDATE bank_transactions
+      const linked = (await sql`
+        UPDATE bank_transactions bt
         SET status = 'allocated',
             allocation_type = 'transfer',
             matched_journal_line_id = ${cpJeLineId}::UUID,
@@ -99,7 +104,14 @@ export async function autoLinkCounterpartyTransfer(input: TransferAutoLinkInput)
           AND company_id = ${companyId}::UUID
           AND status = 'imported'
           AND feed_state = 'posted'
-      `;
+          -- Audit row 4: only when the counterparty leg is this line's own movement (account, direction, exact
+          -- amount). No leg at all (a NULL id) links nothing: an allocated row with no GL movement behind it.
+          AND EXISTS (SELECT 1 FROM gl_journal_lines l
+            WHERE l.id = ${cpJeLineId}::UUID AND l.company_id = ${companyId}::UUID
+              AND ${lineFitsBankLineFragment('l', 'bt')})
+        RETURNING bt.id
+      `) as Row[];
+      if (linked.length === 0) return;
       log.info('Auto-linked counterparty transfer transaction', { sourceTxId: bankTxId, cpTxId, jeId: journalEntryId }, 'accounting');
     });
   } catch (linkErr) {
