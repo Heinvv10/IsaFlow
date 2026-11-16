@@ -49,7 +49,7 @@ describe('PreValidationCard (compliance hub)', () => {
     expect(st.urls[0]).toMatch(/^\/api\/payroll\/pre-validation\?taxYear=\d{4}$/);
     const fix = screen.getByRole('link', { name: 'Fix: Tax number' });
     expect(fix.getAttribute('href')).toBe('/payroll/employees/e1#employee-tax-number');
-    expect(within(fix.closest('li')!).getByText('Error:')).toBeTruthy();
+    expect(within(fix.closest('li')!).getByText('Must fix:')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Fix: ID number' }).getAttribute('href')).toBe('/payroll/employees/e2#employee-id-number');
     expect(screen.queryByText(/No SARS source-code release/)).toBeNull();
   });
