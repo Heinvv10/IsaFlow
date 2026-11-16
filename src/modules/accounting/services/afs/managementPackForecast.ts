@@ -180,11 +180,12 @@ export function forecastBlocks(f: PackForecast): NoteContentBlock[] {
     { type: 'heading', level: 3, text: 'Budgeted month-end cash' },
     {
       type: 'paragraph',
-      text: `From the ${x.versionName} budget (${x.versionStatus}), FY${x.fiscalYear}, on opening balances as at ${longDate(x.asAt)}${x.provisional ? ' (provisional)' : ''}.`,
+      // The name is quoted, never followed by "budget": a version called "... Budget" would read "Budget budget".
+      text: `From the budget version "${x.versionName}" (${x.versionStatus}), FY${x.fiscalYear}, on opening balances as at ${longDate(x.asAt)}${x.provisional ? ' (provisional)' : ''}.`,
     },
   ];
   if (x.months.length === 0) {
-    return [...intro, { type: 'paragraph', text: `The ${x.versionName} budget has no months from ${monthLabel(x.fromMonth)} to the year end.` }];
+    return [...intro, { type: 'paragraph', text: `The budget version "${x.versionName}" has no months from ${monthLabel(x.fromMonth)} to the year end.` }];
   }
   const blocks: NoteContentBlock[] = [
     ...intro,

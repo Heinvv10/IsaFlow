@@ -110,10 +110,17 @@ describe('boundaries', () => {
     expect(text).not.toContain('"type":"list"');
   });
 
+  it('a version named "... Budget" never reads "Budget budget"', async () => {
+    const view = threeWayView({ version: { ...threeWayView().version, name: 'FY2027 Board Budget', status: 'draft' } } as Partial<ThreeWayView>);
+    const text = await textOf(view);
+    expect(text).toContain('From the budget version \\"FY2027 Board Budget\\" (draft), FY2027, on opening balances as at 28 February 2026.');
+    expect(text).not.toMatch(/Budget budget/i);
+  });
+
   it('no months from the pack month on: one sentence, no table', async () => {
     const blocks = (m.getThreeWay.mockResolvedValue(threeWayView()), forecastBlocks(await load('2027-03')));
     expect(blocks.some((b) => b.type === 'table')).toBe(false);
-    expect(plain(JSON.stringify(blocks))).toContain('The Original 2027 budget has no months from March 2027 to the year end.');
+    expect(plain(JSON.stringify(blocks))).toContain('The budget version \\"Original 2027\\" has no months from March 2027 to the year end.');
   });
 });
 
