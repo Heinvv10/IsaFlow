@@ -144,12 +144,39 @@ describe('warnings and checks within the shown months', () => {
     expect(await textOf(view)).toContain(`differs from the cash book by ${plain(formatCents(-1_234))}`);
   });
 
-  it('an unbalanced month before the pack month is not reported; one inside is, in words', async () => {
-    const checks = { balanced: false, unbalancedMonths: ['2026-04', '2026-11'], openingCash: { difference: 0, accounts: [] } };
-    const text = await textOf(threeWayView({ checks } as Partial<ThreeWayView>));
-    expect(text).toContain('The budgeted balance sheet does not balance in November 2026.');
-    expect(text).not.toContain('April 2026');
-    const before = { balanced: false, unbalancedMonths: ['2026-04'], openingCash: { difference: 0, accounts: [] } };
-    expect(await textOf(threeWayView({ checks: before } as Partial<ThreeWayView>))).not.toContain('does not balance');
+  it('the balance check covers the whole year: months before the pack month are reported too, in words', async () => {
+    const checks = { balanced: false, unbalancedMonths: ['2026-04', '2026-05'], openingCash: { difference: 0, accounts: [] } };
+    expect(await textOf(threeWayView({ checks } as Partial<ThreeWayView>))).toContain('The budget does not balance in April 2026 and May 2026.');
+    const three = { balanced: false, unbalancedMonths: ['2026-04', '2026-05', '2026-11'], openingCash: { difference: 0, accounts: [] } };
+    expect(await textOf(threeWayView({ checks: three } as Partial<ThreeWayView>))).toContain('does not balance in April 2026, May 2026 and November 2026.');
+  });
+});
+
+describe('only month fields become words; other text passes through', () => {
+  it('NNNN-NN account codes are untouched', async () => {
+    const view = threeWayView({ warnings: [
+      { code: 'opening_cash_difference', differenceCents: -100, accounts: ['8400-10', '1000-15'] },
+      { code: 'unmapped_balance', accounts: [{ accountCode: '2100-03' }] },
+    ] } as Partial<ThreeWayView>);
+    const text = await textOf(view);
+    expect(text).toContain('(accounts 8400-10, 1000-15)');
+    expect(text).toContain('lines: 2100-03.');
+    expect(text).not.toContain('October 8400');
+    expect(text).not.toContain('March 2100');
+  });
+
+  it('lookback months are in words', async () => {
+    const view = threeWayView({ warnings: [{ code: 'lookback_short', series: 'receivables', months: ['2025-12', '2026-01'] }] } as Partial<ThreeWayView>);
+    expect(await textOf(view)).toContain('(December 2025, January 2026)');
+  });
+
+  it('outside-months entries name the entry, keep its id as entered, and print no raw month', async () => {
+    const view = threeWayView({ warnings: [{ code: 'outside_months', entries: [
+      { list: 'capex', id: 'cap-2100-03', skipped: 'entry', detail: 'capex cap-2100-03 dated 2027-05, outside 2026-03..2027-02: skipped' },
+      { list: 'equity.dividends', id: 'd1', skipped: 'payment', detail: 'dividend d1 paid 2027-04, after 2027-02: payment skipped, the declaration stays payable' },
+    ] }] } as Partial<ThreeWayView>);
+    const text = await textOf(view);
+    expect(text).toContain('capex cap-2100-03; dividend d1 (its payment)');
+    expect(text).not.toMatch(/20\d{2}-\d{2}(?!-03)/);
   });
 });

@@ -100,7 +100,7 @@ describe('forecastBlocks', () => {
 
   it('an unbalanced budget says which months', async () => {
     m.getThreeWay.mockResolvedValue(threeWayView({ checks: { balanced: false, unbalancedMonths: ['2026-11'], openingCash: { difference: 0, accounts: [] } } } as never));
-    expect(JSON.stringify(forecastBlocks(await load()))).toContain('does not balance in November 2026');
+    expect(JSON.stringify(forecastBlocks(await load()))).toContain('The budget does not balance in November 2026.');
   });
 
   it('no version: the one sentence; unavailable: the fixed sentence; off: no blocks (the viewers print the old sentence)', () => {

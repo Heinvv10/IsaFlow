@@ -42,7 +42,7 @@ export interface ForecastFigures {
   months: ForecastMonth[];
   /** The lowest closing cash of `months` (the first such month on a tie). */
   lowest: { month: string; closingCash: number } | null;
-  /** Over the shown months only. */
+  /** Over the whole year: a month before the pack month that does not balance is still reported. */
   balanced: boolean;
   unbalancedMonths: string[];
   /** In words, scoped to the shown months, money in the pack's format. */
@@ -78,12 +78,33 @@ function isRefusal(err: unknown): boolean {
     .some((cls) => err instanceof cls);
 }
 
-/** Months in words in a warning's text (outside-months details carry 'YYYY-MM'); a full date is left as written. */
-const monthsInWords = (text: string): string => text.replace(/\b(\d{4}-\d{2})(?!-\d)\b/g, (mm: string) => monthLabel(mm));
+/** "A", "A and B", "A, B and C". */
+function inWords(xs: readonly string[]): string {
+  return xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
+}
+
+const OUTSIDE_LIST: Record<string, string> = { capex: 'capex', 'loans.planned': 'planned loan', 'equity.shareIssues': 'share issue', 'equity.dividends': 'dividend' };
 
 /**
- * The warnings a board reads under the table: within the shown months, in words, money as formatCents prints it.
- * opening_provisional is dropped: the intro already says provisional, and its "(today)" goes stale in a stored pack.
+ * A warning's month FIELDS in words, before warningText prints it; every other field (account codes, ids) is
+ * passed through untouched. An outside-months entry's `detail` is engine text with raw months in it, so the pack
+ * names the entry from its fields instead.
+ */
+function monthFieldsInWords(w: AnyWarning): AnyWarning {
+  switch (w.code) {
+    case 'negative_cash': return { ...w, months: w.months.map(monthLabel) };
+    case 'lookback_short': return { ...w, months: w.months.map(monthLabel) };
+    case 'negative_flow': return { ...w, month: monthLabel(w.month) };
+    case 'outside_months':
+      return { ...w, entries: w.entries.map((e) => ({ ...e, detail: `${OUTSIDE_LIST[e.list] ?? e.list} ${e.id}${e.skipped === 'payment' ? ' (its payment)' : ''}` })) };
+    default: return w;
+  }
+}
+
+/**
+ * The warnings a board reads under the table: negative cash and flows within the shown months, money as
+ * formatCents prints it. opening_provisional is dropped: the intro already says provisional, and its "(today)"
+ * goes stale in a stored pack.
  */
 function packWarnings(warnings: readonly AnyWarning[], period: string): AnyWarning[] {
   const out: AnyWarning[] = [];
@@ -106,15 +127,14 @@ export function forecastFiguresOf(view: ThreeWayView, period: string): ForecastF
   const months = view.cashFlow.direct
     .filter((d) => d.month >= period)
     .map((d) => ({ month: d.month, closingCash: d.closingCash, belowMinimum: d.closingCash < minimumCash }));
-  const unbalancedMonths = view.checks.unbalancedMonths.filter((mm) => mm >= period);
   const warnings = packWarnings(view.warnings, period);
   const lowest = months.reduce<ForecastMonth | null>((low, r) => (low === null || r.closingCash < low.closingCash ? r : low), null);
   return {
     versionId: view.version.id, versionName: view.version.name, versionStatus: view.version.status, fiscalYear: view.version.fiscalYear,
     asAt: view.opening.asAt, provisional: view.opening.provisional, minimumCash, fromMonth: period, months,
     lowest: lowest ? { month: lowest.month, closingCash: lowest.closingCash } : null,
-    balanced: unbalancedMonths.length === 0, unbalancedMonths,
-    warnings: warnings.map((w) => monthsInWords(warningText(w, (cents) => formatCents(cents)))), warningCodes: warnings.map((w) => w.code),
+    balanced: view.checks.balanced, unbalancedMonths: view.checks.unbalancedMonths,
+    warnings: warnings.map((w) => warningText(monthFieldsInWords(w), (cents) => formatCents(cents))), warningCodes: warnings.map((w) => w.code),
   };
 }
 
@@ -179,7 +199,7 @@ export function forecastBlocks(f: PackForecast): NoteContentBlock[] {
     blocks.push({ type: 'paragraph', text: `The lowest month-end cash is ${formatCents(x.lowest.closingCash)} in ${monthLabel(x.lowest.month)}${below}.` });
   }
   if (!x.balanced) {
-    blocks.push({ type: 'paragraph', text: `The budgeted balance sheet does not balance in ${x.unbalancedMonths.map(monthLabel).join(', ')}.` });
+    blocks.push({ type: 'paragraph', text: `The budget does not balance in ${inWords(x.unbalancedMonths.map(monthLabel))}.` });
   }
   if (x.warnings.length > 0) blocks.push({ type: 'list', items: x.warnings });
   return blocks;
