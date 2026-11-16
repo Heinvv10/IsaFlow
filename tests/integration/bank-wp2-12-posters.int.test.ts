@@ -5,9 +5,10 @@
 //   • createAdjustmentEntry (reconciliation adjustment, dated by the statement)
 // Every refusal is CAUGHT inside the transaction and the transaction COMMITS (a request's shape), then the ledger,
 // the bank line and every other table with a company_id are read back: nothing was written.
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import outstanding from '../../pages/api/accounting/provisional/outstanding';
+import * as provisionalService from '../../src/modules/accounting/services/capture/provisionalPostingService';
 import { sweep } from '../../src/modules/accounting/services/bank/autoPostGateService';
 import { postBankTransfer, BankTransferRefusedError } from '../../src/modules/accounting/services/bank/bankTransferService';
 import { createAdjustmentEntry, startReconciliation } from '../../src/modules/accounting/services/bank/bankReconciliationService';
@@ -192,6 +193,22 @@ describe('provisional/outstanding: each id in its own savepoint, one at a time',
     const again = resultsOf(await callRoute(outstanding as never, tokens[user]!, f.c, 'POST', { bankTxIds: [held] }, '/api/accounting/provisional/outstanding'));
     expect(again[0]!.journalEntryId).toBeTruthy();
   }, 90000);
+});
+
+describe('provisional/outstanding: an untyped error is never echoed', () => {
+  it('a driver-style message becomes a generic reason; the typed text above is kept', async () => {
+    const f = await co(); await predictor(f);
+    const id = await line(f, '2026-09-01', -100, 'Walton Stationery');
+    const spy = vi.spyOn(provisionalService, 'postProvisional')
+      .mockRejectedValueOnce(new Error('insert or update on table "gl_journal_lines" violates foreign key constraint "gl_journal_lines_fk"'));
+    try {
+      const res = await callRoute(outstanding as never, tokens[user]!, f.c, 'POST', { bankTxIds: [id] }, '/api/accounting/provisional/outstanding');
+      const r = resultsOf(res)[0]!;
+      expect(r.skipped).toBe('error');
+      expect(r.error).toBe('could not post (internal error)');
+      expect(JSON.stringify(res.state.body)).not.toMatch(/gl_journal_lines|constraint/);
+    } finally { spy.mockRestore(); }
+  }, 60000);
 });
 
 describe('auto-post gate import branch: a busy period is a retryable skip, never a permanent decision', () => {

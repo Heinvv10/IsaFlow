@@ -12,6 +12,7 @@ import type { ResolvedLine } from './bulkAllocationPrepare';
 import { reasonForStatus, type SkippedLine } from './bulkAllocationSkip';
 import { prefetchAllocationVatFacts, type VatCoercionReason } from './allocationVatGuard';
 import { postAllocationLine } from './allocationLine';
+import { isPeriodRefusal } from '@/modules/accounting/services/bank/bankAllocationPeriod';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { isLockNotAvailable } from '@/modules/accounting/services/core/lockContention';
 import type { McpToolContext } from '../types';
@@ -215,6 +216,13 @@ export async function postPreparedLines(
         raced.push({
           index, transaction_id: txId, reason: 'locked by another request — retry',
         });
+        continue;
+      }
+      // WP2 row 12: a period that closed (or went busy) between the partition's probe and this post is the same fact
+      // the probe reports for a line it sees closed: a skip, with the refusal's own text. The line's savepoint has
+      // rolled back anything it wrote.
+      if (isPeriodRefusal(err)) {
+        raced.push({ index, transaction_id: txId, reason: err.message });
         continue;
       }
       // NEVER err.message verbatim: the registry renders this text, and a pg

@@ -3,11 +3,12 @@
 // bulk batch while dry_run called the line postable, and surface as a registry failure on the single tools. Now:
 //   • bulk: the line is SKIPPED with the refusal as its reason; dry_run reports the identical skips; the rest posts
 //   • allocate / split: a typed toolError (isError, the refusal's own text), nothing written, line still 'imported'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { bulkAllocateBankTransactionsTool } from '../../src/lib/mcp/tools/writeBankBulkAllocate';
 import { allocateBankTransactionTool } from '../../src/lib/mcp/tools/writeBankAllocate';
 import { splitAllocateBankTransactionTool } from '../../src/lib/mcp/tools/writeBankSplit';
+import * as periodModule from '../../src/modules/accounting/services/bank/bankAllocationPeriod';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser } from './r035-approval.helpers';
 import { bankCompany, cleanupBankControlsA, lineStatus, mcpCaller, plantLine, type BankCompany } from './bank-controls-a.helpers';
@@ -116,4 +117,32 @@ describe('WP2 row 12: a bulk batch spanning two periods while a closer holds bot
     expect(body.skipped).toEqual([]);
     expect(await journals(f.c)).toBe(2);
   }, 90000);
+});
+
+describe('WP2 row 12: a period that closes between the probe and the live post', () => {
+  it('skips that line with the refusal text; the rest of the batch posts', async () => {
+    const { f, open } = await fixture();
+    await pool.query(`INSERT INTO fiscal_periods(company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
+      VALUES($1,'R12 2024',1,2024,'2024-01-01','2024-12-31','open')`, [f.c]);
+    const racing = await plantLine(pool, f, null, -400);
+    await pool.query("UPDATE bank_transactions SET transaction_date = DATE '2024-05-05' WHERE id = $1", [racing]);
+    const real = periodModule.periodLineSkips;
+    // The closer lands right after the probe (its FOR SHARE is rolled back, so nothing blocks the commit).
+    const spy = vi.spyOn(periodModule, 'periodLineSkips').mockImplementation(async (...a) => {
+      const out = await real(...a);
+      await pool.query("UPDATE fiscal_periods SET status = 'closed' WHERE company_id = $1 AND fiscal_year = 2024", [f.c]);
+      return out;
+    });
+    try {
+      const res = await mcp(user, f.c, 'bulk_allocate_bank_transactions',
+        { allocations: [acct(f, open), acct(f, racing)], idempotency_key: key() });
+      expect(res.isError, res.content[0]!.text).toBeFalsy();
+      const body = parse(res);
+      expect(body.posted).toBe(1);
+      expect(body.skipped).toEqual([{ index: 1, transaction_id: racing, reason: expect.stringMatching(/closed fiscal period/) }]);
+      expect(await lineStatus(pool, racing)).toBe('imported');
+      expect(await lineStatus(pool, open)).toBe('allocated');
+      expect(await journals(f.c)).toBe(1);
+    } finally { spy.mockRestore(); }
+  }, 60000);
 });

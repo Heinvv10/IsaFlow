@@ -14,9 +14,19 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { isPeriodRefusal } from '@/modules/accounting/services/bank/bankAllocationPeriod';
+import { InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
+import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { postProvisional } from '@/modules/accounting/services/capture/provisionalPostingService';
 
 type Row = DbRow;
+
+/** A refusal written for this audience (a period, an inactive account, a VAT lock): its text may reach the caller. */
+const isCallerSafe = (err: unknown): boolean =>
+  isPeriodRefusal(err) || err instanceof InactiveAccountError || err instanceof VatPeriodLockedError;
+/** Anything else (a pg error naming a table, an internal fault) is generic in the body and logged in full. */
+const callerSafeMessage = (err: unknown): string =>
+  isCallerSafe(err) ? (err as Error).message : 'could not post (internal error)';
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
@@ -88,10 +98,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         const result = await withSavepoint('provisional_outstanding_row', () => postProvisional(companyId, id, userId));
         results.push({ bankTxId: id, ...result });
       } catch (err) {
-        log.warn('postProvisional failed in batch endpoint', {
-          companyId, bankTxId: id, error: err instanceof Error ? err.message : String(err),
-        }, 'provisional-outstanding');
-        results.push({ bankTxId: id, journalEntryId: null, skipped: 'error', error: err instanceof Error ? err.message : 'unknown' });
+        if (isCallerSafe(err)) {
+          log.warn('postProvisional refused in batch endpoint', { companyId, bankTxId: id, error: (err as Error).message }, 'provisional-outstanding');
+        } else {
+          log.error('postProvisional failed in batch endpoint', { companyId, bankTxId: id, error: err }, 'provisional-outstanding');
+        }
+        results.push({ bankTxId: id, journalEntryId: null, skipped: 'error', error: callerSafeMessage(err) });
       }
     }
 
