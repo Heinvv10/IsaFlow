@@ -19,6 +19,8 @@ const NOT_YET: Record<string, string> = {
   maintenancePlanIncluded: 'FB', businessUseAtLeast80Pct: 'FB',
   daysWorked: 'context only: the case notes use it to reach the day rate', employmentBasis: 'context only: the classifier works it out from the hours',
   writtenDeclarationHeld: 'not recorded by IsaFlow yet (employmentTerms.ts, the PAYE_OUTSIDE_TABLES warning)',
+  periodFraction: 'FQc', dbMemberCategoryFactor: 'DBF', businessKm: 'RI', reimbursiveRatePerKm: 'RI', overtimeHours: 'RI',
+  overtimeMultiplier: 'RI', garnisheeOrders: 'GA',
 };
 
 describe('every fixture input reaches the calculator, or has a named owner', () => {

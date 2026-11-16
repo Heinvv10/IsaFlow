@@ -9,12 +9,19 @@
  * records those hours, the way HD stores a run's hours; `ordinaryHoursWage` is what the engine derives from that row.
  * Inputs the engine still has no field for (fringe terms) stay in `unmodelled` so the gap is
  * visible; they are not passed to it (oracleInputs.test.ts names each one's owner).
+ *
+ * Wave 6 (O3): `input.period` may say its `frequency`, `periodStart`/`periodEnd` and `runKind`, and
+ * `input.priorPeriods` lists the tax year's earlier periods with the figures their lines stored. The calculator
+ * has no field for the first three yet (FQc, OC wire them; until then such a case runs as a monthly regular line
+ * and sits on knownGaps.json). The priors reach it as the year to date (oracleInput.ts priorYearToDate).
+ * An UNVERIFIED case is on knownGaps.json (the engine differs from the hand computation in its notes) or on
+ * unverified.json (the engine equals it), never on both and never on neither.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
 import { buildCaseInput } from './oracleInput';
-import { ORACLE_FIELDS, validateCase, type OracleField } from './validate';
+import { ORACLE_FIELDS, validateCase, type FREQUENCIES, type OracleField, type PRIOR_FIGURES, type RUN_KINDS } from './validate';
 
 export { ORACLE_FIELDS, type OracleField };
 export { buildCaseInput, oracleTaxStatus, saIdFor } from './oracleInput';
@@ -41,7 +48,10 @@ export interface OracleCase {
   sourceRef: string;
   notes: string;
   input: {
-    period: { year: number; month: number };
+    period: {
+      year: number; month: number;
+      frequency?: typeof FREQUENCIES[number]; periodStart?: string; periodEnd?: string; runKind?: typeof RUN_KINDS[number];
+    };
     taxYear: number;
     employee: {
       dateOfBirth: string | null;
@@ -56,6 +66,8 @@ export interface OracleCase {
     components: OracleComponent[];
     /** Inputs the calculator takes only in part (the work terms are passed; the rest are recorded, not passed). */
     unmodelled?: Record<string, unknown>;
+    /** The tax year's earlier periods (wave-6 F1), oldest first; absent = this is the first. */
+    priorPeriods?: OraclePriorPeriod[];
   };
   /** Only the fields the source gives are asserted. */
   expected: Partial<Record<OracleField, number>>;
@@ -65,6 +77,24 @@ export interface OracleCase {
    */
   tolerance?: Partial<Record<OracleField, { cents: number; reason: string; engineActual: number }>>;
 }
+
+/** An earlier period: its inputs and the figures its line stored (validate.ts PRIOR_FIGURES). */
+export type OraclePriorPeriod = {
+  periodStart: string;
+  frequency: typeof FREQUENCIES[number];
+  runKind: typeof RUN_KINDS[number];
+  components: OracleComponent[];
+} & Record<typeof PRIOR_FIGURES[number], number>;
+
+/** An UNVERIFIED case the engine matches: why no source is cited, and what would verify it (spec §1.6). */
+export interface UnverifiedEntry {
+  case: string;
+  reason: string;
+  wouldVerify: string;
+}
+
+/** The list files in this directory: never loaded as cases (F22). */
+export const LIST_FILES = ['knownGaps.json', 'unverified.json'] as const;
 
 /**
  * A case that misses its source today. `engineActual` is the engine's CURRENT figure for each
@@ -78,7 +108,7 @@ export interface KnownGap {
 }
 
 export function loadCases(): OracleCase[] {
-  const files = readdirSync(ORACLE_DIR).filter(f => f.endsWith('.json') && f !== 'knownGaps.json').sort();
+  const files = readdirSync(ORACLE_DIR).filter(f => f.endsWith('.json') && !(LIST_FILES as readonly string[]).includes(f)).sort();
   return files.map(f => {
     const raw: unknown = JSON.parse(readFileSync(join(ORACLE_DIR, f), 'utf8'));
     validateCase(raw, f);
@@ -90,8 +120,15 @@ export function loadKnownGaps(): KnownGap[] {
   return JSON.parse(readFileSync(join(ORACLE_DIR, 'knownGaps.json'), 'utf8')) as KnownGap[];
 }
 
-/** Problems with the gap list itself: unknown cases, duplicates, empty entries, UNVERIFIED cases off the list. */
-export function gapListProblems(cases: readonly OracleCase[], gaps: readonly KnownGap[]): string[] {
+export function loadUnverified(): UnverifiedEntry[] {
+  return JSON.parse(readFileSync(join(ORACLE_DIR, 'unverified.json'), 'utf8')) as UnverifiedEntry[];
+}
+
+/**
+ * Problems with the two lists: unknown cases, duplicates, empty entries, and an UNVERIFIED case on neither list or on
+ * both. An unverified.json entry is not a gap, so caseProblems holds its engine figure to `expected` exactly.
+ */
+export function gapListProblems(cases: readonly OracleCase[], gaps: readonly KnownGap[], unverified: readonly UnverifiedEntry[] = []): string[] {
   const problems: string[] = [];
   const byId = new Map(cases.map(c => [c.id, c]));
   const seen = new Set<string>();
@@ -110,8 +147,21 @@ export function gapListProblems(cases: readonly OracleCase[], gaps: readonly Kno
     if (!g.reason || g.reason.length < 20) problems.push(`${g.case}: reason missing`);
     if (!g.closedBy || g.closedBy.length < 5) problems.push(`${g.case}: closedBy missing`);
   }
+  const unverifiedIds = new Set<string>();
+  for (const u of unverified) {
+    const c = byId.get(u.case);
+    if (!c) problems.push(`${u.case}: on unverified.json but has no fixture`);
+    else if (c.source !== 'UNVERIFIED') problems.push(`${u.case}: on unverified.json but its source is ${c.source}`);
+    if (unverifiedIds.has(u.case)) problems.push(`${u.case}: listed twice on unverified.json`);
+    if (seen.has(u.case)) problems.push(`${u.case}: on both knownGaps.json and unverified.json`);
+    unverifiedIds.add(u.case);
+    if (!u.reason || u.reason.length < 20) problems.push(`${u.case}: unverified reason missing`);
+    if (!u.wouldVerify || u.wouldVerify.length < 20) problems.push(`${u.case}: unverified wouldVerify missing`);
+  }
   for (const c of cases) {
-    if (c.source === 'UNVERIFIED' && !seen.has(c.id)) problems.push(`${c.id}: source UNVERIFIED is allowed only on a known gap`);
+    if (c.source === 'UNVERIFIED' && !seen.has(c.id) && !unverifiedIds.has(c.id)) {
+      problems.push(`${c.id}: source UNVERIFIED must be on knownGaps.json (engine differs) or unverified.json (engine matches)`);
+    }
   }
   return problems;
 }

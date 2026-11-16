@@ -2,9 +2,9 @@
  * The oracle's input builders, moved out of oracle.ts unchanged (wave-6 O3, refactor(split)): a case as the
  * calculator's PayrollLineInput. oracle.ts re-exports buildCaseInput, saIdFor and oracleTaxStatus.
  */
-import type { EmployeeComponent, PayrollEmployee, PayrollLineInput, TaxStatus } from '@/modules/accounting/services/payroll/payrollTypes';
+import type { EmployeeComponent, PayeYearToDate, PayrollEmployee, PayrollLineInput, TaxStatus } from '@/modules/accounting/services/payroll/payrollTypes';
 import { withFringeBenefits } from './fringeInput';
-import type { OracleCase } from './oracle';
+import type { OracleCase, OraclePriorPeriod } from './oracle';
 import { costRfi, withEmployerRetirement } from './rfiInput';
 
 /** A valid 13-digit SA ID number for a date of birth (YYMMDD 5009 0 8 + the Luhn check digit). */
@@ -97,8 +97,53 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
   // As a run: fringe benefits applied and employer benefits marked non-cash, then the percent-of-RFI rows costed (RF).
   const components = costRfi(withFringeBenefits(withEmployerRetirement(base, input.unmodelled), input.unmodelled, input.period), input.unmodelled);
   return {
-    employee, components, period: input.period, taxYear: input.taxYear,
+    // Only the month reaches the calculator: it has no frequency, period dates or run kind yet (FQc, OC).
+    employee, components, period: { year: input.period.year, month: input.period.month }, taxYear: input.taxYear,
     annualPayrollEstimate: input.employerAnnualRemuneration,
+    ...(input.priorPeriods ? { ytd: priorYearToDate(input.priorPeriods) } : {}),
     ...oracleDirective(c),
+  };
+}
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+const sumOf = (xs: readonly number[]): number => round2(xs.reduce((t, x) => t + x, 0));
+const RETIREMENT_CODES = ['4001', '4003', '4006'];
+
+/**
+ * The earlier periods as the year to date loadPayeYearToDate would return for those stored lines (wave-6 F1), so the
+ * engine sees what a real run sees. Each figure is the stored one, summed; the rest are read from the period's
+ * components the way the reader reads a line's breakdown (4005 fees, 4001/4003/4006 contributions, taxable 4030
+ * donations, SDL-flagged earnings).
+ * NAMED LIMITS: `periods` counts a prior with periodicTaxable > 0 (the reader counts pay before deductions, so a prior
+ * whose deductions take its periodic pay to nil is no period here); the SDL leviable a prior stored is its SDL pay less
+ * its retirement deduction, floored at nil (no donation); no s18A receipt, no 65+ credit and no PAYE-outside-tables
+ * prior. uifEmployee, uifLeviable, businessKm, etiRemuneration and etiHours have no year-to-date field yet: they are
+ * validated and carried for FQc, OC and RI, not passed.
+ */
+export function priorYearToDate(priors: readonly OraclePriorPeriod[]): PayeYearToDate {
+  const amounts = (p: OraclePriorPeriod, keep: (x: OraclePriorPeriod['components'][number]) => boolean) =>
+    p.components.filter(keep).reduce((t, x) => t + x.amount, 0);
+  const deduction = (codes: string[]) => (p: OraclePriorPeriod) =>
+    amounts(p, x => x.type === 'deduction' && codes.includes(x.code));
+  const sdlPay = (p: OraclePriorPeriod) => amounts(p, x => x.type === 'earning' && x.sdl);
+  return {
+    periods: priors.filter(p => p.periodicTaxable > 0).length,
+    retirementCapPeriods: priors.filter(p => p.periodicTaxable > 0 || p.annualPayments > 0).length,
+    periodicTaxable: sumOf(priors.map(p => p.periodicTaxable)),
+    annualPayments: sumOf(priors.map(p => p.annualPayments)),
+    tablePaye: sumOf(priors.map(p => p.paye)),
+    medicalCredit: sumOf(priors.map(p => p.medicalCredit)),
+    additionalMedicalCredit: 0,
+    medicalSchemeFees: sumOf(priors.map(deduction(['4005']))),
+    retirementContributions: sumOf(priors.map(deduction(RETIREMENT_CODES))),
+    retirementDeduction: sumOf(priors.map(p => p.retirementDeduction)),
+    donations: sumOf(priors.map(p => amounts(p, x => x.type === 'deduction' && x.code === '4030' && x.taxable))),
+    donationReceipted: 0,
+    donationBase: 0,
+    donationDeduction: 0,
+    sdlApplicable: sumOf(priors.map(sdlPay)),
+    sdlLeviable: sumOf(priors.map(p => Math.max(0, sdlPay(p) - p.retirementDeduction))),
+    sdlRetirementDeduction: sumOf(priors.map(p => p.retirementDeduction)),
+    sdlDonationDeduction: 0,
   };
 }

@@ -15,16 +15,20 @@
  * passes and Hein has named the tax-table owner (see taxTableHash.test.ts).
  */
 import { describe, expect, it } from 'vitest';
+import { readdirSync } from 'node:fs';
 import {
-  caseProblems, gapListProblems, loadCases, loadKnownGaps,
+  caseProblems, gapListProblems, LIST_FILES, loadCases, loadKnownGaps, loadUnverified, ORACLE_DIR,
 } from '../../../fixtures/payroll-oracle/oracle';
 
 const cases = loadCases();
 const gaps = loadKnownGaps();
+const unverified = loadUnverified();
 const gapFor = (id: string) => gaps.find(g => g.case === id);
 
 /** Every case, pinned: deleting or renaming a fixture is red. */
 const EXPECTED_CASE_IDS = [
+  'db-fund-12d-category-factor',
+  'director-uif-on-remuneration',
   'eti-below-minimum-wage-4000',
   'eti-min-wage-1c-below-4606-39',
   'eti-min-wage-exactly-at-minimum-4606-40',
@@ -39,9 +43,20 @@ const EXPECTED_CASE_IDS = [
   'fixed-amount-directive-2500',
   'fixed-rate-directive-20pct',
   'fixed-rate-directive-20pct-with-ra',
+  'fortnightly-2500-below-threshold',
   'g21-annual-bonus-statutory-table',
+  'ga-emolument-attachment-capped-25pct',
+  'ga-maintenance-outside-cap',
+  'offcycle-bonus-after-regular-g21',
+  'offcycle-termination-leave-after-regular',
+  'psp-company-27pct',
+  'psp-trust-45pct',
   'ra-annual-cap-binds-2027',
   'rf-employer-contribution-15pct-rfi-cap-binds-on-total',
+  'ri-overtime-10h-at-1-5x',
+  'ri-reimbursive-1000km-at-prescribed-3703',
+  'ri-reimbursive-above-prescribed-3702-3722',
+  'ri-sunday-8h-at-2x',
   'sage-2027-03-david',
   'sage-2027-03-janneman',
   'sage-2027-03-kesh',
@@ -67,6 +82,12 @@ const EXPECTED_CASE_IDS = [
   'ts-standard-22h-boundary-tables-not-flat-25pct',
   'ts-standard-below-threshold-nil-paye',
   'uif-ceiling-20000',
+  'uif-clawback-larger-than-pay-nil',
+  'weekly-1250-below-threshold',
+  'weekly-6000-above-weekly-uif-ceiling',
+  'weekly-starter-fourth-week-averaged',
+  'weekly-starter-g21-3-of-7-days',
+  'weekly-week-53-pay-sunday',
 ];
 
 describe('payroll oracle fixtures', () => {
@@ -74,8 +95,24 @@ describe('payroll oracle fixtures', () => {
     expect(cases.map(c => c.id).sort()).toEqual([...EXPECTED_CASE_IDS].sort());
   });
 
-  it('the gap list is well formed: real cases and fields, numeric engineActual, a reason and a closer; UNVERIFIED only on a gap', () => {
-    expect(gapListProblems(cases, gaps)).toEqual([]);
+  it('the lists are well formed: real cases and fields, numeric engineActual, a reason and a closer; UNVERIFIED on exactly one list', () => {
+    expect(gapListProblems(cases, gaps, unverified)).toEqual([]);
+  });
+
+  it('F22: the list files are never loaded as cases, and every other JSON file is', () => {
+    const json = readdirSync(ORACLE_DIR).filter(f => f.endsWith('.json'));
+    expect(LIST_FILES.every(f => json.includes(f))).toBe(true);
+    const ids = cases.map(c => `${c.id}.json`);
+    expect(ids.filter(f => (LIST_FILES as readonly string[]).includes(f))).toEqual([]);
+    expect(json.filter(f => !(LIST_FILES as readonly string[]).includes(f)).sort()).toEqual([...ids].sort());
+  });
+
+  it('O3: the wave-6 cases sit on their closing PR\'s gap or on unverified.json until the engine PR lands', () => {
+    const closer = (id: string) => gaps.find(g => g.case === id)?.closedBy.split(' ')[0];
+    expect(closer('uif-clawback-larger-than-pay-nil')).toBe('UF');
+    expect(closer('weekly-6000-above-weekly-uif-ceiling')).toBe('FQc');
+    expect(closer('offcycle-bonus-after-regular-g21')).toBe('OC');
+    expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'director-uif-on-remuneration']);
   });
 
   it('#1142 is merged: SDL after para 2(4) deductions is not a known gap; Phekis and David are tolerated rounding, not gaps', () => {

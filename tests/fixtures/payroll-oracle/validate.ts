@@ -12,14 +12,24 @@ export const MAX_TOLERANCE_CENTS = 5;
 
 const SOURCE_PATTERN = /^(sage|simplepay|both|velocity-register-v2|UNVERIFIED|sars-guide:.+)$/;
 
+export const FREQUENCIES = ['monthly', 'fortnightly', 'weekly'] as const;
+export const RUN_KINDS = ['regular', 'bonus', 'termination'] as const;
+/** The stored line figures of a prior period that the year-to-date reader consumes (spec §4 O3 F1); all required. */
+export const PRIOR_FIGURES = [
+  'paye', 'uifEmployee', 'uifLeviable', 'periodicTaxable', 'annualPayments', 'retirementDeduction', 'medicalCredit',
+  'businessKm', 'etiRemuneration', 'etiHours',
+] as const;
+
 /** Substrings of a normalised key (lowercase, no `_` or `-`) that mark personal data. */
 export const PII_KEY_PARTS = ['name', 'surname', 'id', 'tax', 'bank', 'account', 'mobile', 'phone', 'email', 'dob', 'birth', 'passport'];
 
 /** The schema's own keys, per object, which may contain a PII_KEY_PARTS substring by design. */
 const SCHEMA: Record<string, readonly string[]> = {
   case: ['id', 'source', 'sourceRef', 'notes', 'input', 'expected', 'tolerance'],
-  input: ['period', 'taxYear', 'employee', 'employerAnnualRemuneration', 'components', 'unmodelled'],
-  period: ['year', 'month'],
+  input: ['period', 'taxYear', 'employee', 'employerAnnualRemuneration', 'components', 'unmodelled', 'priorPeriods'],
+  period: ['year', 'month', 'frequency', 'periodStart', 'periodEnd', 'runKind'],
+  /** An earlier period of the tax year (wave-6 F1): its inputs and the line figures a run stored for it. */
+  priorPeriod: ['periodStart', 'frequency', 'runKind', 'components', ...PRIOR_FIGURES],
   employee: ['dateOfBirth', 'startDate', 'taxStatus', 'uifExcluded', 'medicalAidMainMember', 'medicalAidDependantsCount', 's18aReceiptHeld'],
   component: ['code', 'name', 'type', 'amount', 'taxable', 'uif', 'sdl'],
   toleranceEntry: ['cents', 'reason', 'engineActual'],
@@ -47,7 +57,8 @@ function schemaAt(path: readonly string[]): readonly string[] {
   if (at === 'input') return SCHEMA.input!;
   if (at === 'input.period') return SCHEMA.period!;
   if (at === 'input.employee') return SCHEMA.employee!;
-  if (at === 'input.components') return SCHEMA.component!;
+  if (at === 'input.components' || at === 'input.priorPeriods.components') return SCHEMA.component!;
+  if (at === 'input.priorPeriods') return SCHEMA.priorPeriod!;
   if (at === 'expected' || at === 'tolerance') return ORACLE_FIELDS;
   if (path.length === 2 && path[0] === 'tolerance') return SCHEMA.toleranceEntry!;
   return [];
@@ -102,6 +113,7 @@ export function validateCase(raw: unknown, file: string): void {
   need(isObj(input.period) && isInt((input.period as Obj).year) && isInt((input.period as Obj).month)
     && ((input.period as Obj).month as number) >= 1 && ((input.period as Obj).month as number) <= 12, file, 'input.period needs integer year and month 1-12');
   need(isInt(input.taxYear), file, 'input.taxYear must be an integer');
+  validatePeriod(input.period as Obj, input.taxYear as number, file);
   need(isNum(input.employerAnnualRemuneration), file, 'input.employerAnnualRemuneration must be a number');
   need(input.unmodelled === undefined || isObj(input.unmodelled), file, 'input.unmodelled must be an object');
 
@@ -117,14 +129,9 @@ export function validateCase(raw: unknown, file: string): void {
   need(isInt(e.medicalAidDependantsCount), file, 'input.employee.medicalAidDependantsCount must be an integer');
 
   need(Array.isArray(input.components) && input.components.length > 0, file, 'input.components must be a non-empty array');
-  (input.components as unknown[]).forEach((x, i) => {
-    need(isObj(x), file, `input.components[${i}] must be an object`);
-    const k = x as Obj;
-    onlyKeys(k, SCHEMA.component!, file, `input.components[${i}]`);
-    need(typeof k.code === 'string' && typeof k.name === 'string' && (k.type === 'earning' || k.type === 'deduction') && isNum(k.amount)
-      && typeof k.taxable === 'boolean' && typeof k.uif === 'boolean' && typeof k.sdl === 'boolean', file,
-    `input.components[${i}] needs code, name, type (earning|deduction), amount and boolean taxable/uif/sdl`);
-  });
+  validateComponents(input.components as unknown[], 'input.components', file);
+
+  if (input.priorPeriods !== undefined) validatePriorPeriods(input.priorPeriods, input.period as Obj, input.taxYear as number, file);
 
   need(isObj(c.expected) && Object.keys(c.expected).length > 0, file, 'no expected figure');
   for (const [k, v] of Object.entries(c.expected as Obj)) {
@@ -141,4 +148,65 @@ export function validateCase(raw: unknown, file: string): void {
       need(isNum((t as Obj).engineActual), file, `tolerance on ${k}: engineActual (the engine's current figure) is required`);
     }
   }
+}
+
+function validateComponents(list: unknown[], where: string, file: string): void {
+  list.forEach((x, i) => {
+    need(isObj(x), file, `${where}[${i}] must be an object`);
+    const k = x as Obj;
+    onlyKeys(k, SCHEMA.component!, file, `${where}[${i}]`);
+    need(typeof k.code === 'string' && typeof k.name === 'string' && (k.type === 'earning' || k.type === 'deduction') && isNum(k.amount)
+      && typeof k.taxable === 'boolean' && typeof k.uif === 'boolean' && typeof k.sdl === 'boolean', file,
+    `${where}[${i}] needs code, name, type (earning|deduction), amount and boolean taxable/uif/sdl`);
+  });
+}
+
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const isDate = (v: unknown): v is string => typeof v === 'string' && DATE.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`))
+  && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
+/**
+ * The SA tax year's last day, and the earliest a period of it may start: a weekly or fortnightly period paid on or after
+ * 1 March may begin up to 13 days before it (the 2027 year's first Sunday pay day, 1 March 2026, ends a week begun 23 February).
+ */
+function taxYearBounds(taxYear: number): { from: string; to: string } {
+  const first = new Date(Date.UTC(taxYear - 1, 2, 1 - 13));
+  return { from: first.toISOString().slice(0, 10), to: `${taxYear}-02-${taxYear % 4 === 0 ? 29 : 28}` };
+}
+
+/** frequency, periodStart/periodEnd (both or neither, inside the tax year, in order) and runKind: each optional, each strict. */
+function validatePeriod(period: Obj, taxYear: number, file: string): void {
+  onlyKeys(period, SCHEMA.period!, file, 'input.period');
+  need(period.frequency === undefined || (FREQUENCIES as readonly unknown[]).includes(period.frequency), file,
+    `input.period.frequency must be one of ${FREQUENCIES.join(' | ')}`);
+  need(period.runKind === undefined || (RUN_KINDS as readonly unknown[]).includes(period.runKind), file,
+    `input.period.runKind must be one of ${RUN_KINDS.join(' | ')}`);
+  need((period.periodStart === undefined) === (period.periodEnd === undefined), file, 'input.period needs periodStart and periodEnd together');
+  if (period.periodStart === undefined) return;
+  need(isDate(period.periodStart) && isDate(period.periodEnd), file, 'input.period.periodStart and periodEnd must be real YYYY-MM-DD dates');
+  const { from, to } = taxYearBounds(taxYear);
+  const start = period.periodStart as string;
+  const end = period.periodEnd as string;
+  need(start <= end && start >= from && end <= to, file, `input.period ${start}..${end} must be in order and inside tax year ${taxYear} (${from}..${to})`);
+  const month = `${String(period.year)}-${String(period.month).padStart(2, '0')}`;
+  need(start.slice(0, 7) <= month && month <= end.slice(0, 7), file, `input.period ${start}..${end} must overlap its pay month ${month}`);
+}
+
+/** Each earlier period: strict keys, a real date inside the tax year and not after this period's start, and every figure. */
+function validatePriorPeriods(raw: unknown, period: Obj, taxYear: number, file: string): void {
+  need(Array.isArray(raw) && raw.length > 0, file, 'input.priorPeriods must be a non-empty array (leave it out for a first period)');
+  const { from } = taxYearBounds(taxYear);
+  const thisStart = (period.periodStart as string | undefined) ?? `${String(period.year)}-${String(period.month).padStart(2, '0')}-01`;
+  (raw as unknown[]).forEach((x, i) => {
+    const at = `input.priorPeriods[${i}]`;
+    need(isObj(x), file, `${at} must be an object`);
+    const p = x as Obj;
+    onlyKeys(p, SCHEMA.priorPeriod!, file, at);
+    need(isDate(p.periodStart) && (p.periodStart as string) >= from && (p.periodStart as string) <= thisStart, file,
+      `${at}.periodStart must be a real date from ${from} to this period's start ${thisStart}`);
+    need((FREQUENCIES as readonly unknown[]).includes(p.frequency), file, `${at}.frequency must be one of ${FREQUENCIES.join(' | ')}`);
+    need((RUN_KINDS as readonly unknown[]).includes(p.runKind), file, `${at}.runKind must be one of ${RUN_KINDS.join(' | ')}`);
+    need(Array.isArray(p.components), file, `${at}.components must be an array`);
+    validateComponents(p.components as unknown[], `${at}.components`, file);
+    for (const f of PRIOR_FIGURES) need(isNum(p[f]), file, `${at}.${f} must be a number`);
+  });
 }

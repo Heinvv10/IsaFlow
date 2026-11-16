@@ -1,0 +1,1397 @@
+{
+  "id": "weekly-week-53-pay-sunday",
+  "source": "UNVERIFIED",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf p. 9; https://www.sars.gov.za/wp-content/uploads/Docs/PAYE/Tables/tables2026/PAYE-GEN-01-G01-A01-Weekly-Tax-Deduction-Tables-2027-External-Annexure.pdf; https://www.simplepay.co.za/help/payroll-concepts/statutory-deductions-and-contributions/tax-paye/calculating-paye-for-regular-income/; Sage Business Cloud Payroll Getting Started Guide (Pay Period: 52/53 pay periods in a weekly pay cycle)",
+  "notes": "R3 000 a week, under 65, week Mon-Sun paid on the Sunday: 1 March 2026 and 28 February 2027 are both Sundays, so tax year 2027 has 53 pay days (no 2027 year has 53 Fridays, and 2027 is the only table year the engine has). Week 53 = 22-28 Feb 2027, after 52 weekly priors. Expected = SimplePay\\’s documented averaging (YTD x 52 / periods worked): the annual equivalent stays 156 000, tax 10 260, YTD tax 10 260 / 52 x 53, so week 53 = 197.31, the same as every week. UNVERIFIED: G21 p. 9 says x total pay periods in the tax year, which in a 53-week year would be x53 (203.77 a week); the weekly tables use x52; Sage counts 52 or 53 periods. UIF 30.00; net 3 000 - 197.31 - 30.00.",
+  "input": {
+    "period": {
+      "year": 2027,
+      "month": 2,
+      "frequency": "weekly",
+      "periodStart": "2027-02-22",
+      "periodEnd": "2027-02-28",
+      "runKind": "regular"
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 3000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "priorPeriods": [
+      {
+        "periodStart": "2026-02-23",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-03-02",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-03-09",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.3,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-03-16",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-03-23",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-03-30",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-04-06",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.3,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-04-13",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-04-20",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-04-27",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-05-04",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.3,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-05-11",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-05-18",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-05-25",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-06-01",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-06-08",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.3,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-06-15",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-06-22",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-06-29",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-07-06",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.3,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-07-13",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-07-20",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-07-27",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-08-03",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.3,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-08-10",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-08-17",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-08-24",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-08-31",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-09-07",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.3,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-09-14",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-09-21",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-09-28",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-10-05",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.3,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-10-12",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-10-19",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-10-26",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-11-02",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.3,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-11-09",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-11-16",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-11-23",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-11-30",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-12-07",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.3,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-12-14",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-12-21",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-12-28",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2027-01-04",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.3,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2027-01-11",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2027-01-18",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2027-01-25",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2027-02-01",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.3,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2027-02-08",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2027-02-15",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 3000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 197.31,
+        "uifEmployee": 30,
+        "uifLeviable": 3000,
+        "periodicTaxable": 3000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      }
+    ]
+  },
+  "expected": {
+    "paye": 197.31,
+    "uifEmployee": 30,
+    "net": 2772.69
+  }
+}

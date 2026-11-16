@@ -1,0 +1,43 @@
+{
+  "id": "ri-reimbursive-1000km-at-prescribed-3703",
+  "source": "UNVERIFIED",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf p. 4 (rate); Sage Payroll Tax Pocket Guide 2025-2026 s3.4 (treatment)",
+  "notes": "Salary R20 000 and 1 000 business km reimbursed at the prescribed R4.95/km (G21 p. 4, 2027): R4 950, not remuneration (code 3703), no other travel compensation. PAYE on 20 000 = 2 115.00; UIF 177.12; net 20 000 + 4 950 - 2 115 - 177.12 = 22 657.88. UNVERIFIED: the treatment (3703 excluded, excess over the rate included as 3722) is read from Sage\\’s pocket guide s3.4, not a SARS 2027 page.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 20000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "unmodelled": {
+      "businessKm": 1000,
+      "reimbursiveRatePerKm": 4.95
+    }
+  },
+  "expected": {
+    "paye": 2115,
+    "uifEmployee": 177.12,
+    "net": 22657.88
+  }
+}

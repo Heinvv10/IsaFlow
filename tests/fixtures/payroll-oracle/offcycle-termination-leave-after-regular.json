@@ -1,0 +1,149 @@
+{
+  "id": "offcycle-termination-leave-after-regular",
+  "source": "sars-guide:SARS PAYE-GEN-01-G21 Guide for Employers iro Employees Tax 2027, Revision 1 p. 31-32 (leave pay: encashed leave taxed as a bonus, code 3605) and p. 13",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
+  "notes": "Monthly R20 000 (under 65), June 2026 regular run paid, then a termination run in June paying R10 000 accrued leave. G21 p. 31-32: accrued leave encashed on termination is taxed in the same manner as a bonus (code 3605): tax(240 000 + 10 000) - tax(240 000) = 27 572 - 25 380 = 2192.00. UIF: the regular run already levied the month\\’s R17 712 ceiling (G21 p. 13), so 0.00 each side (spec F12: a monthly employee\\’s regular plus off-cycle runs are capped at the month\\’s ceiling).",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 6,
+      "frequency": "monthly",
+      "periodStart": "2026-06-01",
+      "periodEnd": "2026-06-30",
+      "runKind": "termination"
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3605",
+        "name": "Leave pay on termination",
+        "type": "earning",
+        "amount": 10000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "priorPeriods": [
+      {
+        "periodStart": "2026-03-01",
+        "frequency": "monthly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 20000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 2115.0,
+        "uifEmployee": 177.12,
+        "uifLeviable": 17712,
+        "periodicTaxable": 20000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-04-01",
+        "frequency": "monthly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 20000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 2115.0,
+        "uifEmployee": 177.12,
+        "uifLeviable": 17712,
+        "periodicTaxable": 20000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-05-01",
+        "frequency": "monthly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 20000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 2115.0,
+        "uifEmployee": 177.12,
+        "uifLeviable": 17712,
+        "periodicTaxable": 20000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-06-01",
+        "frequency": "monthly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 20000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 2115.0,
+        "uifEmployee": 177.12,
+        "uifLeviable": 17712,
+        "periodicTaxable": 20000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      }
+    ]
+  },
+  "expected": {
+    "paye": 2192.0,
+    "uifEmployee": 0,
+    "uifEmployer": 0
+  }
+}

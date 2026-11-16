@@ -7,5 +7,143 @@
     },
     "reason": "Hours-blind Sage parity: R1 125.00 (Sage's flat 25% for its 'Temporary/Part time' status) against engine R0.00 with HOURS_NOT_RECORDED. The case carries no hours, so G21 Rev 1 p. 27-28 cannot put it in non-standard employment; the statutory 22 h and under-5 h cases are ts-standard-22h-boundary-tables-not-flat-25pct and ts-non-standard-under-5h-day-flat-25pct.",
     "closedBy": "Never by a status label: only if Sage's hours for this employee are recorded (then correct the fixture or add them). Parity only."
+  },
+  {
+    "case": "uif-clawback-larger-than-pay-nil",
+    "engineActual": {
+      "uifEmployee": -30,
+      "uifEmployer": -30
+    },
+    "reason": "The engine levies 1% of a negative UIF-leviable month (-R3 000), giving -30.00 each side; G21 p. 13 levies 1% of remuneration paid, so nil.",
+    "closedBy": "UF (wave 6): UIF floored at nil."
+  },
+  {
+    "case": "weekly-6000-above-weekly-uif-ceiling",
+    "engineActual": {
+      "paye": 0,
+      "uifEmployee": 60,
+      "uifEmployer": 60,
+      "net": 5940
+    },
+    "reason": "No pay frequency reaches the calculator: the week runs as a monthly R6 000 (annualised x12, below the threshold, so PAYE 0) with the monthly UIF ceiling (60.00, not the per-week 40.87).",
+    "closedBy": "FQc (wave 6): weekly and fortnightly engine, x52 factor and per-period UIF ceiling."
+  },
+  {
+    "case": "weekly-starter-g21-3-of-7-days",
+    "engineActual": {
+      "paye": 0
+    },
+    "reason": "No pay frequency or part-period reaches the calculator: R1 090 runs as a monthly line (x12 = 13 080, below the threshold), not 1 090 / 0.4285 x 52.",
+    "closedBy": "FQc (wave 6): weekly engine with the part-period fraction."
+  },
+  {
+    "case": "weekly-starter-fourth-week-averaged",
+    "engineActual": {
+      "paye": 0,
+      "net": 2475
+    },
+    "reason": "The three weekly priors are folded as monthly periods: the engine annualises the year to date x12 over periods, so the R2 500 week is below the threshold.",
+    "closedBy": "FQc (wave 6): weekly engine (x52 over periods worked, run-keyed year to date)."
+  },
+  {
+    "case": "weekly-week-53-pay-sunday",
+    "engineActual": {
+      "paye": 0,
+      "net": 2970
+    },
+    "reason": "52 weekly priors fold as 52 monthly periods (x12 / 53), so PAYE is 0, not the week-53 averaged 197.31.",
+    "closedBy": "FQc (wave 6): weekly engine and the 53-period year."
+  },
+  {
+    "case": "offcycle-bonus-after-regular-g21",
+    "engineActual": {
+      "uifEmployee": 148,
+      "uifEmployer": 148
+    },
+    "reason": "PAYE matches. UIF is costed per line, so the bonus run levies 1% of R14 800 although October's regular run already reached the month's R17 712 ceiling.",
+    "closedBy": "OC (wave 6): off-cycle runs, the month's UIF ceiling across runs."
+  },
+  {
+    "case": "offcycle-termination-leave-after-regular",
+    "engineActual": {
+      "uifEmployee": 100,
+      "uifEmployer": 100
+    },
+    "reason": "PAYE matches. UIF is costed per line, so the termination run levies 1% of R10 000 although June's regular run already reached the month's ceiling.",
+    "closedBy": "OC (wave 6): termination runs, the month's UIF ceiling across runs."
+  },
+  {
+    "case": "psp-company-27pct",
+    "engineActual": {
+      "paye": 11075.58,
+      "uifEmployee": 177.12,
+      "uifEmployer": 177.12
+    },
+    "reason": "A personal service company is costed as an employee on the tables with UIF; the case (UNVERIFIED) expects a flat 27% and no UIF.",
+    "closedBy": "PSP (wave 6): personal service providers. Must cite G21 p. 31 or the Act; G21 says \"in the same manner as tax on a bonus\"."
+  },
+  {
+    "case": "psp-trust-45pct",
+    "engineActual": {
+      "paye": 11075.58,
+      "uifEmployee": 177.12,
+      "uifEmployer": 177.12
+    },
+    "reason": "A personal service trust is costed as an employee on the tables with UIF; the case (UNVERIFIED) expects a flat 45% and no UIF.",
+    "closedBy": "PSP (wave 6): personal service providers. Must cite G21 p. 31 or the Act; G21 says \"in the same manner as tax on a bonus\"."
+  },
+  {
+    "case": "ri-overtime-10h-at-1-5x",
+    "engineActual": {
+      "paye": 243,
+      "uifEmployee": 96,
+      "net": 9261
+    },
+    "reason": "Overtime hours and their multiplier do not reach the calculator: only the R9 600 ordinary pay is costed.",
+    "closedBy": "RI (wave 6): overtime hours x rate x multiplier."
+  },
+  {
+    "case": "ri-sunday-8h-at-2x",
+    "engineActual": {
+      "paye": 243,
+      "uifEmployee": 96,
+      "net": 9261
+    },
+    "reason": "Overtime hours and their multiplier do not reach the calculator: only the R9 600 ordinary pay is costed.",
+    "closedBy": "RI (wave 6): overtime hours x rate x multiplier."
+  },
+  {
+    "case": "ri-reimbursive-1000km-at-prescribed-3703",
+    "engineActual": {
+      "net": 17707.88
+    },
+    "reason": "Business km and the reimbursive rate do not reach the calculator, so the R4 950 reimbursement is not paid in net.",
+    "closedBy": "RI (wave 6): reimbursive travel at the prescribed rate (3703)."
+  },
+  {
+    "case": "ri-reimbursive-above-prescribed-3702-3722",
+    "engineActual": {
+      "paye": 2115,
+      "sdl": 200,
+      "net": 17707.88
+    },
+    "reason": "Business km and the rate do not reach the calculator: neither the R4 950 (3702) nor the taxable R1 050 excess (3722) is costed.",
+    "closedBy": "RI (wave 6): reimbursive travel above the prescribed rate (3702/3722)."
+  },
+  {
+    "case": "ga-emolument-attachment-capped-25pct",
+    "engineActual": {
+      "net": 17707.88
+    },
+    "reason": "Garnishee orders do not reach the calculator: net pay is before any order. PAYE is unaffected and matches.",
+    "closedBy": "GA (wave 6): garnishee orders."
+  },
+  {
+    "case": "ga-maintenance-outside-cap",
+    "engineActual": {
+      "net": 17707.88
+    },
+    "reason": "Garnishee orders do not reach the calculator: net pay is before any order. PAYE is unaffected and matches.",
+    "closedBy": "GA (wave 6): garnishee orders."
   }
 ]
