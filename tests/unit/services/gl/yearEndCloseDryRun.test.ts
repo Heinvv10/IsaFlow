@@ -26,6 +26,8 @@ vi.mock('@/lib/neon', () => ({
   withTransaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(txSpy)),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock('@/modules/accounting/services/gl/yearEndPeriodGate', async (orig) => (await import('../../helpers/yearEndGateMocks')).yearEndPeriodGateMock(orig));
+vi.mock('@/modules/accounting/services/gl/periodCloseGate', async () => (await import('../../helpers/yearEndGateMocks')).periodCloseGateMock());
 // The year's real dates are the registry's (a stored fiscal_years row), not the declared start month.
 vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry',
   async () => (await import('../../../helpers/fiscalYearSqlFake')).registryMock());

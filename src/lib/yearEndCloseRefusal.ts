@@ -8,6 +8,7 @@
  */
 
 import type { CloseYearError } from '@/modules/accounting/services/gl/yearEndCloseTypes';
+import { PERIOD_CLOSE_NOT_READY } from '@/modules/accounting/services/gl/periodCloseRefusalShape';
 
 export interface YearEndCloseRefusal {
   kind: 'badRequest' | 'notFound' | 'conflict';
@@ -18,7 +19,20 @@ export interface YearEndCloseRefusal {
 export function yearEndCloseRefusal(result: CloseYearError): YearEndCloseRefusal {
   switch (result.error) {
     case 'open_periods':
-      return { kind: 'badRequest', message: `${result.count} periods still open. Close all periods first.` };
+      return {
+        kind: 'badRequest',
+        message: `${result.count} period${result.count === 1 ? ' is' : 's are'} not closed yet `
+          + `(${result.openPeriods.map((p) => p.periodName).join(', ')}). Close every period of the year first.`,
+      };
+    case 'close_checks_failed':
+      return {
+        kind: 'conflict',
+        message: `Fiscal year ${result.fiscalYear} cannot be locked: ${result.periods.length} period`
+          + `${result.periods.length === 1 ? '' : 's'} failed the close checks (`
+          + result.periods.map((p) => `${p.periodName}: ${p.blockers.map((b) => b.label).join(', ')}`).join('; ')
+          + '). Nothing was posted or locked.',
+        details: { code: PERIOD_CLOSE_NOT_READY, fiscalYear: result.fiscalYear, periods: result.periods },
+      };
     case 'year_not_found':
       return { kind: 'notFound', message: 'Fiscal year not found' };
     case 'start_month_assumed':
