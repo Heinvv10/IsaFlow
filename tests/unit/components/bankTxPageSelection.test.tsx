@@ -194,6 +194,8 @@ describe('"n shown" on the Awaiting-review tile', () => {
     const mark = cap.shownHistory.length;
     await call(cap.cards, 'onSelectBank', 'c');
     await waitFor(() => expect(lastListBank()).toBe('c'));
+    expect(cap.cards.shown).toBeNull(); // the account switch cleared the filter (WP3), so nothing is narrowed yet
+    await call(cap.filters, 'onFromDateChange', '2026-02-01'); // narrow c's list again: its total is in flight
     expect(cap.cards.shown).toBeNull(); // c's list is in flight; b's 3 must not be shown against c
     await act(async () => { release(); });
     await waitFor(() => expect(cap.cards.shown).toBe(9));
