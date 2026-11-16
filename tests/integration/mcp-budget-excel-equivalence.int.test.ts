@@ -81,8 +81,8 @@ describe('an edited template committed through the app and through import_budget
 
     const g = await gridRows(pool, w.u, versions.json);
     for (const e of edits) setMonth(g.rows, e.account, e.month, e.json);
-    const jdry = body(await mcp(pool, w.u, 'import_budget_workbook', { version_id: versions.json, rows: g.rows, version_token: g.token, dry_run: true, idempotency_key: crypto.randomUUID() }));
-    body(await mcp(pool, w.u, 'import_budget_workbook', { version_id: versions.json, rows: g.rows, version_token: g.token, plan_hash: jdry.plan_hash, idempotency_key: crypto.randomUUID() }));
+    const jdry = body(await mcp(pool, w.u, 'import_budget_workbook', { version_id: versions.json, rows: g.rows, dry_run: true, idempotency_key: crypto.randomUUID() }));
+    body(await mcp(pool, w.u, 'import_budget_workbook', { version_id: versions.json, rows: g.rows, plan_hash: jdry.plan_hash, idempotency_key: crypto.randomUUID() }));
 
     const uiRows = await amountRows(versions.ui);
     expect(uiRows).toHaveLength(5); // Rent M0 150, Sales M0 500, Sales M2 0, Stationery M5 12.34, Postage M3 45.67 (Rent M1 cleared)
