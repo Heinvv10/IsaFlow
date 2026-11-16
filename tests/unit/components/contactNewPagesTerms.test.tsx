@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { pickKit } from '../../helpers/kitSelect';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok, on, serve } from '../helpers/d2R3a6';
 
@@ -11,7 +12,7 @@ const router = vi.hoisted(() => ({ query: {} as Record<string, string>, isReady:
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('next/router', () => ({ useRouter: () => router }));
-vi.mock('next/link', () => ({ default: ({ children }: { children: ReactNode }) => <a>{children}</a> }));
+vi.mock('next/link', () => ({ default: ({ children, href, ...rest }: { children: ReactNode; href: string }) => <a href={href} {...rest}>{children}</a> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/utils/toast', () => ({ notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 
@@ -45,7 +46,7 @@ describe.each([
 
   it('saves once Immediate is chosen: 0 invoice days', async () => {
     open();
-    fireEvent.change(screen.getByLabelText(/payment terms/i), { target: { value: 'immediate' } });
+    await pickKit(screen.getByRole('combobox', { name: /payment terms/i }), 'Immediate');
     fireEvent.click(screen.getByRole('button', { name: saveName }));
     await waitFor(() => expect(posts()).toHaveLength(1));
     expect(body()).toMatchObject({ payment_terms: 0, payment_terms_type: 'invoice_days' });
@@ -53,10 +54,32 @@ describe.each([
 
   it('saves "Use company default" as not_set with no number', async () => {
     open();
-    fireEvent.change(screen.getByLabelText(/payment terms/i), { target: { value: 'default' } });
+    await pickKit(screen.getByRole('combobox', { name: /payment terms/i }), /^Use company default/);
     fireEvent.click(screen.getByRole('button', { name: saveName }));
     await waitFor(() => expect(posts()).toHaveLength(1));
     expect(body().payment_terms_type).toBe('not_set');
     expect(body().payment_terms === '' || body().payment_terms === undefined).toBe(true);
+  });
+});
+
+describe.each([
+  ['supplier', NewSupplierPage, 'Back to suppliers'],
+  ['customer', NewCustomerPage, 'Back to customers'],
+] as const)('new %s page: the icon-only back link is named', (_who, Page, name) => {
+  it(`is a link named "${name}"`, () => {
+    serve(on('POST', 'x', () => ok({ id: 'x-1' })));
+    render(<Page />);
+    expect(screen.getAllByRole('link', { name }).length).toBeGreaterThan(0);
+  });
+});
+
+describe('supplier form: the auto-allocate switch is named', () => {
+  it('is a switch named "Auto allocate payments" whose state follows the strategy', () => {
+    serve(on('POST', 'x', () => ok({ id: 'x-1' })));
+    render(<NewSupplierPage />);
+    const sw = screen.getByRole('switch', { name: 'Auto allocate payments' });
+    expect(sw.getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(sw);
+    expect(sw.getAttribute('aria-checked')).toBe('true');
   });
 });

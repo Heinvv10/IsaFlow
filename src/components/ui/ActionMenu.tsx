@@ -185,7 +185,7 @@ export function ActionMenu({ items, triggerLabel = 'More actions', className }: 
         aria-label={triggerLabel}
         onClick={handleToggle}
         className={cn(
-          'inline-flex items-center justify-center h-9 w-9 rounded-lg',
+          'inline-flex items-center justify-center h-9 w-9 max-lg:h-11 max-lg:w-11 rounded-lg',
           'border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)]',
           'hover:bg-[var(--ff-bg-tertiary)] hover:text-[var(--ff-text-primary)]',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50',

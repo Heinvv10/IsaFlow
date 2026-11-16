@@ -4,6 +4,7 @@
  */
 
 import { X, Plus } from 'lucide-react';
+import { Select } from '@/components/ui';
 
 export interface FilterRow {
   id: string;
@@ -105,27 +106,19 @@ export function ReportBuilderFilters({ filters, availableFields, onChange }: Pro
           return (
             <div key={filter.id} className="flex flex-wrap items-center gap-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded px-2 py-1.5">
               {/* Field selector */}
-              <select
-                value={filter.field}
-                onChange={e => updateFilter(filter.id, { field: e.target.value, operator: 'equals', value: '', value2: '' })}
-                className="text-xs border border-gray-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-teal-400"
-              >
-                <option value="">Select field...</option>
-                {filterableFields.map(f => (
-                  <option key={f.field} value={f.field}>{f.label}</option>
-                ))}
-              </select>
+              <div className="w-44">
+                <Select size="sm" label="Filter field" labelClassName="sr-only" placeholder="Select field..." searchable clearable
+                  options={filterableFields.map(f => ({ value: f.field, label: f.label }))}
+                  value={filter.field || null}
+                  onChange={v => updateFilter(filter.id, { field: v ?? '', operator: 'equals', value: '', value2: '' })} />
+              </div>
 
               {/* Operator */}
-              <select
-                value={filter.operator}
-                onChange={e => updateFilter(filter.id, { operator: e.target.value, value: '', value2: '' })}
-                className="text-xs border border-gray-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-teal-400"
-              >
-                {operators.map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+              <div className="w-44">
+                <Select size="sm" label="Filter operator" labelClassName="sr-only" options={operators}
+                  value={filter.operator}
+                  onChange={v => { if (v) updateFilter(filter.id, { operator: v, value: '', value2: '' }); }} />
+              </div>
 
               {/* Value(s) */}
               {showValue && (

@@ -71,7 +71,7 @@ export async function ensureUser(db: ClientBase, n: number, id: string, userId: 
   if (clash.rowCount) throw new Error(`users already has ${email} under another id (${clash.rows[0]!.id}); the GoTrue user and public.users must agree`);
   await db.query(
     `INSERT INTO users (id, email, first_name, last_name, role, is_active, onboarding_completed, status, account_type)
-     VALUES ($1, $2, 'Golden', $3, 'accountant', true, true, 'active', 'direct')
+     VALUES ($1, lower(btrim($2)), 'Golden', $3, 'accountant', true, true, 'active', 'direct')
      ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, is_active = true, onboarding_completed = true, status = 'active'`,
     [userId, email, `Slot ${n}`]);
   // Login opens the user's default company, so every other membership (a retired generation, the suite's sandbox

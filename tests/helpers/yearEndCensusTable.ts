@@ -156,7 +156,7 @@ export const COMPOSED: Array<[string, Category]> = [
 
 /** Quoted strings (not sql/tx templates) that name the journal tables: the cheap census for SQL that is not a tagged statement. */
 export const STRINGS: Array<[string, Category]> = [
-  ['pages/api/accounting/nl-query.ts', 'RAW'],
+  ['core/nlQuerySchemaTables.ts', 'RAW'],
   ['lib/mcp/tools/reclassificationPropose.ts', 'PROSE'],
   ['lib/mcp/tools/writeDimensionTags.ts', 'PROSE'],
   ['ar/portalChatbotService.ts', 'TABLE_NAME'],

@@ -86,6 +86,10 @@ export async function postProvisional(
     return { journalEntryId: null, prediction, skipped: `unknown VAT code "${prediction.vatCode}"` };
   }
 
+  if (prediction.vatHistoryAllInvalid) {
+    return { journalEntryId: null, prediction, skipped: "no valid VAT code in this supplier's history" };
+  }
+
   const totalAmount = Math.abs(amount);
   const bankAccountId = String(tx.bank_account_id);
   // fmtDate, never toISOString — this date becomes the provisional journal's
