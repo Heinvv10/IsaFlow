@@ -124,13 +124,16 @@ const createInvitation: NextApiHandler = async (req, res) => {
 
   // 3. Stash gotrue_user_id on the invitation for later accept. Keyed on the
   //    token: a concurrent resend replaced it, and its own link is the live one.
+  //    No row also when it was cancelled meanwhile (a revoke, or an admin
+  //    deleting the invitee's user, which cancels their pending invitations).
   const linked = await migrationAdminTx('invitation gotrue user', (client) => client.query(
     'UPDATE company_invitations SET gotrue_user_id = $3::uuid WHERE id = $1::uuid AND company_id = $2::uuid AND token = $4',
     [inviteId, companyId, gotrueUser.id, tokenHash],
   ));
   if (linked.rowCount !== 1) {
     return res.status(409).json({ success: false, error: { code: 'INVITATION_SUPERSEDED',
-      message: 'This invitation was re-sent at the same time; the newer one stands.' } });
+      message: 'This invitation was re-sent or cancelled while it was being created, so no email was sent. '
+        + 'Check the pending invitations and send it again if it is still needed.' } });
   }
 
   // 4. Company name for the email

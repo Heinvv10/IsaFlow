@@ -3,6 +3,7 @@
  * "Choose…" shows until someone picks; Immediate and the kinds are choices; so is "Use company default", which stores
  * not set (the company's terms then date new documents). The form's own two strings carry the choice.
  */
+import { openKit, pickKit } from '../../helpers/kitSelect';
 import { describe, it, expect, vi } from 'vitest';
 import { useState } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -28,7 +29,12 @@ function Harness({ onValue, start = UNCHOSEN_TERMS, allowDefault = true }: {
   );
 }
 
-const kind = () => screen.getByLabelText(/payment terms/i) as HTMLSelectElement;
+const kind = () => screen.getByRole('combobox', { name: /payment terms/i });
+const LABEL: Record<string, string | RegExp> = {
+  immediate: 'Immediate', invoice_days: 'Days from invoice', statement_days: 'Days after statement',
+  statement_months: 'Months after statement', default: /^Use company default/,
+};
+const pick = (value: string) => pickKit(kind(), LABEL[value]!);
 
 describe('PaymentTermsField', () => {
   it('both new-contact forms start unchosen: nothing is pre-selected, not Immediate and not 30', () => {
@@ -40,37 +46,36 @@ describe('PaymentTermsField', () => {
 
   it('shows "Choose…" with no number box until something is picked', () => {
     render(<Harness onValue={vi.fn()} />);
-    expect(kind().value).toBe('choose');
-    expect(screen.getByRole('option', { name: 'Choose…' })).toBeTruthy();
-    expect(screen.queryByLabelText('Number of days or months')).toBeNull();
+    expect(kind().textContent).toContain('Choose…');
+        expect(screen.queryByLabelText('Number of days or months')).toBeNull();
   });
 
-  it('Immediate is a choice: it emits 0 invoice days and says so', () => {
+  it('Immediate is a choice: it emits 0 invoice days and says so', async () => {
     const onValue = vi.fn();
     render(<Harness onValue={onValue} />);
-    fireEvent.change(kind(), { target: { value: 'immediate' } });
+    await pick('immediate');
     expect(onValue).toHaveBeenLastCalledWith('0', 'invoice_days');
     expect(screen.getByText('Immediate', { selector: 'p' })).toBeTruthy();
-    expect(screen.queryByRole('option', { name: 'Choose…' })).toBeNull();
+    expect(kind().textContent).not.toContain('Choose…');
   });
 
   it.each([
     ['invoice_days', '30', '30 days from invoice date'],
     ['statement_days', '30', '30 days after statement'],
     ['statement_months', '1', '1 month after statement'],
-  ])('choosing %s asks for N, suggests %s and emits the pair', (type, suggested, words) => {
+  ])('choosing %s asks for N, suggests %s and emits the pair', async (type, suggested, words) => {
     const onValue = vi.fn();
     render(<Harness onValue={onValue} />);
-    fireEvent.change(kind(), { target: { value: type } });
+    await pick(type);
     expect(onValue).toHaveBeenLastCalledWith(suggested, type);
     expect((screen.getByLabelText('Number of days or months') as HTMLInputElement).value).toBe(suggested);
     expect(screen.getByText(words)).toBeTruthy();
   });
 
-  it('typing N emits it with the chosen type', () => {
+  it('typing N emits it with the chosen type', async () => {
     const onValue = vi.fn();
     render(<Harness onValue={onValue} />);
-    fireEvent.change(kind(), { target: { value: 'statement_months' } });
+    await pick('statement_months');
     fireEvent.change(screen.getByLabelText('Number of days or months'), { target: { value: '3' } });
     expect(onValue).toHaveBeenLastCalledWith('3', 'statement_months');
     expect(screen.getByText('3 months after statement')).toBeTruthy();
@@ -79,8 +84,8 @@ describe('PaymentTermsField', () => {
   it('"Use company default" is a choice that stores not set, and names the company default', async () => {
     const onValue = vi.fn();
     render(<Harness onValue={onValue} />);
-    await waitFor(() => expect(screen.getByRole('option', { name: 'Use company default (30 days from invoice date)' })).toBeTruthy());
-    fireEvent.change(kind(), { target: { value: 'default' } });
+    await waitFor(() => { openKit(kind()); expect(screen.getByRole('option', { name: 'Use company default (30 days from invoice date)' })).toBeTruthy(); });
+    fireEvent.click(screen.getByRole('option', { name: /Use company default/ }));
     expect(onValue).toHaveBeenLastCalledWith('', 'not_set');
     expect(screen.queryByLabelText('Number of days or months')).toBeNull();
     expect(screen.getByText('Terms not confirmed: new documents use the company default (30 days from invoice date).')).toBeTruthy();
@@ -88,23 +93,24 @@ describe('PaymentTermsField', () => {
 
   it('the company default card offers no "use company default" (it IS the default)', () => {
     render(<Harness onValue={vi.fn()} allowDefault={false} />);
-    expect(screen.queryByRole('option', { name: /use company default/i })).toBeNull();
+    openKit(kind());
+    expect(screen.getAllByRole('option').map(o => o.textContent)).toEqual(['Immediate', 'Days from invoice', 'Days after statement', 'Months after statement']);
   });
 
-  it('going back to Immediate after a kind resets to 0 invoice days', () => {
+  it('going back to Immediate after a kind resets to 0 invoice days', async () => {
     const onValue = vi.fn();
     render(<Harness onValue={onValue} />);
-    fireEvent.change(kind(), { target: { value: 'statement_days' } });
-    fireEvent.change(kind(), { target: { value: 'immediate' } });
+    await pick('statement_days');
+    await pick('immediate');
     expect(onValue).toHaveBeenLastCalledWith('0', 'invoice_days');
   });
 
   it('an edit form opens on what is stored: a legacy days row, and not set as "Use company default"', () => {
     const { unmount } = render(<Harness onValue={vi.fn()} start={{ payment_terms: '45', payment_terms_type: 'invoice_days' }} />);
-    expect(kind().value).toBe('invoice_days');
+    expect(kind().textContent).toContain('Days from invoice');
     unmount();
     render(<Harness onValue={vi.fn()} start={{ payment_terms: '', payment_terms_type: 'not_set' }} />);
-    expect(kind().value).toBe('default');
+    expect(kind().textContent).toContain('Use company default');
   });
 });
 

@@ -11,22 +11,24 @@
  * Before the first posting it stays editable.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
+import { pickKit } from '../../helpers/kitSelect';
 import { GeneralTab } from '@/components/accounting/settings/GeneralTab';
 import { mapApiCompany } from '@/components/accounting/settings/mapApiCompany';
 
 afterEach(() => { cleanup(); });
 
 const company = (over: Record<string, unknown> = {}) => mapApiCompany({ id: 'c1', name: 'Co', financialYearStart: 3, ...over });
-const fySelect = () => screen.getByLabelText('Financial Year Start Month') as HTMLSelectElement;
-const shownMonth = () => fySelect().selectedOptions[0]!.textContent;
+const fySelect = () => screen.getByRole('combobox', { name: 'Financial Year Start Month' });
+const isDisabled = () => fySelect().getAttribute('aria-disabled') === 'true';
+const shownMonth = () => fySelect().textContent;
 
 describe('GeneralTab financial year start', () => {
   it('is read-only once a journal has posted, with a note that is true today', () => {
     render(<GeneralTab company={company({
       financialYearStartLocked: true, financialYearStartLockReason: 'posted', financialYearStartActual: 3,
     })} onChange={vi.fn()} />);
-    expect(fySelect().disabled).toBe(true);
+    expect(isDisabled()).toBe(true);
     expect(shownMonth()).toBe('Mar');
     expect(screen.getByText(/Locked because journals have been posted/).textContent)
       .toMatch(/use \"Change financial year end\" \(owner or admin\)/);
@@ -49,7 +51,7 @@ describe('GeneralTab financial year start', () => {
     // Editable means nothing uses the periods (the GET locks on the PUT's refusal predicate), so a change to
     // January rebuilds them on January and sets the declared month to match (integration-tested).
     render(<GeneralTab company={company({ financialYearStartLocked: false, financialYearStartActual: 1 })} onChange={vi.fn()} />);
-    expect(fySelect().disabled).toBe(false);
+    expect(isDisabled()).toBe(false);
     expect(shownMonth()).toBe('Mar');
     expect(screen.getByText(/declared/i).textContent).toBe(
       'Your fiscal periods run from January, but the declared financial year start is March. Choose January and save to align them.');
@@ -60,7 +62,7 @@ describe('GeneralTab financial year start', () => {
     render(<GeneralTab company={company({
       financialYearStartLocked: true, financialYearStartLockReason: 'in_use', financialYearStartActual: 3,
     })} onChange={vi.fn()} />);
-    expect(fySelect().disabled).toBe(true);
+    expect(isDisabled()).toBe(true);
     expect(screen.getByText(/Locked because this company's fiscal periods are already in use/).textContent)
       .toMatch(/use \"Change financial year end\" \(owner or admin\)/);
   });
@@ -68,17 +70,17 @@ describe('GeneralTab financial year start', () => {
   it('read-only for a company that is not the active one', () => {
     render(<GeneralTab company={company({ financialYearStartLocked: true, financialYearStartLockReason: 'not_active' })}
       onChange={vi.fn()} />);
-    expect(fySelect().disabled).toBe(true);
+    expect(isDisabled()).toBe(true);
     expect(screen.getByText(/Switch to this company/)).toBeTruthy();
     expect(screen.queryByText(/journals have been posted/)).toBeNull();
   });
 
-  it('is editable, with no note, before the first posting', () => {
+  it('is editable, with no note, before the first posting', async () => {
     const onChange = vi.fn();
     render(<GeneralTab company={company({ financialYearStartLocked: false, financialYearStartActual: 3 })} onChange={onChange} />);
-    expect(fySelect().disabled).toBe(false);
+    expect(isDisabled()).toBe(false);
     expect(screen.queryByText(/Locked because|declared|Switch to this company/)).toBeNull();
-    fireEvent.change(fySelect(), { target: { value: '6' } });
+    await pickKit(fySelect(), 'Jun');
     expect(onChange).toHaveBeenCalledWith('financialYearStart', 6);
   });
 

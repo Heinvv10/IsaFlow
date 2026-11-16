@@ -76,6 +76,7 @@ export function SelectDropdown({
   return (
     <div
       ref={panelRef}
+      data-select-panel="true"
       // A press in the panel must not take focus from the trigger (its keys are what drive the list); the search box keeps its own.
       onMouseDown={(e) => { if (!(e.target instanceof HTMLInputElement)) e.preventDefault(); }}
       style={{ top: pos.top, bottom: pos.bottom, left: pos.left, width: pos.width, minWidth, maxHeight: pos.maxHeight }}
@@ -99,7 +100,7 @@ export function SelectDropdown({
               aria-label={searchLabel}
               aria-controls={listboxId}
               aria-activedescendant={activeDescendant}
-              className="flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-500 dark:text-gray-100 dark:placeholder:text-gray-400"
+              className="min-w-0 w-full flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-500 dark:text-gray-100 dark:placeholder:text-gray-400"
             />
           </div>
         </div>
