@@ -113,7 +113,7 @@ export async function getBankTransactions(
           AND bt.feed_state <> 'removed'
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
           AND ABS(bt.amount) >= ${fromAmt}::NUMERIC AND ABS(bt.amount) <= ${toAmt}::NUMERIC
-          AND (bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
+          AND (bt.description ILIKE ${searchPattern} ESCAPE '\\' OR bt.reference ILIKE ${searchPattern} ESCAPE '\\')
           ${sql.unsafe(extra)}
           ${keyset}
         ORDER BY bt.transaction_date ${sql.unsafe(sortDir)}, bt.amount DESC, bt.id DESC
@@ -125,7 +125,7 @@ export async function getBankTransactions(
           AND bt.feed_state <> 'removed'
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
           AND ABS(bt.amount) >= ${fromAmt}::NUMERIC AND ABS(bt.amount) <= ${toAmt}::NUMERIC
-          AND (bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
+          AND (bt.description ILIKE ${searchPattern} ESCAPE '\\' OR bt.reference ILIKE ${searchPattern} ESCAPE '\\')
           ${sql.unsafe(extra)}`) as Row[];
     } else {
       // Branch 3 (a bank account, no tab status) and the company-wide read: one predicate, ./bankTxScopeWhere.

@@ -129,7 +129,7 @@ export function buildBankTxActions(deps: ActionDeps) {
   /** Resolves true once the row was actually posted (the grid's keyboard stream moves on only then), false on any failure. */
   const handleAccept = (txId: string): Promise<boolean> => new Promise((resolve) => {
     // One accept per line at a time: a second click while the first is posting would post the journal twice.
-    void run(`accept:${txId}`, () => acceptRow(txId, () => resolve(true))).finally(() => resolve(false));
+    void run(`accept:${txId}`, () => acceptRow(txId, () => resolve(true)), [txId]).finally(() => resolve(false));
   });
 
   const handleExclude = (txId: string): Promise<boolean> => { setExcludingTxId(txId); return excludeOutcome?.begin() ?? Promise.resolve(false); };
@@ -138,16 +138,17 @@ export function buildBankTxActions(deps: ActionDeps) {
     if (!excludingTxId) { excludeOutcome?.settle(false); return; }
     const txId = excludingTxId;
     setExcludingTxId(null);
-    if ((await run(`exclude:${txId}`, async () => {
-    try {
-      const excluded = await callAction({ action: 'exclude', bankTransactionId: txId, excludeReason: reason });
-      excludeOutcome?.settle(true);
-      if (excluded?.data?.priorStatus === 'imported') offerExcludeUndo(txId, { callAction, reloadCurrentView });
-      else notify.success('Transaction excluded');
-      loadTransactions(); refreshBankAccounts();
-    } catch (e) { excludeOutcome?.settle(false); notify.error(apiErrorMessage(e, 'Could not exclude - try again')); }
-    return true;
-    })) === undefined) excludeOutcome?.settle(false); // a second confirm while the first runs: refused
+    // A second confirm while the first runs is refused (run resolves undefined). It must NOT settle the outcome: that
+    // promise belongs to the first exclude, still in flight.
+    await run(`exclude:${txId}`, async () => {
+      try {
+        const excluded = await callAction({ action: 'exclude', bankTransactionId: txId, excludeReason: reason });
+        excludeOutcome?.settle(true);
+        if (excluded?.data?.priorStatus === 'imported') offerExcludeUndo(txId, { callAction, reloadCurrentView });
+        else notify.success('Transaction excluded');
+        loadTransactions(); refreshBankAccounts();
+      } catch (e) { excludeOutcome?.settle(false); notify.error(apiErrorMessage(e, 'Could not exclude - try again')); }
+    }, [txId]);
   };
   const handleUnmatch = async (txId: string) => {
     // A reviewed line has been signed off by a person: undoing it asks first, as the Undo toast and Reverse do.
@@ -155,7 +156,7 @@ export function buildBankTxActions(deps: ActionDeps) {
     await run(`unmatch:${txId}`, async () => {
       try { await callAction({ action: 'unmatch', bankTransactionId: txId }); notify.success('Allocation undone'); loadTransactions(); refreshBankAccounts(); }
       catch (e) { notify.error(apiErrorMessage(e, 'Could not undo the allocation - try again')); }
-    });
+    }, [txId]);
   };
   const handleUpdateNotes = async (txId: string, notes: string) => {
     setTransactions(prev => prev.map(tx => tx.id === txId ? { ...tx, notes: notes || undefined } : tx));
@@ -216,7 +217,7 @@ export function buildBankTxActions(deps: ActionDeps) {
         notify.success(tx?.status === 'allocated' ? 'Allocation undone' : 'Transaction reversed');
         loadTransactions(); refreshBankAccounts();
       } catch (e) { notify.error(apiErrorMessage(e, 'Could not reverse the transaction - try again')); }
-    });
+    }, [txId]);
   };
   const handleDownloadReport = async (bankAccountCode: string | undefined) => {
     if (!selectedBank) return;

@@ -18,14 +18,14 @@ import listRoute from '../../../pages/api/accounting/bank-transactions';
 beforeEach(() => { listTx.mockReset().mockResolvedValue({ transactions: [], total: 0 }); });
 
 describe('amount bounds', () => {
-  it.each(['abc', '1e5', '12.5.1', '--3', '5 OR 1=1', 'NaN', 'Infinity'])('from_amount=%s is a 400 and nothing is queried', async (bad) => {
+  it.each(['abc', '1e5', '1e3', '12.5.1', '--3', '5 OR 1=1', 'NaN', 'Infinity', '-5', '-0.5', '-100', '1.23456'])('from_amount=%s is a 400 and nothing is queried', async (bad) => {
     for (const key of ['from_amount', 'to_amount', 'fromAmount', 'toAmount']) {
       const r = await callRoute(listRoute, { query: { bank_account_id: UUID_A, [key]: bad } });
       expect(r.code, `${key}=${bad}`).toBe(400);
     }
     expect(listTx).not.toHaveBeenCalled();
   });
-  it.each(['0', '100', '-5', '1234.56', ' 7.5 ', '0.0001'])('%j passes', async (good) => {
+  it.each(['0', '100', '1234.56', ' 7.5 ', '0.0001'])('%j passes', async (good) => {
     expect((await callRoute(listRoute, { query: { bank_account_id: UUID_A, from_amount: good, to_amount: '9999' } })).code).toBe(200);
   });
   it('empty bounds are no bound', async () => {
@@ -53,6 +53,11 @@ describe('the service compares the size of the line', () => {
     for (const c of withAmount.filter((q) => q.includes('>='))) {
       expect(c).toMatch(/ABS\(bt\.amount\) >= \?::NUMERIC AND ABS\(bt\.amount\) <= \?::NUMERIC/);
       expect(c).not.toMatch(/bt\.amount >= /);
+    }
+    // the search pattern is escaped text: the SQL must say which character escapes (never rely on the default)
+    await getBankTransactions('co', { bankAccountId: UUID_A, status: 'imported', search: '50\\%' });
+    for (const c of calls.filter((q) => q.includes('ILIKE'))) {
+      expect(c).toMatch(/description ILIKE \? ESCAPE '\\' OR bt\.reference ILIKE \? ESCAPE '\\'/);
     }
     calls.length = 0;
     await getBankTransactions('co', { bankAccountId: UUID_A, status: 'imported' });

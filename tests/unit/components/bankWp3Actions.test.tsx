@@ -3,6 +3,7 @@
  * Delete reports the server's {deleted}, every mutating button refuses a second click while it runs, Batch Allocate shows
  * progress, Unmatch on a reviewed row asks first, Batch Edit persists, and a refused save puts the row back.
  */
+import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn(), undoable: vi.fn() }));
@@ -14,24 +15,28 @@ vi.mock('@/components/accounting/CreateRuleModal', () => ({ extractPattern: () =
 import { apiFetch } from '@/lib/apiFetch';
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
 import { selectedOnScreen, pruneSelection } from '@/components/accounting/bank-transactions/bankTxSelectionView';
-import type { BankTxBusy } from '@/components/accounting/bank-transactions/useBankTxBusy';
+import { useBankTxBusy, type BankTxBusy } from '@/components/accounting/bank-transactions/useBankTxBusy';
 import type { BankTx, RowSelection } from '@/components/accounting/BankTxTable';
 
 const json = (data: unknown = {}) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
 const refuse = () => new Response(JSON.stringify({ success: false, error: { message: 'refused' } }), { status: 400 });
 const tx = (id: string, extra: Partial<BankTx> = {}) => ({ id, description: id, amount: -5, transactionDate: '2026-01-01', status: 'imported', feedState: 'posted', ...extra }) as BankTx;
 const sel = (entityId = 'gl1'): RowSelection => ({ type: 'account', entityId, label: 'Telephone', vatCode: 'none' });
+/** What an edit puts on screen (the optimistic row): the rollback only undoes exactly this. */
+const shown = (entityId: string, label: string): RowSelection => ({ type: 'account', entityId, label, vatCode: 'none' });
 
-/** A real busy guard (the page's hook, minus React): one key at a time. */
+/** The page's REAL busy hook (rendered, not re-implemented), with the progress it is told about recorded. */
 function busyGuard() {
-  const running = new Set<string>();
   const progress: Array<unknown> = [];
+  const hook = renderHook(() => useBankTxBusy());
   const busy: BankTxBusy = {
-    busy: running, isBusy: (k) => running.has(k), progress: null,
+    get busy() { return hook.result.current.busy; },
+    isBusy: (k) => hook.result.current.isBusy(k),
+    get progress() { return hook.result.current.progress; },
     setProgress: (p) => { progress.push(p); },
-    run: async (key, fn) => { if (running.has(key)) return undefined; running.add(key); try { return await fn(); } finally { running.delete(key); } },
+    run: (key, fn, rows) => hook.result.current.run(key, fn, rows),
   };
-  return { busy, progress };
+  return { busy, progress, hook };
 }
 
 function setup(over: Record<string, unknown> = {}) {
@@ -44,7 +49,7 @@ function setup(over: Record<string, unknown> = {}) {
     setRulePrompt: vi.fn(), setExcludingTxId: vi.fn(), loadTransactions: vi.fn(), refreshBankAccounts: vi.fn(), reloadCurrentView: vi.fn(),
     busy: g.busy, ...over,
   };
-  return { deps, progress: g.progress, actions: buildBankTxActions(deps as unknown as Parameters<typeof buildBankTxActions>[0]) };
+  return { deps, progress: g.progress, hook: g.hook, actions: buildBankTxActions(deps as unknown as Parameters<typeof buildBankTxActions>[0]) };
 }
 const bodies = () => vi.mocked(apiFetch).mock.calls.map(([, init]) => { try { return JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>; } catch { return {}; } });
 const sentActions = (action: string) => bodies().filter((b) => b.action === action);
@@ -234,9 +239,11 @@ describe('Batch Edit persists, and a refused save puts the row back', () => {
     const setRowSelections = vi.fn();
     const { actions } = setup({ rowSelections: { t1: sel('old') }, setRowSelections });
     actions.handleApplyBatchEdit('gl9', 'Fuel');
-    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(toast.error).toHaveBeenCalledTimes(1); // ONE report for the batch, not a toast per refused row
+    expect(toast.error).toHaveBeenCalledWith('3 of 3 rows could not be saved', expect.any(String));
     // every restore is a functional update: apply them in order to the batch's own result
-    let state: Record<string, RowSelection> = { t1: sel('gl9'), t2: sel('gl9'), t3: sel('gl9') };
+    let state: Record<string, RowSelection> = { t1: shown('gl9', 'Fuel'), t2: shown('gl9', 'Fuel'), t3: shown('gl9', 'Fuel') };
     for (const [arg] of setRowSelections.mock.calls.slice(1)) state = (arg as (p: typeof state) => typeof state)(state);
     expect(state.t1!.entityId).toBe('old'); // had a selection: restored
     expect(state.t2).toBeUndefined(); // had none: removed
@@ -250,7 +257,7 @@ describe('Batch Edit persists, and a refused save puts the row back', () => {
     actions.handleRowEntityChange('t1', 'new', 'New');
     await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
     const restore = setRowSelections.mock.calls.at(-1)![0] as (p: Record<string, RowSelection>) => Record<string, RowSelection>;
-    expect(restore({ t1: sel('new') }).t1!.entityId).toBe('old');
+    expect(restore({ t1: shown('new', 'New') }).t1!.entityId).toBe('old');
 
     setRowSelections.mockClear(); toast.error.mockClear();
     vi.mocked(apiFetch).mockImplementation(async () => json());
@@ -270,3 +277,107 @@ describe('Batch Edit persists, and a refused save puts the row back', () => {
     expect(restore({ t1: { ...sel(), cc1Id: 'cc-new' } }).t1!.cc1Id).toBe('cc-old');
   });
 });
+
+describe('a rollback never overwrites a later edit', () => {
+  const restoreOf = (setRowSelections: ReturnType<typeof vi.fn>) =>
+    setRowSelections.mock.calls.at(-1)![0] as (p: Record<string, RowSelection>) => Record<string, RowSelection>;
+
+  it('the refused save of edit A does not undo edit B made while A was in flight', async () => {
+    const setRowSelections = vi.fn();
+    const { actions } = setup({ rowSelections: { t1: sel('old') }, setRowSelections });
+    vi.mocked(apiFetch).mockImplementation(async () => refuse());
+    actions.handleRowEntityChange('t1', 'A', 'A');
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+    const rollbackA = restoreOf(setRowSelections);
+    // the row has since moved on to B (a later, successful edit): A's rollback must leave it alone
+    const afterB = { t1: sel('B') };
+    expect(rollbackA(afterB)).toBe(afterB);
+    // and while the row still shows exactly A, it IS put back
+    expect(rollbackA({ t1: shown('A', 'A') }).t1!.entityId).toBe('old');
+    // a row removed meanwhile is not resurrected
+    expect(rollbackA({})).toEqual({});
+  });
+
+  it('a Batch Edit rollback is per row: a row edited since keeps its newer value', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => refuse());
+    const setRowSelections = vi.fn();
+    const { actions } = setup({ rowSelections: {}, setRowSelections });
+    actions.handleApplyBatchEdit('gl9', 'Fuel');
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+    let state: Record<string, RowSelection> = { t1: shown('gl9', 'Fuel'), t2: sel('newer'), t3: shown('gl9', 'Fuel') };
+    for (const [arg] of setRowSelections.mock.calls.slice(1)) state = (arg as (p: typeof state) => typeof state)(state);
+    expect(state.t2!.entityId).toBe('newer');
+    expect(state.t1).toBeUndefined();
+  });
+
+  it('a VAT-only rollback restores only the VAT code', async () => {
+    const setRowSelections = vi.fn();
+    const { actions } = setup({ rowSelections: { t1: { ...sel('g1'), vatCode: 'S' as never } }, setRowSelections });
+    vi.mocked(apiFetch).mockImplementation(async () => refuse());
+    actions.handleRowVatChange('t1', 'none' as never);
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+    const out = restoreOf(setRowSelections)({ t1: { ...sel('g1'), vatCode: 'none' as never, cc1Id: 'later-cc' } });
+    expect(out.t1!.vatCode).toBe('S'); expect(out.t1!.cc1Id).toBe('later-cc');
+  });
+});
+
+describe('cross-key guard: a batch holds its rows', () => {
+  function slow() {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    vi.mocked(apiFetch).mockImplementation(async () => { await gate; return json({ deleted: 3, accepted: 3 }); });
+    return release;
+  }
+  it('while Batch Allocate runs, a row Accept on one of its lines posts nothing and says why', async () => {
+    const release = slow();
+    const { actions } = setup();
+    const batch = actions.handleBatchAccept();
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1));
+    expect(await actions.handleAccept('t2')).toBe(false);
+    expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining('already being processed'), expect.any(String));
+    release(); await batch;
+    expect(sentActions('allocate').filter((b) => b.bankTransactionId === 't2')).toHaveLength(1); // only the batch's own
+  });
+  it('while Batch Allocate runs, Mark as Reviewed and Delete on the same lines are refused', async () => {
+    const release = slow();
+    const { actions } = setup();
+    const batch = actions.handleBatchAccept();
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1));
+    await actions.handleBulkAccept(); await actions.handleBatchDelete();
+    release(); await batch;
+    expect(sentActions('bulk_accept')).toHaveLength(0);
+    expect(sentActions('delete')).toHaveLength(0);
+  });
+  it('a line outside the batch is free', async () => {
+    const release = slow();
+    const { actions } = setup({ selectedIds: new Set(['t1']) });
+    const batch = actions.handleBatchAccept();
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1));
+    const other = actions.handleUnmatch('t3');
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+    release(); await Promise.all([batch, other]);
+    expect(sentActions('unmatch')).toHaveLength(1);
+  });
+});
+
+describe('exclude: a refused second confirm leaves the first one\'s outcome alone', () => {
+  it('the second handleExcludeConfirm does not settle(false) the promise of the exclude still in flight', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    vi.mocked(apiFetch).mockImplementation(async () => { await gate; return json({ priorStatus: 'imported' }); });
+    const settle = vi.fn(); const begin = vi.fn(() => Promise.resolve(true));
+    const { actions, deps } = setup({ excludingTxId: 't1', excludeOutcome: { begin, settle } });
+    const first = actions.handleExcludeConfirm('Personal');
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1));
+    // a second confirm for the same line while the first runs (a double click / Enter on the modal)
+    (deps as { excludingTxId: string | null }).excludingTxId = 't1';
+    const second = buildBankTxActions(deps as unknown as Parameters<typeof buildBankTxActions>[0]).handleExcludeConfirm('Personal');
+    await second;
+    expect(settle).not.toHaveBeenCalled(); // the first exclude's outcome is still pending, and stays so
+    release(); await first;
+    expect(settle).toHaveBeenCalledTimes(1);
+    expect(settle).toHaveBeenCalledWith(true);
+    expect(sentActions('exclude')).toHaveLength(1);
+  });
+});
+

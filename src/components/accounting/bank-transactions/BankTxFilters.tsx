@@ -76,8 +76,13 @@ export function BankTxFilters({
   onSortOrderChange, onAllocationFilterChange, onTxTypeChange, onAllocTypeChange,
   onHasSuggestionChange, onReconFilterChange, onToggleCC, onToggleBU,
 }: BankTxFiltersProps) {
+  // The three bulk operations act on the same selected lines: while one runs, the others wait (the hook refuses them too).
+  const bulkBusy = !!busy && (busy.has('review') || busy.has('batch-allocate') || busy.has('delete'));
   return (
     <div className="px-6 py-2 border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]/30 flex items-center gap-2 flex-wrap">
+      <span role="status" aria-live="polite" className="sr-only" data-testid="bank-tx-progress-live">
+        {progress?.key === 'batch-allocate' ? `Allocating ${progress.done + 1} of ${progress.total}` : ''}
+      </span>
       <button
         onClick={onRefresh}
         title="Refresh"
@@ -90,7 +95,7 @@ export function BankTxFilters({
         <>
           <button
             onClick={onBulkAccept}
-            disabled={selectedCount === 0 || busy?.has('review')}
+            disabled={selectedCount === 0 || bulkBusy}
             aria-busy={busy?.has('review') || undefined}
             className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] disabled:opacity-30"
           >
@@ -99,7 +104,7 @@ export function BankTxFilters({
           {selectedCount > 0 && (
             <button
               onClick={onBatchAccept}
-              disabled={busy?.has('batch-allocate')}
+              disabled={bulkBusy}
               aria-busy={busy?.has('batch-allocate') || undefined}
               className="flex items-center gap-1 px-2 py-1 rounded text-xs text-teal-400 hover:text-teal-300 bg-teal-500/10 hover:bg-teal-500/20 disabled:opacity-60"
             >
@@ -109,7 +114,7 @@ export function BankTxFilters({
           )}
           <button
             onClick={onBatchDelete}
-            disabled={selectedCount === 0 || busy?.has('delete')}
+            disabled={selectedCount === 0 || bulkBusy}
             aria-busy={busy?.has('delete') || undefined}
             className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] disabled:opacity-30"
           >

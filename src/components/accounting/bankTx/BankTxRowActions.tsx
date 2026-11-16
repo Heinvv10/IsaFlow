@@ -68,7 +68,7 @@ export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExclude
               </>
             ) : (
             <>
-              <button onClick={() => onAccept(tx.id)} disabled={!sel?.entityId || table.busyIds?.has(`accept:${tx.id}`)} aria-busy={table.busyIds?.has(`accept:${tx.id}`) || undefined} title="Accept" aria-label={`Accept, ${label}`}
+              <button onClick={() => onAccept(tx.id)} disabled={!sel?.entityId || (table.busyIds?.has(`accept:${tx.id}`) || table.busyIds?.has(`row:${tx.id}`))} aria-busy={(table.busyIds?.has(`accept:${tx.id}`) || table.busyIds?.has(`row:${tx.id}`)) || undefined} title="Accept" aria-label={`Accept, ${label}`}
                 className="p-1 rounded hover:bg-teal-500/10 text-teal-400 disabled:opacity-30">
                 <Check className="h-3.5 w-3.5" />
               </button>
@@ -113,7 +113,7 @@ export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExclude
             <>
               {/* A reconciled line is locked: undo needs its reconciliation reopened first (the server refuses it too). */}
               {tx.status !== 'reconciled' && (
-                <button onClick={() => onUnmatch(tx.id)} disabled={table.busyIds?.has(`unmatch:${tx.id}`)} aria-busy={table.busyIds?.has(`unmatch:${tx.id}`) || undefined} title="Undo allocation" aria-label={`Undo allocation, ${label}`}
+                <button onClick={() => onUnmatch(tx.id)} disabled={(table.busyIds?.has(`unmatch:${tx.id}`) || table.busyIds?.has(`row:${tx.id}`))} aria-busy={(table.busyIds?.has(`unmatch:${tx.id}`) || table.busyIds?.has(`row:${tx.id}`)) || undefined} title="Undo allocation" aria-label={`Undo allocation, ${label}`}
                   className="p-1 rounded hover:bg-amber-500/10 text-amber-400">
                   <Undo2 className="h-3.5 w-3.5" />
                 </button>

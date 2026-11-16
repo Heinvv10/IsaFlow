@@ -54,7 +54,7 @@ beforeEach(() => {
     if (url.includes('/api/accounting/bank-transactions?')) return list(url);
     return ok({});
   });
-  cap.poll = null;
+  cap.poll = null; cap.table = {}; cap.filters = {}; cap.cards = {}; // props captured by an earlier test's (unmounted) page must not satisfy this test's waits
 });
 afterEach(cleanup);
 
@@ -79,8 +79,9 @@ describe('selection', () => {
     expect(bar()).toBe('1 selected');
     fireEvent.click(screen.getByRole('button', { name: '2' }));
     await waitFor(() => expect((cap.table.transactions as { id: string }[])[0]!.id).toBe('p2a'));
+    // the prune is an effect: the state it sets reaches the table's props one render later
+    await waitFor(() => expect(selectedProp()).toEqual([]));
     expect(bar()).toBe('0 selected');
-    expect(selectedProp()).toEqual([]);
     expect(cap.filters.selectedCount).toBe(0); // the bulk buttons' count too
   });
 
@@ -90,7 +91,7 @@ describe('selection', () => {
     list = () => ok({ transactions: [row('p1b'), row('p1c')], total: 2 }); // p1a was accepted elsewhere
     await call(cap.filters, 'onRefresh');
     await waitFor(() => expect((cap.table.transactions as unknown[]).length).toBe(2));
-    expect(selectedProp()).toEqual(['p1b']);
+    await waitFor(() => expect(selectedProp()).toEqual(['p1b']));
     expect(bar()).toBe('1 selected');
   });
 
@@ -185,3 +186,48 @@ describe('the AI poll reloads silently', () => {
     expect(screen.queryByText('down')).toBeNull();
   });
 });
+
+describe('overlapping loads: the LATEST load ends the skeleton, silent or not', () => {
+  const pending = () => {
+    const resolvers: Array<(rows: string[]) => void> = [];
+    list = () => new Promise<Response>(resolve => { resolvers.push((rows) => resolve(ok({ transactions: rows.map(row), total: rows.length }))); });
+    return resolvers;
+  };
+
+  it('visible load pending -> a silent poll tick supersedes it -> the visible one resolves first: no skeleton stranded', async () => {
+    await loaded();
+    const r = pending();
+    await call(cap.filters, 'onRefresh'); // visible: skeleton up
+    expect(await screen.findByTestId('list-skeleton')).toBeTruthy();
+    await act(async () => { void cap.poll!(); }); // silent tick bumps the sequence
+    await act(async () => { r[0]!(['old']); }); // the visible (now stale) one resolves
+    await act(async () => { r[1]!(['p1a', 'p1b', 'new']); }); // then the silent one
+    await waitFor(() => expect(screen.queryByTestId('list-skeleton')).toBeNull());
+    expect((cap.table.transactions as { id: string }[]).map(t => t.id)).toContain('new');
+  });
+
+  it('...and when the silent one resolves FIRST, the stale visible one resolving later cannot bring it back', async () => {
+    await loaded();
+    const r = pending();
+    await call(cap.filters, 'onRefresh');
+    expect(await screen.findByTestId('list-skeleton')).toBeTruthy();
+    await act(async () => { void cap.poll!(); });
+    await act(async () => { r[1]!(['p1a', 'new']); });
+    await waitFor(() => expect(screen.queryByTestId('list-skeleton')).toBeNull());
+    await act(async () => { r[0]!(['old']); });
+    expect(screen.queryByTestId('list-skeleton')).toBeNull();
+    expect((cap.table.transactions as { id: string }[]).map(t => t.id)).toEqual(['p1a', 'new']);
+  });
+
+  it('a silent success after a failed visible load clears the error', async () => {
+    await loaded();
+    list = () => new Response(JSON.stringify({ success: false, error: { message: 'list is down' } }), { status: 500 });
+    await call(cap.filters, 'onRefresh');
+    expect(await screen.findByText(/list is down|Could not load transactions/)).toBeTruthy();
+    list = () => ok({ transactions: [row('back')], total: 1 });
+    await act(async () => { await cap.poll!(); });
+    await waitFor(() => expect(screen.queryByText(/list is down|Could not load transactions/)).toBeNull());
+    expect((cap.table.transactions as { id: string }[]).map(t => t.id)).toEqual(['back']);
+  });
+});
+

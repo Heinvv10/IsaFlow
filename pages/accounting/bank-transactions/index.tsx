@@ -100,9 +100,10 @@ export default function BankTransactionsPage() {
       if (!latest()) return;
       const data = json.data || json;
       setTransactions(data.transactions || []); setLoaded({ page, total: data.total || 0, key: listKey(selectedBank, tab) });
+      setError(''); // a good read (silent or not) ends an earlier failed one
     } catch (err) {
       if (latest() && !opts?.silent) { setTransactions([]); setLoaded({ page, total: 0, key: '' }); setError(apiErrorMessage(err, 'Could not load transactions - try again')); }
-    } finally { if (latest() && !opts?.silent) setIsLoading(false); }
+    } finally { if (latest()) setIsLoading(false); } // the LATEST load ends the skeleton, silent or not: a silent tick that supersedes a visible load must not strand it
   }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter]);
 
   useEffect(() => { void loadTransactions(); }, [loadTransactions]);

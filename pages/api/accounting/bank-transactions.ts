@@ -10,6 +10,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { parseReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
+import { AMOUNT_BOUND_RE } from '@/modules/accounting/utils/bankAmountBound';
 import { escapeLikeLiteral } from '@/lib/sqlLikeLiteral';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -22,8 +23,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // An amount bound that is not a number is a 400 (it reached ::NUMERIC and answered 500).
   for (const key of ['from_amount', 'fromAmount', 'to_amount', 'toAmount'] as const) {
     const v = req.query[key];
-    if (v !== undefined && v !== '' && !(typeof v === 'string' && /^-?\d{1,12}(\.\d{1,4})?$/.test(v.trim()))) {
-      return apiResponse.badRequest(res, `${key} must be a number`);
+    if (v !== undefined && v !== '' && !(typeof v === 'string' && AMOUNT_BOUND_RE.test(v.trim()))) {
+      return apiResponse.badRequest(res, `${key} must be a non-negative number (the filter is on the size of the line)`);
     }
   }
 

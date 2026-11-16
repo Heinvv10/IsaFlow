@@ -19,12 +19,12 @@ const post = (body: Record<string, unknown>) => apiFetch(ACTION_URL, {
  * the server refused must not leave the row showing a choice that was never stored.
  */
 export function buildSaveActions(onSelectionSaved: () => void) {
-  const saveSelection = (txId: string, type: AllocType, entityId: string, vatCode?: string, onFailure?: () => void) => {
+  /** Resolves true when stored. `silent`: the caller reports failures itself (a Batch Edit says it once, not once per row). */
+  const saveSelection = (txId: string, type: AllocType, entityId: string, vatCode?: string, onFailure?: () => void, silent = false): Promise<boolean> =>
     post({ action: 'save_selection', bankTransactionId: txId, selectionType: type, selectionEntityId: entityId || undefined, vatCode: vatCode || undefined })
       .then(r => assertOk(r, 'Could not save the selection - try again'))
-      .then(() => onSelectionSaved())
-      .catch(e => { onFailure?.(); notify.error(apiErrorMessage(e, 'Could not save the selection - try again')); });
-  };
+      .then(() => { onSelectionSaved(); return true; })
+      .catch(e => { onFailure?.(); if (!silent) notify.error(apiErrorMessage(e, 'Could not save the selection - try again')); return false; });
 
   const saveDimensions = (txId: string, cc1Id: string, cc2Id: string, buId: string, onFailure?: () => void) => {
     post({ action: 'save_dimensions', bankTransactionId: txId, cc1Id: cc1Id || null, cc2Id: cc2Id || null, buId: buId || null })

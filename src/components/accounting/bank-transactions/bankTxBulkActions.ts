@@ -32,6 +32,7 @@ export interface BulkDeps {
 
 export function buildBulkActions(d: BulkDeps) {
   const { transactions, selected, rowSelections, callAction, run, setProgress, setSelectedIds, reload } = d;
+  const rows = Array.from(selected); // the lines these operations touch: a row action on one of them is refused meanwhile
   const done = () => { setSelectedIds(() => new Set()); reload(); };
 
   const handleBatchAccept = () => run('batch-allocate', async () => {
@@ -64,7 +65,7 @@ export function buildBulkActions(d: BulkDeps) {
     else notify.success(`${ok} allocated`);
     notifyLateClaims({ data: { results: late.map((lateClaim) => ({ lateClaim })) } });
     done();
-  });
+  }, rows);
 
   const handleBatchDelete = () => run('delete', async () => {
     if (selected.size === 0) return;
@@ -81,7 +82,7 @@ export function buildBulkActions(d: BulkDeps) {
       else notify.success(`${deleted} transaction(s) deleted`);
       done();
     } catch (e) { notify.error(apiErrorMessage(e, 'Could not delete the transactions - try again')); }
-  });
+  }, rows);
 
   const handleBulkAccept = () => run('review', async () => {
     if (selected.size === 0) return;
@@ -94,7 +95,7 @@ export function buildBulkActions(d: BulkDeps) {
       else notify.success(`${accepted} transaction(s) marked as reviewed`);
       done();
     } catch (e) { notify.error(apiErrorMessage(e, 'Could not mark as reviewed - try again')); }
-  });
+  }, rows);
 
   return { handleBatchAccept, handleBatchDelete, handleBulkAccept };
 }
