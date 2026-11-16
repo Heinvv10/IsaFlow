@@ -129,7 +129,7 @@ describeIfDb('sars_submissions, locks and drafts under migration 971', () => {
   });
 
   it('insertEfilingEventCommitted: an app_user transaction of its own (never a migration credential), the request\'s company as the GUC, committed past the request\'s ROLLBACK, a cross-company write refused', async () => {
-    const sub = await submission(a, 12, 'draft', 'VAT201');
+    const sub = await submission(a, 8, 'draft', 'VAT201'); // its own period: one open draft per key (999b)
     await installEventProbe();
     try {
       const c = await a.fx.pool.connect();
@@ -170,7 +170,7 @@ describeIfDb('sars_submissions, locks and drafts under migration 971', () => {
   });
 
   it('withEventWriter holds ONE app_user connection for several committed events; a failed write does not poison the next', async () => {
-    const sub = await submission(a, 12, 'draft', 'VAT201');
+    const sub = await submission(a, 9, 'draft', 'VAT201'); // its own period: one open draft per key (999b)
     await installEventProbe();
     try {
       const write = (kind: string, submissionId = sub) => ({

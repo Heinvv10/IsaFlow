@@ -200,7 +200,10 @@ describeIfDb('file and amend a return, against a real ledger', () => {
     vi.stubEnv('SARS_EFILING_ISV_LOGIN', 'l1b');
     vi.stubEnv('SARS_EFILING_ISV_KEY', 'l1b');
     try {
-      const covered = await draftRow('VAT201', CLEAN.periodStart, CLEAN.periodEnd);
+      // The period's one open draft (999b: one per company, form and period), left open by the previous test, else a new one.
+      const covered = String(((await sql`SELECT id FROM sars_submissions WHERE company_id = ${c()}::UUID AND form_type = 'VAT201'
+        AND period_start = ${CLEAN.periodStart}::DATE AND period_end = ${CLEAN.periodEnd}::DATE AND status = 'draft'`) as Row[])[0]?.id
+        ?? await draftRow('VAT201', CLEAN.periodStart, CLEAN.periodEnd));
       await expect(inTx(rf.fx, () => submitVAT201ToSars(c(), covered, rf.admin.userId))).rejects.toThrow(/return lifecycle/);
       const free = await draftRow('VAT201', '2025-05-01', '2025-06-30');
       await expect(inTx(rf.fx, () => submitVAT201ToSars(c(), free, rf.admin.userId))).rejects.not.toThrow(/return lifecycle/);

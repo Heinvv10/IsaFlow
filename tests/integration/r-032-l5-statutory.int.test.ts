@@ -23,6 +23,9 @@ const fx = loginAsFixture(pool, 'R032 L5 SARS');
 const SARS = 'http://sars-efiling.r032.invalid';
 
 async function draft(formType: 'VAT201' | 'EMP201'): Promise<string> {
+  // One open draft per company, form and period (migration 999b): an earlier case's draft of this key is closed first.
+  await pool.query(`UPDATE sars_submissions SET status='superseded' WHERE company_id=$1 AND form_type=$2
+    AND period_start='2026-07-01' AND period_end='2026-08-31' AND status='draft'`, [fx.company, formType]);
   const { rows } = await pool.query(`INSERT INTO sars_submissions(company_id,form_type,period_start,period_end,submitted_by)
     VALUES($1,$2,'2026-07-01','2026-08-31',$3) RETURNING id`, [fx.company, formType, fx.target]);
   return rows[0].id as string;
