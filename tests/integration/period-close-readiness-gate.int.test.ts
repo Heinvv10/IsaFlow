@@ -29,10 +29,10 @@ const fx = gateFixture(pool, companies, tokens);
 beforeAll(async () => { [fx.owner] = await members(pool, tokens, 1); });
 afterAll(() => cleanupAudit(pool, companies, [fx.owner]));
 
-// The reason's wording is the check's own (PR #1442 rewrites that check); only its count is pinned.
+// The reason's wording is the check's own; only its count is pinned. The fix link is the check's (bank reconciliation, since #1442).
 const BANK_BLOCKER = {
   key: 'bank_reconciled', label: 'Bank reconciled',
-  reason: expect.stringMatching(/^1 unreconciled bank transaction/), fixHref: '/accounting/bank-transactions',
+  reason: expect.stringMatching(/^1 unreconciled bank transaction/), fixHref: '/accounting/bank-reconciliation',
 };
 
 describe('period close readiness gate', () => {
