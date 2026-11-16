@@ -129,6 +129,7 @@ describe('retention', () => {
       `INSERT INTO http_idempotency_keys(company_id, route, idempotency_key, payload_hash, status_code, response_body, created_at)
        VALUES ($1, 'bank-transfers', $2 || '-recent', 'x', 200, '{}'::jsonb, now() - interval '3 days')`, [f.c, tag]);
     expect(await rows(`${tag}-%`)).toBe(26);
+    await pool.query('ANALYZE http_idempotency_keys'); // the planner's choice of join depends on the table's statistics
     await transfer(transferBody({ reference: 'IDEM-PRUNE' }), key());
     expect(await rows(`${tag}-%`)).toBe(6); // 20 pruned: 5 old + 1 recent left
     await transfer(transferBody({ reference: 'IDEM-PRUNE2', amount: 102 }), key());
