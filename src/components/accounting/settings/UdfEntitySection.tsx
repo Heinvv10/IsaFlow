@@ -1,7 +1,7 @@
 /** One entity's block of 12 user-defined-field slots (split out of UdfTab.tsx, no behaviour change). */
 
 import { useState, useEffect, useCallback } from 'react';
-import { Select } from '@/components/ui';
+import { Select } from '@/components/ui/Select';
 import { Save, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { INPUT_CLS, SECTION_CLS, Toggle } from './settingsTypes';
