@@ -20,8 +20,8 @@
  * a split line names its own account, so silently relabelling the code would
  * leave the rest of the line describing a claim the code denies.
  *
- * Every refusal is answered from reads before the service call; after it,
- * failures propagate to the registry's savepoint (see the MCP .claude.md).
+ * Every refusal is answered from reads before the service call (the fiscal-period one too); after it, failures
+ * propagate to the registry's savepoint (see the MCP .claude.md).
  */
 import type { McpTool } from '../types';
 import { splitAllocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
@@ -31,15 +31,13 @@ import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bank
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { importerRefusalForLineId } from '@/modules/accounting/services/bank/bankLineImporterGate';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
-import {
-  CustomerNotInCompanyError, SupplierNotInCompanyError, assertCustomerInCompany, assertSupplierInCompany,
-} from '@/modules/accounting/services/core/contactDirectoryService';
+import { CustomerNotInCompanyError, SupplierNotInCompanyError, assertCustomerInCompany, assertSupplierInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { planSplitContacts } from '@/modules/accounting/services/bank/bankSplitContacts';
 import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
 import { assertBankLineMayPostToAccounts } from '@/modules/accounting/services/bank/bankLineJournalGate';
 import type { SplitLine } from '@/modules/accounting/services/bank/bankAllocationTypes';
 import { splitTotalMismatch } from '@/modules/accounting/services/bank/bankSplitTotal';
-import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { isDimensionRefusal, type DimensionRefs } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { AUTO_APPLY_MODES, type AutoApplyMode } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { SELECTOR_PROPERTIES } from './allocationSchema';
 import { VAT_CODES, badUuidArg, pickTxSelector, resolveTxId, type VatCode } from './allocationLine';
@@ -47,7 +45,6 @@ import { resolveLineVatCode } from './allocationVatGuard';
 import { DIMENSION_LINE_PROPERTIES, itemsWithDimensions, parseDimensionRefs } from './dimensionArgs';
 import { mcpPostingOpts } from '../mcpActor';
 import { MAX_MONEY, NOT_FOUND, hasWholeCents, ok, toolError } from './toolHelpers';
-import type { DimensionRefs } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
 const TOOL = 'split_allocate_bank_transaction';
 export const MAX_SPLIT_LINES = 50;
@@ -211,8 +208,7 @@ export const splitAllocateBankTransactionTool: McpTool = {
     }
     const mismatch = splitTotalMismatch(lines.map((l) => l.amount), state.amount); // exact cents, as the service
     if (mismatch) return toolError(mismatch);
-    // WP2 row 12: as the service refuses it, a toolError ahead of the dry run.
-    const periodRefusal = await allocationPeriodProbe(ctx.companyId, state.transactionDate);
+    const periodRefusal = await allocationPeriodProbe(ctx.companyId, state.transactionDate); // WP2 row 12, ahead of the dry run
     if (periodRefusal) return toolError(periodRefusal);
     const accountLines = lines.flatMap((l, index) => (l.contraAccountId
       ? [{ l: { ...l, contraAccountId: l.contraAccountId }, index }] : []));
