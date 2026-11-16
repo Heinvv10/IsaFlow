@@ -37,6 +37,7 @@ import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { resolveUserUuid } from '../gl/journalEntryCrudService';
 import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contactDirectoryService';
 import { assertBankLineMayPaySupplier } from '../ap/bankLinePaymentGate';
+import { assertBankLineMayRefundCustomer } from './bankLineRefundGate';
 import { planSupplierRefund, recordSupplierRefund } from '../ap/supplierRefundDocument';
 import { recordSupplierBankPayment } from '../ap/supplierAutoAllocate';
 import { planCustomerRefund, recordCustomerRefund } from '../ar/customerRefundDocument';
@@ -151,6 +152,8 @@ export async function planSplitContacts(
   }
 
   for (const p of paymentTotals.values()) await assertBankLineMayPaySupplier(companyId, tx, p.amount);
+  // A customer refund out of a hand-keyed line: the same gate as a manual journal (bankLineRefundGate).
+  for (const r of refundTotals.values()) if (r.kind === 'customer') await assertBankLineMayRefundCustomer(companyId, tx, r.amount);
   // planXRefund locks the contact: in id order, so two splits naming the same
   // contacts in opposite orders wait for each other instead of deadlocking.
   for (const [, r] of [...refundTotals].sort(([a], [b]) => a.localeCompare(b))) {
