@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const sqlMock = vi.fn();
 vi.mock('@/lib/neon', () => ({ sql: Object.assign((...a: unknown[]) => sqlMock(...a), { unsafe: (s: string) => s }) }));
 
-import { listBankLineAttachmentsCapped, listBankLineAttachments } from '@/modules/accounting/services/capture/capturedAttachmentLinks';
+import { listBankLineAttachmentsCapped, listBankLineAttachments, countBankLineAttachments, BANK_LINE_ATTACHMENT_LIST_MAX } from '@/modules/accounting/services/capture/capturedAttachmentLinks';
 
 const copy = (i: number) => ({ id: `a${i}`, bank_transaction_id: 't', file_url: 'data:x', file_name: `f${i}`, file_size: 1, uploaded_by: null, created_at: `2026-01-${String(10 + i).padStart(2, '0')}T00:00:00Z`, document_id: null, file_type: null });
 
@@ -20,7 +20,7 @@ describe('capped attachment list', () => {
     expect(r.truncated).toBe(true);
     expect(r.items.map((i) => i.id)).toEqual(['a3', 'a2']);
     const [strings, ...values] = sqlMock.mock.calls[0]!;
-    expect((strings as string[]).join('?')).toMatch(/ORDER BY bta\.created_at DESC\s+LIMIT \?::INT/);
+    expect((strings as string[]).join('?')).toMatch(/ORDER BY bta\.created_at DESC, bta\.id DESC\s+LIMIT \?::INT/);
     expect(values).toContain(3);
   });
 
@@ -34,5 +34,26 @@ describe('capped attachment list', () => {
     const all = await listBankLineAttachments('co', 't');
     expect(all).toHaveLength(3);
     expect(sqlMock.mock.calls[0]!.slice(1).includes(null)).toBe(true); // LIMIT NULL: no limit
+  });
+
+  it('equal timestamps order by id, newest first (a stable page boundary)', async () => {
+    sqlMock.mockReset();
+    const same = '2026-02-01T00:00:00Z';
+    sqlMock.mockResolvedValueOnce([{ ...copy(1), id: 'a1', created_at: same }, { ...copy(1), id: 'a3', created_at: same }, { ...copy(1), id: 'a2', created_at: same }]);
+    sqlMock.mockResolvedValueOnce([]);
+    const r = await listBankLineAttachmentsCapped('co', 't', 2);
+    expect(r.items.map((i) => i.id)).toEqual(['a3', 'a2']);
+  });
+
+  it('the cap is 100', () => { expect(BANK_LINE_ATTACHMENT_LIST_MAX).toBe(100); });
+
+  it('countBankLineAttachments counts with the row badge\'s predicate (attachmentCountSql) in the company', async () => {
+    sqlMock.mockReset().mockResolvedValue([{ n: 137 }]);
+    expect(await countBankLineAttachments('co', 't')).toBe(137);
+    const [strings, ...values] = sqlMock.mock.calls[0]!;
+    expect(values).toEqual(expect.arrayContaining(['t', 'co']));
+    // sql.unsafe is mocked to return its text, which shows up as a value: it is the shared fragment
+    expect(values.some((v) => typeof v === 'string' && v.includes('bank_transaction_attachments') && v.includes('captured_documents'))).toBe(true);
+    expect((strings as string[]).join('?')).toMatch(/bt\.company_id = \?::uuid/);
   });
 });

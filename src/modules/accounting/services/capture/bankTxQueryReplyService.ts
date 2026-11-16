@@ -23,7 +23,7 @@ const MIME_RE = /^(image\/(jpeg|jpg|png|webp|tiff)|application\/pdf)$/;
 export interface OpenQuery {
   id: string;
   bankTransactionId: string;
-  status: 'sent' | 'replied';
+  status: 'sent' | 'replied' | 'unconfirmed';
 }
 
 export async function findOpenQuery(
@@ -37,15 +37,15 @@ export async function findOpenQuery(
     FROM bank_tx_queries
     WHERE company_id = ${companyId}::uuid
       AND to_number = ${normalized}
-      AND status IN ('sent', 'replied')
-    ORDER BY (status = 'sent') DESC, sent_at DESC
+      AND status IN ('sent', 'replied', 'unconfirmed') -- an unconfirmed send MAY have gone out: a reply still matches it
+    ORDER BY (status IN ('sent', 'unconfirmed')) DESC, sent_at DESC
     LIMIT 1
   `) as Row[];
   if (!row) return null;
   return {
     id: String(row.id),
     bankTransactionId: String(row.bank_transaction_id),
-    status: row.status as 'sent' | 'replied',
+    status: row.status as 'sent' | 'replied' | 'unconfirmed',
   };
 }
 
@@ -145,7 +145,7 @@ export async function markQueryReplied(
         updated_at = NOW()
     WHERE id = ${queryId}::uuid
       AND company_id = ${companyId}::uuid
-      AND status IN ('sent', 'replied')
+      AND status IN ('sent', 'replied', 'unconfirmed')
   `;
   log.info('bankTxQueryReply: query marked replied', {
     companyId, queryId, hasText: Boolean(replyText), captureEventId,

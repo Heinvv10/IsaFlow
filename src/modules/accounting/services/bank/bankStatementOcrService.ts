@@ -103,7 +103,7 @@ export async function rollbackImport(companyId: string, importId: string, userId
   if (!imp) throw new ExtractionActionRefusedError('NOT_FOUND', 'Statement not found.'); // 404, before any write
   const notReady = notReadyError(imp.status);
   if (notReady) throw notReady;
-  if (imp.status === 'committed') throw new Error('Cannot roll back a committed import');
+  if (imp.status === 'committed') throw new ExtractionActionRefusedError('ALREADY_COMMITTED', 'Cannot roll back a committed import');
   if (imp.status === 'rolled_back') return; // a second click: already done, nothing to write
 
   // The status test is in the UPDATE too: the read above is not what decides, the row count is.

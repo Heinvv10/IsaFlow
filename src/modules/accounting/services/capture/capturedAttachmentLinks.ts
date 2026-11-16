@@ -9,7 +9,7 @@
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { attachmentCountsSql, hasNoCopySql, isCopyOfSql, linkedCapturedDocSql } from '../bank/bankLineDocumentSql';
+import { attachmentCountSql, attachmentCountsSql, hasNoCopySql, isCopyOfSql, linkedCapturedDocSql } from '../bank/bankLineDocumentSql';
 import { mimeForCapturedFileType } from './capturedFileTypes';
 import { lockCapturedDocumentForUpdate } from './captureRowLock';
 
@@ -34,12 +34,26 @@ export const capturedFileUrl = (documentId: string): string =>
 type Row = Record<string, unknown>;
 const time = (v: unknown) => new Date(String(v instanceof Date ? v.toISOString() : v)).getTime();
 
-/** The most documents one bank line's list carries (stored uploads are data URLs of up to 2 MB each, so the list is bounded). */
-export const BANK_LINE_ATTACHMENT_LIST_MAX = 20;
+/**
+ * The most documents one GET of a bank line's list carries (stored uploads are data URLs of up to 2 MB each) and the
+ * most a MANUAL upload (POST /bank-tx-attachments) will add. The table itself is NOT bounded: other writers (MCP
+ * attach_document, the capture mirror, WhatsApp replies) are uncapped by decision, so a line can hold more than this and
+ * its list then says "Showing newest N of M" (X-Attachments-Total).
+ */
+export const BANK_LINE_ATTACHMENT_LIST_MAX = 100;
 
 /** Every supporting document of the bank line, newest first. The line must already be verified as this company's. */
 export async function listBankLineAttachments(companyId: string, bankTxId: string): Promise<BankLineAttachment[]> {
   return (await loadAttachments(companyId, bankTxId, null)).items;
+}
+
+/** The visible documents of the line (the same predicate the list and the row's badge use), uploads and linked captured documents. */
+export async function countBankLineAttachments(companyId: string, bankTxId: string): Promise<number> {
+  const [row] = (await sql`
+    SELECT ${sql.unsafe(attachmentCountSql('bt'))} AS n FROM bank_transactions bt
+     WHERE bt.id = ${bankTxId}::uuid AND bt.company_id = ${companyId}::uuid
+  `) as Row[];
+  return Number(row?.n ?? 0);
 }
 
 /** The newest `limit` documents of the line, and whether older ones were left out. */
@@ -61,7 +75,7 @@ async function loadAttachments(
         ON ${sql.unsafe(linkedCapturedDocSql('bt', 'cd'))} AND ${sql.unsafe(isCopyOfSql('bta', 'cd'))}
      WHERE bta.bank_transaction_id = ${bankTxId}::uuid AND bt.company_id = ${companyId}::uuid
        AND ${sql.unsafe(attachmentCountsSql('bta', 'bt'))}
-     ORDER BY bta.created_at DESC
+     ORDER BY bta.created_at DESC, bta.id DESC
      LIMIT ${limit === null ? null : limit + 1}::INT
   `) as Row[];
   const uncopied = (await sql`
@@ -96,7 +110,7 @@ async function loadAttachments(
       content_type: r.file_type ? mimeForCapturedFileType(String(r.file_type)) : null,
     })),
   ];
-  items.sort((a, b) => time(b.created_at) - time(a.created_at));
+  items.sort((a, b) => time(b.created_at) - time(a.created_at) || String(b.id).localeCompare(String(a.id)));
   return limit === null ? { items, truncated: false } : { items: items.slice(0, limit), truncated: items.length > limit };
 }
 

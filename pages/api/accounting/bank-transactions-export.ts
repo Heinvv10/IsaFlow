@@ -38,6 +38,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!isLedgerDate(periodStart) || !isLedgerDate(periodEnd)) {
     return apiResponse.badRequest(res, `period_start and period_end: ${LEDGER_DATE_MESSAGE}`);
   }
+  // ISO dates order as strings: an inverted range is the caller's mistake, not an empty export.
+  if (periodStart > periodEnd) return apiResponse.badRequest(res, 'period_start must be on or before period_end');
 
   // A bank account of THIS company only: the GL ledger of any other account is another report's business.
   const [isBank] = (await sql`

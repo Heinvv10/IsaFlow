@@ -17,7 +17,7 @@ const { sqlMock, afterCommit, runJob } = vi.hoisted(() => ({
   runJob: vi.fn(async () => undefined),
 }));
 
-vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+vi.mock('@/lib/neon', () => ({ sql: sqlMock, withSavepoint: async (_name: string, fn: () => Promise<unknown>) => fn() }));
 // bank/bankAccountGuard reads Postgres; a mocked sql would answer it. Proven in tests/integration/bank-account-guard-*.
 vi.mock('@/modules/accounting/services/bank/bankAccountGuard', async () => (await import('../../helpers/bankControlGateMocks')).bankAccountGuardOpen());
 vi.mock('@/lib/logger', () => ({
@@ -334,6 +334,19 @@ describe('commitImport', () => {
     expect(committed!.slice(1)).toContain(2); // imported_count counts written rows only
   });
 
+  it('every row ON CONFLICT-skipped: refused (409 EVERY_ROW_PRESENT), the import is NOT marked committed (WP7)', async () => {
+    const rows = [0, 1].map((i) => ({ date: `2026-03-0${i + 1}`, description: `Line ${i}`, amount: -10 - i, isDuplicate: false, reference: null, runningBalance: null, duplicateOfBankTxId: null, duplicateMatchConfidence: 0 }));
+    const importRow = makeImportDbRow({ status: 'extracted', row_count: 2, duplicate_count: 0, extraction_summary: { rows, warnings: [] } });
+    commitSql(importRow, [false, false]);
+    let texts: string[] = [];
+    try {
+      await expect(commitImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toMatchObject({ name: 'ExtractionActionRefusedError', code: 'EVERY_ROW_PRESENT' });
+      texts = sqlTexts();
+    } finally { sqlMock.mockReset(); }
+    expect(texts.some((t) => t.includes("SET status = 'committed'"))).toBe(false); // left as it was
+    expect(texts.some((t) => t.includes('SET transaction_count'))).toBe(false);
+  });
+
   it('flips status from reviewing to committed', async () => {
     const importRow = makeImportDbRow({
       status: 'extracted',
@@ -358,6 +371,9 @@ describe('commitImport', () => {
     sqlMock.mockResolvedValueOnce([importRow]);
 
     await expect(commitImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow('Import already committed');
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([importRow]);
+    await expect(commitImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toMatchObject({ name: 'ExtractionActionRefusedError', code: 'ALREADY_COMMITTED' }); // a double commit: 409
   });
 
   it('throws "Import has been rolled back" when status is rolled_back', async () => {
@@ -366,6 +382,9 @@ describe('commitImport', () => {
     sqlMock.mockResolvedValueOnce([importRow]);
 
     await expect(commitImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow('Import has been rolled back');
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([importRow]);
+    await expect(commitImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toMatchObject({ name: 'ExtractionActionRefusedError', code: 'ROLLED_BACK' });
   });
 
   it('a missing import is a refusal the route answers 404 (not a bare Error, a 500)', async () => {
@@ -445,6 +464,11 @@ describe('rollbackImport', () => {
     sqlMock.mockResolvedValueOnce([importRow]);
 
     await expect(rollbackImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow('Cannot roll back a committed import');
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([importRow]);
+    // typed, so the route answers 409 (it was a bare Error: a 500), and refused before any write
+    await expect(rollbackImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toMatchObject({ name: 'ExtractionActionRefusedError', code: 'ALREADY_COMMITTED' });
+    expect(sqlMock.mock.calls.map(text).some((t) => t.startsWith('UPDATE'))).toBe(false);
   });
 
   it('a missing import is a refusal the route answers 404 (not a bare Error, a 500)', async () => {

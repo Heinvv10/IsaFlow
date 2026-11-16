@@ -44,7 +44,7 @@ export const MAX_BANK_TX_OFFSET = 100_000;
 /** Thrown for an offset beyond MAX_BANK_TX_OFFSET; the route answers 400. */
 export class OffsetTooLargeError extends Error {
   constructor() {
-    super(`offset cannot exceed ${MAX_BANK_TX_OFFSET}; narrow the filters or page by cursor`);
+    super(`Too many pages - narrow the filters (a list can be paged ${MAX_BANK_TX_OFFSET} rows deep)`);
     this.name = 'OffsetTooLargeError';
   }
 }

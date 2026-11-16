@@ -93,8 +93,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // ── POST ─────────────────────────────────────────────────────────────────
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? '', ['GET', 'POST']);
 
-  // Every upload starts an AI read of the statement: per IP, per company and per day, before the body is parsed.
-  if (!(await checkAiRateLimit(req, companyId, 'bank-statements-upload', { ipMax: 10, companyMax: 20, dailyMax: 100 }))) {
+  // Every upload starts an AI read of the statement, so each is metered before its body is parsed. Onboarding uploads
+  // many statements in one sitting, so the per-company ceilings are generous (60 per 15 minutes, 300 a day); the per-IP
+  // limit (30 per 15 minutes) is the abuse bound and a single office shares one address.
+  if (!(await checkAiRateLimit(req, companyId, 'bank-statements-upload', { ipMax: 30, companyMax: 60, dailyMax: 300 }))) {
     log.warn('Bank statement upload rate limit exceeded', { companyId }, 'rateLimit');
     return apiResponse.tooManyRequests(res, 'Too many statement uploads. Please try again shortly.');
   }

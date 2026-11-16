@@ -63,6 +63,13 @@ describe.each([['commit', commit, 'commit'], ['rollback', rollback, 'rollback']]
     const r = await callRoute(handler, { method: 'POST', query: { id: UUID_A } });
     expect(r.code).toBe(404);
   });
+  it.each(['ALREADY_COMMITTED', 'ROLLED_BACK', 'EVERY_ROW_PRESENT'] as const)('%s is a typed 409, refused before any write (it was a bare Error: a 500)', async (code) => {
+    mocks[which].mockRejectedValue(new ExtractionActionRefusedError(code, `refused ${code}`));
+    const r = await callRoute(handler, { method: 'POST', query: { id: UUID_A } });
+    expect(r.code).toBe(409);
+    expect(JSON.stringify(r.body)).toContain(code);
+  });
+
   it('another refusal of the same family is a 409, anything else still throws (a real fault stays a 500)', async () => {
     mocks[which].mockRejectedValue(new ExtractionActionRefusedError('IN_PROGRESS', 'busy'));
     expect((await callRoute(handler, { method: 'POST', query: { id: UUID_A } })).code).toBe(409);
@@ -77,7 +84,7 @@ describe('bank-statements upload', () => {
     mocks.parseError = new Error('would have been parsed');
     const r = await callRoute(upload, { method: 'POST' });
     expect(r.code).toBe(429);
-    expect(mocks.aiLimit).toHaveBeenCalledWith(expect.anything(), 'aaaaaaaa-0000-4000-8000-000000000001', 'bank-statements-upload', expect.objectContaining({ companyMax: expect.any(Number) }));
+    expect(mocks.aiLimit).toHaveBeenCalledWith(expect.anything(), 'aaaaaaaa-0000-4000-8000-000000000001', 'bank-statements-upload', expect.objectContaining({ ipMax: 30, companyMax: 60, dailyMax: 300 })); // onboarding uploads many statements: generous per company, the IP is the abuse bound
   });
 
   it("a parser failure is a plain 400 that does not echo formidable's message", async () => {

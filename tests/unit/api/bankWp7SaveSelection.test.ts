@@ -68,6 +68,13 @@ describe('getRules', () => {
   it("joins each rule's GL account within the rule's company", async () => {
     sqlMock.mockReset().mockResolvedValue([]);
     await getRules(COMPANY);
-    expect(text(sqlMock.mock.calls[0]!)).toMatch(/LEFT JOIN gl_accounts ga ON ga\.id = r\.gl_account_id AND ga\.company_id = r\.company_id/);
+    const q = text(sqlMock.mock.calls[0]!);
+    expect(q).toMatch(/LEFT JOIN gl_accounts ga ON ga\.id = r\.gl_account_id AND ga\.company_id = r\.company_id/);
+    expect(q).toMatch(/LEFT JOIN suppliers s ON s\.id = r\.supplier_id AND s\.company_id = r\.company_id/);
+    expect(q).toMatch(/LEFT JOIN customers c ON c\.id = r\.client_id AND c\.company_id = r\.company_id/);
+    // every join in the statement is fenced to the rule's company
+    const joins = q.match(/LEFT JOIN \w+ \w+ ON [^\n]+/g) ?? [];
+    expect(joins.length).toBeGreaterThanOrEqual(3);
+    for (const j of joins) expect(j, j).toMatch(/company_id = r\.company_id/);
   });
 });

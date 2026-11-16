@@ -21,6 +21,7 @@ import { UUID } from '@/lib/schemas/common';
 import { parseBoundedInt } from '@/modules/accounting/services/gl/ledgerDateRange';
 
 export const REPORT_ROWS_MAX = 5000;
+export const REPORT_OFFSET_MAX = 1_000_000;
 
 // ─── Row types returned from DB ───────────────────────────────────────────────
 
@@ -110,6 +111,16 @@ async function fetchUnmatchedTransactions(companyId: string, bankAccountId: stri
   `) as TxRow[];
 }
 
+async function fetchTotals(companyId: string, bankAccountId: string): Promise<{ matched: number; unmatched: number }> {
+  const [r] = (await sql`
+    SELECT COUNT(*) FILTER (WHERE bt.status = 'matched')::INT AS matched,
+           COUNT(*) FILTER (WHERE bt.status = 'imported')::INT AS unmatched
+    FROM bank_transactions bt
+    WHERE bt.bank_account_id = ${bankAccountId}::UUID AND bt.feed_state = 'posted' AND bt.company_id = ${companyId}
+  `) as Array<{ matched: number; unmatched: number }>;
+  return { matched: Number(r?.matched ?? 0), unmatched: Number(r?.unmatched ?? 0) };
+}
+
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -122,17 +133,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const parsedId = UUID.safeParse(req.query.bankAccountId);
   if (!parsedId.success) return apiResponse.badRequest(res, 'bankAccountId must be a valid UUID');
   const bankAccountId = parsedId.data;
-  const limit = parseBoundedInt(req.query.limit, 1, REPORT_ROWS_MAX) ?? REPORT_ROWS_MAX;
-  const matchedOffset = parseBoundedInt(req.query.matchedOffset, 0, 10_000_000) ?? 0;
-  const unmatchedOffset = parseBoundedInt(req.query.unmatchedOffset, 0, 10_000_000) ?? 0;
+  // A paging parameter that is present must be valid: an out-of-range or garbled one is a 400, never a silent page 1.
+  const paging = (name: string, min: number, max: number, dflt: number): number | null => {
+    const v = req.query[name];
+    return v === undefined ? dflt : parseBoundedInt(v, min, max);
+  };
+  const limit = paging('limit', 1, REPORT_ROWS_MAX, REPORT_ROWS_MAX);
+  const matchedOffset = paging('matchedOffset', 0, REPORT_OFFSET_MAX, 0);
+  const unmatchedOffset = paging('unmatchedOffset', 0, REPORT_OFFSET_MAX, 0);
+  if (limit === null || matchedOffset === null || unmatchedOffset === null) {
+    return apiResponse.badRequest(res,
+      `limit must be 1 to ${REPORT_ROWS_MAX} and matchedOffset / unmatchedOffset 0 to ${REPORT_OFFSET_MAX}`);
+  }
 
   try {
     // Parallel fetch: account name, latest batch, matched and unmatched transactions (one row past each limit, to know).
-    const [bankAccountName, latestBatch, matchedAll, unmatchedAll] = await Promise.all([
+    const [bankAccountName, latestBatch, matchedAll, unmatchedAll, totals] = await Promise.all([
       fetchBankAccountName(companyId, bankAccountId),
       fetchLatestBatch(companyId, bankAccountId),
       fetchMatchedTransactions(companyId, bankAccountId, limit, matchedOffset),
       fetchUnmatchedTransactions(companyId, bankAccountId, limit, unmatchedOffset),
+      fetchTotals(companyId, bankAccountId),
     ]);
     const matchedRows = matchedAll.slice(0, limit);
     const unmatchedRows = unmatchedAll.slice(0, limit);
@@ -159,6 +180,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       matchedTransactions: matchedRows.map(mapTx),
       unmatchedTransactions: unmatchedRows.map(mapTx),
       truncated: { matched: matchedAll.length > limit, unmatched: unmatchedAll.length > limit },
+      matchedTotal: totals.matched,
+      unmatchedTotal: totals.unmatched,
     });
   } catch (err) {
     log.error('Failed to get bank reconciliation report data', { error: err }, 'accounting-api');

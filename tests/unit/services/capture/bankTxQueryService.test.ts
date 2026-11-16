@@ -97,7 +97,7 @@ describe('createAndSendQuery', () => {
     expect(insert!.values).toContain(COMPANY_ID);
     expect(insert!.values).toContain('+27821234567');
     // the sid arrives after the send, on the row recorded before it
-    const sid = sqlCalls.find((c) => c.sql.includes('UPDATE bank_tx_queries SET message_sid'));
+    const sid = sqlCalls.find((c) => c.sql.includes('UPDATE bank_tx_queries SET status = \'sent\', message_sid'));
     expect(sid!.values).toContain('SM_TEST_SID');
     expect(sid!.values).toContain(QUERY_ID);
   });

@@ -8,6 +8,8 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useCompany } from '@/contexts/CompanyContext';
+import { canDirectBankQueries } from '@/lib/auth/writeRoles';
 import { X, MessageCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { composeBankTxQueryMessage } from '@/modules/accounting/services/capture/bankTxQueryMessage';
@@ -44,6 +46,8 @@ function formatShortDate(raw: string | null): string {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
+  const { companyRole } = useCompany();
+  const canDirect = canDirectBankQueries(companyRole);
   const [phone, setPhone] = useState('');
   const [message, setMessage] = useState('');
   const [messageDirty, setMessageDirty] = useState(false);
@@ -109,7 +113,7 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
           }),
           await step(queriesRes, 'Could not check whether this transaction was already queried', (json) => {
             const rows: QueryRow[] = (json as { data: QueryRow[] }).data ?? [];
-            setPriorQuery(rows.find(r => r.status === 'sent' || r.status === 'replied') ?? null);
+            setPriorQuery(rows.find(r => r.status === 'sent' || r.status === 'replied' || r.status === 'unconfirmed') ?? null);
           }),
         ].filter(Boolean);
         if (!cancelled && problems.length > 0) setInlineError(problems.join('. '));
@@ -210,8 +214,14 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
               onChange={e => setPhone(e.target.value)}
               placeholder="+27 82 123 4567"
               disabled={loadingSettings || sending}
+              readOnly={!canDirect}
               className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] focus:outline-none focus:border-green-500/60 disabled:opacity-50"
             />
+            {!canDirect && (
+              <p data-testid="query-number-locked" className="mt-0.5 text-xs text-[var(--ff-text-tertiary)]">
+                Queries go to the company&apos;s saved number. An owner or admin can change it.
+              </p>
+            )}
           </div>
 
           {/* Message textarea */}
@@ -232,8 +242,8 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
             </p>
           </div>
 
-          {/* Save as default */}
-          <label className="flex items-center gap-2 cursor-pointer select-none">
+          {/* Save as default: the company's default number is an owner/admin setting (the server refuses anyone else) */}
+          {canDirect && <label className="flex items-center gap-2 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={saveDefault}
@@ -244,7 +254,7 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
             <span className="text-xs text-[var(--ff-text-secondary)]">
               Save as this client&apos;s default WhatsApp number
             </span>
-          </label>
+          </label>}
 
           {/* Inline error */}
           {inlineError && (

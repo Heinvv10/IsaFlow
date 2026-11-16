@@ -28,7 +28,11 @@ export interface CreateQueryInput {
 
 export type CreateQueryResult =
   | { ok: true; query: Row }
-  | { ok: false; reason: string };
+  /** `unconfirmed`: the send's outcome is unknown; the query is recorded (status 'unconfirmed') and open. */
+  | { ok: false; reason: string; unconfirmed?: true };
+
+const UNCONFIRMED_REASON =
+  'The message could not be confirmed as sent. The query is recorded as "send not confirmed" and stays open for a reply; check with the client before sending again';
 
 function toDateString(v: Date | string): string {
   return fmtDate(v);
@@ -62,16 +66,21 @@ export async function createAndSendQuery(
       reference: tx.reference == null ? null : String(tx.reference),
     }).body;
 
-  // The query is RECORDED before the message goes out (WP7): the other way round, a send that succeeded and an insert
-  // that then failed left a client with a question no one could see or answer. The row lives in the request's
-  // transaction, which COMMITs on a 4xx and ROLLs BACK on a 5xx, so a send that is refused takes it back out here and
-  // everything after the send is kept from throwing.
+  // The query is RECORDED before the message goes out (WP7), as 'unconfirmed': only a confirmed send promotes it to
+  // 'sent'. So whatever happens next, a row that exists never claims a send that was not confirmed.
+  //  - a DEFINITE refusal (Twilio not configured, a 4xx validation error): the message did not go; the row is deleted;
+  //  - an AMBIGUOUS failure (timeout, connection reset, 5xx, a throw): the message MAY have gone, so the row stays
+  //    'unconfirmed' and open for reply matching (the client may answer it), and the caller is told (409);
+  //  - a confirmed send: sid and status in one savepointed UPDATE, the default number in another, neither able to throw.
+  // GUARANTEE, honestly: the row belongs to the request's transaction, which commits on a 4xx/2xx and rolls back on a
+  // 5xx; a crash of the server between the send and the commit can still lose it. This closes the "insert failed after
+  // a good send" gap, not that one.
   const [query] = (await sql`
     INSERT INTO bank_tx_queries (
-      company_id, bank_transaction_id, to_number, message_body, created_by
+      company_id, bank_transaction_id, to_number, message_body, status, created_by
     ) VALUES (
       ${companyId}::uuid, ${input.bankTransactionId}::uuid,
-      ${toNumber}, ${body}, ${input.userId}::uuid
+      ${toNumber}, ${body}, 'unconfirmed', ${input.userId}::uuid
     )
     RETURNING *
   `) as Row[];
@@ -81,41 +90,50 @@ export async function createAndSendQuery(
     }, 'bank-tx-queries');
     return { ok: false, reason: 'internal error: query row not returned' };
   }
+  const queryId = String(query.id);
 
   let sendResult: Awaited<ReturnType<typeof sendWhatsAppMessage>>;
   try {
     sendResult = await sendWhatsAppMessage(`whatsapp:${toNumber}`, body);
   } catch (err) {
-    // Whether the message left is unknown: keep the record, say so (the route answers 4xx, which commits it).
-    log.error('bankTxQuery: send threw; the query stays recorded', {
-      companyId, queryId: query.id, error: err instanceof Error ? err.message : String(err),
+    log.error('bankTxQuery: send threw; the query stays recorded as unconfirmed', {
+      companyId, queryId, error: err instanceof Error ? err.message : String(err),
     }, 'bank-tx-queries');
-    return { ok: false, reason: 'The message could not be confirmed as sent. The query is recorded; check its status before sending again' };
+    return { ok: false, unconfirmed: true, reason: UNCONFIRMED_REASON };
   }
   if (!sendResult.sent) {
     log.warn('bankTxQuery: send failed', {
-      companyId, bankTransactionId: input.bankTransactionId, reason: sendResult.reason,
+      companyId, bankTransactionId: input.bankTransactionId, queryId, reason: sendResult.reason, ambiguous: sendResult.ambiguous === true,
     }, 'bank-tx-queries');
-    await sql`DELETE FROM bank_tx_queries WHERE id = ${String(query.id)}::uuid AND company_id = ${companyId}::uuid`;
+    if (sendResult.ambiguous) return { ok: false, unconfirmed: true, reason: UNCONFIRMED_REASON };
+    await sql`DELETE FROM bank_tx_queries WHERE id = ${queryId}::uuid AND company_id = ${companyId}::uuid`;
     return { ok: false, reason: sendResult.reason ?? 'send failed' };
   }
 
   // The message is out. What follows must never undo its record: each write has its own savepoint, and a failure is
   // logged rather than thrown (a throw is a 500, which rolls the whole request back, the record included).
   try {
-    await withSavepoint('bank_tx_query_after_send', async () => {
+    await withSavepoint('bank_tx_query_confirm', async () => {
       await sql`
-        UPDATE bank_tx_queries SET message_sid = ${sendResult.sid ?? null}
-        WHERE id = ${String(query.id)}::uuid AND company_id = ${companyId}::uuid
+        UPDATE bank_tx_queries SET status = 'sent', message_sid = ${sendResult.sid ?? null}, updated_at = NOW()
+        WHERE id = ${queryId}::uuid AND company_id = ${companyId}::uuid
       `;
-      if (input.saveAsDefault) {
-        await sql`UPDATE companies SET client_query_whatsapp = ${toNumber} WHERE id = ${companyId}::uuid`;
-      }
     });
   } catch (err) {
-    log.error('bankTxQuery: the message went out but its sid / default number could not be saved', {
-      companyId, queryId: query.id, error: err instanceof Error ? err.message : String(err),
+    log.error('bankTxQuery: the message went out but its sid could not be saved (the query stays unconfirmed)', {
+      companyId, queryId, error: err instanceof Error ? err.message : String(err),
     }, 'bank-tx-queries');
+  }
+  if (input.saveAsDefault) {
+    try {
+      await withSavepoint('bank_tx_query_default_number', async () => {
+        await sql`UPDATE companies SET client_query_whatsapp = ${toNumber} WHERE id = ${companyId}::uuid`;
+      });
+    } catch (err) {
+      log.error('bankTxQuery: the default number could not be saved', {
+        companyId, queryId, error: err instanceof Error ? err.message : String(err),
+      }, 'bank-tx-queries');
+    }
   }
 
   log.info('bankTxQuery: sent', {
@@ -125,8 +143,23 @@ export async function createAndSendQuery(
   return { ok: true, query };
 }
 
+/**
+ * May a NON-admin send a query to `normalizedNumber` about this line? Only to the company's saved default number, or a
+ * number that already has a thread on this very line (a follow-up). Anything else is for an owner or admin.
+ */
+export async function mayMessageNumber(companyId: string, bankTransactionId: string, normalizedNumber: string): Promise<boolean> {
+  const [row] = (await sql`
+    SELECT 1 AS ok
+    WHERE EXISTS (SELECT 1 FROM companies WHERE id = ${companyId}::uuid AND client_query_whatsapp = ${normalizedNumber})
+       OR EXISTS (SELECT 1 FROM bank_tx_queries WHERE company_id = ${companyId}::uuid
+                    AND bank_transaction_id = ${bankTransactionId}::uuid AND to_number = ${normalizedNumber})
+  `) as Row[];
+  return !!row;
+}
+
 export interface ListQueryFilters {
-  status?: 'sent' | 'replied' | 'resolved' | 'cancelled';
+  /** 'open' = sent or unconfirmed (nothing has resolved or cancelled it, and it has no reply yet). */
+  status?: 'open' | 'sent' | 'replied' | 'resolved' | 'cancelled' | 'unconfirmed';
   bankTransactionId?: string;
 }
 
@@ -147,7 +180,8 @@ export async function listQueries(
     JOIN bank_transactions bt ON bt.id = q.bank_transaction_id AND bt.company_id = q.company_id
     LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id AND ga.company_id = bt.company_id
     WHERE q.company_id = ${companyId}::uuid
-      AND (${status}::text IS NULL OR q.status = ${status})
+      AND (${status}::text IS NULL OR q.status = ${status}
+           OR (${status} = 'open' AND q.status IN ('sent', 'unconfirmed')))
       AND (${txId}::uuid IS NULL OR q.bank_transaction_id = ${txId}::uuid)
     ORDER BY q.sent_at DESC
     LIMIT 200
@@ -165,14 +199,14 @@ export async function setQueryStatus(
           UPDATE bank_tx_queries
           SET status = 'resolved', resolved_at = NOW(), updated_at = NOW()
           WHERE id = ${queryId}::uuid AND company_id = ${companyId}::uuid
-            AND status IN ('sent','replied')
+            AND status IN ('sent','replied','unconfirmed')
           RETURNING id
         `) as Row[])
       : ((await sql`
           UPDATE bank_tx_queries
           SET status = 'cancelled', updated_at = NOW()
           WHERE id = ${queryId}::uuid AND company_id = ${companyId}::uuid
-            AND status = 'sent'
+            AND status IN ('sent','unconfirmed')
           RETURNING id
         `) as Row[]);
   if (rows.length === 0) {

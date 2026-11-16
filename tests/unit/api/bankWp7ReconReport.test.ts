@@ -11,7 +11,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 
-import handler, { REPORT_ROWS_MAX } from '../../../pages/api/accounting/bank-reconciliation-report';
+import handler, { REPORT_OFFSET_MAX, REPORT_ROWS_MAX } from '../../../pages/api/accounting/bank-reconciliation-report';
 
 const tx = (i: number) => ({ id: `t${i}`, transaction_date: '2026-01-05', description: 'd', reference: null, amount: '-1.00', journal_entry_number: null });
 let matchedRows = 0, unmatchedRows = 0;
@@ -21,12 +21,13 @@ beforeEach(() => {
     const t = strings.join('?');
     if (t.includes('SELECT account_name')) return [{ account_name: 'Cheque' }];
     if (t.includes('FROM bank_import_batches')) return [];
+    if (t.includes("COUNT(*) FILTER")) return [{ matched: matchedRows, unmatched: unmatchedRows }];
     if (t.includes("bt.status = 'matched'")) return Array.from({ length: matchedRows }, (_, i) => tx(i));
     if (t.includes("bt.status = 'imported'")) return Array.from({ length: unmatchedRows }, (_, i) => tx(i));
     return [];
   });
 });
-const listCalls = () => sqlMock.mock.calls.filter(([s]) => (s as string[]).join('?').includes('bt.status ='));
+const listCalls = () => sqlMock.mock.calls.filter(([s]) => { const t = (s as string[]).join('?'); return t.includes('bt.status =') && !t.includes('COUNT(*)'); });
 const body = (r: { body: unknown }) => (r.body as { data: { matchedTransactions: unknown[]; unmatchedTransactions: unknown[]; truncated: { matched: boolean; unmatched: boolean } } }).data;
 
 describe('bank-reconciliation-report', () => {
@@ -55,13 +56,30 @@ describe('bank-reconciliation-report', () => {
     expect(body(await callRoute(handler, { query: { bankAccountId: UUID_A } })).truncated.matched).toBe(false);
   });
 
-  it('limit and per-list offsets page the lists; a limit above the maximum falls back to it', async () => {
+  it('limit and per-list offsets page the lists', async () => {
     await callRoute(handler, { query: { bankAccountId: UUID_A, limit: '100', matchedOffset: '200', unmatchedOffset: '300' } });
     const values = listCalls().map(([, ...v]) => v);
     expect(values.some((v) => v.includes(101) && v.includes(200))).toBe(true);
     expect(values.some((v) => v.includes(101) && v.includes(300))).toBe(true);
-    sqlMock.mockClear();
-    await callRoute(handler, { query: { bankAccountId: UUID_A, limit: String(REPORT_ROWS_MAX * 10) } });
-    for (const [, ...v] of listCalls()) expect(v).toContain(REPORT_ROWS_MAX + 1);
+  });
+
+  it('carries the lists\' TRUE totals, so a client can page to completion or print "first N of M"', async () => {
+    matchedRows = 7; unmatchedRows = 3;
+    const r = await callRoute(handler, { query: { bankAccountId: UUID_A } });
+    expect((r.body as { data: { matchedTotal: number; unmatchedTotal: number } }).data).toMatchObject({ matchedTotal: 7, unmatchedTotal: 3 });
+  });
+
+  it.each([
+    ['limit above the maximum', { limit: String(REPORT_ROWS_MAX + 1) }],
+    ['limit zero', { limit: '0' }],
+    ['limit not a number', { limit: 'lots' }],
+    ['matchedOffset above the bound', { matchedOffset: String(REPORT_OFFSET_MAX + 1) }],
+    ['unmatchedOffset above the bound', { unmatchedOffset: String(REPORT_OFFSET_MAX + 1) }],
+    ['negative offset', { matchedOffset: '-1' }],
+    ['repeated parameter', { limit: ['10', '20'] }],
+  ])('%s is a 400, never a silent page 1', async (_n, extra) => {
+    const r = await callRoute(handler, { query: { bankAccountId: UUID_A, ...extra } });
+    expect(r.code).toBe(400);
+    expect(listCalls()).toHaveLength(0);
   });
 });

@@ -41,6 +41,7 @@ describe('the route', () => {
     listTx.mockRejectedValue(new OffsetTooLargeError());
     const r = await callRoute(h, { query: { bank_account_id: UUID_A, offset: '999999999' } });
     expect(r.code).toBe(400);
+    expect(JSON.stringify(r.body)).toContain('Too many pages - narrow the filters'); // what the page shows
   });
 
   it.each(BAD_IDS.flatMap((b) => [['bank_account_id', b], ['bankAccountId', b], ['reconciliation_id', b], ['reconciliationId', b]]))(

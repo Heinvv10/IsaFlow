@@ -13,6 +13,7 @@ import type { AllocType, BankTx, SelectOption, RowSelection } from '@/components
 import type { RulePrompt } from './BankTxBatchPanel';
 import { actionableIds } from './pendingFeedRow';
 import { buildBankTxSelectionActions } from './bankTxSelectionActions';
+import { fetchReconReport } from './reconReportFetch';
 import { isUndoableAllocation, offerAllocationUndo, offerExcludeUndo } from './bankTxUndo';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 
@@ -271,14 +272,11 @@ export function buildBankTxActions(deps: ActionDeps) {
   const handleDownloadReport = async (bankAccountCode: string | undefined) => {
     if (!selectedBank) return;
     try {
-      const res = await apiFetch(`/api/accounting/bank-reconciliation-report?bankAccountId=${selectedBank}`);
-      await assertOk(res, 'Could not build the reconciliation report - try again');
-      const json = await res.json();
-      const { generateReconReport } = await import('@/modules/accounting/utils/reconReportPdf');
-      const report = json.data || json;
-      if (report.truncated?.matched || report.truncated?.unmatched) {
-        notify.warning('The report lists only the first lines of a very long list', 'Download it again for a shorter period, or reconcile first, to get every line.');
+      const report = await fetchReconReport(selectedBank);
+      if (report.matchedTotal !== undefined || report.unmatchedTotal !== undefined) {
+        notify.warning('The report is very long and lists only its first lines', 'The PDF says how many of how many it lists.');
       }
+      const { generateReconReport } = await import('@/modules/accounting/utils/reconReportPdf');
       const blob = await generateReconReport(report);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

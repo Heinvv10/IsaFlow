@@ -58,9 +58,14 @@ describe('1. every import path records the importer', () => {
   });
 
   it('nothing UPDATEs a batch: who imported it, from what file and how is fixed once written (877)', () => {
-    // …except the line count: commitImport corrects `transaction_count` when ON CONFLICT skipped a row (WP7). That column
-    // is a tally, not provenance; every provenance column stays write-once.
-    expect(filesMatching(/UPDATE\s+bank_import_batches(?!\s+SET\s+transaction_count\s*=)/)).toEqual([]);
+    // …except ONE statement, pinned exactly: commitImport corrects the batch's `transaction_count` (a tally, not provenance)
+    // when ON CONFLICT skipped a row (WP7). Every UPDATE of the table must be, whole, that single-column statement keyed
+    // by the batch id AND the company, and only the OCR commit may write it. A second column in the SET, a looser WHERE or
+    // another file all fail here.
+    const EXACT_COUNT_UPDATE = /^UPDATE\s+bank_import_batches\s+SET\s+transaction_count\s*=\s*\$\{insertedCount\}\s+WHERE\s+id\s*=\s*\$\{importId\}::uuid\s+AND\s+company_id\s*=\s*\$\{companyId\}::uuid$/;
+    const updates = SOURCES.flatMap((src) => [...src.text.matchAll(/UPDATE\s+bank_import_batches[^`]*/g)].map((m) => ({ file: src.file, stmt: m[0].trim() })));
+    expect(updates.map((u) => u.file)).toEqual([`${B}bankStatementOcrCommit.ts`]);
+    for (const u of updates) expect(u.stmt, u.file).toMatch(EXACT_COUNT_UPDATE);
     expect(filesMatching(/UPDATE\s+bank_transactions\s+SET[^`;]*\bimport_batch_id\s*=/)).toEqual([]);
     // …nor a line's feed connection: both are fixed at INSERT (877's bank_transaction_batch_fixed — breaker R2-3).
     expect(filesMatching(/UPDATE\s+bank_transactions\s+SET[^`;]*\bbank_feed_connection_id\s*=/)).toEqual([]);

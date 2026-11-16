@@ -72,6 +72,13 @@ describe('bank-transactions-export', () => {
     expect(rate).toHaveBeenCalledWith('aaaaaaaa-0000-4000-8000-000000000001', 'bank-transactions-export');
   });
 
+  it('an inverted range is a 400, not an empty export', async () => {
+    const r = await callRoute(handler, { query: { ...q, period_start: '2026-02-01', period_end: '2026-01-01' } });
+    expect(r.code).toBe(400);
+    expect(getBankTransactions).not.toHaveBeenCalled();
+    expect((await callRoute(handler, { query: { ...q, period_start: '2026-01-31', period_end: '2026-01-31' } })).code).toBe(200); // one day is fine
+  });
+
   it.each([['not a date', { period_start: 'yesterday' }], ['impossible date', { period_end: '2026-02-30' }], ['repeated', { period_start: ['2026-01-01', '2026-01-02'] }]])(
     '%s is a 400', async (_n, patch) => {
       expect((await callRoute(handler, { query: { ...q, ...patch } })).code).toBe(400);
