@@ -31,4 +31,13 @@ describe('cash13 loan instalments still to pay (review L2)', () => {
     // October settled (no overdue), November (after the first payment, unsettled) overdue, December 600 left.
     expect(r.due.map((d) => [d.period, d.overdue, d.cents])).toEqual([[4, true, 1_000], [5, false, 600], [6, false, 1_000], [7, false, 1_000]]);
   });
+
+  it('a period number the schedule does not have is netted by amount in its month, like a blank one', () => {
+    const r = loanDue(rows, [{ periodNumber: 99, date: '2026-12-05', cents: 1_000 }], TODAY, END);
+    expect(r.due.map((d) => d.period)).toEqual([6, 7]);
+  });
+
+  it('an instalment after the horizon is never returned, even when unpaid', () => {
+    expect(loanDue(rows, [], TODAY, END).due.some((d) => d.period === 8)).toBe(false);
+  });
 });

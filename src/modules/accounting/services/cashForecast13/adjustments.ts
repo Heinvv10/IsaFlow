@@ -58,6 +58,7 @@ export function applyOverrides(lines: readonly ForecastLine[], overrides: readon
     if (hasAmount) assertCents(o.amountCents as number, `override on ${o.lineKey}`);
     if (o.mode !== 'move_to' && !hasAmount) { warnings.push(skip(o, 'no amount')); continue; }
     if (o.mode === 'move_to' && !validWeek(o.targetWeek)) { warnings.push(skip(o, 'target week out of range')); continue; }
+    if (o.mode === 'move_to' && hasAmount && (o.amountCents as number) < 0) { warnings.push(skip(o, 'a move amount is a magnitude and cannot be negative')); continue; }
     let delta = deltas.get(o.lineKey);
     if (!delta) {
       delta = { key: `override:${o.lineKey}`, label: `Adjustment: ${line.label}`, category: line.category, kind: 'override', weekly: emptyWeekly(), totalCents: 0, flags: [], items: [] };
@@ -68,7 +69,8 @@ export function applyOverrides(lines: readonly ForecastLine[], overrides: readon
     if (o.mode === 'set') delta.weekly[w] = (delta.weekly[w] as number) + (o.amountCents as number) - current(w);
     else if (o.mode === 'add') delta.weekly[w] = (delta.weekly[w] as number) + (o.amountCents as number);
     else {
-      const moved = hasAmount ? (o.amountCents as number) : current(w);
+      // A given amount is a MAGNITUDE, moved in the cell's own sign: R50k of a −R200k supplier cell moves −R50k.
+      const moved = hasAmount ? Math.sign(current(w)) * (o.amountCents as number) : current(w);
       const t = o.targetWeek as number;
       delta.weekly[w] = (delta.weekly[w] as number) - moved;
       delta.weekly[t] = (delta.weekly[t] as number) + moved;

@@ -49,7 +49,8 @@ export interface ManualItem {
  * A user's change to one cell of a line (PR 2 stores them). Applied after everything else, in array order.
  *   set:     the cell becomes `amountCents`.
  *   add:     `amountCents` is added to the cell.
- *   move_to: the cell's amount (or `amountCents` of it, when given) moves to `targetWeek`.
+ *   move_to: the cell's amount moves to `targetWeek`; or, when `amountCents` is given, that MAGNITUDE (≥ 0, as the
+ *            data layer stores it) of it, in the cell's own sign. set/add amounts are signed in the line's sign.
  */
 export interface Override {
   lineKey: string;

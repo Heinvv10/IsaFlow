@@ -65,8 +65,22 @@ describe('cash13 overrides', () => {
     const whole = runEngine(base({ items: [known], overrides: [{ lineKey: 'ap:s', weekIndex: 1, mode: 'move_to', targetWeek: 4 }] }));
     expect([cell(whole, 'ap:s', 1), cell(whole, 'ap:s', 4)]).toEqual([0, -500]);
     expect(closing(whole)).toBe(-500);
-    const part = runEngine(base({ items: [known], overrides: [{ lineKey: 'ap:s', weekIndex: 1, mode: 'move_to', amountCents: -200, targetWeek: 4 }] }));
+    // The amount is a MAGNITUDE (the data layer stores it positive) applied in the cell's sign.
+    const part = runEngine(base({ items: [known], overrides: [{ lineKey: 'ap:s', weekIndex: 1, mode: 'move_to', amountCents: 200, targetWeek: 4 }] }));
     expect([cell(part, 'ap:s', 1), cell(part, 'ap:s', 4)]).toEqual([-300, -200]);
+  });
+
+  it('move_to of R50k from a −R200k supplier cell moves −R50k; on a receipt cell it moves +; a negative magnitude is skipped', () => {
+    const big: KnownItem = { ...known, amountCents: -200_000_00 };
+    const pay = runEngine(base({ items: [big], overrides: [{ lineKey: 'ap:s', weekIndex: 1, mode: 'move_to', amountCents: 50_000_00, targetWeek: 3 }] }));
+    expect([cell(pay, 'ap:s', 1), cell(pay, 'ap:s', 3)]).toEqual([-150_000_00, -50_000_00]);
+    expect(closing(pay)).toBe(-200_000_00);
+    const rec: KnownItem = { ...known, lineKey: 'ar:c:due', category: 'customer_receipts', amountCents: 900 };
+    const r = runEngine(base({ items: [rec], overrides: [{ lineKey: 'ar:c:due', weekIndex: 1, mode: 'move_to', amountCents: 400, targetWeek: 0 }] }));
+    expect([cell(r, 'ar:c:due', 0), cell(r, 'ar:c:due', 1)]).toEqual([400, 500]);
+    const neg = runEngine(base({ items: [big], overrides: [{ lineKey: 'ap:s', weekIndex: 1, mode: 'move_to', amountCents: -5, targetWeek: 3 }] }));
+    expect(neg.warnings.map((w) => w.code)).toEqual(['override_skipped']);
+    expect(cell(neg, 'ap:s', 3)).toBe(0);
   });
 
   it('applies in array order: set then add differs from add then set', () => {
