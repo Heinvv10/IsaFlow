@@ -13,6 +13,7 @@ import { describe, it, expect } from 'vitest';
 import {
   bankTransactionHash,
   bankTransactionHashSet,
+  round2,
   type HashableTransaction,
 } from '@/modules/accounting/utils/bankTransactionHash';
 
@@ -129,5 +130,23 @@ describe('bankTransactionHashSet', () => {
     ];
     const set = bankTransactionHashSet(txs);
     expect(set.size).toBe(2);
+  });
+});
+
+// WP2-2: every import path hashes through bankTransactionHash, so a parsed line and the NUMERIC(15,2) row Postgres
+// stored from it must hash alike. Postgres rounds the decimal string the driver sends, halves away from zero.
+describe('round2 — rounds as NUMERIC(15,2) stores', () => {
+  it.each([
+    [100.10000001, 100.1], [-25.005, -25.01], [25.005, 25.01], [1.005, 1.01], [-1.005, -1.01],
+    [2.675, 2.68], [-2.675, -2.68], [-0.125, -0.13], [1e-7, 0], [1234567.885, 1234567.89], [-35.5, -35.5],
+  ])('round2(%s) = %s', (input, stored) => {
+    expect(round2(input)).toBe(stored);
+  });
+
+  it('a parsed line hashes as the row Postgres stored from it (100.10000001 / 100.10, -1.005 / -1.01, 1.005 / 1.01)', () => {
+    for (const [parsed, stored] of [[100.10000001, 100.1], [-1.005, -1.01], [1.005, 1.01], [-25.005, -25.01]] as const) {
+      expect(bankTransactionHash(tx({ amount: parsed, balance: undefined })))
+        .toBe(bankTransactionHash(tx({ amount: stored, balance: undefined })));
+    }
   });
 });

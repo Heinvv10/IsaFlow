@@ -28,11 +28,14 @@ vi.mock('@/modules/accounting/services/bank/bankImportService', () => ({
 vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', () => ({
   deleteTransactions: vi.fn(),
 }));
+// The ingest lock (WP2-2) is its own statement; mocked here so `sql`'s first call is still the dedup read.
+vi.mock('@/modules/accounting/services/bank/bankIngestLock', () => ({ lockBankAccountIngest: vi.fn() }));
 
 import { sql } from '@/lib/neon';
 import { parseStatement } from '@/modules/accounting/services/bank/bankStatementParseService';
 import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
 import { deleteTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
+import { lockBankAccountIngest } from '@/modules/accounting/services/bank/bankIngestLock';
 import {
   bankGlAccountBelongsToCompany,
   importStatementForAgent,
@@ -79,6 +82,18 @@ describe('importStatementForAgent', () => {
     expect(res.duplicates).toBe(0);
     expect(res.batchId).toBeNull();
     expect(importParsedTransactions).not.toHaveBeenCalled();
+    expect(lockBankAccountIngest).not.toHaveBeenCalled(); // it writes nothing, so it does not queue behind an import
+  });
+
+  it('takes the account\'s ingest lock BEFORE the dedup read (WP2-2: else two imports both read, then both insert)', async () => {
+    vi.mocked(parseStatement).mockResolvedValue(parsed([TX_A]) as never);
+
+    await importStatementForAgent(baseArgs);
+
+    expect(lockBankAccountIngest).toHaveBeenCalledWith(COMPANY, ACCOUNT);
+    const read = vi.mocked(sql).mock.invocationCallOrder[0]!;
+    expect(String((vi.mocked(sql).mock.calls[0]![0] as unknown as string[]).join('?'))).toMatch(/FROM bank_transactions/);
+    expect(vi.mocked(lockBankAccountIngest).mock.invocationCallOrder[0]!).toBeLessThan(read);
   });
 
   it('skips transactions already in the account and imports only the new ones', async () => {
@@ -257,21 +272,36 @@ describe('undoImportBatch', () => {
 });
 
 describe('bankGlAccountBelongsToCompany', () => {
-  it('accepts only an active bank-subtype GL account in this company', async () => {
-    vi.mocked(sql).mockResolvedValueOnce([{ id: ACCOUNT }] as never);
+  // It IS bank/bankAccountGuard since WP2-1 round 3 (the guard's own refusals are proven in
+  // tests/integration/bank-account-guard-*.int.test.ts); here, the delegation and its boolean shape.
+  const GUARDED = '00000000-0000-4000-8000-0000000000a1';
+  const row = (over: Record<string, unknown>) => [{ id: GUARDED, account_code: '1100', account_name: 'Bank',
+    account_subtype: 'bank', is_active: true, bank_account_number: null, ...over }];
 
-    await expect(bankGlAccountBelongsToCompany(COMPANY, ACCOUNT)).resolves.toBe(true);
+  it('accepts only an active bank-subtype GL account in this company, read FOR SHARE', async () => {
+    vi.mocked(sql).mockResolvedValueOnce(row({}) as never);
+
+    await expect(bankGlAccountBelongsToCompany(COMPANY, GUARDED)).resolves.toBe(true);
 
     const call = vi.mocked(sql).mock.calls[0]!;
     const text = (call[0] as unknown as string[]).join('?');
     expect(text).toContain('company_id');
-    expect(text).toContain('account_subtype');
+    expect(text).toContain('FOR SHARE');
     expect(call.slice(1)).toContain(COMPANY);
+  });
+
+  it("judges the subtype canonically ('Bank Account' is a bank) and refuses a deactivated or non-bank account", async () => {
+    vi.mocked(sql).mockResolvedValueOnce(row({ account_subtype: 'Bank Account' }) as never);
+    await expect(bankGlAccountBelongsToCompany(COMPANY, GUARDED)).resolves.toBe(true);
+    vi.mocked(sql).mockResolvedValueOnce(row({ is_active: false }) as never);
+    await expect(bankGlAccountBelongsToCompany(COMPANY, GUARDED)).resolves.toBe(false);
+    vi.mocked(sql).mockResolvedValueOnce(row({ account_subtype: 'revenue' }) as never);
+    await expect(bankGlAccountBelongsToCompany(COMPANY, GUARDED)).resolves.toBe(false);
   });
 
   it('rejects an account that is not in this company', async () => {
     vi.mocked(sql).mockResolvedValueOnce([] as never);
 
-    await expect(bankGlAccountBelongsToCompany(COMPANY, 'foreign-acct')).resolves.toBe(false);
+    await expect(bankGlAccountBelongsToCompany(COMPANY, '00000000-0000-4000-8000-0000000000f0')).resolves.toBe(false);
   });
 });

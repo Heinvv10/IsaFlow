@@ -26,7 +26,7 @@
  */
 import type { EntityTypeCode } from '@/lib/entityTypes';
 import { defaultAssumptions } from './assumptionsDefaults';
-import type { Prov, ThreeWayAssumptions } from './assumptionsSchema';
+import { MAX_TRADE_DAYS, type Prov, type ThreeWayAssumptions } from './assumptionsSchema';
 import { derivedDays } from './daysMethod';
 import { daysInMonth } from './months';
 import { SA_STANDARD_RATE_BP, toPpm, vatOnNet } from './ratios';
@@ -166,8 +166,8 @@ export function deriveCore(x: DeriveInputs): DerivedAssumptions {
       if (d !== null) a.workingCapital[key] = derived(d, why);
       else a.workingCapital[key] = derived(a.workingCapital[key].value, `no trailing flow ${span}; default`);
     };
-    set('debtorDays', days(x.opening.receivables, win.map((m) => incl(m.turnover, sOut)), win, 365), basis);
-    set('creditorDays', days(-x.opening.payables, win.map((m) => incl(m.costOfSales + m.otherOpex, sIn)), win, 365), basis);
+    set('debtorDays', days(x.opening.receivables, win.map((m) => incl(m.turnover, sOut)), win, MAX_TRADE_DAYS), basis);
+    set('creditorDays', days(-x.opening.payables, win.map((m) => incl(m.costOfSales + m.otherOpex, sIn)), win, MAX_TRADE_DAYS), basis);
     if (x.opening.holdsInventory) {
       set('inventoryDays', days(x.opening.inventory, win.map((m) => m.costOfSales), win, 730), `trailing ${win.length} months ${span}, on cost of sales`);
     } else {

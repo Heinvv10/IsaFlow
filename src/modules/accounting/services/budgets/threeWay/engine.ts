@@ -12,8 +12,13 @@
  *
  * Receipts, payments and stock purchases are RESIDUALS of the closing balance
  * the days method gives, so AR/AP/inventory always tie and rounding can never
- * unbalance. The opening must balance within 1 cent (`OpeningUnbalancedError`
- * beyond that; a 1-cent difference is carried to retained earnings and warned).
+ * unbalance. When the days in use are at MAX_TRADE_DAYS (§13.26, per series),
+ * an opening AR (AP) above month 1's days level keeps the excess in the
+ * closing, unwound in equal slices to 0 at the last month, and is warned
+ * (`opening_excess_spread`). Below the limit, and for a shortfall, month 1
+ * takes the difference. The opening must balance within 1 cent
+ * (`OpeningUnbalancedError` beyond that; a 1-cent difference is carried to
+ * retained earnings and warned).
  * Negative cash is shown, never funded (10d). A negative residual flow is kept
  * (clamping would unbalance) and warned (`negative_flow`). A debit opening on
  * payroll liabilities or income tax payable is carried flat, never refunded.
@@ -22,7 +27,8 @@
  */
 import { balanceSheetSections, bucketSum } from './balanceSheet';
 import { cashFlowMonth, netProfit, runwayOf } from './cashFlow';
-import { closingFromDays, walksPastStart } from './daysMethod';
+import { MAX_TRADE_DAYS } from './assumptionsSchema';
+import { closingFromDays, excessLeft, walksPastStart } from './daysMethod';
 import { planEvents } from './engineEvents';
 import { ratesOf, validateEngineInput, type EngineRates } from './engineInput';
 import { OpeningUnbalancedError } from './errors';
@@ -87,6 +93,11 @@ export function runThreeWay(input: EngineInput): EngineOutput {
   const L = input.lookback.length;
   const vat = vatBookOf(input, a, r, opening);
   const short = { receivables: [] as string[], payables: [] as string[], inventory: [] as string[] };
+  // §13.26: at the days limit, the opening above month 1's days level is unwound evenly over the version
+  // (a 1-month version has nothing to spread over: month 1 takes it, unwarned).
+  const n = input.months.length;
+  const atLimit = { receivables: n > 1 && r.debtorDays >= MAX_TRADE_DAYS, payables: n > 1 && r.creditorDays >= MAX_TRADE_DAYS };
+  const excess = { receivables: 0, payables: 0 };
 
   const b: Buckets = { ...opening };
   const payrollDebit = Math.max(0, opening.payrollLiabilities);
@@ -112,7 +123,9 @@ export function runThreeWay(input: EngineInput): EngineOutput {
     add(P.salesPosting(m, p.turnover, outputVat));
     add(P.otherIncomePosting(m, p.otherIncome));
     // 2. Receipts = the residual that leaves AR at its days-method closing.
-    const receipts = b.receivables - closingFromDays(r.debtorDays, s.salesIncl, s.days, k);
+    const arDays = closingFromDays(r.debtorDays, s.salesIncl, s.days, k);
+    if (i === 0 && atLimit.receivables) excess.receivables = Math.max(0, open.receivables - arDays);
+    const receipts = b.receivables - arDays - excessLeft(excess.receivables, i, n);
     negative(m, 'receipts', receipts);
     add(P.receiptsPosting(m, receipts));
     // 3. Cost of sales; stock purchases = the residual that leaves inventory at its closing.
@@ -124,7 +137,9 @@ export function runThreeWay(input: EngineInput): EngineOutput {
     const inputVat = vatOnNet(purchasesEx, r.purchasesSharePpm);
     s.purchasesIncl[k] = purchasesEx + inputVat;
     add(P.purchasesPosting(m, stockPurchases, p.otherOpex, inputVat));
-    const payments = -b.payables - closingFromDays(r.creditorDays, s.purchasesIncl, s.days, k);
+    const apDays = closingFromDays(r.creditorDays, s.purchasesIncl, s.days, k);
+    if (i === 0 && atLimit.payables) excess.payables = Math.max(0, -open.payables - apDays);
+    const payments = -b.payables - apDays - excessLeft(excess.payables, i, n);
     negative(m, 'supplier_payments', payments);
     add(P.supplierPaymentsPosting(m, payments));
     // 5. EMP201: remit what was owed at the start of the month (a debit opening stays flat); accrue this month's share.
@@ -172,6 +187,9 @@ export function runThreeWay(input: EngineInput): EngineOutput {
 
   for (const series of ['receivables', 'payables', 'inventory'] as const) {
     if (short[series].length > 0) warnings.push({ code: 'lookback_short', series, months: short[series] });
+  }
+  for (const [series, days] of [['receivables', r.debtorDays], ['payables', r.creditorDays]] as const) {
+    if (excess[series] > 0) warnings.push({ code: 'opening_excess_spread', series, days, excess: excess[series], months: n });
   }
   const belowZero = results.filter(x => x.closing.cash < 0).map(x => x.month);
   if (belowZero.length > 0) warnings.push({ code: 'negative_cash', months: belowZero });

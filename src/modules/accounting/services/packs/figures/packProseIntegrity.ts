@@ -13,7 +13,8 @@
  *     drawn" — a clause number from this project's own specification, quoted
  *     to directors;
  *   - pages 4 and 11: "is 739 day(s) overdue", twice per sheet;
- *   - page 11: "12 unreconciled bank item(s) across 3 account(s)";
+ *   - page 11: "12 unallocated bank item(s) across 3 account(s)" (then worded
+ *     "unreconciled"; renamed 2026-11-15, #1442);
  *   - page 12: `Extracted at 2026-09-07T06:22:04.572Z`;
  *   - Brightsphere page 10: "Revenue rose from – to – over 12 periods".
  *
