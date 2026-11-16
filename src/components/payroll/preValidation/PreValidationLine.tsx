@@ -1,11 +1,16 @@
 /**
  * One line on the employee profile (wave 6 PV): what the IRP5 checks say about this employee for the tax year to
  * date, each issue with its fix link. Silent until it has an answer. From March to May, while this tax year has no
- * final line yet, the previous year is still being filed (EMP501 annual, IRP5s): its line shows instead.
+ * final line yet, the previous year is still being filed (EMP501 annual, IRP5s): its line shows instead. It also
+ * focuses the field a fix link's hash names (the line lives in the profile card, beside those fields).
  */
 import { todayInSast } from '@/lib/saDateParser';
 import { currentPayeTaxYear } from '@/modules/accounting/utils/payeTaxYearToday';
 import { usePreValidation, SEVERITY_TEXT, type PreValidation } from './usePreValidation';
+import { useFocusHashField } from './useFocusHashField';
+
+/** The profile fields a pre-validation fix link names (preValidationService.fixFor). */
+const FIX_FIELDS = ['employee-tax-number', 'employee-id-number'] as const;
 
 /** March to May (SAST): the previous tax year's filing season. */
 function inFilingSeason(): boolean {
@@ -28,6 +33,7 @@ function Line({ data }: { data: PreValidation }) {
 }
 
 export function PreValidationLine({ employeeId }: { employeeId: string }) {
+  useFocusHashField(FIX_FIELDS);
   const id = encodeURIComponent(employeeId);
   const current = usePreValidation(`employeeId=${id}`);
   const fallback = current.data !== null && current.data.employeesChecked === 0 && inFilingSeason();

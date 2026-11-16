@@ -85,6 +85,28 @@ describe('PreValidationLine (employee profile)', () => {
   });
 });
 
+describe('PreValidationLine focuses the field a fix link names (L6)', () => {
+  afterEach(() => { window.history.replaceState(null, '', '/'); });
+  const withFields = () => render(
+    <div><PreValidationLine employeeId="e1" /><input id="employee-tax-number" aria-label="Tax number" /><input id="employee-id-number" aria-label="ID number" /></div>,
+  );
+  it('arriving with #employee-id-number focuses the ID number field', async () => {
+    st.pv = result({ employeesChecked: 0, employees: [] });
+    window.history.replaceState(null, '', '/payroll/employees/e1#employee-id-number');
+    withFields();
+    await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('ID number')));
+  });
+  it('a hash change to #employee-tax-number focuses that field; an unrelated hash focuses nothing', async () => {
+    st.pv = result({ employeesChecked: 0, employees: [] });
+    window.history.replaceState(null, '', '/payroll/employees/e1#employee-bank');
+    withFields();
+    expect(document.activeElement).toBe(document.body);
+    window.location.hash = '#employee-tax-number';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Tax number')));
+  });
+});
+
 describe('PreValidationLine in the filing season (L4)', () => {
   const noLine = () => result({ employeesChecked: 0, errors: 0, warnings: 0, employees: [] });
   it('March to May, with no final line this year yet: shows the previous tax year', async () => {
@@ -110,6 +132,13 @@ describe('PreValidationLine in the filing season (L4)', () => {
 });
 
 describe('Run approval', () => {
+  it('warning shown, no blocker: Approve and post journal is enabled (the warnings never block)', async () => {
+    st.pv = result();
+    render(<PayrollApproveDialog runId="r1" period="Dec 2026" warningCount={0} open onClose={vi.fn()} onApproved={vi.fn()} onUncertain={vi.fn()} />);
+    await screen.findByTestId('pre-validation-run-warnings');
+    expect(screen.queryByText(/blocks approval/)).toBeNull();
+    expect((screen.getByRole('button', { name: /Approve and post journal/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
   it('lists the run\'s employees\' issues as warnings, and Approve stays enabled', async () => {
     st.pv = result();
     render(<PayrollApproveDialog runId="r1" period="Dec 2026" warningCount={0} open onClose={vi.fn()} onApproved={vi.fn()} onUncertain={vi.fn()} />);
