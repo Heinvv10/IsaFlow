@@ -29,6 +29,7 @@ import { UUID } from '@/lib/schemas/common';
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { assertCustomerInCompany, assertSupplierInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { saveBankTxDimensions, updateBankTxNotes } from '@/modules/accounting/services/bank/bankTxAnnotations';
+import { respondIfBankRefusal } from '@/modules/accounting/services/bank/bankRouteRefusal';
 import { ALLOCATION_VAT_CODES } from '@/modules/accounting/services/bank/bankVatCodes';
 import {
   matchTransaction,
@@ -286,9 +287,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       }
       throw err;
     }
-    const message = err instanceof Error ? err.message : 'Action failed';
-    log.error('Bank transaction action failed', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, message);
+    // Audit WP2 row 9: the typed refusals keep their 4xx; anything else is a fault — rethrown, withErrorHandler's 500
+    // rolls the request back. (A 400 here COMMITTED whatever a crash had already written: a delete, an exclude.)
+    if (respondIfBankRefusal(res, err)) return;
+    log.error('Bank transaction action failed', { action: body.action, error: err }, 'accounting-api');
+    throw err;
   }
 }
 

@@ -16,6 +16,8 @@ import {
   removeRules, writeNewRule, writeRuleChange, type HeldRuleChange, type RuleWrite, type RuleWriteGuard,
 } from './bankRuleChangeControl';
 import { assertNotContactControl } from './contactControlGuard';
+import { accountsBelongToCompany } from '../gl/chartOfAccountsService';
+import { BankRequestRefusal } from './bankRequestRefusal';
 
 // Re-export matching function for backward compatibility
 export type { RuleApplyResult, HeldRuleChange };
@@ -74,8 +76,17 @@ export async function createRule(
   return written;
 }
 
+/** The rule's GL account must be this company's: refused typed (400) before the write, not as an FK violation (500). */
+async function assertRuleAccountInCompany(companyId: string, glAccountId: string | undefined | null): Promise<void> {
+  if (!glAccountId) return;
+  if (!(await accountsBelongToCompany(companyId, [glAccountId]))) {
+    throw new BankRequestRefusal('The rule\'s GL account is not in this company', 400);
+  }
+}
+
 /** Side-effect-free target checks shared by live creates and MCP previews. */
 export async function validateCreateRuleTargets(companyId: string, input: RuleCreateInput): Promise<void> {
+  await assertRuleAccountInCompany(companyId, input.glAccountId);
   // R-067: the rule's client_id is copied onto every matching bank line as
   // suggested_client_id, and both are read back with the customer name joined.
   await assertCustomerInCompany(companyId, input.clientId);
@@ -116,6 +127,7 @@ export async function updateRule(
 export async function validateUpdateRuleTargets(
   companyId: string, id: string, input: Partial<RuleCreateInput> & { isActive?: boolean },
 ): Promise<void> {
+  await assertRuleAccountInCompany(companyId, input.glAccountId);
   await assertCustomerInCompany(companyId, input.clientId);
   await assertSupplierInCompany(companyId, input.supplierId);
   // Repointing it at AP/AR control, or re-enabling one already there, is refused (as toggleRule refuses the latter).

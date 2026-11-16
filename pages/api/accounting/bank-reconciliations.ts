@@ -75,9 +75,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     } catch (err) {
       if (respondIfLockTimeout(res, err)) return;
       if (isBankAccountGuardRefusal(err)) return apiResponse.badRequest(res, err.message);
-      const message = err instanceof Error ? err.message : 'Failed to start reconciliation';
+      // Audit WP2 row 9: anything else is a fault — rethrown (500, rolled back). A 400 here COMMITTED a session a
+      // crash had already inserted.
       log.error('Failed to start reconciliation', { error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, message);
+      throw err;
     }
   }
 

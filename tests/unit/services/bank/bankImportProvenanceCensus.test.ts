@@ -156,7 +156,7 @@ describe('4. every reversal path passes the reversal gate', () => {
       before(`${MCP}${tool}`, 'await agentReversalRefusal(', 'await reverseLinesJudged(');
     }
     before(`${MCP}writeBankReverseRange.ts`, 'await agentReversalRefusal(', 'if (dryRun)');
-    before('pages/api/accounting/bank-transactions-action.ts', 'respondIfBankControlRefused(res, err)', "badRequest(res, message)");
+    before('pages/api/accounting/bank-transactions-action.ts', 'respondIfBankControlRefused(res, err)', 'respondIfBankRefusal(res, err)');
   });
 
   it('the callers of undoRow, each judged at the run level first', () => {
