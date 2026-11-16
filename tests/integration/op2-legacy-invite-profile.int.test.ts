@@ -17,6 +17,10 @@
 //   · a session whose email is not the invitation's is still a 403 that
 //     writes nothing, no users row included.
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+// No GoTrue in the fixture: POST /api/invite/<token> reads the session user's login email through adminGetUser
+// (#1468); answer the address this suite's sessions carry (signSession).
+vi.mock('@/lib/auth/gotrueAdminUser', async () =>
+  (await import('./helpers/fixtureGotrueLogin')).fixtureGotrueLogin((id) => `${id}@test.local`));
 import type { NextApiRequest, NextApiResponse } from 'next';
 import invitationsRoute from '../../pages/api/accounting/company-invitations';
 import inviteRoute from '../../pages/api/invite/[token]';

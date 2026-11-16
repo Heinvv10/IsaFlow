@@ -13,6 +13,10 @@
 // Real routes on the production logins; GoTrue and the invite email are
 // stubbed, the email stub keeping the raw token the mailbox would receive.
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+// No GoTrue in the fixture: POST /api/invite/<token> reads the session user's login email through adminGetUser
+// (#1468); answer the address this suite's sessions carry (signSession).
+vi.mock('@/lib/auth/gotrueAdminUser', async () =>
+  (await import('./helpers/fixtureGotrueLogin')).fixtureGotrueLogin((id) => `${id}@test.local`));
 import invitationsRoute from '../../pages/api/accounting/company-invitations';
 import inviteRoute from '../../pages/api/invite/[token]';
 import changeEmailRoute from '../../pages/api/auth/change-email';

@@ -16,6 +16,7 @@ import { isLiveCompanyForUser } from '@/lib/auth/liveCompanies';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import { maskInviteEmail } from '@/lib/auth/maskInviteEmail';
+import { adminGetUser } from '@/lib/auth/gotrueAdminUser';
 import { EMAIL_IN_USE_MESSAGE, upsertInviteeProfile } from '@/lib/auth/inviteeProfile';
 type Row = Record<string, unknown>;
 
@@ -96,6 +97,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   // the COMMIT. Set from the cast once the transaction is open; a sub that is no UUID
   // fails it (22P02, a 500), as the membership cast did before.
   let userId = authReq.user.id;
+  // GoTrue's CURRENT login email for this user, read before the transaction (no
+  // connection or lock held across the call). Not the session's email claim: no
+  // token is re-issued on change-email, so the claim names the old address for up
+  // to an hour, and an admin's deleteUser cancels only the addresses current then
+  // (#1468 re-break F1). No GoTrue account is the mismatch 403 below; a GoTrue
+  // outage throws (a 5xx, nothing written).
+  const loginEmail = (await adminGetUser(userId.toLowerCase()))?.email ?? null;
   const client = await migrationAdminPool().connect();
   let opened = false;
   let unusable = false;
@@ -124,8 +132,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
     inv = rows[0]!;
 
-    // Verify invited email matches the logged-in user's email
-    if ((inv.email as string).toLowerCase() !== (authReq.user.email ?? '').toLowerCase()) {
+    // Verify invited email matches the user's current GoTrue login email (above)
+    if (loginEmail === null || (inv.email as string).trim().toLowerCase() !== loginEmail.trim().toLowerCase()) {
       unusable = await rollbackFailed(client, 'invite accept');
       opened = false;
       return apiResponse.forbidden(res, 'This invitation was sent to a different email address');

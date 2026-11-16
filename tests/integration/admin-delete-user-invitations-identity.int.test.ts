@@ -10,7 +10,8 @@
  *     address users.email never took (the partial failure);
  *   - GoTrue has no account (404): users.email alone, the delete goes ahead;
  *   - GoTrue cannot answer: the delete is a 5xx and writes nothing (never a partial cancel);
- *   - the definer refuses while the user's row still exists (it serves a delete, never a live user).
+ *   - the definer refuses while the user's row still exists (it serves a delete, never a live user), and a case
+ *     variant of a live id cannot reach that user's pinned invitations.
  * GoTrue is the helpers' fetch stub. Disposable fixture only.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -105,6 +106,10 @@ describe('deleteUser cancels by the GoTrue identity too', () => {
     try {
       await expect(asAdmin.query('SELECT public.admin_cancel_user_invitations($1, $2)', [u.id, [u.email]]))
         .rejects.toMatchObject({ code: 'RC012' });
+      // A case variant of a live id (re-break F2): no exact row, so no RC012, but the pinned arm (lower(p_user_id))
+      // must not reach the live user's invitation either.
+      expect((await asAdmin.query('SELECT public.admin_cancel_user_invitations($1, $2) AS n', [u.id.toUpperCase(), []]))
+        .rows).toEqual([{ n: 0 }]);
       await expect(asApp.query('SELECT public.admin_cancel_user_invitations($1, $2)', [crypto.randomUUID(), [u.email]]))
         .rejects.toMatchObject({ code: '42501' });
     } finally { await Promise.all([asAdmin.end(), asApp.end()]); }

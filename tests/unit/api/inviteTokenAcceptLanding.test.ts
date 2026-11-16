@@ -22,6 +22,8 @@ vi.mock('@/lib/auth/withUserAuth', () => ({
   },
 }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (handler: unknown) => handler }));
+// The route judges the invitation against GoTrue's current login email for the session user (#1468).
+vi.mock('@/lib/auth/gotrueAdminUser', () => ({ adminGetUser: vi.fn(async (id: string) => ({ id, email: 'invitee@example.test' })) }));
 vi.mock('@/lib/auth/liveCompanies', () => ({ isLiveCompanyForUser: vi.fn(async () => h.live) }));
 vi.mock('@/lib/auth/migrationAdminPool', () => ({
   migrationAdminPool: () => ({

@@ -20,10 +20,10 @@
 --
 -- Safety. It deletes only pending invitations: it can insert, update, re-open, re-point or
 -- accept none, and touches no company_users row, so it only removes a not-yet-used way into a
--- company (930's rule: DELETE stays where it only removes access). It refuses (RC012) while a
--- users row with p_user_id exists, so it cannot be pointed at a live user's GoTrue-pinned
--- invitations; the one caller, deleteUser, calls it after its `DELETE FROM users`, in the same
--- transaction. The email arm takes any address: the portal can already delete the user, every
+-- company (930's rule: DELETE stays where it only removes access). It refuses (RC012) while the
+-- users row p_user_id exists, and its pinned arm is off while any case variant of that id lives, so it
+-- cannot be pointed at a live user's GoTrue-pinned invitations; the one caller, deleteUser, calls
+-- it after its `DELETE FROM users`, in the same transaction. The email arm takes any address: the portal can already delete the user, every
 -- membership and a whole company, and a re-invite restores what it cancels.
 --
 -- Caller: src/modules/admin/services/deletedUserInvitations.ts (from deleteUser), LAST: the
@@ -51,9 +51,14 @@ BEGIN
     RAISE EXCEPTION 'admin_cancel_user_invitations: user % still exists; cancel only after deleting it', p_user_id
       USING ERRCODE = 'RC012';
   END IF;
+  -- The pinned arm compares lower(p_user_id), so it runs only when NO users row names that id in any
+  -- letter case: a case variant that survives (two stored rows, one GoTrue account; admin .claude.md,
+  -- "users rows are different") is that account's live profile, and its pinned invitations stay
+  -- (re-break F2: `upper(<live id>)` passed the exact check above and deleted a live user's).
   DELETE FROM public.company_invitations ci
    WHERE ci.accepted_at IS NULL
-     AND (ci.gotrue_user_id::text = pg_catalog.lower(p_user_id)
+     AND ((ci.gotrue_user_id::text = pg_catalog.lower(p_user_id)
+           AND NOT EXISTS (SELECT 1 FROM public.users v WHERE pg_catalog.lower(v.id) = pg_catalog.lower(p_user_id)))
           OR pg_catalog.lower(pg_catalog.btrim(ci.email)) IN (
                SELECT pg_catalog.lower(pg_catalog.btrim(e))
                  FROM pg_catalog.unnest(COALESCE(p_emails, '{}'::text[])) AS e
