@@ -10,6 +10,7 @@ import type { BankTx } from '@/components/accounting/bankTx/bankTxTypes';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import BankTransactionsPage from '@/../pages/accounting/bank-transactions/index';
 import { apiFetch } from '@/lib/apiFetch';
+import { summaryAcct } from '../helpers/bankSummaryFixture';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 useApiJsonOverMock();
@@ -19,7 +20,7 @@ vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 
 vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
-const BANK = { id: 'b1', accountCode: '1000', accountName: 'Main', balance: 0, reconciledBalance: 0, unreconciledBalance: 0, unreconciledCount: 60, allocatedCount: 0, unallocatedCount: 60 };
+const BANK = summaryAcct('b1', { accountCode: '1000', accountName: 'Main', counts: { posted: 60, unallocated: 60, awaitingReview: 60 } });
 const row = (id: string): BankTx => ({ id, description: id, amount: -10, transactionDate: '2026-06-01', status: 'imported' });
 const txPage = (...ids: string[]) => json({ success: true, data: { transactions: ids.map(row), total: 60 } });
 
@@ -32,7 +33,7 @@ function script(list: (offset: string) => Promise<Response> | Response) {
   vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => {
     const path = String(url);
     if (path.startsWith('/api/accounting/bank-transactions?')) return list(new URL(path, 'http://x').searchParams.get('offset') ?? '0');
-    if (path.startsWith('/api/accounting/bank-accounts')) return json({ success: true, data: [BANK] });
+    if (path.startsWith('/api/accounting/bank-account-summaries')) return json({ success: true, data: { asAt: '2026-11-16', accounts: [BANK] } });
     return json({ success: true, data: [] });
   });
 }

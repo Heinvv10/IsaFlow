@@ -16,6 +16,8 @@ export interface SarsSubmissionRow {
   status: string;
   submissionReference: string | null;
   submittedAt: string | null;
+  /** 'isv' when IsaFlow sent it to SARS (submissionStatusBadge). */
+  efilingChannel?: string | null;
   createdAt: string;
 }
 
@@ -34,6 +36,7 @@ export function useSarsOverview() {
   const [events, setEvents] = useState<CalendarItem[]>([]);
   const [submissions, setSubmissions] = useState<SarsSubmissionRow[]>([]);
   const [marksUnavailable, setMarksUnavailable] = useState(false);
+  const [submissionsUnavailable, setSubmissionsUnavailable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const latest = useRef(0);
@@ -52,6 +55,7 @@ export function useSarsOverview() {
       if (id !== latest.current) return;
       setEvents(compJson.data?.events || []);
       setMarksUnavailable(compJson.data?.marksUnavailable === true);
+      setSubmissionsUnavailable(compJson.data?.submissionsUnavailable === true);
       setSubmissions(subJson.data?.items || []);
     } catch (err) {
       if (id !== latest.current) return;
@@ -64,5 +68,5 @@ export function useSarsOverview() {
   useEffect(() => { void load(); }, [load]);
 
   const refresh = useCallback(() => { void load(true); }, [load]);
-  return { events, submissions, marksUnavailable, loading, error, refresh };
+  return { events, submissions, marksUnavailable, submissionsUnavailable, loading, error, refresh };
 }

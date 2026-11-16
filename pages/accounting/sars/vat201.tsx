@@ -16,6 +16,7 @@ import { useReturnDeepLink } from '@/components/accounting/sars/useReturnDeepLin
 import { buildVat201Csv } from '@/components/accounting/sars/vat201Csv';
 import { VAT201SubmitModal } from '@/components/accounting/sars/VAT201SubmitModal';
 import { VAT201ExceptionsPanel } from '@/components/accounting/sars/VAT201ExceptionsPanel';
+import { VAT201LateClaimsSection } from '@/components/accounting/sars/VAT201LateClaimsSection';
 import { VAT201SarsSubmit } from '@/components/accounting/sars/VAT201SarsSubmit';
 import type { VatGateCounts } from '@/components/accounting/sars/VatGateOverrideBox';
 import { ReturnLifecycleBar } from '@/components/accounting/sars/returns/ReturnLifecycleBar';
@@ -163,6 +164,7 @@ export default function VAT201Page() {
               <Vat201FieldsSection data={data} />
 
               <VAT201ReviewNotices warnings={data.warnings} filability={data.filability} />
+              <VAT201LateClaimsSection from={data.periodStart} to={data.periodEnd} />
 
               <VAT201ExceptionsPanel from={data.periodStart} to={data.periodEnd} reloadKey={exceptionsKey} onLoaded={setExceptionsReport} />
 
