@@ -1,0 +1,51 @@
+/**
+ * The 13-week forecast's warnings (engine + readers, cashForecast13/*.ts) in plain English. Every known code has
+ * its own sentence; the code itself is never shown. `detail` carries the server's list (which items, how much)
+ * where that list is what the reader needs; an unknown code falls back on the server's message, a sentence too.
+ */
+import type { ForecastWarning } from '@/modules/accounting/services/cashForecast13/types';
+
+export interface WarningWords { title: string; detail?: string }
+
+const TITLES: Record<string, string> = {
+  beyond_horizon: 'Some invoices and payments fall after week 13 and are not in this forecast.',
+  budget_flag_off: 'The three-way budget is not switched on, so there are no budget estimates.',
+  budget_no_primary: 'No primary budget is set for part of this period, so those months have no budget estimate.',
+  budget_unavailable: 'The budget could not be worked out, so there are no budget estimates for it.',
+  credit_unused: 'Some unapplied credit is more than the invoices it could settle; the extra is ignored.',
+  currency_not_converted: 'Some foreign-currency documents have no exchange rate and are left out.',
+  irp6_no_budget: 'A provisional tax payment is due, but no budget gives its amount, so it is not shown.',
+  loan_payments_not_recorded: 'Some loan instalments have no payment recorded; they are assumed paid.',
+  payroll_frequency_unsupported: 'Weekly and fortnightly pay runs are not forecast yet; only monthly pay runs are.',
+  payroll_no_runs: 'There is no approved monthly pay run, so salaries and the EMP201 are not forecast.',
+  payroll_past_assumed_paid: 'Salaries whose pay date has passed are assumed paid (they are in today\'s bank balance).',
+  sars_marks_unavailable: 'Could not check which SARS returns are marked filed: a filed return may show as a payment.',
+  sars_past_due_assumed_paid: 'SARS payments due before today are assumed paid (they are in today\'s bank balance).',
+  sars_submissions_unavailable: 'Could not read the SARS filings: a filed return may show as a payment.',
+  vat_no_budget: 'Part of a VAT period has no budget, so its VAT is only what has been accrued so far.',
+};
+
+/** Codes whose server message lists what the reader needs (which items, what amount). */
+const WITH_DETAIL = new Set([
+  'beyond_horizon', 'budget_no_primary', 'budget_unavailable', 'credit_unused', 'currency_not_converted', 'irp6_no_budget',
+  'loan_payments_not_recorded', 'payroll_past_assumed_paid', 'sars_past_due_assumed_paid', 'vat_no_budget',
+]);
+
+export const KNOWN_WARNING_CODES: ReadonlySet<string> = new Set([...Object.keys(TITLES), 'source_unavailable', 'override_skipped']);
+
+const sentence = (s: string): string => (/[.!?]$/.test(s) ? s : `${s}.`);
+
+export function cash13WarningText(w: ForecastWarning): WarningWords {
+  if (w.code === 'source_unavailable') {
+    const why = /could not be read: (.*?); the forecast leaves it out$/.exec(w.message)?.[1];
+    const title = `Could not read the ${w.source}: they are left out of this forecast.`;
+    return why ? { title, detail: sentence(why) } : { title };
+  }
+  if (w.code === 'override_skipped') {
+    const m = /week (\d+) skipped: (.*)$/.exec(w.message);
+    return { title: m ? `One of your changes (week ${m[1]}) was not applied: ${sentence(m[2] as string)}` : 'One of your changes was not applied.' };
+  }
+  const title = TITLES[w.code];
+  if (!title) return { title: sentence(w.message) };
+  return WITH_DETAIL.has(w.code) && w.message ? { title, detail: sentence(w.message) } : { title };
+}
