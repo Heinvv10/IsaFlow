@@ -80,7 +80,7 @@ describe('mark_submitted — VAT201 blocking exceptions gate', () => {
       COMPANY, '2026-03-01', '2026-04-30', 'sars_submission', SUB_ID,
       { userId: USER, role: 'owner' }, 'Historical',
     );
-    expect(m.markSubmitted).toHaveBeenCalledWith(COMPANY, SUB_ID, 'REF-1');
+    expect(m.markSubmitted).toHaveBeenCalledWith(COMPANY, SUB_ID, 'REF-1', USER);
   });
 
   it('answers a block with 400 carrying the exception counts, and never marks submitted', async () => {
