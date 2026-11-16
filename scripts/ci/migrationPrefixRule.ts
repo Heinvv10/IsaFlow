@@ -7,7 +7,8 @@
  *
  * A file's version is what the runner records (`parseVersionFromFilename`:
  * digits plus an optional letter), so 244_ and 244b_ are different versions,
- * as the repo's CLAUDE.md allows. A file clashes when it shares its version
+ * as the repo's CLAUDE.md allows. Any digit count is accepted: the prefix after
+ * 999_ is 1000_, which the runner orders numerically (compareMigrations). A file clashes when it shares its version
  * with another repo file (DUPLICATE_PENDING_VERSION at deploy) or with a
  * migration tracked on prod whose file has left the repo (PENDING_VERSION_TAKEN).
  * A filename the runner cannot parse fails too: the runner throws on it.

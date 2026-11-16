@@ -6,6 +6,7 @@
  * migrations hand-applied to dev without tracking rows are a known historical
  * gap and are counted, never failed.
  */
+import { compareMigrations } from './migrationFiles';
 
 export interface ParityFile {
   name: string;
@@ -151,11 +152,6 @@ export function hasOwnCommit(sql: string): boolean {
 const DIR = 'scripts/migrations/sql';
 const short = (s: string | null): string => (s ?? 'null').slice(0, 8);
 
-function byVersionThenName(a: ParityFile, b: ParityFile): number {
-  if (a.version !== b.version) return a.version < b.version ? -1 : 1;
-  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
-}
-
 export function classifyMigrationParity(
   files: ParityFile[],
   devRows: ParityRow[],
@@ -184,7 +180,7 @@ export function classifyMigrationParity(
     }
   }
 
-  for (const f of [...files].sort(byVersionThenName)) {
+  for (const f of [...files].sort(compareMigrations)) {
     const onProd = prod.get(f.name);
     const onDev = dev.get(f.name);
 
