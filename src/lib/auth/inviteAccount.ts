@@ -55,14 +55,14 @@ const sameAddress = (a: string | null | undefined, b: string): boolean =>
  * What the anonymous accept may do with account `accountId` (resolveInvitationAccount's answer):
  * - 'mismatch': GoTrue has no such account, or its login email is no longer the invitation's address
  *   (a change-email since the pin): nothing is written, the accept is IDENTITY_MISMATCH.
- * - 'set-password': the account was created FOR this invitation (`user_metadata.invite_id`, stamped by
- *   POST /api/invitations and by resolveInvitationAccount), so the invitee's password becomes its password.
- *   Also an account another invitation created that has never signed in: a placeholder with no owner and no
- *   password yet (two companies inviting one address before either is accepted); the link holder reads the
- *   same mailbox either invitation went to.
- * - 'sign-in': any other account (one that already held the address: a Settings pin since R7-1, a deleted
- *   user's surviving login, a pending signup, any account that has signed in) keeps its own password; the
- *   accept must sign in with it. Never a password write on an account no invitation created.
+ * - 'set-password': nobody has ever signed in to it (`last_sign_in_at` empty) and either an invitation created it
+ *   (`user_metadata.invite_id`, stamped by POST /api/invitations and by resolveInvitationAccount; another
+ *   invitation's too, when two companies invite one address before either is accepted) or it was never even
+ *   confirmed (an unconfirmed signup or a squatter at the invited address). Such an account holds nothing, and the
+ *   link proves its holder reads the mailbox, so the invitee's password becomes its password.
+ * - 'sign-in': any other account (one that has signed in: a deleted user's surviving login, a member removed
+ *   everywhere; or a confirmed one no invitation created) keeps its own password; the accept must sign in with it.
+ * The caller still treats an account with a `users` row as established (sign-in) whatever this answers.
  * Read before any lock; a GoTrue outage throws AuthUpstreamUnavailableError.
  */
 export async function invitationAccountRole(
@@ -70,9 +70,9 @@ export async function invitationAccountRole(
 ): Promise<'mismatch' | 'set-password' | 'sign-in'> {
   const account = await adminGetUser(accountId);
   if (account === null || !sameAddress(account.email, inv.email)) return 'mismatch';
-  const createdBy = account.user_metadata?.invite_id;
-  if (createdBy === inv.id.toLowerCase()) return 'set-password';
-  return typeof createdBy === 'string' && !account.last_sign_in_at ? 'set-password' : 'sign-in';
+  if (account.last_sign_in_at) return 'sign-in';
+  const createdByInvitation = typeof account.user_metadata?.invite_id === 'string';
+  return createdByInvitation || !account.email_confirmed_at ? 'set-password' : 'sign-in';
 }
 
 /**

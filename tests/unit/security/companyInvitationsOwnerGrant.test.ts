@@ -16,13 +16,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-const h = vi.hoisted(() => ({ statements: [] as string[], inviterRole: 'owner' }));
+const h = vi.hoisted(() => ({ statements: [] as string[], params: [] as unknown[][], inviterRole: 'owner' }));
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
 vi.mock('@/lib/auth/migrationAdminPool', () => {
   const query = async (raw: string, params: unknown[] = []) => {
     const text = raw.replace(/\s+/g, ' ').trim();
     h.statements.push(text);
+    h.params.push(params);
     if (/^SELECT public.company_member_role_is_owner/.test(text)) return { rows: [{ owner: params[0] === 'owner' }] };
     if (/^SELECT role FROM company_users/.test(text)) return { rows: [{ role: h.inviterRole }] };
     if (/^INSERT INTO company_invitations/.test(text)) return { rows: [{ id: 'inv-1', role: params[2] }], rowCount: 1 };
@@ -139,7 +140,21 @@ describe('company-invitations — the raw token never reaches the inviter', () =
 });
 
 describe('company-invitations — the GoTrue lookup fails closed (R7-1)', () => {
-  beforeEach(() => { h.statements.length = 0; h.inviterRole = 'owner'; });
+  beforeEach(() => { h.statements.length = 0; h.params.length = 0; h.inviterRole = 'owner'; });
+
+  // #1517 review R2: the pin is the account GoTrue names for the address now, and a re-invite (ON CONFLICT) takes it.
+  it.each([
+    ['an account holds the address: its id', { id: 'acct-1', email: 'invitee@co.test' }, 'acct-1'],
+    ['no account holds it: NULL', null, null],
+  ])('binds the pin: %s, and the re-invite overwrites the old row\'s pin', async (_, account, pin) => {
+    const { findUserByEmail } = await import('@/lib/auth/gotrue');
+    (findUserByEmail as ReturnType<typeof vi.fn>).mockResolvedValueOnce(account);
+    await post('owner', 'viewer').promise;
+    const at = h.statements.findIndex((t) => /^INSERT INTO company_invitations/.test(t));
+    expect(h.statements[at]).toMatch(/ON CONFLICT \(company_id, email\) DO UPDATE SET .*gotrue_user_id = EXCLUDED\.gotrue_user_id/);
+    expect(h.params[at]?.[6]).toBe(pin);
+    expect(findUserByEmail).toHaveBeenCalledWith('invitee@co.test');
+  });
 
   it('GoTrue unavailable at the lookup: 503, nothing written, no transaction opened', async () => {
     const { findUserByEmail } = await import('@/lib/auth/gotrue');

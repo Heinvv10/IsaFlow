@@ -119,6 +119,23 @@ describe('the password accept on a Settings-pinned existing account', () => {
   });
 });
 
+// #1517 breaker B4: an unconfirmed signup or squatter (never confirmed, never signed in, no users row) at the address
+// does not block the invitee: the link proves the mailbox, and the account holds nothing.
+describe('the password accept on a pinned unconfirmed account', () => {
+  it('pinned to a never-confirmed, never-signed-in account: the invitee sets its password and joins as it', async () => {
+    const email = `squat-${crypto.randomUUID()}@test.local`;
+    const squatter = crypto.randomUUID();
+    strangers.push(squatter);
+    setGotrueEmail(squatter, email); // a GoTrue account only: unconfirmed, never signed in
+    const token = await settingsInvite(B, email);
+    expect(await pinOf(B, email)).toBe(squatter);
+    const r = await newAccept(token);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(passwordSets).toContain(squatter);
+    expect(await memberOf(B, squatter)).toBe(1);
+  });
+});
+
 describe('a re-invite replaces the pin (F2)', () => {
   it('a stale pin on the earlier row is replaced by the account holding the address now', async () => {
     const u = await seedUser();

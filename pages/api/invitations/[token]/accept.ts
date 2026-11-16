@@ -125,8 +125,9 @@ const handler: NextApiHandler = async (req, res) => {
     //    (src/lib/auth/gotrue.ts), so setting a password here would let whoever
     //    holds the invite link replace the credentials of that person's login
     //    for a company they were never invited to.
-    // And a password is SET only on an account this invitation created, still holding its address (R7-1: a
-    // pin may name an account that already held it, whose own password is the proof); any other signs in.
+    // And a password is SET only on an account still holding the address that nobody has ever signed in to: one an
+    // invitation created, or one never even confirmed (invitationAccountRole). A pin may name an account that
+    // already held the address (R7-1); one that has signed in, or a confirmed one, proves itself by its own password.
     const role = await invitationAccountRole(inv, accountId);
     if (role === 'mismatch') {
       log.error('invite accept identity mismatch', { inviteId: inv.id, companyId: inv.company_id }, 'auth');

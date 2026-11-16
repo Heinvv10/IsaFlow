@@ -50,6 +50,8 @@ export function setGotrueEmail(id: string, email: string): void {
 }
 /** user_metadata GoTrue stored on the accounts it created (POST /admin/users): invite_id names the invitation. */
 const metadata = new Map<string, unknown>();
+/** Accounts that have signed in (seedUser's real users, and any password grant): confirmed, last_sign_in_at set. */
+const signedIn = new Set<string>();
 /** GoTrue users whose password an accept route set (PUT /admin/users/<id>). */
 export const passwordSets: string[] = [];
 let ipSeq = 0;
@@ -64,6 +66,7 @@ export async function seedUser(opts: { memberOf?: readonly string[]; email?: str
   created.push(id);
   accounts.set(email.trim().toLowerCase(), id);
   logins.set(id, email);
+  signedIn.add(id);
   await pool.query(`INSERT INTO users (id, email, role, is_active, status) VALUES ($1, $2, 'viewer', true, 'active')`, [id, email]);
   for (const company of opts.memberOf ?? []) {
     await pool.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'viewer')`, [company, id]);
@@ -162,7 +165,8 @@ function gotrueStub(input: Parameters<typeof fetch>[0], init?: Parameters<typeof
     if (gotrueDown.has(id)) return Promise.resolve(json({ msg: 'unavailable' }, 503));
     const email = logins.get(id);
     return Promise.resolve(email === undefined ? json({ msg: 'User not found' }, 404)
-      : json({ id, email, factors: [], user_metadata: metadata.get(id) ?? {} }));
+      : json({ id, email, factors: [], user_metadata: metadata.get(id) ?? {},
+        ...(signedIn.has(id) ? { email_confirmed_at: '2026-01-01T00:00:00Z', last_sign_in_at: '2026-01-02T00:00:00Z' } : {}) }));
   }
   if (path.startsWith('/admin/users/')) {
     const id = path.split('/').pop()!;
@@ -172,6 +176,7 @@ function gotrueStub(input: Parameters<typeof fetch>[0], init?: Parameters<typeof
   if (path === '/token') {
     const id = accounts.get(String(body.email).trim().toLowerCase());
     if (!id) return Promise.resolve(json({ error: 'invalid_grant' }, 400));
+    signedIn.add(id);
     return Promise.resolve(json({
       access_token: 'disposable-access', refresh_token: 'disposable-refresh', expires_in: 3600, token_type: 'bearer',
       user: { id, email: body.email },

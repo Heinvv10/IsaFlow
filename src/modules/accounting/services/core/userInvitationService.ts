@@ -80,6 +80,9 @@ export async function createInvitation(
   const rawToken = mintInviteToken();
   const tokenHash = hashInviteToken(rawToken);
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  // Before assertCanInvite (#1517 review R3, kept on purpose): that check must run inside the transaction, under
+  // its lock, and GoTrue must not be called holding one. The route has already refused a caller whose session role
+  // is not owner/admin, so only a member demoted since can reach a lookup that then writes nothing.
   const account = await findUserByEmail(email);
 
   const inv = await migrationAdminTx('create invitation', async (client) => {

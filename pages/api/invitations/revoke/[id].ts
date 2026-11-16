@@ -5,6 +5,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { adminDeleteUser } from '@/lib/auth/gotrue';
 import { adminGetUser } from '@/lib/auth/gotrueAdminUser';
 import { sql } from '@/lib/neon';
+import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import { log } from '@/lib/logger';
 
 const handler: NextApiHandler = async (req, res) => {
@@ -30,22 +31,24 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(409).json({ success: false, error: { code: 'ALREADY_ACCEPTED', message: 'Invitation already accepted' } });
   }
 
-  // Delete the invitation row. Delete the orphan GoTrue user only if they have
-  // no other company memberships — otherwise they're a real user of another
-  // company and we just drop the invite — and only if THIS invitation created
-  // it (POST /api/invitations stamps user_metadata.invite_id on the account it
-  // creates). A pin can name an account that already held the address (an
-  // adminCreateUser 422, and every Settings invitation since R7-1): a deleted
-  // user's surviving login, a pending signup. Those are never removed here.
+  // Delete the invitation row, and the GoTrue account pinned to it only when it is this invitation's own unused
+  // placeholder: THIS invitation created it (POST /api/invitations stamps user_metadata.invite_id; a Settings pin
+  // names an account that already held the address and is never removed here), nobody has ever signed in to it
+  // (#1517 B1), and nothing else needs it: no membership and no OTHER pending invitation pinned to it, in any
+  // company (#1517 B2: that invitation would be left on IDENTITY_MISMATCH). Counted on the migration_admin pool:
+  // this request's pool sees only this company's rows (RLS).
   const pinned = rows[0]!.gotrue_user_id;
-  const otherMemberships = await sql<{ count: number }>`
-    SELECT COUNT(*)::int AS count FROM company_users WHERE user_id = ${pinned}
-  `;
+  const holds = pinned ? (await migrationAdminPool().query<{ n: number }>(
+    `SELECT (SELECT count(*) FROM company_users WHERE user_id::text = $1)
+          + (SELECT count(*) FROM company_invitations
+              WHERE gotrue_user_id = $1::uuid AND accepted_at IS NULL AND id <> $2::uuid) AS n`,
+    [pinned, id],
+  )).rows[0]?.n : null;
   await sql`DELETE FROM company_invitations WHERE id = ${id}::uuid`;
-  if (pinned && (otherMemberships[0]!.count ?? 0) === 0) {
+  if (pinned && Number(holds) === 0) {
     try {
       const account = await adminGetUser(pinned);
-      if (account?.user_metadata?.invite_id === id.toLowerCase()) await adminDeleteUser(pinned);
+      if (account?.user_metadata?.invite_id === id.toLowerCase() && !account.last_sign_in_at) await adminDeleteUser(pinned);
     } catch (err) { log.info('revoke: adminDeleteUser non-fatal', { message: err instanceof Error ? err.message : String(err) }, 'Invitations'); }
   }
 
