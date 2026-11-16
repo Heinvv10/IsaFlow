@@ -6,6 +6,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]> = () => Promise.resolve([]);
+// The run-kind guard (FQa) has its own tests; here every run is a monthly regular one.
+vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', () => ({ assertRunKindSupported: vi.fn(async () => undefined) }));
 vi.mock('@/lib/neon', () => ({
   sql: Object.assign((strings: TemplateStringsArray, ...values: unknown[]) => mockImpl(strings, ...values),
     { unsafe: (text: string) => ({ unsafe: text }) }),

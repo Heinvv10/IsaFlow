@@ -28,6 +28,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { payRunFinalSql } from './payRunFinalSql';
 import { listNotFinalDeclaredRuns, notFinalRunWarning } from './payRunNotFinal';
+import { assertRunKindSupported } from './payrollRunKindGuard';
 import { payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 import { listCertificateLumpSums } from './directivePaymentFiling';
 import { allowanceCertificateFields, listRunAllowanceFiling } from './payrollAllowanceFiling';
@@ -64,6 +65,17 @@ export async function getIrp5EmployeeTotals(
   const { start, end } = saTaxYearBounds(taxYear);
   const reveal = opts.revealIdentityNumbers === true;
   const employeeId = opts.employeeId ?? null;
+
+  // Wave 6 FQa/EF: every final run the certificates sum is one this release can certify (monthly, regular), or the
+  // whole read is refused by name (409) rather than certified as if it were.
+  const finalRuns = (await sql`
+    SELECT prh.id::text AS id FROM payroll_run_headers prh
+     WHERE prh.company_id = ${companyId}::UUID AND ${sql.unsafe(payRunFinalSql('prh'))}
+       AND make_date(prh.period_year, prh.period_month, 1) BETWEEN ${start}::DATE AND ${end}::DATE
+       AND (${employeeId}::UUID IS NULL
+            OR EXISTS (SELECT 1 FROM payroll_run_lines l WHERE l.run_id = prh.id AND l.employee_id = ${employeeId}::UUID))
+  `) as Row[];
+  for (const runId of finalRuns.map((r) => String(r.id))) await assertRunKindSupported(companyId, runId, 'irp5');
 
   const rows = (await sql`
     SELECT

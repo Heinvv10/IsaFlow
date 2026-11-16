@@ -7,6 +7,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/modules/accounting/services/payroll/directivePaymentFiling', () => ({
   listStandaloneDirectivePayments: vi.fn(async () => []),
 }));
+// The run-kind guard (FQa) has its own tests; here every run is a monthly regular one.
+vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', () => ({ assertRunKindSupported: vi.fn(async () => undefined) }));
 vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: (text: string) => ({ unsafe: text }) }) }));
 vi.mock('@/modules/accounting/services/payroll/payRunNotFinal', () => ({
   listNotFinalDeclaredRuns: vi.fn(async () => []),

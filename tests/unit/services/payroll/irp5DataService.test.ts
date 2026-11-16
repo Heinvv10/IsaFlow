@@ -20,6 +20,8 @@ let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<u
 
 type Unsafe = { unsafe: string };
 const isUnsafe = (v: unknown): v is Unsafe => typeof v === 'object' && v !== null && 'unsafe' in v;
+// The run-kind guard (FQa) has its own tests; here every run is a monthly regular one.
+vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', () => ({ assertRunKindSupported: vi.fn(async () => undefined) }));
 vi.mock('@/lib/neon', () => ({
   // A spliced fragment (sql.unsafe) is inlined in the recorded text, as the real builder splices it.
   sql: Object.assign((strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -94,7 +96,7 @@ describe('getIrp5EmployeeTotals — tenant scope and status vocabulary', () => {
   it('scopes through payroll_run_headers, which is the only tenant column there is', async () => {
     routeMock();
     await getIrp5EmployeeTotals(COMPANY, 2026);
-    const q = sqlCalls.find((c) => c.sql.includes('payroll_run_lines'))!;
+    const q = sqlCalls.find((c) => c.sql.includes('SUM(prl.gross_pay)'))!;
     // payroll_run_lines has NO company_id. The join to the header IS the scope,
     // so it must be INNER and the predicate must be in WHERE — in an outer
     // join's ON clause it would restrict nothing.
@@ -109,7 +111,7 @@ describe('getIrp5EmployeeTotals — tenant scope and status vocabulary', () => {
   it('uses the SAME final-run fragment as the EMP201, never a status string', async () => {
     routeMock();
     await getIrp5EmployeeTotals(COMPANY, 2026);
-    const q = sqlCalls.find((c) => c.sql.includes('payroll_run_lines'))!;
+    const q = sqlCalls.find((c) => c.sql.includes('SUM(prl.gross_pay)'))!;
     // If a certificate and a monthly declaration disagree about which runs
     // happened, one of them is wrong and nothing says which.
     expect(q.sql).toContain(`AND ${payRunFinalSql('prh')}`);

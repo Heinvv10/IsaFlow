@@ -16,11 +16,13 @@ import { getIrp5EmployeeTotals } from '@/modules/accounting/services/payroll/irp
 import { generateUifDeclaration, getUifDeclaration } from '@/modules/accounting/services/payroll/uifDeclarationService';
 import { isPayRunFinal } from '@/modules/accounting/services/payroll/payslipFinal';
 import { readEmployeeReadiness } from '@/modules/accounting/services/payroll/employeeReadinessRead';
+import { RunKindUnsupportedError } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const A = crypto.randomUUID();
 const B = crypto.randomUUID();
+const C = crypto.randomUUID(); // a weekly run (FQa's guard, grill F4)
 const USER = crypto.randomUUID();
 const emp: Record<string, string> = {};
 const run: Record<string, string> = {};
@@ -56,7 +58,7 @@ async function seedRun(company: string, month: number, status: string, stamp: st
 }
 
 beforeAll(async () => {
-  for (const [id, name] of [[A, 'EF company A'], [B, 'EF company B']]) {
+  for (const [id, name] of [[A, 'EF company A'], [B, 'EF company B'], [C, 'EF company C']]) {
     await pool.query('INSERT INTO companies (id, name) VALUES ($1, $2)', [id, name]);
   }
   emp.a1 = await employee(A, 'EF-A1');
@@ -81,15 +83,20 @@ beforeAll(async () => {
   run.b = await seedRun(B, 9, 'approved', STAMPED, [
     { employee: emp.b1, gross: 500_000, paye: 150_000, uifEmployee: 7_777, uifEmployer: 1_111, sdl: 5_000 },
   ]);
+  emp.c1 = await employee(C, 'EF-C1');
+  run.c = await seedRun(C, 9, 'approved', STAMPED, [
+    { employee: emp.c1, gross: 50_000, paye: 9_000, uifEmployee: 177.12, uifEmployer: 177.12, sdl: 500 },
+  ]);
+  await pool.query(`UPDATE payroll_run_headers SET pay_frequency = 'weekly' WHERE id = $1`, [run.c]);
 }, 120_000);
 
 afterAll(async () => {
   try {
-    await pool.query('DELETE FROM uif_declarations WHERE company_id = ANY($1::uuid[])', [[A, B]]);
+    await pool.query('DELETE FROM uif_declarations WHERE company_id = ANY($1::uuid[])', [[A, B, C]]);
     await pool.query('DELETE FROM payroll_run_lines WHERE run_id = ANY($1::uuid[])', [Object.values(run)]);
-    await pool.query('DELETE FROM payroll_run_headers WHERE company_id = ANY($1::uuid[])', [[A, B]]);
-    await pool.query('DELETE FROM payroll_employees WHERE company_id = ANY($1::uuid[])', [[A, B]]);
-    await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[A, B]]);
+    await pool.query('DELETE FROM payroll_run_headers WHERE company_id = ANY($1::uuid[])', [[A, B, C]]);
+    await pool.query('DELETE FROM payroll_employees WHERE company_id = ANY($1::uuid[])', [[A, B, C]]);
+    await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[A, B, C]]);
   } finally {
     await pool.end();
   }
@@ -181,5 +188,20 @@ describe('UI-19: runs by finality', () => {
   it('company B\'s September declares only B\'s line', async () => {
     const b = await generateUifDeclaration(B, 2028, 9, USER);
     expect([b.totalEmployees, b.totalEmployeeContribution, b.totalEmployerContribution]).toEqual([1, 7_777, 1_111]);
+  });
+});
+
+describe('the run-kind guard (wave 6 FQa, called by the EMP201 and the IRP5)', () => {
+  it('a final weekly run is refused by name on both, never summed as a monthly one', async () => {
+    const e = await generateEMP201(C, '2028-09-01', '2028-09-30').catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(RunKindUnsupportedError);
+    expect((e as RunKindUnsupportedError).action).toBe('emp201');
+    const i = await getIrp5EmployeeTotals(C, TAX_YEAR).catch((x: unknown) => x);
+    expect(i).toBeInstanceOf(RunKindUnsupportedError);
+    expect((i as RunKindUnsupportedError).action).toBe('irp5');
+  });
+  it('company A (monthly runs only) is not refused', async () => {
+    await expect(generateEMP201(A, '2028-09-01', '2028-11-30')).resolves.toBeTruthy();
+    await expect(getIrp5EmployeeTotals(A, TAX_YEAR)).resolves.toBeTruthy();
   });
 });

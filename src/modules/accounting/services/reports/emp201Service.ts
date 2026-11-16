@@ -13,6 +13,7 @@ import { log } from '@/lib/logger';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { listNotFinalDeclaredRuns, notFinalRunWarning } from '@/modules/accounting/services/payroll/payRunNotFinal';
 import { loadRunLineUif, uifSplitMismatchWarning } from './emp201LineUif';
+import { assertRunKindSupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import { listStandaloneDirectivePayments } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 import { etiCarryLedger, etiMonthsOf, summariseCarry, type EtiCarry } from '@/modules/accounting/services/payroll/etiCarry';
 import { loadEarlierEtiMonths } from '@/modules/accounting/services/payroll/etiCarryRead';
@@ -178,6 +179,9 @@ export async function generateEMP201(
         AND make_date(prh.period_year, prh.period_month, 1) <= ${endDate}::date
       ORDER BY prh.period_year, prh.period_month
     `) as Row[];
+
+    // Wave 6 FQa/EF: a run this release cannot declare (weekly, off-cycle, ...) is refused by name, never summed as monthly.
+    for (const runId of runs.map((r: Row) => String(r.id))) await assertRunKindSupported(companyId, runId, 'emp201');
 
     const standalone = await listStandaloneDirectivePayments(companyId, { start: startDate, end: endDate });
     const directivePayments: EMP201DirectivePayment[] = standalone.map(p => ({
