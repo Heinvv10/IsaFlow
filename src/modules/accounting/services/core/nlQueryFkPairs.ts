@@ -107,6 +107,23 @@ export const FK_PAIRS = new Set<string>([
   'supplier_purchase_orders.supplier_id|suppliers.id',
 ]);
 
+/**
+ * FK_PAIRS entries backed by a COMPOSITE (id, company_id) foreign key: the schema itself stops a row pointing at
+ * another company's parent, so a join across the edge keeps a row in-tenant and scope may propagate from one seeded
+ * alias to the other. Checked against the schema baseline (2 of the pairs, both VALID constraints).
+ */
+export const COMPOSITE_FK_PAIRS = new Set<string>([
+  'bank_categorisation_rules.gl_account_id|gl_accounts.id',
+  'bank_categorisation_rules.supplier_id|suppliers.id',
+  // NOT 'gl_accounts.id|gl_journal_lines.gl_account_id': its composite FK `gl_journal_lines_account_company_fk`
+  // (migration 664) is NOT VALID, so rows older than the migration can still point at another company's account.
+  // It needs both sides seeded until the constraint is VALIDATEd; that waits on a production census of cross-company
+  // journal lines and is Hein's call.
+]);
+for (const pair of COMPOSITE_FK_PAIRS) {
+  if (!FK_PAIRS.has(pair)) throw new Error(`nlQueryFkPairs: COMPOSITE_FK_PAIRS entry is not in FK_PAIRS: ${pair}`);
+}
+
 // Invariant: the tenant key `company_id` is NEVER a modeled FK edge. An edge
 // exists only to propagate scope across a real FK->PK join; allowing a
 // `company_id` column as an edge endpoint would let a non-tenant-preserving
@@ -131,3 +148,16 @@ export const NO_COMPANY_TABLES = new Set<string>([
   'customer_sales_order_items', 'gl_account_balances', 'leave_balances', 'leave_types',
   'supplier_invoice_items', 'supplier_payment_allocations', 'supplier_purchase_order_items',
 ]);
+
+/**
+ * Does scope flow across this FK edge from ONE seeded alias, or must BOTH aliases carry the caller's company_id?
+ * Every other FK in FK_PAIRS is on the parent's `id` ALONE, so nothing at the DB level stops a row pointing at another
+ * company's parent, and a user who belongs to two companies sees both through RLS. Scope flows from one side only when
+ * the FK is composite (COMPOSITE_FK_PAIRS), or one side is a NO_COMPANY_TABLES child, which belongs to a tenant only
+ * through its parent and so cannot be seeded at all. The NL prompt requires company_id on every table that has one,
+ * so a legitimate query seeds each alias.
+ */
+export function edgeNeedsBothSeeds(key: string, tableA: string, tableB: string): boolean {
+  if (COMPOSITE_FK_PAIRS.has(key)) return false;
+  return !NO_COMPANY_TABLES.has(tableA) && !NO_COMPANY_TABLES.has(tableB);
+}

@@ -13,6 +13,7 @@ import { lockBankTransactionsInIdOrder } from './bankTxLock';
 import { shareLockChainHeadOf } from '../shared/journalChainHead';
 import { journalStandsUnbrokenFragment } from '../shared/journalInForceAsAt';
 import { pairNotUndoneFragment, type TransferLinkTrigger } from './bankTransferLinkLog';
+import { lineFitsBankLineFragment } from './bankMatchTargetFit';
 
 export type Row = Record<string, unknown>;
 
@@ -149,11 +150,14 @@ export async function applyTransferLinks(
           updated_at                = NOW()
       FROM m
       JOIN gl_journal_entries je ON je.id = m.je_id AND je.company_id = ${companyId}::UUID
+      JOIN gl_journal_lines jl ON jl.id = m.je_line_id AND jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID
       WHERE bt.id         = m.new_tx_id
         AND bt.company_id = ${companyId}::UUID
         AND bt.status     = 'imported'
         AND bt.feed_state = 'posted'
         AND je.status     = 'posted' AND ${journalStandsUnbrokenFragment('je.id', companyId)}
+        -- Audit row 4: the line is this statement line's own bank movement (account, direction, exact amount).
+        AND ${lineFitsBankLineFragment('jl', 'bt')}
         AND NOT EXISTS (SELECT 1 FROM bank_transactions u
           WHERE u.company_id = ${companyId}::UUID AND u.matched_journal_line_id = m.je_line_id)
         AND ${pairNotUndoneFragment('m.new_tx_id', 'm.je_line_id', companyId)}

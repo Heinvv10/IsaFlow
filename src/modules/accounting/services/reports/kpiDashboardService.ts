@@ -112,7 +112,7 @@ export async function getDashboardKPIs(companyId: string,
       sql`
         SELECT COALESCE(SUM(bt.amount), 0) AS total
         FROM bank_transactions bt
-        JOIN gl_accounts ga ON ga.id = bt.bank_account_id
+        JOIN gl_accounts ga ON ga.id = bt.bank_account_id AND ga.company_id = bt.company_id
         -- No is_active filter: is_active is a chart-of-accounts picker flag,
         -- not a statement about whether the account still holds money.
         -- Deactivating a bank account must not make its cash disappear.
@@ -128,7 +128,7 @@ export async function getDashboardKPIs(companyId: string,
       sql`
         SELECT COALESCE(SUM(bt.amount), 0) AS total
         FROM bank_transactions bt
-        JOIN gl_accounts ga ON ga.id = bt.bank_account_id
+        JOIN gl_accounts ga ON ga.id = bt.bank_account_id AND ga.company_id = bt.company_id
         -- No is_active filter: is_active is a chart-of-accounts picker flag,
         -- not a statement about whether the account still holds money.
         -- Deactivating a bank account must not make its cash disappear.
