@@ -44,7 +44,6 @@ export interface BankTransaction {
   suggestedSupplierId?: string;
   suggestedClientId?: string;
   suggestedCategory?: string;
-  suggestedCostCentre?: string;
   suggestedVatCode?: string;
   /** Smart categorization confidence score (0-1) */
   suggestedConfidence?: number;

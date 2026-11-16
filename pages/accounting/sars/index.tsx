@@ -13,12 +13,12 @@ import {
 import { formatDate } from '@/utils/formatters';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { ComplianceCalendarTable } from '@/components/accounting/sars/ComplianceCalendarTable';
-import { statusBadge } from '@/components/accounting/sars/sarsStatusBadge';
+import { submissionStatusBadge } from '@/components/accounting/sars/sarsStatusBadge';
 import { useSarsOverview, calendarCounts } from '@/components/accounting/sars/useSarsOverview';
 
 export default function SARSDashboard() {
   const { isRegistered } = useVatRegistration();
-  const { events, submissions, marksUnavailable, loading, error, refresh } = useSarsOverview();
+  const { events, submissions, marksUnavailable, submissionsUnavailable, loading, error, refresh } = useSarsOverview();
   const { overdue: overdueCount, pending: pendingCount, completed: completedCount } = calendarCounts(events);
 
   return (
@@ -105,7 +105,7 @@ export default function SARSDashboard() {
               </div>
 
               {/* Compliance Calendar */}
-              <ComplianceCalendarTable events={events} marksUnavailable={marksUnavailable} onChanged={refresh} />
+              <ComplianceCalendarTable events={events} marksUnavailable={marksUnavailable} submissionsUnavailable={submissionsUnavailable} onChanged={refresh} />
 
               {/* Recent Submissions */}
               <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
@@ -153,7 +153,7 @@ export default function SARSDashboard() {
                           <td className="px-4 py-3 text-[var(--ff-text-primary)]">
                             {formatDate(sub.periodStart)} — {formatDate(sub.periodEnd)}
                           </td>
-                          <td className="px-4 py-3">{statusBadge(sub.status)}</td>
+                          <td className="px-4 py-3">{submissionStatusBadge(sub.status, sub.efilingChannel)}</td>
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)] font-mono text-xs">
                             {sub.submissionReference || '—'}
                           </td>

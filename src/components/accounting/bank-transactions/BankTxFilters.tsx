@@ -13,7 +13,7 @@ import { BankTxExportButtons } from './BankTxExportButtons';
 import { BankTxFilterSelects } from './BankTxFilterSelects';
 import type { ReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
 
-type Tab = 'new' | 'reviewed' | 'excluded';
+type Tab = import('./BankTxTabs').BankTxTab;
 
 export interface BankTxFiltersProps {
   tab: Tab;

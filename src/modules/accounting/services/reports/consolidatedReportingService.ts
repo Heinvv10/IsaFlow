@@ -5,6 +5,7 @@
  * Re-exports trial balance and statement generators for backward compatibility.
  */
 
+import { toIsoTimestamp } from '@/lib/dateUtils';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getGroupMembers } from './consolidatedTrialBalanceService';
@@ -57,7 +58,7 @@ function mapAdjustmentRow(r: DbRow): ConsolidationAdjustment {
     status: String(r.status), lines: Array.isArray(rawLines) ? rawLines : [],
     sourceIntercompanyId: r.source_intercompany_id ? String(r.source_intercompany_id) : null,
     postedBy: r.posted_by ? String(r.posted_by) : null,
-    postedAt: r.posted_at ? String(r.posted_at) : null, createdAt: String(r.created_at),
+    postedAt: r.posted_at ? toIsoTimestamp(r.posted_at as Date | string) : null, createdAt: (toIsoTimestamp(r.created_at as Date | string) ?? ''),
   };
 }
 
