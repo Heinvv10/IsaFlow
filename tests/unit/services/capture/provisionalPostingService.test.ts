@@ -17,6 +17,7 @@ const { sqlMock } = vi.hoisted(() => {
   return { sqlMock };
 });
 
+vi.mock('@/modules/accounting/services/bank/bankAllocationPeriod', () => ({ allocationPeriodFor: async () => 'fp-open' })); // WP2 row 12: proven in bank-wp2-12-posters.int
 vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ handKeyedLineJournalRefusal: vi.fn(async () => null) })); // R-035 PR6: proven in r035-pr6-banksweep.int
 vi.mock('@/lib/neon', () => ({ sql: sqlMock, fmtDate: (x: unknown) => String(x) }));
 vi.mock('@/lib/logger', () => ({
