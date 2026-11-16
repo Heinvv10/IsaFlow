@@ -40,8 +40,8 @@ export function useBankTxFilters(setPage: (n: number) => void) {
   if (debouncedSearch) activeLabels.push(`Search "${debouncedSearch}"`);
   if (fromDate) activeLabels.push(`From ${fromDate}`);
   if (toDate) activeLabels.push(`To ${toDate}`);
-  if (fromAmount) activeLabels.push(`Min R${fromAmount}`);
-  if (toAmount) activeLabels.push(`Max R${toAmount}`);
+  if (fromAmount) activeLabels.push(`Min amount ${fromAmount}`);
+  if (toAmount) activeLabels.push(`Max amount ${toAmount}`);
   if (allocationFilter !== 'all') activeLabels.push(`Allocation: ${allocationFilter}`);
   if (txType !== 'all') activeLabels.push(`Type: ${txType}`);
   if (allocType !== 'all') activeLabels.push(`Category: ${allocType}`);
