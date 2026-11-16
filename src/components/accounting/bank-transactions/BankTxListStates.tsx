@@ -27,7 +27,7 @@ export function BankTxLoading() {
 export function BankTxEmpty({ tab }: { tab: BankTxTab }) {
   return (
     <div data-testid="bank-tx-empty" className="text-center py-12 text-[var(--ff-text-secondary)]">
-      No {tab === 'new' ? 'new' : tab === 'excluded' ? 'excluded' : 'reviewed'} transactions for this account
+      No {tab === 'new' ? 'new' : tab === 'excluded' ? 'excluded' : tab === 'provisional' ? 'provisional' : 'reviewed'} transactions for this account
     </div>
   );
 }

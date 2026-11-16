@@ -19,41 +19,18 @@ import { BankPrimaryCard } from './BankPrimaryCard';
 import { SortableCardRow, type SortableCard } from './SortableCardRow';
 import { applyCardOrder } from './bankCardOrder';
 import { useBankCardOrder } from './useBankCardOrder';
-
-export interface BankAcct {
-  id: string;
-  accountCode: string;
-  accountName: string;
-  bankAccountNumber?: string | null;
-  balance: number;
-  /** Journal-based: net of lines WITH a journal line (bankAccountStatusService). */
-  reconciledBalance: number;
-  /** Journal-based: net of lines with NO journal line, not excluded — the card's Δ. Not reconciliation state. */
-  unreconciledBalance: number;
-  /** Lines neither reconciled nor excluded (bank/unreconciledLineSql). Not the Δ's count. */
-  unreconciledCount: number;
-  allocatedCount: number;
-  /** Suggested/categorised but no journal posted yet (PRD-11). */
-  suggestedCount?: number;
-  unallocatedCount: number;
-  /** Set when this account is a sub-account (its parent is also a bank account). */
-  groupId?: string | null;
-  groupName?: string | null;
-  groupCode?: string | null;
-  /** Date of the most recent imported transaction (YYYY-MM-DD). */
-  lastDate?: string | null;
-}
-
-type Tab = 'new' | 'reviewed' | 'excluded';
+import type { BankAccountSummary } from './useBankTxSummary';
 
 interface Props {
-  bankAccounts: BankAcct[];
+  bankAccounts: BankAccountSummary[];
   selectedBank: string;
-  tab: Tab;
-  total: number;
+  /** The list total while the New tab is open with filters narrowing it, else null ("n shown" on the Awaiting tile). */
+  shown: number | null;
   onSelectBank: (id: string) => void;
-  /** Reloads the bank accounts (after the ungrouped hint moves some into a group). */
+  /** Reloads the summaries (after the ungrouped hint moves some into a group). */
   onAccountsChanged: () => void;
+  /** Opens the Provisional tab (the Allocated tile's "incl. n provisional"). */
+  onShowProvisional: () => void;
 }
 
 /** Whether the row has more cards to its right than it shows. */
@@ -77,7 +54,7 @@ function useOverflowRight(cardCount: number) {
   return { ref, more, measure };
 }
 
-export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSelectBank, onAccountsChanged }: Props) {
+export function BankTxBankCards({ bankAccounts, selectedBank, shown, onSelectBank, onAccountsChanged, onShowProvisional }: Props) {
   const bank = bankAccounts.find(b => b.id === selectedBank);
   const { primaries, groups } = useMemo(() => groupBankAccounts(bankAccounts), [bankAccounts]);
   const hints = useMemo(() => findUngroupedHints(primaries, groups), [primaries, groups]);
@@ -172,7 +149,7 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
 
       <UngroupedAccountsHint hints={hints} onMoved={onAccountsChanged} />
 
-      {bank && <BankTxStatsStrip bank={bank} tab={tab} total={total} />}
+      {bank && <BankTxStatsStrip bank={bank} shown={shown} onShowProvisional={onShowProvisional} />}
     </div>
   );
 }
