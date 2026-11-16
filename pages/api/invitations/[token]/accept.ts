@@ -54,7 +54,7 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password is required' } });
   }
 
-  // 1. Look up invitation (RLS invites_by_token). gotrue_user_id is NULL on Settings -> User Access invitations.
+  // 1. Look up invitation (RLS invites_by_token). gotrue_user_id is NULL when no account held the address at send time.
   const rows = await sql<{
     id: string; email: string; role: string; company_id: string; gotrue_user_id: string | null;
   }>`

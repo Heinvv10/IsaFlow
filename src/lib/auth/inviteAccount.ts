@@ -26,16 +26,11 @@ export const MIN_NEW_PASSWORD_LENGTH = 10;
  * has no account and `password` is too weak to create one with.
  *
  * POST /api/invitations creates (or finds) that account when it sends the
- * invite and stores it in `gotrue_user_id`. userInvitationService — the
- * Settings -> User Access screen — never did, so its invitees had no way to
- * set a password and join: /accept-invite refused the row and the only other
- * route was the self-serve signup, which creates a SECOND company.
- *
- * Resolved here at accept time instead, and deliberately NOT written back to
- * the invitation: pages/api/invitations/revoke/[id].ts deletes the stored
- * account when it has no memberships, and an account found here may be
- * someone's own login (a pending signup, a member removed everywhere) that
- * this invitation never created. An existing account is always found first,
+ * invite and stores it in `gotrue_user_id`; userInvitationService (Settings ->
+ * User Access) stores the account that holds the address when it sends, and
+ * NULL when none does (R7-1). For NULL the account is resolved here at accept
+ * time and deliberately NOT written back to the invitation (nothing needs it
+ * after the accept). An existing account is always found first,
  * never created over. Concurrent accepts converge: the second create 422s and
  * adminCreateUser answers the first one's account — which is why the caller
  * checks factors for every account without a `users` row, not only found ones.

@@ -14,8 +14,16 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 // No GoTrue in the fixture: POST /api/invite/<token> reads the session user's login email through adminGetUser
 // (#1468); answer the address this suite's sessions carry (signSession).
-vi.mock('@/lib/auth/gotrueAdminUser', async () =>
-  (await import('./helpers/fixtureGotrueLogin')).fixtureGotrueLogin((id) => `${id}@test.local`));
+// Revoke reads the pinned account's user_metadata (invite_id) through it too: `stamped` holds what this suite's
+// GoTrue stub was asked to stamp on the accounts it created.
+const stamped = vi.hoisted(() => new Map<string, unknown>());
+vi.mock('@/lib/auth/gotrueAdminUser', async () => {
+  const base = (await import('./helpers/fixtureGotrueLogin')).fixtureGotrueLogin((id) => `${id}@test.local`);
+  return { adminGetUser: async (id: string) => {
+    const user = await base.adminGetUser(id);
+    return user && stamped.has(id) ? { ...user, user_metadata: stamped.get(id) } : user;
+  } };
+});
 import invitationsRoute from '../../pages/api/accounting/company-invitations';
 import inviteApiRoute from '../../pages/api/invitations/index';
 import revokeRoute from '../../pages/api/invitations/revoke/[id]';
@@ -94,6 +102,10 @@ const invite = (sub: string, email: string, role: string) =>
   callRoute(invitationsRoute, { sub, method: 'POST', companyId: company, body: { email, role } });
 
 describe('S-07c: /api/accounting/company-invitations and /invite/<token>', () => {
+  // createInvitation looks the address up in GoTrue first (R7-1 pin): no account holds these addresses.
+  beforeEach(() => {
+    stubGotrue(({ method, path }) => (method === 'GET' && path.startsWith('/admin/users?filter=') ? json(200, { users: [] }) : undefined));
+  });
   it('creates (migration_admin INSERT), mails the token, and stamps email_sent_at', async () => {
     const u = await newUser();
     expect(await invite(me, u.email, 'viewer')).toMatchObject({ status: 200, body: { data: { emailSent: true } } });
@@ -139,8 +151,12 @@ describe('S-07c: /api/accounting/company-invitations and /invite/<token>', () =>
 describe('S-07c: /api/invitations, revoke and the password accept route (GoTrue stubbed)', () => {
   /** GoTrue: POST /admin/users creates `gid`; PUT /admin/users/gid and the password grant sign it in; DELETE removes it. */
   function gotrueFor(gid: string, email: string) {
-    return stubGotrue(({ method, path }) => {
-      if (method === 'POST' && path === '/admin/users') return json(200, { id: gid, email });
+    return stubGotrue(({ method, path, body }) => {
+      if (method === 'POST' && path === '/admin/users') {
+        // What adminCreateUser stamps (invite_id): revoke deletes only an account its invitation created.
+        stamped.set(gid, (body as { user_metadata?: unknown } | null)?.user_metadata ?? {});
+        return json(200, { id: gid, email });
+      }
       if (method === 'PUT' && path === `/admin/users/${gid}`) return json(200, { id: gid, email });
       if (method === 'DELETE' && path === `/admin/users/${gid}`) return json(200, {});
       if (method === 'GET' && path === '/user') return json(200, { id: gid, factors: [] }); // accept's MFA gate
@@ -182,6 +198,23 @@ describe('S-07c: /api/invitations, revoke and the password accept route (GoTrue 
     expect((await callRoute(revokeRoute, { sub: me, method: 'POST', companyId: company, query: { id } })).status).toBe(200);
     expect(await invitation(u.email)).toBeUndefined();
     expect(calls.at(-1)).toMatchObject({ method: 'DELETE', path: `/admin/users/${u.id}` });
+  });
+
+  // R7-1: a Settings invitation pins the account that already held the address (here a deleted user's surviving
+  // login: no users row, no memberships). Revoking it drops the invitation and never that account.
+  it('revoke of an invitation pinned to an account it did not create: the invitation goes, the GoTrue account stays', async () => {
+    const u = await newUser(true);
+    const calls = stubGotrue(({ method, path }) => {
+      if (method === 'GET' && path.startsWith('/admin/users?filter=')) return json(200, { users: [{ id: u.id, email: u.email }] });
+      if (method === 'DELETE' && path === `/admin/users/${u.id}`) return json(200, {});
+      return undefined;
+    });
+    expect((await invite(me, u.email, 'viewer')).status).toBe(200);
+    const { id, gotrue_user_id: pinned } = (await invitation(u.email))! as { id: string; gotrue_user_id: string };
+    expect(pinned).toBe(u.id);
+    expect((await callRoute(revokeRoute, { sub: me, method: 'POST', companyId: company, query: { id } })).status).toBe(200);
+    expect(await invitation(u.email)).toBeUndefined();
+    expect(calls.filter((c) => c.method === 'DELETE')).toEqual([]);
   });
 
   // Architecture review H1: GoTrue is called holding no migration_admin

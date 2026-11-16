@@ -37,6 +37,8 @@ vi.mock('@/lib/rateLimit', () => ({ checkSendRateLimit: vi.fn(async () => true) 
 vi.mock('@/modules/accounting/services/core/emailService', () => ({
   sendInviteEmail: vi.fn(async () => ({ success: true })),
 }));
+// createInvitation pins the address's GoTrue account (R7-1); none here unless a test says so.
+vi.mock('@/lib/auth/gotrue', () => ({ findUserByEmail: vi.fn(async () => null) }));
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — pages/ is outside src/ so the @/ alias won't resolve; relative path needed
@@ -133,5 +135,19 @@ describe('company-invitations — the raw token never reaches the inviter', () =
     expect(body).not.toContain('"token"');
     // The email_log row is written as app_user for the request's company: a NULL failed RLS on every send.
     expect(sendInviteEmail).toHaveBeenLastCalledWith(expect.objectContaining({ companyId: COMPANY_ID }));
+  });
+});
+
+describe('company-invitations — the GoTrue lookup fails closed (R7-1)', () => {
+  beforeEach(() => { h.statements.length = 0; h.inviterRole = 'owner'; });
+
+  it('GoTrue unavailable at the lookup: 503, nothing written, no transaction opened', async () => {
+    const { findUserByEmail } = await import('@/lib/auth/gotrue');
+    const { AuthUpstreamUnavailableError } = await import('@/lib/auth/authUpstream');
+    (findUserByEmail as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new AuthUpstreamUnavailableError('gotrue down'));
+    const { promise, res } = post('owner', 'viewer');
+    await promise;
+    expect(statusOf(res)).toBe(503);
+    expect(h.statements).toEqual([]);
   });
 });

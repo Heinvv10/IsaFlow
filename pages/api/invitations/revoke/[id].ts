@@ -3,6 +3,7 @@ import type { NextApiHandler } from 'next';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { adminDeleteUser } from '@/lib/auth/gotrue';
+import { adminGetUser } from '@/lib/auth/gotrueAdminUser';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -31,14 +32,21 @@ const handler: NextApiHandler = async (req, res) => {
 
   // Delete the invitation row. Delete the orphan GoTrue user only if they have
   // no other company memberships — otherwise they're a real user of another
-  // company and we just drop the invite.
+  // company and we just drop the invite — and only if THIS invitation created
+  // it (POST /api/invitations stamps user_metadata.invite_id on the account it
+  // creates). A pin can name an account that already held the address (an
+  // adminCreateUser 422, and every Settings invitation since R7-1): a deleted
+  // user's surviving login, a pending signup. Those are never removed here.
+  const pinned = rows[0]!.gotrue_user_id;
   const otherMemberships = await sql<{ count: number }>`
-    SELECT COUNT(*)::int AS count FROM company_users WHERE user_id = ${rows[0]!.gotrue_user_id}
+    SELECT COUNT(*)::int AS count FROM company_users WHERE user_id = ${pinned}
   `;
   await sql`DELETE FROM company_invitations WHERE id = ${id}::uuid`;
-  if ((otherMemberships[0]!.count ?? 0) === 0) {
-    try { await adminDeleteUser(rows[0]!.gotrue_user_id); }
-    catch (err) { log.info('revoke: adminDeleteUser non-fatal', { message: err instanceof Error ? err.message : String(err) }, 'Invitations'); }
+  if (pinned && (otherMemberships[0]!.count ?? 0) === 0) {
+    try {
+      const account = await adminGetUser(pinned);
+      if (account?.user_metadata?.invite_id === id.toLowerCase()) await adminDeleteUser(pinned);
+    } catch (err) { log.info('revoke: adminDeleteUser non-fatal', { message: err instanceof Error ? err.message : String(err) }, 'Invitations'); }
   }
 
   return res.status(200).json({ success: true, data: null });
