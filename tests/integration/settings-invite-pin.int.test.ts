@@ -136,6 +136,28 @@ describe('the password accept on a pinned unconfirmed account', () => {
   });
 });
 
+// #1517 breaker B3/B5: the stub knows who has signed in (seedUser's users, any password grant). An account an
+// invitation created keeps its invite_id stamp for good, so the stamp alone must not let a later link reset it.
+describe('the password accept on an account its own invitation created, signed in since (B3)', () => {
+  it('created and signed in through an invitation, deleted, re-invited (same row): signs in, no password written', async () => {
+    const email = `b3-${crypto.randomUUID()}@test.local`;
+    const first = await newAccept(await settingsInvite(C, email)); // no account: created, stamped, signed in
+    expect(first.status, JSON.stringify(first.body)).toBe(200);
+    const id = (first.body as { data?: { userId?: string } }).data!.userId!;
+    strangers.push(id);
+    passwordSets.length = 0;
+    await resetAdminLimit();
+    expect((await adminDelete(id)).status).toBe(200);
+
+    const again = await settingsInvite(C, email); // ON CONFLICT: the same invitation id its account is stamped with
+    expect(await pinOf(C, email)).toBe(id);
+    const r = await newAccept(again);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(passwordSets).not.toContain(id);
+    expect(await memberOf(C, id)).toBe(1);
+  });
+});
+
 describe('a re-invite replaces the pin (F2)', () => {
   it('a stale pin on the earlier row is replaced by the account holding the address now', async () => {
     const u = await seedUser();
