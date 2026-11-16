@@ -91,7 +91,7 @@ describe('door 1: Spend Money to a customer on a hand-keyed line (the manual rou
     const off = await fixture(false);
     const offAr = await arDebits(off.c);
     await posts(await manual(off, {}), off.c, offAr);              // enforcement off: posts
-    expect(await arDebits(f.c), 'the held attempt and the receipt wrote nothing to AR').toBe(ar);
+    expect(await arDebits(f.c), 'the held attempt wrote nothing to AR').toBe(ar);
     expect((await manual(f, { type: 'receive' })).state.statusCode).toBe(201); // money IN: a receipt, not this gate's
   });
 
@@ -116,7 +116,7 @@ describe('door 1: Spend Money to a customer on a hand-keyed line (the manual rou
   });
 });
 
-describe('door 2: allocating an existing negative line to a customer (the allocate action, reallocation, the auto-post gate)', () => {
+describe('door 2: allocating an existing negative line to a customer (the allocate action, reallocation)', () => {
   it('a hand-keyed line is refused 409 before any write; an imported line, a small refund and a receipt are not', async () => {
     const f = await fixture();
     const handKeyed = await plantLine(f, 'manual');
@@ -221,7 +221,7 @@ describe('door 4: the MCP allocate and bulk tools', () => {
   });
 });
 
-describe('door 5: the bank-rule sweep and the auto-post gate', () => {
+describe('door 5: the bank-rule sweep', () => {
   const sweep = async (f: BankCompany) => {
     await pool.query(
       `INSERT INTO bank_categorisation_rules(company_id, rule_name, match_field, match_type, match_pattern, client_id, auto_create_entry, created_by)
