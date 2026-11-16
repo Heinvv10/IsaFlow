@@ -55,7 +55,7 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
   const searchNoun = rowType === 'supplier' ? 'suppliers' : rowType === 'customer' ? 'customers' : rowType === 'transfer' ? 'bank accounts' : 'accounts';
 
   return (
-    <td className="py-1 px-2 relative">
+    <td data-label="Selection" className="py-1 px-2 relative">
       {isNew ? (
         <>
           {/* Confidence dot for suggested allocations — green=HIGH, yellow=MEDIUM, grey=LOW */}

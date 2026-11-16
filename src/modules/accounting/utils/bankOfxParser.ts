@@ -88,6 +88,25 @@ function parseOfxDate(dateStr: string): string | null {
   return `${year}-${month}-${day}`;
 }
 
+// ── Amounts ───────────────────────────────────────────────────────────────────
+
+/**
+ * An OFX amount (TRNAMT, BALAMT), read strictly: a plain number ("-120.50", "+12.5", "-.50"), a decimal comma
+ * ("5330,00", "5330,5": a comma followed by exactly one or two trailing digits), or comma thousands groups
+ * ("1,234,567.89"). Anything else is null: parseFloat after stripping every comma read "5330,00" as 533 000 and
+ * "12abc" as 12.
+ */
+export function parseOfxAmount(raw: string): number | null {
+  const s = raw.trim();
+  let normal: string;
+  if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(s)) normal = s;
+  else if (/^[+-]?\d+,\d{1,2}$/.test(s)) normal = s.replace(',', '.');
+  else if (/^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(s)) normal = s.replace(/,/g, '');
+  else return null;
+  const n = Number(normal);
+  return Number.isFinite(n) ? n : null;
+}
+
 // ── Main Parser ───────────────────────────────────────────────────────────────
 
 /**
@@ -108,13 +127,20 @@ export function parseOfxStatement(content: string): BankCsvParseResult {
     return result;
   }
 
-  // Extract closing balance if present
+  // The closing balance is LEDGERBAL's BALAMT and nothing else: AVAILBAL is what may be spent, not what is booked,
+  // so a file with AVAILBAL alone states no closing. One statement block only: a file with two (two accounts, or
+  // a bank and a card) has no one closing balance, so its balances are doubted (deriveStatementBalances).
   let closingBalance: number | undefined;
-  const balAmtRaw = extractTag(content, 'BALAMT');
+  const statements = (content.match(/<(?:CC)?STMTRS>/gi) ?? []).length;
+  if (statements > 1) result.balancesUnverifiable = `the file holds ${statements} statements`;
+  const ledgerBal = /<LEDGERBAL>([\s\S]*?)(?:<\/LEDGERBAL>|<AVAILBAL>|<\/(?:CC)?STMTRS>|$)/i.exec(content)?.[1];
+  const balAmtRaw = ledgerBal === undefined ? null : extractTag(ledgerBal, 'BALAMT');
   if (balAmtRaw !== null) {
-    const parsed = parseFloat(balAmtRaw);
-    if (!isNaN(parsed)) closingBalance = parsed;
+    const parsed = parseOfxAmount(balAmtRaw);
+    if (parsed !== null) closingBalance = parsed;
+    else result.balancesUnverifiable ??= `LEDGERBAL BALAMT "${balAmtRaw.slice(0, 30)}" is not a number`;
   }
+  if (closingBalance !== undefined) result.closingBalance = closingBalance;
 
   // Extract transaction blocks
   const txBlocks = extractBlocks(content, 'STMTTRN');
@@ -145,8 +171,8 @@ export function parseOfxStatement(content: string): BankCsvParseResult {
       result.errors.push({ row: rowNum, error: 'Missing TRNAMT amount tag' });
       return;
     }
-    const amount = parseFloat(amtRaw.replace(/,/g, ''));
-    if (isNaN(amount)) {
+    const amount = parseOfxAmount(amtRaw);
+    if (amount === null) {
       result.errors.push({ row: rowNum, error: `Invalid TRNAMT amount: ${amtRaw}` });
       return;
     }

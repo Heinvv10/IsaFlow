@@ -47,6 +47,19 @@ describe('NotificationBell', () => {
     await waitFor(() => expect(screen.getByTestId('notification-badge').textContent).toBe('99+'));
   });
 
+  it('a title (and body) is plain text: markup and markdown show literally, nothing is parsed', async () => {
+    h.fetch.mockResolvedValueOnce(feed([note('m', { title: '<b>Over</b> budget **now** <img src=x onerror=alert(1)>', body: '<i>see</i> **this**' })], 1));
+    render(<NotificationBell />);
+    await screen.findByTestId('notification-badge');
+    h.fetch.mockResolvedValueOnce(feed([note('m', { title: '<b>Over</b> budget **now** <img src=x onerror=alert(1)>', body: '<i>see</i> **this**' })], 1));
+    fireEvent.click(bell());
+    const title = await screen.findByText('<b>Over</b> budget **now** <img src=x onerror=alert(1)>');
+    expect(title.children).toHaveLength(0);
+    expect(screen.getByText('<i>see</i> **this**').children).toHaveLength(0);
+    const dialog = bell().parentElement as HTMLElement;
+    expect(dialog.querySelectorAll('b, i, strong, img')).toHaveLength(0);
+  });
+
   it('no badge with nothing unread; the open list says so when empty', async () => {
     h.fetch.mockImplementation(async () => feed([], 0));
     render(<NotificationBell />);

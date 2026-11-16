@@ -16,7 +16,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { inspectVatGuardCoverage, kindsNotExcused } from './vatGuardRules';
-import { ALLOWED } from './vatGuardAllowlist';
+import { ALLOWED, LINE_BUILDERS } from './vatGuardAllowlist';
 
 const ROOT = join(import.meta.dir ?? __dirname, '..', '..');
 const SCAN_DIRS = ['src', 'pages'];
@@ -59,7 +59,7 @@ const nowGuarded: string[] = [];
 
 for (const file of files) {
   const rel = file.slice(ROOT.length + 1);
-  const finding = inspectVatGuardCoverage(readFileSync(file, 'utf8'));
+  const finding = inspectVatGuardCoverage(readFileSync(file, 'utf8'), { buildsLinesForAPoster: rel in LINE_BUILDERS });
   if (!finding) continue;
   const entry = ALLOWED[rel];
   if (entry) {
@@ -76,6 +76,24 @@ for (const file of files) {
 
 const stale = Object.keys(ALLOWED).filter((rel) => !seenAllowed.has(rel));
 let failed = false;
+
+// A declared line builder must still be one: present, carrying a VAT field, and imported by its poster.
+// Otherwise the declaration widens nothing and only looks like coverage.
+const brokenBuilders = Object.entries(LINE_BUILDERS).flatMap(([builder, poster]) => {
+  const at = (rel: string) => join(ROOT, rel);
+  if (!existsSync(at(builder)) || !existsSync(at(poster))) return [`${builder} -> ${poster}: a file is gone`];
+  const kinds = inspectVatGuardCoverage(readFileSync(at(builder), 'utf8'), { buildsLinesForAPoster: true })?.kinds ?? [];
+  if (!kinds.includes('vat_field_on_a_posting_path')) return [`${builder}: no VAT field any more`];
+  const name = builder.replace(/^.*\//, '').replace(/\.ts$/, '');
+  const imports = new RegExp(`from\\s+['"][^'"]*/${name}['"]`).test(readFileSync(at(poster), 'utf8'));
+  return imports ? [] : [`${builder}: not imported by ${poster}`];
+});
+if (brokenBuilders.length > 0) {
+  failed = true;
+  console.error('[vat-guard] LINE_BUILDERS entries that no longer hold:\n');
+  for (const b of brokenBuilders) console.error(`  ${b}`);
+  console.error('\n  Fix the declaration in vatGuardAllowlist.ts (LINE_BUILDERS).\n');
+}
 
 if (unguarded.length > 0) {
   failed = true;

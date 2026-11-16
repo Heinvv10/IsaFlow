@@ -28,6 +28,13 @@ const SCREENS = [
   { slug: 'company-settings', path: '/accounting/company-settings?tab=details', ready: ['Entity Type', 'Industry', 'Account Type', 'Document Type'] },
   { slug: 'leave', path: '/payroll/leave', ready: ['Filter by status', 'Filter by month'] },
   { slug: 'accounting-settings', path: '/accounting/accounting-settings', ready: ['Reporting Currency'] },
+  // UXS (wave 6): the settings tabs and the parallel-run card. The user-fields tab is opened by its own test below.
+  { slug: 'settings-general', path: '/accounting/company-settings?tab=general', ready: ['Default Currency', 'Idle Timeout', 'Date Format', 'Rounding Type', 'Run Ageing Based On'] },
+  { slug: 'settings-vat', path: '/accounting/company-settings?tab=vat', ready: ['VAT Reporting Frequency'] },
+  { slug: 'settings-compliance', path: '/accounting/company-settings?tab=compliance', ready: ['Financial Year-End Month'] },
+  { slug: 'settings-branding', path: '/accounting/company-settings?tab=branding', ready: ['Position of Logo on Invoices and Statements'] },
+  { slug: 'settings-regional', path: '/accounting/company-settings?tab=regional', ready: ['Date Format', 'Decimal Separator', 'Thousands Separator'] },
+  { slug: 'parallel-run', path: '/payroll/parallel-run', ready: ['Period month', 'Year'] },
   { slug: 'journal-new', path: '/accounting/journal-entries/new', ready: ['Account, line 1', 'Account, line 2'], fresh390: true },
 ] as const;
 /**
@@ -190,6 +197,18 @@ for (const theme of THEMES) {
       await page.getByRole('combobox', { name: 'Component', exact: true }).click();
       await expect(page.getByText('No options')).toBeVisible();
       expect(await nativeSelects(page)).toBe(0);
+    });
+
+    test('user-fields settings tab: every slot type is a kit combobox, none native, axe clean', async ({ page }) => {
+      await page.goto('/accounting/company-settings?tab=udf');
+      const heads = page.locator('main button[type="button"].w-full.justify-between');
+      await expect(heads.first()).toBeVisible({ timeout: 30_000 });
+      for (const h of await heads.all()) await h.click();
+      await expect(page.getByRole('combobox', { name: 'Item field 12 type' })).toBeVisible({ timeout: 30_000 });
+      await settle(page);
+      expect(await nativeSelects(page)).toBe(0);
+      await expectAxeClean(page);
+      await snap(page, 'settings-udf', theme, 1568);
     });
 
     test('the invoice list passes axe colour-contrast at 1280px (the 90+ days label)', async ({ page }) => {

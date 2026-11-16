@@ -18,8 +18,8 @@
  * - IRP6: 1st payment last day of the 6th month before financial year end;
  *   2nd payment last day of the year-end month (leap-aware).
  * - CIPC annual return: last day of the anniversary month.
- * - No weekend adjustment for VAT/IRP6/EMP501/CIPC (the 25th eFiling rule
- *   extends later, and last-day rules are already the earliest-safe choice).
+ * - Every other due date is also pulled back to the Friday on a weekend
+ *   (TAA s244); pinned in complianceCalendarWeekend.test.ts.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -98,8 +98,8 @@ describe('upcomingObligations — VAT cycle', () => {
       cfg({ vat: { enabled: true, period: 'bi-monthly', alignment: 'even' } }),
       JUN_11,
     );
-    // period May–Jun ends 30 Jun → due 25 Jul (25 Sep falls outside the window)
-    expect(dues(items, 'vat')).toEqual(['2026-07-25']);
+    // period May–Jun ends 30 Jun → due 25 Jul, a Saturday → Fri 24 Jul (25 Sep falls outside the window)
+    expect(dues(items, 'vat')).toEqual(['2026-07-24']);
     expect(items[0]!.detail).toBe('May–Jun 2026');
     expect(items[0]!.task).toBe('VAT return due');
   });
@@ -109,24 +109,24 @@ describe('upcomingObligations — VAT cycle', () => {
       cfg({ vat: { enabled: true, period: 'monthly', alignment: 'odd' } }),
       JUN_11,
     );
-    // May ended 31 May → vatDueSignal's; Jun ends 30 Jun → 25 Jul; Jul → 25 Aug
-    expect(dues(items, 'vat')).toEqual(['2026-07-25', '2026-08-25']);
+    // May ended 31 May → vatDueSignal's; Jun ends 30 Jun → 25 Jul (Sat → Fri 24 Jul); Jul → 25 Aug
+    expect(dues(items, 'vat')).toEqual(['2026-07-24', '2026-08-25']);
     expect(items[0]!.detail).toBe('Jun 2026');
   });
 });
 
 describe('upcomingObligations — EMP501 seasons', () => {
-  it('interim recon due 31 Oct', () => {
+  it('interim recon due 31 Oct (a Saturday in 2026 → Fri 30 Oct)', () => {
     const sep15 = new Date(Date.UTC(2026, 8, 15));
     const items = upcomingObligations(cfg({ emp501Enabled: true }), sep15);
-    expect(dues(items, 'emp501')).toEqual(['2026-10-31']);
+    expect(dues(items, 'emp501')).toEqual(['2026-10-30']);
     expect(items[0]!.detail).toBe('Interim Mar–Aug 2026');
   });
 
-  it('annual recon due 31 May', () => {
+  it('annual recon due 31 May (a Sunday in 2026 → Fri 29 May)', () => {
     const mar20 = new Date(Date.UTC(2026, 2, 20));
     const items = upcomingObligations(cfg({ emp501Enabled: true }), mar20);
-    expect(dues(items, 'emp501')).toEqual(['2026-05-31']);
+    expect(dues(items, 'emp501')).toEqual(['2026-05-29']);
     expect(items[0]!.detail).toBe('Annual Mar 2025–Feb 2026');
   });
 });

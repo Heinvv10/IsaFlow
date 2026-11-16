@@ -4,6 +4,7 @@
  * loaded (blank text = clear; an untouched field is never in the body, so another person's later edit is not overwritten;
  * never a bank field: the bank details are a read-only masked panel; a category only when the categories were read).
  */
+import { pickKit } from '../../helpers/kitSelect';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -64,7 +65,7 @@ describe('EditSupplierPage', () => {
     expect(((await screen.findByLabelText(/^Supplier Name/)) as HTMLInputElement).value).toBe('Cable Feeder Systems');
     expect((screen.getByLabelText('Email Address') as HTMLInputElement).value).toBe('ap@cfs.example');
     expect((screen.getByLabelText('Category') as HTMLSelectElement).value).toBe('Materials');
-    expect((screen.getByLabelText(/Payment Terms/) as HTMLSelectElement).value).toBe('statement_months');
+    expect(screen.getByRole('combobox', { name: /Payment Terms/ }).textContent).toContain('Months after statement');
     expect((screen.getByLabelText('Number of days or months') as HTMLInputElement).value).toBe('3');
     expect(screen.getByText('3 months after statement')).toBeTruthy();
     expect(screen.queryByLabelText('Opening Balance')).toBeNull();
@@ -91,7 +92,7 @@ describe('EditSupplierPage', () => {
     render(<EditSupplierPage />);
     const email = (await screen.findByLabelText('Email Address')) as HTMLInputElement;
     fireEvent.change(email, { target: { value: '' } });
-    fireEvent.change(screen.getByLabelText(/Payment Terms/), { target: { value: 'default' } });
+    await pickKit(screen.getByRole('combobox', { name: /Payment Terms/ }), /^Use company default/);
     fireEvent.click(screen.getByRole('button', { name: /Save Supplier/ }));
     await waitFor(() => expect(putCalls()).toHaveLength(1));
     const body = putBody();
@@ -154,7 +155,7 @@ describe('EditCustomerPage', () => {
     render(<EditCustomerPage />);
     expect(((await screen.findByLabelText(/^Customer Name/)) as HTMLInputElement).value).toBe('Herotel');
     await waitFor(() => expect((screen.getByLabelText('Category') as HTMLSelectElement).value).toBe(CATEGORY_ID));
-    expect((screen.getByLabelText(/Payment Terms/) as HTMLSelectElement).value).toBe('statement_days');
+    expect(screen.getByRole('combobox', { name: /Payment Terms/ }).textContent).toContain('Days after statement');
     expect((screen.getByLabelText('Default Discount %') as HTMLInputElement).value).toBe('5.00');
     expect((screen.getByLabelText('Credit Limit') as HTMLInputElement).value).toBe('50000.00');
     expect(screen.queryByLabelText('Opening Balance')).toBeNull();
@@ -164,7 +165,7 @@ describe('EditCustomerPage', () => {
     render(<EditCustomerPage />);
     fireEvent.change(await screen.findByLabelText('Credit Limit'), { target: { value: '' } });
     await waitFor(() => expect((screen.getByLabelText('Category') as HTMLSelectElement).value).toBe(CATEGORY_ID));
-    fireEvent.change(screen.getByLabelText(/Payment Terms/), { target: { value: 'default' } });
+    await pickKit(screen.getByRole('combobox', { name: /Payment Terms/ }), /^Use company default/);
     fireEvent.click(screen.getByRole('button', { name: /Save Customer/ }));
     await waitFor(() => expect(putCalls()).toHaveLength(1));
     expect(putBody()).toEqual({ id: CUSTOMER_ID, credit_limit: '', payment_terms_type: 'not_set' }); // the category and discount were not touched

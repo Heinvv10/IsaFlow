@@ -10,15 +10,17 @@ const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data 
 const fail = (status: number) => new Response(JSON.stringify({ success: false, error: { message: 'no' } }), { status });
 const salary = { componentType: 'earning', isTaxable: true, isRecurring: true, componentActive: true, effectiveFrom: '2020-01-01', effectiveTo: null };
 const fetchMock = vi.fn();
-/** Routes the three reads: bank (masked), the run list, and anything else empty. A Response is read once, so each call builds a new one. */
+/** Routes the one readiness read, built from a bank answer (as the old masked read gave it), the run list and the final-run answer. A Response is read once, so each call builds a new one. */
 let runs: unknown[] = [];
 let finalRun: unknown = { hasFinalRun: false };
 const serveBank = (bank: () => Response) => fetchMock.mockImplementation(async (u: string) => {
   const url = String(u);
-  if (url.includes('/bank-details')) return bank();
-  if (url.endsWith('/api/payroll/runs')) return ok(runs);
-  if (url.endsWith('/has-final-run')) return ok(finalRun);
-  return ok([]);
+  if (!url.endsWith('/readiness')) return ok([]);
+  const b = bank();
+  if (!b.ok) return b;
+  const body = (await b.json()) as { data: unknown };
+  const latest = (runs as Array<{ status: string }>).filter(r => ['calculated', 'approved', 'paid'].includes(r.status)).slice(-1);
+  return ok({ bank: body.data ? 'on-file' : 'none', runs: latest, ...(finalRun as object) });
 });
 const urls = () => fetchMock.mock.calls.map(([u]) => String(u));
 
@@ -32,7 +34,7 @@ describe('EmployeeReadinessCard', () => {
     serveBank(() => ok({ id: 'b1', accountNumber: '…1234' }));
     render(<EmployeeReadinessCard {...props} />);
     expect(await screen.findByText('Ready to pay')).toBeTruthy();
-    expect(urls().filter(u => u.includes('bank-details'))).toEqual([`/api/payroll/employees/${EMP}/bank-details?view=masked`]);
+    expect(urls()).toEqual([`/api/payroll/employees/${EMP}/readiness`]);
   });
 
   it('does not claim ready while the bank read is in flight', async () => {
@@ -49,17 +51,6 @@ describe('EmployeeReadinessCard', () => {
     expect(screen.getByText('Checking bank details…')).toBeTruthy();
   });
 
-  it('says "the pay run" (neither first nor next) while the history read is open', async () => {
-    fetchMock.mockImplementation(async (u: string) => {
-      const url = String(u);
-      if (url.endsWith('/has-final-run')) return new Promise<Response>(() => {});
-      if (url.includes('/bank-details')) return ok(null);
-      return ok([]);
-    });
-    render(<EmployeeReadinessCard {...props} />);
-    expect(await screen.findByText('1 thing before the pay run: bank details')).toBeTruthy();
-  });
-
   it('a 200 with a malformed body is read as unknown: "next", never "first"', async () => {
     finalRun = { unexpected: true };
     serveBank(() => ok(null));
@@ -71,10 +62,23 @@ describe('EmployeeReadinessCard', () => {
     serveBank(() => ok({ id: 'b1' }));
     const { rerender } = render(<EmployeeReadinessCard {...props} refreshKey={0} />);
     expect(await screen.findByText('Ready to pay')).toBeTruthy();
-    fetchMock.mockImplementation(async (u: string) => (String(u).includes('/bank-details') ? new Promise<Response>(() => {}) : ok([])));
+    fetchMock.mockImplementation(async (u: string) => (String(u).endsWith('/readiness') ? new Promise<Response>(() => {}) : ok([])));
     rerender(<EmployeeReadinessCard {...props} refreshKey={1} />);
-    await waitFor(() => expect(urls().filter(u => u.includes('bank-details')).length).toBe(2));
+    await waitFor(() => expect(urls().filter(u => u.endsWith('/readiness')).length).toBe(2));
     expect(screen.getByText('Ready to pay')).toBeTruthy();
+  });
+
+  it('asks once, not three times, for what the card needs', async () => {
+    serveBank(() => ok({ id: 'b1' }));
+    render(<EmployeeReadinessCard {...props} />);
+    expect(await screen.findByText('Ready to pay')).toBeTruthy();
+    expect(urls()).toEqual([`/api/payroll/employees/${EMP}/readiness`]);
+  });
+
+  it('a malformed readiness body is unknown, never ready', async () => {
+    fetchMock.mockImplementation(async () => ok({ bank: 'maybe' }));
+    render(<EmployeeReadinessCard {...props} />);
+    expect(await screen.findByText('1 thing before the next pay run: Could not check bank details')).toBeTruthy();
   });
 
   it('makes no read and draws nothing for a role that may not write', async () => {
@@ -93,7 +97,7 @@ describe('EmployeeReadinessCard', () => {
     finalRun = { hasFinalRun: true };
     rerender(<EmployeeReadinessCard {...props} refreshKey={1} />);
     expect(await screen.findByText('1 thing before the next pay run: bank details')).toBeTruthy();
-    expect(urls().filter(u => u.endsWith('/has-final-run')).length).toBe(2);
+    expect(urls().filter(u => u.endsWith('/readiness')).length).toBe(2);
   });
 
   it('says "next" once the employee has a line on a final run, "first" when they have none', async () => {
@@ -149,6 +153,19 @@ describe('EmployeeReadinessCard', () => {
     const endsNov = { ...salary, effectiveFrom: '2020-01-01', effectiveTo: '2026-11-30' };
     render(<EmployeeReadinessCard {...props} assignments={[endsNov]} />);
     expect(await screen.findByText('1 thing before the first pay run: a salary')).toBeTruthy();
+  });
+
+  it('a failed re-read keeps the run month it had, so the salary verdict does not flip', async () => {
+    runs = [{ periodYear: 2026, periodMonth: 11, status: 'calculated' }];
+    serveBank(() => ok({ id: 'b1' }));
+    const endsNov = { ...salary, effectiveFrom: '2020-01-01', effectiveTo: '2026-11-30' };
+    const { rerender } = render(<EmployeeReadinessCard {...props} assignments={[endsNov]} refreshKey={0} />);
+    expect(await screen.findByText('1 thing before the first pay run: a salary')).toBeTruthy();
+    fetchMock.mockResolvedValue(fail(500));
+    rerender(<EmployeeReadinessCard {...props} assignments={[endsNov]} refreshKey={1} />);
+    await waitFor(() => expect(urls().filter(u => u.endsWith('/readiness')).length).toBe(2));
+    await waitFor(() => expect(screen.getByTestId('employee-readiness-card').textContent).toContain('Could not check bank details'));
+    expect(screen.getByTestId('employee-readiness-card').textContent).toContain('a salary');
   });
 
   it('reads the bank again when the refresh key changes', async () => {
