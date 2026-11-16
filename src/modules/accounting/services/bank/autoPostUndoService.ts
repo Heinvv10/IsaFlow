@@ -184,7 +184,7 @@ export async function undoRun(companyId: string, runId: string, userId: string):
     LIMIT 1
   `) as Row[];
   if (runRows.length === 0) throw new BankRequestRefusal(`Auto-post run ${runId} not found`, 404);
-  if (runRows[0]!.undone_at) throw new BankRequestRefusal('Run already undone', 409);
+  if (runRows[0]!.undone_at) throw new BankRequestRefusal('Run already undone', 400); // 400, not 409: the panel reads 409 as "another request is working on this run" and invites a retry
   const clearance = await assertMayUndoRun(companyId, runId, userId); // step 2 (decision 4): the RUN judged, before any row
 
   const txRows = (await sql`

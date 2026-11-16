@@ -163,7 +163,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return;
       }
       if (isRetryableContention(err)) return apiResponse.conflict(res, (err as Error).message);
-      // Audit WP2 row 9: a run that is not there (404) or already undone (409) and the other typed refusals keep
+      // Audit WP2 row 9: a run that is not there (404) or already undone (400, as before: the panel reads a 409 as contention) and the other typed refusals keep
       // their 4xx; anything else is a fault — rethrown (500, rolled back).
       if (respondIfBankRefusal(res, err)) return;
       throw err;

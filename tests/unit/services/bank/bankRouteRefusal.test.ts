@@ -26,7 +26,7 @@ describe('bankRefusalStatus', () => {
 
   it.each([
     ['a BankRequestRefusal 404', new BankRequestRefusal('Reconciliation x not found', 404), 404],
-    ['a BankRequestRefusal 409', new BankRequestRefusal('Run already undone', 409), 409],
+    ['a BankRequestRefusal 409', new BankRequestRefusal('Another change won', 409), 409],
     ['a BankRequestRefusal (default)', new BankRequestRefusal('Adjustment bank account does not match'), 400],
     ['a BankAllocationRefusal', new BankAllocationRefusal('Transaction already allocated'), 400],
     ['a retryable BankAllocationRefusal', new BankAllocationRefusal('changed', undefined, { retryable: true }), 409],

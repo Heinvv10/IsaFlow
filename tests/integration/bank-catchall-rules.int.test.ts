@@ -97,13 +97,13 @@ describe('bank-auto-post: a crash after the write is a 500 and rolls back; typed
     expect({ status: res.state.statusCode, settings: await settings() }).toEqual({ status: 500, settings: [] });
   });
 
-  it('PUT out of range is 400; undo of an unknown run is 404 and of an undone run 409', async () => {
+  it('PUT out of range is 400; undo of an unknown run is 404 and of an undone run 400 (the panel reads 409 as contention)', async () => {
     expect(refusalOf(await call(autoPost, 'PUT', { minConfidence: 1.5 }, '/api/accounting/bank-auto-post')).status).toBe(400);
     const undo = (runId: string) => call(autoPost, 'POST', { action: 'undo', runId }, '/api/accounting/bank-auto-post');
     expect(refusalOf(await undo(crypto.randomUUID())).status).toBe(404);
     const run = (await pool.query(
       `INSERT INTO bank_auto_post_runs(company_id, source, min_confidence, amount_cap, posted_count, created_by, undone_at)
        VALUES($1,'categorization',0.9,0,0,$2,now()) RETURNING id`, [f.c, a])).rows[0].id as string;
-    expect(refusalOf(await undo(run)).status).toBe(409);
+    expect(refusalOf(await undo(run)).status).toBe(400);
   });
 });

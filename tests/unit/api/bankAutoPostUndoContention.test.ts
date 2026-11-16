@@ -82,13 +82,13 @@ describe('POST /api/accounting/bank-auto-post (undo)', () => {
     expect(JSON.stringify(res.sent)).toContain('"skipped":1');
   });
 
-  // Audit WP2 row 9: a typed refusal keeps its status (an undone run is 409); a bare Error is a fault, rethrown so
+  // Audit WP2 row 9: a typed refusal keeps its status (an unknown run is 404); a bare Error is a fault, rethrown so
   // withErrorHandler answers 500 and the request rolls back.
   it('answers a typed refusal with its status and rethrows a bare Error', async () => {
-    vi.mocked(undoRun).mockRejectedValue(new BankRequestRefusal('Run already undone', 409));
+    vi.mocked(undoRun).mockRejectedValue(new BankRequestRefusal('Run 1 not found', 404));
     const refused = mockReqRes();
     await (handler as (q: NextApiRequest, s: NextApiResponse) => Promise<unknown>)(refused.req, refused.res);
-    expect(refused.res.statusCode).toBe(409);
+    expect(refused.res.statusCode).toBe(404);
 
     vi.mocked(undoRun).mockRejectedValue(new Error('Run already undone'));
     const crashed = mockReqRes();
