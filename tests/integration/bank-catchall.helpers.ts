@@ -16,12 +16,19 @@ export const faults = {
   afterLog: null as string | null,
   /** Throw once the statement whose text matches this has run (its rows written, the request still open). */
   afterSql: null as RegExp | null,
+  /** Pause once the statement matching this has run, until `gate` settles: the request holds its locks meanwhile. */
+  holdAfterSql: null as RegExp | null,
+  gate: null as Promise<void> | null,
+  held: false,
   fired: [] as string[],
 };
 
 export function resetFaults(): void {
   faults.afterLog = null;
   faults.afterSql = null;
+  faults.holdAfterSql = null;
+  faults.gate = null;
+  faults.held = false;
   faults.fired.length = 0;
 }
 
@@ -48,6 +55,16 @@ export function neonWithFault(real: Record<string, unknown>): Record<string, unk
   const sql = Object.assign((strings: TemplateStringsArray, ...values: unknown[]) => {
     const query = realSql(strings, ...values);
     const text = strings.join('?');
+    const hold = faults.holdAfterSql;
+    if (hold && hold.test(text)) {
+      faults.holdAfterSql = null;
+      return (async () => {
+        const rows = await query;
+        faults.held = true;
+        await faults.gate;
+        return rows;
+      })();
+    }
     const pattern = faults.afterSql;
     if (!pattern || !pattern.test(text)) return query;
     faults.afterSql = null;

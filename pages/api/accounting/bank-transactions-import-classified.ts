@@ -46,6 +46,23 @@ const BodySchema = z.object({
 
 type ClassifiedBankTx = z.infer<typeof ClassifiedBankTxSchema>;
 
+/** bank_transactions.amount is numeric(15,2), as gl_journal_lines. */
+const MAX_AMOUNT = 9_999_999_999_999.99;
+
+/**
+ * What Postgres would refuse mid-INSERT (a 500 that rolled the file back): a NUL byte in a text column (22021) and an
+ * amount past the column's precision (22003). Named per row, as a 400, before any write.
+ */
+function rowRefusal(tx: ClassifiedBankTx): string | null {
+  for (const [name, value] of [['description', tx.description], ['category', tx.category], ['statementRef', tx.statementRef]] as const) {
+    if (value?.includes('\u0000')) return `${name} contains a NUL character, which cannot be stored`;
+  }
+  for (const [name, value] of [['debit', tx.debit], ['credit', tx.credit]] as const) {
+    if (value !== undefined && value > MAX_AMOUNT) return `${name} exceeds the largest amount that can be stored (R${MAX_AMOUNT.toFixed(2)})`;
+  }
+  return null;
+}
+
 /**
  * A year-first date (YYYY-M-D, optionally followed by a time) naming a day that exists. Year-first is the one order
  * Postgres reads the same under every DateStyle; '31/12/2026' was a 500 from the cast and '01/02/2026' became 2 January.
@@ -106,6 +123,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       `Row ${row + 1}: transactionDate "${value}" must be a year-first date such as 2026-09-04 (YYYY-MM-DD)`;
     const normTxs: NormTx[] = [];
     for (const [row, tx] of transactions.entries()) {
+      const refusal = rowRefusal(tx);
+      if (refusal) return apiResponse.badRequest(res, `Row ${row + 1}: ${refusal}`);
       const debit = Number(tx.debit || 0);
       const credit = Number(tx.credit || 0);
       const amount = credit > 0 ? credit : -debit;

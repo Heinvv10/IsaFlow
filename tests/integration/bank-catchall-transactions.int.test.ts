@@ -130,6 +130,63 @@ describe('bank-transactions-import-classified: it imports, and a crash after the
     expect({ lines: await linesNamed('DATE '), batches: await batches() }).toEqual({ lines: [], batches: before });
   });
 
+  // The import locks only the masters its file names (FOR SHARE): an UNRELATED cost centre stays editable while it runs.
+  it('an import holding its transaction does not block an UPDATE of an unrelated cost centre, but does block a named one', async () => {
+    const named = (await pool.query(
+      "INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1,'LK-NAMED','Lock Named','cc1') RETURNING id", [f.c])).rows[0].id;
+    const other = (await pool.query(
+      "INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1,'LK-OTHER','Lock Other','cc1') RETURNING id", [f.c])).rows[0].id;
+    let release: () => void = () => {};
+    faults.gate = new Promise<void>((resolve) => { release = resolve; });
+    faults.holdAfterSql = /cost_centres[\s\S]*FOR SHARE/;
+    const running = importAs(f.c, f.bank, [{ transactionDate: '2026-09-11', description: 'LOCK A', debit: 2, costCentreT1: 'LK-NAMED' }]);
+    const until = Date.now() + 15_000;
+    while (!faults.held && Date.now() < until) await new Promise((r) => setTimeout(r, 25));
+    expect(faults.held, 'the import reached its lock').toBe(true);
+    const update = async (id: string) => {
+      const c = await pool.connect();
+      try {
+        await c.query('BEGIN');
+        await c.query("SET LOCAL lock_timeout = '1200ms'");
+        await c.query("UPDATE cost_centres SET description = 'edited' WHERE id = $1", [id]);
+        await c.query('COMMIT');
+        return 'updated';
+      } catch (err) {
+        await c.query('ROLLBACK');
+        return (err as { code?: string }).code === '55P03' ? 'blocked' : `error ${String(err)}`;
+      } finally { c.release(); }
+    };
+    const outcome = { unrelated: await update(other), named: await update(named) };
+    release();
+    const res = await running;
+    expect({ ...outcome, import: res.state.statusCode }).toEqual({ unrelated: 'updated', named: 'blocked', import: 201 });
+  });
+
+  it('an inactive master sharing a label is not a candidate: the active one resolves (W3)', async () => {
+    const live = (await pool.query(
+      "INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1,'SH-LIVE','Shared','cc1') RETURNING id", [f.c])).rows[0].id;
+    await pool.query("INSERT INTO cost_centres(company_id, code, name, cc_type, is_active) VALUES($1,'SH-OLD','Shared','cc1',false)", [f.c]);
+    const res = await importAs(f.c, f.bank, [{ transactionDate: '2026-09-12', description: 'SHARED A', debit: 3, costCentreT1: 'shared' }]);
+    expect(res.state.statusCode).toBe(201);
+    expect(await linesNamed('SHARED')).toEqual([{ description: 'SHARED A', amount: -3, cc1: live, cc2: null, bu: null }]);
+  });
+
+  // A NUL byte in a text column (22021) and an amount past numeric(15,2) (22003) were 500s mid-INSERT.
+  it('a NUL byte or an amount past the column is a 400 naming the row; nothing is written', async () => {
+    const before = await batches();
+    const cases: Record<string, unknown>[] = [
+      { description: 'NUL\u0000BYTE', debit: 1 }, { description: 'NULCAT', debit: 1, category: 'a\u0000b' },
+      { description: 'NULREF', debit: 1, statementRef: 'r\u0000' }, { description: 'HUGE DEBIT', debit: 1e20 },
+      { description: 'HUGE CREDIT', credit: 10_000_000_000_000 },
+    ];
+    for (const c of cases) {
+      const res = refusalOf(await importAs(f.c, f.bank, [
+        { transactionDate: '2026-09-13', description: 'RANGE OK', debit: 1 }, { transactionDate: '2026-09-13', ...c }]));
+      expect(res, JSON.stringify(c)).toMatchObject({ status: 400, message: expect.stringContaining('Row 2') });
+    }
+    expect({ lines: await linesNamed('RANGE OK'), batches: await batches() }).toEqual({ lines: [], batches: before });
+  });
+
   it('the lines were inserted, then a TypeError — 500, and no line or batch is left', async () => {
     const before = await batches();
     faults.afterLog = 'Imported classified bank transactions';

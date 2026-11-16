@@ -8,7 +8,7 @@
  * a master this company may ASSIGN in that slot — the journal writer's own rule (`isAssignableCostCentre`: cc_type
  * exactly the slot's, is_active exactly true; a NULL type or flag is not assignable) — by code or by name (exact,
  * case-insensitive). A value that resolves to nothing, or to more than one master, is left NULL and reported back,
- * never guessed. The masters are read FOR SHARE (as `assertJournalAnalysisDimensions` reads them, under the request's
+ * never guessed. An INACTIVE master that shares a label does not make it ambiguous (it is not a candidate). The masters it names are read FOR SHARE (as `assertJournalAnalysisDimensions` reads them, under the request's
  * lock wait): one deactivated between this read and the INSERT waits for the import, so it cannot be attached.
  */
 import { sql } from '@/lib/neon';
@@ -36,24 +36,47 @@ function indexOf(masters: Master[]): Map<string, string | null> {
 
 /**
  * One `DimensionIds` per input row (same order), and the labels that resolved to nothing, as "T1: <label>" /
- * "T2: <label>" / "BU: <label>". Two company-scoped reads, whatever the number of rows.
+ * "T2: <label>" / "BU: <label>". Company-scoped reads, whatever the number of rows.
  */
 export async function resolveWorksheetDimensions(
   companyId: string, rows: readonly WorksheetDimensions[],
 ): Promise<{ dimensions: DimensionIds[]; unresolved: string[] }> {
   const named = rows.some((r) => r.costCentreT1?.trim() || r.costCentreT2?.trim() || r.businessUnit?.trim());
   if (!named) return { dimensions: rows.map(() => ({})), unresolved: [] };
+  // Ambiguity needs EVERY assignable candidate, so the masters are read first, unlocked.
   const centres = (await sql`
     SELECT id::TEXT AS id, code, name, cc_type, is_active FROM cost_centres
-    WHERE company_id = ${companyId}::UUID FOR SHARE`) as Row[];
+    WHERE company_id = ${companyId}::UUID`) as Row[];
   const units = (await sql`
     SELECT id::TEXT AS id, code, name, is_active FROM business_units
-    WHERE company_id = ${companyId}::UUID FOR SHARE`) as Row[];
+    WHERE company_id = ${companyId}::UUID`) as Row[];
   const asMaster = (r: Row): Master => ({ id: String(r.id), code: String(r.code ?? ''), name: String(r.name ?? '') });
   const centreOf = (r: Row) => ({ cc_type: r.cc_type as string | null, is_active: r.is_active as boolean | null });
-  const cc1 = indexOf(centres.filter((r) => isAssignableCostCentre(centreOf(r), 'cc1')).map(asMaster));
-  const cc2 = indexOf(centres.filter((r) => isAssignableCostCentre(centreOf(r), 'cc2')).map(asMaster));
-  const bu = indexOf(units.filter((r) => isAssignableBusinessUnit({ is_active: r.is_active as boolean | null })).map(asMaster));
+  const indexes = (cs: Row[], us: Row[]) => ({
+    cc1: indexOf(cs.filter((r) => isAssignableCostCentre(centreOf(r), 'cc1')).map(asMaster)),
+    cc2: indexOf(cs.filter((r) => isAssignableCostCentre(centreOf(r), 'cc2')).map(asMaster)),
+    bu: indexOf(us.filter((r) => isAssignableBusinessUnit({ is_active: r.is_active as boolean | null })).map(asMaster)),
+  });
+  const labelled = (dim: (r: WorksheetDimensions) => string | undefined, ix: Map<string, string | null>) =>
+    rows.flatMap((r) => { const l = dim(r)?.trim(); const id = l ? ix.get(key(l)) : undefined; return id ? [id] : []; });
+  const first = indexes(centres, units);
+  const matchedCentres = [...new Set([
+    ...labelled((r) => r.costCentreT1, first.cc1), ...labelled((r) => r.costCentreT2, first.cc2)])];
+  const matchedUnits = [...new Set(labelled((r) => r.businessUnit, first.bu))];
+  // Only the masters this file actually names are locked (FOR SHARE: one deactivated between this read and the INSERT
+  // waits for the import, so it cannot be attached), and their state is re-read under the lock. An unrelated master
+  // stays editable.
+  const lockedCentres = matchedCentres.length === 0 ? [] : (await sql`
+    SELECT id::TEXT AS id, code, name, cc_type, is_active FROM cost_centres
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${matchedCentres}::UUID[]) FOR SHARE`) as Row[];
+  const lockedUnits = matchedUnits.length === 0 ? [] : (await sql`
+    SELECT id::TEXT AS id, code, name, is_active FROM business_units
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${matchedUnits}::UUID[]) FOR SHARE`) as Row[];
+  const fresh = <T extends Row>(all: T[], locked: T[]): T[] => {
+    const byId = new Map(locked.map((r) => [String(r.id), r]));
+    return all.map((r) => byId.get(String(r.id)) ?? r);
+  };
+  const { cc1, cc2, bu } = indexes(fresh(centres, lockedCentres), fresh(units, lockedUnits));
 
   const unresolved = new Set<string>();
   const pick = (index: Map<string, string | null>, value: string | undefined, slot: string): string | undefined => {
