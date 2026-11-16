@@ -1,23 +1,23 @@
 /**
  * The engine's and the service's three-way warnings (`ThreeWayWarning`, `ServiceWarning`) in words for the header.
- * Money is cents on the wire; shown in rands.
+ * Money is cents on the wire; shown in rands, by `R` when the caller prints its own format (the management pack).
  */
 import { formatStatementFigure } from '@/lib/format/money';
 import type { ThreeWayView } from '@/modules/accounting/services/budgets/threeWay/threeWayViews';
 
 export type AnyWarning = ThreeWayView['warnings'][number];
 
-const R = (cents: number): string => formatStatementFigure(cents / 100, { symbol: true, cents: true });
+const RAND = (cents: number): string => formatStatementFigure(cents / 100, { symbol: true, cents: true });
 const list = (xs: readonly string[]): string => xs.join(', ');
 
 const FLOW: Record<string, string> = { receipts: 'Receipts', stock_purchases: 'Stock purchases', supplier_payments: 'Supplier payments' };
 
-function excessSpreadText(w: Extract<AnyWarning, { code: 'opening_excess_spread' }>): string {
+function excessSpreadText(w: Extract<AnyWarning, { code: 'opening_excess_spread' }>, R: (cents: number) => string): string {
   const [who, side, verb] = w.series === 'receivables' ? ['Debtor', 'debtors', 'collected'] : ['Creditor', 'creditors', 'paid'];
   return `${who} days are at the ${w.days}-day limit, so the ${R(w.excess)} of opening ${side} above that level is ${verb} evenly over the ${w.months} months.`;
 }
 
-export function warningText(w: AnyWarning): string {
+export function warningText(w: AnyWarning, R: (cents: number) => string = RAND): string {
   switch (w.code) {
     case 'opening_provisional': return `Opening balances are provisional: as at ${w.asAt} (today), not the day before the year starts.`;
     case 'opening_cent_difference': return `The opening balance sheet was ${R(w.cents)} out; the difference went to retained earnings.`;
@@ -32,7 +32,7 @@ export function warningText(w: AnyWarning): string {
     case 'top_up_offset_not_sars': return `The tax top-up month (${w.value} months after the prior year end) differs from SARS's ${w.sars}.`;
     case 'opening_debit_carried': return `A debit opening ${w.bucket === 'payrollLiabilities' ? 'payroll liability' : 'income tax payable'} of ${R(w.amount)} is carried flat, not refunded.`;
     case 'negative_flow': return `${FLOW[w.flow] ?? w.flow} came out negative in ${w.month} (${R(w.amount)}); kept so the balance sheet holds.`;
-    case 'opening_excess_spread': return excessSpreadText(w);
+    case 'opening_excess_spread': return excessSpreadText(w, R);
     case 'payable_account_conflict': return 'The same account is named as income tax payable and dividends payable; it is used for income tax only.';
     case 'opening_cash_difference': return `Opening cash differs from the cash book by ${R(w.differenceCents)} (accounts ${list(w.accounts)}).`;
   }

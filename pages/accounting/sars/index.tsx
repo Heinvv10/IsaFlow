@@ -3,120 +3,23 @@
  * Overview of upcoming deadlines, quick links, and recent submissions.
  */
 
-import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
-  Building2, FileText, Calendar, Clock,
+  Building2, FileText, Calendar,
   CheckCircle2, AlertTriangle, XCircle,
   Loader2, ChevronRight,
 } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
-import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
-
-interface ComplianceEvent {
-  id?: string;
-  eventType: string;
-  dueDate: string;
-  description: string;
-  status: 'pending' | 'completed' | 'overdue';
-  submissionId?: string;
-}
-
-interface Submission {
-  id: string;
-  formType: string;
-  periodStart: string;
-  periodEnd: string;
-  status: string;
-  submissionReference: string | null;
-  submittedAt: string | null;
-  createdAt: string;
-}
-
-const statusBadge = (status: string) => {
-  const label = status === 'submitted'
-    ? 'Filed on eFiling'
-    : status.charAt(0).toUpperCase() + status.slice(1);
-  switch (status) {
-    case 'completed':
-    case 'submitted':
-    case 'accepted':
-      return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400">
-          <CheckCircle2 className="h-3 w-3" /> {label}
-        </span>
-      );
-    case 'overdue':
-    case 'rejected':
-      return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-400">
-          <XCircle className="h-3 w-3" /> {label}
-        </span>
-      );
-    case 'pending':
-      return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400">
-          <Clock className="h-3 w-3" /> {label}
-        </span>
-      );
-    default:
-      return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-500/10 text-gray-600 dark:text-gray-400">
-          {label}
-        </span>
-      );
-  }
-};
-
-const daysUntil = (d: string) => {
-  const now = new Date();
-  // Calendar days, not elapsed time: both days go to UTC midnight, so a daylight-saving
-  // change in between (a 23- or 25-hour day) cannot add or drop a day. 'YYYY-MM-DD' is a
-  // local calendar day: new Date(d) would parse it as UTC midnight.
-  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-  const due = Date.UTC(Number(d.slice(0, 4)), Number(d.slice(5, 7)) - 1, Number(d.slice(8, 10)));
-  return Math.round((due - today) / (1000 * 60 * 60 * 24));
-};
+import { ComplianceCalendarTable } from '@/components/accounting/sars/ComplianceCalendarTable';
+import { statusBadge } from '@/components/accounting/sars/sarsStatusBadge';
+import { useSarsOverview, calendarCounts } from '@/components/accounting/sars/useSarsOverview';
 
 export default function SARSDashboard() {
   const { isRegistered } = useVatRegistration();
-  const [events, setEvents] = useState<ComplianceEvent[]>([]);
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const [compRes, subRes] = await Promise.all([
-        apiFetch('/api/accounting/sars/sars-compliance', { credentials: 'include' }),
-        apiFetch('/api/accounting/sars/sars-submissions', { credentials: 'include' }),
-      ]);
-      await assertOk(compRes, 'Could not load the SARS data - try again'); await assertOk(subRes, 'Could not load the SARS data - try again');
-      const [compJson, subJson] = await Promise.all([compRes.json(), subRes.json()]);
-      setEvents(compJson.data?.events || []);
-      setSubmissions(subJson.data?.items || []);
-    } catch (err) {
-      setEvents([]); setSubmissions([]); setError(apiErrorMessage(err, 'Could not load the SARS data - try again'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
-
-  // Filter upcoming events (next 90 days + overdue)
-  const upcomingEvents = events.filter((e) => {
-    const days = daysUntil(e.dueDate);
-    return e.status === 'overdue' || (e.status === 'pending' && days <= 90);
-  });
-
-  const overdueCount = events.filter((e) => e.status === 'overdue').length;
-  const pendingCount = upcomingEvents.filter((e) => e.status === 'pending').length;
-  const completedCount = events.filter((e) => e.status === 'completed').length;
+  const { events, submissions, marksUnavailable, loading, error, refresh } = useSarsOverview();
+  const { overdue: overdueCount, pending: pendingCount, completed: completedCount } = calendarCounts(events);
 
   return (
     <AppLayout>
@@ -202,59 +105,7 @@ export default function SARSDashboard() {
               </div>
 
               {/* Compliance Calendar */}
-              <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
-                <div className="px-4 py-3 border-b border-[var(--ff-border-light)]">
-                  <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] flex items-center gap-2">
-                    <Calendar className="h-5 w-5 text-teal-500" />
-                    Upcoming Deadlines
-                  </h2>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
-                        <th className="px-4 py-3">Type</th>
-                        <th className="px-4 py-3">Description</th>
-                        <th className="px-4 py-3">Due Date</th>
-                        <th className="px-4 py-3">Days</th>
-                        <th className="px-4 py-3">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {upcomingEvents.length === 0 && (
-                        <tr>
-                          <td colSpan={5} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
-                            No upcoming deadlines in the next 90 days.
-                          </td>
-                        </tr>
-                      )}
-                      {upcomingEvents.map((evt, idx) => {
-                        const days = daysUntil(evt.dueDate);
-                        return (
-                          <tr
-                            key={`${evt.eventType}-${evt.dueDate}-${idx}`}
-                            className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50"
-                          >
-                            <td className="px-4 py-3">
-                              <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-teal-500/10 text-teal-400">
-                                {evt.eventType.replace('_DUE', '').replace('_', ' ')}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-[var(--ff-text-primary)]">{evt.description}</td>
-                            <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDate(evt.dueDate)}</td>
-                            <td className="px-4 py-3">
-                              <span className={`font-medium ${ days < 0 ? 'text-red-400' : days <= 14 ? 'text-amber-400' : 'text-[var(--ff-text-secondary)]' }`}>
-                                {days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? 'Today' : `${days}d`}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3">{statusBadge(evt.status)}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              <ComplianceCalendarTable events={events} marksUnavailable={marksUnavailable} onChanged={refresh} />
 
               {/* Recent Submissions */}
               <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">

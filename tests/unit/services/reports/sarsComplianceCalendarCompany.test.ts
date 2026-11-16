@@ -5,7 +5,10 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: vi.fn((s: string) => s) }) }));
+vi.mock('@/lib/neon', () => ({
+  sql: Object.assign(vi.fn(), { unsafe: vi.fn((s: string) => s) }),
+  withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn(),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 
 import { sql } from '@/lib/neon';

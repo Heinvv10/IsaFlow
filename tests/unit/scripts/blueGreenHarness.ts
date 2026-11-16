@@ -113,12 +113,14 @@ esac`);
     return repo;
   }
 
-  /** A running colour stand-in (200 on every path) that the stub systemctl can stop and restart. Resolves its port. */
+  /**
+   * A running colour stand-in (200 on every path) that the stub systemctl can stop and restart. Resolves its port.
+   * The port is taken by the colour itself (listen(0)) and read back from a file: handing out a port that was bound and
+   * closed (freePort) left a window in which a probe's source port, or another test file, could take it before the
+   * colour bound it. Only a restart rebinds a known port, and the process that held it has just exited.
+   */
   async colour(): Promise<number> {
-    const port = await this.freePort();
-    this.bash(`nohup "${process.execPath}" -e "require('http').createServer((q,s)=>s.end('ok')).listen(${port},'127.0.0.1')" >/dev/null 2>&1 &
-echo $! > "${this.root}/pid-${port}"; for i in $(seq 1 50); do curl -sf "http://127.0.0.1:${port}/" >/dev/null && break; sleep 0.1; done`);
-    return port;
+    return this.startColour('');
   }
 
   /**
@@ -126,10 +128,17 @@ echo $! > "${this.root}/pid-${port}"; for i in $(seq 1 50); do curl -sf "http://
    * listens. The stub systemctl's `stop` must wait for it, as systemd does, not guess how long an exit takes.
    */
   async slowColour(exitMs: number): Promise<number> {
-    const port = await this.freePort();
-    const js = `process.on('SIGTERM', () => setTimeout(() => process.exit(0), ${exitMs})); require('http').createServer((q,s)=>s.end('ok')).listen(${port},'127.0.0.1')`;
-    this.bash(`nohup "${process.execPath}" -e "${js}" >/dev/null 2>&1 &
-echo $! > "${this.root}/pid-${port}"; for i in $(seq 1 100); do curl -sf "http://127.0.0.1:${port}/" >/dev/null && break; sleep 0.1; done`);
+    return this.startColour(`process.on('SIGTERM', () => setTimeout(() => process.exit(0), ${exitMs}));`);
+  }
+
+  private async startColour(prelude: string): Promise<number> {
+    const tag = `new-${process.pid}-${this.servers.length}-${Date.now()}`;
+    const portFile = this.path(`port-${tag}`);
+    const js = `${prelude} const s = require('http').createServer((q,s)=>s.end('ok')).listen(0, '127.0.0.1', () => require('fs').writeFileSync(${JSON.stringify(portFile)}, String(s.address().port)))`;
+    this.bash(`nohup "${process.execPath}" -e "${js.replace(/"/g, '\\"')}" >/dev/null 2>&1 &
+echo $! > "${this.root}/pid-${tag}"; for i in $(seq 1 100); do [ -s "${portFile}" ] && break; sleep 0.1; done`);
+    const port = Number(readFileSync(portFile, 'utf8'));
+    this.bash(`mv "${this.root}/pid-${tag}" "${this.root}/pid-${port}"; for i in $(seq 1 100); do curl -sf "http://127.0.0.1:${port}/" >/dev/null && break; sleep 0.1; done`);
     return port;
   }
 
