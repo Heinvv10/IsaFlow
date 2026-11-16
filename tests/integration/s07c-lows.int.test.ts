@@ -124,23 +124,29 @@ describe('C2: the erasure placeholder carries the whole user id', () => {
 
   // 999: every writer stores lower(btrim(email)), and users_email_lower_key compares that form, so a placeholder
   // built from the raw id made two ids that differ only in case collide (23505, a 500 for the second erasure).
-  it('two users whose ids differ only in letter case can both be erased; each placeholder is lower-case and distinct', async () => {
-    const lower = crypto.randomUUID();
-    const upper = lower.toUpperCase();
-    for (const id of [lower, upper]) {
+  const hex = (id: string) => Buffer.from(id, 'utf8').toString('hex');
+  const tag = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+  it.each([
+    ['ids that differ only in letter case (UUIDs)', crypto.randomUUID().toUpperCase()],
+    ['ids that differ only in letter case (breaker repro, non-UUID)', `Brk-Legacy-${tag}`],
+    // A lower-case id that spells another id's encoded form must not keep its raw form.
+    ['a lower-case id spelling another id\'s encoded form', `ABC-${tag}`.toUpperCase()],
+  ])('%s: both can be erased; each placeholder is lower-case and distinct', async (_, cased) => {
+    const other = cased.startsWith('ABC-') ? `${hex(cased)}_h` : cased.toLowerCase();
+    for (const [i, id] of [other, cased].entries()) {
       twins.push(id);
       await fixture.query(`INSERT INTO users (id, email, first_name, last_name, is_active, status)
-        VALUES ($1, $2, 'Case', 'Twin', true, 'active')`, [id, `${id === lower ? 'l' : 'u'}-${lower}@test.local`]);
+        VALUES ($1, $2, 'Case', 'Twin', true, 'active')`, [id, `twin${i}-${hex(cased)}@test.local`]);
       await fixture.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'admin')`, [ids.company, id]);
     }
-    for (const id of [lower, upper]) {
+    for (const id of [other, cased]) {
       const r = await callRoute(dsrRoute, { sub: id, method: 'POST', companyId: ids.company, body: { action: 'erasure' } });
       expect(r.status, JSON.stringify(r.body)).toBe(200);
     }
-    // A lower-case id (every GoTrue id) keeps the plain form; any other id is hex-encoded with an `_h` suffix.
-    expect(await userRow(lower)).toMatchObject({ first_name: 'Anonymized', email: `anonymized_${lower}@deleted.invalid` });
-    expect(await userRow(upper)).toMatchObject({
-      first_name: 'Anonymized', email: `anonymized_${Buffer.from(upper, 'utf8').toString('hex')}_h@deleted.invalid`,
-    });
+    // Plain form only for a lower-case id not ending `_h` (every GoTrue id); any other id is hex + `_h`.
+    const expected = (id: string) => (id === id.toLowerCase() && !id.endsWith('_h') ? id : `${hex(id)}_h`);
+    for (const id of [other, cased]) {
+      expect(await userRow(id)).toMatchObject({ first_name: 'Anonymized', email: `anonymized_${expected(id)}@deleted.invalid` });
+    }
   });
 });
