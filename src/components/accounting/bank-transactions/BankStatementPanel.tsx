@@ -35,12 +35,15 @@ export const UNKNOWN_SOURCE_CAVEAT = 'Where this balance came from was not recor
 const CHECKED_SOURCES = ['printed', 'running_balance'];
 type Provenance = 'checked' | 'unchecked' | 'unknown';
 const provenanceOf = (source: string | null): Provenance =>
-  source && CHECKED_SOURCES.includes(source) ? 'checked' : source && UNCHECKED_SOURCE_CAVEAT[source] ? 'unchecked' : 'unknown';
+  source && CHECKED_SOURCES.includes(source) ? 'checked' : own(UNCHECKED_SOURCE_CAVEAT, source) ? 'unchecked' : 'unknown';
 /** "31 Oct 2026", or the plain words when the batch has no date (the column is NOT NULL; this is defence, not a case). */
 const when = (iso: string): string => (iso ? formatDisplayDate(iso) : 'date not recorded');
 
-const reasonFor = (ref: Ref): string =>
-  (ref.balanceSource ? NO_BALANCE_REASON[ref.balanceSource] : undefined) ?? NO_BALANCE_UNRECORDED;
+/** Own keys only: a source of 'constructor' or '__proto__' must read as unknown, not as Object.prototype's members. */
+const own = (table: Record<string, string>, key: string | null): string | undefined =>
+  key !== null && Object.hasOwn(table, key) ? table[key] : undefined;
+
+const reasonFor = (ref: Ref): string => own(NO_BALANCE_REASON, ref.balanceSource) ?? NO_BALANCE_UNRECORDED;
 
 function Row({ label, testid, children }: { label: string; testid: string; children: React.ReactNode }) {
   return (
@@ -53,7 +56,7 @@ function Row({ label, testid, children }: { label: string; testid: string; child
 
 const Caveat = ({ source }: { source: string | null }) => {
   const kind = provenanceOf(source);
-  const text = kind === 'checked' ? undefined : kind === 'unchecked' ? UNCHECKED_SOURCE_CAVEAT[source!] : UNKNOWN_SOURCE_CAVEAT;
+  const text = kind === 'checked' ? undefined : kind === 'unchecked' ? own(UNCHECKED_SOURCE_CAVEAT, source) : UNKNOWN_SOURCE_CAVEAT;
   return text ? <p data-testid="statement-balance-caveat" className="px-4 py-1.5 text-xs text-amber-700 dark:text-amber-400">{text}</p> : null;
 };
 

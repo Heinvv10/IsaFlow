@@ -237,8 +237,8 @@ export default function BankTransactionsPage() {
           <TransferLinkNotice bankAccountId={selectedBank} refreshKey={linkTick} onChanged={afterMutation} />
           <DeepLinkNotice message={deepLinkError} onDismiss={dismissError} />
           <DeepLinkNotice message={sel.notice} onDismiss={sel.dismissNotice} />
-          {sel.noneActive && <BankTxSummaryNotice kind="none-active" onRetry={() => undefined} />}
-          <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading || summary.status === 'loading'} error={error}
+          {sel.noneActive && <BankTxSummaryNotice kind="none-active" />}
+          {!sel.noneActive && <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading || summary.status === 'loading'} error={error}
             empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab}
             detailTx={detailTx} onDetailClose={closeDetail}>
             <BankTxTable
@@ -260,7 +260,7 @@ export default function BankTransactionsPage() {
               onCreateEntity={(txId, type) => { setCreateEntityTxId(txId); setCreateEntityType(type); }}
               onLink={tx => setLinkTx(tx)} onOpenDetails={openDetail}
             />
-          </BankTxListFrame>
+          </BankTxListFrame>}
         </div>
 
         <BankTxPagination page={page} total={total} pageSize={PAGE_SIZE} onPage={setPage} />

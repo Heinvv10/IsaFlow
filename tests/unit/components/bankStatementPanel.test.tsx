@@ -160,4 +160,21 @@ describe('BankStatementPanel', () => {
     expect(href).not.toContain('null');
     expect(href).toBe('/accounting/bank-reconciliation/new?bankAccountId=a1&statementBalance=2500.00');
   });
+
+  // Inherited names are not sources: they read as unknown provenance, they do not throw or pick up Object.prototype members.
+  for (const hostile of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+    it(`a balance_source of ${hostile} reads as unknown provenance (with a closing balance)`, () => {
+      const latest = ref({ balanceSource: hostile as StatementRef['balanceSource'] });
+      render(<BankStatementPanel bank={summaryAcct('a1', { statement: { latest, lastWithBalance: latest, ledgerAtStatementCents: 250000, differenceCents: 0 } })} />);
+      expect(screen.getByTestId('statement-balance-caveat').textContent).toBe(UNKNOWN_SOURCE_CAVEAT);
+      expect(screen.getByTestId('statement-difference').textContent).toContain('Difference (source not recorded)');
+      expect(screen.getByTestId('statement-difference-value').className).not.toContain('text-teal');
+    });
+
+    it(`a balance_source of ${hostile} with no closing balance gives the unrecorded reason`, () => {
+      const latest = ref({ balanceSource: hostile as StatementRef['balanceSource'], openingCents: null, closingCents: null });
+      render(<BankStatementPanel bank={summaryAcct('a1', { statement: { latest } })} />);
+      expect(screen.getByTestId('statement-no-balance-reason').textContent).toBe('Not recorded for this import');
+    });
+  }
 });

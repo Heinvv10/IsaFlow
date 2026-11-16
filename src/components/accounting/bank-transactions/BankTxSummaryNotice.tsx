@@ -10,11 +10,12 @@ interface Props {
   /** 'error': nothing loaded yet. 'stale': a refresh failed after a good load. 'none-active': every account is inactive. */
   kind: 'error' | 'stale' | 'none-active';
   message?: string;
-  onRetry: () => void;
+  /** The Retry button; absent for a notice with nothing to retry ('none-active'). */
+  onRetry?: () => void;
 }
 
 export function BankTxSummaryNotice({ kind, message, onRetry }: Props) {
-  const retry = (
+  const retry = onRetry && (
     <button type="button" onClick={onRetry} data-testid="bank-summary-retry"
       className="rounded-md border border-teal-700 px-3 py-1 text-xs font-medium text-teal-800 hover:bg-teal-700/10 dark:border-teal-400 dark:text-teal-300">
       Retry

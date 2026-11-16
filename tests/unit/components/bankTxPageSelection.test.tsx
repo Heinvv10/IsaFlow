@@ -112,11 +112,48 @@ describe('deep link and all-inactive', () => {
     summaries = [() => accts(A(), summaryAcct('d', { isActive: false }))];
     render(<BankTransactionsPage />);
     expect(await screen.findByTestId('bank-summary-none-active')).toBeTruthy();
+    expect(screen.queryByTestId('bank-summary-retry')).toBeNull(); // nothing to retry
+    // The list frame renders nothing at all: not "No new transactions for this account".
+    expect(screen.queryByTestId('bank-tx-list-frame')).toBeNull();
+    expect(screen.queryByTestId('bank-tx-empty')).toBeNull();
     await new Promise(r => setTimeout(r, 100));
     expect(listUrls()).toEqual([]);
     await call(cap.cards, 'onSelectBank', 'a'); // an inactive account is still selectable by choice
     await waitFor(() => expect(lastListBank()).toBe('a'));
     expect(screen.queryByTestId('bank-summary-none-active')).toBeNull();
+    expect(await screen.findByTestId('bank-tx-list-frame')).toBeTruthy();
+  });
+
+  it('with an active account the notice is never rendered, not even for the first frame', async () => {
+    summaries = [() => accts(A(), B())];
+    const seen: boolean[] = [];
+    const obs = new MutationObserver(() => seen.push(!!document.querySelector('[data-testid="bank-summary-none-active"]')));
+    obs.observe(document.body, { childList: true, subtree: true });
+    render(<BankTransactionsPage />);
+    await waitFor(() => expect(lastListBank()).toBe('b'));
+    obs.disconnect();
+    expect(seen.includes(true)).toBe(false);
+  });
+
+  it('a deep link is applied once: a later summary that lists it does not move the user', async () => {
+    cap.query = { account_id: 'c' };
+    summaries = [() => accts(A(), B()), () => accts(A(), B(), C())];
+    render(<BankTransactionsPage />);
+    expect(await screen.findByText("That account isn't available; showing Account b.")).toBeTruthy();
+    await call(cap.filters, 'onRefresh'); // now 'c' is listed
+    await waitFor(() => expect(summaries.length).toBe(1));
+    await new Promise(r => setTimeout(r, 100));
+    expect(lastListBank()).toBe('b');
+  });
+
+  it('a chosen account that leaves the summary says so and shows the default', async () => {
+    summaries = [() => accts(A(), B()), () => accts(B())];
+    render(<BankTransactionsPage />);
+    await waitFor(() => expect(lastListBank()).toBe('b'));
+    await call(cap.cards, 'onSelectBank', 'a');
+    await waitFor(() => expect(lastListBank()).toBe('a'));
+    await call(cap.filters, 'onRefresh');
+    expect(await screen.findByText('Account a is no longer listed; showing Account b.')).toBeTruthy();
   });
 });
 
