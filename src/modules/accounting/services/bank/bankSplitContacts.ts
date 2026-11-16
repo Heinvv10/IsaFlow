@@ -106,9 +106,9 @@ export async function planSplitContacts(
   const txDate = fmtDate(tx.transaction_date);
   const planned: PlannedSplitContact[] = [];
   // Per-contact SUMS, never per line, or each line passes on its own: a refund
-  // cannot exceed the credit the contact holds, and a hand-keyed payment to one
-  // supplier is judged by the approval rules at what that supplier is paid —
-  // R100k as eleven R9,090 lines is still a R100k payment.
+  // cannot exceed the credit the contact holds. The approval gates below read the
+  // line's TOTAL, never one part: R100k as eleven R9,090 lines (or eleven suppliers)
+  // is still a R100k payment.
   const refundTotals = new Map<string, { kind: SplitContactKind; contactId: string; amount: number }>();
   const paymentTotals = new Map<string, { contactId: string; amount: number }>();
 
@@ -151,7 +151,12 @@ export async function planSplitContacts(
     });
   }
 
-  for (const p of paymentTotals.values()) await assertBankLineMayPaySupplier(companyId, tx, p.amount);
+  // ONE supplier_payment judgment at the sum of what the line pays suppliers: R100k split as ten suppliers at R10k is
+  // still one R100k payment instruction from this line, and each part under the rule must not slip under it.
+  if (paymentTotals.size > 0) {
+    const paid = round2([...paymentTotals.values()].reduce((sum, p) => sum + p.amount, 0));
+    await assertBankLineMayPaySupplier(companyId, tx, paid);
+  }
   // A customer refund out of a hand-keyed line: the same gate as a manual journal (bankLineRefundGate). Judged ONCE at the
   // WHOLE line, as the account arm is: the split posts one journal and a manual-journal rule reads that journal's amount,
   // so refunding several customers a little each (every part under the rule) cannot slip under it.

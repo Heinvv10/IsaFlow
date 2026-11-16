@@ -15,7 +15,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, plantRule, reasonOf } from './r035-approval.helpers';
 import { dataOf, messageOf } from './r035-pr2.helpers';
 import { cleanupPr6, enforceJournals, journalRoutes, journalRule, plantJournal } from './r035-pr6.helpers';
-import { bankCompany, cleanupBankControlsA, mcpCaller, type BankCompany } from './bank-controls-a.helpers';
+import { bankCompany, cleanupBankControlsA, enforce, mcpCaller, PAY_TYPES, type BankCompany } from './bank-controls-a.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -140,6 +140,23 @@ describe('door 3b: a refund split across customers is judged at the whole line',
     const small = await plantLine(f, 'manual', -900); // the whole line under the R1 000 rule
     notTheGate(await act(f, { action: 'split_allocate', bankTransactionId: small, lines: [
       { contactType: 'customer', contactId: f.customer, amount: 450 }, { contactType: 'customer', contactId: second, amount: 450 }] }));
+  });
+});
+
+describe('door 3c: a payment split across suppliers is judged at what the line pays, not per supplier', () => {
+  it('two supplier parts each under the supplier_payment rule, together over it: 409, nothing written', async () => {
+    const f = await fixture(false);
+    await plantRule(pool, f.c, 'admin', { documentType: 'supplier_payment', operator: 'greater_than', value: 1000, name: 'Payments sign' });
+    await enforce(pool, f.c, a, PAY_TYPES);
+    const second = (await pool.query('INSERT INTO suppliers(company_id,name) VALUES($1,$2) RETURNING id', [f.c, 'BC second supplier'])).rows[0].id;
+    const handKeyed = await plantLine(f, 'manual', -1200);
+    const before = await counts(f.c);
+    const res = await act(f, { action: 'split_allocate', bankTransactionId: handKeyed, lines: [
+      { contactType: 'supplier', contactId: f.supplier, amount: 600 }, { contactType: 'supplier', contactId: second, amount: 600 }] });
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
+    expect(reasonOf(res)).toBe('APPROVAL_REQUIRED');
+    expect(await counts(f.c)).toEqual(before);
+    expect(await statusOf(handKeyed)).toBe('imported');
   });
 });
 
