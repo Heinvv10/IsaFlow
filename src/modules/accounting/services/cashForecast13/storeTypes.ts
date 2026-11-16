@@ -5,9 +5,10 @@
  */
 
 /**
- * set: the week's figure becomes `amount` (>= 0).
- * add: `amount` (signed, never 0) is added to the week's figure.
- * move_to: `amount` (> 0) of the week's figure moves to `targetWeekStart`.
+ * set/add amounts are SIGNED in the line's own sign (a payment cell is negative; the UI takes the sign from the line).
+ * set: the week's figure becomes `amount`.
+ * add: `amount` (never 0) is added to the week's figure.
+ * move_to: `amount` (a magnitude, > 0) of the week's figure moves to `targetWeekStart`; null = the whole cell.
  */
 export type OverrideMode = 'set' | 'add' | 'move_to';
 
@@ -17,13 +18,17 @@ export interface ForecastOverride {
   /** A Monday. Overrides for past weeks are kept and ignored by the engine. */
   weekStart: string;
   mode: OverrideMode;
-  amount: number;
+  /** Required for set/add; null only for move_to (the whole cell). */
+  amount: number | null;
   /** move_to only: a Monday other than weekStart. */
   targetWeekStart?: string;
 }
 
 export type ManualItemDirection = 'receipt' | 'payment';
 export type ManualItemRepeat = 'none' | 'weekly' | 'monthly';
+/** The engine's CashCategory list (cashForecast13/types.ts), for grouping a manual item. */
+export const CASH_CATEGORIES = ['customer_receipts', 'supplier_payments', 'payroll', 'sars', 'loans', 'other'] as const;
+export type ManualItemCategory = (typeof CASH_CATEGORIES)[number];
 
 export interface ManualCashItem {
   id: string;
@@ -36,6 +41,7 @@ export interface ManualCashItem {
   /** Last date a repeat may fall on (inclusive); null = open-ended, always null when repeat is 'none'. */
   repeatUntil: string | null;
   description: string;
+  category: ManualItemCategory;
   accountId?: string;
 }
 

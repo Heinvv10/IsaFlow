@@ -5,18 +5,21 @@
 
 The user-entered inputs of the 13-week cash forecast (migration 999i). Services live in
 `src/modules/accounting/services/cashForecast13/` (`itemsRepo`, `overridesRepo`, `payDaySetting`,
-validation `storeSchemas`, refusals `storeErrors`); `storeTypes.ts` is the engine's input contract.
+validation `storeSchemas`, refusals `storeErrors`); `storeTypes.ts` is the STORED shape (rand, dates, direction).
+`engineAdapter.ts` maps it to the engine's inputs (cents, week indexes); its engine types are copies until PR 1
+merges, then switch them to imports of `types.ts` / `payDates.ts`.
 
 ## Endpoints
-- `GET|POST|PUT|DELETE /api/accounting/cash-forecast-13/items` — expected receipts/payments (`cash_forecast_items`). POST `{ direction, amount, date, repeat?, repeatUntil?, description, accountId? }` (201); PUT `{ id, …same }` replaces every field (an omitted `accountId` clears it); DELETE `?id=`. 404 for another company's id; 400 for an account of another company.
-- `GET|PUT|DELETE /api/accounting/cash-forecast-13/overrides` — per line, per week (`cash_forecast_overrides`). PUT UPSERTS on `(lineKey, weekStart)` and answers `{ override, created }`: a duplicate is never 409. DELETE `?id=`.
+- `GET|POST|PUT|DELETE /api/accounting/cash-forecast-13/items` — expected receipts/payments (`cash_forecast_items`). POST `{ direction, amount, date, repeat?, repeatUntil?, description, category?, accountId? }` (201; `category` from the engine's CashCategory list, default `other`); PUT `{ id, …same }` replaces every field (an omitted `accountId` clears it); DELETE `?id=`. 404 for another company's id; 400 for an account of another company.
+- `GET|PUT|DELETE /api/accounting/cash-forecast-13/overrides` — per line, per week (`cash_forecast_overrides`). PUT UPSERTS on `(lineKey, weekStart)` and answers `{ override, created }`: a duplicate is never 409 (an upsert keeps its creation time). GET lists in application order (`created_at, id`). DELETE `?id=`.
 - `GET|PUT /api/accounting/cash-forecast-13/pay-day` — salary pay day on `payroll_company_settings`: `{ kind: 'day_of_month', day: 1-31 } | { kind: 'last_working_day' }`; no row = day 25 (`isDefault`).
 
 ## Rules
 - Reads: any company member (cookie session). Writes: `withCsrf(withWriteAccess(...))`, owner/admin/manager.
 - Every write service calls `assertNotImpersonating()` first (Login-as = 403 IMPERSONATION_FORBIDDEN, nothing written) and writes ONE audit row in the request tx (`logAuditOrThrow`; entity types `cash_forecast_item`, `cash_forecast_override`, `payroll_company_settings`) with old/new values.
 - Validation failures are 400 (first issue's message, `fieldErrors` in details). Dates must be real calendar dates; weeks are Mondays.
-- Overrides: `set` amount >= 0; `add` amount != 0 (signed); `move_to` amount > 0 with a `targetWeekStart` (Monday, not `weekStart`); only `move_to` takes a target. Past weeks are kept and ignored by the engine.
+- Overrides: `set`/`add` amounts are SIGNED in the line's own sign (a payment cell is negative; the UI sends it): `set` required, `add` required and != 0. `move_to` amount is a magnitude > 0, or null = the whole cell, with a `targetWeekStart` (Monday, not `weekStart`); only `move_to` takes a target.
+- Adapter: amountCents = round(amount x 100), item payments negative; weekIndex from the Monday of today's week, weeks before it or past week 13 dropped (a move_to target outside is passed on for the engine to warn); overrides sorted created_at, id. A move_to amount reaches the engine positive: the engine applies it in the cell's sign.
 - Items: amount > 0 (direction gives the sign); `repeatUntil` only on a repeating item, on or after `date`; description 1-200 after trim.
 - Pay day: a day past the month's length = its last day (engine rule). `last_working_day` keeps the stored day so switching back restores it. `updated_by` on that table is app-written (999a contract, no stamp trigger); the audit row is the record.
 - The DB repeats every rule (999i CHECKs, company-matched account trigger, forced RLS, trigger stamps from `auth.uid()`, per-column grants). Never write `id`, `company_id` on update, or a stamp from code.

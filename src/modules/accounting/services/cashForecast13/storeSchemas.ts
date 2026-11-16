@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { UUID } from '@/lib/schemas/common';
 import { isRealCalendarDate } from '@/lib/validation';
+import { CASH_CATEGORIES } from './storeTypes';
 
 /** numeric(15,2): below 10^13 in magnitude. */
 const MAX_AMOUNT = 9_999_999_999_999.99;
@@ -33,6 +34,7 @@ export const ItemInput = z.object({
   repeatUntil: CalendarDate.nullish().transform((v) => v ?? null),
   description: z.string().trim().min(1, 'A description is required').max(200, 'The description is at most 200 characters'),
   accountId: UUID.nullish().transform((v) => v ?? null),
+  category: z.enum(CASH_CATEGORIES).default('other'),
 }).superRefine((v, ctx) => {
   if (v.repeatUntil === null) return;
   if (v.repeat === 'none') ctx.addIssue({ code: 'custom', path: ['repeatUntil'], message: 'A one-off item has no repeat end' });
@@ -46,14 +48,15 @@ export const OverrideInput = z.object({
   lineKey: z.string().trim().min(1, 'lineKey is required').max(200, 'lineKey is at most 200 characters'),
   weekStart: Monday,
   mode: z.enum(['set', 'add', 'move_to']),
-  amount: Amount,
+  /** Signed for set/add (the line's own sign); a magnitude or null (the whole cell) for move_to. */
+  amount: Amount.nullish().transform((v) => v ?? null),
   targetWeekStart: Monday.nullish().transform((v) => v ?? null),
   note: z.string().trim().max(500, 'The note is at most 500 characters').nullish().transform((v) => (v ? v : null)),
 }).superRefine((v, ctx) => {
-  if (v.mode === 'set' && v.amount < 0) ctx.addIssue({ code: 'custom', path: ['amount'], message: 'A set amount is 0 or more' });
+  if (v.mode !== 'move_to' && v.amount === null) ctx.addIssue({ code: 'custom', path: ['amount'], message: 'set and add need an amount' });
   if (v.mode === 'add' && v.amount === 0) ctx.addIssue({ code: 'custom', path: ['amount'], message: 'An add amount is not 0' });
   if (v.mode === 'move_to') {
-    if (v.amount <= 0) ctx.addIssue({ code: 'custom', path: ['amount'], message: 'A moved amount is more than 0' });
+    if (v.amount !== null && v.amount <= 0) ctx.addIssue({ code: 'custom', path: ['amount'], message: 'A moved amount is more than 0, or empty to move the whole cell' });
     if (v.targetWeekStart === null) ctx.addIssue({ code: 'custom', path: ['targetWeekStart'], message: 'move_to needs a target week' });
     else if (v.targetWeekStart === v.weekStart) ctx.addIssue({ code: 'custom', path: ['targetWeekStart'], message: 'The target week differs from the week' });
   } else if (v.targetWeekStart !== null) {

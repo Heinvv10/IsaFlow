@@ -45,6 +45,15 @@ describe('999i: item rules', () => {
     });
   });
 
+  it('category is one of the engine list, default other', async () => {
+    await as(A, async (q) => {
+      const id = String((await q.query(ITEM, item(A.id))).rows[0].id);
+      expect((await q.query('SELECT category FROM cash_forecast_items WHERE id = $1', [id])).rows[0].category).toBe('other');
+      expect(await codeOf(q, "UPDATE cash_forecast_items SET category = 'loans' WHERE id = $1", [id])).toBe('ok');
+      expect(await codeOf(q, "UPDATE cash_forecast_items SET category = 'tax' WHERE id = $1", [id])).toBe('23514:cash_forecast_items_category_check');
+    });
+  });
+
   it("an item's account must be its company's (insert and update)", async () => {
     await as(A, async (q) => {
       expect(await codeOf(q, ITEM, item(A.id, { account: B.account }))).toBe('23514:cash_forecast_items_account_company');
@@ -65,7 +74,8 @@ describe('999i: item rules', () => {
 describe('999i: override rules', () => {
   const cases: Array<[string, Parameters<typeof ovr>[1], string]> = [
     ['a Tuesday week', { week: '2026-11-17' }, '23514:cash_forecast_overrides_week_monday'],
-    ['set below 0', { mode: 'set', amount: -1 }, '23514:cash_forecast_overrides_mode_amount'],
+    ['set with no amount', { mode: 'set', amount: null }, '23514:cash_forecast_overrides_mode_amount'],
+    ['add with no amount', { mode: 'add', amount: null }, '23514:cash_forecast_overrides_mode_amount'],
     ['add of 0', { mode: 'add', amount: 0 }, '23514:cash_forecast_overrides_mode_amount'],
     ['move_to of 0', { mode: 'move_to', amount: 0, target: '2026-11-23' }, '23514:cash_forecast_overrides_mode_amount'],
     ['move_to negative', { mode: 'move_to', amount: -5, target: '2026-11-23' }, '23514:cash_forecast_overrides_mode_amount'],
@@ -83,10 +93,12 @@ describe('999i: override rules', () => {
     await as(A, async (q) => { expect(await codeOf(q, OVR, ovr(A.id, o))).toBe(code); });
   });
 
-  it('valid shapes pass: set 0, add negative, move_to a later or earlier Monday', async () => {
+  it('valid shapes pass: set 0 or negative, add negative, move_to whole cell, a later or earlier Monday', async () => {
     await as(A, async (q) => {
       expect(await codeOf(q, OVR, ovr(A.id, { key: 'a', mode: 'set', amount: 0 }))).toBe('ok');
       expect(await codeOf(q, OVR, ovr(A.id, { key: 'b', mode: 'add', amount: -250.5 }))).toBe('ok');
+      expect(await codeOf(q, OVR, ovr(A.id, { key: 'b2', mode: 'set', amount: -80000 }))).toBe('ok');
+      expect(await codeOf(q, OVR, ovr(A.id, { key: 'b3', mode: 'move_to', amount: null, target: '2026-11-23' }))).toBe('ok');
       expect(await codeOf(q, OVR, ovr(A.id, { key: 'c', mode: 'move_to', amount: 100, target: '2026-11-23' }))).toBe('ok');
       expect(await codeOf(q, OVR, ovr(A.id, { key: 'd', week: '2026-11-23', mode: 'move_to', amount: 100, target: '2026-11-16' }))).toBe('ok');
     });

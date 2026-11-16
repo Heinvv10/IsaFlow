@@ -1,10 +1,12 @@
 /**
  * 13-week cash forecast: week overrides (migration 999i, service cashForecast13/overridesRepo).
- * GET                    → { overrides }: every override of the company, by week then line. Any member.
+ * GET                    → { overrides }: every override of the company, in the order the engine applies them
+ *                          (created_at, id; an upsert keeps its creation time). Any member.
  * PUT    { lineKey, weekStart, mode, amount, targetWeekStart?, note? } → 200 { override, created }
  *        UPSERT on (lineKey, weekStart): a second save of a cell replaces the first (never 409).
- *        weekStart / targetWeekStart are Mondays; set: amount >= 0; add: amount != 0 (signed);
- *        move_to: amount > 0 and a target week other than weekStart; only move_to takes a target.
+ *        weekStart / targetWeekStart are Mondays; set/add amounts are signed in the line's own sign
+ *        (set: required; add: != 0);
+ *        move_to: amount > 0 or null (the whole cell) and a target week other than weekStart; only move_to takes a target.
  * DELETE ?id=<uuid>      → 200 { id }; 404 for an id not of the company
  * Writes: owner/admin/manager + CSRF; a Login-as session is refused (403) before any write; one audit row
  * (entity_type 'cash_forecast_override') per write, in the request transaction.

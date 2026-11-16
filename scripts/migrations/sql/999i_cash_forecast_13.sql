@@ -7,16 +7,20 @@
 --                      (the engine's rule; the column only bounds it). Kept when the rule is
 --                      last_working_day, so switching back restores the day.
 --     No row = the defaults, as 999a's other settings.
---   cash_forecast_items  expected receipts and payments a user types: direction, amount (> 0, rand),
+--   cash_forecast_items  expected receipts and payments a user types: direction, amount (> 0, rand), a category
+--     (the engine's CashCategory list, default 'other', for grouping),
 --     expected_date, repeat none | weekly | monthly with an optional repeat_until, a description and an
 --     optional GL account of the company. Forecasts, so edits and deletes are allowed (each audited by
 --     the service in the request transaction).
 --   cash_forecast_overrides  a user's change to one forecast line in one week:
 --     line_key           the engine's stable key ('ar:customer:<id>', 'payroll:net', 'item:<id>', ...);
 --     week_start         a Monday;
---     mode / amount      set: the week's figure becomes amount (>= 0);
---                        add: amount (signed, never 0) is added to the week's figure;
---                        move_to: amount (> 0) of the week's figure moves to target_week_start;
+--     mode / amount      amounts of set/add are SIGNED in the line's own sign (a payment cell is negative;
+--                        the UI sends the sign from the line, the override does not know it):
+--                        set: the week's figure becomes amount (required, any sign);
+--                        add: amount (required, never 0) is added to the week's figure;
+--                        move_to: amount (a magnitude, > 0) of the week's figure moves to target_week_start,
+--                        or NULL = the whole cell moves;
 --     target_week_start  move_to only (required there, NULL otherwise), a Monday, not week_start.
 --     One override per (company, line, week): the service upserts on that key.
 --
@@ -97,6 +101,7 @@ CREATE TABLE IF NOT EXISTS public.cash_forecast_items (
   amount NUMERIC(15, 2) NOT NULL,
   expected_date DATE NOT NULL,
   repeat TEXT NOT NULL DEFAULT 'none',
+  category TEXT NOT NULL DEFAULT 'other',
   repeat_until DATE,
   description TEXT NOT NULL,
   gl_account_id UUID REFERENCES public.gl_accounts(id),
@@ -110,6 +115,9 @@ ALTER TABLE public.cash_forecast_items ADD CONSTRAINT cash_forecast_items_direct
   CHECK (direction IN ('receipt', 'payment'));
 ALTER TABLE public.cash_forecast_items DROP CONSTRAINT IF EXISTS cash_forecast_items_amount_check;
 ALTER TABLE public.cash_forecast_items ADD CONSTRAINT cash_forecast_items_amount_check CHECK (amount > 0);
+ALTER TABLE public.cash_forecast_items DROP CONSTRAINT IF EXISTS cash_forecast_items_category_check;
+ALTER TABLE public.cash_forecast_items ADD CONSTRAINT cash_forecast_items_category_check
+  CHECK (category IN ('customer_receipts', 'supplier_payments', 'payroll', 'sars', 'loans', 'other'));
 ALTER TABLE public.cash_forecast_items DROP CONSTRAINT IF EXISTS cash_forecast_items_repeat_check;
 ALTER TABLE public.cash_forecast_items ADD CONSTRAINT cash_forecast_items_repeat_check
   CHECK (repeat IN ('none', 'weekly', 'monthly'));
@@ -158,9 +166,9 @@ CREATE POLICY tenant_isolation ON public.cash_forecast_items FOR ALL TO app_user
   WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
 REVOKE INSERT, UPDATE, DELETE ON public.cash_forecast_items FROM app_user;
 GRANT SELECT, DELETE ON public.cash_forecast_items TO app_user;
-GRANT INSERT (company_id, direction, amount, expected_date, repeat, repeat_until, description, gl_account_id)
+GRANT INSERT (company_id, direction, amount, expected_date, repeat, repeat_until, description, gl_account_id, category)
   ON public.cash_forecast_items TO app_user;
-GRANT UPDATE (direction, amount, expected_date, repeat, repeat_until, description, gl_account_id)
+GRANT UPDATE (direction, amount, expected_date, repeat, repeat_until, description, gl_account_id, category)
   ON public.cash_forecast_items TO app_user;
 
 -- ── 4. cash_forecast_overrides ─────────────────────────────────────────────
@@ -170,7 +178,7 @@ CREATE TABLE IF NOT EXISTS public.cash_forecast_overrides (
   line_key TEXT NOT NULL,
   week_start DATE NOT NULL,
   mode TEXT NOT NULL,
-  amount NUMERIC(15, 2) NOT NULL,
+  amount NUMERIC(15, 2),
   target_week_start DATE,
   note TEXT,
   created_by TEXT NOT NULL,
@@ -187,9 +195,9 @@ ALTER TABLE public.cash_forecast_overrides ADD CONSTRAINT cash_forecast_override
 ALTER TABLE public.cash_forecast_overrides DROP CONSTRAINT IF EXISTS cash_forecast_overrides_mode_amount;
 ALTER TABLE public.cash_forecast_overrides ADD CONSTRAINT cash_forecast_overrides_mode_amount
   CHECK (CASE mode
-    WHEN 'set' THEN amount >= 0
-    WHEN 'add' THEN amount <> 0
-    WHEN 'move_to' THEN amount > 0
+    WHEN 'set' THEN amount IS NOT NULL
+    WHEN 'add' THEN amount IS NOT NULL AND amount <> 0
+    WHEN 'move_to' THEN amount IS NULL OR amount > 0
     ELSE false END);
 ALTER TABLE public.cash_forecast_overrides DROP CONSTRAINT IF EXISTS cash_forecast_overrides_target;
 ALTER TABLE public.cash_forecast_overrides ADD CONSTRAINT cash_forecast_overrides_target

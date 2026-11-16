@@ -44,7 +44,7 @@ const audit = async (co: string, entityType: string) => (await pool.query(
 const count = async (table: string, co: string) =>
   (await pool.query(`SELECT COUNT(*)::int n FROM ${table} WHERE company_id = $1`, [co])).rows[0].n as number;
 
-const ITEM = { direction: 'receipt', amount: 12500.5, date: '2026-12-01', repeat: 'monthly', repeatUntil: '2027-03-01', description: 'Retainer' };
+const ITEM = { direction: 'receipt', amount: 12500.5, date: '2026-12-01', repeat: 'monthly', repeatUntil: '2027-03-01', description: 'Retainer', category: 'customer_receipts' };
 const OVR = { lineKey: 'payroll:net', weekStart: '2026-11-23', mode: 'set', amount: 80000 };
 
 beforeAll(async () => {
@@ -154,15 +154,15 @@ describe('overrides', () => {
   });
 
   it('a second save of the same cell upserts (same id, created: false) and audits old -> new', async () => {
-    const out = await overrides.call(a, 'PUT', { ...OVR, mode: 'move_to', amount: 5000, targetWeekStart: '2026-11-30', note: 'late' });
+    const out = await overrides.call(a, 'PUT', { ...OVR, mode: 'move_to', amount: null, targetWeekStart: '2026-11-30', note: 'late' });
     expect(out.status, JSON.stringify(out.body)).toBe(200);
-    expect(out.body.data).toMatchObject({ created: false, override: { id: overrideId, mode: 'move_to', targetWeekStart: '2026-11-30' } });
+    expect(out.body.data).toMatchObject({ created: false, override: { id: overrideId, mode: 'move_to', amount: null, targetWeekStart: '2026-11-30' } });
     expect(await count('cash_forecast_overrides', a.homeCompanyId)).toBe(1);
     const rows = await audit(a.homeCompanyId, 'cash_forecast_override');
     expect(rows[1].action).toBe('update');
     expect(rows[1].changes.fields).toEqual(expect.arrayContaining([
       { field: 'mode', label: 'Mode', old: 'set', new: 'move_to' },
-      { field: 'amount', label: 'Amount', old: '80000', new: '5000' },
+      { field: 'amount', label: 'Amount', old: '80000', new: null },
     ]));
   });
 

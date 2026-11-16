@@ -14,7 +14,7 @@ import { CashForecastNotFoundError } from './storeErrors';
 import type { OverrideInput } from './storeSchemas';
 import type { ForecastOverride, OverrideMode } from './storeTypes';
 
-export interface StoredOverride extends ForecastOverride { id: string; note: string | null; updatedAt: string }
+export interface StoredOverride extends ForecastOverride { id: string; note: string | null; createdAt: string; updatedAt: string }
 
 const MODES: readonly OverrideMode[] = ['set', 'add', 'move_to'];
 
@@ -24,8 +24,9 @@ function toOverride(r: DbRow): StoredOverride {
     lineKey: String(r.line_key),
     weekStart: String(r.week_start),
     mode: MODES.find((m) => m === r.mode) ?? 'set',
-    amount: Number(r.amount),
+    amount: r.amount == null ? null : Number(r.amount),
     note: r.note == null ? null : String(r.note),
+    createdAt: toIsoTimestamp(r.created_at as Date | string) ?? '',
     updatedAt: toIsoTimestamp(r.updated_at as Date | string) ?? '',
   };
   if (r.target_week_start != null) o.targetWeekStart = String(r.target_week_start);
@@ -33,11 +34,11 @@ function toOverride(r: DbRow): StoredOverride {
 }
 
 const COLUMNS = sql`id, line_key, week_start::text AS week_start, mode, amount, target_week_start::text AS target_week_start,
-  note, updated_at`;
+  note, created_at, updated_at`;
 
 export async function listOverrides(companyId: string): Promise<StoredOverride[]> {
   const rows = (await sql`
-    SELECT ${COLUMNS} FROM cash_forecast_overrides WHERE company_id = ${companyId}::UUID ORDER BY week_start, line_key
+    SELECT ${COLUMNS} FROM cash_forecast_overrides WHERE company_id = ${companyId}::UUID ORDER BY created_at, id
   `) as DbRow[];
   return rows.map(toOverride);
 }

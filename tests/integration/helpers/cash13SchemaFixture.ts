@@ -13,8 +13,8 @@ export const item = (co: string, o: Partial<{ direction: string; amount: number;
 export const OVR = `INSERT INTO cash_forecast_overrides (company_id, line_key, week_start, mode, amount, target_week_start, note)
              VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, created_by, updated_by`;
 // 2026-11-16 and 2026-11-23 are Mondays; 2026-11-17 is a Tuesday.
-export const ovr = (co: string, o: Partial<{ key: string; week: string; mode: string; amount: number; target: string | null; note: string | null }> = {}) =>
-  [co, o.key ?? 'payroll:net', o.week ?? '2026-11-16', o.mode ?? 'set', o.amount ?? 0, o.target ?? null, o.note ?? null];
+export const ovr = (co: string, o: Partial<{ key: string; week: string; mode: string; amount: number | null; target: string | null; note: string | null }> = {}) =>
+  [co, o.key ?? 'payroll:net', o.week ?? '2026-11-16', o.mode ?? 'set', o.amount === undefined ? 0 : o.amount, o.target ?? null, o.note ?? null];
 
 export function cash13SchemaFixture(pool: Pool) {
   const mk = (): Co => ({ id: crypto.randomUUID(), user: crypto.randomUUID(), account: '' });

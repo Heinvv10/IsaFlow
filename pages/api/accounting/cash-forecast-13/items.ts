@@ -1,7 +1,8 @@
 /**
  * 13-week cash forecast: expected cash items (migration 999i, service cashForecast13/itemsRepo).
  * GET                    → { items }: every item of the company, by expected date. Any member.
- * POST   { direction, amount, date, repeat?, repeatUntil?, description, accountId? } → 201 item
+ * POST   { direction, amount, date, repeat?, repeatUntil?, description, category?, accountId? } → 201 item
+ *        category: customer_receipts | supplier_payments | payroll | sars | loans | other (default other)
  * PUT    { id, …the same } → 200 item; 404 for an id not of the company
  * DELETE ?id=<uuid>      → 200 { id }; 404 for an id not of the company
  * Writes: owner/admin/manager + CSRF; a Login-as session is refused (403) before any write; one audit row

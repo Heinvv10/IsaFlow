@@ -11,7 +11,7 @@ import type { DbRow } from '@/types/db';
 import { logAuditOrThrow, type AuditFieldChange } from '../core/auditTrailService';
 import { CashForecastInputError, CashForecastNotFoundError } from './storeErrors';
 import type { ItemInput } from './storeSchemas';
-import type { ManualCashItem } from './storeTypes';
+import { CASH_CATEGORIES, type ManualCashItem } from './storeTypes';
 
 export interface StoredCashItem extends ManualCashItem { updatedAt: string }
 
@@ -24,6 +24,7 @@ function toItem(r: DbRow): StoredCashItem {
     repeat: r.repeat === 'weekly' || r.repeat === 'monthly' ? r.repeat : 'none',
     repeatUntil: r.repeat_until == null ? null : String(r.repeat_until),
     description: String(r.description),
+    category: CASH_CATEGORIES.find((c) => c === r.category) ?? 'other',
     updatedAt: toIsoTimestamp(r.updated_at as Date | string) ?? '',
   };
   if (r.gl_account_id != null) item.accountId = String(r.gl_account_id);
@@ -31,7 +32,7 @@ function toItem(r: DbRow): StoredCashItem {
 }
 
 const COLUMNS = sql`id, direction, amount, expected_date::text AS expected_date, repeat, repeat_until::text AS repeat_until,
-  description, gl_account_id, updated_at`;
+  description, category, gl_account_id, updated_at`;
 
 export async function listItems(companyId: string): Promise<StoredCashItem[]> {
   const rows = (await sql`
@@ -49,11 +50,11 @@ async function assertAccount(companyId: string, accountId: string | null): Promi
 
 const LABELS: Record<string, string> = {
   direction: 'Direction', amount: 'Amount', date: 'Expected date', repeat: 'Repeat',
-  repeatUntil: 'Repeat until', description: 'Description', accountId: 'Account',
+  repeatUntil: 'Repeat until', description: 'Description', category: 'Category', accountId: 'Account',
 };
 const fieldsOf = (i: Partial<ManualCashItem>) => ({
   direction: i.direction, amount: i.amount, date: i.date, repeat: i.repeat,
-  repeatUntil: i.repeatUntil ?? null, description: i.description, accountId: i.accountId ?? null,
+  repeatUntil: i.repeatUntil ?? null, description: i.description, category: i.category, accountId: i.accountId ?? null,
 });
 
 function changes(before: Partial<ManualCashItem>, after: Partial<ManualCashItem>): AuditFieldChange[] {
@@ -67,9 +68,9 @@ export async function createItem(companyId: string, userId: string, input: ItemI
   await assertNotImpersonating();
   await assertAccount(companyId, input.accountId);
   const rows = (await sql`
-    INSERT INTO cash_forecast_items (company_id, direction, amount, expected_date, repeat, repeat_until, description, gl_account_id)
+    INSERT INTO cash_forecast_items (company_id, direction, amount, expected_date, repeat, repeat_until, description, category, gl_account_id)
     VALUES (${companyId}::UUID, ${input.direction}, ${input.amount}, ${input.date}::DATE, ${input.repeat},
-            ${input.repeatUntil}::DATE, ${input.description}, ${input.accountId}::UUID)
+            ${input.repeatUntil}::DATE, ${input.description}, ${input.category}, ${input.accountId}::UUID)
     RETURNING ${COLUMNS}
   `) as DbRow[];
   const item = toItem(rows[0]!);
@@ -95,7 +96,8 @@ export async function updateItem(companyId: string, userId: string, id: string, 
   const rows = (await sql`
     UPDATE cash_forecast_items
        SET direction = ${input.direction}, amount = ${input.amount}, expected_date = ${input.date}::DATE, repeat = ${input.repeat},
-           repeat_until = ${input.repeatUntil}::DATE, description = ${input.description}, gl_account_id = ${input.accountId}::UUID
+           repeat_until = ${input.repeatUntil}::DATE, description = ${input.description}, category = ${input.category},
+           gl_account_id = ${input.accountId}::UUID
      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
     RETURNING ${COLUMNS}
   `) as DbRow[];

@@ -21,7 +21,7 @@ import { setPayDay } from '@/modules/accounting/services/cashForecast13/payDaySe
 
 const CO = 'aaaaaaaa-0000-0000-0000-0000000000c1';
 const ID = 'aaaaaaaa-0000-0000-0000-0000000000d1';
-const ITEM = { direction: 'receipt' as const, amount: 1, date: '2026-12-01', repeat: 'none' as const, repeatUntil: null, description: 'x', accountId: null };
+const ITEM = { direction: 'receipt' as const, amount: 1, date: '2026-12-01', repeat: 'none' as const, repeatUntil: null, description: 'x', category: 'other' as const, accountId: null };
 const OVR = { lineKey: 'payroll:net', weekStart: '2026-11-16', mode: 'set' as const, amount: 0, targetWeekStart: null, note: null };
 
 describe('a Login-as session is refused before any SQL', () => {
