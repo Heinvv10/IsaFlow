@@ -68,21 +68,30 @@ export async function resolveWorksheetDimensions(
   // stays editable.
   const lockedCentres = matchedCentres.length === 0 ? [] : (await sql`
     SELECT id::TEXT AS id, code, name, cc_type, is_active FROM cost_centres
-    WHERE company_id = ${companyId}::UUID AND id = ANY(${matchedCentres}::UUID[]) FOR SHARE`) as Row[];
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${matchedCentres}::UUID[]) ORDER BY id FOR SHARE`) as Row[];
   const lockedUnits = matchedUnits.length === 0 ? [] : (await sql`
     SELECT id::TEXT AS id, code, name, is_active FROM business_units
-    WHERE company_id = ${companyId}::UUID AND id = ANY(${matchedUnits}::UUID[]) FOR SHARE`) as Row[];
-  const fresh = <T extends Row>(all: T[], locked: T[]): T[] => {
-    const byId = new Map(locked.map((r) => [String(r.id), r]));
-    return all.map((r) => byId.get(String(r.id)) ?? r);
-  };
-  const { cc1, cc2, bu } = indexes(fresh(centres, lockedCentres), fresh(units, lockedUnits));
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${matchedUnits}::UUID[]) ORDER BY id FOR SHARE`) as Row[];
+  // Re-decided under the lock, from the CURRENT masters that answer to this file's labels (one read per table, keyed
+  // by the labels): a twin activated, or a master re-typed, since the first read can make a label ambiguous or
+  // resolve it to a master that is not locked. Such a label is unresolved, never guessed.
+  const labels = [...new Set(rows.flatMap((r) => [r.costCentreT1, r.costCentreT2, r.businessUnit])
+    .flatMap((v) => (v?.trim() ? [key(v)] : [])))];
+  const nowCentres = (await sql`
+    SELECT id::TEXT AS id, code, name, cc_type, is_active FROM cost_centres
+    WHERE company_id = ${companyId}::UUID AND (lower(btrim(code)) = ANY(${labels}::TEXT[]) OR lower(btrim(name)) = ANY(${labels}::TEXT[]))`) as Row[];
+  const nowUnits = (await sql`
+    SELECT id::TEXT AS id, code, name, is_active FROM business_units
+    WHERE company_id = ${companyId}::UUID AND (lower(btrim(code)) = ANY(${labels}::TEXT[]) OR lower(btrim(name)) = ANY(${labels}::TEXT[]))`) as Row[];
+  const { cc1, cc2, bu } = indexes(nowCentres, nowUnits);
+  const locked = new Set([...lockedCentres, ...lockedUnits].map((r) => String(r.id)));
 
   const unresolved = new Set<string>();
   const pick = (index: Map<string, string | null>, value: string | undefined, slot: string): string | undefined => {
     const label = value?.trim();
     if (!label) return undefined;
-    const id = index.get(key(label));
+    const found = index.get(key(label));
+    const id = found && locked.has(found) ? found : null;
     if (!id) unresolved.add(`${slot}: ${label}`);
     return id ?? undefined;
   };

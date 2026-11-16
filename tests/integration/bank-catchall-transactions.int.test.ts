@@ -162,6 +162,26 @@ describe('bank-transactions-import-classified: it imports, and a crash after the
     expect({ ...outcome, import: res.state.statusCode }).toEqual({ unrelated: 'updated', named: 'blocked', import: 201 });
   });
 
+  // A twin activated between the unlocked read and the lock makes the label ambiguous: decided again under the lock.
+  it('a twin activated while the import holds its lock makes the label ambiguous: unresolved and listed, not stored', async () => {
+    await pool.query("INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1,'TL-LIVE','Twin Lock','cc1')", [f.c]);
+    const sleeper = (await pool.query(
+      "INSERT INTO cost_centres(company_id, code, name, cc_type, is_active) VALUES($1,'TL-SLEEP','Twin Lock','cc1',false) RETURNING id", [f.c])).rows[0].id;
+    let release: () => void = () => {};
+    faults.gate = new Promise<void>((resolve) => { release = resolve; });
+    faults.holdAfterSql = /cost_centres[\s\S]*FOR SHARE/;
+    const running = importAs(f.c, f.bank, [{ transactionDate: '2026-09-14', description: 'TWINLOCK A', debit: 4, costCentreT1: 'twin lock' }]);
+    const until = Date.now() + 15_000;
+    while (!faults.held && Date.now() < until) await new Promise((r) => setTimeout(r, 25));
+    expect(faults.held, 'the import reached its lock').toBe(true);
+    await pool.query('UPDATE cost_centres SET is_active = true WHERE id = $1', [sleeper]); // the unlocked twin: not blocked
+    release();
+    const res = await running;
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(201);
+    expect((res.state.body as { data: { unresolvedDimensions: string[] } }).data.unresolvedDimensions).toEqual(['T1: twin lock']);
+    expect(await linesNamed('TWINLOCK')).toEqual([{ description: 'TWINLOCK A', amount: -4, cc1: null, cc2: null, bu: null }]);
+  });
+
   it('an inactive master sharing a label is not a candidate: the active one resolves (W3)', async () => {
     const live = (await pool.query(
       "INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1,'SH-LIVE','Shared','cc1') RETURNING id", [f.c])).rows[0].id;
