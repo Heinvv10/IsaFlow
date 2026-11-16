@@ -35,7 +35,7 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { buildMatters } from '@/modules/accounting/services/packs/pages/packMatters';
+import { buildMatters, SOURCES } from '@/modules/accounting/services/packs/pages/packMatters';
 import { mattersTableMm, selectPrintedMatters } from '@/modules/accounting/services/packs/pages/packMattersPrinted';
 import { BOARD_DECISIONS } from '@/modules/accounting/services/packs/pages/packMatterDecisions';
 import { NO_PRIOR_MEETING_RECORD, type PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
@@ -60,7 +60,7 @@ function bankRow(over: Record<string, unknown> = {}): Record<string, unknown> {
 async function bankMatter(rows: Array<Record<string, unknown>>) {
   sqlSpy.mockResolvedValue(rows);
   const { matters } = await buildMatters('c1', window);
-  return matters.find((m) => m.issue.includes('unreconciled bank item'));
+  return matters.find((m) => m.issue.includes('unallocated bank item'));
 }
 
 beforeEach(() => {
@@ -73,7 +73,7 @@ beforeEach(() => {
   });
 });
 
-describe('the unreconciled bank matter', () => {
+describe('the unallocated bank matter', () => {
   it('fires on the rows the status service actually returns', async () => {
     const matter = await bankMatter([
       bankRow({ unreconciled_balance: '-15000.00', unallocated_count: 3, unreconciled_count: 3 }),
@@ -85,7 +85,7 @@ describe('the unreconciled bank matter', () => {
   it('counts the same transactions the amount is summed over', async () => {
     // The amount is every posted line with no journal line that is not
     // excluded. The service's `unreconciled_count` is a different population
-    // (status imported or allocated), so pairing the two put a count and an
+    // (not reconciled, journal or not), so pairing the two put a count and an
     // amount of different things in one sentence. Suggested plus unallocated
     // is exactly the amount's population, split in two.
     const matter = await bankMatter([
@@ -95,7 +95,7 @@ describe('the unreconciled bank matter', () => {
       // the sentence may claim.
       bankRow({ id: 'c', unreconciled_balance: 0, suggested_count: 0, unallocated_count: 0, unreconciled_count: 9 }),
     ]);
-    expect(matter!.issue).toMatch(/^12 unreconciled bank items across 2 bank accounts/);
+    expect(matter!.issue).toMatch(/^12 unallocated bank items across 2 bank accounts/);
     expect(matter!.quantum).toBe(95_000);
   });
 
@@ -106,7 +106,7 @@ describe('the unreconciled bank matter', () => {
     // date stand for it.
     const matter = await bankMatter([bankRow({ unreconciled_balance: 500, unallocated_count: 1 })]);
     expect(matter!.issue).toBe(
-      '1 unreconciled bank item across 1 bank account, as at the time this pack was extracted '
+      '1 unallocated bank item across 1 bank account, as at the time this pack was extracted '
       + 'rather than at the period end; the amount is the net unmatched amount on each account, '
       + 'added without regard to sign',
     );
@@ -125,7 +125,7 @@ describe('the unreconciled bank matter', () => {
     ]);
     expect(matter, 'four unreconciled items raised no matter because they net to nil').toBeDefined();
     expect(matter!.issue).toBe(
-      '4 unreconciled bank items across 1 bank account, as at the time this pack was extracted '
+      '4 unallocated bank items across 1 bank account, as at the time this pack was extracted '
       + 'rather than at the period end; receipts and payments among them net to nil on each '
       + 'account, so no amount is stated',
     );
@@ -159,7 +159,7 @@ describe('the unreconciled bank matter', () => {
       bankRow({ id: 'b', unreconciled_balance: 3_000, unallocated_count: 1 }),
     ]);
     expect(matter!.quantum).toBe(8_000);
-    expect(matter!.issue).toMatch(/^3 unreconciled bank items across 2 bank accounts/);
+    expect(matter!.issue).toMatch(/^3 unallocated bank items across 2 bank accounts/);
     expect(matter!.issue).toMatch(/net unmatched amount on each account, added without regard to sign$/);
   });
 
@@ -168,7 +168,7 @@ describe('the unreconciled bank matter', () => {
       bankRow({ id: 'a', unreconciled_balance: 0, unallocated_count: 6 }),
       bankRow({ id: 'b', unreconciled_balance: 750, unallocated_count: 1 }),
     ]);
-    expect(matter!.issue).toMatch(/^7 unreconciled bank items across 2 bank accounts/);
+    expect(matter!.issue).toMatch(/^7 unallocated bank items across 2 bank accounts/);
     expect(matter!.quantum).toBe(750);
     expect(matter!.issue).not.toMatch(/net to nil/);
   });
@@ -178,7 +178,7 @@ describe('the unreconciled bank matter', () => {
       bankRow({ unreconciled_balance: 91_000, suggested_count: 12, unallocated_count: 1_000 }),
     ]);
     // U+00A0, the pack's one separator: "1 012", never "1012".
-    expect(matter!.issue.startsWith('1\u00a0012 unreconciled bank items across 1 bank account')).toBe(true);
+    expect(matter!.issue.startsWith('1\u00a0012 unallocated bank items across 1 bank account')).toBe(true);
   });
 
   it('is absent where every account is reconciled', async () => {
@@ -193,7 +193,7 @@ describe('the unreconciled bank matter', () => {
     const matter = await bankMatter([
       bankRow({ is_active: false, unreconciled_balance: 8_250, unallocated_count: 2 }),
     ]);
-    expect(matter!.issue).toMatch(/^2 unreconciled bank items across 1 bank account/);
+    expect(matter!.issue).toMatch(/^2 unallocated bank items across 1 bank account/);
     // The stub answers whatever is asked, so the opt-in is read where it is
     // made: the value bound to the query's inactive-accounts switch.
     const [strings, ...values] = sqlSpy.mock.calls[0] as [readonly string[], ...unknown[]];
@@ -206,5 +206,24 @@ describe('the unreconciled bank matter', () => {
     await bankMatter([bankRow()]);
     const [, ...values] = sqlSpy.mock.calls[0] as [readonly string[], ...unknown[]];
     expect(values).toContain('c1');
+  });
+});
+
+/**
+ * Hein, 2026-11-15 (#1442): the figure is lines with NO journal line — suggested + unallocated, the card's Δ — not
+ * reconciliation state, so the pack must not call them "unreconciled". An allocated line that is not yet reconciled
+ * is not in this count; calling the count "unreconciled" told a board the opposite.
+ */
+describe('the bank matter is named for what it counts', () => {
+  it('says "unallocated bank items", never "unreconciled"', async () => {
+    const matter = await bankMatter([bankRow({ unreconciled_balance: 500, suggested_count: 1, unallocated_count: 1 })]);
+    expect(matter!.issue).toMatch(/^2 unallocated bank items across 1 bank account/);
+    expect(matter!.issue).not.toMatch(/unreconciled/i);
+  });
+
+  it('names the check and the source "unallocated bank items" where the pack lists what it checked', () => {
+    const bank = SOURCES.find((src) => /bank/.test(src.label))!;
+    expect(bank).toMatchObject({ label: 'unallocated bank items', check: 'unallocated bank items' });
+    expect(SOURCES.map((src) => `${src.label} ${src.check}`).join(' ')).not.toMatch(/unreconciled/i);
   });
 });
