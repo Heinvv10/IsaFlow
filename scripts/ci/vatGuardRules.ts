@@ -78,6 +78,9 @@ const RAW_INSERT = /INSERT\s+INTO\s+gl_journal_lines/i;
  *     pair used to be one allowlisted file. It decides no new claim — the
  *     contra has to carry the original's classification to offset it — so
  *     nothing is unguarded here today; what is gone is the gate's VIEW of it.
+ *     A split made ON PURPOSE keeps the view by declaring the line builder
+ *     (`LINE_BUILDERS` in vatGuardAllowlist.ts): its VAT fields are then judged
+ *     as a poster's, and the gate checks that the named poster imports it.
  *   - A DEFAULT import carries no name to match. Not a live risk here — the
  *     posting services all use named exports — but it is a hole.
  *
@@ -136,12 +139,22 @@ export interface VatGuardFinding {
   guarded: boolean;
 }
 
-/** Does this source decide or forward a VAT claim, and does it guard? */
-export function inspectVatGuardCoverage(source: string): VatGuardFinding | null {
+/**
+ * Does this source decide or forward a VAT claim, and does it guard?
+ *
+ * `buildsLinesForAPoster`: the file is a DECLARED line builder (LINE_BUILDERS) —
+ * it builds the journal lines another file posts, so a VAT field in it is on a
+ * posting path even though it calls no poster itself.
+ */
+export function inspectVatGuardCoverage(
+  source: string, opts?: { buildsLinesForAPoster?: boolean },
+): VatGuardFinding | null {
   const code = stripComments(source);
   const kinds: VatDecisionKind[] = [];
   if (RATE_CONSTANTS.test(code)) kinds.push('rate_constant');
-  if (VAT_FIELD.test(code) && callsAPostingFunction(code)) kinds.push('vat_field_on_a_posting_path');
+  if (VAT_FIELD.test(code) && (opts?.buildsLinesForAPoster || callsAPostingFunction(code))) {
+    kinds.push('vat_field_on_a_posting_path');
+  }
   if (ALLOCATE_CALL.test(code)) kinds.push('allocate_call');
   if (VAT_INCLUSIVE_SPLIT.test(code)) kinds.push('vat_inclusive_split');
   if (kinds.length === 0) return null;
