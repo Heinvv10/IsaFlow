@@ -8,7 +8,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@/modules/accounting/services/payroll/sarsCodesService', () => ({
   // The stored rows still carry the old labels and categories.
-  getSarsCode: vi.fn(async (code: string) => ({
+  getSarsCodeNearest: vi.fn(async (code: string) => ({
     '3601': { description: 'Gross salary/wages', category: 'income' },
     '4102': { description: 'PAYE (Pay As You Earn)', category: 'deduction' },
     '4141': { description: 'UIF contributions (employee)', category: 'deduction' },

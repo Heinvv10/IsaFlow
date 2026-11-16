@@ -3,7 +3,7 @@
  * Certificate building + EMP501 reconciliation. Source codes are looked up
  * via sarsCodesService (DB-backed, year-effective) — no longer pure logic.
  */
-import { getSarsCode, categoryToComponentType } from '@/modules/accounting/services/payroll/sarsCodesService';
+import { getSarsCodeNearest, categoryToComponentType } from '@/modules/accounting/services/payroll/sarsCodesService';
 
 export interface IRP5EmployeeData {
   grossSalary: number;
@@ -106,7 +106,7 @@ export async function calculateIRP5SourceCodes(
   for (const mapping of CODE_MAPPING) {
     const amount = mapping.amount(data);
     if (amount && amount > 0) {
-      const sarsCode = await getSarsCode(mapping.code, taxYear);
+      const sarsCode = await getSarsCodeNearest(mapping.code, taxYear);
       entries.push({
         code: mapping.code,
         description: mapping.description ?? sarsCode?.description ?? '',
@@ -136,7 +136,7 @@ export async function buildIRP5Certificate(input: {
 
   const codeCategories = await Promise.all(
     sourceCodes.map(async (sc) => {
-      const def = await getSarsCode(sc.code, input.taxYear);
+      const def = await getSarsCodeNearest(sc.code, input.taxYear);
       return { sc, coarse: def ? categoryToComponentType(def.category) : null };
     })
   );
