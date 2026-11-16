@@ -135,6 +135,11 @@ as well as the read one, and they say so on the consent screen:
   category moves VAT period boundaries, so it is refused when VAT returns, period locks, VAT201
   versions or a submitted legacy VAT201 exist unless `acknowledge_period_change: true`; `dry_run` reports the periods that
   would move, and the reply carries the before values to undo with.
+- The budget write tools (`write:budgets`, owner/admin/manager) create budget versions, seed
+  them and set, restore and annotate their amounts; they post nothing. Each amount write is a
+  dry run first and an apply with the dry run's `version_token`. `approve_budget_version`,
+  `lock_budget_version`, `unlock_budget_version` and `set_primary_budget_version` work only on an
+  owner's connection; any other role is told that a person must approve the budget in ISAFlow.
 - `take_audit_snapshot` (`read:reports` + `write:journals`, owner/admin only) takes a
   sealed, append-only snapshot of the ledger at a cutoff. It cannot be deleted afterwards.
 - `run_depreciation` (`write:journals` + **`write:post`**) **posts** the month's

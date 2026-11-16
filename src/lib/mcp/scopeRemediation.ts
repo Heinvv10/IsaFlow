@@ -45,6 +45,10 @@ export const SCOPE_REMEDIATION: Partial<Record<PatScope, string>> = {
     + '(or mint a new personal access token) and include "Change company tax details" — the grant that covers '
     + 'the VAT number, income tax number and VAT category. Only an owner or admin can use it. '
     + 'Existing permissions are unaffected and nothing else needs to change.',
+  'write:budgets': 'This connection cannot change budgets. '
+    + 'write:budgets is a new grant that no existing connection holds, so re-authorise the connector '
+    + '(or mint a new personal access token) and include "Write budgets" — the grant that covers creating budget '
+    + 'versions and setting their amounts and notes. Existing permissions are unaffected and nothing else needs to change.',
 };
 
 /**

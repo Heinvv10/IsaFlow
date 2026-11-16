@@ -87,6 +87,12 @@ export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
     // Separate from write:vat: that one locks filed periods; this edits the company's own registration data.
     desc: 'Change the company VAT number, income tax number and VAT category (moving the category moves VAT period boundaries; a company with VAT returns on file must acknowledge it). Owner or admin only. Posts nothing to the ledger.',
   },
+  'write:budgets': {
+    label: 'Write budgets',
+    // Separate from write:accounts: budget amounts are plans, not chart master data. Approve, lock, unlock and
+    // set primary stay a person's act unless the token's user is the owner.
+    desc: 'Create budget versions, seed them, set and restore budget amounts and notes. Only an owner\'s token may approve, lock, unlock or make a version primary. Posts nothing to the ledger.',
+  },
   'write:post': {
     label: 'Post, finalize & allocate (irreversible)',
     desc: 'Allows this token to POST journals, finalize documents, allocate bank transactions, and REVERSE posted entries on its own — an allocation posts an AP/AR journal, records a customer payment as confirmed, and marks a supplier invoice paid; cancelling a credit note reverses its journal. Grant only if you trust this integration.',
