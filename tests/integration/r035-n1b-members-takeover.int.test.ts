@@ -11,7 +11,11 @@
  *  - the invitation role list and the company pin, and the portal's DELETE
  *    of an invitation, each refuse (REPRO 5, blind test gaps).
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+// No GoTrue in the fixture: POST /api/invite/<token> reads the session user's login email through adminGetUser
+// (#1468); answer the address this suite's sessions carry (r035-n1b-members.helpers emailOf).
+vi.mock('@/lib/auth/gotrueAdminUser', async () =>
+  (await import('./helpers/fixtureGotrueLogin')).fixtureGotrueLogin((id) => `n1bc-${id}@test.local`));
 import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { asRole, outcome } from './r035-n1.helpers';

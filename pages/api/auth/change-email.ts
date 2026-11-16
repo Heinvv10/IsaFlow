@@ -37,6 +37,7 @@ import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { log } from '@/lib/logger';
 import { refuseImpersonatedSession } from '@/lib/auth/impersonationGuard';
+import { isUsersEmailTaken } from '@/lib/auth/usersEmailUnique';
 
 const Body = z.object({
   newEmail: z.email('Invalid email address').max(254),
@@ -96,8 +97,8 @@ const handler: NextApiHandler = async (req, res) => {
     try {
       updated = await client.query(`UPDATE users SET email = $2, updated_at = NOW() WHERE id = $1`, [user.id, normalisedNew]);
     } catch (err) {
-      const pgErr = err as { code?: string; constraint?: string };
-      if (pgErr.code !== '23505' || pgErr.constraint !== 'users_email_key') throw err;
+      // Either email key (users_email_lower_key since 999: a profile holding it in another case).
+      if (!isUsersEmailTaken(err)) throw err;
       unusable = await rollbackFailed(client, 'change-email');
       opened = false;
       return res.status(409).json({

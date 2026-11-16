@@ -7,6 +7,7 @@
  */
 
 import { Globe } from 'lucide-react';
+import { Select } from '@/components/ui';
 import { Company, INPUT_CLS, LABEL_CLS, SECTION_CLS } from './settingsTypes';
 
 interface Props {
@@ -25,11 +26,12 @@ const DECIMAL_SEPARATORS = [
   { value: ',', label: ', (comma)' },
 ];
 
+const NO_SEPARATOR = '__none__';
 const THOUSANDS_SEPARATORS = [
   { value: ',', label: ', (comma)' },
   { value: '.', label: '. (period)' },
   { value: ' ', label: '(space)' },
-  { value: '', label: 'None' },
+  { value: NO_SEPARATOR, label: 'None' },
 ];
 
 const LOGO_POSITIONS = [
@@ -86,40 +88,18 @@ export function RegionalTab({ company, onChange }: Props) {
         <h3 className="text-base font-semibold text-[var(--ff-text-primary)] mb-4">Date &amp; Number Format</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="regional-tab-date-format" className={LABEL_CLS}>Date Format</label>
-            <select id="regional-tab-date-format"
-              className={INPUT_CLS}
-              value={company.dateFormat}
-              onChange={e => onChange('dateFormat', e.target.value)}
-            >
-              {DATE_FORMATS.map(f => (
-                <option key={f.value} value={f.value}>{f.label}</option>
-              ))}
-            </select>
+            <Select id="regional-tab-date-format" label="Date Format" labelClassName={LABEL_CLS} options={DATE_FORMATS}
+              value={company.dateFormat} onChange={v => { if (v) onChange('dateFormat', v); }} />
           </div>
           <div>
-            <label htmlFor="regional-tab-decimal-separator" className={LABEL_CLS}>Decimal Separator</label>
-            <select id="regional-tab-decimal-separator"
-              className={INPUT_CLS}
-              value={company.decimalSeparator}
-              onChange={e => onChange('decimalSeparator', e.target.value)}
-            >
-              {DECIMAL_SEPARATORS.map(s => (
-                <option key={s.value} value={s.value}>{s.label}</option>
-              ))}
-            </select>
+            <Select id="regional-tab-decimal-separator" label="Decimal Separator" labelClassName={LABEL_CLS} options={DECIMAL_SEPARATORS}
+              value={company.decimalSeparator} onChange={v => { if (v) onChange('decimalSeparator', v); }} />
           </div>
           <div>
-            <label htmlFor="regional-tab-thousands-separator" className={LABEL_CLS}>Thousands Separator</label>
-            <select id="regional-tab-thousands-separator"
-              className={INPUT_CLS}
-              value={company.thousandsSeparator}
-              onChange={e => onChange('thousandsSeparator', e.target.value)}
-            >
-              {THOUSANDS_SEPARATORS.map(s => (
-                <option key={JSON.stringify(s.value)} value={s.value}>{s.label}</option>
-              ))}
-            </select>
+            {/* The kit Select reads '' as "nothing chosen", so "None" travels as a sentinel. */}
+            <Select id="regional-tab-thousands-separator" label="Thousands Separator" labelClassName={LABEL_CLS} options={THOUSANDS_SEPARATORS}
+              value={company.thousandsSeparator === '' ? NO_SEPARATOR : company.thousandsSeparator}
+              onChange={v => { if (v !== null) onChange('thousandsSeparator', v === NO_SEPARATOR ? '' : v); }} />
           </div>
           <div>
             <label htmlFor="regional-tab-decimal-places-amounts" className={LABEL_CLS}>Decimal Places (amounts)</label>
