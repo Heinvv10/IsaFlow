@@ -9,6 +9,11 @@
  * period_close_checklist, the close run) the check becomes one busy warn row
  * and the rest of the checklist still comes back.
  *
+ * The scope is AsyncLocalStorage, so after-commit work queued inside a budget
+ * (scheduleAutoSnapshot, scheduleBudgetRoll) inherits it: a background reader
+ * of getCloseReadiness started from there would rethrow a busy check instead of
+ * getting a busy row.
+ *
  * Its own module, with no imports from the gate, because the gate imports the
  * readiness service.
  */
