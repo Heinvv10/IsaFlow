@@ -99,7 +99,7 @@ describe('settings tabs: kit selects, same values out', () => {
 
   it('User fields: every slot type is a named combobox, disabled while the slot is empty', async () => {
     const { container } = render(<UdfTab />);
-    container.querySelectorAll<HTMLButtonElement>('button[type="button"].w-full.justify-between').forEach((b) => fireEvent.click(b));
+    for (const name of ['Customer', 'Supplier', 'Invoice', 'Item']) fireEvent.click(screen.getByRole('button', { name: new RegExp(`${name} Fields`) }));
     await waitFor(() => expect(screen.getAllByRole('combobox').length).toBe(48));
     expect(container.querySelectorAll('select')).toHaveLength(0);
     expect(combo('Item field 12 type').getAttribute('aria-disabled')).toBe('true');
