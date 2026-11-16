@@ -3,6 +3,11 @@
  * date (Rates and Monetary Amounts and Amendment of Revenue Laws Act 3 of 2026 s7, GG 54446; ETI guide Issue 5 §5.1.2).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+// Wave 6 FQa: the run-kind guard reads the database; its own tests are payrollRunKindGuard*.test.ts.
+vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
+  assertRunKindSupported: vi.fn(async () => undefined),
+}));
 
 const inserts: unknown[][] = [];
 // The year-to-date for cumulative PAYE (PAYE 4a follow-ups G4) has its own tests (p4fu-cumulative-paye).
@@ -133,7 +138,7 @@ describe('calculatePayrollRun - the ETI table is confirmed (Act 3 of 2026)', () 
   it("reads the employees of the run's own company and period", async () => {
     await calculate(6, 2026);
     expect(listPayrollRunEmployees).toHaveBeenLastCalledWith(
-      '11111111-1111-4111-8111-111111111111', { month: 6, year: 2026 },
+      '11111111-1111-4111-8111-111111111111', { month: 6, year: 2026 }, 'monthly', // wave 6 FQa: the run's own frequency
     );
   });
 

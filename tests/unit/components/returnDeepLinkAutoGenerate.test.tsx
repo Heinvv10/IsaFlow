@@ -17,6 +17,7 @@ vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany
 vi.mock('@/hooks/useVatRegistration', () => ({ useVatRegistration: () => ({ isRegistered: true, known: true }) }));
 vi.mock('@/components/accounting/sars/VAT201ExceptionsPanel', () => ({ VAT201ExceptionsPanel: () => <div>exceptions</div> }));
 vi.mock('@/components/accounting/sars/VAT201SarsSubmit', () => ({ VAT201SarsSubmit: () => <div>sars</div> }));
+vi.mock('@/components/accounting/sars/VAT201LateClaimsSection', () => ({ VAT201LateClaimsSection: () => <div>late claims</div> }));
 
 import VAT201Page from '../../../pages/accounting/sars/vat201';
 import EMP201Page from '../../../pages/accounting/sars/emp201';

@@ -61,18 +61,16 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     52: 'SELECT approved_plan_hash, prepared_by::text AS prepared_by, approval_grandfathered_at',
     59: 'const preparedBy = header.prepared_by == null ? null : String(header.prepared_by);',
   },
-  [`${S}payroll/payrollApprovalService.ts`]: { 145: 'approved_by = ${approvedBy},' },
+  [`${S}payroll/payrollApprovalService.ts`]: { 149: 'approved_by = ${approvedBy},' },
   [`${S}payroll/payrollExternalImportService.ts`]: { 59: 'payslip_count, components_present, created_by)' },
   [`${S}payroll/payrollLeaveService.ts`]: { 268: 'approved_by = ${update.approvedBy ?? null},' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: {
     177: 'company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount, payroll_run_id, created_by',
   },
   [`${S}payroll/payrollRunLock.ts`]: { 223: 'prepared_by     = ${preparedBy},' },
-  [`${S}payroll/payrollRunReopen.ts`]: { 73: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
-  [`${S}payroll/payrollRunService.ts`]: {
-    96: 'INSERT INTO payroll_run_headers (company_id, period_month, period_year, created_by)',
-    285: '}, preparedBy ?? (run.created_by == null ? null : String(run.created_by)));',
-    286: 'const author = preparedBy ?? (run.created_by == null ? null : String(run.created_by));',
+  [`${S}payroll/payrollRunReopen.ts`]: { 76: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
+  [`${S}payroll/payrollRunHeaders.ts`]: {
+    91: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end',
   },
   [`${S}payroll/taxDirectiveApprover.ts`]: {
     32: 'SELECT requested_by::text AS requested_by, approvers_at_create FROM tax_directives WHERE company_id = ${companyId}::uuid AND id = ${id}::uuid',
@@ -92,9 +90,9 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     264: 'submitted_by = ${submittedByUserId},',
   },
   [`${S}reports/sarsComplianceService.ts`]: {
-    47: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',
-    119: 'submitted_by = ${userId}, updated_at = NOW()',
-    123: 'INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data, submitted_by)',
+    44: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',
+    116: 'submitted_by = ${userId}, updated_at = NOW()',
+    120: 'INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data, submitted_by)',
   },
   [`${S}reports/sarsEfilingRepo.ts`]: {
     81: 'submitted_by = ${userId},',
@@ -113,12 +111,12 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
 const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/payrollExternalImportService.ts`]: { 63: '${JSON.stringify(input.componentsPresent)}::jsonb, ${input.createdBy})' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 181: '${l.gross}, ${l.paye}, ${Math.round((l.gross - l.paye) * 100) / 100}, h.id, ${userId}' },
-  [`${S}payroll/payrollRunService.ts`]: { 97: 'VALUES (${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null})' },
+  [`${S}payroll/payrollRunHeaders.ts`]: { 94: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
   [`${S}payroll/taxDirectivePaymentService.ts`]: { 213: '${bankAccountId}, ${userId}' },
   [`${S}payroll/taxDirectiveService.ts`]: { 105: '${requestedByUserId},' },
   [`${S}payroll/uifDeclarationService.ts`]: { 229: "'draft', ${generatedByUserId}, NOW()" },
   [`${S}reports/sarsComplianceService.ts`]: {
-    124: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",
+    121: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",
   },
   [`${S}reports/sarsEfilingRepo.ts`]: {
     220: 'evt.correlationId ?? null, JSON.stringify(evt.detail ?? {}), evt.message ?? null, evt.createdBy ?? null],',

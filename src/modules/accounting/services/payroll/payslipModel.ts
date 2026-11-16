@@ -17,6 +17,7 @@ import { getCompanyDetailsFromCompany } from '@/modules/accounting/services/core
 import { quantitiesFromBreakdown, type WorkedQuantity } from './payslipQuantities';
 import { itemisePayslip, readBreakdown, type PayslipLines } from './payslipItems';
 import { payslipYearToDate, type PayslipYearToDate } from './payslipYearToDate';
+import { assertRunKindSupported } from './payrollRunKindGuard';
 
 export class PayslipNotFound extends Error {
   constructor(what: 'run' | 'employee') {
@@ -140,6 +141,7 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
   `) as HeaderRow[];
   const header = headers[0];
   if (!header) throw new PayslipNotFound('run');
+  await assertRunKindSupported(companyId, runId, 'payslip'); // wave 6 FQa: a run this release cannot print
 
   const lines = await readLines(companyId, runId, employeeIds ?? null);
   if (lines.length === 0 || (employeeIds && lines.length !== new Set(employeeIds).size)) throw new PayslipNotFound('employee');

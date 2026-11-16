@@ -33,6 +33,12 @@ vi.mock('@/lib/neon', () => ({
   sql: (...a: unknown[]) => sqlMock(...a),
   withTransaction: (fn: unknown) => withTransactionMock(fn),
 }));
+// The live close's period lock + readiness gate is yearEndPeriodGate's (yearEndPeriodGate.test.ts): it passes here.
+vi.mock('@/modules/accounting/services/gl/yearEndPeriodGate', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/yearEndPeriodGate')>()),
+  lockAndJudgeYear: vi.fn(async () => []),
+  lockYear: vi.fn(async () => 12),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 // FY2026 is 1 Mar 2025 to 28 Feb 2026 in the registry (March-based): the fixture's periods ARE that year.
 vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry',

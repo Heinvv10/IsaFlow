@@ -77,11 +77,13 @@ beforeAll(async () => {
     [w.salaries, 300, 0, { cc1: w.cc1 }], [w.salaries, 150, 0, { cc1: w.cc1b }], [w.rent, 40, 0],
   ]);
   await fx.journal(w, `${m[0]}-25`, [[w.salaries, 200, 0]], { source: 'auto_payroll' });
-  await fx.journal(w, `${m[0]}-20`, [[w.sales, 0, 5000]], { status: 'draft' });
   await fx.journal(w, `${m[1]}-15`, [[w.sales, 0, 1500], [w.rent, 50, 0]]);
   await fx.journal(w, `${m[1]}-25`, [[w.salaries, 250, 0]], { source: 'auto_payroll' });
   await fx.journal(w, `${m[2]}-10`, [[w.sales, 0, 999]]);
   await fx.close(w, [m[0]!, m[1]!]);
+  // A draft in a closed month is never an actual. Planted after the close: a close now refuses a
+  // period that holds a draft (the period-close readiness gate), so this is a draft left from before.
+  await fx.journal(w, `${m[0]}-20`, [[w.sales, 0, 5000]], { status: 'draft' });
 }, 180000);
 afterAll(async () => {
   try { await fx.cleanup(); } finally { await pool.end(); }

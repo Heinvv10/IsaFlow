@@ -21,6 +21,7 @@ import { readPayRunDecision } from './payRunDecision';
 import { soleApproverAuditMetadata } from '../gl/approvalSelfApproval';
 import { recordPayRunApprovalAudit } from './payRunApprovalAudit';
 import { rebookEtiAfterEvent } from './etiRebook';
+import { assertRunKindSupported } from './payrollRunKindGuard';
 
 
 type Row = DbRow;
@@ -41,6 +42,7 @@ export interface ApprovePayrollRunResult extends PayrollRunSummary {
  * Null when the run is not in this company.
  */
 export async function previewPayrollApproval(companyId: string, runId: string): Promise<PayrollApprovalGate | null> {
+  await assertRunKindSupported(companyId, runId, 'approve'); // wave 6 FQa: the preview refuses what approval refuses
   return judgePayrollApproval(companyId, runId);
 }
 
@@ -92,6 +94,8 @@ export async function approvePayrollRun(
   await lockCompanyPayrollApprovals(runId, companyId);
   const locked = await lockPayrollRunHeader(runId, companyId);
   if (!locked) throw new PayrollApprovalRefusedError('Payroll run not found');
+  // Wave 6 FQa: a run kind, frequency, employee or assignment this release cannot approve; before any write.
+  await assertRunKindSupported(companyId, runId, 'approve');
   if (locked.journal_entry_id != null) {
     await lockRunJournalForApproval(runId, companyId, String(locked.journal_entry_id));
   }

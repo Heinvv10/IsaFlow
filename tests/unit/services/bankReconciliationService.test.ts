@@ -68,6 +68,13 @@ const RECON_ID = 'eeeeeeee-0000-0000-0000-000000000005';
 
 // ── Shared row builders ───────────────────────────────────────────────────────
 
+/** The journal line a match reads: `tx`'s own bank leg — its account, direction and exact amount, posted (audit row 4). */
+function fittingLine(tx: Record<string, unknown>) {
+  const amount = Number(tx.amount);
+  return { id: JL_ID, gl_account_id: tx.bank_account_id, debit: amount > 0 ? amount : 0, credit: amount < 0 ? -amount : 0,
+    journal_status: 'posted' };
+}
+
 function makeTxRow(overrides: Record<string, unknown> = {}) {
   return {
     id: TX_ID,
@@ -325,7 +332,7 @@ describe('matchTransaction', () => {
     // a reconciliationId is supplied — that the reconciliation is this
     // company's too.
     vi.mocked(sql).mockResolvedValueOnce([makeTxRow({ status: 'imported' })] as never);
-    vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([fittingLine(makeTxRow())] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // the line's journal entry: not reversed
     vi.mocked(sql).mockResolvedValueOnce([] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }] as never); // D10: chain root (its own)
@@ -349,7 +356,7 @@ describe('matchTransaction', () => {
     // since D12 that is read FIRST, under its FOR SHARE lock, before the line.
     vi.mocked(sql).mockResolvedValueOnce([{ id: RECON_ID, status: 'in_progress' }] as never);
     vi.mocked(sql).mockResolvedValueOnce([makeTxRow({ status: 'imported' })] as never);
-    vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([fittingLine(makeTxRow())] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // the line's journal entry: not reversed
     vi.mocked(sql).mockResolvedValueOnce([] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }] as never); // D10: chain root (its own)
@@ -377,7 +384,7 @@ describe('matchTransaction', () => {
     // a reconciliationId is supplied — that the reconciliation is this
     // company's too.
     vi.mocked(sql).mockResolvedValueOnce([makeTxRow({ status: 'imported' })] as never);
-    vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([fittingLine(makeTxRow())] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // the line's journal entry: not reversed
     vi.mocked(sql).mockResolvedValueOnce([] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }] as never); // D10: chain root (its own)
@@ -465,10 +472,10 @@ describe('autoMatchTransactions', () => {
       },
     ] as never);
     // matchTransaction's locked read — the row is still unallocated.
-    vi.mocked(sql).mockResolvedValueOnce([makeTxRow({ status: 'imported' })] as never);
+    vi.mocked(sql).mockResolvedValueOnce([makeTxRow({ status: 'imported', amount: 5000 })] as never);
     // matchTransaction's ownership reads (K-144): the line is in this company,
-    // and no other bank transaction already holds it.
-    vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
+    // and no other bank transaction already holds it — and it is this line's own bank leg (audit row 4).
+    vi.mocked(sql).mockResolvedValueOnce([fittingLine(makeTxRow({ amount: 5000 }))] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // the line's journal entry: not reversed
     vi.mocked(sql).mockResolvedValueOnce([] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }] as never); // D10: chain root (its own)
@@ -508,10 +515,10 @@ describe('autoMatchTransactions', () => {
       },
     ] as never);
     // matchTransaction's locked read — the row is still unallocated.
-    vi.mocked(sql).mockResolvedValueOnce([makeTxRow({ status: 'imported' })] as never);
+    vi.mocked(sql).mockResolvedValueOnce([makeTxRow({ status: 'imported', amount: -2500 })] as never);
     // matchTransaction's ownership reads (K-144): the line is in this company,
-    // and no other bank transaction already holds it.
-    vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
+    // and no other bank transaction already holds it — and it is this line's own bank leg (audit row 4).
+    vi.mocked(sql).mockResolvedValueOnce([fittingLine(makeTxRow({ amount: -2500 }))] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // the line's journal entry: not reversed
     vi.mocked(sql).mockResolvedValueOnce([] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }] as never); // D10: chain root (its own)

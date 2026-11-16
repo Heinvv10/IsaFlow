@@ -129,6 +129,20 @@ export async function undoYearEndChange(companyId: string, userId: string, reaso
   if (!als.getStore()?.client) throw new Error('undoYearEndChange must run inside the request transaction');
   await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`fy-end-change:${companyId}`}, 0))`;
   const change = await latestLiveChange(companyId);
+  // Lock order: PERIODS before the year. A period close holds its period row and
+  // its status UPDATE locks the year row (trg_fiscal_periods_sync_year_status);
+  // this undo writes years and then periods. Every period it may touch (the
+  // transition year on) is row-locked first, in (fiscal_year, period_number,
+  // id) order as every period locker does (periodCloseGate), so a close in
+  // flight finishes first instead of deadlocking (40P01), and the refusals below
+  // read the periods as locked.
+  if (change) {
+    await sql`
+      SELECT fp.id FROM fiscal_periods fp
+       WHERE fp.company_id = ${companyId}::UUID AND fp.end_date >= ${change.transitionStart}::DATE
+       ORDER BY fp.fiscal_year, fp.period_number, fp.id FOR UPDATE
+    `;
+  }
   const refusals = await undoRefusals(companyId, change);
   if (refusals.length > 0 || !change) throw new YearEndChangeRefusedError(refusals);
   const snap = change.snapshot;

@@ -7,6 +7,7 @@ import {
 import type { ApprovalDocument } from '@/modules/accounting/services/gl/approvalDocuments';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 import { judgePayrollApproval } from './payrollApprovalGate';
+import { assertRunKindSupported } from './payrollRunKindGuard';
 
 type Header = {
   status: string;
@@ -55,6 +56,7 @@ async function header(companyId: string, runId: string): Promise<Header | null> 
  * The SQL definer derives its digest from this tenant-scoped cache.
  */
 export async function preparePayRunApprovalRequest(companyId: string, runId: string): Promise<string> {
+  await assertRunKindSupported(companyId, runId, 'approve'); // wave 6 FQa: no request for a run this release cannot approve
   const gate = await judgePayrollApproval(companyId, runId);
   if (!gate) throw new Error('Payroll run not found');
   await sql`

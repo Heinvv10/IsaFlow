@@ -10,6 +10,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { tabStatusCond } from '@/modules/accounting/services/bank/bankTxTabCond';
+import { LINE_BUCKET_SQL } from '@/modules/accounting/services/bank/bankLineBucket';
 
 vi.mock('@/lib/neon', async (importOriginal) => {
   // fmtDate is the REAL implementation: the timezone test below proves the row
@@ -452,9 +453,10 @@ describe('getBankTransactions — BL-11: mapTxRow column projection regression g
 // count). Each assertion below inspects ONE call so a predicate dropped from
 // either query alone is caught.
 
-// PRD-11 §2: allocated ⇔ a posted journal line exists. Suggestions are NOT allocations.
-const ALLOC_NULL = 'bt.matched_journal_line_id IS NULL';
-const ALLOC_NOT_NULL = 'bt.matched_journal_line_id IS NOT NULL';
+// WP1 (2026-11-15): every allocation filter is ONE bucket of LINE_BUCKET_SQL (./bankLineBucket), the definition the
+// bank card counts with — excluded before allocated, provisional and Sage-reconciled lines allocated, pending lines in
+// none. The buckets themselves are proven against Postgres in bank-account-summary-partition.int.test.ts.
+const bucketCond = (bucket: string) => `AND (${LINE_BUCKET_SQL}) = '${bucket}'`;
 
 /** The SQL text of the Nth top-level query (0 = rows, 1 = count), the shared WHERE and unsafe fragments inlined. */
 function sqlTextOf(callIdx: number): string {
@@ -474,71 +476,59 @@ describe('getBankTransactions — #256: allocationFilter applied in every branch
     answerQueries([], '0');
   });
 
-  it('applies unallocated predicate to rows AND count with bankAccountId only (MCP path)', async () => {
+  it('applies the unallocated bucket to rows AND count with bankAccountId only (MCP path)', async () => {
     await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID, allocationFilter: 'unallocated' });
     expect(topLevelCalls()).toHaveLength(2);
-    for (const i of [0, 1]) {
-      expect(sqlTextOf(i)).toContain(ALLOC_NULL);
-      expect(sqlTextOf(i)).not.toContain(ALLOC_NOT_NULL);
-    }
+    for (const i of [0, 1]) expect(sqlTextOf(i)).toContain(bucketCond('unallocated'));
   });
 
-  it('applies allocated predicate to rows AND count with bankAccountId only', async () => {
+  it('applies the allocated bucket to rows AND count with bankAccountId only', async () => {
     await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID, allocationFilter: 'allocated' });
-    for (const i of [0, 1]) expect(sqlTextOf(i)).toContain(ALLOC_NOT_NULL);
+    for (const i of [0, 1]) expect(sqlTextOf(i)).toContain(bucketCond('allocated'));
   });
 
-  it('applies allocation predicate and date range to rows AND count with no bankAccountId', async () => {
+  it('applies the bucket and date range to rows AND count with no bankAccountId', async () => {
     await getBankTransactions(COMPANY_ID, {
       allocationFilter: 'unallocated', fromDate: '2026-04-01', toDate: '2026-04-18',
     });
     for (const i of [0, 1]) {
-      expect(sqlTextOf(i)).toContain(ALLOC_NULL);
+      expect(sqlTextOf(i)).toContain(bucketCond('unallocated'));
       expect(sqlTextOf(i)).toContain('bt.transaction_date >=');
       expect(valuesOf(i)).toContain('2026-04-01');
       expect(valuesOf(i)).toContain('2026-04-18');
     }
   });
 
+  it('applies the bucket in the account + tab branch too', async () => {
+    await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID, status: 'imported', allocationFilter: 'suggested' });
+    for (const i of [0, 1]) expect(sqlTextOf(i)).toContain(bucketCond('suggested'));
+  });
+
   it('adds no allocation predicate for "all"', async () => {
     await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID, allocationFilter: 'all' });
-    for (const i of [0, 1]) expect(sqlTextOf(i)).not.toContain('bt.matched_journal_line_id IS');
+    for (const i of [0, 1]) expect(sqlTextOf(i)).not.toContain(LINE_BUCKET_SQL);
   });
 });
 
-describe('getBankTransactions — PRD-11: allocation is a posted journal line, not a suggestion', () => {
+describe('getBankTransactions — WP1: one bucket per filter, never the old per-column predicates', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     answerQueries([], '0');
   });
 
-  it('"allocated" never keys on suggested_* columns', async () => {
-    await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID, allocationFilter: 'allocated' });
-    for (const i of [0, 1]) {
-      expect(sqlTextOf(i)).toContain(ALLOC_NOT_NULL);
-      expect(sqlTextOf(i)).not.toContain('suggested_gl_account_id IS NOT NULL OR');
-    }
-  });
-
-  it('"unallocated" excludes suggested rows and excluded rows', async () => {
-    await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID, allocationFilter: 'unallocated' });
-    for (const i of [0, 1]) {
-      const t = sqlTextOf(i);
-      expect(t).toContain(ALLOC_NULL);
-      expect(t).toContain('bt.suggested_gl_account_id IS NULL');
-      expect(t).toContain("bt.status != 'excluded'");
-    }
-  });
-
-  it('"suggested" = no journal line but a suggestion or saved category', async () => {
-    await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID, allocationFilter: 'suggested' });
-    for (const i of [0, 1]) {
-      const t = sqlTextOf(i);
-      expect(t).toContain(ALLOC_NULL);
-      expect(t).toContain('bt.suggested_gl_account_id IS NOT NULL OR');
-      expect(t).toContain("bt.status != 'excluded'");
-    }
-  });
+  for (const bucket of ['allocated', 'suggested', 'unallocated'] as const) {
+    it(`"${bucket}" selects exactly that bucket, on rows and count`, async () => {
+      await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID, allocationFilter: bucket });
+      for (const i of [0, 1]) {
+        const t = sqlTextOf(i);
+        expect(t).toContain(bucketCond(bucket));
+        expect(t.split(LINE_BUCKET_SQL)).toHaveLength(2); // one bucket test, not two
+        // The pre-WP1 predicates: allocated keyed on the matched line alone, the other two on `status != 'excluded'`.
+        expect(t).not.toContain('AND bt.matched_journal_line_id IS');
+        expect(t).not.toContain("bt.status != 'excluded'");
+      }
+    });
+  }
 });
 
 // ── PRD-11 §3: keyset pagination (cursor) ────────────────────────────────────

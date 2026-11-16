@@ -127,7 +127,7 @@ describeIfDb('U: Undo after a single-row allocate', () => {
     }, 60000);
 
     it('a restore of a line someone has since matched is refused, and the match stands', async () => {
-      const line = await unclaimedLine(fx);
+      const line = await unclaimedLine(fx, -58);
       const tx = await seedBankTx(fx, { date: '2026-03-10', amount: -58, description: 'MATCHED SINCE' });
       await inTx(fx, () => excludeTransaction(fx.companyId, tx, 'dup', fx.userId));
       await inTx(fx, () => unmatchTransaction(fx.companyId, tx, fx.userId)); // another person restores it...

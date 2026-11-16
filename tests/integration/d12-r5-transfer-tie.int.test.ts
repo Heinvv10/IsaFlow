@@ -42,7 +42,7 @@ const tie = async (id: string) => ((await sql`SELECT status, transfer_journal_en
   matched_journal_line_id::TEXT AS jl FROM bank_transactions WHERE id = ${id}::UUID`) as Row[])[0]!;
 
 /** A transfer A -> B (allocate SA); LB on B confirmed against T's B leg (bank_transfer arm), optionally unmatched. */
-async function transferTie(opts: { unmatch: boolean; lbId?: string; lbAmount?: number }) {
+async function transferTie(opts: { unmatch: boolean; lbId?: string }) {
   const bankA = await newBank(c);
   const bankB = await newBank(c);
   const sa = await insLine(randomUUID(), bankA, -100, '2026-06-05');
@@ -51,7 +51,7 @@ async function transferTie(opts: { unmatch: boolean; lbId?: string; lbAmount?: n
   const t = String((await tie(sa)).t);
   const tLegB = String(((await sql`SELECT id FROM gl_journal_lines WHERE journal_entry_id = ${t}::UUID
     AND gl_account_id = ${bankB}::UUID`) as Row[])[0]!.id);
-  const lb = await insLine(opts.lbId ?? randomUUID(), bankB, opts.lbAmount ?? 100, '2026-06-06');
+  const lb = await insLine(opts.lbId ?? randomUUID(), bankB, 100, '2026-06-06');
   const conf = await call(c, token, bankMatchConfirm as Route, { bankTransactionId: lb, candidateType: 'bank_transfer', candidateId: tLegB });
   expect(conf.status, conf.body).toBe(200);
   if (opts.unmatch) expect((await call(c, token, routes.tx, { action: 'unmatch', bankTransactionId: lb })).status).toBe(200);
@@ -97,7 +97,10 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
   }, 60000);
 
   it('R4-2 auto_match (T\'s head, then the stale line) racing the reversal gate (line, then head): no 40P01', async () => {
-    const s = await transferTie({ unmatch: true, lbId: `ffffffff-ffff-4fff-bfff-${randomUUID().slice(-12)}`, lbAmount: -77 });
+    // Tied as a real transfer leg (+100 against T's bank-B debit: a match binds only the line's own movement, PR #1458
+    // row 4), unmatched, then re-amounted to −77 — the stale shape staleReconciledElsewhere builds the same way.
+    const s = await transferTie({ unmatch: true, lbId: `ffffffff-ffff-4fff-bfff-${randomUUID().slice(-12)}` });
+    await sql`UPDATE bank_transactions SET amount = -77 WHERE id = ${s.lb}::UUID`;
     // +100: money in on B, the direction auto-match pairs with T's bank-B DEBIT leg (T's head).
     await insLine(`00000000-0000-4000-8000-${randomUUID().slice(-12)}`, s.bankB, 100, '2026-06-05');
     await seedJournal(c, s.bankB, 77, '2026-06-06');
