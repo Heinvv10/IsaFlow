@@ -18,7 +18,7 @@ import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { isBankSubtype } from '../gl/accountSubtypes';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { findActiveVatLock } from '../gl/journalVatLockGuard';
-import { isAutoCreatableYear } from '../gl/fiscalPeriodAutoCreate';
+import { isOutsideWindowByCalendarYear } from '../gl/fiscalPeriodAutoCreate';
 import { isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { contactControlAccountIds } from './contactControlGuard';
 import { importerAllocationRefusal, importerArmOf } from './bankLineImporterGate';
@@ -29,8 +29,9 @@ export interface ScreenedLine { row: DbRow; effectiveVatCode: string; netAmount:
 export interface NeedsAttention { id: string; kind: 'importer' | 'approval'; reason: string }
 export type ExcludedCounts = Record<'badTarget' | 'reconciliationHeld' | 'periodClosed' | 'noPeriod' | 'vatLocked' | 'vatCode', number>;
 
-export async function screenCandidates(companyId: string, userId: string, rows: DbRow[]): Promise<{
-  postable: ScreenedLine[]; needsAttention: NeedsAttention[]; excluded: ExcludedCounts;
+/** `stopAt`: stop screening once that many lines are postable (the caller needs no more); `stoppedAt` is the id of the row that reached it. */
+export async function screenCandidates(companyId: string, userId: string, rows: DbRow[], stopAt = Number.POSITIVE_INFINITY): Promise<{
+  postable: ScreenedLine[]; needsAttention: NeedsAttention[]; excluded: ExcludedCounts; stoppedAt: string | null;
 }> {
   const excluded: ExcludedCounts = { badTarget: 0, reconciliationHeld: 0, periodClosed: 0, noPeriod: 0, vatLocked: 0, vatCode: 0 };
   const postable: ScreenedLine[] = [];
@@ -48,7 +49,7 @@ export async function screenCandidates(companyId: string, userId: string, rows: 
     if (!periods.has(date)) periods.set(date, await getPeriodStatusForDate(companyId, date));
     const period = periods.get(date);
     if (period === 'closed') { excluded.periodClosed += 1; continue; }
-    if (period === 'no_period' && !isAutoCreatableYear(Number(date.slice(0, 4)))) { excluded.noPeriod += 1; continue; }
+    if (period === 'no_period' && isOutsideWindowByCalendarYear(date)) { excluded.noPeriod += 1; continue; }
     let effective: string;
     try {
       const requested = row.vat == null ? 'none' : String(row.vat);
@@ -73,6 +74,7 @@ export async function screenCandidates(companyId: string, userId: string, rows: 
     if (held) { needsAttention.push({ id: String(row.id), kind: 'approval', reason: held.message }); continue; }
     const split = vatInclusiveSplit(Math.abs(amount), effective === 'standard');
     postable.push({ row, effectiveVatCode: effective, netAmount: split.netAmount, vatAmount: split.vatAmount });
+    if (postable.length >= stopAt) return { postable, needsAttention, excluded, stoppedAt: String(row.id) };
   }
-  return { postable, needsAttention, excluded };
+  return { postable, needsAttention, excluded, stoppedAt: null };
 }

@@ -135,11 +135,13 @@ export async function previewBulkAccept(companyId: string, userId: string, bankA
     const gated = rows.filter((r) => feedStateOf(r) === 'posted' && evaluate(
       { status: String(r.status), amount: Number(r.amount), suggestedGlAccountId: String(r.gl) },
       Number(r.confidence), settings, r.strategy == null ? null : String(r.strategy)).outcome === 'post');
-    const screened = await screenCandidates(companyId, userId, gated);
+    // Screening stops at the row that makes MAX + 1 postable lines: the rest of the page is not paid for.
+    const screened = await screenCandidates(companyId, userId, gated, BULK_ACCEPT_MAX_LINES + 1 - postable.length);
     postable.push(...screened.postable);
     needsAttention.push(...screened.needsAttention);
     for (const k of Object.keys(excluded) as Array<keyof ExcludedCounts>) excluded[k] += screened.excluded[k];
-    if (rows.length < SCAN_PAGE) { exhausted = true; break; }
+    if (screened.stoppedAt) after = screened.stoppedAt; // rows past it were not screened: a cursor must not skip them
+    else if (rows.length < SCAN_PAGE) { exhausted = true; break; }
     if (needsAttention.length >= BULK_ACCEPT_HELD_CAP) { heldCapped = true; break; } // mostly held: stop paying for per-row checks
   }
   const scanTruncated = !exhausted && (postable.length <= BULK_ACCEPT_MAX_LINES || heldCapped);

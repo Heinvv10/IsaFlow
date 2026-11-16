@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PASS_THROUGH, BUSY, LABELLED, LEDGER_LOCKS, NOT_REFUSALS, refusalReason, GENERIC_REFUSAL } from '@/modules/accounting/services/bank/bankBulkAcceptRefusals';
 import { ClosedFiscalPeriodError, InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
+import { JournalDateRefusedError } from '@/modules/accounting/utils/journalDateWindow';
 import { FiscalPeriodNotGeneratedError } from '@/modules/accounting/services/gl/fiscalPeriodAutoCreate';
 
 const S = 'src/modules/accounting/services';
@@ -19,7 +20,7 @@ const ALLOCATION_PATH = [
   'gl/journalEntryCrudService.ts', 'gl/journalCostCentreValidation.ts', 'core/companySettingsService.ts', 'gl/journalEntryPostService.ts', 'gl/journalEntryPostingGuards.ts',
   'gl/journalVatLockGuard.ts', 'gl/vatLateClaimPlan.ts', 'gl/vatLateClaimSplit.ts', 'gl/approvalGate.ts', 'gl/manualJournalApproval.ts',
   'gl/dimensions/costCentrePick.ts', 'gl/dimensions/dimensionPolicy.ts', 'gl/dimensions/dimensionDefaultsService.ts',
-  'core/rowLockBudget.ts', 'gl/fiscalPeriodAutoCreate.ts',
+  'core/rowLockBudget.ts', 'gl/fiscalPeriodAutoCreate.ts', 'gl/journalDateGuard.ts', '../utils/journalDateWindow.ts',
 ];
 const decided = new Set([...PASS_THROUGH, ...BUSY, ...LABELLED, ...LEDGER_LOCKS].map((C) => C.name).concat(NOT_REFUSALS));
 // A subclass is covered through its parent: these are named here only so the scan below can see them.
@@ -40,6 +41,7 @@ describe('the bulk accept refusal list covers the allocation path', () => {
     expect(refusalReason(new InactiveAccountError([{ code: '6000', name: 'Fuel' }]))).toMatch(/Fuel|6000/);
     expect(refusalReason(new ClosedFiscalPeriodError('closed'))).not.toBe(GENERIC_REFUSAL);
     expect(refusalReason(new FiscalPeriodNotGeneratedError('2026-08-31', null, false))).not.toBe(GENERIC_REFUSAL);
+    expect(refusalReason(new JournalDateRefusedError('the date is outside the ledger window'))).toMatch(/outside the ledger window/);
     expect(refusalReason(new TypeError('boom'))).toBe(GENERIC_REFUSAL);
   });
 });
