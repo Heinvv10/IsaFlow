@@ -18,13 +18,26 @@ const BOX = 'min-h-[200px] rounded-lg border border-[var(--ff-border-light)] bg-
 // 🟢 WORKING: ZAR currency formatter (2 decimal places for reconciliation context)
 const fmt = (amount: number): string => formatMoney(amount);
 
+/**
+ * Where a closing balance came from when nothing checked it (bank_import_batches.balance_source, migration 998):
+ * shown under the balance, and the Difference is marked "not checked" — a row the PDF read dropped, if it is also
+ * missing from the ledger, would otherwise show as a zero Difference.
+ */
+const UNCHECKED_SOURCE_CAVEAT: Record<string, string> = {
+  pdf_read: "From the PDF's running balance (not checked against a printed closing)",
+  ai_read: 'Read from the PDF by AI (not checked against the file)',
+};
+
 interface ImportBatch {
   id: string;
   statementDate: string;
   bankFormat: string | null;
   openingBalance: number | null;
   closingBalance: number | null;
-  transactionCount: number;
+  /** printed / running_balance / pdf_read / ai_read / not_in_file / unverified; null before migration 998. */
+  balanceSource: string | null;
+  /** Lines on this statement now (live: an undo or delete takes them off). */
+  transactionsRemaining: number;
   createdAt: string;
 }
 
@@ -105,7 +118,9 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
       ? batch.closingBalance - glBalance
       : null;
 
-  const isReconciled = difference !== null && Math.abs(difference) < 0.01;
+  const caveat = batch.balanceSource ? UNCHECKED_SOURCE_CAVEAT[batch.balanceSource] : undefined;
+  // An unchecked balance is never shown as reconciled, even at a zero Difference.
+  const isReconciled = !caveat && difference !== null && Math.abs(difference) < 0.01;
 
   // Format the import date for display
   const importedOn = formatDisplayDate(batch.createdAt);
@@ -141,6 +156,11 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
             {batch.closingBalance !== null ? fmt(batch.closingBalance) : '—'}
           </span>
         </div>
+        {caveat && batch.closingBalance !== null && (
+          <p data-testid="statement-balance-caveat" className="px-4 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+            {caveat}
+          </p>
+        )}
 
         {/* GL Balance */}
         {glBalance !== undefined && (
@@ -158,12 +178,12 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
             <span className="flex items-center gap-1.5 text-xs text-[var(--ff-text-tertiary)]">
               {isReconciled
                 ? <CheckCircle2 className="h-3.5 w-3.5 text-teal-500" />
-                : <AlertCircle className="h-3.5 w-3.5 text-amber-400" />}
-              Difference
+                : <AlertCircle className="h-3.5 w-3.5 text-amber-700 dark:text-amber-400" />}
+              {caveat ? 'Difference (not checked)' : 'Difference'}
             </span>
             <span
               className={`tabular-nums text-sm font-semibold ${
-                isReconciled ? 'text-teal-500' : 'text-amber-400'
+                isReconciled ? 'text-teal-500' : 'text-amber-700 dark:text-amber-400'
               }`}
             >
               {isReconciled ? fmt(0) : fmt(difference)}
@@ -180,7 +200,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
         </span>
         <span className="flex items-center gap-1">
           <Hash className="h-3 w-3" />
-          {batch.transactionCount} transactions
+          {batch.transactionsRemaining} transactions
         </span>
         <span className="ml-auto">Imported {importedOn}</span>
       </div>

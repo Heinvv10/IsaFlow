@@ -67,7 +67,7 @@ vi.mock('@/modules/accounting/services/packs/pages/packMatters', () => ({
   // module without them left both sheets unable to name a single check.
   SOURCES: [
     { label: 'aged debtors', check: 'aged debtor concentration' },
-    { label: 'unreconciled bank items', check: 'unreconciled bank items' },
+    { label: 'unallocated bank items', check: 'unallocated bank items' },
     { label: 'unusual journals', check: 'unusual journals' },
     { label: 'overdue statutory filings', check: 'overdue statutory filings' },
   ],
