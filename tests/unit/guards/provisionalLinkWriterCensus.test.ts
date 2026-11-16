@@ -43,7 +43,7 @@ const CLASSIFICATION: Record<string, { why: string; lines: string[] }> = {
     why: 'unlink only (= NULL); the other two lines read the column',
     lines: [
       'if (tx.matched_journal_line_id && tx.provisional_je_id) {',
-      "SET status = 'imported', provisional_je_id = NULL, updated_at = NOW()",
+      "SET status = 'imported', provisional_je_id = NULL, auto_post_run_id = NULL, auto_post_journal_id = NULL, updated_at = NOW()",
       'SELECT id, status, matched_journal_line_id, provisional_je_id, reconciliation_id',
     ],
   },
