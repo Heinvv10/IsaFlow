@@ -27,6 +27,7 @@ import { Modal } from '@/components/ui/Modal';
 import { apiJson, apiErrorMessage, ApiRequestError } from '@/lib/apiFetch';
 import type { ResponseFor } from '@/lib/apiRoutes';
 import { formatCurrency } from '@/utils/formatters';
+import { PreValidationRunWarnings } from './preValidation/PreValidationRunWarnings';
 
 type Preview = ResponseFor<'/api/payroll/runs/{}/journal-plan'>;
 export type ApproveResult = ResponseFor<'/api/payroll/runs/{}/approve'>;
@@ -183,6 +184,7 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
                   : 'They do not block approval.'}
               </p>
             )}
+            {!posted && <PreValidationRunWarnings runId={runId} />}
             {blocker && (
               <p className="flex gap-2 text-red-600 dark:text-red-400"><AlertCircle className="h-4 w-4 shrink-0" />{blocker.detail}</p>
             )}

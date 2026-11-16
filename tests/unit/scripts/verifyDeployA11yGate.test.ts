@@ -79,6 +79,10 @@ describe('verify-deploy.sh and the a11y gate', () => {
       .split('\n').filter(Boolean).map((f) => path.relative(GOLDEN_DIR, f).replace('.spec.ts', ''));
     expect(EXCLUDED.length).toBeGreaterThan(0);
     expect([...EXCLUDED].sort()).toEqual(marked.map((f) => f.replace('.spec.ts', '')).sort());
+    // The anchor the set-equality above cannot give: a spec that loses its marker shrinks both sides, and would then run in
+    // the production post-deploy verify. A FLOOR, not a pin: raise it when a PR adds a dev-only golden (42 = master's 41
+    // + wave 6 PV's z29), never lower it; a new spec needs no edit here.
+    expect(EXCLUDED.length).toBeGreaterThanOrEqual(42);
     expect(tests.filter((l) => EXCLUDED.some((n) => l.includes(`${n}.spec.ts`)))).toEqual([]);
     expect(tests.length).toBeGreaterThanOrEqual(10); // one file left out, not the suite
     for (const p of PREFIX) expect(tests.some((l) => l.includes(p))).toBe(true);
