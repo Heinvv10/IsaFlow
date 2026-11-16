@@ -12,7 +12,8 @@
  *          this to 'receivable'; Accrued Expenses is used because no dedicated
  *          "VAT Payable / VAT Receivable" system account exists in the default
  *          IsaFlow chart of accounts.
- *   3. Writing a vat_returns row for idempotency and audit.
+ *   3. Writing a vat_returns row for idempotency and audit, linked to the VAT201 version it settles
+ *      (return_version_id). A period without a finalised or filed version is refused first (409).
  *
  * Clearing-journal DATE (V-05):
  *   The clearing entry is dated the FIRST DAY OF THE FOLLOWING PERIOD, never
@@ -46,6 +47,7 @@ import type { JournalLineInput } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertClearingDateHasFiscalPeriod, nextDayISO, resolveNetVatAccount } from './vatSubmissionSupport';
 import { mapRow, type VATReturnRecord, type VATSubmitInput } from './vatReturnsList';
+import { requireVatVersionForSettlement } from '../returns/vatSettlementVersion';
 
 export { nextDayISO } from './vatSubmissionSupport';
 export { listVATReturns, type ListVATReturnsOptions, type VATReturnRecord, type VATSubmitInput } from './vatReturnsList';
@@ -69,6 +71,10 @@ export async function submitVATReturn(
   // Resolved up front: an unparseable periodEnd must refuse BEFORE any write,
   // not after the journal is posted.
   const clearingDate = nextDayISO(periodEnd);
+
+  // 0. The lifecycle is the record of the VAT201 (§0a.12): a settlement needs a finalised or filed version for
+  //    exactly this period, 409 otherwise. A read, before every other read and every write.
+  const version = await requireVatVersionForSettlement(companyId, periodStart, periodEnd);
 
   // 1. Idempotency guard
   const existing = (await sql`
@@ -181,7 +187,7 @@ export async function submitVATReturn(
     INSERT INTO vat_returns (
       company_id, period_start, period_end, status,
       total_output_tax, total_input_tax, net_vat,
-      sars_reference, submitted_by, journal_entry_id
+      sars_reference, submitted_by, journal_entry_id, return_version_id
     ) VALUES (
       ${companyId}::UUID,
       ${periodStart}::DATE,
@@ -192,7 +198,8 @@ export async function submitVATReturn(
       ${absNetVat},
       ${sarsReference ?? null},
       ${safeUserId}::UUID,
-      ${journalEntryId}::UUID
+      ${journalEntryId}::UUID,
+      ${version.id}::UUID
     )
     RETURNING *
   `) as Row[];

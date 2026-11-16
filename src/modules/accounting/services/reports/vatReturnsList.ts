@@ -26,6 +26,8 @@ export interface VATReturnRecord {
   submittedAt: string;
   submittedBy?: string;
   journalEntryId?: string;
+  /** The VAT201 version this settlement was posted against; absent for one settled before the lifecycle. */
+  returnVersionId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -50,6 +52,7 @@ export function mapRow(row: Row): VATReturnRecord {
     submittedAt:    String(row.submitted_at),
     submittedBy:    row.submitted_by ? String(row.submitted_by) : undefined,
     journalEntryId: row.journal_entry_id ? String(row.journal_entry_id) : undefined,
+    returnVersionId: row.return_version_id ? String(row.return_version_id) : undefined,
     createdAt:      String(row.created_at),
     updatedAt:      String(row.updated_at),
   };

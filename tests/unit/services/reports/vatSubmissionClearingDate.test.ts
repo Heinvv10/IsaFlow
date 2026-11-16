@@ -22,6 +22,11 @@ vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
   assertNotImpersonating: async () => undefined,
 }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+// VR: the finalised-version requirement is its own module (vatSubmissionRequiresVersion.test.ts covers it); a
+// version exists here so these cases stay on the journal DATE they are about.
+vi.mock('@/modules/accounting/services/returns/vatSettlementVersion', () => ({
+  requireVatVersionForSettlement: vi.fn().mockResolvedValue({ id: 'v-1', versionNo: 1, status: 'finalised' }),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));

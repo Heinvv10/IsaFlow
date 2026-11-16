@@ -8,7 +8,8 @@
  *   Body: { periodStart: string; periodEnd: string; sarsReference?: string }
  *   → submitVATReturn — computes VAT, posts clearing journal, records submission.
  *
- * Idempotent: POSTing the same period twice returns 400.
+ * Idempotent: POSTing the same period twice returns 400. A period with no finalised or filed
+ * VAT201 version (the return lifecycle) is 409 before anything is written.
  */
 
 import type { NextApiResponse } from 'next';
@@ -28,6 +29,8 @@ import {
   listVATReturns,
 } from '@/modules/accounting/services/reports/vatSubmissionService';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { ReturnRefusal } from '@/modules/accounting/services/returns/returnVersionTypes';
+import { respondReturnRefusal } from '@/modules/accounting/services/returns/respondRefusal';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -65,6 +68,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     } catch (err) {
       if (respondIfLockTimeout(res, err)) return;
       if (respondIfImpersonationForbidden(res, err)) return;
+      if (err instanceof ReturnRefusal) return respondReturnRefusal(res, err); // 409: finalise the VAT201 first
       log.error('VAT return submission failed', { error: err, companyId }, 'accounting-api');
       return apiResponse.badRequestFromError(res, err, 'VAT submission failed');
     }
