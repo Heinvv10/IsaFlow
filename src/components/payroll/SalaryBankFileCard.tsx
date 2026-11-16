@@ -11,7 +11,7 @@ import { todayInSast } from '@/lib/saDateParser';
 import { formatCurrency } from '@/utils/formatters';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { DateField } from '@/components/ui/DateField';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Modal } from '@/components/ui/Modal';
 import type { PayrollBankFile, RunBankFileState } from '@/modules/accounting/services/payroll/payrollBankFileStatus';
 
 const LOAD_FAILED = 'Could not load the salary bank file - try again';
@@ -115,7 +115,7 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
           {state.files.map((f) => (
             <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
               <span className="text-[var(--ff-text-primary)]">Action date {formatDisplayDate(f.actionDate)}</span>
-              <span className="tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(f.totalCents / 100)} · {f.lineCount} payments</span>
+              <span className="tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(f.totalCents / 100)} · {f.lineCount} {f.lineCount === 1 ? 'payment' : 'payments'}</span>
               <span className="text-xs text-[var(--ff-text-secondary)]">{statusLabel(f)}</span>
               {canManage && f.status === 'generated' && (
                 <span className="flex gap-2">
@@ -147,14 +147,22 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
           {warnings.map((w) => <li key={w}>{w}</li>)}
         </ul>
       )}
-      <ConfirmDialog open={pending !== null} loading={busy}
-        title={pending?.action === 'confirm' ? 'Record that the bank accepted this file?' : 'Void this bank file?'}
-        message={pending?.action === 'confirm'
-          ? 'Only do this once the bank shows the salaries as accepted. The run is then shown as paid by the bank, and no second file can be made for it.'
-          : 'Void it only if it was never uploaded to the bank. A new file can then be generated.'}
-        acceptLabel={pending?.action === 'confirm' ? 'Bank accepted it' : 'Void file'}
-        tone={pending?.action === 'void' ? 'destructive' : 'default'}
-        onAccept={() => void settle()} onCancel={() => setPending(null)} />
+      <Modal open={pending !== null} onClose={() => setPending(null)} size="sm"
+        title={pending?.action === 'confirm' ? 'Record that the bank accepted this file?' : 'Void this bank file?'}>
+        <Modal.Body className="text-sm text-[var(--ff-text-secondary)]">
+          {pending?.action === 'confirm'
+            ? 'Only do this once the bank shows the salaries as accepted. The run is then shown as paid by the bank, and no second file can be made for it.'
+            : 'Void it only if it was never uploaded to the bank. A new file can then be generated.'}
+        </Modal.Body>
+        <Modal.Footer>
+          <button type="button" disabled={busy} onClick={() => setPending(null)}
+            className={`${BTN} border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]`}>Cancel</button>
+          <button type="button" disabled={busy} onClick={() => void settle()}
+            className={`${BTN} text-white ${pending?.action === 'void' ? 'bg-red-700 hover:bg-red-800' : 'bg-success-700 hover:bg-success-800'}`}>
+            {pending?.action === 'confirm' ? 'Bank accepted it' : 'Void file'}
+          </button>
+        </Modal.Footer>
+      </Modal>
     </section>
   );
 }

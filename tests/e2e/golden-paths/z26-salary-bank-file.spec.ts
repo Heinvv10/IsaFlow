@@ -114,10 +114,11 @@ test('switch off: the real POST is refused FEATURE_DISABLED and the card says so
   const { api, runId } = await sandbox(context, baseURL!);
   try {
     test.skip(runId === null, NEEDS_APPROVER);
-    const res = await page.context().request.post(`/api/payroll/runs/${runId}/bank-file`, { data: { actionDate: '2099-01-15' }, failOnStatusCode: false });
-    expect(res.status()).toBe(403);
-    expect(res.headers()['cache-control']).toBe('no-store');
-    expect(JSON.stringify(await res.json())).toContain('FEATURE_DISABLED');
+    const refused = await api.postRaw(`/api/payroll/runs/${runId}/bank-file`, { actionDate: '2099-01-15' });
+    expect([refused.status, refused.json?.error?.details?.reason]).toEqual([403, 'FEATURE_DISABLED']);
+    const state = await page.context().request.get(`/api/payroll/runs/${runId}/bank-file`);
+    expect(state.headers()['cache-control']).toBe('no-store');
+    expect((await state.json()).data).toMatchObject({ enabled: false, files: [] });
     await openRun(page, runId!);
     await expect(page.getByText(/Salary bank files are not switched on yet/)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Generate bank file' })).toHaveCount(0);
