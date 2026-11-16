@@ -18,6 +18,7 @@ import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { assertPostedForAllocation } from './bankFeedStateGuard';
 import { assertBankLineMayPostToAccounts } from './bankLineJournalGate';
 import { assertImporterMayAllocate } from './bankLineImporterGate';
+import { assertAllocationInputUsable } from './bankAllocationInputGuard';
 import { planSplitDimensions } from './bankSplitDimensions';
 import { planSplitContacts, recordSplitContactDocuments, type SplitContactDocument } from './bankSplitContacts';
 import { buildSplitJournalLines, splitParts } from './bankSplitJournal';
@@ -99,6 +100,8 @@ export async function splitAllocateTransaction(
   // Reads only: refusals (dimensions on a control account, COS with no project where required) precede every write.
   // GL-account lines only: a contact line is a settlement and carries no dimensions.
   const dimensionPlan = await planSplitDimensions(companyId, bankAccountId, accountLines.map(({ line }) => line));
+  // Foreign / unknown accounts and unusable cost centres: refused here, typed, not by createJournalEntry's plain Errors.
+  await assertAllocationInputUsable(companyId, accountLines.map(({ line }) => line.contraAccountId), dimensionPlan.dims);
   const journalLines = await buildSplitJournalLines({
     companyId, parts, isSpent, entryDesc, bankAccountId, totalAmount,
     dimsByIndex: new Map(accountLines.map(({ index }, k) => [index, dimensionPlan.dims[k]])),
