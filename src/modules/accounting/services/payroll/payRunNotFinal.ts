@@ -43,7 +43,7 @@ export async function listNotFinalDeclaredRuns(
 }
 
 /** One sentence per run, naming the month, why it is left out, and the fix. */
-export function notFinalRunWarning(run: NotFinalRun, form: 'EMP201' | 'IRP5'): string {
+export function notFinalRunWarning(run: NotFinalRun, form: 'EMP201' | 'IRP5' | 'UI-19'): string {
   return `The ${run.status} pay run for ${run.month} has no approval time (approved_at or grandfathered), so it is not `
     + `final and is not on this ${form}. Reopen it and approve it again.`;
 }

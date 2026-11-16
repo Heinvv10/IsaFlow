@@ -8,6 +8,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { contractorLineFlag } from './payrollOutsideTables';
 import { payRunFinalSql } from './payRunFinalSql';
+import { listNotFinalDeclaredRuns, notFinalRunWarning } from './payRunNotFinal';
 import {
   componentIdsToResolve,
   loadComponentTypes,
@@ -37,6 +38,8 @@ export interface UifDeclaration {
   paymentDate: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Approved/paid runs of the month left out because they are not final (wave 6 EF), by name; set by generate and get. */
+  runWarnings?: string[];
 }
 
 export interface UifPaymentResult {
@@ -110,6 +113,12 @@ export async function listUifDeclarations(
   return rows.map(mapUifDeclaration);
 }
 
+/** The month's approved/paid runs that are not final, named as the EMP201 and IRP5 name them (wave 6 EF). */
+async function uifRunWarnings(companyId: string, year: number, month: number): Promise<string[]> {
+  const first = `${year}-${String(month).padStart(2, '0')}-01`;
+  return (await listNotFinalDeclaredRuns(companyId, first, first)).map((r) => notFinalRunWarning(r, 'UI-19'));
+}
+
 export async function getUifDeclaration(
   companyId: string,
   id: string,
@@ -173,7 +182,7 @@ export async function getUifDeclaration(
     };
   });
 
-  return { ...decl, lines };
+  return { ...decl, lines, runWarnings: await uifRunWarnings(companyId, decl.periodYear, decl.periodMonth) };
 }
 
 export async function generateUifDeclaration(
@@ -245,7 +254,7 @@ export async function generateUifDeclaration(
     'uifDeclarationService',
   );
 
-  return mapUifDeclaration(upsertRows[0]);
+  return { ...mapUifDeclaration(upsertRows[0]), runWarnings: await uifRunWarnings(companyId, year, month) };
 }
 
 export async function markUifSubmitted(
