@@ -125,7 +125,7 @@ export async function reverseDocumentChainLine(
     let result: BankAllocationUnwindResult;
     let reversal: Awaited<ReturnType<typeof reverseJournalEntry>> | null;
     if (chain.doc.batchId) {
-      const b = await reverseBatchWithLeg(companyId, chain.doc.batchId, userId, chain.rootId, leg, opts);
+      const b = await reverseBatchWithLeg(companyId, chain.doc.batchId, userId, chain.rootId, leg, { ...opts, bankLinesHandled: true });
       result = { invoicesReopened: b.billsReopened, amountUnapplied: b.amountUnapplied, paymentsCancelled: b.membersCancelled };
       reversal = b.reversal;
     } else {

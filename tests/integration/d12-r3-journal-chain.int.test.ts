@@ -140,8 +140,10 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     expect(out.status, out.body).toBe(503);
     expect(out.retryAfter).toBe('2');
     expect(await reversedAt(p.je)).toBeNull();
+    // The retry is judged afresh: the line now matched to the journal refuses it (400, bank/liveBankLineReversal, 2026-11-16).
     const retry = await reverse(p.je);
-    expect(retry.status, retry.body).toBe(200);
+    expect(retry.status, retry.body).toBe(400);
+    expect(retry.body).toMatch(/still matched to it/);
   }, 60000);
 
   it('R2-4 the migration wizard re-run reversing a take-on journal a completed reconciliation holds -> 409, nothing written', async () => {

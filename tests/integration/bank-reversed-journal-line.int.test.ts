@@ -145,3 +145,38 @@ describe('only a reversal that takes the line\'s cash OUT is refused', () => {
     expect(await lineStatus(pool, f.line)).toBe('allocated');
   });
 });
+
+describe('WP2 row 10: the bank Reverse of one leg of an auto-linked transfer resets BOTH legs', () => {
+  async function linkedTransfer() {
+    const f = await bankCompany(pool, [[a, 'admin']], companies);
+    const out = await plantLine(pool, f, await plantBatch(pool, f, a), -640);
+    const inn = (await pool.query(`INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description, status)
+      VALUES ($1, $2, DATE '2026-09-01', 640, 'BC line in', 'imported') RETURNING id`, [f.c, f.bank2])).rows[0].id as string;
+    const res = await act(a, f.c, { action: 'allocate', bankTransactionId: out, allocationType: 'transfer', contraAccountId: f.bank2 });
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    const je = (await pool.query('SELECT transfer_journal_entry_id AS j FROM bank_transactions WHERE id = $1', [out])).rows[0].j as string;
+    expect(await lineStatus(pool, inn), 'the counterpart was auto-linked').toBe('allocated');
+    return { ...f, out, inn, je };
+  }
+  const reversalsOf = async (je: string) => (await pool.query(
+    "SELECT count(*)::INT AS n FROM gl_journal_entries WHERE reversal_of_id = $1 AND status = 'posted'", [je])).rows[0].n as number;
+
+  it('reversing either leg reverses the journal once and frees both lines', async () => {
+    for (const side of ['out', 'inn'] as const) {
+      const t = await linkedTransfer();
+      expect((await act(a, t.c, { action: 'reverse', bankTransactionId: t[side] })).state.statusCode).toBe(200);
+      expect({ out: await lineStatus(pool, t.out), inn: await lineStatus(pool, t.inn), reversals: await reversalsOf(t.je) })
+        .toEqual({ out: 'imported', inn: 'imported', reversals: 1 });
+    }
+  });
+
+  it('a counterpart a reconciliation holds refuses the reverse before any write', async () => {
+    const t = await linkedTransfer();
+    await pool.query("UPDATE bank_transactions SET status = 'reconciled' WHERE id = $1", [t.inn]); // Sage-reconciled: no session
+    const res = await act(a, t.c, { action: 'reverse', bankTransactionId: t.out });
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
+    expect(refusalOf(res).message).toMatch(/^The other bank's line of this transfer was reconciled in the Sage import/);
+    expect({ out: await lineStatus(pool, t.out), inn: await lineStatus(pool, t.inn), reversals: await reversalsOf(t.je) })
+      .toEqual({ out: 'allocated', inn: 'reconciled', reversals: 0 });
+  });
+});

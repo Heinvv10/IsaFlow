@@ -210,15 +210,16 @@ describeIfDb('a transfer pointer left behind by an unmatch is not evidence', () 
     expect(await glMovement(bankA, '2027-01-01', '2027-01-08')).toBe(-1500);
   }, 60000);
 
-  // brk-nrfa round 6 L1: once both legs of a statement transfer are reversed from the bank, the movement can be
-  // allocated again — a reversed journal holds nothing, and a dead line pairs nothing.
+  // brk-nrfa round 6 L1: once a statement transfer is reversed from the bank, the movement can be allocated again — a
+  // reversed journal holds nothing, and a dead line pairs nothing. WP2 row 10 (2026-11-16): reversing ONE leg resets
+  // BOTH (it used to leave the auto-linked leg allocated to the reversed journal until it was reversed too).
   it('both legs of a reversed transfer can be allocated again', async () => {
     const aLine = await bankLine(bankA, '2027-02-22', -2300, 'H2b OUT');
     const bLine = await bankLine(bankB, '2027-02-22', 2300, 'H2b IN');
     expect((await allocTransfer(aLine, bankB)).statusCode).toBe(200);
-    for (const id of [aLine, bLine]) {
-      expect((await callRoute(c.fx, token, bankTxAction, { action: 'reverse', bankTransactionId: id })).statusCode).toBe(200);
-    }
+    expect((await lineState(bLine))!.status).toBe('allocated');
+    expect((await callRoute(c.fx, token, bankTxAction, { action: 'reverse', bankTransactionId: aLine })).statusCode).toBe(200);
+    expect({ a: (await lineState(aLine))!.status, b: (await lineState(bLine))!.status }).toEqual({ a: 'imported', b: 'imported' });
     expect(await glMovement(bankB, '2027-02-20', '2027-02-28')).toBe(0);
     const again = await allocTransfer(aLine, bankB);
     expect(again.statusCode, JSON.stringify(again.body)).toBe(200);

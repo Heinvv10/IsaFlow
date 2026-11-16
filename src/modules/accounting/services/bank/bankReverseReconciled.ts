@@ -16,6 +16,7 @@ import { underFlowLockBudget } from '../core/rowLockBudget';
 import { refuseResettingProvisionalLine } from './provisionalLineGuard';
 import { isoDay, lockChainLines, peekLineChain, refuseStaleUndo, resetBankLine, reverseDocumentChainLine } from './bankChainLineReversal';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
+import { lockOtherLegs, takeOtherLegs } from './transferLegReset';
 import { assertMayReverse, auditedReversal } from './bankReversalGate';
 import { postingRefOf, recordAutoPostUndone } from './codingDecisionLog';
 
@@ -43,6 +44,8 @@ async function reverseReconciledInner(
   const chain = await peekLineChain(companyId, bankTxId);
   const undoing = opts?.expectedJournalEntryId;
   const chainLines = chain && (chain.doc || undoing) ? await lockChainLines(companyId, chain) : [];
+  // WP2 row 10: the other live legs of a plain journal (a transfer's auto-linked counterpart), locked WITH this line.
+  const legRows = await lockOtherLegs(companyId, bankTxId, chain, Boolean(undoing));
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
   if (!tx) throw new Error('Transaction not found');
   // D10 O9 (with R-127's settled case): a provisional's own line is refused while its journal stands; one whose
@@ -63,6 +66,7 @@ async function reverseReconciledInner(
   // changed a completed reconciliation's figures with the reconciliation still
   // reading "completed". Before any write, so every caller answers it 400.
   refuseLockedCash(await reconciliationLockOf(companyId, tx), 'This bank line');
+  const otherLegs = await takeOtherLegs(companyId, bankTxId, chain, legRows, Boolean(undoing)); // pre-write; reset below
   const clearance = await assertMayReverse(companyId, tx, chain?.rootId ?? null, userId); // step 2: pre-write; audited after
   // Learning loop: the line's posting before the reversal, so only an auto-post that IS that posting is undone.
   const postingBefore = postingRefOf(tx);
@@ -73,7 +77,7 @@ async function reverseReconciledInner(
     return docResult;
   }
   // A plain journal: its chain decided from the root (D10), so a line on a middle or head reversal reverses the head
-  // exactly when the chain stands. Its other lines stay as they are (a transfer's second leg: not D10).
+  // exactly when the chain stands. Its other live lines (a transfer's second leg) are reset with it (WP2 row 10).
   const journalEntryId = chain?.rootId ?? null;
   const reverseId = journalEntryId ? await peekReversalTarget(companyId, journalEntryId) : null; // locked after the unwind
   if (reverseId) await assertReversalDatePostable(companyId, reverseId, opts?.reversalDate); // read-only, pre-write
@@ -128,6 +132,7 @@ async function reverseReconciledInner(
     // log the inconsistency; the savepoint then takes the reversal back with it.
     try {
       await resetBankLine(companyId, bankTxId, deadProvisional);
+      for (const leg of otherLegs) await resetBankLine(companyId, leg, false); // WP2 row 10: both legs, one savepoint
     } catch (resetErr) {
       log.error('Bank transaction reset failed after GL reversal — rolling the reversal back',
         { bankTxId, journalEntryId, error: resetErr }, 'accounting');
