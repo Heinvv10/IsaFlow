@@ -111,7 +111,7 @@ export async function lockJournalCashForGlReversal(companyId: string, journalEnt
   }
   // Enforcement off: a line still allocated / matched to this journal is refused all the same (400), on the locked
   // set, so the dry run agrees; reverseJournalEntry asks again under its claim (liveBankLineReversal).
-  await refuseLiveBankLines(companyId, journalEntryId, lines);
+  await refuseLiveBankLines(companyId, journalEntryId, lines, true);
   return locked;
 }
 

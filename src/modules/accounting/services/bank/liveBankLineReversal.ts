@@ -7,9 +7,11 @@
  * bank line's own undo (Banking → the line → Undo / Reverse) reverses the journal AND resets the line in one act, so
  * every other path refuses — before the reversal writes its contra (under the claim, which it releases).
  *
- * A COMPLETED reconciliation's line is D12's 409 first (`refuseReversingCompletedCash`). A provisional's own line
- * (`provisional_je_id`, D10) is not this rule's: a provisional reversed in the GL is the "dead provisional" state D10
- * frees on the line's undo.
+ * A COMPLETED reconciliation's line is D12's 409 first (`refuseReversingCompletedCash`). A `reconciled` line otherwise
+ * (the Sage import's, no reconciliation; or the anomaly on an unfinished one) is NOT refused here: the bank Reverse
+ * refuses those for good ("correct it with a journal", reconciledCash), so sending the person there was a dead end —
+ * D12's "keep today's behaviour" (#1518 review). A provisional's own line (`provisional_je_id`, D10) is not this
+ * rule's: a provisional reversed in the GL is the "dead provisional" state D10 frees on the line's undo.
  */
 import { fmtDate } from '@/lib/fmtDate';
 import { formatMoney } from '@/lib/money/formatMoney';
@@ -30,7 +32,10 @@ export function isJournalHasLiveBankLine(err: unknown): err is JournalHasLiveBan
   return err instanceof Error && (err as { code?: unknown }).code === 'JOURNAL_HAS_LIVE_BANK_LINE';
 }
 
-const LIVE = new Set(['allocated', 'matched', 'reconciled']);
+/** The statuses the GL refusal judges (see the header: a reconciled line is D12's or the Sage import's). */
+const REFUSED = ['allocated', 'matched'] as const;
+/** Every status a line booking cash has — the bank Reverse's other legs (transferLegReset), reconciled ones refused there. */
+export const LIVE_STATUSES = ['allocated', 'matched', 'reconciled'] as const;
 
 /**
  * The live statement lines (allocated / matched / reconciled, a matched line, not a provisional's own) whose movement
@@ -38,11 +43,17 @@ const LIVE = new Set(['allocated', 'matched', 'reconciled']);
  * (a re-reversal books the original's direction again). One matched an ODD number of steps up (the original under a
  * legacy hand reversal, re-reversed now) gets its cash BACK. `among`: only these ids. Ascending id.
  */
-export async function liveLinesLosingCash(companyId: string, headId: string, among?: readonly string[]): Promise<string[]> {
+export async function liveLinesLosingCash(
+  companyId: string, headId: string, among?: readonly string[], statuses: readonly string[] = LIVE_STATUSES,
+  /** Nothing when `headId` is already reversed — the GL entrance's case (under the claim the head is stamped already). */
+  skipReversedHead = false,
+): Promise<string[]> {
   return ((await sql`
     WITH RECURSIVE up AS (
       SELECT id, reversal_of_id, 0 AS dist, ARRAY[id] AS path
+      -- At the entrance an entry already reversed is not this rule's: reverseJournalEntry answers "already reversed".
       FROM gl_journal_entries WHERE id = ${headId}::UUID AND company_id = ${companyId}::UUID
+        AND (NOT ${skipReversedHead}::BOOLEAN OR reversed_at IS NULL)
       UNION ALL
       SELECT p.id, p.reversal_of_id, up.dist + 1, up.path || p.id
       FROM gl_journal_entries p JOIN up ON p.id = up.reversal_of_id
@@ -53,7 +64,7 @@ export async function liveLinesLosingCash(companyId: string, headId: string, amo
     JOIN gl_journal_lines jl ON jl.id = bt.matched_journal_line_id AND jl.company_id = bt.company_id
     JOIN up ON up.id = jl.journal_entry_id
     WHERE bt.company_id = ${companyId}::UUID AND up.dist % 2 = 0
-      AND bt.status IN ('allocated', 'matched', 'reconciled') AND bt.provisional_je_id IS NULL
+      AND bt.status = ANY(${[...statuses]}::TEXT[]) AND bt.provisional_je_id IS NULL
       AND (${among === undefined}::BOOLEAN OR bt.id = ANY(${[...(among ?? [])]}::UUID[]))
     ORDER BY 1`) as DbRow[]).map((r) => String(r.id));
 }
@@ -64,10 +75,15 @@ export async function liveLinesLosingCash(companyId: string, headId: string, amo
  * being reversed — the chain's head (an already-reversed entry is refused before any write). A reversal that gives a
  * line its cash back repairs it, and passes.
  */
-export async function refuseLiveBankLines(companyId: string, journalEntryId: string, rows: readonly DbRow[]): Promise<void> {
-  const live = rows.filter((r) => r.matched_journal_line_id && !r.provisional_je_id && LIVE.has(String(r.status)));
+export async function refuseLiveBankLines(
+  companyId: string, journalEntryId: string, rows: readonly DbRow[],
+  /** The GL entrance (before the claim): an already-reversed entry is left to reverseJournalEntry's own answer. */
+  atEntrance = false,
+): Promise<void> {
+  const live = rows.filter((r) => r.matched_journal_line_id && !r.provisional_je_id
+    && (REFUSED as readonly string[]).includes(String(r.status)));
   if (live.length === 0) return;
-  const takenOut = new Set(await liveLinesLosingCash(companyId, journalEntryId, live.map((r) => String(r.id))));
+  const takenOut = new Set(await liveLinesLosingCash(companyId, journalEntryId, live.map((r) => String(r.id)), REFUSED, atEntrance));
   const first = live.filter((r) => takenOut.has(String(r.id))).sort((a, b) => String(a.id) < String(b.id) ? -1 : 1)[0];
   if (!first) return;
   const label = `${fmtDate(first.transaction_date)} ${formatMoney(Number(first.amount))}`

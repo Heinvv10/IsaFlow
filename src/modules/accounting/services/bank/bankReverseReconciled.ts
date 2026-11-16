@@ -68,6 +68,9 @@ async function reverseReconciledInner(
   refuseLockedCash(await reconciliationLockOf(companyId, tx), 'This bank line');
   const otherLegs = await takeOtherLegs(companyId, bankTxId, chain, legRows, Boolean(undoing)); // pre-write; reset below
   const clearance = await assertMayReverse(companyId, tx, chain?.rootId ?? null, userId); // step 2: pre-write; audited after
+  // WP2 row 10: each other leg is reversed by this act too, so the same step-2 judgment applies to it, pre-write.
+  const legClearances = [];
+  for (const leg of otherLegs) legClearances.push({ leg, clearance: await assertMayReverse(companyId, leg, chain?.rootId ?? null, userId) });
   // Learning loop: the line's posting before the reversal, so only an auto-post that IS that posting is undone.
   const postingBefore = postingRefOf(tx);
   if (chain?.doc) {
@@ -132,7 +135,7 @@ async function reverseReconciledInner(
     // log the inconsistency; the savepoint then takes the reversal back with it.
     try {
       await resetBankLine(companyId, bankTxId, deadProvisional);
-      for (const leg of otherLegs) await resetBankLine(companyId, leg, false); // WP2 row 10: both legs, one savepoint
+      for (const leg of otherLegs) await resetBankLine(companyId, String(leg.id), false); // WP2 row 10: both legs, one savepoint
     } catch (resetErr) {
       log.error('Bank transaction reset failed after GL reversal — rolling the reversal back',
         { bankTxId, journalEntryId, error: resetErr }, 'accounting');
@@ -143,6 +146,10 @@ async function reverseReconciledInner(
   log.info('Reversed reconciled bank transaction', { bankTxId, userId }, 'accounting');
   await auditedReversal(companyId, bankTxId, userId, clearance, null);
   await recordAutoPostUndone(companyId, bankTxId, userId, postingBefore); // non-fatal
+  for (const { leg, clearance: legClearance } of legClearances) { // WP2 row 10: the other legs' audit and learning record
+    await auditedReversal(companyId, String(leg.id), userId, legClearance, null);
+    await recordAutoPostUndone(companyId, String(leg.id), userId, postingRefOf(leg));
+  }
   // Reported rather than discarded: `void_receipt` delegates to this function
   // and previously had to answer "0 invoices reopened" for the branch that does
   // the MOST work, because the counts were computed here and thrown away. An

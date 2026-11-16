@@ -41,21 +41,23 @@ export async function lockOtherLegs(
 }
 
 /**
- * Pre-write, once this line and the journal's chain are read under the locks: the legs to reset with this one. A leg
- * that appeared since the peek (not locked) is a retryable refusal; one a reconciliation holds refuses the reverse.
+ * Pre-write, once this line and the journal's chain are read under the locks: the legs (locked rows) to reset with this
+ * one. A leg that appeared since the peek (not locked) is a retryable refusal; one a reconciliation holds refuses the
+ * reverse. The caller judges each leg as it judges its own line (assertMayReverse), and audits and records its undo.
  */
 export async function takeOtherLegs(
   companyId: string, bankTxId: string, chain: LineChain | null, locked: ReadonlyMap<string, DbRow>, undoing: boolean,
-): Promise<string[]> {
+): Promise<DbRow[]> {
   if (undoing) return [];
-  const legs = await otherLegs(companyId, bankTxId, chain);
-  for (const id of legs) {
+  const legs: DbRow[] = [];
+  for (const id of await otherLegs(companyId, bankTxId, chain)) {
     const row = locked.get(id.toLowerCase());
     if (!row) {
       throw new BankAllocationRefusal('Another bank line was matched to this journal while it was being reversed — '
         + 'retry in a moment.', undefined, { retryable: true });
     }
     refuseLockedCash(await reconciliationLockOf(companyId, row), OTHER_LEG);
+    legs.push(row);
   }
   return legs;
 }
