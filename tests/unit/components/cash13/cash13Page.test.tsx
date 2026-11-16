@@ -92,7 +92,7 @@ describe('13 weeks from the engine', () => {
     const sp = (t: string | null) => (t ?? '').replace(/\u00a0/g, ' ');
     const acme = document.querySelector('[data-line="ar:c1"]') as HTMLElement;
     const basis = within(acme).getByTestId('ar-basis');
-    expect(basis.textContent).toContain('due · history');
+    expect(basis.textContent).toMatch(/^due · history: /);
     expect(sp(basis.getAttribute('title'))).toBe('Expected: due R 5 000 · history R 1 200 · no history R 0');
     expect(within(acme).queryByTestId('ar-no-history')).toBeNull();
     const gamma = document.querySelector('[data-line="ar:c3"]') as HTMLElement;
