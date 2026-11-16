@@ -22,6 +22,7 @@ import { getCloseReadiness, type ChecklistItem, type CloseReadiness } from '@/mo
 import {
   assertPeriodCloseReady, assertYearCloseReady, lockTimeoutMs, withPeriodLockBudget,
 } from '@/modules/accounting/services/gl/periodCloseGate';
+import { inPeriodLockBudget } from '@/modules/accounting/services/gl/periodLockBudgetScope';
 import {
   FiscalPeriodLockTimeoutError, PERIOD_CLOSE_NOT_READY, PeriodCloseBlockedError, YearCloseBlockedError,
   closeRefusalDetails, isCloseBlocker,
@@ -176,6 +177,13 @@ describe('withPeriodLockBudget (Q7: bounded, tighten only)', () => {
 
   it('tightens a looser one to 5 s', async () => {
     expect(await run('30s')).toBeLessThanOrEqual(5000);
+  });
+
+  it('F: code run inside it is in the period lock budget scope (so a busy check is rethrown), and only there', async () => {
+    store.client = { query: vi.fn(async () => ({ rows: [{ v: '0' }] })) };
+    expect(inPeriodLockBudget()).toBe(false);
+    expect(await withPeriodLockBudget(async () => inPeriodLockBudget())).toBe(true);
+    expect(inPeriodLockBudget()).toBe(false);
   });
 
   it('3a: the busy message says what may be held: the default, and the caller\'s own', async () => {
