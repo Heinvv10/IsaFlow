@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { Plus, ChevronDown } from 'lucide-react';
+import { Select } from '@/components/ui';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 interface FieldDef {
@@ -66,22 +67,9 @@ export function ReportBuilderSidebar({ selectedSource, selectedFields, onSourceC
     <div className="flex flex-col h-full bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800" style={{ width: 260 }}>
       {/* Data source selector */}
       <div className="p-3 border-b border-gray-200 dark:border-slate-800 bg-gray-50 dark:bg-slate-800/50">
-        <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 block">
-          Data source
-        </label>
-        <div className="relative">
-          <select
-            value={selectedSource}
-            onChange={e => onSourceChange(e.target.value)}
-            className="w-full pl-2 pr-8 py-2 text-sm border border-gray-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500 appearance-none"
-          >
-            <option value="">Select source...</option>
-            {DATA_SOURCES.map(s => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </select>
-          <ChevronDown className="absolute right-2 top-2.5 w-4 h-4 text-gray-600 dark:text-gray-400 pointer-events-none" />
-        </div>
+        <Select label="Data source" labelClassName="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" placeholder="Select source..."
+          options={DATA_SOURCES.map(d => ({ value: d.value, label: d.label }))}
+          value={selectedSource || null} onChange={v => onSourceChange(v ?? '')} />
       </div>
 
       {/* Fields panel */}
