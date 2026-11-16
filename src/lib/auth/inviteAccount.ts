@@ -3,6 +3,21 @@ import { adminCreateUser, findUserByEmail } from './gotrue';
 import { adminListUserFactors, GotrueMfaError, listFactors, type Factor } from './gotrue-mfa';
 import { AuthUpstreamUnavailableError } from './authUpstream';
 
+/**
+ * Is GoTrue account `accountId` an ESTABLISHED IsaFlow login? A `users` row under exactly that id is written only by
+ * tenant provisioning (after email verification) and by an invite accept, so its presence means a password already
+ * exists. An account without one is a placeholder (POST /api/invitations' adminCreateUser, a pending signup): the
+ * anonymous accept sets its password, so whoever holds the invitation link takes it. Judged here once for the accept
+ * (pages/api/invitations/[token]/accept.ts) and for an admin's deleteUser, which counts only an established holder of
+ * the deleted row's address as someone else (deletedUserInvitations.ts). `db` is the caller's connection (a pg client,
+ * or anything with its `query(text, params)` shape).
+ */
+export async function isEstablishedAccount(
+  db: { query(text: string, params: unknown[]): Promise<{ rows: unknown[] }> }, accountId: string,
+): Promise<boolean> {
+  return (await db.query('SELECT id FROM users WHERE id = $1 LIMIT 1', [accountId])).rows.length > 0;
+}
+
 /** The strength floor for a password being SET; the same 10 that register.ts and do-reset-password.ts apply. */
 export const MIN_NEW_PASSWORD_LENGTH = 10;
 

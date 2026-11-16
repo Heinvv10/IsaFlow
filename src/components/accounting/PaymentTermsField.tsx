@@ -6,6 +6,7 @@
  * The value is the form's own two strings (`payment_terms` N, `payment_terms_type`), the shape the contact APIs take.
  */
 import { useState } from 'react';
+import { Select } from '@/components/ui';
 import {
   PAYMENT_TERMS_TYPES, TERMS_NOT_SET, describePaymentTerms, normalisePaymentTermsType, type PaymentTermsType,
 } from '@/modules/accounting/services/shared/paymentTerms';
@@ -61,26 +62,33 @@ export function PaymentTermsField({ days, type, onChange, error: parentError, in
   } else if (!error && mode !== 'choose') {
     summary = describePaymentTerms(days.trim() === '' ? null : Number(days), kind);
   }
+  const options = [
+    { value: 'immediate', label: OPTION_LABEL.immediate },
+    ...PAYMENT_TERMS_TYPES.map((t) => ({ value: t, label: OPTION_LABEL[t] })),
+    ...(allowDefault ? [{ value: 'default', label: `Use company default${defaultWords ? ` (${defaultWords})` : ''}` }] : []),
+  ];
   const showNumber = mode !== 'choose' && mode !== 'immediate' && mode !== 'default';
 
   return (
     <div>
-      <label htmlFor="payment-terms-kind" className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
+      {/* The visible heading sits over the whole row (number box and kind); the Select carries the same text for readers.
+          A click on it goes to the Select (a div trigger is not a labelable element, so htmlFor cannot). */}
+      <span aria-hidden="true" onClick={() => document.getElementById('payment-terms-kind')?.focus()}
+        className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
         Payment Terms<span className="text-red-400 ml-1">*</span>
-      </label>
-      <div className="flex gap-2">
+      </span>
+      {/* The Select comes first in the DOM, so Tab goes from it to the number box once a kind is chosen, and the box sits to its right. */}
+      <div className="flex items-end gap-2">
+        <div className="min-w-0 flex-1">
+          <Select id="payment-terms-kind" label="Payment Terms" required labelClassName="sr-only" placeholder="Choose…"
+            options={options} value={mode === 'choose' ? null : mode} onChange={(v) => { if (v) pick(v as Mode); }} />
+        </div>
         {showNumber && (
           <input
             type="number" min="0" max="999" step="1" aria-label="Number of days or months" value={days}
-            onChange={(e) => onChange(e.target.value, kind)} className={inputClass.replace('w-full', 'w-20 shrink-0')}
+            onChange={(e) => onChange(e.target.value, kind)} className={`${inputClass.replace('w-full', 'w-20 shrink-0')}`}
           />
         )}
-        <select id="payment-terms-kind" value={mode} onChange={(e) => pick(e.target.value as Mode)} className={inputClass.replace('w-full', 'min-w-0 flex-1')}>
-          {mode === 'choose' && <option value="choose">Choose…</option>}
-          <option value="immediate">{OPTION_LABEL.immediate}</option>
-          {PAYMENT_TERMS_TYPES.map((t) => <option key={t} value={t}>{OPTION_LABEL[t]}</option>)}
-          {allowDefault && <option value="default">Use company default{defaultWords ? ` (${defaultWords})` : ''}</option>}
-        </select>
       </div>
       {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
       {summary && <p className="mt-1 text-xs text-[var(--ff-text-tertiary)]">{summary}</p>}

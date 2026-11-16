@@ -1,4 +1,5 @@
 {
+  "tests/integration/admin-delete-user-invitations-race.int.test.ts": 16,
   "tests/integration/ap01-netcash-durable-answer.int.test.ts": 26,
   "tests/integration/ap01-netcash-late-settler.int.test.ts": 22,
   "tests/integration/ap01-netcash-settle-bounds.int.test.ts": 22,

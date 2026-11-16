@@ -10,7 +10,9 @@ import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { issueInviteSession } from '@/lib/auth/inviteAcceptSession';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
-import { accountHasVerifiedFactor, MIN_NEW_PASSWORD_LENGTH, resolveInvitationAccount } from '@/lib/auth/inviteAccount';
+import {
+  accountHasVerifiedFactor, isEstablishedAccount, MIN_NEW_PASSWORD_LENGTH, resolveInvitationAccount,
+} from '@/lib/auth/inviteAccount';
 import { EMAIL_IN_USE_MESSAGE, upsertInviteeProfile } from '@/lib/auth/inviteeProfile';
 
 /**
@@ -123,11 +125,7 @@ const handler: NextApiHandler = async (req, res) => {
     //    (src/lib/auth/gotrue.ts), so setting a password here would let whoever
     //    holds the invite link replace the credentials of that person's login
     //    for a company they were never invited to.
-    const established = await client.query<{ id: string }>(
-      `SELECT id FROM users WHERE id = $1 LIMIT 1`,
-      [accountId]
-    );
-    const isEstablished = (established.rowCount ?? 0) > 0;
+    const isEstablished = await isEstablishedAccount(client, accountId);
 
     if (!isEstablished) {
       // An account without a `users` row may still carry a second factor (even
@@ -222,11 +220,15 @@ const handler: NextApiHandler = async (req, res) => {
       await refund();
       return res.status(409).json({ success: false, error: { code: 'EMAIL_IN_USE', message: EMAIL_IN_USE_MESSAGE } });
     }
-    // Still pending, or nothing commits: a revoke or a competing accept since
-    // the lookup above leaves no row to mark, and the membership goes with it.
+    // Still pending under THIS token and unexpired, or nothing commits: a revoke,
+    // an admin's delete of the user (which cancels it), a re-send (a new token:
+    // the old link must stop working) or a competing accept since the lookup
+    // above leaves no row to mark, and the membership goes with it. The same
+    // re-check as /api/invite/[token].
     const marked = await client.query(
-      `UPDATE company_invitations SET accepted_at = now() WHERE id = $1::uuid AND accepted_at IS NULL`,
-      [inv.id]
+      `UPDATE company_invitations SET accepted_at = now()
+        WHERE id = $1::uuid AND token = $2 AND accepted_at IS NULL AND expires_at > now()`,
+      [inv.id, tokenHash]
     );
     if (marked.rowCount !== 1) {
       unusable = await rollbackFailed(client, 'invite accept');

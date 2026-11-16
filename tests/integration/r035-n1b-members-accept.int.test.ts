@@ -13,6 +13,10 @@
  * /api/invitations/<token>/accept (password).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+// No GoTrue in the fixture: POST /api/invite/<token> reads the session user's login email through adminGetUser
+// (#1468); answer the address this suite's sessions carry (r035-n1b-members.helpers emailOf).
+vi.mock('@/lib/auth/gotrueAdminUser', async () =>
+  (await import('./helpers/fixtureGotrueLogin')).fixtureGotrueLogin((id) => `n1bc-${id}@test.local`));
 import { Pool } from 'pg';
 import { assertDisposable, response } from './mfa-impersonation-postgres.helpers';
 import { callRoute } from './r035-approval.helpers';

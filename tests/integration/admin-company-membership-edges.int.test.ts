@@ -5,6 +5,7 @@ import removeRoute from '../../pages/api/admin/users/[id]/remove-from-company';
 import roleRoute from '../../pages/api/admin/users/[id]/company-role';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { signSession } from './r-032-fake-gotrue.helpers';
+import { fixtureEmail } from './helpers/fixtureEmail';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
@@ -41,7 +42,7 @@ async function auditCount(action: string) {
 async function reset() { await pool.query('DELETE FROM company_users WHERE company_id = $1', [company]); }
 async function mkUser(id: string) {
   users.push(id);
-  await pool.query(`INSERT INTO users (id,email,role,is_active) VALUES ($1,$2,'viewer',true) ON CONFLICT DO NOTHING`, [id, `${id}@test.local`]);
+  await pool.query(`INSERT INTO users (id,email,role,is_active) VALUES ($1,$2,'viewer',true) ON CONFLICT (id) DO NOTHING`, [id, fixtureEmail(id)]);
 }
 
 beforeAll(async () => {

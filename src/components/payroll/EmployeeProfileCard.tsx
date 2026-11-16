@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { Loader2, Save } from 'lucide-react';
 import { DateField } from '@/components/ui/DateField';
 import { todayInSast } from '@/lib/saDateParser';
+import { PreValidationLine } from './preValidation/PreValidationLine';
 
 export interface Employee {
   id: string;
@@ -66,6 +67,7 @@ export function EmployeeProfileCard({ employee, onChange, onSave, saving }: Prop
           Save
         </button>
       </div>
+      <PreValidationLine employeeId={employee.id} />
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label htmlFor="employee-first-name" className={label}>First name</label>
