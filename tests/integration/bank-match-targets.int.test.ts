@@ -156,3 +156,21 @@ describe('the match picker offers exactly what the confirm accepts', () => {
     expect(ok.state.statusCode, JSON.stringify(ok.state.body)).toBe(200);
   });
 });
+
+describe('a reversing journal\'s bank leg: picker and confirm agree (PR #1458 round 2)', () => {
+  it('a returned payment\'s statement line is offered the reversal\'s bank leg, and the confirm takes it', async () => {
+    const g = await bankCompany(pool, [[a, 'admin']], companies);
+    // A R500 payment out, reversed in the GL: the reversal debits the bank — the money coming back.
+    const paid = await plantJe(pool, g.c, a, [[g.expA, 500, 0], [g.bank, 0, 500]]);
+    const back = await plantJe(pool, g.c, a, [[g.bank, 500, 0], [g.expA, 0, 500]]);
+    await pool.query('UPDATE gl_journal_entries SET reversal_of_id = $1 WHERE id = $2', [paid.je, back.je]);
+    await pool.query('UPDATE gl_journal_entries SET reversed_at = now() WHERE id = $1', [paid.je]);
+    const returned = await plantBankLine(pool, g.c, g.bank, 500);
+    const offered = (await asToken(pool, a, g.c, () => fetchJournalLineCandidates(g.c, 500, '2026-09-01', 'MT returned', g.bank)))
+      .map((x) => x.id);
+    expect(offered).toEqual([back.lines[0]]);
+    const ok = await confirm(a, g.c, { bankTransactionId: returned, candidateType: 'journal_line', candidateId: back.lines[0]! });
+    expect(ok.state.statusCode, JSON.stringify(ok.state.body)).toBe(200);
+    expect(await linkOf(pool, returned)).toMatchObject({ status: 'matched', line: back.lines[0] });
+  });
+});
