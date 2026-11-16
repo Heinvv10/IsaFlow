@@ -53,7 +53,7 @@ export default function BankTransactionsPage() {
   const [buOptions, setBuOptions] = useState<SelectOption[]>([]);
   const summary = useBankTxSummary();
   const bankAccounts = summary.accounts;
-  const sel = useBankTxSelection(bankAccounts, router.query.account_id);
+  const sel = useBankTxSelection(bankAccounts, router.isReady ? router.query.account_id : undefined, router.isReady);
   const { selected: selectedBank, setSelected: setSelectedBank } = sel;
   const [suppliersStatus, setSuppliersStatus] = useState<SuppliersStatus>('loading');
   useBankTxRefData({ setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSuppliersStatus });

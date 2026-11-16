@@ -34,7 +34,22 @@ test('bank transactions: labelled ledger, honest statement panel, tiles that sum
   // (nothing is selected for the user). A load error is none of them.
   await expect(strip.or(empty).or(noActive)).toBeVisible({ timeout: 45_000 });
   await expect(page.getByTestId('bank-summary-error')).toHaveCount(0);
-  if (await empty.count() > 0 || await noActive.count() > 0) return;
+  // An early return must be TRUE: read-only check of the company's accounts against the branch taken, so a selection
+  // that wrongly derives '' for a company with active accounts cannot pass by returning early.
+  const summaries = await page.request.get('/api/accounting/bank-account-summaries');
+  expect(summaries.ok(), 'bank-account-summaries answers').toBe(true);
+  const body = (await summaries.json()) as { data?: { accounts?: Array<{ isActive?: boolean }> } };
+  const accounts = body.data?.accounts ?? [];
+  if (await empty.count() > 0) {
+    expect(accounts.length, 'the empty state means the company has no bank account').toBe(0);
+    return;
+  }
+  if (await noActive.count() > 0) {
+    expect(accounts.length, 'the none-active notice needs accounts').toBeGreaterThan(0);
+    expect(accounts.filter((a) => a.isActive).length, 'the none-active notice means no account is active').toBe(0);
+    return;
+  }
+  expect(accounts.filter((a) => a.isActive).length, 'a selected account means an active account exists').toBeGreaterThan(0);
 
   // The old widget's label, exactly, in the places a balance is shown (a transaction description may say anything).
   await expect(page.getByTestId('bank-cards-row').getByText('GL Balance', { exact: true })).toHaveCount(0);

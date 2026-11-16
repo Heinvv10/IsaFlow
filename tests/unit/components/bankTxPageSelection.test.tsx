@@ -11,12 +11,12 @@ import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { summaryAcct } from '../helpers/bankSummaryFixture';
 
 const cap = vi.hoisted(() => ({
-  shownHistory: [] as unknown[], query: {} as Record<string, string>, cards: {} as Record<string, unknown>, filters: {} as Record<string, unknown>, modals: {} as Record<string, unknown>,
+  shownHistory: [] as unknown[], query: {} as Record<string, string>, isReady: true, cards: {} as Record<string, unknown>, filters: {} as Record<string, unknown>, modals: {} as Record<string, unknown>,
 }));
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
-vi.mock('next/router', () => ({ useRouter: () => ({ query: cap.query, pathname: '/', push: vi.fn(), replace: vi.fn() }) }));
+vi.mock('next/router', () => ({ useRouter: () => ({ isReady: cap.isReady, query: cap.query, pathname: '/', push: vi.fn(), replace: vi.fn() }) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock('@/components/accounting/bank-transactions/useBankTxRefData', () => ({ useBankTxRefData: () => undefined }));
 vi.mock('@/components/accounting/BankTxTable', () => ({ BankTxTable: () => null }));
@@ -46,6 +46,7 @@ let summaries: Array<() => Response | Promise<Response>> = [];
 let list: (url: string) => Response | Promise<Response> = () => ok({ transactions: [], total: 3 });
 beforeEach(() => {
   cap.query = {};
+  cap.isReady = true;
   summaries = [];
   list = () => ok({ transactions: [], total: 3 });
   vi.mocked(apiFetch).mockReset();
@@ -133,6 +134,17 @@ describe('deep link and all-inactive', () => {
     await waitFor(() => expect(lastListBank()).toBe('b'));
     obs.disconnect();
     expect(seen.includes(true)).toBe(false);
+  });
+
+  it('a link that arrives after the accounts (router not ready, then ready) is applied', async () => {
+    cap.isReady = false;
+    summaries = [() => accts(A(), B(), C())];
+    const view = render(<BankTransactionsPage />);
+    await waitFor(() => expect(lastListBank()).toBe('b'));
+    cap.query = { account_id: 'c' };
+    cap.isReady = true;
+    view.rerender(<BankTransactionsPage />);
+    await waitFor(() => expect(lastListBank()).toBe('c'));
   });
 
   it('a deep link is applied once: a later summary that lists it does not move the user', async () => {
