@@ -3,7 +3,7 @@
  * an off-cycle bonus run of the same calendar month (the shape FQx allows), the per-month unique dropped inside the
  * case's own rolled-back transaction (w6-fqb1.helpers.ts). Company B holds the same shape at 10x, so a reader that
  * leaked across tenants moves A's figure. Seed order puts the run a reader must NOT pick first, so a reader that
- * still leans on the per-month unique takes it.
+ * still leans on the per-month unique takes it (the "latest" readers run in both orders, see BOTH_ORDERS).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
@@ -55,33 +55,41 @@ describe('EMP201 PAYE per month (EMP501 reconciliation, year-end status)', () =>
   });
 });
 
+/**
+ * A reader ordered by month alone ties the two runs, and which one a tie returns follows the rows' physical order. So
+ * each "latest" case runs twice, seeding the runs in both orders: a month-keyed reader fails at least one of them.
+ */
+const BOTH_ORDERS = [false, true];
+const ordered = <T>(runs: T[], flip: boolean): T[] => (flip ? [...runs].reverse() : runs);
+
 describe('"the latest run" readers take the later run of the month', () => {
-  it('latestPayrollRun (period context): the bonus paid on the 28th', async () => {
-    let bonus = '';
-    const got = await twoRunsInMonth(pool, A, async (c) => { [, bonus] = await seedBoth(c, [REGULAR, BONUS]); },
+  it.each(BOTH_ORDERS)('latestPayrollRun (period context): the bonus paid on the 28th (seeded reversed: %s)', async (flip) => {
+    let ids: string[] = [];
+    const got = await twoRunsInMonth(pool, A, async (c) => { ids = await seedBoth(c, ordered([REGULAR, BONUS], flip)); },
       () => latestPayrollRun(A.company));
-    expect(got?.id).toBe(bonus);
+    expect(got?.id).toBe(ordered(ids, flip)[1]);
   });
 
-  it('readEmployeeReadiness: the latest run is the calculated bonus, not the approved regular run', async () => {
-    const got = await twoRunsInMonth(pool, A, async (c) => { await seedBoth(c, [REGULAR, { ...BONUS, status: 'calculated' }]); },
+  it.each(BOTH_ORDERS)('readEmployeeReadiness: the latest run is the calculated bonus (seeded reversed: %s)', async (flip) => {
+    const got = await twoRunsInMonth(pool, A,
+      async (c) => { await seedBoth(c, ordered([REGULAR, { ...BONUS, status: 'calculated' }], flip)); },
       () => readEmployeeReadiness(A.company, A.employee));
     expect(got?.runs).toEqual([{ periodYear: 2026, periodMonth: 5, status: 'calculated' }]);
   });
 
-  it('getDeclarablePayRun(May): the later declarable run of the month', async () => {
-    let bonus = '';
-    const got = await twoRunsInMonth(pool, A, async (c) => { [, bonus] = await seedBoth(c, [REGULAR, BONUS]); },
+  it.each(BOTH_ORDERS)('getDeclarablePayRun(May): the later declarable run of the month (seeded reversed: %s)', async (flip) => {
+    let ids: string[] = [];
+    const got = await twoRunsInMonth(pool, A, async (c) => { ids = await seedBoth(c, ordered([REGULAR, BONUS], flip)); },
       () => getDeclarablePayRun(A.company, { year: 2026, month: 5 }));
-    expect(got?.id).toBe(bonus);
+    expect(got?.id).toBe(ordered(ids, flip)[1]);
     expect(got?.totalGross).toBe(5000);
   });
 });
 
 describe('the medical-credit record reads the latest line in run order', () => {
-  it('the bonus (later) line recorded no credit: not recorded, whatever the regular line holds', async () => {
+  it.each(BOTH_ORDERS)('the bonus (later) line recorded no credit: not recorded (seeded reversed: %s)', async (flip) => {
     const got = await twoRunsInMonth(pool, A,
-      async (c) => { await seedBoth(c, [{ ...BONUS, medicalCredit: null }, { ...REGULAR, medicalCredit: 0 }]); },
+      async (c) => { await seedBoth(c, ordered([{ ...REGULAR, medicalCredit: 0 }, { ...BONUS, medicalCredit: null }], flip)); },
       () => loadMedicalRecord(A.company, { start: '2026-03-01', end: '2027-02-28' }, [A.employee]));
     expect(got.get(A.employee)?.recorded).toBe(false);
   });
