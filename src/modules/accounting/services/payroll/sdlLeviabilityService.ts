@@ -158,7 +158,11 @@ export async function estimateAnnualRemuneration(
   // Log it or a nil-SDL month cannot be explained after the fact.
   log.info(
     'SDL leviability basis',
-    { runId, companyId, annual, priorRemuneration, priorPeriods, elapsedPeriods, monthOthers },
+    {
+      runId, companyId, annual, priorRemuneration, priorPeriods, elapsedPeriods, monthOthers,
+      // Which judgement this is: the run's costing, or the approval gate re-judging its month (payrollSdlMonthGate).
+      source: currentPeriodRemuneration === 'stored' ? 'approval-gate' : 'calculation',
+    },
     'sdlLeviabilityService',
   );
   return annual;
