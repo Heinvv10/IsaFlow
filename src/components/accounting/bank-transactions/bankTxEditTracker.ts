@@ -30,17 +30,25 @@ interface GroupState {
   seq: number; pending: number; baseline: Record<string, unknown>; noRow: boolean;
   /** The NEWEST edit was refused while an older one was still in flight: its answer decides, so the put-back waits for it. */
   deferred: Partial<RowSelection> | null;
+  /** The edit (its seq) whose put-back is deferred: only THAT edit's values may be put back, never a newer edit's that happens to look the same. */
+  deferredSeq: number;
   abandon?: ReturnType<typeof setTimeout>;
 }
 const states = new Map<string, GroupState>();
 /** Open entries (for tests and diagnostics). */
 export const trackedEditCount = (): number => states.size;
+/** Test-only: drops every entry and its timers, so a hung edit of one test cannot leak into the next. */
+export function resetEditTracker(): void {
+  states.forEach(st => clearTimeout(st.abandon));
+  states.clear();
+}
 
 type SetRows = (fn: (prev: Record<string, RowSelection>) => Record<string, RowSelection>) => void;
 
 /** Puts `restoreKeys` of the row back to `baseline`, but only while the row still shows `patch`; drops a row that is empty again. */
 function putBack(setRowSelections: SetRows, txId: string, patch: Partial<RowSelection>, restoreKeys: Array<keyof RowSelection>,
-  baseline: Record<string, unknown>, emptied: boolean) {
+  baseline: Record<string, unknown>, emptied: boolean, onChanged?: () => void) {
+  let told = false; // the updater may run more than once (StrictMode): tell once
   setRowSelections(prev => {
     const cur = prev[txId];
     if (!cur) return prev;
@@ -52,6 +60,8 @@ function putBack(setRowSelections: SetRows, txId: string, patch: Partial<RowSele
     const next = { ...prev };
     if (emptied && !row.entityId && !DIM_KEYS.some(k => row[k])) delete next[txId];
     else next[txId] = row;
+    const changed = !next[txId] || owned.some(k => cur[k] !== next[txId]![k]);
+    if (changed && onChanged && !told) { told = true; queueMicrotask(onChanged); }
     return next;
   });
 }
@@ -63,7 +73,7 @@ export function trackEdit(txId: string, before: RowSelection | undefined, patch:
   for (const g of groups) {
     let st = states.get(`${txId}:${g}`);
     if (!st) {
-      st = { seq: 0, pending: 0, noRow: !before, deferred: null, baseline: Object.fromEntries(groupKeys(g).map(k => [k, before ? before[k] : EMPTY[k]])) };
+      st = { seq: 0, pending: 0, noRow: !before, deferred: null, deferredSeq: 0, baseline: Object.fromEntries(groupKeys(g).map(k => [k, before ? before[k] : EMPTY[k]])) };
       states.set(`${txId}:${g}`, st);
     }
     st.seq += 1; st.pending += 1; seqs.set(g, st.seq);
@@ -78,7 +88,7 @@ export function trackEdit(txId: string, before: RowSelection | undefined, patch:
     if (st.pending > 0) return;
     clearTimeout(st.abandon);
     states.delete(`${txId}:${g}`);
-    if (st.deferred) putBack(setRowSelections, txId, st.deferred, (Object.keys(st.deferred) as Array<keyof RowSelection>).filter(k => groupOf(k) === g), { ...st.baseline }, st.noRow);
+    if (st.deferred && st.seq === st.deferredSeq) putBack(setRowSelections, txId, st.deferred, (Object.keys(st.deferred) as Array<keyof RowSelection>).filter(k => groupOf(k) === g), { ...st.baseline }, st.noRow);
   };
 
   /** The save was stored: its values are now the baseline a later refusal falls back to. */
@@ -104,15 +114,17 @@ export function trackEdit(txId: string, before: RowSelection | undefined, patch:
       if (st && st.seq === seqs.get(g)) {
         if (st.pending > 1) {
           st.deferred = { ...(st.deferred ?? {}), ...Object.fromEntries(keysOf(g).map(k => [k, patch[k]])) };
-          if (!st.abandon) {
-            const stuck = st;
-            st.abandon = setTimeout(() => {
-              if (states.get(`${txId}:${g}`) !== stuck || !stuck.deferred) return;
-              const deferred = stuck.deferred; stuck.deferred = null;
-              putBack(setRowSelections, txId, deferred, (Object.keys(deferred) as Array<keyof RowSelection>).filter(k => groupOf(k) === g), { ...stuck.baseline }, stuck.noRow);
-              notify.warning('An earlier change to this line has not been confirmed', 'It was put back to the last saved value. Refresh to see what the server holds.');
-            }, EDIT_ABANDON_MS);
-          }
+          st.deferredSeq = st.seq;
+          clearTimeout(st.abandon);
+          const stuck = st, mine = st.seq;
+          st.abandon = setTimeout(() => {
+            stuck.abandon = undefined; // fired: a later refused edit behind the same hung request arms its own wait
+            if (states.get(`${txId}:${g}`) !== stuck || !stuck.deferred) return;
+            const deferred = stuck.deferred; stuck.deferred = null;
+            if (stuck.seq !== mine) return; // a newer edit has the row now (even one with the same values): leave it be
+            putBack(setRowSelections, txId, deferred, (Object.keys(deferred) as Array<keyof RowSelection>).filter(k => groupOf(k) === g), { ...stuck.baseline }, stuck.noRow,
+              () => notify.warning('An earlier change to this line has not been confirmed', 'It was put back to the last saved value. Refresh to see what the server holds.'));
+          }, EDIT_ABANDON_MS);
         }
         else { now.push(...keysOf(g)); Object.assign(baseline, st.baseline); emptied ||= st.noRow; }
       }

@@ -16,7 +16,7 @@ vi.mock('@/components/accounting/CreateRuleModal', () => ({ extractPattern: () =
 
 import { apiFetch } from '@/lib/apiFetch';
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
-import { trackedEditCount, EDIT_ABANDON_MS } from '@/components/accounting/bank-transactions/bankTxEditTracker';
+import { trackedEditCount, resetEditTracker, EDIT_ABANDON_MS } from '@/components/accounting/bank-transactions/bankTxEditTracker';
 import { useBankTxBusy, type BankTxBusy } from '@/components/accounting/bank-transactions/useBankTxBusy';
 import type { BankTx, RowSelection } from '@/components/accounting/BankTxTable';
 
@@ -58,7 +58,7 @@ function setup(over: Record<string, unknown> = {}) {
 const bodies = () => vi.mocked(apiFetch).mock.calls.map(([, init]) => { try { return JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>; } catch { return {}; } });
 const sentActions = (action: string) => bodies().filter((b) => b.action === action);
 
-afterEach(() => { cleanup(); vi.useRealTimers(); }); // a failing fake-timer test must not leave fake timers on for the next one
+afterEach(() => { cleanup(); vi.useRealTimers(); resetEditTracker(); }); // a failing fake-timer test must not leave fake timers on for the next one
 beforeEach(() => {
   vi.mocked(apiFetch).mockReset();
   Object.values(toast).forEach((f) => f.mockReset());
@@ -228,16 +228,16 @@ describe('an older save that never answers cannot pin the row to a refused value
     const r = rig({ t1: A });
     r.build().handleRowEntityChange('t1', 'glX', 'X'); r.build().handleRowEntityChange('t1', 'glY', 'Y');
     r.gates[1]!.no();
-    await vi.advanceTimersByTimeAsync(5);
+    await vi.advanceTimersByTimeAsync(5); await settleIO();
     expect(toast.error).toHaveBeenCalledTimes(1);
     expect(r.get().t1?.entityId).toBe('glY'); // deferred behind the in-flight X
     await vi.advanceTimersByTimeAsync(EDIT_ABANDON_MS - 100);
     expect(r.get().t1?.entityId).toBe('glY'); // not yet
-    await vi.advanceTimersByTimeAsync(200);
+    await vi.advanceTimersByTimeAsync(200); await settleIO();
     expect(r.get().t1?.entityId).toBe('glA'); // X's answer is unknown: back to what is known to be stored
     expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining('not been confirmed'), expect.any(String));
     r.gates[0]!.ok(); // the hung request finally answers: nothing more happens to the row
-    await vi.advanceTimersByTimeAsync(5);
+    await vi.advanceTimersByTimeAsync(5); await settleIO();
     expect(r.get().t1?.entityId).toBe('glA');
     expect(trackedEditCount()).toBe(0);
   });
@@ -246,11 +246,11 @@ describe('an older save that never answers cannot pin the row to a refused value
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const r = rig({ t1: A });
     r.build().handleRowEntityChange('t1', 'glX', 'X'); r.build().handleRowEntityChange('t1', 'glY', 'Y');
-    r.gates[1]!.no(); await vi.advanceTimersByTimeAsync(5);
-    r.gates[0]!.ok(); await vi.advanceTimersByTimeAsync(5);
+    r.gates[1]!.no(); await vi.advanceTimersByTimeAsync(5); await settleIO();
+    r.gates[0]!.ok(); await vi.advanceTimersByTimeAsync(5); await settleIO();
     expect(r.get().t1?.entityId).toBe('glX');
     expect(vi.getTimerCount()).toBe(0); // the wait was cancelled, not left to fire
-    await vi.advanceTimersByTimeAsync(EDIT_ABANDON_MS * 2);
+    await vi.advanceTimersByTimeAsync(EDIT_ABANDON_MS * 2); await settleIO();
     expect(r.get().t1?.entityId).toBe('glX');
     expect(toast.warning).not.toHaveBeenCalled();
   });
@@ -266,9 +266,9 @@ describe('Apply Rules keeps its hold while it makes progress', () => {
     });
     let done!: Promise<unknown>;
     act(() => { done = mkWith(hook.result.current, {}).handleApplyRules() as Promise<unknown>; });
-    await act(async () => { await vi.advanceTimersByTimeAsync(65_000); }); // past 60 s in total, 10 s into the second step
+    await act(async () => { await vi.advanceTimersByTimeAsync(65_000); await settleIO(); }); // past 60 s in total, 10 s into the second step
     expect(hook.result.current.busy.has('apply-rules')).toBe(true);
-    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); await done; });
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); await done; await settleIO(); });
     expect(toast.warning).not.toHaveBeenCalledWith('This is taking too long', expect.anything());
     expect(hook.result.current.busy.size).toBe(0);
   });
@@ -277,8 +277,76 @@ describe('Apply Rules keeps its hold while it makes progress', () => {
     const hook = renderHook(() => useBankTxBusy());
     vi.mocked(apiFetch).mockImplementation(() => new Promise<Response>(() => undefined));
     act(() => { void mkWith(hook.result.current, {}).handleApplyRules(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(61_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(61_000); await settleIO(); });
     expect(hook.result.current.busy.has('apply-rules')).toBe(false);
+  });
+});
+
+describe('the abandon wait, edge by edge', () => {
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }); });
+  const adv = async (ms: number) => { await vi.advanceTimersByTimeAsync(ms); await settleIO(); };
+  const hungXThenRefusedY = async () => {
+    const r = rig({ t1: A });
+    r.build().handleRowEntityChange('t1', 'glX', 'X'); r.build().handleRowEntityChange('t1', 'glY', 'Y');
+    r.gates[1]!.no(); await adv(10);
+    return r;
+  };
+  const warned = () => toast.warning.mock.calls.filter(c => String(c[0]).includes('not been confirmed')).length;
+
+  it('after the wait fired, a NEW refused edit Z behind the same hung request arms its own wait and resolves too', async () => {
+    const r = await hungXThenRefusedY();
+    await adv(EDIT_ABANDON_MS + 1000);
+    expect(r.get().t1?.entityId).toBe('glA');
+    r.build().handleRowEntityChange('t1', 'glZ', 'Z');
+    r.gates[2]!.no(); await adv(10);
+    expect(r.get().t1?.entityId).toBe('glZ'); // deferred again
+    await adv(EDIT_ABANDON_MS + 1000);
+    expect(r.get().t1?.entityId).toBe('glA');
+    expect(warned()).toBe(2);
+  });
+
+  it('a FRESH in-flight edit W with the very values of the refused Y is not reverted when the wait fires (keyed on the edit, not on equal values)', async () => {
+    const r = await hungXThenRefusedY();
+    r.build().handleRowEntityChange('t1', 'glY', 'Y'); // W: same values as Y, in flight
+    await adv(EDIT_ABANDON_MS + 1000);
+    expect(r.get().t1?.entityId).toBe('glY');
+    expect(warned()).toBe(0);
+    await r.ok(2);
+    expect(r.get().t1?.entityId).toBe('glY');
+  });
+
+  it('a different fresh edit W during the wait is left alone, with no warning', async () => {
+    const r = await hungXThenRefusedY();
+    r.build().handleRowEntityChange('t1', 'glW', 'W');
+    await adv(EDIT_ABANDON_MS + 1000);
+    expect(r.get().t1?.entityId).toBe('glW');
+    expect(warned()).toBe(0);
+  });
+
+  it('the warning appears only when the put-back changed the row: a list reload that already showed the stored value says nothing', async () => {
+    const r = await hungXThenRefusedY();
+    r.set({ t1: { ...A } }); // a reload reseeded the row from the server
+    await adv(EDIT_ABANDON_MS + 1000);
+    expect(r.get().t1?.entityId).toBe('glA');
+    expect(warned()).toBe(0);
+  });
+
+  it('...and when the put-back lands on the very value the row already shows, nothing changed, so nothing is announced', async () => {
+    const Y: RowSelection = { type: 'account', entityId: 'glY', label: 'Y', vatCode: 'none' };
+    const r = rig({ t1: Y }); // the server already holds Y
+    r.build().handleRowEntityChange('t1', 'glX', 'X'); r.build().handleRowEntityChange('t1', 'glY', 'Y');
+    r.gates[1]!.no(); await adv(10);
+    await adv(EDIT_ABANDON_MS + 1000);
+    expect(r.get().t1?.entityId).toBe('glY');
+    expect(warned()).toBe(0);
+  });
+
+  it('a late REFUSAL of the hung request after the wait fired changes nothing more and leaves the tracker clean', async () => {
+    const r = await hungXThenRefusedY();
+    await adv(EDIT_ABANDON_MS + 1000);
+    await r.no(0);
+    expect(r.get().t1?.entityId).toBe('glA');
+    expect(trackedEditCount()).toBe(0);
   });
 });
 

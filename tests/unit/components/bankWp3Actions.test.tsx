@@ -4,7 +4,7 @@
  * progress, Unmatch on a reviewed row asks first, Batch Edit persists, and a refused save puts the row back.
  */
 import { renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn(), undoable: vi.fn() }));
 vi.mock('@/utils/toast', () => ({ notify: toast }));
@@ -15,7 +15,7 @@ vi.mock('@/components/accounting/CreateRuleModal', () => ({ extractPattern: () =
 import { apiFetch } from '@/lib/apiFetch';
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
 import { selectedOnScreen, pruneSelection } from '@/components/accounting/bank-transactions/bankTxSelectionView';
-import { trackedEditCount } from '@/components/accounting/bank-transactions/bankTxEditTracker';
+import { trackedEditCount, resetEditTracker } from '@/components/accounting/bank-transactions/bankTxEditTracker';
 import { useBankTxBusy, type BankTxBusy } from '@/components/accounting/bank-transactions/useBankTxBusy';
 import type { BankTx, RowSelection } from '@/components/accounting/BankTxTable';
 
@@ -26,10 +26,10 @@ const sel = (entityId = 'gl1'): RowSelection => ({ type: 'account', entityId, la
 /** What an edit puts on screen (the optimistic row): the rollback only undoes exactly this. */
 const shown = (entityId: string, label: string): RowSelection => ({ type: 'account', entityId, label, vatCode: 'none' });
 
-/** The page's REAL busy hook (rendered, not re-implemented), with the progress it is told about recorded. */
 /** Turns of the event loop (no wall clock, so load cannot change the outcome), for the effect of an answer that has no observable of its own. */
 const settleIO = async () => { for (let i = 0; i < 10; i++) await new Promise<void>((r) => setImmediate(r)); };
 const touchSpy = vi.fn();
+/** The page's REAL busy hook (rendered, not re-implemented), with the progress it is told about recorded. */
 function busyGuard() {
   const progress: Array<unknown> = [];
   const hook = renderHook(() => useBankTxBusy());
@@ -60,6 +60,7 @@ function setup(over: Record<string, unknown> = {}) {
 const bodies = () => vi.mocked(apiFetch).mock.calls.map(([, init]) => { try { return JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>; } catch { return {}; } });
 const sentActions = (action: string) => bodies().filter((b) => b.action === action);
 
+afterEach(() => { resetEditTracker(); }); // the tracker is module-level: a hung edit of one test must not reach the next
 beforeEach(() => {
   vi.mocked(apiFetch).mockReset(); touchSpy.mockReset();
   Object.values(toast).forEach((f) => f.mockReset());
