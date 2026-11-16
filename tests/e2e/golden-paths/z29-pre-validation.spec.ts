@@ -5,7 +5,7 @@
  *  - Run approval: an employee with no ID number is on a calculated, R-035-cleared run. The approve dialog lists
  *    "Missing ID/passport number" for them as an IRP5 warning, and Approve stays enabled (never a block).
  *  - Approved from the dialog, the run is final: the compliance hub's pre-validation card lists the employee with
- *    "Fix: ID number", which opens the profile at the ID number field; the profile carries the one IRP5 line.
+ *    "Fix: ID number", which opens the profile with the ID number field focused; the profile carries the one IRP5 line.
  *  - axe reports 0 critical and 0 serious on the card, in both themes, at 1568 and 390; 390 does not scroll sideways.
  *  - Cleared as z10 does (clearPayRunApproval): where self-approval is refused and no second approver is set, the
  *    approval test is SKIPPED with the reason. Never a faked approval. The axe test runs either way.
@@ -122,6 +122,7 @@ test('run approval lists the IRP5 warning without blocking; once final, the card
     await snap(page, 'compliance-card', 'session-theme');
     await item.getByRole('link', { name: 'Fix: ID number' }).click();
     await page.waitForURL(new RegExp(`/payroll/employees/${employeeId}#employee-id-number$`), { timeout: 60_000 });
+    await expect(page.locator('#employee-id-number')).toBeFocused({ timeout: 60_000 });
     await expect(page.getByTestId('pre-validation-line')).toContainText(MISSING_ID, { timeout: 60_000 });
     await snap(page, 'profile-line', 'session-theme');
 
