@@ -43,6 +43,7 @@ import { assertImporterMayAllocate, assertImporterMayAllocateAs } from './bankLi
 import { assertNotContactControl, contactControlRefusal } from './contactControlGuard';
 import { assertMayReverse, auditedReversal } from './bankReversalGate';
 import { assertNoDuplicateTransfer } from './transferDuplicateGuard';
+import { lockTransferPair } from './transferPairLock';
 import { vatInclusiveSplit } from './bankVatInclusive';
 import { isControlSubtype, planAllocationDimensions, stampContraDimensions } from './bankAllocationDimensions';
 import { planSplitDimensions } from './bankSplitDimensions';
@@ -260,6 +261,8 @@ export async function allocateTransaction(
       throw new BankAllocationRefusal('Transfer counterparty must be a bank account (subtype = bank)');
     }
 
+    // Serialise the two legs (and a typed transfer) of one movement BEFORE the duplicate check reads (transferPairLock).
+    await lockTransferPair(companyId, bankAccountId, contraAccountId);
     // The same movement already in the ledger (the other bank's line, or a Banking > Transfers journal): refused.
     await assertNoDuplicateTransfer(companyId, bankAccountId, contraAccountId, Number(tx.amount), txDate,
       isBankEvidenced(tx));
