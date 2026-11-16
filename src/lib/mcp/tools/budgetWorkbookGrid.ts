@@ -62,7 +62,7 @@ export function gridLines(model: GridReadModel, grain: TemplateGrain, rows: unkn
     if (grain === 'company' && o.dimension !== undefined && o.dimension !== null) return `row ${n}: dimension is only for a cc1, cc2 or bu grid (send grain)`;
     if (typeof o.base !== 'string') return `row ${n}: base is required: send each row with the base get_budget_template returned for it (rows cannot be added; read the template row of the account you want)`;
     const read = decodeRowBase(meta, o.base, months.length);
-    if (read === null || (grain === 'company') !== (read.memberId === null)) {
+    if (read === null) { // the grain is signed: a company base never decodes on a cc1 grid, nor the reverse
       return `row ${n}: its base was changed or was read for another version, grain or row, so IsaFlow cannot tell what you edited. Read the rows again with get_budget_template and edit those.`;
     }
     const account = accounts.get(read.accountId);
