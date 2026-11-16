@@ -15,11 +15,17 @@ export function isUsersEmailTaken(err: unknown): boolean {
 }
 
 /**
- * The address a POPIA erasure leaves on `userId`'s profile: lower-case, and distinct for every id even
- * once lower-cased, which users_email_lower_key requires (two ids that differ only in case must not
- * collide). An id with no upper-case letter keeps the plain form `anonymized_<id>@deleted.invalid`
- * (every GoTrue id); any other id is the hex of its UTF-8 bytes with an `_h` suffix, which no plain
- * form can end with (a plain id ending `_h` is hex-encoded too).
+ * The address a POPIA erasure leaves on `userId`'s profile: lower-case, and distinct, even once
+ * lower-cased, from every other address this function returns, which users_email_lower_key requires
+ * (two ids that differ only in case must not collide). A lower-case id not ending in `_h` keeps the
+ * plain form `anonymized_<id>@deleted.invalid` (every GoTrue id); any other id is the hex of its UTF-8
+ * bytes with an `_h` suffix, which no plain form can end with.
+ *
+ * Only against rows this function wrote: before migration 999 the erasure stored the raw
+ * `anonymized_<id>@deleted.invalid`, so a mixed-case id erased then holds the same lower-cased address
+ * as its lower-case twin's plain form, and erasing that twin would collide (23505). On 2026-11-16
+ * production held 0 users with id <> lower(id) and 0 anonymized rows (read-only check), so no row is
+ * affected.
  */
 export function erasedUserEmail(userId: string): string {
   const plain = userId === userId.toLowerCase() && !userId.endsWith('_h');
