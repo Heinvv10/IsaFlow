@@ -173,13 +173,16 @@ export async function closeFiscalYear(
     // The readiness gate on every period the close would lock, as the live
     // call runs it under the row locks (dry-run parity): a refusal here is the
     // refusal the close would answer.
-    const toLock = (await sql`
-      SELECT id, period_name AS "periodName" FROM fiscal_periods
-      WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId} AND status = 'closed'
-      ORDER BY period_number
-    `) as Array<{ id: string; periodName: string }>;
     try {
-      await assertYearCloseReady(companyId, Number(yearLabel), toLock, {}, 'locked');
+      // Under the live close's lock budget (N3): a held row is the same 503, never a hang.
+      await withPeriodLockBudget(async () => {
+        const toLock = (await sql`
+          SELECT id, period_name AS "periodName" FROM fiscal_periods
+          WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId} AND status = 'closed'
+          ORDER BY period_number
+        `) as Array<{ id: string; periodName: string }>;
+        await assertYearCloseReady(companyId, Number(yearLabel), toLock, {}, 'locked');
+      }, YEAR_END_LOCKS);
     } catch (err) {
       if (err instanceof YearCloseBlockedError) return checksFailed(err);
       throw err;

@@ -49,7 +49,14 @@ function sendRefusal(res: NextApiResponse, refusal: YearEndCloseRefusal) {
 async function previewHandler(req: NextApiRequest, res: NextApiResponse, yearLabel: string) {
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
-  const result = await closeFiscalYear(companyId, yearLabel, userId, { dryRun: true });
+  let result: Awaited<ReturnType<typeof closeFiscalYear>>;
+  try {
+    result = await closeFiscalYear(companyId, yearLabel, userId, { dryRun: true });
+  } catch (err) {
+    // The dry run judges under the live close's lock budget: a held row is the same 503 + Retry-After.
+    if (respondIfLockTimeout(res, err)) return;
+    throw err;
+  }
   if ('error' in result) {
     return apiResponse.success(res, { yearLabel, refusal: yearEndCloseRefusal(result).message });
   }

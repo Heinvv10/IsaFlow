@@ -17,7 +17,13 @@
  *
  * Row locks are taken in (fiscal_year, period_number, id) order everywhere, so
  * two close requests over overlapping periods wait for each other instead of
- * deadlocking; each wait is bounded (`withPeriodLockBudget`).
+ * deadlocking; each wait is bounded (`withPeriodLockBudget`). Period rows come
+ * before the year row (the status UPDATE's sync trigger locks the year).
+ * KNOWN EXCEPTION, not fixed here: `fiscal_years_confirm_declared_month`
+ * (a trigger on companies) makes a settings save lock companies then
+ * fiscal_years, while a change of year end (apply / undo) writes fiscal_years
+ * then companies; those two can deadlock with each other. No period row is
+ * involved, so no close path is in that cycle.
  *
  * What blocks is `isCloseBlocker`: a `fail`, or a check that could not be
  * computed. An ordinary `warn` does not. There is no override.
@@ -41,6 +47,7 @@ import {
   currentLockTimeout, ROW_LOCK_BUDGET_MS, withRowLockBudget,
 } from '@/modules/accounting/services/core/rowLockBudget';
 import { getCloseReadiness, type CloseCheckMemo, type CloseReadiness } from './periodCloseReadinessService';
+import { runInPeriodLockBudget } from './periodLockBudgetScope';
 import {
   FiscalPeriodLockTimeoutError, isCloseBlocker, PeriodCloseBlockedError, YearCloseBlockedError,
   type BlockedPeriod, type GatedAction,
@@ -107,9 +114,10 @@ export function lockTimeoutMs(setting: string): number | null {
  * 503 + Retry-After at the routes, and the whole request rolls back. `what`
  * names the locks the flow takes (default: a fiscal period or its year), since
  * any lock wait inside `fn` lands here, not only the period rows'.
- * A lock wait inside a readiness check is rethrown by the check, not degraded
- * to "Could not compute" (getCloseReadiness, subLedgerTieCheck), so it is busy
- * (503) here too, never a refusal.
+ * Inside the budget (periodLockBudgetScope) a lock wait in a readiness check is
+ * rethrown, not degraded to "Could not compute" (getCloseReadiness), so it is
+ * busy (503) here too, never a refusal; outside one (advisory checklists) it is
+ * one busy row.
  * No `statement_timeout` is set: a check cancelled by one degrades to "Could not
  * compute", which refuses the close, so a tight one would turn load into refusals.
  */
@@ -120,5 +128,6 @@ export async function withPeriodLockBudget<T>(fn: () => Promise<T>, what?: strin
     const current = lockTimeoutMs(await currentLockTimeout(client));
     if (current !== null && current > 0) deadline = Math.min(deadline, Date.now() + current);
   }
-  return withRowLockBudget(fn, () => new FiscalPeriodLockTimeoutError(what), { deadline, isTimeout: isLockContention });
+  return runInPeriodLockBudget(() =>
+    withRowLockBudget(fn, () => new FiscalPeriodLockTimeoutError(what), { deadline, isTimeout: isLockContention }));
 }

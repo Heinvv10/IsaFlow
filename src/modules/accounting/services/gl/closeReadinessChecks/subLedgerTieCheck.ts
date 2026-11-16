@@ -38,8 +38,8 @@
  *
  * ── COULD NOT COMPUTE ──────────────────────────────────────────────────────
  *
- * A throw (other than a busy row, 55P03 / 40P01, which is rethrown so the
- * close answers 503 retry) or a null side returns `warn` with a "Could not compute" reason,
+ * A throw (other than a busy row, 55P03 / 40P01, which is rethrown to the
+ * orchestrator: 503 inside a close, a busy row in an advisory checklist) or a null side returns `warn` with a "Could not compute" reason,
  * which close_fiscal_period treats as a blocker. Never a fabricated pass. The
  * reconciliation runs in its OWN savepoint (nested inside the orchestrator's
  * per-check one, LIFO on the single request connection) so a DB error inside
@@ -109,7 +109,8 @@ export async function subLedgerTieCheck(
       reconcileSubledger(companyId, cfg.role, period.endDate),
     );
   } catch (err) {
-    // Busy (55P03 / 40P01) is not "could not compute": rethrown, the close answers 503 retry.
+    // Busy (55P03 / 40P01) is not "could not compute": rethrown to getCloseReadiness, which makes it a 503
+    // inside a close's lock budget and a busy row for an advisory checklist.
     if (isLockContention(err)) throw err;
     log.error('close-readiness sub-ledger tie could not reconcile', {
       companyId, role: cfg.role, asAt: period.endDate, error: err,

@@ -28,6 +28,7 @@
 import { log } from '@/lib/logger';
 import { withSavepoint } from '@/lib/neon';
 import { isLockContention } from '@/modules/accounting/services/core/lockContention';
+import { inPeriodLockBudget } from './periodLockBudgetScope';
 import { getFiscalPeriodById } from './fiscalPeriodService';
 import { bankReconciledCheck } from './closeReadinessChecks/bankReconciledCheck';
 import { unpostedJournalsCheck } from './closeReadinessChecks/unpostedJournalsCheck';
@@ -112,6 +113,9 @@ const CHECK_FALLBACK_HREFS: string[] = [
   '/accounting/journal-entries',
 ];
 
+/** A check that waited on a lock another request held (advisory callers only; see the catch below). */
+const BUSY_REASON = 'Could not compute — busy: another request held a record this check reads. Refresh to retry.';
+
 // ── Aggregation ──────────────────────────────────────────────────────────────
 
 function aggregateStatus(items: ChecklistItem[]): ChecklistItemStatus {
@@ -164,9 +168,19 @@ export async function getCloseReadiness(
     try {
       items.push(await withSavepoint(`close_check_${idx}`, runners[idx]!));
     } catch (err) {
-      // A lock wait that ran out (55P03) or a lost deadlock (40P01) is "busy, retry", not "could not
-      // compute": rethrown (its savepoint already rolled back), it is the close's 503, never a refusal.
-      if (isLockContention(err)) throw err;
+      // A lock wait that ran out (55P03) or a lost deadlock (40P01) is "busy, retry". Inside a period
+      // flow's lock budget (a close, lock or year end) it is rethrown (its savepoint already rolled back):
+      // the flow's 503, never a refusal. Advisory callers (the panel, MCP period_close_checklist, the close
+      // run) get one busy row instead, still prefixed "Could not compute" so no gate could pass over it.
+      if (isLockContention(err)) {
+        if (inPeriodLockBudget()) throw err;
+        log.warn('close-readiness check busy', { checkIndex: idx, code: (err as { code?: string }).code }, 'accounting');
+        items.push({
+          key: CHECK_KEYS[idx]!, label: CHECK_LABELS[idx]!, status: 'warn' as ChecklistItemStatus,
+          reason: BUSY_REASON, fixHref: CHECK_FALLBACK_HREFS[idx]!,
+        });
+        continue;
+      }
       log.error('close-readiness check failed', { error: err, checkIndex: idx }, 'accounting');
       items.push({
         key: CHECK_KEYS[idx]!,

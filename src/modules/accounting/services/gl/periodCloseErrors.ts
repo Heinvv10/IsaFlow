@@ -99,7 +99,7 @@ export const PERIOD_LOCKS_HELD = 'a fiscal period or its financial year';
  * roll the request back, and MCP shows the message.
  */
 export class FiscalPeriodLockTimeoutError extends Error {
-  readonly code = 'FISCAL_PERIOD_LOCK_TIMEOUT';
+  readonly code = 'ROW_LOCK_TIMEOUT'; // the row-lock budget's code (core/rowLockBudget): 503 + Retry-After, caller-safe over MCP
   constructor(what: string = PERIOD_LOCKS_HELD) {
     super(`Another request is holding ${what}. Nothing was changed; retry in a moment.`);
     this.name = 'FiscalPeriodLockTimeoutError';
