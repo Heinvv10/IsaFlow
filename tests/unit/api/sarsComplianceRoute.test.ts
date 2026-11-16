@@ -51,6 +51,11 @@ describe('sars-compliance route', () => {
     expect(await call({})).toMatchObject({ data: { marksUnavailable: true } });
   });
 
+  it('passes submissionsUnavailable through', async () => {
+    m.getComplianceCalendarWithMarks.mockResolvedValue({ events: [], marksUnavailable: false, submissionsUnavailable: true });
+    expect(await call({})).toMatchObject({ data: { submissionsUnavailable: true } });
+  });
+
   it('lets a service failure propagate to withErrorHandler (5xx), not a 400', async () => {
     m.getComplianceCalendarWithMarks.mockRejectedValue(new Error('company row missing'));
     await expect(call({ year: '2026' })).rejects.toThrow('company row missing');

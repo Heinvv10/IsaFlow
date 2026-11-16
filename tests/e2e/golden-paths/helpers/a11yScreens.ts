@@ -29,7 +29,7 @@ export const A11Y_SCREENS: ReadonlyArray<A11yScreen> = [
     name: 'f bank transactions', path: '/accounting/bank-transactions', heading: 'Bank Transactions',
     // The table's columns (CC1/CC2/BU) come from the accounting settings, its options from the ref data, and an
     // "AI is categorizing" spinner comes and goes: wait for the data, then for rows or the empty state.
-    responses: [/\/api\/accounting\/bank-transactions\?/, /\/api\/accounting\/accounting-settings\?/, /\/api\/accounting\/bank-accounts/, /\/api\/accounting\/chart-of-accounts/, /\/api\/accounting\/customers/, /\/api\/accounting\/cost-centres/],
+    responses: [/\/api\/accounting\/bank-transactions\?/, /\/api\/accounting\/accounting-settings\?/, /\/api\/accounting\/bank-account-summaries/, /\/api\/accounting\/chart-of-accounts/, /\/api\/accounting\/customers/, /\/api\/accounting\/cost-centres/],
     settled: (page) => page.locator('[data-testid="bank-tx-table"] tbody tr, [data-testid="bank-tx-empty"]').first().waitFor({ state: 'visible', timeout: 30_000 }),
     rowsTable: '[data-testid="bank-tx-table"]',
   },

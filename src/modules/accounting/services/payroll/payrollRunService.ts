@@ -1,5 +1,3 @@
-import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { listPayrollRunEmployees, listTaxNumbersForCompany } from './payrollEmployeeService';
 import { payrollRunReadDate } from './payrollRunReadDate';
@@ -26,95 +24,15 @@ import { recordPreparedApproval } from './payrollRunPrepared';
 import { blockedLoanValidation, judgeLoanApplications } from './payrollRunLoanDecision';
 import { assertNoLaterEtiJournal } from './etiPeriodGuard';
 import { withEtiPriorMonths } from './etiPriorEmployment';
+import { mapRunRow, type PayrollRunSummary } from './payrollRunHeaders';
+import { assertRunKindSupported } from './payrollRunKindGuard';
+import { payFrequencyOf } from './payrollFrequency';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
-type Row = DbRow;
-
-export interface PayrollRunSummary {
-  id: string;
-  companyId: string;
-  periodMonth: number;
-  periodYear: number;
-  status: string;
-  totalGross: number;
-  totalPaye: number;
-  totalUif: number;
-  totalSdl: number;
-  totalEti: number;
-  totalNet: number;
-  employeeCount: number;
-  /** The GL entry posted at approval, still set after reopenPayrollRun. */
-  journalEntryId: string | null;
-}
-
-export function mapRunRow(r: Row): PayrollRunSummary {
-  return {
-    id: String(r.id),
-    companyId: String(r.company_id),
-    periodMonth: Number(r.period_month),
-    periodYear: Number(r.period_year),
-    status: String(r.status),
-    totalGross: Number(r.total_gross) || 0,
-    totalPaye: Number(r.total_paye) || 0,
-    totalUif: Number(r.total_uif) || 0,
-    totalSdl: Number(r.total_sdl) || 0,
-    totalEti: Number(r.total_eti) || 0,
-    totalNet: Number(r.total_net) || 0,
-    employeeCount: Number(r.employee_count) || 0,
-    journalEntryId: r.journal_entry_id == null ? null : String(r.journal_entry_id),
-  };
-}
-
-export async function listPayrollRuns(companyId: string): Promise<PayrollRunSummary[]> {
-  const rows = (await sql`
-    SELECT * FROM payroll_run_headers
-    WHERE company_id = ${companyId}::uuid
-    ORDER BY period_year DESC, period_month DESC
-  `) as Row[];
-  return rows.map(mapRunRow);
-}
-
-export class PayrollRunDuplicateError extends Error {
-  readonly month: number;
-  readonly year: number;
-  constructor(month: number, year: number) {
-    super(`A payroll run for ${month}/${year} already exists.`);
-    this.name = 'PayrollRunDuplicateError';
-    this.month = month;
-    this.year = year;
-  }
-}
-
-export async function createPayrollRun(
-  companyId: string,
-  period: PayrollPeriod,
-  createdBy?: string,
-): Promise<PayrollRunSummary> {
-  log.info('Creating payroll run', { companyId, period }, 'payrollRunService');
-  const rows = (await sql`
-    INSERT INTO payroll_run_headers (company_id, period_month, period_year, created_by)
-    VALUES (${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}::uuid)
-    ON CONFLICT (company_id, period_year, period_month) DO NOTHING
-    RETURNING *
-  `) as Row[];
-  if (rows.length === 0) {
-    throw new PayrollRunDuplicateError(period.month, period.year);
-  }
-  if (!rows[0]) throw new Error('INSERT returned no row');
-  return mapRunRow(rows[0]);
-}
-
-export async function getPayrollRun(
-  id: string,
-  companyId: string,
-): Promise<PayrollRunSummary | null> {
-  const rows = (await sql`
-    SELECT * FROM payroll_run_headers
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-  `) as Row[];
-  return rows.length > 0 && rows[0] ? mapRunRow(rows[0]) : null;
-}
+export {
+  createPayrollRun, getPayrollRun, listPayrollRuns, mapRunRow, PayrollRunDuplicateError, type PayrollRunSummary,
+} from './payrollRunHeaders';
 
 export async function calculatePayrollRun(
   runId: string,
@@ -147,7 +65,11 @@ export async function calculatePayrollRun(
   // Components are read as at the period's last day, a plain calendar string (payrollRunReadDate).
   const readDate = payrollRunReadDate(period);
 
-  const employees = await withEtiPriorMonths(companyId, await listPayrollRunEmployees(companyId, period)); // ET: a rehire continues its ETI months
+  const payFrequency = payFrequencyOf(run.pay_frequency);
+  const employees = await withEtiPriorMonths(companyId, await listPayrollRunEmployees(companyId, period, payFrequency)); // ET: a rehire continues its ETI months
+  // Wave 6 FQa: a run, employee or assignment this release cannot cost is refused here, before the first write
+  // (listSeveranceOnlyRunEmployees below frees reversed payments; applyRunLoans commits loan deductions).
+  await assertRunKindSupported(companyId, runId, 'calculate', { employeeIds: employees.map((e) => e.id) });
   const allTaxNumbers = await listTaxNumbersForCompany(companyId);
 
   let totalGross = 0;
@@ -163,7 +85,7 @@ export async function calculatePayrollRun(
   // Leavers from earlier periods whose severance directive this run may pay:
   // the severance line alone, no salary, recurring components or loans, and so
   // no UIF or SDL (audit 2026-10-18 P3, payrollSeveranceDirective.ts).
-  const severanceOnly = await listSeveranceOnlyRunEmployees(companyId, runId, period);
+  const severanceOnly = await listSeveranceOnlyRunEmployees(companyId, runId, period, payFrequency);
   const population: Array<{ employee: PayrollEmployee; severanceOnly: boolean }> = [
     ...employees.map(employee => ({ employee, severanceOnly: false })),
     ...severanceOnly.map(employee => ({ employee, severanceOnly: true })),

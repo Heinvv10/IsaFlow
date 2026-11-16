@@ -10,6 +10,7 @@ import { safeCorsOrigin } from '@/lib/cors';
 import { redactShareToken, redactTokenParams } from '@/lib/observability/redactShareToken';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
+import { respondIfRunKindUnsupported } from '@/lib/apiRunKindUnsupported';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { loggableRequestBody, loggableUrl, maskedKeySet, sanitizeRequestBody } from '@/lib/sanitizeRequestBody';
 
@@ -188,6 +189,10 @@ export function respondToUnhandledError(res: NextApiResponse, error: unknown): v
   }
   // D12: a write refused because it would change a COMPLETED bank reconciliation — 409, raised before any write.
   if (respondIfReconciliationCompleted(res, error)) {
+    return;
+  }
+  // Wave 6 FQa: a pay run this release cannot handle — 409, raised before any write (payrollRunKindGuard).
+  if (respondIfRunKindUnsupported(res, error)) {
     return;
   }
 

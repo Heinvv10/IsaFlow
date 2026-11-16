@@ -16,6 +16,16 @@ export function toISODate(value: Date | string | null | undefined): string | nul
 }
 
 /**
+ * A timestamp column for the wire: pg returns timestamptz as a Date, and String(Date) is
+ * Date.toString() ("Mon Nov 16 2026 16:05:08 GMT+0200 (...)"), which the UI formatters cannot parse.
+ * A Date becomes ISO 8601 (UTC); a string passes through unchanged; null/undefined is null.
+ */
+export function toIsoTimestamp(value: Date | string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  return value instanceof Date ? value.toISOString() : String(value);
+}
+
+/**
  * Format a Date as 'YYYY-MM-DD' using LOCAL year/month/day. Use this for any
  * default value rendered into an HTML `<input type="date">` so the visible
  * date matches the user's local calendar — `new Date().toISOString().slice(0,10)`

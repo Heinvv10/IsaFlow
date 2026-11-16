@@ -4,6 +4,7 @@
  * toolHelpers.ts unchanged (R-035 PR5 round 1, the 300-line cap).
  */
 import { SYSTEM_ROLE_REFUSAL_CODES } from './systemRoleRefusalCodes';
+import { PAYROLL_REFUSAL_CODES } from './payrollRefusalCodes';
 
 /**
  * The codes this codebase's own refusal classes carry — the complete set of
@@ -259,6 +260,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'SUPPLIER_PAYMENT_NOT_PROCESSABLE',
   'SUPPLIER_PAYMENT_REFUSED',
   ...SYSTEM_ROLE_REFUSAL_CODES,
+  ...PAYROLL_REFUSAL_CODES,
   'TAX_DIRECTIVE_ALREADY_APPLIED',
   'TAX_DIRECTIVE_NOT_APPROVED',
   'TAX_DIRECTIVE_WITHOUT_EMPLOYEE',
