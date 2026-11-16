@@ -102,14 +102,21 @@ describe('SARS submissions view detail', () => {
   }
   it('shows the server message on a 400 and still opens the local copy', async () => {
     open(refused);
-    expect(await screen.findByText('Filed on eFiling')).toBeTruthy();
-    expect(screen.getByRole('columnheader', { name: 'Filed on eFiling' })).toBeTruthy();
+    // No ISV channel: a filing a user recorded, never "Filed on eFiling" (sarsFilingKind).
+    expect(await screen.findByText('Marked submitted')).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Filed / recorded' })).toBeTruthy();
     fireEvent.click(await screen.findByText('View'));
     await waitFor(() => expect(bodyText()).toContain(MSG)); expect(bodyText()).toContain('MODAL local copy');
   });
   it('shows a plain sentence on an empty 500', async () => {
     open(empty500); fireEvent.click(await screen.findByText('View'));
     await waitFor(() => expect(bodyText()).toContain('Could not load the filing record details')); noParserText();
+  });
+  it('the Filed / recorded column shows a formatted date, never a raw "GMT" string', async () => {
+    open(refused);
+    const tr = (await screen.findByText('Marked submitted')).closest('tr') as HTMLElement;
+    expect(tr.textContent).not.toMatch(/GMT|Standard Time/);
+    expect(tr.textContent).toMatch(/2026/);
   });
   it('opens the server detail on a 200', async () => {
     open(() => ok({ ...sub, notes: 'D2 server detail' })); fireEvent.click(await screen.findByText('View'));

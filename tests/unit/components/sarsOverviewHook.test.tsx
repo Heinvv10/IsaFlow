@@ -63,6 +63,15 @@ describe('useSarsOverview', () => {
   });
 });
 
+describe('submissionsUnavailable', () => {
+  it('comes from the calendar response', async () => {
+    const pending = deferredCalendar();
+    const { result } = renderHook(() => useSarsOverview());
+    await act(async () => { pending[0]!(ok({ events: [], marksUnavailable: false, submissionsUnavailable: true })); });
+    await waitFor(() => expect(result.current.submissionsUnavailable).toBe(true));
+  });
+});
+
 describe('calendarCounts', () => {
   it('a marked item is completed, never overdue', () => {
     expect(calendarCounts([ev('late'), ev('marked', 'completed'), ev('marked 2', 'completed')]))
