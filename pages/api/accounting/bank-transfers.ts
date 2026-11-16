@@ -122,4 +122,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // Idempotency-Key: a double-click or retry replays the first answer, no second journal (withHttpIdempotency).
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(withHttpIdempotency('bank-transfers', handler as never) as never))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(withHttpIdempotency('bank-transfers', handler)))));

@@ -96,8 +96,8 @@ export default function BankTransfersPage() {
         body,
       });
       await assertOk(res, 'Could not record the transfer - try again');
-      idempotency.done();
       const json = (await res.json()) as { data?: { status?: string; journalId?: string }; message?: string };
+      idempotency.done(); // only once the answer has parsed: a body that did not arrive keeps the key for the retry
       if (json.data?.status === 'awaiting_approval' && json.data.journalId) {
         setHeld({ journalId: json.data.journalId, message: json.message ?? 'Transfer saved as a draft journal awaiting approval' });
       } else {

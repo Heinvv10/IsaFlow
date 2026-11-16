@@ -164,8 +164,8 @@ export default function NewBankTransactionPage() {
         headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotency.keyFor(body) },
       });
       await assertOk(res, 'Could not record the transaction - try again');
-      idempotency.done();
       const json = await res.json();
+      idempotency.done(); // only once the answer has parsed: a body that did not arrive keeps the key for the retry
       if (json.success === false) { notify.error(json.error?.message ?? json.message ?? 'Could not record the transaction - try again'); return; }
       notify.success('Transaction recorded successfully');
       notifyLateClaims(json); // VAT claimed in a later period (s16(3))
