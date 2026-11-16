@@ -37,7 +37,7 @@ vi.mock('@/lib/auth/migrationAdminPool', () => ({
         if (/SELECT \$1::uuid::text AS id/.test(text)) return { rows: [{ id: String(params[0]).toLowerCase() }], rowCount: 1 };
         if (/lower\(o\.email\) = lower\(\$2\)/.test(text)) return { rows: [], rowCount: 0 };
         if (/FROM company_invitations/.test(text)) {
-          return { rows: [{ id: 'inv-1', company_id: 'co-joined', email: 'invitee@example.test', role: 'viewer' }], rowCount: 1 };
+          return { rows: [{ id: 'inv-1', company_id: 'co-joined', email: 'invitee@example.test', role: 'viewer', gotrue_user_id: null }], rowCount: 1 };
         }
         return { rows: [], rowCount: 1 };
       },
