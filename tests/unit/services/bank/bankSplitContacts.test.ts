@@ -99,13 +99,10 @@ describe('cross-tenant: the contact must be this company\'s', () => {
   });
 });
 
-describe('a hand-keyed payment is judged at what each SUPPLIER is paid', () => {
-  it('sums one supplier\'s lines — whatever the id\'s case — into one gate call', async () => {
+describe('a hand-keyed payment is judged at what the line pays its SUPPLIERS', () => {
+  it('sums every supplier line — whatever the id\'s case, whichever supplier — into ONE gate call (WP2: per part evaded the rule)', async () => {
     await plan(OUT, [sup(SUP_A, 400), sup(SUP_A.toUpperCase(), 350), sup(SUP_B, 250)]);
-    expect(vi.mocked(assertBankLineMayPaySupplier).mock.calls).toEqual([
-      [COMPANY, OUT, 750],
-      [COMPANY, OUT, 250],
-    ]);
+    expect(vi.mocked(assertBankLineMayPaySupplier).mock.calls).toEqual([[COMPANY, OUT, 1000]]);
   });
 
   it('a gate refusal of the summed payment refuses the split', async () => {
