@@ -10,7 +10,9 @@ import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { issueInviteSession } from '@/lib/auth/inviteAcceptSession';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
-import { accountHasVerifiedFactor, MIN_NEW_PASSWORD_LENGTH, resolveInvitationAccount } from '@/lib/auth/inviteAccount';
+import {
+  accountHasVerifiedFactor, isEstablishedAccount, MIN_NEW_PASSWORD_LENGTH, resolveInvitationAccount,
+} from '@/lib/auth/inviteAccount';
 import { EMAIL_IN_USE_MESSAGE, upsertInviteeProfile } from '@/lib/auth/inviteeProfile';
 
 /**
@@ -123,11 +125,7 @@ const handler: NextApiHandler = async (req, res) => {
     //    (src/lib/auth/gotrue.ts), so setting a password here would let whoever
     //    holds the invite link replace the credentials of that person's login
     //    for a company they were never invited to.
-    const established = await client.query<{ id: string }>(
-      `SELECT id FROM users WHERE id = $1 LIMIT 1`,
-      [accountId]
-    );
-    const isEstablished = (established.rowCount ?? 0) > 0;
+    const isEstablished = await isEstablishedAccount((text, params) => client.query(text, params).then((r) => r.rows), accountId);
 
     if (!isEstablished) {
       // An account without a `users` row may still carry a second factor (even

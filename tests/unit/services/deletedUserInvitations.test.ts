@@ -11,6 +11,8 @@ const getUser = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/auth/gotrueAdminUser', () => ({ adminGetUser: getUser }));
 const byEmail = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/auth/gotrue', () => ({ findUserByEmail: byEmail }));
+const established = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/auth/inviteAccount', () => ({ isEstablishedAccount: established }));
 
 import {
   cancelPendingInvitations, deletedUserIdentity, ownedGotrueAccount,
@@ -23,6 +25,7 @@ const text = (call: unknown[]) => (call[0] as TemplateStringsArray).join('?');
 beforeEach(() => {
   getUser.mockReset().mockResolvedValue({ id: ID, email: 'login@test.local' });
   byEmail.mockReset().mockResolvedValue(null);
+  established.mockReset().mockResolvedValue(true);
   sqlMock.mockReset().mockImplementation(async (strings: TemplateStringsArray) =>
     (strings.join('?').includes('admin_cancel_user_invitations') ? [{ n: 3 }] : []));
 });
@@ -52,6 +55,13 @@ describe('deletedUserIdentity', () => {
     expect(await deletedUserIdentity(ID, ' Login@Test.Local ')).toEqual(
       { account: { email: 'login@test.local' }, rowEmail: ' Login@Test.Local ', rowEmailHeldElsewhere: false });
     expect(byEmail).not.toHaveBeenCalled();
+  });
+
+  it('a different account holds the row email but is a placeholder (no users row): not held elsewhere (R6-1)', async () => {
+    byEmail.mockResolvedValueOnce({ id: OTHER });
+    established.mockResolvedValueOnce(false);
+    expect((await deletedUserIdentity(ID, 'stale@test.local')).rowEmailHeldElsewhere).toBe(false);
+    expect(established.mock.calls.map((c) => c[1])).toEqual([OTHER]);
   });
 
   it('a different account holds the row email: held elsewhere; none, or the same account: not', async () => {

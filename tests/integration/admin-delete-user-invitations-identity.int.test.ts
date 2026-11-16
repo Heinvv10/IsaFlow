@@ -24,6 +24,7 @@ import {
   newAccept, passwordSets, pool, resetAdminLimit, seedUser, setGotrueEmail, setup, teardown, usersRows,
 } from './admin-delete-user-invitations.helpers';
 import { Pool } from 'pg';
+import { adminCreateUser } from '@/lib/auth/gotrue';
 
 const [A, B, C, D] = companies;
 beforeAll(setup, 60000);
@@ -221,6 +222,28 @@ describe('the row email is cancelled unless ANOTHER GoTrue account holds it (sec
     expect(await invitationRow(toX)).toEqual({ accepted_at: null });
     expect(await deleteAudit(d.id)).toEqual([]);
   });
+});
+
+describe('the row email held by a placeholder GoTrue account is still cancelled (round-6 breaker R6-1)', () => {
+  // POST /api/invitations to R makes a placeholder account for R (adminCreateUser) with no users row. It is not an
+  // established login: the anonymous accept sets its password, so whoever reads R's mailbox, the deleted user
+  // included, would be let in. Only an ESTABLISHED holder (a users row under its id, as accept.ts judges) makes R
+  // someone else's.
+  it.each([['pinned to the placeholder', true], ['unpinned', false]] as const)(
+    'R held by an unestablished placeholder, invitation %s: cancelled, and the anonymous accept is 410', async (_l, pin) => {
+      const d = await seedUser({ memberOf: [A] });
+      const R = d.email;
+      setGotrueEmail(d.id, `moved-${d.id}@test.local`);
+      const y = await adminCreateUser({ email: R, email_confirm: true });
+      const token = await invite(B, R, pin ? { gotrueUserId: y.id } : {});
+      expect((await adminDelete(d.id)).status).toBe(200);
+      expect(await invitationRow(token)).toBeUndefined();
+      const r = await newAccept(token);
+      expect(r.status, JSON.stringify(r.body)).toBe(410);
+      expect(await usersRows(y.id)).toBe(0);
+      expect(await memberships(y.id)).toBe(0);
+      expect(passwordSets).not.toContain(y.id);
+    });
 });
 
 describe('padding the accept route trims, the cancel trims too', () => {

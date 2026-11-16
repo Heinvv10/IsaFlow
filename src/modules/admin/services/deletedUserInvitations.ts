@@ -7,8 +7,9 @@
  * holder of that address can) or through the account pinned on it (gotrue_user_id). users.email and GoTrue drift (a
  * POPIA erasure rewrites users.email and leaves GoTrue alone; change-email's documented partial failures), breaker
  * #1468. So the cancel takes the invitations pinned to the GoTrue account the row owns, those addressed to that
- * account's login email, and those addressed to the row's own email, EXCEPT when a DIFFERENT GoTrue account holds the
- * row's email now: those invitations are that person's, not this delete's (round-5 breaker R5-2). Otherwise the row's
+ * account's login email, and those addressed to the row's own email, EXCEPT when a DIFFERENT, ESTABLISHED GoTrue
+ * account holds the row's email now: those invitations are that person's, not this delete's (round-5 breaker R5-2). A
+ * placeholder holder (no users row, R6-1) does not count: the anonymous accept sets its password. Otherwise the row's
  * email stays in, account or not: a user who moved away from it in GoTrue may still read its mailbox, and the anonymous
  * route would mint a fresh identity for whoever holds the link (security review of 0700f0d6cf).
  */
@@ -16,6 +17,7 @@ import { sql } from '@/lib/neon';
 import { UUID_RE } from '@/lib/validation';
 import { adminGetUser } from '@/lib/auth/gotrueAdminUser';
 import { findUserByEmail } from '@/lib/auth/gotrue';
+import { isEstablishedAccount } from '@/lib/auth/inviteAccount';
 
 /**
  * Which users row owns a GoTrue account: a canonical lower-case UUID id owns the account with that id, and any other
@@ -50,15 +52,20 @@ export interface DeletedUserIdentity {
   account: OwnedGotrueAccount | null;
   /** users.email as read before the delete's locks. */
   rowEmail: string;
-  /** A GoTrue account other than the one this row owns holds rowEmail now. */
+  /** An ESTABLISHED GoTrue account (isEstablishedAccount) other than the one this row owns holds rowEmail now. */
   rowEmailHeldElsewhere: boolean;
 }
 
 /**
  * The GoTrue facts the cancel needs, read BEFORE any row lock (no lock is held across the HTTP calls): the account the
- * row owns, and, when the row's email is not that account's own login, whether another account holds it
- * (findUserByEmail). A row that owns no account is not looked up further: it cancels by its own email (no session can
- * reach such a row; see ownsGotrueAccount). Any GoTrue failure throws: the delete is a 5xx that writes nothing.
+ * row owns, and, when the row's email is not that account's own login, whether another ESTABLISHED account holds it
+ * (findUserByEmail, then isEstablishedAccount). A row that owns no account is not looked up further: it cancels by
+ * its own email (no session can reach such a row; see ownsGotrueAccount; an accepted LOW on #1468). Any GoTrue failure
+ * throws: the delete is a 5xx that writes nothing.
+ *
+ * Time of check: an account that takes the row's address between this lookup and the delete's COMMIT is not seen, so
+ * its pending invitations to that address are cancelled with the rest. The window is one request; a re-invite
+ * restores them (accepted on #1468, round-6 review).
  */
 export async function deletedUserIdentity(userId: string, rowEmail: string): Promise<DeletedUserIdentity> {
   const account = await ownedGotrueAccount(userId);
@@ -66,7 +73,11 @@ export async function deletedUserIdentity(userId: string, rowEmail: string): Pro
     return { account, rowEmail, rowEmailHeldElsewhere: false };
   }
   const holder = await findUserByEmail(rowEmail.trim());
-  return { account, rowEmail, rowEmailHeldElsewhere: holder !== null && holder.id !== userId };
+  // Only an established holder makes the address someone else's: a placeholder's password is set by whoever accepts
+  // the invitation, the deleted user included if they read that mailbox (round-6 breaker R6-1).
+  const elsewhere = holder !== null && holder.id !== userId
+    && await isEstablishedAccount((text, params) => sql.query(text, params), holder.id);
+  return { account, rowEmail, rowEmailHeldElsewhere: elsewhere };
 }
 
 /**
