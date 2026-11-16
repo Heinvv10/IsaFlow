@@ -122,7 +122,7 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
           onChange={() => onToggleSelect(tx.id)} className="accent-teal-500"
           aria-label={`Select ${label}`} />
       </td>
-      <td className="py-1 px-2 tabular-nums text-xs whitespace-nowrap text-[var(--ff-text-secondary)]">
+      <td data-label="Date" className="py-1 px-2 tabular-nums text-xs whitespace-nowrap text-[var(--ff-text-secondary)]">
         {formatDisplayDate(tx.transactionDate)}
       </td>
       <td className="py-1 px-2 text-[var(--ff-text-primary)]">
@@ -150,7 +150,7 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
         )}
       </td>
       {/* Notes — inline editable */}
-      <td className="py-1 px-2">
+      <td data-label="Notes" className="py-1 px-2">
         {onUpdateNotes ? (
           <NotesCell
             txId={tx.id}
@@ -163,7 +163,7 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
         )}
       </td>
       {/* Type dropdown — Account / Supplier / Customer / Transfer */}
-      <td className="py-1 px-2">
+      <td data-label="Type" className="py-1 px-2">
         {isNew ? (
           <Select
             label={`Allocation type, ${label}`} labelClassName="sr-only" size={selectSize}
@@ -186,17 +186,17 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
       </td>
       {/* Selection — GL account / Supplier / Customer selector */}
       <BankTxSelectionCell tx={tx} sel={sel} rowType={rowType} isNew={isNew} label={label} table={table} dropdown={dropdown} />
-      <td className="py-1 px-2">
+      <td data-label="Rule" className="py-1 px-2">
         <span className="text-xs text-[var(--ff-text-tertiary)] truncate max-w-[120px] block"
           title={tx.allocationRuleName || ''}>
           {tx.allocationRuleName || '—'}
         </span>
       </td>
       <BankTxDimensionCells tx={tx} sel={sel} rowType={rowType} isNew={isNew} label={label} table={table} />
-      <td className="py-1 px-2 text-right tabular-nums text-xs text-red-400">
+      <td data-label="Spent" className="py-1 px-2 text-right tabular-nums text-xs text-red-400">
         {spent !== null ? fmtCurrency(spent) : ''}
       </td>
-      <td className="py-1 px-2 text-right tabular-nums text-xs text-teal-400">
+      <td data-label="Received" className="py-1 px-2 text-right tabular-nums text-xs text-teal-400">
         {received !== null ? fmtCurrency(received) : ''}
       </td>
       <BankTxRowActions tx={tx} label={label} sel={sel} isNew={isNew} isAllocated={isAllocated} isExcluded={isExcluded} table={table} />
