@@ -28,8 +28,9 @@ async function period(c: pg.Client, company: string, day: string): Promise<void>
 export async function companies(c: pg.Client): Promise<void> {
   // The services the gate reaches write audit_log rows naming their user (FK to users).
   await q(c)(`INSERT INTO users (id, email) VALUES ($1, 'reseed-actor@example.co.za') ON CONFLICT (id) DO NOTHING`, [ACTOR]);
-  await q(c)(`INSERT INTO companies (id, name, is_demo) VALUES ($1, 'ISAFlow Demo (Pty) Ltd', true)
-              ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, is_demo = true`, [DEMO]);
+  await q(c)(`INSERT INTO companies (id, name, is_demo, bank_name, bank_account_number) VALUES ($1, 'ISAFlow Demo (Pty) Ltd', true, 'First National Bank', '62000000001')
+              ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, is_demo = true, bank_name = EXCLUDED.bank_name,
+                bank_account_number = EXCLUDED.bank_account_number`, [DEMO]);
   const [n] = await q(c)('SELECT count(*)::int AS n FROM gl_accounts WHERE company_id = $1', [DEMO]);
   if (Number(n!.n) === 0) await q(c)('SELECT seed_company_default_taxonomy($1)', [DEMO]);
   // The owner the reseed records as author; the import exemption's rank check needs a membership.
@@ -93,6 +94,14 @@ export async function dirtyDemo(c: pg.Client): Promise<{ costCentre: string; bud
     ($1, 'imap', 'Accounts inbox', 'accounts@example.co.za')`, [DEMO]);
   const [cc] = await x(`INSERT INTO cost_centres (company_id, code, name) VALUES ($1, 'OPS', 'Operations') RETURNING id`, [DEMO]);
   const [bv] = await x(`INSERT INTO budget_versions (company_id, fiscal_year, name, kind, created_by) VALUES ($1, 2027, 'FY2027 budget', 'original', 'qa') RETURNING id`, [DEMO]);
+  // A Demo invoice paid through Paystack: the request cannot lose its invoice (CHECK), so it goes with it.
+  const [inv] = await x(`SELECT id FROM customer_invoices WHERE company_id = $1 LIMIT 1`, [DEMO]);
+  await x(`INSERT INTO paystack_payment_requests (company_id, purpose, customer_invoice_id, paystack_reference, amount_cents, status, payer_name)
+    VALUES ($1, 'customer_invoice', $2, 'demo-reseed-fixture-1', 11500, 'completed', 'Metrofibre Networx')`, [DEMO, inv!.id]);
+  // Generated AFS text that names the old real customers.
+  const [afs] = await x(`INSERT INTO afs_documents (company_id, document_type, reporting_framework) VALUES ($1, 'afs', 'ifrs_smes') RETURNING id`, [DEMO]);
+  await x(`INSERT INTO afs_sections (document_id, company_id, section_type, ai_narrative) VALUES ($1, $2, 'directors_report', 'Revenue from Vumatel Holdings grew')`, [afs!.id, DEMO]);
+  // Preserved by its append-only return version (which requires 'submitted': filed by the user, no eFiling claim).
   const [ss] = await x(`INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status) VALUES ($1, 'EMP201', '2025-01-01', '2025-01-31', 'submitted') RETURNING id`, [DEMO]);
   const [trv] = await x(`INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, figures, posted_through, finalised_by, sars_submission_id)
     VALUES ($1, 'EMP201', '2025-01-01', '2025-01-31', 1, '{}'::jsonb, now(), 'qa', $2) RETURNING id`, [DEMO, ss!.id]);

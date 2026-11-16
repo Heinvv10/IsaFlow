@@ -96,6 +96,35 @@ describe('Demo reseed: refusals and dry run change nothing', () => {
     expect(changed(demoBefore, await checksums(c, DEMO))).toEqual([]);
   }, 120_000);
 
+  it('refuses a child row that links a Demo row to another company (corrupt data)', async () => {
+    await inSavepoint(async () => {
+      const [inv] = await q(c)('SELECT id FROM customer_invoices WHERE company_id = $1 LIMIT 1', [DEMO]);
+      const [cu] = await q(c)('SELECT id FROM customers WHERE company_id = $1 LIMIT 1', [OTHER]);
+      const [pay] = await q(c)(`INSERT INTO customer_payments (company_id, client_id, payment_date, total_amount, created_by)
+        VALUES ($1, $2, '2025-05-07', 10, $3) RETURNING id`, [OTHER, cu!.id, ACTOR]);
+      await c.query('INSERT INTO customer_payment_allocations (invoice_id, payment_id, amount_allocated) VALUES ($1, $2, 10)', [inv!.id, pay!.id]);
+      expect((await run()).exitCode).toBe(2);
+      expect(lines.join('\n')).toMatch(/another company's row.*customer_payment_allocations/);
+    });
+    expect(changed(demoBefore, await checksums(c, DEMO))).toEqual([]);
+  }, 120_000);
+
+  it('fails V1 and rolls back when a preserved SARS submission claims a live eFiling submission', async () => {
+    await inSavepoint(async () => {
+      await c.query(`UPDATE sars_submissions SET efiling_correlation_id = 'X1' WHERE id = $1`, [dirty.submission]);
+      expect((await run()).exitCode).toBe(1);
+      expect(lines.join('\n')).toMatch(/\[FAIL\] V1[\s\S]*preserved/);
+    });
+  }, 300_000);
+
+  it('fails N6 and rolls back when a kept table still names a real company', async () => {
+    await inSavepoint(async () => {
+      await c.query(`UPDATE budget_versions SET name = 'Vumatel budget' WHERE id = $1`, [dirty.budget]);
+      expect((await run()).exitCode).toBe(1);
+      expect(lines.join('\n')).toMatch(/\[FAIL\] N6[\s\S]*budget_versions/);
+    });
+  }, 300_000);
+
   it('rolls everything back when a post-check fails', async () => {
     const r = await run({ extraChecks: [async () => ({ label: 'injected', status: 'fail', detail: 'test' })] });
     expect(r.exitCode).toBe(1);
@@ -123,8 +152,8 @@ describe('Demo reseed: the real run', () => {
     const r = await run();
     expect(r.exitCode, lines.filter((l) => /FAIL|REFUSED/.test(l)).join('\n')).toBe(0);
     firstInserted = r.inserted;
-    const [co] = await q(c)('SELECT name, trading_name FROM companies WHERE id = $1', [DEMO]);
-    expect(co).toEqual({ name: 'IsaFlow Demo (Pty) Ltd', trading_name: 'IsaFlow Demo' });
+    const [co] = await q(c)('SELECT name, trading_name, bank_name, bank_account_number FROM companies WHERE id = $1', [DEMO]);
+    expect(co).toEqual({ name: 'IsaFlow Demo (Pty) Ltd', trading_name: 'IsaFlow Demo', bank_name: 'Demo Bank', bank_account_number: '0000000000' });
   }, 300_000);
 
   it('leaves the other tenant byte-for-byte untouched', async () => {
@@ -134,7 +163,7 @@ describe('Demo reseed: the real run', () => {
   it('passes every Demo post-check and every deploy integrity check', async () => {
     const report = await runPostChecks(txOver(c), { companyId: DEMO, win: windowFor(TODAY) });
     expect(report.demo.filter((x) => x.status === 'fail').map((x) => `${x.label}: ${x.lines?.join('; ')}`)).toEqual([]);
-    for (const id of ['N1', 'N2', 'N3', 'N4', 'D1', 'A1', 'J1', 'J2', 'B1', 'P1', 'P2', 'V1', 'C1', 'F1']) {
+    for (const id of ['N1', 'N2', 'N3', 'N4', 'N6', 'D1', 'A1', 'J1', 'J2', 'B1', 'P1', 'P2', 'V1', 'C1', 'F1']) {
       expect(report.demo.find((x) => x.label.startsWith(`${id} `))?.status, id).toBe('pass');
     }
     const deploy = await deployChecks(txOver(c));
@@ -151,6 +180,11 @@ describe('Demo reseed: the real run', () => {
     expect(await x('SELECT id FROM budget_versions WHERE id = $1', [dirty.budget])).toHaveLength(1);
     expect(await x('SELECT id FROM tax_return_versions WHERE id = $1', [dirty.trv])).toHaveLength(1);
     expect(await x('SELECT id FROM sars_submissions WHERE id = $1', [dirty.submission])).toHaveLength(1);
+    expect(await x(`SELECT id FROM paystack_payment_requests WHERE company_id = $1 AND purpose = 'customer_invoice'`, [DEMO])).toHaveLength(0);
+    expect(await x('SELECT id FROM afs_sections WHERE company_id = $1', [DEMO])).toHaveLength(0);
+    const banks = await x(`SELECT bank_name, bank_account_number FROM gl_accounts WHERE company_id = $1 AND account_subtype = 'bank'`, [DEMO]);
+    expect(banks.length).toBeGreaterThan(0);
+    for (const b of banks) expect(b).toEqual({ bank_name: 'Demo Bank', bank_account_number: '0000000000' });
     expect(await x(`SELECT id FROM imap_mirror_connections WHERE company_id = $1 AND display_name = 'Accounts inbox'`, [DEMO])).toHaveLength(1);
     expect(Number((await x('SELECT count(*)::int AS n FROM audit_log'))[0]!.n)).toBe(auditBefore);
     expect(Number((await x(`SELECT count(*)::int AS n FROM entity_changes WHERE company_id = $1 AND entity_type = 'company'`, [DEMO]))[0]!.n)).toBeGreaterThan(0);

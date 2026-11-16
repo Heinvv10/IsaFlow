@@ -8,7 +8,7 @@
 
 import { Refusal } from './cli';
 import type { Tx } from './db';
-import { censusUnclassified, intercompanyCount, missingWipeTables } from './wipe';
+import { censusUnclassified, crossTenantChildren, intercompanyCount, missingWipeTables } from './wipe';
 
 export async function describeSession(tx: Tx, companyId: string, out: (s: string) => void): Promise<{ dbToday: string }> {
   const [s] = await tx.query<{ db: string; cu: string; su: string; bypass: boolean; today: string }>(`
@@ -30,6 +30,10 @@ export async function refuseUnsafe(tx: Tx, companyId: string, out: (s: string) =
   const unclassified = await censusUnclassified(tx, companyId);
   if (unclassified.length > 0) {
     throw new Refusal(`tables hold Demo rows but are in neither the wipe nor the keep list: ${unclassified.map((u) => `${u.table} (${u.n})`).join(', ')}`);
+  }
+  const cross = await crossTenantChildren(tx, companyId);
+  if (cross.length > 0) {
+    throw new Refusal(`child rows link a Demo row to another company's row (corrupt data, resolve first): ${cross.map((c) => `${c.table} (${c.n})`).join(', ')}`);
   }
   const ic = await intercompanyCount(tx, companyId);
   if (ic > 0) throw new Refusal(`${ic} intercompany_transactions row(s) name Demo journals: not handled, resolve them first`);

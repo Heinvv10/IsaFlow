@@ -23,6 +23,9 @@ export interface WipeStep {
 export const WIPE_STEPS: readonly WipeStep[] = [
   // Tier 1
   { table: 'accounting_adjustments' },
+  { table: 'afs_generation_log' },
+  { table: 'afs_section_comments' },
+  { table: 'afs_uploaded_images' },
   { table: 'ap_payment_document_backfill' },
   { table: 'asset_depreciation_schedule', via: [['asset_id', 'assets'], ['journal_entry_id', 'gl_journal_entries']] },
   { table: 'asset_disposals', via: [['asset_id', 'assets'], ['journal_entry_id', 'gl_journal_entries']] },
@@ -145,6 +148,7 @@ export const WIPE_STEPS: readonly WipeStep[] = [
   { table: 'vat_period_locks', preserve: 'id IN (SELECT vat_period_lock_id FROM tax_return_versions WHERE company_id = $1::uuid AND vat_period_lock_id IS NOT NULL)' },
   { table: 'vat_returns' },
   // Tier 2
+  { table: 'afs_sections' },
   { table: 'bank_allocation_batches' },
   { table: 'bank_transactions' },
   { table: 'capture_events' },
@@ -178,6 +182,7 @@ export const WIPE_STEPS: readonly WipeStep[] = [
   { table: 'tax_directives' },
   { table: 'warehouses' },
   // Tier 3
+  { table: 'afs_documents' },
   { table: 'bank_auto_post_runs' },
   { table: 'bank_feed_connections' },
   { table: 'bank_import_batches' },
@@ -230,7 +235,6 @@ export const KEEP_TABLES: readonly string[] = [
   'payroll_company_settings', 'payroll_gl_accounts', 'payroll_components', 'payroll_leave_types', 'pay_scales', 'pay_packages',
   'pop_archive_targets', 'pop_trusted_payers', 'imap_mirror_connections', 'imap_mirror_scan_log', 'sent_mirror_connections',
   'sent_mirror_scan_log', 'disclosure_notes_manual', 'accounting_budgets',
-  'afs_documents', 'afs_generation_log', 'afs_sections', 'afs_section_comments', 'afs_uploaded_images',
   'entity_changes', 'bank_rule_changes',
   'bank_rule_change_decisions', 'tax_return_versions', 'flow_ledger', 'supplier_bank_verifications',
   'subscriptions', 'subscription_charges', 'subscription_mandates', 'admin_invoices', 'flow_wallet', 'flow_purchases',
@@ -255,6 +259,21 @@ export const PRESERVE_APPEND_ONLY: readonly string[] = [
 /** The one configuration row family the wipe trims: the QA mailbox (and its scan log). */
 export const QA_MAILBOX_NAME = 'QA Demo Mailbox';
 
+/**
+ * Kept billing tables whose invoice-payment requests name a Demo invoice. A customer_invoice request must
+ * keep its invoice (CHECK *_pr_invoice_has_invoice), so those rows go with the invoices; the rest stay.
+ */
+export const INVOICE_PAYMENT_REQUEST_TABLES: readonly string[] = ['paystack_payment_requests', 'stitch_payment_requests'];
+
+export function invoiceRequestWhere(): string {
+  return "company_id = $1::uuid AND purpose = 'customer_invoice' AND customer_invoice_id IS NOT NULL";
+}
+
+/** Kept tables that are append-only history: their text is reported (R1), never failed on, since it cannot be changed. */
+export function isAppendOnlyKept(table: string): boolean {
+  return PRESERVE_APPEND_ONLY.includes(table) || table.startsWith('audit_');
+}
+
 export function isKept(table: string): boolean {
   return KEEP_TABLES.includes(table) || KEEP_PREFIXES.some((p) => table.startsWith(p));
 }
@@ -266,6 +285,21 @@ export function stepWhere(step: WipeStep): string {
     : 'company_id = $1::uuid';
   return step.preserve ? `(${scope}) AND NOT (${step.preserve})` : scope;
 }
+
+/**
+ * For a child step with more than one foreign key: rows the step would delete (a Demo parent) that ALSO name a
+ * parent row of another company. Corrupt data the run refuses rather than deleting another tenant's link silently.
+ */
+export function crossTenantSql(step: WipeStep): string | null {
+  if (!step.via || step.via.length < 2) return null;
+  const foreign = step.via.map(([col, parent]) => `${col} IN (SELECT id FROM ${parent} WHERE company_id <> $1::uuid)`).join(' OR ');
+  return `SELECT count(*)::int AS n FROM ${step.table} WHERE (${stepWhere(step)}) AND (${foreign})`;
+}
+
+/** Kept tables whose Demo rows a wiped parent removes by ON DELETE CASCADE: [table, fk column, parent]. Counted, not kept. */
+export const CASCADE_WITH: ReadonlyArray<readonly [string, string, string]> = [
+  ['supplier_bank_verifications', 'supplier_id', 'suppliers'],
+];
 
 export function countSql(step: WipeStep): string {
   return `SELECT count(*)::int AS n FROM ${step.table} WHERE ${stepWhere(step)}`;

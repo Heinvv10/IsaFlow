@@ -64,7 +64,8 @@ export function assets(ctx: Ctx, bills: AssetBills): void {
     ctx.rows.assets.push({
       id: uuidFrom(ctx.rng), company_id: companyId, asset_number: a.number, name: a.name, category: a.kind === 'vehicles' ? 'Vehicles' : 'Equipment',
       purchase_date: b.date, purchase_price: money(b.costCents), salvage_value: money(0), useful_life_years: a.lifeYears,
-      depreciation_method: 'straight_line', tax_useful_life_years: a.lifeYears, tax_depreciation_method: 'straight_line',
+      depreciation_method: 'straight_line',
+      // No tax life or method: the app takes them from its own asset category table (never invented here).
       accumulated_depreciation: money(0), gl_asset_account_id: a.kind === 'vehicles' ? accounts.vehicles : accounts.equipment,
       gl_depreciation_account_id: accounts.accumulatedDepreciation, gl_expense_account_id: accounts.depreciationExpense,
       status: 'available', location: 'Head office', created_by: actorId,

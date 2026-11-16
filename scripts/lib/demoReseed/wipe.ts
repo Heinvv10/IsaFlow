@@ -5,7 +5,9 @@
  */
 
 import type { Tx } from './db';
-import { BALANCE_CACHE_STEP, QA_MAILBOX_NAME, WIPE_STEPS, countSql, deleteSql, isKept } from './wipePlan';
+import {
+  BALANCE_CACHE_STEP, CASCADE_WITH, INVOICE_PAYMENT_REQUEST_TABLES, QA_MAILBOX_NAME, WIPE_STEPS, countSql, crossTenantSql, deleteSql, invoiceRequestWhere, isKept,
+} from './wipePlan';
 
 export interface TableCount { table: string; n: number }
 
@@ -41,8 +43,34 @@ export async function missingWipeTables(tx: Tx): Promise<string[]> {
   return WIPE_STEPS.map((s) => s.table).filter((t) => !have.has(t));
 }
 
-export async function countWipe(tx: Tx, companyId: string): Promise<TableCount[]> {
+/** Child rows that name a Demo parent AND another company's parent (corrupt data): the run refuses while any exist. */
+export async function crossTenantChildren(tx: Tx, companyId: string): Promise<TableCount[]> {
   const out: TableCount[] = [];
+  for (const step of WIPE_STEPS) {
+    const q = crossTenantSql(step);
+    if (!q) continue;
+    const [r] = await tx.query<{ n: number }>(q, [companyId]);
+    if ((r?.n ?? 0) > 0) out.push({ table: step.table, n: r!.n });
+  }
+  return out;
+}
+
+async function cascadeCounts(tx: Tx, companyId: string): Promise<TableCount[]> {
+  const out: TableCount[] = [];
+  for (const [table, col, parent] of CASCADE_WITH) {
+    const [r] = await tx.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM ${table} WHERE company_id = $1::uuid AND ${col} IN (SELECT id FROM ${parent} WHERE company_id = $1::uuid)`, [companyId]);
+    out.push({ table: `${table} (cascades with ${parent})`, n: r?.n ?? 0 });
+  }
+  return out;
+}
+
+export async function countWipe(tx: Tx, companyId: string): Promise<TableCount[]> {
+  const out: TableCount[] = await cascadeCounts(tx, companyId);
+  for (const table of INVOICE_PAYMENT_REQUEST_TABLES) {
+    const [r] = await tx.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${table} WHERE ${invoiceRequestWhere()}`, [companyId]);
+    out.push({ table: `${table} (invoice payment requests)`, n: r?.n ?? 0 });
+  }
   for (const step of [...WIPE_STEPS, BALANCE_CACHE_STEP]) {
     const [r] = await tx.query<{ n: number }>(countSql(step), [companyId]);
     out.push({ table: step.table, n: r?.n ?? 0 });
@@ -53,7 +81,7 @@ export async function countWipe(tx: Tx, companyId: string): Promise<TableCount[]
   return out;
 }
 
-/** Kept tables holding Demo rows, with counts (the dry-run's "kept" report and post-check R2). */
+/** Kept tables holding Demo rows, with counts (the dry-run's "kept" report, post-check R2 and N6). */
 export async function keptReport(tx: Tx, companyId: string): Promise<TableCount[]> {
   const out: TableCount[] = [];
   for (const table of await companyTables(tx)) {
@@ -75,10 +103,14 @@ export async function intercompanyCount(tx: Tx, companyId: string): Promise<numb
 
 export async function runWipe(tx: Tx, companyId: string): Promise<TableCount[]> {
   // Kept billing rows point at Demo invoices through (company_id, customer_invoice_id) with ON DELETE
-  // SET NULL; company_id is NOT NULL, so the cascade would fail. Unlink them first.
-  await tx.query('UPDATE paystack_payment_requests SET customer_invoice_id = NULL WHERE company_id = $1::uuid AND customer_invoice_id IS NOT NULL', [companyId]);
-  await tx.query('UPDATE stitch_payment_requests SET customer_invoice_id = NULL WHERE company_id = $1::uuid AND customer_invoice_id IS NOT NULL', [companyId]);
-  const out: TableCount[] = [];
+  // SET NULL; company_id is NOT NULL, so the cascade would fail. A customer_invoice request cannot lose its
+  // invoice (CHECK), so it goes with the invoice; any other purpose is unlinked.
+  const out: TableCount[] = await cascadeCounts(tx, companyId);
+  for (const table of INVOICE_PAYMENT_REQUEST_TABLES) {
+    const res = await tx.client.query(`DELETE FROM ${table} WHERE ${invoiceRequestWhere()}`, [companyId]);
+    out.push({ table: `${table} (invoice payment requests)`, n: res.rowCount ?? 0 });
+    await tx.query(`UPDATE ${table} SET customer_invoice_id = NULL WHERE company_id = $1::uuid AND customer_invoice_id IS NOT NULL`, [companyId]);
+  }
   for (const step of [...WIPE_STEPS, BALANCE_CACHE_STEP]) {
     const res = await tx.client.query(deleteSql(step), [companyId]);
     out.push({ table: step.table, n: res.rowCount ?? 0 });

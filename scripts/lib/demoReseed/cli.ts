@@ -82,7 +82,7 @@ export function assertTransportSafe(url: string): void {
   let u: URL;
   try { u = new URL(url); } catch { throw new Refusal(`${DB_URL_ENV} is not a valid URL`); }
   const mode = u.searchParams.get('sslmode');
-  if (!LOOPBACK.has(u.hostname) && (mode === null || mode === 'disable' || mode === 'allow' || mode === 'prefer')) {
+  if (!LOOPBACK.has(u.hostname) && (mode === null || mode === 'disable' || mode === 'allow' || mode === 'prefer' || mode === 'no-verify')) {
     throw new Refusal(`host ${u.hostname} is not loopback: add sslmode=verify-full (or require) to ${DB_URL_ENV}; plaintext or unverified TLS is refused`);
   }
 }

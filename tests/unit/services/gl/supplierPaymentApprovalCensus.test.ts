@@ -101,6 +101,9 @@ describe('supplier-payment writers', () => {
     }
   });
 
+  // Named limit: scripts/lib/demoReseed/write.ts (insertRows) also inserts supplier_payments and
+  // payment_allocations (paid history for the Demo company only) through runtime-built SQL that this
+  // census cannot see; the table names come from SEED_TABLES in scripts/lib/demoReseed/types.ts.
   it('allocations are written only at creation and to posted payments', () => {
     expect(matching(/(INSERT\s+INTO|DELETE\s+FROM|UPDATE)\s+payment_allocations\b/)).toEqual([
       `${AP}batchPaymentService.ts`, // createBatch

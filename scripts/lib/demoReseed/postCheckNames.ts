@@ -7,6 +7,8 @@ import { DEMO_COMPANY_NAME } from './constants';
 import type { Tx } from './db';
 import { ISO_DATE_IN_TEXT, findDeniedNames } from './denylist';
 import { DEFAULT_PREFIX } from './write';
+import { isAppendOnlyKept } from './wipePlan';
+import { keptReport } from './wipe';
 
 /** [table, text columns, scope]: the Demo text a user can see. Child tables are reached through their parent. */
 export const TEXT_SURFACES: ReadonlyArray<readonly [string, readonly string[], string]> = [
@@ -117,4 +119,20 @@ export async function checkN4(tx: Tx, companyId: string): Promise<CheckResult> {
 export async function checkN5(tx: Tx, companyId: string): Promise<CheckResult> {
   const hits = await scanText(tx, companyId, (t) => (ISO_DATE_IN_TEXT.test(t) ? [t.match(ISO_DATE_IN_TEXT)![0]] : []));
   return fromHits('N5 No ISO-style date in text', hits, 'no full ISO-style date in Demo text');
+}
+
+/**
+ * N6: every kept table that is not append-only, scanned whole (each row as JSON) for denylisted names. The reseed
+ * does not rewrite these rows, so a real name or QA artefact left in one (a budget name, an approval reference, an
+ * e-mail subject) must fail the run rather than pass silently. Append-only tables are R1's residual report.
+ */
+export async function checkN6(tx: Tx, companyId: string): Promise<CheckResult> {
+  const hits: Hit[] = [];
+  for (const { table } of await keptReport(tx, companyId)) {
+    if (isAppendOnlyKept(table)) continue;
+    const rows = await tx.query<{ id: string; j: string }>(
+      `SELECT coalesce(to_jsonb(x)->>'id', '') AS id, to_jsonb(x)::text AS j FROM ${table} x WHERE company_id = $1::uuid`, [companyId]);
+    for (const r of rows) for (const term of findDeniedNames(r.j)) hits.push({ table, column: '*', id: r.id, term });
+  }
+  return fromHits('N6 Kept tables carry no denylisted name', hits, 'no denylisted name in any kept, non-append-only table');
 }

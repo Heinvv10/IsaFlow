@@ -45,6 +45,7 @@ describe('reseed CLI contract', () => {
     expect(() => assertTransportSafe('postgresql://u@db.example.co.za:5432/x')).toThrow(/not loopback/);
     expect(() => assertTransportSafe('postgresql://u@db.example.co.za:5432/x?sslmode=disable')).toThrow(Refusal);
     expect(() => assertTransportSafe('postgresql://u@db.example.co.za:5432/x?sslmode=prefer')).toThrow(Refusal);
+    expect(() => assertTransportSafe('postgresql://u@db.example.co.za:5432/x?sslmode=no-verify')).toThrow(Refusal);
     expect(() => assertTransportSafe('postgresql://u@db.example.co.za:5432/x?sslmode=verify-full')).not.toThrow();
     expect(() => assertTransportSafe('postgresql://u@127.0.0.1:5432/x?sslmode=disable')).not.toThrow();
   });

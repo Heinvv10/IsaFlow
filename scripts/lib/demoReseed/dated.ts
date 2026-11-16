@@ -40,7 +40,7 @@ export const DATED: readonly DatedColumn[] = [
   { table: 'bank_reconciliations', column: 'statement_date' }, { table: 'bank_reconciliations', column: 'completed_at' },
   { table: 'bank_import_batches', column: 'statement_date' },
   { table: 'payroll_run_headers', column: 'run_date' }, { table: 'payroll_run_headers', column: 'approved_at' },
-  { table: 'payroll_run_headers', column: 'paid_at' }, { table: 'payroll_run_headers', column: 'calculated_at' },
+  { table: 'payroll_run_headers', column: 'calculated_at' },
   { table: 'payroll_run_headers', column: 'period_end', where: "status <> 'draft'" },
   { table: 'payroll_run_headers', column: 'period_start' },
   { table: 'customer_quotes', column: 'quote_date' },

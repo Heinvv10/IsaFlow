@@ -161,15 +161,15 @@ function writeRun(ctx: Ctx, run: { year: number; month: number; results: Payroll
     total_gross: money(c.gross), total_taxable: money(c.taxable), total_paye: money(c.paye), total_uif: money(c.uifEe + c.uifEr),
     total_sdl: money(c.sdl), total_eti: money(0), total_net: money(c.net), employee_count: results.length,
     created_by: actorId, prepared_by: actorId, calculated_at: stamp, approved_by: actorId, approved_at: stamp,
-    approval_grandfathered_at: stamp, paid_at: stamp, journal_entry_id: entry.id, pay_frequency: 'monthly', run_kind: 'regular',
+    approval_grandfathered_at: stamp, journal_entry_id: entry.id, pay_frequency: 'monthly', run_kind: 'regular',
     period_start: monthStart(year, month), period_end: end,
   });
   const next = addMonths(year, month, 1);
   const payDay = dayOf(next.year, next.month, 7);
   if (payDay <= ctx.win.today) {
     ctx.jb.add({
-      date: payDay, description: `PAYE, UIF and SDL for ${monthLabel(year, month)}`, reference: `EMP201-${year}-${mm}`, source: 'manual',
-      bankText: `SARS PAYE UIF SDL ${label}`,
+      date: payDay, description: `PAYE, UIF and SDL for ${monthLabel(year, month)}`, reference: `STAT-${year}-${mm}`, source: 'manual',
+      bankText: `PAYE UIF SDL payment ${label}`,
       lines: [
         { accountId: accounts.paye, debit: c.paye, credit: 0, description: 'PAYE paid' },
         { accountId: accounts.uif, debit: c.uifEe + c.uifEr, credit: 0, description: 'UIF paid' },

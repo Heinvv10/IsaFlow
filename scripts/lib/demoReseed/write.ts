@@ -10,7 +10,7 @@ import { DEMO_COMPANY_NAME, DEMO_TRADING_NAME, FALLBACK_ACTOR_ID } from './const
 import type { Window } from './dates';
 import { addDays } from './dates';
 import type { Tx } from './db';
-import { findDeniedNames } from './denylist';
+import { ISO_DATE_IN_TEXT, findDeniedNames } from './denylist';
 import type { AccountRefs, DocFamily, DocFamilyKey, Row } from './types';
 
 const BATCH = 200;
@@ -57,7 +57,7 @@ export async function resolveAccounts(tx: Tx, companyId: string): Promise<Accoun
   const defaultExpense = await role('default_expense');
   const required = async (c: string): Promise<string> => {
     const id = await code(c, '');
-    if (!id) throw new Error(`the Demo company has no active account ${c} (payroll needs it)`);
+    if (!id) throw new Error(`the Demo company has no active account ${c} (the seed posts to it)`);
     return id;
   };
   return {
@@ -67,7 +67,8 @@ export async function resolveAccounts(tx: Tx, companyId: string): Promise<Accoun
     salesRevenue: defaultRevenue, serviceRevenue: await code('4200', defaultRevenue), otherIncome: await code('4300', defaultRevenue),
     openingEquity: await role('opening_balance_equity'), bankCharges: await code('5700', defaultExpense),
     labour: await required('5200'), paye: await required('2140'), uif: await required('2150'), sdl: await required('2160'),
-    equipment: await code('1210', defaultExpense), vehicles: await code('1220', await code('1210', defaultExpense)),
+    // Asset accounts are required: an asset bought into an expense account would be a wrong register.
+    equipment: await required('1210'), vehicles: await code('1220', await required('1210')),
     accumulatedDepreciation: await role('accumulated_depreciation'), depreciationExpense: await role('depreciation_expense'),
     expenseByCode: {
       '5100': await code('5100', defaultExpense), '5400': await code('5400', defaultExpense), '5600': await code('5600', defaultExpense),
@@ -152,25 +153,35 @@ export async function ensureFiscalCalendar(tx: Tx, companyId: string, win: Windo
 export async function renameCompany(tx: Tx, companyId: string): Promise<void> {
   await tx.query(`
     UPDATE companies SET name = $2, trading_name = $3,
-      registered_name = CASE WHEN registered_name IS NULL THEN NULL ELSE $2 END, updated_at = now()
+      registered_name = CASE WHEN registered_name IS NULL THEN NULL ELSE $2 END,
+      -- No bank named and no real person's address on a public demo company.
+      bank_name = CASE WHEN bank_name IS NULL THEN NULL ELSE 'Demo Bank' END,
+      bank_account_number = CASE WHEN bank_account_number IS NULL THEN NULL ELSE '0000000000' END,
+      bank_branch_code = CASE WHEN bank_branch_code IS NULL THEN NULL ELSE '000000' END,
+      email = CASE WHEN email IS NULL THEN NULL ELSE 'accounts@demo.example.co.za' END, updated_at = now()
     WHERE id = $1::uuid`, [companyId, DEMO_COMPANY_NAME, DEMO_TRADING_NAME]);
 }
 
-/** Generic bank metadata on the seeded bank account, and on any account whose bank fields name a real bank. */
+/** A bank account name that would show a real bank, a QA artefact or a test date. */
+function needsGenericName(name: string): boolean {
+  return findDeniedNames(name).length > 0 || ISO_DATE_IN_TEXT.test(name) || /\b(qa|test)\b/i.test(name);
+}
+
+/** Generic metadata on EVERY bank account ("no bank named"), and a generic name where the name itself is unsafe. */
 export async function genericBankMetadata(tx: Tx, companyId: string, bankAccountId: string, win: Window): Promise<void> {
-  const rows = await tx.query<{ id: string; account_name: string; bank_name: string | null; bank_branch_name: string | null }>(
-    `SELECT id, account_name, bank_name, bank_branch_name FROM gl_accounts WHERE company_id = $1::uuid AND account_subtype = 'bank'`, [companyId]);
+  const rows = await tx.query<{ id: string; account_code: string; account_name: string }>(
+    `SELECT id, account_code, account_name FROM gl_accounts WHERE company_id = $1::uuid AND account_subtype = 'bank'`, [companyId]);
   for (const r of rows) {
-    const named = findDeniedNames(`${r.account_name} ${r.bank_name ?? ''} ${r.bank_branch_name ?? ''}`).length > 0;
-    if (r.id !== bankAccountId && !named) continue;
+    const name = !needsGenericName(r.account_name) ? r.account_name
+      : r.id === bankAccountId ? 'Business Current Account' : `Business Account ${r.account_code}`;
     await tx.query(`
       UPDATE gl_accounts SET bank_name = 'Demo Bank', bank_branch_name = 'Head Office', bank_branch_code = '000000',
-        bank_account_number = '0000000000', bank_account_type = 'current',
-        account_name = CASE WHEN $3 THEN 'Business Current Account' ELSE account_name END,
+        bank_account_number = '0000000000', account_name = $3,
+        bank_account_type = CASE WHEN id = $4::uuid THEN 'current' ELSE bank_account_type END,
         bank_opening_balance = CASE WHEN id = $4::uuid THEN 0 ELSE bank_opening_balance END,
         bank_opening_balance_date = CASE WHEN id = $4::uuid THEN $5::date ELSE bank_opening_balance_date END, updated_at = now()
       WHERE company_id = $1::uuid AND id = $2::uuid`,
-    [companyId, r.id, findDeniedNames(r.account_name).length > 0, bankAccountId, addDays(win.windowStart, -1)]);
+    [companyId, r.id, name, bankAccountId, addDays(win.windowStart, -1)]);
   }
 }
 

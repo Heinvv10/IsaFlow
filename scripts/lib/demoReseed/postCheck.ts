@@ -15,7 +15,7 @@ import type { CheckResult } from '../integrityTypes';
 import type { Window } from './dates';
 import type { Tx } from './db';
 import { checkA, checkB, checkC1, checkJ } from './postCheckLedger';
-import { checkN1, checkN2, checkN3, checkN4, checkN5 } from './postCheckNames';
+import { checkN1, checkN2, checkN3, checkN4, checkN5, checkN6 } from './postCheckNames';
 import { checkD, checkF1, checkG, checkP, checkV1, infoR } from './postCheckOther';
 
 export type ExtraCheck = (tx: Tx) => Promise<CheckResult>;
@@ -38,7 +38,7 @@ export function regressions(before: CheckResult[], after: CheckResult[]): CheckR
 export async function demoChecks(tx: Tx, companyId: string, win: Window): Promise<CheckResult[]> {
   return [
     await checkN1(tx, companyId), await checkN2(tx, companyId), await checkN3(tx, companyId),
-    await checkN4(tx, companyId), await checkN5(tx, companyId),
+    await checkN4(tx, companyId), await checkN5(tx, companyId), await checkN6(tx, companyId),
     ...(await checkG(tx, companyId, win)),
     ...(await checkD(tx, companyId, win)),
     ...(await checkA(tx, companyId, win)),
