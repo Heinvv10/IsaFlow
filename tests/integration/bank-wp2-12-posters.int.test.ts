@@ -23,7 +23,13 @@ const companies: string[] = [];
 const tokens: Record<string, string> = {};
 let user = '';
 beforeAll(async () => { user = await createUser(pool, tokens); });
-afterAll(() => cleanupBankControlsA(pool, companies, [user]));
+afterAll(async () => {
+  // Rows this file makes that the shared teardown does not know about (they reference the GL accounts it deletes).
+  for (const t of ['bank_reconciliations', 'supplier_coding_history', 'bank_auto_post_settings']) {
+    await pool.query(`DELETE FROM ${t} WHERE company_id = ANY($1)`, [companies]);
+  }
+  await cleanupBankControlsA(pool, companies, [user]);
+});
 
 const NO_PERIOD = [['2001-03-15', /No fiscal period covers 2001-03-15/], ['2040-01-01', /No fiscal period covers 2040-01-01/]] as const;
 const CLOSED = ['2025-06-10', /closed fiscal period/] as const;
