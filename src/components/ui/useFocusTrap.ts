@@ -48,9 +48,17 @@ export function useFocusTrap(
         return;
       }
       if (e.key !== 'Tab') return;
-      // Tab from an open Select's portalled panel (its list or search box) belongs to the Select: it puts focus back on
-      // its trigger and the browser moves on from there. Treating the panel as "outside" would send focus to the first control.
-      if (document.activeElement?.closest('[data-select-panel="true"]')) return;
+      // Tab from an open Select's portalled panel (its list or search box): the Select refocuses its trigger and the browser's
+      // Tab moves on from THERE. So the trigger, not the panel, is where the wrap rule looks: a Select that is the drawer's last
+      // control (first, with Shift+Tab) must wrap like any other, or focus leaves the modal.
+      const panel = document.activeElement?.closest('[data-select-panel="true"]');
+      let current = document.activeElement;
+      if (panel) {
+        const listboxId = panel.querySelector('[role="listbox"]')?.id;
+        const owner = listboxId ? Array.from(container.querySelectorAll<HTMLElement>('[role="combobox"][aria-controls]')).find((c) => c.getAttribute('aria-controls') === listboxId) : undefined;
+        if (!owner) return; // a Select of another overlay: not this trap's
+        current = owner;
+      }
       const list = items();
       const first = list[0];
       const last = list[list.length - 1];
@@ -58,13 +66,15 @@ export function useFocusTrap(
         e.preventDefault();
         return;
       }
-      const current = document.activeElement;
-      if (e.shiftKey && (current === first || !container.contains(current))) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && (current === last || !container.contains(current))) {
-        e.preventDefault();
-        first.focus();
+      const target = e.shiftKey ? (current === first || !container.contains(current) ? last : null)
+        : (current === last || !container.contains(current) ? first : null);
+      if (!target) return;
+      e.preventDefault();
+      if (panel) {
+        // The Select's own Tab handler runs after this one and puts focus back on its trigger: move on once it has.
+        setTimeout(() => target.focus(), 0);
+      } else {
+        target.focus();
       }
     };
 

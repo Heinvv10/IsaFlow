@@ -2,7 +2,9 @@
 // focus trap, so the trap must leave that Tab alone: the Select returns focus to its trigger and the browser then moves
 // on to the NEXT control after the trigger (not back to the drawer's first control).
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { useRef } from 'react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useFocusTrap } from '@/components/ui/useFocusTrap';
 import { Drawer } from '@/components/ui/Drawer';
 import { Select } from '@/components/ui/Select';
 
@@ -52,5 +54,42 @@ describe('Escape out of an open Select panel inside a Drawer', () => {
     // With the list closed, Escape on the trigger is the drawer's again.
     fireEvent.keyDown(trigger, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+const OPTIONS = [{ value: 'a', label: 'Alpha' }, { value: 'b', label: 'Beta' }];
+function Trap({ selectFirst }: { selectFirst: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useFocusTrap(ref, true, () => undefined);
+  const select = <Select label="Kind" searchable value={null} onChange={() => undefined} options={OPTIONS} />;
+  return (
+    <div ref={ref}>
+      {selectFirst ? <>{select}<input aria-label="After" /></> : <><input aria-label="Before" />{select}</>}
+    </div>
+  );
+}
+
+describe('a Select at the edge of the trap still wraps', () => {
+  it('last control: Tab from its panel wraps to the first control, not out of the overlay', async () => {
+    render(<Trap selectFirst={false} />);
+    const trigger = screen.getByRole('combobox', { name: 'Kind' });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const box = screen.getByRole('textbox', { name: /Search Kind/ });
+    box.focus();
+    expect(fireEvent.keyDown(box, { key: 'Tab' })).toBe(false);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Before')));
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('first control: Shift+Tab from its panel wraps to the last control', async () => {
+    render(<Trap selectFirst />);
+    const trigger = screen.getByRole('combobox', { name: 'Kind' });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const box = screen.getByRole('textbox', { name: /Search Kind/ });
+    box.focus();
+    expect(fireEvent.keyDown(box, { key: 'Tab', shiftKey: true })).toBe(false);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('After')));
   });
 });
