@@ -3,7 +3,7 @@
  *
  *   1. known items (the readers') fold into lines by week — the past in week 1, past the horizon left out;
  *   2. the budget fill tops customer receipts and supplier payments up to budget, month by month (manual items
- *      of those categories count as known: known always wins);
+ *      of those categories with the category's sign count as known: known always wins; a refund sits on top);
  *   3. manual items, then overrides, last and in order.
  *
  * Invariants (asserted in tests/unit/services/cashForecast13): every amount is integer cents; per week
@@ -46,7 +46,10 @@ export function runEngine(input: EngineInput): CashForecast13 {
   if (known.beyondHorizon > 0) {
     warnings.push({ code: 'beyond_horizon', source: 'engine', message: `${known.beyondHorizon} dated item(s) fall after week 13 and are not in this forecast` });
   }
-  const manualKnown = manualKnownItems(input.manualItems, input.today, spans).items;
+  // Only SAME-SIGN manual items are known to the fill (a receipt in customer_receipts, a payment in
+  // supplier_payments). A refund (the opposite sign) sits on top: counting it would grow the fill by as much.
+  const manualKnown = manualKnownItems(input.manualItems, input.today, spans).items.filter((m) =>
+    (m.category === 'customer_receipts' && m.amountCents > 0) || (m.category === 'supplier_payments' && m.amountCents < 0));
   const budget = input.budget ? budgetFillLines(input.budget, [...(input.budgetKnown ?? input.items), ...manualKnown], input.today, spans) : [];
   const manual = manualLines(input.manualItems, input.today, spans);
   warnings.push(...manual.warnings);

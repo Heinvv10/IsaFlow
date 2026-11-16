@@ -31,6 +31,28 @@ describe('cash13 budget fill', () => {
     expect(sum(out.lines.find((l) => l.key === 'budget:supplier_payments')!.weekly)).toBe(-60_000_00);
   });
 
+  it('a customer refund (a payment in customer_receipts) is not known: it sits on top, closing cash R50k lower', () => {
+    const budget = [{ month: '2026-12', customerReceipts: 500_000_00, supplierPayments: 0 }];
+    const items = [ar('2026-12-10', 300_000_00)];
+    const without = runEngine(base({ items, budget }));
+    const withRefund = runEngine(base({ items, budget, manualItems: [
+      { id: 'r', date: '2026-12-15', amountCents: -50_000_00, description: 'Refund', category: 'customer_receipts' },
+    ] }));
+    expect(sum(withRefund.lines.find((l) => l.key === 'budget:customer_receipts')!.weekly)).toBe(200_000_00);
+    expect(withRefund.weeks[12]!.closingCents - without.weeks[12]!.closingCents).toBe(-50_000_00);
+  });
+
+  it('a supplier refund (a receipt in supplier_payments) is not known either: closing cash R20k higher', () => {
+    const budget = [{ month: '2026-12', customerReceipts: 0, supplierPayments: -100_000_00 }];
+    const items = [ap('2026-12-10', -60_000_00)];
+    const without = runEngine(base({ items, budget }));
+    const withRefund = runEngine(base({ items, budget, manualItems: [
+      { id: 'r', date: '2026-12-15', amountCents: 20_000_00, description: 'Supplier refund', category: 'supplier_payments' },
+    ] }));
+    expect(sum(withRefund.lines.find((l) => l.key === 'budget:supplier_payments')!.weekly)).toBe(-40_000_00);
+    expect(withRefund.weeks[12]!.closingCents - without.weeks[12]!.closingCents).toBe(20_000_00);
+  });
+
   it('a manual item counts in its own months only (a monthly repeat in two months)', () => {
     const out = runEngine(base({
       manualItems: [{ id: 'm', date: '2026-12-20', amountCents: 100_00, description: 'Rent in', category: 'customer_receipts', repeat: { frequency: 'monthly', until: '2027-01-20' } }],
