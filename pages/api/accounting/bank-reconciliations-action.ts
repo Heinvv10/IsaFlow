@@ -80,6 +80,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // Audit WP2 row 9: the typed refusals keep their 4xx (an unreviewed or unbalanced session, a session that is not
     // there, a cancel or reopen refused, an adjustment on another bank); anything else is a fault — rethrown, 500,
     // rolled back. A 400 here COMMITTED whatever a crash had written (a cancelled session, a completed one).
+    // (Complete's NotBalanced / ReviewRequired 400 does commit one write, on purpose: the derived reconciled_balance,
+    // recomputed from the ledger so the screen shows the difference that was refused. No user data is written.)
     if (respondIfBankRefusal(res, err)) return;
     log.error('Bank reconciliation action failed', { action: (req.body as { action?: unknown })?.action, error: err }, 'accounting-api');
     throw err;

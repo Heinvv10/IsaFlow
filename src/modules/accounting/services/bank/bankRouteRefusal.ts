@@ -8,6 +8,8 @@
  * rest, so `withErrorHandler` gives the 500 and the request rolls back. The default is NOT classified.
  *
  * Every member is a refusal decided before its caller's first write, or inside a savepoint its throw rolls back
+ * (one deliberate exception: `completeReconciliation` refreshes the DERIVED `reconciled_balance` before its
+ * NotBalanced / ReviewRequired 400 — a figure recomputed from the ledger, not the user's data, kept so the screen shows the refused difference)
  * (allocate, split, reverse and the reconciliation adjustment post through `withJournalDateRefusal`'s savepoint — the
  * posting-guard refusals below reach a route only that way). Add a class or code only with that shown.
  *
