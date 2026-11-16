@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from '@/lib/neon';
 import { allocateTransaction, splitAllocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { FiscalPeriodLockTimeoutError } from '@/modules/accounting/services/gl/periodCloseErrors';
 import { allocationPeriodFor } from '@/modules/accounting/services/bank/bankAllocationPeriod';
 import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
@@ -161,6 +162,28 @@ describeIfDb('WP2 row 12: a bank allocation never posts outside every fiscal per
       await b.query('ROLLBACK').catch(() => undefined);
       await a.query('ROLLBACK').catch(() => undefined);
       a.release(); b.release();
+    }
+  }, 60000);
+
+  it('a period row held by a closer (FOR NO KEY UPDATE) is a bounded wait, then a typed busy refusal — never a stall', async () => {
+    const [p] = (await sql`SELECT id::TEXT AS id FROM fiscal_periods WHERE company_id = ${fx.companyId}::UUID
+      AND '2026-03-10'::DATE BETWEEN start_date AND end_date`) as Record<string, unknown>[];
+    const closer = await fx.pool.connect();
+    const alloc = await fx.pool.connect();
+    try {
+      await closer.query('BEGIN');
+      await closer.query('SELECT id FROM fiscal_periods WHERE id = $1::UUID FOR NO KEY UPDATE', [p!.id]);
+      await alloc.query('BEGIN');
+      await alloc.query("SET LOCAL lock_timeout = '300ms'"); // the caller's own, tighter than the 5 s budget: honoured
+      const t0 = Date.now();
+      const err = await runOn(fx, alloc, () => allocationPeriodFor(fx.companyId, '2026-03-10')).then(() => null, (e: unknown) => e);
+      expect(err, String(err)).toBeInstanceOf(FiscalPeriodLockTimeoutError);
+      expect((err as Error).message).toMatch(/retry in a moment/);
+      expect(Date.now() - t0).toBeLessThan(3000);
+    } finally {
+      await alloc.query('ROLLBACK').catch(() => undefined);
+      await closer.query('ROLLBACK').catch(() => undefined);
+      alloc.release(); closer.release();
     }
   }, 60000);
 

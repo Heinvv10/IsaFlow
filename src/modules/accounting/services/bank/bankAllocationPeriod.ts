@@ -19,6 +19,8 @@ import {
 } from '../gl/fiscalPeriodAutoCreate';
 import { fiscalYearForDate } from '../gl/fiscalYearRegistry';
 import { ledgerEntryDay } from '../gl/journalDateGuard';
+import { withPeriodLockBudget } from '../gl/periodCloseGate';
+import { FiscalPeriodLockTimeoutError } from '../gl/periodCloseErrors';
 import { JournalDateRefusedError } from '../../utils/journalDateWindow';
 import { ClosedFiscalPeriodError } from '../gl/journalEntryPostingGuards';
 import { BankAllocationRefusal, isBankAllocationRefusal } from './bankAllocationRefusal';
@@ -51,12 +53,21 @@ export async function allocationPeriodFor(companyId: string, entryDate: string):
   await ledgerEntryDay(entryDate); // the ledger-date window first, as createJournalEntry asks it: its message wins
   const periodId = await ensureFiscalPeriodForDate(companyId, entryDate);
   if (!periodId) throw await noPeriodRefusal(companyId, entryDate);
-  const rows = (await sql`
+  // FOR SHARE conflicts with the closers' FOR NO KEY UPDATE, so a close cannot land between this read and the post.
+  // Bounded as the close flows are (5 s, tighten-only, restored): a closer that holds the row longer is a typed
+  // FiscalPeriodLockTimeoutError (503 + Retry-After, caller-safe over MCP), nothing written, not an unbounded stall.
+  const rows = (await withPeriodLockBudget(() => sql`
     SELECT status FROM fiscal_periods WHERE id = ${periodId}::UUID AND company_id = ${companyId}::UUID FOR SHARE
-  `) as DbRow[];
+  `, `the fiscal period covering ${entryDate}`)) as DbRow[];
   const status = String(rows[0]?.status ?? 'closed');
   if (status !== 'open') throw new ClosedFiscalPeriodError(status);
   return periodId;
+}
+
+/** An answer about the DATE (or a busy period), raised before anything is written: a skip or a toolError, not a fault. */
+export function isPeriodRefusal(err: unknown): err is Error {
+  return isBankAllocationRefusal(err) || err instanceof ClosedFiscalPeriodError || err instanceof JournalDateRefusedError
+    || err instanceof FiscalPeriodLockTimeoutError;
 }
 
 class ProbeDone extends Error {}
@@ -76,7 +87,7 @@ export async function allocationPeriodProbe(companyId: string, entryDate: string
     return null;
   } catch (err) {
     if (err instanceof ProbeDone) return null;
-    if (isBankAllocationRefusal(err) || err instanceof ClosedFiscalPeriodError || err instanceof JournalDateRefusedError) return err.message;
+    if (isPeriodRefusal(err)) return err.message;
     throw err;
   }
 }

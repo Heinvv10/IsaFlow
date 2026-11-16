@@ -12,10 +12,7 @@ import { isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { handKeyedLineJournalRefusal } from '../bank/bankLineJournalGate';
 import { importerAllocationRefusal, importerArmOf } from '../bank/bankLineImporterGate';
 import { isAllocationVatCode } from '../bank/bankVatCodes';
-import { allocationPeriodFor } from '../bank/bankAllocationPeriod';
-import { isBankAllocationRefusal } from '../bank/bankAllocationRefusal';
-import { ClosedFiscalPeriodError } from '../gl/journalEntryPostingGuards';
-import { JournalDateRefusedError } from '../../utils/journalDateWindow';
+import { allocationPeriodFor, isPeriodRefusal } from '../bank/bankAllocationPeriod';
 import { predictFromHistory, type CodingPrediction } from './provisionalPrediction';
 import { placeCostCentres } from '../gl/dimensions/costCentrePick'; // the predicted centre, in its slot
 
@@ -109,7 +106,7 @@ export async function postProvisional(
   try {
     fiscalPeriodId = await allocationPeriodFor(companyId, txDate);
   } catch (err) {
-    if (isBankAllocationRefusal(err) || err instanceof ClosedFiscalPeriodError || err instanceof JournalDateRefusedError) {
+    if (isPeriodRefusal(err)) {
       return { journalEntryId: null, prediction, skipped: err.message };
     }
     throw err;
