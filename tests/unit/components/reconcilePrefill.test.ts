@@ -17,6 +17,10 @@ describe('parseReconcilePrefill', () => {
     expect(parseReconcilePrefill({ bankAccountId: ID, statementDate: '31/10/2026', statementBalance: '1e5' })).toEqual({ bankAccountId: ID });
     expect(parseReconcilePrefill({ statementBalance: '12abc' })).toEqual({});
   });
+  it('knows leap years: 29 Feb exists in 2028 and 2000, not in 2026 or 2100', () => {
+    const d = (statementDate: string) => parseReconcilePrefill({ statementDate }).statementDate;
+    expect([d('2028-02-29'), d('2000-02-29'), d('2026-02-29'), d('2100-02-29')]).toEqual(['2028-02-29', '2000-02-29', undefined, undefined]);
+  });
   it('ignores repeated (array) parameters and missing ones', () => {
     expect(parseReconcilePrefill({ bankAccountId: [ID, ID] })).toEqual({});
     expect(parseReconcilePrefill({})).toEqual({});
