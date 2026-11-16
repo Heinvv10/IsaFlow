@@ -29,13 +29,26 @@ describe('cash13 manual items', () => {
     expect(out.lines.find((l) => l.key === 'manual:m')!.totalCents).toBe(-14); // Nov 25, Dec 25
   });
 
-  it('drops the past occurrences of a repeat but keeps a past one-off in week 1', () => {
+  it('drops the past occurrences of a repeat; a one-off before this week is not forecast but listed (manual_item_past)', () => {
     const out = runEngine(base({ manualItems: [
       { id: 'r', date: '2026-01-07', amountCents: -3, description: 'x', category: 'other', repeat: { frequency: 'monthly' } },
-      { id: 'o', date: '2026-01-07', amountCents: 9, description: 'y', category: 'other' },
+      { id: 'o', date: '2026-01-07', amountCents: 9_00, description: 'Old deposit', category: 'other' },
+      { id: 'p', date: '2026-11-15', amountCents: -4_00, description: 'Last Sunday', category: 'other' },
     ] }));
     expect(out.lines.find((l) => l.key === 'manual:r')!.items[0]?.date).toBe('2026-12-07');
+    expect(out.lines.find((l) => l.key === 'manual:o')).toBeUndefined();
+    expect(out.lines.find((l) => l.key === 'manual:p')).toBeUndefined();
+    const w = out.warnings.filter((x) => x.code === 'manual_item_past');
+    expect(w).toHaveLength(1);
+    expect(w[0]!.source).toBe('manual items');
+    for (const s of ['Old deposit', '2026-01-07', 'Last Sunday', '2026-11-15']) expect(w[0]!.message).toContain(s);
+    expect(w[0]!.message).toMatch(/9[.,]00/);
+  });
+
+  it('a one-off dated this week but before today stays in week 1; no warning', () => {
+    const out = runEngine(base({ manualItems: [{ id: 'o', date: '2026-11-16', amountCents: 9, description: 'Monday', category: 'other' }] }));
     expect(out.lines.find((l) => l.key === 'manual:o')!.weekly[0]).toBe(9);
+    expect(out.warnings.some((x) => x.code === 'manual_item_past')).toBe(false);
   });
 
   it('a monthly repeat from the 31st clamps to short months', () => {

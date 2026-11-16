@@ -1,7 +1,7 @@
 /**
  * Week overrides of the 13-week forecast (cash_forecast_overrides, migration 999i). One override per
  * (company, line key, week): a save UPSERTS on that key (a second save of the same cell replaces the
- * first, never a 409; a save that changes nothing writes nothing). At most MAX_OVERRIDES per company (409 on
+ * first, never a 409; a save that changes nothing writes nothing). At most MAX_OVERRIDES LIVE (this week on) per company (409 on
  * a new cell). Listed in application order (applied_at, id): the trigger moves a cell to the end only when its
  * mode, amount or target changes, so a note-only edit keeps its place. An override on a 'manual:<id>' line needs
  * that item to exist for the company (404), checked FOR SHARE so a concurrent delete waits. Deletes by id. Every write runs in the request transaction, refuses a Login-as
@@ -17,6 +17,8 @@ import { CashForecastInputError, CashForecastLimitError, CashForecastNotFoundErr
 import type { OverrideInput } from './storeSchemas';
 import { MAX_OVERRIDES, manualLineKey, type ForecastOverride, type OverrideMode } from './storeTypes';
 import { isUuidParam } from '@/lib/validation';
+import { appToday } from '../reports/dueByDateService';
+import { horizonStart } from './engineAdapter';
 
 const MANUAL_PREFIX = 'manual:';
 
@@ -95,9 +97,14 @@ export async function saveOverride(companyId: string, userId: string, given: Ove
   `) as DbRow[];
   const before = prior[0] ? toOverride(prior[0]) : null;
   if (before === null) {
-    const count = (await sql`SELECT COUNT(*)::int AS n FROM cash_forecast_overrides WHERE company_id = ${companyId}::UUID`) as DbRow[];
-    if (Number(count[0]?.n ?? 0) >= MAX_OVERRIDES) {
-      throw new CashForecastLimitError(`A company can keep at most ${MAX_OVERRIDES} forecast overrides; remove some first`);
+    // LIVE overrides only: weeks from this week's Monday on (past weeks are ignored by the engine).
+    const count = (await sql`
+      SELECT COUNT(*)::int AS n FROM cash_forecast_overrides
+       WHERE company_id = ${companyId}::UUID AND week_start >= ${horizonStart(appToday())}::DATE
+    `) as DbRow[];
+    const live = Number(count[0]?.n ?? 0);
+    if (live >= MAX_OVERRIDES) {
+      throw new CashForecastLimitError(`A company can keep at most ${MAX_OVERRIDES} live forecast overrides and this one has ${live} live; remove some first`);
     }
   } else if (changes(before, { ...before, ...input, targetWeekStart: input.targetWeekStart ?? undefined }).length === 0) {
     // Nothing changed: no UPDATE (the stamps, and so the application order, stay) and no audit row.

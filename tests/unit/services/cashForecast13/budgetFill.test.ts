@@ -15,6 +15,30 @@ const ap = (date: string, amountCents: number): KnownItem => ({
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 
 describe('cash13 budget fill', () => {
+  it('a manual receipt or payment counts as known (budget R500k, AR R300k, manual R200k: fill 0, receipts R500k)', () => {
+    const out = runEngine(base({
+      items: [ar('2026-12-10', 300_000_00)],
+      manualItems: [
+        { id: 'm1', date: '2026-12-15', amountCents: 200_000_00, description: 'Deposit', category: 'customer_receipts' },
+        { id: 'm2', date: '2026-12-16', amountCents: -40_000_00, description: 'Bill', category: 'supplier_payments' },
+        { id: 'm3', date: '2026-12-17', amountCents: 999_00, description: 'Grant', category: 'other' },
+      ],
+      budget: [{ month: '2026-12', customerReceipts: 500_000_00, supplierPayments: -100_000_00 }],
+    }));
+    expect(out.lines.find((l) => l.key === 'budget:customer_receipts')).toBeUndefined();
+    const receipts = out.lines.filter((l) => l.category === 'customer_receipts').reduce((t, l) => t + l.totalCents, 0);
+    expect(receipts).toBe(500_000_00);
+    expect(sum(out.lines.find((l) => l.key === 'budget:supplier_payments')!.weekly)).toBe(-60_000_00);
+  });
+
+  it('a manual item counts in its own months only (a monthly repeat in two months)', () => {
+    const out = runEngine(base({
+      manualItems: [{ id: 'm', date: '2026-12-20', amountCents: 100_00, description: 'Rent in', category: 'customer_receipts', repeat: { frequency: 'monthly', until: '2027-01-20' } }],
+      budget: [{ month: '2026-12', customerReceipts: 310_00, supplierPayments: 0 }, { month: '2027-01', customerReceipts: 310_00, supplierPayments: 0 }],
+    }));
+    expect(sum(out.lines.find((l) => l.key === 'budget:customer_receipts')!.weekly)).toBe(210_00 + 210_00);
+  });
+
   // today 2026-12-01 (Tue): week 1 = 2026-11-30..12-06; December's 31 days are all from today on.
   it('fills budget minus known for the month, spread evenly by day, marked estimate', () => {
     const out = runEngine(base({

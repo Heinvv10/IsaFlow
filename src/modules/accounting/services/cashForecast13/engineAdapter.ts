@@ -17,6 +17,7 @@ import type { PayDay } from './payDates';
 import type { ManualItem, Override } from './types';
 import { FORECAST_WEEKS } from './types';
 import { buildWeeks, daysBetween } from './weeks';
+import { toCents } from './lines';
 import type { ManualCashItem, PayDayRule } from './storeTypes';
 import type { StoredOverride } from './overridesRepo';
 
@@ -26,7 +27,8 @@ export const horizonStart = (today: string): string => buildWeeks(today)[0]!.sta
 /** Whole weeks from the horizon's first Monday to `monday` (may be negative or past the horizon). */
 export const weekOffset = (firstMonday: string, monday: string): number => Math.floor(daysBetween(firstMonday, monday) / 7);
 
-export const toCents = (rand: number) => Math.round(rand * 100);
+/** The engine's own rand -> cents (one implementation). */
+export { toCents };
 
 export function toEngineManualItems(items: readonly ManualCashItem[]): ManualItem[] {
   return items.map((i) => ({

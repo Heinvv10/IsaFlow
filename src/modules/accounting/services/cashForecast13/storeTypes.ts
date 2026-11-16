@@ -53,6 +53,6 @@ export const DEFAULT_PAY_DAY = 25;
 /** The engine's line key of a manual item; its overrides are deleted with it. */
 export const manualLineKey = (itemId: string) => `manual:${itemId}`;
 
-/** Per-company caps on the stored inputs (checked under a lock in the write transaction). */
+/** Per-company caps on the LIVE stored inputs (this week on; checked under a lock in the write transaction). */
 export const MAX_ITEMS = 500;
 export const MAX_OVERRIDES = 2000;

@@ -1,11 +1,15 @@
 /**
  * The user's own changes, applied after every source line (stored by 999i, read by readStoredInputs):
- *   - manual items become `manual:<id>` lines, repeated weekly or monthly within the horizon;
+ *   - manual items become `manual:<id>` lines, repeated weekly or monthly within the horizon. Past = done: a
+ *     repeat's past occurrences are dropped, and a one-off dated before this week's Monday is not forecast but
+ *     listed in a `manual_item_past` warning (so the user re-dates or deletes it); one dated earlier this week
+ *     is in week 1. Receipts and supplier payments among them count as KNOWN for the budget fill;
  *   - overrides change one cell of a line. They never edit the line itself: each overridden line gets one
  *     `override:<key>` line holding the deltas, so the source figure stays visible beside the change.
  * Overrides apply in array order (the caller's stored order); an override naming a line or week that is
  * not there is skipped with a warning. Pure.
  */
+import { formatCents } from '@/lib/money/formatMoney';
 import { addDays, addMonthsToMonth, daysInMonth, type WeekSpan } from './weeks';
 import { assertCents, emptyWeekly, foldItems } from './lines';
 import { FORECAST_WEEKS, type ForecastLine, type ForecastWarning, type KnownItem, type ManualItem, type Override } from './types';
@@ -17,9 +21,9 @@ function addMonthsClamped(date: string, n: number): string {
   return `${month}-${String(day).padStart(2, '0')}`;
 }
 
-/** A one-off dated in the past is still expected (week 1); a repeat's past occurrences are history and dropped. */
-function occurrences(m: ManualItem, today: string, horizonEnd: string): string[] {
-  if (!m.repeat) return [m.date];
+/** A one-off before `weekStart` (this week's Monday) has none; a repeat's past occurrences are history and dropped. */
+function occurrences(m: ManualItem, today: string, weekStart: string, horizonEnd: string): string[] {
+  if (!m.repeat) return m.date < weekStart ? [] : [m.date];
   const until = m.repeat.until && m.repeat.until < horizonEnd ? m.repeat.until : horizonEnd;
   const out: string[] = [];
   for (let i = 0; ; i++) {
@@ -30,13 +34,27 @@ function occurrences(m: ManualItem, today: string, horizonEnd: string): string[]
   return out;
 }
 
-export function manualLines(manual: readonly ManualItem[], today: string, weeks: readonly WeekSpan[]): ForecastLine[] {
+/** The manual items' dated occurrences inside the horizon, and the one-offs left out as past. */
+export function manualKnownItems(manual: readonly ManualItem[], today: string, weeks: readonly WeekSpan[]): { items: KnownItem[]; past: ManualItem[] } {
+  const weekStart = (weeks[0] as WeekSpan).start;
   const horizonEnd = (weeks[weeks.length - 1] as WeekSpan).end;
-  const items: KnownItem[] = manual.flatMap((m) => occurrences(m, today, horizonEnd).map((date) => ({
+  const past = manual.filter((m) => !m.repeat && m.date < weekStart);
+  const items: KnownItem[] = manual.flatMap((m) => occurrences(m, today, weekStart, horizonEnd).map((date) => ({
     lineKey: `manual:${m.id}`, lineLabel: m.description, category: m.category, date, amountCents: m.amountCents,
     ref: `${m.id}:${date}`, refLabel: m.description,
   })));
-  return foldItems(items, 'manual', today, weeks).lines;
+  return { items, past };
+}
+
+export function manualLines(manual: readonly ManualItem[], today: string, weeks: readonly WeekSpan[]): { lines: ForecastLine[]; warnings: ForecastWarning[] } {
+  const { items, past } = manualKnownItems(manual, today, weeks);
+  const warnings: ForecastWarning[] = past.length === 0 ? [] : [{
+    code: 'manual_item_past', source: 'manual items',
+    message: `${past.length} one-off manual item(s) dated before this week are not forecast; re-date or delete them: ${
+      [...past].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id < b.id ? -1 : 1))
+        .map((m) => `"${m.description}" ${m.date} ${formatCents(m.amountCents)}`).join('; ')}`,
+  }];
+  return { lines: foldItems(items, 'manual', today, weeks).lines, warnings };
 }
 
 const validWeek = (w: number | null | undefined): w is number => typeof w === 'number' && Number.isInteger(w) && w >= 0 && w < FORECAST_WEEKS;

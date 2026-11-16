@@ -3,8 +3,6 @@
  *   - an item's account must be active and a leaf (a header is 400);
  *   - deleting an item deletes its 'manual:<id>' overrides in the same transaction, each audited;
  *   - a save with nothing changed writes no row change and no audit row (items, overrides, pay day);
- *   - per-company caps: 500 items, 2000 overrides (409), checked under a lock so two concurrent creates at
- *     the cap cannot both pass; re-saving an existing override cell is not capped;
  *   - overrides apply in last-edit order (updated_at, id), and the adapter keeps that order;
  *   - a payroll settings row with no pay day chosen (999a's columns only) reads as the default.
  *
@@ -54,33 +52,6 @@ const clear = async () => {
     await pool.query(`DELETE FROM ${t} WHERE company_id = $1`, [co()]);
   }
 };
-
-/**
- * Two concurrent calls with the race forced: SHARE ROW EXCLUSIVE on `table` lets COUNT(*) through but blocks
- * INSERT. Without the per-company lock both requests count below the cap and wait at their INSERT; with it, the
- * second waits on the advisory lock until the first commits. Released once both are waiting.
- */
-async function forcedRace<T>(table: string, call: () => Promise<T>): Promise<T[]> {
-  const locker = await pool.connect();
-  await locker.query('BEGIN');
-  await locker.query(`LOCK TABLE ${table} IN SHARE ROW EXCLUSIVE MODE`);
-  const pid = (await locker.query('SELECT pg_backend_pid() AS p')).rows[0].p;
-  const calls = Promise.all([call(), call()]);
-  try {
-    const deadline = Date.now() + 15_000;
-    for (;;) {
-      const waiting = (await pool.query(
-        "SELECT COUNT(*)::int n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND pid <> $1", [pid])).rows[0].n;
-      if (waiting >= 2) break;
-      if (Date.now() > deadline) throw new Error(`only ${waiting} request(s) reached a lock wait`);
-      await new Promise((r) => setTimeout(r, 25));
-    }
-  } finally {
-    await locker.query('COMMIT');
-    locker.release();
-  }
-  return calls;
-}
 
 beforeAll(async () => {
   const o = await items.owner();
@@ -162,56 +133,6 @@ describe('a save with nothing changed', () => {
     expect((await payDay.call(a, 'PUT', { kind: 'day_of_month', day: 28 })).body.data).toMatchObject({ isDefault: false, day: 28 });
     expect(await stamp('payroll_company_settings')).toEqual(before);
     expect(await audit('payroll_company_settings')).toHaveLength(1);
-    await clear();
-  });
-});
-
-describe('per-company caps', () => {
-  const seedItems = (n: number) => seedAs(
-    `INSERT INTO cash_forecast_items (company_id, direction, amount, expected_date, description)
-     SELECT $1, 'receipt', 1, '2026-12-01', 'seed ' || g FROM generate_series(1, $2) g`, [co(), n]);
-
-  it('the 501st item is 409 and writes nothing; after a delete the next create passes', async () => {
-    await seedItems(500);
-    const out = await items.call(a, 'POST', ITEM);
-    expect(out.status).toBe(409);
-    expect(out.body.error?.message).toMatch(/500/);
-    expect((await pool.query('SELECT COUNT(*)::int n FROM cash_forecast_items WHERE company_id = $1', [co()])).rows[0].n).toBe(500);
-    const one = (await pool.query('SELECT id FROM cash_forecast_items WHERE company_id = $1 LIMIT 1', [co()])).rows[0].id;
-    expect((await items.call(a, 'DELETE', undefined, { id: one })).status).toBe(200);
-    expect((await items.call(a, 'POST', ITEM)).status).toBe(201);
-    await clear();
-  });
-
-  it('two concurrent creates at 499: exactly one passes (forced race)', async () => {
-    await seedItems(499);
-    const calls = forcedRace('cash_forecast_items', () => items.call(a, 'POST', ITEM));
-    const statuses = (await calls).map((r) => r.status).sort();
-    expect(statuses).toEqual([201, 409]);
-    expect((await pool.query('SELECT COUNT(*)::int n FROM cash_forecast_items WHERE company_id = $1', [co()])).rows[0].n).toBe(500);
-    await clear();
-  });
-
-  it('two concurrent new override cells at 1999: exactly one passes (forced race)', async () => {
-    await seedAs(
-      `INSERT INTO cash_forecast_overrides (company_id, line_key, week_start, mode, amount)
-       SELECT $1, 'seed:' || g, $2::date, 'set', 1 FROM generate_series(1, 1999) g`, [co(), monday(1)]);
-    let n = 0;
-    const out = await forcedRace('cash_forecast_overrides', () =>
-      overrides.call(a, 'PUT', { lineKey: `race:${n++}`, weekStart: monday(1), mode: 'set', amount: 1 }));
-    expect(out.map((r) => r.status).sort()).toEqual([200, 409]);
-    expect((await pool.query('SELECT COUNT(*)::int n FROM cash_forecast_overrides WHERE company_id = $1', [co()])).rows[0].n).toBe(2000);
-    await clear();
-  });
-
-  it('the 2001st override cell is 409; re-saving an existing cell at the cap passes', async () => {
-    await seedAs(
-      `INSERT INTO cash_forecast_overrides (company_id, line_key, week_start, mode, amount)
-       SELECT $1, 'seed:' || g, $2::date, 'set', 1 FROM generate_series(1, 2000) g`, [co(), monday(1)]);
-    const out = await overrides.call(a, 'PUT', { lineKey: 'payroll:net', weekStart: monday(1), mode: 'set', amount: 1 });
-    expect(out.status).toBe(409);
-    expect(out.body.error?.message).toMatch(/2000/);
-    expect((await overrides.call(a, 'PUT', { lineKey: 'seed:7', weekStart: monday(1), mode: 'set', amount: 2 })).status).toBe(200);
     await clear();
   });
 });

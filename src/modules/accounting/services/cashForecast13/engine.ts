@@ -2,7 +2,8 @@
  * The 13-week cash forecast engine. Pure: inputs in, forecast out, no clock and no database.
  *
  *   1. known items (the readers') fold into lines by week — the past in week 1, past the horizon left out;
- *   2. the budget fill tops customer receipts and supplier payments up to budget, month by month;
+ *   2. the budget fill tops customer receipts and supplier payments up to budget, month by month (manual items
+ *      of those categories count as known: known always wins);
  *   3. manual items, then overrides, last and in order.
  *
  * Invariants (asserted in tests/unit/services/cashForecast13): every amount is integer cents; per week
@@ -10,7 +11,7 @@
  * weeks; the output does not depend on the order the inputs arrived in (overrides apart, which apply in
  * the order given).
  */
-import { applyOverrides, manualLines } from './adjustments';
+import { applyOverrides, manualKnownItems, manualLines } from './adjustments';
 import { budgetFillLines } from './budgetFill';
 import { assertCents, foldItems, sortLines } from './lines';
 import { buildWeeks } from './weeks';
@@ -45,9 +46,11 @@ export function runEngine(input: EngineInput): CashForecast13 {
   if (known.beyondHorizon > 0) {
     warnings.push({ code: 'beyond_horizon', source: 'engine', message: `${known.beyondHorizon} dated item(s) fall after week 13 and are not in this forecast` });
   }
-  const budget = input.budget ? budgetFillLines(input.budget, input.budgetKnown ?? input.items, input.today, spans) : [];
+  const manualKnown = manualKnownItems(input.manualItems, input.today, spans).items;
+  const budget = input.budget ? budgetFillLines(input.budget, [...(input.budgetKnown ?? input.items), ...manualKnown], input.today, spans) : [];
   const manual = manualLines(input.manualItems, input.today, spans);
-  const before = [...known.lines, ...budget, ...manual];
+  warnings.push(...manual.warnings);
+  const before = [...known.lines, ...budget, ...manual.lines];
   const overridden = applyOverrides(before, input.overrides);
   warnings.push(...overridden.warnings);
 

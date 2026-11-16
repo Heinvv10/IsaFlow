@@ -83,6 +83,14 @@ describe('toEngineOverrides', () => {
   });
 });
 
+describe('toCents', () => {
+  it("is the engine's own (lines.toCents), one implementation", async () => {
+    const lines = await import('@/modules/accounting/services/cashForecast13/lines');
+    const adapter = await import('@/modules/accounting/services/cashForecast13/engineAdapter');
+    expect(adapter.toCents).toBe(lines.toCents);
+  });
+});
+
 describe('toEnginePayDay', () => {
   it('day N is the number; last working day is the literal', () => {
     expect(toEnginePayDay({ kind: 'day_of_month', day: 31 })).toBe(31);

@@ -118,7 +118,8 @@ export interface ForecastLine {
   kind: LineKind;
   weekly: number[];
   totalCents: number;
-  basis?: ArBasis;
+  /** AR lines (`ar:<customerId>`, one per customer): the in-horizon cents by how each invoice was dated. */
+  basisCents?: Record<ArBasis, number>;
   flags: string[];
   items: LineItem[];
 }
