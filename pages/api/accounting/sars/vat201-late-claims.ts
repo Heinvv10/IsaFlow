@@ -4,17 +4,17 @@
  * The VAT201's late-claims section (vat201LateClaims): every s16(3) late input-VAT claim, and
  * reversal of one, dated in the period, with its original document and filed period. Read-only,
  * scoped to the caller's company; the total equals the late part of the input-tax boxes or the
- * service throws (a 5xx: the section is a fault, not the caller's error). Rate-limited per user.
+ * service throws; the route answers 500 with the mismatch's own message (period and totals only). Rate-limited per user.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withNoStore } from '@/lib/auth/withNoStore';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit';
 import { reportWindowProblem } from '@/lib/validation';
-import { getVat201LateClaims } from '@/modules/accounting/services/reports/vat201LateClaims';
+import { Vat201LateClaimsMismatchError, getVat201LateClaims } from '@/modules/accounting/services/reports/vat201LateClaims';
 
 const MAX_WINDOW_DAYS = 400;
 
@@ -32,7 +32,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     log.warn('VAT201 late-claims rate limit exceeded', { companyId, userId: user.id }, 'vat201-late-claims');
     return apiResponse.tooManyRequests(res, 'Too many requests. Please try again shortly.');
   }
-  return apiResponse.success(res, await getVat201LateClaims(companyId, from, to));
+  try {
+    return apiResponse.success(res, await getVat201LateClaims(companyId, from, to));
+  } catch (err) {
+    if (!(err instanceof Vat201LateClaimsMismatchError)) throw err;
+    // A fault, but its message is the period and the two totals only (no ids, no SQL): shown as is, in every env.
+    log.error('VAT201 late claims do not tie to the input boxes', { companyId, from, to, message: err.message }, 'vat201-late-claims');
+    return apiResponse.error(res, ErrorCode.INTERNAL_ERROR, err.message);
+  }
 }
 
 export default withAuth(withNoStore(withErrorHandler(handler)));

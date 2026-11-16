@@ -12,9 +12,12 @@ const claim = {
   journalEntryId: 'c1', entryNumber: 'JE-20', claimDate: '2026-11-01', kind: 'claim',
   original: { journalEntryId: 'o1', entryNumber: 'JE-10', entryDate: '2026-10-12' },
   document: { supplierInvoiceId: 's1', invoiceNumber: 'INV-7', supplierName: 'Acme' },
-  filedPeriod: { start: '2026-09-01', end: '2026-10-31' }, boxes: ['15'], vat: 15000,
+  filedPeriod: { start: '2026-09-01', end: '2026-10-31' }, reverses: null, boxes: ['15'], vat: 15000,
 };
-const reversal = { ...claim, journalEntryId: 'r1', entryNumber: 'JE-21', kind: 'reversal', vat: -3000, document: null };
+const reversal = {
+  ...claim, journalEntryId: 'r1', entryNumber: 'JE-21', kind: 'reversal', vat: -3000, document: null,
+  reverses: { journalEntryId: 'c0', entryNumber: 'JE-19', claimDate: '2026-07-01', filedIn: { start: '2026-07-01', end: '2026-08-31' } },
+};
 const data = (rows: unknown[], total: number) => ({ periodStart: '2026-11-01', periodEnd: '2026-12-31', rows, total, lateClaimInputTax: total });
 
 beforeEach(() => { apiFetch.mockReset(); });
@@ -58,4 +61,14 @@ it('a new period reloads, and a stale answer for the old one is dropped', async 
   resolveOld(env(data([claim], 15000)));
   await new Promise((r) => setTimeout(r, 10));
   expect(screen.queryByTestId('vat201-late-claims-rows')).toBeNull();
+});
+
+it('a reversal names the claim it reverses, when it was claimed and the return it was filed in, or that it was not filed', async () => {
+  const unfiled = { ...reversal, journalEntryId: 'r2', entryNumber: 'JE-22', reverses: { ...reversal.reverses, journalEntryId: 'c9', entryNumber: 'JE-18', filedIn: null } };
+  apiFetch.mockResolvedValue(env(data([reversal, unfiled], -6000)));
+  render(<VAT201LateClaimsSection from="2026-11-01" to="2026-12-31" />);
+  const notes = await screen.findAllByTestId('vat201-late-claims-reverses');
+  expect(notes[0]!.textContent).toMatch(/^of JE-19 claimed 0?1 Jul 2026, filed in 0?1 Jul 2026 to 31 Aug 2026$/);
+  expect(within(notes[0]!).getByRole('link', { name: 'JE-19' }).getAttribute('href')).toBe('/accounting/journal-entries/c0');
+  expect(notes[1]!.textContent).toMatch(/not yet filed$/);
 });

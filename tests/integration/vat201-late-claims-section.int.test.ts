@@ -106,6 +106,9 @@ describeIfDb('VAT201 late-claims section (wave 6 LC)', () => {
     const rev = s.rows.find((r) => r.kind === 'reversal')!;
     expect(rev.original?.journalEntryId).toBe(a2.originalId);
     expect(rev.document?.invoiceNumber).toBe(a2.number);
+    // ...and names that claim: same day, in a period not yet filed.
+    expect(rev.reverses).toMatchObject({ journalEntryId: a2.companionId, claimDate: CLAIM.start, filedIn: null });
+    expect(one.reverses).toBeNull();
   });
 
   it('tenant B sees only its own claim; neither sees the other\'s', async () => {

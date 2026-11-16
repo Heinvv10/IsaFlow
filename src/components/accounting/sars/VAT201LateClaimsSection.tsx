@@ -34,6 +34,19 @@ function Original({ r }: { r: Vat201LateClaimRow }) {
   );
 }
 
+const period = (p: { start: string; end: string }): string => `${formatDate(p.start)} to ${formatDate(p.end)}`;
+
+/** On a reversal: which claim it reverses, when that was claimed, and the return it was filed in (or not yet). */
+function Reverses({ r }: { r: NonNullable<Vat201LateClaimRow['reverses']> }) {
+  return (
+    <div className="text-[var(--ff-text-secondary)]" data-testid="vat201-late-claims-reverses">
+      of <Link href={`/accounting/journal-entries/${r.journalEntryId}`} className={link}>{r.entryNumber}</Link>
+      {` claimed ${formatDate(r.claimDate)}, `}
+      {r.filedIn ? `filed in ${period(r.filedIn)}` : 'not yet filed'}
+    </div>
+  );
+}
+
 function Rows({ data }: { data: Vat201LateClaims }) {
   return (
     <div>
@@ -45,7 +58,7 @@ function Rows({ data }: { data: Vat201LateClaims }) {
               <th scope="col" className="py-1 pr-2 font-medium">Claim journal</th>
               <th scope="col" className="py-1 pr-2 font-medium">Claim date</th>
               <th scope="col" className="py-1 pr-2 font-medium">Original document</th>
-              <th scope="col" className="py-1 pr-2 font-medium">Filed period</th>
+              <th scope="col" className="py-1 pr-2 font-medium">Document's filed period</th>
               <th scope="col" className="py-1 pr-2 font-medium">Field</th>
               <th scope="col" className="py-1 text-right font-medium">VAT</th>
             </tr>
@@ -56,11 +69,12 @@ function Rows({ data }: { data: Vat201LateClaims }) {
                 <td className="whitespace-nowrap py-1 pr-2">
                   <Link href={`/accounting/journal-entries/${r.journalEntryId}`} className={link}>{r.entryNumber}</Link>
                   {r.kind === 'reversal' && <span className="ml-1 text-[var(--ff-text-secondary)]">(reversal)</span>}
+                  {r.reverses && <Reverses r={r.reverses} />}
                 </td>
                 <td className="whitespace-nowrap py-1 pr-2">{formatDate(r.claimDate)}</td>
                 <td className="min-w-[14rem] py-1 pr-2"><Original r={r} /></td>
                 <td className="whitespace-nowrap py-1 pr-2">
-                  {r.filedPeriod ? `${formatDate(r.filedPeriod.start)} to ${formatDate(r.filedPeriod.end)}` : 'Not found'}
+                  {r.filedPeriod ? period(r.filedPeriod) : 'Not found'}
                 </td>
                 <td className="whitespace-nowrap py-1 pr-2">{r.boxes.join(', ')}</td>
                 <td className="whitespace-nowrap py-1 text-right tabular-nums">{formatMoney(r.vat)}</td>
