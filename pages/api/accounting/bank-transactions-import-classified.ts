@@ -156,9 +156,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       await transaction((txSql) => [
         txSql`
           INSERT INTO bank_import_batches (id, company_id, bank_account_id, statement_date, transaction_count,
-            imported_by, import_channel)
+            imported_by, balance_source, import_channel)
           VALUES (${batchId}::UUID, ${companyId}::UUID, ${bankAccountId}::UUID, ${statementDate}::DATE,
-            ${insertRows.length}, ${(req as CompanyAuthedRequest).user.id}, 'classified')
+            ${insertRows.length}, ${(req as CompanyAuthedRequest).user.id}, 'not_in_file', 'classified')
         `,
         ...insertRows.map((r) =>
           txSql`
