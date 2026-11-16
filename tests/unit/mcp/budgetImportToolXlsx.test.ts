@@ -22,6 +22,7 @@ vi.mock('@/modules/accounting/services/budgets/budgetRefResolve', async (orig) =
 vi.mock('@/modules/accounting/services/core/rolledBackSavepoint', () => ({ inRolledBackSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => { await fn(); }) }));
 
 import { checkRateLimit } from '@/lib/rateLimit';
+import { BUDGET_SPREADSHEET_SLOT, CpuSlotBusyError } from '@/lib/withCpuSlot';
 import { getVersion } from '@/modules/accounting/services/budgets/budgetVersions';
 import { loadGridCells, loadGridReadModel } from '@/modules/accounting/services/budgets/gridReadModel';
 import { saveCells } from '@/modules/accounting/services/budgets/gridSave';
@@ -125,10 +126,16 @@ describe('import_budget_workbook (xlsx): a file refused whole writes nothing', (
     expect(saveCells).not.toHaveBeenCalled();
   });
 
-  it('shares the import preview\'s rate bucket', async () => {
+  it('shares the import preview\'s rate bucket and CPU slot', async () => {
+    const file = b64(await edited(threeEdits));
     vi.mocked(checkRateLimit).mockResolvedValueOnce(false);
-    expect(text(await tool.handler({ ...KEY, file_base64: b64(await edited(threeEdits)), dry_run: true }, ctx()))).toMatch(/Too many imports/);
+    expect(text(await tool.handler({ ...KEY, file_base64: file, dry_run: true }, ctx()))).toMatch(/Too many imports/);
     expect(checkRateLimit).toHaveBeenCalledWith('budget-import:u-1', { max: 60, windowSecs: 900 });
+    const run = vi.spyOn(BUDGET_SPREADSHEET_SLOT, 'run').mockRejectedValueOnce(new CpuSlotBusyError('budget spreadsheet', 'timeout'));
+    expect(text(await tool.handler({ ...KEY, file_base64: file, dry_run: true }, ctx()))).toMatch(/busy reading other spreadsheets/);
+    expect(run).toHaveBeenCalledWith(expect.any(Function), 'u-1');
+    run.mockRestore();
+    expect(saveCells).not.toHaveBeenCalled();
   });
 
   it('a budget holder\'s file changing a cell outside their slices is refused whole, as the import preview refuses it', async () => {
