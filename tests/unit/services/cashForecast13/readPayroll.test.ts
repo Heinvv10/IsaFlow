@@ -47,6 +47,13 @@ describe('cash13 payroll', () => {
     expect(warnings[0]!.message).toContain('2026-10 on 2026-10-23 R9000.00');
   });
 
+  it('a month with its own run pays that run, not the latest one', () => {
+    const nov = toMonthlyRun(row({ id: 'nov', period_month: 11, total_net: '9500.00' }));
+    const dec = toMonthlyRun(row({ id: 'dec', period_month: 12, total_net: '9800.00' }));
+    const items = payrollItems({ latest: dec, runs: [dec, nov], unsupportedFrequency: false }, 25, TODAY, END, []);
+    expect(items.map((i) => [i.date, i.amountCents])).toEqual([['2026-11-25', -950_000], ['2026-12-25', -980_000], ['2027-01-25', -980_000]]);
+  });
+
   it('a pay date already passed this month is not forecast again; a paid month is skipped', () => {
     const oct = toMonthlyRun(row({}));
     const read: PayrollRead = { latest: oct, runs: [oct], unsupportedFrequency: false };
