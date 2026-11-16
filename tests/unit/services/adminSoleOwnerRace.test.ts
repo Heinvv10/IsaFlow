@@ -68,7 +68,7 @@ describe('deleteUser is never stopped by the look-up of pay-run approvals it str
       if (q.includes('DELETE FROM users')) return [{ id: USER }]; // RETURNING: the row was there
       return [];
     });
-    await expect(deleteUser(USER)).resolves.toEqual([]);
+    await expect(deleteUser(USER)).resolves.toEqual({ stranded: [], sentInvitationsUnattributed: [] });
     const writes = sqlMock.mock.calls.map(text).filter((q) => /^\s*DELETE\b/i.test(q)).map((q) => q.trim().split(' ').slice(0, 3).join(' '));
     // company_users -> users -> user_sessions (the one lock order), then the sweep of a membership added meanwhile.
     expect(writes).toEqual(['DELETE FROM company_users', 'DELETE FROM users', 'DELETE FROM user_sessions', 'DELETE FROM company_users']);
@@ -81,6 +81,6 @@ describe('deleteUser is never stopped by the look-up of pay-run approvals it str
       if (q.includes('SELECT role FROM users')) return [{ role: 'viewer' }];
       return q.includes('DELETE FROM users') ? [{ id: USER }] : [];
     });
-    await expect(deleteUser(USER)).resolves.toEqual([{ companyId: 'c1', requestId: 'r1' }]);
+    await expect(deleteUser(USER)).resolves.toEqual({ stranded: [{ companyId: 'c1', requestId: 'r1' }], sentInvitationsUnattributed: [] });
   });
 });

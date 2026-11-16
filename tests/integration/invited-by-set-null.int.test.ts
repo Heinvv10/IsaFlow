@@ -93,8 +93,16 @@ describe('997c: deleting a user who sent invitations', () => {
     expect(r.status, JSON.stringify(r.body)).toBe(200);
     expect(await q('SELECT 1 FROM users WHERE id = $1', [sender.id])).toEqual([]);
     expect(await invitationsBy(sender.invites.map((i) => i.id))).toEqual(before.map((row) => ({ ...row, invited_by: null })));
-    expect(await q(`SELECT count(*)::int n FROM admin_audit_log WHERE target_id = $1 AND action = 'user.delete'`, [sender.id]))
-      .toEqual([{ n: 1 }]);
+    // Attribution kept: the audit row lists every invitation the delete left with no sender.
+    expect(await q(`SELECT details FROM admin_audit_log WHERE target_id = $1 AND action = 'user.delete'`, [sender.id]))
+      .toEqual([{ details: { sent_invitations_unattributed: sender.invites.map((i) => i.id).sort() } }]);
+  });
+
+  it('a user who sent nothing: the audit row records an empty list', async () => {
+    const quiet = await inviter([]);
+    expect((await deleteUser(quiet.id)).status).toBe(200);
+    expect(await q(`SELECT details FROM admin_audit_log WHERE target_id = $1 AND action = 'user.delete'`, [quiet.id]))
+      .toEqual([{ details: { sent_invitations_unattributed: [] } }]);
   });
 
   it('GET /api/invite/<token> of the pending one names the sender "Someone"', async () => {

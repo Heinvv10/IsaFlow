@@ -223,12 +223,19 @@ async function deleteMemberships(userId: string): Promise<void> {
  * reset-onboarding. Census of every writer: the admin .claude.md ("Lock order for a user's rows").
  */
 
+/** What a deletion did that its `user.delete` audit row records. */
+export interface DeleteUserOutcome {
+  stranded: StrandedPayRunRequest[];
+  /** Ids of the invitations the user sent: kept, their invited_by set NULL by the users DELETE (997c). */
+  sentInvitationsUnattributed: string[];
+}
+
 /**
  * Permanently delete a user and all associated company links / sessions.
  * Super-admins are protected — throws if the target user has role = 'super_admin'.
  * Throws SoleOwnerError, having written nothing, when the user is a company's only owner.
  */
-export async function deleteUser(userId: string): Promise<StrandedPayRunRequest[]> {
+export async function deleteUser(userId: string): Promise<DeleteUserOutcome> {
   const users = await sql<{ role: string }>`SELECT role FROM users WHERE id = ${userId}`;
   if (users.length === 0) throw new AdminRequestError(404, 'User not found');
   if (users[0]!.role === 'super_admin') {
@@ -241,6 +248,10 @@ export async function deleteUser(userId: string): Promise<StrandedPayRunRequest[
   // The DELETE decides: the loser of two concurrent deletes matches nothing and is a 404 before the route's audit row
   // (its company_users DELETE above matched nothing either). It also waits for an in-flight add-to-company, which
   // holds the users row FOR KEY SHARE (companyMembershipService.addUserToCompany).
+  // The invitations it sent, read just before that DELETE nulls their invited_by (997c, ON DELETE SET NULL), so the
+  // audit row keeps who sent them. A plain read, no row lock: invitation rows stay the last lock (LOCK ORDER above).
+  // Exact match, as the FK's: userId is the stored id. Limit: one the user sends while the DELETE waits is nulled, unlisted.
+  const sent = await sql<{ id: string }>`SELECT id FROM company_invitations WHERE invited_by = ${userId} ORDER BY id`;
   const deleted = await sql`DELETE FROM users WHERE id = ${userId} RETURNING id`;
   if (deleted.length === 0) throw new AdminRequestError(404, 'User not found');
   await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`; // the FK cascade already did; hygiene
@@ -249,8 +260,9 @@ export async function deleteUser(userId: string): Promise<StrandedPayRunRequest[
   await deleteMemberships(userId);
 
   reportStranded('deleteUser', userId, stranded);
-  log.info('deleteUser', { userId }, 'AdminUserActionsService');
-  return stranded;
+  const sentInvitationsUnattributed = sent.map((r) => r.id);
+  log.info('deleteUser', { userId, sentInvitationsUnattributed: sentInvitationsUnattributed.length }, 'AdminUserActionsService');
+  return { stranded, sentInvitationsUnattributed };
 }
 
 /**
