@@ -159,3 +159,18 @@ describe('a case-variant delete leaves the surviving user alone', () => {
     }
   });
 });
+
+describe('padding the accept route trims, the cancel trims too', () => {
+  it.each([
+    ['a tab', '\t'], ['a newline', '\n'], ['a no-break space', '\u00a0'], ['a byte-order mark', '\ufeff'],
+  ])('an invitation stored with %s around the address is cancelled, and the legacy accept is refused', async (_label, pad) => {
+    const u = await seedUser({ memberOf: [A] });
+    const token = await invite(B, `${pad}${u.email}${pad}`);
+    expect((await adminDelete(u.id)).status).toBe(200);
+    expect(await invitationRow(token)).toBeUndefined();
+    const r = await legacyAccept(u.id, token);
+    expect(r.status, JSON.stringify(r.body)).toBe(404);
+    expect(await usersRows(u.id)).toBe(0);
+    expect(await memberships(u.id)).toBe(0);
+  });
+});

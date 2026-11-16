@@ -15,7 +15,8 @@
 -- the two drift (POPIA erasure rewrites users.email and leaves GoTrue alone; change-email's
 -- documented partial failures). So a row goes when EITHER
 --   gotrue_user_id is the deleted user's id (an invitation pinned to that GoTrue account), OR
---   lower(btrim(email)) is one of p_emails: the caller passes the deleted users row's email AND
+--   its email, with JavaScript trim's whitespace set stripped and lower-cased, is one of p_emails:
+--   the caller passes the deleted users row's email AND
 --   the GoTrue account's current login email (looked up before any row lock is taken).
 --
 -- Safety. It deletes only pending invitations: it can insert, update, re-open, re-point or
@@ -43,6 +44,14 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_cancelled integer;
+  -- Every character JavaScript's String.prototype.trim strips (WhiteSpace + LineTerminator: tab, VT, FF,
+  -- space, NBSP, BOM, the Zs spaces, LF, CR, LS, PS). The legacy accept route compares
+  -- inv.email.trim().toLowerCase(); btrim strips the ASCII space only, so an invitation padded with a tab,
+  -- newline, NBSP or BOM survived the cancel and was still accepted (round-4 breaker L1). Stripping the same
+  -- set here keeps the cancel at least as broad as what the route accepts.
+  -- An E'' literal (backslashes doubled), so the regex escapes do not depend on standard_conforming_strings.
+  v_pad CONSTANT text := E'[\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff]';
+  v_trim CONSTANT text := '^' || v_pad || '+|' || v_pad || '+$';
 BEGIN
   IF p_user_id IS NULL OR pg_catalog.btrim(p_user_id) = '' THEN
     RAISE EXCEPTION 'admin_cancel_user_invitations: a user id is required' USING ERRCODE = 'RC012';
@@ -59,10 +68,10 @@ BEGIN
    WHERE ci.accepted_at IS NULL
      AND ((ci.gotrue_user_id::text = pg_catalog.lower(p_user_id)
            AND NOT EXISTS (SELECT 1 FROM public.users v WHERE pg_catalog.lower(v.id) = pg_catalog.lower(p_user_id)))
-          OR pg_catalog.lower(pg_catalog.btrim(ci.email)) IN (
-               SELECT pg_catalog.lower(pg_catalog.btrim(e))
+          OR pg_catalog.lower(pg_catalog.regexp_replace(ci.email, v_trim, '', 'g')) IN (
+               SELECT pg_catalog.lower(pg_catalog.regexp_replace(e, v_trim, '', 'g'))
                  FROM pg_catalog.unnest(COALESCE(p_emails, '{}'::text[])) AS e
-                WHERE pg_catalog.btrim(e) <> ''));
+                WHERE pg_catalog.regexp_replace(e, v_trim, '', 'g') <> ''));
   GET DIAGNOSTICS v_cancelled = ROW_COUNT;
   RETURN v_cancelled;
 END
@@ -74,7 +83,7 @@ GRANT EXECUTE ON FUNCTION public.admin_cancel_user_invitations(text, text[]) TO 
 
 INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT 'admin_cancel_user_invitations(text,text[])',
-       'company_invitations: DELETE of pending (accepted_at IS NULL) rows pinned to a deleted user''s GoTrue id or addressed (lower(btrim())) to its emails; refuses while the users row exists; platform_admin only (admin deleteUser)',
+       'company_invitations: DELETE of pending (accepted_at IS NULL) rows pinned to a deleted user''s GoTrue id or addressed (trimmed as JS trim, lower-cased) to its emails; refuses while the users row exists; platform_admin only (admin deleteUser)',
        public.app_definer_hash('public.admin_cancel_user_invitations(text, text[])'::regprocedure)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 
