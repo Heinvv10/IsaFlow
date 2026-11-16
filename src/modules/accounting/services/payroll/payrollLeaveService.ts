@@ -265,7 +265,7 @@ export async function updateLeaveRequest(
     UPDATE payroll_leave_requests
     SET
       status      = ${update.status},
-      approved_by = ${update.approvedBy ?? null}::uuid,
+      approved_by = ${update.approvedBy ?? null},
       approved_at = ${update.status === 'approved' ? now : null}::timestamptz
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
   `;

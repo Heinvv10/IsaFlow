@@ -94,7 +94,7 @@ export async function createPayrollRun(
   log.info('Creating payroll run', { companyId, period }, 'payrollRunService');
   const rows = (await sql`
     INSERT INTO payroll_run_headers (company_id, period_month, period_year, created_by)
-    VALUES (${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}::uuid)
+    VALUES (${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null})
     ON CONFLICT (company_id, period_year, period_month) DO NOTHING
     RETURNING *
   `) as Row[];
