@@ -1,24 +1,27 @@
 /**
- * The MCP budget tools (budget write tools PR 1, 2026-11-16), grouped so toolIndex.ts, clientMetadata.ts and
+ * The MCP budget tools (budget write tools PR 1, 2026-11-16; the Excel tools PR 2, 2026-11-17), grouped so toolIndex.ts, clientMetadata.ts and
  * flowMetering.ts each register them in one line. Reads need read:reports (budget figures are report data);
  * writes need write:budgets and the write role fence (owner / admin / manager); approve, lock, unlock and set
  * primary only on an owner's token.
  */
 import type { McpTool } from '../types';
-import { BUDGET_READ_TOOLS } from './budgetReadTools';
+import { BUDGET_READ_TOOLS as GRID_READS } from './budgetReadTools';
 import { BUDGET_VERSION_TOOLS } from './budgetVersionTools';
 import { seedBudgetTool } from './budgetSeedTool';
 import { setBudgetAmountsTool, setBudgetAnnualTool } from './budgetAmountTools';
 import { restoreBudgetVersionTool } from './budgetRestoreTool';
 import { BUDGET_GATE_TOOLS } from './budgetGateTools';
+import { getBudgetTemplateTool } from './budgetTemplateTool';
+import { importBudgetWorkbookTool } from './budgetImportTool';
 
-export { BUDGET_READ_TOOLS };
+export const BUDGET_READ_TOOLS: McpTool[] = [...GRID_READS, getBudgetTemplateTool];
 
 export const BUDGET_WRITE_TOOLS: McpTool[] = [
   ...BUDGET_VERSION_TOOLS,
   seedBudgetTool,
   setBudgetAmountsTool,
   setBudgetAnnualTool,
+  importBudgetWorkbookTool,
   restoreBudgetVersionTool,
   ...BUDGET_GATE_TOOLS,
 ];

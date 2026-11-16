@@ -30,7 +30,7 @@ const COMMON = {
   ...PAGING,
 };
 
-function page(args: Record<string, unknown>) {
+export function page(args: Record<string, unknown>) {
   const int = (v: unknown, d: number) => (Number.isInteger(v) ? Number(v) : d);
   return { offset: Math.max(0, int(args.list_offset, 0)), limit: Math.min(DIFF_LIST_MAX, Math.max(1, int(args.list_limit, DIFF_LIST_DEFAULT))) };
 }

@@ -52,6 +52,8 @@ export interface AmountWrite {
   hashRequired: boolean;
   page: DiffPage;
   notices?: RoundingNotice[];
+  /** Fields the tool adds to every reply (import_budget_workbook: the file's own counts, warnings and conflicts). */
+  extra?: Record<string, unknown>;
 }
 
 const MAX_REFUSALS_NAMED = 20;
@@ -77,7 +79,7 @@ export async function runAmountWrite(ctx: McpToolContext, w: AmountWrite): Promi
     .map((e) => ({ key: e.key, before: e.before, beforeSource: before.get(e.key)?.source ?? null, after: e.after })));
   const base = {
     version_id: versionId, version: { name: model.version!.name, fiscal_year: model.version!.fiscalYear, status: model.version!.status },
-    mode: w.mode, ...(w.notices && w.notices.length > 0 ? { notices: w.notices } : {}),
+    mode: w.mode, ...(w.notices && w.notices.length > 0 ? { notices: w.notices } : {}), ...w.extra,
   };
   const readAfter = async (): Promise<CellMap> => cellMap((await loadGridCells(ctx.companyId, { versionId }, ctx.userId)).cells);
 

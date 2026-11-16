@@ -151,8 +151,21 @@ const INSTRUCTIONS = [
   'Do not edit the hidden _meta and _base sheets: they tie this file to its budget version and to the amounts it was downloaded with.',
 ];
 
-/** The workbook for `model` at `grain`, with `prior` the year's prior actuals at that grain and `members` the members named. */
-export async function buildBudgetTemplate(model: GridReadModel, grain: TemplateGrain, prior: PriorActuals, members?: readonly string[]): Promise<Buffer> {
+/** A template's content, whatever it is written as (the .xlsx, or the MCP JSON grid). */
+export interface TemplateGrid {
+  months: readonly string[];
+  rows: TemplateRow[];
+  /** Every row x month, in cents; null = not budgeted. */
+  values: Map<CellKey, number | null>;
+  /** PY actual (FY, cents) per row key. */
+  py: Map<string, number>;
+  /** `_base`'s rows as written (header first) and the signed `_meta`. */
+  baseRows: SignedCell[][];
+  meta: TemplateMeta;
+}
+
+/** The template of `model` at `grain`, with `prior` the year's prior actuals at that grain and `members` the members named. */
+export function templateGrid(model: GridReadModel, grain: TemplateGrain, prior: PriorActuals, members?: readonly string[]): TemplateGrid {
   if (!model.version || model.updatedAt === null) throw new RangeError('A template needs a version');
   if (grain === 'company' && members) throw inputError('members picks the rows of a CC1, CC2 or BU template, not a company one.');
   const months = model.year.monthKeys;
@@ -163,7 +176,22 @@ export async function buildBudgetTemplate(model: GridReadModel, grain: TemplateG
     throw inputError(`This ${GRAIN_LABEL[grain]} template would have ${rows.length} rows (accounts x members); one import holds at most ${cap} rows of ${months.length} months. Pick fewer members (download the template in parts, naming the members of each).`);
   }
   const values = gridOf(rows.map((r) => r.rowKey), months, cents);
-  const py = priorByRow(prior, grain);
+  const baseRows: SignedCell[][] = [[COLUMN.accountCode, ...(grain !== 'company' ? [COLUMN.dimensionCode] : []), ...months]];
+  for (const r of rows) {
+    baseRows.push([neutralise(r.account.code), ...(r.member ? [neutralise(r.member.code)] : []), ...months.map((m) => values.get(`${r.rowKey}|${m}`) ?? null)]);
+  }
+  const signed = { versionId: model.version.id, fiscalYear: model.year.fiscalYear, grain, updatedAt: model.updatedAt };
+  const meta: TemplateMeta = { ...signed, templateVersion: TEMPLATE_VERSION, signature: templateSignature(signed, baseDigest(baseRows)) };
+  return { months, rows, values, py: priorByRow(prior, grain), baseRows, meta };
+}
+
+/** The workbook for `model` at `grain`, with `prior` the year's prior actuals at that grain and `members` the members named. */
+export async function buildBudgetTemplate(model: GridReadModel, grain: TemplateGrain, prior: PriorActuals, members?: readonly string[]): Promise<Buffer> {
+  return writeTemplate(model, grain, templateGrid(model, grain, prior, members));
+}
+
+async function writeTemplate(model: GridReadModel, grain: TemplateGrain, grid: TemplateGrid): Promise<Buffer> {
+  const { months, rows, values, py } = grid;
   const dims = grain !== 'company';
 
   const wb = new ExcelJS.Workbook();
@@ -200,33 +228,33 @@ export async function buildBudgetTemplate(model: GridReadModel, grain: TemplateG
   for (const line of INSTRUCTIONS) help.addRow([line]);
   help.getRow(1).font = { bold: true };
   help.addRow([]);
-  help.addRow([`Budget version: ${model.version.name}, financial year ${model.year.fiscalYear}, ${GRAIN_LABEL[grain]} level.`]);
+  help.addRow([`Budget version: ${model.version!.name}, financial year ${model.year.fiscalYear}, ${GRAIN_LABEL[grain]} level.`]);
 
   const base = wb.addWorksheet(BASE_SHEET, { state: 'hidden' });
-  const baseRows: SignedCell[][] = [[COLUMN.accountCode, ...(dims ? [COLUMN.dimensionCode] : []), ...months]];
-  for (const r of rows) {
-    baseRows.push([neutralise(r.account.code), ...(r.member ? [neutralise(r.member.code)] : []), ...months.map((m) => values.get(`${r.rowKey}|${m}`) ?? null)]);
-  }
-  for (const row of baseRows) base.addRow(row);
+  for (const row of grid.baseRows) base.addRow(row);
   await base.protect('', { selectLockedCells: true, selectUnlockedCells: true });
 
   const meta = wb.addWorksheet(META_SHEET, { state: 'hidden' });
-  const signed = { versionId: model.version.id, fiscalYear: model.year.fiscalYear, grain, updatedAt: model.updatedAt };
-  const m: TemplateMeta = { ...signed, templateVersion: TEMPLATE_VERSION, signature: templateSignature(signed, baseDigest(baseRows)) };
-  for (const [k, v] of Object.entries(m)) meta.addRow([k, String(v)]);
+  for (const [k, v] of Object.entries(grid.meta)) meta.addRow([k, String(v)]);
   await meta.protect('', { selectLockedCells: true, selectUnlockedCells: true });
 
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
-/** The template for one of the company's versions; another tenant's id is BUDGET_VERSION_NOT_FOUND. */
-export async function loadBudgetTemplate(
-  companyId: string, versionId: string, grain: TemplateGrain, members?: readonly string[], viewerId?: string,
-): Promise<{ file: Buffer; fileName: string }> {
+/** What a template of one of the company's versions is cut from, as `viewerId` sees it; another tenant's id is BUDGET_VERSION_NOT_FOUND. */
+export async function loadTemplateInputs(companyId: string, versionId: string, grain: TemplateGrain, viewerId?: string): Promise<{ model: GridReadModel; prior: PriorActuals }> {
   // P5-6: a budget holder's template carries only their slices (budget, base and prior actuals).
   const model = await loadGridReadModel(companyId, { versionId }, 'totals', viewerId);
   const loaded = await loadPriorActuals(companyId, model.year.fiscalYear, grain);
-  const prior = model.holder ? priorForHolder(loaded, model.holder.slices) : loaded;
+  return { model, prior: model.holder ? priorForHolder(loaded, model.holder.slices) : loaded };
+}
+
+/** The template for one of the company's versions (its file name, `_meta` and row count too); another tenant's id is BUDGET_VERSION_NOT_FOUND. */
+export async function loadBudgetTemplate(
+  companyId: string, versionId: string, grain: TemplateGrain, members?: readonly string[], viewerId?: string,
+): Promise<{ file: Buffer; fileName: string; meta: TemplateMeta; rows: number }> {
+  const { model, prior } = await loadTemplateInputs(companyId, versionId, grain, viewerId);
+  const grid = templateGrid(model, grain, prior, members);
   const name = (model.version?.name ?? 'budget').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'budget';
-  return { file: await buildBudgetTemplate(model, grain, prior, members), fileName: `budget-FY${model.year.fiscalYear}-${name}-${grain}.xlsx` };
+  return { file: await writeTemplate(model, grain, grid), fileName: `budget-FY${model.year.fiscalYear}-${name}-${grain}.xlsx`, meta: grid.meta, rows: grid.rows.length };
 }
