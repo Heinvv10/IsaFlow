@@ -21,14 +21,14 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { readYearEndStatusRows, type YearEndStatus } from '@/modules/accounting/services/payroll/yearEndStatusReads';
-
-export type { YearEndStatus };
 import {
   validateCompanyComponents,
   validateEmployeeIrp5,
   type ComponentConfig,
   type ValidationMessage,
 } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
+
+export type { YearEndStatus };
 
 function countSeverity(msgs: ValidationMessage[], severity: 'error' | 'warning'): number {
   return msgs.filter((m) => m.severity === severity).length;
@@ -45,7 +45,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.badRequest(res, 'taxYear must be an integer between 2000 and 2100');
   }
   const taxYear = taxYearRaw;
-  const { bounds, companyRows, empRows, aggRows, monthRows, headerRows, componentRows, empCompRows, directiveRows } =
+  const { bounds, companyRows, empRows, aggRows, monthRows, emp201ByMonth, componentRows, empCompRows, directiveRows } =
     await readYearEndStatusRows(companyId, taxYear);
 
   const employeesWithSeveranceDirective = new Set(
@@ -117,8 +117,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 
   // ─── 5. EMP501 balanced ────────────────────────────────────────────────────
-  const headerMap = new Map<string, number>();
-  headerRows.forEach((r) => headerMap.set(`${r.period_year}-${r.period_month}`, Number(r.emp201_paye)));
 
   const lineMap = new Map<string, number>();
   for (const emp of empRows) {
@@ -130,7 +128,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     }
   }
 
-  const totalEmp201 = Array.from(headerMap.values()).reduce((s, v) => s + v, 0);
+  const totalEmp201 = Array.from(emp201ByMonth.values()).reduce((s, v) => s + v, 0);
   const totalIrp5 = empRows.reduce((s, emp) => {
     const agg = aggMap.get(String(emp.id));
     return s + (agg ? Number(agg.total_paye) : 0);

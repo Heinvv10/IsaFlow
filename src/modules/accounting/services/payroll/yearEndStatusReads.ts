@@ -1,6 +1,7 @@
 /**
- * The rows GET /api/payroll/year-end/status reads (moved out of the route, unchanged): the company profile, the
- * employees, the tax year's per-employee sums, months and EMP201 PAYE, the components and the severance directives.
+ * The rows GET /api/payroll/year-end/status reads (moved out of the route): the company profile, the employees, the tax
+ * year's per-employee sums, months and EMP201 PAYE, the components and the severance directives. The EMP201 PAYE is now
+ * summed per month over every run of the month (payrollEmp201Paye, wave 6 FQb1); everything else is as it was.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -10,7 +11,7 @@ import {
   payeTaxYearBounds,
 } from '@/modules/accounting/utils/payeTaxYear';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
-import { emp201PayeRows } from './payrollEmp201Paye';
+import { emp201PayeByMonth } from './payrollEmp201Paye';
 
 export interface YearEndStatus {
   taxYear: number;
@@ -50,7 +51,7 @@ export async function readYearEndStatusRows(companyId: string, taxYear: number) 
   // The checklist reports on the runs the IRP5 and EMP501 actually declare.
   const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
 
-  const [companyRows, empRows, aggRows, monthRows, headerRows, componentRows, empCompRows, directiveRows] =
+  const [companyRows, empRows, aggRows, monthRows, emp201ByMonth, componentRows, empCompRows, directiveRows] =
     await Promise.all([
       sql`
         SELECT
@@ -96,7 +97,7 @@ export async function readYearEndStatusRows(companyId: string, taxYear: number) 
             (period_year = ${endYear}   AND period_month <= ${endMonth})
           )
       ` as Promise<DbRow[]>,
-      emp201PayeRows(companyId, taxYear),
+      emp201PayeByMonth(companyId, taxYear),
       sql`
         SELECT id, name, sars_source_code, component_type, is_active
         FROM   payroll_components
@@ -121,5 +122,5 @@ export async function readYearEndStatusRows(companyId: string, taxYear: number) 
           AND  (expiry_date IS NULL OR expiry_date >= ${bounds.start}::date)
       ` as Promise<DbRow[]>,
     ]);
-  return { bounds, companyRows, empRows, aggRows, monthRows, headerRows, componentRows, empCompRows, directiveRows };
+  return { bounds, companyRows, empRows, aggRows, monthRows, emp201ByMonth, componentRows, empCompRows, directiveRows };
 }

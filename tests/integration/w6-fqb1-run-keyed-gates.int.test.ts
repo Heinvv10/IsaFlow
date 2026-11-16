@@ -8,6 +8,9 @@ import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { dropTenants, seedRun, seedTenant, twoRunsInMonth, type RunSpec, type Tenant } from './w6-fqb1.helpers';
 import { bookedRunJournalsByMonth } from '@/modules/accounting/services/payroll/etiBooking';
+import { etiForRun } from '@/modules/accounting/services/payroll/payrollJournalEti';
+import { loadEtiMonths } from '@/modules/accounting/services/payroll/etiCarryRead';
+import { etiCarryLedger } from '@/modules/accounting/services/payroll/etiCarry';
 import { refuseReversalAgainstPayRun } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
 import { createPayrollRun, PayrollRunDuplicateError } from '@/modules/accounting/services/payroll/payrollRunHeaders';
 import { judgeYearToDate } from '@/modules/accounting/services/payroll/payrollYearToDateGate';
@@ -69,6 +72,26 @@ describe('ETI booked by the month\'s run journals (EMP201 carry, integrity check
     // PAYE 2700 declared, 2500 credited to 2140: 200 of ETI used.
     expect(got.get('2026-05')).toEqual({ used: 200, refund: 0, net2140: 2500 });
   });
+
+  // Review #1507 B1: April carries R4,000 of ETI into May; May's two runs have R3,000 PAYE each. The EMP201 uses R4,000.
+  // The regular run's journal is posted first and booked R3,000; the bonus's journal may book only the R1,000 left.
+  it('the second run journal of the month books only the ETI the first left (together = the EMP201\'s)', async () => {
+    let bonus = '';
+    const got = await twoRunsInMonth(pool, A, async (c) => {
+      const apr = await seedRun(c, A, { year: 2026, month: 4, runDate: '2026-04-25', gross: 20000, paye: 1000 });
+      await c.query('UPDATE payroll_run_headers SET total_eti = 5000 WHERE id = $1', [apr]);
+      // The regular run's journal: PAYE 3000, all of it met by ETI, so nothing credited to 2140.
+      await seedRun(c, A, { ...REGULAR, paye: 3000, journal: await payrollJournal(c, A, 0) });
+      bonus = await seedRun(c, A, { ...BONUS, paye: 3000 });
+    }, async () => {
+      const ym = { year: 2026, month: 5 };
+      const regularBooked = (await bookedRunJournalsByMonth(A.company, [ym])).get('2026-05')!.used;
+      const bon = await etiForRun(A.company, ym, { paye: 3000, eti: 0 }, bonus);
+      const ledger = etiCarryLedger({ year: 2026, month: 3 }, ym, await loadEtiMonths(A.company, { year: 2026, month: 3 }, ym));
+      return { regularBooked, bonusBooks: bon.etiUsed, emp201: ledger.find((m) => m.month === 5)!.used };
+    });
+    expect(got).toEqual({ regularBooked: 3000, bonusBooks: 1000, emp201: 4000 });
+  });
 });
 
 describe('the reversal guard finds a run journal\'s run', () => {
@@ -94,6 +117,12 @@ describe('creating a regular run beside an off-cycle run of the month', () => {
     expect(created.again).toBeInstanceOf(PayrollRunDuplicateError);
   });
 
+  it('today\'s schema (month unique kept): a month holding only an off-cycle run is the named duplicate, not a raw 23505', async () => {
+    const again = await twoRunsInMonth(pool, A, async (c) => { await seedRun(c, A, BONUS); },
+      () => createPayrollRun(A.company, { month: 5, year: 2026 }, A.user).then(() => null, (e: unknown) => e), { keepMonthKey: true });
+    expect(again).toBeInstanceOf(PayrollRunDuplicateError);
+  });
+
   it('create_pay_run (MCP) dry run: the bonus is no clash, a regular run is', async () => {
     const ctx = { companyId: A.company, userId: A.user, scopes: ['write:payroll'], tokenJti: null, oauthAppId: null, role: 'admin' } as McpToolContext;
     const dry = () => createPayRunTool.handler({ month: 5, year: 2026, dry_run: true, idempotency_key: crypto.randomUUID() }, ctx)
@@ -105,25 +134,34 @@ describe('creating a regular run beside an off-cycle run of the month', () => {
   });
 });
 
-describe('the year-to-date gate orders runs by pay order, not by month', () => {
-  it('approving the regular run names the bonus calculated after it as a LATER run', async () => {
-    let regular = '';
+describe('the year-to-date gate (month order until FQc moves it with the figure)', () => {
+  // Review #1507 B2a: loadPayeYearToDate reads earlier MONTHS only, so the gate must not call May's regular run "earlier
+  // and covered" for a May bonus: approving the bonus is refused until FQc makes both run-keyed together.
+  it('refuses a bonus calculated after the month\'s regular run was approved, as the figure never read that run', async () => {
+    let bonus = '';
     const got = await twoRunsInMonth(pool, A, async (c) => {
-      [regular] = await seedBoth(c, [
-        { ...REGULAR, status: 'calculated', approvedAt: null, calculatedAt: '2026-05-20T08:00:00Z' },
-        { ...BONUS, approvedAt: '2026-05-28T09:00:00Z', calculatedAt: '2026-05-27T08:00:00Z' },
-      ]);
-    }, () => judgeYearToDate(A.company, regular));
-    expect(got.blocker?.detail).toMatch(/^A later month of this tax year \(2026-05\)/);
+      await seedRun(c, A, { ...REGULAR, approvedAt: '2026-05-21T08:00:00Z', calculatedAt: '2026-05-20T08:00:00Z' });
+      bonus = await seedRun(c, A, { ...BONUS, status: 'calculated', approvedAt: null, calculatedAt: '2026-05-27T08:00:00Z' });
+    }, () => judgeYearToDate(A.company, bonus));
+    expect(got.blocker?.code).toBe('paye_year_to_date_stale');
   });
 });
 
 describe('the SDL threshold estimate', () => {
-  it('counts the earlier run of the run\'s own month', async () => {
+  // Review #1507 B4: one decision per month. The month's first run (pay order) decides; a later run of the month is
+  // estimated on that run's remuneration, so both take the same side of R500 000 whatever the bonus adds.
+  it.each([false, true])('both runs of a month are estimated alike (seeded reversed: %s)', async (flip) => {
+    let regular = '';
     let bonus = '';
-    const annual = await twoRunsInMonth(pool, A, async (c) => { [, bonus] = await seedBoth(c, [REGULAR, BONUS]); },
-      () => estimateAnnualRemuneration(A.company, { year: 2026, month: 5 }, 5000, bonus));
-    // (20 000 regular + 5 000 this run) over the one month of history, times twelve.
-    expect(annual).toBe(300000);
+    const got = await twoRunsInMonth(pool, A, async (c) => {
+      const runs = [{ ...REGULAR, gross: 30000, status: 'calculated', approvedAt: null }, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null }];
+      const ids = await seedBoth(c, flip ? [...runs].reverse() : runs);
+      [regular, bonus] = flip ? [ids[1]!, ids[0]!] : [ids[0]!, ids[1]!];
+    }, async () => ({
+      regular: await estimateAnnualRemuneration(A.company, { year: 2026, month: 5 }, 30000, regular),
+      bonus: await estimateAnnualRemuneration(A.company, { year: 2026, month: 5 }, 20000, bonus),
+    }));
+    // The regular run (30 000) is the month's first: 30 000 x 12 = 360 000 for both, exempt both.
+    expect(got).toEqual({ regular: 360000, bonus: 360000 });
   });
 });

@@ -11,7 +11,6 @@ import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
-import { runOrderKeySql } from './payrollRunOrder';
 
 /** The blocker approval raises (null when current), and advisories it does not refuse for. */
 export interface YearToDateJudgement {
@@ -125,8 +124,9 @@ export async function judgeYearToDate(companyId: string, runId: string): Promise
     runs AS (
       SELECT h.id, h.period_year, h.period_month, h.status, h.approved_at, h.approval_history, h.approved_taxed_employees,
              make_date(h.period_year, h.period_month, 1) AS period,
-             -- Earlier / later is pay order, not the month: a month may hold several runs (payrollRunOrder, wave 6 FQb1).
-             ${runOrderKeySql('h')} AS run_key,
+             -- Earlier / later stays the MONTH, as loadPayeYearToDate's bound is (spec F2): a gate that called a run of the
+             -- same month earlier would pass a run whose year to date never read it (review #1507 B2a). FQc moves the gate
+             -- and the figure onto payrollRunOrder together.
              (SELECT MIN(l.created_at) FROM payroll_run_lines l WHERE l.run_id = h.id) AS calculated_at
       FROM payroll_run_headers h, tax_year y
       WHERE h.company_id = ${companyId}::uuid
@@ -143,9 +143,9 @@ export async function judgeYearToDate(companyId: string, runId: string): Promise
     ),
     me AS (SELECT r.* FROM runs r WHERE r.id = ${runId}::uuid),
     judged AS (
-    SELECT e.period_year, e.period_month, e.run_key > me.run_key AS later,
+    SELECT e.period_year, e.period_month, e.period > me.period AS later,
       CASE
-        WHEN e.run_key < me.run_key THEN NOT (
+        WHEN e.period < me.period THEN NOT (
           e.calculated_at <= me.calculated_at
           AND (COALESCE(e.approved_at <= me.calculated_at, true) OR COALESCE(e.approval_history @> me.calculated_at, false)))
         ELSE NOT (
@@ -164,7 +164,7 @@ export async function judgeYearToDate(companyId: string, runId: string): Promise
       -- A later month calculated from an earlier version of this run (approved then, lines since rewritten:
       -- only a closed approval can cover that time) that pays someone from the tables whom an earlier version
       -- taxed and this run no longer does. A paid month cannot be reopened: an advisory, not a refusal (limit (f)).
-      e.run_key > me.run_key
+      e.period > me.period
         AND COALESCE(me.calculated_at, 'infinity'::timestamptz) > e.calculated_at -- no lines: rewritten after every month
         AND COALESCE(me.approval_history @> e.calculated_at, false)
         AND EXISTS (

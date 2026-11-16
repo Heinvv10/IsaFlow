@@ -36,6 +36,8 @@ export async function dropTenants(pool: Pool, tenants: Tenant[]): Promise<void> 
 
 export interface RunSpec {
   year: number; month: number; status?: string; runDate: string; offCycle?: boolean;
+  /** Leave run_date NULL (no app code writes it): runDate then only dates the line and the approval. */
+  noRunDate?: boolean;
   gross?: number; paye?: number; approvedAt?: string | null; calculatedAt?: string; journal?: string | null;
   /** The line's validation_results; default none. */
   validation?: unknown[];
@@ -58,6 +60,7 @@ export async function seedRun(c: PoolClient, t: Tenant, r: RunSpec): Promise<str
      RETURNING id`,
     [t.company, r.month, r.year, status, r.runDate, gross, paye, r.offCycle ? 'off_cycle' : 'regular', r.offCycle ? 'bonus' : null,
       start, approvedAt, r.journal ?? null])).rows[0].id);
+  if (r.noRunDate) await c.query('UPDATE payroll_run_headers SET run_date = NULL WHERE id = $1', [id]);
   await c.query(
     `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, periodic_taxable, paye, net_pay, validation_results,
        medical_credit, created_at)
@@ -67,12 +70,17 @@ export async function seedRun(c: PoolClient, t: Tenant, r: RunSpec): Promise<str
   return id;
 }
 
-/** Drop the per-month unique, run `seed` then `fn` on one transaction-bound client as `t`, and roll it all back. */
-export async function twoRunsInMonth<T>(pool: Pool, t: Tenant, seed: (c: PoolClient) => Promise<void>, fn: () => Promise<T>): Promise<T> {
+/**
+ * Drop the per-month unique (unless `keepMonthKey`: today's schema), run `seed` then `fn` on one transaction-bound
+ * client as `t`, and roll it all back.
+ */
+export async function twoRunsInMonth<T>(
+  pool: Pool, t: Tenant, seed: (c: PoolClient) => Promise<void>, fn: () => Promise<T>, opts: { keepMonthKey?: boolean } = {},
+): Promise<T> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query(`ALTER TABLE payroll_run_headers DROP CONSTRAINT ${MONTH_KEY}`);
+    if (!opts.keepMonthKey) await client.query(`ALTER TABLE payroll_run_headers DROP CONSTRAINT ${MONTH_KEY}`);
     await seed(client);
     return await als.run({ client, userId: t.user, companyId: t.company, claims: { sub: t.user } } as never, fn);
   } finally {

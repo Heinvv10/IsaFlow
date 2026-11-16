@@ -57,17 +57,29 @@ export async function bookedByEtiJournals(companyId: string, ym: YearMonth): Pro
   return (await bookedEtiJournalsByMonth(companyId, [ym])).get(monthKey(ym))!;
 }
 
-/** Booked by each month's pay-run journals while in force, keyed YYYY-MM: two queries plus the in-force reads. */
-export async function bookedRunJournalsByMonth(companyId: string, months: YearMonth[]): Promise<Map<string, RunBooked>> {
-  const out = new Map<string, RunBooked>(months.map((m) => [monthKey(m), NONE]));
-  if (months.length === 0) return out;
+/** The run headers of `months` whose journal is in force, `excludeRunId` left out (a run judging its own journal). */
+export async function inForceRunHeaders(companyId: string, months: YearMonth[], excludeRunId: string | null = null): Promise<DbRow[]> {
+  if (months.length === 0) return [];
   const headers = (await sql`
-    SELECT period_year, period_month, journal_entry_id, total_paye FROM payroll_run_headers
+    SELECT id, period_year, period_month, journal_entry_id, total_paye, total_eti FROM payroll_run_headers
      WHERE company_id = ${companyId}::UUID AND journal_entry_id IS NOT NULL
        AND (period_year * 100 + period_month) = ANY(${months.map((m) => m.year * 100 + m.month)}::int[])
+       AND (${excludeRunId}::uuid IS NULL OR id <> ${excludeRunId}::uuid)
   `) as DbRow[];
   const live: DbRow[] = [];
   for (const h of headers) if (await payrollJournalInForce(companyId, String(h.journal_entry_id))) live.push(h);
+  return live;
+}
+
+/**
+ * Booked by each month's pay-run journals while in force, keyed YYYY-MM: two queries plus the in-force reads.
+ * `excludeRunId`: leave that run's own journal out (what the month's OTHER run journals booked).
+ */
+export async function bookedRunJournalsByMonth(
+  companyId: string, months: YearMonth[], excludeRunId: string | null = null,
+): Promise<Map<string, RunBooked>> {
+  const out = new Map<string, RunBooked>(months.map((m) => [monthKey(m), NONE]));
+  const live = await inForceRunHeaders(companyId, months, excludeRunId);
   if (live.length === 0) return out;
   const lines = (await sql`
     SELECT jl.journal_entry_id,

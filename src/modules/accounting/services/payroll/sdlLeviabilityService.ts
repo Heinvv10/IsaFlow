@@ -91,8 +91,9 @@ export async function estimateAnnualRemuneration(
   const rows = (await sql`
     WITH runs AS (
       SELECT prh.period_year * 12 + prh.period_month AS idx,
-             -- An earlier run (pay order) of this run's own month is history too: an off-cycle run beside the
-             -- regular one, or the month's earlier weekly runs (wave 6 FQb1). This run and later ones are not.
+             -- An earlier run (pay order) of this run's own month: the month's FIRST such run decides the month's
+             -- threshold, so every run of a month takes the same side of it (wave 6 FQb1, review #1507 B4).
+             ${runOrderKeySql('prh')} AS k,
              (prh.period_year * 12 + prh.period_month = ${index} AND ${runOrderKeySql('prh')} < (
                SELECT ${runOrderColumnsSql('me')} FROM payroll_run_headers me WHERE me.id = ${runId}::uuid AND me.company_id = ${companyId}::uuid
              )) IS TRUE AS earlier_this_month,
@@ -116,10 +117,10 @@ export async function estimateAnnualRemuneration(
          AND prh.status IN ('calculated', 'approved', 'paid')
          AND (prh.period_year * 12 + prh.period_month) <= ${index}
     )
-    SELECT COALESCE(SUM(remuneration) FILTER (WHERE idx BETWEEN ${windowStart} AND ${index - 1} OR earlier_this_month), 0)::float8
-             AS window_remuneration,
-           COUNT(*) FILTER (WHERE idx BETWEEN ${windowStart} AND ${index - 1} OR earlier_this_month)::int AS window_periods,
-           MIN(idx)::int AS first_index
+    SELECT COALESCE(SUM(remuneration) FILTER (WHERE idx BETWEEN ${windowStart} AND ${index - 1}), 0)::float8 AS window_remuneration,
+           COUNT(*) FILTER (WHERE idx BETWEEN ${windowStart} AND ${index - 1})::int AS window_periods,
+           MIN(idx)::int AS first_index,
+           (SELECT f.remuneration FROM runs f WHERE f.earlier_this_month ORDER BY f.k LIMIT 1)::float8 AS month_first_remuneration
       FROM runs
      WHERE remuneration > 0
   `) as DbRow[];
@@ -135,8 +136,11 @@ export async function estimateAnnualRemuneration(
   const elapsedPeriods = priorPeriods === 0
     ? 1
     : Math.min(TRAILING_PERIODS, Math.max(1, index - firstIndex + 1));
+  // One decision per month: a later run of the month is estimated on the month's first run, exactly as that run was.
+  const monthFirst = rows[0]?.month_first_remuneration == null ? null : Number(rows[0].month_first_remuneration);
+  const monthRemuneration = monthFirst ?? currentPeriodRemuneration;
   const annual = Math.round(
-    ((priorRemuneration + currentPeriodRemuneration) / elapsedPeriods) * TRAILING_PERIODS * 100,
+    ((priorRemuneration + monthRemuneration) / elapsedPeriods) * TRAILING_PERIODS * 100,
   ) / 100;
 
   // The estimate is not stored on the run, and it looks strictly backwards, so
@@ -144,7 +148,7 @@ export async function estimateAnnualRemuneration(
   // Log it or a nil-SDL month cannot be explained after the fact.
   log.info(
     'SDL leviability basis',
-    { runId, companyId, annual, priorRemuneration, priorPeriods, elapsedPeriods },
+    { runId, companyId, annual, priorRemuneration, priorPeriods, elapsedPeriods, decidedByMonthFirstRun: monthFirst != null },
     'sdlLeviabilityService',
   );
   return annual;

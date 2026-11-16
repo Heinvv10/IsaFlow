@@ -9,10 +9,10 @@ import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 
 /** One row per month with a declarable run: period_year, period_month, emp201_paye (the month's runs summed). */
-export async function emp201PayeRows(companyId: string, taxYear: number): Promise<DbRow[]> {
+async function emp201PayeRows(companyId: string, taxYear: number): Promise<DbRow[]> {
   const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
   return (await sql`
-    SELECT period_month, period_year, SUM(COALESCE(total_paye, 0)) AS emp201_paye
+    SELECT period_month, period_year, SUM(COALESCE(total_paye, 0))::float8 AS emp201_paye
     FROM   payroll_run_headers
     WHERE  company_id = ${companyId}::uuid
       AND  status = ANY(${declarableStatuses}::text[])

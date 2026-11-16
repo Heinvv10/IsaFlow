@@ -110,8 +110,9 @@ export function payRunCursorParts(run: { periodYear: number; periodMonth: number
 }
 
 /**
- * The pay run a statutory figure would be taken from: only the statuses an EMP201 declares, the latest in pay order
- * (payrollRunOrder: a month may hold several runs). `month` narrows to one calendar month; null is the latest.
+ * The pay run a statutory figure would be taken from: only the statuses an EMP201 declares. `month` narrows to one
+ * calendar month and then means that month's regular monthly run, as every month-named record does (wave 6 FQb1); an
+ * off-cycle run of the month is taken only when the month has no declarable regular run. Null: the latest in pay order.
  */
 export async function getDeclarablePayRun(
   companyId: string,
@@ -125,7 +126,7 @@ export async function getDeclarablePayRun(
     WHERE h.company_id = ${companyId}::UUID
       AND h.status = ANY(${statuses}::TEXT[])
       AND (${year}::INT IS NULL OR (h.period_year = ${year}::INT AND h.period_month = ${m}::INT))
-    ORDER BY ${runOrderKeySql('h')} DESC
+    ORDER BY (${year}::INT IS NOT NULL AND NOT (h.run_kind = 'regular' AND h.pay_frequency = 'monthly')), ${runOrderKeySql('h')} DESC
     LIMIT 1
   `) as Row[];
   return rows[0] ? { ...mapRunRow(rows[0]) } : null;
