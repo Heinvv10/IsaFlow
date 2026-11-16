@@ -3,7 +3,8 @@
  * non-calendar fiscal year (L3); a scan stopped by the held-line cap with lines already postable continues after the last
  * row it actually screened (L5).
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { log } from '../../src/lib/logger';
 import { Pool } from 'pg';
 import bulkAccept from '../../pages/api/accounting/bank-bulk-accept';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -34,12 +35,16 @@ async function fixture(): Promise<BankCompany> {
      VALUES($1, true, 0.50, 0, false, 0.95, 0)`, [f.c]);
   return f;
 }
-const preview = async (f: BankCompany, query: Record<string, string> = {}) => dataOf<{
-  lines: { id: string }[]; scanTruncated: boolean; nextScanAfter: string | null; excluded: { noPeriod: number };
-}>(await callRoute(bulkAccept, tokens[a]!, f.c, 'GET', undefined, URL, { bankAccountId: f.bank, ...query }));
-const insert = (f: BankCompany, count: number, idPrefix: string, date: string, batch: string | null = null) => pool.query(
+type Preview = {
+  lines: { id: string }[]; scanTruncated: boolean; truncated: boolean; nextScanAfter: string | null; excluded: { noPeriod: number }; previewToken: string | null;
+};
+type Confirmed = { posted: { txId: string }[]; refused: { txId: string; reason: string }[] };
+const confirm = async (f: BankCompany, token: string) => dataOf<Confirmed>(
+  await callRoute(bulkAccept, tokens[a]!, f.c, 'POST', { action: 'confirm', previewToken: token }, URL));
+const preview = async (f: BankCompany, query: Record<string, string> = {}) => dataOf<Preview>(await callRoute(bulkAccept, tokens[a]!, f.c, 'GET', undefined, URL, { bankAccountId: f.bank, ...query }));
+const insert = (f: BankCompany, count: number, idPrefix: string, date: string, batch: string | null = null, extra = '') => pool.query(
   `INSERT INTO bank_transactions(id, company_id, bank_account_id, transaction_date, amount, description, status, suggested_gl_account_id, suggested_confidence, suggested_strategy, import_batch_id)
-   SELECT ($1 || lpad(g::TEXT, 12, '0'))::UUID, $2, $3, $6::DATE, -1, 'BULK4 line', 'imported', $4, 0.97, 'history', $5 FROM generate_series(1, $7) g`,
+   SELECT ($1 || lpad(g::TEXT, 12, '0'))::UUID, $2, $3, $6::DATE, -1, 'BULK4 line', 'imported', $4, 0.97, 'history', $5 FROM generate_series(1, $7) g ${extra}`,
   [idPrefix, f.c, f.bank, f.expA, batch, date, count]);
 
 describe('round 4', () => {
@@ -63,6 +68,63 @@ describe('round 4', () => {
     const p = await preview(f);
     expect(p.lines).toHaveLength(25);
     expect(p.scanTruncated).toBe(true);
-    expect(p.nextScanAfter).toBe('55555555-5555-4555-8555-000000000026'); // the 26th postable line, not the 40th row
+    expect(p.nextScanAfter).toBe('55555555-5555-4555-8555-000000000025'); // the last LISTED line (a cut list continues after it)
   }, 60_000);
+
+  it('L1/L2: a refused head of 25 can be paged past: the cursor is the last listed line, and following it reaches the rest', async () => {
+    const f = await fixture();
+    const cc = (await pool.query("INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1,'R4-CC','Retired','cc1') RETURNING id", [f.c])).rows[0].id;
+    await pool.query(
+      `INSERT INTO bank_transactions(id, company_id, bank_account_id, transaction_date, amount, description, status, suggested_gl_account_id, suggested_confidence, suggested_strategy, cc1_id)
+       SELECT ('66666666-6666-4666-8666-' || lpad(g::TEXT, 12, '0'))::UUID, $1, $2, DATE '2026-09-01', -1, 'BULK4 head', 'imported', $3, 0.97, 'history', $4 FROM generate_series(1, 25) g`, [f.c, f.bank, f.expA, cc]);
+    await pool.query("UPDATE cost_centres SET is_active = false WHERE id = $1", [cc]);
+    await insert(f, 5, '77777777-7777-4777-8777-', '2026-09-01');
+    const first = await preview(f);
+    expect(first.truncated).toBe(true);
+    expect(first.nextScanAfter).toBe('66666666-6666-4666-8666-000000000025');
+    const out = await confirm(f, first.previewToken!);
+    expect(out.posted).toHaveLength(0);
+    expect(out.refused).toHaveLength(25);
+    expect(out.refused[0]!.reason).toMatch(/CC1 must name an active CC1 cost centre/); // the writer's typed error, no pre-check
+    const second = await preview(f, { scanAfter: first.nextScanAfter! });
+    expect(second.lines).toHaveLength(5);
+    expect(second.truncated).toBe(false);
+    expect(second.nextScanAfter).toBeNull();
+  }, 60_000);
+
+  it('L3: a ledger-busy year stops only that year\'s lines; lines of another year keep posting', async () => {
+    const f = await fixture();
+    await insert(f, 2, '88888888-8888-4888-8888-', '2026-09-01');
+    await insert(f, 2, '99999999-9999-4999-8999-', '2025-05-15'); // inside the window; the confirm creates its period
+    const token = (await preview(f)).previewToken!;
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query("SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || 2026, 857))", [f.c]);
+      const out = await confirm(f, token);
+      expect(out.posted.map((p) => p.txId).sort()).toEqual(['99999999-9999-4999-8999-000000000001', '99999999-9999-4999-8999-000000000002']);
+      expect(out.refused.map((r) => r.reason)).toEqual(Array(2).fill('the ledger is busy posting another batch - retry in a moment'));
+    } finally { await holder.query('ROLLBACK'); holder.release(); }
+  }, 30_000);
+
+  it('L4: a company with no VAT system account reads as that, logged at warn, not as an internal error', async () => {
+    const f = await fixture();
+    await insert(f, 1, 'aaaaaaaa-aaaa-4aaa-8aaa-', '2026-09-01', null, '');
+    await pool.query("UPDATE bank_transactions SET suggested_vat_code = 'standard' WHERE company_id = $1", [f.c]);
+    const token = (await preview(f)).previewToken!;
+    const warn = vi.spyOn(log, 'warn');
+    try {
+      const out = await confirm(f, token);
+      expect(out.posted).toHaveLength(0);
+      expect(out.refused[0]!.reason).toMatch(/VAT Input system account not found/);
+      expect(warn.mock.calls.some((c) => /no VAT system account/.test(String(c[0])))).toBe(true);
+    } finally { warn.mockRestore(); }
+  }, 30_000);
+
+  it('L6: an empty preview has no token', async () => {
+    const f = await fixture();
+    const p = await preview(f);
+    expect(p.lines).toHaveLength(0);
+    expect(p.previewToken).toBeNull();
+  });
 });

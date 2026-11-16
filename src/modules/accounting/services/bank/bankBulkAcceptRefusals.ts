@@ -20,6 +20,7 @@ import { RowLockTimeoutError } from '../core/rowLockBudget';
 import { ClosedFiscalPeriodError, InactiveAccountError } from '../gl/journalEntryPostingGuards';
 import { VatPeriodLockedError, VatLockTimeoutError } from '../gl/journalVatLockGuard';
 import { JournalDateRefusedError } from '../../utils/journalDateWindow';
+import { VatAccountNotFoundError } from './bankVatAccountResolver';
 import { DimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { JournalDimensionValidationError } from '../gl/journalCostCentreValidation';
 import { DocumentNumberLockTimeoutError } from '../core/companySettingsService';
@@ -39,6 +40,7 @@ type Ctor = abstract new (...args: never[]) => Error;
 export const PASS_THROUGH: readonly Ctor[] = [
   BankAllocationRefusal, BankTransactionNotPostedError, ReconciledCashError, ReconciliationCompletedError,
   ClosedFiscalPeriodError, InactiveAccountError, VatPeriodLockedError, DimensionRefusal, JournalDimensionValidationError, JournalDateRefusedError,
+  VatAccountNotFoundError,
 ];
 /** Held rows: the line is busy, retry. */
 export const BUSY: readonly Ctor[] = [BankTransactionLockTimeoutError, RowLockTimeoutError, VatLockTimeoutError];

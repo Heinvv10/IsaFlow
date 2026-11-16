@@ -1,6 +1,6 @@
 // Every error class thrown under allocateTransaction is either passed through to the person (a typed refusal), labelled, held
 // ("busy"), or named here as a fault. A class added to the allocation path without a decision fails this (WP6 R2-1).
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PASS_THROUGH, BUSY, LABELLED, LEDGER_LOCKS, NOT_REFUSALS, refusalReason, GENERIC_REFUSAL } from '@/modules/accounting/services/bank/bankBulkAcceptRefusals';
@@ -10,19 +10,45 @@ import { FiscalPeriodNotGeneratedError } from '@/modules/accounting/services/gl/
 
 const S = 'src/modules/accounting/services';
 /**
- * The files whose throws can reach a bulk-accept line: allocateTransaction, its arms and plan, the journal writer and its
- * guards. (bankReallocationGuards is not here: it runs only for `opts.reallocation`, which a bulk accept never passes.)
+ * EVERY .ts file under bank/ and gl/ (recursively), plus the few files elsewhere the allocation path calls: not a hand list,
+ * so a new file under those directories is scanned. Broader than the path on purpose (a class thrown only by an unrelated
+ * service must still be named below). LIMIT: only a literal `throw new X(` is seen; a throw via a variable (`throw err`,
+ * `throw makeError()`) or an inherited constructor call is not detected.
+ * (bankReallocationGuards throws only for `opts.reallocation`, which a bulk accept never passes: named in NOT_ON_PATH.)
  */
-const ALLOCATION_PATH = [
-  'bank/bankAllocationService.ts', 'bank/bankAllocationArms.ts', 'bank/bankAllocationPlan.ts', 'bank/bankAllocationDocuments.ts',
-  'bank/bankAllocationDimensions.ts', 'bank/bankFeedStateGuard.ts', 'bank/reconciledCash.ts', 'bank/bankLineJournalGate.ts',
-  'bank/bankLineImporterGate.ts', 'bank/contactControlGuard.ts', 'bank/bankTxLock.ts', 'bank/reconciliationSessionLock.ts',
-  'gl/journalEntryCrudService.ts', 'gl/journalCostCentreValidation.ts', 'core/companySettingsService.ts', 'gl/journalEntryPostService.ts', 'gl/journalEntryPostingGuards.ts',
-  'gl/journalVatLockGuard.ts', 'gl/vatLateClaimPlan.ts', 'gl/vatLateClaimSplit.ts', 'gl/approvalGate.ts', 'gl/manualJournalApproval.ts',
-  'gl/dimensions/costCentrePick.ts', 'gl/dimensions/dimensionPolicy.ts', 'gl/dimensions/dimensionDefaultsService.ts',
-  'core/rowLockBudget.ts', 'gl/fiscalPeriodAutoCreate.ts', 'gl/journalDateGuard.ts', '../utils/journalDateWindow.ts',
+const EXTRA_FILES = ['core/companySettingsService.ts', 'core/rowLockBudget.ts', '../utils/journalDateWindow.ts'];
+const listTs = (dir: string): string[] => readdirSync(resolve(process.cwd(), S, dir), { withFileTypes: true })
+  .flatMap((e) => (e.isDirectory() ? listTs(`${dir}/${e.name}`) : e.name.endsWith('.ts') ? [`${dir}/${e.name}`] : []));
+const ALLOCATION_PATH = [...listTs('bank'), ...listTs('gl'), ...EXTRA_FILES];
+/**
+ * Classes thrown by files under bank/ and gl/ that the allocation path does not reach (approvals admin, imports, merges, the
+ * reconciliation and MCP-side services, ...). Each is DECIDED as "not a line's refusal": if one of them starts being thrown
+ * under allocateTransaction it must move into PASS_THROUGH / BUSY / LABELLED. A new class anywhere in those directories fails
+ * the census until it is placed in one list or the other.
+ */
+const NOT_ON_PATH = [
+  'AccountMergeError', 'ApprovalActiveFlagInvalidError', 'ApprovalAmountInvalidError', 'ApprovalDecisionError', 'ApprovalDocumentChangedError',
+  'ApprovalDocumentNotDraftError', 'ApprovalDocumentNotFoundError', 'ApprovalDocumentTypeInvalidError', 'ApprovalEnforcementAuthorityError',
+  'ApprovalEnforcementUnavailableError', 'ApprovalExpectedDigestRequiredError', 'ApprovalFieldInvalidError', 'ApprovalImportAuthorityError',
+  'ApprovalNameInvalidError', 'ApprovalNotRequiredError', 'ApprovalOperatorInvalidError', 'ApprovalRequestLockTimeoutError',
+  'ApprovalRequestNotFoundError', 'ApprovalRoleInvalidError', 'ApprovalRuleAuthorityError', 'ApprovalRuleLegacyTypeError',
+  'ApprovalRuleNotFoundError', 'AutoPostSettingsInvalidError', 'BankAccountGuardRefusal', 'BankAccountRefusedError', 'BankImportLockTimeoutError',
+  'BankIngestionRefusal', 'BankLineChangedError', 'BankMatchTargetError', 'BankMatchUnavailableError', 'BankReallocationRefusal',
+  'BankTransactionAllocatedError', 'BankTransferRefusedError', 'BulkAcceptRefusal', 'ChartRefusal', 'CloseRunNotFoundError', 'ClosingChainTooLong',
+  'DefaultAccountsRefusal', 'DocumentAlreadyLinkedRefusal', 'DocumentAlreadyPostedRefusal', 'DocumentLineAccountRefusal', 'DuplicateTransferError',
+  'FinancialYearStartLockedError', 'FinancialYearStartScopeError', 'FiscalPeriodsInUseError', 'FiscalYearLabelUnknownError',
+  'GlAccountLockTimeoutError', 'HandCorrectionRefusedError', 'HeaderAccountRefusal', 'ImportValidationError', 'InvalidCursorError',
+  'InvalidFinancialYearStartError', 'JournalDocumentLinkRefusal', 'JournalReversalLockTimeoutError', 'LateClaimClearingAccountError',
+  'LedgerAccountNotFoundError', 'LineRefused', 'MissingAssetAccountError', 'MissingSystemAccountError', 'OpeningBalanceValidationError',
+  'ParentAccountError', 'PeriodCloseBlockedError', 'PeriodNotCloseableError', 'PossibleDuplicateTransferError', 'ProposalDecisionError',
+  'ReclassLineLockTimeoutError', 'ReclassifyError', 'ReconciliationNotBalancedError', 'ReconciliationNotCancellableError',
+  'ReconciliationNotReopenableError', 'ReconciliationReviewRequiredError', 'RecurringJournalLockTimeoutError', 'RecurringJournalNotFoundError',
+  'RecurringJournalRequestError', 'ReversalBeforeOriginalError', 'ReversalPeriodError', 'RunAlreadyUndoneError', 'ShareHasLiveUndosError',
+  'StartMonthAssumedError', 'StatementNotImportableError', 'StatementReadError', 'SupplierBankVerificationError', 'SystemRoleInvariantError',
+  'SystemRoleLockTimeoutError', 'TooManyRecloses', 'TransferLinkUndoError', 'YearCloseBlockedError', 'YearEndChangeRefusedError',
+  'YearEndPeriodsNotClosedError'
 ];
-const decided = new Set([...PASS_THROUGH, ...BUSY, ...LABELLED, ...LEDGER_LOCKS].map((C) => C.name).concat(NOT_REFUSALS));
+const decided = new Set([...PASS_THROUGH, ...BUSY, ...LABELLED, ...LEDGER_LOCKS].map((C) => C.name).concat(NOT_REFUSALS, NOT_ON_PATH));
 // A subclass is covered through its parent: these are named here only so the scan below can see them.
 const SUBCLASSES = ['FiscalPeriodNotGeneratedError', 'VatLateClaimRefusal', 'PreWriteDimensionRefusal', 'CostCentrePickRefusal', 'SageReconciledLineError'];
 

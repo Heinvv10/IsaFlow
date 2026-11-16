@@ -34,7 +34,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { refusalReason, isTypedRefusal, LineRefused, LEDGER_BUSY } from './bankBulkAcceptRefusals';
 import { accountsBelongToCompany } from '../gl/chartOfAccountsService';
-import { assertJournalAnalysisDimensions } from '../gl/journalCostCentreValidation';
+import { VatAccountNotFoundError } from './bankVatAccountResolver';
 import { allocateTransaction } from './bankAllocationService';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { evaluate } from './autoPostGate';
@@ -78,12 +78,12 @@ export async function confirmBulkAccept(
   const result: BulkAcceptResult = { runId: null, posted: [], refused: [], totalPosted: 0 };
   let runId: string | null = null;
   let totalCents = 0;
-  let ledgerBusy = false; // the journal-number sequence timed out once: the rest would wait just as long
+  const busyYears = new Set<string>(); // years whose journal-number sequence timed out: the rest of that year would wait just as long
   const { busy, stamped } = await lockLinesUpFront(companyId, lines.map((l) => l.i));
 
   for (const line of lines) {
     const runBefore: string | null = runId;
-    if (ledgerBusy) {
+    if (busyYears.has(line.d.slice(0, 4))) {
       result.refused.push({ txId: line.i, reason: LEDGER_BUSY });
       continue;
     }
@@ -111,13 +111,11 @@ export async function confirmBulkAccept(
           denialContext: { bankTxId: line.i, source: 'bulk_accept' }, guardContext: { bankTxId: line.i, ruleName: 'bulk accept' },
         });
         const vat = guarded.denied || guarded.nonSupplyCoerced ? guarded.vatCode : (line.x ?? undefined);
-        const dim = (v: unknown) => (v == null ? undefined : String(v));
-        // createJournalEntry's plain Errors for "your data" (an inactive cost centre, an account of another company) are
-        // asked first, with the writer's own checks, so they read as the refusals they are.
+        // The writer's own account-ownership error is a plain Error, so it is asked first and reads as the refusal it is. Its
+        // dimension check throws the typed JournalDimensionValidationError (passed through as its own text); a database
+        // error is untyped and reads as the generic fault with an error-level log.
         if (!(await accountsBelongToCompany(companyId, [line.g]))) throw new LineRefused('One or more journal lines name a GL account outside this company');
-        // A validation failure is a typed JournalDimensionValidationError (passed through as its own text); a database error
-        // is not, and reads as the generic fault with an error-level log.
-        await assertJournalAnalysisDimensions(companyId, [{ cc1Id: dim(row!.cc1_id), cc2Id: dim(row!.cc2_id), buId: dim(row!.bu_id) }]);
+        const dim = (v: unknown) => (v == null ? undefined : String(v));
         const allocated = await allocateTransaction(companyId, line.i, line.g, userId,
           row!.description == null ? undefined : String(row!.description), 'account', undefined, vat,
           dim(row!.cc1_id), dim(row!.cc2_id), dim(row!.bu_id));
@@ -134,11 +132,12 @@ export async function confirmBulkAccept(
       totalCents += posted.cents;
       result.posted.push({ txId: line.i, journalEntryId: posted.journalEntryId });
     } catch (err) {
-      if (refusalReason(err) === LEDGER_BUSY) ledgerBusy = true;
+      if (refusalReason(err) === LEDGER_BUSY) busyYears.add(line.d.slice(0, 4)); // the number lock is per company + entry year
       runId = runBefore; // the savepoint took the run row back if this line minted it
       const reason = refusalReason(err);
       // A typed refusal is the caller's to fix (info); only an untyped error is a fault worth an error line.
-      if (isTypedRefusal(err)) log.info('Bulk accept refused a line', { companyId, txId: line.i, reason }, 'bank-bulk-accept');
+      if (err instanceof VatAccountNotFoundError) log.warn('Bulk accept: the company has no VAT system account', { companyId, txId: line.i, reason }, 'bank-bulk-accept');
+      else if (isTypedRefusal(err)) log.info('Bulk accept refused a line', { companyId, txId: line.i, reason }, 'bank-bulk-accept');
       else log.error('Bulk accept could not post a line', { companyId, txId: line.i, error: err }, 'bank-bulk-accept');
       result.refused.push({ txId: line.i, reason });
     }

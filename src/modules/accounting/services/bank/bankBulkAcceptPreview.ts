@@ -73,7 +73,8 @@ export interface BulkAcceptPreview {
   needsAttentionCount: number;
   /** How many candidates were left out because a confirm would refuse them, by reason. */
   excluded: ExcludedCounts;
-  previewToken: string;
+  /** null when no line is listed: there is nothing to confirm. */
+  previewToken: string | null;
 }
 
 /** One line of the token: id, GL account, VAT code, version, amount, date (the last two pinned beyond `updated_at`). */
@@ -170,8 +171,9 @@ export async function previewBulkAccept(companyId: string, userId: string, bankA
   return {
     bankAccountId, minConfidence, lines, totalIn, totalOut, byAccount: [...groups.values()],
     truncated: eligible.length > chosen.length, totalEligibleAtLeast: eligible.length, scanTruncated,
-    nextScanAfter: scanTruncated ? after : null,
-    needsAttention: needsAttention.slice(0, BULK_ACCEPT_HELD_CAP), needsAttentionCount: needsAttention.length, excluded, previewToken: writePreviewToken(token),
+    // A cut list continues after its LAST LISTED line (a refused head of 25 must be pageable past); a scan cut short, after the last row read.
+    nextScanAfter: eligible.length > chosen.length ? lines[lines.length - 1]!.id : scanTruncated ? after : null,
+    needsAttention: needsAttention.slice(0, BULK_ACCEPT_HELD_CAP), needsAttentionCount: needsAttention.length, excluded, previewToken: lines.length > 0 ? writePreviewToken(token) : null,
   };
 }
 
