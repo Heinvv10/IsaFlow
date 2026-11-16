@@ -28,8 +28,7 @@
   {"file":"src/modules/accounting/services/workbench/monthEndLedgerCards.ts","line":118,"text":"const thisRun = runs.find(r => r.periodYear === year && r.periodMonth === month);","class":"R","owner":"FQb2","why":"runs.find by month: one run stands for the month"},
   {"file":"src/modules/accounting/services/payroll/payrollRunService.ts","line":97,"text":"const proRata = await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));","class":"R","owner":"FQc","why":"pro-rata takes the run's month, not its dates (F2)"},
   {"file":"src/modules/accounting/services/payroll/payrollYearToDate.ts","line":120,"text":"AND make_date(h.period_year, h.period_month, 1) < make_date(${period.year}::int, ${period.month}::int, 1)","class":"R","owner":"FQc","why":"the year-to-date month bound (F2)"},
-  {"file":"src/modules/accounting/services/payroll/payslipYearToDate.ts","line":67,"text":"AND (prh.period_year, prh.period_month) <= (${run.periodYear}::int, ${run.periodMonth}::int)","class":"R","owner":"FQc","why":"the payslip year-to-date month bound (F2)"}
-,
+  {"file":"src/modules/accounting/services/payroll/payslipYearToDate.ts","line":67,"text":"AND (prh.period_year, prh.period_month) <= (${run.periodYear}::int, ${run.periodMonth}::int)","class":"R","owner":"FQc","why":"the payslip year-to-date month bound (F2)"},
   {"file":"src/modules/accounting/services/payroll/etiCarryRead.ts","line":66,"text":"export async function etiMonthForRun(","class":"S","owner":"FQb1","why":"FQb1 converted (R, review #1507 B1): the run's ETI month line counts the month's other in-force run journals, and etiForRun books only what they left"},
   {"file":"src/modules/accounting/services/ask/askTax.ts","line":68,"text":"const run = await getDeclarablePayRun(companyId, t ? { year: t.y, month: t.m } : null);","class":"S","owner":"FQb2","why":"a named month answers with that month's regular run (getDeclarablePayRun prefers it, FQb1)"}
  ],
@@ -46,6 +45,9 @@
   ],
   "src/lib/mcp/tools/payrollSars.ts": [
    {"line":47,"text":"'The UIF split is an approximation. payroll_run_headers stores a single combined employee-plus-employer total, so this halves it. Where the two halves genuinely differ — an employee over the UIF ceiling, or one excluded from UIF — the split will be wrong even though the combined total is right. ' +","class":"L","owner":"FQb1","why":"tool description text"}
+  ],
+  "src/modules/accounting/services/cashForecast13/readPayroll.ts": [
+   {"line":56,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"regular runs only, filtered to monthly: one per period by the 999a regular-period key, so the month-keyed map is one run each; off-cycle runs are left out of the forecast (a gap, not a lookup)"}
   ],
   "src/modules/accounting/services/core/entityChanges/entityChangeQuery.ts": [
    {"line":218,"text":"JOIN payroll_run_headers h ON h.id = ${runId}::uuid AND h.company_id = c.company_id","class":"R","owner":"FQc","why":"by run id; the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"}
