@@ -7,8 +7,8 @@
 import { AlertCircle } from 'lucide-react';
 
 interface Props {
-  /** 'error': nothing loaded yet. 'stale': a refresh failed after a good load. */
-  kind: 'error' | 'stale';
+  /** 'error': nothing loaded yet. 'stale': a refresh failed after a good load. 'none-active': every account is inactive. */
+  kind: 'error' | 'stale' | 'none-active';
   message?: string;
   onRetry: () => void;
 }
@@ -20,6 +20,14 @@ export function BankTxSummaryNotice({ kind, message, onRetry }: Props) {
       Retry
     </button>
   );
+  if (kind === 'none-active') {
+    return (
+      <p role="status" data-testid="bank-summary-none-active"
+        className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-400">
+        There are no active bank accounts. Choose one of the inactive accounts above to see its lines.
+      </p>
+    );
+  }
   if (kind === 'stale') {
     return (
       <p role="status" data-testid="bank-summary-stale"

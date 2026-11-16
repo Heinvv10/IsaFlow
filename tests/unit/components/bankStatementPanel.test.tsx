@@ -6,7 +6,7 @@
  */
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BankStatementPanel } from '@/components/accounting/bank-transactions/BankStatementPanel';
+import { BankStatementPanel, UNCHECKED_SOURCE_CAVEAT, UNKNOWN_SOURCE_CAVEAT } from '@/components/accounting/bank-transactions/BankStatementPanel';
 import { summaryAcct } from '../helpers/bankSummaryFixture';
 import type { StatementRef } from '@/modules/accounting/services/bank/bankAccountSummaryService';
 
@@ -114,5 +114,50 @@ describe('BankStatementPanel', () => {
     const row = nb(screen.getByTestId('statement-ledger').textContent!);
     expect(row).toMatch(/as at 31 Oct 2026/);
     expect(row).toContain('R 2 490.00');
+  });
+
+  // Eight provenances: the six balance_source values, NULL (a batch from before migration 998) and a value nobody knows.
+  const SOURCES: Array<[string | null, 'checked' | 'unchecked' | 'unknown']> = [
+    ['printed', 'checked'], ['running_balance', 'checked'], ['pdf_read', 'unchecked'], ['ai_read', 'unchecked'],
+    ['not_in_file', 'unknown'], ['unverified', 'unknown'], [null, 'unknown'], ['made_up', 'unknown'],
+  ];
+  for (const [source, kind] of SOURCES) {
+    it(`closing balance with source ${String(source)} and a zero difference: ${kind === 'checked' ? 'reconciled (teal), no caveat' : 'never teal, labelled, with a caveat'}`, () => {
+      const latest = ref({ balanceSource: source as StatementRef['balanceSource'] });
+      render(<BankStatementPanel bank={summaryAcct('a1', { statement: { latest, lastWithBalance: latest, ledgerAtStatementCents: 250000, differenceCents: 0 } })} />);
+      const value = screen.getByTestId('statement-difference-value').className;
+      const label = screen.getByTestId('statement-difference').textContent!;
+      if (kind === 'checked') {
+        expect(value).toContain('text-teal');
+        expect(label).toMatch(/Difference \(as at/);
+        expect(screen.queryByTestId('statement-balance-caveat')).toBeNull();
+      } else {
+        expect(value).not.toContain('text-teal');
+        expect(value).toContain('text-amber-700');
+        expect(label).toContain(kind === 'unchecked' ? 'Difference (not checked)' : 'Difference (source not recorded)');
+        expect(screen.getByTestId('statement-balance-caveat').textContent).toBe(
+          kind === 'unchecked' ? UNCHECKED_SOURCE_CAVEAT[source!] : UNKNOWN_SOURCE_CAVEAT);
+      }
+    });
+
+    it(`no closing balance with source ${String(source)}: a reason, no difference, nothing styled as reconciled`, () => {
+      const latest = ref({ balanceSource: source as StatementRef['balanceSource'], openingCents: null, closingCents: null });
+      render(<BankStatementPanel bank={summaryAcct('a1', { statement: { latest } })} />);
+      expect(screen.getByTestId('statement-no-balance-reason').textContent!.length).toBeGreaterThan(10);
+      expect(screen.queryByTestId('statement-difference')).toBeNull();
+      expect(screen.getByTestId('bank-statement-panel').innerHTML).not.toContain('Reconcile');
+    });
+  }
+
+  it('a batch with no date says "date not recorded" and the Reconcile link carries no statementDate', () => {
+    const latest = ref({ statementDate: '' });
+    render(<BankStatementPanel bank={summaryAcct('a1', { ledgerCents: 5, statement: { latest, lastWithBalance: latest, ledgerAtStatementCents: 100, differenceCents: 150000 } })} />);
+    const t = screen.getByTestId('bank-statement-panel').textContent!;
+    expect(t).toContain('date not recorded');
+    expect(t).not.toContain('—');
+    const href = screen.getByTestId('statement-reconcile-link').getAttribute('href')!;
+    expect(href).not.toContain('statementDate');
+    expect(href).not.toContain('null');
+    expect(href).toBe('/accounting/bank-reconciliation/new?bankAccountId=a1&statementBalance=2500.00');
   });
 });

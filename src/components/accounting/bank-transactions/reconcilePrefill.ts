@@ -14,7 +14,8 @@ export interface ReconcilePrefill {
 }
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
-const AMOUNT = /^-?\d{1,15}(\.\d{1,2})?$/;
+/** Up to 12 whole digits (R999 999 999 999.99): cents then stay far inside 2^53, so the number prints back as typed. */
+const AMOUNT = /^-?\d{1,12}(\.\d{1,2})?$/;
 
 const one = (v: string | string[] | undefined): string | undefined => (typeof v === 'string' ? v : undefined);
 

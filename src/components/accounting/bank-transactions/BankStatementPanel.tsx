@@ -29,6 +29,16 @@ export const UNCHECKED_SOURCE_CAVEAT: Record<string, string> = {
   ai_read: 'Read from the PDF by AI (not checked against the file)',
 };
 
+/** Provenance NOTHING has vouched for: a batch imported before migration 998 (NULL), or a value this code does not know. */
+export const UNKNOWN_SOURCE_CAVEAT = 'Where this balance came from was not recorded (not checked)';
+/** The only sources a closing balance can have been checked from: a printed closing, or a running balance that agreed with its lines. */
+const CHECKED_SOURCES = ['printed', 'running_balance'];
+type Provenance = 'checked' | 'unchecked' | 'unknown';
+const provenanceOf = (source: string | null): Provenance =>
+  source && CHECKED_SOURCES.includes(source) ? 'checked' : source && UNCHECKED_SOURCE_CAVEAT[source] ? 'unchecked' : 'unknown';
+/** "31 Oct 2026", or the plain words when the batch has no date (the column is NOT NULL; this is defence, not a case). */
+const when = (iso: string): string => (iso ? formatDisplayDate(iso) : 'date not recorded');
+
 const reasonFor = (ref: Ref): string =>
   (ref.balanceSource ? NO_BALANCE_REASON[ref.balanceSource] : undefined) ?? NO_BALANCE_UNRECORDED;
 
@@ -42,7 +52,8 @@ function Row({ label, testid, children }: { label: string; testid: string; child
 }
 
 const Caveat = ({ source }: { source: string | null }) => {
-  const text = source ? UNCHECKED_SOURCE_CAVEAT[source] : undefined;
+  const kind = provenanceOf(source);
+  const text = kind === 'checked' ? undefined : kind === 'unchecked' ? UNCHECKED_SOURCE_CAVEAT[source!] : UNKNOWN_SOURCE_CAVEAT;
   return text ? <p data-testid="statement-balance-caveat" className="px-4 py-1.5 text-xs text-amber-700 dark:text-amber-400">{text}</p> : null;
 };
 
@@ -62,11 +73,12 @@ export function BankStatementPanel({ bank }: { bank: BankAccountSummary }) {
   const basis = lastWithBalance;
   // The label and the figure agree: the ledger at the statement date only when the summary has it, else today's.
   const atStatement = basis !== null && ledgerAtStatementCents !== null;
-  const unchecked = !!(basis?.balanceSource && UNCHECKED_SOURCE_CAVEAT[basis.balanceSource]);
-  const reconciled = !unchecked && differenceCents === 0;
+  const provenance = basis ? provenanceOf(basis.balanceSource) : 'checked';
+  // Only a checked closing can read as reconciled: NULL or unknown provenance is as unvouched-for as an AI read.
+  const reconciled = provenance === 'checked' && differenceCents === 0;
   const diffTone = reconciled ? 'text-teal-700 dark:text-teal-400' : 'text-amber-700 dark:text-amber-400';
   const reconcileHref = basis && basis.closingCents !== null
-    ? `/accounting/bank-reconciliation/new?bankAccountId=${bank.id}&statementDate=${basis.statementDate}&statementBalance=${(basis.closingCents / 100).toFixed(2)}`
+    ? `/accounting/bank-reconciliation/new?bankAccountId=${bank.id}${basis.statementDate ? `&statementDate=${basis.statementDate}` : ''}&statementBalance=${(basis.closingCents / 100).toFixed(2)}`
     : null;
 
   return (
@@ -85,7 +97,7 @@ export function BankStatementPanel({ bank }: { bank: BankAccountSummary }) {
               {latest.openingCents !== null ? <span className="tabular-nums">{fmtCents(latest.openingCents)}</span>
                 : <span className="text-xs text-[var(--ff-text-tertiary)]">Not provided by this file</span>}
             </Row>
-            <Row label={`Statement balance (as at ${formatDisplayDate(latest.statementDate)})`} testid="statement-closing">
+            <Row label={`Statement balance (as at ${when(latest.statementDate)})`} testid="statement-closing">
               <span className="font-medium tabular-nums">{fmtCents(latest.closingCents!)}</span>
             </Row>
             <Caveat source={latest.balanceSource} />
@@ -97,17 +109,17 @@ export function BankStatementPanel({ bank }: { bank: BankAccountSummary }) {
         )}
         {basis && basis.batchId !== latest.batchId && (
           <>
-            <Row label={`Last statement balance (as at ${formatDisplayDate(basis.statementDate)})`} testid="statement-last-with-balance">
+            <Row label={`Last statement balance (as at ${when(basis.statementDate)})`} testid="statement-last-with-balance">
               <span className="tabular-nums">{fmtCents(basis.closingCents!)}</span>
             </Row>
             <Caveat source={basis.balanceSource} />
           </>
         )}
-        <Row label={`Ledger balance (as at ${formatDisplayDate(atStatement ? basis.statementDate : bank.ledgerAsAt)})`} testid="statement-ledger">
+        <Row label={`Ledger balance (as at ${when(atStatement ? basis.statementDate : bank.ledgerAsAt)})`} testid="statement-ledger">
           <span className="tabular-nums">{fmtCents(atStatement ? ledgerAtStatementCents : bank.ledgerCents)}</span>
         </Row>
         {basis && differenceCents !== null && (
-          <Row label={unchecked ? 'Difference (not checked)' : `Difference (as at ${formatDisplayDate(basis.statementDate)})`} testid="statement-difference">
+          <Row label={provenance === 'unchecked' ? 'Difference (not checked)' : provenance === 'unknown' ? 'Difference (source not recorded)' : `Difference (as at ${when(basis.statementDate)})`} testid="statement-difference">
             <span data-testid="statement-difference-value" className={`font-semibold tabular-nums ${diffTone}`}>{fmtCents(differenceCents)}</span>
             {reconcileHref && (
               <Link href={reconcileHref} data-testid="statement-reconcile-link"
@@ -117,7 +129,7 @@ export function BankStatementPanel({ bank }: { bank: BankAccountSummary }) {
         )}
       </div>
       <div className="flex items-center gap-4 border-t border-[var(--ff-border-light)] px-4 py-2 text-xs text-[var(--ff-text-tertiary)]">
-        <span className="flex items-center gap-1"><CalendarDays className="h-3 w-3" />{formatDisplayDate(latest.statementDate)}</span>
+        <span className="flex items-center gap-1"><CalendarDays className="h-3 w-3" />{when(latest.statementDate)}</span>
         <span className="flex items-center gap-1"><Hash className="h-3 w-3" />{latest.lineCount} lines on this statement</span>
         <span className="ml-auto">Imported {formatDisplayDate(latest.importedAt)}</span>
       </div>

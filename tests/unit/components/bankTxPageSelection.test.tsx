@@ -11,12 +11,12 @@ import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { summaryAcct } from '../helpers/bankSummaryFixture';
 
 const cap = vi.hoisted(() => ({
-  cards: {} as Record<string, unknown>, filters: {} as Record<string, unknown>, modals: {} as Record<string, unknown>,
+  shownHistory: [] as unknown[], query: {} as Record<string, string>, cards: {} as Record<string, unknown>, filters: {} as Record<string, unknown>, modals: {} as Record<string, unknown>,
 }));
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
-vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, pathname: '/', push: vi.fn(), replace: vi.fn() }) }));
+vi.mock('next/router', () => ({ useRouter: () => ({ query: cap.query, pathname: '/', push: vi.fn(), replace: vi.fn() }) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock('@/components/accounting/bank-transactions/useBankTxRefData', () => ({ useBankTxRefData: () => undefined }));
 vi.mock('@/components/accounting/BankTxTable', () => ({ BankTxTable: () => null }));
@@ -27,7 +27,7 @@ vi.mock('@/components/accounting/bank-transactions/AutoPostRunsPanel', () => ({ 
 vi.mock('@/components/accounting/bank-transactions/transferLinks', () => ({ useRelinkTransfersWithTick: () => [false, 0], TransferLinkNotice: () => null }));
 vi.mock('@/components/accounting/bank-transactions/useBankTxActions', () => ({ buildBankTxActions: () => ({}) }));
 vi.mock('@/components/accounting/banking/BankEmptyState', () => ({ BankEmptyState: () => <p>No bank accounts configured</p> }));
-vi.mock('@/components/accounting/bank-transactions/BankTxBankCards', () => ({ BankTxBankCards: (p: Record<string, unknown>) => { cap.cards = p; return null; } }));
+vi.mock('@/components/accounting/bank-transactions/BankTxBankCards', () => ({ BankTxBankCards: (p: Record<string, unknown>) => { cap.cards = p; cap.shownHistory.push(p.shown); return null; } }));
 vi.mock('@/components/accounting/bank-transactions/BankTxFilters', () => ({ BankTxFilters: (p: Record<string, unknown>) => { cap.filters = p; return null; } }));
 vi.mock('@/components/accounting/bank-transactions/BankTxModals', () => ({ BankTxModals: (p: Record<string, unknown>) => { cap.modals = p; return null; } }));
 useApiJsonOverMock();
@@ -45,6 +45,7 @@ const call = (obj: Record<string, unknown>, name: string, ...args: unknown[]) =>
 let summaries: Array<() => Response | Promise<Response>> = [];
 let list: (url: string) => Response | Promise<Response> = () => ok({ transactions: [], total: 3 });
 beforeEach(() => {
+  cap.query = {};
   summaries = [];
   list = () => ok({ transactions: [], total: 3 });
   vi.mocked(apiFetch).mockReset();
@@ -90,6 +91,35 @@ describe('selection', () => {
   });
 });
 
+describe('deep link and all-inactive', () => {
+  it('?account_id= selects that account once it is among the accounts, without a notice', async () => {
+    cap.query = { account_id: 'c' };
+    summaries = [() => accts(A(), B(), C())];
+    render(<BankTransactionsPage />);
+    await waitFor(() => expect(lastListBank()).toBe('c'));
+    expect(screen.queryByText(/isn't available/)).toBeNull();
+  });
+
+  it('?account_id= naming an account that is not in the summary says so and names the one shown', async () => {
+    cap.query = { account_id: 'ghost' };
+    summaries = [() => accts(A(), B())];
+    render(<BankTransactionsPage />);
+    expect(await screen.findByText("That account isn't available; showing Account b.")).toBeTruthy();
+    await waitFor(() => expect(lastListBank()).toBe('b'));
+  });
+
+  it('every account inactive: nothing is selected for the user, no list is fetched, and the page says why', async () => {
+    summaries = [() => accts(A(), summaryAcct('d', { isActive: false }))];
+    render(<BankTransactionsPage />);
+    expect(await screen.findByTestId('bank-summary-none-active')).toBeTruthy();
+    await new Promise(r => setTimeout(r, 100));
+    expect(listUrls()).toEqual([]);
+    await call(cap.cards, 'onSelectBank', 'a'); // an inactive account is still selectable by choice
+    await waitFor(() => expect(lastListBank()).toBe('a'));
+    expect(screen.queryByTestId('bank-summary-none-active')).toBeNull();
+  });
+});
+
 describe('"n shown" on the Awaiting-review tile', () => {
   it('only once a filter narrows the New tab and the list has loaded; a failed list says nothing, not "0 shown"', async () => {
     summaries = [() => accts(B())];
@@ -102,6 +132,24 @@ describe('"n shown" on the Awaiting-review tile', () => {
     await call(cap.filters, 'onToDateChange', '2026-01-31');
     expect(await screen.findByText('down')).toBeTruthy(); // the list frame shows the server's message
     expect(cap.cards.shown).toBeNull();
+  });
+
+  it('after switching account it stays hidden until the NEW account\'s list has loaded (no flash of the previous total)', async () => {
+    summaries = [() => accts(B(), C())];
+    render(<BankTransactionsPage />);
+    await waitFor(() => expect(listUrls().length).toBeGreaterThan(0));
+    await call(cap.filters, 'onFromDateChange', '2026-01-01');
+    await waitFor(() => expect(cap.cards.shown).toBe(3));
+    let release!: () => void;
+    list = () => new Promise<Response>(resolve => { release = () => resolve(ok({ transactions: [], total: 9 })); });
+    const mark = cap.shownHistory.length;
+    await call(cap.cards, 'onSelectBank', 'c');
+    await waitFor(() => expect(lastListBank()).toBe('c'));
+    expect(cap.cards.shown).toBeNull(); // c's list is in flight; b's 3 must not be shown against c
+    await act(async () => { release(); });
+    await waitFor(() => expect(cap.cards.shown).toBe(9));
+    // Not even for one render: b's 3 was never handed to the card while c was selected.
+    expect(cap.shownHistory.slice(mark)).not.toContain(3);
   });
 });
 

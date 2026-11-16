@@ -1,6 +1,6 @@
 /** The page shell's pure decisions: which filters narrow the list, when "n shown" may be said, which account is selected, who can receive a transfer. */
 import { describe, expect, it } from 'vitest';
-import { awaitingShown, defaultBankId, filtersActive, keepOrDefault, transferTargetsFor } from '@/components/accounting/bank-transactions/bankTxPageView';
+import { awaitingShown, defaultBankId, filtersActive, keepOrDefault, listKey, transferTargetsFor } from '@/components/accounting/bank-transactions/bankTxPageView';
 import { summaryAcct } from '../helpers/bankSummaryFixture';
 
 const none = { search: '', fromDate: '', toDate: '', fromAmount: '', toAmount: '', allocationFilter: 'all', txType: 'all', allocType: 'all', hasSuggestion: 'all' };
@@ -15,11 +15,15 @@ describe('filtersActive', () => {
 });
 
 describe('awaitingShown', () => {
-  const ok = { tab: 'new' as const, filtersActive: true, error: '', isLoading: false, total: 7 };
+  const ok = { tab: 'new' as const, filtersActive: true, error: '', isLoading: false, total: 7, loadedFor: listKey('b', 'new'), wantedFor: listKey('b', 'new') };
   it('the New tab, filtered, loaded: the list total', () => expect(awaitingShown(ok)).toBe(7));
   it('not on New: null', () => expect(awaitingShown({ ...ok, tab: 'reviewed' })).toBeNull());
   it('no filters: null', () => expect(awaitingShown({ ...ok, filtersActive: false })).toBeNull());
   it('a list error: null, never "0 shown"', () => expect(awaitingShown({ ...ok, error: 'boom', total: 0 })).toBeNull());
+  it('a total counted for ANOTHER account or tab is never shown (no flash of the previous account)', () => {
+    expect(awaitingShown({ ...ok, loadedFor: listKey('a', 'new') })).toBeNull();
+    expect(awaitingShown({ ...ok, loadedFor: '' })).toBeNull();
+  });
   it('still loading: null', () => expect(awaitingShown({ ...ok, isLoading: true })).toBeNull());
 });
 
@@ -29,12 +33,13 @@ describe('selection and transfer targets', () => {
   const other = summaryAcct('c', { groupId: 'g', groupName: 'Cards', accountName: 'Card 1' });
   it('the default is the first ACTIVE account, else the first', () => {
     expect(defaultBankId([inactive, active])).toBe('b');
-    expect(defaultBankId([inactive])).toBe('a');
+    expect(defaultBankId([inactive])).toBe(''); // every account inactive: nothing inactive is chosen for the user
   });
   it('a selection that still exists is kept (even inactive); one that vanished falls back to the default', () => {
     expect(keepOrDefault([inactive, active], 'a')).toBe('a');
     expect(keepOrDefault([inactive, active], 'gone')).toBe('b');
     expect(keepOrDefault([inactive, active], '')).toBe('b');
+    expect(keepOrDefault([inactive], 'gone')).toBe('');
   });
   it('transfer targets exclude the selected and every inactive account; sub-accounts carry their group', () => {
     expect(transferTargetsFor([inactive, active, other], 'b')).toEqual([{ id: 'c', code: 'c', name: 'Cards › Card 1' }]);

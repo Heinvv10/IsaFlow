@@ -36,7 +36,7 @@ import { BankTxPagination, BankTxReviewBar } from '@/components/accounting/bank-
 import { BankTxTabs, type BankTxTab as Tab } from '@/components/accounting/bank-transactions/BankTxTabs';
 import { useLlmResultPoll } from '@/components/accounting/bank-transactions/useLlmResultPoll';
 import { useSeedRowSelections } from '@/components/accounting/bank-transactions/useSeedRowSelections';
-import { awaitingShown, filtersActive, transferTargetsFor } from '@/components/accounting/bank-transactions/bankTxPageView';
+import { awaitingShown, filtersActive, listKey, transferTargetsFor } from '@/components/accounting/bank-transactions/bankTxPageView';
 import { bankTxQueryParams } from '@/components/accounting/bank-transactions/bankTxQuery';
 import type { ReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
 import { BankTxListFrame, BANK_TX_PAGE_SIZE as PAGE_SIZE } from '@/components/accounting/bank-transactions/BankTxListFrame';
@@ -53,7 +53,8 @@ export default function BankTransactionsPage() {
   const [buOptions, setBuOptions] = useState<SelectOption[]>([]);
   const summary = useBankTxSummary();
   const bankAccounts = summary.accounts;
-  const [selectedBank, setSelectedBank] = useBankTxSelection(bankAccounts, router.query.account_id);
+  const sel = useBankTxSelection(bankAccounts, router.query.account_id);
+  const { selected: selectedBank, setSelected: setSelectedBank } = sel;
   const [suppliersStatus, setSuppliersStatus] = useState<SuppliersStatus>('loading');
   useBankTxRefData({ setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSuppliersStatus });
   // Transaction list
@@ -63,7 +64,7 @@ export default function BankTransactionsPage() {
   // Filter / pagination
   const [tab, setTab] = useState<Tab>('new');
   const [page, setPage] = useState(1);
-  const [loaded, setLoaded] = useState({ page: 1, total: 0 }), total = loaded.total; // total + the page it was counted for (past-the-end skeleton)
+  const [loaded, setLoaded] = useState({ page: 1, total: 0, key: '' }), total = loaded.total; // total + the page it was counted for (past-the-end skeleton)
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [fromDate, setFromDate] = useState('');
@@ -100,7 +101,7 @@ export default function BankTransactionsPage() {
   const loadSeq = useRef(0);
   const loadTransactions = useCallback(async () => {
     const seq = ++loadSeq.current, latest = () => seq === loadSeq.current;
-    if (!selectedBank) { setIsLoading(false); setTransactions([]); setLoaded({ page, total: 0 }); return; }
+    if (!selectedBank) { setIsLoading(false); setTransactions([]); setLoaded({ page, total: 0, key: '' }); return; }
     setIsLoading(true); setError('');
     try {
       const params = bankTxQueryParams({ bankAccountId: selectedBank, tab, page, pageSize: PAGE_SIZE, fromDate, toDate, fromAmount, toAmount,
@@ -109,8 +110,8 @@ export default function BankTransactionsPage() {
       const json = await res.json();
       if (!latest()) return;
       const data = json.data || json;
-      setTransactions(data.transactions || []); setLoaded({ page, total: data.total || 0 });
-    } catch (err) { if (latest()) { setTransactions([]); setLoaded({ page, total: 0 }); setError(apiErrorMessage(err, 'Could not load transactions - try again')); } }
+      setTransactions(data.transactions || []); setLoaded({ page, total: data.total || 0, key: listKey(selectedBank, tab) });
+    } catch (err) { if (latest()) { setTransactions([]); setLoaded({ page, total: 0, key: '' }); setError(apiErrorMessage(err, 'Could not load transactions - try again')); } }
     finally { if (latest()) setIsLoading(false); }
   }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter]);
 
@@ -158,7 +159,7 @@ export default function BankTransactionsPage() {
   function withReset<T>(fn: (v: T) => void) { return (v: T) => { fn(v); setPage(1); }; }
 
   const noBankAccounts = summary.status === 'ready' && bankAccounts.length === 0;
-  const shown = awaitingShown({ tab, error, isLoading, total, filtersActive: filtersActive({
+  const shown = awaitingShown({ tab, error, isLoading, total, loadedFor: loaded.key, wantedFor: listKey(selectedBank, tab), filtersActive: filtersActive({
     search: debouncedSearch, fromDate, toDate, fromAmount, toAmount, allocationFilter, txType, allocType, hasSuggestion }) });
 
   if (summary.status === 'error') {
@@ -235,6 +236,8 @@ export default function BankTransactionsPage() {
           <AutoPostRunsPanel onUndone={afterMutation} />
           <TransferLinkNotice bankAccountId={selectedBank} refreshKey={linkTick} onChanged={afterMutation} />
           <DeepLinkNotice message={deepLinkError} onDismiss={dismissError} />
+          <DeepLinkNotice message={sel.notice} onDismiss={sel.dismissNotice} />
+          {sel.noneActive && <BankTxSummaryNotice kind="none-active" onRetry={() => undefined} />}
           <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading || summary.status === 'loading'} error={error}
             empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab}
             detailTx={detailTx} onDetailClose={closeDetail}>

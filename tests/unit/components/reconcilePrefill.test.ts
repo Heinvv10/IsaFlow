@@ -21,6 +21,13 @@ describe('parseReconcilePrefill', () => {
     const d = (statementDate: string) => parseReconcilePrefill({ statementDate }).statementDate;
     expect([d('2028-02-29'), d('2000-02-29'), d('2026-02-29'), d('2100-02-29')]).toEqual(['2028-02-29', '2000-02-29', undefined, undefined]);
   });
+  it('keeps cents exact up to R999 999 999 999.99 and refuses what a double cannot hold', () => {
+    const bal = (v: string) => parseReconcilePrefill({ statementBalance: v }).statementBalance;
+    expect(bal('999999999999.99')).toBe(999999999999.99);
+    expect(String(bal('999999999999.99'))).toBe('999999999999.99');
+    expect(bal('999999999999999.99')).toBeUndefined(); // 17 significant digits: a double rounds it
+    expect(bal('1000000000000')).toBeUndefined();
+  });
   it('ignores repeated (array) parameters and missing ones', () => {
     expect(parseReconcilePrefill({ bankAccountId: [ID, ID] })).toEqual({});
     expect(parseReconcilePrefill({})).toEqual({});
