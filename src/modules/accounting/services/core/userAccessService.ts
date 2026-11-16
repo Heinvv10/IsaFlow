@@ -28,7 +28,8 @@ export interface PendingInvitation {
   companyId: string;
   email: string;
   role: string;
-  invitedBy: string;
+  /** The sender's user id; null once that user is deleted (997c, ON DELETE SET NULL). */
+  invitedBy: string | null;
   expiresAt: string;
   createdAt: string;
   emailSentAt: string | null;
