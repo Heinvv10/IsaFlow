@@ -78,6 +78,7 @@ describe('createInvitation pins the GoTrue account holding the address (F1)', ()
     const id = (r.body as { data?: { userId?: string } }).data!.userId!;
     strangers.push(id);
     expect(await memberOf(B, id)).toBe(1);
+    expect(passwordSets).toContain(id); // created for this invitation (invite_id): its password is the invitee's
   });
 
   it('GoTrue cannot answer the lookup: AuthUpstreamUnavailableError, no invitation written', async () => {
@@ -87,6 +88,34 @@ describe('createInvitation pins the GoTrue account holding the address (F1)', ()
       await expect(createInvitation(B, email, 'viewer', inviter)).rejects.toBeInstanceOf(AuthUpstreamUnavailableError);
     } finally { gotrueDown.delete(email); }
     expect(await pinOf(B, email)).toBeUndefined();
+  });
+});
+
+// Security review of F1: a Settings pin names an account that already held the address. The password accept never
+// sets a password on it (it signs in with its own), and refuses it once its login email is no longer the invitation's.
+describe('the password accept on a Settings-pinned existing account', () => {
+  it('a pinned account with no users row (a deleted user\'s login): joins by its own password, none written', async () => {
+    const u = await seedUser({ memberOf: [A] });
+    await resetAdminLimit();
+    expect((await adminDelete(u.id)).status).toBe(200); // not established any more: no users row
+    const token = await settingsInvite(B, u.email);
+    expect(await pinOf(B, u.email)).toBe(u.id);
+    const r = await newAccept(token);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(await memberOf(B, u.id)).toBe(1);
+    expect(passwordSets).not.toContain(u.id);
+  });
+
+  it("the pinned account's login email moved since the invite: 409 IDENTITY_MISMATCH, no password written", async () => {
+    const u = await seedUser({ memberOf: [A] });
+    await resetAdminLimit();
+    expect((await adminDelete(u.id)).status).toBe(200);
+    const token = await settingsInvite(B, u.email);
+    setGotrueEmail(u.id, `moved-${u.id}@test.local`);
+    const r = await newAccept(token);
+    expect([r.status, r.body.error?.code]).toEqual([409, 'IDENTITY_MISMATCH']);
+    expect(passwordSets).not.toContain(u.id);
+    expect(await memberOf(B, u.id)).toBe(0);
   });
 });
 
@@ -138,5 +167,6 @@ describe('R7-1 end to end: admin delete, Settings re-invite of the address, acce
     expect(await memberOf(D, stranger)).toBe(0);
     expect(await memberships(u.id)).toBe(0);
     expect(passwordSets).not.toContain(stranger);
+    expect(passwordSets).not.toContain(u.id);
   });
 });

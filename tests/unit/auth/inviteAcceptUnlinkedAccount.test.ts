@@ -17,6 +17,7 @@ const h = vi.hoisted(() => ({
   establishedIds: new Set<string>(),
   invitationStillPending: true,
   findUserByEmail: vi.fn(),
+  adminGetUser: vi.fn(),
   adminCreateUser: vi.fn(),
   adminUpdateUser: vi.fn(),
   signIn: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock('@/lib/auth/gotrue', () => ({
   adminUpdateUser: h.adminUpdateUser,
   signIn: h.signIn,
 }));
+vi.mock('@/lib/auth/gotrueAdminUser', () => ({ adminGetUser: h.adminGetUser }));
 vi.mock('@/lib/auth/gotrue-mfa', async (orig) => ({
   ...(await orig<object>()),
   listFactors: h.listFactors,
@@ -112,6 +114,8 @@ beforeEach(() => {
   h.establishedIds.clear();
   h.invitationStillPending = true;
   h.findUserByEmail.mockResolvedValue(null);
+  // By default every account holds the invited address and was created for this invitation (invite_id).
+  h.adminGetUser.mockImplementation(async (id: string) => ({ id, email: 'invitee@example.test', user_metadata: { invite_id: 'inv-1' } }));
   h.listFactors.mockResolvedValue({ totp: [] });
   h.adminListUserFactors.mockResolvedValue([]);
   h.invitation = { id: 'inv-1', email: 'invitee@example.test', role: 'viewer', company_id: 'co-1', gotrue_user_id: null };
@@ -124,7 +128,7 @@ describe('accepting an invitation that names no account', () => {
 
     expect((await accept('a-new-password-1')).status).toBe(200);
     expect(h.findUserByEmail).toHaveBeenCalledWith('invitee@example.test');
-    expect(h.adminCreateUser).toHaveBeenCalledWith({ email: 'invitee@example.test', email_confirm: true });
+    expect(h.adminCreateUser).toHaveBeenCalledWith({ email: 'invitee@example.test', email_confirm: true, user_metadata: { invite_id: 'inv-1' } });
     expect(h.adminUpdateUser).toHaveBeenCalledWith('gt-new', expect.objectContaining({ password: 'a-new-password-1' }));
     expect(h.queries.find((q) => /INSERT INTO company_users/.test(q.text))?.params).toEqual(['co-1', 'gt-new', 'viewer']);
     expect(ran(/SET accepted_at = now\(\)/)).toBe(true);
@@ -285,6 +289,51 @@ describe('an existing GoTrue account with no IsaFlow profile row', () => {
     expect(status).toBe(401);
     expect(body.error?.code).toBe('MFA_REQUIRED');
     expect(h.adminUpdateUser).not.toHaveBeenCalled();
+  });
+});
+
+// R7-1 security review: a pin (Settings since R7-1, an adminCreateUser 422) can name an account that already held
+// the address. No password is ever set on an account no invitation created, nor on one that left the address.
+describe('an account the invitation did not create', () => {
+  beforeEach(() => {
+    h.invitation = { ...h.invitation!, gotrue_user_id: 'gt-held' };
+    h.signIn.mockResolvedValue(tokens('gt-held'));
+  });
+
+  it.each([
+    ['created by no invitation (a deleted user\'s login, a pending signup)', {}, undefined],
+    ['created by another invitation, but signed in since (it has an owner)', { invite_id: 'inv-other' }, '2026-11-01T00:00:00Z'],
+  ])('%s: never gets a password set; a wrong password is 401, nothing written', async (_, meta, lastSignIn) => {
+    h.adminGetUser.mockResolvedValue({ id: 'gt-held', email: 'invitee@example.test', user_metadata: meta, last_sign_in_at: lastSignIn });
+    h.signIn.mockRejectedValue(new Error('invalid_grant'));
+    const { status, body } = await accept('attacker-chosen-pw-1');
+    expect([status, body.error?.code]).toEqual([401, 'SIGN_IN_REQUIRED']);
+    expect(h.adminUpdateUser).not.toHaveBeenCalled();
+    expect(ran(/INSERT INTO company_users/)).toBe(false);
+  });
+
+  it('with its own password: joins as that account, its password untouched', async () => {
+    h.adminGetUser.mockResolvedValue({ id: 'gt-held', email: 'invitee@example.test', user_metadata: {} });
+    expect((await accept('their-own-password')).status).toBe(200);
+    expect(h.adminUpdateUser).not.toHaveBeenCalled();
+    expect(h.queries.find((q) => /INSERT INTO company_users/.test(q.text))?.params).toEqual(['co-1', 'gt-held', 'viewer']);
+  });
+
+  it('a placeholder another invitation created, never signed in: the invitee sets its password', async () => {
+    h.adminGetUser.mockResolvedValue({ id: 'gt-held', email: 'invitee@example.test', user_metadata: { invite_id: 'inv-other' }, last_sign_in_at: null });
+    expect((await accept('a-new-password-1')).status).toBe(200);
+    expect(h.adminUpdateUser).toHaveBeenCalledWith('gt-held', expect.objectContaining({ password: 'a-new-password-1' }));
+  });
+
+  it.each([
+    ['its login email is no longer the invitation\'s', { id: 'gt-held', email: 'moved@example.test', user_metadata: { invite_id: 'inv-1' } }],
+    ['GoTrue has no such account', null],
+  ])('%s: 409 IDENTITY_MISMATCH before any password write or sign-in', async (_, account) => {
+    h.adminGetUser.mockResolvedValue(account);
+    const { status, body } = await accept('a-new-password-1');
+    expect([status, body.error?.code]).toEqual([409, 'IDENTITY_MISMATCH']);
+    expect(h.adminUpdateUser).not.toHaveBeenCalled();
+    expect(h.signIn).not.toHaveBeenCalled();
   });
 });
 

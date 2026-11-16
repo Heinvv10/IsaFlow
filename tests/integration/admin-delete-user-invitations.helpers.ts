@@ -48,6 +48,8 @@ export function setGotrueEmail(id: string, email: string): void {
   accounts.set(email.trim().toLowerCase(), id);
   logins.set(id, email);
 }
+/** user_metadata GoTrue stored on the accounts it created (POST /admin/users): invite_id names the invitation. */
+const metadata = new Map<string, unknown>();
 /** GoTrue users whose password an accept route set (PUT /admin/users/<id>). */
 export const passwordSets: string[] = [];
 let ipSeq = 0;
@@ -151,14 +153,16 @@ function gotrueStub(input: Parameters<typeof fetch>[0], init?: Parameters<typeof
     created.push(id);
     accounts.set(email.trim().toLowerCase(), id);
     logins.set(id, email);
-    return Promise.resolve(json({ id, email }));
+    metadata.set(id, body.user_metadata ?? {});
+    return Promise.resolve(json({ id, email, user_metadata: metadata.get(id) }));
   }
   if (path.startsWith('/admin/users/') && method === 'GET') {
     // GoTrue parses the id as a UUID, so any letter case names the same (lower-case) account.
     const id = decodeURIComponent(path.split('/').pop()!).toLowerCase();
     if (gotrueDown.has(id)) return Promise.resolve(json({ msg: 'unavailable' }, 503));
     const email = logins.get(id);
-    return Promise.resolve(email === undefined ? json({ msg: 'User not found' }, 404) : json({ id, email, factors: [] }));
+    return Promise.resolve(email === undefined ? json({ msg: 'User not found' }, 404)
+      : json({ id, email, factors: [], user_metadata: metadata.get(id) ?? {} }));
   }
   if (path.startsWith('/admin/users/')) {
     const id = path.split('/').pop()!;

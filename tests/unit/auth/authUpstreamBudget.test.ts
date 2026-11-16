@@ -108,7 +108,8 @@ const SESSION = { access_token: 'a', refresh_token: 'r', expires_in: 3600, token
 function gotrue() {
   return vi.fn(async (url: string) => {
     const path = url.replace('http://gotrue.test.local', '');
-    if (/^\/admin\/users\//.test(path)) return Response.json({ id: 'gt-1' });
+    // The invitation's own account (invite_id): the accept may set its password (invitationAccountRole).
+    if (/^\/admin\/users\//.test(path)) return Response.json({ id: 'gt-1', email: 'invitee@example.test', user_metadata: { invite_id: 'inv-1' } });
     if (/\/challenge$/.test(path)) return Response.json({ id: 'ch-1', expires_at: 0 });
     if (path === '/user') return Response.json({ id: 'gt-1', factors: [] });
     if (mode === 'outage') return new Response('{"code":503}', { status: 503 });
