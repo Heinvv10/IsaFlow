@@ -157,10 +157,6 @@ export const ALLOWED: Record<string, AllowedEntry> = {
     + 'uncoded input leg as standard; it claims nothing that was not claimed before.',
   },
 
-  'pages/api/accounting/bank-match-confirm.ts': {
-    kinds: ['allocate_call'],
-    reason: 'Attended API action on one transaction the user is looking at.',
-  },
   'pages/api/accounting/bank-transactions-action.ts': {
     kinds: ['allocate_call'],
     reason: 'Attended API action on one transaction the user is looking at.',
@@ -236,6 +232,12 @@ export const ALLOWED: Record<string, AllowedEntry> = {
     kinds: ['allocate_call'],
     reason: 'The rule sweep\'s TRANSFER line (WP2 row 5): allocateTransaction with allocType transfer and no VAT code — '
     + 'the transfer arm posts bank to bank with no VAT leg, so no claim is decided.',
+  },
+  'src/modules/accounting/services/bank/confirmPurchaseOrderMatch.ts': {
+    kinds: ['allocate_call'],
+    reason: 'The purchase-order arm of bank-match-confirm (moved out of the route, audit row 8): an attended '
+    + 'action on one line the user confirmed, allocType supplier with no VAT code — VAT routes to the AP control '
+    + 'account, never a user-chosen GL account.',
   },
   'src/modules/accounting/services/ap/supplierBankPaymentService.ts': {
     kinds: ['allocate_call'],

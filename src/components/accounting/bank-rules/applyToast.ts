@@ -16,6 +16,7 @@ export interface ApplyResultParts {
   autoPostSkippedHeaderAccount?: number;
   autoPostSkippedRefundCeiling?: number;
   autoPostSkippedControlAccount?: number;
+  autoPostSkippedUnknownVatCode?: number;
   autoPostRulesSkippedForeignContact?: number;
   autoPostSkippedRaced?: number;
   autoPostSkippedLocked?: number;
@@ -46,6 +47,7 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   const skippedHeader = parts.autoPostSkippedHeaderAccount ?? 0;
   const skippedRefund = parts.autoPostSkippedRefundCeiling ?? 0;
   const skippedControl = parts.autoPostSkippedControlAccount ?? 0;
+  const skippedVatCode = parts.autoPostSkippedUnknownVatCode ?? 0;
   const noBankGl = parts.autoPostRulesSkippedNoBankGl ?? 0;
   const foreign = parts.autoPostRulesSkippedForeignContact ?? 0;
   const raced = parts.autoPostSkippedRaced ?? 0;
@@ -59,6 +61,7 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   if (skippedVatLocked > 0) bits.push(`${skippedVatLocked} skipped (locked VAT period)`);
   if (skippedHeader > 0) bits.push(`${skippedHeader} skipped (the rule's account is a header with sub-accounts — point the rule at one of them)`);
   if (skippedControl > 0) bits.push(`${skippedControl} skipped (the rule's account is AP/AR control — set the rule's supplier or customer instead)`);
+  if (skippedVatCode > 0) bits.push(`${skippedVatCode} skipped (the rule's VAT code is not one IsaFlow knows — edit the rule's VAT code)`);
   if (skippedRefund > 0) bits.push(`${skippedRefund} skipped (a refund larger than the contact's credit — allocate it by hand)`);
   if (noBankGl > 0) bits.push(`${noBankGl} auto-post rule${noBankGl > 1 ? 's' : ''} skipped (bank not GL-linked)`);
   if (foreign > 0) bits.push(`${foreign} auto-post rule${foreign > 1 ? 's' : ''} skipped (its supplier or customer is not in this company — set it again)`);
@@ -73,11 +76,11 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   // raced) is misleading without a louder cue. `no_period` is treated like
   // `closed_period` here — both are actionable but non-blocking, as is a race,
   // which simply means someone else got to the transaction first.
-  const hasCollateral = skippedClosed > 0 || skippedNoPeriod > 0 || skippedVatLocked > 0 || skippedHeader > 0 || skippedRefund > 0 || skippedControl > 0
+  const hasCollateral = skippedClosed > 0 || skippedNoPeriod > 0 || skippedVatLocked > 0 || skippedHeader > 0 || skippedRefund > 0 || skippedControl > 0 || skippedVatCode > 0
     || noBankGl > 0 || foreign > 0
     || raced > 0 || locked > 0 || truncated > 0 || ownBank > 0 || duplicate > 0;
-  // A header, control-account or foreign-contact skip recurs on every run until the rule is fixed: never a quiet success.
-  const kind = noBankGl > 0 || skippedHeader > 0 || skippedControl > 0 || foreign > 0 || ownBank > 0 || (applied === 0 && hasCollateral) ? 'warn' : 'success';
+  // A header, control-account, VAT-code, own-bank or foreign-contact skip recurs on every run until the rule is fixed: never a quiet success.
+  const kind = noBankGl > 0 || skippedHeader > 0 || skippedControl > 0 || skippedVatCode > 0 || foreign > 0 || ownBank > 0 || (applied === 0 && hasCollateral) ? 'warn' : 'success';
   return { kind, message };
 }
 

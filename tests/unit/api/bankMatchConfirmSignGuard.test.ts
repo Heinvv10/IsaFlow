@@ -27,7 +27,7 @@
  * The same answer the MCP tools give, for the same reason: settling a bill is
  * money OUT and settling a customer invoice is money IN, and there is no
  * refund-application concept for either to route the other into. `purchase_order`
- * is refused on the supplier rule too — it flips the PO to `paid` outright.
+ * is refused on the supplier rule too — it posts a supplier payment.
  *
  * ── AND IT MUST BE A PRE-WRITE 400 ──────────────────────────────────────────
  *
@@ -76,6 +76,11 @@ vi.mock('@/modules/accounting/services/ap/supplierBankPaymentService', () => ({
 // The customer branch settles through the AR service for the same reason
 // (MEDIUM-1 of the round-4 review): a bare `amount_paid` write leaves no
 // allocation row for a reversal to unwind.
+// The purchase-order arm lives in its own module (audit row 8); its refusals are proven in
+// tests/integration/bank-match-po.int.test.ts. Here only: the guard keeps a wrong-way line away from it.
+vi.mock('@/modules/accounting/services/bank/confirmPurchaseOrderMatch', () => ({
+  confirmPurchaseOrderMatch: vi.fn(async () => ({ ok: true })),
+}));
 vi.mock('@/modules/accounting/services/ar/receiptMatchConfirmService', () => ({
   validateBankReceiptApplication: vi.fn(async () => ({})),
   confirmReceiptMatch: vi.fn(async () => ({ customerPaymentId: 'receipt-1', allocatedTotal: 1000 })),
@@ -90,6 +95,7 @@ import {
   applyBankLineToSupplierInvoices,
 } from '@/modules/accounting/services/ap/supplierBankPaymentService';
 import { confirmReceiptMatch } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
+import { confirmPurchaseOrderMatch } from '@/modules/accounting/services/bank/confirmPurchaseOrderMatch';
 import handler from '../../../pages/api/accounting/bank-match-confirm';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -172,6 +178,7 @@ describe('bank-match-confirm — a line pointing the wrong way is refused', () =
     // The whole point: nothing was written, so the 400 that COMMITs cannot
     // commit a journal or a settled document.
     expect(allocateTransaction).not.toHaveBeenCalled();
+    expect(confirmPurchaseOrderMatch).not.toHaveBeenCalled();
     expect(applyBankLineToSupplierInvoices).not.toHaveBeenCalled();
     expect(confirmReceiptMatch).not.toHaveBeenCalled();
     // Two reads and no more — the guard fires before the UPDATE.
@@ -193,12 +200,11 @@ describe('bank-match-confirm — a line pointing the wrong way is refused', () =
     await handler(req, res);
 
     expect(res.statusCode).not.toBe(400);
-    // Each invoice arm reaches its own settlement service; the purchase order
-    // still posts through allocateTransaction directly, because a PO is not a
-    // document a settlement can be applied to.
+    // Each arm reaches its own module: the invoice arms their settlement
+    // services, the purchase order `confirmPurchaseOrderMatch`.
     const settler = candidateType === 'supplier_invoice' ? applyBankLineToSupplierInvoices
       : candidateType === 'customer_invoice' ? confirmReceiptMatch
-      : allocateTransaction;
+      : confirmPurchaseOrderMatch;
     expect(settler).toHaveBeenCalledTimes(1);
   });
 

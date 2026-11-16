@@ -7,10 +7,8 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import type { FiscalPeriod, FiscalPeriodStatus } from '../../types/gl.types';
-import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
-import { scheduleAutoSnapshot } from '@/modules/accounting/services/audit/autoSnapshotQueue';
-import { scheduleBudgetRoll } from '@/modules/accounting/services/budgets/drivers/budgetRollQueue';
+import type { FiscalPeriod } from '../../types/gl.types';
+import { mapFiscalPeriodRow as mapRow } from './fiscalPeriodRow';
 
 type Row = DbRow;
 
@@ -140,110 +138,12 @@ export {
   resolveCompanyPeriodAlignment,
 } from './fiscalYearCreateService';
 
-export async function closePeriod(companyId: string, id: string, userId: string): Promise<FiscalPeriod> {
-  await assertNotImpersonating(); // R-032: period controls are refused to a Login-as session
-  try {
-    const period = await getFiscalPeriodById(companyId, id);
-    if (!period) throw new Error(`Fiscal period ${id} not found`);
-    if (period.status === 'locked') throw new Error('Cannot close a locked period');
-    if (period.status === 'closed') throw new Error('Period is already closed');
-
-    const openPrior = (await sql`
-      SELECT COUNT(*) AS cnt FROM fiscal_periods
-      WHERE company_id = ${companyId}
-        AND fiscal_year = ${period.fiscalYear}
-        AND period_number < ${period.periodNumber}
-        AND status = 'open'
-    `) as Row[];
-    if (Number(openPrior[0]!.cnt) > 0) {
-      throw new Error('Cannot close period while prior periods are still open');
-    }
-
-    const rows = (await sql`
-      UPDATE fiscal_periods
-      SET status = 'closed', closed_by = ${userId}::UUID, closed_at = NOW()
-      WHERE id = ${id} AND company_id = ${companyId}
-      RETURNING *
-    `) as Row[];
-    const closed = mapRow(rows[0]!);
-    scheduleAutoSnapshot('period_close', closed.endDate); // forensic step 4: after commit, never blocks the close
-    scheduleBudgetRoll(companyId, closed.endDate); // budgets P4: re-roll the year's rolling forecast after commit
-    return closed;
-  } catch (err) {
-    log.error('Failed to close period', { id, error: err }, 'accounting');
-    throw err;
-  }
-}
-
-export async function lockPeriod(companyId: string, id: string): Promise<FiscalPeriod> {
-  await assertNotImpersonating(); // R-032: period controls are refused to a Login-as session
-  try {
-    const period = await getFiscalPeriodById(companyId, id);
-    if (!period) throw new Error(`Fiscal period ${id} not found`);
-    if (period.status !== 'closed') throw new Error('Period must be closed before locking');
-
-    const rows = (await sql`
-      UPDATE fiscal_periods SET status = 'locked' WHERE id = ${id} AND company_id = ${companyId} RETURNING *
-    `) as Row[];
-    const locked = mapRow(rows[0]!);
-    scheduleAutoSnapshot('period_close', locked.endDate);
-    scheduleBudgetRoll(companyId, locked.endDate);
-    return locked;
-  } catch (err) {
-    log.error('Failed to lock period', { id, error: err }, 'accounting');
-    throw err;
-  }
-}
-
-export async function reopenPeriod(companyId: string, id: string): Promise<FiscalPeriod> {
-  await assertNotImpersonating(); // R-032: period controls are refused to a Login-as session
-  try {
-    const period = await getFiscalPeriodById(companyId, id);
-    if (!period) throw new Error(`Fiscal period ${id} not found`);
-    if (period.status === 'locked') throw new Error('Cannot reopen a locked period');
-    if (period.status === 'open') throw new Error('Period is already open');
-
-    const rows = (await sql`
-      UPDATE fiscal_periods
-      SET status = 'open', closed_by = NULL, closed_at = NULL
-      WHERE id = ${id} AND company_id = ${companyId}
-      RETURNING *
-    `) as Row[];
-    return mapRow(rows[0]!);
-  } catch (err) {
-    log.error('Failed to reopen period', { id, error: err }, 'accounting');
-    throw err;
-  }
-}
-
-export async function closeYear(companyId: string, fiscalYear: number, userId: string): Promise<FiscalPeriod[]> {
-  await assertNotImpersonating(); // R-032: period controls are refused to a Login-as session
-  try {
-    const periods = await getFiscalPeriods(companyId, fiscalYear);
-    if (periods.length === 0) throw new Error(`No periods found for fiscal year ${fiscalYear}`);
-
-    const allDone = periods.every(p => p.status === 'closed' || p.status === 'locked');
-    if (allDone) throw new Error(`Fiscal year ${fiscalYear} is already closed`);
-
-    const rows = (await sql`
-      UPDATE fiscal_periods
-      SET status = 'closed', closed_by = ${userId}::UUID, closed_at = NOW()
-      WHERE company_id = ${companyId}
-        AND fiscal_year = ${fiscalYear}
-        AND status NOT IN ('closed', 'locked')
-      RETURNING *
-    `) as Row[];
-
-    log.info('Fiscal year closed', { companyId, fiscalYear, updated: rows.length }, 'accounting');
-    const closed = rows.map(mapRow);
-    for (const p of closed) scheduleAutoSnapshot('year_close', p.endDate); // one snapshot, at the latest end date
-    for (const p of closed) scheduleBudgetRoll(companyId, p.endDate); // one roll per fiscal year
-    return closed;
-  } catch (err) {
-    log.error('Failed to close fiscal year', { fiscalYear, error: err }, 'accounting');
-    throw err;
-  }
-}
+// The writers that change a period's status (close, lock, reopen, close year)
+// live in fiscalPeriodCloseWrites: they take the period row locks and run the
+// readiness gate (periodCloseGate), and this file was on the 300-line cap.
+export {
+  closePeriod, closePeriodWithVerdict, judgePeriodClose, lockPeriod, reopenPeriod, closeYear,
+} from './fiscalPeriodCloseWrites';
 
 export async function getJournalCountsByYear(companyId: string, fiscalYear: number): Promise<Record<string, number>> {
   try {
@@ -261,20 +161,4 @@ export async function getJournalCountsByYear(companyId: string, fiscalYear: numb
     log.error('Failed to get journal counts', { fiscalYear, error: err }, 'accounting');
     throw err;
   }
-}
-
-function mapRow(row: Row): FiscalPeriod {
-  return {
-    id: String(row.id),
-    periodName: String(row.period_name),
-    periodNumber: Number(row.period_number),
-    fiscalYear: Number(row.fiscal_year),
-    startDate: fmtDate(row.start_date),
-    endDate: fmtDate(row.end_date),
-    status: String(row.status) as FiscalPeriodStatus,
-    closedBy: row.closed_by ? String(row.closed_by) : undefined,
-    closedAt: row.closed_at ? String(row.closed_at) : undefined,
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
-  };
 }

@@ -5,10 +5,10 @@
  * closed. Anyone — a person or an agent — can post into 2022 today. No MCP
  * client could observe that, and none could fix it.
  *
- * `close_fiscal_period` does NOT mirror the app's advisory close. The Month-End
- * Workbench shows the readiness checks to a person, who may reasonably close
- * over them; a caller that is not a person gets a refusal naming every failing
- * check. That is the difference between a lock and a suggestion.
+ * `close_fiscal_period` refuses on the readiness checks and names every failing
+ * one. Since 2026-11-15 the app's own Close, Bulk Close and Close Year refuse on
+ * the same gate (gl/periodCloseGate.ts); this tool adds the dry run and the full
+ * checklist in its answer.
  */
 import type { McpTool } from '../types';
 import {
@@ -32,8 +32,8 @@ export const closeFiscalPeriodTool: McpTool = {
     + 'unreconciled banks, unposted draft journals, an AR or AP subledger that does not tie to its '
     + 'control account, an unbalanced trial balance, or a POSTED journal that belongs to no fiscal '
     + 'period at all — that last one is invisible to every period report while sitting in the '
-    + 'ledger, so no close can honestly assert completeness over it. This is stricter than the app: the '
-    + 'Month-End Workbench shows the same checks to a person who may close over them. '
+    + 'ledger, so no close can honestly assert completeness over it. The app\'s own Close refuses on '
+    + 'the same checks. '
     + 'A check that could not be COMPUTED also blocks — "the AP tie could not be checked" is '
     + 'exactly the state in which closing unattended is unsafe. Warnings (a period with no VAT '
     + 'return, uncleared opening-balance equity) do NOT block and come back in `warnings`. '
@@ -43,6 +43,8 @@ export const closeFiscalPeriodTool: McpTool = {
   scope: 'write:journals',
   write: true,
   requiresPost: true,
+  // The HTTP period controls are withRole('admin'): a manager may not close, reopen or year-end close here either.
+  requiresRole: 'admin',
   inputSchema: {
     type: 'object',
     properties: {
@@ -76,9 +78,10 @@ export const closeFiscalPeriodTool: McpTool = {
         ...(dryRun ? DRY : {}),
       };
     } catch (err) {
-      // Both refusals are raised BEFORE closePeriod runs, so nothing is
-      // half-applied and a tool error is safe. Anything else rethrows — the
-      // registry's savepoint unwinds on a throw and not on a returned error.
+      // Both refusals are raised by the guards and the readiness gate, under the
+      // period row lock but BEFORE the UPDATE (dry run and live alike), so
+      // nothing was written and a tool error is safe. Anything else rethrows —
+      // the registry's savepoint unwinds on a throw and not on a returned error.
       if (err instanceof PeriodCloseBlockedError) {
         return toolError(
           `${err.message}. Nothing was closed. Fix these and retry, or call `
@@ -103,6 +106,8 @@ export const reopenFiscalPeriodTool: McpTool = {
   scope: 'write:journals',
   write: true,
   requiresPost: true,
+  // The HTTP period controls are withRole('admin'): a manager may not close, reopen or year-end close here either.
+  requiresRole: 'admin',
   inputSchema: {
     type: 'object',
     properties: {
@@ -137,7 +142,14 @@ export const reopenFiscalPeriodTool: McpTool = {
       };
     }
 
-    const reopened = await reopenPeriod(ctx.companyId, periodId);
+    let reopened;
+    try {
+      reopened = await reopenPeriod(ctx.companyId, periodId);
+    } catch (err) {
+      // The status changed between the read above and the locked re-read (a racing close or lock).
+      if (err instanceof PeriodNotCloseableError) return toolError(err.message);
+      throw err;
+    }
     return ok({
       fiscal_period_id: periodId,
       period_name: reopened.periodName,
@@ -165,6 +177,8 @@ export const yearEndCloseTool: McpTool = {
   scope: 'write:journals',
   write: true,
   requiresPost: true,
+  // The HTTP period controls are withRole('admin'): a manager may not close, reopen or year-end close here either.
+  requiresRole: 'admin',
   inputSchema: {
     type: 'object',
     properties: {

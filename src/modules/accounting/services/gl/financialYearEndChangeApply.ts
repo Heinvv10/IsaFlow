@@ -107,14 +107,16 @@ export async function applyYearEndChange(
 
   // One change at a time per company; the assessment is re-read under the lock,
   // and every period from the current year on is row-locked first, so a period
-  // closed concurrently is either seen by the assessment (a 409) or waits.
+  // closed concurrently is either seen by the assessment (a 409) or waits. In
+  // (fiscal_year, period_number, id) order, the order every period locker uses
+  // (periodCloseGate), so this and a close over the same periods cannot deadlock.
   await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`fy-end-change:${companyId}`}, 0))`;
   await sql`
     SELECT fp.id FROM fiscal_periods fp
      WHERE fp.company_id = ${companyId}::UUID
        AND fp.end_date >= (SELECT MIN(fy.start_date) FROM fiscal_years fy
                             WHERE fy.company_id = ${companyId}::UUID AND fy.end_date >= ${today}::DATE)
-     ORDER BY fp.id FOR UPDATE
+     ORDER BY fp.fiscal_year, fp.period_number, fp.id FOR UPDATE
   `;
   const a = await assessYearEndChange(companyId, input, today);
   if (a.refusals.length > 0 || !a.chosen) throw new YearEndChangeRefusedError(a.refusals);
