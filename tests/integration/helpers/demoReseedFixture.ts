@@ -65,9 +65,9 @@ export async function rowsFor(c: pg.Client, company: string, tag: string, opts: 
     VALUES ($1, 'customer_invoice', $2, $3, 11500, 'completed')`, [company, ci!.id, `${tag}-ST-1`]);
   // Other purposes naming the invoice: the Demo's are unlinked, every other tenant's must keep the link.
   await x(`INSERT INTO paystack_payment_requests (company_id, purpose, customer_invoice_id, paystack_reference, amount_cents, status)
-    VALUES ($1, 'authorization', $2, $3, 100, 'completed')`, [company, ci!.id, `${tag}-PS-AUTH`]);
+    VALUES ($1, 'authorization', $2, $3, 100, 'completed')`, [company, ci!.id, `fixture-${company}-PS-AUTH`]);
   await x(`INSERT INTO stitch_payment_requests (company_id, purpose, customer_invoice_id, external_reference, amount_cents, status)
-    VALUES ($1, 'mandate_authorisation', $2, $3, 100, 'completed')`, [company, ci!.id, `${tag}-ST-MANDATE`]);
+    VALUES ($1, 'mandate_authorisation', $2, $3, 100, 'completed')`, [company, ci!.id, `fixture-${company}-ST-MANDATE`]);
   const [si] = await x(`INSERT INTO supplier_invoices (company_id, invoice_number, supplier_id, invoice_date, subtotal, tax_amount, total_amount, status, created_by)
     VALUES ($1, $2, $3, $4, 100, 15, 115, 'draft', $5) RETURNING id`, [company, `${tag}-BILL-1`, su!.id, opts.invoiceDay, ACTOR]);
   await x(`INSERT INTO supplier_invoice_items (supplier_invoice_id, description, quantity, unit_price, line_total) VALUES ($1, 'Stock', 1, 100, 100)`, [si!.id]);
