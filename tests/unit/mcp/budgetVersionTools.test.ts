@@ -16,6 +16,7 @@ vi.mock('@/modules/accounting/services/budgets/budgetVersionActivity', () => ({ 
 vi.mock('@/modules/accounting/services/budgets/gridReadModel', () => ({ loadGridReadModel: vi.fn() }));
 vi.mock('@/modules/accounting/services/budgets/seedVersion', () => ({ seedVersion: vi.fn() }));
 vi.mock('@/modules/accounting/services/budgets/budgetSnapshotRestore', () => ({ planRestore: vi.fn(), restoreSnapshot: vi.fn() }));
+vi.mock('@/modules/accounting/services/budgets/budgetNotes', async (orig) => ({ ...(await orig<object>()), setGridNote: vi.fn(async (_c: string, _a: unknown, i: { note: string | null }) => ({ note: i.note?.trim() ?? null })) }));
 vi.mock('@/modules/accounting/services/core/rolledBackSavepoint', () => ({ inRolledBackSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => { await fn(); }) }));
 
 import { deleteVersion, getVersion, listVersions, setPrimary } from '@/modules/accounting/services/budgets/budgetVersions';
@@ -26,6 +27,8 @@ import { planRestore, restoreSnapshot } from '@/modules/accounting/services/budg
 import { BudgetVersionError } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import { BUDGET_GATE_TOOLS } from '@/lib/mcp/tools/budgetGateTools';
 import { deleteBudgetVersionTool } from '@/lib/mcp/tools/budgetDeleteTool';
+import { addBudgetNoteTool, copyBudgetVersionTool } from '@/lib/mcp/tools/budgetVersionTools';
+import { setGridNote } from '@/modules/accounting/services/budgets/budgetNotes';
 import { seedBudgetTool } from '@/lib/mcp/tools/budgetSeedTool';
 import { restoreBudgetVersionTool } from '@/lib/mcp/tools/budgetRestoreTool';
 import { getBudgetTool, listBudgetVersionsTool } from '@/lib/mcp/tools/budgetReadTools';
@@ -109,10 +112,10 @@ describe('create / seed / restore', () => {
     expect(input.adjust!.seasonality).toBe('flat');
   });
 
-  it('restore refused when the version changed since names the differing cells; nothing restored', async () => {
-    vi.mocked(planRestore).mockResolvedValue({ ok: false, reason: 'The budget changed since that write (snapshot s): 1 of its 2 cells differ now', differing: [{ cell: { a: RENT, c1: null, c2: null, b: null, m: '2026-04', before: null, after: '5.00', bs: null, as: 'manual' }, now: '7.00', nowSource: 'manual' }], differingCount: 1 });
+  it('restore refused when the version changed since names the differing cells and how many there are; nothing restored', async () => {
+    vi.mocked(planRestore).mockResolvedValue({ ok: false, reason: 'The budget changed since that write (snapshot s): 60 of its 70 cells differ now', differing: [{ cell: { a: RENT, c1: null, c2: null, b: null, m: '2026-04', before: null, after: '5.00', bs: null, as: 'manual' }, now: '7.00', nowSource: 'manual' }], differingCount: 60 });
     const r = await restoreBudgetVersionTool.handler({ version_id: VERSION, idempotency_key: 'k' }, ctx());
-    expect(text(r)).toMatch(/1 of its 2 cells differ now.*2026-04.*"now":"7.00"/);
+    expect(text(r)).toMatch(/60 of its 70 cells differ now.*Differing cells \(1 of 60 listed\).*2026-04.*"now":"7.00"/);
     expect(restoreSnapshot).not.toHaveBeenCalled();
   });
 
@@ -141,6 +144,25 @@ describe('create / seed / restore', () => {
     vi.mocked(planRestore).mockResolvedValue({ ok: false, reason: 'Only the person whose connection made that write, or an owner or admin, can restore it' });
     expect(text(await restoreBudgetVersionTool.handler({ version_id: VERSION, idempotency_key: 'k' }, ctx('manager')))).toMatch(/Only the person whose connection made that write/);
     expect(vi.mocked(planRestore).mock.calls[0]![4]).toEqual({ userId: 'u-1', role: 'manager' });
+  });
+});
+
+describe('review round 2', () => {
+  it('L3: a note of 2 000 characters plus trailing spaces is accepted (the limit applies after trimming); the schema sets no maxLength', async () => {
+    const props = addBudgetNoteTool.inputSchema.properties as Record<string, Record<string, unknown>>;
+    expect(props.note!.maxLength).toBeUndefined();
+    const r = await addBudgetNoteTool.handler({ version_id: VERSION, account: '6000', note: `${'n'.repeat(2000)}   `, idempotency_key: 'k' }, ctx());
+    expect(r.isError).toBeUndefined();
+    expect(vi.mocked(setGridNote)).toHaveBeenCalledTimes(1);
+    expect(text(await addBudgetNoteTool.handler({ version_id: VERSION, account: '6000', note: 'n'.repeat(2001), idempotency_key: 'k' }, ctx()))).toMatch(/at most 2000 characters/);
+  });
+
+  it('copy_budget_version says what a copy carries: amounts only, as manual figures; no drivers', () => {
+    expect(copyBudgetVersionTool.description).toMatch(/driver lines.*NOT copied/);
+  });
+
+  it('get_budget: a header holding its own amounts is a row', () => {
+    expect(getBudgetTool.description).toMatch(/header account is a row only when it holds its own amounts/);
   });
 });
 

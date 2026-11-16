@@ -19,6 +19,11 @@
 --     snapshot is never restored again) and changes nothing but its two stamps. With no session
 --     user, created_by is what the inserting role sent: app_user cannot send it (column grant), so
 --     its insert is refused (NOT NULL); a restore with no session user is refused.
+--   - A snapshot is inserted only in a transaction that saved its version, with that save's token: its
+--     token_after must be the version's current token AND that token this transaction's now(). An
+--     app_user row forged without a save (made-up before-values an owner's restore would then write) is
+--     refused. (A forger who also saves the version in the same transaction can still insert one: the
+--     restore then writes only cells its author, an owner or an admin restores, audited as them.)
 --   - A snapshot is marked restored only in a transaction that also wrote its version (the version's
 --     updated_at, which every budget write moves to now(), is this transaction's): the restore's grid
 --     save. This narrows, not closes, a bare `UPDATE restored_at` (any other write of the version in
@@ -58,6 +63,14 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
+    -- A snapshot records a save of its version made in THIS transaction: its token_after is the version's
+    -- token, and that token is this transaction's now() (every budget write sets updated_at = now()). A row
+    -- forged without a save (before-values a later restore would write as its restorer's action) is refused.
+    IF NOT EXISTS (SELECT 1 FROM budget_versions v
+                    WHERE v.id = NEW.version_id AND v.company_id = NEW.company_id AND v.updated_at = now()
+                      AND to_char(v.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') = NEW.token_after) THEN
+      RAISE EXCEPTION 'a budget write snapshot records a save of its version made in the same transaction' USING ERRCODE = '23514';
+    END IF;
     NEW.created_by := COALESCE(auth.uid(), NEW.created_by);
     NEW.created_at := clock_timestamp();
     NEW.restored_at := NULL;

@@ -114,11 +114,11 @@ export async function runAmountWrite(ctx: McpToolContext, w: AmountWrite): Promi
     const listing = diffListing(model, actualDiff(plan.entries, before, before), w.rowRefusals, { offset: 0, limit: MAX_REFUSALS_NAMED });
     return toolError(refusalText(listing.cells.filter((c) => c.status === 'refused') as Array<{ i: unknown; reason?: unknown }>, refused));
   }
+  if (plan.save.length === 0) return { ...ok({ ...base, saved: 0, deleted: 0, version_token: token, note: 'Nothing changed: every cell already holds its amount.' }), wroteNothing: true };
   if (w.hashRequired && w.planHash === null) {
     return toolError(`plan_hash is required for a write of more than one cell: call ${w.tool} with dry_run true, read the diff, then apply with the plan_hash it returns.`);
   }
   if (w.planHash !== null && w.planHash !== hash) return toolError(PLAN_CHANGED);
-  if (plan.save.length === 0) return { ...ok({ ...base, saved: 0, deleted: 0, version_token: token, note: 'Nothing changed: every cell already holds its amount.' }), wroteNothing: true };
 
   let saved;
   try {

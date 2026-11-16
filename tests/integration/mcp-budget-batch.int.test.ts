@@ -53,6 +53,20 @@ describe('one transaction (a JSON-RPC batch)', () => {
     expect(await fx.cells(v)).toEqual([`${w.rent}||||${w.months[0]}=1.00`, `${w.rent}||||${w.months[1]}=1.00`].sort());
   });
 
+  it('B2: [write, approve, restore] in one batch: the restore is refused (the status moved since the write)', async () => {
+    const v = await fx.version(w);
+    const A = [cell('BR-5000', w.months[0]!, '1.00'), cell('BR-5000', w.months[1]!, '1.00')];
+    const out = await mcpBatch(pool, w.u, [
+      () => ['set_budget_amounts', { version_id: v, cells: A, dry_run: true, idempotency_key: key() }],
+      (r) => ['set_budget_amounts', { version_id: v, cells: A, plan_hash: hashOf(r[0]!), idempotency_key: key() }],
+      () => ['approve_budget_version', { version_id: v, idempotency_key: key() }],
+      () => ['restore_budget_version', { version_id: v, dry_run: true, idempotency_key: key() }],
+    ]);
+    expect(out.slice(0, 3).map((r) => r.isError ?? false)).toEqual([false, false, false]);
+    expect(text(out[3]!)).toMatch(/status changed since that write/);
+    expect((await fx.cells(v)).length).toBe(2);
+  });
+
   it('a dry run\'s plan_hash is refused after another call in the same batch changed its cells', async () => {
     const v = await fx.version(w);
     const B = [cell('BR-5000', w.months[0]!, '5.00'), cell('BR-5000', w.months[1]!, '5.00')];
@@ -68,6 +82,10 @@ describe('one transaction (a JSON-RPC batch)', () => {
 });
 
 describe('drivers', () => {
+  /** A rent cell pinned as an override AT the driver's own value (50). */
+  const pinAtDriverValue = (v: string, month: string) => pool.query(
+    `UPDATE budget_month_amounts SET amount_source = 'override' WHERE version_id = $1 AND gl_account_id = $2 AND month = $3::DATE`, [v, w.rent, `${month}-01`]);
+
   async function driverVersion(): Promise<string> {
     const v = await fx.version(w);
     const line = (acct: string, kind: string, amount: number | null, pct: number | null, ref: string | null) => pool.query(
@@ -104,5 +122,23 @@ describe('drivers', () => {
       `SELECT gl_account_id::text AS a, amount::text AS amount, amount_source FROM budget_month_amounts WHERE version_id = $1 AND month = $2::DATE ORDER BY 1`,
       [v, `${w.months[0]}-01`])).rows;
     expect(src).toEqual(expect.arrayContaining([{ a: w.rent, amount: '50.00', amount_source: 'driver' }, { a: w.sales, amount: '5.00', amount_source: 'driver' }]));
+  });
+
+  it('B1: restoring an override equal to the driver value is refused with the reason (single cell and with a second cell); nothing changes', async () => {
+    const v = await driverVersion();
+    await pinAtDriverValue(v, w.months[0]!);
+    expect(body(await mcp(pool, w.u, 'set_budget_amounts', { version_id: v, cells: [cell('BR-5000', w.months[0]!, null)], idempotency_key: key() }))).toMatchObject({ deleted: 1 });
+    const single = await mcp(pool, w.u, 'restore_budget_version', { version_id: v, idempotency_key: key() });
+    expect(text(single)).toMatch(/override .* its driver now computes the same value/);
+
+    const v2 = await driverVersion();
+    await pinAtDriverValue(v2, w.months[0]!);
+    const two = [cell('BR-5000', w.months[0]!, null), cell('BR-5000', w.months[1]!, '60.00')];
+    const dry = body(await mcp(pool, w.u, 'set_budget_amounts', { version_id: v2, cells: two, dry_run: true, idempotency_key: key() }));
+    body(await mcp(pool, w.u, 'set_budget_amounts', { version_id: v2, cells: two, plan_hash: dry.plan_hash, idempotency_key: key() }));
+    const before = await fx.cells(v2);
+    expect(text(await mcp(pool, w.u, 'restore_budget_version', { version_id: v2, dry_run: true, idempotency_key: key() }))).toMatch(/override .* its driver now computes the same value/);
+    expect(await fx.cells(v2)).toEqual(before);
+    expect((await reads.snapshots(v2))[0]!.restored_at).toBeNull();
   });
 });

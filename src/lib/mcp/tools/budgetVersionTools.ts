@@ -48,8 +48,9 @@ export const createBudgetVersionTool: McpTool = {
 export const copyBudgetVersionTool: McpTool = {
   name: 'copy_budget_version',
   description:
-    'Copy a budget version into a new DRAFT of the same financial year, every amount at every level copied exactly; the copy records the source as its basis. '
-    + 'For another year or an uplift use seed_budget; for actuals in the closed months use create_reforecast.',
+    'Copy a budget version into a new DRAFT of the same financial year (the app\'s Copy): every amount at every level is copied to the cent and the copy records the source as its basis. '
+    + 'TRAPS: amounts only, each as a manual (typed) figure: driver lines, planned hires and the driver / override / actual source of each cell are NOT copied, so nothing recomputes in the copy. '
+    + 'To keep the drivers use create_reforecast (it copies them); for another year or an uplift use seed_budget.',
   ...BUDGET_WRITE_FENCE,
   write: true,
   inputSchema: {
@@ -105,7 +106,7 @@ export const addBudgetNoteTool: McpTool = {
     type: 'object',
     properties: {
       version_id: { type: 'string', format: 'uuid' }, account: { type: 'string', description: 'Id or code.' },
-      note: { type: ['string', 'null'], maxLength: MAX_NOTE_LENGTH }, idempotency_key: { type: 'string' },
+      note: { type: ['string', 'null'], description: `At most ${MAX_NOTE_LENGTH} characters after trimming.` }, idempotency_key: { type: 'string' },
     },
     required: ['version_id', 'account', 'note', 'idempotency_key'],
     additionalProperties: false,

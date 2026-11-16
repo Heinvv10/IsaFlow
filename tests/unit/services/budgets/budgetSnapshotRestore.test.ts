@@ -11,8 +11,10 @@ vi.mock('@/modules/accounting/services/budgets/budgetWriteSnapshots', async (ori
 vi.mock('@/modules/accounting/services/budgets/gridSave', () => ({ saveCells: vi.fn() }));
 vi.mock('@/modules/accounting/services/budgets/gridReadModel', () => ({ loadGridCells: vi.fn() }));
 
-import { latestSnapshot, type SnapshotCell } from '@/modules/accounting/services/budgets/budgetWriteSnapshots';
-import { planRestore } from '@/modules/accounting/services/budgets/budgetSnapshotRestore';
+import { latestSnapshot, markRestored, type SnapshotCell } from '@/modules/accounting/services/budgets/budgetWriteSnapshots';
+import { planRestore, restoreSnapshot } from '@/modules/accounting/services/budgets/budgetSnapshotRestore';
+import { saveCells } from '@/modules/accounting/services/budgets/gridSave';
+import { loadGridCells } from '@/modules/accounting/services/budgets/gridReadModel';
 
 const A = '11111111-1111-4111-8111-111111111111';
 const V = '22222222-2222-4222-8222-222222222222';
@@ -27,11 +29,11 @@ const now = (entries: Array<[string, number, string]>) => new Map(entries.map(([
 const AFTER = now([['2026-03', 2000, 'manual'], ['2026-04', 500, 'manual'], ['2026-05', 900, 'override']]);
 const owner = { userId: 'someone', role: 'owner' };
 
-beforeEach(() => { vi.mocked(latestSnapshot).mockResolvedValue(snap()); });
+beforeEach(() => { vi.clearAllMocks(); vi.mocked(latestSnapshot).mockResolvedValue(snap()); });
 
 describe('planRestore', () => {
   it('plans the before-values (a driver value as a clear) with a plan_hash', async () => {
-    const p = await planRestore('co', V, null, { token: T, cells: AFTER }, { userId: 'author', role: 'manager' });
+    const p = await planRestore('co', V, null, { token: T, cells: AFTER, statusMovedAt: null }, { userId: 'author', role: 'manager' });
     expect(p.ok).toBe(true);
     if (!p.ok) return;
     expect(p.cells.map((x) => [x.month, x.amount, x.clear ?? false])).toEqual([['2026-03', 10, false], ['2026-04', null, true], ['2026-05', null, true]]);
@@ -39,29 +41,53 @@ describe('planRestore', () => {
   });
 
   it('refuses when the token is the same but a cell differs (one transaction: the token cannot move)', async () => {
-    const p = await planRestore('co', V, null, { token: T, cells: now([['2026-03', 2000, 'manual'], ['2026-04', 600, 'manual'], ['2026-05', 900, 'override']]) }, owner);
+    const p = await planRestore('co', V, null, { token: T, cells: now([['2026-03', 2000, 'manual'], ['2026-04', 600, 'manual'], ['2026-05', 900, 'override']]), statusMovedAt: null }, owner);
     expect(p).toMatchObject({ ok: false, reason: expect.stringMatching(/1 of its 3 cells differ now/), differingCount: 1 });
   });
 
   it('refuses when only the source differs (an override reset to its driver since)', async () => {
-    const p = await planRestore('co', V, null, { token: T, cells: now([['2026-03', 2000, 'manual'], ['2026-04', 500, 'manual'], ['2026-05', 900, 'driver']]) }, owner);
+    const p = await planRestore('co', V, null, { token: T, cells: now([['2026-03', 2000, 'manual'], ['2026-04', 500, 'manual'], ['2026-05', 900, 'driver']]), statusMovedAt: null }, owner);
     expect(p).toMatchObject({ ok: false, differingCount: 1 });
   });
 
   it('refuses when the latest snapshot is already restored (restores never chain to an earlier write)', async () => {
     vi.mocked(latestSnapshot).mockResolvedValue(snap({ restored: true }));
-    expect(await planRestore('co', V, null, { token: T, cells: AFTER }, owner)).toMatchObject({ ok: false, reason: expect.stringMatching(/already restored; an earlier write cannot be restored/) });
+    expect(await planRestore('co', V, null, { token: T, cells: AFTER, statusMovedAt: null }, owner)).toMatchObject({ ok: false, reason: expect.stringMatching(/already restored; an earlier write cannot be restored/) });
   });
 
   it('refuses another person who is neither the author nor an owner or admin; admits the author and an admin', async () => {
-    expect(await planRestore('co', V, null, { token: T, cells: AFTER }, { userId: 'other', role: 'manager' }))
+    expect(await planRestore('co', V, null, { token: T, cells: AFTER, statusMovedAt: null }, { userId: 'other', role: 'manager' }))
       .toMatchObject({ ok: false, reason: expect.stringMatching(/Only the person whose connection made that write/) });
-    expect((await planRestore('co', V, null, { token: T, cells: AFTER }, { userId: 'author', role: 'manager' })).ok).toBe(true);
-    expect((await planRestore('co', V, null, { token: T, cells: AFTER }, { userId: 'other', role: 'admin' })).ok).toBe(true);
+    expect((await planRestore('co', V, null, { token: T, cells: AFTER, statusMovedAt: null }, { userId: 'author', role: 'manager' })).ok).toBe(true);
+    expect((await planRestore('co', V, null, { token: T, cells: AFTER, statusMovedAt: null }, { userId: 'other', role: 'admin' })).ok).toBe(true);
   });
 
   it('refuses a snapshot_id that is not the most recent, and a moved token', async () => {
-    expect(await planRestore('co', V, 'older', { token: T, cells: AFTER }, owner)).toMatchObject({ ok: false, reason: expect.stringMatching(/Only the most recent MCP write/) });
-    expect(await planRestore('co', V, null, { token: '2026-11-16T11:00:00.000001Z', cells: AFTER }, owner)).toMatchObject({ ok: false, reason: expect.stringMatching(/0 of its 3 cells differ now/) });
+    expect(await planRestore('co', V, 'older', { token: T, cells: AFTER, statusMovedAt: null }, owner)).toMatchObject({ ok: false, reason: expect.stringMatching(/Only the most recent MCP write/) });
+    expect(await planRestore('co', V, null, { token: '2026-11-16T11:00:00.000001Z', cells: AFTER, statusMovedAt: null }, owner)).toMatchObject({ ok: false, reason: expect.stringMatching(/0 of its 3 cells differ now/) });
+  });
+});
+
+describe('review round 2: restore exactness', () => {
+  it('B1: refuses an override the driver now computes the same value for (the save cannot pin it again)', async () => {
+    vi.mocked(latestSnapshot).mockResolvedValue(snap({ cells: [c('2026-03', '50.00', '50.00', 'override', 'driver')] }));
+    const p = await planRestore('co', V, null, { token: T, cells: now([['2026-03', 5000, 'driver']]), statusMovedAt: null }, owner);
+    expect(p).toMatchObject({ ok: false, reason: expect.stringMatching(/override .* its driver now computes the same value/) });
+  });
+
+  it('B1: the post-check refuses a cell that was an override before and is not one after the restore save', async () => {
+    vi.mocked(saveCells).mockResolvedValue({ updatedAt: T, saved: 1, deleted: 0 });
+    vi.mocked(loadGridCells).mockResolvedValue({ versionId: V, updatedAt: T, cells: [{ glAccountId: A, cc1Id: null, cc2Id: null, buId: null, month: '2026-03', amount: 60, source: 'driver' }] });
+    const plan = { ok: true as const, snapshot: { id: 's1', tool: 't', createdAt: T, createdBy: 'author' }, token: T, planHash: 'h', cells: [],
+      snapshotCells: [c('2026-03', '60.00', '70.00', 'override', 'override')] };
+    await expect(restoreSnapshot('co', 'author', V, plan)).rejects.toThrow(/could not put .* back exactly/);
+    expect(markRestored).not.toHaveBeenCalled();
+  });
+
+  it('B2: refuses when the version\'s status moved after the write (approve / lock / unlock), even with the same token', async () => {
+    const later = '2026-11-16T10:00:00.000002Z';
+    expect(await planRestore('co', V, null, { token: T, cells: AFTER, statusMovedAt: later }, owner))
+      .toMatchObject({ ok: false, reason: expect.stringMatching(/status changed since that write/) });
+    expect((await planRestore('co', V, null, { token: T, cells: AFTER, statusMovedAt: '2026-11-16T09:00:00.000000Z' }, owner)).ok).toBe(true);
   });
 });

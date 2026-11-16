@@ -26,7 +26,16 @@ import { budgetPlanHash } from './budgetPlanHash';
 import { latestSnapshot, markRestored, snapshotKey, type SnapshotCell } from './budgetWriteSnapshots';
 
 export interface CellState { cents: number; source: string }
-export interface CurrentState { token: string; cells: ReadonlyMap<CellKey, CellState> }
+export interface CurrentState {
+  token: string;
+  cells: ReadonlyMap<CellKey, CellState>;
+  /**
+   * When the version's status last moved: the latest of its approved / locked / unlocked stamps (clock time,
+   * P1's text form), or null. A status move after the write refuses the restore; inside one transaction the
+   * token cannot show it (every write sets updated_at to the same now()), the clock stamps can.
+   */
+  statusMovedAt: string | null;
+}
 export interface RestoreActor { userId: string; role: string | null | undefined }
 
 export type RestorePlan =
@@ -34,7 +43,7 @@ export type RestorePlan =
   | { ok: false; reason: string; differing?: Array<{ cell: SnapshotCell; now: string | null; nowSource: string | null }>; differingCount?: number };
 
 /** At most this many differing cells are named in a refusal. */
-export const MAX_DIFFERING_LISTED = 50;
+const MAX_DIFFERING_LISTED = 50;
 
 const RESTORERS = new Set(['owner', 'admin']);
 const centsOf = (v: string | null): number | null => (v === null ? null : toCents(Number(v)));
@@ -64,6 +73,9 @@ export async function planRestore(
   if (latest.createdBy !== actor.userId && !RESTORERS.has(actor.role ?? '')) {
     return { ok: false, reason: 'Only the person whose connection made that write, or an owner or admin, can restore it' };
   }
+  if (current.statusMovedAt !== null && current.statusMovedAt > latest.createdAt) {
+    return { ok: false, reason: `The version's status changed since that write (snapshot ${latest.id}: approved, locked or unlocked after it). Nothing was restored; change the cells by hand instead` };
+  }
   const differing = latest.cells
     .filter((cell) => !holdsAfter(cell, current.cells.get(snapshotKey(cell))))
     .map((cell) => {
@@ -76,6 +88,16 @@ export async function planRestore(
       reason: `The budget changed since that write (snapshot ${latest.id}): ${differing.length} of its ${latest.cells.length} cells differ now`
         + `${differing.length === 0 ? ' (the version itself changed: another save, a status move or a driver)' : ''}. Nothing was restored; change the cells by hand instead`,
       differing: differing.slice(0, MAX_DIFFERING_LISTED), differingCount: differing.length,
+    };
+  }
+  // The save never pins an override at the value its driver computes (typing the driver's value changes nothing), so
+  // an override the write reset to an equal driver value cannot be put back exactly: refused, never left half-done.
+  const unpinnable = latest.cells.find((c) => c.bs === 'override' && c.as === 'driver' && centsOf(c.before) === centsOf(c.after));
+  if (unpinnable) {
+    return {
+      ok: false,
+      reason: `Account ${unpinnable.a} month ${unpinnable.m} was a manual override of ${unpinnable.before}, and its driver now computes the same value: `
+        + 'the grid save cannot pin that override again, so the write cannot be restored exactly. Nothing was restored; retype the cell over its driver in IsaFlow if it must stay pinned',
     };
   }
   const cells = latest.cells.map(restoreCell);
@@ -97,11 +119,12 @@ export async function restoreSnapshot(
   const off = plan.snapshotCells.find((c) => {
     const cell = now.get(snapshotKey(c));
     if (c.before === null) return cell !== undefined;
-    return cell === undefined || toCents(cell.amount) !== centsOf(c.before) || (c.bs === 'driver' && cell.source !== 'driver');
+    return cell === undefined || toCents(cell.amount) !== centsOf(c.before)
+      || (c.bs === 'driver' && cell.source !== 'driver') || (c.bs === 'override' && cell.source !== 'override');
   });
   if (off) {
     throw new BudgetVersionError('BUDGET_VERSION_STATE',
-      `The restore could not put account ${off.a} month ${off.m} back exactly (its driver now computes another value); nothing was restored`);
+      `The restore could not put account ${off.a} month ${off.m} back exactly (its value or its driver / override source); nothing was restored`);
   }
   await markRestored(companyId, plan.snapshot.id);
   return result;

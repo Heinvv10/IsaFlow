@@ -148,5 +148,10 @@ describe('snapshot and restore', () => {
     expect(await asApp(`INSERT INTO budget_write_snapshots (company_id, version_id, tool, token_before, token_after, cells, created_by)
       VALUES ($1, $2, 't', 'a', 'b', '[{}]', 'forged')`, [w.u.homeCompanyId, v])).toBe('42501');
     expect(await asApp('UPDATE budget_write_snapshots SET restored_at = now() WHERE id = $1', [snap!.id])).toBe('23514');
+    // B3: a snapshot app_user can INSERT (granted columns only) is still refused without a save of the version in this
+    // transaction: its token_after must be the version's token and that token this transaction's now().
+    expect(await asApp(`INSERT INTO budget_write_snapshots (company_id, version_id, tool, token_before, token_after, cells)
+      VALUES ($1, $2, 'set_budget_amounts', $3, $3, $4::JSONB)`,
+    [w.u.homeCompanyId, v, await fx.token(v), JSON.stringify([{ a: w.rent, c1: null, c2: null, b: null, m: w.months[0], before: '999.00', after: '1.00', bs: 'manual', as: 'manual' }])])).toBe('23514');
   });
 });

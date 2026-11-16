@@ -123,6 +123,13 @@ describe('set_budget_amounts: plan_hash, token and size', () => {
     expect(recordSnapshot).not.toHaveBeenCalled();
   });
 
+  it('L1: a multi-cell live write that changes nothing answers "nothing changed", not "plan_hash is required"', async () => {
+    const r = await amounts.handler({ ...KEY, cells: [cell('6000', '2026-03', '100.00'), cell('4000', '2026-04', null)] }, ctx());
+    expect(text(r)).toMatch(/Nothing changed/);
+    expect(r.wroteNothing).toBe(true);
+    expect(saveCells).not.toHaveBeenCalled();
+  });
+
   it('a single-cell merge needs no plan_hash (the current token is used)', async () => {
     expect(json(await amounts.handler({ ...KEY, cells: [cell('6000', '2026-04', '1.10')] }, ctx()))).toMatchObject({ saved: 2 });
     expect(vi.mocked(saveCells).mock.calls[0]![2].expectedUpdatedAt).toBe(TOKEN);

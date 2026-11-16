@@ -65,7 +65,7 @@ export const getBudgetTool: McpTool = {
   name: 'get_budget',
   description:
     'One budget version\'s amounts as the app\'s budget grid shows them: version_id, or fiscal_year for that year\'s primary (else newest) version; version null when the year has none. '
-    + 'TRAPS FIRST: rows are (account, level, member) with one decimal-text amount per month; an account is budgeted at ONE level per version (company, or cc1, cc2 or bu members); a header account is never a row (its sub-accounts are); '
+    + 'TRAPS FIRST: rows are (account, level, member) with one decimal-text amount per month; an account is budgeted at ONE level per version (company, or cc1, cc2 or bu members); a header account is a row only when it holds its own amounts (a legacy budget, decision 18), otherwise its sub-accounts are; '
     + 'totals are per section and GP/OP/NP per month over the WHOLE version (not the filtered rows), and for a budget holder over their own slices only (they see nothing else); source tells manual (typed) / driver / override / actual (a reforecast\'s closed months) when not all manual. '
     + `Filters: accounts (ids or codes), section, level, member, from_month/to_month (YYYY-MM). Paged: limit (default ${GET_BUDGET_LIMIT_DEFAULT}, max ${GET_BUDGET_LIMIT_MAX}; ${GET_BUDGET_NOTES_LIMIT_MAX} with include_notes), offset, next_offset. `
     + `include_notes adds each page account's budget note (notes are per account and year). include_drivers lists up to ${GET_BUDGET_MAX_DRIVERS} driver lines (per-head rates only for owners, admins and managers).`,
