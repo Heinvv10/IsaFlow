@@ -5,8 +5,10 @@
 -- saveDraftSubmission (sarsComplianceService), which takes the period's advisory lock and updates the open draft when
 -- one exists, so the index never fires for it; it refuses only a second draft some other path would add.
 --
--- 1. The table is locked against writers (SHARE ROW EXCLUSIVE) for the rest of this transaction, so no draft can be
---    added between the dedupe and the index build.
+-- 1. Locks, in the eFiling writer's order (events, then submissions), so the two cannot form a cycle:
+--    sars_efiling_events IN SHARE MODE (no event, e.g. a 'sending' one without a correlation id, can commit for an
+--    older duplicate between the guard's count and the dedupe), then sars_submissions against writers (SHARE ROW
+--    EXCLUSIVE) for the rest of this transaction, so no draft can be added between the dedupe and the index build.
 -- 2. Duplicate open drafts: per (company_id, form_type, period_start, period_end) the draft saveDraftSubmission treats
 --    as the open one is kept (newest updated_at, then created_at, then highest id: its own ORDER BY); every other
 --    draft of that key moves to 'superseded', the status fileReturn already writes, with a note saying why. The move
@@ -25,6 +27,7 @@
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
 
+LOCK TABLE public.sars_efiling_events IN SHARE MODE;
 LOCK TABLE public.sars_submissions IN SHARE ROW EXCLUSIVE MODE;
 
 -- A duplicate that may have reached SARS (a correlation id, or any eFiling event) is not buried: stop instead.
