@@ -3,6 +3,7 @@
 // made as the real roles inside their own transactions.
 
 import type { Pool, PoolClient } from 'pg';
+import { fixtureEmail } from './helpers/fixtureEmail';
 
 export type Role = 'app_user' | 'platform_admin' | 'migration_admin';
 
@@ -80,7 +81,7 @@ const seededUsers: string[] = [];
 export async function seedUsers(pool: Pool, ids: string[]): Promise<void> {
   for (const user of ids) {
     const made = await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'viewer', true)
-      ON CONFLICT (id) DO NOTHING RETURNING id`, [user, `908b-${user}@test.local`]);
+      ON CONFLICT (id) DO NOTHING RETURNING id`, [user, fixtureEmail(user, '908b-')]);
     if (made.rowCount === 1) seededUsers.push(user);
   }
 }

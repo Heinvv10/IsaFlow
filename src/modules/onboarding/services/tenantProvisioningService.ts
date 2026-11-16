@@ -149,9 +149,10 @@ export async function provisionTenant(
     [companyId, input.ownerUserId],
   );
 
+  // users.email is stored lower(btrim()), the form users_email_lower_key holds unique (migration 999).
   await client.query(
     `INSERT INTO users (id, email, first_name, last_name, is_active, role)
-     VALUES ($1, $2, $3, $4, true, 'admin')
+     VALUES ($1, lower(btrim($2)), $3, $4, true, 'admin')
      ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email`,
     [input.ownerUserId, input.email, input.firstName, input.lastName],
   );
