@@ -1,9 +1,10 @@
 /**
  * Which statement lines a bank-transactions tab shows (Hein, 2026-11-12; migration 980).
  *
- * New       — still waiting for a person: imported, provisional or NULL status (WP1, 2026-11-15: provisional and
- *             NULL-status lines were on no tab), or allocated / matched but not yet reviewed (NEW_TAB_SQL; the bank
- *             card's "Awaiting review" counts the posted lines it matches).
+ * New       — still waiting for a person: imported or NULL status (WP1, 2026-11-15: NULL-status lines were on no
+ *             tab), or allocated / matched but not yet reviewed (NEW_TAB_SQL; the bank card's "Awaiting review"
+ *             counts the posted lines it matches). Provisional lines are NOT here: their home is the Provisional
+ *             tab (PLAIN_STATUS_COND.provisional), so no line is on two tabs (PR #1475 round 3).
  * Reviewed  — a person reviewed it (reviewed_at), plus every reconciled line. Reconciled lines stay here
  *             after the reconciliation is completed instead of vanishing from every tab; a reconciled line
  *             with no review stamp (Sage import, or reconciled before review was recorded) shows too.
@@ -17,7 +18,7 @@ export type ReconFilter = 'all' | 'unreconciled' | 'reconciled';
 
 /** The New tab's lines. With Reviewed and Excluded it splits every status, NULL included. */
 export const NEW_TAB_SQL =
-  "(bt.status IS NULL OR bt.status IN ('imported','provisional') OR (bt.status IN ('allocated','matched') AND bt.reviewed_at IS NULL))";
+  "(bt.status IS NULL OR bt.status = 'imported' OR (bt.status IN ('allocated','matched') AND bt.reviewed_at IS NULL))";
 
 const PLAIN_STATUS_COND: Readonly<Record<string, string>> = {
   excluded: "AND bt.status = 'excluded'",

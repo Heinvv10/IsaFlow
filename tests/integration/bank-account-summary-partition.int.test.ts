@@ -6,7 +6,7 @@
  * (uq_bank_tx_matched_line). Read as the bearer pipeline reads (app_user, company GUC), so RLS is in the path.
  *
  * Expected buckets (LINE_BUCKET_SQL): allocated 7 (provisional 1), suggested 2, unallocated 2, excluded 2 = 13 posted;
- * to code 4, in +R250.32, out −R400.43; awaiting review 8; pending at the bank 1.
+ * to code 4, in +R250.32, out −R400.43; awaiting review 7 (the provisional line is on its own tab); pending at the bank 1.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -136,7 +136,7 @@ describe('GET bank-account-summaries — the counts partition the posted lines',
       [f.c, f.bank])).rows[0].count);
     expect(s.counts).toEqual({
       posted: 13, allocated: 7, provisional: 1, suggested: 2, unallocated: 2, excluded: 2, toCode: 4,
-      awaitingReview: 8, pendingAtBank: 1,
+      awaitingReview: 7, pendingAtBank: 1,
     });
     expect(s.counts.posted).toBe(posted);
     const { allocated, suggested, unallocated, excluded, toCode, provisional } = s.counts;
@@ -156,13 +156,15 @@ describe('GET bank-account-summaries — the counts partition the posted lines',
       excluded: s.counts.excluded });
   });
 
-  it('awaiting review is the New tab total less the lines pending at the bank; New + Reviewed + Excluded = posted', async () => {
+  it('awaiting review is the New tab total less the lines pending at the bank; New + Reviewed + Excluded + Provisional = posted', async () => {
     const s = await mine();
     const newTab = await listTotal({ status: 'imported' });
     const reviewed = await listTotal({ status: 'matched' });
     const excludedTab = await listTotal({ status: 'excluded' });
+    const provisionalTab = await listTotal({ status: 'provisional' });
     expect(s.counts.awaitingReview).toBe(newTab - s.counts.pendingAtBank);
-    expect(s.counts.awaitingReview + reviewed + excludedTab).toBe(s.counts.posted);
+    expect(provisionalTab).toBe(s.counts.provisional);
+    expect(s.counts.awaitingReview + reviewed + excludedTab + provisionalTab).toBe(s.counts.posted);
   });
 
   it('spec §7 (#1442): posted − excluded − reconciled vs the card\'s unreconciledCount — two named disagreements', async () => {

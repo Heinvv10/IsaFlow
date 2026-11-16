@@ -13,10 +13,10 @@ const q = (over: Partial<BankTxQuery>): BankTxQuery => ({
 });
 
 describe('tabStatusCond', () => {
-  it('New: imported, provisional and NULL-status lines, plus allocated or matched lines nobody has reviewed', () => {
-    // WP1: provisional and NULL-status lines were on no tab at all.
+  it('New: imported and NULL-status lines (provisional lines are on their own tab), plus allocated or matched lines nobody has reviewed', () => {
+    // WP1: NULL-status lines were on no tab at all; provisional lines stay on the Provisional tab only (round 3).
     expect(NEW_TAB_SQL).toBe(
-      "(bt.status IS NULL OR bt.status IN ('imported','provisional') OR (bt.status IN ('allocated','matched') AND bt.reviewed_at IS NULL))");
+      "(bt.status IS NULL OR bt.status = 'imported' OR (bt.status IN ('allocated','matched') AND bt.reviewed_at IS NULL))");
     expect(tabStatusCond('imported')).toBe(`AND ${NEW_TAB_SQL}`);
   });
 
