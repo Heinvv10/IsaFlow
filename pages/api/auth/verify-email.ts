@@ -34,6 +34,7 @@ import { sql } from '@/lib/neon';
 import { withRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
+import { isUsersEmailTaken } from '@/lib/auth/usersEmailUnique';
 
 function adminPool(): pg.Pool {
   const url = process.env.MIGRATION_ADMIN_DATABASE_URL;
@@ -99,6 +100,11 @@ const EMAIL_MISMATCH = {
     code: 'EMAIL_MISMATCH',
     message: 'This confirmation link does not match the account it was issued for. Please sign up again.',
   },
+} as const;
+
+const EMAIL_IN_USE = {
+  success: false,
+  error: { code: 'EMAIL_IN_USE', message: 'This email is already attached to a different IsaFlow profile. Please contact support.' },
 } as const;
 
 const CONFIRMATION_INCOMPLETE = {
@@ -218,16 +224,26 @@ const handler: NextApiHandler = async (req, res) => {
       return res.status(200).json({ success: true, data: { companyId: owned.rows[0].company_id } });
     }
 
-    const provisioned = await provisionTenant(client, {
-      ownerUserId: gotrueUserId,
-      email,
-      firstName: consumed.pending.firstName,
-      lastName: consumed.pending.lastName,
-      companyName: consumed.pending.companyName,
-      phone: consumed.pending.phone,
-      annualTurnoverCents: consumed.pending.annualTurnoverCents,
-      signupType: consumed.pending.signupType,
-    });
+    let provisioned: Awaited<ReturnType<typeof provisionTenant>>;
+    try {
+      provisioned = await provisionTenant(client, {
+        ownerUserId: gotrueUserId,
+        email,
+        firstName: consumed.pending.firstName,
+        lastName: consumed.pending.lastName,
+        companyName: consumed.pending.companyName,
+        phone: consumed.pending.phone,
+        annualTurnoverCents: consumed.pending.annualTurnoverCents,
+        signupType: consumed.pending.signupType,
+      });
+    } catch (err) {
+      // Another users row holds the address under another id, in any case (users_email_key or, since 999,
+      // users_email_lower_key): 409, not a 500. Rolled back, so the link is not spent; nothing is confirmed.
+      if (!isUsersEmailTaken(err)) throw err;
+      unusable = await rollbackFailed(client, 'verify-email');
+      log.error('verification refused: another users row holds this email', { gotrueUserId }, 'auth');
+      return res.status(409).json(EMAIL_IN_USE);
+    }
     companyId = provisioned.companyId;
     paygEligible = provisioned.paygEligible;
     // Only here, where this transaction has just created the user's company: not
