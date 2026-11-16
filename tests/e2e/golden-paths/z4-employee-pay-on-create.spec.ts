@@ -30,6 +30,10 @@ const AS_W6_QA = !!process.env.GOLDEN_QA_W6_EMAIL && process.env.E2E_ADMIN_EMAIL
 const SANDBOX = AS_W6_QA
   ? { name: '0W6 Golden Sandbox', onboardingId: '0c6f7a1e-6b1d-4a52-9a43-3c5f0b7e0a06' }
   : { name: '0GP Golden Employee Sandbox', onboardingId: '67a6e8ca-634d-4bd2-bd93-dbfe73b22ff9' };
+// The drawer reads the employee, their pay, bank, run month and final-run state together, and a dev server compiles each
+// route on its first hit. At box load that took more than the 5 s default (the drawer still said "Loading…"; 1 run in
+// ~16, repeat-each=20), which every other wait in this spec already allows for with 30 s.
+const DRAWER_LOAD_MS = 30_000;
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const NEW = '/payroll/employees/new';
 const LIST = '/payroll/employees';
@@ -157,14 +161,14 @@ test('the drawer opens from the list, by keyboard and by a row click', async ({ 
   await quickView.focus();
   await page.keyboard.press('Enter');
   const drawer = page.getByRole('dialog');
-  await expect(drawer.getByText('Basic Salary')).toBeVisible();
-  await expect(drawer.getByText(RANDS)).toBeVisible();
+  await expect(drawer.getByText('Basic Salary')).toBeVisible({ timeout: DRAWER_LOAD_MS });
+  await expect(drawer.getByText(RANDS)).toBeVisible({ timeout: DRAWER_LOAD_MS });
   await page.keyboard.press('Escape');
   await expect(drawer).toBeHidden();
   await expect(quickView).toBeFocused();
 
   await row.getByRole('cell', { name: /permanent/i }).click();
-  await expect(drawer.getByText(RANDS)).toBeVisible();
+  await expect(drawer.getByText(RANDS)).toBeVisible({ timeout: DRAWER_LOAD_MS });
   await drawer.getByRole('link', { name: 'Open full profile' }).click();
   await page.waitForURL(/\/payroll\/employees\/[0-9a-f-]{36}$/, { timeout: 30_000 });
 });
@@ -295,7 +299,7 @@ for (const theme of THEMES) {
     await expect(row).toBeVisible({ timeout: 30_000 });
     await row.getByRole('cell', { name: /permanent/i }).click();
     const drawer = page.getByRole('dialog');
-    await expect(drawer.getByText(RANDS)).toBeVisible();
+    await expect(drawer.getByText(RANDS)).toBeVisible({ timeout: DRAWER_LOAD_MS });
     await expectAxeClean(page);
     await snap(page, 'employee-drawer-1568', theme);
     await page.setViewportSize({ width: 390, height: 844 });
@@ -318,6 +322,6 @@ for (const theme of THEMES) {
     const frame = row.locator('xpath=ancestor::table/parent::div');
     expect(await frame.evaluate((el) => getComputedStyle(el).overflowX)).toBe('auto');
     await row.getByRole('cell').first().click(); // Emp #: no link in it
-    await expect(page.getByRole('dialog').getByText(RANDS)).toBeVisible();
+    await expect(page.getByRole('dialog').getByText(RANDS)).toBeVisible({ timeout: DRAWER_LOAD_MS });
   });
 }
