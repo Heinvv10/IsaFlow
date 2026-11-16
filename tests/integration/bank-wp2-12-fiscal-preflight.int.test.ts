@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from '@/lib/neon';
 import { allocateTransaction, splitAllocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { allocationPeriodFor } from '@/modules/accounting/services/bank/bankAllocationPeriod';
 import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import type { AllocationType } from '@/modules/accounting/services/bank/bankAllocationTypes';
@@ -142,6 +143,25 @@ describeIfDb('WP2 row 12: a bank allocation never posts outside every fiscal per
     expect(err, 'a refusal is expected').toBeInstanceOf(Error);
     expect((err as Error).message).not.toMatch(/No fiscal period covers/);
     expect(await written()).toEqual(before);
+  }, 60000);
+
+  it('holds the period row FOR SHARE until the request ends, so a concurrent close (FOR NO KEY UPDATE) cannot land between check and post', async () => {
+    const [p] = (await sql`SELECT id::TEXT AS id FROM fiscal_periods WHERE company_id = ${fx.companyId}::UUID
+      AND '2026-03-10'::DATE BETWEEN start_date AND end_date`) as Record<string, unknown>[];
+    const a = await fx.pool.connect();
+    const b = await fx.pool.connect();
+    try {
+      await a.query('BEGIN');
+      await runOn(fx, a, () => allocationPeriodFor(fx.companyId, '2026-03-10'));
+      await b.query('BEGIN');
+      const closer = await b.query('SELECT id FROM fiscal_periods WHERE id = $1::UUID FOR NO KEY UPDATE NOWAIT', [p!.id])
+        .then(() => null, (e: { code?: string }) => e);
+      expect(closer?.code, 'the closer must find the period row locked').toBe('55P03');
+    } finally {
+      await b.query('ROLLBACK').catch(() => undefined);
+      await a.query('ROLLBACK').catch(() => undefined);
+      a.release(); b.release();
+    }
   }, 60000);
 
   it('still posts on an open period, on exactly that period', async () => {
