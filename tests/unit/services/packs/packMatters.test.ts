@@ -329,7 +329,7 @@ describe('buildMatters', () => {
     bankSpy.mockResolvedValue([{ suggestedCount: 0, unallocatedCount: 3, unreconciledBalance: 15_000 }]);
     const matters = (await buildMatters('c1', window)).matters;
     expect(matters.some((m) => m.issue.startsWith('overdue statutory filings could not be assessed'))).toBe(true);
-    expect(matters.some((m) => m.issue.match(/unreconciled bank item/i))).toBe(true);
+    expect(matters.some((m) => m.issue.match(/unallocated bank item/i))).toBe(true);
     expect((warn.mock.calls.at(-1)?.[1] as { error: string }).error).toBe('FilingDeadlineUnknownError');
   });
 
@@ -357,7 +357,7 @@ describe('buildMatters', () => {
     expect(matters.filter((m) => m.kind === 'checkFailed').map((m) => m.issue)).toEqual([
       'aged debtors could not be assessed — the check failed and was not silently skipped',
     ]);
-    expect(matters.some((m) => m.issue.match(/3 unreconciled bank items/))).toBe(true);
+    expect(matters.some((m) => m.issue.match(/3 unallocated bank items/))).toBe(true);
     expect(tx.isAborted()).toBe(false);
     // One savepoint per source, each closed before the next opens.
     const savepoints = tx.statements.filter((st) => /SAVEPOINT/.test(st));
@@ -394,7 +394,7 @@ describe('buildMatters', () => {
       const issues = (await buildMatters('c1', window)).matters.map((m) => m.issue);
 
       expect(issues.some((i) => i.includes('(s)'))).toBe(false);
-      expect(issues.some((i) => i.includes('12 unreconciled bank items across 2 bank accounts'))).toBe(true);
+      expect(issues.some((i) => i.includes('12 unallocated bank items across 2 bank accounts'))).toBe(true);
       // Both branches of every plural, in one fixture: 739 days and 1 day.
       // NO VERB BEFORE THE COUNT. "Annual Financial Statements is 739 days
       // overdue" printed four times per pack, in the first action item a
@@ -420,7 +420,7 @@ describe('buildMatters', () => {
       // stated in R'000 with spaces and brackets.
       bankSpy.mockResolvedValue([{ suggestedCount: 0, unallocatedCount: 3, unreconciledBalance: 1_234_567.89 }]);
       const matter = (await buildMatters('c1', window)).matters
-        .find((m) => m.issue.includes('unreconciled bank item'))!;
+        .find((m) => m.issue.includes('unallocated bank item'))!;
       expect(matter.issue).not.toMatch(/R\s?1[ ,]?234/);
       expect(matter.quantum).toBeCloseTo(1_234_567.89, 2);
     });
@@ -431,6 +431,6 @@ describe('buildMatters', () => {
     bankSpy.mockResolvedValue([{ suggestedCount: 0, unallocatedCount: 3, unreconciledBalance: 15_000 }]);
     const matters = (await buildMatters('c1', window)).matters;
     expect(matters.some((m) => m.issue.match(/aged debtors could not be assessed/i))).toBe(true);
-    expect(matters.some((m) => m.issue.match(/unreconciled bank item/i))).toBe(true);
+    expect(matters.some((m) => m.issue.match(/unallocated bank item/i))).toBe(true);
   });
 });

@@ -3,8 +3,8 @@
  * ITSELF — IN BOTH PACKS, AND THE MISSING CHECK CARRIED THE BIGGEST NUMBER.
  *
  * Page 4's "How this page is prepared" and page 11's "What was checked" each
- * enumerated four sources: aged debtor concentration, unreconciled bank
- * items, unusual journals and overdue statutory filings. Three lines under
+ * enumerated four sources: aged debtor concentration, unallocated bank
+ * items (then "unreconciled"), unusual journals and overdue statutory filings. Three lines under
  * each list, both packs printed a matter none of the four produces — the
  * net-credit month, 1 869 on the demo and 4 128 on Brightsphere, the largest
  * single exposure in each and the one the page-4 headline names. It is not

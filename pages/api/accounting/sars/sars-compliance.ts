@@ -7,7 +7,6 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
-import { log } from '@/lib/logger';
 import { getComplianceCalendarWithDB } from '@/modules/accounting/services/reports/sarsService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -17,14 +16,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyAuthedRequest;
 
-  try {
-    const year = req.query.year ? Number(req.query.year) : undefined;
-    const events = await getComplianceCalendarWithDB(companyId, year);
-    return apiResponse.success(res, { events });
-  } catch (err) {
-    log.error('Failed to get compliance calendar', { error: err }, 'sars-api');
-    return apiResponse.badRequest(res, 'Failed to load compliance calendar');
+  const rawYear = req.query.year;
+  const year = rawYear === undefined ? undefined : Number(rawYear);
+  if (year !== undefined && !(Number.isInteger(year) && year >= 2000 && year <= 2100)) {
+    return apiResponse.badRequest(res, 'year must be a whole number from 2000 to 2100');
   }
+  // A service failure (e.g. the company row cannot be read) is a server error:
+  // it propagates to withErrorHandler (5xx), never a 400.
+  const events = await getComplianceCalendarWithDB(companyId, year);
+  return apiResponse.success(res, { events });
 }
 
  
