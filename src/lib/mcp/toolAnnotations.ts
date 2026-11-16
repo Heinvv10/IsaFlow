@@ -77,6 +77,7 @@ const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
   'sync_bank_dimensions',
   // Budget amounts, notes and the human-gated moves replace state (restore undoes the latest amount write once).
   'add_budget_note',
+  'delete_budget_version',
   'set_budget_amounts',
   'set_budget_annual',
   'restore_budget_version',

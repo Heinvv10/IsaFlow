@@ -1,8 +1,9 @@
 /**
  * What the MCP budget tools share: money as decimal TEXT in and out (never a float on the wire), months,
  * the version-ownership check (the shared NOT_FOUND for another company's id and a genuine miss alike),
- * the owner gate for the four human-gated moves, and the figures rule (P5-2 S1: amounts only for a token
- * holding read:reports).
+ * the owner gate for the four human-gated moves, and the scopes. Budget figures are report data (P5-2 S1):
+ * every budget tool, read or write, needs read:reports, checked by the registry before the handler (a write
+ * scope alone would let dry runs answer figures: an add overflow, an unchanged cell, a replace's clears).
  */
 import Decimal from 'decimal.js';
 import { UUID_RE } from '@/lib/validation';
@@ -11,7 +12,6 @@ import { BudgetVersionError, type BudgetVersion } from '@/modules/accounting/ser
 import { isVersionToken } from '@/modules/accounting/services/budgets/gridErrors';
 import { MAX_CENTS, ROUNDING_UNITS, type RoundingUnit } from '@/modules/accounting/services/budgets/grid/cents';
 import type { McpToolContext, McpToolResult } from '../types';
-import { mayReadBudgetFigures } from './budgetFigures';
 import { NOT_FOUND, toolError } from './toolHelpers';
 
 /** Hein's ruling 2 (2026-11-16): an agent approves, locks, unlocks or sets primary only on an owner's token. */
@@ -20,10 +20,8 @@ export const PERSON_MUST_APPROVE = 'A person must approve this budget in IsaFlow
 export const BUDGET_WRITE_SCOPE = 'write:budgets';
 export const BUDGET_READ_SCOPE = 'read:reports';
 
-export const figuresAllowed = (ctx: McpToolContext): boolean => mayReadBudgetFigures(ctx);
-
-/** Text a token without read:reports gets where a figure would be. */
-export const FIGURES_HIDDEN_NOTE = 'Amounts are hidden: this connection lacks read:reports (budget figures are report data).';
+/** Every budget WRITE tool: write:budgets, and read:reports as well (the registry refuses either missing). */
+export const BUDGET_WRITE_FENCE = { scope: BUDGET_WRITE_SCOPE, requiresScope: BUDGET_READ_SCOPE } as const;
 
 const MONEY = /^-?\d{1,13}(\.\d{1,2})?$/;
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -57,6 +55,15 @@ export function roundingUnitArg(args: Record<string, unknown>): RoundingUnit | M
   return (ROUNDING_UNITS as readonly unknown[]).includes(raw) ? raw as RoundingUnit : toolError('rounding_unit must be 1, 100 or 1000');
 }
 
+/** The plan_hash a dry run answered (64 hex), absent, or a refusal for a malformed one. */
+export function planHashArg(args: Record<string, unknown>): string | null | McpToolResult {
+  const raw = args.plan_hash;
+  if (raw === undefined || raw === null) return null;
+  return typeof raw === 'string' && /^[0-9a-f]{64}$/.test(raw) ? raw : toolError('plan_hash must be the plan_hash your dry run returned');
+}
+
+export const PLAN_CHANGED = 'The plan changed since your dry run (the budget, or the request, is not what the dry run saw); nothing was written. Dry-run again and apply with the new plan_hash.';
+
 /** The optional version_token (the dry run's `version_token`), or a refusal for a malformed one. */
 export function versionTokenArg(args: Record<string, unknown>): string | null | McpToolResult {
   const raw = args.version_token;
@@ -81,15 +88,12 @@ export const isResult = (v: unknown): v is McpToolResult => typeof v === 'object
 /** Ruling 2: checked from the token user's role BEFORE any service is called. */
 export const ownerGate = (ctx: McpToolContext): McpToolResult | null => (ctx.companyRole === 'owner' ? null : toolError(PERSON_MUST_APPROVE));
 
-/** A version as the tools answer it: no float totals (decimal text), and no amounts without read:reports. */
-export function versionView(v: BudgetVersion, figures: boolean) {
+/** A version as the tools answer it: totals as decimal text (`total`: the sum of every amount cell of the version). */
+export function versionView(v: BudgetVersion) {
   return {
     id: v.id, fiscal_year: v.fiscalYear, name: v.name, kind: v.kind, status: v.status, is_primary: v.isPrimary,
-    based_on_version_id: v.basedOnVersionId, version_token: v.updatedAt, cells: v.amountCount,
-    ...(figures ? { total: randText(v.total) } : {}),
+    based_on_version_id: v.basedOnVersionId, version_token: v.updatedAt, cells: v.amountCount, total: randText(v.total),
     approved_by: v.approvedBy, approved_at: v.approvedAt, locked_by: v.lockedBy, locked_at: v.lockedAt,
     unlocked_by: v.unlockedBy, unlocked_at: v.unlockedAt, unlock_reason: v.unlockReason, created_by: v.createdBy, created_at: v.createdAt,
   };
 }
-
-export const strOrNull = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);

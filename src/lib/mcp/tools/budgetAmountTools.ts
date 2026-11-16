@@ -9,10 +9,11 @@ import { MAX_SAVE_CELLS } from '@/modules/accounting/services/budgets/gridSave';
 import { toCents } from '@/modules/accounting/services/budgets/grid/cents';
 import { WRITE_MODES, type PlanInput, type WriteMode } from '@/modules/accounting/services/budgets/cellWritePlan';
 import type { McpTool } from '../types';
-import { BUDGET_WRITE_SCOPE, isResult, parseMoney, roundingUnitArg, versionTokenArg } from './budgetToolArgs';
+import { residueFlipsSign } from '@/modules/accounting/services/budgets/grid/spread';
+import { BUDGET_WRITE_FENCE, isResult, parseMoney, planHashArg, roundingUnitArg, versionTokenArg } from './budgetToolArgs';
 import { dimensionLabel, resolveRows, parseAmountCells, type ResolvedRef } from './budgetCellArgs';
 import { DIFF_LIST_DEFAULT, DIFF_LIST_MAX, type RowRefusal } from './budgetDiffView';
-import { loadModel, runAmountWrite } from './budgetAmountWrite';
+import { loadModel, runAmountWrite, type RoundingNotice } from './budgetAmountWrite';
 import { toolError } from './toolHelpers';
 
 const ID_OR_CODE = { type: 'string', description: 'Id or code.' };
@@ -22,8 +23,9 @@ const PAGING = {
 };
 const COMMON = {
   version_id: { type: 'string', format: 'uuid' },
-  version_token: { type: 'string', description: 'The version_token your dry run returned. Required to apply a write of more than one cell.' },
-  dry_run: { type: 'boolean', description: 'true: change nothing, answer the diff and the version_token.' },
+  plan_hash: { type: 'string', description: 'The plan_hash your dry run returned. Required to apply a write of more than one cell; refused when the plan changed since.' },
+  version_token: { type: 'string', description: 'Optional: refused when the version changed since you read it.' },
+  dry_run: { type: 'boolean', description: 'true: change nothing, answer the diff and the plan_hash.' },
   idempotency_key: { type: 'string' },
   ...PAGING,
 };
@@ -39,12 +41,12 @@ export const setBudgetAmountsTool: McpTool = {
     'Set monthly budget amounts on one budget version. TRAPS FIRST: amounts are decimal STRINGS ("1250.00", at most 2 decimals), never numbers; months are YYYY-MM inside the version\'s financial year; '
     + 'an account is budgeted at ONE level per version (company level, or one cc1, cc2 or bu member; never two dimensions on one cell); a header account (budget its sub-accounts), an inactive one, or a non-income-statement account is refused per cell with the reason; '
     + 'a write is ALL OR NOTHING: one refused cell writes nothing. '
-    + 'WORKFLOW: 1) dry_run true: answers counts (added, changed, removed, unchanged, refused), the changed and refused cells (paged: list_offset), section totals per month before and after, and version_token; '
-    + '2) the same call with dry_run false and that version_token (required when more than one cell is listed). If anyone saved meanwhile the call is refused ("budget changed since your dry run"): dry-run again. '
+    + 'WORKFLOW: 1) dry_run true: answers what the save would ACTUALLY leave: counts (added, changed, removed, unchanged, recomputed, refused), the cells (paged: list_offset; a driver\'s recomputed dependents too), section totals per month before and after, and plan_hash; '
+    + '2) the same call with dry_run false and that plan_hash (required when more than one cell is listed). If the budget or the request changed since, the call is refused ("plan changed since your dry run"): dry-run again. '
     + 'MODES: merge (default) sets the listed cells, amount null clears that cell; add adds amount to what the cell holds now; replace makes each listed ACCOUNT hold exactly the listed cells, clearing every other cell of that account in the version (any month or dimension; the way to move an account to another level); a reforecast\'s closed months are never cleared. '
     + `At most ${MAX_SAVE_CELLS} changed cells per call (split larger writes; a call carries at most 100 000 argument values, so about 19 000 cells that each name a dimension). A budget holder writes only their own slices; a slice under review is refused. `
-    + 'The save is a person\'s grid save as you (audited as you); restore_budget_version undoes the latest write while nobody has changed the version since. Amounts appear only with read:reports. A person approves the version in IsaFlow.',
-  scope: BUDGET_WRITE_SCOPE,
+    + 'The save is a person\'s grid save as you (audited as you); restore_budget_version undoes the latest write while nobody has changed the version since. Needs write:budgets and read:reports. A person approves the version in IsaFlow.',
+  ...BUDGET_WRITE_FENCE,
   write: true,
   inputSchema: {
     type: 'object',
@@ -75,12 +77,14 @@ export const setBudgetAmountsTool: McpTool = {
     if (args.cells.length > MAX_SAVE_CELLS) return toolError(`cells lists ${args.cells.length} cells; one call writes at most ${MAX_SAVE_CELLS}. Split it.`);
     const versionToken = versionTokenArg(args);
     if (isResult(versionToken)) return versionToken;
+    const planHash = planHashArg(args);
+    if (isResult(planHash)) return planHash;
     const model = await loadModel(ctx, args.version_id);
     if (isResult(model)) return model;
     const { inputs, refusals } = await parseAmountCells(ctx, model, args.cells);
     return runAmountWrite(ctx, {
-      tool: 'set_budget_amounts', model, mode, inputs, rowRefusals: refusals, dryRun: args.dry_run === true, versionToken,
-      tokenRequired: !(args.cells.length === 1 && mode !== 'replace'), page: page(args),
+      tool: 'set_budget_amounts', model, mode, inputs, rowRefusals: refusals, dryRun: args.dry_run === true, versionToken, planHash,
+      hashRequired: !(args.cells.length === 1 && mode !== 'replace'), page: page(args),
     });
   },
 };
@@ -108,8 +112,9 @@ export const setBudgetAnnualTool: McpTool = {
     + 'an account already budgeted at another level in this version is refused (move it with set_budget_amounts mode replace); a reforecast\'s closed months are read-only, so use set_budget_amounts there; one refused row writes nothing. '
     + 'spread: flat (even), prior_year (the same calendar months a year earlier: refused for a row with no prior-year activity or mixed signs, never guessed), or weights (one number per month). '
     + 'Rounding (rounding_unit 1, 100 or 1000 rand, default 1): every month but the last is rounded and the LAST month takes the residue, so the months sum to the amount exactly. '
-    + 'WORKFLOW as set_budget_amounts: dry_run true (diff, totals, version_token), then apply with dry_run false and the version_token; restore_budget_version undoes the latest write. Amounts appear only with read:reports.',
-  scope: BUDGET_WRITE_SCOPE,
+    + 'A row whose rounding leaves the LAST month on the other side of zero is written and named in notices (as the grid warns); a smaller rounding_unit avoids it. '
+    + 'WORKFLOW as set_budget_amounts: dry_run true (diff, totals, plan_hash), then apply with dry_run false and the plan_hash; restore_budget_version undoes the latest write. Needs write:budgets and read:reports.',
+  ...BUDGET_WRITE_FENCE,
   write: true,
   inputSchema: {
     type: 'object',
@@ -141,6 +146,8 @@ export const setBudgetAnnualTool: McpTool = {
     if (isResult(unit)) return unit;
     const versionToken = versionTokenArg(args);
     if (isResult(versionToken)) return versionToken;
+    const planHash = planHashArg(args);
+    if (isResult(planHash)) return planHash;
     const model = await loadModel(ctx, args.version_id);
     if (isResult(model)) return model;
     const rows: Array<Record<string, unknown> & { index: number }> = args.rows.map((r, index) => ({ ...((r && typeof r === 'object' ? r : {}) as Record<string, unknown>), index }));
@@ -165,6 +172,7 @@ export const setBudgetAnnualTool: McpTool = {
     };
     const inputs: PlanInput[] = [];
     const refusals: RowRefusal[] = [];
+    const notices: RoundingNotice[] = [];
     for (const r of rows) {
       const refuse = (reason: string) => refusals.push({ index: r.index, account: String(r.account ?? ''), month: 'year', dimension: dimensionLabel({ index: r.index, account: r.account, cc1: r.cc1, cc2: r.cc2, bu: r.bu }), reason });
       const ref = refs.get(r.index);
@@ -181,11 +189,14 @@ export const setBudgetAnnualTool: McpTool = {
       } else { refuse('spread must be flat, prior_year or weights'); continue; }
       const result = spreadAnnual(money.cents, months.length, spread, unit);
       if (!result.ok) { refuse(result.reason); continue; }
+      if (residueFlipsSign(money.cents, result.months)) {
+        notices.push({ i: r.index, account: String(r.account ?? ''), reason: `The R${unit} rounding puts the last month on the other side of zero; a smaller rounding unit avoids it.` });
+      }
       result.months.forEach((cents, i) => inputs.push({ index: r.index, ...ref, month: months[i]!, cents }));
     }
     return runAmountWrite(ctx, {
-      tool: 'set_budget_annual', model, mode: 'merge', inputs, rowRefusals: refusals, dryRun: args.dry_run === true, versionToken,
-      tokenRequired: true, page: page(args),
+      tool: 'set_budget_annual', model, mode: 'merge', inputs, rowRefusals: refusals, dryRun: args.dry_run === true, versionToken, planHash,
+      hashRequired: true, page: page(args), notices,
     });
   },
 };

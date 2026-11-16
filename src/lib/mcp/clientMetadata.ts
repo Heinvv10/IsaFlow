@@ -179,6 +179,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'copy_budget_version',
   'create_reforecast',
   'add_budget_note',
+  'delete_budget_version',
   'seed_budget',
   'set_budget_amounts',
   'set_budget_annual',

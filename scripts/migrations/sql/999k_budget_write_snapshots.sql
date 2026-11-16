@@ -1,12 +1,13 @@
--- 999f: Budget write snapshots (MCP budget write tools, PR 1; Hein's ruling 1, 2026-11-16).
+-- 999k: Budget write snapshots (MCP budget write tools, PR 1; Hein's ruling 1, 2026-11-16).
 --
 -- WHAT. One row per amount write an MCP budget tool makes (set_budget_amounts, set_budget_annual):
 -- the version, the tool, the token's jti, the version token before and after the write, and per
 -- changed cell its value before and after (`cells`, a JSON array of
--- {a: account, c1, c2, b: dimension ids or null, m: 'YYYY-MM', before, after: decimal text or null}).
--- restore_budget_version writes the before-values of the version's most recent unrestored snapshot
--- back through the grid save (every save rule applies), only while the version's token still equals
--- that snapshot's token_after, and then marks it restored.
+-- {a: account, c1, c2, b: dimension ids or null, m: 'YYYY-MM', before, after: decimal text or null,
+-- bs, as: the cell's amount_source before and after, or null}).
+-- restore_budget_version writes the before-values of the version's most recent snapshot back through
+-- the grid save (every save rule applies) when it is unrestored, the version's token still equals its
+-- token_after and every cell still holds its after-value and source, and then marks it restored.
 --
 -- RULES IN THE DATABASE.
 --   - Tenancy: 944's forced-RLS policy, verbatim; the version by composite FK (954's form; a
@@ -16,7 +17,12 @@
 --   - Stamps: created_by and restored_by are the session user (auth.uid()), created_at and
 --     restored_at the clock, set by the trigger whatever was sent. A restore is one-way (a restored
 --     snapshot is never restored again) and changes nothing but its two stamps. With no session
---     user, a write keeps the created_by it sent (NOT NULL), and a restore is refused.
+--     user, created_by is what the inserting role sent: app_user cannot send it (column grant), so
+--     its insert is refused (NOT NULL); a restore with no session user is refused.
+--   - A snapshot is marked restored only in a transaction that also wrote its version (the version's
+--     updated_at, which every budget write moves to now(), is this transaction's): the restore's grid
+--     save. This narrows, not closes, a bare `UPDATE restored_at` (any other write of the version in
+--     the same transaction passes too): accepted, the app's restore is the only writer.
 --
 -- Every function here is SECURITY INVOKER: no app_definer_reviews row (930).
 
@@ -73,6 +79,11 @@ BEGIN
   END IF;
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'a budget write snapshot is restored by a signed-in user' USING ERRCODE = '42501';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM budget_versions v
+                  WHERE v.id = OLD.version_id AND v.company_id = OLD.company_id AND v.updated_at = now()) THEN
+    RAISE EXCEPTION 'a budget write snapshot is marked restored only with the restore''s own save of its version'
+      USING ERRCODE = '23514';
   END IF;
   NEW.restored_at := clock_timestamp();
   NEW.restored_by := auth.uid();

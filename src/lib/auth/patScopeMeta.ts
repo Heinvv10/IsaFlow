@@ -91,7 +91,7 @@ export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
     label: 'Write budgets',
     // Separate from write:accounts: budget amounts are plans, not chart master data. Approve, lock, unlock and
     // set primary stay a person's act unless the token's user is the owner.
-    desc: 'Create budget versions, seed them, set and restore budget amounts and notes. Only an owner\'s token may approve, lock, unlock or make a version primary. Posts nothing to the ledger.',
+    desc: 'Create, seed and delete budget versions, set and restore budget amounts and notes. Every budget write also needs Read reports (its dry run shows budget figures). Only an owner\'s token may approve, lock, unlock or make a version primary. Posts nothing to the ledger.',
   },
   'write:post': {
     label: 'Post, finalize & allocate (irreversible)',

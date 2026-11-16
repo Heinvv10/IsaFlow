@@ -14,6 +14,7 @@
 import { sql, type DbRow } from '@/lib/neon';
 import { UUID_RE } from '@/lib/validation';
 import { codeIndex, type Find } from './codeIndex';
+import { isHeaderSql } from './headerSql';
 import type { GridAccount, GridMember, GridReadModel } from './gridReadTypes';
 
 export type DimensionKind = 'cc1' | 'cc2' | 'bu';
@@ -74,7 +75,7 @@ export async function explainMissingAccounts(companyId: string, refs: readonly s
   const codes = refs.filter((r) => !UUID_RE.test(r));
   const rows = (await sql`
     SELECT ga.id::text AS id, ga.account_code, ga.account_name, ga.account_type, ga.is_active,
-           EXISTS (SELECT 1 FROM gl_accounts c WHERE c.company_id = ga.company_id AND c.parent_account_id = ga.id) AS is_header
+           ${isHeaderSql()} AS is_header
       FROM gl_accounts ga
      WHERE ga.company_id = ${companyId}::UUID
        AND (ga.id = ANY(${ids}::UUID[]) OR ga.account_code = ANY(${codes}::TEXT[]) OR btrim(ga.account_code) = ANY(${codes.map((c) => c.trim())}::TEXT[]))

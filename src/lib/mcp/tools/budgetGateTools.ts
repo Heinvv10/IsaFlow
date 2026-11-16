@@ -10,7 +10,7 @@
 import { transitionVersion, type VersionAction } from '@/modules/accounting/services/budgets/budgetVersionStatus';
 import { setPrimary } from '@/modules/accounting/services/budgets/budgetVersions';
 import type { McpTool, McpToolContext, McpToolResult } from '../types';
-import { BUDGET_WRITE_SCOPE, figuresAllowed, isResult, ownerGate, ownVersion, versionTokenArg, versionView } from './budgetToolArgs';
+import { BUDGET_WRITE_FENCE, isResult, ownerGate, ownVersion, versionTokenArg, versionView } from './budgetToolArgs';
 import { ok, toolError } from './toolHelpers';
 
 const GATE_NOTE = 'Only a token whose user is the company owner may do this; any other role is told "A person must approve this budget in IsaFlow".';
@@ -33,14 +33,14 @@ async function move(ctx: McpToolContext, args: Record<string, unknown>, action: 
   const moved = await transitionVersion(ctx.companyId, version.id, {
     action, reason: args.reason, expectedUpdatedAt: token ?? undefined, force: args.force === true,
   }, { userId: ctx.userId, role: ctx.companyRole ?? '' });
-  return ok({ version: versionView(moved, figuresAllowed(ctx)) });
+  return ok({ version: versionView(moved) });
 }
 
 export const approveBudgetVersionTool: McpTool = {
   name: 'approve_budget_version',
   description: `Approve a DRAFT budget version (draft → approved; it stays editable, every edit audited). ${GATE_NOTE} `
     + 'Refused while a budget holder\'s slice is not approved, unless force true with a reason (1-500 characters), recorded in the audit log.',
-  scope: BUDGET_WRITE_SCOPE,
+  ...BUDGET_WRITE_FENCE,
   write: true,
   inputSchema: {
     type: 'object',
@@ -54,7 +54,7 @@ export const approveBudgetVersionTool: McpTool = {
 export const lockBudgetVersionTool: McpTool = {
   name: 'lock_budget_version',
   description: `Lock an APPROVED budget version (approved → locked: immutable, the database refuses any change). ${GATE_NOTE}`,
-  scope: BUDGET_WRITE_SCOPE,
+  ...BUDGET_WRITE_FENCE,
   write: true,
   inputSchema: { type: 'object', properties: { ...base }, required: ['version_id', 'idempotency_key'], additionalProperties: false },
   handler: (args, ctx) => move(ctx, args, 'lock'),
@@ -63,7 +63,7 @@ export const lockBudgetVersionTool: McpTool = {
 export const unlockBudgetVersionTool: McpTool = {
   name: 'unlock_budget_version',
   description: `Unlock a LOCKED budget version (locked → approved, editable again). reason (1-500 characters) is required and kept in the audit log. ${GATE_NOTE}`,
-  scope: BUDGET_WRITE_SCOPE,
+  ...BUDGET_WRITE_FENCE,
   write: true,
   inputSchema: {
     type: 'object',
@@ -77,7 +77,7 @@ export const unlockBudgetVersionTool: McpTool = {
 export const setPrimaryBudgetVersionTool: McpTool = {
   name: 'set_primary_budget_version',
   description: `Make a budget version its financial year's PRIMARY: every report without a named version (Budget vs Actual, packs, budget_variance) then reads it. ${GATE_NOTE}`,
-  scope: BUDGET_WRITE_SCOPE,
+  ...BUDGET_WRITE_FENCE,
   write: true,
   inputSchema: { type: 'object', properties: { version_id: base.version_id, idempotency_key: base.idempotency_key }, required: ['version_id', 'idempotency_key'], additionalProperties: false },
   handler: async (args, ctx) => {
@@ -86,7 +86,7 @@ export const setPrimaryBudgetVersionTool: McpTool = {
     const version = await ownVersion(ctx, args.version_id);
     if (isResult(version)) return version;
     const made = await setPrimary(ctx.companyId, version.id, { userId: ctx.userId, role: ctx.companyRole ?? '' });
-    return ok({ version: versionView(made, figuresAllowed(ctx)) });
+    return ok({ version: versionView(made) });
   },
 };
 

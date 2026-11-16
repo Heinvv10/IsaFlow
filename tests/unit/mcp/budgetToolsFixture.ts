@@ -37,7 +37,7 @@ export function model(over: Partial<GridReadModel> = {}): GridReadModel {
     version: version() as never, updatedAt: TOKEN,
     year: { fiscalYear: 2027, startDate: '2026-03-01', endDate: '2027-02-28', kind: 'normal', monthKeys: MONTHS } as never,
     accounts, dimensions: { cc1: [{ id: CC1, code: 'C1', name: 'Centre', isActive: true }], cc2: [], bu: [] },
-    cells: [{ glAccountId: RENT, cc1Id: null, cc2Id: null, buId: null, month: '2026-03', amount: 100, source: 'typed' }],
+    cells: [{ glAccountId: RENT, cc1Id: null, cc2Id: null, buId: null, month: '2026-03', amount: 100, source: 'manual' }],
     grains: { [RENT]: 'company' }, drivers: [], totals: bandTotals(accounts, new Map([[RENT, [10000, ...Array(11).fill(0)]]]), 12), holder: null,
     ...over,
   };

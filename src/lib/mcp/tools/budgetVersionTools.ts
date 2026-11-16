@@ -8,12 +8,13 @@
  */
 import { copyVersion, createVersion } from '@/modules/accounting/services/budgets/budgetVersions';
 import { createReforecastFromActuals } from '@/modules/accounting/services/budgets/drivers/reforecastService';
-import { setGridNote } from '@/modules/accounting/services/budgets/budgetNotes';
+import { MAX_NOTE_LENGTH, setGridNote } from '@/modules/accounting/services/budgets/budgetNotes';
 import { BUDGET_VERSION_KINDS } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import type { McpTool, McpToolContext } from '../types';
-import { BUDGET_WRITE_SCOPE, figuresAllowed, randText, isResult, ownVersion, versionView } from './budgetToolArgs';
+import { BUDGET_WRITE_FENCE, randText, isResult, ownVersion, versionView } from './budgetToolArgs';
 import { resolveRows } from './budgetCellArgs';
 import { loadModel } from './budgetAmountWrite';
+import { deleteBudgetVersionTool } from './budgetDeleteTool';
 import { ok, toolError } from './toolHelpers';
 
 const NAME = { type: 'string', minLength: 1, maxLength: 120 };
@@ -27,28 +28,20 @@ export const createBudgetVersionTool: McpTool = {
   name: 'create_budget_version',
   description:
     'Create a new DRAFT budget version for a financial year (fiscal_year is the year\'s label, e.g. 2027). kind: original (at most one per year), reforecast or scenario; name unique in the year (1-120 characters). '
-    + 'Without copy_from_version_id it is empty; with it, every amount of that version is copied exactly (it must be of the SAME year: to copy into another year, or with an uplift, use seed_budget). '
+    + 'It is empty: to copy a version use copy_budget_version (same year) or seed_budget (another year, or an uplift). '
     + 'Next: set amounts (set_budget_amounts / set_budget_annual / seed_budget into a new version). The new version is not primary; a person approves it in IsaFlow.',
-  scope: BUDGET_WRITE_SCOPE,
+  ...BUDGET_WRITE_FENCE,
   write: true,
   inputSchema: {
     type: 'object',
-    properties: { fiscal_year: { type: 'integer' }, name: NAME, kind: KIND, copy_from_version_id: { type: 'string', format: 'uuid' }, idempotency_key: { type: 'string' } },
+    properties: { fiscal_year: { type: 'integer' }, name: NAME, kind: KIND, idempotency_key: { type: 'string' } },
     required: ['fiscal_year', 'name', 'kind', 'idempotency_key'],
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
     const year = yearOf(args.fiscal_year);
     if (year === null) return toolError('fiscal_year must be a year label such as 2027');
-    if (args.copy_from_version_id !== undefined) {
-      const source = await ownVersion(ctx, args.copy_from_version_id, 'copy_from_version_id');
-      if (isResult(source)) return source;
-      if (source.fiscalYear !== year) {
-        return toolError(`copy_from_version_id is a FY${source.fiscalYear} version; a copy stays in its source's year. Use seed_budget to copy into FY${year}.`);
-      }
-      return ok({ version: versionView(await copyVersion(ctx.companyId, source.id, { name: args.name, kind: args.kind }, actor(ctx)), figuresAllowed(ctx)) });
-    }
-    return ok({ version: versionView(await createVersion(ctx.companyId, { fiscalYear: year, name: args.name, kind: args.kind }, actor(ctx)), figuresAllowed(ctx)) });
+    return ok({ version: versionView(await createVersion(ctx.companyId, { fiscalYear: year, name: args.name, kind: args.kind }, actor(ctx))) });
   },
 };
 
@@ -57,7 +50,7 @@ export const copyBudgetVersionTool: McpTool = {
   description:
     'Copy a budget version into a new DRAFT of the same financial year, every amount at every level copied exactly; the copy records the source as its basis. '
     + 'For another year or an uplift use seed_budget; for actuals in the closed months use create_reforecast.',
-  scope: BUDGET_WRITE_SCOPE,
+  ...BUDGET_WRITE_FENCE,
   write: true,
   inputSchema: {
     type: 'object',
@@ -68,7 +61,7 @@ export const copyBudgetVersionTool: McpTool = {
   handler: async (args, ctx) => {
     const source = await ownVersion(ctx, args.version_id);
     if (isResult(source)) return source;
-    return ok({ version: versionView(await copyVersion(ctx.companyId, source.id, { name: args.name, kind: args.kind }, actor(ctx)), figuresAllowed(ctx)) });
+    return ok({ version: versionView(await copyVersion(ctx.companyId, source.id, { name: args.name, kind: args.kind }, actor(ctx))) });
   },
 };
 
@@ -77,7 +70,7 @@ export const createReforecastTool: McpTool = {
   description:
     'Create a reforecast from actuals: a new DRAFT version (kind reforecast) of the source\'s year whose CLOSED months hold the ledger\'s posted actuals at each row\'s level and whose open months keep the source\'s amounts; the source\'s drivers and planned hires are copied and recomputed. '
     + 'TRAPS: closed months are read-only in the new version; actuals with no dimension on an account budgeted by a dimension are not placed: they are listed as unplaced (amounts only with read:reports). rolling true makes it the year\'s auto-rolling forecast (one per year; refused when another exists). The app\'s "New reforecast" does exactly this.',
-  scope: BUDGET_WRITE_SCOPE,
+  ...BUDGET_WRITE_FENCE,
   write: true,
   inputSchema: {
     type: 'object',
@@ -90,12 +83,11 @@ export const createReforecastTool: McpTool = {
     const source = await ownVersion(ctx, args.version_id);
     if (isResult(source)) return source;
     const made = await createReforecastFromActuals(ctx.companyId, actor(ctx), source.id, { name: args.name, rolling: args.rolling === true });
-    const figures = figuresAllowed(ctx);
     return ok({
-      version: versionView(made.version, figures), rolling: made.rolling, closed_months: made.closedMonths, cells: made.cells,
+      version: versionView(made.version), rolling: made.rolling, closed_months: made.closedMonths, cells: made.cells,
       unplaced_total: made.unplaced.length,
       unplaced: made.unplaced.slice(0, MAX_UNPLACED_LISTED).map((u) => ({
-        account: u.accountCode, account_name: u.accountName, level: u.level, month: u.month, ...(figures ? { amount: randText(u.amount) } : {}),
+        account: u.accountCode, account_name: u.accountName, level: u.level, month: u.month, amount: randText(u.amount),
       })),
       driver_warnings: made.warnings.length, headcount_as_of: made.headcountAsOf,
     });
@@ -107,20 +99,20 @@ export const addBudgetNoteTool: McpTool = {
   description:
     'Set, replace or clear (note null or blank) the budget note of one account for the version\'s financial year. TRAPS: a note belongs to the account and YEAR, so every version of that year shows it (a locked one too); '
     + 'only an active leaf revenue or expense account takes a note; at most 2 000 characters (trimmed); refused on a locked version. It does not change the version_token.',
-  scope: BUDGET_WRITE_SCOPE,
+  ...BUDGET_WRITE_FENCE,
   write: true,
   inputSchema: {
     type: 'object',
     properties: {
       version_id: { type: 'string', format: 'uuid' }, account: { type: 'string', description: 'Id or code.' },
-      note: { type: ['string', 'null'], maxLength: 10000 }, idempotency_key: { type: 'string' },
+      note: { type: ['string', 'null'], maxLength: MAX_NOTE_LENGTH }, idempotency_key: { type: 'string' },
     },
     required: ['version_id', 'account', 'note', 'idempotency_key'],
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
     if (args.note !== null && typeof args.note !== 'string') return toolError('note must be text or null');
-    if (typeof args.note === 'string' && args.note.length > 10_000) return toolError('note is at most 2 000 characters');
+    if (typeof args.note === 'string' && args.note.trim().length > MAX_NOTE_LENGTH) return toolError(`note is at most ${MAX_NOTE_LENGTH} characters (trimmed)`);
     const model = await loadModel(ctx, args.version_id);
     if (isResult(model)) return model;
     const ref = (await resolveRows(ctx, model, [{ index: 0, account: args.account }])).get(0);
@@ -130,4 +122,4 @@ export const addBudgetNoteTool: McpTool = {
   },
 };
 
-export const BUDGET_VERSION_TOOLS: McpTool[] = [createBudgetVersionTool, copyBudgetVersionTool, createReforecastTool, addBudgetNoteTool];
+export const BUDGET_VERSION_TOOLS: McpTool[] = [createBudgetVersionTool, copyBudgetVersionTool, createReforecastTool, addBudgetNoteTool, deleteBudgetVersionTool];

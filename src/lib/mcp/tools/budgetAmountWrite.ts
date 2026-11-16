@@ -3,29 +3,31 @@
  * version's grid as the token user sees it (a budget holder sees their slices), resolve every account and
  * member by id or code (the import's resolver), plan the cells (`cellWritePlan`), then either
  *  - DRY RUN: run the grid save itself (`saveCells`, as the token user) inside a savepoint that is always
- *    rolled back, so every rule the live save applies is applied here too, and answer the diff and the
- *    version token (`wroteNothing`: the idempotency key stays free for the live call); or
- *  - LIVE: require the dry run's token for a bulk write, refuse any refused cell (all or nothing),
- *    re-validate everything against the current state, save (`saveCells`: its compare-and-set on the
- *    token, its audit row as the token user), then record the undo snapshot in the same savepoint.
+ *    rolled back, read what it left before the rollback, and answer that ACTUAL diff (driver resets and
+ *    recomputed dependents included), the version token and the `plan_hash` (`wroteNothing`: the
+ *    idempotency key stays free for the live call); or
+ *  - LIVE: refuse any refused cell (all or nothing), recompute the plan from the current state and refuse
+ *    unless its hash equals the dry run's `plan_hash` (required for a write of more than one cell), save
+ *    (`saveCells`: its compare-and-set on the token, its audit row as the token user), read what the save
+ *    left, then record the undo snapshot in the same savepoint.
  * Refusals before the save return a toolError; the save's own refusals roll back its own savepoint, so
- * they are answered too; anything after the save (the snapshot) throws, and the registry rolls it all back.
+ * they are answered too; anything after it (the read, the snapshot) throws, and the registry rolls it all back.
  */
 import { perHeadAccessOf } from '@/modules/accounting/services/budgets/drivers/perHeadAccess';
-import { loadGridReadModel } from '@/modules/accounting/services/budgets/gridReadModel';
+import { loadGridCells, loadGridReadModel } from '@/modules/accounting/services/budgets/gridReadModel';
 import type { GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
 import { BudgetVersionError } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import { BudgetVersionStaleError, MAX_SAVE_CELLS, saveCells } from '@/modules/accounting/services/budgets/gridSave';
-import { parseKey } from '@/modules/accounting/services/budgets/grid/cellKey';
 import { planCellWrites, type PlanInput, type WriteMode } from '@/modules/accounting/services/budgets/cellWritePlan';
-import { recordSnapshot, type SnapshotCell } from '@/modules/accounting/services/budgets/budgetWriteSnapshots';
+import { recordSnapshot } from '@/modules/accounting/services/budgets/budgetWriteSnapshots';
+import { budgetPlanHash } from '@/modules/accounting/services/budgets/budgetPlanHash';
 import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolledBackSavepoint';
 import type { McpToolContext, McpToolResult } from '../types';
-import { centsText, FIGURES_HIDDEN_NOTE, figuresAllowed, isResult, ownVersion } from './budgetToolArgs';
-import { currentCells, diffListing, sectionTotals, type DiffPage, type RowRefusal } from './budgetDiffView';
+import { isResult, ownVersion, PLAN_CHANGED } from './budgetToolArgs';
+import { actualDiff, cellMap, diffListing, sectionTotals, snapshotCells, type CellMap, type DiffPage, type RowRefusal } from './budgetDiffView';
 import { ok, toolError } from './toolHelpers';
 
-export const STALE_SINCE_DRY_RUN = 'The budget changed since your dry run (its version_token moved); nothing was written. Dry-run again and apply with the new version_token.';
+export const STALE_SINCE_DRY_RUN = 'The budget changed since your dry run (its version_token moved); nothing was written. Dry-run again and apply with the new plan_hash.';
 
 /** The version's grid as the token user sees it, or the shared NOT_FOUND. */
 export async function loadModel(ctx: McpToolContext, versionId: unknown): Promise<GridReadModel | McpToolResult> {
@@ -33,6 +35,9 @@ export async function loadModel(ctx: McpToolContext, versionId: unknown): Promis
   if (isResult(version)) return version;
   return loadGridReadModel(ctx.companyId, { versionId: version.id }, perHeadAccessOf(ctx.companyRole), ctx.userId);
 }
+
+/** A row the rounding left with its last month on the other side of zero (the grid's own notice). */
+export interface RoundingNotice { i: number; account: string; reason: string }
 
 export interface AmountWrite {
   tool: string;
@@ -42,9 +47,11 @@ export interface AmountWrite {
   rowRefusals: RowRefusal[];
   dryRun: boolean;
   versionToken: string | null;
-  /** True for a bulk write (more than one cell): the live call must carry the dry run's version_token. */
-  tokenRequired: boolean;
+  planHash: string | null;
+  /** True for a write of more than one cell: the live call must carry the dry run's plan_hash. */
+  hashRequired: boolean;
   page: DiffPage;
+  notices?: RoundingNotice[];
 }
 
 const MAX_REFUSALS_NAMED = 20;
@@ -55,63 +62,67 @@ function refusalText(refused: Array<{ i: unknown; reason?: unknown }>, total: nu
     + `${total > named.length ? `; +${total - named.length} more (dry run with list_offset to page)` : ''}. Fix or remove them and try again.`;
 }
 
-const snapshotCells = (entries: ReturnType<typeof planCellWrites>['entries']): SnapshotCell[] => entries
-  .filter((e) => e.status === 'added' || e.status === 'changed' || e.status === 'removed')
-  .map((e) => {
-    const r = parseKey(e.key);
-    return { a: r.glAccountId, c1: r.cc1Id, c2: r.cc2Id, b: r.buId, m: r.month, before: e.before === null ? null : centsText(e.before), after: e.after === null ? null : centsText(e.after) };
-  });
-
 export async function runAmountWrite(ctx: McpToolContext, w: AmountWrite): Promise<McpToolResult> {
   const { model } = w;
   const versionId = model.version!.id;
   const token = model.updatedAt!;
-  const figures = figuresAllowed(ctx);
-  const current = currentCells(model);
-  const plan = planCellWrites(w.mode, w.inputs, current);
+  const before = cellMap(model.cells);
+  const plan = planCellWrites(w.mode, w.inputs, before);
   if (plan.save.length > MAX_SAVE_CELLS) {
-    return toolError(`This write changes ${plan.save.length} cells; one call writes at most ${MAX_SAVE_CELLS}. Split it by account or section (each call is its own dry run and token).`);
+    return toolError(`This write changes ${plan.save.length} cells; one call writes at most ${MAX_SAVE_CELLS}. Split it by account or section (each call is its own dry run and plan_hash).`);
   }
-  const listing = diffListing(model, plan.entries, w.rowRefusals, w.page, figures);
-  const refused = listing.counts.refused;
+  const refused = w.rowRefusals.length + plan.entries.filter((e) => e.status === 'refused').length;
+  const hash = budgetPlanHash(versionId, `${w.tool}:${w.mode}`, token, plan.entries
+    .filter((e) => e.status !== 'refused' && e.status !== 'unchanged')
+    .map((e) => ({ key: e.key, before: e.before, beforeSource: before.get(e.key)?.source ?? null, after: e.after })));
   const base = {
     version_id: versionId, version: { name: model.version!.name, fiscal_year: model.version!.fiscalYear, status: model.version!.status },
-    mode: w.mode, counts: listing.counts, ...(figures ? {} : { figures_hidden: FIGURES_HIDDEN_NOTE }),
+    mode: w.mode, ...(w.notices && w.notices.length > 0 ? { notices: w.notices } : {}),
   };
+  const readAfter = async (): Promise<CellMap> => cellMap((await loadGridCells(ctx.companyId, { versionId }, ctx.userId)).cells);
 
   if (w.dryRun) {
+    let after: CellMap = before;
     if (refused === 0 && plan.save.length > 0) {
       try {
-        await inRolledBackSavepoint('mcp_budget_dry_run', () => saveCells(ctx.companyId, ctx.userId, { versionId, expectedUpdatedAt: token, cells: plan.save }));
+        await inRolledBackSavepoint('mcp_budget_dry_run', async () => {
+          await saveCells(ctx.companyId, ctx.userId, { versionId, expectedUpdatedAt: token, cells: plan.save });
+          after = await readAfter();
+        });
       } catch (err) {
         if (err instanceof BudgetVersionError) return toolError(`The save would be refused: ${err.message}`);
         throw err;
       }
     }
+    const listing = diffListing(model, actualDiff(plan.entries, before, after), w.rowRefusals, w.page);
+    const ready = refused === 0 && plan.save.length > 0;
     return {
       ...ok({
-        dry_run: true, ...base, ready: refused === 0, version_token: token,
+        dry_run: true, ...base, ready: refused === 0, version_token: token, plan_hash: ready ? hash : null, counts: listing.counts,
         cells: listing.cells, listed_total: listing.listed_total, truncated: listing.truncated, next_offset: listing.next_offset,
-        ...(figures ? { totals: sectionTotals(model, current, plan.entries) } : {}),
+        totals: sectionTotals(model, before, after),
         next_step: refused > 0
           ? 'Fix or remove the refused cells, then dry-run again.'
-          : plan.save.length === 0 ? 'Nothing would change.' : `Apply: call ${w.tool} again with the same arguments, dry_run false and this version_token.`,
+          : plan.save.length === 0 ? 'Nothing would change.' : `Apply: call ${w.tool} again with the same arguments, dry_run false and this plan_hash.`,
       }),
       wroteNothing: true,
     };
   }
 
-  if (w.tokenRequired && w.versionToken === null) {
-    return toolError(`version_token is required for a write of more than one cell: call ${w.tool} with dry_run true, read the diff, then apply with the version_token it returns.`);
+  if (w.versionToken !== null && w.versionToken !== token) return toolError(STALE_SINCE_DRY_RUN);
+  if (refused > 0) {
+    const listing = diffListing(model, actualDiff(plan.entries, before, before), w.rowRefusals, { offset: 0, limit: MAX_REFUSALS_NAMED });
+    return toolError(refusalText(listing.cells.filter((c) => c.status === 'refused') as Array<{ i: unknown; reason?: unknown }>, refused));
   }
-  if (refused > 0) return toolError(refusalText(listing.cells.filter((c) => c.status === 'refused') as Array<{ i: unknown; reason?: unknown }>, refused));
-  const expected = w.versionToken ?? token;
-  if (expected !== token) return toolError(STALE_SINCE_DRY_RUN);
+  if (w.hashRequired && w.planHash === null) {
+    return toolError(`plan_hash is required for a write of more than one cell: call ${w.tool} with dry_run true, read the diff, then apply with the plan_hash it returns.`);
+  }
+  if (w.planHash !== null && w.planHash !== hash) return toolError(PLAN_CHANGED);
   if (plan.save.length === 0) return { ...ok({ ...base, saved: 0, deleted: 0, version_token: token, note: 'Nothing changed: every cell already holds its amount.' }), wroteNothing: true };
 
   let saved;
   try {
-    saved = await saveCells(ctx.companyId, ctx.userId, { versionId, expectedUpdatedAt: expected, cells: plan.save });
+    saved = await saveCells(ctx.companyId, ctx.userId, { versionId, expectedUpdatedAt: token, cells: plan.save });
   } catch (err) {
     // The save rolled back its own savepoint: nothing of this call is written, so the refusal is answered.
     if (err instanceof BudgetVersionStaleError) return toolError(STALE_SINCE_DRY_RUN);
@@ -122,15 +133,19 @@ export async function runAmountWrite(ctx: McpToolContext, w: AmountWrite): Promi
     return { ...ok({ ...base, saved: 0, deleted: 0, version_token: saved.updatedAt, note: 'Nothing changed.' }), wroteNothing: true };
   }
   // From here the save has written: any failure throws so the registry's savepoint takes the save back too.
-  const snapshotId = await recordSnapshot(ctx.companyId, {
-    versionId, tool: w.tool, tokenJti: ctx.tokenJti, tokenBefore: expected, tokenAfter: saved.updatedAt, cells: snapshotCells(plan.entries),
+  const after = await readAfter();
+  const diff = actualDiff(plan.entries, before, after);
+  const cells = snapshotCells(diff);
+  const snapshotId = cells.length === 0 ? null : await recordSnapshot(ctx.companyId, {
+    versionId, tool: w.tool, tokenJti: ctx.tokenJti, tokenBefore: token, tokenAfter: saved.updatedAt, cells,
   });
+  const listing = diffListing(model, diff, [], w.page);
   return ok({
     ...base, saved: saved.saved, deleted: saved.deleted, recomputed: saved.recomputed ?? 0, version_token: saved.updatedAt,
     snapshot_id: snapshotId, ...(saved.driverWarnings && saved.driverWarnings.length > 0 ? { driver_warnings: saved.driverWarnings.length } : {}),
     ...(saved.frozenDriverCells ? { frozen_driver_cells: saved.frozenDriverCells.cells } : {}),
-    cells: listing.cells, listed_total: listing.listed_total, truncated: listing.truncated,
-    next_step: 'Saved as a draft edit of this version (audited as you). restore_budget_version undoes this write while nobody has changed the version since. '
+    counts: listing.counts, cells: listing.cells, listed_total: listing.listed_total, truncated: listing.truncated, next_offset: listing.next_offset,
+    next_step: 'Saved as an edit of this version (audited as you). restore_budget_version undoes this write while nobody has changed the version since. '
       + (model.version!.status === 'draft' ? 'A person approves the version in IsaFlow when it is ready.' : ''),
   });
 }

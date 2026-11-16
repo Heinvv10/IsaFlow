@@ -1,34 +1,35 @@
 /**
- * MCP write tool restore_budget_version (Hein's ruling 1, 2026-11-16): undo the most recent unrestored MCP
- * amount write of a version (its snapshot, migration 999f), only while the version's token still equals the
- * token that write left. The before-values go back through the grid save as the token user (every save rule,
- * the save's own audit row); the snapshot is then marked restored by the database's stamps. A refusal names
- * why (the cells that differ now, capped; amounts only with read:reports). dry_run runs the same restore in a
- * savepoint that is always rolled back.
+ * MCP write tool restore_budget_version (Hein's ruling 1; review round 1): undo the version's most recent MCP
+ * amount write (its snapshot, migration 999k) while nothing has changed it since: the token AND every cell's
+ * value and source (budgetSnapshotRestore.planRestore), by its author or an owner / admin. The before-values go
+ * back through the grid save as the token user (every save rule, the save's own audit row). dry_run runs the
+ * same restore in a savepoint that is always rolled back and answers the plan_hash; a live restore of more
+ * than one cell needs it and is refused when the plan changed since.
  */
 import { BudgetVersionError } from '@/modules/accounting/services/budgets/budgetVersionTypes';
-import { planRestore, restoreSnapshot } from '@/modules/accounting/services/budgets/budgetWriteSnapshots';
+import { planRestore, restoreSnapshot } from '@/modules/accounting/services/budgets/budgetSnapshotRestore';
 import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolledBackSavepoint';
 import { UUID_RE } from '@/lib/validation';
 import type { McpTool } from '../types';
-import { BUDGET_WRITE_SCOPE, FIGURES_HIDDEN_NOTE, figuresAllowed, isResult } from './budgetToolArgs';
-import { currentCells } from './budgetDiffView';
+import { BUDGET_WRITE_FENCE, isResult, PLAN_CHANGED, planHashArg } from './budgetToolArgs';
+import { cellMap } from './budgetDiffView';
 import { loadModel } from './budgetAmountWrite';
 import { ok, toolError } from './toolHelpers';
 
 export const restoreBudgetVersionTool: McpTool = {
   name: 'restore_budget_version',
   description:
-    'Undo the most recent MCP amount write (set_budget_amounts / set_budget_annual) on a budget version: every cell it changed goes back to its value before. '
-    + 'TRAPS: only the version\'s MOST RECENT unrestored write, and only while nobody has changed the version since (its version_token still equals the one that write left: another save, a status move or a driver recompute makes it refuse, naming the cells that differ). '
-    + 'Each write is restored at most once; a restore cannot itself be undone, and the write before it then cannot be restored either (the version changed). snapshot_id (from the write\'s reply) is optional and, when given, must be that most recent write. '
-    + 'The restore is a grid save as you (audited as you), so every save rule applies (a locked version or a slice under review is refused). dry_run true checks it all and changes nothing.',
-  scope: BUDGET_WRITE_SCOPE,
+    'Undo the most recent MCP amount write (set_budget_amounts / set_budget_annual) on a budget version: every cell it changed goes back to its value (and driver / typed source) before. '
+    + 'TRAPS: only the version\'s MOST RECENT write, only while nobody has changed it since (the version token and every cell of that write must be as the write left them; another save, a status move or a driver recompute makes it refuse, naming the cells that differ), and only by whoever made the write or an owner or admin. '
+    + 'Each write is restored at most once and a restore cannot itself be undone; once the latest write is restored, earlier writes cannot be. snapshot_id (from the write\'s reply) is optional and, when given, must be that most recent write. '
+    + 'WORKFLOW: dry_run true checks it all, changes nothing and answers plan_hash; then dry_run false with that plan_hash (required when the write changed more than one cell). The restore is a grid save as you (audited as you). Needs write:budgets and read:reports.',
+  ...BUDGET_WRITE_FENCE,
   write: true,
   inputSchema: {
     type: 'object',
     properties: {
       version_id: { type: 'string', format: 'uuid' }, snapshot_id: { type: 'string', format: 'uuid' },
+      plan_hash: { type: 'string', description: 'The plan_hash your dry run returned.' },
       dry_run: { type: 'boolean' }, idempotency_key: { type: 'string' },
     },
     required: ['version_id', 'idempotency_key'],
@@ -36,19 +37,18 @@ export const restoreBudgetVersionTool: McpTool = {
   },
   handler: async (args, ctx) => {
     if (args.snapshot_id !== undefined && (typeof args.snapshot_id !== 'string' || !UUID_RE.test(args.snapshot_id))) return toolError('invalid snapshot_id');
+    const planHash = planHashArg(args);
+    if (isResult(planHash)) return planHash;
     const model = await loadModel(ctx, args.version_id);
     if (isResult(model)) return model;
     const versionId = model.version!.id;
-    const figures = figuresAllowed(ctx);
-    const cents = new Map([...currentCells(model)].map(([k, v]) => [k, v.cents]));
-    const plan = await planRestore(ctx.companyId, versionId, (args.snapshot_id as string | undefined) ?? null, { token: model.updatedAt!, cents });
+    const plan = await planRestore(ctx.companyId, versionId, (args.snapshot_id as string | undefined) ?? null,
+      { token: model.updatedAt!, cells: cellMap(model.cells) }, { userId: ctx.userId, role: ctx.companyRole });
     if (!plan.ok) {
-      const cells = (plan.differing ?? []).map(({ cell, now }) => ({
-        account_id: cell.a, cc1_id: cell.c1, cc2_id: cell.c2, bu_id: cell.b, month: cell.m,
-        ...(figures ? { written: cell.after, now } : {}),
+      const cells = (plan.differing ?? []).map(({ cell, now, nowSource }) => ({
+        account_id: cell.a, cc1_id: cell.c1, cc2_id: cell.c2, bu_id: cell.b, month: cell.m, written: cell.after, now, now_source: nowSource,
       }));
-      const detail = cells.length > 0 ? ` Differing cells (up to ${cells.length}): ${JSON.stringify(cells)}` : '';
-      return toolError(`${plan.reason}.${detail}${figures || cells.length === 0 ? '' : ` ${FIGURES_HIDDEN_NOTE}`}`);
+      return toolError(`${plan.reason}.${cells.length > 0 ? ` Differing cells (up to ${cells.length}): ${JSON.stringify(cells)}` : ''}`);
     }
     const summary = { version_id: versionId, snapshot: plan.snapshot, cells: plan.cells.length };
     if (args.dry_run === true) {
@@ -58,9 +58,11 @@ export const restoreBudgetVersionTool: McpTool = {
         if (err instanceof BudgetVersionError) return toolError(`The restore would be refused: ${err.message}`);
         throw err;
       }
-      return { ...ok({ dry_run: true, ...summary, version_token: model.updatedAt, next_step: 'Call again with dry_run false to restore.' }), wroteNothing: true };
+      return { ...ok({ dry_run: true, ...summary, version_token: model.updatedAt, plan_hash: plan.planHash, next_step: 'Call again with dry_run false and this plan_hash to restore.' }), wroteNothing: true };
     }
-    // The restore writes and then marks: a failure at either throws and the registry's savepoint takes both back.
+    if (plan.cells.length > 1 && planHash === null) return toolError('plan_hash is required to restore a write of more than one cell: dry-run first and apply with its plan_hash.');
+    if (planHash !== null && planHash !== plan.planHash) return toolError(PLAN_CHANGED);
+    // The restore writes, checks and then marks: a failure at any step throws and the registry's savepoint takes it all back.
     const saved = await restoreSnapshot(ctx.companyId, ctx.userId, versionId, plan);
     return ok({ ...summary, restored: saved.saved + saved.deleted, version_token: saved.updatedAt });
   },

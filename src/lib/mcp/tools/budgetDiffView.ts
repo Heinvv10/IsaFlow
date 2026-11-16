@@ -1,28 +1,67 @@
 /**
- * The diff a budget amount write answers (dry run and live): counts per status, the changed / added /
- * removed / refused cells paged so the reply stays well under the client limit (MAX_READ_RESULT_BYTES),
- * and the version's section totals per month before and after. Amounts only for a token with read:reports.
+ * The diff a budget amount write answers (dry run and live), from what the grid save ACTUALLY leaves: the
+ * version's cells read before and after the save (in a dry run, after it inside the rolled-back savepoint).
+ * So a cleared override shows the driver value it reset to, and a driver's dependents the save recomputed
+ * (other accounts included) are listed as `recomputed`. Counts per status, the changed / added / removed /
+ * recomputed / refused cells paged so the reply stays well under the client limit (MAX_READ_RESULT_BYTES),
+ * and the version's section totals per month before and after.
  */
 import { cellKey, parseKey, type CellKey } from '@/modules/accounting/services/budgets/grid/cellKey';
 import { toCents } from '@/modules/accounting/services/budgets/grid/cents';
 import { bandTotals, ownMonths } from '@/modules/accounting/services/budgets/gridTotals';
-import type { GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
-import { countPlan, type CurrentCell, type PlanEntry } from '@/modules/accounting/services/budgets/cellWritePlan';
+import type { GridCell, GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
+import type { CurrentCell, PlanEntry } from '@/modules/accounting/services/budgets/cellWritePlan';
+import type { SnapshotCell } from '@/modules/accounting/services/budgets/budgetWriteSnapshots';
 import { centsText, randText } from './budgetToolArgs';
 
-/** Default and largest page of listed cells: ~150 bytes each with amounts, so 400 stay near 60 KB with the totals. */
+/** Default and largest page of listed cells: ~150 bytes each, so 400 stay near 60 KB with the totals. */
 export const DIFF_LIST_DEFAULT = 200;
 export const DIFF_LIST_MAX = 400;
+
+export type CellMap = Map<CellKey, CurrentCell>;
 
 /** A requested cell refused before it had a cell key (unresolved account or member, bad month or amount). */
 export interface RowRefusal { index: number; account: string; month: string; dimension: string | null; reason: string }
 
-export function currentCells(model: GridReadModel): Map<CellKey, CurrentCell> {
-  const out = new Map<CellKey, CurrentCell>();
-  for (const c of model.cells) {
-    out.set(cellKey(c), { cents: toCents(c.amount), source: c.source });
+export function cellMap(cells: readonly GridCell[]): CellMap {
+  return new Map(cells.map((c) => [cellKey(c), { cents: toCents(c.amount), source: c.source }]));
+}
+
+export type ActualStatus = 'added' | 'changed' | 'removed' | 'unchanged' | 'recomputed' | 'refused';
+
+const same = (a: CurrentCell | undefined, b: CurrentCell | undefined) => (a === undefined ? b === undefined : b !== undefined && a.cents === b.cents && a.source === b.source);
+
+function statusOf(before: CurrentCell | undefined, after: CurrentCell | undefined): ActualStatus {
+  if (same(before, after)) return 'unchanged';
+  if (before === undefined) return 'added';
+  return after === undefined ? 'removed' : 'changed';
+}
+
+export interface ActualDiff { index: number | null; key: CellKey; status: ActualStatus; before?: CurrentCell; after?: CurrentCell; reason?: string }
+
+/** Every planned cell (requested, or cleared by replace) with its ACTUAL outcome, then every other cell the save changed. */
+export function actualDiff(entries: readonly PlanEntry[], before: CellMap, after: CellMap): ActualDiff[] {
+  const out: ActualDiff[] = [];
+  const planned = new Set<CellKey>();
+  for (const e of entries) {
+    planned.add(e.key);
+    if (e.status === 'refused') { out.push({ index: e.index, key: e.key, status: 'refused', reason: e.reason }); continue; }
+    out.push({ index: e.index, key: e.key, status: statusOf(before.get(e.key), after.get(e.key)), before: before.get(e.key), after: after.get(e.key) });
+  }
+  for (const key of new Set([...before.keys(), ...after.keys()])) {
+    if (planned.has(key) || same(before.get(key), after.get(key))) continue;
+    out.push({ index: null, key, status: 'recomputed', before: before.get(key), after: after.get(key) });
   }
   return out;
+}
+
+/** The snapshot of a write: the PLANNED cells the save changed, before and after with their sources. */
+export function snapshotCells(diff: readonly ActualDiff[]): SnapshotCell[] {
+  const money = (c: CurrentCell | undefined) => (c === undefined ? null : centsText(c.cents));
+  return diff.filter((d) => d.status === 'added' || d.status === 'changed' || d.status === 'removed').map((d) => {
+    const r = parseKey(d.key);
+    return { a: r.glAccountId, c1: r.cc1Id, c2: r.cc2Id, b: r.buId, m: r.month, before: money(d.before), after: money(d.after), bs: d.before?.source ?? null, as: d.after?.source ?? null };
+  });
 }
 
 function labels(model: GridReadModel) {
@@ -41,38 +80,32 @@ function labels(model: GridReadModel) {
 export interface DiffPage { offset: number; limit: number }
 
 /** Counts, the listed page and the paging fields. */
-export function diffListing(model: GridReadModel, entries: readonly PlanEntry[], rowRefusals: readonly RowRefusal[], page: DiffPage, figures: boolean) {
+export function diffListing(model: GridReadModel, diff: readonly ActualDiff[], rowRefusals: readonly RowRefusal[], page: DiffPage) {
   const name = labels(model);
-  const money = (c: number | null) => (c === null ? null : centsText(c));
-  const listed: Array<Record<string, unknown>> = [
+  const money = (c: CurrentCell | undefined) => (c === undefined ? null : centsText(c.cents));
+  const listed: Array<Record<string, unknown> & { i: number | null }> = [
     ...rowRefusals.map((r) => ({ i: r.index, account: r.account, dimension: r.dimension, month: r.month, status: 'refused', reason: r.reason })),
-    ...entries.filter((e) => e.status !== 'unchanged').map((e) => {
-      const ref = parseKey(e.key);
+    ...diff.filter((d) => d.status !== 'unchanged').map((d) => {
+      const ref = parseKey(d.key);
       return {
-        i: e.index, account: name.account(ref.glAccountId), dimension: name.dimension(ref), month: ref.month, status: e.status,
-        ...(figures && e.status !== 'refused' ? { before: money(e.before), after: money(e.after) } : {}),
-        ...(e.reason ? { reason: e.reason } : {}),
+        i: d.index, account: name.account(ref.glAccountId), dimension: name.dimension(ref), month: ref.month, status: d.status,
+        ...(d.status === 'refused' ? { reason: d.reason } : { before: money(d.before), after: money(d.after) }),
+        ...(d.after && d.after.source !== 'manual' ? { source: d.after.source } : {}),
       };
     }),
-  ].sort((a, b) => (a.i === null ? Infinity : Number(a.i)) - (b.i === null ? Infinity : Number(b.i)));
-  const counts = countPlan(entries);
-  counts.refused += rowRefusals.length;
+  ].sort((a, b) => (a.i ?? Infinity) - (b.i ?? Infinity));
+  const counts: Record<ActualStatus, number> = { added: 0, changed: 0, removed: 0, unchanged: 0, recomputed: 0, refused: rowRefusals.length };
+  for (const d of diff) counts[d.status] += 1;
   const cells = listed.slice(page.offset, page.offset + page.limit);
   const next = page.offset + cells.length;
   return { counts, cells, listed_total: listed.length, truncated: next < listed.length, next_offset: next < listed.length ? next : null };
 }
 
-/** The version's band totals and GP / OP / NP per month and for the year, before and after the write (decimal text). */
-export function sectionTotals(model: GridReadModel, current: ReadonlyMap<CellKey, CurrentCell>, entries: readonly PlanEntry[]) {
-  const before = new Map<CellKey, number>([...current].map(([k, v]) => [k, v.cents]));
-  const after = new Map(before);
-  for (const e of entries) {
-    if (e.status === 'refused' || e.status === 'unchanged') continue;
-    if (e.after === null) after.delete(e.key); else after.set(e.key, e.after);
-  }
+/** The version's band totals and GP / OP / NP per month and for the year, before and after (decimal text). */
+export function sectionTotals(model: GridReadModel, before: CellMap, after: CellMap) {
   const months = model.year.monthKeys;
-  const view = (cells: Map<CellKey, number>) => {
-    const t = bandTotals(model.accounts, ownMonths(cells, months), months.length);
+  const view = (cells: CellMap) => {
+    const t = bandTotals(model.accounts, ownMonths([...cells].map(([k, v]) => [k, v.cents] as const), months), months.length);
     return Object.fromEntries(Object.entries(t.months).map(([metric, values]) => [metric, {
       year: randText(t.fy[metric as keyof typeof t.fy]), months: values.map(randText),
     }]));

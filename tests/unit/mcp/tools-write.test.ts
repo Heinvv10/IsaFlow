@@ -794,6 +794,7 @@ describe('write-tool manifest invariants', () => {
       copy_budget_version: { ...KEY },
       create_reforecast: { ...KEY },
       add_budget_note: { ...KEY },
+      delete_budget_version: { ...KEY },
       seed_budget: { ...KEY },
       set_budget_amounts: { ...KEY },
       set_budget_annual: { ...KEY },

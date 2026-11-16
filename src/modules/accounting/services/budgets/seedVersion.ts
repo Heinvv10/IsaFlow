@@ -32,7 +32,7 @@ import { ROUNDING_UNITS, type RoundingUnit } from './grid/cents';
 import { uplift } from './grid/spread';
 import type { PriorGrain } from './priorActuals';
 import { loadSeedAccounts, lockSeedVersions, pySeries, versionSeries, type SeedAccount, type SeedSeries, type UnassignedRule } from './seedSeries';
-import { adjustSeedSeries, type SeedAdjustments } from './seedAdjust';
+import { adjustSeedSeries, roundingFlips, type SeedAdjustments, type SeedCell } from './seedAdjust';
 
 export type SeedSource =
   | { type: 'py_actuals'; upliftPct: number; grain: PriorGrain; unassigned?: UnassignedRule }
@@ -62,17 +62,23 @@ export interface SeedResult {
   cells: number;
   /** Accounts with PY activity that were not seeded because they are headers or inactive (decision 18). */
   skippedAccounts: number;
+  /**
+   * Accounts ("code name") whose last seeded month the rounding put on the other side of zero: the notice the
+   * wizard preview gives (seedPreview.ts). The cells are written as computed; empty for an exact copy.
+   */
+  roundingFlips: string[];
 }
 
 const APPROVERS = new Set(['owner', 'admin']);
 
-interface SeedCell { series: SeedSeries; position: number; cents: number }
+const labelsOf = (accounts: ReadonlyMap<string, SeedAccount>) => new Map([...accounts].map(([id, a]) => [id, a.label]));
 
 /** The seed's cells: the wizard's single uplift, or (server callers) with the adjustments applied. */
-function seedCells(series: readonly SeedSeries[], input: SeedInput, pct: number, accounts: ReadonlyMap<string, SeedAccount>): SeedCell[] {
-  const labels = new Map([...accounts].map(([id, a]) => [id, a.label]));
-  if (!input.adjust) return upliftAll(series, pct, input.roundingUnit, labels);
-  return adjustSeedSeries(series, pct, input.roundingUnit, input.adjust, accounts);
+function seedCells(
+  series: readonly SeedSeries[], input: SeedInput, pct: number, accounts: ReadonlyMap<string, SeedAccount>, monthCount: number,
+): SeedCell[] {
+  if (!input.adjust) return upliftAll(series, pct, input.roundingUnit, labelsOf(accounts));
+  return adjustSeedSeries(series, pct, input.roundingUnit, input.adjust, accounts, monthCount);
 }
 
 /** Runs `uplift` over each series; a refusal names the account. */
@@ -107,6 +113,8 @@ interface Plan {
   months: string[];
   /** The year whose notes the seeded accounts carry into the target (D5): the source version's, PY's prior year; null for blank. */
   notesFrom: number | null;
+  /** seedAdjust.roundingFlips of the computed cells. */
+  flips: string[];
 }
 
 /** One seed holds what one import may (the grid, the template and a chained commit are sized to it). */
@@ -124,7 +132,7 @@ async function plan(companyId: string, input: SeedInput, sourceYear: number | nu
   if (!year) throw inputError(`No financial year is labelled ${input.fiscalYear}`);
   const months = toBudgetYearInfo(year).monthKeys;
   const { source } = input;
-  if (source.type === 'blank') return { cells: [], copyOf: null, skipped: 0, months, notesFrom: null };
+  if (source.type === 'blank') return { cells: [], copyOf: null, skipped: 0, months, notesFrom: null, flips: [] };
   if (!Number.isFinite(source.upliftPct) || source.upliftPct < -100 || source.upliftPct > 1000) {
     throw inputError('The uplift must be between -100% and 1000%');
   }
@@ -134,7 +142,8 @@ async function plan(companyId: string, input: SeedInput, sourceYear: number | nu
       grain: source.grain, unassigned: source.unassigned ?? 'company', includeNoActivity: input.includeNoActivity === true,
     });
     const notesFrom = (await priorFiscalYear(companyId, year)).fiscalYear;
-    return { cells: seedCells(series, input, source.upliftPct, accounts), copyOf: null, skipped, months, notesFrom };
+    const cells = seedCells(series, input, source.upliftPct, accounts, months.length);
+    return { cells, copyOf: null, skipped, months, notesFrom, flips: roundingFlips(cells, labelsOf(accounts)) };
   }
   if (sourceYear === null) throw new Error('seedVersion: the source version was not locked');
   if (sourceYear === input.fiscalYear && isExactCopy(input)) {
@@ -143,13 +152,26 @@ async function plan(companyId: string, input: SeedInput, sourceYear: number | nu
       SELECT COUNT(*)::int AS n FROM budget_month_amounts WHERE company_id = ${companyId}::UUID AND version_id = ${source.versionId}::UUID
     `) as Array<{ n: number }>;
     assertSeedSize(Number(rows[0]?.n ?? 0), true);
-    return { cells: null, copyOf: source.versionId, skipped: 0, months, notesFrom: sourceYear };
+    return { cells: null, copyOf: source.versionId, skipped: 0, months, notesFrom: sourceYear, flips: [] };
   }
   const series = await versionSeries(companyId, source.versionId, sourceYear, months.length);
-  return { cells: seedCells(series, input, source.upliftPct, accounts), copyOf: null, skipped: 0, months, notesFrom: sourceYear };
+  const cells = seedCells(series, input, source.upliftPct, accounts, months.length);
+  return { cells, copyOf: null, skipped: 0, months, notesFrom: sourceYear, flips: roundingFlips(cells, labelsOf(accounts)) };
 }
 
 const rand = (cents: number): string => (cents / 100).toFixed(2);
+
+/** The adjustment inputs in the seed's audit row (each list capped at 2 000 characters). */
+function adjustAudit(a: SeedAdjustments): Record<string, string> {
+  const list = (m: ReadonlyMap<string, number> | undefined, fmt: (v: number) => string) =>
+    [...(m ?? new Map<string, number>())].map(([k, v]) => `${k}:${fmt(v)}`).join(';').slice(0, 2000);
+  return {
+    seasonality: a.seasonality ?? 'actuals',
+    sectionUplifts: list(a.sectionUplift as ReadonlyMap<string, number> | undefined, String),
+    accountUplifts: list(a.accountUplift, String),
+    fixedAnnual: list(a.fixedAnnual, rand),
+  };
+}
 
 /** A version seed at 0% with no adjustments: in the same year it is P1's exact copy (cents and dimensions kept, no rounding). */
 function isExactCopy(input: SeedInput): boolean {
@@ -180,15 +202,12 @@ async function write(companyId: string, actor: VersionActor, input: SeedInput, p
         grain: source.type === 'py_actuals' ? source.grain : 'copy', cells: String(cells),
         accounts: String(seeded.length), total: rand(planned.reduce((s, c) => s + c.cents, 0)), notesCarried: String(notesCarried),
         ...(source.type === 'version' ? { copiedFrom: source.versionId } : {}),
-        ...(input.adjust ? {
-          seasonality: input.adjust.seasonality ?? 'actuals', accountUplifts: String(input.adjust.accountUplift?.size ?? 0),
-          sectionUplifts: String(input.adjust.sectionUplift?.size ?? 0), fixedAnnual: String(input.adjust.fixedAnnual?.size ?? 0),
-        } : {}),
+        ...(input.adjust ? adjustAudit(input.adjust) : {}),
       });
     }
   }
   if (input.makePrimary) await setPrimary(companyId, versionId, actor);
-  return { versionId, updatedAt: (await getVersion(companyId, versionId)).updatedAt, cells, skippedAccounts: p.skipped };
+  return { versionId, updatedAt: (await getVersion(companyId, versionId)).updatedAt, cells, skippedAccounts: p.skipped, roundingFlips: p.flips };
 }
 
 export async function seedVersion(companyId: string, actor: VersionActor, input: SeedInput): Promise<SeedResult> {

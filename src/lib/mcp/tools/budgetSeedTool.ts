@@ -15,11 +15,16 @@ import { BAND_ORDER, type Band, type BandTotals } from '@/modules/accounting/ser
 import { FiscalYearLabelUnknownError } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolledBackSavepoint';
 import type { McpTool, McpToolContext } from '../types';
-import { BUDGET_WRITE_SCOPE, FIGURES_HIDDEN_NOTE, figuresAllowed, isResult, ownVersion, parseMoney, randText, roundingUnitArg } from './budgetToolArgs';
+import { BUDGET_WRITE_FENCE, isResult, ownVersion, parseMoney, randText, roundingUnitArg } from './budgetToolArgs';
 import { ok, toolError } from './toolHelpers';
 
 const PCT = { type: 'number', minimum: -100, maximum: 1000 };
 const isPct = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= -100 && v <= 1000 && Math.abs(v * 10_000 - Math.round(v * 10_000)) < 1e-6;
+/** The wizard preview's notice: accounts whose last month the rounding put on the other side of zero (written as computed). */
+const flipsOf = (flips: string[]) => (flips.length === 0 ? {} : {
+  rounding_flips: flips.slice(0, 100), rounding_flips_total: flips.length,
+  rounding_note: 'The rounding puts these accounts\' last month on the other side of zero; a smaller rounding_unit avoids it.',
+});
 const totalsView = (t: BandTotals) => Object.fromEntries(Object.entries(t.months).map(([m, values]) => [m, { year: randText(t.fy[m as keyof typeof t.fy]), months: values.map(randText) }]));
 
 /** Account references (id or code) of the target year's chart to ids, or the first refusal. */
@@ -85,8 +90,9 @@ export const seedBudgetTool: McpTool = {
     'Create a NEW draft budget version and fill it, as the app\'s create wizard does: from prior_year_actuals (the same calendar months a year earlier, leaf accounts only) or from another version (months by position), times (1 + uplift_pct/100). '
     + 'TRAPS FIRST: it always creates a new version (to change an existing one use set_budget_amounts); kind original is refused when the year has one; at a dimension grain an account with untagged prior-year activity is budgeted at company level (unassigned company, default) or keeps only its tagged rows (drop); headers and inactive accounts are skipped (counted). '
     + 'Adjustments: section_uplifts (turnover, cost_of_sales, other_income, operating_expense, other_expense) and account_uplifts override uplift_pct (account first); fixed_annual sets an account\'s annual total instead (shared over its dimension rows by the source\'s share); seasonality actuals (the source\'s monthly shape, default) or flat. '
-    + 'Rounding (rounding_unit 1, 100 or 1000, default 1): months rounded, the LAST month takes the residue. WORKFLOW: dry_run true answers the cells and section totals it would create; then call with dry_run false. Not primary: an owner sets that, and a person approves it in IsaFlow.',
-  scope: BUDGET_WRITE_SCOPE,
+    + 'Seasonality flat spreads over EVERY month of the target year. An account named in account_uplifts or fixed_annual must have a row in the source. '
+    + 'Rounding (rounding_unit 1, 100 or 1000, default 1): months rounded, the LAST month takes the residue (rounding_flips names accounts it pushed past zero). Needs write:budgets and read:reports. WORKFLOW: dry_run true answers the cells and section totals it would create; then call with dry_run false. Not primary: an owner sets that, and a person approves it in IsaFlow.',
+  ...BUDGET_WRITE_FENCE,
   write: true,
   inputSchema: {
     type: 'object',
@@ -140,7 +146,6 @@ export const seedBudgetTool: McpTool = {
       includeNoActivity: args.include_no_activity === true, ...(adjust ? { adjust } : {}),
     };
     const actor = { userId: ctx.userId, role: ctx.companyRole ?? '' };
-    const figures = figuresAllowed(ctx);
     if (args.dry_run === true) {
       let preview: Record<string, unknown> = {};
       try {
@@ -148,7 +153,7 @@ export const seedBudgetTool: McpTool = {
           const r = await seedVersion(ctx.companyId, actor, input);
           const model = await loadGridReadModel(ctx.companyId, { versionId: r.versionId }, 'totals');
           preview = { cells: r.cells, skipped_accounts: r.skippedAccounts, accounts: new Set(model.cells.map((c) => c.glAccountId)).size, months: model.year.monthKeys,
-            ...(figures ? { totals: totalsView(model.totals) } : { figures_hidden: FIGURES_HIDDEN_NOTE }) };
+            totals: totalsView(model.totals), ...flipsOf(r.roundingFlips) };
         });
       } catch (err) {
         if (err instanceof BudgetVersionError) return toolError(`The seed would be refused: ${err.message}`);
@@ -166,7 +171,7 @@ export const seedBudgetTool: McpTool = {
       throw err;
     }
     return ok({
-      version_id: r.versionId, version_token: r.updatedAt, cells: r.cells, skipped_accounts: r.skippedAccounts,
+      version_id: r.versionId, version_token: r.updatedAt, cells: r.cells, skipped_accounts: r.skippedAccounts, ...flipsOf(r.roundingFlips),
       next_step: 'A new draft version (not primary). Review it with get_budget; adjust with set_budget_amounts; a person approves it in IsaFlow.',
     });
   },

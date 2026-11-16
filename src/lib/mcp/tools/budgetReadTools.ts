@@ -13,37 +13,52 @@ import { BAND_ORDER, type Band } from '@/modules/accounting/services/budgets/gri
 import { toCents } from '@/modules/accounting/services/budgets/grid/cents';
 import { FiscalYearLabelUnknownError } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import type { McpTool } from '../types';
-import { BUDGET_READ_SCOPE, centsText, figuresAllowed, isMonth, isResult, ownVersion, randText, versionView } from './budgetToolArgs';
+import { BUDGET_READ_SCOPE, centsText, isMonth, isResult, ownVersion, randText, versionView } from './budgetToolArgs';
 import { NOT_FOUND, clampLimit, ok, toolError } from './toolHelpers';
 
+/** Pages sized so the worst realistic page stays under MAX_READ_RESULT_BYTES (tests/unit/mcp/readLimitsSizeBudgets.test.ts). */
 export const GET_BUDGET_LIMIT_DEFAULT = 50;
-export const GET_BUDGET_LIMIT_MAX = 120;
-const MAX_VERSIONS = 200;
-const MAX_DRIVERS = 100;
+export const GET_BUDGET_LIMIT_MAX = 80;
+/** With include_notes: a note can be 2 000 characters, so fewer rows a page. */
+export const GET_BUDGET_NOTES_LIMIT_MAX = 20;
+export const GET_BUDGET_MAX_DRIVERS = 50;
+export const BUDGET_VERSIONS_LIMIT_DEFAULT = 40;
+export const BUDGET_VERSIONS_LIMIT_MAX = 50;
 
 export const listBudgetVersionsTool: McpTool = {
   name: 'list_budget_versions',
   description:
     'The company\'s budget versions, newest year first (primary first within a year), optionally of one fiscal_year (the year\'s label, e.g. 2027): id, year, name, kind (original | reforecast | scenario), status (draft → approved → locked), is_primary (what reports read when no version is named), '
-    + 'cells and total (decimal text), version_token (pass it to the write tools), who approved / locked / unlocked it and when, and last_edit (the newest audit row: who, when, what). Read get_budget for the amounts.',
+    + 'cells (amount rows held) and total (decimal text: the sum of every amount the version holds, revenue and expense alike, all months and levels: not a profit figure), version_token, who approved / locked / unlocked it and when, and last_edit (the newest audit row: who, when, what). '
+    + `Paged: limit (default ${BUDGET_VERSIONS_LIMIT_DEFAULT}, max ${BUDGET_VERSIONS_LIMIT_MAX}), offset; total and next_offset. Read get_budget for the amounts.`,
   scope: BUDGET_READ_SCOPE,
   write: false,
-  inputSchema: { type: 'object', properties: { fiscal_year: { type: 'integer' } }, additionalProperties: false },
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fiscal_year: { type: 'integer' },
+      limit: { type: 'integer', minimum: 1, maximum: BUDGET_VERSIONS_LIMIT_MAX }, offset: { type: 'integer', minimum: 0 },
+    },
+    additionalProperties: false,
+  },
   handler: async (args, ctx) => {
     if (args.fiscal_year !== undefined && !(Number.isInteger(args.fiscal_year) && Number(args.fiscal_year) >= 1900 && Number(args.fiscal_year) <= 2200)) {
       return toolError('fiscal_year must be a year label such as 2027');
     }
     const versions = await listVersions(ctx.companyId, args.fiscal_year as number | undefined);
-    const shown = versions.slice(0, MAX_VERSIONS);
+    const limit = clampLimit(args, BUDGET_VERSIONS_LIMIT_DEFAULT, BUDGET_VERSIONS_LIMIT_MAX);
+    const offset = offsetArg(args);
+    const shown = versions.slice(offset, offset + limit);
     const edits = await lastEditsOf(ctx.companyId, shown.map((v) => v.id));
-    const figures = figuresAllowed(ctx);
+    const next = offset + shown.length;
     return ok({
-      items: shown.map((v) => ({ ...versionView(v, figures), last_edit: edits.get(v.id) ?? null })),
-      total: versions.length, truncated: versions.length > shown.length,
+      items: shown.map((v) => ({ ...versionView(v), last_edit: edits.get(v.id) ?? null })),
+      total: versions.length, next_offset: next < versions.length ? next : null,
     });
   },
 };
 
+const offsetArg = (args: Record<string, unknown>): number => (Number.isInteger(args.offset) && Number(args.offset) > 0 ? Number(args.offset) : 0);
 const LEVEL = (c: { cc1Id: string | null; cc2Id: string | null; buId: string | null }) => (c.cc1Id ? 'cc1' : c.cc2Id ? 'cc2' : c.buId ? 'bu' : 'company');
 
 export const getBudgetTool: McpTool = {
@@ -51,9 +66,9 @@ export const getBudgetTool: McpTool = {
   description:
     'One budget version\'s amounts as the app\'s budget grid shows them: version_id, or fiscal_year for that year\'s primary (else newest) version; version null when the year has none. '
     + 'TRAPS FIRST: rows are (account, level, member) with one decimal-text amount per month; an account is budgeted at ONE level per version (company, or cc1, cc2 or bu members); a header account is never a row (its sub-accounts are); '
-    + 'totals are the WHOLE version per section and GP/OP/NP per month (not the filtered rows); a budget holder sees only their own slices; source tells typed / driver / override / actual (a reforecast\'s closed months) when not all typed. '
-    + `Filters: accounts (ids or codes), section, level, member, from_month/to_month (YYYY-MM). Paged: limit (default ${GET_BUDGET_LIMIT_DEFAULT}, max ${GET_BUDGET_LIMIT_MAX}), offset, next_offset. `
-    + 'version_token is what the write tools need. include_drivers lists the version\'s driver lines (per-head rates only for owners, admins and managers).',
+    + 'totals are per section and GP/OP/NP per month over the WHOLE version (not the filtered rows), and for a budget holder over their own slices only (they see nothing else); source tells manual (typed) / driver / override / actual (a reforecast\'s closed months) when not all manual. '
+    + `Filters: accounts (ids or codes), section, level, member, from_month/to_month (YYYY-MM). Paged: limit (default ${GET_BUDGET_LIMIT_DEFAULT}, max ${GET_BUDGET_LIMIT_MAX}; ${GET_BUDGET_NOTES_LIMIT_MAX} with include_notes), offset, next_offset. `
+    + `include_notes adds each page account's budget note (notes are per account and year). include_drivers lists up to ${GET_BUDGET_MAX_DRIVERS} driver lines (per-head rates only for owners, admins and managers).`,
   scope: BUDGET_READ_SCOPE,
   write: false,
   inputSchema: {
@@ -65,7 +80,7 @@ export const getBudgetTool: McpTool = {
       level: { type: 'string', enum: ['company', 'cc1', 'cc2', 'bu'] },
       member: { type: 'string', description: 'A cc1 / cc2 / bu member id or code (with level).' },
       from_month: { type: 'string' }, to_month: { type: 'string' },
-      include_drivers: { type: 'boolean' },
+      include_drivers: { type: 'boolean' }, include_notes: { type: 'boolean' },
       limit: { type: 'integer', minimum: 1, maximum: GET_BUDGET_LIMIT_MAX }, offset: { type: 'integer', minimum: 0 },
     },
     additionalProperties: false,
@@ -89,7 +104,6 @@ export const getBudgetTool: McpTool = {
       if (err instanceof FiscalYearLabelUnknownError) return toolError(NOT_FOUND);
       throw err;
     }
-    const figures = figuresAllowed(ctx);
     const resolver = refResolver(model);
     let accountFilter: Set<string> | null = null;
     if (Array.isArray(args.accounts)) {
@@ -125,22 +139,26 @@ export const getBudgetTool: McpTool = {
       rows.set(key, row);
     }
     const all = [...rows.values()];
-    const limit = clampLimit(args, GET_BUDGET_LIMIT_DEFAULT, GET_BUDGET_LIMIT_MAX);
-    const offset = Number.isInteger(args.offset) && Number(args.offset) > 0 ? Number(args.offset) : 0;
+    const withNotes = args.include_notes === true;
+    const limit = Math.min(clampLimit(args, GET_BUDGET_LIMIT_DEFAULT, GET_BUDGET_LIMIT_MAX), withNotes ? GET_BUDGET_NOTES_LIMIT_MAX : GET_BUDGET_LIMIT_MAX);
+    const offset = offsetArg(args);
     const page = all.slice(offset, offset + limit).map(({ cents, sources, ...r }) => ({
-      ...r, ...(sources.size === 1 && sources.has('typed') ? {} : { source: [...sources].sort() }),
-      ...(figures ? { months: Object.fromEntries([...cents].map(([m, v]) => [m, centsText(v)])), total: centsText([...cents.values()].reduce((s, v) => s + v, 0)) } : {}),
-      ...(accounts.get(r.account_id)?.note ? { note: accounts.get(r.account_id)!.note } : {}),
+      ...r, ...(sources.size === 1 && sources.has('manual') ? {} : { source: [...sources].sort() }),
+      months: Object.fromEntries([...cents].map(([m, v]) => [m, centsText(v)])), total: centsText([...cents.values()].reduce((s, v) => s + v, 0)),
     }));
-    const drivers = args.include_drivers === true ? model.drivers.slice(0, MAX_DRIVERS).map((d) => ({
+    const notes = withNotes
+      ? Object.fromEntries([...new Set(page.map((r) => r.account_id))].flatMap((id) => (accounts.get(id)?.note ? [[accounts.get(id)!.code, accounts.get(id)!.note]] : [])))
+      : undefined;
+    const drivers = args.include_drivers === true ? model.drivers.slice(0, GET_BUDGET_MAX_DRIVERS).map((d) => ({
       account: accounts.get(d.glAccountId)?.code ?? d.glAccountId, level: LEVEL(d), kind: d.kind, from_month: d.fromMonth, to_month: d.toMonth, pct: d.pct,
-      ...(isRestrictedPerHead(d) ? { per_head_restricted: true } : figures && 'amount' in d && d.amount !== null ? { amount: randText(d.amount) } : {}),
+      ...(isRestrictedPerHead(d) ? { per_head_restricted: true } : 'amount' in d && d.amount !== null ? { amount: randText(d.amount) } : {}),
     })) : undefined;
     return ok({
-      version: model.version ? versionView(model.version, figures) : null, version_token: model.updatedAt, fiscal_year: model.year.fiscalYear,
+      version: model.version ? versionView(model.version) : null, version_token: model.updatedAt, fiscal_year: model.year.fiscalYear,
       year_months: model.year.monthKeys, months,
       rows: page, rows_total: all.length, next_offset: offset + page.length < all.length ? offset + page.length : null,
-      ...(figures ? { totals: Object.fromEntries(Object.entries(model.totals.months).map(([k, v]) => [k, { year: randText(model.totals.fy[k as 'turnover']), months: v.map(randText) }])) } : {}),
+      totals: Object.fromEntries(Object.entries(model.totals.months).map(([k, v]) => [k, { year: randText(model.totals.fy[k as 'turnover']), months: v.map(randText) }])),
+      ...(notes ? { notes } : {}),
       holder: model.holder ? { slices: model.holder.slices.length } : null,
       ...(drivers ? { drivers, drivers_total: model.drivers.length } : {}),
     });

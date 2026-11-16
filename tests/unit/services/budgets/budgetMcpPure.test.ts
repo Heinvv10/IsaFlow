@@ -5,7 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { countPlan, planCellWrites, type CurrentCell, type PlanInput } from '@/modules/accounting/services/budgets/cellWritePlan';
-import { adjustSeedSeries } from '@/modules/accounting/services/budgets/seedAdjust';
+import { adjustSeedSeries, roundingFlips } from '@/modules/accounting/services/budgets/seedAdjust';
+import { budgetPlanHash } from '@/modules/accounting/services/budgets/budgetPlanHash';
 import { spreadAnnual } from '@/modules/accounting/services/budgets/annualSpread';
 import { centsText, parseMoney } from '@/lib/mcp/tools/budgetToolArgs';
 
@@ -58,23 +59,47 @@ describe('adjustSeedSeries', () => {
 
   it('account uplift beats section uplift beats the seed uplift', () => {
     const out = adjustSeedSeries([series(A, [10000, 10000]), series(B, [10000, 10000])], 0, 1,
-      { accountUplift: new Map([[A, 50]]), sectionUplift: new Map([['operating_expense', 10], ['turnover', 20]]) }, accounts);
+      { accountUplift: new Map([[A, 50]]), sectionUplift: new Map([['operating_expense', 10], ['turnover', 20]]) }, accounts, 2);
     expect(out.filter((c) => c.series.glAccountId === A).map((c) => c.cents)).toEqual([15000, 15000]);
     expect(out.filter((c) => c.series.glAccountId === B).map((c) => c.cents)).toEqual([12000, 12000]);
   });
 
   it('a fixed annual amount is spread by the source shape, residue on the last month, and shared across dimension rows', () => {
-    const out = adjustSeedSeries([series(A, [100, 300], C1), series(A, [100, 0])], 0, 1, { fixedAnnual: new Map([[A, 100000]]) }, accounts);
+    const out = adjustSeedSeries([series(A, [100, 300], C1), series(A, [100, 0])], 0, 1, { fixedAnnual: new Map([[A, 100000]]) }, accounts, 2);
     const total = out.reduce((s, c) => s + c.cents, 0);
     expect(total).toBe(100000);
     expect(out.map((c) => c.cents)).toEqual([20000, 60000, 20000, 0]);
   });
 
   it('flat seasonality spreads evenly with the residue on the last month; a fixed amount with no source shape is refused', () => {
-    const flat = adjustSeedSeries([series(A, [100, 900, 0])], 0, 1, { fixedAnnual: new Map([[A, 100000]]), seasonality: 'flat' }, accounts);
+    const flat = adjustSeedSeries([series(A, [100, 900, 0])], 0, 1, { fixedAnnual: new Map([[A, 100000]]), seasonality: 'flat' }, accounts, 3);
     expect(flat.map((c) => c.cents)).toEqual([33300, 33300, 33400]);
-    expect(() => adjustSeedSeries([series(A, [0, 0])], 0, 1, { fixedAnnual: new Map([[A, 100]]) }, accounts)).toThrow(/6000 Rent.*no monthly shape/);
-    expect(() => adjustSeedSeries([series(B, [1, 1])], 0, 1, { fixedAnnual: new Map([[A, 100]]) }, accounts)).toThrow(/no row in the seed's source/);
+    expect(() => adjustSeedSeries([series(A, [0, 0])], 0, 1, { fixedAnnual: new Map([[A, 100]]) }, accounts, 2)).toThrow(/6000 Rent.*no monthly shape/);
+    expect(() => adjustSeedSeries([series(B, [1, 1])], 0, 1, { fixedAnnual: new Map([[A, 100]]) }, accounts, 2)).toThrow(/no row in the seed's source/);
+  });
+
+  it('flat spreads over EVERY month of the target year, from a sparse version source (2 of 14 months)', () => {
+    const sparse = { glAccountId: A, cc1Id: null, cc2Id: null, buId: null, positions: [2, 9], cents: [70000, 70000] };
+    const fixed = adjustSeedSeries([sparse], 0, 1, { fixedAnnual: new Map([[A, 140000]]), seasonality: 'flat' }, accounts, 14);
+    expect(fixed.map((c) => c.position)).toEqual([...Array(14).keys()]);
+    expect(fixed.map((c) => c.cents)).toEqual(Array(14).fill(10000));
+    const lifted = adjustSeedSeries([sparse], 10, 1, { seasonality: 'flat' }, accounts, 14);
+    expect(lifted.map((c) => c.position)).toEqual([...Array(14).keys()]);
+    expect(lifted.reduce((t, c) => t + c.cents, 0)).toBe(154000);
+  });
+
+  it('an account uplift for an account with no source row is refused, as a fixed amount is', () => {
+    expect(() => adjustSeedSeries([series(B, [1, 1])], 0, 1, { accountUplift: new Map([[A, 5]]) }, accounts, 2)).toThrow(/6000 Rent has no row in the seed's source to place an uplift/);
+  });
+
+  it('roundingFlips names an account whose last month the rounding pushed past zero, not one whose source already was', () => {
+    const s1 = series(A, [100, 100, 100]);
+    const s2 = { ...series(B, [100, 100, -50]) };
+    const cells = [
+      ...[100000, 100000, -50000].map((cents, position) => ({ series: s1, position, cents })),
+      ...[100000, 100000, -50000].map((cents, position) => ({ series: s2, position, cents })),
+    ];
+    expect(roundingFlips(cells, new Map([[A, '6000 Rent'], [B, '4000 Sales']]))).toEqual(['6000 Rent']);
   });
 });
 
@@ -102,5 +127,18 @@ describe('parseMoney / centsText', () => {
   });
   it.each([[12.5, /decimal strings/], ['1.005', /at most 2 decimals/], ['1e5', /not a decimal/], ['', /not a decimal/], ['99999999999999', /not a decimal/]])('%s is refused', (v, why) => {
     expect((parseMoney(v) as { error: string }).error).toMatch(why);
+  });
+});
+
+describe('budgetPlanHash', () => {
+  const cell = { key: 'a|||2026-03', before: 100, beforeSource: 'typed', after: 200 };
+  it('is the same for the same plan and differs for any change of version, kind, token, before, source or after', () => {
+    const h = budgetPlanHash('V', 'set:merge', 'T', [cell]);
+    expect(budgetPlanHash('v', 'set:merge', 'T', [cell])).toBe(h);
+    for (const other of [
+      budgetPlanHash('W', 'set:merge', 'T', [cell]), budgetPlanHash('V', 'set:add', 'T', [cell]), budgetPlanHash('V', 'set:merge', 'U', [cell]),
+      budgetPlanHash('V', 'set:merge', 'T', [{ ...cell, before: 101 }]), budgetPlanHash('V', 'set:merge', 'T', [{ ...cell, beforeSource: 'override' }]),
+      budgetPlanHash('V', 'set:merge', 'T', [{ ...cell, after: 201 }]),
+    ]) expect(other).not.toBe(h);
   });
 });
