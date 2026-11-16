@@ -10,6 +10,8 @@
  *    on a fresh CI database (the audited sole-approver exception), and where self-approval is refused (dev, whose
  *    sandbox also has the approver) this one test is SKIPPED with the reason. Never a faked approval. The DRAFT and
  *    axe tests run either way.
+ *  - Wave 6 PS3: the approved slip's details are frozen at approval. A new bank account saved after approval does not
+ *    reach the final slip (it keeps the last four digits it was approved with); the account is put back in `finally`.
  *  - axe reports 0 critical and 0 serious with the drawer open, in both themes, at 1568 and 390.
  *  - EVIDENCE_DIR=<dir> saves screenshots.
  *
@@ -30,6 +32,7 @@ const SANDBOX_ONBOARDING_ID = '2b7e4f19-6a3c-4d58-9e21-8c0f5a6d3b74';
 const RUN = { month: 11, year: 2026 };
 const EMPLOYEE = { employeeNumber: 'Z10-1', firstName: 'Zola', lastName: 'Slip', salary: 30000 };
 const ACCOUNT = '62000123456';
+const LATER_ACCOUNT = '62000999888';
 const NAME = `${EMPLOYEE.firstName} ${EMPLOYEE.lastName}`;
 const NEEDS_APPROVER = 'needs a second approver: set E2E_APPROVER_EMAIL / E2E_APPROVER_PASSWORD (an admin of '
   + `"${SANDBOX_NAME}" other than the suite user); without them this company refuses the suite user's self-approval`;
@@ -144,6 +147,7 @@ test('calculated run: the Payslip drawer opens and the PDF is DRAFT, with the st
 test('cleared through R-035 and approved: the payslip is final and the page says "Payslips are ready"', async ({ page, context, baseURL }) => {
   const { api, sandboxId, runId, employeeId } = await sandbox(context, baseURL!);
   let approved = false;
+  let moved = false;
   try {
     const clearance = await clearPayRunApproval(api, baseURL!, runId, { reportSelfRefusal: true }).catch((err: Error) => {
       if (!/not a member/.test(err.message)) throw err;
@@ -163,8 +167,23 @@ test('cleared through R-035 and approved: the payslip is final and the page says
     expect(final).not.toContain('DRAFT');
     expect(hasMoney(final, netText)).toBe(true);
     await snap(page, 'payslip-ready', 'session-theme');
+
+    // PS3: the employee's bank account changes after approval; the final slip keeps the details it was approved with.
+    await api.put(`/api/payroll/employees/${employeeId}/bank-details`, {
+      bankName: 'FNB', branchCode: '250655', accountNumber: LATER_ACCOUNT, accountType: 'cheque', accountHolder: NAME,
+    });
+    moved = true;
+    const frozen = await slipText(page, runId, employeeId);
+    expect(frozen).toContain('3456');
+    expect(frozen).not.toContain('9888');
+    expect(frozen).not.toContain('as at download');
   } finally {
     if (approved) await api.post(`/api/payroll/runs/${runId}/reopen`, { reason: 'z10 golden sandbox reset' });
+    if (moved) {
+      await api.put(`/api/payroll/employees/${employeeId}/bank-details`, {
+        bankName: 'FNB', branchCode: '250655', accountNumber: ACCOUNT, accountType: 'cheque', accountHolder: NAME,
+      });
+    }
     await api.dispose();
   }
 });
