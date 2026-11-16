@@ -43,6 +43,32 @@ Same procedure (cluster rebuilt for N9, a migration mutant). Counts from the run
 | N12 | the planned save is capped at 20 000 (replace's clears included) | the `plan.save` cap removed | unit budgetAmountTools | 1 failed / 30 |
 | N10 | the diff is what the save actually left | dry run uses the before-state as "after" | unit budgetAmountTools; int mcp-budget-batch | unit 4 failed / 30; int 1 failed / 3 (driver reset / recomputed dependent) |
 
+### Review round 2 (fix review + breaker on 56c3479782)
+
+Red first: before the fix the new tests failed (unit 8 failed / 65; int 3 failed / 11, B1 answering the generic
+failure); after it, unit 113/113 and int 42/42 (all six mcp-budget suites).
+
+| # | Guard | Mutant | Tests run | Result |
+|---|---|---|---|---|
+| R1 | B1: an override reset to an equal driver value is refused (not half-restored) | the `unpinnable` refusal disabled | unit budgetSnapshotRestore; int mcp-budget-batch | unit 1 failed / 9; int 1 failed / 5 |
+| R1b | B1: the post-check requires a former override to be one again | the `bs === 'override'` clause removed | unit budgetSnapshotRestore | 1 failed / 9 |
+| R2 | B2: a status move after the write refuses the restore (same token, one batch) | the `statusMovedAt` check disabled | unit budgetSnapshotRestore; int mcp-budget-batch | unit 1 failed / 9; int 1 failed / 5 |
+| R3 | B3: a snapshot is inserted only with a save of its version in the same transaction (999k insert trigger) | the trigger's check disabled | int mcp-budget-restore (fresh cluster) | 1 failed / 6 |
+| R4 | L1: a multi-cell write that changes nothing says so (before asking for plan_hash) | the nothing-changed answer removed (the hash check answers instead) | unit budgetAmountTools | 1 failed / 31 |
+
+B2 is enforced with the version's clock-time status stamps (approved_at, locked_at, unlocked_at), not a stored status:
+no schema change, and an unlock back to the same status after the write is caught too. B3 narrows, not closes: an
+app_user who also saves the version in the same transaction can still insert a row; its `created_by` is then the
+forger (the database's stamp), and a restore of it writes only as its author, an owner or an admin, audited as them.
+
+### Accepted limits
+
+- `plan_hash` binds the PLANNED cells (value and source before, value after), not the dependents a driver recomputes
+  after them: a per_head row's headcount can move between the dry run and the live call, so the live call's
+  recomputed cells can differ from the dry run's listing. The live reply lists what the save actually left, and
+  restore's content check covers the undo.
+- Snapshots are never pruned (growth documented in `services/budgets/.claude.md`).
+
 M4b and M6 show two layers: the app check (with a message naming the account and month) and a database backstop.
 Both stay; the tests now pin the app layer, and the backstops keep their own suites (`budgets-grain-exclusion`,
 `budgets-p5-holders-db`).
