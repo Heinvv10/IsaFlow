@@ -40,7 +40,7 @@ const ips: string[] = [];
 const accounts = new Map<string, string>();
 /** Each account's GoTrue login address by id (what GET /admin/users/<id> answers). */
 const logins = new Map<string, string>();
-/** Accounts whose GoTrue admin read answers 503 (an outage). */
+/** Account ids whose GoTrue admin read, or addresses whose GoTrue lookup, answers 503 (an outage). */
 export const gotrueDown = new Set<string>();
 /** GoTrue's login address for `id` moves to `email` (change-email); users.email is not touched. */
 export function setGotrueEmail(id: string, email: string): void {
@@ -136,6 +136,23 @@ function gotrueStub(input: Parameters<typeof fetch>[0], init?: Parameters<typeof
   const method = init?.method ?? 'GET';
   const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
   if (path === '/user') return Promise.resolve(json({ id: 'disposable', factors: [] }));
+  if (path === '/admin/users' && method === 'GET') {
+    // findUserByEmail: GoTrue's free-text filter over addresses; the caller exact-matches.
+    const filter = (url.searchParams.get('filter') ?? '').toLowerCase();
+    if (gotrueDown.has(filter.trim())) return Promise.resolve(json({ msg: 'unavailable' }, 503));
+    const users = [...logins].filter(([, email]) => email.toLowerCase().includes(filter.trim())).map(([id, email]) => ({ id, email }));
+    return Promise.resolve(json({ users }));
+  }
+  if (path === '/admin/users' && method === 'POST') {
+    // adminCreateUser: a new account for an address no account holds (422 when one does).
+    const email = String(body.email);
+    if (accounts.has(email.trim().toLowerCase())) return Promise.resolve(json({ msg: 'already registered' }, 422));
+    const id = crypto.randomUUID();
+    created.push(id);
+    accounts.set(email.trim().toLowerCase(), id);
+    logins.set(id, email);
+    return Promise.resolve(json({ id, email }));
+  }
   if (path.startsWith('/admin/users/') && method === 'GET') {
     // GoTrue parses the id as a UUID, so any letter case names the same (lower-case) account.
     const id = decodeURIComponent(path.split('/').pop()!).toLowerCase();

@@ -185,6 +185,44 @@ describe("a GoTrue-backed user's stale users.email is not theirs to cancel", () 
   });
 });
 
+describe('the row email is cancelled unless ANOTHER GoTrue account holds it (security review of 0700f0d6cf)', () => {
+  it('X is held by no GoTrue account: its invitation is cancelled, and the anonymous accept is 410', async () => {
+    // The user moved away from X in GoTrue but may still read X's mailbox: an unpinned invitation to X would mint a
+    // fresh identity for whoever holds the link (signIn(X) after adminCreateUser).
+    const d = await seedUser({ memberOf: [A] });
+    setGotrueEmail(d.id, `moved-${d.id}@test.local`);
+    const toX = await invite(B, d.email);
+    expect((await adminDelete(d.id)).status).toBe(200);
+    expect(await invitationRow(toX)).toBeUndefined();
+    const r = await newAccept(toX);
+    expect(r.status, JSON.stringify(r.body)).toBe(410);
+    expect(await deleteAudit(d.id)).toEqual([expect.objectContaining({ invitations_cancelled: 1 })]);
+  });
+
+  it("X is held by the user's own account (any case): cancelled", async () => {
+    const id = crypto.randomUUID();
+    const d = await seedUser({ memberOf: [A], email: `Own.${id}@Test.Local` });
+    setGotrueEmail(d.id, `own.${id}@test.local`);
+    const toX = await invite(B, d.email);
+    expect((await adminDelete(d.id)).status).toBe(200);
+    expect(await invitationRow(toX)).toBeUndefined();
+  });
+
+  it('GoTrue cannot say who holds X: the delete is a 5xx and writes nothing', async () => {
+    const d = await seedUser({ memberOf: [A] });
+    setGotrueEmail(d.id, `moved-${d.id}@test.local`);
+    const toX = await invite(B, d.email);
+    gotrueDown.add(d.email);
+    try {
+      const del = await adminDelete(d.id);
+      expect(del.status, JSON.stringify(del.body)).toBeGreaterThanOrEqual(500);
+    } finally { gotrueDown.delete(d.email); }
+    expect(await usersRows(d.id)).toBe(1);
+    expect(await invitationRow(toX)).toEqual({ accepted_at: null });
+    expect(await deleteAudit(d.id)).toEqual([]);
+  });
+});
+
 describe('padding the accept route trims, the cancel trims too', () => {
   it.each([
     ['a tab', '\t'], ['a newline', '\n'], ['a no-break space', '\u00a0'], ['a byte-order mark', '\ufeff'],

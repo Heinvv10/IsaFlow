@@ -6,13 +6,16 @@
  * GoTrue login email, and POST /api/invitations/<token>/accept signs in as the invitation's address (only the GoTrue
  * holder of that address can) or through the account pinned on it (gotrue_user_id). users.email and GoTrue drift (a
  * POPIA erasure rewrites users.email and leaves GoTrue alone; change-email's documented partial failures), breaker
- * #1468. So for a row that owns a GoTrue account the cancel takes the invitations pinned to it and those addressed to
- * its GoTrue login email, never the row's email: a stale users.email may be another person's GoTrue address now, and
- * their invitations are not this delete's (round-5 breaker R5-2). A row that owns none is cancelled by its own email.
+ * #1468. So the cancel takes the invitations pinned to the GoTrue account the row owns, those addressed to that
+ * account's login email, and those addressed to the row's own email, EXCEPT when a DIFFERENT GoTrue account holds the
+ * row's email now: those invitations are that person's, not this delete's (round-5 breaker R5-2). Otherwise the row's
+ * email stays in, account or not: a user who moved away from it in GoTrue may still read its mailbox, and the anonymous
+ * route would mint a fresh identity for whoever holds the link (security review of 0700f0d6cf).
  */
 import { sql } from '@/lib/neon';
 import { UUID_RE } from '@/lib/validation';
 import { adminGetUser } from '@/lib/auth/gotrueAdminUser';
+import { findUserByEmail } from '@/lib/auth/gotrue';
 
 /**
  * Which users row owns a GoTrue account: a canonical lower-case UUID id owns the account with that id, and any other
@@ -39,19 +42,59 @@ export async function ownedGotrueAccount(userId: string): Promise<OwnedGotrueAcc
   return account === null ? null : { email: account.email || null };
 }
 
+/** An address as both accept routes and 997b compare it: JavaScript trim, then lower case. */
+const normalised = (email: string | null | undefined): string => (email ?? '').trim().toLowerCase();
+
+/** Who the deleted row is to GoTrue, read before any row lock (deleteUser). */
+export interface DeletedUserIdentity {
+  account: OwnedGotrueAccount | null;
+  /** users.email as read before the delete's locks. */
+  rowEmail: string;
+  /** A GoTrue account other than the one this row owns holds rowEmail now. */
+  rowEmailHeldElsewhere: boolean;
+}
+
 /**
- * Deletes every invitation still pending (expired included) that could let the deleted row back in; returns how many.
- * With a GoTrue account: those pinned to it (997b runs that arm only for a canonical lower-case id, the rule above) and
- * those addressed to its login email. Without one: those addressed to the deleted row's email. Addresses compare
- * trimmed (JavaScript trim's whitespace set, as the legacy accept compares) and lower-cased. Accepted invitations stay.
- * Call LAST in the delete's own transaction, after `DELETE FROM users` (997b's definer refuses while the users row
- * exists): the invitation rows are the last lock of every writer of a user's rows, as both accept routes take them.
+ * The GoTrue facts the cancel needs, read BEFORE any row lock (no lock is held across the HTTP calls): the account the
+ * row owns, and, when the row's email is not that account's own login, whether another account holds it
+ * (findUserByEmail). A row that owns no account is not looked up further: it cancels by its own email (no session can
+ * reach such a row; see ownsGotrueAccount). Any GoTrue failure throws: the delete is a 5xx that writes nothing.
+ */
+export async function deletedUserIdentity(userId: string, rowEmail: string): Promise<DeletedUserIdentity> {
+  const account = await ownedGotrueAccount(userId);
+  if (account === null || normalised(rowEmail) === '' || normalised(account.email) === normalised(rowEmail)) {
+    return { account, rowEmail, rowEmailHeldElsewhere: false };
+  }
+  const holder = await findUserByEmail(rowEmail.trim());
+  return { account, rowEmail, rowEmailHeldElsewhere: holder !== null && holder.id !== userId };
+}
+
+/**
+ * Deletes every invitation still pending (expired included) that could let the deleted row back in; returns how many:
+ * those pinned to the GoTrue account it owned (997b runs that arm only for a canonical lower-case id, the rule above),
+ * those addressed to that account's login email, and those addressed to the deleted row's email unless another
+ * account holds it (`identity`, read before the locks). Addresses compare trimmed (JavaScript trim's whitespace set,
+ * as the legacy accept compares) and lower-cased. Accepted invitations stay. Call LAST in the delete's own
+ * transaction, after `DELETE FROM users` (997b's definer refuses while the users row exists): the invitation rows are
+ * the last lock of every writer of a user's rows, as both accept routes take them.
+ *
+ * `deletedEmail` is the email the users DELETE returned. If it is not the one `identity` judged (a change-email landed
+ * between the read and the delete), this throws: the request rolls back whole rather than cancel by an unjudged address.
  */
 export async function cancelPendingInvitations(
-  userId: string, rowEmail: string | null, account: OwnedGotrueAccount | null,
+  userId: string, deletedEmail: string, identity: DeletedUserIdentity,
 ): Promise<number> {
-  const address = account === null ? rowEmail : account.email;
-  const addresses = typeof address === 'string' && address.trim() !== '' ? [address] : [];
+  if (normalised(deletedEmail) !== normalised(identity.rowEmail)) {
+    throw new Error('deleteUser: the user\'s email changed during the delete; nothing was written, retry');
+  }
+  const candidates = [identity.account?.email ?? null, identity.rowEmailHeldElsewhere ? null : deletedEmail];
+  const seen = new Set<string>();
+  const addresses = candidates.filter((e): e is string => {
+    const key = normalised(e);
+    if (key === '' || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   const rows = await sql<{ n: number }>`SELECT public.admin_cancel_user_invitations(${userId}, ${addresses}::text[]) AS n`;
   return Number(rows[0]?.n ?? 0);
 }
