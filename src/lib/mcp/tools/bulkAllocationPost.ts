@@ -6,7 +6,7 @@
  * here must reach the registry's savepoint (the only thing that unwinds the
  * journals already posted), so it is RETHROWN rather than returned.
  */
-import { withSavepoint } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { BulkAllocationLineError } from '../bulkAllocationLineError';
 import type { ResolvedLine } from './bulkAllocationPrepare';
 import { reasonForStatus, type SkippedLine } from './bulkAllocationSkip';
@@ -14,6 +14,7 @@ import { prefetchAllocationVatFacts, type VatCoercionReason } from './allocation
 import { postAllocationLine } from './allocationLine';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { isLockNotAvailable } from '@/modules/accounting/services/core/lockContention';
+import { lockTransferPairs } from '@/modules/accounting/services/bank/transferPairLock';
 import type { McpToolContext } from '../types';
 
 export interface PostedLine {
@@ -120,6 +121,26 @@ export function safeLineDetail(err: unknown): string {
 }
 
 /**
+ * Every transfer pair the batch will post, locked up front in sorted order (transferPairLock.lockTransferPairs): once
+ * line N has posted its journal the request holds the journal-number lock, and a pair lock asked for AFTER it can close
+ * a cycle with a request that holds that pair and waits for the number. Nothing is posted yet, so a pair that cannot be
+ * had in 5 s fails the whole call (503) before any write.
+ */
+async function lockTheBatchTransferPairs(companyId: string, ordered: readonly ResolvedLine[]): Promise<void> {
+  const transfers = ordered.filter(({ line }) => line.allocType === 'transfer' && line.contraAccountId);
+  if (transfers.length === 0) return;
+  const rows = (await sql`SELECT id, bank_account_id FROM bank_transactions
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${transfers.map((t) => t.txId)}::UUID[])`) as Array<{ id: string; bank_account_id: string }>;
+  const bankOf = new Map(rows.map((r) => [String(r.id), String(r.bank_account_id)]));
+  const pairs: Array<[string, string]> = [];
+  for (const { txId, line } of transfers) {
+    const bank = bankOf.get(txId);
+    if (bank && bank !== line.contraAccountId) pairs.push([bank, line.contraAccountId]);
+  }
+  await lockTransferPairs(companyId, pairs);
+}
+
+/**
  * Posts every prepared line, in the order given (the caller sorts by
  * transaction id — see the deadlock note in writeBankBulkAllocate.ts).
  *
@@ -166,6 +187,7 @@ export async function postPreparedLines(
   const vatFacts = await prefetchAllocationVatFacts(
     ctx.companyId, ordered.map(({ line }) => line.contraAccountId),
   );
+  await lockTheBatchTransferPairs(ctx.companyId, ordered);
   const lines: PostedLine[] = [];
   const raced: SkippedLine[] = [];
   // Per batch, not per line: a run that quietly dropped a claim on 40 of 500

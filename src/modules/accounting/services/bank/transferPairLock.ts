@@ -25,6 +25,22 @@ export function transferPairKey(companyId: string, accountA: string, accountB: s
   return `bank_transfer_pair:${companyId.toLowerCase()}:${lo}:${hi}`;
 }
 
+/**
+ * Take the pair lock for each distinct pair, in SORTED key order, before anything of the request posts. A bulk request
+ * (the MCP bulk allocate) that posts transfer AB and then asks for AC would otherwise hold the journal-number lock
+ * from AB's journal while waiting on AC's pair lock, which a single request holds while it waits on that number lock:
+ * a 40P01 that did not exist before the pair lock. With every pair taken first the pair locks always precede the number
+ * lock within a request, and the sorted order keeps two bulk requests from crossing on the pairs themselves.
+ */
+export async function lockTransferPairs(companyId: string, pairs: ReadonlyArray<readonly [string, string]>): Promise<void> {
+  const keyed = new Map<string, readonly [string, string]>();
+  for (const [a, b] of pairs) keyed.set(transferPairKey(companyId, a, b), [a, b]);
+  for (const key of [...keyed.keys()].sort()) {
+    const [a, b] = keyed.get(key)!;
+    await lockTransferPair(companyId, a, b);
+  }
+}
+
 export async function lockTransferPair(companyId: string, accountA: string, accountB: string): Promise<void> {
   const client = als.getStore()?.client;
   if (!client) return; // no request transaction: a transaction-scoped lock would outlive nothing

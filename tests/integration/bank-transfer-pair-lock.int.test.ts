@@ -7,8 +7,9 @@
  * What the code does with the second leg: refused as a duplicate (DuplicateTransferError, "match the existing journal"),
  * its line left `imported`. The first leg's counterparty auto-link skips it (that line is held by its own request).
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import bankTransfers from '../../pages/api/accounting/bank-transfers';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
 import { dropFixture, inTx } from './helpers/l1FifoFixture';
@@ -90,6 +91,26 @@ describeIfDb('bank-to-bank transfer: one journal per movement under concurrency'
     expect(await transferJournals()).toBe(before + 1);
     expect(await statusOf(legA)).toBe('allocated');
     expect(await statusOf(legB)).toBe('imported');
+  }, 60000);
+
+  // The first leg's auto-link must SKIP the held counterparty line (55P03 from NOWAIT), not wait on it: a wait is a
+  // deadlock (40P01) that the detector breaks a second later, which the outcome above cannot tell apart.
+  it('the first leg\'s auto-link is skipped on a 55P03, never a deadlock', async () => {
+    const warn = vi.spyOn(log, 'warn');
+    try {
+      const legA = await line(c.fx.bankAccountId, -654, '2025-06-10');
+      const legB = await line(bank2, 654, '2025-06-10');
+      const first = inTx(c.fx, () => allocateTransaction(c.fx.companyId, legA, bank2, c.fx.userId, 'BTPL first', 'transfer'));
+      const firstOutcome = first.then(() => 'ok', (e: Error) => e.message);
+      await firstWriterAsleep();
+      await inTx(c.fx, () => allocateTransaction(c.fx.companyId, legB, c.fx.bankAccountId, c.fx.userId, 'BTPL second', 'transfer'))
+        .then(() => null, () => null);
+      expect(await firstOutcome).toBe('ok');
+      const links = warn.mock.calls.filter((call) => String(call[0]).startsWith('Failed to auto-link counterparty transfer'));
+      expect(links.map((call) => (call[1] as { error?: { code?: string } }).error?.code)).toEqual(['55P03']);
+    } finally {
+      warn.mockRestore();
+    }
   }, 60000);
 
   it('a transfer typed on the Transfers page and a statement leg allocated together: ONE journal', async () => {
