@@ -3,13 +3,13 @@
  * filters, column visibility toggles, search, and action buttons (Import/Export/Smart Categorize etc.)
  */
 
-import { useRef } from 'react';
 import Link from 'next/link';
 import {
   Loader2, RefreshCw, CheckCheck, Upload, Search, Trash2, Layers, Zap, Plus, FileText,
 } from 'lucide-react';
 import { DateField } from '@/components/ui/DateField';
 import { BankTxExportButtons } from './BankTxExportButtons';
+import { DebouncedAmountInput } from './DebouncedAmountInput';
 import { BankTxFilterSelects } from './BankTxFilterSelects';
 import type { ReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
 
@@ -37,6 +37,10 @@ export interface BankTxFiltersProps {
   allocType: 'all' | 'account' | 'supplier' | 'customer' | 'transfer';
   hasSuggestion: 'all' | 'yes' | 'no';
   reconFilter: ReconFilter;
+  /** Keys of the mutating buttons running (useBankTxBusy): 'review', 'batch-allocate', 'delete', 'apply-rules'. */
+  busy?: ReadonlySet<string>;
+  /** "Allocating 3 of 12" while a batch runs. */
+  progress?: { key: string; done: number; total: number } | null;
   onRefresh: () => void;
   onBulkAccept: () => void;
   onBatchAccept: () => void;
@@ -62,7 +66,7 @@ export interface BankTxFiltersProps {
 }
 
 export function BankTxFilters({
-  tab, page, total, pageSize, selectedCount, selectedBank, smartRunning,
+  tab, page, total, pageSize, selectedCount, selectedBank, smartRunning, busy, progress,
   showCC, showBU,
   searchTerm, fromDate, toDate, fromAmount, toAmount,
   sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter,
@@ -72,8 +76,6 @@ export function BankTxFilters({
   onSortOrderChange, onAllocationFilterChange, onTxTypeChange, onAllocTypeChange,
   onHasSuggestionChange, onReconFilterChange, onToggleCC, onToggleBU,
 }: BankTxFiltersProps) {
-  const amountDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   return (
     <div className="px-6 py-2 border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]/30 flex items-center gap-2 flex-wrap">
       <button
@@ -88,25 +90,30 @@ export function BankTxFilters({
         <>
           <button
             onClick={onBulkAccept}
-            disabled={selectedCount === 0}
+            disabled={selectedCount === 0 || busy?.has('review')}
+            aria-busy={busy?.has('review') || undefined}
             className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] disabled:opacity-30"
           >
-            <CheckCheck className="h-3.5 w-3.5" /> Mark as Reviewed
+            {busy?.has('review') ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5" />} Mark as Reviewed
           </button>
           {selectedCount > 0 && (
             <button
               onClick={onBatchAccept}
-              className="flex items-center gap-1 px-2 py-1 rounded text-xs text-teal-400 hover:text-teal-300 bg-teal-500/10 hover:bg-teal-500/20"
+              disabled={busy?.has('batch-allocate')}
+              aria-busy={busy?.has('batch-allocate') || undefined}
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs text-teal-400 hover:text-teal-300 bg-teal-500/10 hover:bg-teal-500/20 disabled:opacity-60"
             >
-              <CheckCheck className="h-3.5 w-3.5" /> Batch Allocate
+              {busy?.has('batch-allocate') ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5" />}
+              {progress?.key === 'batch-allocate' ? ` Allocating ${progress.done + 1} of ${progress.total}` : ' Batch Allocate'}
             </button>
           )}
           <button
             onClick={onBatchDelete}
-            disabled={selectedCount === 0}
+            disabled={selectedCount === 0 || busy?.has('delete')}
+            aria-busy={busy?.has('delete') || undefined}
             className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] disabled:opacity-30"
           >
-            <Trash2 className="h-3.5 w-3.5" /> Delete
+            {busy?.has('delete') ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Delete
           </button>
           <button
             onClick={onToggleBatchEdit}
@@ -129,7 +136,7 @@ export function BankTxFilters({
       <BankTxExportButtons onExport={onExport} onExportAll={onExportAll} />
       <button
         onClick={onApplyRules}
-        disabled={!selectedBank || smartRunning}
+        disabled={!selectedBank || smartRunning || busy?.has('apply-rules')}
         title="Apply bank rules, then smart-categorize remaining transactions using patterns and historical data"
         className="flex items-center gap-1 px-2.5 py-1 rounded border border-yellow-500/40 text-xs text-yellow-500 hover:text-yellow-400 hover:border-yellow-400 disabled:opacity-30"
       >
@@ -158,34 +165,8 @@ export function BankTxFilters({
 
       {/* Amount range filter */}
       <div className="flex items-center gap-1 text-xs text-[var(--ff-text-secondary)]">
-        <label htmlFor="bank-tx-min-amount" className="shrink-0">Min R</label>
-        <input
-          id="bank-tx-min-amount"
-          type="number"
-          step="0.01"
-          value={fromAmount}
-          onChange={e => {
-            onFromAmountChange(e.target.value);
-            if (amountDebounceTimer.current) clearTimeout(amountDebounceTimer.current);
-            amountDebounceTimer.current = setTimeout(() => {}, 500);
-          }}
-          placeholder="0"
-          className="w-20 px-2 py-1 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)]"
-        />
-        <label htmlFor="bank-tx-max-amount" className="shrink-0">Max R</label>
-        <input
-          id="bank-tx-max-amount"
-          type="number"
-          step="0.01"
-          value={toAmount}
-          onChange={e => {
-            onToAmountChange(e.target.value);
-            if (amountDebounceTimer.current) clearTimeout(amountDebounceTimer.current);
-            amountDebounceTimer.current = setTimeout(() => {}, 500);
-          }}
-          placeholder="any"
-          className="w-20 px-2 py-1 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)]"
-        />
+        <DebouncedAmountInput id="bank-tx-min-amount" label="Min R" value={fromAmount} placeholder="0" onCommit={onFromAmountChange} />
+        <DebouncedAmountInput id="bank-tx-max-amount" label="Max R" value={toAmount} placeholder="any" onCommit={onToAmountChange} />
       </div>
 
       <div className="border-l border-[var(--ff-border-light)] h-5 mx-1" />

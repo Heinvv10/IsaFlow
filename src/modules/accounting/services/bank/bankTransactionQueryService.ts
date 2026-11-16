@@ -81,7 +81,8 @@ export async function getBankTransactions(
       const searchPattern = filters.search ? `%${filters.search}%` : '%';
       const fromDate = filters.fromDate || '1900-01-01';
       const toDate = filters.toDate || '2099-12-31';
-      const fromAmt = filters.fromAmount || '-999999999';
+      // The amount filter is on the SIZE of the line (ABS): "Min R 100" must find a R150 payment as well as a R150 receipt.
+      const fromAmt = filters.fromAmount || '0';
       const toAmt = filters.toAmount || '999999999';
       // The tab's lines (./bankTxTabCond): New = waiting for review, Reviewed = reviewed + reconciled.
       const tabCond = tabStatusCond(filters.status, filters.reconFilter);
@@ -111,7 +112,7 @@ export async function getBankTransactions(
           ${sql.unsafe(tabCond)}
           AND bt.feed_state <> 'removed'
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
-          AND bt.amount >= ${fromAmt}::NUMERIC AND bt.amount <= ${toAmt}::NUMERIC
+          AND ABS(bt.amount) >= ${fromAmt}::NUMERIC AND ABS(bt.amount) <= ${toAmt}::NUMERIC
           AND (bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
           ${sql.unsafe(extra)}
           ${keyset}
@@ -123,7 +124,7 @@ export async function getBankTransactions(
           ${sql.unsafe(tabCond)}
           AND bt.feed_state <> 'removed'
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
-          AND bt.amount >= ${fromAmt}::NUMERIC AND bt.amount <= ${toAmt}::NUMERIC
+          AND ABS(bt.amount) >= ${fromAmt}::NUMERIC AND ABS(bt.amount) <= ${toAmt}::NUMERIC
           AND (bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
           ${sql.unsafe(extra)}`) as Row[];
     } else {

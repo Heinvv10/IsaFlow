@@ -10,6 +10,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { parseReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
+import { escapeLikeLiteral } from '@/lib/sqlLikeLiteral';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -17,6 +18,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
+
+  // An amount bound that is not a number is a 400 (it reached ::NUMERIC and answered 500).
+  for (const key of ['from_amount', 'fromAmount', 'to_amount', 'toAmount'] as const) {
+    const v = req.query[key];
+    if (v !== undefined && v !== '' && !(typeof v === 'string' && /^-?\d{1,12}(\.\d{1,4})?$/.test(v.trim()))) {
+      return apiResponse.badRequest(res, `${key} must be a number`);
+    }
+  }
 
   try {
     const {
@@ -37,7 +46,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       toDate:           pick(to_date, toDate)       ? String(pick(to_date, toDate))       : undefined,
       fromAmount:       pick(from_amount, fromAmount) ? String(pick(from_amount, fromAmount)) : undefined,
       toAmount:         pick(to_amount, toAmount)   ? String(pick(to_amount, toAmount))   : undefined,
-      search:           search             ? String(search)             : undefined,
+      // % and _ in what the person typed are literal characters, not wildcards ("50%" must not match everything).
+      search:           search             ? escapeLikeLiteral(String(search))  : undefined,
       limit:            limit              ? Number(limit)              : undefined,
       offset:           offset             ? Number(offset)             : undefined,
       sortOrder:        sort_order === 'asc' ? 'asc' : 'desc',

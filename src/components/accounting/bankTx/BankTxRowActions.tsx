@@ -21,6 +21,19 @@ interface Props {
   table: BankTxTableProps;
 }
 
+/** The Ask-client button; marked (green, with a dot and its own name) while a query about the line is open. */
+function AskClientButton({ tx, label, onAsk }: { tx: BankTx; label: string; onAsk: (id: string) => void }) {
+  return (
+    <button onClick={() => onAsk(tx.id)} data-queried={tx.queried ? 'true' : undefined}
+      title={tx.queried ? 'A query to the client is open - ask again' : 'Ask client on WhatsApp'}
+      aria-label={tx.queried ? `Client already asked on WhatsApp, ${label}` : `Ask client on WhatsApp, ${label}`}
+      className={`relative p-1 rounded hover:bg-gray-500/10 ${tx.queried ? 'text-green-700 dark:text-green-400' : 'text-[var(--ff-text-tertiary)]'}`}>
+      <MessageCircle className="h-3.5 w-3.5" />
+      {tx.queried && <span aria-hidden="true" className="absolute right-0 top-0 h-1.5 w-1.5 rounded-full bg-green-500" />}
+    </button>
+  );
+}
+
 export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExcluded, table }: Props) {
   const { onAccept, onExclude, onUnmatch, onSplit, onFindMatch, onReverse, onAttachments, onAskClient, onCreateRule, onLink } = table;
 
@@ -55,7 +68,7 @@ export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExclude
               </>
             ) : (
             <>
-              <button onClick={() => onAccept(tx.id)} disabled={!sel?.entityId} title="Accept" aria-label={`Accept, ${label}`}
+              <button onClick={() => onAccept(tx.id)} disabled={!sel?.entityId || table.busyIds?.has(`accept:${tx.id}`)} aria-busy={table.busyIds?.has(`accept:${tx.id}`) || undefined} title="Accept" aria-label={`Accept, ${label}`}
                 className="p-1 rounded hover:bg-teal-500/10 text-teal-400 disabled:opacity-30">
                 <Check className="h-3.5 w-3.5" />
               </button>
@@ -77,12 +90,7 @@ export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExclude
               )}
               {onLink && <BankTxLinkAction link={tx.link} rowName={label} onOpen={() => onLink(tx)} />}
               {onAttachments && <BankTxAttachmentButton txId={tx.id} count={tx.attachmentCount} rowName={label} onOpen={onAttachments} />}
-              {onAskClient && (
-                <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp" aria-label={`Ask client on WhatsApp, ${label}`}
-                  className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
-                  <MessageCircle className="h-3.5 w-3.5" />
-                </button>
-              )}
+              {onAskClient && <AskClientButton tx={tx} label={label} onAsk={onAskClient} />}
               <button onClick={() => onExclude(tx.id)} title="Exclude" aria-label={`Exclude, ${label}`}
                 className="p-1 rounded hover:bg-red-500/10 text-red-400">
                 <X className="h-3.5 w-3.5" />
@@ -99,30 +107,20 @@ export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExclude
               )}
               {onLink && <BankTxLinkAction link={tx.link} rowName={label} onOpen={() => onLink(tx)} />}
               {onAttachments && <BankTxAttachmentButton txId={tx.id} count={tx.attachmentCount} rowName={label} onOpen={onAttachments} />}
-              {onAskClient && (
-                <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp" aria-label={`Ask client on WhatsApp, ${label}`}
-                  className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
-                  <MessageCircle className="h-3.5 w-3.5" />
-                </button>
-              )}
+              {onAskClient && <AskClientButton tx={tx} label={label} onAsk={onAskClient} />}
             </>
           ) : (
             <>
               {/* A reconciled line is locked: undo needs its reconciliation reopened first (the server refuses it too). */}
               {tx.status !== 'reconciled' && (
-                <button onClick={() => onUnmatch(tx.id)} title="Undo allocation" aria-label={`Undo allocation, ${label}`}
+                <button onClick={() => onUnmatch(tx.id)} disabled={table.busyIds?.has(`unmatch:${tx.id}`)} aria-busy={table.busyIds?.has(`unmatch:${tx.id}`) || undefined} title="Undo allocation" aria-label={`Undo allocation, ${label}`}
                   className="p-1 rounded hover:bg-amber-500/10 text-amber-400">
                   <Undo2 className="h-3.5 w-3.5" />
                 </button>
               )}
               {onLink && <BankTxLinkAction link={tx.link} rowName={label} onOpen={() => onLink(tx)} />}
               {onAttachments && <BankTxAttachmentButton txId={tx.id} count={tx.attachmentCount} rowName={label} onOpen={onAttachments} />}
-              {onAskClient && (
-                <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp" aria-label={`Ask client on WhatsApp, ${label}`}
-                  className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
-                  <MessageCircle className="h-3.5 w-3.5" />
-                </button>
-              )}
+              {onAskClient && <AskClientButton tx={tx} label={label} onAsk={onAskClient} />}
             </>
           )}
         </div>

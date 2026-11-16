@@ -19,10 +19,14 @@ interface SelectionDeps {
 
 export function buildBankTxSelectionActions(
   deps: SelectionDeps,
-  saveSelection: (txId: string, type: AllocType, entityId: string, vatCode?: string) => void,
-  saveDimensions: (txId: string, cc1Id: string, cc2Id: string, buId: string) => void,
+  saveSelection: (txId: string, type: AllocType, entityId: string, vatCode?: string, onFailure?: () => void) => void,
+  saveDimensions: (txId: string, cc1Id: string, cc2Id: string, buId: string, onFailure?: () => void) => void,
 ) {
   const { glAccounts, selectedIds, rowSelections, batchType, createEntityTxId, setRowSelections, setShowBatchEdit } = deps;
+
+  /** Puts one row's selection back as it was, or removes it if it had none: for a save the server refused. */
+  const rollbackRow = (txId: string, before: RowSelection | undefined) => () =>
+    setRowSelections(prev => { const next = { ...prev }; if (before) next[txId] = before; else delete next[txId]; return next; });
 
   const handleApplyBatchEdit = (entityId: string, label: string) => {
     const updates: Record<string, RowSelection> = { ...rowSelections };
@@ -30,6 +34,8 @@ export function buildBankTxSelectionActions(
     const autoVat = acct?.defaultVatCode && acct.defaultVatCode !== 'none' ? acct.defaultVatCode as VatCode : undefined;
     selectedIds.forEach(id => {
       updates[id] = { type: batchType, entityId, label, vatCode: autoVat ?? (updates[id]?.vatCode || 'none') as VatCode };
+      // Persisted like a single-row edit (it used to live only in the page: a reload lost it); a refused save restores that row.
+      saveSelection(id, batchType, entityId, updates[id]!.vatCode, rollbackRow(id, rowSelections[id]));
     });
     setRowSelections(() => updates);
     setShowBatchEdit(false);
@@ -38,7 +44,7 @@ export function buildBankTxSelectionActions(
   // ---- Row-level selection handlers (also persist to DB) ----
   const handleRowTypeChange = (txId: string, type: AllocType) => {
     const vatCode: VatCode = type === 'account' ? (rowSelections[txId]?.vatCode || 'none') : 'none';
-    setRowSelections(prev => ({ ...prev, [txId]: { type, entityId: '', label: '', vatCode } })); saveSelection(txId, type, '', vatCode);
+    setRowSelections(prev => ({ ...prev, [txId]: { type, entityId: '', label: '', vatCode } })); saveSelection(txId, type, '', vatCode, rollbackRow(txId, rowSelections[txId]));
   };
   const handleRowEntityChange = (txId: string, entityId: string, label: string) => {
     const type = rowSelections[txId]?.type || 'account';
@@ -50,16 +56,16 @@ export function buildBankTxSelectionActions(
       : acct?.defaultVatCode ? acct.defaultVatCode
       : (rowSelections[txId]?.vatCode || 'none')) as VatCode;
     setRowSelections(prev => ({ ...prev, [txId]: { ...prev[txId], type, entityId, label, vatCode } }));
-    saveSelection(txId, type as AllocType, entityId, vatCode);
+    saveSelection(txId, type as AllocType, entityId, vatCode, rollbackRow(txId, rowSelections[txId]));
   };
   const handleRowVatChange = (txId: string, vatCode: VatCode) => {
     setRowSelections(prev => ({ ...prev, [txId]: { ...prev[txId], type: prev[txId]?.type || 'account', entityId: prev[txId]?.entityId || '', label: prev[txId]?.label || '', vatCode } }));
     const sel = rowSelections[txId];
-    if (sel?.entityId) saveSelection(txId, sel.type, sel.entityId, vatCode);
+    if (sel?.entityId) saveSelection(txId, sel.type, sel.entityId, vatCode, rollbackRow(txId, rowSelections[txId]));
   };
   const handleRowDimensionChange = (txId: string, cc1Id: string, cc2Id: string, buId: string) => {
     setRowSelections(prev => ({ ...prev, [txId]: { ...prev[txId], type: prev[txId]?.type || 'account', entityId: prev[txId]?.entityId || '', label: prev[txId]?.label || '', vatCode: prev[txId]?.vatCode || 'none', cc1Id: cc1Id || undefined, cc2Id: cc2Id || undefined, buId: buId || undefined } }));
-    saveDimensions(txId, cc1Id, cc2Id, buId);
+    saveDimensions(txId, cc1Id, cc2Id, buId, rollbackRow(txId, rowSelections[txId]));
   };
   const handleCreateEntityDone = (
     entity: { id: string; name: string; code?: string },
@@ -78,7 +84,7 @@ export function buildBankTxSelectionActions(
       : 'none';
     if (createEntityTxId) {
       setRowSelections(prev => ({ ...prev, [createEntityTxId]: { type, entityId: entity.id, label, vatCode: prev[createEntityTxId]?.vatCode || vatCode } }));
-      saveSelection(createEntityTxId, type as AllocType, entity.id, vatCode);
+      saveSelection(createEntityTxId, type as AllocType, entity.id, vatCode, rollbackRow(createEntityTxId, rowSelections[createEntityTxId]));
     }
   };
   return {

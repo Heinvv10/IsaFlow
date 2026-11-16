@@ -23,7 +23,8 @@ import { buildBankTxActions } from '@/components/accounting/bank-transactions/us
 
 function actionsFor(selected: string[]) {
   return buildBankTxActions({
-    transactions: [], glAccounts: [], selectedBank: 'bank-1',
+    // the selection counts only while its rows are on screen (WP3), so the rows are listed
+    transactions: selected.map(id => ({ id })), glAccounts: [], selectedBank: 'bank-1',
     selectedIds: new Set(selected), rowSelections: {}, batchType: 'account',
     excludingTxId: null, createEntityTxId: null,
     setSmartRunning: vi.fn(), setRowSelections: vi.fn(), setTransactions: vi.fn(),
