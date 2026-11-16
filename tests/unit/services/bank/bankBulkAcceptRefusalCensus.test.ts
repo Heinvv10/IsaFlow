@@ -33,7 +33,7 @@ const NOT_ON_PATH = [
   'ApprovalNameInvalidError', 'ApprovalNotRequiredError', 'ApprovalOperatorInvalidError', 'ApprovalRequestLockTimeoutError',
   'ApprovalRequestNotFoundError', 'ApprovalRoleInvalidError', 'ApprovalRuleAuthorityError', 'ApprovalRuleLegacyTypeError',
   'ApprovalRuleNotFoundError', 'AutoPostSettingsInvalidError', 'BankAccountGuardRefusal', 'BankAccountRefusedError', 'BankImportLockTimeoutError',
-  'BankIngestionRefusal', 'BankLineChangedError', 'BankMatchTargetError', 'BankMatchUnavailableError', 'BankReallocationRefusal',
+  'BankIngestionRefusal', 'BankLineChangedError', 'BankRequestRefusal', 'BankMatchTargetError', 'BankMatchUnavailableError', 'BankReallocationRefusal',
   'BankTransactionAllocatedError', 'BankTransferRefusedError', 'BulkAcceptRefusal', 'ChartRefusal', 'CloseRunNotFoundError', 'ClosingChainTooLong',
   'DefaultAccountsRefusal', 'DocumentLineAccountRefusal',
   'FinancialYearStartLockedError', 'FinancialYearStartScopeError', 'FiscalPeriodsInUseError', 'FiscalYearLabelUnknownError',
