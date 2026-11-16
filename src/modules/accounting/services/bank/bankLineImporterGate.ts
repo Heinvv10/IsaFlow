@@ -8,9 +8,11 @@
  * supplier outflow — the person recorded as the importer of a line's
  * `import_batch_id` (bank_import_batches.imported_by, fixed once set by 877)
  * may not allocate that line on those arms, unless they are the sole approver
- * on the admin floor (R-035 Q2). Feed lines (`bank_feed_connection_id`) and
- * money IN (receipts, supplier refunds) are unaffected; a line with no batch
- * row, or a legacy `mcp:*` importer, names no person and is not held.
+ * on the admin floor (R-035 Q2). Browser-extension feed lines are judged the
+ * same (2026-11-16): ingest records the token's user as the batch's
+ * imported_by, so the person who pushed the rows may not allocate them. Money
+ * IN (receipts, supplier refunds) is unaffected; a line with no batch row, or
+ * a legacy `mcp:*` importer, names no person and is not held.
  *
  * Raised before any write, from the locked line where the site holds one.
  * Callers: allocateTransaction and splitAllocateTransaction (throw), the
@@ -82,7 +84,7 @@ function refusal(arm: BankArm): BankControlError {
 export async function importerAllocationRefusal(
   companyId: string, line: Provenance, actorUserId: string, arm: BankArm,
 ): Promise<BankControlError | null> {
-  if (line.import_batch_id == null || line.bank_feed_connection_id != null) return null;
+  if (line.import_batch_id == null) return null; // no batch: a bank-API feed with no person behind it
   if (!(await armEnforced(companyId, arm))) return null;
   const [batch] = (await sql`
     SELECT imported_by FROM bank_import_batches
@@ -196,7 +198,7 @@ export async function importerHeldMatchPairs(companyId: string, actorUserId: str
     SELECT bt.id FROM bank_transactions bt
     JOIN bank_import_batches b ON b.id = bt.import_batch_id AND b.company_id = bt.company_id
     WHERE bt.company_id = ${companyId}::UUID AND bt.id = ANY(${pairs.map((p) => p.bankTransactionId)}::UUID[])
-      AND bt.bank_feed_connection_id IS NULL AND lower(b.imported_by) = lower(${actorUserId})
+      AND lower(b.imported_by) = lower(${actorUserId})
   `) as DbRow[]).map((r) => String(r.id)));
   for (const p of pairs) {
     if (mine.has(p.bankTransactionId) && await importerMatchRefusal(companyId, p.bankTransactionId, p.journalLineId, actorUserId)) {
@@ -233,7 +235,7 @@ export async function importerHeldLineSkips(companyId: string, actorUserId: stri
     SELECT bt.id FROM bank_transactions bt
     JOIN bank_import_batches b ON b.id = bt.import_batch_id AND b.company_id = bt.company_id
     WHERE bt.company_id = ${companyId}::UUID AND bt.id = ANY(${gated.map((l) => l.txId)}::UUID[])
-      AND bt.bank_feed_connection_id IS NULL AND b.imported_by IS NOT NULL AND b.imported_by NOT LIKE 'mcp:%'
+      AND b.imported_by IS NOT NULL AND b.imported_by NOT LIKE 'mcp:%'
       AND (lower(b.imported_by) = lower(${actorUserId}) OR ${actorUserId === NOBODY}::BOOLEAN)
   `) as DbRow[]).map((r) => String(r.id)));
   if (own.size === 0 || await isSoleAsCaller(companyId, actorUserId)) return skips;
