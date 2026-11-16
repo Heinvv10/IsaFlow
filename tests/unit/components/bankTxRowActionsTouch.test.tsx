@@ -4,7 +4,6 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { Select } from '@/components/ui/Select';
 import { BankTxAttachmentButton } from '@/components/accounting/bankTx/BankTxAttachmentButton';
 import { BankTxLinkAction } from '@/components/accounting/bank-transactions/BankTxLinkAction';
-import { TOUCH_ICON, TOUCH_MIN, TOUCH_PAD, TOUCH_ROW } from '@/components/accounting/bankTx/bankTxTouch';
 import { BankTxTable } from '@/components/accounting/BankTxTable';
 import { rowLabel } from '@/components/accounting/bankTx/bankTxRowLabel';
 import { TXS, tableProps } from './bankTxTableFixture';
@@ -42,14 +41,6 @@ describe('BankTxRowActions touch targets', () => {
     for (const b of [a0, a2, l0]) expect(b.className).toContain('max-lg:h-11');
     expect(l1.className).toContain('max-lg:min-h-11');
   });
-
-  it('keeps the shared touch classes at 44px', () => {
-    expect(TOUCH_ICON).toContain('max-lg:h-11');
-    expect(TOUCH_ROW).toContain('max-lg:min-h-11');
-    expect(TOUCH_MIN).toBe('max-lg:min-h-11');
-    // Truncating text keeps `block` (a flex box drops the ellipsis), so it is padded: 16px line + 2 x 14px = 44px.
-    expect(TOUCH_PAD).toBe('max-lg:py-3.5');
-  });
 });
 
 describe('kit Select touchTarget', () => {
@@ -63,12 +54,15 @@ describe('kit Select touchTarget', () => {
 });
 
 describe('BankTxTable cards', () => {
-  it('gives the row checkbox, notes, details, selection and select cells 44px below lg', () => {
-    render(<BankTxTable {...tableProps()} />);
+  it('gives the row checkbox, notes, details, selection chip and selects 44px below lg', () => {
+    render(<BankTxTable {...tableProps({ onOpenDetails: fn })} />);
     const label = rowLabel(TXS.find((t) => t.id === 'a')!);
+    const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const has = (el: HTMLElement, cls: string) => expect(el.className).toContain(cls);
     has(screen.getByRole('checkbox', { name: `Select ${label}` }).closest('label') as HTMLElement, 'max-lg:h-11');
     for (const name of ['Allocation type', 'VAT']) has(screen.getByRole('combobox', { name: `${name}, ${label}` }), 'max-lg:min-h-11');
-    has(screen.getByRole('button', { name: new RegExp(`^(Add note|Note), ${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) }), 'max-lg:py-3.5');
+    has(screen.getByRole('button', { name: new RegExp(`Choose .*, ${esc(label)}$`) }), 'max-lg:py-3.5');
+    has(screen.getByRole('button', { name: `Details, ${label}` }), 'max-lg:min-h-11');
+    has(screen.getByRole('button', { name: new RegExp(`^(Add note|Note), ${esc(label)}`) }), 'max-lg:py-3.5');
   });
 });
