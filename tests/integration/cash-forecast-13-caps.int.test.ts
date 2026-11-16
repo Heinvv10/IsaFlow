@@ -129,6 +129,7 @@ describe('dead rows (security review): no creating them, a hard total cap, no re
     expect(one.body.error?.message).toMatch(/this week or later/);
     expect((await items.call(a, 'POST', { ...ITEM(), date: addDaysISO(today, -30), repeat: 'weekly', repeatUntil: addDaysISO(today, -1) })).status).toBe(400);
     expect((await items.call(a, 'POST', { ...ITEM(), date: monday(0) })).status).toBe(201);
+    expect((await items.call(a, 'POST', { ...ITEM(), date: addDaysISO(today, -30), repeat: 'weekly', repeatUntil: today })).status).toBe(201);
     expect((await overrides.call(a, 'PUT', { lineKey: 'payroll:net', weekStart: monday(-1), mode: 'set', amount: 1 })).status).toBe(400);
     expect(await count('cash_forecast_overrides')).toBe(0);
     await clear();
