@@ -1,0 +1,36 @@
+{
+  "id": "eti-rollover-inside-period",
+  "source": "sars-guide:SARS PAYE-GEN-01-G05 Guide for Employers in respect of Employment Tax Incentive, Revision 17 s12 p. 8 (roll-over amounts; ETI Act s9)",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G05-Guide-for-Employers-in-respect-of-Employment-Tax-Incentive-External-Guide.pdf",
+  "notes": "October 2026: ETI R33 000 against employees tax R25 000; R8 000 is rolled over (s12 p. 8: the excess ETI is carried forward to the next month and becomes its brought-forward amount). November: ETI R1 000, employees tax R4 000: available 8 000 + 1 000 = 9 000, used 4 000, carried 5 000 into December (still inside the September-February period). EMP201 for November: brought forward 8 000, used 4 000, carried forward 5 000, refund nil.",
+  "input": {
+    "from": {
+      "year": 2026,
+      "month": 11
+    },
+    "to": {
+      "year": 2026,
+      "month": 11
+    },
+    "months": [
+      {
+        "year": 2026,
+        "month": 10,
+        "paye": 25000,
+        "eti": 33000
+      },
+      {
+        "year": 2026,
+        "month": 11,
+        "paye": 4000,
+        "eti": 1000
+      }
+    ]
+  },
+  "expected": {
+    "broughtForward": 8000,
+    "used": 4000,
+    "carriedForward": 5000,
+    "refundClaimable": 0
+  }
+}
