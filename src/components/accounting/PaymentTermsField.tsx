@@ -71,21 +71,24 @@ export function PaymentTermsField({ days, type, onChange, error: parentError, in
 
   return (
     <div>
-      {/* The visible heading sits over the whole row (number box and kind); the Select carries the same text for readers. */}
-      <span aria-hidden="true" className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
+      {/* The visible heading sits over the whole row (number box and kind); the Select carries the same text for readers.
+          A click on it goes to the Select (a div trigger is not a labelable element, so htmlFor cannot). */}
+      <span aria-hidden="true" onClick={() => document.getElementById('payment-terms-kind')?.focus()}
+        className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
         Payment Terms<span className="text-red-400 ml-1">*</span>
       </span>
+      {/* The Select comes first in the DOM, so Tab goes from it to the number box once a kind is chosen; the box is shown first. */}
       <div className="flex items-end gap-2">
-        {showNumber && (
-          <input
-            type="number" min="0" max="999" step="1" aria-label="Number of days or months" value={days}
-            onChange={(e) => onChange(e.target.value, kind)} className={inputClass.replace('w-full', 'w-20 shrink-0')}
-          />
-        )}
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 order-2">
           <Select id="payment-terms-kind" label="Payment Terms" required labelClassName="sr-only" placeholder="Choose…"
             options={options} value={mode === 'choose' ? null : mode} onChange={(v) => { if (v) pick(v as Mode); }} />
         </div>
+        {showNumber && (
+          <input
+            type="number" min="0" max="999" step="1" aria-label="Number of days or months" value={days}
+            onChange={(e) => onChange(e.target.value, kind)} className={`${inputClass.replace('w-full', 'w-20 shrink-0')} order-1`}
+          />
+        )}
       </div>
       {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
       {summary && <p className="mt-1 text-xs text-[var(--ff-text-tertiary)]">{summary}</p>}

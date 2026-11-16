@@ -100,7 +100,7 @@ export function SelectDropdown({
               aria-label={searchLabel}
               aria-controls={listboxId}
               aria-activedescendant={activeDescendant}
-              className="flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-500 dark:text-gray-100 dark:placeholder:text-gray-400"
+              className="min-w-0 w-full flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-500 dark:text-gray-100 dark:placeholder:text-gray-400"
             />
           </div>
         </div>

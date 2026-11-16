@@ -134,8 +134,8 @@ describe('other screens', () => {
     const employees = [{ id: 'e1', employeeNumber: 'E1', firstName: 'Ann', lastName: 'Lee' }];
     const { container } = render(<DirectiveEmployeeSelect value="" onChange={onChange} employees={employees} loading={false} error="" labelCls="" onRetry={vi.fn()} />);
     expect(container.querySelectorAll('select')).toHaveLength(0);
-    await pickKit(combo('Employee *'), /Lee, Ann/);
+    await pickKit(combo('Employee'), /Lee, Ann/);
     expect(onChange).toHaveBeenLastCalledWith('e1');
-    expect(within(container).getByRole('combobox', { name: 'Employee *' })).toBeTruthy();
+    expect(within(container).getByRole('combobox', { name: 'Employee' })).toBeTruthy();
   });
 });

@@ -42,3 +42,25 @@ describe('Select required / disabled clear', () => {
     expect(onChange).toHaveBeenLastCalledWith([{ id: 'f1', field: '', operator: 'equals', value: '', value2: '' }]);
   });
 });
+
+describe('payment terms: order and heading', () => {
+  it('the Select is before the number box in the DOM (Tab goes Select -> number), the box is shown first', () => {
+    render(<PaymentTermsField days="30" type="invoice_days" inputClass="x w-full" onChange={vi.fn()} />);
+    const box = screen.getByRole('combobox', { name: 'Payment Terms' });
+    const num = screen.getByLabelText('Number of days or months');
+    expect(box.compareDocumentPosition(num) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(num.className).toContain('order-1');
+  });
+
+  it('clicking the visible heading focuses the Select', () => {
+    render(<PaymentTermsField days="" type="" inputClass="x" onChange={vi.fn()} />);
+    fireEvent.click(screen.getByText('Payment Terms', { selector: 'span[aria-hidden="true"]' }));
+    expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'Payment Terms' }));
+  });
+
+  it('the employee picker is aria-required', async () => {
+    const { DirectiveEmployeeSelect } = await import('@/components/payroll/TaxDirectiveEmployeeSelect');
+    render(<DirectiveEmployeeSelect value="" onChange={vi.fn()} employees={[]} loading={false} error="" labelCls="" onRetry={vi.fn()} />);
+    expect(screen.getByRole('combobox', { name: 'Employee' }).getAttribute('aria-required')).toBe('true');
+  });
+});

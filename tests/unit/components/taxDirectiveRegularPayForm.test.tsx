@@ -41,7 +41,7 @@ const fill = (label: string | RegExp, value: string) => {
 async function openWith(type: string, posted: Array<Record<string, unknown>>, onCreated = vi.fn()) {
   serve(posted);
   render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={onCreated} />);
-  const employee = await screen.findByRole('combobox', { name: 'Employee *' });
+  const employee = await screen.findByRole('combobox', { name: 'Employee' });
   await waitFor(() => expect(employee.getAttribute('aria-disabled')).toBe('false'));
   await pickKit(employee, /E001|Test/);
   fireEvent.click(screen.getByRole('combobox', { name: /Directive Type/ }));

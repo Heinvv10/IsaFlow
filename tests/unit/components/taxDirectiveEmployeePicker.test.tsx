@@ -47,7 +47,7 @@ const fill = (label: string | RegExp, value: string) => {
 
 /** The kit picker, once the employees have loaded (it is disabled until then). */
 async function employeeBox(): Promise<HTMLElement> {
-  const box = await screen.findByRole('combobox', { name: 'Employee *' });
+  const box = await screen.findByRole('combobox', { name: 'Employee' });
   await waitFor(() => expect(box.getAttribute('aria-disabled')).toBe('false'));
   return box;
 }
@@ -136,7 +136,7 @@ describe('CreateTaxDirectiveModal: employee picker', () => {
     route(url => (url.startsWith('/api/payroll/employees') ? empty500() : ok([])));
     render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={() => {}} />);
     expect(await screen.findByText('Could not load the employees - try again')).toBeTruthy();
-    openKit(screen.getByRole('combobox', { name: 'Employee *' }));
+    openKit(screen.getByRole('combobox', { name: 'Employee' }));
     expect(screen.queryAllByRole('option')).toHaveLength(0);
     expect((screen.getByRole('button', { name: /Create Directive/ }) as HTMLButtonElement).disabled).toBe(true);
   });
