@@ -3,7 +3,7 @@
  * PRD-060 Phase 4: Create reconciliation session
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -14,6 +14,7 @@ import { BankAccountSelector } from '@/components/accounting/bank/BankAccountSel
 import { localISODate } from '@/lib/dateUtils';
 import { DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
+import { parseReconcilePrefill } from '@/components/accounting/bank-transactions/reconcilePrefill';
 
 export default function NewReconciliationPage() {
   const router = useRouter();
@@ -26,6 +27,13 @@ export default function NewReconciliationPage() {
     statementDate: localISODate(),
     statementBalance: 0,
   });
+
+  // The bank-transactions statement panel's "Reconcile" link prefills the form (validated: it is a link).
+  useEffect(() => {
+    if (!router.isReady) return;
+    const pre = parseReconcilePrefill(router.query);
+    if (Object.keys(pre).length > 0) setForm(f => ({ ...f, ...pre }));
+  }, [router.isReady, router.query]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

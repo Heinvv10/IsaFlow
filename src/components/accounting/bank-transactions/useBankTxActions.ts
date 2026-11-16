@@ -36,6 +36,7 @@ interface ActionDeps {
   /** Settled by the exclude flow: true when the row was excluded, false on cancel or error. Absent: nobody listens. */
   excludeOutcome?: BankTxOutcome;
   loadTransactions: () => void;
+  /** Reloads the bank-account summary (cards, tiles, statement panel; WP1 PR-C) - the list is `loadTransactions`. */
   refreshBankAccounts: () => void;
   /** For a toast's Undo, which runs long after this render: reloads the view on screen by then. */
   reloadCurrentView: () => void;
@@ -65,7 +66,9 @@ export function buildBankTxActions(deps: ActionDeps) {
     apiFetch('/api/accounting/bank-transactions-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({ action: 'save_selection', bankTransactionId: txId, selectionType: type, selectionEntityId: entityId || undefined, vatCode: vatCode || undefined }),
-    }).then(r => assertOk(r, 'Could not save the selection - try again')).catch(e => notify.error(apiErrorMessage(e, 'Could not save the selection - try again')));
+    }).then(r => assertOk(r, 'Could not save the selection - try again'))
+      .then(() => refreshBankAccounts()) // a saved category moves a line between Unallocated and Suggested; the list is unchanged
+      .catch(e => notify.error(apiErrorMessage(e, 'Could not save the selection - try again')));
   };
 
   const saveDimensions = (txId: string, cc1Id: string, cc2Id: string, buId: string) => {
