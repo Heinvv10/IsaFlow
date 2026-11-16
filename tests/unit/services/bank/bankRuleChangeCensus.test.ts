@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { compareMigrationNames } from '../../../../scripts/lib/migrationFiles';
 import { APPROVER_RANK } from '@/modules/accounting/services/gl/approvalRank';
 import { BANK_CONTROL_FLOOR } from '@/modules/accounting/services/bank/bankControlRefusal';
 
@@ -137,7 +138,7 @@ describe('rule writers and switching auto-post on serialise (bankRuleAutoPostLoc
     // SQL: the newest definition of approval_enforcement_set is 885's; its bank_rule branch locks with the TS key before INSERT.
     const dir = path.join(ROOT, 'scripts/migrations/sql');
     const defining = readdirSync(dir).filter((f) => f.endsWith('.sql')
-      && readFileSync(path.join(dir, f), 'utf8').includes('CREATE OR REPLACE FUNCTION public.approval_enforcement_set(')).sort();
+      && readFileSync(path.join(dir, f), 'utf8').includes('CREATE OR REPLACE FUNCTION public.approval_enforcement_set(')).sort(compareMigrationNames);
     expect(defining.at(-1)).toBe('885_bank_rule_switch_definer.sql');
     const sql885 = readFileSync(path.join(dir, '885_bank_rule_switch_definer.sql'), 'utf8');
     const lock = sql885.indexOf("pg_advisory_xact_lock(pg_catalog.hashtextextended('bank_rule_auto_post:' || p_company_id::pg_catalog.text, 0))");

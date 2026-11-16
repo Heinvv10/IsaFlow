@@ -41,6 +41,8 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 # shellcheck source=pg-cluster.sh
 source scripts/ci/integration/pg-cluster.sh
+# shellcheck source=migration-order.sh
+source scripts/ci/integration/migration-order.sh
 
 OUT=scripts/ci/integration/baseline.sql.gz
 MIG=scripts/migrations/sql
@@ -100,11 +102,12 @@ PSQL=("$PG_BIN/psql" -h 127.0.0.1 -p "$PORT" -U postgres -X -q -v ON_ERROR_STOP=
 "${PSQL[@]}" -d isaflow_baseline -f "$WORK/dev-schema.sql" > /dev/null
 "${PSQL[@]}" -d isaflow_baseline -f "$WORK/dev-tracking.sql" > /dev/null
 
-TOP=$("${PSQL[@]}" -d isaflow_baseline -tAc "SELECT max(name) FROM schema_migrations")
+# Migration order, not string order (max(name), a glob and [[ < ]] all put 1000_ before 100_).
+TOP=$("${PSQL[@]}" -d isaflow_baseline -tAc "SELECT name FROM schema_migrations" | mig_order | tail -n 1)
 echo "[baseline] dev's newest tracked migration: $TOP"
-for path in "$MIG"/*.sql; do
-  f=$(basename "$path")
-  [[ "$f" < "$TOP" ]] || continue
+mapfile -t BELOW < <(cd "$MIG" && printf '%s\n' *.sql | mig_below "$TOP")
+for f in "${BELOW[@]}"; do
+  path="$MIG/$f"
   tracked=$("${PSQL[@]}" -d isaflow_baseline -tAc "SELECT 1 FROM schema_migrations WHERE name = '$f'")
   [ -n "$tracked" ] && continue
   if [[ "$REPLAY_SKIP" == *" $f "* ]]; then
