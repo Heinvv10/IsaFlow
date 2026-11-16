@@ -4,6 +4,7 @@
  * end) (migration 999c); the trigger stamps who and when. A mark is the user's word, not a check
  * against SARS: it never touches sars_submissions or return versions.
  */
+import { toIsoTimestamp } from '@/lib/dateUtils';
 import { sql, withSavepoint } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import type { DbRow } from '@/types/db';
@@ -81,7 +82,7 @@ export async function markFiled(companyId: string, userId: string, input: FiledM
       metadata: { area: 'sars_filed', eventType: item.eventType, periodStart: item.periodStart, periodEnd: item.periodEnd, dueDate: item.dueDate, sarsReference: reference ?? '' },
     },
   });
-  const filedAt = row.filed_at instanceof Date ? row.filed_at.toISOString() : String(row.filed_at);
+  const filedAt = toIsoTimestamp(row.filed_at as Date | string) ?? '';
   return { id, filedAt, sarsReference: reference };
 }
 

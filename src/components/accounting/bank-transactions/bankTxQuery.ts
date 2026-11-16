@@ -18,6 +18,7 @@ export interface BankTxQuery {
 export function tabToStatus(tab: BankTxTab): string {
   if (tab === 'new') return 'imported';
   if (tab === 'excluded') return 'excluded';
+  if (tab === 'provisional') return 'provisional';
   return 'matched';
 }
 

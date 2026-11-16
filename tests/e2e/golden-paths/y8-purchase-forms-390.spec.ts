@@ -3,6 +3,9 @@
  * 390 px: the summary card sat on the form, which was squeezed to a ~20 px column with date labels printed over each
  * other, and no sideways scroll to show for it). The same stack as the customer invoice (Y1): one column of fields,
  * the summary under the form, the line table scrolling inside its own region. Nothing is saved.
+ * App audit 12 Nov 2026 (P2.5 item 3): the receipt, supplier payment and credit note forms had the same fault. They
+ * crushed rather than scrolled, so the no-sideways-scroll check alone passes on the broken page; the card width,
+ * summary position and field widths are what catch it.
  */
 // golden:dev-only
 // Dev only: it measures layout, which the post-deploy run has no use for. The post-deploy run skips it by this marker.
@@ -15,14 +18,14 @@ const FORMS = [
 ];
 type Form = (typeof FORMS)[number];
 
-async function open(page: Page, form: Form): Promise<void> {
+async function open(page: Page, form: Pick<Form, 'path' | 'title'>): Promise<void> {
   await page.goto(form.path, { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: form.title, level: 1 })).toBeVisible({ timeout: 60_000 });
   await settle(page);
 }
 
 const cardOf = (el: Locator): Locator => el.locator('xpath=ancestor::div[contains(@class,"rounded-2xl")][1]');
-const summaryCard = (page: Page, form: Form): Locator => cardOf(page.getByRole('heading', { name: form.summary, exact: true }));
+const summaryCard = (page: Page, form: Pick<Form, 'summary'>): Locator => cardOf(page.getByRole('heading', { name: form.summary, exact: true }));
 
 async function box(el: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
   const b = await el.boundingBox();
@@ -30,16 +33,21 @@ async function box(el: Locator): Promise<{ x: number; y: number; width: number; 
   return b;
 }
 
-/** Fields outside the line table narrower than `min`, and pairs of labels / controls / buttons drawn over each other. */
+/**
+ * Fields outside the line table narrower than `min`, and pairs of labels / controls / buttons drawn over each other.
+ * The phone action bar (position: fixed below lg) floats over the form as it scrolls by design, so a pinned element is
+ * only compared with other pinned elements.
+ */
 const layoutFaults = (page: Page, min: number) => page.evaluate((minWidth) => {
   const seen = (e: Element) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const pinned = (e: Element) => { for (let n: Element | null = e; n; n = n.parentElement) if (getComputedStyle(n).position === 'fixed') return true; return false; };
   const narrow = [...document.querySelectorAll('main input:not([type=hidden]):not([type=checkbox]), main select, main textarea')]
     .filter((e) => seen(e) && !e.closest('[role=region]') && e.getBoundingClientRect().width < minWidth)
     .map((e) => (e as HTMLInputElement).name || e.tagName);
   const els = [...document.querySelectorAll('main label, main input:not([type=hidden]), main select, main textarea, main button')].filter(seen);
   const overlaps: string[] = [];
   els.forEach((a, i) => els.slice(i + 1).forEach((b) => {
-    if (a.contains(b) || b.contains(a)) return;
+    if (a.contains(b) || b.contains(a) || pinned(a) !== pinned(b)) return;
     const p = a.getBoundingClientRect(); const q = b.getBoundingClientRect();
     if (Math.min(p.right, q.right) - Math.max(p.left, q.left) > 4 && Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top) > 4) {
       overlaps.push(`${(a.textContent ?? '').trim().slice(0, 20) || a.tagName} x ${(b.textContent ?? '').trim().slice(0, 20) || b.tagName}`);
@@ -107,5 +115,127 @@ for (const form of FORMS) {
     const notes = await box(page.getByPlaceholder(form.notes));
     expect(summary.x, 'summary starts right of the form').toBeGreaterThanOrEqual(notes.x + notes.width);
     expect(await layoutFaults(page, 0)).toEqual({ narrow: [], overlaps: [] });
+  });
+}
+
+const ENTRY_FORMS = [
+  { path: '/accounting/customer-payments/new', title: 'Record Customer Payment', details: 'Payment Details', summary: 'Payment Summary' },
+  { path: '/accounting/supplier-payments/new', title: 'New Supplier Payment', details: 'Payment Details', summary: 'Payment Summary' },
+  { path: '/accounting/credit-notes/new', title: 'New Credit Note', details: 'Credit Note Details', summary: 'Summary' },
+];
+
+for (const form of ENTRY_FORMS) {
+  for (const theme of THEMES) {
+    test(`${form.title} 390 px (${theme}): the summary sits under the form, fields keep their width`, async ({ page }) => {
+      await seedTheme(page, theme);
+      await page.setViewportSize({ width: 390, height: 844 });
+      await open(page, form);
+      const details = await box(cardOf(page.getByRole('heading', { name: form.details })));
+      const summary = await box(summaryCard(page, form));
+      expect(details.width, 'the details card keeps a usable width').toBeGreaterThanOrEqual(300);
+      expect(summary.y, 'summary starts below the details card').toBeGreaterThanOrEqual(details.y + details.height);
+      expect(summary.x + summary.width).toBeLessThanOrEqual(390);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth), 'no sideways scroll').toBeLessThanOrEqual(390);
+      expect(await layoutFaults(page, 100)).toEqual({ narrow: [], overlaps: [] });
+    });
+  }
+
+  test(`${form.title} 1440 px: the summary sits beside the form, fields keep their width`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page, form);
+    const details = await box(cardOf(page.getByRole('heading', { name: form.details })));
+    const summary = await box(summaryCard(page, form));
+    expect(summary.x, 'summary starts right of the form').toBeGreaterThanOrEqual(details.x + details.width);
+    expect(await layoutFaults(page, 100)).toEqual({ narrow: [], overlaps: [] });
+  });
+}
+
+// Below lg the submit row is pinned to the bottom of the screen (second pass, 16 Nov): Save is on screen before any
+// scrolling, and the form's bottom padding lets the summary card scroll clear of the bar. From lg it is in the card.
+const SUBMIT = ['Create Payment', 'Create Payment', 'Create Credit Note'];
+ENTRY_FORMS.forEach((form, i) => {
+  test(`${form.title} 390 px: the submit button is pinned on screen and never hides the form`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page, form);
+    const submit = page.getByRole('button', { name: SUBMIT[i] });
+    const first = await box(submit);
+    expect(first.y + first.height, 'Save is on screen without scrolling').toBeLessThanOrEqual(844);
+    expect(first.height, 'Save is a 44 px target').toBeGreaterThanOrEqual(44);
+    await page.locator('main').evaluate((m) => m.scrollTo(0, m.scrollHeight));
+    const bar = await box(submit.locator('xpath=..'));
+    const summary = await box(summaryCard(page, form));
+    expect(summary.y + summary.height, 'the summary card scrolls clear of the bar').toBeLessThanOrEqual(bar.y + 1);
+  });
+
+  test(`${form.title} 1440 px: the submit button sits in the summary card`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page, form);
+    const [submit, summary] = [await box(page.getByRole('button', { name: SUBMIT[i] })), await box(summaryCard(page, form))];
+    expect(submit.y, 'inside the card').toBeGreaterThanOrEqual(summary.y);
+    expect(submit.y + submit.height, 'inside the card').toBeLessThanOrEqual(summary.y + summary.height);
+  });
+});
+
+// Second allocation rows (review of the 12 Nov change): the delete button and, on the supplier payment, the row 2
+// labels only exist once a row is added, so measure with two rows. No client or supplier is picked; nothing is saved.
+const ALLOCATIONS = [
+  { form: ENTRY_FORMS[0], add: 'Add Line' },
+  { form: ENTRY_FORMS[1], add: 'Add Allocation' },
+];
+for (const { form, add } of ALLOCATIONS) {
+  for (const width of [390, 1440]) {
+    test(`${form.title} ${width} px: a second allocation row keeps its fields, labels and delete button in the card`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await open(page, form);
+      const button = page.getByRole('button', { name: add });
+      await button.click();
+      const selects = page.locator('main select[name=invoiceId]');
+      await expect(selects).toHaveCount(2);
+      const card = await box(cardOf(button));
+      const [addBox, heading] = [await box(button), await box(page.getByRole('heading', { name: 'Invoice Allocations' }))];
+      // 44 px tap target below lg, the compact desktop size from lg.
+      if (width === 390) expect(addBox.height, `${add} is a 44 px target on one line`).toBeGreaterThanOrEqual(44);
+      expect(addBox.height, `${add} stays on one line`).toBeLessThan(width === 390 ? 48 : 40);
+      const centre = (b: { y: number; height: number }) => b.y + b.height / 2;
+      expect(Math.abs(centre(addBox) - centre(heading)), `${add} sits beside the card heading`).toBeLessThan(12);
+      const row2 = await box(selects.nth(1));
+      const bin = await box(selects.nth(1).locator('xpath=ancestor::div[.//button][1]').locator('button').last());
+      expect(bin.x + bin.width, 'delete button inside the card').toBeLessThanOrEqual(card.x + card.width);
+      if (width === 390) expect(row2.width, 'invoice select takes the full row on a phone').toBeGreaterThanOrEqual(card.width - 60);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth), 'no sideways scroll').toBeLessThanOrEqual(width);
+      expect(await layoutFaults(page, 100)).toEqual({ narrow: [], overlaps: [] });
+      if (add === 'Add Allocation') {
+        for (const label of ['Invoice', 'Balance', 'Pay amount']) {
+          await expect(page.locator('main label').getByText(label, { exact: true }).filter({ visible: true }),
+            `${label}: on every row on a phone, a column header (row 1 only) from sm`).toHaveCount(width === 390 ? 2 : 1);
+        }
+      }
+    });
+  }
+}
+
+test('New Supplier Payment 390 px: a seven-figure balance fits its cell', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page, ENTRY_FORMS[1]);
+  const cell = page.locator('main label:text-is("Balance") + div').first();
+  // The cell shows formatCurrency(balance); no supplier is picked here, so write the widest realistic value into it.
+  const fit = await cell.evaluate((e) => {
+    const before = e.getBoundingClientRect().height;
+    e.textContent = 'R 1 234 567.89';
+    return { clipped: e.scrollWidth > e.clientWidth, wrapped: e.getBoundingClientRect().height > before + 1 };
+  });
+  expect(fit, 'R 1 234 567.89 shows on one line, unclipped').toEqual({ clipped: false, wrapped: false });
+});
+
+// Between sm and lg the forms stack with two and three column grids.
+for (const form of ENTRY_FORMS) {
+  test(`${form.title} 768 px: the summary sits under the form, fields keep their width`, async ({ page }) => {
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await open(page, form);
+    const details = await box(cardOf(page.getByRole('heading', { name: form.details })));
+    const summary = await box(summaryCard(page, form));
+    expect(summary.y, 'summary starts below the details card').toBeGreaterThanOrEqual(details.y + details.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth), 'no sideways scroll').toBeLessThanOrEqual(768);
+    expect(await layoutFaults(page, 100)).toEqual({ narrow: [], overlaps: [] });
   });
 }

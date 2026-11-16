@@ -14,12 +14,12 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, push: vi.fn(), replace: vi.fn(), pathname: '/' }) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
-vi.mock('@/components/accounting/bank-transactions/useBankTxRefData', () => ({
-  useBankTxRefData: (s: { setBankAccounts: (v: unknown[]) => void; setSelectedBank: (f: () => string) => void; setRefDataLoaded: (v: boolean) => void }) => {
-    useEffect(() => { s.setBankAccounts([{ id: 'b1', accountCode: '1100', accountName: 'D2 Bank' }]); s.setSelectedBank(() => 'b1'); s.setRefDataLoaded(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-    return { refreshBankAccounts: vi.fn() };
-  },
-}));
+vi.mock('@/components/accounting/bank-transactions/useBankTxRefData', () => ({ useBankTxRefData: () => undefined }));
+vi.mock('@/components/accounting/bank-transactions/useBankTxSummary', async () => {
+  const { summaryAcct } = await import('../helpers/bankSummaryFixture');
+  const state = { accounts: [summaryAcct('b1', { accountCode: '1100', accountName: 'D2 Bank' })], status: 'ready', error: '', stale: false, refresh: async () => undefined };
+  return { useBankTxSummary: () => state };
+});
 vi.mock('@/components/accounting/bank-transactions/useBankTxActions', () => ({ buildBankTxActions: () => ({}) }));
 vi.mock('@/components/accounting/BankTxTable', () => ({ BankTxTable: ({ transactions }: { transactions: { id: string; description?: string }[] }) => <ul>{transactions.map(t => <li key={t.id}>{t.description}</li>)}</ul> }));
 vi.mock('@/components/accounting/bank-transactions/BankTxFilters', () => ({ BankTxFilters: ({ onRefresh, total }: { onRefresh: () => void; total: number }) => <div><button onClick={onRefresh}>REFRESH-TX</button><span>TOTAL:{total}</span></div> }));
