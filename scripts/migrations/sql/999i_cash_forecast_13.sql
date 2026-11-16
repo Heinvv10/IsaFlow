@@ -2,19 +2,23 @@
 --
 -- WHAT.
 --   payroll_company_settings (999a) gains the salary pay day (Hein, 2026-11-16):
---     salary_pay_rule  'day_of_month' | 'last_working_day', default 'day_of_month';
---     salary_pay_day   1-31, default 25. A day beyond the month's length means the month's last day
+--     salary_pay_rule  'day_of_month' | 'last_working_day', or NULL = not chosen;
+--     salary_pay_day   1-31, or NULL. A day beyond the month's length means the month's last day
 --                      (the engine's rule; the column only bounds it). Kept when the rule is
 --                      last_working_day, so switching back restores the day.
---     No row = the defaults, as 999a's other settings.
+--     Both NULL (or no row) = not chosen: the app reads day 25 and says it is the default. NO column
+--     default: a NOT NULL DEFAULT 25 would backfill every existing row with a day nobody chose.
+--     And a stamp trigger: updated_by / updated_at come from auth.uid() and the clock, no longer from
+--     the app (app_user loses its INSERT/UPDATE grants on them). The only writer is this release's
+--     payDaySetting (census 2026-11-16: src, pages, scripts, every worktree and remote branch).
 --   cash_forecast_items  expected receipts and payments a user types: direction, amount (> 0, rand), a category
 --     (the engine's CashCategory list, default 'other', for grouping),
 --     expected_date, repeat none | weekly | monthly with an optional repeat_until, a description and an
---     optional GL account of the company. Forecasts, so edits and deletes are allowed (each audited by
+--     optional GL account of the company. Dates lie in 2000-01-01..2100-12-31. Forecasts, so edits and deletes are allowed (each audited by
 --     the service in the request transaction).
 --   cash_forecast_overrides  a user's change to one forecast line in one week:
 --     line_key           the engine's stable key ('ar:customer:<id>', 'payroll:net', 'item:<id>', ...);
---     week_start         a Monday;
+--     week_start         a Monday (2000-01-01..2100-12-31, as target_week_start);
 --     mode / amount      amounts of set/add are SIGNED in the line's own sign (a payment cell is negative;
 --                        the UI sends the sign from the line, the override does not know it):
 --                        set: the week's figure becomes amount (required, any sign);
@@ -42,6 +46,10 @@
 --   DROP TABLE IF EXISTS public.cash_forecast_items;
 --   DROP FUNCTION IF EXISTS public.cash_forecast_stamp();
 --   DROP FUNCTION IF EXISTS public.cash_forecast_items_check_account();
+--   DROP TRIGGER IF EXISTS trg_payroll_company_settings_stamp ON public.payroll_company_settings;
+--   DROP FUNCTION IF EXISTS public.payroll_company_settings_stamp();
+--   GRANT INSERT (updated_by) ON public.payroll_company_settings TO app_user;
+--   GRANT UPDATE (updated_by, updated_at) ON public.payroll_company_settings TO app_user;
 --   ALTER TABLE public.payroll_company_settings DROP COLUMN IF EXISTS salary_pay_day, DROP COLUMN IF EXISTS salary_pay_rule;
 --   SELECT public.app_service_sync_policies();
 
@@ -49,18 +57,50 @@ SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
 
 -- ── 1. Salary pay day on payroll_company_settings ──────────────────────────
-ALTER TABLE public.payroll_company_settings ADD COLUMN IF NOT EXISTS salary_pay_rule TEXT NOT NULL DEFAULT 'day_of_month';
-ALTER TABLE public.payroll_company_settings ADD COLUMN IF NOT EXISTS salary_pay_day SMALLINT NOT NULL DEFAULT 25;
+ALTER TABLE public.payroll_company_settings ADD COLUMN IF NOT EXISTS salary_pay_rule TEXT;
+ALTER TABLE public.payroll_company_settings ADD COLUMN IF NOT EXISTS salary_pay_day SMALLINT;
 ALTER TABLE public.payroll_company_settings DROP CONSTRAINT IF EXISTS payroll_company_settings_salary_pay_rule_check;
 ALTER TABLE public.payroll_company_settings ADD CONSTRAINT payroll_company_settings_salary_pay_rule_check
-  CHECK (salary_pay_rule IN ('day_of_month', 'last_working_day'));
+  CHECK (salary_pay_rule IS NULL OR salary_pay_rule IN ('day_of_month', 'last_working_day'));
 ALTER TABLE public.payroll_company_settings DROP CONSTRAINT IF EXISTS payroll_company_settings_salary_pay_day_check;
 ALTER TABLE public.payroll_company_settings ADD CONSTRAINT payroll_company_settings_salary_pay_day_check
-  CHECK (salary_pay_day BETWEEN 1 AND 31);
+  CHECK (salary_pay_day IS NULL OR salary_pay_day BETWEEN 1 AND 31);
+-- Not chosen = both NULL; day_of_month needs its day; last_working_day may keep one (or none ever chosen).
+ALTER TABLE public.payroll_company_settings DROP CONSTRAINT IF EXISTS payroll_company_settings_salary_pay_shape;
+ALTER TABLE public.payroll_company_settings ADD CONSTRAINT payroll_company_settings_salary_pay_shape
+  -- Written so no branch is NULL (a NULL CHECK passes): a day with no rule must come out false.
+  CHECK ((salary_pay_rule IS NULL AND salary_pay_day IS NULL)
+      OR (salary_pay_rule IS NOT NULL AND (salary_pay_rule <> 'day_of_month' OR salary_pay_day IS NOT NULL)));
 GRANT INSERT (salary_pay_rule, salary_pay_day) ON public.payroll_company_settings TO app_user;
 GRANT UPDATE (salary_pay_rule, salary_pay_day) ON public.payroll_company_settings TO app_user;
 COMMENT ON COLUMN public.payroll_company_settings.salary_pay_day IS
-  'Salaries paid on this day of the month (999i); beyond the month''s length = its last day. Used when salary_pay_rule = day_of_month.';
+  'Salaries paid on this day of the month (999i); beyond the month''s length = its last day. NULL with salary_pay_rule NULL = not chosen (the app reads 25).';
+
+-- updated_by / updated_at: the trigger's, never the app's.
+CREATE OR REPLACE FUNCTION public.payroll_company_settings_stamp()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  uid text := auth.uid();
+BEGIN
+  IF uid IS NULL THEN
+    RAISE EXCEPTION 'payroll_company_settings: a write needs a session user' USING ERRCODE = '42501';
+  END IF;
+  NEW.updated_by := uid;
+  NEW.updated_at := clock_timestamp();
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.payroll_company_settings_stamp() FROM PUBLIC;
+DROP TRIGGER IF EXISTS trg_payroll_company_settings_stamp ON public.payroll_company_settings;
+CREATE TRIGGER trg_payroll_company_settings_stamp BEFORE INSERT OR UPDATE ON public.payroll_company_settings
+  FOR EACH ROW EXECUTE FUNCTION public.payroll_company_settings_stamp();
+ALTER TABLE public.payroll_company_settings ENABLE ALWAYS TRIGGER trg_payroll_company_settings_stamp;
+REVOKE INSERT (updated_by) ON public.payroll_company_settings FROM app_user;
+REVOKE UPDATE (updated_by, updated_at) ON public.payroll_company_settings FROM app_user;
 
 -- ── 2. Shared stamp trigger ────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.cash_forecast_stamp()
@@ -125,6 +165,10 @@ ALTER TABLE public.cash_forecast_items ADD CONSTRAINT cash_forecast_items_repeat
 ALTER TABLE public.cash_forecast_items DROP CONSTRAINT IF EXISTS cash_forecast_items_repeat_until_check;
 ALTER TABLE public.cash_forecast_items ADD CONSTRAINT cash_forecast_items_repeat_until_check
   CHECK (repeat_until IS NULL OR (repeat <> 'none' AND repeat_until >= expected_date));
+ALTER TABLE public.cash_forecast_items DROP CONSTRAINT IF EXISTS cash_forecast_items_dates_in_range;
+ALTER TABLE public.cash_forecast_items ADD CONSTRAINT cash_forecast_items_dates_in_range
+  CHECK (expected_date BETWEEN DATE '2000-01-01' AND DATE '2100-12-31'
+     AND (repeat_until IS NULL OR repeat_until BETWEEN DATE '2000-01-01' AND DATE '2100-12-31'));
 ALTER TABLE public.cash_forecast_items DROP CONSTRAINT IF EXISTS cash_forecast_items_description_check;
 ALTER TABLE public.cash_forecast_items ADD CONSTRAINT cash_forecast_items_description_check
   CHECK (btrim(description) <> '' AND length(description) <= 200);
@@ -192,6 +236,10 @@ ALTER TABLE public.cash_forecast_overrides ADD CONSTRAINT cash_forecast_override
 ALTER TABLE public.cash_forecast_overrides DROP CONSTRAINT IF EXISTS cash_forecast_overrides_week_monday;
 ALTER TABLE public.cash_forecast_overrides ADD CONSTRAINT cash_forecast_overrides_week_monday
   CHECK (EXTRACT(ISODOW FROM week_start) = 1);
+ALTER TABLE public.cash_forecast_overrides DROP CONSTRAINT IF EXISTS cash_forecast_overrides_dates_in_range;
+ALTER TABLE public.cash_forecast_overrides ADD CONSTRAINT cash_forecast_overrides_dates_in_range
+  CHECK (week_start BETWEEN DATE '2000-01-01' AND DATE '2100-12-31'
+     AND (target_week_start IS NULL OR target_week_start BETWEEN DATE '2000-01-01' AND DATE '2100-12-31'));
 ALTER TABLE public.cash_forecast_overrides DROP CONSTRAINT IF EXISTS cash_forecast_overrides_mode_amount;
 ALTER TABLE public.cash_forecast_overrides ADD CONSTRAINT cash_forecast_overrides_mode_amount
   CHECK (CASE mode

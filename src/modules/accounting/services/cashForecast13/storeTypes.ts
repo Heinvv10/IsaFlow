@@ -49,3 +49,10 @@ export interface ManualCashItem {
 export type PayDayRule = { kind: 'day_of_month'; day: number } | { kind: 'last_working_day' };
 
 export const DEFAULT_PAY_DAY = 25;
+
+/** The engine's line key of a manual item; its overrides are deleted with it. */
+export const manualLineKey = (itemId: string) => `manual:${itemId}`;
+
+/** Per-company caps on the stored inputs (checked under a lock in the write transaction). */
+export const MAX_ITEMS = 500;
+export const MAX_OVERRIDES = 2000;

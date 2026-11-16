@@ -1,7 +1,8 @@
 /**
  * Week overrides of the 13-week forecast (cash_forecast_overrides, migration 999i). One override per
  * (company, line key, week): a save UPSERTS on that key (a second save of the same cell replaces the
- * first, never a 409). Deletes by id. Every write runs in the request transaction, refuses a Login-as
+ * first, never a 409; a save that changes nothing writes nothing). At most MAX_OVERRIDES per company (409 on
+ * a new cell). Listed in application order, the last edit last (updated_at, id). Deletes by id. Every write runs in the request transaction, refuses a Login-as
  * session first, and writes one audit row (entity_type 'cash_forecast_override') with the old and new
  * values. The table's trigger stamps who and when.
  */
@@ -10,9 +11,9 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { toIsoTimestamp } from '@/lib/dateUtils';
 import type { DbRow } from '@/types/db';
 import { logAuditOrThrow, type AuditFieldChange } from '../core/auditTrailService';
-import { CashForecastNotFoundError } from './storeErrors';
+import { CashForecastLimitError, CashForecastNotFoundError } from './storeErrors';
 import type { OverrideInput } from './storeSchemas';
-import type { ForecastOverride, OverrideMode } from './storeTypes';
+import { MAX_OVERRIDES, type ForecastOverride, type OverrideMode } from './storeTypes';
 
 export interface StoredOverride extends ForecastOverride { id: string; note: string | null; createdAt: string; updatedAt: string }
 
@@ -38,7 +39,7 @@ const COLUMNS = sql`id, line_key, week_start::text AS week_start, mode, amount, 
 
 export async function listOverrides(companyId: string): Promise<StoredOverride[]> {
   const rows = (await sql`
-    SELECT ${COLUMNS} FROM cash_forecast_overrides WHERE company_id = ${companyId}::UUID ORDER BY created_at, id
+    SELECT ${COLUMNS} FROM cash_forecast_overrides WHERE company_id = ${companyId}::UUID ORDER BY updated_at, id
   `) as DbRow[];
   return rows.map(toOverride);
 }
@@ -59,12 +60,23 @@ function changes(before: StoredOverride | null, after: StoredOverride | null): A
 /** Upsert on (company, lineKey, weekStart). `created` says whether the cell had no override before. */
 export async function saveOverride(companyId: string, userId: string, input: OverrideInput): Promise<{ override: StoredOverride; created: boolean }> {
   await assertNotImpersonating();
+  // One saver per company at a time (to the end of the request tx), so two new cells at the cap cannot both pass.
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended('cash_forecast_overrides:' || ${companyId}::uuid::text, 0))`;
   const prior = (await sql`
     SELECT ${COLUMNS} FROM cash_forecast_overrides
      WHERE company_id = ${companyId}::UUID AND line_key = ${input.lineKey} AND week_start = ${input.weekStart}::DATE
      FOR UPDATE
   `) as DbRow[];
   const before = prior[0] ? toOverride(prior[0]) : null;
+  if (before === null) {
+    const count = (await sql`SELECT COUNT(*)::int AS n FROM cash_forecast_overrides WHERE company_id = ${companyId}::UUID`) as DbRow[];
+    if (Number(count[0]?.n ?? 0) >= MAX_OVERRIDES) {
+      throw new CashForecastLimitError(`A company can keep at most ${MAX_OVERRIDES} forecast overrides; remove some first`);
+    }
+  } else if (changes(before, { ...before, ...input, targetWeekStart: input.targetWeekStart ?? undefined }).length === 0) {
+    // Nothing changed: no UPDATE (the stamps, and so the application order, stay) and no audit row.
+    return { override: before, created: false };
+  }
   const rows = (await sql`
     INSERT INTO cash_forecast_overrides (company_id, line_key, week_start, mode, amount, target_week_start, note)
     VALUES (${companyId}::UUID, ${input.lineKey}, ${input.weekStart}::DATE, ${input.mode}, ${input.amount},
@@ -85,16 +97,25 @@ export async function saveOverride(companyId: string, userId: string, input: Ove
   return { override, created };
 }
 
+const audited = (companyId: string, userId: string, before: StoredOverride) => logAuditOrThrow({
+  companyId, userId, action: 'delete', entityType: 'cash_forecast_override', entityId: before.id,
+  entityRef: `${before.lineKey} @ ${before.weekStart}`,
+  changes: { fields: changes(before, null), metadata: { area: 'cash_forecast_13', lineKey: before.lineKey, weekStart: before.weekStart } },
+});
+
 export async function deleteOverride(companyId: string, userId: string, id: string): Promise<void> {
   await assertNotImpersonating();
   const rows = (await sql`
     DELETE FROM cash_forecast_overrides WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID RETURNING ${COLUMNS}
   `) as DbRow[];
   if (rows.length === 0) throw new CashForecastNotFoundError('No such cash forecast override');
-  const before = toOverride(rows[0]!);
-  await logAuditOrThrow({
-    companyId, userId, action: 'delete', entityType: 'cash_forecast_override', entityId: id,
-    entityRef: `${before.lineKey} @ ${before.weekStart}`,
-    changes: { fields: changes(before, null), metadata: { area: 'cash_forecast_13', lineKey: before.lineKey, weekStart: before.weekStart } },
-  });
+  await audited(companyId, userId, toOverride(rows[0]!));
+}
+
+/** Every override of one line (a deleted item's 'manual:<id>'), one audit row each. The caller checked Login-as. */
+export async function deleteOverridesOfLine(companyId: string, userId: string, lineKey: string): Promise<void> {
+  const rows = (await sql`
+    DELETE FROM cash_forecast_overrides WHERE company_id = ${companyId}::UUID AND line_key = ${lineKey} RETURNING ${COLUMNS}
+  `) as DbRow[];
+  for (const r of rows.map(toOverride).sort((x, y) => (x.weekStart < y.weekStart ? -1 : 1))) await audited(companyId, userId, r);
 }

@@ -17,7 +17,9 @@ const Amount = z.number().finite()
   .refine(hasTwoDecimals, 'Amounts have at most two decimals')
   .refine((n) => Math.abs(n) <= MAX_AMOUNT, 'Amount is too large');
 
-export const CalendarDate = z.string().refine(isRealCalendarDate, 'Dates are real calendar dates (YYYY-MM-DD)');
+/** A real calendar date in 2000-01-01..2100-12-31 (migration 999i's CHECKs repeat the bounds). */
+export const CalendarDate = z.string().refine(isRealCalendarDate, 'Dates are real calendar dates (YYYY-MM-DD)')
+  .refine((d) => d >= '2000-01-01' && d <= '2100-12-31', 'Dates lie between 2000-01-01 and 2100-12-31');
 
 /** ISO day 1. Only called on a real calendar date. */
 export function isMonday(date: string): boolean {

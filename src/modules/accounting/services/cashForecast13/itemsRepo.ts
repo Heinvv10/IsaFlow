@@ -2,16 +2,19 @@
  * Expected cash items of the 13-week forecast (cash_forecast_items, migration 999i): receipts and
  * payments a user types. Forecasts, so they are edited and deleted freely; every write runs in the
  * request transaction, refuses a Login-as session first, and writes one audit row
- * (entity_type 'cash_forecast_item'). The table's trigger stamps who and when.
+ * (entity_type 'cash_forecast_item'). The table's trigger stamps who and when. At most MAX_ITEMS per company
+ * (409); an edit that changes nothing writes nothing; deleting an item deletes its 'manual:<id>' overrides.
  */
 import { sql } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { toIsoTimestamp } from '@/lib/dateUtils';
 import type { DbRow } from '@/types/db';
 import { logAuditOrThrow, type AuditFieldChange } from '../core/auditTrailService';
-import { CashForecastInputError, CashForecastNotFoundError } from './storeErrors';
+import { isHeaderSql } from '../budgets/headerSql';
+import { deleteOverridesOfLine } from './overridesRepo';
+import { CashForecastInputError, CashForecastLimitError, CashForecastNotFoundError } from './storeErrors';
 import type { ItemInput } from './storeSchemas';
-import { CASH_CATEGORIES, type ManualCashItem } from './storeTypes';
+import { CASH_CATEGORIES, MAX_ITEMS, manualLineKey, type ManualCashItem } from './storeTypes';
 
 export interface StoredCashItem extends ManualCashItem { updatedAt: string }
 
@@ -41,11 +44,20 @@ export async function listItems(companyId: string): Promise<StoredCashItem[]> {
   return rows.map(toItem);
 }
 
-/** The account must be one of the company's (the table's trigger refuses it too, as a 23514). */
+/**
+ * The account must be one of the company's (the table's trigger refuses it too, as a 23514), active, and a
+ * leaf: a header (an account another account names as its parent, the budgets' rule) is refused.
+ */
 async function assertAccount(companyId: string, accountId: string | null): Promise<void> {
   if (accountId === null) return;
-  const rows = (await sql`SELECT 1 FROM gl_accounts WHERE id = ${accountId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
-  if (rows.length === 0) throw new CashForecastInputError('The account is not one of this company\'s accounts');
+  const rows = (await sql`
+    SELECT ga.is_active, ${isHeaderSql()} AS is_header FROM gl_accounts ga
+     WHERE ga.id = ${accountId}::UUID AND ga.company_id = ${companyId}::UUID
+  `) as DbRow[];
+  const a = rows[0];
+  if (!a) throw new CashForecastInputError('The account is not one of this company\'s accounts');
+  if (a.is_active === false) throw new CashForecastInputError('The account is inactive');
+  if (a.is_header === true) throw new CashForecastInputError('The account is a header account: choose one of its sub-accounts');
 }
 
 const LABELS: Record<string, string> = {
@@ -67,6 +79,12 @@ function changes(before: Partial<ManualCashItem>, after: Partial<ManualCashItem>
 export async function createItem(companyId: string, userId: string, input: ItemInput): Promise<StoredCashItem> {
   await assertNotImpersonating();
   await assertAccount(companyId, input.accountId);
+  // One creator per company at a time (to the end of the request tx), so two creates at the cap cannot both pass.
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended('cash_forecast_items:' || ${companyId}::uuid::text, 0))`;
+  const count = (await sql`SELECT COUNT(*)::int AS n FROM cash_forecast_items WHERE company_id = ${companyId}::UUID`) as DbRow[];
+  if (Number(count[0]?.n ?? 0) >= MAX_ITEMS) {
+    throw new CashForecastLimitError(`A company can keep at most ${MAX_ITEMS} expected cash items; remove some first`);
+  }
   const rows = (await sql`
     INSERT INTO cash_forecast_items (company_id, direction, amount, expected_date, repeat, repeat_until, description, category, gl_account_id)
     VALUES (${companyId}::UUID, ${input.direction}, ${input.amount}, ${input.date}::DATE, ${input.repeat},
@@ -92,6 +110,8 @@ async function lockItem(companyId: string, id: string): Promise<StoredCashItem> 
 export async function updateItem(companyId: string, userId: string, id: string, input: ItemInput): Promise<StoredCashItem> {
   await assertNotImpersonating();
   const before = await lockItem(companyId, id);
+  // Nothing changed: no UPDATE (the stamps stay) and no audit row.
+  if (changes(before, { ...input, accountId: input.accountId ?? undefined }).length === 0) return before;
   await assertAccount(companyId, input.accountId);
   const rows = (await sql`
     UPDATE cash_forecast_items
@@ -117,4 +137,6 @@ export async function deleteItem(companyId: string, userId: string, id: string):
     companyId, userId, action: 'delete', entityType: 'cash_forecast_item', entityId: id, entityRef: before.description,
     changes: { fields: changes(before, {}), metadata: { area: 'cash_forecast_13' } },
   });
+  // The item's own forecast line goes with it: its overrides, each audited, in the same transaction.
+  await deleteOverridesOfLine(companyId, userId, manualLineKey(id));
 }

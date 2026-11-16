@@ -186,7 +186,7 @@ describe('overrides', () => {
     expect(await count('cash_forecast_overrides', a.homeCompanyId)).toBe(0);
     expect((await audit(a.homeCompanyId, 'cash_forecast_override')).map((r) => r.action)).toEqual(['create', 'update', 'delete']);
   });
-  it('GET lists in the order the engine applies them (created_at, id), not by week or key', async () => {
+  it('GET lists in the order the engine applies them (updated_at, id), not by week or key', async () => {
     // Three rows whose creation order differs from week order (either way) and from key order.
     for (const [lineKey, weekStart] of [['m:o', '2026-11-30'], ['z:o', '2026-11-16'], ['a:o', '2026-11-23']]) {
       expect((await overrides.call(a, 'PUT', { ...OVR, lineKey, weekStart })).status).toBe(200);
@@ -210,7 +210,7 @@ describe('pay day', () => {
       { payDay: { kind: 'last_working_day' }, day: 28, isDefault: false });
     const rows = await audit(a.homeCompanyId, 'payroll_company_settings');
     expect(rows.map((r) => [r.action, r.user_id, r.changes.fields[0].old, r.changes.fields[0].new])).toEqual([
-      ['create', a.userId, 'Day 25', 'Day 28'], ['update', a.userId, 'Day 28', 'Last working day']]);
+      ['create', a.userId, 'Not chosen (day 25)', 'Day 28'], ['update', a.userId, 'Day 28', 'Last working day']]);
     expect((await payDay.call(b, 'GET')).body.data).toMatchObject({ isDefault: true });
   });
 

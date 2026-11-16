@@ -1,6 +1,6 @@
 /**
  * Stored inputs -> engine inputs: cents with payments negative, week indexes from the horizon's first Monday
- * (past and beyond-horizon weeks dropped), overrides in created_at/id order, null move_to passed through.
+ * (past and beyond-horizon weeks dropped), overrides kept in the repo's order, null move_to passed through.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -57,11 +57,11 @@ describe('toEngineOverrides', () => {
     ], TODAY);
     expect(out.map((o) => o.weekIndex)).toEqual([0, 12]);
   });
-  it('orders by createdAt, then id, whatever the input order', () => {
+  it("keeps the input order (the repo's updated_at, id order); never re-sorts by any stamp or id", () => {
     const out = toEngineOverrides([
-      ov({ id: 'z', lineKey: 'third', createdAt: '2026-11-16T09:00:00.000Z' }),
-      ov({ id: 'b', lineKey: 'second', createdAt: '2026-11-16T08:00:00.000Z' }),
-      ov({ id: 'a', lineKey: 'first', createdAt: '2026-11-16T08:00:00.000Z' }),
+      ov({ id: 'z', lineKey: 'first', createdAt: '2026-11-16T09:00:00.000Z', updatedAt: '2026-11-16T07:00:00.000Z' }),
+      ov({ id: 'a', lineKey: 'second', createdAt: '2026-11-16T07:00:00.000Z', updatedAt: '2026-11-16T09:00:00.000Z' }),
+      ov({ id: 'm', lineKey: 'third', createdAt: '2026-11-16T08:00:00.000Z', updatedAt: '2026-11-16T08:00:00.000Z' }),
     ], TODAY);
     expect(out.map((o) => o.lineKey)).toEqual(['first', 'second', 'third']);
   });

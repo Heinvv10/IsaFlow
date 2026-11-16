@@ -9,7 +9,9 @@
  *   - amountCents = round(amount x 100); an item's payment is negative, a receipt positive.
  *   - An override's weekIndex counts Mondays from the horizon's first Monday (the Monday of `today`'s week,
  *     as buildWeeks does); a week before it (scrolled into the past) or past week 13 is dropped.
- *   - Overrides keep the order the engine applies them in: created_at, then id.
+ *   - Overrides keep the order they arrive in: the repo lists them in application order, the last edit last
+ *     (ORDER BY updated_at, id in the database). Never re-sorted here: ISO strings hold milliseconds only, the
+ *     database's microseconds would tie and reorder.
  *   - set/add amounts are stored in the line's own sign and pass through. A move_to amount is stored as a
  *     magnitude (> 0) and passes through positive; null = the whole cell. The engine applies a move_to
  *     amount in the cell's sign.
@@ -72,15 +74,13 @@ export function toEngineManualItems(items: readonly ManualCashItem[]): EngineMan
 }
 
 /**
- * The overrides inside the horizon, in application order. A move_to whose target lies outside it is passed
+ * The overrides inside the horizon, in the order given (the repo's application order). A move_to whose target lies outside it is passed
  * on (the engine skips it with an `override_skipped` warning, so the user sees why), not dropped here.
  */
 export function toEngineOverrides(overrides: readonly StoredOverride[], today: string): EngineOverride[] {
   const first = horizonStart(today);
-  const ordered = [...overrides].sort((a, b) =>
-    a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   const out: EngineOverride[] = [];
-  for (const o of ordered) {
+  for (const o of overrides) {
     const weekIndex = weekOffset(first, o.weekStart);
     if (weekIndex < 0 || weekIndex >= ENGINE_WEEKS) continue;
     const e: EngineOverride = { lineKey: o.lineKey, weekIndex, mode: o.mode, amountCents: o.amount === null ? null : toCents(o.amount) };

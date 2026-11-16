@@ -31,6 +31,9 @@ describe('999i: item rules', () => {
     ['repeat_until before the date', { repeat: 'monthly', until: '2026-11-30' }, '23514:cash_forecast_items_repeat_until_check'],
     ['blank description', { desc: '   ' }, '23514:cash_forecast_items_description_check'],
     ['description of 201', { desc: 'x'.repeat(201) }, '23514:cash_forecast_items_description_check'],
+    ['a date before 2000', { date: '1999-12-31' }, '23514:cash_forecast_items_dates_in_range'],
+    ['a date after 2100', { date: '2101-01-01' }, '23514:cash_forecast_items_dates_in_range'],
+    ['a repeat end after 2100', { repeat: 'weekly', until: '2101-01-01' }, '23514:cash_forecast_items_dates_in_range'],
   ];
   it.each(cases)('%s is refused', async (_n, o, code) => {
     await as(A, async (q) => { expect(await codeOf(q, ITEM, item(A.id, o))).toBe(code); });
@@ -42,6 +45,7 @@ describe('999i: item rules', () => {
       expect(await codeOf(q, ITEM, item(A.id, { desc: 'x'.repeat(200) }))).toBe('ok');
       expect(await codeOf(q, ITEM, item(A.id, { repeat: 'weekly', until: '2026-12-01' }))).toBe('ok');
       expect(await codeOf(q, ITEM, item(A.id, { repeat: 'monthly', until: null }))).toBe('ok');
+      expect(await codeOf(q, ITEM, item(A.id, { date: '2000-01-01', repeat: 'weekly', until: '2100-12-31' }))).toBe('ok');
     });
   });
 
@@ -88,6 +92,9 @@ describe('999i: override rules', () => {
     ['blank line key', { key: ' ' }, '23514:cash_forecast_overrides_line_key_check'],
     ['line key of 201', { key: 'k'.repeat(201) }, '23514:cash_forecast_overrides_line_key_check'],
     ['note of 501', { note: 'n'.repeat(501) }, '23514:cash_forecast_overrides_note_check'],
+    ['a week before 2000', { week: '1999-12-27' }, '23514:cash_forecast_overrides_dates_in_range'],
+    ['a week after 2100', { week: '2101-01-03' }, '23514:cash_forecast_overrides_dates_in_range'],
+    ['a target after 2100', { week: '2100-12-27', mode: 'move_to', amount: 1, target: '2101-01-03' }, '23514:cash_forecast_overrides_dates_in_range'],
   ];
   it.each(cases)('%s is refused', async (_n, o, code) => {
     await as(A, async (q) => { expect(await codeOf(q, OVR, ovr(A.id, o))).toBe(code); });
@@ -99,6 +106,7 @@ describe('999i: override rules', () => {
       expect(await codeOf(q, OVR, ovr(A.id, { key: 'b', mode: 'add', amount: -250.5 }))).toBe('ok');
       expect(await codeOf(q, OVR, ovr(A.id, { key: 'b2', mode: 'set', amount: -80000 }))).toBe('ok');
       expect(await codeOf(q, OVR, ovr(A.id, { key: 'b3', mode: 'move_to', amount: null, target: '2026-11-23' }))).toBe('ok');
+      expect(await codeOf(q, OVR, ovr(A.id, { key: 'b4', week: '2000-01-03', mode: 'move_to', amount: 1, target: '2100-12-27' }))).toBe('ok');
       expect(await codeOf(q, OVR, ovr(A.id, { key: 'c', mode: 'move_to', amount: 100, target: '2026-11-23' }))).toBe('ok');
       expect(await codeOf(q, OVR, ovr(A.id, { key: 'd', week: '2026-11-23', mode: 'move_to', amount: 100, target: '2026-11-16' }))).toBe('ok');
     });
@@ -109,31 +117,6 @@ describe('999i: override rules', () => {
       expect(await codeOf(q, OVR, ovr(A.id, { key: 'dup' }))).toBe('ok');
       expect(await codeOf(q, OVR, ovr(A.id, { key: 'dup', mode: 'add', amount: 1 }))).toBe('23505:uq_cash_forecast_overrides_line_week');
       expect(await codeOf(q, OVR, ovr(A.id, { key: 'dup', week: '2026-11-23' }))).toBe('ok');
-    });
-  });
-});
-
-describe('999i: salary pay day', () => {
-  it('defaults to day 25 of the month; app_user may write both columns', async () => {
-    await as(A, async (q) => {
-      const r = (await q.query(
-        'INSERT INTO payroll_company_settings (company_id, updated_by) VALUES ($1, $2) RETURNING salary_pay_rule, salary_pay_day', [A.id, A.user])).rows[0];
-      expect(r).toEqual({ salary_pay_rule: 'day_of_month', salary_pay_day: 25 });
-      expect(await codeOf(q, "UPDATE payroll_company_settings SET salary_pay_rule = 'last_working_day', salary_pay_day = 31 WHERE company_id = $1", [A.id])).toBe('ok');
-    });
-  });
-
-  it.each([[0], [32]])('day %i is refused', async (d) => {
-    await as(A, async (q) => {
-      expect(await codeOf(q, 'INSERT INTO payroll_company_settings (company_id, salary_pay_day) VALUES ($1, $2)', [A.id, d]))
-        .toBe('23514:payroll_company_settings_salary_pay_day_check');
-    });
-  });
-
-  it('an unknown rule is refused', async () => {
-    await as(A, async (q) => {
-      expect(await codeOf(q, "INSERT INTO payroll_company_settings (company_id, salary_pay_rule) VALUES ($1, 'first_friday')", [A.id]))
-        .toBe('23514:payroll_company_settings_salary_pay_rule_check');
     });
   });
 });

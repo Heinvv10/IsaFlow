@@ -20,6 +20,8 @@ describe('ItemInput', () => {
     ['amount past numeric(15,2)', { amount: 1e13 }], ['NaN', { amount: Number.NaN }], ['amount as text', { amount: '5' }],
     ['unknown direction', { direction: 'transfer' }], ['unknown repeat', { repeat: 'daily' }],
     ['30 February', { date: '2026-02-30' }], ['not a date', { date: '01/12/2026' }],
+    ['a date before 2000', { date: '1999-12-31' }], ['a date after 2100', { date: '2101-01-01' }],
+    ['a repeat end after 2100', { repeat: 'weekly', repeatUntil: '2101-01-01' }],
     ['blank description', { description: '   ' }], ['description of 201', { description: 'x'.repeat(201) }],
     ['repeatUntil on a one-off', { repeatUntil: '2027-01-01' }],
     ['repeatUntil before the date', { repeat: 'weekly', repeatUntil: '2026-11-30' }],
@@ -30,7 +32,7 @@ describe('ItemInput', () => {
     ['0.01', { amount: 0.01 }], ['two decimals', { amount: 0.29 }], ['200 characters', { description: 'x'.repeat(200) }],
     ['repeatUntil on the date', { repeat: 'monthly', repeatUntil: '2026-12-01' }], ['open-ended weekly', { repeat: 'weekly' }],
     ['a payment with an account', { direction: 'payment', accountId: '00000000-0000-0000-0000-000000000001' }],
-    ['category loans', { category: 'loans' }],
+    ['category loans', { category: 'loans' }], ['the date bounds', { date: '2000-01-01', repeat: 'weekly', repeatUntil: '2100-12-31' }],
   ])('accepts %s', (_n, patch) => { expect(ok(ItemInput, { ...item, ...patch })).toBe(true); });
   it('ItemUpdate needs an id', () => {
     expect(ok(ItemUpdate, item)).toBe(false);
@@ -56,6 +58,7 @@ describe('OverrideInput', () => {
     ['add with a target', { mode: 'add', amount: 5, targetWeekStart: '2026-11-23' }],
     ['unknown mode', { mode: 'scale', amount: 1 }], ['blank line key', { lineKey: '  ' }], ['line key of 201', { lineKey: 'k'.repeat(201) }],
     ['note of 501', { note: 'n'.repeat(501) }], ['three decimals', { amount: 0.001 }],
+    ['a week before 2000', { weekStart: '1999-12-27' }], ['a target after 2100', { weekStart: '2100-12-27', mode: 'move_to', amount: 1, targetWeekStart: '2101-01-03' }],
   ])('refuses %s', (_n, patch) => { expect(ok(OverrideInput, { ...ovr, ...patch })).toBe(false); });
   it.each([
     ['set 0', {}], ['set negative (a payment line)', { amount: -80000 }], ['add negative', { mode: 'add', amount: -250.5 }],
