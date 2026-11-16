@@ -119,20 +119,24 @@ describe('retention', () => {
     expect((await journals()) - before).toBe(2); // past 24 h: posted again
   });
 
-  it('every claim prunes at most 20 of the company\'s rows older than 7 days, and keeps the newer ones', async () => {
+  // No ANALYZE here, on purpose: the defect (`WHERE id IN (SELECT ... LIMIT 20 FOR UPDATE SKIP LOCKED)` planned as a
+  // nested-loop semi join that re-runs the LIMIT per row, so a claim deleted EVERY old row) only shows with missing or
+  // stale statistics, which is what a table that has just been filled has. 45 old rows: a broken form deletes all 45.
+  it('every claim prunes at most 20 of the company\'s rows older than 7 days, and keeps the newer ones (no ANALYZE)', async () => {
     const tag = key().slice(0, 8);
     await pool.query(
       `INSERT INTO http_idempotency_keys(company_id, route, idempotency_key, payload_hash, status_code, response_body, created_at)
-       SELECT $1, 'bank-transfers', $2 || '-' || g::TEXT, 'x', 200, '{}'::jsonb, now() - interval '8 days' FROM generate_series(1, 25) g`,
+       SELECT $1, 'bank-transfers', $2 || '-' || g::TEXT, 'x', 200, '{}'::jsonb, now() - interval '8 days' FROM generate_series(1, 45) g`,
       [f.c, tag]);
     await pool.query(
       `INSERT INTO http_idempotency_keys(company_id, route, idempotency_key, payload_hash, status_code, response_body, created_at)
        VALUES ($1, 'bank-transfers', $2 || '-recent', 'x', 200, '{}'::jsonb, now() - interval '3 days')`, [f.c, tag]);
-    expect(await rows(`${tag}-%`)).toBe(26);
-    await pool.query('ANALYZE http_idempotency_keys'); // the planner's choice of join depends on the table's statistics
+    expect(await rows(`${tag}-%`)).toBe(46);
     await transfer(transferBody({ reference: 'IDEM-PRUNE' }), key());
-    expect(await rows(`${tag}-%`)).toBe(6); // 20 pruned: 5 old + 1 recent left
+    expect(await rows(`${tag}-%`)).toBe(26); // exactly 20 pruned: 25 old + 1 recent left
     await transfer(transferBody({ reference: 'IDEM-PRUNE2', amount: 102 }), key());
+    expect(await rows(`${tag}-%`)).toBe(6);
+    await transfer(transferBody({ reference: 'IDEM-PRUNE3', amount: 103 }), key());
     expect(await rows(`${tag}-%`)).toBe(1); // the recent one stays
   });
 });

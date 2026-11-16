@@ -148,6 +148,37 @@ describe('M3: pruning skips rows another claim holds', () => {
   });
 });
 
+describe('M3b: a prune never waits on rows another transaction holds', () => {
+  it('rows locked by another connection are skipped: the claim answers fast, deletes 20 of the unlocked, leaves the locked', async () => {
+    const tag = key().slice(0, 8);
+    // 30 rows, the 10 OLDEST of which another connection locks; 30 days old, so they are first in the prune's order.
+    await pool.query(
+      `INSERT INTO http_idempotency_keys(company_id, route, idempotency_key, payload_hash, status_code, response_body, created_at)
+       SELECT $1, 'bank-transfers', $2 || '-' || g::TEXT, 'x', 200, '{}'::jsonb, now() - interval '30 days' - g * interval '1 minute'
+       FROM generate_series(1, 30) g`, [g.c, tag]);
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      const locked = await holder.query(
+        `SELECT id FROM http_idempotency_keys WHERE company_id = $1 AND idempotency_key LIKE $2
+         ORDER BY created_at LIMIT 10 FOR UPDATE`, [g.c, `${tag}-%`]);
+      expect(locked.rowCount).toBe(10);
+      const t0 = Date.now();
+      const res = await xfer(g, xferBody(g, { reference: 'R2-SKIP' }), key());
+      const waited = Date.now() - t0;
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+      expect(waited).toBeLessThan(2_000); // without SKIP LOCKED it waits on the holder until the 5 s bound
+      const left = await pool.query(
+        'SELECT id FROM http_idempotency_keys WHERE company_id = $1 AND idempotency_key LIKE $2', [g.c, `${tag}-%`]);
+      expect(left.rowCount).toBe(10); // 30 - 20 deleted
+      expect(left.rows.map((r) => r.id).sort()).toEqual(locked.rows.map((r) => r.id).sort()); // exactly the locked ones
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+  }, 30_000);
+});
+
 describe('scope, owner and failure handling of a claim', () => {
   it('company G with company F\'s key is its own request, not a replay of F\'s answer', async () => {
     const k = key();
@@ -208,6 +239,16 @@ describe('scope, owner and failure handling of a claim', () => {
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
   });
 
+  it('a committed claim with no answer of ANOTHER user is not reclaimed: 422, nothing posted', async () => {
+    const k = key();
+    await pool.query(
+      `INSERT INTO http_idempotency_keys(company_id, route, idempotency_key, payload_hash, created_by) VALUES($1,'test-steered',$2,$3,$4)`,
+      [f.c, k, payloadHashOf({ n: 999 }), a]);
+    const res = await call(k, b);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(422);
+    expect(await claims(f.c, k)).toBe(1); // still the original claim
+  });
+
   it('an answer over 64 KB is not stored: the replay says "already processed, reload" instead of a cut body', async () => {
     const k = key();
     mode = 'big';
@@ -249,6 +290,28 @@ describe('the claim\'s lock_timeout bound is put back for the handler', () => {
     const res = await call(key());
     expect(res.state.body).toEqual({ lt: seen });
   });
+});
+
+describe('the claim wait is min(the caller\'s lock_timeout, 5 s)', () => {
+  it('a caller with lock_timeout 1 s: a duplicate of a held claim gets 503 in about 1 s, not 5 s', async () => {
+    callerLockTimeout = '1000ms';
+    const k = key();
+    let release: () => void = () => {};
+    faults.gate = new Promise<void>((resolve) => { release = resolve; });
+    faults.holdAfterSql = /INSERT INTO http_idempotency_keys/;
+    const first = call(k);
+    const until = Date.now() + 15_000;
+    while (!faults.held && Date.now() < until) await new Promise((r) => setTimeout(r, 25));
+    expect(faults.held).toBe(true);
+    const t0 = Date.now();
+    const dup = await call(k);
+    const waited = Date.now() - t0;
+    release();
+    expect(dup.state.statusCode, JSON.stringify(dup.state.body)).toBe(503);
+    expect(waited).toBeGreaterThanOrEqual(800); // it did wait on the held claim
+    expect(waited).toBeLessThan(3_000);
+    expect((await first).state.statusCode).toBe(200);
+  }, 30_000);
 });
 
 describe('W1: the manual route refuses another company\'s account before it writes', () => {
