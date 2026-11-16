@@ -16,6 +16,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach, type MockedFunction } 
 // fmtDate is a pure date formatter (no DB) — keep the real one so the
 // allocation date under test is the one production renders.
 vi.mock('@/modules/accounting/services/bank/bankAllocationPeriod', () => ({ allocationPeriodFor: async () => 'fp-open' })); // WP2 row 12: proven in bank-wp2-12-fiscal-preflight.int
+vi.mock('@/modules/accounting/services/bank/bankAllocationInputGuard', () => ({ assertAllocationInputUsable: vi.fn() })); // reads Postgres; proven in bank-catchall-allocation.int
 vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ // R-035 PR6: reads Postgres; proven in r035-pr6-bank.int
   handKeyedAccountLineSkips: vi.fn(async () => new Map()), assertBankLineMayPostToAccounts: vi.fn(), handKeyedLineJournalRefusal: vi.fn(async () => null),
 }));

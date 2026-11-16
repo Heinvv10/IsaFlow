@@ -33,6 +33,32 @@ export function parseVersionFromFilename(filename: string): string {
   return match[1]!;
 }
 
+/**
+ * The one migration order (runner, parity gate, file loader): the version's
+ * digits as an integer, then its letter (none < a < b), then the filename for
+ * duplicate versions. Numeric, so 1000_ follows 999b_ instead of preceding
+ * 100_ as a string sort would. refresh-baseline.sh has the bash equivalent.
+ */
+export function compareMigrations(a: { version: string; name: string }, b: { version: string; name: string }): number {
+  const va = /^(\d+)([a-z]?)$/.exec(a.version);
+  const vb = /^(\d+)([a-z]?)$/.exec(b.version);
+  if (va && vb) {
+    const byNumber = parseInt(va[1]!, 10) - parseInt(vb[1]!, 10);
+    if (byNumber !== 0) return byNumber;
+    if (va[2] !== vb[2]) return va[2]! < vb[2]! ? -1 : 1;
+  }
+  if (a.version !== b.version) return a.version < b.version ? -1 : 1;
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+}
+
+/** compareMigrations over bare filenames. */
+export function compareMigrationNames(a: string, b: string): number {
+  return compareMigrations(
+    { version: parseVersionFromFilename(a), name: a },
+    { version: parseVersionFromFilename(b), name: b },
+  );
+}
+
 /** Strip Neon pooler + channel_binding for a stable session connection (mirrors src/lib/neon.ts getDirectUrl). */
 export function toDirectUrl(url: string): string {
   return url
@@ -48,7 +74,7 @@ export function computeChecksum(content: string): string {
 export function loadMigrationFiles(dir: string = MIGRATIONS_DIR): MigrationFile[] {
   const entries = readdirSync(dir)
     .filter((f) => f.endsWith('.sql'))
-    .sort();
+    .sort(compareMigrationNames);
   return entries.map((name) => {
     const content = readFileSync(join(dir, name), 'utf8');
     return {

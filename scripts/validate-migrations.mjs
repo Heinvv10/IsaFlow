@@ -65,8 +65,8 @@ if (duplicates.length === 0) {
 
 const label = warnOnly ? 'WARN' : 'ERROR';
 process.stderr.write(`\n${label}: ${duplicates.length} duplicate migration prefix(es) detected.\n`);
-process.stderr.write('These files share the same numeric prefix and will execute in\n');
-process.stderr.write('lexicographic order, which may differ across filesystems:\n\n');
+process.stderr.write('These files share the same numeric prefix; the runner orders them by\n');
+process.stderr.write('letter suffix, then by filename (compareMigrations in scripts/lib/migrationFiles.ts):\n\n');
 
 for (const [prefix, names] of duplicates) {
   process.stderr.write(`  Prefix ${prefix}:\n`);

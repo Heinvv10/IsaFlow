@@ -96,6 +96,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/ap/bankLinePaymentGate.ts': "exempt: reads one line's provenance (feed connection / import batch) by id for the R-035 payment gate; no total or queue scope",
   'src/modules/accounting/services/bank/bankLineJournalGate.ts': "exempt: reads the named lines' provenance (feed connection / import batch) by id for the R-035 manual-journal gate; no total or queue scope",
   'src/modules/accounting/services/bank/bankLineImporterGate.ts': "exempt: reads the named lines' provenance (feed connection / import batch and its importer) by id for the step-2 importer gate; no total or queue scope",
+  'src/modules/accounting/services/bank/bankTransferLinkImporterHold.ts': "exempt: reads the named line's provenance (feed connection / extension batch and its importer) by id to hold the transfer auto-link; no total or queue scope",
   'src/modules/accounting/services/bank/bankReversalGate.ts': "exempt: reads the named lines' amount and auto-post run by id for the step-2 reversal gate (MCP pre-check); no total or queue scope",
   'src/modules/accounting/services/ap/provisionalSettlementVoid.ts': "exempt: reads the settled provisional's own line by provisional_je_id, which a non-posted row cannot carry (trigger 675); no total or queue scope",
   'src/modules/accounting/services/comments/commentRecords.ts': "exempt: one bank line by id - the record check (company-scoped 404) and its description for a comment mention's label (M14); not a total or the review queue",

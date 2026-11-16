@@ -31,6 +31,7 @@ import { assertImporterMayAllocateAs } from './bankLineImporterGate';
 import { stampContraDimensions } from './bankAllocationDimensions';
 import { recordAllocationDecision } from './codingDecisionLog';
 import { planAllocationPosting } from './bankAllocationPlan';
+import { assertAllocationInputUsable } from './bankAllocationInputGuard';
 import { buildAllocationArm } from './bankAllocationArms';
 import { invoiceSourceDocumentOf, recordAllocationDocuments } from './bankAllocationDocuments';
 import { assertAllocationVatCode } from './bankVatCodes';
@@ -142,6 +143,10 @@ export async function allocateTransaction(
     bankAccountId, totalAmount, isSpent,
   });
   const { allocationDims } = plan;
+  // The contra account and the dimensions the account arm stamps, refused typed and before the first write.
+  if (allocType === 'account' && contraAccountId) {
+    await assertAllocationInputUsable(companyId, [contraAccountId], [allocationDims]);
+  }
 
   // The journal lines of each arm, with the arm's own pre-write refusals (bankAllocationArms).
   const { lines, source, entryDesc, allocEntityName, counterpartyAccountId } = await buildAllocationArm({

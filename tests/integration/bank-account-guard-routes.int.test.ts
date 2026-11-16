@@ -21,9 +21,6 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 let x: GuardFixture;
 
 beforeAll(async () => {
-  // PRE-EXISTING DEFECT, not this slice's (see bank-controls-import-provenance): import-classified writes
-  // bank_transactions.suggested_cost_centre, which no migration creates. Added on the disposable fixture only.
-  await pool.query('ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS suggested_cost_centre TEXT');
   x = await guardFixture(pool);
 });
 afterAll(() => cleanupGuardFixture(pool, x));

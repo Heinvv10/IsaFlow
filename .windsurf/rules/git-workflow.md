@@ -10,4 +10,4 @@ description: Git, CI gate, and deployment rules
 - `bun run ci` (lint + type-check + unit + migration-naming) MUST pass before any PR.
 - No `--no-verify`, no force-push to `master`, no amending published commits.
 - Production deploy: `bash scripts/deploy.sh`. Blocked during business hours (08:00–17:00 SAST, Mon–Fri) without explicit approval.
-- Migrations: next unused 3-digit prefix in `scripts/migrations/sql/`, `IF NOT EXISTS` on every `CREATE`.
+- Migrations: next unused numeric prefix (`1000_` follows `999_`) in `scripts/migrations/sql/`, `IF NOT EXISTS` on every `CREATE`.
