@@ -222,11 +222,15 @@ const handler: NextApiHandler = async (req, res) => {
       await refund();
       return res.status(409).json({ success: false, error: { code: 'EMAIL_IN_USE', message: EMAIL_IN_USE_MESSAGE } });
     }
-    // Still pending, or nothing commits: a revoke or a competing accept since
-    // the lookup above leaves no row to mark, and the membership goes with it.
+    // Still pending under THIS token and unexpired, or nothing commits: a revoke,
+    // an admin's delete of the user (which cancels it), a re-send (a new token:
+    // the old link must stop working) or a competing accept since the lookup
+    // above leaves no row to mark, and the membership goes with it. The same
+    // re-check as /api/invite/[token].
     const marked = await client.query(
-      `UPDATE company_invitations SET accepted_at = now() WHERE id = $1::uuid AND accepted_at IS NULL`,
-      [inv.id]
+      `UPDATE company_invitations SET accepted_at = now()
+        WHERE id = $1::uuid AND token = $2 AND accepted_at IS NULL AND expires_at > now()`,
+      [inv.id, tokenHash]
     );
     if (marked.rowCount !== 1) {
       unusable = await rollbackFailed(client, 'invite accept');
