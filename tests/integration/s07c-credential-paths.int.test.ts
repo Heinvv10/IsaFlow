@@ -12,6 +12,10 @@
 // email stub keeping what the mailbox would receive.
 // PATs and OAuth: s07c-credential-paths.oauth.int.test.ts.
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
+// No GoTrue in the fixture: POST /api/invite/<token> reads the session user's login email through adminGetUser
+// (#1468); answer the address this suite's sessions carry (signSession).
+vi.mock('@/lib/auth/gotrueAdminUser', async () =>
+  (await import('./helpers/fixtureGotrueLogin')).fixtureGotrueLogin((id) => `${id}@test.local`));
 import invitationsRoute from '../../pages/api/accounting/company-invitations';
 import inviteApiRoute from '../../pages/api/invitations/index';
 import revokeRoute from '../../pages/api/invitations/revoke/[id]';

@@ -19,7 +19,7 @@ export { LumpSumCalculator } from './LumpSumCalculator';
 
 const TYPE_OPTIONS = DIRECTIVE_TYPES.map(t => ({ value: t, label: TYPE_LABELS[t] }));
 
-const inputCls = 'w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-teal-500';
+const inputCls = 'w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-gray-600 dark:placeholder-gray-300 focus:outline-none focus:border-teal-500';
 const labelCls = 'block text-xs font-medium text-gray-400 mb-1';
 
 // ─── Create Modal ─────────────────────────────────────────────────────────────
@@ -62,13 +62,13 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
   // read-only and never posted (the server stores the record's, and a posted tax number would only reach the log).
   const picked = employees.find(emp => emp.id === form.employee_id);
   const regular = isRegularPayDirectiveType(form.directive_type);
-  const pickEmployee = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setForm(f => ({ ...f, employee_id: e.target.value }));
+  const pickEmployee = (employeeId: string) => {
+    setForm(f => ({ ...f, employee_id: employeeId }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // The select is required, but a submit can get past the browser's check: never POST without the employee.
+    // The picker has no browser-level required check: never POST without the employee.
     if (!form.employee_id) {
       setError('Choose the employee the directive is paid to');
       return;
@@ -116,7 +116,7 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
       <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-300 dark:border-gray-700">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">New Tax Directive</h2>
-          <button onClick={onClose} className="text-gray-600 dark:text-gray-400 hover:text-white"><X className="h-5 w-5" /></button>
+          <button type="button" onClick={onClose} aria-label="Close" className="text-gray-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white"><X className="h-5 w-5" /></button>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
@@ -124,7 +124,7 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
           )}
           <div className="grid grid-cols-2 gap-4">
             <DirectiveEmployeeSelect value={form.employee_id} onChange={pickEmployee} employees={employees}
-              loading={employeesLoading} error={employeesError} inputCls={inputCls} labelCls={labelCls} onRetry={reloadEmployees} />
+              loading={employeesLoading} error={employeesError} labelCls={labelCls} onRetry={reloadEmployees} />
             <div className="col-span-2">
               <label htmlFor="td-employee-name" className={labelCls}>Employee Name *</label>
               <input id="td-employee-name" className={inputCls} value={picked ? `${picked.firstName} ${picked.lastName}` : ''} readOnly required placeholder="From the employee picked" />

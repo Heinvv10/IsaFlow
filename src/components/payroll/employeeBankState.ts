@@ -49,3 +49,28 @@ export async function loadHasFinalRun(employeeId: string): Promise<boolean | nul
     return null;
   }
 }
+
+/** `runMonth` null = the read failed: the caller keeps the month it had, or falls back to the current one. */
+export interface ReadinessState { bank: BankState; runMonth: string | null; hasFinalRun: boolean | null }
+
+/**
+ * The card's three facts in one read (wave 6 UXR). A failed or malformed read is the same fallback each separate
+ * read had: bank 'unknown' (never ready), no month (the card keeps its last, else the current one), and a final-run answer of null ("next", never "first").
+ */
+export async function loadReadiness(employeeId: string): Promise<ReadinessState> {
+  const failed: ReadinessState = { bank: 'unknown', runMonth: null, hasFinalRun: null };
+  try {
+    const res = await apiFetch(`/api/payroll/employees/${employeeId}/readiness`);
+    if (!res.ok) {
+      log.warn('readiness read refused', { status: res.status }, 'employeeBankState');
+      return failed;
+    }
+    const d = ((await res.json()) as { data?: { bank?: unknown; runs?: unknown; hasFinalRun?: unknown } }).data;
+    if (d?.bank !== 'on-file' && d?.bank !== 'none') return failed;
+    const runs = Array.isArray(d.runs) ? (d.runs as Array<{ periodYear: number; periodMonth: number; status: string }>) : [];
+    return { bank: d.bank, runMonth: nextRunMonth(runs), hasFinalRun: typeof d.hasFinalRun === 'boolean' ? d.hasFinalRun : null };
+  } catch (err) {
+    log.warn('readiness read failed', { error: err }, 'employeeBankState');
+    return failed;
+  }
+}

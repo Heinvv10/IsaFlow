@@ -16,7 +16,7 @@
 SELECT set_config('request.jwt.claims', json_build_object('sub', :'admin_id')::text, false) \gset
 
 INSERT INTO users (id, email, first_name, last_name, role, is_active, onboarding_completed)
-VALUES (:'admin_id', :'admin_email', 'Golden', 'Admin', 'admin', true, true);
+VALUES (:'admin_id', lower(btrim(:'admin_email')), 'Golden', 'Admin', 'admin', true, true);
 
 SELECT id AS company_id FROM create_company_with_owner(jsonb_build_object(
   'name', 'IsaDemo (Golden Paths CI)',
