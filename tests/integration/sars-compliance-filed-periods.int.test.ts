@@ -131,7 +131,10 @@ describe('the year window', () => {
   });
 
   it('an undo outside every drawable year is 404', async () => {
-    expect((await filed.call(o, 'DELETE', { eventType: 'EMP201_DUE', periodEnd: '1990-03-31' })).status).toBe(404);
+    const out = await filed.call(o, 'DELETE', { eventType: 'EMP201_DUE', periodEnd: '1990-03-31' });
+    expect(out.status).toBe(404);
+    // Refused as not a calendar item, not as an item that happens to be unmarked.
+    expect(out.body.error?.message).toMatch(/No EMP201_DUE item with period end 1990-03-31/);
   });
 
   it.each([[Y + 2], [Y - 2]])('a period end in %i is 404 and writes nothing', async (year) => {
