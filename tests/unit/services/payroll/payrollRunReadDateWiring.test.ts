@@ -4,6 +4,11 @@
  * reader turned that into the 27th on the SAST host.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+// Wave 6 FQa: the run-kind guard reads the database; its own tests are payrollRunKindGuard*.test.ts.
+vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
+  assertRunKindSupported: vi.fn(async () => undefined),
+}));
 
 // Both loan components exist: the fail-closed path has its own integration suites.
 // Hein ruling R-A (wave 5 ET) has its own tests (etiPeriodGuard.test.ts): no later month posted here.

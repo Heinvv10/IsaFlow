@@ -41,7 +41,7 @@ export class EmployeeOnboardingRefused extends Error {
 const refused = (message: string) => new EmployeeOnboardingRefused(message);
 
 type Body = Record<string, unknown>;
-type NewEmployee = Omit<PayrollEmployee, 'id' | 'companyId'>;
+type NewEmployee = Omit<PayrollEmployee, 'id' | 'companyId' | 'payFrequency'>; // 999a: inserts take the column default, monthly
 interface Salary { componentId: string; cents: number; effectiveFrom: string | null; effectiveTo: string | null }
 
 const isBlank = (v: unknown) => v === undefined || v === null || v === '';
