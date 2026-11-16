@@ -56,6 +56,11 @@ afterAll(async () => {
   await cleanupBankControlsA(pool, companies, users);
 });
 
+// The send rate limit counts per IP and per company in rate_limit_counters; a rerun in one database would meet the last run's counts.
+beforeEach(async () => {
+  await pool.query(`DELETE FROM rate_limit_counters WHERE key LIKE 'send:bank-tx-queries:%'`);
+});
+
 describe('A. attachments', () => {
   let line: string;
   beforeAll(async () => {
@@ -157,6 +162,15 @@ describe('A2. the reconciliation report pages by keyset', () => {
   }, 120_000);
 });
 
+describe('A3. the removed offset parameters are refused', () => {
+  it.each(['matchedOffset', 'unmatchedOffset'])('%s is a 400 pointing at the cursors, not a silent page 1', async (name) => {
+    const r = await callRoute(reconReportRoute as never, tokens[admin]!, f.c, 'GET', undefined, '/api/accounting/bank-reconciliation-report',
+      { bankAccountId: f.bank, [name]: '99999' });
+    expect(r.state.statusCode).toBe(400);
+    expect(JSON.stringify(r.state.body)).toContain('matchedAfter');
+  });
+});
+
 describe('B. client queries', () => {
   let line: string;
   const QUERIES = '/api/accounting/bank-tx-queries';
@@ -226,11 +240,13 @@ describe('B. client queries', () => {
       await c.query('ROLLBACK'); await c.query('BEGIN');
       await c.query('ALTER TABLE bank_tx_queries DROP CONSTRAINT IF EXISTS bank_tx_queries_status_check');
       await c.query(`ALTER TABLE bank_tx_queries ADD CONSTRAINT btq_other_name CHECK (status IN ('sent','replied','resolved','cancelled'))`);
+      // an unrelated CHECK whose text mentions "status" but sits on another column must survive
+      await c.query(`ALTER TABLE bank_tx_queries ADD CONSTRAINT btq_unrelated CHECK (message_body <> 'status')`);
       await c.query(sqlText);
       await c.query(sqlText); // idempotent
       await c.query(`INSERT INTO bank_tx_queries(company_id, bank_transaction_id, to_number, message_body, status) VALUES($1,$2,'+2','x','unconfirmed')`, [f.c, line]);
       const checks = (await c.query(`SELECT conname FROM pg_constraint WHERE conrelid = 'bank_tx_queries'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) ILIKE '%status%'`)).rows;
-      expect(checks).toEqual([{ conname: 'bank_tx_queries_status_check' }]);
+      expect(checks.map((r) => r.conname).sort()).toEqual(['bank_tx_queries_status_check', 'btq_unrelated']);
       const idx = (await c.query(`SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_btq_open_number'`)).rows[0].indexdef as string;
       expect(idx).toContain('unconfirmed');
     } finally { await c.query('ROLLBACK').catch(() => undefined); c.release(); }

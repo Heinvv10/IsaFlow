@@ -77,7 +77,7 @@ async function loadAttachments(
     WITH ranked AS (
       SELECT bta.id, bta.bank_transaction_id, bta.file_url, bta.file_name, bta.file_size, bta.uploaded_by,
              bta.created_at, cd.id AS document_id, cd.file_type,
-             SUM(length(bta.file_url)) OVER (ORDER BY bta.created_at DESC, bta.id DESC) AS running_bytes,
+             SUM(octet_length(bta.file_url)) OVER (ORDER BY bta.created_at DESC, bta.id DESC) AS running_bytes,
              ROW_NUMBER() OVER (ORDER BY bta.created_at DESC, bta.id DESC) AS rn,
              COUNT(*) OVER () AS copies_total
         FROM bank_transaction_attachments bta

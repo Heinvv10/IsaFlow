@@ -54,7 +54,7 @@ describe('capped attachment list', () => {
     expect(r.items.map((i) => i.id)).toEqual(['a5', 'a4']);
     const [strings, ...values] = sqlMock.mock.calls[0]!;
     const text = (strings as string[]).join('?');
-    expect(text).toMatch(/SUM\(length\(bta\.file_url\)\) OVER \(ORDER BY bta\.created_at DESC, bta\.id DESC\)/);
+    expect(text).toMatch(/SUM\(octet_length\(bta\.file_url\)\) OVER \(ORDER BY bta\.created_at DESC, bta\.id DESC\)/);
     expect(text).toMatch(/rn = 1 OR \?::BIGINT IS NULL OR running_bytes <= \?::BIGINT/);
     expect(values.filter((v) => v === 1234)).toHaveLength(2);
   });

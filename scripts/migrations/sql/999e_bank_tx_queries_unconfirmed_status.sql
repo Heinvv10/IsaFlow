@@ -5,6 +5,8 @@
 SET LOCAL lock_timeout = '5s';
 
 -- Drop the status CHECK by lookup, not by name: the constraint is auto-named in 496 and may differ per environment.
+-- Matched on the column (a CHECK over the status column alone), not on the definition text: an unrelated CHECK that
+-- merely mentions "status" must survive.
 DO $$
 DECLARE c record;
 BEGIN
@@ -13,7 +15,7 @@ BEGIN
     FROM pg_constraint con
     WHERE con.conrelid = 'bank_tx_queries'::regclass
       AND con.contype = 'c'
-      AND pg_get_constraintdef(con.oid) ILIKE '%status%'
+      AND con.conkey = ARRAY[(SELECT a.attnum FROM pg_attribute a WHERE a.attrelid = 'bank_tx_queries'::regclass AND a.attname = 'status')]::smallint[]
   LOOP
     EXECUTE format('ALTER TABLE bank_tx_queries DROP CONSTRAINT %I', c.conname);
   END LOOP;

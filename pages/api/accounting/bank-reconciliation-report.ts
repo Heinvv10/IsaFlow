@@ -155,6 +155,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const v = req.query[name];
     return v === undefined ? dflt : parseBoundedInt(v, min, max);
   };
+  if (req.query.matchedOffset !== undefined || req.query.unmatchedOffset !== undefined) {
+    return apiResponse.badRequest(res, 'matchedOffset / unmatchedOffset are no longer supported: use the matchedAfter / unmatchedAfter cursors');
+  }
   const limit = paging('limit', 1, REPORT_ROWS_MAX, REPORT_ROWS_MAX);
   const matchedAfter = parseCursor(req.query.matchedAfter);
   const unmatchedAfter = parseCursor(req.query.unmatchedAfter);
