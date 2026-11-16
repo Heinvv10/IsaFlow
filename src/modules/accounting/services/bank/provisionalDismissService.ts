@@ -74,7 +74,7 @@ async function dismissInner(companyId: string, jeId: string, userId: string): Pr
 
   const resetRows = (await sql`
     UPDATE bank_transactions
-    SET status = 'imported', provisional_je_id = NULL, updated_at = NOW()
+    SET status = 'imported', provisional_je_id = NULL, auto_post_run_id = NULL, auto_post_journal_id = NULL, updated_at = NOW()
     WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID
     RETURNING id
   `) as Row[];

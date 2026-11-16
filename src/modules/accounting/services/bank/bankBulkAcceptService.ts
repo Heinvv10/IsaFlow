@@ -17,13 +17,20 @@
  *
  * One line, one savepoint, decided by OUTCOME: under its row lock a line is refused when it changed since the preview
  * (status, suggestion or version), when the gate no longer passes it (the floor is resolved SERVER-SIDE: the token is
- * unsigned), or when posting it raises. Lines are taken in id order (a total lock order), under one advisory lock per
- * company + bank account, so a second confirm for the account fails fast (409). A held line is waited for at most
- * LINE_PROBE_MS, and the whole confirm has a LOCK_BUDGET_MS wait budget: past it the remaining lines are refused as
- * "busy - retry" rather than waited on for 5 s each. Transfer-pair locks (row 5) are not taken here:
- * allocateTransaction's own locking applies.
+ * unsigned), or when posting it raises. One advisory lock per company + bank account makes a second confirm for the
+ * account fail fast (409).
+ *
+ * LOCKS (review F2/F3): BEFORE anything posts, ALL the batch's line locks are taken in one id-ordered pass with
+ * FOR UPDATE SKIP LOCKED. A line another request holds is refused at once as "busy - retry" (no 5 s wait per line), and
+ * because the batch already holds every line it will post, posting never waits on a line lock while it holds the
+ * journal-number lock - which is what deadlocked against a concurrent single accept. Transfer-pair locks (row 5) are not
+ * taken here: allocateTransaction's own locking applies.
+ *
+ * UNDO under enforcement: the person who confirmed cannot undo their own batch; another admin must (the run-undo
+ * control, bankReversalGate, unchanged).
  */
 import { sql, withSavepoint } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { REFUSAL_CODES } from '@/lib/mcp/tools/refusalCodes';
 import { allocateTransaction } from './bankAllocationService';
@@ -36,12 +43,10 @@ import { assertBankAccountInCompany } from './bankAccountGuard';
 import { BankControlError } from './bankControlRefusal';
 import { undoRun } from './autoPostUndoService';
 import { isLockContention } from '../core/lockContention';
+import { RunAlreadyUndoneError } from './autoPostUndoService';
 import { BulkAcceptRefusal, bulkAcceptSettings, readPreviewToken, resolveMinConfidence, type TokenLine } from './bankBulkAcceptPreview';
 
 const LINE_SAVEPOINT = 'bulk_accept_line';
-/** The whole confirm's budget for waiting on lines a peer holds, and the longest one line is waited for. */
-export const LOCK_BUDGET_MS = 10_000;
-export const LINE_PROBE_MS = 2_000;
 
 export interface BulkAcceptResult {
   runId: string | null;
@@ -57,20 +62,27 @@ const GENERIC_REFUSAL = 'could not post (internal error)';
 /** What the caller reads for a refused line: a typed refusal says why; anything else is logged and not echoed. */
 function refusalReason(err: unknown): string {
   if (err instanceof LineRefused) return err.message;
-  if (err instanceof BankControlError) return `approval_required: ${err.message}`;
   if (isLockContention(err)) return 'busy - retry (another request holds this line)';
   const code = err instanceof Error ? (err as { code?: unknown }).code : undefined;
-  if (err instanceof Error && typeof code === 'string' && REFUSAL_CODES.has(code)) return err.message;
+  if (err instanceof Error && typeof code === 'string') {
+    if (code === 'IMPORTER_MAY_NOT_ALLOCATE') return `needs a colleague: ${err.message}`;
+    if (code === 'APPROVAL_REQUIRED' || err instanceof BankControlError) return `approval_required: ${err.message}`;
+    if (REFUSAL_CODES.has(code)) return err.message;
+  }
   return GENERIC_REFUSAL;
 }
 
-export async function confirmBulkAccept(companyId: string, userId: string, previewToken: unknown): Promise<BulkAcceptResult> {
+export async function confirmBulkAccept(
+  companyId: string, userId: string, previewToken: unknown, admit?: () => Promise<boolean>,
+): Promise<BulkAcceptResult> {
   const token = readPreviewToken(previewToken);
   const accountId = token.a.toLowerCase();
   await assertBankAccountInCompany(companyId, accountId);
   const [lock] = (await sql`
     SELECT pg_try_advisory_xact_lock(hashtextextended(${`bulk-accept:${companyId}:${accountId}`}, 0)) AS ok`) as Array<{ ok: boolean }>;
   if (!lock?.ok) throw new BulkAcceptRefusal('Another bulk accept is running for this bank account. Wait for it, then preview again.', 409);
+
+  if (admit && !(await admit())) throw new BulkAcceptRefusal('Too many bulk accepts. Please try again shortly.', 429);
 
   const base = await getAutoPostSettings(companyId);
   // The floor is the server's: a forged token cannot lower it, and a non-finite one is refused (resolveMinConfidence).
@@ -80,24 +92,23 @@ export async function confirmBulkAccept(companyId: string, userId: string, previ
   const result: BulkAcceptResult = { runId: null, posted: [], refused: [], totalPosted: 0 };
   let runId: string | null = null;
   let totalCents = 0;
-  const started = Date.now();
+  const busy = await lockLinesUpFront(companyId, lines.map((l) => l.i));
 
   for (const line of lines) {
     const runBefore: string | null = runId;
-    const remaining = LOCK_BUDGET_MS - (Date.now() - started);
-    if (remaining <= 0) {
-      result.refused.push({ txId: line.i, reason: 'busy - retry (the confirm ran out of time waiting for held lines)' });
+    if (busy.has(line.i.toLowerCase())) {
+      result.refused.push({ txId: line.i, reason: 'busy - retry (another request holds this line)' });
       continue;
     }
     try {
       const posted = await withSavepoint(LINE_SAVEPOINT, async () => {
-        await probeLine(companyId, line.i, Math.min(LINE_PROBE_MS, remaining));
         const row = await lockBankTransactionForUpdate(companyId, line.i);
         const changed = await changedSincePreview(companyId, line, row);
         if (changed) throw new LineRefused(changed);
         const gate = evaluate({ status: String(row!.status), amount: Number(row!.amount), suggestedGlAccountId: line.g },
           Number(row!.suggested_confidence), settings, row!.suggested_strategy == null ? null : String(row!.suggested_strategy));
         if (gate.outcome === 'skip') throw new LineRefused(`not eligible any more: ${gate.reason}`);
+        if (Number(row!.amount) !== line.m || fmtDate(row!.transaction_date) !== line.d) throw new LineRefused('the line changed since the preview (amount or date)');
         if (String(row!.bank_account_id).toLowerCase() !== accountId) throw new LineRefused('the line is not on the previewed bank account');
         const guarded = await resolveRuleVatCode({
           allocType: 'account', companyId, requestedVatCode: line.x ?? 'none', glAccountId: line.g,
@@ -115,7 +126,7 @@ export async function confirmBulkAccept(companyId: string, userId: string, previ
             RETURNING id`) as Array<{ id: string }>;
           runId = String(created[0]!.id);
         }
-        await sql`UPDATE bank_transactions SET auto_post_run_id = ${runId}::UUID WHERE id = ${line.i}::UUID AND company_id = ${companyId}::UUID`;
+        await sql`UPDATE bank_transactions SET auto_post_run_id = ${runId}::UUID, auto_post_journal_id = ${allocated.journalEntryId}::UUID WHERE id = ${line.i}::UUID AND company_id = ${companyId}::UUID`;
         return { journalEntryId: allocated.journalEntryId, cents: Math.round(Math.abs(Number(row!.amount)) * 100) };
       });
       totalCents += posted.cents;
@@ -139,15 +150,22 @@ export async function confirmBulkAccept(companyId: string, userId: string, previ
 }
 
 /**
- * Take the line's row lock waiting at most `ms` (SET LOCAL, put back afterwards): a line a peer holds is refused as
- * "busy" after this, instead of the helper's own 5 s wait. Inside the line's savepoint, so a timeout takes the setting
- * back with it.
+ * Lock every line of the batch, in id order, skipping (not waiting for) any a peer holds: the ids returned are the ones
+ * that are BUSY. A line a reconciliation session stamps is left to the per-line path (it takes the session's share lock
+ * before the line, the lock order) and is refused there as changed since the preview.
  */
-async function probeLine(companyId: string, txId: string, ms: number): Promise<void> {
-  const [prev] = (await sql`SELECT current_setting('lock_timeout') AS v`) as Array<{ v: string }>;
-  await sql`SELECT set_config('lock_timeout', ${`${ms}ms`}, true)`;
-  await sql`SELECT id FROM bank_transactions WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID FOR UPDATE`;
-  await sql`SELECT set_config('lock_timeout', ${prev?.v ?? '0'}, true)`;
+async function lockLinesUpFront(companyId: string, ids: string[]): Promise<Set<string>> {
+  const locked = (await sql`
+    SELECT id::TEXT AS id FROM bank_transactions
+    WHERE id = ANY(${ids}::UUID[]) AND company_id = ${companyId}::UUID AND reconciliation_id IS NULL
+    ORDER BY id FOR UPDATE SKIP LOCKED`) as Array<{ id: string }>;
+  const got = new Set(locked.map((r) => r.id.toLowerCase()));
+  const missing = ids.filter((id) => !got.has(id.toLowerCase()));
+  if (missing.length === 0) return new Set();
+  const held = (await sql`
+    SELECT id::TEXT AS id FROM bank_transactions
+    WHERE id = ANY(${missing}::UUID[]) AND company_id = ${companyId}::UUID AND reconciliation_id IS NULL`) as Array<{ id: string }>;
+  return new Set(held.map((r) => r.id.toLowerCase())); // exist, unstamped, not lockable now: busy
 }
 
 /** Why the locked line is no longer the one previewed, or null when it is. */
@@ -171,5 +189,11 @@ export async function undoBulkAcceptBatch(companyId: string, runId: string, user
   if (!run) throw new BulkAcceptRefusal(`Batch ${runId} not found`, 404);
   if (run.undone_at) throw new BulkAcceptRefusal('That batch is already undone.');
   if (run.source !== 'manual') throw new BulkAcceptRefusal('That run is not a bulk-accept batch. Undo it from the auto-post runs panel.');
-  return undoRun(companyId, runId, userId);
+  try {
+    return await undoRun(companyId, runId, userId);
+  } catch (err) {
+    // A concurrent undo finished the run between the check above and undoRun's own: the same refusal, typed.
+    if (err instanceof RunAlreadyUndoneError) throw new BulkAcceptRefusal('That batch is already undone.');
+    throw err;
+  }
 }

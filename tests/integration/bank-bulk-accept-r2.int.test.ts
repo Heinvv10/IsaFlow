@@ -64,6 +64,11 @@ const previewOf = async (f: BankCompany, query: Record<string, string> = {}) => 
 type Confirmed = { runId: string | null; posted: { txId: string; journalEntryId: string }[]; refused: { txId: string; reason: string }[]; totalPosted: number };
 const confirm = async (f: BankCompany, token: string) => post(f, { action: 'confirm', previewToken: token });
 const version = async (id: string) => (await pool.query(`SELECT to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') AS v FROM bank_transactions WHERE id = $1`, [id])).rows[0].v as string;
+/** A token line for a real row, pinned as the preview would. */
+const tline = async (id: string, gl: string) => {
+  const r = (await pool.query('SELECT amount::FLOAT AS m, transaction_date::TEXT AS d FROM bank_transactions WHERE id = $1', [id])).rows[0];
+  return { i: id, g: gl, x: null, s: await version(id), m: r.m as number, d: r.d as string };
+};
 const forged = (o: Record<string, unknown>) => Buffer.from(JSON.stringify({ v: 1, ...o })).toString('base64url');
 const statusOf = async (id: string) => (await pool.query('SELECT status, auto_post_run_id FROM bank_transactions WHERE id = $1', [id])).rows[0] as { status: string; auto_post_run_id: string | null };
 const journals = async (c: string) => (await pool.query('SELECT COUNT(*)::INT AS n FROM gl_journal_entries WHERE company_id = $1', [c])).rows[0].n as number;
@@ -92,11 +97,11 @@ describe('M1: the floor is the server\'s', () => {
   it('a forged t=0 does not post a 0.5-confidence line; t=1e999 is a 400; the run stores the resolved floor', async () => {
     const f = await fixture();
     const low = await suggested(f, { confidence: 0.5 });
-    const res = await confirm(f, forged({ a: f.bank, t: 0, l: [{ i: low, g: f.expA, x: null, s: await version(low) }] }));
+    const res = await confirm(f, forged({ a: f.bank, t: 0, l: [await tline(low, f.expA)] }));
     const out = dataOf<Confirmed>(res);
     expect(out.posted).toHaveLength(0);
     expect(out.refused[0]!.reason).toMatch(/confidence too low/);
-    const raw = Buffer.from(`{"v":1,"a":"${f.bank}","t":1e999,"l":[{"i":"${low}","g":"${f.expA}","x":null,"s":"x"}]}`).toString('base64url');
+    const raw = Buffer.from(`{"v":1,"a":"${f.bank}","t":1e999,"l":[{"i":"${low}","g":"${f.expA}","x":null,"s":"x","m":-100,"d":"2026-09-01"}]}`).toString('base64url');
     expect((await confirm(f, raw)).state.statusCode).toBe(400);
     const ok = await suggested(f);
     const done = dataOf<Confirmed>(await confirm(f, (await previewOf(f)).previewToken));
@@ -159,7 +164,7 @@ describe('M3: refusals, faults and bounds', () => {
   it('a real line of ANOTHER bank account named in the token is refused', async () => {
     const f = await fixture();
     const other = await suggested(f, { bank: f.bank2 });
-    const res = dataOf<Confirmed>(await confirm(f, forged({ a: f.bank, t: 0.9, l: [{ i: other, g: f.expA, x: null, s: await version(other) }] })));
+    const res = dataOf<Confirmed>(await confirm(f, forged({ a: f.bank, t: 0.9, l: [await tline(other, f.expA)] })));
     expect(res.posted).toHaveLength(0);
     expect(res.refused[0]!.reason).toMatch(/not on the previewed bank account/);
     expect((await statusOf(other)).status).toBe('imported');
@@ -194,24 +199,24 @@ describe('M3: refusals, faults and bounds', () => {
     expect((await pool.query('SELECT posted_count FROM bank_auto_post_runs WHERE id = $1', [out.runId])).rows[0].posted_count).toBe(2);
   });
 
-  it('held lines are waited for within a total budget: seven held lines are refused busy in well under 7 x 5 s', async () => {
+  it('F3: four of six lines are held by another request: the confirm finishes at once, posts the two free ones, refuses four as busy', async () => {
     const f = await fixture();
     const ids: string[] = [];
-    for (let i = 0; i < 7; i += 1) ids.push(await suggested(f, { id: `00000000-0000-4000-8000-0000000000b${i}`, amount: -10 - i }));
+    for (let i = 0; i < 6; i += 1) ids.push(await suggested(f, { id: `00000000-0000-4000-8000-0000000000b${i}`, amount: -10 - i }));
     const token = (await previewOf(f)).previewToken;
     const holder = await pool.connect();
     try {
       await holder.query('BEGIN');
-      await holder.query('SELECT id FROM bank_transactions WHERE id = ANY($1) ORDER BY id FOR UPDATE', [ids]);
+      await holder.query('SELECT id FROM bank_transactions WHERE id = ANY($1) ORDER BY id FOR UPDATE', [ids.slice(0, 4)]);
       const t0 = Date.now();
       const out = dataOf<Confirmed>(await confirm(f, token));
-      expect(Date.now() - t0).toBeLessThan(14_000);
-      expect(out.posted).toHaveLength(0);
-      expect(out.refused).toHaveLength(7);
+      expect(Date.now() - t0).toBeLessThan(2_000);
+      expect(out.posted.map((p) => p.txId)).toEqual([ids[4], ids[5]]);
+      expect(out.refused.map((r) => r.txId)).toEqual(ids.slice(0, 4));
       for (const r of out.refused) expect(r.reason).toMatch(/busy - retry/);
     } finally { await holder.query('ROLLBACK'); holder.release(); }
-    expect(await journals(f.c)).toBe(0);
-  }, 40_000);
+    expect(await journals(f.c)).toBe(2);
+  }, 20_000);
 });
 
 describe('totals and the lock key', () => {
@@ -227,7 +232,7 @@ describe('totals and the lock key', () => {
   it('the per-account lock key is the lower-cased account id: an upper-cased token is turned away by the same lock', async () => {
     const f = await fixture();
     const id = await suggested(f);
-    const token = forged({ a: f.bank.toUpperCase(), t: 0.9, l: [{ i: id, g: f.expA, x: null, s: await version(id) }] });
+    const token = forged({ a: f.bank.toUpperCase(), t: 0.9, l: [await tline(id, f.expA)] });
     const holder = await pool.connect();
     try {
       await holder.query('BEGIN');

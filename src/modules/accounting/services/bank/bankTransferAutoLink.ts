@@ -99,7 +99,7 @@ export async function autoLinkCounterpartyTransfer(input: TransferAutoLinkInput)
             -- beside a freshly rewritten account.
             allocation_rule_id = NULL, allocation_rule_name = NULL,
             updated_at = NOW(),
-            allocation_batch_id = NULL
+            allocation_batch_id = NULL, auto_post_run_id = NULL, auto_post_journal_id = NULL
         WHERE id = ${cpTxId}::UUID
           AND company_id = ${companyId}::UUID
           AND status = 'imported'

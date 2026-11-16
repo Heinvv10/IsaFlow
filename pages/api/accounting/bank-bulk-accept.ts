@@ -48,14 +48,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     const body = (req.body ?? {}) as { action?: string; previewToken?: unknown; runId?: unknown };
     if (body.action === 'confirm') {
-      if (!(await checkReportRateLimit(companyId, 'bank-bulk-accept', { max: 10 }))) {
-        return apiResponse.tooManyRequests(res, 'Too many bulk accepts. Please try again shortly.');
-      }
-      const result = await confirmBulkAccept(companyId, userId, body.previewToken);
+      // The quota is spent only by a request that gets as far as work: a bad token (400) and a busy account (409) do not.
+      const result = await confirmBulkAccept(companyId, userId, body.previewToken,
+        () => checkReportRateLimit(companyId, 'bank-bulk-accept', { max: 10 }));
       return apiResponse.success(res, result);
     }
     if (body.action === 'undo') {
       if (!isUuidParam(body.runId)) return apiResponse.badRequest(res, 'runId is required');
+      if (!(await checkReportRateLimit(companyId, 'bank-bulk-accept-undo', { max: 10 }))) {
+        return apiResponse.tooManyRequests(res, 'Too many undo requests. Please try again shortly.');
+      }
       const runId = body.runId;
       const result = await withJournalDateRefusal(res, () => undoBulkAcceptBatch(companyId, runId, userId));
       if (result === JOURNAL_DATE_REFUSED) return;
@@ -67,7 +69,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // Typed refusals decided before any write keep their 4xx; everything else is a fault (500, rolled back).
     if (isBulkAcceptRefusal(err)) {
       return err.status === 404 ? apiResponse.error(res, ErrorCode.NOT_FOUND, err.message)
-        : err.status === 409 ? apiResponse.conflict(res, err.message) : apiResponse.badRequest(res, err.message);
+        : err.status === 409 ? apiResponse.conflict(res, err.message)
+          : err.status === 429 ? apiResponse.tooManyRequests(res, err.message) : apiResponse.badRequest(res, err.message);
     }
     if (isBankAccountGuardRefusal(err)) return apiResponse.badRequest(res, err.message);
     if (respondIfBankControlRefused(res, err)) return;

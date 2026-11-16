@@ -135,11 +135,11 @@ describe('confirm', () => {
     const f = await fixture();
     await suggested(f);
     expect((await confirm(f, 'not a token')).state.statusCode).toBe(400);
-    const forged = Buffer.from(JSON.stringify({ v: 1, a: f.bank, t: 0.9, l: [{ i: crypto.randomUUID(), g: f.expA, x: null, s: 'x' }] })).toString('base64url');
+    const forged = Buffer.from(JSON.stringify({ v: 1, a: f.bank, t: 0.9, l: [{ i: crypto.randomUUID(), g: f.expA, x: null, s: 'x', m: -1, d: '2026-09-01' }] })).toString('base64url');
     const res = await confirm(f, forged); // names a line that does not exist: refused as a row, nothing posted
     expect(dataOf<Confirmed>(res).posted).toHaveLength(0);
     const many = Buffer.from(JSON.stringify({ v: 1, a: f.bank, t: 0.9,
-      l: Array.from({ length: 101 }, () => ({ i: crypto.randomUUID(), g: f.expA, x: null, s: 'x' })) })).toString('base64url');
+      l: Array.from({ length: 101 }, () => ({ i: crypto.randomUUID(), g: f.expA, x: null, s: 'x', m: -1, d: '2026-09-01' })) })).toString('base64url');
     expect((await confirm(f, many)).state.statusCode).toBe(400);
     expect(await journals(f.c)).toBe(0);
   });
