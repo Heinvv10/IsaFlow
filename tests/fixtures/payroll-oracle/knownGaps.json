@@ -128,7 +128,7 @@
       "net": 5940
     },
     "reason": "No pay frequency reaches the calculator: the week runs as a monthly R6 000 (x12, below the threshold, so PAYE 0), and UIF is costed per line (60.00), not on the month to date across the month's weekly runs (0.00).",
-    "closedBy": "FQc (wave 6): weekly engine with the x52 factor, and UIF capped on the month-to-date remuneration across the month's weekly runs (UICA s6(2), coordinator ruling)."
+    "closedBy": "FQc (wave 6): weekly engine with the x52 factor, and UIF capped on the month-to-date remuneration across the month's weekly runs (UICA s6(2), coordinator ruling); a week that straddles two months belongs to the month of its pay date."
   },
   {
     "case": "weekly-6000-third-week-month-uif-ceiling",
@@ -139,7 +139,7 @@
       "net": 5940
     },
     "reason": "No pay frequency reaches the calculator: the week runs as a monthly R6 000 (x12, below the threshold, so PAYE 0), and UIF is costed per line (60.00), not on the month to date across the month's weekly runs (57.12).",
-    "closedBy": "FQc (wave 6): weekly engine with the x52 factor, and UIF capped on the month-to-date remuneration across the month's weekly runs (UICA s6(2), coordinator ruling)."
+    "closedBy": "FQc (wave 6): weekly engine with the x52 factor, and UIF capped on the month-to-date remuneration across the month's weekly runs (UICA s6(2), coordinator ruling); a week that straddles two months belongs to the month of its pay date."
   },
   {
     "case": "weekly-starter-fourth-week-averaged",
