@@ -50,3 +50,13 @@ export function derivedDays(balance: number, trailingFlows: readonly number[], t
   if (flow <= 0) return null;
   return mulDiv(balance, days * 100, flow) / 100;
 }
+
+/**
+ * The part of an opening excess (an opening AR/AP above the days level of the
+ * first version month) still held after version month `i` of `n` (§13.26):
+ * it unwinds in equal slices, reaching 0 at the last month. The slices sum to
+ * the excess exactly (each is the difference of two roundings).
+ */
+export function excessLeft(excess: number, i: number, n: number): number {
+  return mulDiv(excess, n - 1 - i, n);
+}

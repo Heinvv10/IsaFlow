@@ -27,7 +27,7 @@ Canonical bank-feed ingestion (bank sync v1, Release 1). One idempotent service 
 - **Processed rows are never overwritten.** Processed = `status <> 'imported' OR matched_journal_line_id OR reconciliation_id OR provisional_je_id`. A change becomes a `bank_feed_transaction_conflicts` row (one open per provider id; redelivery refreshes it). `applyFeedUpdate`'s WHERE repeats the precondition; trigger 675 backstops it.
 - **Conflicts store the normalised proposal, never a raw provider payload.**
 - `provider_updated_at` never moves backwards (`GREATEST`, NULL-safe). Amounts must be whole cents; refusal messages echo at most 40 chars of caller input.
-- A batch that inserts nothing (a redelivery) writes no `bank_import_batches` row; otherwise `transaction_count` = rows inserted.
+- A batch that inserts nothing (a redelivery) writes no `bank_import_batches` row; otherwise `transaction_count` = rows inserted and `balance_source` = `'not_in_file'` (mig 998: a row's optional `balance` is not read as a statement balance).
 - `manual_csv` connections are refused (`UNSUPPORTED_PROVIDER`): they import through the statement page.
 
 ## Tests
