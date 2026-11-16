@@ -36,6 +36,7 @@
  *   -- DR = CR: totalOutputTax + netVat = totalInputTax  ✓
  */
 
+import { toIsoTimestamp } from '@/lib/dateUtils';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -145,11 +146,11 @@ function mapRow(row: Row): VATReturnRecord {
     totalInputTax:  Number(row.total_input_tax),
     netVat:         Number(row.net_vat),
     sarsReference:  row.sars_reference ? String(row.sars_reference) : undefined,
-    submittedAt:    String(row.submitted_at),
+    submittedAt:    toIsoTimestamp(row.submitted_at as Date | string) ?? '',
     submittedBy:    row.submitted_by ? String(row.submitted_by) : undefined,
     journalEntryId: row.journal_entry_id ? String(row.journal_entry_id) : undefined,
-    createdAt:      String(row.created_at),
-    updatedAt:      String(row.updated_at),
+    createdAt:      toIsoTimestamp(row.created_at as Date | string) ?? '',
+    updatedAt:      toIsoTimestamp(row.updated_at as Date | string) ?? '',
   };
 }
 

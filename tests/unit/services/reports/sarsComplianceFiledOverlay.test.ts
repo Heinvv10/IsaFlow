@@ -97,7 +97,7 @@ describe('getComplianceCalendarWithDB lays marks over the calendar', () => {
   it('the marks read runs in its own savepoint, scoped by company_id', async () => {
     serve([]);
     await getComplianceCalendarWithDB(COMPANY_ID, 2026);
-    expect(vi.mocked(withSavepoint)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(withSavepoint).mock.calls.map((c) => c[0])).toContain('sars_calendar_marks');
     const call = vi.mocked(sql).mock.calls.find((c) => /sars_compliance_events/.test((c[0] as TemplateStringsArray).join('?')));
     expect(call!.slice(1)).toContain(COMPANY_ID);
   });

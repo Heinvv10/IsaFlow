@@ -3,6 +3,7 @@
  * Manages group-level accounts and company-to-group account mappings.
  */
 
+import { toIsoTimestamp } from '@/lib/dateUtils';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -50,7 +51,7 @@ export function mapGroupAccount(r: Row): GroupAccount {
     level: Number(r.level),
     displayOrder: Number(r.display_order),
     isActive: Boolean(r.is_active),
-    createdAt: String(r.created_at),
+    createdAt: (toIsoTimestamp(r.created_at as Date | string) ?? ''),
   };
 }
 
@@ -65,7 +66,7 @@ export function mapCoaMapping(r: Row): CoaMapping {
     companyAccountId: String(r.company_account_id),
     companyAccountCode: r.company_account_code != null ? String(r.company_account_code) : undefined,
     companyAccountName: r.company_account_name != null ? String(r.company_account_name) : undefined,
-    createdAt: String(r.created_at),
+    createdAt: (toIsoTimestamp(r.created_at as Date | string) ?? ''),
   };
 }
 
