@@ -46,13 +46,17 @@ export function manualKnownItems(manual: readonly ManualItem[], today: string, w
   return { items, past };
 }
 
+/** The `manual_item_past` warning names at most this many items (the oldest first), then "and N more". */
+export const MAX_PAST_LISTED = 20;
+
 export function manualLines(manual: readonly ManualItem[], today: string, weeks: readonly WeekSpan[]): { lines: ForecastLine[]; warnings: ForecastWarning[] } {
   const { items, past } = manualKnownItems(manual, today, weeks);
+  const listed = [...past].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id < b.id ? -1 : 1)).slice(0, MAX_PAST_LISTED);
+  const more = past.length - listed.length;
   const warnings: ForecastWarning[] = past.length === 0 ? [] : [{
     code: 'manual_item_past', source: 'manual items',
     message: `${past.length} one-off manual item(s) dated before this week are not forecast; re-date or delete them: ${
-      [...past].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id < b.id ? -1 : 1))
-        .map((m) => `"${m.description}" ${m.date} ${formatCents(m.amountCents)}`).join('; ')}`,
+      listed.map((m) => `"${m.description}" ${m.date} ${formatCents(m.amountCents)}`).join('; ')}${more > 0 ? ` and ${more} more` : ''}`,
   }];
   return { lines: foldItems(items, 'manual', today, weeks).lines, warnings };
 }

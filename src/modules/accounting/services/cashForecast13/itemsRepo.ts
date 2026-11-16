@@ -2,8 +2,10 @@
  * Expected cash items of the 13-week forecast (cash_forecast_items, migration 999i): receipts and
  * payments a user types. Forecasts, so they are edited and deleted freely; every write runs in the
  * request transaction, refuses a Login-as session first, and writes one audit row
- * (entity_type 'cash_forecast_item'). The table's trigger stamps who and when. At most MAX_ITEMS LIVE per company
- * (409); an edit that changes nothing writes nothing; deleting an item deletes its 'manual:<id>' overrides.
+ * (entity_type 'cash_forecast_item'). The table's trigger stamps who and when. Caps (storeCaps, 409): MAX_ITEMS
+ * live and MAX_ITEMS_TOTAL in all; a new item must be live (400), an edit may park one in the past, and an edit
+ * that makes a dead item live takes a live slot. An edit that changes nothing writes nothing; deleting an item
+ * deletes its 'manual:<id>' overrides.
  */
 import { sql } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
@@ -11,12 +13,11 @@ import { toIsoTimestamp } from '@/lib/dateUtils';
 import type { DbRow } from '@/types/db';
 import { logAuditOrThrow, type AuditFieldChange } from '../core/auditTrailService';
 import { isHeaderSql } from '../budgets/headerSql';
-import { appToday } from '../reports/dueByDateService';
-import { horizonStart } from './engineAdapter';
 import { deleteOverridesOfLine } from './overridesRepo';
-import { CashForecastInputError, CashForecastLimitError, CashForecastNotFoundError } from './storeErrors';
+import { CashForecastInputError, CashForecastNotFoundError } from './storeErrors';
+import { assertItemRoom, isLiveItem, liveWindow, lockItemWrites } from './storeCaps';
 import type { ItemInput } from './storeSchemas';
-import { CASH_CATEGORIES, MAX_ITEMS, manualLineKey, type ManualCashItem } from './storeTypes';
+import { CASH_CATEGORIES, manualLineKey, type ManualCashItem } from './storeTypes';
 
 export interface StoredCashItem extends ManualCashItem { updatedAt: string }
 
@@ -80,21 +81,14 @@ function changes(before: Partial<ManualCashItem>, after: Partial<ManualCashItem>
 
 export async function createItem(companyId: string, userId: string, input: ItemInput): Promise<StoredCashItem> {
   await assertNotImpersonating();
-  await assertAccount(companyId, input.accountId);
-  // One creator per company at a time (to the end of the request tx), so two creates at the cap cannot both pass.
-  await sql`SELECT pg_advisory_xact_lock(hashtextextended('cash_forecast_items:' || ${companyId}::uuid::text, 0))`;
-  // LIVE items only: a one-off from this week's Monday on, a repeat with no end or an end from today on.
-  const today = appToday();
-  const count = (await sql`
-    SELECT COUNT(*)::int AS n FROM cash_forecast_items
-     WHERE company_id = ${companyId}::UUID
-       AND (CASE WHEN repeat = 'none' THEN expected_date >= ${horizonStart(today)}::DATE
-                 ELSE repeat_until IS NULL OR repeat_until >= ${today}::DATE END)
-  `) as DbRow[];
-  const live = Number(count[0]?.n ?? 0);
-  if (live >= MAX_ITEMS) {
-    throw new CashForecastLimitError(`A company can keep at most ${MAX_ITEMS} live expected cash items and this one has ${live} live; remove or end some first`);
+  // A new item must be one the forecast can use (a past one would be dead on arrival, outside the live cap).
+  const w = liveWindow();
+  if (!isLiveItem(input, w)) {
+    throw new CashForecastInputError(input.repeat === 'none' ? 'The date must be this week or later' : 'A repeat must end today or later');
   }
+  await assertAccount(companyId, input.accountId);
+  await lockItemWrites(companyId);
+  await assertItemRoom(companyId, w, true);
   const rows = (await sql`
     INSERT INTO cash_forecast_items (company_id, direction, amount, expected_date, repeat, repeat_until, description, category, gl_account_id)
     VALUES (${companyId}::UUID, ${input.direction}, ${input.amount}, ${input.date}::DATE, ${input.repeat},
@@ -123,6 +117,12 @@ export async function updateItem(companyId: string, userId: string, id: string, 
   // Nothing changed: no UPDATE (the stamps stay) and no audit row.
   if (changes(before, { ...input, accountId: input.accountId ?? undefined }).length === 0) return before;
   await assertAccount(companyId, input.accountId);
+  // Parking an item in the past is allowed; bringing a dead one back to life takes a live slot.
+  const w = liveWindow();
+  if (!isLiveItem(before, w) && isLiveItem(input, w)) {
+    await lockItemWrites(companyId);
+    await assertItemRoom(companyId, w, false);
+  }
   const rows = (await sql`
     UPDATE cash_forecast_items
        SET direction = ${input.direction}, amount = ${input.amount}, expected_date = ${input.date}::DATE, repeat = ${input.repeat},

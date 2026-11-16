@@ -17,8 +17,13 @@ import payDayRoute from '../../pages/api/accounting/cash-forecast-13/pay-day';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { budgetsRouteFixture } from './helpers/budgetsRouteFixture';
 import { signSession } from './r-032-fake-gotrue.helpers';
+import { addDaysISO } from '@/lib/dateUtils';
+import { appToday } from '@/modules/accounting/services/reports/dueByDateService';
+import { horizonStart } from '@/modules/accounting/services/cashForecast13/engineAdapter';
 import type { SetupUser } from './helpers/onboardingSetupFixture';
 
+/** This week's Monday + k weeks (relative, so the suite never ages into the past). */
+const wk = (k: number, d = 0) => addDaysISO(horizonStart(appToday()), 7 * k + d);
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
 const items = budgetsRouteFixture(pool, itemsRoute, '/api/accounting/cash-forecast-13/items');
@@ -44,8 +49,8 @@ const audit = async (co: string, entityType: string) => (await pool.query(
 const count = async (table: string, co: string) =>
   (await pool.query(`SELECT COUNT(*)::int n FROM ${table} WHERE company_id = $1`, [co])).rows[0].n as number;
 
-const ITEM = { direction: 'receipt', amount: 12500.5, date: '2026-12-01', repeat: 'monthly', repeatUntil: '2027-03-01', description: 'Retainer', category: 'customer_receipts' };
-const OVR = { lineKey: 'payroll:net', weekStart: '2026-11-23', mode: 'set', amount: 80000 };
+const ITEM = { direction: 'receipt', amount: 12500.5, date: wk(2, 1), repeat: 'monthly', repeatUntil: wk(14), description: 'Retainer', category: 'customer_receipts' };
+const OVR = { lineKey: 'payroll:net', weekStart: wk(1), mode: 'set', amount: 80000 };
 
 beforeAll(async () => {
   const oa = await items.owner(); a = oa.u; accountA = oa.account;
@@ -154,9 +159,9 @@ describe('overrides', () => {
   });
 
   it('a second save of the same cell upserts (same id, created: false) and audits old -> new', async () => {
-    const out = await overrides.call(a, 'PUT', { ...OVR, mode: 'move_to', amount: null, targetWeekStart: '2026-11-30', note: 'late' });
+    const out = await overrides.call(a, 'PUT', { ...OVR, mode: 'move_to', amount: null, targetWeekStart: wk(2), note: 'late' });
     expect(out.status, JSON.stringify(out.body)).toBe(200);
-    expect(out.body.data).toMatchObject({ created: false, override: { id: overrideId, mode: 'move_to', amount: null, targetWeekStart: '2026-11-30' } });
+    expect(out.body.data).toMatchObject({ created: false, override: { id: overrideId, mode: 'move_to', amount: null, targetWeekStart: wk(2) } });
     expect(await count('cash_forecast_overrides', a.homeCompanyId)).toBe(1);
     const rows = await audit(a.homeCompanyId, 'cash_forecast_override');
     expect(rows[1].action).toBe('update');
@@ -167,7 +172,7 @@ describe('overrides', () => {
   });
 
   it('a Tuesday week and a move_to without a target are 400', async () => {
-    expect((await overrides.call(a, 'PUT', { ...OVR, weekStart: '2026-11-24' })).status).toBe(400);
+    expect((await overrides.call(a, 'PUT', { ...OVR, weekStart: wk(1, 1) })).status).toBe(400);
     expect((await overrides.call(a, 'PUT', { ...OVR, mode: 'move_to', amount: 5 })).status).toBe(400);
     expect(await audit(a.homeCompanyId, 'cash_forecast_override')).toHaveLength(2);
   });
@@ -188,7 +193,7 @@ describe('overrides', () => {
   });
   it('GET lists in the order the engine applies them (applied_at, id), not by week or key', async () => {
     // Three rows whose creation order differs from week order (either way) and from key order.
-    for (const [lineKey, weekStart] of [['m:o', '2026-11-30'], ['z:o', '2026-11-16'], ['a:o', '2026-11-23']]) {
+    for (const [lineKey, weekStart] of [['m:o', wk(2)], ['z:o', wk(0)], ['a:o', wk(1)]]) {
       expect((await overrides.call(a, 'PUT', { ...OVR, lineKey, weekStart })).status).toBe(200);
     }
     const listed = (await overrides.call(a, 'GET')).body.data!.overrides as Array<{ lineKey: string }>;

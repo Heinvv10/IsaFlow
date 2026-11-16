@@ -45,6 +45,18 @@ describe('cash13 manual items', () => {
     expect(w[0]!.message).toMatch(/9[.,]00/);
   });
 
+  it('manual_item_past names at most 20 items (oldest first), then "and N more"', () => {
+    const manualItems = Array.from({ length: 25 }, (_, i) => ({
+      id: `p${i}`, date: `2026-01-${String(i + 1).padStart(2, '0')}`, amountCents: 100, description: `Old ${i}`, category: 'other' as const,
+    }));
+    const w = runEngine(base({ manualItems })).warnings.find((x) => x.code === 'manual_item_past')!;
+    expect(w.message.startsWith('25 one-off')).toBe(true);
+    expect(w.message).toContain('"Old 19" 2026-01-20');
+    expect(w.message).not.toContain('"Old 20"');
+    expect(w.message.endsWith(' and 5 more')).toBe(true);
+    expect(w.message.match(/"Old \d+"/g)).toHaveLength(20);
+  });
+
   it('a one-off dated this week but before today stays in week 1; no warning', () => {
     const out = runEngine(base({ manualItems: [{ id: 'o', date: '2026-11-16', amountCents: 9, description: 'Monday', category: 'other' }] }));
     expect(out.lines.find((l) => l.key === 'manual:o')!.weekly[0]).toBe(9);

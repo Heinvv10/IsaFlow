@@ -11,15 +11,20 @@ import overridesRoute from '../../pages/api/accounting/cash-forecast-13/override
 import payDayRoute from '../../pages/api/accounting/cash-forecast-13/pay-day';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { loginAsFixture, reasonOf, type Jar } from './r-032-login-as.helpers';
+import { addDaysISO } from '@/lib/dateUtils';
+import { appToday } from '@/modules/accounting/services/reports/dueByDateService';
+import { horizonStart } from '@/modules/accounting/services/cashForecast13/engineAdapter';
 
+/** This week's Monday + k weeks (relative, so the suite never ages into the past). */
+const wk = (k: number, d = 0) => addDaysISO(horizonStart(appToday()), 7 * k + d);
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const fx = loginAsFixture(pool, 'Cash13 Login-as');
 let loginAs: Jar;
 let itemId = '', overrideId = '';
 
-const ITEM = { direction: 'payment', amount: 100, date: '2026-12-01', description: 'Insurance' };
-const OVR = { lineKey: 'payroll:net', weekStart: '2026-11-23', mode: 'add', amount: -50 };
+const ITEM = { direction: 'payment', amount: 100, date: wk(2, 1), description: 'Insurance' };
+const OVR = { lineKey: 'payroll:net', weekStart: wk(1), mode: 'add', amount: -50 };
 
 const snapshot = async () => ({
   items: (await pool.query('SELECT id, amount::text FROM cash_forecast_items WHERE company_id = $1 ORDER BY id', [fx.company])).rows,

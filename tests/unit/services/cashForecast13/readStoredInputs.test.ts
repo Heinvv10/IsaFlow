@@ -59,6 +59,11 @@ describe('readStoredInputs', () => {
     });
   });
 
+  it('the engine reads live overrides only: listOverrides gets this week\'s Monday', async () => {
+    await readStoredInputs('co', TODAY, []);
+    expect(listOverrides).toHaveBeenCalledWith('co', '2026-11-16');
+  });
+
   it.each([
     ['items', listItems, 'expected cash items', (s: Awaited<ReturnType<typeof readStoredInputs>>) => expect(s.manualItems).toEqual([])],
     ['overrides', listOverrides, 'forecast overrides', (s: Awaited<ReturnType<typeof readStoredInputs>>) => expect(s.overrides).toEqual([])],

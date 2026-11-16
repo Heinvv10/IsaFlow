@@ -20,7 +20,7 @@ import { applyOverrides } from '@/modules/accounting/services/cashForecast13/adj
 import { horizonStart, toEngineOverrides } from '@/modules/accounting/services/cashForecast13/engineAdapter';
 import { emptyWeekly } from '@/modules/accounting/services/cashForecast13/lines';
 import { payDateOf } from '@/modules/accounting/services/cashForecast13/payDates';
-import type { StoredOverride } from '@/modules/accounting/services/cashForecast13/overridesRepo';
+import { listOverrides, type StoredOverride } from '@/modules/accounting/services/cashForecast13/overridesRepo';
 import type { CashForecast13, ForecastLine } from '@/modules/accounting/services/cashForecast13/types';
 import { weekIndexOf, buildWeeks } from '@/modules/accounting/services/cashForecast13/weeks';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -86,6 +86,22 @@ describe('the reviewer sequences through the real engine applier', () => {
     expect(await week3()).toBe(-120000);
     await put({ weekStart: monday(3), mode: 'set', amount: -100000, note: 'confirmed' });
     expect(await week3()).toBe(-120000);
+    await clearStore();
+  });
+});
+
+describe('listOverrides', () => {
+  it('lists every override for management, and only this week on for the engine (fromMonday)', async () => {
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: A.owner.userId })]);
+      await c.query(`INSERT INTO cash_forecast_overrides (company_id, line_key, week_start, mode, amount)
+                     VALUES ($1, 'old', $2, 'set', 1), ($1, 'now', $3, 'set', 1)`, [A.id, monday(-1), monday(0)]);
+      await c.query('COMMIT');
+    } finally { c.release(); }
+    expect((await fx.direct(A, () => listOverrides(A.id))).map((o) => o.lineKey).sort()).toEqual(['now', 'old']);
+    expect((await fx.direct(A, () => listOverrides(A.id, monday(0)))).map((o) => o.lineKey)).toEqual(['now']);
     await clearStore();
   });
 });

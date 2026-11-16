@@ -18,7 +18,11 @@ import { budgetsRouteFixture } from './helpers/budgetsRouteFixture';
 import type { SetupUser } from './helpers/onboardingSetupFixture';
 import { horizonStart, toEngineOverrides } from '@/modules/accounting/services/cashForecast13/engineAdapter';
 import type { StoredOverride } from '@/modules/accounting/services/cashForecast13/overridesRepo';
+import { addDaysISO } from '@/lib/dateUtils';
+import { appToday } from '@/modules/accounting/services/reports/dueByDateService';
 
+/** This week's Monday + k weeks (relative, so the suite never ages into the past). */
+const wk = (k: number, d = 0) => addDaysISO(horizonStart(appToday()), 7 * k + d);
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
 const items = budgetsRouteFixture(pool, itemsRoute, '/api/accounting/cash-forecast-13/items');
@@ -26,8 +30,8 @@ const overrides = budgetsRouteFixture(pool, overridesRoute, '/api/accounting/cas
 const payDay = budgetsRouteFixture(pool, payDayRoute, '/api/accounting/cash-forecast-13/pay-day');
 
 let a: SetupUser, leaf = '', header = '', inactive = '';
-const ITEM = { direction: 'payment', amount: 100, date: '2026-12-01', description: 'Insurance' };
-const TODAY = new Date().toISOString().slice(0, 10);
+const ITEM = { direction: 'payment', amount: 100, date: wk(2, 1), description: 'Insurance' };
+const TODAY = appToday();
 const monday = (k: number) => {
   const d = new Date(`${horizonStart(TODAY)}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + 7 * k);
@@ -104,7 +108,7 @@ describe('a save with nothing changed', () => {
   const stamp = async (t: string) => (await pool.query(`SELECT updated_at FROM ${t} WHERE company_id = $1`, [co()])).rows[0].updated_at;
 
   it('item: 200 with the row, no UPDATE, no audit row', async () => {
-    const body = { ...ITEM, accountId: leaf, repeat: 'monthly', repeatUntil: '2027-03-01', category: 'loans' };
+    const body = { ...ITEM, accountId: leaf, repeat: 'monthly', repeatUntil: wk(14), category: 'loans' };
     const created = await items.call(a, 'POST', body);
     const id = String(created.body.data!.id);
     const before = await stamp('cash_forecast_items');

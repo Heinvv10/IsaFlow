@@ -8,7 +8,7 @@ import { guardedSource } from './guardedSource';
 import { listItems } from './itemsRepo';
 import { listOverrides } from './overridesRepo';
 import { getPayDay } from './payDaySetting';
-import { toEngineManualItems, toEngineOverrides, toEnginePayDay } from './engineAdapter';
+import { horizonStart, toEngineManualItems, toEngineOverrides, toEnginePayDay } from './engineAdapter';
 import type { PayDay } from './payDates';
 import type { ForecastWarning, ManualItem, Override } from './types';
 
@@ -16,7 +16,7 @@ export interface StoredInputs { payDay: PayDay | null; manualItems: ManualItem[]
 
 export async function readStoredInputs(companyId: string, today: string, warnings: ForecastWarning[]): Promise<StoredInputs> {
   const items = await guardedSource('cash13_manual', 'expected cash items', warnings, () => listItems(companyId));
-  const overrides = await guardedSource('cash13_overrides', 'forecast overrides', warnings, () => listOverrides(companyId));
+  const overrides = await guardedSource('cash13_overrides', 'forecast overrides', warnings, () => listOverrides(companyId, horizonStart(today)));
   const payDay = await guardedSource('cash13_pay_day', 'salary pay day', warnings, () => getPayDay(companyId));
   return {
     payDay: payDay ? toEnginePayDay(payDay.payDay) : null,

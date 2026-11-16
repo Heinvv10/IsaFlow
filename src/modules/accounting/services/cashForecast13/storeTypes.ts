@@ -56,3 +56,6 @@ export const manualLineKey = (itemId: string) => `manual:${itemId}`;
 /** Per-company caps on the LIVE stored inputs (this week on; checked under a lock in the write transaction). */
 export const MAX_ITEMS = 500;
 export const MAX_OVERRIDES = 2000;
+/** Hard caps on every row, live or not. */
+export const MAX_ITEMS_TOTAL = 2000;
+export const MAX_OVERRIDES_TOTAL = 10000;

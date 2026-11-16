@@ -1,7 +1,8 @@
 /**
  * Week overrides of the 13-week forecast (cash_forecast_overrides, migration 999i). One override per
  * (company, line key, week): a save UPSERTS on that key (a second save of the same cell replaces the
- * first, never a 409; a save that changes nothing writes nothing). At most MAX_OVERRIDES LIVE (this week on) per company (409 on
+ * first, never a 409; a save that changes nothing writes nothing). A new cell must be this week or later (400) and fit the
+ * caps (storeCaps: MAX_OVERRIDES live, MAX_OVERRIDES_TOTAL in all; 409 on
  * a new cell). Listed in application order (applied_at, id): the trigger moves a cell to the end only when its
  * mode, amount or target changes, so a note-only edit keeps its place. An override on a 'manual:<id>' line needs
  * that item to exist for the company (404), checked FOR SHARE so a concurrent delete waits. Deletes by id. Every write runs in the request transaction, refuses a Login-as
@@ -13,12 +14,11 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { toIsoTimestamp } from '@/lib/dateUtils';
 import type { DbRow } from '@/types/db';
 import { logAuditOrThrow, type AuditFieldChange } from '../core/auditTrailService';
-import { CashForecastInputError, CashForecastLimitError, CashForecastNotFoundError } from './storeErrors';
+import { CashForecastInputError, CashForecastNotFoundError } from './storeErrors';
 import type { OverrideInput } from './storeSchemas';
-import { MAX_OVERRIDES, manualLineKey, type ForecastOverride, type OverrideMode } from './storeTypes';
+import { manualLineKey, type ForecastOverride, type OverrideMode } from './storeTypes';
 import { isUuidParam } from '@/lib/validation';
-import { appToday } from '../reports/dueByDateService';
-import { horizonStart } from './engineAdapter';
+import { assertOverrideRoom, liveWindow, lockOverrideWrites } from './storeCaps';
 
 const MANUAL_PREFIX = 'manual:';
 
@@ -63,10 +63,13 @@ function toOverride(r: DbRow): StoredOverride {
 const COLUMNS = sql`id, line_key, week_start::text AS week_start, mode, amount, target_week_start::text AS target_week_start,
   note, created_at, updated_at`;
 
-export async function listOverrides(companyId: string): Promise<StoredOverride[]> {
-  const rows = (await sql`
-    SELECT ${COLUMNS} FROM cash_forecast_overrides WHERE company_id = ${companyId}::UUID ORDER BY applied_at, id
-  `) as DbRow[];
+/** Every override (the management list), or with `fromMonday` only weeks from it on (what the engine reads). */
+export async function listOverrides(companyId: string, fromMonday?: string): Promise<StoredOverride[]> {
+  const rows = (fromMonday === undefined
+    ? await sql`SELECT ${COLUMNS} FROM cash_forecast_overrides WHERE company_id = ${companyId}::UUID ORDER BY applied_at, id`
+    : await sql`
+        SELECT ${COLUMNS} FROM cash_forecast_overrides
+         WHERE company_id = ${companyId}::UUID AND week_start >= ${fromMonday}::DATE ORDER BY applied_at, id`) as DbRow[];
   return rows.map(toOverride);
 }
 
@@ -88,7 +91,7 @@ export async function saveOverride(companyId: string, userId: string, given: Ove
   await assertNotImpersonating();
   const input = { ...given, lineKey: canonicalLineKey(given.lineKey) };
   // One saver per company at a time (to the end of the request tx), so two new cells at the cap cannot both pass.
-  await sql`SELECT pg_advisory_xact_lock(hashtextextended('cash_forecast_overrides:' || ${companyId}::uuid::text, 0))`;
+  await lockOverrideWrites(companyId);
   await assertManualLine(companyId, input.lineKey);
   const prior = (await sql`
     SELECT ${COLUMNS} FROM cash_forecast_overrides
@@ -97,15 +100,10 @@ export async function saveOverride(companyId: string, userId: string, given: Ove
   `) as DbRow[];
   const before = prior[0] ? toOverride(prior[0]) : null;
   if (before === null) {
-    // LIVE overrides only: weeks from this week's Monday on (past weeks are ignored by the engine).
-    const count = (await sql`
-      SELECT COUNT(*)::int AS n FROM cash_forecast_overrides
-       WHERE company_id = ${companyId}::UUID AND week_start >= ${horizonStart(appToday())}::DATE
-    `) as DbRow[];
-    const live = Number(count[0]?.n ?? 0);
-    if (live >= MAX_OVERRIDES) {
-      throw new CashForecastLimitError(`A company can keep at most ${MAX_OVERRIDES} live forecast overrides and this one has ${live} live; remove some first`);
-    }
+    // A new cell must be in a week the engine reads (a past one would be dead on arrival); then the caps.
+    const w = liveWindow();
+    if (input.weekStart < w.monday) throw new CashForecastInputError('The week must be this week or later');
+    await assertOverrideRoom(companyId, w);
   } else if (changes(before, { ...before, ...input, targetWeekStart: input.targetWeekStart ?? undefined }).length === 0) {
     // Nothing changed: no UPDATE (the stamps, and so the application order, stay) and no audit row.
     return { override: before, created: false };

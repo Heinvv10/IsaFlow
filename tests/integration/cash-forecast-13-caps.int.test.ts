@@ -122,6 +122,62 @@ describe('items: 500 live per company', () => {
   });
 });
 
+describe('dead rows (security review): no creating them, a hard total cap, no revival past the live cap', () => {
+  it('creating a one-off before this Monday, an ended repeat or a past-week override is 400; nothing written', async () => {
+    const one = await items.call(a, 'POST', { ...ITEM(), date: addDaysISO(monday(0), -1) });
+    expect(one.status).toBe(400);
+    expect(one.body.error?.message).toMatch(/this week or later/);
+    expect((await items.call(a, 'POST', { ...ITEM(), date: addDaysISO(today, -30), repeat: 'weekly', repeatUntil: addDaysISO(today, -1) })).status).toBe(400);
+    expect((await items.call(a, 'POST', { ...ITEM(), date: monday(0) })).status).toBe(201);
+    expect((await overrides.call(a, 'PUT', { lineKey: 'payroll:net', weekStart: monday(-1), mode: 'set', amount: 1 })).status).toBe(400);
+    expect(await count('cash_forecast_overrides')).toBe(0);
+    await clear();
+  });
+
+  it('editing an item into the past parks it (allowed); re-saving an existing past override is allowed', async () => {
+    const id = String((await items.call(a, 'POST', ITEM())).body.data!.id);
+    expect((await items.call(a, 'PUT', { ...ITEM(), id, date: addDaysISO(monday(0), -7) })).status).toBe(200);
+    await seedOverrides(1, monday(-1), 'old:');
+    expect((await overrides.call(a, 'PUT', { lineKey: 'old:1', weekStart: monday(-1), mode: 'set', amount: 5 })).status).toBe(200);
+    await clear();
+  });
+
+  it('2000 items in all (dead ones included): a new live item is 409 naming the total cap', async () => {
+    await seedItems(2000, 'past');
+    const out = await items.call(a, 'POST', ITEM());
+    expect(out.status).toBe(409);
+    expect(out.body.error?.message).toMatch(/Total items cap.*2000/);
+    await clear();
+  });
+
+  it('10000 overrides in all (past weeks included): a new live cell is 409 naming the total cap', async () => {
+    await seedOverrides(10000, monday(-1), 'past:');
+    const out = await overrides.call(a, 'PUT', { lineKey: 'payroll:net', weekStart: monday(1), mode: 'set', amount: 1 });
+    expect(out.status).toBe(409);
+    expect(out.body.error?.message).toMatch(/Total overrides cap.*10000/);
+    await clear();
+  });
+
+  it('at 500 live, bringing a parked item back to life is 409; editing it while it stays parked is not', async () => {
+    await seedItems(500, 'live');
+    await seedItems(1, 'past');
+    const parked = (await pool.query("SELECT id FROM cash_forecast_items WHERE company_id = $1 AND expected_date < $2", [co(), monday(0)])).rows[0].id;
+    const out = await items.call(a, 'PUT', { ...ITEM(), id: parked, date: monday(1) });
+    expect(out.status).toBe(409);
+    expect(out.body.error?.message).toMatch(/Live items cap/);
+    expect((await items.call(a, 'PUT', { ...ITEM(), id: parked, date: addDaysISO(monday(0), -1), description: 'still parked' })).status).toBe(200);
+    await clear();
+  });
+
+  it('below the live cap a parked item comes back to life', async () => {
+    await seedItems(499, 'live');
+    await seedItems(1, 'past');
+    const parked = (await pool.query("SELECT id FROM cash_forecast_items WHERE company_id = $1 AND expected_date < $2", [co(), monday(0)])).rows[0].id;
+    expect((await items.call(a, 'PUT', { ...ITEM(), id: parked, date: monday(1) })).status).toBe(200);
+    await clear();
+  });
+});
+
 describe('overrides: 2000 live per company', () => {
   it('past weeks do not count; at 2000 live a new cell is 409 (with the count); re-saving a cell passes', async () => {
     await seedOverrides(500, monday(-1), 'past:');
