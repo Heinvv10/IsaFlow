@@ -1,7 +1,7 @@
 /**
  * POP inbox, phase 1: the IMAP mirror's handling of ABSA "Notice of payment" mail.
  *   - a DKIM-trusted notice is filed as a proof of payment: no capture event, no VLM read;
- *   - a notice that is not filed (failed verification, untrusted payer, unreadable) is NOT read as a bill:
+ *   - a notice that is not filed (failed verification, unreadable) is NOT read as a bill:
  *     it is logged as 'pop_not_filed' with its reason; a DNS failure stops the scan so the message is retried;
  *   - a PDF ABSA labels `*\/*` is still taken; a second copy of a filed notice files nothing;
  *   - mail that is neither an ABSA notice nor invoice-shaped is skipped as before.
@@ -28,7 +28,6 @@ const h = vi.hoisted(() => ({
   envelope: { from: 'ibreply@absa.co.za', subject: 'Notice of payment: JANE Q PUBLIC' },
   attachment: { contentType: 'application/pdf' as string, content: Buffer.from('%PDF-1.4 notice') },
   popHeld: null as null | { payment_date: string; amount: string; beneficiary: string },
-  payerTrusted: true,
   stored: 0,
   stamps: [] as Array<{ text: string; params: unknown[] }>,
   internalDate: undefined as Date | undefined,
@@ -78,7 +77,6 @@ vi.mock('@/lib/neon', () => {
     const text = strings.join('?').replace(/\s+/g, ' ').trim();
     h.statements.push({ text, values });
     if (/FROM proof_of_payments WHERE/.test(text)) return h.popHeld ? [h.popHeld] : [];
-    if (/SELECT 1 FROM pop_trusted_payers/.test(text)) return h.payerTrusted && values[1] === 'EXAMPLE TRADING PTY LTD' ? [{ '?column?': 1 }] : [];
     return /RETURNING id/.test(text) ? [{ id: crypto.randomUUID() }] : [];
   });
   return { sql, withTransaction: async (fn: (tx: typeof sql) => Promise<unknown>) => fn(sql) };
@@ -114,7 +112,6 @@ beforeEach(() => {
   h.envelope = { from: 'ibreply@absa.co.za', subject: 'Notice of payment: JANE Q PUBLIC' };
   h.attachment = { contentType: 'application/pdf', content: Buffer.from('%PDF-1.4 notice') };
   h.popHeld = null;
-  h.payerTrusted = true;
   h.stored = 0;
   h.stamps.length = 0;
   h.internalDate = new Date(Date.now() - 60_000); // received a minute ago
@@ -182,11 +179,12 @@ describe('IMAP mirror: ABSA notice of payment', () => {
     expect(scanLogError()).toBe('not filed: missing_amount');
   });
 
-  it('does not file or read as a bill a genuine notice from a payer the company does not trust', async () => {
-    h.payerTrusted = false; // e.g. another ABSA customer had their notice mailed to this inbox
-    expect(await scanConnection(conn())).toMatchObject({ ingested: 0, skipped: 1 });
-    notReadAsBill();
-    expect(scanLogError()).toBe('not filed: payer_not_trusted');
+  it.each(['VELOCITY', 'VELOCITY FIBRE PTY LTD', 'SOMEONE ELSE (PTY) LTD'])('files a genuine notice whatever payer it prints (%s)', async (payer) => {
+    h.pdfText = NOTICE_TEXT.replace('Dear EXAMPLE TRADING PTY LTD', `Dear ${payer}`);
+    expect(await scanConnection(conn())).toMatchObject({ ingested: 1, skipped: 0, errors: 0 });
+    const [pop] = inserts('proof_of_payments');
+    expect(pop!.values[9]).toBe(payer);
+    expect(scanLogOutcome()).toBe('pop_filed');
   });
 
   it('logs (does not drop as a duplicate) a reused transaction number that names a different payment', async () => {
