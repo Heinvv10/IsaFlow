@@ -7,7 +7,7 @@ import { cash13WarningText, KNOWN_WARNING_CODES } from '@/components/accounting/
 
 const ENGINE_CODES = [
   'beyond_horizon', 'budget_flag_off', 'budget_no_primary', 'budget_unavailable', 'credit_unused', 'currency_not_converted',
-  'irp6_no_budget', 'loan_payments_not_recorded', 'override_skipped', 'payroll_frequency_unsupported', 'payroll_no_runs',
+  'irp6_no_budget', 'loan_payments_not_recorded', 'manual_item_past', 'override_skipped', 'payroll_frequency_unsupported', 'payroll_no_runs',
   'payroll_past_assumed_paid', 'sars_marks_unavailable', 'sars_past_due_assumed_paid', 'sars_submissions_unavailable',
   'source_unavailable', 'vat_no_budget',
 ];
@@ -39,6 +39,12 @@ describe('cash13WarningText', () => {
     const t = cash13WarningText({ code: 'sars_past_due_assumed_paid', source: 'sars', message: '1 SARS item(s) ... assumed paid: EMP201 due 2026-11-07 R 4 000.00' });
     expect(t.title).toMatch(/assumed paid/);
     expect(t.detail).toContain('R 4 000.00');
+  });
+
+  it('past one-off items you added: what to do, and the list', () => {
+    const t = cash13WarningText({ code: 'manual_item_past', source: 'manual items', message: '1 one-off manual item(s) dated before this week are not forecast; re-date or delete them: "Grant" 2026-11-02 R 2 000.00' });
+    expect(t.title).toMatch(/change their date or remove them/);
+    expect(t.detail).toContain('"Grant" 2026-11-02');
   });
 
   it('an unknown code reads as a sentence with the server\'s message', () => {

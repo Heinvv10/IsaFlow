@@ -15,6 +15,7 @@ const TITLES: Record<string, string> = {
   credit_unused: 'Some unapplied credit is more than the invoices it could settle; the extra is ignored.',
   currency_not_converted: 'Some foreign-currency documents have no exchange rate and are left out.',
   irp6_no_budget: 'A provisional tax payment is due, but no budget gives its amount, so it is not shown.',
+  manual_item_past: 'Some one-off items you added are dated before this week, so they are not forecast: change their date or remove them.',
   loan_payments_not_recorded: 'Some loan instalments have no payment recorded; they are assumed paid.',
   payroll_frequency_unsupported: 'Weekly and fortnightly pay runs are not forecast yet; only monthly pay runs are.',
   payroll_no_runs: 'There is no approved monthly pay run, so salaries and the EMP201 are not forecast.',
@@ -28,7 +29,7 @@ const TITLES: Record<string, string> = {
 /** Codes whose server message lists what the reader needs (which items, what amount). */
 const WITH_DETAIL = new Set([
   'beyond_horizon', 'budget_no_primary', 'budget_unavailable', 'credit_unused', 'currency_not_converted', 'irp6_no_budget',
-  'loan_payments_not_recorded', 'payroll_past_assumed_paid', 'sars_past_due_assumed_paid', 'vat_no_budget',
+  'loan_payments_not_recorded', 'manual_item_past', 'payroll_past_assumed_paid', 'sars_past_due_assumed_paid', 'vat_no_budget',
 ]);
 
 export const KNOWN_WARNING_CODES: ReadonlySet<string> = new Set([...Object.keys(TITLES), 'source_unavailable', 'override_skipped']);
