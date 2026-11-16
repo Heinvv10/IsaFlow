@@ -48,6 +48,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // bank-role holder, two claimants, or a supplied bankAccountId that is not an active bank account of the company). Names
   // only the company's own account codes and names; raised before any write. No MCP tool makes these payments today.
   'BANK_ACCOUNT_REFUSED',
+  // bank/bankBulkAcceptPreview (WP6): a bulk-accept token that is not valid, a confirm while another runs for the account, a batch
+  // that is not found / not a bulk-accept batch / already undone. Fixed sentences naming only the caller's own batch id; pre-write.
+  'BULK_ACCEPT_REFUSED',
   // bank/bankAccountGuard: a request-named bank account that is not an active bank account of the company; pre-write.
   // Another company's account reads as "not found", else names only the company's own account. No MCP tool calls it.
   'BANK_ACCOUNT_GUARD_REFUSED',

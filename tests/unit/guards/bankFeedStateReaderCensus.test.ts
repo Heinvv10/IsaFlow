@@ -94,6 +94,8 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/lib/landing/landingStats.ts': "filtered (the landing-page aggregate moved here from pages/api/landing-stats.ts, 2026-10-20)",
   'src/modules/accounting/services/ap/supplierBankPaymentService.ts': 'exempt: writer (Task 3) — read-before-write plan phase',
   'src/modules/accounting/services/ap/bankLinePaymentGate.ts': "exempt: reads one line's provenance (feed connection / import batch) by id for the R-035 payment gate; no total or queue scope",
+  'src/modules/accounting/services/bank/bankBulkAcceptPreview.ts': "filtered (bulk accept preview: only feed_state = 'posted' lines are listed, via feedStateOf; a queue, not a total)",
+  'src/modules/accounting/services/bank/bankBulkAcceptService.ts': "exempt: reads one named line's updated_at version under its row lock to compare with the preview token (feed state is refused via feedStateOf before it)",
   'src/modules/accounting/services/bank/bankLineJournalGate.ts': "exempt: reads the named lines' provenance (feed connection / import batch) by id for the R-035 manual-journal gate; no total or queue scope",
   'src/modules/accounting/services/bank/bankLineImporterGate.ts': "exempt: reads the named lines' provenance (feed connection / import batch and its importer) by id for the step-2 importer gate; no total or queue scope",
   'src/modules/accounting/services/bank/bankReversalGate.ts': "exempt: reads the named lines' amount and auto-post run by id for the step-2 reversal gate (MCP pre-check); no total or queue scope",
