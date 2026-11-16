@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { PASS_THROUGH, BUSY, LABELLED, LEDGER_LOCKS, NOT_REFUSALS, refusalReason, GENERIC_REFUSAL } from '@/modules/accounting/services/bank/bankBulkAcceptRefusals';
 import { ClosedFiscalPeriodError, InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import { JournalDateRefusedError } from '@/modules/accounting/utils/journalDateWindow';
+import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { FiscalPeriodNotGeneratedError } from '@/modules/accounting/services/gl/fiscalPeriodAutoCreate';
 
 const S = 'src/modules/accounting/services';
@@ -68,6 +69,11 @@ describe('the bulk accept refusal list covers the allocation path', () => {
     expect(refusalReason(new ClosedFiscalPeriodError('closed'))).not.toBe(GENERIC_REFUSAL);
     expect(refusalReason(new FiscalPeriodNotGeneratedError('2026-08-31', null, false))).not.toBe(GENERIC_REFUSAL);
     expect(refusalReason(new JournalDateRefusedError('the date is outside the ledger window'))).toMatch(/outside the ledger window/);
+    const missing = new MissingSystemAccountError('vat_input', '11111111-2222-4333-8444-555555555555');
+    const reason = refusalReason(missing);
+    expect(reason).toContain("'vat_input' system account role is not configured");
+    expect(reason).toContain(missing.remedy);
+    expect(reason).not.toContain('11111111-2222-4333-8444-555555555555'); // no company id in the line's reason
     expect(refusalReason(new TypeError('boom'))).toBe(GENERIC_REFUSAL);
   });
 });

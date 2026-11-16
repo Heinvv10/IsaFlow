@@ -31,7 +31,6 @@ export interface ScreenedLine { row: DbRow; effectiveVatCode: string; netAmount:
 export interface NeedsAttention { id: string; kind: 'importer' | 'approval'; reason: string }
 export type ExcludedCounts = Record<'badTarget' | 'reconciliationHeld' | 'periodClosed' | 'noPeriod' | 'vatLocked' | 'vatCode', number>;
 
-/** `stopAt`: stop screening once that many lines are postable (the caller needs no more); `stoppedAt` is the id of the row that reached it. */
 /**
  * Targets the writer refuses outright: the late-claim clearing account (lateClaimClearingGuard) and a balance-sheet header
  * with sub-accounts (headerAccountGuard, the same test: leaf-rule type, level below the leaf level or NULL, has a child).
@@ -49,6 +48,7 @@ async function unpostableTargetIds(companyId: string, ids: string[]): Promise<Se
   return new Set(rows.map((r) => r.id.toLowerCase()));
 }
 
+/** `stopAt`: stop screening once that many lines are postable (the caller needs no more); `stoppedAt` is the id of the row that reached it. */
 export async function screenCandidates(companyId: string, userId: string, rows: DbRow[], stopAt = Number.POSITIVE_INFINITY): Promise<{
   postable: ScreenedLine[]; needsAttention: NeedsAttention[]; excluded: ExcludedCounts; stoppedAt: string | null;
 }> {

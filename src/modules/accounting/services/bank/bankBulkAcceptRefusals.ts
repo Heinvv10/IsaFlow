@@ -75,6 +75,8 @@ export function refusalReason(err: unknown): string {
   const code = (err as { code?: unknown }).code;
   if (code === 'IMPORTER_MAY_NOT_ALLOCATE') return `needs a colleague: ${err.message}`;
   if (isA(err, LABELLED)) return `approval_required: ${err.message}`;
+  // Fixed sentence plus the remedy (the MCP missingSystemAccountText convention): the message carries the company id.
+  if (err instanceof MissingSystemAccountError) return `the '${err.key}' system account role is not configured for this company. ${err.remedy}`;
   if (isA(err, PASS_THROUGH)) return err.message;
   return GENERIC_REFUSAL;
 }
