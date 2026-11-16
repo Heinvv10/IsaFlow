@@ -3,7 +3,7 @@
  * it before anything else, so the dry run reports that refusal alone, without asking about journals, loans
  * or the tax year.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 // Wave 6 FQa: the run-kind guard reads the database; its own tests are payrollRunKindGuard*.test.ts.
 vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig) => ({
   ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
@@ -64,6 +64,12 @@ describe('calculate_pay_run dry run on a tax year with no tables', () => {
 });
 
 describe('calculate_pay_run dry run on a locked run that is also off-cycle (wave 6 FQa, review #1483)', () => {
+  // In afterEach, so a failed assertion cannot leave the rejecting guard behind for later tests.
+  afterEach(() => {
+    vi.mocked(assertRunKindSupported).mockReset();
+    vi.mocked(assertRunKindSupported).mockResolvedValue(undefined);
+  });
+
   it('reports the lock, as the live call refuses it first, and never asks the run-kind guard', async () => {
     vi.mocked(assertRunKindSupported).mockClear();
     vi.mocked(assertRunKindSupported).mockRejectedValue(
@@ -77,8 +83,6 @@ describe('calculate_pay_run dry run on a locked run that is also off-cycle (wave
     const out = JSON.parse(r.content[0]!.text) as { skipped: string[] };
     expect(out.skipped).toEqual([new PayrollRunLockedError('approved').message]);
     expect(assertRunKindSupported).not.toHaveBeenCalled();
-    vi.mocked(assertRunKindSupported).mockReset();
-    vi.mocked(assertRunKindSupported).mockResolvedValue(undefined);
   });
 });
 
