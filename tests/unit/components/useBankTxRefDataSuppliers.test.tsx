@@ -14,9 +14,8 @@ import { fetchAllSuppliers, truncatedSuppliersNotice } from '@/lib/fetchAllSuppl
 import { useBankTxRefData } from '@/components/accounting/bank-transactions/useBankTxRefData';
 
 const setters = () => ({
-  setBankAccounts: vi.fn(), setGlAccounts: vi.fn(), setSuppliers: vi.fn(), setCustomers: vi.fn(),
-  setCc1Options: vi.fn(), setCc2Options: vi.fn(), setBuOptions: vi.fn(), setSelectedBank: vi.fn(),
-  setRefDataLoaded: vi.fn(), setSuppliersStatus: vi.fn(),
+  setGlAccounts: vi.fn(), setSuppliers: vi.fn(), setCustomers: vi.fn(),
+  setCc1Options: vi.fn(), setCc2Options: vi.fn(), setBuOptions: vi.fn(), setSuppliersStatus: vi.fn(),
 });
 beforeEach(() => vi.mocked(apiFetch).mockImplementation(async () => new Response(JSON.stringify({ success: true, data: [] }), { status: 200 })));
 afterEach(() => { vi.mocked(fetchAllSuppliers).mockReset(); vi.mocked(apiFetch).mockReset(); });
@@ -34,7 +33,7 @@ describe('useBankTxRefData suppliers', () => {
     const s = setters();
     renderHook(() => useBankTxRefData(s));
     await waitFor(() => expect(s.setSuppliersStatus).toHaveBeenCalledWith('failed'));
-    await waitFor(() => expect(s.setRefDataLoaded).toHaveBeenCalledWith(true));
+    await waitFor(() => expect(s.setGlAccounts).toHaveBeenCalled());
   });
   it('words the cap notice with the cap', () => {
     expect(truncatedSuppliersNotice()).toMatch(/first 10\s000 suppliers/);
