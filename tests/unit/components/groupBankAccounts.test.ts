@@ -5,20 +5,11 @@
 
 import { describe, it, expect } from 'vitest';
 import { groupBankAccounts } from '@/components/accounting/bank-transactions/groupBankAccounts';
-import type { BankAcct } from '@/components/accounting/bank-transactions/BankTxBankCards';
+import { summaryAcct } from '../helpers/bankSummaryFixture';
+import type { BankAccountSummary } from '@/modules/accounting/services/bank/bankAccountSummaryService';
 
-function acct(overrides: Partial<BankAcct> & { id: string }): BankAcct {
-  return {
-    accountCode: overrides.id,
-    accountName: `Account ${overrides.id}`,
-    balance: 0,
-    reconciledBalance: 0,
-    unreconciledBalance: 0,
-    unreconciledCount: 0,
-    allocatedCount: 0,
-    unallocatedCount: 0,
-    ...overrides,
-  };
+function acct(o: Partial<BankAccountSummary> & { id: string }): BankAccountSummary {
+  return summaryAcct(o.id, o);
 }
 
 describe('groupBankAccounts', () => {
@@ -44,17 +35,18 @@ describe('groupBankAccounts', () => {
     expect(result.groups[1]!.accounts.map(a => a.id)).toEqual(['float1']);
   });
 
-  it('rolls up balances and counts onto the group', () => {
+  it('rolls up ledger cents, counts and to-code money onto the group, in exact integer cents', () => {
+    // 0.1 + 0.2 in floats is 0.30000000000000004; as cents (10 + 20) it is exact.
     const accounts = [
-      acct({ id: 'pc1', groupId: 'g1', groupName: 'Paycards', balance: 150.5, unallocatedCount: 3, allocatedCount: 2, unreconciledBalance: 50, reconciledBalance: 100.5 }),
-      acct({ id: 'pc2', groupId: 'g1', groupName: 'Paycards', balance: -20.25, unallocatedCount: 1, allocatedCount: 0, unreconciledBalance: -10, reconciledBalance: -10.25 }),
+      acct({ id: 'pc1', groupId: 'g1', groupName: 'Paycards', ledgerCents: 10, toCodeInCents: 2505, toCodeOutCents: -1001,
+        counts: { allocated: 2, suggested: 1, unallocated: 3 } }),
+      acct({ id: 'pc2', groupId: 'g1', groupName: 'Paycards', ledgerCents: 20, toCodeInCents: 7, toCodeOutCents: -3003,
+        counts: { allocated: 0, suggested: 0, unallocated: 1 } }),
     ];
     const [group] = groupBankAccounts(accounts).groups;
-    expect(group!.balance).toBeCloseTo(130.25, 2);
-    expect(group!.unallocatedCount).toBe(4);
-    expect(group!.allocatedCount).toBe(2);
-    expect(group!.unreconciledBalance).toBeCloseTo(40, 2);
-    expect(group!.reconciledBalance).toBeCloseTo(90.25, 2);
+    expect(group).toMatchObject({
+      ledgerCents: 30, toCode: 5, toCodeInCents: 2512, toCodeOutCents: -4004, allocated: 2, suggested: 1, unallocated: 4,
+    });
   });
 
   it('treats an account with a groupId but missing groupName as primary (defensive)', () => {

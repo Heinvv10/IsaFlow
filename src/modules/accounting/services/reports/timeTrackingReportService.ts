@@ -4,6 +4,7 @@
  * Split from timeTrackingService.ts to keep both files ≤300 lines.
  */
 
+import { toIsoTimestamp } from '@/lib/dateUtils';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { TimeEntry, TimeSummary } from '../core/timeTrackingService';
@@ -31,8 +32,8 @@ function mapEntry(r: DbRow): TimeEntry {
     customerName: r.customer_name ? String(r.customer_name) : null,
     notes: r.notes ? String(r.notes) : null,
     status: String(r.status),
-    createdAt: String(r.created_at),
-    updatedAt: String(r.updated_at),
+    createdAt: (toIsoTimestamp(r.created_at as Date | string) ?? ''),
+    updatedAt: (toIsoTimestamp(r.updated_at as Date | string) ?? ''),
   };
 }
 

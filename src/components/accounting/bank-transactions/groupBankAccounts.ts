@@ -3,31 +3,33 @@
  * and sub-account groups. A sub-account is any bank account whose parent is
  * also a bank-subtype GL account (e.g. employee paycards under a "Paycards"
  * umbrella); the API surfaces that as groupId/groupName on each leaf.
+ *
+ * A group's figures are the sums of its members' INTEGER CENTS and counts (WP1), so they cannot drift from the cards.
  */
 
-import type { BankAcct } from './BankTxBankCards';
+import type { BankAccountSummary } from './useBankTxSummary';
 
 export interface BankAccountGroup {
   groupId: string;
   groupName: string;
   groupCode: string | null;
-  accounts: BankAcct[];
-  balance: number;
-  reconciledBalance: number;
-  unreconciledBalance: number;
-  unreconciledCount: number;
-  allocatedCount: number;
-  suggestedCount: number;
-  unallocatedCount: number;
+  accounts: BankAccountSummary[];
+  ledgerCents: number;
+  toCode: number;
+  toCodeInCents: number;
+  toCodeOutCents: number;
+  allocated: number;
+  suggested: number;
+  unallocated: number;
 }
 
 export interface GroupedBankAccounts {
-  primaries: BankAcct[];
+  primaries: BankAccountSummary[];
   groups: BankAccountGroup[];
 }
 
-export function groupBankAccounts(accounts: BankAcct[]): GroupedBankAccounts {
-  const primaries: BankAcct[] = [];
+export function groupBankAccounts(accounts: BankAccountSummary[]): GroupedBankAccounts {
+  const primaries: BankAccountSummary[] = [];
   const byGroup = new Map<string, BankAccountGroup>();
 
   for (const acct of accounts) {
@@ -44,24 +46,18 @@ export function groupBankAccounts(accounts: BankAcct[]): GroupedBankAccounts {
         groupName: acct.groupName,
         groupCode: acct.groupCode ?? null,
         accounts: [],
-        balance: 0,
-        reconciledBalance: 0,
-        unreconciledBalance: 0,
-        unreconciledCount: 0,
-        allocatedCount: 0,
-        suggestedCount: 0,
-        unallocatedCount: 0,
+        ledgerCents: 0, toCode: 0, toCodeInCents: 0, toCodeOutCents: 0, allocated: 0, suggested: 0, unallocated: 0,
       };
       byGroup.set(acct.groupId, group);
     }
     group.accounts.push(acct);
-    group.balance += acct.balance;
-    group.reconciledBalance += acct.reconciledBalance;
-    group.unreconciledBalance += acct.unreconciledBalance;
-    group.unreconciledCount += acct.unreconciledCount;
-    group.allocatedCount += acct.allocatedCount;
-    group.suggestedCount += acct.suggestedCount ?? 0;
-    group.unallocatedCount += acct.unallocatedCount;
+    group.ledgerCents += acct.ledgerCents;
+    group.toCode += acct.counts.toCode;
+    group.toCodeInCents += acct.toCodeInCents;
+    group.toCodeOutCents += acct.toCodeOutCents;
+    group.allocated += acct.counts.allocated;
+    group.suggested += acct.counts.suggested;
+    group.unallocated += acct.counts.unallocated;
   }
 
   return { primaries, groups: [...byGroup.values()] };
