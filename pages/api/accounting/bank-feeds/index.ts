@@ -16,6 +16,7 @@ import {
   createBankFeedConnection,
   type BankFeedConnectionInput,
 } from '@/modules/accounting/services/bank/openBankingService';
+import { isBankAccountGuardRefusal } from '@/modules/accounting/services/bank/bankAccountGuard';
 
 const CreateConnectionSchema = z.object({
   provider: z.enum(['manual_csv', 'extension']),
@@ -47,7 +48,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     };
 
     log.info('Creating bank feed connection', { provider: input.provider, companyId }, 'open-banking-api');
-    const connection = await createBankFeedConnection(companyId, input, userId);
+    let connection: Awaited<ReturnType<typeof createBankFeedConnection>>;
+    try {
+      connection = await createBankFeedConnection(companyId, input, userId);
+    } catch (err) {
+      // Not an active bank account of this company — refused before the insert (was a bare Error: a 500).
+      if (isBankAccountGuardRefusal(err)) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
     return apiResponse.success(res, connection, 'Connection created', 201);
   }
 

@@ -165,7 +165,7 @@ describe('sheet 11 spends its prose budget on matters', () => {
     // Movement column reads untracked. Merging the notes may not lose any of
     // the three.
     expect(body).toMatch(/Aged debtor concentration/);
-    expect(body).toMatch(/unreconciled bank items/);
+    expect(body).toMatch(/unallocated bank items/);
     expect(body).toMatch(/unusual journals/);
     expect(body).toMatch(/overdue statutory filings/);
     expect(body).toMatch(/named as a matter, never dropped/);

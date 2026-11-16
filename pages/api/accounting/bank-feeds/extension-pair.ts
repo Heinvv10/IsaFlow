@@ -19,7 +19,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest, signExtensionToken } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
-import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
+import { assertBankAccountInCompany, isBankAccountGuardRefusal } from '@/modules/accounting/services/bank/bankAccountGuard';
 import { log } from '@/lib/logger';
 import { createBankFeedConnection } from '@/modules/accounting/services/bank/openBankingConnectionService';
 import type { DbRow } from '@/types/db';
@@ -55,15 +55,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // gl_accounts row id (account_subtype='bank'); bank_transactions.bank_account_id
   // also FKs to gl_accounts(id). So we verify against gl_accounts here, not
   // the bank_accounts metadata table.
-  const acct = (await sql`
-    SELECT id FROM gl_accounts
-     WHERE id = ${bankAccountId}::UUID
-       AND company_id = ${companyId}::UUID
-       AND account_subtype = ANY(${BANK_SUBTYPES as string[]})
-     LIMIT 1
-  `) as DbRow[];
-  if (acct.length === 0) {
-    return apiResponse.notFound(res, 'Bank account');
+  // An active bank account of this company (bank/bankAccountGuard). Any refusal keeps this route's plain 404.
+  try {
+    await assertBankAccountInCompany(companyId, bankAccountId);
+  } catch (err) {
+    if (isBankAccountGuardRefusal(err)) return apiResponse.notFound(res, 'Bank account');
+    throw err;
   }
 
   // Reuse an existing extension connection for the same (company, bankAccount, bankId)
