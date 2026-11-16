@@ -25,6 +25,9 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Step 2's bank gates read Postgres; stubbed open here, proven in tests/integration/bank-controls-*.int.test.ts.
+// WP2 row 5: the bank-contra pre-checks read Postgres; open here (proven in bank-contra-transfer-r2.int).
+vi.mock('@/modules/accounting/services/bank/bankContraLineSkips', async () => (await import('../helpers/bankControlGateMocks')).bankContraOpen());
+vi.mock('@/modules/accounting/services/bank/transferSweepPrelock', async () => (await import('../helpers/bankControlGateMocks')).transferPrelockOpen());
 vi.mock('@/modules/accounting/services/bank/contactControlGuard', async () => (await import('../helpers/bankControlGateMocks')).contactControlOpen());
 vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../helpers/bankControlGateMocks')).importerGateOpen());
 vi.mock('@/modules/accounting/services/bank/bankReversalGate', async () => (await import('../helpers/bankControlGateMocks')).reversalGateOpen());

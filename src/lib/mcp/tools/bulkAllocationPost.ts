@@ -14,6 +14,9 @@ import { prefetchAllocationVatFacts, type VatCoercionReason } from './allocation
 import { postAllocationLine } from './allocationLine';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { isLockNotAvailable } from '@/modules/accounting/services/core/lockContention';
+import { preLockSweepTransfers } from '@/modules/accounting/services/bank/transferSweepPrelock';
+import { DuplicateTransferError } from '@/modules/accounting/services/bank/transferDuplicateGuard';
+import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import type { McpToolContext } from '../types';
 
 export interface PostedLine {
@@ -171,8 +174,17 @@ export async function postPreparedLines(
   // Per batch, not per line: a run that quietly dropped a claim on 40 of 500
   // lines is exactly the thing a caller reading only the summary would miss.
   const vatCoerced: CoercedVatLine[] = [];
+  // WP2 row 5: an account line onto another bank account posts as a TRANSFER (allocateTransaction). The batch's
+  // transfer lines (id order), then their pairs (sorted), are taken before its first journal — the single path's
+  // line -> pair -> number order (transferSweepPrelock); a line whose line or pair another request holds is skipped.
+  const { transfers, contended } = await preLockSweepTransfers(ctx.companyId, ordered
+    .filter(({ line }) => line.allocType === 'account').map(({ txId, line }) => ({ id: txId, contra: line.contraAccountId })));
 
   for (const { index, txId, line } of ordered) {
+    if (contended.has(txId)) {
+      raced.push({ index, transaction_id: txId, reason: 'locked by another request — retry' });
+      continue;
+    }
     // Sequential, not Promise.all: these share one pg connection, and
     // concurrent statements on it interleave (and corrupt the savepoint stack —
     // postgresql-gotchas §36).
@@ -203,6 +215,18 @@ export async function postPreparedLines(
       });
       if (result.vatCoerced) vatCoerced.push({ index, transaction_id: txId, ...result.vatCoerced });
     } catch (err) {
+      // The movement is already in the ledger (the other bank's leg, or a typed transfer): a state of this line,
+      // write-free, reported — match it to the existing journal.
+      if (err instanceof DuplicateTransferError) {
+        raced.push({ index, transaction_id: txId, reason: err.message });
+        continue;
+      }
+      // The transfer arm's own pre-write refusals (a bank contra rerouted there): a fact of this line, its savepoint
+      // rolled back — skipped and named, never the whole batch.
+      if (err instanceof BankAllocationRefusal && (transfers.has(txId) || vatFacts.isBank.get(line.contraAccountId) === true)) {
+        raced.push({ index, transaction_id: txId, reason: err.message });
+        continue;
+      }
       const status = racedStatus(err);
       if (status !== null) {
         raced.push({ index, transaction_id: txId, reason: reasonForStatus(status) });

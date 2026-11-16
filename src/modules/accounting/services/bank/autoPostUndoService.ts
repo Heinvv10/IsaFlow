@@ -19,6 +19,8 @@ import { reverseReconciledTransaction } from './bankAllocationService';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import { reverseJournalEntry } from '../gl/journalEntryService';
 import { lockBankTransactionForUpdate } from './bankTxLock';
+import { lockTransferCounterparts } from './transferCounterpartLines';
+import { resetBankLine } from './bankChainLineReversal';
 import { journalReversalState } from './journalReversalState';
 import { lockChainHead } from '../shared/journalChainHead';
 import { handOffsetOf, postingJournalOf, type HandOffset } from './autoPostHandOffset';
@@ -126,6 +128,9 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
     // open, and the operator sees a row to fix rather than an undo that read
     // "done" over money still in the GL.
     if (state === 'reReversed') return { kind: 'reReversed' };
+    // WP2 row 5 round 2: a transfer's other-bank line, auto-linked to the same journal — freed with this one.
+    const legs = await lockTransferCounterparts(companyId, tx, jeId);
+    if (legs.lock) return { kind: 'reconciled', lock: legs.lock };
     if (state === 'none') {
       const offset = await handOffsetOf(companyId, tx); // R-079: never reversed on top of a person's correction
       if (offset) return { kind: 'offsetByHand', offset };
@@ -157,6 +162,7 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
         WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
       `;
     }
+    for (const id of legs.ids) await resetBankLine(companyId, id, false);
     if (!tx.matched_journal_line_id) {
       await sql`
         UPDATE bank_transactions

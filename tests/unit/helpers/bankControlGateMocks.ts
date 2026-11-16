@@ -44,6 +44,27 @@ export function reversalGateOpen() {
 }
 
 /**
+ * WP2 row 5's bank-contra pre-checks with no bank contra in the batch: each reads gl_accounts / bank_transactions.
+ * Proven against real Postgres in tests/integration/bank-contra-transfer-r2.int.test.ts.
+ *
+ *   vi.mock('@/modules/accounting/services/bank/bankContraLineSkips', async () =>
+ *     (await import('../helpers/bankControlGateMocks')).bankContraOpen());
+ *   vi.mock('@/modules/accounting/services/bank/transferSweepPrelock', async () =>
+ *     (await import('../helpers/bankControlGateMocks')).transferPrelockOpen());
+ */
+export function bankContraOpen() {
+  return {
+    TRANSFER_DRY_RUN_CAVEAT: 'transfer caveat',
+    batchPostsTransfers: vi.fn(async () => false),
+    bankContraLineSkips: vi.fn(async () => new Map<string, string>()),
+  };
+}
+
+export function transferPrelockOpen() {
+  return { preLockSweepTransfers: vi.fn(async () => ({ transfers: new Set<string>(), contended: new Set<string>() })) };
+}
+
+/**
  * contactControlGuard with every account open (not AP/AR control): its batch reads hit Postgres. The refusal itself
  * is proven in tests/unit/services/bank/contactControlGuard.test.ts and the allocate-control-account-refused int test.
  */
