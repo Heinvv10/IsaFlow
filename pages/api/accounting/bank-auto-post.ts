@@ -30,6 +30,7 @@ import {
 import { isUuidParam } from '@/lib/validation';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
+import { respondIfBankRefusal } from '@/modules/accounting/services/bank/bankRouteRefusal';
 
 type Row = Record<string, unknown>;
 
@@ -125,7 +126,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       // A weakening refused (403) is raised before any write, so the COMMIT withAuth issues on it commits nothing.
       if (respondIfBankControlRefused(res, err)) return;
       if (err instanceof AutoPostSettingsInvalidError) return apiResponse.badRequest(res, err.message);
-      return apiResponse.badRequestFromError(res, err, 'Invalid auto-post settings');
+      // Audit WP2 row 9: anything else is a fault — rethrown (500, rolled back), not a 400 that COMMITS a save a crash
+      // interrupted (the settings row and its audit record).
+      if (respondIfBankRefusal(res, err)) return;
+      throw err;
     }
   }
 
@@ -159,7 +163,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return;
       }
       if (isRetryableContention(err)) return apiResponse.conflict(res, (err as Error).message);
-      return apiResponse.badRequestFromError(res, err, 'Undo failed');
+      // Audit WP2 row 9: a run that is not there (404) or already undone (409) and the other typed refusals keep
+      // their 4xx; anything else is a fault — rethrown (500, rolled back).
+      if (respondIfBankRefusal(res, err)) return;
+      throw err;
     }
   }
 

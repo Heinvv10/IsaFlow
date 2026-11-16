@@ -31,6 +31,7 @@ import { refuseResettingProvisionalLine, type ProvisionalLineVerb } from './prov
 import { findJournalChainRoot, shareLockChainHeadOf } from '../shared/journalChainHead';
 import { postingRefOf, recordAutoPostUndone, recordExcluded, recordMatchDecision } from './codingDecisionLog';
 import { BankLineChangedError, BankMatchTargetError, BankTransactionAllocatedError } from './bankTxStatusErrors';
+import { BankRequestRefusal } from './bankRequestRefusal';
 export { BankMatchUnavailableError } from './bankTxLock';
 export { BankLineChangedError, BankMatchTargetError, BankTransactionAllocatedError, type BankMatchTargetCode } from './bankTxStatusErrors';
 
@@ -62,7 +63,7 @@ async function lockForStatusWrite(
   companyId: string, bankTxId: string, verb: ProvisionalLineVerb, expectedStatus?: string,
 ): Promise<Row> {
   const row = await lockBankTransactionForUpdate(companyId, bankTxId);
-  if (!row) throw new Error(`Bank transaction ${bankTxId} not found`);
+  if (!row) throw new BankRequestRefusal(`Bank transaction ${bankTxId} not found`, 404);
   // First: to a caller holding an expectation, every other refusal below is this one. Exclude keeps a line's match,
   // and this caller goes on to wipe it: the status alone cannot tell a line that was imported from one someone matched.
   if (expectedStatus !== undefined && (row.status !== expectedStatus || row.matched_journal_line_id)) {

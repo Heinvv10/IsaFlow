@@ -364,7 +364,7 @@ export async function allocateTransaction(
       }
     }
   } else {
-    if (!contraAccountId) throw new Error('contraAccountId is required for account allocation');
+    if (!contraAccountId) throw new BankAllocationRefusal('contraAccountId is required for account allocation');
     allocEntityName = contraRows.length > 0
       ? `${String(contraRows[0]!.account_code)} ${String(contraRows[0]!.account_name)}` : null;
     entryDesc = description || String(tx.description || 'Bank allocation');
@@ -678,12 +678,12 @@ export async function splitAllocateTransaction(
   if (tx.status !== 'imported') {
     throw new BankAllocationRefusal(`Transaction already ${tx.status} — cannot split allocate`);
   }
-  if (!lines || lines.length === 0) throw new Error('At least one split line is required');
+  if (!lines || lines.length === 0) throw new BankAllocationRefusal('At least one split line is required');
 
   const totalAmount = Math.abs(Number(tx.amount));
   const linesTotal = lines.reduce((sum, l) => sum + Number(l.amount), 0);
   if (Math.abs(linesTotal - totalAmount) > 0.01) {
-    throw new Error(`Split lines total R${linesTotal.toFixed(2)} does not equal transaction amount R${totalAmount.toFixed(2)}`);
+    throw new BankAllocationRefusal(`Split lines total R${linesTotal.toFixed(2)} does not equal transaction amount R${totalAmount.toFixed(2)}`);
   }
   // Supplier / customer lines: every refusal for them, from reads, before any write (bankSplitContacts.ts).
   const contactPlan = await planSplitContacts(companyId, tx, lines, userId);
@@ -790,7 +790,7 @@ async function reverseReconciledInner(
   const undoing = opts?.expectedJournalEntryId;
   const chainLines = chain && (chain.doc || undoing) ? await lockChainLines(companyId, chain) : [];
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
-  if (!tx) throw new Error('Transaction not found');
+  if (!tx) throw new BankAllocationRefusal('Transaction not found');
   // D10 O9 (with R-127's settled case): a provisional's own line is refused while its journal stands; one whose
   // journal the GL already took out is only freed below, its link cleared, nothing posted.
   const deadProvisional = await refuseResettingProvisionalLine(companyId, tx, 'reverse');
@@ -802,7 +802,7 @@ async function reverseReconciledInner(
   }
   await refuseStaleUndo(companyId, bankTxId, chain, undoing); // the page's Undo: the journal it offered, or nothing
   if (!deadProvisional && tx.status !== 'allocated' && tx.status !== 'matched' && tx.status !== 'reconciled') {
-    throw new Error('Can only reverse allocated, matched, or reconciled transactions');
+    throw new BankAllocationRefusal('Can only reverse allocated, matched, or reconciled transactions');
   }
   // Cash on a COMPLETED reconciliation (or reconciled in the Sage import) is
   // locked — the shared rule void and batch reversal apply. Reversing it here

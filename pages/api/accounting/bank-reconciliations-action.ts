@@ -21,8 +21,7 @@ import {
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { cancelReconciliation } from '@/modules/accounting/services/bank/bankReconciliationCancelService';
 import { reopenReconciliation } from '@/modules/accounting/services/bank/bankReconciliationReopenService';
-import { isReconciliationReviewRequired } from '@/modules/accounting/services/bank/reconciliationReviewGate';
-import { isReconciliationNotBalanced } from '@/modules/accounting/services/bank/reconciliationBalanced';
+import { respondIfBankRefusal } from '@/modules/accounting/services/bank/bankRouteRefusal';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 
 const ActionSchema = z.discriminatedUnion('action', [
@@ -78,11 +77,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // D12: complete / cancel / adjustment on a COMPLETED reconciliation — 409, decided under its header lock, pre-write.
     if (respondIfReconciliationCompleted(res, err)) return;
     if (respondIfApprovalRequired(res, err)) return; // R-035 PR6 H1: an adjustment a manual-journal rule holds, pre-write
-    const message = err instanceof Error ? err.message : 'Action failed';
-    // Mig 980: an unreviewed line is an expected refusal, not a fault — kept out of the error tracker.
-    if (isReconciliationReviewRequired(err) || isReconciliationNotBalanced(err)) return apiResponse.badRequest(res, message);
-    log.error('Bank reconciliation action failed', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, message);
+    // Audit WP2 row 9: the typed refusals keep their 4xx (an unreviewed or unbalanced session, a session that is not
+    // there, a cancel or reopen refused, an adjustment on another bank); anything else is a fault — rethrown, 500,
+    // rolled back. A 400 here COMMITTED whatever a crash had written (a cancelled session, a completed one).
+    if (respondIfBankRefusal(res, err)) return;
+    log.error('Bank reconciliation action failed', { action: (req.body as { action?: unknown })?.action, error: err }, 'accounting-api');
+    throw err;
   }
 }
 
