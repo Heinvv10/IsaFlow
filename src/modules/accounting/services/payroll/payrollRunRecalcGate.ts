@@ -24,6 +24,7 @@ import { listPayrollRunEmployees } from './payrollEmployeeService';
 import { EMPLOYMENT_TERMS_BLOCKING_CODES } from './validationEngine';
 import { payrollTermsChangedSinceCalculation } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
+import { sdlMonthSplitRefusal } from './payrollSdlMonthGate';
 
 export const TERMINATION_BASE_MISSING = 'TERMINATION_BASE_MISSING';
 export const FRINGE_BENEFIT_NOT_APPLIED = 'FRINGE_BENEFIT_NOT_APPLIED';
@@ -170,5 +171,6 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
         + 'or is not taxable, so PAYE is understated. Fix the component or the vehicle record (see the line\'s validation message) and recalculate.',
     };
   }
-  return null;
+  // Another run of the month decided SDL leviability the other way (one decision per month, wave 6 FQb1).
+  return sdlMonthSplitRefusal(companyId, runId);
 }

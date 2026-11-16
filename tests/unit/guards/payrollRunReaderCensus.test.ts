@@ -29,8 +29,7 @@
  *
  * Named limits: a reader that reaches these tables through a view, a SQL function (migrations 951/979) or a
  * runtime-built table name is not seen; a consumer keyed by month that names no table is seen only if listed; a key
- * aliased into a column (sdlLeviabilityService's `AS k`) is pinned where it is built, not where `k` is ordered (the
- * integration mutants cover that line).
+ * aliased into a column would be pinned only where it is built, not where that column is ordered (none today).
  * When this test fails on a new line: read the query, add ONE row classified honestly, with its owner and why.
  */
 import { describe, expect, it } from 'vitest';

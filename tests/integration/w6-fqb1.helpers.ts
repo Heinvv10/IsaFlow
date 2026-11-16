@@ -43,6 +43,8 @@ export interface RunSpec {
   validation?: unknown[];
   /** The line's medical_credit (NULL: not recorded); default 0. */
   medicalCredit?: number | null;
+  /** The line's stored SDL decision (sdl_exempt); default NULL (undecided). */
+  sdlExempt?: boolean;
 }
 
 /** A header (regular, or off-cycle bonus over the same calendar month) and one line for the tenant's employee. */
@@ -63,10 +65,10 @@ export async function seedRun(c: PoolClient, t: Tenant, r: RunSpec): Promise<str
   if (r.noRunDate) await c.query('UPDATE payroll_run_headers SET run_date = NULL WHERE id = $1', [id]);
   await c.query(
     `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, periodic_taxable, paye, net_pay, validation_results,
-       medical_credit, created_at)
-     VALUES ($1, $2, $3::numeric, $3::numeric, $3::numeric, $4::numeric, $3::numeric - $4::numeric, $5::jsonb, $6::numeric, $7::timestamptz)`,
+       medical_credit, created_at, sdl_exempt)
+     VALUES ($1, $2, $3::numeric, $3::numeric, $3::numeric, $4::numeric, $3::numeric - $4::numeric, $5::jsonb, $6::numeric, $7::timestamptz, $8)`,
     [id, t.employee, gross, paye, JSON.stringify(r.validation ?? []), r.medicalCredit === undefined ? 0 : r.medicalCredit,
-      r.calculatedAt ?? r.runDate]);
+      r.calculatedAt ?? r.runDate, r.sdlExempt ?? null]);
   return id;
 }
 

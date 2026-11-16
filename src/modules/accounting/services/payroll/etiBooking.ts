@@ -73,13 +73,14 @@ export async function inForceRunHeaders(companyId: string, months: YearMonth[], 
 
 /**
  * Booked by each month's pay-run journals while in force, keyed YYYY-MM: two queries plus the in-force reads.
- * `excludeRunId`: leave that run's own journal out (what the month's OTHER run journals booked).
+ * `excludeRunId`: leave that run's own journal out (what the month's OTHER run journals booked). `liveHeaders`: the
+ * caller's own inForceRunHeaders read of exactly these months, so one judgement reads the in-force set once.
  */
 export async function bookedRunJournalsByMonth(
-  companyId: string, months: YearMonth[], excludeRunId: string | null = null,
+  companyId: string, months: YearMonth[], excludeRunId: string | null = null, liveHeaders?: DbRow[],
 ): Promise<Map<string, RunBooked>> {
   const out = new Map<string, RunBooked>(months.map((m) => [monthKey(m), NONE]));
-  const live = await inForceRunHeaders(companyId, months, excludeRunId);
+  const live = liveHeaders ?? await inForceRunHeaders(companyId, months, excludeRunId);
   if (live.length === 0) return out;
   const lines = (await sql`
     SELECT jl.journal_entry_id,

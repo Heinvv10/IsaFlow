@@ -64,9 +64,9 @@ const lineOf = (ym: YearMonth, months: EtiMonth[]): EtiCarryMonth =>
  * journals already booked (payrollJournalEti.etiForRun).
  */
 export async function etiMonthForRun(
-  companyId: string, ym: YearMonth, run: { paye: number; eti: number }, runId: string | null = null,
+  companyId: string, ym: YearMonth, run: { paye: number; eti: number }, runId: string | null = null, otherHeaders?: DbRow[],
 ): Promise<EtiCarryMonth> {
-  const others = (await inForceRunHeaders(companyId, [ym], runId))
+  const others = (otherHeaders ?? await inForceRunHeaders(companyId, [ym], runId))
     .map((h) => ({ ...ym, paye: Number(h.total_paye) || 0, eti: Number(h.total_eti) || 0 }));
   return lineOf(ym, [
     ...await loadEarlierEtiMonths(companyId, ym), ...await loadEtiMonths(companyId, ym, ym, 'none'), ...others, { ...ym, ...run },

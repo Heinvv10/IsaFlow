@@ -16,11 +16,6 @@
   "src/modules/accounting/services/payroll/payrollVarianceService.ts": [
    "AND ${runOrderKeySql('p')} < ${runOrderKeySql('c')}",
    "ORDER BY ${runOrderKeySql('p')} DESC"
-  ],
-  "src/modules/accounting/services/payroll/sdlLeviabilityService.ts": [
-   "${runOrderKeySql('prh')} AS k,",
-   "(prh.period_year * 12 + prh.period_month = ${index} AND ${runOrderKeySql('prh')} < (",
-   "SELECT ${runOrderColumnsSql('me')} FROM payroll_run_headers me WHERE me.id = ${runId}::uuid AND me.company_id = ${companyId}::uuid"
   ]
  },
  "consumers": [
@@ -322,15 +317,15 @@
    {"line":125,"text":"SELECT * FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"FQb1 converted (R): getDeclarablePayRun takes the latest in pay order"}
   ],
   "src/modules/accounting/services/payroll/payrollRunRecalcGate.ts": [
-   {"line":37,"text":"SELECT calculation_version FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":51,"text":"SELECT period_year, period_month FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"R","owner":"FQc","why":"by run id; the population listed for the run's month: the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"},
-   {"line":61,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":64,"text":"LEFT JOIN payroll_employee_components pec ON pec.id = a.entity_id","class":"S","owner":"FQb1","why":"assignments named by audit rows"},
-   {"line":76,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":88,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":124,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":141,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":160,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"}
+   {"line":38,"text":"SELECT calculation_version FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"by run id"},
+   {"line":52,"text":"SELECT period_year, period_month FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"R","owner":"FQc","why":"by run id; the population listed for the run's month: the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"},
+   {"line":62,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
+   {"line":65,"text":"LEFT JOIN payroll_employee_components pec ON pec.id = a.entity_id","class":"S","owner":"FQb1","why":"assignments named by audit rows"},
+   {"line":77,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
+   {"line":89,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"by run id"},
+   {"line":125,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"},
+   {"line":142,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"},
+   {"line":161,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollRunRegularDirective.ts": [
    {"line":57,"text":"COALESCE((SELECT h.run_date FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid), b.last_day) AS judge","class":"S","owner":"FQb1","why":"by run id (run_date)"},
@@ -345,6 +340,10 @@
    {"line":53,"text":"await tx`DELETE FROM payroll_employee_components WHERE id = ${rowId}::uuid AND employee_id = ${employeeId}::uuid`;","class":"S","owner":"FQb1","why":"assignment delete by id"},
    {"line":57,"text":"const updated = (await tx`UPDATE payroll_employee_components SET amount = ${amount}, quantity = ${quantity}::numeric, quantity_unit = ${unit}","class":"S","owner":"FQb1","why":"assignment write by id"},
    {"line":72,"text":"INSERT INTO payroll_employee_components (employee_id, component_id, amount, quantity, quantity_unit, effective_from, effective_to, is_recurring, supersede_inferred)","class":"R","owner":"FQc","why":"a run input written as a once-off over the month (F2: inputs keyed by run): the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"}
+  ],
+  "src/modules/accounting/services/payroll/payrollSdlMonthGate.ts": [
+   {"line":18,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"this run, by id"},
+   {"line":24,"text":"JOIN payroll_run_headers o ON o.company_id = me.company_id AND o.period_year = me.period_year","class":"S","owner":"FQb1","why":"every other calculated/approved/paid run of the month (one SDL decision per month, review #1507 B4b)"}
   ],
   "src/modules/accounting/services/payroll/payrollSeveranceDirective.ts": [
    {"line":176,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"another run that paid 3901 (any)"}
@@ -388,8 +387,7 @@
    {"line":74,"text":"SELECT period_month, period_year FROM payroll_run_headers","class":"S","owner":"FQb1","why":"the tax year of the run (by id)"}
   ],
   "src/modules/accounting/services/payroll/sdlLeviabilityService.ts": [
-   {"line":98,"text":"SELECT ${runOrderColumnsSql('me')} FROM payroll_run_headers me WHERE me.id = ${runId}::uuid AND me.company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"this run's order key, by id"},
-   {"line":115,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb1","why":"FQb1 converted (R): the estimate counts the earlier runs (pay order) of the run's own month"}
+   {"line":111,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb1","why":"FQb1 converted (R, review #1507 B4/B4b/B4c): the estimate counts every other calculated/approved/paid run of the month with this run (one decision per month, SDLA s4(b))"}
   ],
   "src/modules/accounting/services/payroll/taxDirectiveLeaverUndo.ts": [
    {"line":147,"text":"SELECT h.period_year, h.period_month FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"months with a declarable run; labels"}

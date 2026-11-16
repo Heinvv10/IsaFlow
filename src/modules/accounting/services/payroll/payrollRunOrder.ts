@@ -26,8 +26,3 @@ const columns = (alias: string, fn: string): string => {
 export function runOrderKeySql(alias: string) {
   return sql.unsafe(`(${columns(alias, 'runOrderKeySql')})`);
 }
-
-/** The same five as a select list, for a scalar subquery compared with runOrderKeySql: `key < (SELECT …)`. */
-export function runOrderColumnsSql(alias: string) {
-  return sql.unsafe(columns(alias, 'runOrderColumnsSql'));
-}

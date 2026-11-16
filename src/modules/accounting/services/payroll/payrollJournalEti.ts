@@ -5,7 +5,7 @@
 import { formatMoney } from '@/lib/money/formatMoney';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
-import { bookedByEtiJournals, bookedRunJournalsByMonth, monthKey } from './etiBooking';
+import { bookedByEtiJournals, bookedRunJournalsByMonth, inForceRunHeaders, monthKey } from './etiBooking';
 import { etiMonthForRun } from './etiCarryRead';
 import type { EtiCarryMonth, YearMonth } from './etiCarry';
 
@@ -56,9 +56,11 @@ export async function refundReceivable(companyId: string): Promise<{ id: string;
 export async function etiForRun(
   companyId: string, ym: YearMonth, run: { paye: number; eti: number }, runId: string | null = null,
 ): Promise<RunEti> {
-  const month = await etiMonthForRun(companyId, ym, run, runId);
+  // The month's other in-force run journals, read once for both the month line and what they booked (review #1507).
+  const others = await inForceRunHeaders(companyId, [ym], runId);
+  const month = await etiMonthForRun(companyId, ym, run, runId, others);
   const booked = await bookedByEtiJournals(companyId, ym);
-  const otherRuns = (await bookedRunJournalsByMonth(companyId, [ym], runId)).get(monthKey(ym))!;
+  const otherRuns = (await bookedRunJournalsByMonth(companyId, [ym], runId, others)).get(monthKey(ym))!;
   const refund = Math.round((month.refundClaimable - booked.refund - otherRuns.refund) * 100) / 100;
   return {
     month, refund,

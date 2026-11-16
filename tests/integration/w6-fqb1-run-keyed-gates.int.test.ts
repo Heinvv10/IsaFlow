@@ -15,6 +15,9 @@ import { refuseReversalAgainstPayRun } from '@/modules/accounting/services/payro
 import { createPayrollRun, PayrollRunDuplicateError } from '@/modules/accounting/services/payroll/payrollRunHeaders';
 import { judgeYearToDate } from '@/modules/accounting/services/payroll/payrollYearToDateGate';
 import { estimateAnnualRemuneration } from '@/modules/accounting/services/payroll/sdlLeviabilityService';
+import { sdlMonthSplitRefusal } from '@/modules/accounting/services/payroll/payrollSdlMonthGate';
+import { runLinesRefusal } from '@/modules/accounting/services/payroll/payrollRunRecalcGate';
+import { sql } from '@/lib/neon';
 import { createPayRunTool } from '@/lib/mcp/tools/writePayroll';
 import type { McpToolContext } from '@/lib/mcp/types';
 
@@ -119,9 +122,14 @@ describe('creating a regular run beside an off-cycle run of the month', () => {
   });
 
   it('today\'s schema (month unique kept): a month holding only an off-cycle run is the named duplicate, not a raw 23505', async () => {
-    const again = await twoRunsInMonth(pool, A, async (c) => { await seedRun(c, A, BONUS); },
-      () => createPayrollRun(A.company, { month: 5, year: 2026 }, A.user).then(() => null, (e: unknown) => e), { keepMonthKey: true });
-    expect(again).toBeInstanceOf(PayrollRunDuplicateError);
+    const got = await twoRunsInMonth(pool, A, async (c) => { await seedRun(c, A, BONUS); }, async () => {
+      const again = await createPayrollRun(A.company, { month: 5, year: 2026 }, A.user).then(() => null, (e: unknown) => e);
+      // Its own savepoint: the request's transaction is still usable after the refusal (review #1507 B5).
+      const after = ((await sql`SELECT 1 AS ok`) as Array<{ ok: number }>)[0]?.ok;
+      return { again, after };
+    }, { keepMonthKey: true });
+    expect(got.again).toBeInstanceOf(PayrollRunDuplicateError);
+    expect(got.after).toBe(1);
   });
 
   it('create_pay_run (MCP) dry run: the bonus is no clash, a regular run is', async () => {
@@ -148,21 +156,73 @@ describe('the year-to-date gate (month order until FQc moves it with the figure)
   });
 });
 
-describe('the SDL threshold estimate', () => {
-  // Review #1507 B4: one decision per month. The month's first run (pay order) decides; a later run of the month is
-  // estimated on that run's remuneration, so both take the same side of R500 000 whatever the bonus adds.
-  it.each([false, true])('both runs of a month are estimated alike (seeded reversed: %s)', async (flip) => {
+describe('the SDL threshold: one decision per month, whatever the calculation or pay order', () => {
+  const estimate = (runId: string, current: number) => estimateAnnualRemuneration(A.company, { year: 2026, month: 5 }, current, runId);
+
+  it.each([false, true])('both runs of a month are estimated on the month total (seeded reversed: %s)', async (flip) => {
     let regular = '';
     let bonus = '';
     const got = await twoRunsInMonth(pool, A, async (c) => {
       const runs = [{ ...REGULAR, gross: 30000, status: 'calculated', approvedAt: null }, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null }];
       const ids = await seedBoth(c, flip ? [...runs].reverse() : runs);
       [regular, bonus] = flip ? [ids[1]!, ids[0]!] : [ids[0]!, ids[1]!];
+    }, async () => ({ regular: await estimate(regular, 30000), bonus: await estimate(bonus, 20000) }));
+    // (30 000 + 20 000) x 12 = 600 000 for both: liable both.
+    expect(got).toEqual({ regular: 600000, bonus: 600000 });
+  });
+
+  // Review #1507 B4c: a bonus paid BEFORE the regular run no longer decides the month alone.
+  it('a bonus dated before the regular run: the regular run is estimated on the whole month (liable)', async () => {
+    let regular = '';
+    const got = await twoRunsInMonth(pool, A, async (c) => {
+      await seedRun(c, A, { ...BONUS, runDate: '2026-05-15', gross: 20000, status: 'calculated', approvedAt: null });
+      regular = await seedRun(c, A, { ...REGULAR, runDate: '2026-05-25', gross: 50000, status: 'calculated', approvedAt: null });
+    }, () => estimate(regular, 50000));
+    expect(got).toBe(840000);
+  });
+
+  // Review #1507 (arch M): a zero-cash first run (benefits-only off-cycle) adds nothing; it does not zero the month.
+  it('a first run with no remuneration leaves the month\'s estimate to the run that has it', async () => {
+    let bonus = '';
+    const got = await twoRunsInMonth(pool, A, async (c) => {
+      bonus = await seedRun(c, A, { ...BONUS, runDate: '2026-05-05', gross: 0, paye: 0, status: 'calculated', approvedAt: null });
+      await seedRun(c, A, { ...REGULAR, gross: 50000, status: 'calculated', approvedAt: null });
+    }, () => estimate(bonus, 0));
+    expect(got).toBe(600000);
+  });
+
+  // Review #1507 B4b: the bonus was calculated while the regular run was a draft, so it decided alone (exempt). Once the
+  // regular run is calculated (liable), approving the bonus is refused until it is recalculated, which then agrees.
+  it('a run decided before its month\'s other run existed is refused at approval, and its recalculation agrees', async () => {
+    let regular = '';
+    let bonus = '';
+    const got = await twoRunsInMonth(pool, A, async (c) => {
+      bonus = await seedRun(c, A, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null, sdlExempt: true });
+      regular = await seedRun(c, A, { ...REGULAR, gross: 50000, status: 'calculated', approvedAt: null, sdlExempt: false });
     }, async () => ({
-      regular: await estimateAnnualRemuneration(A.company, { year: 2026, month: 5 }, 30000, regular),
-      bonus: await estimateAnnualRemuneration(A.company, { year: 2026, month: 5 }, 20000, bonus),
+      refusal: await runLinesRefusal(A.company, bonus),
+      direct: await sdlMonthSplitRefusal(A.company, bonus),
+      recalculated: await estimate(bonus, 20000),
+      regular: await estimate(regular, 50000),
     }));
-    // The regular run (30 000) is the month's first: 30 000 x 12 = 360 000 for both, exempt both.
-    expect(got).toEqual({ regular: 360000, bonus: 360000 });
+    expect(got.refusal?.code).toBe('sdl_month_split');
+    expect(got.direct?.detail).toMatch(/Recalculate this run/);
+    expect(got.direct?.detail).not.toMatch(/reopen/);
+    expect(got.recalculated).toBe(840000);
+    expect(got.regular).toBe(840000);
+  });
+
+  it('when the other run is already approved, the refusal says to reopen it; runs that agree pass', async () => {
+    let bonus = '';
+    const split = await twoRunsInMonth(pool, A, async (c) => {
+      await seedRun(c, A, { ...REGULAR, gross: 50000, sdlExempt: true });
+      bonus = await seedRun(c, A, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null, sdlExempt: false });
+    }, () => sdlMonthSplitRefusal(A.company, bonus));
+    expect(split?.detail).toMatch(/reopen it and recalculate it too/);
+    const agree = await twoRunsInMonth(pool, A, async (c) => {
+      await seedRun(c, A, { ...REGULAR, gross: 50000, sdlExempt: false });
+      bonus = await seedRun(c, A, { ...BONUS, gross: 20000, status: 'calculated', approvedAt: null, sdlExempt: false });
+    }, () => sdlMonthSplitRefusal(A.company, bonus));
+    expect(agree).toBeNull();
   });
 });
