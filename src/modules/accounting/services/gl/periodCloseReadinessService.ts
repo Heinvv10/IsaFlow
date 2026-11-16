@@ -21,14 +21,17 @@
  * period, so no period-scoped query can find it — and a close asserts a period
  * is complete, which is exactly what an invisible journal defeats.
  *
- * All checks are ADVISORY — they do not block period close.
+ * This service only REPORTS. Whether a close may proceed is decided by
+ * `periodCloseGate.ts` (a fail, or a check that could not be computed, blocks).
  * Every SQL query is scoped by company_id (multi-tenant safe).
  */
 
 import { log } from '@/lib/logger';
 import { withSavepoint } from '@/lib/neon';
+import { isLockContention } from '@/modules/accounting/services/core/lockContention';
+import { inPeriodLockBudget } from './periodLockBudgetScope';
 import { getFiscalPeriodById } from './fiscalPeriodService';
-import { bankReconciledCheck } from './closeReadinessChecks/bankReconciledCheck';
+import { BANK_RECONCILED_FIX_HREF, bankReconciledCheck } from './closeReadinessChecks/bankReconciledCheck';
 import { unpostedJournalsCheck } from './closeReadinessChecks/unpostedJournalsCheck';
 import { arSubLedgerCheck } from './closeReadinessChecks/arSubLedgerCheck';
 import { apSubLedgerCheck } from './closeReadinessChecks/apSubLedgerCheck';
@@ -57,6 +60,16 @@ export interface ChecklistItem {
   status: ChecklistItemStatus;
   reason: string;
   fixHref: string;
+}
+
+/**
+ * Company-scoped check results shared across the periods ONE close request
+ * judges (Bulk Close, Close Year, the year-end lock): `orphan_period_journals`
+ * reads the whole company, so it runs once per request, not once per period.
+ * Create one per request; never keep one across requests.
+ */
+export interface CloseCheckMemo {
+  orphan?: ChecklistItem;
 }
 
 export interface CloseReadiness {
@@ -91,7 +104,7 @@ const CHECK_LABELS: string[] = [
 ];
 
 const CHECK_FALLBACK_HREFS: string[] = [
-  '/accounting/bank-transactions',
+  BANK_RECONCILED_FIX_HREF,
   '/accounting/journal-entries',
   '/accounting/customer-invoices',
   '/accounting/supplier-invoices',
@@ -100,6 +113,9 @@ const CHECK_FALLBACK_HREFS: string[] = [
   '/accounting/chart-of-accounts',
   '/accounting/journal-entries',
 ];
+
+/** A check that waited on a lock another request held (advisory callers only; see the catch below). */
+const BUSY_REASON = 'Could not compute — busy: another request held a record this check reads. Refresh to retry.';
 
 // ── Aggregation ──────────────────────────────────────────────────────────────
 
@@ -114,6 +130,7 @@ function aggregateStatus(items: ChecklistItem[]): ChecklistItemStatus {
 export async function getCloseReadiness(
   companyId: string,
   periodId: string,
+  memo?: CloseCheckMemo,
 ): Promise<CloseReadiness | null> {
   const period = await getFiscalPeriodById(companyId, periodId);
   if (!period) return null;
@@ -143,8 +160,8 @@ export async function getCloseReadiness(
     () => vatReviewedCheck(companyId, { startDate, endDate }),
     () => tbBalancedCheck(companyId, { id: periodId }),
     () => openingBalanceEquityCheck(companyId, { endDate }),
-    // Company-scoped by design — see the note at the top of this file.
-    () => orphanPeriodJournalsCheck(companyId),
+    // Company-scoped by design — see the note at the top of this file. Once per request when memoised.
+    async () => memo?.orphan ?? orphanPeriodJournalsCheck(companyId),
   ];
 
   const items: ChecklistItem[] = [];
@@ -152,6 +169,19 @@ export async function getCloseReadiness(
     try {
       items.push(await withSavepoint(`close_check_${idx}`, runners[idx]!));
     } catch (err) {
+      // A lock wait that ran out (55P03) or a lost deadlock (40P01) is "busy, retry". Inside a period
+      // flow's lock budget (a close, lock or year end) it is rethrown (its savepoint already rolled back):
+      // the flow's 503, never a refusal. Advisory callers (the panel, MCP period_close_checklist, the close
+      // run) get one busy row instead, still prefixed "Could not compute" so no gate could pass over it.
+      if (isLockContention(err)) {
+        if (inPeriodLockBudget()) throw err;
+        log.warn('close-readiness check busy', { checkIndex: idx, code: (err as { code?: string }).code }, 'accounting');
+        items.push({
+          key: CHECK_KEYS[idx]!, label: CHECK_LABELS[idx]!, status: 'warn' as ChecklistItemStatus,
+          reason: BUSY_REASON, fixHref: CHECK_FALLBACK_HREFS[idx]!,
+        });
+        continue;
+      }
       log.error('close-readiness check failed', { error: err, checkIndex: idx }, 'accounting');
       items.push({
         key: CHECK_KEYS[idx]!,
@@ -162,6 +192,8 @@ export async function getCloseReadiness(
       });
     }
   }
+
+  if (memo && !memo.orphan) memo.orphan = items[items.length - 1];
 
   return {
     periodId,

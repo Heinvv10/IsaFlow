@@ -6,6 +6,8 @@
  * identifier (cross-tenant probes must be structurally impossible).
  */
 
+import type { WithRoleLevel } from '@/lib/auth/withRole';
+
 export interface McpToolContext {
   userId: string;
   /** From auth context ONLY — never from args. */
@@ -113,6 +115,12 @@ export interface McpTool {
    * registry, before the handler — a viewer's token with `read:payroll` is refused.
    */
   requiresWriteRole?: boolean;
+  /**
+   * The company roles a stricter HTTP route admits (withRole's WITH_ROLE_ADMITS level): the tool is
+   * refused to every other role, in the registry, before the handler. 'admin' = owner and admin, the
+   * fiscal-period controls' level.
+   */
+  requiresRole?: WithRoleLevel;
   /**
    * A READ that returns a file or other bulk content by design (get_document with include_content). Exempts it from
    * the registry's oversized-result refusal (resultSize.ts); every other read is held to MAX_READ_RESULT_BYTES.

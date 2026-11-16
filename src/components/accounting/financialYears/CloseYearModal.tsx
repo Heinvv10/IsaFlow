@@ -34,6 +34,7 @@ export function CloseYearModal({ year, openCount, onConfirm, onCancel, saving }:
             </p>
             <ul className="list-disc list-inside space-y-1 text-xs ml-1">
               <li>All {openCount} open period{openCount !== 1 ? 's' : ''} will be closed immediately</li>
+              <li>Every period must pass its close checks; if any fails, nothing is closed</li>
               <li>Closed periods cannot accept new journal entries</li>
               <li>Reopening individual periods requires admin privileges</li>
               <li>Year-end closing entries should be posted before closing</li>

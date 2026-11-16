@@ -82,31 +82,34 @@ describe('audit_trail_exports', () => {
 describe('close and lock entry points queue the automatic snapshot', () => {
   it('every statement that closes or locks a period, year or VAT period is in a pinned file', () => {
     expect(filesMatching(/UPDATE\s+fiscal_periods[\s\S]{0,80}?SET\s+status\s*=\s*'(?:closed|locked)'/i)).toEqual([
-      'src/modules/accounting/services/gl/fiscalPeriodService.ts',
-      'src/modules/accounting/services/gl/yearEndJournalPoster.ts',
+      'src/modules/accounting/services/gl/fiscalPeriodCloseWrites.ts',
+      'src/modules/accounting/services/gl/yearEndPeriodGate.ts',
     ]);
     expect(filesMatching(/INSERT\s+INTO\s+vat_period_locks\b/i)).toEqual(['src/modules/accounting/services/reports/vatPeriodLockService.ts']);
   });
 
   it('each closing or locking function schedules a snapshot', () => {
     const at: [string, string, string][] = [
-      ['src/modules/accounting/services/gl/fiscalPeriodService.ts', 'closePeriod', 'period_close'],
-      ['src/modules/accounting/services/gl/fiscalPeriodService.ts', 'lockPeriod', 'period_close'],
-      ['src/modules/accounting/services/gl/fiscalPeriodService.ts', 'closeYear', 'year_close'],
+      ['src/modules/accounting/services/gl/fiscalPeriodCloseWrites.ts', 'closePeriodWithVerdict', 'period_close'],
+      ['src/modules/accounting/services/gl/fiscalPeriodCloseWrites.ts', 'lockPeriod', 'period_close'],
+      ['src/modules/accounting/services/gl/fiscalPeriodCloseWrites.ts', 'closeYear', 'year_close'],
       ['src/modules/accounting/services/gl/yearEndCloseService.ts', 'closeFiscalYear', 'year_close'],
       ['src/modules/accounting/services/reports/vatPeriodLockService.ts', 'lockVatPeriod', 'vat_lock'],
     ];
     for (const [file, fn, trigger] of at) {
       expect(body(file, fn), `${fn} schedules ${trigger}`).toMatch(new RegExp(`scheduleAutoSnapshot\\('${trigger}'`));
     }
-    // yearEndJournalPoster's lockYear runs only inside closeFiscalYear, which schedules the year_close snapshot.
-    expect(filesMatching(/\blockYear\(/)).toEqual(['src/modules/accounting/services/gl/yearEndJournalPoster.ts']);
+    // yearEndPeriodGate's lockYear runs only inside closeFiscalYear's postClosingJournal, which schedules the year_close snapshot.
+    expect(filesMatching(/\blockYear\(/)).toEqual([
+      'src/modules/accounting/services/gl/yearEndJournalPoster.ts',
+      'src/modules/accounting/services/gl/yearEndPeriodGate.ts',
+    ]);
   });
 
   it('nothing else schedules one', () => {
     expect(filesMatching(/\bscheduleAutoSnapshot\(/)).toEqual([
       'src/modules/accounting/services/audit/autoSnapshotQueue.ts',
-      'src/modules/accounting/services/gl/fiscalPeriodService.ts',
+      'src/modules/accounting/services/gl/fiscalPeriodCloseWrites.ts',
       'src/modules/accounting/services/gl/yearEndCloseService.ts',
       'src/modules/accounting/services/reports/vatPeriodLockService.ts',
     ]);

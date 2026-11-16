@@ -7,6 +7,8 @@
  * unaffected.
  */
 
+import type { BlockedPeriod } from './periodCloseRefusalShape';
+
 export interface YearEndJournalLine {
   accountId: string;
   accountCode: string;
@@ -107,6 +109,11 @@ export type CloseYearDryRunResult =
 export type CloseYearError =
   | { error: 'open_periods'; count: number; openPeriods: Array<{ id: string; periodName: string; periodNumber: number }> }
   | { error: 'year_not_found' }
+  /**
+   * A period the close would LOCK fails a readiness check (periodCloseGate), judged under the period row
+   * locks inside the write transaction (and on the dry run). Nothing was posted or locked.
+   */
+  | { error: 'close_checks_failed'; fiscalYear: number; periods: BlockedPeriod[] }
   /** The year was cut on an ASSUMED March start (the company declares no usable start month). A write path does not guess. */
   | { error: 'start_month_assumed' }
   | {
