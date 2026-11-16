@@ -1,0 +1,147 @@
+/**
+ * Migration 999g as app_user, the rules: item CHECKs (amount, direction, repeat, description) and its
+ * company-matched account; override CHECKs (Monday weeks, mode/amount, move_to target) and one override per
+ * (company, line, week); the salary pay-day columns; and the file is safe to run twice. Real PostgreSQL.
+ *
+ * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
+ */
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { Pool } from 'pg';
+import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { ITEM, OVR, cash13SchemaFixture, codeOf, item, ovr } from './helpers/cash13SchemaFixture';
+
+assertDisposable();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
+const { A, B, setUp, tearDown, as } = cash13SchemaFixture(pool);
+
+beforeAll(async () => { await setUp(); }, 60_000);
+afterAll(async () => {
+  try { await tearDown(); } finally { await pool.end(); }
+});
+
+describe('999g: item rules', () => {
+  const cases: Array<[string, Parameters<typeof item>[1], string]> = [
+    ['amount 0', { amount: 0 }, '23514:cash_forecast_items_amount_check'],
+    ['negative amount', { amount: -1 }, '23514:cash_forecast_items_amount_check'],
+    ['unknown direction', { direction: 'transfer' }, '23514:cash_forecast_items_direction_check'],
+    ['unknown repeat', { repeat: 'daily' }, '23514:cash_forecast_items_repeat_check'],
+    ['repeat_until on a one-off', { repeat: 'none', until: '2027-01-01' }, '23514:cash_forecast_items_repeat_until_check'],
+    ['repeat_until before the date', { repeat: 'monthly', until: '2026-11-30' }, '23514:cash_forecast_items_repeat_until_check'],
+    ['blank description', { desc: '   ' }, '23514:cash_forecast_items_description_check'],
+    ['description of 201', { desc: 'x'.repeat(201) }, '23514:cash_forecast_items_description_check'],
+  ];
+  it.each(cases)('%s is refused', async (_n, o, code) => {
+    await as(A, async (q) => { expect(await codeOf(q, ITEM, item(A.id, o))).toBe(code); });
+  });
+
+  it('the boundaries pass: 0.01, 200 characters, repeat_until on the date, open-ended monthly', async () => {
+    await as(A, async (q) => {
+      expect(await codeOf(q, ITEM, item(A.id, { amount: 0.01 }))).toBe('ok');
+      expect(await codeOf(q, ITEM, item(A.id, { desc: 'x'.repeat(200) }))).toBe('ok');
+      expect(await codeOf(q, ITEM, item(A.id, { repeat: 'weekly', until: '2026-12-01' }))).toBe('ok');
+      expect(await codeOf(q, ITEM, item(A.id, { repeat: 'monthly', until: null }))).toBe('ok');
+    });
+  });
+
+  it("an item's account must be its company's (insert and update)", async () => {
+    await as(A, async (q) => {
+      expect(await codeOf(q, ITEM, item(A.id, { account: B.account }))).toBe('23514:cash_forecast_items_account_company');
+      const id = String((await q.query(ITEM, item(A.id, { account: A.account }))).rows[0].id);
+      expect(await codeOf(q, 'UPDATE cash_forecast_items SET gl_account_id = $1 WHERE id = $2', [B.account, id])).toBe('23514:cash_forecast_items_account_company');
+    });
+  });
+
+  it('an account a forecast item names is not deleted (23503)', async () => {
+    await as(A, async (q) => {
+      await q.query(ITEM, item(A.id, { account: A.account }));
+      await q.query('RESET ROLE');
+      expect(await codeOf(q, 'DELETE FROM gl_accounts WHERE id = $1', [A.account])).toMatch(/^23503/);
+    });
+  });
+});
+
+describe('999g: override rules', () => {
+  const cases: Array<[string, Parameters<typeof ovr>[1], string]> = [
+    ['a Tuesday week', { week: '2026-11-17' }, '23514:cash_forecast_overrides_week_monday'],
+    ['set below 0', { mode: 'set', amount: -1 }, '23514:cash_forecast_overrides_mode_amount'],
+    ['add of 0', { mode: 'add', amount: 0 }, '23514:cash_forecast_overrides_mode_amount'],
+    ['move_to of 0', { mode: 'move_to', amount: 0, target: '2026-11-23' }, '23514:cash_forecast_overrides_mode_amount'],
+    ['move_to negative', { mode: 'move_to', amount: -5, target: '2026-11-23' }, '23514:cash_forecast_overrides_mode_amount'],
+    ['unknown mode', { mode: 'scale', amount: 1 }, '23514:cash_forecast_overrides_mode_amount'],
+    ['move_to without target', { mode: 'move_to', amount: 5, target: null }, '23514:cash_forecast_overrides_target'],
+    ['move_to to a Tuesday', { mode: 'move_to', amount: 5, target: '2026-11-24' }, '23514:cash_forecast_overrides_target'],
+    ['move_to to its own week', { mode: 'move_to', amount: 5, target: '2026-11-16' }, '23514:cash_forecast_overrides_target'],
+    ['set with a target', { mode: 'set', amount: 5, target: '2026-11-23' }, '23514:cash_forecast_overrides_target'],
+    ['add with a target', { mode: 'add', amount: 5, target: '2026-11-23' }, '23514:cash_forecast_overrides_target'],
+    ['blank line key', { key: ' ' }, '23514:cash_forecast_overrides_line_key_check'],
+    ['line key of 201', { key: 'k'.repeat(201) }, '23514:cash_forecast_overrides_line_key_check'],
+    ['note of 501', { note: 'n'.repeat(501) }, '23514:cash_forecast_overrides_note_check'],
+  ];
+  it.each(cases)('%s is refused', async (_n, o, code) => {
+    await as(A, async (q) => { expect(await codeOf(q, OVR, ovr(A.id, o))).toBe(code); });
+  });
+
+  it('valid shapes pass: set 0, add negative, move_to a later or earlier Monday', async () => {
+    await as(A, async (q) => {
+      expect(await codeOf(q, OVR, ovr(A.id, { key: 'a', mode: 'set', amount: 0 }))).toBe('ok');
+      expect(await codeOf(q, OVR, ovr(A.id, { key: 'b', mode: 'add', amount: -250.5 }))).toBe('ok');
+      expect(await codeOf(q, OVR, ovr(A.id, { key: 'c', mode: 'move_to', amount: 100, target: '2026-11-23' }))).toBe('ok');
+      expect(await codeOf(q, OVR, ovr(A.id, { key: 'd', week: '2026-11-23', mode: 'move_to', amount: 100, target: '2026-11-16' }))).toBe('ok');
+    });
+  });
+
+  it('one override per (company, line, week): a second is 23505; another week or company is its own', async () => {
+    await as(A, async (q) => {
+      expect(await codeOf(q, OVR, ovr(A.id, { key: 'dup' }))).toBe('ok');
+      expect(await codeOf(q, OVR, ovr(A.id, { key: 'dup', mode: 'add', amount: 1 }))).toBe('23505:uq_cash_forecast_overrides_line_week');
+      expect(await codeOf(q, OVR, ovr(A.id, { key: 'dup', week: '2026-11-23' }))).toBe('ok');
+    });
+  });
+});
+
+describe('999g: salary pay day', () => {
+  it('defaults to day 25 of the month; app_user may write both columns', async () => {
+    await as(A, async (q) => {
+      const r = (await q.query(
+        'INSERT INTO payroll_company_settings (company_id, updated_by) VALUES ($1, $2) RETURNING salary_pay_rule, salary_pay_day', [A.id, A.user])).rows[0];
+      expect(r).toEqual({ salary_pay_rule: 'day_of_month', salary_pay_day: 25 });
+      expect(await codeOf(q, "UPDATE payroll_company_settings SET salary_pay_rule = 'last_working_day', salary_pay_day = 31 WHERE company_id = $1", [A.id])).toBe('ok');
+    });
+  });
+
+  it.each([[0], [32]])('day %i is refused', async (d) => {
+    await as(A, async (q) => {
+      expect(await codeOf(q, 'INSERT INTO payroll_company_settings (company_id, salary_pay_day) VALUES ($1, $2)', [A.id, d]))
+        .toBe('23514:payroll_company_settings_salary_pay_day_check');
+    });
+  });
+
+  it('an unknown rule is refused', async () => {
+    await as(A, async (q) => {
+      expect(await codeOf(q, "INSERT INTO payroll_company_settings (company_id, salary_pay_rule) VALUES ($1, 'first_friday')", [A.id]))
+        .toBe('23514:payroll_company_settings_salary_pay_rule_check');
+    });
+  });
+});
+
+describe('999g: re-run', () => {
+  it('the file applies a second time over existing rows and leaves the rules in place', async () => {
+    const file = readFileSync(join(process.cwd(), 'scripts/migrations/sql/999g_cash_forecast_13.sql'), 'utf8');
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query(file);
+      await c.query('COMMIT');
+    } catch (err) { await c.query('ROLLBACK'); throw err; } finally { c.release(); }
+    await as(A, async (q) => {
+      expect(await codeOf(q, OVR, ovr(A.id, { week: '2026-11-17' }))).toBe('23514:cash_forecast_overrides_week_monday');
+      expect(await codeOf(q, ITEM, item(A.id, { amount: 0 }))).toBe('23514:cash_forecast_items_amount_check');
+      expect(await codeOf(q, `INSERT INTO cash_forecast_items (company_id, direction, amount, expected_date, description, created_by)
+                              VALUES ($1, 'receipt', 1, '2026-12-01', 'x', 'f')`, [A.id])).toBe('42501');
+    });
+    const n = (await pool.query(`SELECT COUNT(*)::int n FROM pg_trigger WHERE tgrelid = 'cash_forecast_items'::regclass AND NOT tgisinternal`)).rows[0].n;
+    expect(n).toBe(2);
+  });
+});

@@ -1,0 +1,45 @@
+/**
+ * The 13-week cash forecast's stored inputs, as the engine takes them (migration 999g). Shared by the
+ * data layer (itemsRepo, overridesRepo, payDaySetting) and the engine. Dates are 'YYYY-MM-DD'; amounts
+ * are rand, at most two decimals.
+ */
+
+/**
+ * set: the week's figure becomes `amount` (>= 0).
+ * add: `amount` (signed, never 0) is added to the week's figure.
+ * move_to: `amount` (> 0) of the week's figure moves to `targetWeekStart`.
+ */
+export type OverrideMode = 'set' | 'add' | 'move_to';
+
+export interface ForecastOverride {
+  /** The engine's stable line key, e.g. 'ar:customer:<id>', 'payroll:net', 'sars:VAT201:<period_end>', 'item:<id>'. */
+  lineKey: string;
+  /** A Monday. Overrides for past weeks are kept and ignored by the engine. */
+  weekStart: string;
+  mode: OverrideMode;
+  amount: number;
+  /** move_to only: a Monday other than weekStart. */
+  targetWeekStart?: string;
+}
+
+export type ManualItemDirection = 'receipt' | 'payment';
+export type ManualItemRepeat = 'none' | 'weekly' | 'monthly';
+
+export interface ManualCashItem {
+  id: string;
+  direction: ManualItemDirection;
+  /** > 0; the direction gives the sign. */
+  amount: number;
+  /** The first (or only) expected date. */
+  date: string;
+  repeat: ManualItemRepeat;
+  /** Last date a repeat may fall on (inclusive); null = open-ended, always null when repeat is 'none'. */
+  repeatUntil: string | null;
+  description: string;
+  accountId?: string;
+}
+
+/** Salaries paid on day N (1-31; beyond the month's length = its last day) or on the last working day. Default day 25. */
+export type PayDayRule = { kind: 'day_of_month'; day: number } | { kind: 'last_working_day' };
+
+export const DEFAULT_PAY_DAY = 25;
