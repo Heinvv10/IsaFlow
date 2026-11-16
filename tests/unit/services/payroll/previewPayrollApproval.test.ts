@@ -7,6 +7,11 @@
  *   - a run that already carries its journal is refused by none of them.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+// Wave 6 FQa: the run-kind guard reads the database; its own tests are payrollRunKindGuard*.test.ts.
+vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
+  assertRunKindSupported: vi.fn(async () => undefined),
+}));
 
 // Hein ruling R-A (wave 5 ET) has its own tests (etiPeriodGuard.test.ts): no later month posted here.
 vi.mock('@/modules/accounting/services/payroll/etiPeriodGuard', async (orig) => ({

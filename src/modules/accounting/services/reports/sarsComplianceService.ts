@@ -3,18 +3,16 @@
  * Submissions CRUD and DB-backed compliance calendar for SA tax obligations.
  */
 
+import { toIsoTimestamp } from '@/lib/dateUtils';
 import { sql } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
-import { getComplianceCalendar } from './sarsTaxPeriodsService';
-import { readCompanyVatRow, vatCycleOfRow, type VatCycle } from './companyVatCycle';
 
 
 export type { TaxPeriod, ComplianceEvent } from './sarsTaxPeriodsService';
 export { getTaxPeriods, getComplianceCalendar } from './sarsTaxPeriodsService';
 
-import type { ComplianceEvent } from './sarsTaxPeriodsService';
 import type { DbRow } from '@/types/db';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { periodHasReturnVersion } from '@/modules/accounting/services/returns/versionExists';
@@ -29,6 +27,8 @@ export interface SARSSubmission {
   submissionReference: string | null;
   submittedAt: string | null;
   submittedBy: string | null;
+  /** 'isv' when IsaFlow sent it to SARS; null when a user recorded the filing (sarsFilingKind). */
+  efilingChannel: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
@@ -43,11 +43,13 @@ function mapSubmissionRow(row: DbRow): SARSSubmission {
     status: String(row.status),
     formData: (row.form_data as Record<string, unknown>) ?? {},
     submissionReference: row.submission_reference ? String(row.submission_reference) : null,
-    submittedAt: row.submitted_at ? String(row.submitted_at) : null,
+    submittedAt: row.submitted_at ? toIsoTimestamp(row.submitted_at as Date | string) : null,
     submittedBy: row.submitted_by ? String(row.submitted_by) : null,
+    efilingChannel: row.efiling_channel ? String(row.efiling_channel) : null,
     notes: row.notes ? String(row.notes) : null,
-    createdAt: fmtDate(row.created_at) || String(row.created_at),
-    updatedAt: fmtDate(row.updated_at) || String(row.updated_at),
+    // Timestamps with their time (the detail modal shows it); fmtDate kept only the day ("00:00").
+    createdAt: toIsoTimestamp(row.created_at as Date | string) ?? '',
+    updatedAt: toIsoTimestamp(row.updated_at as Date | string) ?? '',
   };
 }
 
@@ -158,6 +160,7 @@ export async function getSubmission(companyId: string, id: string): Promise<SARS
 export async function markSubmitted(companyId: string,
   id: string,
   reference: string,
+  actorUserId: string,
   opts: { lifecycle?: boolean } = {},
 ): Promise<SARSSubmission> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
@@ -185,6 +188,8 @@ export async function markSubmitted(companyId: string,
     SET status = 'submitted',
         submission_reference = ${reference},
         submitted_at = NOW(),
+        -- Who recorded the filing (the calendar names them), not whoever last saved the draft.
+        submitted_by = ${actorUserId}::UUID,
         updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'draft'
     RETURNING *
@@ -194,75 +199,4 @@ export async function markSubmitted(companyId: string,
   return mapSubmissionRow(rows[0]!);
 }
 
-// ---------------------------------------------------------------------------
-// DB-merged Compliance Calendar
-// ---------------------------------------------------------------------------
-
-/**
- * Events due from 1 Jan `y` to 31 Mar `y + 1`: the year plus the SARS page's
- * 90-day look-ahead past it, so a return due across the year boundary (Cat A
- * Dec–Jan, Cat B / monthly December) is never missed. Built from the
- * calendars of y-1, y and y+1, de-duplicated by event type + due date.
- */
-function calendarWindow(y: number, cycle: VatCycle | null): ComplianceEvent[] {
-  const from = `${y}-01-01`;
-  const to = `${y + 1}-03-31`;
-  const byKey = new Map<string, ComplianceEvent>();
-  for (const cy of [y - 1, y, y + 1]) {
-    const events = cycle ? getComplianceCalendar(cy, cycle.alignment, cycle.cadence) : getComplianceCalendar(cy, 'odd', 'none');
-    for (const e of events) {
-      if (e.dueDate >= from && e.dueDate <= to) byKey.set(`${e.eventType}_${e.dueDate}`, e);
-    }
-  }
-  return [...byKey.values()].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-}
-
-/**
- * Load compliance events from the database (if any exist), merged with
- * the static calendar. DB events can override status (e.g. marked completed).
- * VAT201 events follow the company's own VAT cycle (category, cadence; none
- * for a non-vendor). A failure reading that cycle, or a missing company row,
- * propagates: a calendar for the wrong category is worse than an error.
- */
-export async function getComplianceCalendarWithDB(companyId: string, year?: number): Promise<ComplianceEvent[]> {
-  const row = await readCompanyVatRow(companyId);
-  if (!row) throw new Error(`Compliance calendar: company ${companyId} not found`);
-  const y = year || new Date().getFullYear();
-  const staticEvents = calendarWindow(y, vatCycleOfRow(row));
-
-  try {
-    const dbEvents = (await sql`
-      SELECT
-        ce.id, ce.event_type, ce.due_date, ce.description,
-        ce.status, ce.submission_id
-      FROM sars_compliance_events ce
-      WHERE ce.company_id = ${companyId}::UUID
-        AND (EXTRACT(YEAR FROM ce.due_date) = ${y}
-         OR EXTRACT(YEAR FROM ce.due_date) = ${y + 1})
-      ORDER BY ce.due_date
-    `) as DbRow[];
-
-    const dbMap = new Map<string, DbRow>();
-    for (const dbe of dbEvents) {
-      const key = `${dbe.event_type}_${fmtDate(dbe.due_date)}`;
-      dbMap.set(key, dbe);
-    }
-
-    return staticEvents.map((se) => {
-      const key = `${se.eventType}_${se.dueDate}`;
-      const dbMatch = dbMap.get(key);
-      if (dbMatch) {
-        return {
-          ...se,
-          id: String(dbMatch.id),
-          status: dbMatch.status as ComplianceEvent['status'],
-          submissionId: dbMatch.submission_id ? String(dbMatch.submission_id) : undefined,
-        };
-      }
-      return se;
-    });
-  } catch (err) {
-    log.warn('Could not load compliance events from DB, using static calendar', { error: err }, 'sarsComplianceService');
-    return staticEvents;
-  }
-}
+export { getComplianceCalendarWithDB } from './sarsComplianceCalendarDb';

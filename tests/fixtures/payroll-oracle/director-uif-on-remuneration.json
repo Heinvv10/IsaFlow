@@ -1,0 +1,38 @@
+{
+  "id": "director-uif-on-remuneration",
+  "source": "UNVERIFIED",
+  "sourceRef": "https://www.sars.gov.za/types-of-tax/unemployment-insurance-fund/ (read 2026-11-16); SARS PAYE-GEN-01-G21 Guide for Employers iro Employees Tax 2027, Revision 1 p. 27",
+  "notes": "A director of a private company drawing R10 000 remuneration. SARS UIF page lists who is excluded from contributing (under 24 h a month, national/provincial government, office bearers, municipal councillors, traditional leaders): directors are not on it, so UIF = 1% x 10 000 = 100.00 each side. G21 p. 27 says only that a director of a private company is an employee for employees tax. The UIC Act s1/s4 text was not read, so whether a director with no contract of service is an employee for UIF is not settled here. Only UIF is asserted.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "director",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 10000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ]
+  },
+  "expected": {
+    "uifEmployee": 100,
+    "uifEmployer": 100
+  }
+}

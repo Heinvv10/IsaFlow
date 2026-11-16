@@ -125,7 +125,7 @@ export interface BankTxTableProps {
   selectedIds: Set<string>;
   rowSelections: Record<string, RowSelection>;
   allSelected: boolean;
-  tab: 'new' | 'reviewed' | 'excluded';
+  tab: import('../bank-transactions/BankTxTabs').BankTxTab;
   onToggleSelect: (id: string) => void;
   onSelectAll: () => void;
   onRowTypeChange: (txId: string, type: AllocType) => void;

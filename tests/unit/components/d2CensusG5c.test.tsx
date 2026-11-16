@@ -13,12 +13,12 @@ vi.mock('next/link', () => ({ default: ({ children, href }: { children: ReactNod
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/lib/logger', () => ({ log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 // bank transactions: one bank account is selected on mount; the table is a stub that lists descriptions
-vi.mock('@/components/accounting/bank-transactions/useBankTxRefData', () => ({
-  useBankTxRefData: (s: { setBankAccounts: (v: unknown[]) => void; setSelectedBank: (f: () => string) => void; setRefDataLoaded: (v: boolean) => void }) => {
-    useEffect(() => { s.setBankAccounts([{ id: 'b1', accountCode: '1100', accountName: 'D2 Bank' }]); s.setSelectedBank(() => 'b1'); s.setRefDataLoaded(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-    return { refreshBankAccounts: vi.fn() };
-  },
-}));
+vi.mock('@/components/accounting/bank-transactions/useBankTxRefData', () => ({ useBankTxRefData: () => undefined }));
+vi.mock('@/components/accounting/bank-transactions/useBankTxSummary', async () => {
+  const { summaryAcct } = await import('../helpers/bankSummaryFixture');
+  const state = { accounts: [summaryAcct('b1', { accountCode: '1100', accountName: 'D2 Bank' })], status: 'ready', error: '', stale: false, refresh: async () => undefined };
+  return { useBankTxSummary: () => state };
+});
 vi.mock('@/components/accounting/bank-transactions/useBankTxActions', () => ({ buildBankTxActions: () => ({}) }));
 vi.mock('@/components/accounting/BankTxTable', () => ({ BankTxTable: ({ transactions }: { transactions: { id: string; description?: string }[] }) => <ul>{transactions.map(t => <li key={t.id}>{t.description}</li>)}</ul> }));
 vi.mock('@/components/accounting/bank-transactions/BankTxBankCards', () => ({ BankTxBankCards: () => null }));
