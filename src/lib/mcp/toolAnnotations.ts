@@ -31,6 +31,11 @@ const NON_DESTRUCTIVE_WRITES = new Set([
   'create_cost_centre',
   'create_business_unit',
   'create_fixed_asset',
+  // Budget versions: each makes a NEW draft version (or a note), changing no amount that exists.
+  'create_budget_version',
+  'copy_budget_version',
+  'create_reforecast',
+  'seed_budget',
 ]);
 
 const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
@@ -70,6 +75,15 @@ const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
   'set_bank_account_default_dimensions',
   'set_supplier_default_dimensions',
   'sync_bank_dimensions',
+  // Budget amounts, notes and the human-gated moves replace state (restore undoes the latest amount write once).
+  'add_budget_note',
+  'set_budget_amounts',
+  'set_budget_annual',
+  'restore_budget_version',
+  'approve_budget_version',
+  'lock_budget_version',
+  'unlock_budget_version',
+  'set_primary_budget_version',
 ]);
 
 type AnnotationTool = Pick<McpTool, 'name' | 'write' | 'requiresPost'>;
