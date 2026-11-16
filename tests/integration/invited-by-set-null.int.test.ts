@@ -10,9 +10,10 @@
  *     (sent_invitations_unattributed, [] for a user who sent none), so who sent them is not lost;
  *   · GET /api/invite/<token> names the sender 'Someone'; the members screen lists the invitation
  *     with invitedBy null; the invitee still accepts it (POST /api/invite/<token>);
- *   · the SET NULL passes company_invitations_role_guard, which refuses platform_admin's own writes
- *     (RC008): Postgres runs it as the table's owner. Shown with the owner a non-superuser
- *     (migration_admin), as production's owner `postgres` is;
+ *   · on production's shape (table owned by migration_admin; 997c applied by `postgres`, no
+ *     superuser, BYPASSRLS, a member of migration_admin), the SET NULL passes
+ *     company_invitations_role_guard, which refuses platform_admin's own writes (RC008): Postgres
+ *     runs it as the table's owner;
  *   · lock order: the legacy accept holds the invitation row FIRST (FOR UPDATE); a DELETE of its
  *     sender waits on that row at the SET NULL, holding company_users and users rows the accept
  *     never needs, so the accept commits and the DELETE then answers 200 (no 40P01);
@@ -143,13 +144,28 @@ describe('997c: deleting a user who sent invitations', () => {
   });
 });
 
-describe('997c: the SET NULL runs as the table owner, which the role guard lets through', () => {
-  it('owner a non-superuser: platform_admin\'s own UPDATE is RC008, its users DELETE sets invited_by NULL', async () => {
+describe('997c on production\'s shape: owner migration_admin, applied by a non-superuser member', () => {
+  it('postgres (no superuser, BYPASSRLS, member of migration_admin) applies it over a live row; platform_admin\'s own UPDATE '
+    + 'is then RC008, and its users DELETE nulls invited_by (the SET NULL runs as the owner)', async () => {
     const c = await fixture.connect();
     try {
       await c.query('BEGIN');
       await c.query('ALTER TABLE company_invitations OWNER TO migration_admin');
+      await toMasterShape(c);
       const sender = await inviterOn(c);
+      // Only so this session can take platform_admin below once it is no superuser (the app's own login does).
+      await c.query('GRANT platform_admin TO postgres');
+      await c.query('ALTER ROLE postgres NOSUPERUSER');
+      expect((await c.query(`SELECT r.rolsuper, r.rolbypassrls, pg_has_role(r.oid, 'migration_admin', 'USAGE') AS member,
+          (SELECT relowner::regrole::text FROM pg_class WHERE oid = 'company_invitations'::regclass) AS owner
+        FROM pg_roles r WHERE r.rolname = current_user`)).rows)
+        .toEqual([{ rolsuper: false, rolbypassrls: true, member: true, owner: 'migration_admin' }]);
+      await c.query('SAVEPOINT su');
+      expect(await c.query('SET LOCAL session_replication_role = replica').then(() => 'set', (e: { code?: string }) => e.code))
+        .toBe('42501'); // the demotion holds in this session
+      await c.query('ROLLBACK TO SAVEPOINT su');
+      await c.query(migration());
+      expect(await shape(c)).toEqual(SET_NULL);
       await c.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: admin })]);
       await c.query('SET LOCAL ROLE platform_admin');
       expect((await c.query('SELECT current_user AS u')).rows).toEqual([{ u: 'platform_admin' }]);
@@ -158,6 +174,8 @@ describe('997c: the SET NULL runs as the table owner, which the role guard lets 
         .then(() => 'written', (e: { code?: string }) => e.code);
       expect(direct).toBe('RC008');
       await c.query('ROLLBACK TO SAVEPOINT direct');
+      expect((await c.query('SELECT id FROM company_invitations WHERE invited_by = $1', [sender.id])).rows)
+        .toEqual([{ id: sender.invite }]); // platform_admin reads it (deleteUser's attribution read)
       await c.query('DELETE FROM company_users WHERE user_id = $1', [sender.id]);
       expect((await c.query('DELETE FROM users WHERE id = $1', [sender.id])).rowCount).toBe(1);
       await c.query('RESET ROLE');
@@ -227,24 +245,27 @@ async function waitForLockWait(prefix: string): Promise<void> {
   throw new Error(`no backend running "${prefix}" waited on a lock`);
 }
 
-describe('997c: the migration', () => {
-  const shape = async (c: PoolClient) => (await c.query(
-    `SELECT c.confdeltype, c.confupdtype, c.convalidated, pg_get_constraintdef(c.oid) AS def,
-            (SELECT a.attnotnull FROM pg_attribute a WHERE a.attrelid = c.conrelid AND a.attname = 'invited_by') AS notnull
-       FROM pg_constraint c WHERE c.conname = $1 AND c.conrelid = 'company_invitations'::regclass`, [FK])).rows;
-  const SET_NULL = [{ confdeltype: 'n', confupdtype: 'a', convalidated: true, notnull: false,
-    def: 'FOREIGN KEY (invited_by) REFERENCES users(id) ON DELETE SET NULL' }];
+const shape = async (c: PoolClient) => (await c.query(
+  `SELECT c.confdeltype, c.confupdtype, c.convalidated, pg_get_constraintdef(c.oid) AS def,
+          (SELECT a.attnotnull FROM pg_attribute a WHERE a.attrelid = c.conrelid AND a.attname = 'invited_by') AS notnull
+     FROM pg_constraint c WHERE c.conname = $1 AND c.conrelid = 'company_invitations'::regclass`, [FK])).rows;
+const SET_NULL = [{ confdeltype: 'n', confupdtype: 'a', convalidated: true, notnull: false,
+  def: 'FOREIGN KEY (invited_by) REFERENCES users(id) ON DELETE SET NULL' }];
+/** Back to master's shape, NOT NULL and NO ACTION, inside `c`'s transaction (rows with no sender cannot exist there). */
+async function toMasterShape(c: PoolClient): Promise<void> {
+  await c.query('DELETE FROM company_invitations WHERE invited_by IS NULL');
+  await c.query(`ALTER TABLE company_invitations DROP CONSTRAINT ${FK}`);
+  await c.query(`ALTER TABLE company_invitations ADD CONSTRAINT ${FK} FOREIGN KEY (invited_by) REFERENCES users(id)`);
+  await c.query('ALTER TABLE company_invitations ALTER COLUMN invited_by SET NOT NULL');
+}
 
+describe('997c: the migration', () => {
   it('is applied, converts the old NO ACTION / NOT NULL shape, and a rerun changes nothing', async () => {
     const c = await fixture.connect();
     try {
       await c.query('BEGIN');
       expect(await shape(c)).toEqual(SET_NULL);
-      // Back to master's shape (rows with no sender cannot exist there).
-      await c.query('DELETE FROM company_invitations WHERE invited_by IS NULL');
-      await c.query(`ALTER TABLE company_invitations DROP CONSTRAINT ${FK}`);
-      await c.query(`ALTER TABLE company_invitations ADD CONSTRAINT ${FK} FOREIGN KEY (invited_by) REFERENCES users(id)`);
-      await c.query('ALTER TABLE company_invitations ALTER COLUMN invited_by SET NOT NULL');
+      await toMasterShape(c);
       expect(await shape(c)).toEqual([{ ...SET_NULL[0], confdeltype: 'a', notnull: true,
         def: 'FOREIGN KEY (invited_by) REFERENCES users(id)' }]);
       await c.query(migration());

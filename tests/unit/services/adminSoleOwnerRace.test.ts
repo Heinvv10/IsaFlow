@@ -110,4 +110,19 @@ describe('deleteUser is never stopped by the look-up of pay-run approvals it str
     });
     await expect(deleteUser(USER)).resolves.toEqual({ stranded: [{ companyId: 'c1', requestId: 'r1' }], invitationsCancelled: 0, sentInvitationsUnattributed: [] });
   });
+
+  // 997c: the users DELETE nulls invited_by; the ids are read just before it, for the audit row.
+  it('returns the ids of the invitations the user sent, read by the user\'s id before the users DELETE', async () => {
+    sqlMock.mockReset().mockImplementation(async (strings: TemplateStringsArray) => {
+      const q = strings.join('?');
+      if (q.includes('SELECT role, email FROM users')) return [{ role: 'viewer', email: 'gone@test.local' }];
+      if (/^SELECT id FROM company_invitations WHERE invited_by = \? ORDER BY id$/.test(q.trim())) return [{ id: 'i1' }];
+      return q.includes('DELETE FROM users') ? [{ email: 'gone@test.local' }] : [];
+    });
+    await expect(deleteUser(USER)).resolves.toEqual({ stranded: [], invitationsCancelled: 0, sentInvitationsUnattributed: ['i1'] });
+    const calls = sqlMock.mock.calls.map(text);
+    const read = calls.findIndex((q) => q.includes('FROM company_invitations WHERE invited_by'));
+    expect(sqlMock.mock.calls[read]!.slice(1)).toEqual([USER]);
+    expect(read).toBeLessThan(calls.findIndex((q) => q.trim().startsWith('DELETE FROM users')));
+  });
 });
