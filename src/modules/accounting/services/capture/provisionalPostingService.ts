@@ -1,6 +1,6 @@
 /** PRD-05 Phase 5 — Provisional Posting Service */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -104,7 +104,9 @@ export async function postProvisional(
   // check, and a closed period left a draft journal behind. A skip with the reason, like every other here.
   let fiscalPeriodId: string;
   try {
-    fiscalPeriodId = await allocationPeriodFor(companyId, txDate);
+    // Its own savepoint: a period lock timeout is a failed statement, and without one the whole transaction stays
+    // aborted ("current transaction is aborted") for the next row of a batch or sweep.
+    fiscalPeriodId = await withSavepoint('provisional_period', () => allocationPeriodFor(companyId, txDate));
   } catch (err) {
     if (isPeriodRefusal(err)) {
       return { journalEntryId: null, prediction, skipped: err.message };

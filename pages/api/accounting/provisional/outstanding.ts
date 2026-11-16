@@ -12,7 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { postProvisional } from '@/modules/accounting/services/capture/provisionalPostingService';
 
@@ -78,19 +78,22 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       (id): id is string => typeof id === 'string' && id.length > 0,
     );
 
-    const results = await Promise.all(
-      bankTxIds.map(async (id) => {
-        try {
-          const result = await postProvisional(companyId, id, userId);
-          return { bankTxId: id, ...result };
-        } catch (err) {
-          log.warn('postProvisional failed in batch endpoint', {
-            companyId, bankTxId: id, error: err instanceof Error ? err.message : String(err),
-          }, 'provisional-outstanding');
-          return { bankTxId: id, journalEntryId: null, skipped: 'error', error: err instanceof Error ? err.message : 'unknown' };
-        }
-      }),
-    );
+    // One id at a time, each in its own savepoint (as the auto-post gate does per row): a throw rolls back that id's
+    // writes, including a fiscal year its period pre-flight generated, and leaves the transaction usable for the
+    // next. Concurrent ids shared one connection with no savepoint, so a late throw (an inactive account) COMMITTED
+    // the draft journal and the generated periods behind a 200 {skipped:'error'}.
+    const results: Array<Record<string, unknown>> = [];
+    for (const id of bankTxIds) {
+      try {
+        const result = await withSavepoint('provisional_outstanding_row', () => postProvisional(companyId, id, userId));
+        results.push({ bankTxId: id, ...result });
+      } catch (err) {
+        log.warn('postProvisional failed in batch endpoint', {
+          companyId, bankTxId: id, error: err instanceof Error ? err.message : String(err),
+        }, 'provisional-outstanding');
+        results.push({ bankTxId: id, journalEntryId: null, skipped: 'error', error: err instanceof Error ? err.message : 'unknown' });
+      }
+    }
 
     return apiResponse.success(res, { results });
   }

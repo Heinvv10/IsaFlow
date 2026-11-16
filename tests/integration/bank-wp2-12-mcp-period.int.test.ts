@@ -90,3 +90,30 @@ describe('WP2 row 12 through MCP: a line with no open fiscal period', () => {
     expect(await journals(f.c)).toBe(0);
   });
 });
+
+describe('WP2 row 12: a bulk batch spanning two periods while a closer holds both', () => {
+  it('waits on the period rows in budget, no deadlock, and posts both lines once the closer commits', async () => {
+    const { f } = await fixture();
+    await pool.query(`INSERT INTO fiscal_periods(company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
+      VALUES($1,'R12 2024',1,2024,'2024-01-01','2024-12-31','open')`, [f.c]);
+    // Allocator order: the LATER period first. The closer takes them in (fiscal_year, period_number) order.
+    const late = await plantLine(pool, f, null, -500);
+    const early = await plantLine(pool, f, null, -400);
+    await pool.query("UPDATE bank_transactions SET transaction_date = DATE '2024-05-05' WHERE id = $1", [early]);
+    const closer = await pool.connect();
+    await closer.query('BEGIN');
+    await closer.query(`SELECT id FROM fiscal_periods WHERE company_id = $1 AND fiscal_year IN (2024, 2026)
+      ORDER BY fiscal_year FOR NO KEY UPDATE`, [f.c]);
+    const batch = mcp(user, f.c, 'bulk_allocate_bank_transactions',
+      { allocations: [acct(f, late), acct(f, early)], idempotency_key: key() });
+    await new Promise((r) => setTimeout(r, 1500));
+    await closer.query('COMMIT');
+    closer.release();
+    const res = await batch;
+    expect(res.isError, res.content[0]!.text).toBeFalsy();
+    const body = parse(res);
+    expect(body.posted).toBe(2);
+    expect(body.skipped).toEqual([]);
+    expect(await journals(f.c)).toBe(2);
+  }, 90000);
+});

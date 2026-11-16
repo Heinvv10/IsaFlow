@@ -20,31 +20,32 @@
  * a split line names its own account, so silently relabelling the code would
  * leave the rest of the line describing a claim the code denies.
  *
- * Every refusal is answered from reads before the service call (the fiscal-period one too); after it, failures
- * propagate to the registry's savepoint (see the MCP .claude.md).
+ * Every refusal is answered from reads before the service call; after it,
+ * failures propagate to the registry's savepoint (see the MCP .claude.md).
  */
 import type { McpTool } from '../types';
 import { splitAllocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { planSplitDimensionsForTransaction } from '@/modules/accounting/services/bank/bankSplitDimensions';
-import { allocationPeriodProbe } from '@/modules/accounting/services/bank/bankAllocationPeriod';
 import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { importerRefusalForLineId } from '@/modules/accounting/services/bank/bankLineImporterGate';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
-import { CustomerNotInCompanyError, SupplierNotInCompanyError, assertCustomerInCompany, assertSupplierInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import { allocationPeriodProbe } from '@/modules/accounting/services/bank/bankAllocationPeriod';
 import { planSplitContacts } from '@/modules/accounting/services/bank/bankSplitContacts';
 import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
 import { assertBankLineMayPostToAccounts } from '@/modules/accounting/services/bank/bankLineJournalGate';
 import type { SplitLine } from '@/modules/accounting/services/bank/bankAllocationTypes';
 import { splitTotalMismatch } from '@/modules/accounting/services/bank/bankSplitTotal';
-import { isDimensionRefusal, type DimensionRefs } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { AUTO_APPLY_MODES, type AutoApplyMode } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { SELECTOR_PROPERTIES } from './allocationSchema';
 import { VAT_CODES, badUuidArg, pickTxSelector, resolveTxId, type VatCode } from './allocationLine';
 import { resolveLineVatCode } from './allocationVatGuard';
 import { DIMENSION_LINE_PROPERTIES, itemsWithDimensions, parseDimensionRefs } from './dimensionArgs';
 import { mcpPostingOpts } from '../mcpActor';
+import { splitContactsBelongToCompany } from './writeBankSplitContacts';
 import { MAX_MONEY, NOT_FOUND, hasWholeCents, ok, toolError } from './toolHelpers';
+import type { DimensionRefs } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
 const TOOL = 'split_allocate_bank_transaction';
 export const MAX_SPLIT_LINES = 50;
@@ -185,17 +186,7 @@ export const splitAllocateBankTransactionTool: McpTool = {
     if (accountIds.length > 0 && !(await accountsBelongToCompany(ctx.companyId, accountIds))) {
       return toolError(NOT_FOUND);
     }
-    for (const l of parsed.lines) {
-      if (!l.contactId) continue;
-      try {
-        if (l.contactType === 'supplier') await assertSupplierInCompany(ctx.companyId, l.contactId);
-        else await assertCustomerInCompany(ctx.companyId, l.contactId);
-      } catch (err) {
-        // Missing and foreign answer alike (no existence oracle); anything else is a fault, not a refusal.
-        if (err instanceof SupplierNotInCompanyError || err instanceof CustomerNotInCompanyError) return toolError(NOT_FOUND);
-        throw err;
-      }
-    }
+    if (!(await splitContactsBelongToCompany(ctx.companyId, parsed.lines))) return toolError(NOT_FOUND);
     const lines = await itemsWithDimensions(ctx.companyId, parsed.lines, parsed.dims, (i) => `lines[${i}]`);
     if (typeof lines === 'string') return toolError(lines);
 

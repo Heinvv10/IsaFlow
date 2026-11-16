@@ -15,6 +15,7 @@ import { isBankAllocationRefusal } from '../../src/modules/accounting/services/b
 import { ClosedFiscalPeriodError } from '../../src/modules/accounting/services/gl/journalEntryPostingGuards';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
+import { als } from '../../src/lib/als';
 import { asToken, bankCompany, cleanupBankControlsA, type BankCompany } from './bank-controls-a.helpers';
 
 assertDisposable();
@@ -141,4 +142,80 @@ describe('postBankTransfer and createAdjustmentEntry: the same pre-flight, a typ
     expect(r.n).toBe(2);
     expect(r.withp).toBe(2);
   }, 60000);
+});
+
+/** A closer's lock: the period row held FOR NO KEY UPDATE on its own connection until released. */
+async function holdPeriod(company: string, fiscalYear: number): Promise<() => Promise<void>> {
+  const c = await pool.connect();
+  await c.query('BEGIN');
+  await c.query('SELECT id FROM fiscal_periods WHERE company_id = $1 AND fiscal_year = $2 FOR NO KEY UPDATE', [company, fiscalYear]);
+  return async () => { await c.query('ROLLBACK'); c.release(); };
+}
+type Result = { journalEntryId: string | null; skipped?: string; error?: string };
+const resultsOf = (res: { state: { body: unknown } }) => (res.state.body as { data: { results: Result[] } }).data.results;
+
+describe('provisional/outstanding: each id in its own savepoint, one at a time', () => {
+  it('a late throw (inactive predicted account, year generated first) leaves NOTHING behind in any table', async () => {
+    const f = await co();
+    const sup = (await pool.query("INSERT INTO suppliers(company_id,name,is_active) VALUES($1,'Walton Stationery',true) RETURNING id", [f.c])).rows[0].id as string;
+    const inactive = (await pool.query(`INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,is_active,account_subtype)
+      VALUES($1,'ZZ9','inactive exp','expense','debit',false,NULL) RETURNING id`, [f.c])).rows[0].id as string;
+    for (let i = 0; i < 3; i++) await pool.query(`INSERT INTO supplier_coding_history (company_id, supplier_id, gl_account_id, vat_code, posted_by)
+      VALUES ($1,$2,$3,'none',$4)`, [f.c, sup, inactive, user]);
+    const id = await line(f, '2027-03-15', -100, 'Walton Stationery');
+    const before = await snap(f.c);
+    const res = await callRoute(outstanding as never, tokens[user]!, f.c, 'POST', { bankTxIds: [id] }, '/api/accounting/provisional/outstanding');
+    const r = resultsOf(res)[0]!;
+    expect(r.journalEntryId).toBeNull();
+    expect(r.skipped).toBe('error');
+    expect(r.error ?? '').toMatch(/deactivated GL account/);
+    expect(await snap(f.c)).toEqual(before); // journals, lines, fiscal_years, fiscal_periods: all of it
+    expect(await lineStatus(id)).toBe('imported');
+  }, 60000);
+
+  it('a period lock timeout on one id does not poison the next; the skipped one posts once the closer is gone', async () => {
+    const f = await co(); await predictor(f);
+    await pool.query(`INSERT INTO fiscal_periods(company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
+      VALUES($1,'R12 2024',1,2024,'2024-01-01','2024-12-31','open')`, [f.c]);
+    const held = await line(f, '2026-09-01', -100, 'Walton Stationery');
+    const free = await line(f, '2024-05-05', -100, 'Walton Stationery');
+    const release = await holdPeriod(f.c, 2026);
+    let rows: Result[];
+    try {
+      rows = resultsOf(await callRoute(outstanding as never, tokens[user]!, f.c, 'POST', { bankTxIds: [held, free] }, '/api/accounting/provisional/outstanding'));
+    } finally { await release(); }
+    expect(rows[0]!.journalEntryId).toBeNull();
+    expect(rows[0]!.skipped ?? '').toMatch(/retry in a moment/);
+    expect(rows[1]!.error, 'the next id must not see an aborted transaction').toBeUndefined();
+    expect(rows[1]!.journalEntryId).toBeTruthy();
+    expect(await lineStatus(held)).toBe('imported');
+    const again = resultsOf(await callRoute(outstanding as never, tokens[user]!, f.c, 'POST', { bankTxIds: [held] }, '/api/accounting/provisional/outstanding'));
+    expect(again[0]!.journalEntryId).toBeTruthy();
+  }, 90000);
+});
+
+describe('auto-post gate import branch: a busy period is a retryable skip, never a permanent decision', () => {
+  it('the busy row is skipped (the other posts), stays imported, and the next sweep posts it', async () => {
+    const f = await co(); await predictor(f);
+    await pool.query(`INSERT INTO fiscal_periods(company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
+      VALUES($1,'R12 2024',1,2024,'2024-01-01','2024-12-31','open')`, [f.c]);
+    const held = await line(f, '2026-09-01', -100, 'Walton Stationery');
+    const free = await line(f, '2024-05-05', -100, 'Walton Stationery');
+    const release = await holdPeriod(f.c, 2026);
+    let out;
+    try {
+      out = await asToken(pool, user, f.c, async () => {
+        await als.getStore()!.client.query("SET LOCAL lock_timeout = '300ms'");
+        return sweep(f.c, [held, free], 'import', user, user);
+      });
+    } finally { await release(); }
+    expect(out.posted).toBe(1);
+    expect(out.skipped).toHaveLength(1);
+    expect(out.skipped[0]!.txId).toBe(held);
+    expect(out.skipped[0]!.reason).toMatch(/retry in a moment/);
+    expect(await lineStatus(held)).toBe('imported');
+    const next = await asToken(pool, user, f.c, () => sweep(f.c, [held], 'import', user, user));
+    expect(next.posted).toBe(1);
+    expect(await lineStatus(held)).toBe('provisional');
+  }, 90000);
 });

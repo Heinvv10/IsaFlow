@@ -40,7 +40,9 @@
  * conflicts with this flow's `FOR NO KEY UPDATE`, so a close cannot land between
  * its status check and the post; its wait is bounded as this flow's is (5 s,
  * tighten-only, withPeriodLockBudget) and a timeout is a typed
- * FiscalPeriodLockTimeoutError. Any other row can land in a period that closed
+ * FiscalPeriodLockTimeoutError. A long MCP bulk allocation holds every period it
+ * touched FOR SHARE until its batch commits, so a close started meanwhile gets this
+ * flow's own 503 after 5 s and succeeds on retry. Any other row can land in a period that closed
  * with the checks passing. It cannot get further unnoticed: Lock and the
  * year-end close run this gate again on every period they lock, so it is
  * caught before the period is locked for good.
