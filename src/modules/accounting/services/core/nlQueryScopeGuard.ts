@@ -34,7 +34,7 @@
  */
 import { parse, type Statement } from 'pgsql-ast-parser';
 import { ALLOWED_TABLES } from './nlQueryValidationService';
-import { FK_PAIRS, NO_COMPANY_TABLES } from './nlQueryFkPairs';
+import { FK_PAIRS, NO_COMPANY_TABLES, edgeNeedsBothSeeds } from './nlQueryFkPairs';
 
 export interface ScopeResult {
   ok: boolean;
@@ -46,11 +46,10 @@ type Node = any;
 
 const fail = (reason: string): ScopeResult => ({ ok: false, reason });
 
-function isFkEdge(tableA: string, colA: string, tableB: string, colB: string): boolean {
+function fkKey(tableA: string, colA: string, tableB: string, colB: string): string {
   const a = `${tableA}.${colA}`;
   const b = `${tableB}.${colB}`;
-  const key = a < b ? `${a}|${b}` : `${b}|${a}`;
-  return FK_PAIRS.has(key);
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
 }
 
 /** Unwrap a value expression through casts to reach an underlying string literal. */
@@ -157,6 +156,8 @@ function validateSelect(sel: Node, companyId: string, cteNames: Set<string>): Sc
   const onlyAlias = aliasTable.size === 1 ? [...aliasTable.keys()][0]! : null;
   const seeds = new Set<string>();
   const edges = new Map<string, Set<string>>();
+  // Edges over an id-only FK (edgeNeedsBothSeeds): kept only if BOTH aliases are seeded, decided after the seeds are known.
+  const seedBothEdges: Array<[string, string]> = [];
   const addEdge = (a: string, b: string) => {
     if (!edges.has(a)) edges.set(a, new Set());
     if (!edges.has(b)) edges.set(b, new Set());
@@ -183,13 +184,16 @@ function validateSelect(sel: Node, companyId: string, cteNames: Set<string>): Sc
     if (left && right && left.table && right.table) {
       const tl = aliasTable.get(left.table);
       const tr = aliasTable.get(right.table);
-      if (tl && tr && isFkEdge(tl, left.column, tr, right.column)) {
-        addEdge(left.table, right.table);
+      const key = tl && tr ? fkKey(tl, left.column, tr, right.column) : null;
+      if (key && FK_PAIRS.has(key)) {
+        if (edgeNeedsBothSeeds(key, tl!, tr!)) seedBothEdges.push([left.table, right.table]);
+        else addEdge(left.table, right.table);
       }
     }
   }
 
   if (seeds.size === 0) return fail('no company_id scope bound to the caller company');
+  for (const [a, b] of seedBothEdges) if (seeds.has(a) && seeds.has(b)) addEdge(a, b);
 
   // Reachability from seeds over FK edges.
   const reached = new Set<string>(seeds);

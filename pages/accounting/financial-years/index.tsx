@@ -1,6 +1,8 @@
 /**
  * Financial Year Management
  * View all fiscal years, lock/unlock periods, and close the year-end.
+ * A Close or Close Year the readiness checks refuse lists the failing checks
+ * per period with Fix links (CloseRefusalNotice), never a generic error.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -15,6 +17,8 @@ import { AddYearModal } from '@/components/accounting/financialYears/AddYearModa
 import { CloseYearModal } from '@/components/accounting/financialYears/CloseYearModal';
 import { log } from '@/lib/logger';
 import { PeriodActionConfirm, type PendingPeriodAction } from '@/components/accounting/fiscal-periods/PeriodActionConfirm';
+import { CloseRefusalNotice } from '@/components/accounting/fiscal-periods/CloseRefusalNotice';
+import { readCloseRefusal, type CloseRefusal } from '@/components/accounting/fiscal-periods/closeRefusal';
 
 function loadYears() {
   return apiJson('/api/accounting/fiscal-years', undefined, 'Could not load fiscal periods - try again');
@@ -30,6 +34,7 @@ export default function FinancialYearsPage() {
   const [loadingPeriodId, setLoadingPeriodId] = useState<string | null>(null);
   const [closingYear, setClosingYear] = useState<number | null>(null);
   const [pendingPeriod, setPendingPeriod] = useState<PendingPeriodAction | null>(null);
+  const [closeRefusal, setCloseRefusal] = useState<CloseRefusal | null>(null);
 
   // Modals
   const [showAddYear, setShowAddYear] = useState(false);
@@ -81,7 +86,7 @@ export default function FinancialYearsPage() {
   // ── Period actions ────────────────────────────────────────────────────────
 
   const handlePeriodAction = useCallback(async (id: string, action: 'close' | 'lock' | 'reopen') => {
-    setLoadingPeriodId(id);
+    setLoadingPeriodId(id); setCloseRefusal(null);
     try {
       const res = await apiFetch('/api/accounting/fiscal-periods-action', {
         method: 'POST',
@@ -89,6 +94,8 @@ export default function FinancialYearsPage() {
         // Close and lock need `confirm: true` (audit P3.2); they only run after PeriodActionConfirm.
         body: JSON.stringify(action === 'reopen' ? { id, action } : { id, action, confirm: true }),
       });
+      const refusal = await readCloseRefusal(res);
+      if (refusal) { setCloseRefusal(refusal); return; }
       await assertOk(res, 'Could not update that period - try again');
       await fetchPeriods();
     } catch (err) {
@@ -115,13 +122,15 @@ export default function FinancialYearsPage() {
   const handleCloseYearConfirm = useCallback(async () => {
     if (closeYearTarget === null) return;
     setClosingYearSaving(true);
-    setClosingYear(closeYearTarget);
+    setClosingYear(closeYearTarget); setCloseRefusal(null);
     try {
       const res = await apiFetch('/api/accounting/fiscal-periods-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'close_year', fiscalYear: closeYearTarget, confirm: true }),
       });
+      const refusal = await readCloseRefusal(res);
+      if (refusal) { setCloseRefusal(refusal); setCloseYearTarget(null); return; }
       await assertOk(res, 'Could not close the year - try again');
       setCloseYearTarget(null);
       await fetchPeriods();
@@ -196,6 +205,8 @@ export default function FinancialYearsPage() {
             <button onClick={() => setError('')} className="ml-auto text-red-400 hover:text-red-300">Dismiss</button>
           </div>
         )}
+
+        {closeRefusal && <CloseRefusalNotice refusal={closeRefusal} onDismiss={() => setCloseRefusal(null)} />}
 
         {/* Loading state */}
         {loading && (

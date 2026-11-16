@@ -1,0 +1,12 @@
+[
+  {
+    "case": "director-uif-on-remuneration",
+    "reason": "The SARS UIF page (read 2026-11-16) lists no director among those excluded from contributing, and the engine levies 1% on a director; the UIC Act s1/s4 text was not read, so a director without a contract of service is not settled.",
+    "wouldVerify": "The UIC Act 4 of 2002 s1 \"employee\" definition and s4 exclusions as currently in force, or a Sage or SimplePay payslip for a director."
+  },
+  {
+    "case": "db-fund-12d-category-factor",
+    "reason": "The para 12D formula (X = A x B - C) is read from Sage's Payroll Tax Pocket Guide 2025-2026 s7.12.2, not a SARS 2027 page; under the s11F cap the fringe and its deemed contribution cancel, so the engine already gives the hand figure.",
+    "wouldVerify": "The Seventh Schedule para 12D text or a SARS 2027 guide page on defined benefit fund fringe benefits, or a Sage payslip with a category factor."
+  }
+]

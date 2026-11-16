@@ -65,7 +65,8 @@ export function assertBankLegKept(old: OldJournalLine, entryDate: string, now: B
  * keep the reviewer). Migration 981's trigger cleared it when allocateTransaction moved matched_journal_line_id; this
  * UPDATE leaves the link alone, so the trigger keeps the stamp written here. The auto-post run tag is cleared: the
  * line's journal is no longer the run's posting, and an undo of that run must not reverse the new one (the audit row
- * records the run id).
+ * records the run id). The purchase-order link is cleared too (PR #1458 round 3): the line no longer pays that order,
+ * to another supplier or an account, and left set it kept the order "paid" (purchaseOrderOutstanding) for good.
  */
 export async function restoreReconciled(
   companyId: string, bankTxId: string, reconciliationId: string, newLineId: string,
@@ -73,7 +74,7 @@ export async function restoreReconciled(
 ): Promise<void> {
   const rows = (await sql`
     UPDATE bank_transactions
-    SET status = 'reconciled', reviewed_at = ${reviewed.at ?? null}::TIMESTAMPTZ,
+    SET status = 'reconciled', reviewed_at = ${reviewed.at ?? null}::TIMESTAMPTZ, linked_po_id = NULL,
         reviewed_by = ${reviewed.by == null ? null : String(reviewed.by)}::UUID, auto_post_run_id = NULL,
         updated_at = NOW()
     WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID

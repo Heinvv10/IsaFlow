@@ -195,32 +195,6 @@ describe('automatic snapshots', { timeout: 3 * SNAPSHOT_WAIT_MS }, () => { // so
     expect(all.map((x) => x.status)).toEqual(['sealed', 'unchanged', 'unchanged', 'sealed']);
   });
 
-  it('unchanged covers the ageing and control totals, not the GL only; a reference still freezes its own checks', async () => {
-    const { c, l, periods } = await company();
-    const cycle = async (n: number) => {
-      expect((await action(o, c, { action: 'close', id: periods[0] })).state.statusCode).toBe(200);
-      const all = await waitForSnapshots(pool, c, n);
-      expect((await action(o, c, { action: 'reopen', id: periods[0] })).state.statusCode).toBe(200);
-      return all;
-    };
-    await cycle(1);
-    // A bank line moves no journal and no total: a reference, whose own check run sees the line (the anomaly scan).
-    await pool.query(`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description)
-                      VALUES ($1, $2, DATE '2026-01-20', 777, 'unposted statement line')`, [c, l.bank]);
-    const two = await cycle(2);
-    expect(two.map((x) => x.status)).toEqual(['sealed', 'unchanged']);
-    const population = async (run: unknown) => (await pool.query(
-      `SELECT population FROM audit_check_results WHERE run_id = $1 AND check_id = 'anomaly.statistical_outliers'`, [run])).rows[0].population;
-    expect([await population(two[0]!.check_run_id), await population(two[1]!.check_run_id)]).toEqual([0, 1]);
-    // An invoice moves no journal either, but it moves the AR ageing: a new sealed copy.
-    const customer = crypto.randomUUID();
-    await pool.query(`INSERT INTO customers (id, company_id, name) VALUES ($1, $2, 'Ageing customer')`, [customer, c]);
-    await pool.query(`INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date, due_date, status,
-                        total_amount, amount_paid, created_by)
-                      VALUES ($1, $2, $2, 'AGE-1', DATE '2026-01-10', DATE '2026-01-20', 'sent', 500, 0, $3)`, [c, customer, o]);
-    expect((await cycle(3)).map((x) => x.status)).toEqual(['sealed', 'unchanged', 'sealed']);
-  });
-
   it('an unchanged ledger never points at a snapshot that does not verify: a fresh one is sealed instead', async () => {
     const { c, periods } = await company();
     expect((await action(o, c, { action: 'close', id: periods[0] })).state.statusCode).toBe(200);

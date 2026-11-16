@@ -1,72 +1,27 @@
 /**
- * Closing a fiscal period WITH the readiness checks in front of it.
+ * Closing a fiscal period for a caller that is not a person (MCP
+ * close_fiscal_period): a dry run, and a result that carries the whole
+ * checklist.
  *
- * ── WHAT WAS MISSING ────────────────────────────────────────────────────────
+ * Nothing here judges anything. The dry run is `judgePeriodClose` and the live
+ * close is `closePeriodWithVerdict` (fiscalPeriodCloseWrites): the same row
+ * lock, status and prior-period guards and readiness gate (periodCloseGate) in
+ * both, so a dry run refuses exactly where the live call would, and the
+ * checklist returned is the verdict the close was judged on, under its lock.
  *
- * `closePeriod` refuses a locked period, an already-closed one, and one with
- * open priors — and then closes over unreconciled banks, draft journals, an
- * out-of-balance trial balance and a subledger that does not tie. The checks
- * exist (`periodCloseReadinessService`) and the Month-End Workbench shows them
- * to a person, who may reasonably decide to close anyway. Nothing carried them
- * to a caller that is not a person.
- *
- * ── WHY THIS COMPOSES RATHER THAN WIDENING `closePeriod` ────────────────────
- *
- * The UI's advisory close works and people rely on it; turning that screen into
- * one that refuses is a product decision, not this programme's. So the two
- * existing services are composed into a third that MCP calls, and neither is
- * forked: the checks are still `getCloseReadiness`'s and the write is still
- * `closePeriod`'s.
- *
- * ── WHY A LIST AND NOT A BOOLEAN ────────────────────────────────────────────
- *
- * "Not ready" is not a lock an agent can respect. It cannot tell whether to
- * reconcile a bank, post three drafts, or stop and ask a human. Every failing
- * check comes back with its key, its reason and the screen that fixes it.
- *
- * ── A CHECK THAT COULD NOT RUN IS A BLOCKER ─────────────────────────────────
- *
- * `getCloseReadiness` degrades a check that threw to `warn` with a fixed
- * reason, so one broken check cannot blank the panel. For a person reading a
- * screen that is right. For a caller closing a period unattended it is not:
- * "the AP tie could not be computed" is exactly the state in which closing is
- * unsafe, and a warning it will ignore is worse than a refusal it must handle.
+ * "Not ready" is not a lock an agent can respect, so a refusal is a list: every
+ * failing check with its key, its reason and the screen that fixes it
+ * (`PeriodCloseBlockedError`). A check that could not be computed blocks too
+ * (`isCloseBlocker`).
  */
 
 import { log } from '@/lib/logger';
-import { closePeriod, getFiscalPeriodById } from './fiscalPeriodService';
-import {
-  getCloseReadiness,
-  type ChecklistItem,
-} from './periodCloseReadinessService';
-import { UNCOMPUTED_REASON_PREFIX } from './closeReadinessChecks/uncomputedReason';
+import { closePeriodWithVerdict, judgePeriodClose } from './fiscalPeriodService';
+import type { ChecklistItem } from './periodCloseReadinessService';
+import { PeriodCloseBlockedError, PeriodNotCloseableError } from './periodCloseErrors';
 import type { FiscalPeriod } from '../../types/gl.types';
 
-
-/** The period cannot be closed at all: it is missing, locked, or already closed. */
-export class PeriodNotCloseableError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'PeriodNotCloseableError';
-  }
-}
-
-/** The period is closeable in principle and the books are not ready. */
-export class PeriodCloseBlockedError extends Error {
-  readonly blockers: ChecklistItem[];
-  readonly checklist: ChecklistItem[];
-
-  constructor(periodLabel: string, blockers: ChecklistItem[], checklist: ChecklistItem[]) {
-    super(
-      `${periodLabel} cannot be closed — ${blockers.length} check`
-      + `${blockers.length === 1 ? '' : 's'} did not pass: `
-      + blockers.map((b) => `${b.key}: ${b.reason}`).join('; '),
-    );
-    this.name = 'PeriodCloseBlockedError';
-    this.blockers = blockers;
-    this.checklist = checklist;
-  }
-}
+export { PeriodCloseBlockedError, PeriodNotCloseableError };
 
 export interface ClosePeriodOptions {
   /** Run every guard and report, but do not write. */
@@ -84,17 +39,6 @@ export interface ClosePeriodResult {
   warnings: ChecklistItem[];
 }
 
-/**
- * A `warn` that means "this check did not run" blocks; an ordinary warn does
- * not. Matched on the PREFIX: `getCloseReadiness` substitutes a fixed reason
- * for a check that threw, while the AR / AP tie catches its own reconciliation
- * failure and names the cause after the same prefix.
- */
-function isBlocker(item: ChecklistItem): boolean {
-  return item.status === 'fail'
-    || (item.status === 'warn' && item.reason.startsWith(UNCOMPUTED_REASON_PREFIX));
-}
-
 export async function closePeriodWithReadiness(
   companyId: string,
   periodId: string,
@@ -102,38 +46,12 @@ export async function closePeriodWithReadiness(
   options: ClosePeriodOptions,
 ): Promise<ClosePeriodResult> {
   const dryRun = options.dryRun === true;
-
-  // Ownership first, and the miss is generic: a distinct "belongs to another
-  // company" reply would be an existence oracle.
-  const period = await getFiscalPeriodById(companyId, periodId);
-  if (!period) throw new PeriodNotCloseableError('Not found');
-  if (period.status === 'locked') {
-    throw new PeriodNotCloseableError(`${period.periodName} is locked and cannot be closed`);
-  }
-  if (period.status === 'closed') {
-    throw new PeriodNotCloseableError(`${period.periodName} is already closed`);
-  }
-
-  const readiness = await getCloseReadiness(companyId, periodId);
-  if (!readiness) throw new PeriodNotCloseableError('Not found');
-
-  const blockers = readiness.items.filter(isBlocker);
-  if (blockers.length > 0) {
-    // Thrown BEFORE `closePeriod` runs, so nothing is written on either path
-    // and the dry run refuses exactly where the live call would.
-    throw new PeriodCloseBlockedError(readiness.periodLabel, blockers, readiness.items);
-  }
-
+  const { period, readiness } = dryRun
+    ? await judgePeriodClose(companyId, periodId)
+    : await closePeriodWithVerdict(companyId, periodId, userId);
   const warnings = readiness.items.filter((i) => i.status !== 'pass');
-
-  if (dryRun) {
-    return { period, closed: false, dryRun: true, checklist: readiness.items, warnings };
+  if (!dryRun) {
+    log.info('Fiscal period closed after readiness checks', { companyId, periodId, warnings: warnings.length }, 'accounting');
   }
-
-  const closedPeriod = await closePeriod(companyId, periodId, userId);
-  log.info('Fiscal period closed after readiness checks', {
-    companyId, periodId, warnings: warnings.length,
-  }, 'accounting');
-
-  return { period: closedPeriod, closed: true, dryRun: false, checklist: readiness.items, warnings };
+  return { period, closed: !dryRun, dryRun, checklist: readiness.items, warnings };
 }

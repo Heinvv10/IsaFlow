@@ -153,7 +153,9 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     expect(first.status, first.body).toBe(200);
     const ob = String((first.data as { journalEntryId: string }).journalEntryId);
     const bank = c.fx.bankAccountId;
-    const line = await seedLine(c, bank, 500, '2026-01-01');
+    // seedLine stores −amount (money out); the take-on DEBITS the bank (money in), so its statement line is +500
+    // (a match binds only the line's own movement, PR #1458 row 4).
+    const line = await seedLine(c, bank, -500, '2026-01-01');
     const rec = await startSession(c, token, bank);
     await matchInto(c, token, rec, { bt: line, jl: await bankLeg(ob, bank) });
     expect((await call(c, token, routes.recon, { action: 'complete', reconciliationId: rec })).status).toBe(200);
@@ -175,7 +177,9 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     const r2 = String((r2out.data as { id: string }).id);
     // OB2's cash is reconciled on a completed session.
     const bank = c.fx.bankAccountId;
-    const line = await seedLine(c, bank, 400, '2026-01-01');
+    // seedLine stores −amount (money out); the take-on DEBITS the bank (money in), so its statement line is +400
+    // (a match binds only the line's own movement, PR #1458 row 4).
+    const line = await seedLine(c, bank, -400, '2026-01-01');
     const rec = await startSession(c, token, bank);
     await matchInto(c, token, rec, { bt: line, jl: await bankLeg(ob2, bank) });
     expect((await call(c, token, routes.recon, { action: 'complete', reconciliationId: rec })).status).toBe(200);

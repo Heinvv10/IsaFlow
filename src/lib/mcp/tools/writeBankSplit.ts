@@ -37,6 +37,7 @@ import { planSplitContacts } from '@/modules/accounting/services/bank/bankSplitC
 import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
 import { assertBankLineMayPostToAccounts } from '@/modules/accounting/services/bank/bankLineJournalGate';
 import type { SplitLine } from '@/modules/accounting/services/bank/bankAllocationTypes';
+import { splitTotalMismatch } from '@/modules/accounting/services/bank/bankSplitTotal';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { AUTO_APPLY_MODES, type AutoApplyMode } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { SELECTOR_PROPERTIES } from './allocationSchema';
@@ -207,10 +208,8 @@ export const splitAllocateBankTransactionTool: McpTool = {
     if (state.status !== 'imported' || state.matchedJournalLineId) {
       return toolError(`Transaction already ${state.status} — cannot split allocate`);
     }
-    const total = Math.round(lines.reduce((s, l) => s + l.amount, 0) * 100) / 100;
-    if (Math.abs(total - Math.abs(state.amount)) > 0.005) {
-      return toolError(`Split lines total R${total.toFixed(2)} does not equal the transaction amount R${Math.abs(state.amount).toFixed(2)}`);
-    }
+    const mismatch = splitTotalMismatch(lines.map((l) => l.amount), state.amount); // exact cents, as the service
+    if (mismatch) return toolError(mismatch);
     const accountLines = lines.flatMap((l, index) => (l.contraAccountId
       ? [{ l: { ...l, contraAccountId: l.contraAccountId }, index }] : []));
     // Step 2: the statement's importer is refused by the service too — asked here so the dry run refuses alike.

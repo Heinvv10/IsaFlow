@@ -121,8 +121,8 @@ describe('enforceTenantScope — allows correctly-scoped queries', () => {
     expect(enforceTenantScope(sql, CID).ok).toBe(true);
   });
 
-  it('allows scope to propagate parent->child (seed on customers, reach invoices via FK)', () => {
-    const sql = `SELECT ci.total_amount FROM customers c JOIN customer_invoices ci ON ci.customer_id = c.id WHERE c.company_id = '${CID}'`;
+  it('allows a parent->child join when every alias is seeded (customers, invoices via an id-only FK)', () => {
+    const sql = `SELECT ci.total_amount FROM customers c JOIN customer_invoices ci ON ci.customer_id = c.id WHERE c.company_id = '${CID}' AND ci.company_id = '${CID}'`;
     expect(enforceTenantScope(sql, CID).ok).toBe(true);
   });
 
@@ -131,8 +131,8 @@ describe('enforceTenantScope — allows correctly-scoped queries', () => {
     expect(enforceTenantScope(sql, CID).ok).toBe(true);
   });
 
-  it('allows a two-table join where the child reaches the scoped parent', () => {
-    const sql = `SELECT i.invoice_number, c.name FROM customer_invoices i JOIN customers c ON c.id = i.customer_id WHERE i.company_id = '${CID}'`;
+  it('allows a two-table join with both aliases seeded', () => {
+    const sql = `SELECT i.invoice_number, c.name FROM customer_invoices i JOIN customers c ON c.id = i.customer_id WHERE i.company_id = '${CID}' AND c.company_id = '${CID}'`;
     expect(enforceTenantScope(sql, CID).ok).toBe(true);
   });
 
@@ -141,8 +141,8 @@ describe('enforceTenantScope — allows correctly-scoped queries', () => {
     expect(enforceTenantScope(sql, CID).ok).toBe(true);
   });
 
-  it('allows a comma-join tied by a real FK in WHERE', () => {
-    const sql = `SELECT ci.total_amount, c.name FROM customer_invoices ci, customers c WHERE ci.customer_id = c.id AND ci.company_id = '${CID}'`;
+  it('allows a comma-join tied by a real FK in WHERE when both aliases are seeded', () => {
+    const sql = `SELECT ci.total_amount, c.name FROM customer_invoices ci, customers c WHERE ci.customer_id = c.id AND ci.company_id = '${CID}' AND c.company_id = '${CID}'`;
     expect(enforceTenantScope(sql, CID).ok).toBe(true);
   });
 });

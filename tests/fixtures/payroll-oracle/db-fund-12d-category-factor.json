@@ -1,0 +1,51 @@
+{
+  "id": "db-fund-12d-category-factor",
+  "source": "UNVERIFIED",
+  "sourceRef": "Sage Payroll Tax Pocket Guide 2025-2026 s7.12.2 (X = A x B - C)",
+  "notes": "Salary R30 000 = retirement-funding income (B); fund member category factor 0.12 (A, from the fund); employee contribution 7.5% = 2 250 (C, 4001). Fringe benefit X = 0.12 x 30 000 - 2 250 = 1 350 (non-cash, deemed contributed by the employee). Remuneration 31 350; fund contributions 2 250 + 1 350 = 3 600, under 27.5% x 31 350 = 8 621.25, so all deductible; taxable 27 750 x 12 = 333 000: 44 118 + 26% x 87 900 = 66 972 - 17 820 = 49 152 / 12 = 4 096.00. SDL 1% x 27 750 = 277.50. Net 30 000 - 2 250 - 4 096 - 177.12 = 23 476.88. UNVERIFIED: the formula is read from Sage’s pocket guide, not a SARS 2027 page (G21 has no para 12D section).",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 30000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      },
+      {
+        "code": "4001",
+        "name": "Pension fund",
+        "type": "deduction",
+        "amount": 2250,
+        "taxable": true,
+        "uif": false,
+        "sdl": false
+      }
+    ],
+    "unmodelled": {
+      "dbMemberCategoryFactor": 0.12
+    }
+  },
+  "expected": {
+    "paye": 4096,
+    "sdl": 277.5,
+    "net": 23476.88
+  }
+}
