@@ -9,12 +9,12 @@
  * Until 2026-11-15 this counted only `imported` and `matched`, so a period whose lines were all allocated but never
  * reconciled passed. Hein, 2026-11-15: such a period must not close.
  *
- * Where a `fail` blocks, today: only MCP `close_fiscal_period` (fiscalPeriodCloseService.closePeriodWithReadiness)
- * refuses on it. `period_close_checklist`, the close-readiness route behind the Fiscal Periods tab's checklist
- * (CloseReadinessChecklist) and the close run (closeRunService) report it. The app's Close, Bulk Close and Close Year (fiscal-periods-action -> fiscalPeriodService
- * closePeriod / closeYear) and the year-end close (yearEndCloseService.closeFiscalYear: MCP `year_end_close`,
- * /api/accounting/year-end) do not run readiness at all yet; making the app close refuse on every failing check is a
- * separate follow-up PR (Hein, 2026-11-15).
+ * Where a `fail` blocks: every close, lock and year-end path refuses on it through the shared gate
+ * (periodCloseGate): the app's Close, Bulk Close, Close Year, Lock and Bulk Lock (fiscal-periods-action), MCP
+ * `close_fiscal_period` (dry run included), and the year-end close (yearEndCloseService.closeFiscalYear: MCP
+ * `year_end_close` and /api/accounting/year-end, preview included), which judges every period it locks (Hein,
+ * 2026-11-15). `period_close_checklist`, the close-readiness route behind the Fiscal Periods tab's checklist
+ * (CloseReadinessChecklist) and the close run (closeRunService) only report it.
  */
 
 import { sql } from '@/lib/neon';
