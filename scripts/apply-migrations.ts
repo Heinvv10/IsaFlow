@@ -15,6 +15,7 @@ import pg from 'pg';
 import { makeNoticeListener } from './migrationNoticeListener';
 import {
   applyOne,
+  compareMigrations,
   computeChecksum,
   loadMigrationFiles,
   parseVersionFromFilename,
@@ -49,13 +50,9 @@ export function planApply(files: MigrationFile[], applied: TrackingRow[]): Apply
   const checksumBackfills: MigrationFile[] = [];
   const conflicts: ApplyPlan['conflicts'] = [];
 
-  // Sort by version (then name as tiebreaker for duplicate-version files).
-  // All filenames are 3-digit padded so lexicographic = numeric order;
-  // letter-suffix ordering (244 < 244b) is preserved.
-  const sorted = [...files].sort((a, b) => {
-    if (a.version !== b.version) return a.version < b.version ? -1 : 1;
-    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
-  });
+  // Numeric version, then letter suffix (244 < 244b), then name for
+  // duplicate-version files: 1000_ applies after 999b_, not before 100_.
+  const sorted = [...files].sort(compareMigrations);
 
   for (const file of sorted) {
     const prior = appliedByName.get(file.name);

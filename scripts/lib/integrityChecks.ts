@@ -18,7 +18,7 @@ export const coreChecks: IntegrityCheck[] = [
       GROUP BY je.id, je.entry_number, je.company_id, je.entry_date
       HAVING ABS(SUM(jl.debit) - SUM(jl.credit)) > 0.01
       ORDER BY imbalance DESC LIMIT 20
-    `) as Array<Record<string, string>>;
+    `) as Array<{ id: string; entry_number: string | null; company_id: string; entry_date: string; total_debit: string; total_credit: string; imbalance: string }>;
     if (rows.length === 0) return { label: 'JE balance (per entry)', status: 'pass', detail: '0 unbalanced entries' };
     return {
       label: 'JE balance (per entry)', status: 'fail',
@@ -39,7 +39,7 @@ export const coreChecks: IntegrityCheck[] = [
       WHERE je.status = 'posted'
       GROUP BY je.company_id
       HAVING ABS(SUM(jl.debit) - SUM(jl.credit)) > 0.01
-    `) as Array<Record<string, string>>;
+    `) as Array<{ company_id: string; total_debits: string; total_credits: string; imbalance: string }>;
     if (rows.length === 0) return { label: 'Overall TB balance (per company)', status: 'pass', detail: '0 companies with imbalance' };
     return {
       label: 'Overall TB balance (per company)', status: 'fail',

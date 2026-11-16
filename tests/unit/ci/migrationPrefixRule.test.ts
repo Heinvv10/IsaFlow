@@ -35,6 +35,11 @@ describe('findPrefixClashes', () => {
     expect(clashes.map((c) => c.name)).toEqual(['341_new.sql']);
   });
 
+  it('accepts 1000_ after 999_: it clashes with neither 100_ nor 999_', () => {
+    expect(findPrefixClashes(['100_a.sql', '999_b.sql', '999b_c.sql', '1000_d.sql'], new Set(), new Set())).toEqual([]);
+    expect(findPrefixClashes(['1000_d.sql', '1000_e.sql'], new Set(), new Set()).map((c) => c.name)).toEqual(['1000_d.sql', '1000_e.sql']);
+  });
+
   it('fails a filename the runner cannot parse', () => {
     expect(findPrefixClashes(['add_table.sql'], new Set(), new Set()).map((c) => c.name)).toEqual(['add_table.sql']);
   });

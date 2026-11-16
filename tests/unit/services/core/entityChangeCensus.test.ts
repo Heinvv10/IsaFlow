@@ -55,7 +55,8 @@ const WRITERS: Record<string, string[]> = {
     'scripts/large-scale-seed.ts', 'scripts/qa-create-blitz-bank.ts', 'scripts/qa-create-brighttech-bank.ts',
     'scripts/qa-create-velofibre-bank.ts', 'scripts/qa-seed-bank-account.ts', 'scripts/qa-seed-blitz-coa.ts',
     'scripts/qa-seed/coa.ts', 'scripts/qa-seed/reset.ts', 'scripts/qa-test-bank-delete-balance.ts',
-    'scripts/qa-verify-bank-sprint.ts', 'scripts/seed-demo-data.ts', 'scripts/seed-phase5-wipe.ts', 'scripts/stress-test.ts',
+    'scripts/qa-verify-bank-sprint.ts', 'scripts/seed-phase5-wipe.ts', 'scripts/stress-test.ts',
+    'scripts/lib/demoReseed/write.ts', // Demo reseed: generic bank metadata on the Demo bank account (entity_change_capture records it)
     `${S}ap/payingAccountAuthors.ts`, // bank-accounts PUT: bank_details_setters (migration 923)
     `${S}bank/bankOpeningBalanceService.ts`, `${S}core/migrationCoaService.ts`, `${S}core/migrationExecuteService.ts`,
     `${S}core/migrationRollbackService.ts`, `${S}gl/accountMergeService.ts`, `${S}gl/accountReclassifyService.ts`,
@@ -93,6 +94,7 @@ const WRITERS: Record<string, string[]> = {
     'scripts/qa-cleanup-run.ts',
     'scripts/sandbox/reviewerSandboxIdentity.ts', // fictional reviewer sandbox seed (docs/mcp/REVIEWER-SANDBOX.md)
     'scripts/stress-test.ts', `${S}capture/bankTxQueryService.ts`, `${S}core/companyService.ts`,
+    'scripts/lib/demoReseed/write.ts', // Demo reseed: renames the Demo company only (entity_change_capture records it)
     `${S}gl/financialYearEndChangeApply.ts`, `${S}gl/financialYearEndChangeUndo.ts`, // financial_year_start on a change of year end / its undo
     'src/modules/admin/services/adminCompanyMutations.ts', 'src/modules/admin/services/companyLifecycleService.ts',
     'src/modules/admin/services/trialService.ts',
@@ -153,8 +155,11 @@ describe('entity change history (census)', () => {
 
   it('nothing writes entity_changes, and only entityChangeQuery.ts reads it', () => {
     const touching = nonMigrations().filter(({ file, text }) => /\bentity_changes\b/.test(code(file, text))).map(({ file }) => file);
-    expect(touching).toEqual(['src/modules/accounting/services/core/entityChanges/entityChangeQuery.ts']);
-    const [query] = nonMigrations().filter(({ file }) => file === touching[0]);
+    // The Demo reseed names the table only to classify it as kept (never wiped) and to count the Demo rows that remain.
+    expect([...touching].sort()).toEqual(['scripts/lib/demoReseed/wipePlan.ts', 'src/modules/accounting/services/core/entityChanges/entityChangeQuery.ts']);
+    const [query] = nonMigrations().filter(({ file }) => file.endsWith('entityChangeQuery.ts'));
+    const [plan] = nonMigrations().filter(({ file }) => file === 'scripts/lib/demoReseed/wipePlan.ts');
+    expect(writes('entity_changes').test(code(plan!.file, plan!.text))).toBe(false);
     expect(writes('entity_changes').test(code(query!.file, query!.text))).toBe(false);
   });
 
@@ -163,6 +168,7 @@ describe('entity change history (census)', () => {
     const naming = nonMigrations()
       .flatMap(({ file, text }) => [...code(file, text).matchAll(/\bentity_change\w*/g)].map((m) => `${file}: ${m[0]}`));
     expect([...new Set(naming)].sort()).toEqual([
+      'scripts/lib/demoReseed/wipePlan.ts: entity_changes', // kept by the Demo reseed, never written
       'src/modules/accounting/services/core/entityChanges/entityChangeQuery.ts: entity_changes',
       'src/modules/accounting/services/core/entityChanges/entityChangeReveal.ts: entity_change',
     ]);
