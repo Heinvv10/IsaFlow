@@ -14,7 +14,9 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
   getFiscalPeriodById: vi.fn(async (_c: string, id: string) => ({ id, periodName: id, startDate: '2026-01-01', endDate: '2026-01-31' })),
 }));
-vi.mock('@/modules/accounting/services/gl/closeReadinessChecks/bankReconciledCheck', () => ({ bankReconciledCheck: vi.fn(pass('bank_reconciled')) }));
+vi.mock('@/modules/accounting/services/gl/closeReadinessChecks/bankReconciledCheck', async (orig) => ({
+  ...(await orig<object>()), bankReconciledCheck: vi.fn(pass('bank_reconciled')),
+}));
 vi.mock('@/modules/accounting/services/gl/closeReadinessChecks/unpostedJournalsCheck', () => ({ unpostedJournalsCheck: vi.fn(pass('unposted_journals')) }));
 vi.mock('@/modules/accounting/services/gl/closeReadinessChecks/arSubLedgerCheck', () => ({ arSubLedgerCheck: vi.fn(pass('ar_ties')) }));
 vi.mock('@/modules/accounting/services/gl/closeReadinessChecks/apSubLedgerCheck', () => ({ apSubLedgerCheck: vi.fn(pass('ap_ties')) }));
@@ -24,7 +26,7 @@ vi.mock('@/modules/accounting/services/gl/closeReadinessChecks/openingBalanceEqu
 vi.mock('@/modules/accounting/services/gl/closeReadinessChecks/orphanPeriodJournalsCheck', () => ({ orphanPeriodJournalsCheck: vi.fn(pass('orphan_period_journals')) }));
 
 import { orphanPeriodJournalsCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/orphanPeriodJournalsCheck';
-import { bankReconciledCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/bankReconciledCheck';
+import { BANK_RECONCILED_FIX_HREF, bankReconciledCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/bankReconciledCheck';
 import { getCloseReadiness, type CloseCheckMemo } from '@/modules/accounting/services/gl/periodCloseReadinessService';
 import { runInPeriodLockBudget } from '@/modules/accounting/services/gl/periodLockBudgetScope';
 
@@ -65,5 +67,15 @@ describe('getCloseReadiness with a CloseCheckMemo', () => {
     await getCloseReadiness('co', 'p1');
     await getCloseReadiness('co', 'p2');
     expect(orphanPeriodJournalsCheck).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['busy (40P01)', Object.assign(new Error('deadlock detected'), { code: '40P01' })],
+    ['could not compute (42P01)', Object.assign(new Error('relation does not exist'), { code: '42P01' })],
+  ])('H: the %s bank row links where the check\'s own pass / fail rows do (bank reconciliation, since #1442)', async (_n, err) => {
+    vi.mocked(bankReconciledCheck).mockRejectedValueOnce(err);
+    const r = await getCloseReadiness('co', 'p1');
+    expect(BANK_RECONCILED_FIX_HREF).toBe('/accounting/bank-reconciliation');
+    expect(r!.items[0]).toMatchObject({ key: 'bank_reconciled', fixHref: BANK_RECONCILED_FIX_HREF });
   });
 });

@@ -24,7 +24,8 @@ import { UNRECONCILED_LINE_SQL } from '../../bank/unreconciledLineSql';
 
 type Row = DbRow;
 
-const FIX_HREF = '/accounting/bank-reconciliation';
+/** Where every bank_reconciled row links (pass, fail, busy, could not compute): the reconciliation screen. */
+export const BANK_RECONCILED_FIX_HREF = '/accounting/bank-reconciliation';
 
 export async function bankReconciledCheck(
   companyId: string,
@@ -46,7 +47,7 @@ export async function bankReconciledCheck(
       label: 'Bank reconciled',
       status: 'pass',
       reason: 'Every bank transaction in this period is reconciled or excluded.',
-      fixHref: FIX_HREF,
+      fixHref: BANK_RECONCILED_FIX_HREF,
     };
   }
 
@@ -58,6 +59,6 @@ export async function bankReconciledCheck(
     reason: `${count} unreconciled bank transaction${one ? ' remains' : 's remain'} in this period. Allocating or `
       + `reviewing a line does not reconcile it: complete a bank reconciliation that covers ${one ? 'it' : 'them'}, `
       + `or exclude ${one ? 'it' : 'them'}.`,
-    fixHref: FIX_HREF,
+    fixHref: BANK_RECONCILED_FIX_HREF,
   };
 }

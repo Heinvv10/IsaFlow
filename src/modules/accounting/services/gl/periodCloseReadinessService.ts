@@ -31,7 +31,7 @@ import { withSavepoint } from '@/lib/neon';
 import { isLockContention } from '@/modules/accounting/services/core/lockContention';
 import { inPeriodLockBudget } from './periodLockBudgetScope';
 import { getFiscalPeriodById } from './fiscalPeriodService';
-import { bankReconciledCheck } from './closeReadinessChecks/bankReconciledCheck';
+import { BANK_RECONCILED_FIX_HREF, bankReconciledCheck } from './closeReadinessChecks/bankReconciledCheck';
 import { unpostedJournalsCheck } from './closeReadinessChecks/unpostedJournalsCheck';
 import { arSubLedgerCheck } from './closeReadinessChecks/arSubLedgerCheck';
 import { apSubLedgerCheck } from './closeReadinessChecks/apSubLedgerCheck';
@@ -104,7 +104,7 @@ const CHECK_LABELS: string[] = [
 ];
 
 const CHECK_FALLBACK_HREFS: string[] = [
-  '/accounting/bank-transactions',
+  BANK_RECONCILED_FIX_HREF,
   '/accounting/journal-entries',
   '/accounting/customer-invoices',
   '/accounting/supplier-invoices',
