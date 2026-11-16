@@ -14,6 +14,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { getComplianceCalendarWithDB } from '@/modules/accounting/services/reports/sarsComplianceService';
+import { getComplianceCalendarWithMarks } from '@/modules/accounting/services/reports/sarsComplianceCalendarDb';
 import { getComplianceCalendar } from '@/modules/accounting/services/reports/sarsTaxPeriodsService';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-0000000000c1';
@@ -50,6 +51,12 @@ describe('every calendar item carries the period it covers', () => {
     expect(getComplianceCalendar(2027, 'odd', 'none').filter((e) => e.eventType === 'PROVISIONAL_TAX').map((e) => e.periodEnd))
       .toEqual(['2027-08-31', '2028-02-29']);
   });
+  it('period starts: VAT the VAT period start, EMP201 the 1st, EMP501 and IRP6 the tax year (from 1 Mar)', () => {
+    expect(by('VAT201_DUE').find((e) => e.dueDate === '2026-04-24')?.periodStart).toBe('2026-02-01');
+    expect(by('EMP201_DUE')[1]?.periodStart).toBe('2026-02-01');
+    expect(by('EMP501_DUE').map((e) => e.periodStart)).toEqual(['2025-03-01', '2026-03-01']);
+    expect(by('PROVISIONAL_TAX').map((e) => e.periodStart)).toEqual(['2026-03-01', '2026-03-01']);
+  });
   it('no two items of one type share a period end', () => {
     const keys = getComplianceCalendar(2026, 'odd', 'monthly').map((e) => `${e.eventType}_${e.periodEnd}`);
     expect(new Set(keys).size).toBe(keys.length);
@@ -60,7 +67,7 @@ describe('getComplianceCalendarWithDB lays marks over the calendar', () => {
   beforeEach(() => { vi.mocked(sql).mockReset(); vi.mocked(withSavepoint).mockClear(); });
 
   it('a mark matches on (type, period end) even when its stored due date differs (rule changed since)', async () => {
-    serve([{ id: 'm1', event_type: 'EMP201_DUE', due_date: '2026-03-09', period_end: '2026-02-28', status: 'completed',
+    serve([{ id: 'm1', event_type: 'EMP201_DUE', due_date: '2026-03-09', period_start: '2026-02-01', period_end: '2026-02-28', status: 'completed',
       sars_reference: 'REF-9', filed_at: new Date('2026-03-05T08:00:00Z'), filed_by_name: 'Willie' }]);
     const e = find(await getComplianceCalendarWithDB(COMPANY_ID, 2026), 'EMP201_DUE', '2026-02-28');
     expect(e).toMatchObject({ id: 'm1', status: 'completed', sarsReference: 'REF-9', filedBy: 'Willie', filedAt: '2026-03-05T08:00:00.000Z' });
@@ -68,7 +75,7 @@ describe('getComplianceCalendarWithDB lays marks over the calendar', () => {
 
   it('a mark does not match another period of the same type that shares its stored due date', async () => {
     // Stored due date is January's (6 Feb), but the mark is February's period.
-    serve([{ id: 'm2', event_type: 'EMP201_DUE', due_date: '2026-02-06', period_end: '2026-02-28', status: 'completed' }]);
+    serve([{ id: 'm2', event_type: 'EMP201_DUE', due_date: '2026-02-06', period_start: '2026-02-01', period_end: '2026-02-28', status: 'completed' }]);
     const events = await getComplianceCalendarWithDB(COMPANY_ID, 2026);
     expect(find(events, 'EMP201_DUE', '2026-01-31')?.id).toBeUndefined();
     expect(find(events, 'EMP201_DUE', '2026-02-28')?.id).toBe('m2');
@@ -81,7 +88,7 @@ describe('getComplianceCalendarWithDB lays marks over the calendar', () => {
   });
 
   it('a mark of one type never marks another type with the same period end', async () => {
-    serve([{ id: 'm3', event_type: 'EMP501_DUE', due_date: '2026-10-30', period_end: '2026-08-31', status: 'completed' }]);
+    serve([{ id: 'm3', event_type: 'EMP501_DUE', due_date: '2026-10-30', period_start: '2026-03-01', period_end: '2026-08-31', status: 'completed' }]);
     const events = await getComplianceCalendarWithDB(COMPANY_ID, 2026);
     expect(find(events, 'PROVISIONAL_TAX', '2026-08-31')?.status).not.toBe('completed');
     expect(find(events, 'EMP501_DUE', '2026-08-31')?.status).toBe('completed');
@@ -93,6 +100,27 @@ describe('getComplianceCalendarWithDB lays marks over the calendar', () => {
     expect(vi.mocked(withSavepoint)).toHaveBeenCalledTimes(1);
     const call = vi.mocked(sql).mock.calls.find((c) => /sars_compliance_events/.test((c[0] as TemplateStringsArray).join('?')));
     expect(call!.slice(1)).toContain(COMPANY_ID);
+  });
+
+  it('a mark made under another cadence (same end, other start) does not mark the item', async () => {
+    // Bi-monthly Jan–Feb VAT mark; the company is Cat A, whose Feb–Mar period ends 31 Mar: craft a
+    // mark ending 31 Mar but starting 1 Mar (a monthly period).
+    serve([{ id: 'm4', event_type: 'VAT201_DUE', due_date: '2026-04-24', period_start: '2026-03-01', period_end: '2026-03-31', status: 'completed' }]);
+    const e = find(await getComplianceCalendarWithDB(COMPANY_ID, 2026), 'VAT201_DUE', '2026-03-31');
+    expect(e?.periodStart).toBe('2026-02-01');
+    expect(e?.id).toBeUndefined();
+  });
+
+  it('marksUnavailable is false when the marks were read', async () => {
+    serve([]);
+    expect((await getComplianceCalendarWithMarks(COMPANY_ID, 2026)).marksUnavailable).toBe(false);
+  });
+
+  it('a failed marks read returns the bare calendar with marksUnavailable', async () => {
+    serve(Object.assign(new Error('permission denied for table sars_compliance_events'), { code: '42501' }));
+    const out = await getComplianceCalendarWithMarks(COMPANY_ID, 2026);
+    expect(out.marksUnavailable).toBe(true);
+    expect(out.events.length).toBeGreaterThan(10);
   });
 
   it('a failed marks read falls back to the static calendar', async () => {

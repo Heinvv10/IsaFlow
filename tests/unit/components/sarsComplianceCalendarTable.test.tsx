@@ -60,13 +60,47 @@ describe('ComplianceCalendarTable', () => {
   });
 
   it('a refused mark shows the error and does not reload', async () => {
-    apiFetch.mockResolvedValue({ ok: false });
+    apiFetch.mockResolvedValue({ ok: false, status: 500 });
     const onChanged = vi.fn();
     render(<ComplianceCalendarTable events={[overdue]} onChanged={onChanged} />);
     fireEvent.click(screen.getByRole('button', { name: /mark filed/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByRole('alert')).toBeTruthy();
     expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it.each([[409], [404]])('a %i reloads the stale row and keeps the message', async (status) => {
+    apiFetch.mockResolvedValue({ ok: false, status });
+    const onChanged = vi.fn();
+    render(<ComplianceCalendarTable events={[marked]} onChanged={onChanged} />);
+    fireEvent.click(screen.getByRole('button', { name: /undo/i }));
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('while one request is in flight, every other action is disabled', async () => {
+    let finish: (v: unknown) => void = () => {};
+    apiFetch.mockReturnValue(new Promise((r) => { finish = r; }));
+    const other: CalendarItem = { ...marked, id: 'm2', eventType: 'EMP201_DUE', periodEnd: '2026-01-31', description: 'EMP201 for January' };
+    render(<ComplianceCalendarTable events={[overdue, marked, other]} onChanged={vi.fn()} />);
+    const undos = screen.getAllByRole('button', { name: /undo/i });
+    fireEvent.click(undos[0]!);
+    await waitFor(() => expect((undos[1] as HTMLButtonElement).disabled).toBe(true));
+    expect((screen.getByRole('button', { name: /mark filed/i }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(undos[1]!);
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+    finish({ ok: true, status: 200 });
+    await waitFor(() => expect((undos[1] as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it('says so when the marks could not be loaded', () => {
+    render(<ComplianceCalendarTable events={[overdue]} marksUnavailable onChanged={vi.fn()} />);
+    expect(screen.getByText(/filed marks could not be loaded/i)).toBeTruthy();
+  });
+
+  it('no notice when the marks were loaded', () => {
+    render(<ComplianceCalendarTable events={[overdue]} onChanged={vi.fn()} />);
+    expect(screen.queryByText(/filed marks could not be loaded/i)).toBeNull();
   });
 
   it('a viewer sees no mark or undo action', () => {

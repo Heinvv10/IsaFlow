@@ -17,7 +17,7 @@ import { budgetsRouteFixture } from './helpers/budgetsRouteFixture';
 import { signSession } from './r-032-fake-gotrue.helpers';
 import type { SetupUser } from './helpers/onboardingSetupFixture';
 import { als } from '@/lib/als';
-import { getComplianceCalendarWithDB } from '@/modules/accounting/services/reports/sarsComplianceCalendarDb';
+import { getComplianceCalendarWithMarks } from '@/modules/accounting/services/reports/sarsComplianceCalendarDb';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
@@ -43,6 +43,7 @@ async function member(companyId: string, role: string): Promise<SetupUser> {
 async function febEmp201(u: SetupUser): Promise<Record<string, unknown> | undefined> {
   const out = await calendar.call(u, 'GET');
   expect(out.status).toBe(200);
+  expect(out.body.data?.marksUnavailable).toBe(false);
   const events = (out.body.data?.events ?? []) as Array<Record<string, unknown>>;
   return events.find((e) => e.eventType === 'EMP201_DUE' && e.periodEnd === FEB_END);
 }
@@ -163,9 +164,10 @@ describe('a failed marks read leaves the request transaction usable', () => {
       await client.query('SET LOCAL ROLE app_user');
       await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: a.userId })]);
       await client.query("SELECT set_config('app.current_company_id', $1, true)", [a.homeCompanyId]);
-      const events = await als.run({ client, userId: a.userId, companyId: a.homeCompanyId, claims: { sub: a.userId } } as never,
-        () => getComplianceCalendarWithDB(a.homeCompanyId, Y));
-      expect(events.length).toBeGreaterThan(10);
+      const out = await als.run({ client, userId: a.userId, companyId: a.homeCompanyId, claims: { sub: a.userId } } as never,
+        () => getComplianceCalendarWithMarks(a.homeCompanyId, Y));
+      expect(out.events.length).toBeGreaterThan(10);
+      expect(out.marksUnavailable).toBe(true);
       expect((await client.query('SELECT 1 AS ok')).rows[0].ok).toBe(1);
     } finally {
       await client.query('ROLLBACK');

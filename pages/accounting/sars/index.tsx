@@ -3,7 +3,6 @@
  * Overview of upcoming deadlines, quick links, and recent submissions.
  */
 
-import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
@@ -12,53 +11,15 @@ import {
   Loader2, ChevronRight,
 } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
-import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
-import { ComplianceCalendarTable, type CalendarItem } from '@/components/accounting/sars/ComplianceCalendarTable';
-import { statusBadge, daysUntil } from '@/components/accounting/sars/sarsStatusBadge';
-
-interface Submission {
-  id: string;
-  formType: string;
-  periodStart: string;
-  periodEnd: string;
-  status: string;
-  submissionReference: string | null;
-  submittedAt: string | null;
-  createdAt: string;
-}
+import { ComplianceCalendarTable } from '@/components/accounting/sars/ComplianceCalendarTable';
+import { statusBadge } from '@/components/accounting/sars/sarsStatusBadge';
+import { useSarsOverview, calendarCounts } from '@/components/accounting/sars/useSarsOverview';
 
 export default function SARSDashboard() {
   const { isRegistered } = useVatRegistration();
-  const [events, setEvents] = useState<CalendarItem[]>([]);
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const [compRes, subRes] = await Promise.all([
-        apiFetch('/api/accounting/sars/sars-compliance', { credentials: 'include' }),
-        apiFetch('/api/accounting/sars/sars-submissions', { credentials: 'include' }),
-      ]);
-      await assertOk(compRes, 'Could not load the SARS data - try again'); await assertOk(subRes, 'Could not load the SARS data - try again');
-      const [compJson, subJson] = await Promise.all([compRes.json(), subRes.json()]);
-      setEvents(compJson.data?.events || []);
-      setSubmissions(subJson.data?.items || []);
-    } catch (err) {
-      setEvents([]); setSubmissions([]); setError(apiErrorMessage(err, 'Could not load the SARS data - try again'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
-
-  const overdueCount = events.filter((e) => e.status === 'overdue').length;
-  const pendingCount = events.filter((e) => e.status === 'pending' && daysUntil(e.dueDate) <= 90).length;
-  const completedCount = events.filter((e) => e.status === 'completed').length;
+  const { events, submissions, marksUnavailable, loading, error, refresh } = useSarsOverview();
+  const { overdue: overdueCount, pending: pendingCount, completed: completedCount } = calendarCounts(events);
 
   return (
     <AppLayout>
@@ -144,7 +105,7 @@ export default function SARSDashboard() {
               </div>
 
               {/* Compliance Calendar */}
-              <ComplianceCalendarTable events={events} onChanged={() => void load()} />
+              <ComplianceCalendarTable events={events} marksUnavailable={marksUnavailable} onChanged={refresh} />
 
               {/* Recent Submissions */}
               <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">

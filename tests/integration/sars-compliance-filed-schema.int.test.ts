@@ -1,7 +1,8 @@
 /**
  * Migration 999c: sars_compliance_events as app_user. A mark is tenant-isolated under forced RLS
  * (944's predicate), its actor and time stamps are the trigger's (a forged value is overwritten), a
- * mark with no session user is refused, app_user cannot UPDATE, and one period takes one mark (23505).
+ * mark with no session user is refused, app_user cannot UPDATE, one period takes one mark (23505), no
+ * role (platform_admin, the owner) can change a mark's identity or stamps, and app_service gets no UPDATE.
  * Real PostgreSQL; synthetic rows only.
  *
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
@@ -16,8 +17,8 @@ const mk = () => ({ id: crypto.randomUUID(), user: crypto.randomUUID() });
 const A = mk(), B = mk();
 let rowB = '';
 
-const INSERT = `INSERT INTO sars_compliance_events (company_id, event_type, due_date, period_end, description, status, sars_reference)
-                VALUES ($1, $2, '2026-03-06', '2026-02-28', 'EMP201 for February 2026', 'completed', $3) RETURNING id, filed_by, filed_at`;
+const INSERT = `INSERT INTO sars_compliance_events (company_id, event_type, due_date, period_start, period_end, description, status, sars_reference)
+                VALUES ($1, $2, '2026-03-06', '2026-02-01', '2026-02-28', 'EMP201 for February 2026', 'completed', $3) RETURNING id, filed_by, filed_at`;
 
 beforeAll(async () => {
   for (const c of [A, B]) {
@@ -124,10 +125,10 @@ describe('999c: tenancy', () => {
 describe('999c: stamps and privileges', () => {
   it('filed_by and filed_at cannot be sent (column privileges)', async () => {
     await as(A, async (q) => {
-      expect(await codeOf(q, `INSERT INTO sars_compliance_events (company_id, event_type, due_date, period_end, description, filed_by)
-                              VALUES ($1, 'VAT201_DUE', '2026-03-25', '2026-02-28', 'x', 'someone-else')`, [A.id])).toBe('42501');
-      expect(await codeOf(q, `INSERT INTO sars_compliance_events (company_id, event_type, due_date, period_end, description, filed_at)
-                              VALUES ($1, 'VAT201_DUE', '2026-03-25', '2026-02-28', 'x', '2020-01-01')`, [A.id])).toBe('42501');
+      expect(await codeOf(q, `INSERT INTO sars_compliance_events (company_id, event_type, due_date, period_start, period_end, description, filed_by)
+                              VALUES ($1, 'VAT201_DUE', '2026-03-25', '2026-01-01', '2026-02-28', 'x', 'someone-else')`, [A.id])).toBe('42501');
+      expect(await codeOf(q, `INSERT INTO sars_compliance_events (company_id, event_type, due_date, period_start, period_end, description, filed_at)
+                              VALUES ($1, 'VAT201_DUE', '2026-03-25', '2026-01-01', '2026-02-28', 'x', '2020-01-01')`, [A.id])).toBe('42501');
     });
   });
 
@@ -143,8 +144,8 @@ describe('999c: stamps and privileges', () => {
     await as(A, async (q) => {
       await q.query('RESET ROLE');
       const r = (await q.query(
-        `INSERT INTO sars_compliance_events (company_id, event_type, due_date, period_end, description, filed_by, filed_at)
-         VALUES ($1, 'VAT201_DUE', '2026-03-25', '2026-02-28', 'x', 'forged', '2020-01-01') RETURNING filed_by, filed_at`, [A.id])).rows[0];
+        `INSERT INTO sars_compliance_events (company_id, event_type, due_date, period_start, period_end, description, filed_by, filed_at)
+         VALUES ($1, 'VAT201_DUE', '2026-03-25', '2026-01-01', '2026-02-28', 'x', 'forged', '2020-01-01') RETURNING filed_by, filed_at`, [A.id])).rows[0];
       expect(r.filed_by).toBe(A.user);
       expect(new Date(r.filed_at).getUTCFullYear()).toBeGreaterThan(2020);
     });
@@ -154,8 +155,8 @@ describe('999c: stamps and privileges', () => {
     const c = await pool.connect();
     try {
       await c.query('BEGIN');
-      expect(await codeOf(c, `INSERT INTO sars_compliance_events (company_id, event_type, due_date, period_end, description)
-                              VALUES ($1, 'VAT201_DUE', '2026-03-25', '2026-02-28', 'x')`, [A.id])).toBe('42501');
+      expect(await codeOf(c, `INSERT INTO sars_compliance_events (company_id, event_type, due_date, period_start, period_end, description)
+                              VALUES ($1, 'VAT201_DUE', '2026-03-25', '2026-01-01', '2026-02-28', 'x')`, [A.id])).toBe('42501');
     } finally { await c.query('ROLLBACK'); c.release(); }
   });
 
@@ -174,10 +175,66 @@ describe('999c: stamps and privileges', () => {
     });
   });
 
+  it('a period start must come with the end, and not after it', async () => {
+    await as(A, async (q) => {
+      const ins = `INSERT INTO sars_compliance_events (company_id, event_type, due_date, period_start, period_end, description)
+                   VALUES ($1, 'VAT201_DUE', '2026-03-25', $2, $3, 'x')`;
+      expect(await codeOf(q, ins, [A.id, null, '2026-02-28'])).toBe('23514:sars_compliance_events_period_shape');
+      expect(await codeOf(q, ins, [A.id, '2026-02-01', null])).toBe('23514:sars_compliance_events_period_shape');
+      expect(await codeOf(q, ins, [A.id, '2026-03-01', '2026-02-28'])).toBe('23514:sars_compliance_events_period_shape');
+    });
+  });
+
+  it('the same period end with another start (a cadence change) is its own mark', async () => {
+    await as(B, async (q) => {
+      expect(await codeOf(q, `INSERT INTO sars_compliance_events (company_id, event_type, due_date, period_start, period_end, description)
+                              VALUES ($1, 'EMP201_DUE', '2026-03-06', '2026-01-01', '2026-02-28', 'x')`, [B.id])).toBe('ok');
+    });
+  });
+
   it('a blank or over-long reference is refused', async () => {
     await as(A, async (q) => {
       expect(await codeOf(q, INSERT, [A.id, 'EMP501_DUE', '  '])).toBe('23514:sars_compliance_events_reference_shape');
       expect(await codeOf(q, INSERT, [A.id, 'EMP501_DUE', 'x'.repeat(101)])).toBe('23514:sars_compliance_events_reference_shape');
     });
+  });
+});
+
+describe('999c: no role rewrites a mark', () => {
+  it.each([
+    ['filed_by', "filed_by = 'forged'"], ['filed_at', "filed_at = '2020-01-01'"], ['created_at', "created_at = '2020-01-01'"],
+    ['period_end', "period_end = '2026-03-31'"], ['period_start', "period_start = '2026-01-01'"],
+    ['event_type', "event_type = 'VAT201_DUE'"], ['company_id', 'company_id = $2'],
+  ])('platform_admin cannot change %s', async (_col, set) => {
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SET LOCAL ROLE platform_admin');
+      const params = set.includes('$2') ? [rowB, A.id] : [rowB];
+      expect(await codeOf(c, `UPDATE sars_compliance_events SET ${set} WHERE id = $1`, params)).toBe('42501');
+    } finally { await c.query('ROLLBACK'); c.release(); }
+  });
+
+  it('the owner (migration role) cannot change a stamp either', async () => {
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      expect(await codeOf(c, "UPDATE sars_compliance_events SET filed_by = 'forged' WHERE id = $1", [rowB])).toBe('42501');
+      // A field outside the identity and stamps may still change (data repair).
+      expect(await codeOf(c, "UPDATE sars_compliance_events SET sars_reference = 'FIX-1' WHERE id = $1", [rowB])).toBe('ok');
+    } finally { await c.query('ROLLBACK'); c.release(); }
+  });
+
+  it('app_service has no UPDATE mirror and cannot UPDATE', async () => {
+    const pols = (await pool.query(
+      `SELECT polname FROM pg_policy WHERE polrelid = 'sars_compliance_events'::regclass AND 'app_service'::regrole = ANY (polroles) ORDER BY 1`)).rows
+      .map((r) => r.polname);
+    expect(pols).not.toContain('app_service_update');
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SET LOCAL ROLE app_service');
+      expect(await codeOf(c, "UPDATE sars_compliance_events SET status = 'pending' WHERE id = $1", [rowB])).toBe('42501');
+    } finally { await c.query('ROLLBACK'); c.release(); }
   });
 });

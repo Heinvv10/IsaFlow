@@ -16,6 +16,7 @@ export interface CalendarItem {
   id?: string;
   eventType: string;
   dueDate: string;
+  periodStart: string;
   periodEnd: string;
   description: string;
   status: 'pending' | 'completed' | 'overdue';
@@ -24,14 +25,21 @@ export interface CalendarItem {
   sarsReference?: string | null;
 }
 
-interface Props { events: CalendarItem[]; onChanged: () => void }
+interface Props {
+  events: CalendarItem[];
+  /** The marks could not be read: say so, since a filed item then shows as overdue. */
+  marksUnavailable?: boolean;
+  /** Reload the calendar (after a mark, an undo, or a refusal that means the row is stale). */
+  onChanged: () => void;
+}
 
-export function ComplianceCalendarTable({ events, onChanged }: Props) {
+export function ComplianceCalendarTable({ events, marksUnavailable = false, onChanged }: Props) {
   const { companyRole } = useCompany();
   const writer = canWrite(companyRole);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [reference, setReference] = useState('');
-  const [busyKey, setBusyKey] = useState<string | null>(null);
+  // One request at a time: every action is disabled while one is in flight.
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   // Overdue, due in the next 90 days, and marked filed (so a mark can be undone).
@@ -39,13 +47,16 @@ export function ComplianceCalendarTable({ events, onChanged }: Props) {
   const keyOf = (e: CalendarItem) => `${e.eventType}_${e.periodEnd}`;
 
   const send = async (e: CalendarItem, method: 'POST' | 'DELETE') => {
-    setBusyKey(keyOf(e));
+    if (busy) return;
+    setBusy(true);
     setError('');
     try {
       const body = method === 'POST'
         ? { eventType: e.eventType, periodEnd: e.periodEnd, sarsReference: reference.trim() || null }
         : { eventType: e.eventType, periodEnd: e.periodEnd };
       const res = await apiFetch('/api/accounting/sars/compliance-filed', { method, body: JSON.stringify(body) });
+      // 409 (already marked) and 404 (no longer marked): the row on screen is stale. Reload it; the message stays.
+      if (res.status === 409 || res.status === 404) onChanged();
       await assertOk(res, method === 'POST' ? 'Could not mark this return filed' : 'Could not undo the mark');
       setOpenKey(null);
       setReference('');
@@ -54,7 +65,7 @@ export function ComplianceCalendarTable({ events, onChanged }: Props) {
       log.warn('ComplianceCalendarTable: mark change failed', { error: err, method }, 'ComplianceCalendarTable');
       setError(apiErrorMessage(err, method === 'POST' ? 'Could not mark this return filed' : 'Could not undo the mark'));
     } finally {
-      setBusyKey(null);
+      setBusy(false);
     }
   };
 
@@ -66,6 +77,11 @@ export function ComplianceCalendarTable({ events, onChanged }: Props) {
           Upcoming Deadlines
         </h2>
       </div>
+      {marksUnavailable && (
+        <div className="mx-4 mt-3 p-2 rounded bg-amber-500/10 text-amber-500 text-sm" role="status">
+          Filed marks could not be loaded. Items marked filed may show as overdue - reload to try again.
+        </div>
+      )}
       {error && <div className="mx-4 mt-3 p-2 rounded bg-red-500/10 text-red-400 text-sm" role="alert">{error}</div>}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -119,7 +135,7 @@ export function ComplianceCalendarTable({ events, onChanged }: Props) {
                   {writer && (
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       {filed ? (
-                        <button type="button" disabled={busyKey === k} onClick={() => void send(evt, 'DELETE')}
+                        <button type="button" disabled={busy} onClick={() => void send(evt, 'DELETE')}
                           className="inline-flex items-center gap-1 text-xs text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] disabled:opacity-50">
                           <Undo2 className="h-3.5 w-3.5" /> Undo
                         </button>
@@ -128,14 +144,14 @@ export function ComplianceCalendarTable({ events, onChanged }: Props) {
                           <input aria-label="SARS reference (optional)" placeholder="SARS reference (optional)" maxLength={100}
                             value={reference} onChange={(ev) => setReference(ev.target.value)}
                             className="w-44 px-2 py-1 text-xs rounded border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)]" />
-                          <button type="submit" disabled={busyKey === k}
+                          <button type="submit" disabled={busy}
                             className="px-2 py-1 text-xs rounded bg-teal-600 text-white hover:bg-teal-500 disabled:opacity-50">Save</button>
                           <button type="button" onClick={() => { setOpenKey(null); setReference(''); }}
                             className="px-2 py-1 text-xs text-[var(--ff-text-secondary)]">Cancel</button>
                         </form>
                       ) : (
-                        <button type="button" onClick={() => { setOpenKey(k); setReference(''); setError(''); }}
-                          className="inline-flex items-center gap-1 text-xs text-teal-500 hover:text-teal-400">
+                        <button type="button" disabled={busy} onClick={() => { setOpenKey(k); setReference(''); setError(''); }}
+                          className="inline-flex items-center gap-1 text-xs text-teal-500 hover:text-teal-400 disabled:opacity-50">
                           <CheckCircle2 className="h-3.5 w-3.5" /> Mark filed
                         </button>
                       )}

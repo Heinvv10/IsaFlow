@@ -35,13 +35,20 @@ export async function companyVatCycle(companyId: string): Promise<VatCycle | nul
   return vatCycleOfRow(row);
 }
 
+export interface CalendarWithMarks {
+  events: ComplianceEvent[];
+  /** True when the marks could not be read: the events are the bare calendar, and a filed item may show overdue. */
+  marksUnavailable: boolean;
+}
+
 /**
  * The company's calendar with its marks laid over it. A mark matches an item on (event type,
- * period end); a row from before 999c (no period_end) matches on (event type, due date). The marks
- * are read in their own savepoint: a failed read (e.g. a privilege missing) falls back to the
- * static calendar and leaves the request transaction usable.
+ * period start, period end), so a mark made under one VAT cadence never marks another period that
+ * ends the same day; a row from before 999c (no period) matches on (event type, due date). The
+ * marks are read in their own savepoint: a failed read (e.g. a privilege missing) returns the bare
+ * calendar with `marksUnavailable` and leaves the request transaction usable.
  */
-export async function getComplianceCalendarWithDB(companyId: string, year?: number): Promise<ComplianceEvent[]> {
+export async function getComplianceCalendarWithMarks(companyId: string, year?: number): Promise<CalendarWithMarks> {
   const y = year || new Date().getFullYear();
   const staticEvents = calendarWindow(y, await companyVatCycle(companyId));
   const from = `${y - 1}-01-01`;
@@ -50,7 +57,7 @@ export async function getComplianceCalendarWithDB(companyId: string, year?: numb
   let dbEvents: DbRow[];
   try {
     dbEvents = await withSavepoint('sars_calendar_marks', async () => (await sql`
-      SELECT ce.id, ce.event_type, ce.due_date, ce.period_end, ce.status, ce.submission_id,
+      SELECT ce.id, ce.event_type, ce.due_date, ce.period_start, ce.period_end, ce.status, ce.submission_id,
              ce.sars_reference, ce.filed_at,
              public.approval_company_member_name(ce.company_id, ce.filed_by) AS filed_by_name
       FROM sars_compliance_events ce
@@ -60,18 +67,18 @@ export async function getComplianceCalendarWithDB(companyId: string, year?: numb
     `) as DbRow[]);
   } catch (err) {
     log.warn('Could not load compliance events from DB, using static calendar', { error: err }, 'sarsComplianceService');
-    return staticEvents;
+    return { events: staticEvents, marksUnavailable: true };
   }
 
   const byPeriod = new Map<string, DbRow>();
   const byDue = new Map<string, DbRow>();
   for (const dbe of dbEvents) {
-    if (dbe.period_end) byPeriod.set(`${dbe.event_type}_${fmtDate(dbe.period_end)}`, dbe);
+    if (dbe.period_end) byPeriod.set(`${dbe.event_type}_${fmtDate(dbe.period_start)}_${fmtDate(dbe.period_end)}`, dbe);
     else byDue.set(`${dbe.event_type}_${fmtDate(dbe.due_date)}`, dbe);
   }
 
-  return staticEvents.map((se) => {
-    const m = byPeriod.get(`${se.eventType}_${se.periodEnd}`) ?? byDue.get(`${se.eventType}_${se.dueDate}`);
+  const events = staticEvents.map((se) => {
+    const m = byPeriod.get(`${se.eventType}_${se.periodStart}_${se.periodEnd}`) ?? byDue.get(`${se.eventType}_${se.dueDate}`);
     if (!m) return se;
     const filedAt = m.filed_at instanceof Date ? m.filed_at.toISOString() : m.filed_at ? String(m.filed_at) : undefined;
     return {
@@ -83,4 +90,10 @@ export async function getComplianceCalendarWithDB(companyId: string, year?: numb
       sarsReference: m.sars_reference ? String(m.sars_reference) : null,
     };
   });
+  return { events, marksUnavailable: false };
+}
+
+/** The events only (getComplianceCalendarWithMarks without the flag). */
+export async function getComplianceCalendarWithDB(companyId: string, year?: number): Promise<ComplianceEvent[]> {
+  return (await getComplianceCalendarWithMarks(companyId, year)).events;
 }
