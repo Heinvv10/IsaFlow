@@ -1,28 +1,25 @@
 /**
- * Reading the pay-frequency and run-kind columns (migration 999a) off a row. A value outside the known set is
- * refused, never coerced: the CHECKs allow only these, so another value means a schema this code predates.
+ * Reading the pay-frequency and run-kind columns (migration 999a) off a row. A value outside the known set reads as
+ * 'unsupported', never as a known value: the row still lists (a throw here would fail the whole list on a colour
+ * rolled back past a CHECK widening, review #1483), and payrollRunKindGuard refuses to act on it.
  * An ABSENT key (undefined) reads as the column default: only a hand-built row lacks it, since every
  * SELECT * of the two tables carries the columns from 999a on.
  */
-import { PAY_FREQUENCIES, type OffCycleReason, type PayFrequency, type RunKind } from './payrollTypesRun';
+import { PAY_FREQUENCIES, type OffCycleReason, type PayFrequency, type RunKind, type UnsupportedValue } from './payrollTypesRun';
 
-export function payFrequencyOf(raw: unknown): PayFrequency {
+export function payFrequencyOf(raw: unknown): PayFrequency | UnsupportedValue {
   if (raw === undefined) return 'monthly';
-  const known = PAY_FREQUENCIES.find((f) => f === raw);
-  if (!known) throw new Error(`Unknown pay frequency '${String(raw)}'`);
-  return known;
+  return PAY_FREQUENCIES.find((f) => f === raw) ?? 'unsupported';
 }
 
-export function runKindOf(raw: unknown): RunKind {
+export function runKindOf(raw: unknown): RunKind | UnsupportedValue {
   if (raw === undefined || raw === 'regular') return 'regular';
-  if (raw === 'off_cycle') return 'off_cycle';
-  throw new Error(`Unknown run kind '${String(raw)}'`);
+  return raw === 'off_cycle' ? 'off_cycle' : 'unsupported';
 }
 
-export function offCycleReasonOf(raw: unknown): OffCycleReason | null {
+export function offCycleReasonOf(raw: unknown): OffCycleReason | UnsupportedValue | null {
   if (raw === undefined || raw === null) return null;
-  if (raw === 'bonus' || raw === 'termination') return raw;
-  throw new Error(`Unknown off-cycle reason '${String(raw)}'`);
+  return raw === 'bonus' || raw === 'termination' ? raw : 'unsupported';
 }
 
 /** A DATE column as 'YYYY-MM-DD' (pgTypes parses DATE to that string; a Date from a hand-built row reads by its local day). */

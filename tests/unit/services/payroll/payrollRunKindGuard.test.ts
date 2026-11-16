@@ -10,6 +10,8 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 import { judgeRunKind, RunKindUnsupportedError, type RunKindAction } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import { respondToUnhandledError } from '@/lib/api-error-handler';
 import { REFUSAL_CODES } from '@/lib/mcp/tools/refusalCodes';
+import { mapRunRow } from '@/modules/accounting/services/payroll/payrollRunHeaders';
+import { mapPayrollEmployeeRow } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 
 const ALL: RunKindAction[] = ['calculate', 'approve', 'post', 'reopen', 'payslip', 'emp201', 'irp5', 'bank_file'];
 const OK = {
@@ -77,3 +79,24 @@ describe('RunKindUnsupportedError', () => {
     expect(JSON.stringify(state.body)).toContain('"clause":"frequency"');
   });
 });
+
+describe('a value a later release added (review #1483): listed, then refused', () => {
+  const header = { id: 'r1', company_id: 'c1', period_month: 4, period_year: 2026, status: 'calculated' };
+
+  it('maps an unknown frequency, kind or reason to unsupported instead of failing the whole list', () => {
+    const run = mapRunRow({ ...header, pay_frequency: 'biweekly', run_kind: 'correction', off_cycle_reason: 'retro' });
+    expect(run).toMatchObject({ payFrequency: 'unsupported', runKind: 'unsupported', offCycleReason: 'unsupported' });
+    expect(mapRunRow({ ...header, pay_frequency: 'weekly', run_kind: 'off_cycle', off_cycle_reason: 'bonus' }))
+      .toMatchObject({ payFrequency: 'weekly', runKind: 'off_cycle', offCycleReason: 'bonus' });
+    const employee = mapPayrollEmployeeRow({ id: 'e1', company_id: 'c1', employee_number: 'E1', first_name: 'A', last_name: 'B',
+      employment_type: 'permanent', start_date: '2020-01-01', tax_status: 'employee', pay_basis: 'monthly', pay_frequency: 'biweekly' });
+    expect(employee.payFrequency).toBe('unsupported');
+  });
+
+  it('the guard refuses such a run for every action, by its database value', () => {
+    expect(refusedBy({ pay_frequency: 'biweekly' })).toEqual(ALL);
+    expect(refusedBy({ run_kind: 'correction' })).toEqual(ALL);
+    expect(judgeRunKind({ ...OK, run_kind: 'correction' }, 'approve')[0]!.detail).toBe("it is a 'correction' run, and only regular runs are supported");
+  });
+});
+

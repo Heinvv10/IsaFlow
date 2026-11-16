@@ -74,17 +74,20 @@ export const calculatePayRunTool: McpTool = {
     if (!run) return toolError(NOT_FOUND);
 
     if (args.dry_run === true) {
-      // Wave 6 FQa: the live call's run-kind guard, on the same population (read-only).
-      try {
-        const employees = await listPayrollRunEmployees(ctx.companyId, { year: run.periodYear, month: run.periodMonth }, run.payFrequency);
-        await assertRunKindSupported(ctx.companyId, runId, 'calculate', { employeeIds: employees.map((e) => e.id) });
-      } catch (err) {
-        if (isRunKindUnsupported(err)) return toolError(err.message);
-        throw err;
-      }
       // dry_run runs the live path's row-state guards, in its order (locked, then tax year): without them a reopened
       // run whose GL journal is still posted was promised a recost that calculatePayrollRun then refuses.
       const refusal = isPayrollRunLocked(run.status) ? new PayrollRunLockedError(run.status).message : unloadedTaxYearMessage(run.periodMonth, run.periodYear);
+      // Wave 6 FQa: then the live call's run-kind guard, in its order (after the lock and tax-year checks), on the same
+      // population (read-only).
+      if (!refusal) {
+        try {
+          const employees = await listPayrollRunEmployees(ctx.companyId, { year: run.periodYear, month: run.periodMonth }, run.payFrequency);
+          await assertRunKindSupported(ctx.companyId, runId, 'calculate', { employeeIds: employees.map((e) => e.id) });
+        } catch (err) {
+          if (isRunKindUnsupported(err)) return toolError(err.message);
+          throw err;
+        }
+      }
       const blocked = !refusal && run.journalEntryId != null
         && await payrollJournalInForce(ctx.companyId, run.journalEntryId)
         && await runHasLoanWork(ctx.companyId, runId, run.periodYear, run.periodMonth);

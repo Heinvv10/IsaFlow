@@ -6,7 +6,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { PayrollPeriod } from './payrollTypes';
-import type { OffCycleReason, PayFrequency, RunKind } from './payrollTypesRun';
+import type { OffCycleReason, PayFrequency, RunKind, UnsupportedValue } from './payrollTypesRun';
 import { dateColumnOf, offCycleReasonOf, payFrequencyOf, runKindOf } from './payrollFrequency';
 
 type Row = DbRow;
@@ -27,9 +27,10 @@ export interface PayrollRunSummary {
   /** The GL entry posted at approval, still set after reopenPayrollRun. */
   journalEntryId: string | null;
   /** Migration 999a. This release creates and costs only monthly regular runs (payrollRunKindGuard). */
-  payFrequency: PayFrequency;
-  runKind: RunKind;
-  offCycleReason: OffCycleReason | null;
+  /** 'unsupported': a value a later release added; the run lists, and the guard refuses to act on it. */
+  payFrequency: PayFrequency | UnsupportedValue;
+  runKind: RunKind | UnsupportedValue;
+  offCycleReason: OffCycleReason | UnsupportedValue | null;
   /** The dates the run pays for, 'YYYY-MM-DD'; for a monthly regular run, its calendar month. */
   periodStart: string | null;
   periodEnd: string | null;

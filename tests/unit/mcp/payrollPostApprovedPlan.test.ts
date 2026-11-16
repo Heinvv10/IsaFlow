@@ -14,6 +14,11 @@ vi.mock('@/modules/accounting/services/payroll/payrollJournalPostingService', ()
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({ lockPayrollRunHeader: vi.fn(), lockCompanyPayrollApprovals: vi.fn() }));
 vi.mock('@/modules/accounting/services/payroll/payRunApprovalControl', () => ({ assertPayRunApproved: vi.fn() }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+// Wave 6 FQa: the dry run's run-kind guard; real class and code, the database read mocked.
+vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
+  assertRunKindSupported: vi.fn(async () => undefined),
+}));
 
 import { sql } from '@/lib/neon';
 import { buildPayrollJournalPlan } from '@/modules/accounting/services/payroll/payrollJournalBuilder';
@@ -23,6 +28,7 @@ import { assertPayRunApproved } from '@/modules/accounting/services/payroll/payR
 import { hashOf } from '@/modules/accounting/services/payroll/payrollApprovalHash';
 import { ETI_CARRY_MAY_HAVE_CHANGED, PLAN_CHANGED_SINCE_APPROVAL } from '@/modules/accounting/services/payroll/payrollApprovedPlan';
 import { postPayrollJournalTool } from '@/lib/mcp/tools/writePayroll';
+import { assertRunKindSupported, RunKindUnsupportedError } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 import type { PayrollJournalPlan } from '@/modules/accounting/services/payroll/payrollJournalBuilder';
 import type { McpToolContext } from '@/lib/mcp/types';
 
@@ -164,6 +170,19 @@ describe('post_payroll_journal posts only the approved plan', () => {
     expect(text(res)).toContain('already_posted');
     expect(text(res)).toContain('Reverse it before posting again');
     expect(text(res)).not.toContain('A person must approve');
+    expect(postPayrollRunJournal).not.toHaveBeenCalled();
+  });
+});
+
+describe('post_payroll_journal dry run meets the run-kind guard (wave 6 FQa, review #1483)', () => {
+  it('refuses, as the live post would, a run this release cannot post, and asks for post', async () => {
+    vi.mocked(buildPayrollJournalPlan).mockResolvedValue(APPROVED);
+    vi.mocked(assertRunKindSupported).mockRejectedValueOnce(
+      new RunKindUnsupportedError('post', [{ clause: 'frequency', detail: 'it is a weekly run, and only monthly runs are supported' }]));
+    const res = await call(true);
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain('cannot be posted by this version of IsaFlow: it is a weekly run');
+    expect(vi.mocked(assertRunKindSupported)).toHaveBeenCalledWith(COMPANY, RUN, 'post');
     expect(postPayrollRunJournal).not.toHaveBeenCalled();
   });
 });

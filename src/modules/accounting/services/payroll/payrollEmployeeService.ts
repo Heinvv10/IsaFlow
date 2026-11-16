@@ -4,7 +4,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { assertEndDateKeepsDirectiveExits } from './payrollRunDirectiveUses';
 import { log } from '@/lib/logger';
-import type { PayFrequency, PayrollEmployee } from './payrollTypes';
+import type { PayFrequency, PayrollEmployee, UnsupportedValue } from './payrollTypes';
 import { payFrequencyOf } from './payrollFrequency';
 import { recordEmployeeChange } from './payrollEmployeeHistoryService';
 import { EmployeeTermsRefused, judgeTerms, movedTerms, termsFromRow, TERM_KEYS, type EmployeeTerms } from './payrollEmployeeTerms';
@@ -69,7 +69,7 @@ export async function listPayrollEmployees(
 export async function listPayrollRunEmployees(
   companyId: string,
   period: { year: number; month: number },
-  payFrequency: PayFrequency = 'monthly',
+  payFrequency: PayFrequency | UnsupportedValue = 'monthly',
 ): Promise<PayrollEmployee[]> {
   const rows = (await sql`
     WITH p AS (SELECT make_date(${period.year}::int, ${period.month}::int, 1) AS start)

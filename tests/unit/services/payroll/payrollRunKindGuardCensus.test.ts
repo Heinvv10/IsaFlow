@@ -17,6 +17,8 @@ const GUARDED: Array<{ file: string; fn: string; action: string }> = [
   { file: `${P}/payrollJournalPostingService.ts`, fn: 'postPayrollRunJournal', action: 'post' },
   { file: `${P}/payrollRunReopen.ts`, fn: 'reopenPayrollRun', action: 'reopen' },
   { file: `${P}/payslipModel.ts`, fn: 'getPayslips', action: 'payslip' },
+  // The R-035 request writer (approval-requests.ts): no request is raised for a run this release cannot approve.
+  { file: `${P}/payRunApprovalControl.ts`, fn: 'preparePayRunApprovalRequest', action: 'approve' },
 ];
 
 /** The body of `export async function fn(` up to the next top-level `}` line. */
@@ -28,6 +30,7 @@ function bodyOf(source: string, fn: string): string {
 }
 
 const CALLERS = [
+  'pages/api/accounting/approval-requests.ts',
   'pages/api/payroll/runs/[id]/approve.ts',
   'pages/api/payroll/runs/[id]/calculate.ts',
   'pages/api/payroll/runs/[id]/journal-plan.ts',
@@ -43,6 +46,7 @@ const CALLERS = [
   `${P}/payrollRunRowWrite.ts`,
   `${P}/payrollRunService.ts`,
   `${P}/payslipModel.ts`,
+  `${P}/payRunApprovalControl.ts`,
 ];
 
 describe('run-kind guard census (wave 6 FQa, grill F28)', () => {

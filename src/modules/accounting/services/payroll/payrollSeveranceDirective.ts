@@ -27,7 +27,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { runHasPaid } from './payrollTerminationPaidCheck';
 import { releaseReversedStandalonePayment } from './taxDirectivePaidGuard';
 import { mapPayrollEmployeeRow } from './payrollEmployeeService';
-import type { EmployeeComponent, PayFrequency, PayrollEmployee, PayrollPeriod } from './payrollTypes';
+import type { EmployeeComponent, PayFrequency, PayrollEmployee, PayrollPeriod, UnsupportedValue } from './payrollTypes';
 
 /** The breakdown id of a severance line paid under a directive. Not a `synthetic:termination:` id: see payrollTerminationPaidCheck. */
 export const SEVERANCE_DIRECTIVE_COMPONENT_ID = 'synthetic:directive:severance';
@@ -120,7 +120,7 @@ export async function listSeveranceOnlyRunEmployees(
   companyId: string,
   runId: string,
   period: PayrollPeriod,
-  payFrequency: PayFrequency,
+  payFrequency: PayFrequency | UnsupportedValue,
 ): Promise<PayrollEmployee[]> {
   // A stand-alone payment since reversed no longer pays its directive: free it
   // first, so this run may pay it (taxDirectivePaidGuard).

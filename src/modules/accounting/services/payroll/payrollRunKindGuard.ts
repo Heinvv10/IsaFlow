@@ -16,6 +16,7 @@
  *   payroll_employee_components.db_member_category_factor / .rate_multiplier (DBF, RI), quantity_unit 'km' (RI);
  *   payroll_garnishee_orders(company_id, employee_id, status) and payroll_garnishee_deductions(run_id) (GA). An order
  *   counts unless its status is cancelled, completed, satisfied, withdrawn or ended; a missing key counts (fails closed).
+ *   A deduction counts for this company's run (or, with no run_id key, any of this company's: fails closed).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
@@ -108,7 +109,9 @@ export async function assertRunKindSupported(
       CASE WHEN to_regclass('public.payroll_garnishee_deductions') IS NULL THEN 0
            ELSE (xpath('/row/n/text()', query_to_xml(format(
              'SELECT count(*) AS n FROM public.payroll_garnishee_deductions d'
-             || ' WHERE NOT (to_jsonb(d) ? ''run_id'') OR to_jsonb(d) ->> ''run_id'' = %L', r.id::text),
+             || ' WHERE COALESCE(to_jsonb(d) ->> ''company_id'', %L) = %L'
+             || ' AND (NOT (to_jsonb(d) ? ''run_id'') OR to_jsonb(d) ->> ''run_id'' = %L)',
+             r.company_id::text, r.company_id::text, r.id::text),
              false, true, '')))[1]::text::int END AS garnishee_deductions
       FROM run r
   `) as DbRow[];
@@ -125,7 +128,8 @@ export function judgeRunKind(row: DbRow, action: RunKindAction): RunKindReason[]
     reasons.push({ clause: 'frequency', detail: `it is a ${String(row.pay_frequency)} run, and only monthly runs are supported` });
   }
   if (row.run_kind !== 'regular') {
-    reasons.push({ clause: 'run_kind', detail: `it is an ${String(row.run_kind).replace('_', '-')} run, and only regular runs are supported` });
+    const kind = row.run_kind === 'off_cycle' ? 'an off-cycle' : `a '${String(row.run_kind)}'`;
+    reasons.push({ clause: 'run_kind', detail: `it is ${kind} run, and only regular runs are supported` });
   }
   if (Number(row.garnishee_deductions) > 0) {
     reasons.push({ clause: 'garnishee_deduction', detail: 'it carries garnishee deductions' });

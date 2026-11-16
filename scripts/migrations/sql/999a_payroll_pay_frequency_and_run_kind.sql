@@ -33,8 +33,8 @@
 --   read    SELECT * returns the extra columns; mapRunRow ignores columns it does not name.
 --   employees  inserts take the default 'monthly'; the old run costs every employee, all of them monthly.
 --
--- LOCKS. ADD COLUMN with a constant default is catalogue-only (PG 11+), but takes ACCESS EXCLUSIVE on
--- payroll_employees and payroll_run_headers and holds it to the end of this transaction, so the backfill, the
+-- LOCKS. ADD COLUMN with a constant default is catalogue-only (PG 11+). The LOCK TABLE below takes ACCESS EXCLUSIVE on
+-- payroll_run_headers then payroll_employees at once and holds it to the end of this transaction, so the backfill, the
 -- VALIDATEs and the index build all run under it: both tables are small (hundreds of rows). Acquiring each lock
 -- is bounded by lock_timeout, the whole by statement_timeout.
 --
@@ -53,6 +53,9 @@
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
+-- Both tables up front, in calculate's order (header, then employees): taking them one ALTER at a time, employees
+-- first, could deadlock a calculation already holding the header row and reading employees (review #1483).
+LOCK TABLE public.payroll_run_headers, public.payroll_employees IN ACCESS EXCLUSIVE MODE;
 
 -- ── 1. The calendar month a monthly run pays for ───────────────────────────
 CREATE OR REPLACE FUNCTION public.payroll_month_period_start(p_year integer, p_month integer)

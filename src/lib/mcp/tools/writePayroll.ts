@@ -26,6 +26,7 @@ import { MUTATION_ARG_SCHEMA } from '../contracts';
 import type { DryRunResult } from '../contracts';
 import { guardCastableArgs, NOT_FOUND, ok, toolError } from './toolHelpers';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
+import { assertRunKindSupported, isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 
 const POST_TOOL_AGENT = 'mcp:post_payroll_journal:v1';
 
@@ -156,6 +157,13 @@ export const postPayrollJournalTool: McpTool = {
     }
 
     if (args.dry_run === true) {
+      // Wave 6 FQa: the live post's run-kind guard (postPayrollRunJournal), read-only, after the plan as there.
+      try {
+        await assertRunKindSupported(ctx.companyId, runId, 'post');
+      } catch (err) {
+        if (isRunKindUnsupported(err)) return toolError(err.message);
+        throw err;
+      }
       const preview: DryRunResult & {
         advisories: typeof plan.advisories;
         employment_cost: Record<string, number>;
