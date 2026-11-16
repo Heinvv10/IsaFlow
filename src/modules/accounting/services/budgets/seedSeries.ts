@@ -20,6 +20,7 @@
  */
 import { sql, type DbRow } from '@/lib/neon';
 import { isHeaderSql } from './headerSql';
+import { bandOf, type Band } from './grid/subtotals';
 import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { requireFiscalYear } from '../gl/fiscalYearRegistry';
 import { toBudgetYearInfo } from '../core/budgetYears';
@@ -27,20 +28,21 @@ import { BudgetVersionError } from './budgetVersionTypes';
 import { loadPriorActuals, type PriorGrain } from './priorActuals';
 import { pySeriesFrom, versionSeriesFrom, type PySeriesOptions, type SeedAccountFacts, type SeedSeries, type UnassignedRule } from './seedSeriesCore';
 
-export interface SeedAccount extends SeedAccountFacts { label: string }
+export interface SeedAccount extends SeedAccountFacts { label: string; band: Band }
 
 export type { SeedSeries, UnassignedRule };
 
 /** Every revenue/expense account of the company with the facts the seed's leaf rule needs. */
 export async function loadSeedAccounts(companyId: string): Promise<Map<string, SeedAccount>> {
   const rows = (await sql`
-    SELECT ga.id, ga.account_code, ga.account_name, ga.is_active, ${isHeaderSql()} AS is_header
+    SELECT ga.id, ga.account_code, ga.account_name, ga.account_type, ga.account_subtype, ga.is_active, ${isHeaderSql()} AS is_header
       FROM gl_accounts ga
      WHERE ga.company_id = ${companyId}::UUID AND ga.account_type IN ('revenue', 'expense')
   `) as DbRow[];
   return new Map(rows.map((r) => [String(r.id), {
     id: String(r.id), label: `${String(r.account_code)} ${String(r.account_name)}`.trim(),
     isActive: r.is_active !== false, isHeader: Boolean(r.is_header),
+    band: bandOf(String(r.account_type) as 'revenue' | 'expense', r.account_subtype === null || r.account_subtype === undefined ? null : String(r.account_subtype)),
   }]));
 }
 
