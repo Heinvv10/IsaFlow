@@ -16,7 +16,9 @@ function yearLabel(taxYear: number): string {
 export function PreValidationCard() {
   const current = currentPayeTaxYear();
   const [taxYear, setTaxYear] = useState(current);
-  const { data, error, loading } = usePreValidation(`taxYear=${taxYear}`);
+  const { data, error, loading, refused } = usePreValidation(`taxYear=${taxYear}`);
+  // Login-as or an agent session: refused by design, so the card is not drawn (no role-blaming message).
+  if (refused) return null;
 
   return (
     <section aria-labelledby="pre-validation-title" className="p-5 rounded-xl border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">

@@ -6,25 +6,27 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 
-const st = vi.hoisted(() => ({ urls: [] as string[], pv: {} as unknown, byUrl: {} as Record<string, unknown>, fail: 0 }));
+const st = vi.hoisted(() => ({ urls: [] as string[], pv: {} as unknown, byUrl: {} as Record<string, unknown>, fail: 0, reason: '' }));
 vi.mock('@/lib/apiFetch', async (orig) => ({
   ...(await orig<typeof import('@/lib/apiFetch')>()),
-  apiJson: vi.fn(async (url: string) => {
+  // The pre-validation reads go through apiFetch (to read a refusal's reason); everything else through apiJson.
+  apiFetch: vi.fn(async (url: string) => {
     st.urls.push(url);
-    if (url.startsWith('/api/payroll/pre-validation')) {
-      if (st.fail) { const { ApiRequestError: E } = await orig<typeof import('@/lib/apiFetch')>(); throw new E('Forbidden', st.fail); }
-      return st.byUrl[url] ?? st.pv;
+    if (st.fail) {
+      const error = { message: 'Your role (viewer) does not allow viewing payroll detail.', ...(st.reason ? { details: { reason: st.reason } } : {}) };
+      return new Response(JSON.stringify({ success: false, error }), { status: st.fail });
     }
-    return { plan: { runId: 'r1', status: 'calculated', entryDate: '2026-12-31', periodMonth: 12, periodYear: 2026, lineCount: 1, paidEmployeeCount: 1,
-      reference: 'PAY-1', lines: [], totals: { net: 1 }, totalDebit: 1, totalCredit: 1, advisories: [] }, posted: null, replaces: null, planHash: 'h', blocker: null };
+    return new Response(JSON.stringify({ success: true, data: st.byUrl[url] ?? st.pv }), { status: 200 });
   }),
+  apiJson: vi.fn(async () => ({ plan: { runId: 'r1', status: 'calculated', entryDate: '2026-12-31', periodMonth: 12, periodYear: 2026, lineCount: 1, paidEmployeeCount: 1,
+    reference: 'PAY-1', lines: [], totals: { net: 1 }, totalDebit: 1, totalCredit: 1, advisories: [] }, posted: null, replaces: null, planHash: 'h', blocker: null })),
 }));
 
 import { PreValidationCard } from '@/components/payroll/preValidation/PreValidationCard';
 import { PreValidationLine } from '@/components/payroll/preValidation/PreValidationLine';
 import { PayrollApproveDialog } from '@/components/payroll/PayrollApproveDialog';
 
-afterEach(() => { cleanup(); vi.useRealTimers(); st.urls = []; st.byUrl = {}; st.fail = 0; });
+afterEach(() => { cleanup(); vi.useRealTimers(); st.urls = []; st.byUrl = {}; st.fail = 0; st.reason = ''; });
 
 const issue = (severity: string, code: string, message: string, fixHref: string, fixLabel: string) =>
   ({ severity, code, message, field: null, fixHref, fixLabel });
@@ -104,6 +106,46 @@ describe('PreValidationLine focuses the field a fix link names (L6)', () => {
     window.location.hash = '#employee-tax-number';
     window.dispatchEvent(new HashChangeEvent('hashchange'));
     await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Tax number')));
+  });
+});
+
+describe('Login-as and agent sessions (refused by design): nothing is drawn', () => {
+  const dialog = () => render(<PayrollApproveDialog runId="r1" period="Dec 2026" warningCount={0} open onClose={vi.fn()} onApproved={vi.fn()} onUncertain={vi.fn()} />);
+  it.each(['IMPERSONATION_FORBIDDEN', 'AGENT_FORBIDDEN'])('%s: the card, the profile line and the dialog say nothing', async (reason) => {
+    st.fail = 403;
+    st.reason = reason;
+    const card = render(<PreValidationCard />);
+    await vi.waitFor(() => expect(st.urls).toHaveLength(1));
+    await new Promise((done) => setTimeout(done, 30));
+    expect(card.container.textContent).toBe('');
+    card.unmount();
+    const line = render(<PreValidationLine employeeId="e1" />);
+    await vi.waitFor(() => expect(st.urls).toHaveLength(2));
+    await new Promise((done) => setTimeout(done, 30));
+    expect(line.container.textContent).toBe('');
+    line.unmount();
+    dialog();
+    await screen.findByRole('button', { name: /Approve and post journal/ });
+    await vi.waitFor(() => expect(st.urls).toContain('/api/payroll/pre-validation?runId=r1'));
+    await new Promise((done) => setTimeout(done, 30));
+    expect(screen.queryByText(/IRP5 checks/)).toBeNull();
+    expect(screen.queryByText(/does not allow/)).toBeNull();
+  });
+  it('a role 403 (no such reason) still shows the access message on the card', async () => {
+    st.fail = 403;
+    render(<PreValidationCard />);
+    expect((await screen.findByRole('alert')).textContent).toBe("You don't have access to payroll detail.");
+  });
+});
+
+describe('useFocusHashField with a malformed hash', () => {
+  afterEach(() => { window.history.replaceState(null, '', '/'); });
+  it('#%E0%A4%A neither throws nor focuses: the profile line still renders', async () => {
+    st.pv = result({ employeesChecked: 1, employees: [result().employees[0]] });
+    window.history.replaceState(null, '', '/payroll/employees/e1#%E0%A4%A');
+    render(<div><PreValidationLine employeeId="e1" /><input id="employee-id-number" aria-label="ID number" /></div>);
+    expect(await screen.findByTestId('pre-validation-line')).toBeTruthy();
+    expect(document.activeElement).toBe(document.body);
   });
 });
 

@@ -10,7 +10,8 @@ export function useFocusHashField(ids: readonly string[]): void {
   useEffect(() => {
     const allowed = key.split(' ');
     const focusHash = () => {
-      const id = decodeURIComponent(window.location.hash.slice(1));
+      // Raw, never decoded: the ids are ASCII, and decoding a malformed hash (#%E0%A4%A) would throw and unmount the page.
+      const id = window.location.hash.slice(1);
       if (!allowed.includes(id)) return;
       const field = document.getElementById(id);
       if (!field || !field.matches('input,select,textarea')) return;

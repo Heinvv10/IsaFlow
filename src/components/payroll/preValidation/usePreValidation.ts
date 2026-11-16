@@ -1,9 +1,11 @@
 /**
  * Reads GET /api/payroll/pre-validation (wave 6 PV) for one scope: the tax year, one employee or one run. `query`
- * null makes no read. A 403 reads as the one payroll-detail access message; any other failure as `fallback`.
+ * null makes no read. A Login-as session (IMPERSONATION_FORBIDDEN) or a session with no session id (AGENT_FORBIDDEN)
+ * is refused by design: `refused` is set and the screens draw nothing, rather than blame the user's role on every
+ * profile and approval. Any other 403 reads as the one payroll-detail access message; anything else as `fallback`.
  */
 import { useEffect, useState } from 'react';
-import { apiJson, apiErrorMessage, ApiRequestError } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiRequestError } from '@/lib/apiFetch';
 import type { ResponseFor } from '@/lib/apiRoutes';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
@@ -11,22 +13,39 @@ export type PreValidation = ResponseFor<'/api/payroll/pre-validation'>;
 export type PreValidationIssue = PreValidation['employees'][number]['issues'][number];
 
 const FALLBACK = 'Could not load the IRP5 pre-validation - try again';
+const SILENT_REFUSALS = new Set(['IMPERSONATION_FORBIDDEN', 'AGENT_FORBIDDEN']);
 
-export function usePreValidation(query: string | null): { data: PreValidation | null; error: string; loading: boolean } {
+type Body = { data?: unknown; error?: { details?: { reason?: unknown } } };
+
+/** The payload, `'refused'` for a by-design session refusal, or a thrown ApiRequestError for any other failure. */
+async function readPreValidation(query: string): Promise<PreValidation | 'refused'> {
+  const res = await apiFetch(`/api/payroll/pre-validation?${query}`);
+  let body: Body | null = null;
+  try { body = JSON.parse(await res.clone().text()) as Body; } catch { body = null; /* non-JSON: assertOk / the shape check say so */ }
+  if (res.status === 403 && SILENT_REFUSALS.has(String(body?.error?.details?.reason))) return 'refused';
+  await assertOk(res, FALLBACK);
+  const d = body?.data as PreValidation | undefined;
+  // The payload's shape is checked here, so a wrong body is a failure, not a crash.
+  if (!d || !Array.isArray(d.employees) || typeof d.employeesChecked !== 'number') throw new ApiRequestError(FALLBACK, res.status);
+  return d;
+}
+
+export function usePreValidation(query: string | null): { data: PreValidation | null; error: string; loading: boolean; refused: boolean } {
   const [data, setData] = useState<PreValidation | null>(null);
   const [error, setError] = useState('');
+  const [refused, setRefused] = useState(false);
   const [loading, setLoading] = useState(false);
   useEffect(() => {
     if (query === null) return undefined;
     let stale = false;
     setLoading(true);
     setError('');
+    setRefused(false);
     setData(null);
-    apiJson(`/api/payroll/pre-validation?${query}`, undefined, FALLBACK)
+    readPreValidation(query)
       .then((d) => {
         if (stale) return;
-        // The envelope is checked by apiJson; the payload's shape is checked here, so a wrong body is a failure, not a crash.
-        if (!d || !Array.isArray(d.employees) || typeof d.employeesChecked !== 'number') setError(FALLBACK);
+        if (d === 'refused') setRefused(true);
         else setData(d);
       })
       .catch((err: unknown) => {
@@ -36,7 +55,7 @@ export function usePreValidation(query: string | null): { data: PreValidation | 
       .finally(() => { if (!stale) setLoading(false); });
     return () => { stale = true; };
   }, [query]);
-  return { data, error, loading };
+  return { data, error, loading, refused };
 }
 
 export const SEVERITY_TEXT: Record<PreValidationIssue['severity'], string> = {
