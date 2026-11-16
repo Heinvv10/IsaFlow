@@ -180,7 +180,14 @@ describe('Demo reseed: the real run', () => {
     expect(await x('SELECT id FROM budget_versions WHERE id = $1', [dirty.budget])).toHaveLength(1);
     expect(await x('SELECT id FROM tax_return_versions WHERE id = $1', [dirty.trv])).toHaveLength(1);
     expect(await x('SELECT id FROM sars_submissions WHERE id = $1', [dirty.submission])).toHaveLength(1);
-    expect(await x(`SELECT id FROM paystack_payment_requests WHERE company_id = $1 AND purpose = 'customer_invoice'`, [DEMO])).toHaveLength(0);
+    for (const t of ['paystack_payment_requests', 'stitch_payment_requests']) {
+      expect(await x(`SELECT id FROM ${t} WHERE company_id = $1 AND purpose = 'customer_invoice'`, [DEMO])).toHaveLength(0);
+      // The other tenant's invoice requests keep their invoice (the byte-for-byte check covers the rest).
+      expect(await x(`SELECT id FROM ${t} WHERE company_id = $1 AND purpose = 'customer_invoice' AND customer_invoice_id IS NOT NULL`, [OTHER])).toHaveLength(1);
+    }
+    for (const [t, id] of dirty.unlinkedRequests) {
+      expect(await x(`SELECT customer_invoice_id FROM ${t} WHERE id = $1 AND company_id = $2`, [id, DEMO])).toEqual([{ customer_invoice_id: null }]);
+    }
     expect(await x('SELECT id FROM afs_sections WHERE company_id = $1', [DEMO])).toHaveLength(0);
     const banks = await x(`SELECT bank_name, bank_account_number FROM gl_accounts WHERE company_id = $1 AND account_subtype = 'bank'`, [DEMO]);
     expect(banks.length).toBeGreaterThan(0);

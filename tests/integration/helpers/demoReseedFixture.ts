@@ -58,6 +58,11 @@ export async function rowsFor(c: pg.Client, company: string, tag: string, opts: 
   const [ci] = await x(`INSERT INTO customer_invoices (company_id, invoice_number, customer_id, client_id, invoice_date, due_date, subtotal, tax_amount, total_amount, status, created_by)
     VALUES ($1, $2, $3, $3, $4, $4::date + 30, 100, 15, 115, 'sent', $5) RETURNING id`, [company, `${tag}-INV-1`, cu!.id, opts.invoiceDay, ACTOR]);
   await x(`INSERT INTO customer_invoice_items (invoice_id, description, quantity, unit_price, amount) VALUES ($1, 'Work', 1, 100, 100)`, [ci!.id]);
+  // Card and EFT requests for that invoice: a customer_invoice request cannot lose its invoice (CHECK *_pr_invoice_has_invoice).
+  await x(`INSERT INTO paystack_payment_requests (company_id, purpose, customer_invoice_id, paystack_reference, amount_cents, status)
+    VALUES ($1, 'customer_invoice', $2, $3, 11500, 'completed')`, [company, ci!.id, `${tag}-PS-1`]);
+  await x(`INSERT INTO stitch_payment_requests (company_id, purpose, customer_invoice_id, external_reference, amount_cents, status)
+    VALUES ($1, 'customer_invoice', $2, $3, 11500, 'completed')`, [company, ci!.id, `${tag}-ST-1`]);
   const [si] = await x(`INSERT INTO supplier_invoices (company_id, invoice_number, supplier_id, invoice_date, subtotal, tax_amount, total_amount, status, created_by)
     VALUES ($1, $2, $3, $4, 100, 15, 115, 'draft', $5) RETURNING id`, [company, `${tag}-BILL-1`, su!.id, opts.invoiceDay, ACTOR]);
   await x(`INSERT INTO supplier_invoice_items (supplier_invoice_id, description, quantity, unit_price, line_total) VALUES ($1, 'Stock', 1, 100, 100)`, [si!.id]);
@@ -78,7 +83,9 @@ export async function rowsFor(c: pg.Client, company: string, tag: string, opts: 
 }
 
 /** The production Demo's problems, in miniature (PLAN 8.2). */
-export async function dirtyDemo(c: pg.Client): Promise<{ costCentre: string; budget: string; trv: string; submission: string }> {
+export async function dirtyDemo(c: pg.Client): Promise<{
+  costCentre: string; budget: string; trv: string; submission: string; unlinkedRequests: Array<[string, string]>;
+}> {
   const x = q(c);
   await rowsFor(c, DEMO, 'Vumatel Holdings', { invoiceDay: '2027-03-23', journalDay: '2031-01-31', runYear: 2031 });
   for (const n of ['Eskom Holdings SOC Ltd', '[MERGED] Eskom Holdings', '0GP-Golden-Supplier']) await x('INSERT INTO suppliers (company_id, name) VALUES ($1, $2)', [DEMO, n]);
@@ -98,6 +105,11 @@ export async function dirtyDemo(c: pg.Client): Promise<{ costCentre: string; bud
   const [inv] = await x(`SELECT id FROM customer_invoices WHERE company_id = $1 LIMIT 1`, [DEMO]);
   await x(`INSERT INTO paystack_payment_requests (company_id, purpose, customer_invoice_id, paystack_reference, amount_cents, status, payer_name)
     VALUES ($1, 'customer_invoice', $2, 'demo-reseed-fixture-1', 11500, 'completed', 'Metrofibre Networx')`, [DEMO, inv!.id]);
+  // Other purposes may name an invoice too; they are kept, only unlinked.
+  const [psAuth] = await x(`INSERT INTO paystack_payment_requests (company_id, purpose, customer_invoice_id, paystack_reference, amount_cents, status)
+    VALUES ($1, 'authorization', $2, 'demo-reseed-fixture-auth', 100, 'completed') RETURNING id`, [DEMO, inv!.id]);
+  const [stMandate] = await x(`INSERT INTO stitch_payment_requests (company_id, purpose, customer_invoice_id, external_reference, amount_cents, status)
+    VALUES ($1, 'mandate_authorisation', $2, 'demo-reseed-fixture-mandate', 100, 'completed') RETURNING id`, [DEMO, inv!.id]);
   // Generated AFS text that names the old real customers.
   const [afs] = await x(`INSERT INTO afs_documents (company_id, document_type, reporting_framework) VALUES ($1, 'afs', 'ifrs_smes') RETURNING id`, [DEMO]);
   await x(`INSERT INTO afs_sections (document_id, company_id, section_type, ai_narrative) VALUES ($1, $2, 'directors_report', 'Revenue from Vumatel Holdings grew')`, [afs!.id, DEMO]);
@@ -105,7 +117,8 @@ export async function dirtyDemo(c: pg.Client): Promise<{ costCentre: string; bud
   const [ss] = await x(`INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status) VALUES ($1, 'EMP201', '2025-01-01', '2025-01-31', 'submitted') RETURNING id`, [DEMO]);
   const [trv] = await x(`INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, figures, posted_through, finalised_by, sars_submission_id)
     VALUES ($1, 'EMP201', '2025-01-01', '2025-01-31', 1, '{}'::jsonb, now(), 'qa', $2) RETURNING id`, [DEMO, ss!.id]);
-  return { costCentre: String(cc!.id), budget: String(bv!.id), trv: String(trv!.id), submission: String(ss!.id) };
+  return { costCentre: String(cc!.id), budget: String(bv!.id), trv: String(trv!.id), submission: String(ss!.id),
+    unlinkedRequests: [['paystack_payment_requests', String(psAuth!.id)], ['stitch_payment_requests', String(stMandate!.id)]] };
 }
 
 /** count and md5 of every public table with a company_id for one company, plus the child tables reached through it. */
