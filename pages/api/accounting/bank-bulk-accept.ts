@@ -35,15 +35,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   try {
     if (req.method === 'GET') {
-      const { bankAccountId, minConfidence } = req.query;
+      const { bankAccountId, minConfidence, scanAfter } = req.query;
       if (!isUuidParam(bankAccountId)) return apiResponse.badRequest(res, 'bankAccountId is required');
       const wanted = minConfidence === undefined ? undefined : Number(minConfidence);
       if (wanted !== undefined && !Number.isFinite(wanted)) return apiResponse.badRequest(res, 'minConfidence must be a number');
+      if (scanAfter !== undefined && !isUuidParam(scanAfter)) return apiResponse.badRequest(res, 'scanAfter must be an id from a previous preview');
       if (!(await checkReportRateLimit(companyId, 'bank-bulk-accept-preview'))) {
         return apiResponse.tooManyRequests(res, 'Too many previews. Please try again shortly.');
       }
       await assertBankAccountInCompany(companyId, bankAccountId);
-      return apiResponse.success(res, await previewBulkAccept(companyId, userId, bankAccountId, wanted));
+      return apiResponse.success(res, await previewBulkAccept(companyId, userId, bankAccountId, wanted, scanAfter as string | undefined));
     }
 
     const body = (req.body ?? {}) as { action?: string; previewToken?: unknown; runId?: unknown };
