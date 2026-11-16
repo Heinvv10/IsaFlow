@@ -104,6 +104,8 @@ const employeeRecord = (file: string): string[] => {
   return lines.slice(start, lines.indexOf('9999,9999', start) + 1);
 };
 
+// 24 payroll runs created, calculated and approved through the real routes: ~8 s on an idle
+// machine, so vitest's default 10 s hook timeout tripped on a loaded hosted shard (PR #1466).
 beforeAll(async () => {
   const eight = [3, 4, 5, 6, 7, 8, 9, 10];
   ({ f: fx.a, runs: runs.a } = await seed('R3 cert A: credit wipes the tax', 13_000, 4, 2_000, eight));
@@ -114,7 +116,7 @@ beforeAll(async () => {
   ({ f: fx.at64, runs: runs.at64 } = await seed('R3 cert 65 on 1 Mar', 30_000, 2, 5_100, [3], 0, { born: '1962-03-01', idNumber: '6203015009087' }));
   ({ f: fx.noDob, runs: runs.noDob } = await seed('R3 cert no DOB', 30_000, 2, 0, [3], 0, { born: null, idNumber: '5806155009087' }));
   ({ f: fx.mismatch, runs: runs.mismatch } = await seed('R3 cert DOB vs ID', 30_000, 2, 5_100, [3], 0, { born: '1960-06-15', idNumber: '6206155009087' }));
-});
+}, 60_000);
 
 afterAll(async () => {
   try { await cleanSeveranceFixtures(pool, Object.values(fx).filter(Boolean)); } finally { await pool.end(); }

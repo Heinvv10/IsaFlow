@@ -75,6 +75,7 @@ import type { FiscalYearRecord } from '@/modules/accounting/services/gl/fiscalYe
 import type { YearEndChangeRecord } from '@/modules/accounting/services/gl/financialYearEndChangeUndo';
 import type { listAssetBankLinks } from '@/modules/accounting/services/items/assetBankLinksService';
 import type { NotificationFeed } from '@/modules/accounting/services/notifications/userNotificationService';
+import type { preValidateTaxYear } from '@/modules/accounting/services/payroll/preValidationService';
 
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
@@ -167,6 +168,8 @@ interface StaticRoutes extends BudgetStaticRoutes {
     period: { from: string; to: string };
     unclassifiedAccounts: ReturnType<typeof unclassifiedWarning>;
   };
+  // Wave 6 PV. GET only (?taxYear= / ?employeeId= / ?runId=); a 404 never reaches the caller.
+  '/api/payroll/pre-validation': NonNullable<Awaited<ReturnType<typeof preValidateTaxYear>>>;
 }
 
 /**
