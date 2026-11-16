@@ -23,7 +23,17 @@ import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 import { retryDropped } from '../helpers/droppedConnection';
 
-const SANDBOX = { name: '0GP Golden Employee Sandbox', onboardingId: '67a6e8ca-634d-4bd2-bd93-dbfe73b22ff9' };
+// Signed in as the wave-6 QA user (E2E_ADMIN_* = its login, see helpers/w6QaUser.ts) the spec works in that user's one
+// company. On the shared reporting-qa user it kept its own sandbox, and a peer's company switch moved that user off it
+// mid-run: the drawer's employee read then answered 404 in the other company ("Could not load the employee").
+const AS_W6_QA = !!process.env.GOLDEN_QA_W6_EMAIL && process.env.E2E_ADMIN_EMAIL === process.env.GOLDEN_QA_W6_EMAIL;
+const SANDBOX = AS_W6_QA
+  ? { name: '0W6 Golden Sandbox', onboardingId: '0c6f7a1e-6b1d-4a52-9a43-3c5f0b7e0a06' }
+  : { name: '0GP Golden Employee Sandbox', onboardingId: '67a6e8ca-634d-4bd2-bd93-dbfe73b22ff9' };
+// The drawer reads the employee, their pay, bank, run month and final-run state together, and a dev server compiles each
+// route on its first hit. At box load that took more than the 5 s default (the drawer still said "Loading…"; 1 run in
+// ~16, repeat-each=20), which every other wait in this spec already allows for with 30 s.
+const DRAWER_LOAD_MS = 30_000;
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const NEW = '/payroll/employees/new';
 const LIST = '/payroll/employees';
@@ -63,7 +73,15 @@ test.beforeAll(async ({ baseURL }) => {
   expect(u.hostname === 'localhost' && u.port !== '3101', `z4 runs only on a dev/CI localhost port, not ${u.host}`).toBe(true);
   const api = await Api.login(baseURL!);
   try {
-    sandboxId = await findOrCreateSandbox(api, SANDBOX);
+    if (AS_W6_QA) {
+      // Provisioned by scripts/ci/golden/provision-w6-qa.ts, never created here: a missing one is a setup fault to name.
+      const mine = await api.get<{ items: Array<{ companyId: string; companyName: string }> }>('/api/accounting/companies?action=user-companies');
+      const found = mine.items.find((c) => c.companyName === SANDBOX.name)?.companyId;
+      expect(found, `"${SANDBOX.name}" does not exist for this user: run bun scripts/ci/golden/provision-w6-qa.ts`).toBeTruthy();
+      sandboxId = found!;
+    } else {
+      sandboxId = await findOrCreateSandbox(api, SANDBOX);
+    }
     await switchApiCompany(api, sandboxId);
     const components = await api.get<Array<{ id: string; name: string; sarsSourceCode: string }>>('/api/payroll/components');
     const basic = components.find((c) => c.sarsSourceCode === '3601')
@@ -151,14 +169,14 @@ test('the drawer opens from the list, by keyboard and by a row click', async ({ 
   await quickView.focus();
   await page.keyboard.press('Enter');
   const drawer = page.getByRole('dialog');
-  await expect(drawer.getByText('Basic Salary')).toBeVisible();
-  await expect(drawer.getByText(RANDS)).toBeVisible();
+  await expect(drawer.getByText('Basic Salary')).toBeVisible({ timeout: DRAWER_LOAD_MS });
+  await expect(drawer.getByText(RANDS)).toBeVisible({ timeout: DRAWER_LOAD_MS });
   await page.keyboard.press('Escape');
   await expect(drawer).toBeHidden();
   await expect(quickView).toBeFocused();
 
   await row.getByRole('cell', { name: /permanent/i }).click();
-  await expect(drawer.getByText(RANDS)).toBeVisible();
+  await expect(drawer.getByText(RANDS)).toBeVisible({ timeout: DRAWER_LOAD_MS });
   await drawer.getByRole('link', { name: 'Open full profile' }).click();
   await page.waitForURL(/\/payroll\/employees\/[0-9a-f-]{36}$/, { timeout: 30_000 });
 });
@@ -289,7 +307,7 @@ for (const theme of THEMES) {
     await expect(row).toBeVisible({ timeout: 30_000 });
     await row.getByRole('cell', { name: /permanent/i }).click();
     const drawer = page.getByRole('dialog');
-    await expect(drawer.getByText(RANDS)).toBeVisible();
+    await expect(drawer.getByText(RANDS)).toBeVisible({ timeout: DRAWER_LOAD_MS });
     await expectAxeClean(page);
     await snap(page, 'employee-drawer-1568', theme);
     await page.setViewportSize({ width: 390, height: 844 });
@@ -312,6 +330,6 @@ for (const theme of THEMES) {
     const frame = row.locator('xpath=ancestor::table/parent::div');
     expect(await frame.evaluate((el) => getComputedStyle(el).overflowX)).toBe('auto');
     await row.getByRole('cell').first().click(); // Emp #: no link in it
-    await expect(page.getByRole('dialog').getByText(RANDS)).toBeVisible();
+    await expect(page.getByRole('dialog').getByText(RANDS)).toBeVisible({ timeout: DRAWER_LOAD_MS });
   });
 }
