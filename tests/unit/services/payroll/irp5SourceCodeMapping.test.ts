@@ -59,3 +59,41 @@ describe('IRP5 UIF and SDL codes', () => {
     expect(cert.netRemuneration).toBe(242_863.88);
   });
 });
+
+/**
+ * Wave 6 EF: every field goes to the code the PAYE BRS defines for it. SARS PAYE BRS - PAYE Employer Reconciliation
+ * V25.3.0 (Jun-26; PDF sha256 14ec0e57…), section 6.5-6.7, PDF pages: 3601 income p.80; 3605 annual payment, 3606
+ * commission and 3607 overtime p.82; 3701 travel allowance p.85 (3702 is REIMBURSIVE travel, p.86); 4001 pension
+ * fund p.101; 4005 medical scheme fees p.101 (4003 is the PROVIDENT fund, 4004 is arrear provident, "not applicable
+ * from 2010; include in code 4003"); 4006 retirement annuity fund p.102; 4102 PAYE, 4141 UIF and 4142 SDL p.109.
+ * The mapping emitted overtime as 3801 (general fringe benefits, p.92), commission as 3701, travel as 3702, medical
+ * aid as 4003 and the RA as 4004.
+ */
+describe('IRP5 income and deduction codes follow the PAYE BRS V25.3.0', () => {
+  const every: IRP5EmployeeData = {
+    grossSalary: 3_600_000, commission: 110_000, overtime: 120_000, bonus: 300_000, travelAllowance: 240_000,
+    pensionContribEmployee: 216_000, medicalAidEmployee: 180_000, retirementAnnuity: 90_000,
+    paye: 720_000, uifEmployee: 2_136.12, uifEmployer: 2_136.12, sdl: 42_600,
+  };
+  const codeOf = async (amount: number) => (await calculateIRP5SourceCodes(every, 2027)).filter((c) => c.amount === amount).map((c) => c.code);
+
+  it.each([
+    ['grossSalary', '3601', 3_600_000],
+    ['bonus', '3605', 300_000],
+    ['commission', '3606', 110_000],
+    ['overtime', '3607', 120_000],
+    ['travelAllowance', '3701', 240_000],
+    ['pensionContribEmployee', '4001', 216_000],
+    ['medicalAidEmployee', '4005', 180_000],
+    ['retirementAnnuity', '4006', 90_000],
+    ['paye', '4102', 720_000],
+    ['sdl', '4142', 42_600],
+  ] as const)('%s -> %s', async (_field, code, amount) => {
+    expect(await codeOf(amount)).toEqual([code]);
+  });
+
+  it('never emits 3801 (fringe), 3702 (reimbursive travel), 4003 (provident) or 4004 (deprecated) for these fields', async () => {
+    const codes = (await calculateIRP5SourceCodes(every, 2027)).map((c) => c.code);
+    for (const wrong of ['3801', '3702', '4003', '4004']) expect(codes).not.toContain(wrong);
+  });
+});

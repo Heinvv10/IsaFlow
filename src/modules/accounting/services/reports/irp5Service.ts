@@ -72,19 +72,23 @@ interface CodeMapping {
 
 const field = (key: keyof IRP5EmployeeData) => (data: IRP5EmployeeData): number => data[key];
 
+// Codes per SARS PAYE BRS - PAYE Employer Reconciliation V25.3.0 (Jun-26), section 6.5-6.7 (PDF pages): 3601
+// income p.80; 3605 annual payment, 3606 commission, 3607 overtime p.82; 3701 travel allowance p.85 (3702 is
+// reimbursive travel); 4001 pension fund, 4005 medical scheme fees p.101 (4003 is the provident fund; 4004,
+// arrear provident, is not applicable from 2010); 4006 retirement annuity fund p.102; 4102, 4141, 4142 p.109.
 // 4141 = total UIF (employee + employer) and 4142 = SDL on the IRP5. 4150 is a
 // reason code for non-deduction of tax, not an amount, so it is never emitted.
-// The sars_source_codes rows for 4141/4142 carry the old labels (employee UIF /
+// The legacy-seed sars_source_codes rows for 4141/4142 carry the old labels (employee UIF /
 // employer UIF), hence the description overrides.
 const CODE_MAPPING: CodeMapping[] = [
   { code: '3601', amount: field('grossSalary') },
-  { code: '3701', amount: field('commission') },
-  { code: '3801', amount: field('overtime') },
+  { code: '3606', amount: field('commission') },
+  { code: '3607', amount: field('overtime') },
   { code: '3605', amount: field('bonus') },
-  { code: '3702', amount: field('travelAllowance') },
+  { code: '3701', amount: field('travelAllowance') },
   { code: '4001', amount: field('pensionContribEmployee') },
-  { code: '4003', amount: field('medicalAidEmployee') },
-  { code: '4004', amount: field('retirementAnnuity') },
+  { code: '4005', amount: field('medicalAidEmployee') },
+  { code: '4006', amount: field('retirementAnnuity') },
   { code: '4102', amount: field('paye') },
   {
     code: '4141',
