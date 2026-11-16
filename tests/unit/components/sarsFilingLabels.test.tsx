@@ -28,3 +28,11 @@ describe('SARS filing record labels', () => {
     expect(screen.getByText('Sent to SARS (processing)')).toBeTruthy();
   });
 });
+
+describe('the detail modal times', () => {
+  it('shows when the record was created, with its real time (not 00:00)', () => {
+    render(<SubmissionDetailModal detail={detail({ createdAt: '2026-11-16T12:05:00.000Z' })} onClose={vi.fn()} />);
+    expect(screen.getByText('16 Nov 2026, 14:05')).toBeTruthy();
+    expect(screen.queryByText(/16 Nov 2026, 00:00/)).toBeNull();
+  });
+});

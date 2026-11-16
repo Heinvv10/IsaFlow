@@ -1,5 +1,5 @@
 /**
- * A sars_submissions row's submitted_at arrives from pg as a Date: the API sends it as ISO 8601,
+ * A sars_submissions row's timestamps arrive from pg as Dates: the API sends them as ISO 8601 with the time,
  * never Date.toString() (which the Filings page printed raw: "... GMT+0200 (South Africa Standard Time)").
  */
 import { describe, expect, it, vi } from 'vitest';
@@ -15,6 +15,15 @@ const row = {
   submission_reference: 'R', submitted_at: new Date('2026-11-16T14:05:08.000Z'), submitted_by: null, efiling_channel: null,
   notes: null, created_at: new Date('2026-11-16T10:00:00.000Z'), updated_at: new Date('2026-11-16T14:05:08.000Z'),
 };
+
+describe('createdAt and updatedAt', () => {
+  it('keep the time: ISO 8601, not the date alone', async () => {
+    vi.mocked(sql).mockResolvedValue([row] as never);
+    const [s] = await listSubmissions('c1');
+    expect(s!.createdAt).toBe('2026-11-16T10:00:00.000Z');
+    expect(s!.updatedAt).toBe('2026-11-16T14:05:08.000Z');
+  });
+});
 
 describe('submittedAt', () => {
   it('a Date submitted_at is sent as ISO 8601, never with "GMT"', async () => {

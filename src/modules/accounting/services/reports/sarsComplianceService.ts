@@ -47,8 +47,9 @@ function mapSubmissionRow(row: DbRow): SARSSubmission {
     submittedBy: row.submitted_by ? String(row.submitted_by) : null,
     efilingChannel: row.efiling_channel ? String(row.efiling_channel) : null,
     notes: row.notes ? String(row.notes) : null,
-    createdAt: fmtDate(row.created_at) || String(row.created_at),
-    updatedAt: fmtDate(row.updated_at) || String(row.updated_at),
+    // Timestamps with their time (the detail modal shows it); fmtDate kept only the day ("00:00").
+    createdAt: toIsoTimestamp(row.created_at as Date | string) ?? '',
+    updatedAt: toIsoTimestamp(row.updated_at as Date | string) ?? '',
   };
 }
 
