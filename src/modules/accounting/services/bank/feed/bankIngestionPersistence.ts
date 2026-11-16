@@ -66,16 +66,19 @@ export async function closeSyncLogFailed(companyId: string, logId: string, conne
     WHERE id = ${connectionId}::UUID AND company_id = ${companyId}::UUID`;
 }
 
-/** Written after persist, and only when rows were inserted, so a redelivery leaves no empty batch. */
+/**
+ * Written after persist, and only when rows were inserted, so a redelivery leaves no empty batch. balance_source
+ * (998) is 'not_in_file': a feed delivery states no statement balance (a row's optional `balance` is not used).
+ */
 export async function createImportBatch(
   companyId: string, id: string, bankAccountId: string, statementDate: string, count: number,
   sourceLabel: string, bankFormat: string | null, userId: string,
 ): Promise<void> {
   await sql`
     INSERT INTO bank_import_batches (id, company_id, bank_account_id, statement_date, bank_format,
-      transaction_count, source_filename, imported_by, import_channel)
+      transaction_count, source_filename, imported_by, balance_source, import_channel)
     VALUES (${id}::UUID, ${companyId}::UUID, ${bankAccountId}::UUID, ${statementDate}::DATE, ${bankFormat},
-      ${count}, ${sourceLabel}, ${userId}, 'extension')`; // step 2 provenance: the extension token's user, no file
+      ${count}, ${sourceLabel}, ${userId}, 'not_in_file', 'extension')`; // step 2 provenance: the extension token's user, no file
 }
 
 /** Existing provider-identified rows, locked for the rest of the request. */

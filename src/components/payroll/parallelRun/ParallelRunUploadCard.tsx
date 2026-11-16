@@ -4,6 +4,7 @@
  */
 import { useRef, useState } from 'react';
 import { Upload, Loader2 } from 'lucide-react';
+import { Select } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 
 const MONTHS = [
@@ -66,26 +67,16 @@ export function ParallelRunUploadCard({ onImported }: Props) {
         gross remuneration including allowances — match what IsaFlow&rsquo;s run calls gross.
       </p>
       <div className="flex flex-wrap items-end gap-3">
-        <label className="text-xs text-[var(--ff-text-secondary)]">
-          Period month
-          <select
-            value={periodMonth}
-            onChange={(e) => setPeriodMonth(Number(e.target.value))}
-            className="mt-1 block rounded-lg border border-[var(--ff-border)] bg-[var(--ff-bg-primary)] px-2 py-1.5 text-sm text-[var(--ff-text-primary)]"
-          >
-            {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-          </select>
-        </label>
-        <label className="text-xs text-[var(--ff-text-secondary)]">
-          Year
-          <select
-            value={periodYear}
-            onChange={(e) => setPeriodYear(Number(e.target.value))}
-            className="mt-1 block rounded-lg border border-[var(--ff-border)] bg-[var(--ff-bg-primary)] px-2 py-1.5 text-sm text-[var(--ff-text-primary)]"
-          >
-            {years.map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
-        </label>
+        <div className="w-36">
+          <Select id="parallel-run-period-month" label="Period month" labelClassName="text-xs font-normal text-[var(--ff-text-secondary)] mb-1"
+            options={MONTHS.map((m, i) => ({ value: String(i + 1), label: m }))}
+            value={String(periodMonth)} onChange={(v) => { if (v) setPeriodMonth(Number(v)); }} />
+        </div>
+        <div className="w-28">
+          <Select id="parallel-run-period-year" label="Year" labelClassName="text-xs font-normal text-[var(--ff-text-secondary)] mb-1"
+            options={years.map((y) => ({ value: String(y), label: String(y) }))}
+            value={String(periodYear)} onChange={(v) => { if (v) setPeriodYear(Number(v)); }} />
+        </div>
         <label className="text-xs text-[var(--ff-text-secondary)]">
           Source system
           <input

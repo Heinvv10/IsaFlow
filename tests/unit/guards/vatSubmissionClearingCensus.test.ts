@@ -20,7 +20,6 @@ import { resolve } from 'node:path';
 const ROOT = resolve(__dirname, '../../..');
 
 const ALLOWED: Record<string, string> = {
-  'src/modules/accounting/services/bank/bankAllocationService.ts': 'posting path: writes a VAT leg, sums no period',
   'src/modules/accounting/services/bank/bankRuleAutoPostLine.ts': 'posting path: writes a VAT leg, sums no period',
   'src/modules/accounting/services/bank/bankTxQueryFragments.ts': 'reads the VAT of ONE bank line\'s own allocation journal (documented V-05 census note)',
   'src/modules/accounting/services/capture/bankAttachClaimConflict.ts': 'attach-time guard: does ONE bank line\'s journal, or ONE document\'s journal, debit input VAT; the clearing journal only credits it and has no document or bank line',

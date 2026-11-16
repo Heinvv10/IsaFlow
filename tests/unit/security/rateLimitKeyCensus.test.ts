@@ -41,6 +41,8 @@ const PINNED: Record<string, string> = {
   'pages/api/payroll/employees/[id]/payslips.ts | `payslip-history:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   'pages/api/payroll/employees/[id]/fringe-benefits.ts | `fringe-benefits:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   'pages/api/payroll/employees/[id]/has-final-run.ts | `has-final-run:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
+  'pages/api/payroll/pre-validation.ts | `pre-validation:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
+  'pages/api/payroll/employees/[id]/readiness.ts | `employee-readiness:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   'pages/api/accounting/sars/return-drill.ts | `return-drill:${ret}:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   'pages/api/accounting/sars/vat201-late-claims.ts | `vat201-late-claims:u:${user.id}`': 'per-user report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   'pages/api/accounting/sars/returns/[form]/file.ts | `return-file:u:${userId}`': 'per-user filing name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit',

@@ -65,7 +65,7 @@ export function ModuleSetupChecklist({ progress }: { progress: SetupProgress | n
       className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5"
     >
       <div className="mb-2 flex items-center justify-between">
-        <h3 id="setup-checklist-title" className="text-sm font-semibold text-[var(--ff-text-primary)]">Finish setting up</h3>
+        <h2 id="setup-checklist-title" className="text-sm font-semibold text-[var(--ff-text-primary)]">Finish setting up</h2>
         <span className="text-xs text-[var(--ff-text-secondary)]">{progress.doneCount} of {progress.totalCount} done</span>
       </div>
       {progress.modules.map((m) => <ModuleSection key={m.id} module={m} />)}

@@ -18,7 +18,7 @@
  */
 
 import type { BankCsvParseResult, ParsedBankTransaction } from '../types/bank.types';
-import { parseCsvLines, parseAmount, normalizeDateFlexible } from './bankCsvParserUtils';
+import { parseCsvLines, parseAmount, normalizeDateFlexible, readBalanceCell, isNoiseRow } from './bankCsvParserUtils';
 
 export interface MappedColumns {
   date: number;
@@ -86,13 +86,6 @@ export function mapCsvColumns(header: string[]): MappedColumns | null {
     balance: balance === -1 ? null : balance,
     reference: reference === -1 ? null : reference,
   };
-}
-
-/** True when the row is padding rather than data: blank, or a trailing total. */
-function isNoiseRow(fields: string[]): boolean {
-  if (fields.every(f => f.trim() === '')) return true;
-  const first = fields[0]!.trim().toLowerCase();
-  return first === 'total' || first === 'totals' || first === 'closing balance';
 }
 
 /**
@@ -182,9 +175,9 @@ export function parseHeaderMappedCsv(
       if (reference !== '') tx.reference = reference;
     }
 
-    if (columns.balance !== null && fields.length > columns.balance) {
-      const balance = parseAmount(fields[columns.balance]!);
-      if (balance !== null) tx.balance = balance;
+    if (columns.balance !== null) {
+      const balance = readBalanceCell(result, fields, columns.balance, i + 1);
+      if (balance !== undefined) tx.balance = balance;
     }
 
     result.transactions.push(tx);
