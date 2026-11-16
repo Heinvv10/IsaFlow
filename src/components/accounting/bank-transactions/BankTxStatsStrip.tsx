@@ -12,7 +12,7 @@ import type { BankAccountSummary } from './useBankTxSummary';
 
 interface Props {
   bank: BankAccountSummary;
-  /** The list total while the New tab is open with filters narrowing it, else null. */
+  /** The list total while the New tab is open with filters narrowing it and the list loaded, else null. It includes lines pending at the bank. */
   shown: number | null;
   /** Opens the Provisional tab. */
   onShowProvisional: () => void;
@@ -53,13 +53,18 @@ export function BankTxStatsStrip({ bank, shown, onShowProvisional }: Props) {
             )}
           </Stat>
           <Stat testid="tile-suggested" value={c.suggested} label="Suggested" className="text-sky-700 dark:text-sky-400" />
-          <Stat testid="tile-unallocated" value={c.unallocated} label="Unallocated" className="text-amber-700 dark:text-amber-400" />
+          <Stat testid="tile-unallocated" value={c.unallocated} label="Unallocated" className="text-amber-800 dark:text-amber-400" />
           <Stat testid="tile-excluded" value={c.excluded} label="Excluded" className="text-[var(--ff-text-primary)]" />
           <div data-testid="tile-awaiting-review"
             className="min-w-[6.5rem] rounded-lg border-2 border-dashed border-[var(--ff-border-light)] px-4 py-3">
             <p className="text-2xl font-bold tabular-nums text-[var(--ff-text-primary)]">{c.awaitingReview}</p>
             <p className="text-xs text-[var(--ff-text-secondary)]">Awaiting review</p>
-            {shown !== null && <p data-testid="tile-awaiting-shown" className="text-xs text-[var(--ff-text-tertiary)]">{shown} shown</p>}
+            {shown !== null && (
+              <p data-testid="tile-awaiting-shown" className="text-xs text-[var(--ff-text-tertiary)]">
+                {/* The New-tab list also carries the lines pending at the bank, which the tile does not count. */}
+                {shown} shown{c.pendingAtBank > 0 ? ' (incl. pending at bank)' : ''}
+              </p>
+            )}
             {c.pendingAtBank > 0 && <p data-testid="tile-pending-at-bank" className="text-xs text-[var(--ff-text-tertiary)]">+{c.pendingAtBank} pending at bank</p>}
           </div>
         </div>

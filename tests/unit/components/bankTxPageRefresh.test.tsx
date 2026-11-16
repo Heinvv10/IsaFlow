@@ -101,6 +101,16 @@ describe('the bank transactions page refreshes the summary on every mutating pat
   it('an undo toast (reloadCurrentView)', () => fires('undo toast', () => cap.actionsDeps.reloadCurrentView!()));
   it('saveSelection success refreshes the summary only (the list is unchanged)', () =>
     fires('save selection', () => cap.actionsDeps.refreshBankAccounts!(), { list: false }));
+  it('saveSelection is handed a DEBOUNCED summary refresh: a burst of row edits costs one fetch', async () => {
+    await loaded();
+    const s0 = summaryFetches(), l0 = listFetches();
+    await act(async () => { for (let i = 0; i < 4; i++) cap.actionsDeps.refreshSummarySoon!(); });
+    expect(summaryFetches()).toBe(s0); // nothing yet: inside the trailing window
+    await waitFor(() => expect(summaryFetches()).toBe(s0 + 1), { timeout: 3000 });
+    await new Promise(r => setTimeout(r, 700)); // a second fetch would have landed by now
+    expect(summaryFetches()).toBe(s0 + 1);
+    expect(listFetches()).toBe(l0);
+  });
   it('the ungrouped-accounts hint, after a move, refreshes the summary only', () =>
     fires('ungrouped hint', () => cap.cards.onAccountsChanged!(), { list: false }));
 });

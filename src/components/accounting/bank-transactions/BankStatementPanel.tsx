@@ -60,6 +60,8 @@ export function BankStatementPanel({ bank }: { bank: BankAccountSummary }) {
   const latestHasBalance = latest.closingCents !== null;
   // The Difference is always measured at the last statement WITH a closing balance, on its own date.
   const basis = lastWithBalance;
+  // The label and the figure agree: the ledger at the statement date only when the summary has it, else today's.
+  const atStatement = basis !== null && ledgerAtStatementCents !== null;
   const unchecked = !!(basis?.balanceSource && UNCHECKED_SOURCE_CAVEAT[basis.balanceSource]);
   const reconciled = !unchecked && differenceCents === 0;
   const diffTone = reconciled ? 'text-teal-700 dark:text-teal-400' : 'text-amber-700 dark:text-amber-400';
@@ -101,8 +103,8 @@ export function BankStatementPanel({ bank }: { bank: BankAccountSummary }) {
             <Caveat source={basis.balanceSource} />
           </>
         )}
-        <Row label={`Ledger balance (as at ${formatDisplayDate(basis ? basis.statementDate : bank.ledgerAsAt)})`} testid="statement-ledger">
-          <span className="tabular-nums">{fmtCents(basis && ledgerAtStatementCents !== null ? ledgerAtStatementCents : bank.ledgerCents)}</span>
+        <Row label={`Ledger balance (as at ${formatDisplayDate(atStatement ? basis.statementDate : bank.ledgerAsAt)})`} testid="statement-ledger">
+          <span className="tabular-nums">{fmtCents(atStatement ? ledgerAtStatementCents : bank.ledgerCents)}</span>
         </Row>
         {basis && differenceCents !== null && (
           <Row label={unchecked ? 'Difference (not checked)' : `Difference (as at ${formatDisplayDate(basis.statementDate)})`} testid="statement-difference">

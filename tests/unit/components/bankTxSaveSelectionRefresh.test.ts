@@ -40,4 +40,21 @@ describe('saveSelection', () => {
     await vi.waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
     expect(d.refreshBankAccounts).not.toHaveBeenCalled();
   });
+
+  it('with a debounced refresh handed in, a saved selection uses it and not the immediate one', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ success: true, data: {} }), { status: 200 }));
+    const d = { ...deps(), refreshSummarySoon: vi.fn() };
+    buildBankTxActions(d).saveSelection('t1', 'account', 'gl1');
+    await vi.waitFor(() => expect(d.refreshSummarySoon).toHaveBeenCalledTimes(1));
+    expect(d.refreshBankAccounts).not.toHaveBeenCalled();
+  });
+
+  it('a dimension save changes no count: it refreshes nothing', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ success: true, data: {} }), { status: 200 }));
+    const d = { ...deps(), refreshSummarySoon: vi.fn() };
+    buildBankTxActions(d).saveDimensions('t1', 'c1', '', '');
+    await vi.waitFor(() => expect(vi.mocked(apiFetch)).toHaveBeenCalledTimes(1));
+    expect(d.refreshSummarySoon).not.toHaveBeenCalled();
+    expect(d.refreshBankAccounts).not.toHaveBeenCalled();
+  });
 });

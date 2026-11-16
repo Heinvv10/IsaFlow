@@ -28,12 +28,19 @@ export default function NewReconciliationPage() {
     statementBalance: 0,
   });
 
-  // The bank-transactions statement panel's "Reconcile" link prefills the form (validated: it is a link).
+  // The bank-transactions statement panel's "Reconcile" link prefills the form (validated: it is a link). The account
+  // goes through the selector's own preselect, which only fires for an account among its options (an inactive one that
+  // is not leaves Start disabled); the date through the date gate's reset, so the field shows it.
+  const [prefillAccount, setPrefillAccount] = useState<string | null>(null);
+  const [balanceText, setBalanceText] = useState('');
+  const resetDate = dates.reset;
   useEffect(() => {
     if (!router.isReady) return;
     const pre = parseReconcilePrefill(router.query);
-    if (Object.keys(pre).length > 0) setForm(f => ({ ...f, ...pre }));
-  }, [router.isReady, router.query]);
+    if (pre.bankAccountId) setPrefillAccount(pre.bankAccountId);
+    if (pre.statementDate) { setForm(f => ({ ...f, statementDate: pre.statementDate! })); resetDate('statementDate'); }
+    if (pre.statementBalance !== undefined) { setForm(f => ({ ...f, statementBalance: pre.statementBalance! })); setBalanceText(String(pre.statementBalance)); }
+  }, [router.isReady, router.query, resetDate]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -91,12 +98,13 @@ export default function NewReconciliationPage() {
 
             <BankAccountSelector
               value={form.bankAccountId || null}
+              initialValue={prefillAccount}
               onChange={(id) => setForm(f => ({ ...f, bankAccountId: id }))}
             />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <DateField label="Statement Date" required name="statementDate" value={form.statementDate || null}
+                <DateField label="Statement Date" required name="statementDate" value={form.statementDate || null} resetKey={dates.resetKey('statementDate')}
                   onChange={dates.bind('statementDate', iso => setForm(f => ({ ...f, statementDate: iso })), form.statementDate)} />
               </div>
 
@@ -106,8 +114,8 @@ export default function NewReconciliationPage() {
                   type="number"
                   name="statementBalance"
                   step="0.01"
-                  value={form.statementBalance || ''}
-                  onChange={e => setForm(f => ({ ...f, statementBalance: Number(e.target.value) }))}
+                  value={balanceText}
+                  onChange={e => { setBalanceText(e.target.value); setForm(f => ({ ...f, statementBalance: Number(e.target.value) })); }}
                   className="ff-input w-full"
                   placeholder="e.g. 125000.00"
                   required

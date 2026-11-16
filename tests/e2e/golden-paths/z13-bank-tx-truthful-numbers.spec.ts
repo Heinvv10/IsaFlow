@@ -1,15 +1,18 @@
 /**
  * Golden path (z13): the bank transactions page tells the truth about its numbers (WP1 "Truthful numbers", PR-C).
  *
- * Data-independent and read-only, so it also runs in the post-deploy verify (no axe, no write, no fixed figure): it
- * asserts the SHAPE of what the page shows, whatever company and accounts it is run against.
- *  - the card's balance is the labelled ledger ("Ledger R…"), not an unlabelled figure, and carries no glyph-only
- *    number (no check mark or delta sign);
+ * Data-independent, so it also runs in the post-deploy verify (no axe, no created data, no fixed figure, and a red run
+ * rolls the deploy back): it asserts the SHAPE of what the page shows, whatever company and accounts it runs against,
+ * including a company with no bank account (the empty state) or with only group cards. Loading the page is not
+ * strictly read-only: for a write role it fires the idempotent POST bank-relink-transfers, which links transfer pairs
+ * that already exist and changes nothing otherwise.
+ *  - the card's balance is the labelled ledger ("Ledger R…"), with no glyph-only number (no check mark or delta sign);
  *  - the page has no "GL Balance" label (the old widget's name for a figure that was not the ledger);
  *  - the statement panel's balance row is a money figure or says why there is none, never a bare "—";
  *  - Allocated + Suggested + Unallocated + Excluded equals the strip's data-posted-lines;
  *  - when an account has provisional lines, "incl. n provisional" opens the Provisional tab.
- * The figures themselves are proved by tests/integration/bank-account-summary-*.int.test.ts.
+ * Every optional element is guarded with count() (instant), never with an auto-waiting read, so an absent element
+ * cannot burn the timeout. The figures themselves are proved by tests/integration/bank-account-summary-*.int.test.ts.
  */
 import { expect, test } from '@playwright/test';
 
@@ -24,23 +27,27 @@ const REASONS = [
 test('bank transactions: labelled ledger, honest statement panel, tiles that sum to the posted lines', async ({ page }) => {
   await page.goto(BANK);
   const strip = page.getByTestId('bank-tx-stats-strip');
-  await expect(strip, 'an account is selected and its strip loads').toBeVisible({ timeout: 45_000 });
-
-  // The card: "Ledger R…", no glyph-only figure.
-  const card = page.getByTestId('card-ledger').first();
-  await expect(card).toHaveText(/Ledger\s+(?:−)?R\s?\d/);
-  const cardText = await page.getByTestId('bank-account-card').first().textContent().catch(() => null);
-  if (cardText !== null) expect(cardText).not.toMatch(/[✓Δ]/);
-
-  // The old widget's label for a figure that was not the ledger.
+  const empty = page.getByText('No bank accounts configured');
+  // Either an account is selected and its strip loads, or the company has no bank account. A load error is neither.
+  await expect(strip.or(empty)).toBeVisible({ timeout: 45_000 });
+  await expect(page.getByTestId('bank-summary-error')).toHaveCount(0);
   await expect(page.getByText('GL Balance')).toHaveCount(0);
+  if (await empty.count() > 0) return;
+
+  // The cards: "Ledger R…" on every card (primary or group), no glyph-only figure.
+  const ledgers = page.getByTestId('card-ledger');
+  expect(await ledgers.count(), 'an account card is shown').toBeGreaterThan(0);
+  await expect(ledgers.first()).toHaveText(/Ledger\s+(?:−)?R\s?\d/);
+  for (const card of await page.locator('[data-testid="bank-account-card"], [data-testid="bank-group-card"]').all()) {
+    expect((await card.textContent()) ?? '').not.toMatch(/[✓Δ]/);
+  }
 
   // The statement panel: a figure, or the reason there is none, or "no statement yet" — never a bare dash.
   const panel = page.getByTestId('bank-statement-panel');
   await expect(panel).toBeVisible();
   const closing = panel.getByTestId('statement-closing');
   if (await closing.count() > 0) {
-    const text = ((await closing.first().textContent()) ?? '').replace(/ /g, ' ');
+    const text = ((await closing.first().textContent()) ?? '').replace(/\u00A0/g, ' ');
     expect(MONEY.test(text) || REASONS.some((r) => text.includes(r)), `statement balance row says: ${text}`).toBe(true);
   } else {
     await expect(panel).toContainText('No statement imported yet');

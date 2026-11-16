@@ -17,6 +17,7 @@ import { BankTxFilters } from '@/components/accounting/bank-transactions/BankTxF
 import { BankTxBatchPanel } from '@/components/accounting/bank-transactions/BankTxBatchPanel';
 import { BankTxPageModals } from '@/components/accounting/bank-transactions/BankTxPageModals';
 import { useBankTxModalState } from '@/components/accounting/bank-transactions/useBankTxModalState';
+import { useBankTxSelection } from '@/components/accounting/bank-transactions/useBankTxSelection';
 import { useBankTxSummary } from '@/components/accounting/bank-transactions/useBankTxSummary';
 import { BankTxSummaryNotice } from '@/components/accounting/bank-transactions/BankTxSummaryNotice';
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
@@ -35,6 +36,7 @@ import { BankTxPagination, BankTxReviewBar } from '@/components/accounting/bank-
 import { BankTxTabs, type BankTxTab as Tab } from '@/components/accounting/bank-transactions/BankTxTabs';
 import { useLlmResultPoll } from '@/components/accounting/bank-transactions/useLlmResultPoll';
 import { useSeedRowSelections } from '@/components/accounting/bank-transactions/useSeedRowSelections';
+import { awaitingShown, filtersActive, transferTargetsFor } from '@/components/accounting/bank-transactions/bankTxPageView';
 import { bankTxQueryParams } from '@/components/accounting/bank-transactions/bankTxQuery';
 import type { ReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
 import { BankTxListFrame, BANK_TX_PAGE_SIZE as PAGE_SIZE } from '@/components/accounting/bank-transactions/BankTxListFrame';
@@ -51,26 +53,9 @@ export default function BankTransactionsPage() {
   const [buOptions, setBuOptions] = useState<SelectOption[]>([]);
   const summary = useBankTxSummary();
   const bankAccounts = summary.accounts;
-  const [selectedBank, setSelectedBank] = useState('');
+  const [selectedBank, setSelectedBank] = useBankTxSelection(bankAccounts, router.query.account_id);
   const [suppliersStatus, setSuppliersStatus] = useState<SuppliersStatus>('loading');
-  const didApplyQueryParam = useRef(false);
   useBankTxRefData({ setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSuppliersStatus });
-  // Default selection: the first ACTIVE account (an inactive one holding a balance is selectable but never the default).
-  useEffect(() => {
-    if (bankAccounts.length > 0) setSelectedBank(prev => prev || (bankAccounts.find(b => b.isActive) ?? bankAccounts[0]!).id);
-  }, [bankAccounts]);
-
-  // Pre-select bank account from query param (e.g. ?account_id=...)
-  useEffect(() => {
-    if (didApplyQueryParam.current) return;
-    const accountId = router.query.account_id as string | undefined;
-    if (!accountId || bankAccounts.length === 0) return;
-    const match = bankAccounts.find(b => b.id === accountId);
-    if (match) {
-      setSelectedBank(accountId);
-      didApplyQueryParam.current = true;
-    }
-  }, [router.query.account_id, bankAccounts]);
   // Transaction list
   const [transactions, setTransactions] = useState<BankTx[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -157,17 +142,13 @@ export default function BankTransactionsPage() {
     transactions, glAccounts, bankAccounts, selectedBank, selectedIds, rowSelections, batchType,
     excludingTxId: m.excludingTxId, createEntityTxId: m.createEntityTxId,
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds, setShowBatchEdit,
-    setRulePrompt: m.setRulePrompt, setExcludingTxId: m.setExcludingTxId, excludeOutcome: m.excludeOutcome, loadTransactions, refreshBankAccounts: () => void refreshSummary(),
+    setRulePrompt: m.setRulePrompt, setExcludingTxId: m.setExcludingTxId, excludeOutcome: m.excludeOutcome, loadTransactions, refreshBankAccounts: () => void refreshSummary(), refreshSummarySoon: summary.refreshSoon,
     reloadCurrentView: afterMutation,
     onLlmResidual: pollForLlmResults,
   });
 
   const bank = bankAccounts.find(b => b.id === selectedBank);
-  // Transfer targets — every other bank GL account (source bank excluded).
-  // Sub-accounts carry their group name so 20+ paycards stay scannable.
-  const transferTargets: SelectOption[] = bankAccounts
-    .filter(b => b.id !== selectedBank && b.isActive)
-    .map(b => ({ id: b.id, code: b.accountCode, name: b.groupName ? `${b.groupName} › ${b.accountName}` : b.accountName }));
+  const transferTargets: SelectOption[] = transferTargetsFor(bankAccounts, selectedBank); // active accounts only
   // Pending rows are read-only — select-all only ever selects the actionable
   // (non-pending) rows, so "all selected" is judged against that subset too.
   const selectableTxIds = actionableIds(transactions, transactions.map(t => t.id));
@@ -177,10 +158,8 @@ export default function BankTransactionsPage() {
   function withReset<T>(fn: (v: T) => void) { return (v: T) => { fn(v); setPage(1); }; }
 
   const noBankAccounts = summary.status === 'ready' && bankAccounts.length === 0;
-  // The New tab's "n shown": only while filters narrow it (otherwise the tile's count already is the list).
-  const filtersActive = [debouncedSearch, fromDate, toDate, fromAmount, toAmount].some(v => v !== '')
-    || [allocationFilter, txType, allocType, hasSuggestion].some(v => v !== 'all');
-  const shown = tab === 'new' && filtersActive ? total : null;
+  const shown = awaitingShown({ tab, error, isLoading, total, filtersActive: filtersActive({
+    search: debouncedSearch, fromDate, toDate, fromAmount, toAmount, allocationFilter, txType, allocType, hasSuggestion }) });
 
   if (summary.status === 'error') {
     return (
@@ -256,7 +235,7 @@ export default function BankTransactionsPage() {
           <AutoPostRunsPanel onUndone={afterMutation} />
           <TransferLinkNotice bankAccountId={selectedBank} refreshKey={linkTick} onChanged={afterMutation} />
           <DeepLinkNotice message={deepLinkError} onDismiss={dismissError} />
-          <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading} error={error}
+          <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading || summary.status === 'loading'} error={error}
             empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab}
             detailTx={detailTx} onDetailClose={closeDetail}>
             <BankTxTable

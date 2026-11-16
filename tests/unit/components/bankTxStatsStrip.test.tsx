@@ -27,8 +27,11 @@ describe('BankTxStatsStrip', () => {
   it('awaiting review is an outlined tile; "n shown" only while filters narrow the New tab; "+n pending at bank" only when pending', () => {
     const { rerender } = render(<BankTxStatsStrip bank={summaryAcct('a', { counts })} shown={4} onShowProvisional={vi.fn()} />);
     expect(screen.getByTestId('tile-awaiting-review').className).toContain('border-dashed');
-    expect(screen.getByTestId('tile-awaiting-shown').textContent).toBe('4 shown');
+    // The list also carries the lines pending at the bank, which the tile does not count: say so.
+    expect(screen.getByTestId('tile-awaiting-shown').textContent).toBe('4 shown (incl. pending at bank)');
     expect(screen.getByTestId('tile-pending-at-bank').textContent).toBe('+3 pending at bank');
+    rerender(<BankTxStatsStrip bank={summaryAcct('a', { counts: { ...counts, pendingAtBank: 0 } })} shown={4} onShowProvisional={vi.fn()} />);
+    expect(screen.getByTestId('tile-awaiting-shown').textContent).toBe('4 shown'); // nothing pending: plain
     rerender(<BankTxStatsStrip bank={summaryAcct('a', { counts: { ...counts, pendingAtBank: 0 } })} shown={null} onShowProvisional={vi.fn()} />);
     expect(screen.queryByTestId('tile-awaiting-shown')).toBeNull();
     expect(screen.queryByTestId('tile-pending-at-bank')).toBeNull();

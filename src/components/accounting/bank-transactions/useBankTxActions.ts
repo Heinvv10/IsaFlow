@@ -13,6 +13,7 @@ import type { AllocType, BankTx, SelectOption, RowSelection } from '@/components
 import type { RulePrompt } from './BankTxBatchPanel';
 import { actionableIds } from './pendingFeedRow';
 import { buildBankTxSelectionActions } from './bankTxSelectionActions';
+import { buildSaveActions } from './bankTxSaveActions';
 import { isUndoableAllocation, offerAllocationUndo, offerExcludeUndo } from './bankTxUndo';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 
@@ -38,6 +39,8 @@ interface ActionDeps {
   loadTransactions: () => void;
   /** Reloads the bank-account summary (cards, tiles, statement panel; WP1 PR-C) - the list is `loadTransactions`. */
   refreshBankAccounts: () => void;
+  /** For saveSelection only (one call per row edit): a trailing-debounced summary refresh. Absent: `refreshBankAccounts`. */
+  refreshSummarySoon?: () => void;
   /** For a toast's Undo, which runs long after this render: reloads the view on screen by then. */
   reloadCurrentView: () => void;
   onLlmResidual?: (n: number) => void;
@@ -62,21 +65,7 @@ export function buildBankTxActions(deps: ActionDeps) {
     return json;
   };
 
-  const saveSelection = (txId: string, type: AllocType, entityId: string, vatCode?: string) => {
-    apiFetch('/api/accounting/bank-transactions-action', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify({ action: 'save_selection', bankTransactionId: txId, selectionType: type, selectionEntityId: entityId || undefined, vatCode: vatCode || undefined }),
-    }).then(r => assertOk(r, 'Could not save the selection - try again'))
-      .then(() => refreshBankAccounts()) // a saved category moves a line between Unallocated and Suggested; the list is unchanged
-      .catch(e => notify.error(apiErrorMessage(e, 'Could not save the selection - try again')));
-  };
-
-  const saveDimensions = (txId: string, cc1Id: string, cc2Id: string, buId: string) => {
-    apiFetch('/api/accounting/bank-transactions-action', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify({ action: 'save_dimensions', bankTransactionId: txId, cc1Id: cc1Id || null, cc2Id: cc2Id || null, buId: buId || null }),
-    }).then(r => assertOk(r, 'Could not save the cost centres - try again')).catch(e => notify.error(apiErrorMessage(e, 'Could not save the cost centres - try again')));
-  };
+  const { saveSelection, saveDimensions } = buildSaveActions(deps.refreshSummarySoon ?? refreshBankAccounts);
 
   /** Posts the allocation. `onPosted` fires as soon as the allocate request succeeded, before the list reloads. */
   const acceptRow = async (txId: string, onPosted: () => void) => {

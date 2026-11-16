@@ -96,4 +96,23 @@ describe('BankStatementPanel', () => {
     render(<BankStatementPanel bank={summaryAcct('a1', { statement: { latest, lastWithBalance: latest, ledgerAtStatementCents: 250000, differenceCents: 0 } })} />);
     expect(screen.getByTestId('statement-opening').textContent).toContain('Not provided by this file');
   });
+
+  it('a statement but no ledger figure at its date: the ledger row says it is as at the LEDGER date, never the statement\'s', () => {
+    const latest = ref({ statementDate: '2026-10-31' });
+    render(<BankStatementPanel bank={summaryAcct('a1', { ledgerCents: 777700, ledgerAsAt: '2026-11-16',
+      statement: { latest, lastWithBalance: latest, ledgerAtStatementCents: null, differenceCents: null } })} />);
+    const row = nb(screen.getByTestId('statement-ledger').textContent!);
+    expect(row).toMatch(/Ledger balance \(as at 16 Nov 2026\)/);
+    expect(row).toContain('R 7 777.00');
+    expect(row).not.toContain('31 Oct 2026');
+  });
+
+  it('with the ledger at the statement date, the row carries that date and figure', () => {
+    const latest = ref({ statementDate: '2026-10-31' });
+    render(<BankStatementPanel bank={summaryAcct('a1', { ledgerCents: 777700,
+      statement: { latest, lastWithBalance: latest, ledgerAtStatementCents: 249000, differenceCents: 1000 } })} />);
+    const row = nb(screen.getByTestId('statement-ledger').textContent!);
+    expect(row).toMatch(/as at 31 Oct 2026/);
+    expect(row).toContain('R 2 490.00');
+  });
 });

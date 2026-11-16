@@ -62,7 +62,7 @@ export function BankGroupWorklist({ group, selectedBank, onSelectBank }: Props) 
           Ledger <span className={`tabular-nums font-semibold ${amountClass(summary.ledgerCents)}`}>{fmtCents(summary.ledgerCents)}</span>
         </span>
         <span className="text-[var(--ff-text-secondary)]" data-testid="bank-group-open-total">
-          <span className="tabular-nums font-semibold text-amber-700 dark:text-amber-400">{summary.open}</span> to code
+          <span className="tabular-nums font-semibold text-amber-800 dark:text-amber-400">{summary.open}</span> to code
         </span>
         <span className="text-[var(--ff-text-secondary)]">
           <span className="tabular-nums font-semibold text-[var(--ff-text-primary)]">{summary.stale}</span> stale
@@ -113,11 +113,11 @@ export function BankGroupWorklist({ group, selectedBank, onSelectBank }: Props) 
               </button>
               <span title={`Ledger balance as at ${a.ledgerAsAt}`} className={`tabular-nums text-xs shrink-0 ${amountClass(a.ledgerCents)}`}>Ledger {fmtCents(a.ledgerCents)}</span>
               <span data-testid="bank-group-row-open" title="Lines still to code (suggested + unallocated)"
-                className={`text-xs tabular-nums shrink-0 w-20 text-right ${a.counts.toCode > 0 ? 'text-amber-700 dark:text-amber-400 font-semibold' : 'text-[var(--ff-text-tertiary)]'}`}>
+                className={`text-xs tabular-nums shrink-0 w-20 text-right ${a.counts.toCode > 0 ? 'text-amber-800 dark:text-amber-400 font-semibold' : 'text-[var(--ff-text-tertiary)]'}`}>
                 {a.counts.toCode} to code
               </span>
               <span title="Last imported transaction"
-                className={`text-xs shrink-0 w-28 text-right ${stale ? 'text-amber-700 dark:text-amber-400' : 'text-[var(--ff-text-tertiary)]'}`}>
+                className={`text-xs shrink-0 w-28 text-right ${stale ? 'text-amber-800 dark:text-amber-400' : 'text-[var(--ff-text-tertiary)]'}`}>
                 {a.lastDate ? a.lastDate : 'no statements'}
               </span>
               <Link
