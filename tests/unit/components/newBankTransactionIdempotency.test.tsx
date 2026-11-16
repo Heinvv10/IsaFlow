@@ -92,4 +92,17 @@ describe('new bank transaction idempotency', () => {
     await waitFor(() => expect(posts()).toHaveLength(2));
     expect(keyOf(posts()[1]!)).not.toBe(keyOf(posts()[0]!));
   });
+
+  it('an answer that did not parse keeps the key: the retry is the same request', async () => {
+    let n = 0;
+    reply = async () => { n += 1; return n === 1 ? new Response('<html>cut off', { status: 201 }) : ok({ journalEntryId: 'je2' }, 201); };
+    render(<NewBankTransactionPage />);
+    await fillForm('50');
+    fireEvent.click(submit());
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    await waitFor(() => expect((submit() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(submit());
+    await waitFor(() => expect(posts()).toHaveLength(2));
+    expect(keyOf(posts()[1]!)).toBe(keyOf(posts()[0]!));
+  });
 });

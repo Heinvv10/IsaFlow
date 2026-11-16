@@ -88,4 +88,21 @@ describe('BankTransfersPage idempotency', () => {
     await waitFor(() => expect(posts()).toHaveLength(2));
     expect(keyOf(posts()[1]!)).not.toBe(keyOf(posts()[0]!));
   });
+
+  it('an answer that did not parse keeps the key: the retry is the same request', async () => {
+    let n = 0;
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown) => {
+      if (String(url).includes('chart-of-accounts')) return ok(banks);
+      n += 1;
+      return n === 1 ? new Response('<html>cut off', { status: 200 }) : ok({ journalEntry: { id: 'je2' } });
+    });
+    render(<BankTransfersPage />);
+    await fillForm('100');
+    fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    await waitFor(() => expect((screen.getByRole('button', { name: /process transfer/i }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
+    await waitFor(() => expect(posts()).toHaveLength(2));
+    expect(keyOf(posts()[1]!)).toBe(keyOf(posts()[0]!));
+  });
 });
