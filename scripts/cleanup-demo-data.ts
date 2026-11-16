@@ -6,8 +6,10 @@
  *   - 48 duplicate payroll-run periods (every period appears twice)
  *   - 37 credit_notes (type=supplier) with NULL supplier_id
  *
- * Run with: bun run scripts/cleanup-demo-data.ts            (dry-run)
- *           bun run scripts/cleanup-demo-data.ts --apply    (commit)
+ * Run with: bun run scripts/cleanup-demo-data.ts --company 00000000-0000-0000-0000-000000000001            (dry-run)
+ *           bun run scripts/cleanup-demo-data.ts --company 00000000-0000-0000-0000-000000000001 --apply    (commit)
+ *
+ * Refuses any company but the Demo company, and refuses to run without --company.
  *
  * Idempotent: safe to re-run after --apply (will report 0 rows affected).
  * Targets ISAFlow Demo only — does NOT touch other tenants.
@@ -16,8 +18,9 @@
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 import { sql } from '../src/lib/neon';
+import { demoCompanyOrExit } from './lib/demoReseed/cli';
 
-const COMPANY_ID = '00000000-0000-0000-0000-000000000001'; // ISAFlow Demo
+const COMPANY_ID = demoCompanyOrExit(process.argv.slice(2)); // IsaFlow Demo only
 const APPLY = process.argv.includes('--apply');
 
 type Row = Record<string, unknown>;
