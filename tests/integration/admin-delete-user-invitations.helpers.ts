@@ -52,6 +52,10 @@ export function setGotrueEmail(id: string, email: string): void {
 const metadata = new Map<string, unknown>();
 /** Accounts that have signed in (seedUser's real users, and any password grant): confirmed, last_sign_in_at set. */
 const signedIn = new Set<string>();
+/** Accounts whose email is confirmed though nobody has signed in yet (confirmEmail). */
+const confirmed = new Set<string>();
+/** GoTrue confirms `id`'s address (email_confirmed_at) without a sign-in. */
+export function confirmEmail(id: string): void { confirmed.add(id); }
 /** GoTrue users whose password an accept route set (PUT /admin/users/<id>). */
 export const passwordSets: string[] = [];
 let ipSeq = 0;
@@ -166,7 +170,8 @@ function gotrueStub(input: Parameters<typeof fetch>[0], init?: Parameters<typeof
     const email = logins.get(id);
     return Promise.resolve(email === undefined ? json({ msg: 'User not found' }, 404)
       : json({ id, email, factors: [], user_metadata: metadata.get(id) ?? {},
-        ...(signedIn.has(id) ? { email_confirmed_at: '2026-01-01T00:00:00Z', last_sign_in_at: '2026-01-02T00:00:00Z' } : {}) }));
+        ...(signedIn.has(id) || confirmed.has(id) ? { email_confirmed_at: '2026-01-01T00:00:00Z' } : {}),
+        ...(signedIn.has(id) ? { last_sign_in_at: '2026-01-02T00:00:00Z' } : {}) }));
   }
   if (path.startsWith('/admin/users/')) {
     const id = path.split('/').pop()!;

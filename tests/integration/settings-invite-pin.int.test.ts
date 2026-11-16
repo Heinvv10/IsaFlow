@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createInvitation } from '@/modules/accounting/services/core/userInvitationService';
 import { AuthUpstreamUnavailableError } from '@/lib/auth/authUpstream';
 import {
-  adminDelete, companies, gotrueDown, invite, inviter, legacyAccept, memberships, newAccept, passwordSets, pool,
+  adminDelete, companies, confirmEmail, gotrueDown, invite, inviter, legacyAccept, memberships, newAccept, passwordSets, pool,
   resetAdminLimit, seedUser, setGotrueEmail, setup, teardown, trackToken, usersRows,
 } from './admin-delete-user-invitations.helpers';
 
@@ -155,6 +155,21 @@ describe('the password accept on an account its own invitation created, signed i
     expect(r.status, JSON.stringify(r.body)).toBe(200);
     expect(passwordSets).not.toContain(id);
     expect(await memberOf(C, id)).toBe(1);
+  });
+});
+
+describe('the password accept on a pinned confirmed account no invitation created, never signed in (B5)', () => {
+  it('signs in with its own password; none is written', async () => {
+    const email = `conf-${crypto.randomUUID()}@test.local`;
+    const holder = crypto.randomUUID();
+    strangers.push(holder);
+    setGotrueEmail(holder, email);
+    confirmEmail(holder);
+    const token = await settingsInvite(B, email);
+    expect(await pinOf(B, email)).toBe(holder);
+    const r = await newAccept(token);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(passwordSets).not.toContain(holder);
   });
 });
 
