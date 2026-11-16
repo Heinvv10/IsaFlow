@@ -10,13 +10,15 @@
  *
  * "High confidence" is the auto-post gate's own ladder (`evaluate`), with the settings' enabled switches treated as on:
  * a person is choosing, so the switches do not apply, but the confidence floor, the amount caps, the LLM tier's own
- * thresholds and "a shared-pool suggestion is never bulk-posted" all do.
+ * thresholds and "a shared-pool suggestion is never bulk-posted" all do. Lines a confirm would PREDICTABLY refuse are not
+ * listed as postable (./bankBulkAcceptEligibility).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { evaluate } from './autoPostGate';
 import { getAutoPostSettings, type AutoPostSettings } from './autoPostSettingsService';
 import { feedStateOf } from './bankFeedStateGuard';
+import { screenCandidates, type ExcludedCounts, type NeedsAttention } from './bankBulkAcceptEligibility';
 
 /** The most lines one confirm posts. A request is one transaction; this keeps it (and its locks) short. */
 export const BULK_ACCEPT_MAX_LINES = 100;
@@ -38,6 +40,11 @@ export interface PreviewLine {
   id: string; date: string; description: string | null; amount: number;
   glAccountId: string; glAccountCode: string | null; glAccountName: string | null;
   vatCode: string | null; confidence: number; strategy: string | null; version: string;
+  /** The VAT code that will actually post (the denial / no-supply guards applied) and the amounts under it. */
+  effectiveVatCode: string; netAmount: number; vatAmount: number;
+  /** The line's saved dimensions: they post on the journal's contra line and stay on the bank line. */
+  cc1Id: string | null; cc2Id: string | null; buId: string | null;
+  cc1Code: string | null; cc2Code: string | null; buCode: string | null;
 }
 export interface BulkAcceptPreview {
   bankAccountId: string; minConfidence: number;
@@ -45,6 +52,10 @@ export interface BulkAcceptPreview {
   byAccount: Array<{ glAccountId: string; code: string | null; name: string | null; count: number; totalIn: number; totalOut: number }>;
   /** More lines qualified than one confirm posts: the first BULK_ACCEPT_MAX_LINES (by id) are listed. */
   truncated: boolean; totalEligible: number;
+  /** Lines that would be held, not posted: another member must allocate them, or a manual-journal rule needs approval. */
+  needsAttention: NeedsAttention[];
+  /** How many candidates were left out because a confirm would refuse them, by reason. */
+  excluded: ExcludedCounts;
   previewToken: string;
 }
 
@@ -84,30 +95,41 @@ export function resolveMinConfidence(base: AutoPostSettings, requested: number |
 
 const money = (n: number) => Math.round(n * 100) / 100;
 
-export async function previewBulkAccept(companyId: string, bankAccountId: string, requested?: number): Promise<BulkAcceptPreview> {
+export async function previewBulkAccept(companyId: string, userId: string, bankAccountId: string, requested?: number): Promise<BulkAcceptPreview> {
   const base = await getAutoPostSettings(companyId);
   const minConfidence = resolveMinConfidence(base, requested);
   const settings = bulkAcceptSettings(base, minConfidence);
   const rows = (await sql`
     SELECT bt.id::TEXT AS id, bt.transaction_date::TEXT AS date, bt.description, bt.amount, bt.status, bt.feed_state,
+           bt.bank_account_id::TEXT AS bank_account_id, bt.reconciliation_id, bt.import_batch_id, bt.bank_feed_connection_id,
            bt.suggested_gl_account_id::TEXT AS gl, bt.suggested_confidence AS confidence, bt.suggested_vat_code AS vat,
-           bt.suggested_strategy AS strategy, ga.account_code, ga.account_name,
+           bt.suggested_strategy AS strategy, ga.account_code, ga.account_name, ga.account_subtype,
+           bt.cc1_id::TEXT AS cc1_id, bt.cc2_id::TEXT AS cc2_id, bt.bu_id::TEXT AS bu_id,
+           c1.code AS cc1_code, c2.code AS cc2_code, bu.code AS bu_code,
            to_char(bt.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') AS version
     FROM bank_transactions bt
-    LEFT JOIN gl_accounts ga ON ga.id = bt.suggested_gl_account_id AND ga.company_id = bt.company_id
+    JOIN gl_accounts ga ON ga.id = bt.suggested_gl_account_id AND ga.company_id = bt.company_id AND ga.is_active = true
+    LEFT JOIN cost_centres c1 ON c1.id = bt.cc1_id AND c1.company_id = bt.company_id
+    LEFT JOIN cost_centres c2 ON c2.id = bt.cc2_id AND c2.company_id = bt.company_id
+    LEFT JOIN business_units bu ON bu.id = bt.bu_id AND bu.company_id = bt.company_id
     WHERE bt.company_id = ${companyId}::UUID AND bt.bank_account_id = ${bankAccountId}::UUID
       AND bt.status = 'imported' AND bt.suggested_gl_account_id IS NOT NULL AND bt.suggested_confidence >= ${minConfidence}::NUMERIC
     ORDER BY bt.id
     LIMIT ${CANDIDATE_SCAN_LIMIT}`) as DbRow[];
-  const eligible = rows.filter((r) => feedStateOf(r) === 'posted' && evaluate(
+  const gated = rows.filter((r) => feedStateOf(r) === 'posted' && evaluate(
     { status: String(r.status), amount: Number(r.amount), suggestedGlAccountId: String(r.gl) },
     Number(r.confidence), settings, r.strategy == null ? null : String(r.strategy)).outcome === 'post');
+  const screened = await screenCandidates(companyId, userId, gated);
+  const eligible = screened.postable;
   const chosen = eligible.slice(0, BULK_ACCEPT_MAX_LINES);
-  const lines: PreviewLine[] = chosen.map((r) => ({
-    id: String(r.id), date: String(r.date), description: r.description == null ? null : String(r.description),
-    amount: Number(r.amount), glAccountId: String(r.gl), glAccountCode: r.account_code == null ? null : String(r.account_code),
-    glAccountName: r.account_name == null ? null : String(r.account_name), vatCode: r.vat == null ? null : String(r.vat),
-    confidence: Number(r.confidence), strategy: r.strategy == null ? null : String(r.strategy), version: String(r.version),
+  const str = (v: unknown) => (v == null ? null : String(v));
+  const lines: PreviewLine[] = chosen.map(({ row: r, effectiveVatCode, netAmount, vatAmount }) => ({
+    id: String(r.id), date: String(r.date), description: str(r.description),
+    amount: Number(r.amount), glAccountId: String(r.gl), glAccountCode: str(r.account_code),
+    glAccountName: str(r.account_name), vatCode: str(r.vat),
+    confidence: Number(r.confidence), strategy: str(r.strategy), version: String(r.version),
+    effectiveVatCode, netAmount, vatAmount,
+    cc1Id: str(r.cc1_id), cc2Id: str(r.cc2_id), buId: str(r.bu_id), cc1Code: str(r.cc1_code), cc2Code: str(r.cc2_code), buCode: str(r.bu_code),
   }));
   const groups = new Map<string, BulkAcceptPreview['byAccount'][number]>();
   let totalIn = 0;
@@ -122,6 +144,7 @@ export async function previewBulkAccept(companyId: string, bankAccountId: string
   const token: PreviewToken = { v: 1, a: bankAccountId, t: minConfidence, l: lines.map((l) => ({ i: l.id, g: l.glAccountId, x: l.vatCode, s: l.version })) };
   return {
     bankAccountId, minConfidence, lines, totalIn, totalOut, byAccount: [...groups.values()],
-    truncated: eligible.length > chosen.length, totalEligible: eligible.length, previewToken: writePreviewToken(token),
+    truncated: eligible.length > chosen.length, totalEligible: eligible.length,
+    needsAttention: screened.needsAttention, excluded: screened.excluded, previewToken: writePreviewToken(token),
   };
 }

@@ -102,9 +102,12 @@ describe('confirm', () => {
     const good = [await suggested(f), await suggested(f, { amount: -20 })];
     const dead = (await pool.query(
       `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,is_active) VALUES($1,'ZZDEAD','Retired','expense','debit',false) RETURNING id`, [f.c])).rows[0].id;
-    const bad = await suggested(f, { gl: dead });                    // its suggested account has since been retired
+    const bad = await suggested(f, { gl: dead });
     const after = await suggested(f, { amount: -30 });
-    const out = dataOf<Confirmed>(await confirm(f, tokenOf(await preview(f))));
+    await pool.query('UPDATE gl_accounts SET is_active = true WHERE id = $1', [dead]);
+    const token = tokenOf(await preview(f));                         // previewed while the account was active ...
+    await pool.query('UPDATE gl_accounts SET is_active = false WHERE id = $1', [dead]); // ... retired before the confirm
+    const out = dataOf<Confirmed>(await confirm(f, token));
     expect(out.posted.map((p) => p.txId).sort()).toEqual([...good, after].sort());
     expect(out.refused).toHaveLength(1);
     expect(out.refused[0]!.txId).toBe(bad);

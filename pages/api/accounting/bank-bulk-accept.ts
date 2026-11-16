@@ -43,7 +43,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return apiResponse.tooManyRequests(res, 'Too many previews. Please try again shortly.');
       }
       await assertBankAccountInCompany(companyId, bankAccountId);
-      return apiResponse.success(res, await previewBulkAccept(companyId, bankAccountId, wanted));
+      return apiResponse.success(res, await previewBulkAccept(companyId, userId, bankAccountId, wanted));
     }
 
     const body = (req.body ?? {}) as { action?: string; previewToken?: unknown; runId?: unknown };
