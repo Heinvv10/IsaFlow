@@ -6,16 +6,14 @@
 
 import { describe, it, expect } from 'vitest';
 import { isStale, worklistSummary, worklistView } from '@/components/accounting/bank-transactions/groupWorklistView';
-import type { BankAcct } from '@/components/accounting/bank-transactions/BankTxBankCards';
+import { summaryAcct } from '../helpers/bankSummaryFixture';
+import type { BankAccountSummary as BankAcct } from '@/modules/accounting/services/bank/bankAccountSummaryService';
 
 const TODAY = '2026-10-26';
 
-function acct(id: string, o: Partial<BankAcct> = {}): BankAcct {
-  return {
-    id, accountCode: `C-${id}`, accountName: `Card ${id}`, balance: 0, reconciledBalance: 0,
-    unreconciledBalance: 0, unreconciledCount: 0, allocatedCount: 0, unallocatedCount: 0,
-    lastDate: TODAY, ...o,
-  };
+type Seed = Partial<BankAcct> & { toCode?: number };
+function acct(id: string, { toCode, ...o }: Seed = {}): BankAcct {
+  return summaryAcct(id, { accountName: `Card ${id}`, accountCode: `C-${id}`, lastDate: TODAY, ...(toCode === undefined ? {} : { counts: { unallocated: toCode } }), ...o });
 }
 
 const ids = (rows: BankAcct[]) => rows.map(r => r.id);
@@ -38,10 +36,10 @@ describe('worklistView sort', () => {
   it('attention: most open first, then oldest import (no statements first), then name', () => {
     const accounts = [
       acct('fresh', { accountName: 'A fresh' }),
-      acct('busy', { unallocatedCount: 3 }),
+      acct('busy', { toCode: 3 }),
       acct('old', { lastDate: '2026-09-01' }),
       acct('none', { lastDate: null }),
-      acct('busier', { unallocatedCount: 9 }),
+      acct('busier', { toCode: 9 }),
       acct('fresh2', { accountName: 'B fresh' }),
     ];
     expect(ids(view(accounts).rows)).toEqual(['busier', 'busy', 'none', 'old', 'fresh', 'fresh2']);
@@ -52,13 +50,13 @@ describe('worklistView sort', () => {
     expect(ids(view(accounts, { sort: 'name' }).rows)).toEqual(['2', '3', '1']);
   });
 
-  it('balance: largest first', () => {
-    const accounts = [acct('1', { balance: 5 }), acct('2', { balance: 500 }), acct('3', { balance: -20 })];
+  it('ledger: largest first', () => {
+    const accounts = [acct('1', { ledgerCents: 500 }), acct('2', { ledgerCents: 50000 }), acct('3', { ledgerCents: -2000 })];
     expect(ids(view(accounts, { sort: 'balance' }).rows)).toEqual(['2', '1', '3']);
   });
 
   it('does not reorder the input array', () => {
-    const accounts = [acct('a'), acct('b', { unallocatedCount: 1 })];
+    const accounts = [acct('a'), acct('b', { toCode: 1 })];
     view(accounts);
     expect(ids(accounts)).toEqual(['a', 'b']);
   });
@@ -66,9 +64,9 @@ describe('worklistView sort', () => {
 
 describe('worklistView filters', () => {
   const accounts = [
-    acct('open', { unallocatedCount: 2, accountName: 'Jody' }),
+    acct('open', { toCode: 2, accountName: 'Jody' }),
     acct('stale', { lastDate: '2026-10-01', accountName: 'Stephan' }),
-    acct('openstale', { unallocatedCount: 1, lastDate: '2026-09-01', accountName: 'Jody 2' }),
+    acct('openstale', { toCode: 1, lastDate: '2026-09-01', accountName: 'Jody 2' }),
     acct('none', { lastDate: null, accountName: 'Dieter' }),
     acct('ok', { accountName: 'Harvey' }),
   ];
@@ -92,12 +90,12 @@ describe('worklistView filters', () => {
 });
 
 describe('worklistSummary', () => {
-  it('totals balance and open, and counts stale accounts', () => {
+  it('totals ledger cents (exact) and to-code lines, and counts stale accounts', () => {
     const accounts = [
-      acct('1', { balance: 100.5, unallocatedCount: 2 }),
-      acct('2', { balance: -0.5, unallocatedCount: 3, lastDate: '2026-01-01' }),
+      acct('1', { ledgerCents: 10050, toCode: 2 }),
+      acct('2', { ledgerCents: -50, toCode: 3, lastDate: '2026-01-01' }),
       acct('3', { lastDate: null }),
     ];
-    expect(worklistSummary(accounts, TODAY)).toEqual({ balance: 100, open: 5, stale: 1 });
+    expect(worklistSummary(accounts, TODAY)).toEqual({ ledgerCents: 10000, open: 5, stale: 1 });
   });
 });
