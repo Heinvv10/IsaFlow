@@ -70,7 +70,7 @@ export function InvoiceTable({
     <>
       {/* The sort headers are hidden with the header row below lg, so phones get a control for the same sort. */}
       <div className="lg:hidden flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800">
-        <label htmlFor="supplier-invoice-sort" className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Sort by</label>
+        <label htmlFor="supplier-invoice-sort" className="text-sm font-medium text-ink-muted">Sort by</label>
         <select id="supplier-invoice-sort" value={sort} onChange={(e) => onSort(e.target.value as SortKey)}
           className="min-h-11 flex-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-slate-900 dark:text-slate-100">
           {MOBILE_SORTS.map(([col, label]) => <option key={col} value={col}>{label}</option>)}
