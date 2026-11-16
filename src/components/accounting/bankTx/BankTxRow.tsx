@@ -10,7 +10,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { Select, type SelectOption as KitOption } from '@/components/ui/Select';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { BankTxReviewBadge } from './BankTxReviewBadge';
-import { TOUCH_ROW } from './bankTxTouch';
+import { TOUCH_PAD, TOUCH_ROW, TOUCH_MIN } from './bankTxTouch';
 import type { RowProps } from '../useBankTxKeyboardNav';
 import { isPendingFeedRow, PendingFeedBadge } from '../bank-transactions/pendingFeedRow';
 import type { AllocType, BankTx, BankTxTableProps } from './bankTxTypes';
@@ -64,7 +64,7 @@ function NotesCell({
         onChange={e => setValue(e.target.value)}
         onBlur={handleBlur}
         onKeyDown={e => { if (e.key === 'Enter') inputRef.current?.blur(); if (e.key === 'Escape') { setValue(initialValue); setEditing(false); } }}
-        className="w-full max-lg:min-h-11 px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-blue-500/60 text-xs text-[var(--ff-text-primary)] focus:outline-none"
+        className={`w-full ${TOUCH_MIN} px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-blue-500/60 text-xs text-[var(--ff-text-primary)] focus:outline-none`}
         placeholder="Add note..."
         aria-label={`Note, ${label}`}
         autoFocus
@@ -75,7 +75,7 @@ function NotesCell({
   return (
     <button
       onClick={() => setEditing(true)}
-      className={`text-xs truncate max-w-[140px] block text-left ${TOUCH_ROW} hover:text-[var(--ff-text-primary)] transition-colors`}
+      className={`text-xs truncate max-w-[140px] block text-left ${TOUCH_PAD} hover:text-[var(--ff-text-primary)] transition-colors`}
       title={value || 'Click to add note'}
       aria-label={value ? `Note, ${label}: ${value}` : `Add note, ${label}`}
     >
@@ -169,7 +169,7 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
       <td data-label="Type" className="py-1 px-2">
         {isNew ? (
           <Select
-            label={`Allocation type, ${label}`} labelClassName="sr-only" size={selectSize}
+            label={`Allocation type, ${label}`} labelClassName="sr-only" size={selectSize} touchTarget
             options={ALLOC_TYPE_OPTIONS} value={rowType}
             onChange={v => { if (v) onRowTypeChange(tx.id, v as AllocType); }}
           />
