@@ -46,15 +46,18 @@ const BodySchema = z.object({
 
 type ClassifiedBankTx = z.infer<typeof ClassifiedBankTxSchema>;
 
-/** YYYY-MM-DD naming a day that exists (not 2026-02-30). */
-function isIsoCalendarDay(value: string): boolean {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+/**
+ * A year-first date (YYYY-M-D, optionally followed by a time) naming a day that exists. Year-first is the one order
+ * Postgres reads the same under every DateStyle; '31/12/2026' was a 500 from the cast and '01/02/2026' became 2 January.
+ */
+function isYearFirstCalendarDay(value: string): boolean {
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ].*)?$/.exec(value);
   if (!m) return false;
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  const probe = new Date(Date.UTC(y, mo - 1, d));
+  const probe = new Date(0);
+  probe.setUTCFullYear(y, mo - 1, d); // not Date.UTC: it maps years 0..99 to 1900..1999
   return probe.getUTCFullYear() === y && probe.getUTCMonth() === mo - 1 && probe.getUTCDate() === d;
 }
-
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -97,7 +100,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       amount: number;
       txDate: string;
       desc: string;
+      row: number;
     }
+    const badDate = (row: number, value: string) =>
+      `Row ${row + 1}: transactionDate "${value}" must be a year-first date such as 2026-09-04 (YYYY-MM-DD)`;
     const normTxs: NormTx[] = [];
     for (const [row, tx] of transactions.entries()) {
       const debit = Number(tx.debit || 0);
@@ -107,20 +113,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const txDate = String(tx.transactionDate).trim();
       const desc = String(tx.description || '').trim();
       if (!txDate || !desc) continue;
-      // Before any write: only an ISO calendar day. Postgres refused '31/12/2026' (a 500 from the cast) and read
+      // Before any write: only a year-first calendar day. Postgres refused '31/12/2026' (a 500 from the cast) and read
       // '01/02/2026' as 2 January, so a worksheet in another order cannot be told apart from one in this.
-      if (!isIsoCalendarDay(txDate)) {
-        return apiResponse.badRequest(res, `Row ${row + 1}: transactionDate "${txDate}" must be an ISO date (YYYY-MM-DD)`);
-      }
-      normTxs.push({ tx, amount, txDate, desc });
+      if (!isYearFirstCalendarDay(txDate)) return apiResponse.badRequest(res, badDate(row, txDate));
+      normTxs.push({ tx, amount, txDate, desc, row });
     }
     // The day Postgres stores for each date (gl/journalDateGuard); one outside the ledger window refuses the file (422).
     const days = await ledgerDaysOf(normTxs.map((n) => n.txDate));
     for (const n of normTxs) {
       const day = days.get(n.txDate) ?? null;
-      const windowError = day === null ? null : journalDayWindowError(day);
+      if (day === null) return apiResponse.badRequest(res, badDate(n.row, n.txDate)); // a time part Postgres cannot read
+      const windowError = journalDayWindowError(day);
       if (windowError) return apiResponse.validationError(res, { transactionDate: [windowError] });
-      if (day !== null) n.txDate = day;
+      n.txDate = day;
     }
 
     // Dedupe against the account, under its ingest lock taken BEFORE the read (WP2-2): a concurrent import of the same

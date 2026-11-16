@@ -121,7 +121,7 @@ describe('bank-transactions-import-classified: it imports, and a crash after the
   // pg read '31/12/2026' as an error (500) and '01/02/2026' as 2 January: the worksheet takes ISO days only.
   it('a date that is not an ISO day (or not a real day) is a 400 naming the row; nothing is written', async () => {
     const before = await batches();
-    for (const bad of ['31/12/2026', '01/02/2026', '2026-02-30', '2026-13-01', 'September 4']) {
+    for (const bad of ['31/12/2026', '01/02/2026', '2026-02-30', '2026-13-01', 'September 4', '2026-09-04Tgarbage']) {
       const res = refusalOf(await importAs(f.c, f.bank, [
         { transactionDate: '2026-09-10', description: 'DATE OK', debit: 1 },
         { transactionDate: bad, description: 'DATE BAD', debit: 2 }]));
