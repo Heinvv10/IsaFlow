@@ -118,7 +118,8 @@ describe('budget holders (P5-6) through the tools', () => {
     const as = { role: 'manager' };
     const outside = await mcp(pool, holder, 'set_budget_amounts', { version_id: v, cells: [cell('BR-5000', w.months[0]!, '9.00')], idempotency_key: key() }, as);
     expect(outside.isError).toBe(true);
-    expect(text(outside)).toMatch(/slice/i);
+    // The save's own holder check answers (the token user is the actor), naming the cell; 955's trigger is only its backstop.
+    expect(text(outside)).toMatch(/^You can change only your own budget slices: account BR-5000 Rent month \S+ is outside them/);
     expect(await fx.cells(v)).toEqual([]);
     const inside = body(await mcp(pool, holder, 'set_budget_amounts', { version_id: v, cells: [cell('BR-5000', w.months[0]!, '9.00', { cc1: 'GS-C1' })], idempotency_key: key() }, as));
     expect(inside).toMatchObject({ saved: 1 });

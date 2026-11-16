@@ -69,8 +69,9 @@ describe('refusals write nothing', () => {
     await fx.amount(w, v, w.rent, w.months[0]!, 10);
     const before = await state(v);
     const args = { version_id: v, cells: [cell('BR-5000', w.months[1]!, '7', { cc1: 'GS-C1' })] };
-    expect(text(await mcp(pool, w.u, 'set_budget_amounts', { ...args, dry_run: true, idempotency_key: key() }))).toMatch(/would be refused: .*one level per version/);
-    expect(text(await mcp(pool, w.u, 'set_budget_amounts', { ...args, idempotency_key: key() }))).toMatch(/one level per version/);
+    // The save's own check answers, naming the account (the exclusion constraint is only its backstop).
+    expect(text(await mcp(pool, w.u, 'set_budget_amounts', { ...args, dry_run: true, idempotency_key: key() }))).toMatch(/would be refused: Account BR-5000 Rent is budgeted at one level per version/);
+    expect(text(await mcp(pool, w.u, 'set_budget_amounts', { ...args, idempotency_key: key() }))).toMatch(/^Account BR-5000 Rent is budgeted at one level per version/);
     expect(await state(v)).toEqual(before);
   });
 
