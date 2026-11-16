@@ -43,9 +43,12 @@ beforeAll(async () => {
   await pool.query(
     `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,status,created_by)
      VALUES($1,$2,'2026-09-02','BFPW counterparty JE','posted',$3)`, [journalEntryId, company, user]);
+  // The counterparty bank's leg as allocateTransaction posts it: the source line is money IN (+AMOUNT), so the money
+  // left the counterparty bank — a CREDIT there, matching its −AMOUNT statement line (the link requires the line's own
+  // movement, PR #1458 row 4; a debit leg here was the opposite direction).
   await pool.query(
     `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit)
-     VALUES($1,$2,$3,$4,${AMOUNT},0)`, [counterpartyLineId, company, journalEntryId, counterpartyBank]);
+     VALUES($1,$2,$3,$4,0,${AMOUNT})`, [counterpartyLineId, company, journalEntryId, counterpartyBank]);
   // Pending row: 0 days from the source date (the closer match).
   // Posted row: 1 day from the source date — still within the ±2-day window,
   // but only reachable once the pending row is excluded.
