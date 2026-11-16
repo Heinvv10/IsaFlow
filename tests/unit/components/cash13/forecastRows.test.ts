@@ -19,7 +19,7 @@ describe('groupLines', () => {
 
   it('puts each line in its group', () => {
     const where = (key: string) => groups.find((g) => g.lines.some((l) => l.key === key))?.id;
-    expect(where('ar:c1:due')).toBe('receipts');
+    expect(where('ar:c1')).toBe('receipts');
     expect(where('recurring:r1')).toBe('recurring');
     expect(where('budget:customer_receipts')).toBe('budget');
     expect(where(`manual:${'11111111-1111-4111-8111-111111111111'}`)).toBe('manual');

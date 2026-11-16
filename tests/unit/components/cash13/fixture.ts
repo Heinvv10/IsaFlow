@@ -21,14 +21,31 @@ export const WARNINGS: ForecastWarning[] = [
   { code: 'mystery_code_xyz', source: 'engine', message: 'Something new the page has no words for yet' },
 ];
 
+/**
+ * #1509's final AR line shape (82e1ceea2f): one line per customer, `ar:<customerId>`, with `basisCents` (in-horizon
+ * cents by basis) and no line-level `basis`. Master's engine still sets `basis` from the first item and has no
+ * `basisCents`, so they are put right here; once #1509 merges the engine does it and this becomes a no-op check.
+ */
+function toFinalArShape(f: CashForecast13): CashForecast13 {
+  for (const l of f.lines) {
+    if (!l.key.startsWith('ar:')) continue;
+    const basisCents = { due: 0, history: 0, no_history: 0 };
+    for (const it of l.items) if (it.basis) basisCents[it.basis] += it.amountCents;
+    Object.assign(l, { basisCents });
+    delete (l as { basis?: unknown }).basis;
+  }
+  return f;
+}
+
 export function forecastFixture(over: { openingCents?: number; overrides?: Parameters<typeof runEngine>[0]['overrides'] } = {}): CashForecast13 {
-  return runEngine({
+  return toFinalArShape(runEngine({
     today: TODAY,
     openingCents: over.openingCents ?? 10_000_00,
     items: [
-      item('ar:c1:due', 'Acme Ltd', 'customer_receipts', '2026-11-20', 5_000_00, { basis: 'due', entityId: 'c1' }),
-      item('ar:c2:history', 'Beta Traders', 'customer_receipts', '2026-12-01', 3_000_00, { basis: 'history', entityId: 'c2' }),
-      item('ar:c3:no_history', 'Gamma CC', 'customer_receipts', '2026-10-01', 1_000_00, { basis: 'no_history', entityId: 'c3' }),
+      item('ar:c1', 'Acme Ltd', 'customer_receipts', '2026-11-20', 5_000_00, { basis: 'due', entityId: 'c1' }),
+      item('ar:c1', 'Acme Ltd', 'customer_receipts', '2026-12-03', 1_200_00, { basis: 'history', entityId: 'c1' }),
+      item('ar:c2', 'Beta Traders', 'customer_receipts', '2026-12-01', 3_000_00, { basis: 'history', entityId: 'c2' }),
+      item('ar:c3', 'Gamma CC', 'customer_receipts', '2026-10-01', 1_000_00, { basis: 'no_history', entityId: 'c3', flags: ['no_history'] }),
       item('ap:s1', 'Steel Supplies', 'supplier_payments', '2026-11-25', -8_000_00, { entityId: 's1' }),
       item('payroll:net', 'Salaries and wages (net pay)', 'payroll', '2026-11-25', -20_000_00),
       item('sars:emp201', 'SARS EMP201 (PAYE, UIF, SDL)', 'sars', '2026-12-07', -4_000_00, { estimate: true }),
@@ -40,5 +57,5 @@ export function forecastFixture(over: { openingCents?: number; overrides?: Param
     overrides: over.overrides ?? [{ lineKey: 'ap:s1', weekIndex: 1, mode: 'set', amountCents: -6_000_00 }],
     overdueAR: { totalCents: 4_000_00, beyondHorizonCents: 500_00, invoiceCount: 3, byBasis: { history: 3_000_00, no_history: 1_000_00 }, disputedCents: 250_00 },
     warnings: WARNINGS,
-  });
+  }));
 }

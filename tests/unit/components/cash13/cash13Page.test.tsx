@@ -86,14 +86,20 @@ describe('13 weeks from the engine', () => {
     expect(within(row).getByText('estimate')).toBeTruthy();
   });
 
-  it('AR lines show their basis with the reason as a tooltip', async () => {
+  it('an AR line (one per customer) shows its basis breakdown as a tooltip, and the no-history flag', async () => {
     render(<CashFlowForecastPage />);
     await grid();
-    for (const [key, label] of [['ar:c1:due', 'due'], ['ar:c2:history', 'history'], ['ar:c3:no_history', 'no history']] as const) {
-      const row = document.querySelector(`[data-line="${key}"]`) as HTMLElement;
-      const badge = within(row).getByText(label);
-      expect(badge.getAttribute('title')).toMatch(/expected/i);
-    }
+    const sp = (t: string | null) => (t ?? '').replace(/\u00a0/g, ' ');
+    const acme = document.querySelector('[data-line="ar:c1"]') as HTMLElement;
+    const basis = within(acme).getByTestId('ar-basis');
+    expect(basis.textContent).toContain('due · history');
+    expect(sp(basis.getAttribute('title'))).toBe('Expected: due R 5 000 · history R 1 200 · no history R 0');
+    expect(within(acme).queryByTestId('ar-no-history')).toBeNull();
+    const gamma = document.querySelector('[data-line="ar:c3"]') as HTMLElement;
+    expect(sp(within(gamma).getByTestId('ar-basis').getAttribute('title'))).toBe('Expected: due R 0 · history R 0 · no history R 1 000');
+    const flag = within(gamma).getByTestId('ar-no-history');
+    expect(flag.textContent).toContain('no payment history');
+    expect(flag.getAttribute('title')).toMatch(/too few paid invoices/);
   });
 
   it('overdue panel: total, by basis, beyond the horizon', async () => {

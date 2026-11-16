@@ -1,7 +1,8 @@
 /**
  * The 13-week grid: weeks across ("Week 1 · 16 Nov"), lines down in groups with a subtotal each, opening cash on
  * top and closing cash at the bottom (the engine's figures, never re-added). Estimate lines are dimmed and
- * labelled "estimate"; an AR line shows its basis (due / history / no history) with the reason as a tooltip.
+ * labelled "estimate"; an AR line (one per customer) shows which bases it holds with the breakdown in cents as a
+ * tooltip ("Expected: due R x · history R y · no history R z", from `basisCents`), and its `no_history` flag.
  * Writers click a cell to change it (`onEdit`); a cell changed by hand carries a marker. Viewers read only.
  * Only the table scrolls sideways; the label column is sticky.
  */
@@ -18,6 +19,19 @@ export const BASIS_WORDS: Record<ArBasis, { label: string; tip: string }> = {
 };
 
 const fig = (cents: number) => formatStatementFigure(cents / 100);
+const R = (cents: number) => (cents === 0 ? 'R 0' : formatStatementFigure(cents / 100, { symbol: true }));
+const BASES: readonly ArBasis[] = ['due', 'history', 'no_history'];
+
+/**
+ * #1509's AR line field (82e1ceea2f): the in-horizon cents by basis. Read through this widening until #1509
+ * merges and `ForecastLine` carries it; then drop the cast.
+ */
+type BasisCents = Record<ArBasis, number>;
+const basisCentsOf = (line: ForecastLine): BasisCents | undefined => (line as ForecastLine & { basisCents?: BasisCents }).basisCents;
+
+export function basisBreakdownText(b: BasisCents): string {
+  return `Expected: ${BASES.map((k) => `${BASIS_WORDS[k].label} ${R(b[k])}`).join(' · ')}`;
+}
 const STICKY = 'sticky left-0 z-[1] bg-[var(--ff-surface-primary)]';
 const CELL = 'px-3 py-2 text-right tabular-nums whitespace-nowrap';
 const neg = (cents: number) => (cents < 0 ? 'text-red-600 dark:text-red-400' : '');
@@ -35,14 +49,21 @@ export interface ForecastGridProps {
 
 function LineLabel({ line }: { line: ForecastLine }) {
   const estimate = line.kind === 'estimate';
+  const basis = basisCentsOf(line);
   return (
     <span className="flex flex-wrap items-center gap-1.5">
       <span>{line.label}</span>
       {estimate && <span className="rounded border border-[var(--ff-border-primary)] px-1.5 text-xs text-ink-muted">estimate</span>}
-      {line.basis && (
-        <span className="rounded bg-[var(--ff-bg-secondary)] px-1.5 text-xs text-ink-muted" title={BASIS_WORDS[line.basis].tip}>
-          {BASIS_WORDS[line.basis].label}
-          <span className="sr-only">: {BASIS_WORDS[line.basis].tip}</span>
+      {basis && (
+        <span className="rounded bg-[var(--ff-bg-secondary)] px-1.5 text-xs text-ink-muted" title={basisBreakdownText(basis)} data-testid="ar-basis">
+          {BASES.filter((k) => basis[k] !== 0).map((k) => BASIS_WORDS[k].label).join(' · ') || 'nothing due'}
+          <span className="sr-only">: {basisBreakdownText(basis)}</span>
+        </span>
+      )}
+      {line.flags.includes('no_history') && (
+        <span className="rounded border border-amber-500/40 px-1.5 text-xs text-amber-700 dark:text-amber-300" title={BASIS_WORDS.no_history.tip} data-testid="ar-no-history">
+          no payment history
+          <span className="sr-only">: {BASIS_WORDS.no_history.tip}</span>
         </span>
       )}
     </span>
