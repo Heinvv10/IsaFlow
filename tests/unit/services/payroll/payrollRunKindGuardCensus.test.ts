@@ -55,6 +55,8 @@ const CALLERS = [
   'src/lib/mcp/tools/payrollSars.ts',
   'src/modules/accounting/services/ask/askTax.ts',
   'src/modules/accounting/services/budgets/threeWay/deriveAssumptions.ts',
+  // The 13-week cash forecast's EMP201 outflow (master 11-16): a run this release cannot declare refuses the forecast too.
+  'src/modules/accounting/services/cashForecast13/readSars.ts',
   `${P}/irp5DataService.ts`,
   'src/modules/accounting/services/reports/emp201Service.ts',
   'src/modules/accounting/services/returns/finaliseEmpReturn.ts',
