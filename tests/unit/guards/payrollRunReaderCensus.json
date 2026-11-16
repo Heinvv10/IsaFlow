@@ -22,12 +22,6 @@
   "pages/api/payroll/period-context.ts": [
    {"line":56,"text":"FROM payroll_run_headers","class":"R","owner":"FQb1","why":"\"the latest run\": ORDER BY month LIMIT 1, a tie between two runs of a month"}
   ],
-  "pages/api/payroll/year-end/status.ts": [
-   {"line":114,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb1","why":"tax-year sum per employee"},
-   {"line":126,"text":"FROM   payroll_run_headers","class":"S","owner":"FQb1","why":"DISTINCT months that have a declarable run"},
-   {"line":137,"text":"FROM   payroll_run_headers","class":"R","owner":"FQb1","why":"EMP201 PAYE per month put in a Map keyed by month: a second run overwrites the first"},
-   {"line":153,"text":"FROM   payroll_employee_components pec","class":"S","owner":"FQb1","why":"employee components; no run"}
-  ],
   "src/lib/mcp/tools/payrollSars.ts": [
    {"line":47,"text":"'The UIF split is an approximation. payroll_run_headers stores a single combined employee-plus-employer total, so this halves it. Where the two halves genuinely differ — an employee over the UIF ceiling, or one excluded from UIF — the split will be wrong even though the combined total is right. ' +","class":"L","owner":"FQb1","why":"tool description text"}
   ],
@@ -386,6 +380,12 @@
    {"line":74,"text":"UPDATE uif_declarations SET status = 'paid', payment_date = ${paymentDate}::date, updated_at = NOW()","class":"S","owner":"FQb1","why":"write by id"},
    {"line":83,"text":"SELECT * FROM uif_declarations","class":"S","owner":"FQb1","why":"declaration by id"},
    {"line":107,"text":"UPDATE uif_declarations SET journal_entry_id = ${entry.id}::uuid, updated_at = NOW()","class":"S","owner":"FQb1","why":"write by id"}
+  ],
+  "src/modules/accounting/services/payroll/yearEndStatusReads.ts": [
+   {"line":77,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb1","why":"tax-year sum per employee"},
+   {"line":89,"text":"FROM   payroll_run_headers","class":"S","owner":"FQb1","why":"DISTINCT months that have a declarable run"},
+   {"line":100,"text":"FROM   payroll_run_headers","class":"R","owner":"FQb1","why":"EMP201 PAYE per month put in a Map keyed by month: a second run overwrites the first"},
+   {"line":116,"text":"FROM   payroll_employee_components pec","class":"S","owner":"FQb1","why":"employee components; no run"}
   ],
   "src/modules/accounting/services/reports/emp201FieldDrill.ts": [
    {"line":102,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb2/EF","why":"every line of every run in the window"}
