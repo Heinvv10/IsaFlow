@@ -65,3 +65,32 @@ describe('provision-w6-qa main() refuses a non-dev database before any write', (
     expect(calls.gotrue).toBe(0);
   });
 });
+
+// createSandbox: the lock comes first, then the membership re-check, then the create.
+describe('createSandbox takes the advisory lock before the re-check and the create', () => {
+  const order = vi.hoisted(() => ({ log: [] as string[], has: false }));
+  vi.mock('../../../src/modules/onboarding/services/tenantProvisioningService', () => ({
+    provisionTenant: async () => { order.log.push('create'); },
+  }));
+  const fakeDb = {
+    query: async (text: string) => {
+      if (/pg_advisory_xact_lock/.test(text)) order.log.push(text.replace(/\s+/g, ' ').trim());
+      else if (/FROM company_users/.test(text)) { order.log.push('recheck'); return { rows: order.has ? [sandbox] : [], rowCount: 0 }; }
+      else order.log.push(text.trim());
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  beforeEach(() => { order.log = []; order.has = false; });
+
+  it('lock, then re-check, then create', async () => {
+    const { createSandbox } = await import('../../../scripts/ci/golden/provision-w6-qa');
+    await createSandbox(fakeDb as never, 'u1');
+    expect(order.log).toEqual(['BEGIN', "SELECT pg_advisory_xact_lock(hashtextextended('provision-w6-qa:sandbox', 0))", 'recheck', 'create', 'COMMIT']);
+  });
+  it('a sandbox that appeared while waiting for the lock is not created again', async () => {
+    order.has = true;
+    const { createSandbox } = await import('../../../scripts/ci/golden/provision-w6-qa');
+    await createSandbox(fakeDb as never, 'u1');
+    expect(order.log).not.toContain('create');
+  });
+});

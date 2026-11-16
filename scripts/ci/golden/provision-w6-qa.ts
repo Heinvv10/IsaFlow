@@ -72,7 +72,7 @@ async function ensureUserRow(db: pg.Client, userId: string): Promise<void> {
  * The company, as signup makes it: provisionTenant (company, trial subscription, owner membership, first fiscal year).
  * The check and the create share one transaction under an advisory lock, so two runs cannot both create it.
  */
-async function createSandbox(db: pg.Client, userId: string): Promise<void> {
+export async function createSandbox(db: pg.Client, userId: string): Promise<void> {
   await db.query('BEGIN');
   try {
     await db.query(`SELECT pg_advisory_xact_lock(hashtextextended('provision-w6-qa:sandbox', 0))`);
