@@ -72,6 +72,9 @@ function row(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** The journal line a match reads: `row()`'s own bank leg — its account, direction and exact amount, posted (audit row 4). */
+const fittingLine = () => ({ id: JL_ID, gl_account_id: row().bank_account_id, debit: 0, credit: 100, journal_status: 'posted' });
+
 /**
  * The three mutations, each with the call that performs it and the reads it
  * makes between the locked read and its own UPDATE.
@@ -88,7 +91,7 @@ const MUTATIONS: Array<{ name: string; run: () => Promise<unknown>; preWrite: un
     run: () => matchTransaction(COMPANY_ID, TX_ID, JL_ID),
     // line, its journal (not reversed), claim, its chain root (an unreversed journal is its own root; none is now a
     // refusal — brk-nrfa round 25), a provisional holding it (none)
-    preWrite: [[{ id: JL_ID }], [], [], [{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }], []],
+    preWrite: [[fittingLine()], [], [], [{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }], []],
   },
   { name: 'unmatchTransaction', run: () => unmatchTransaction(COMPANY_ID, TX_ID), preWrite: [] },
   { name: 'excludeTransaction', run: () => excludeTransaction(COMPANY_ID, TX_ID, 'dup'), preWrite: [] },
@@ -191,7 +194,7 @@ describe('bank transaction status mutations — locked and guarded', () => {
   it('matchTransaction refuses a journal line another transaction already holds', async () => {
     vi.mocked(sql)
       .mockResolvedValueOnce([row()] as never)
-      .mockResolvedValueOnce([{ id: JL_ID }] as never)
+      .mockResolvedValueOnce([fittingLine()] as never)
       .mockResolvedValueOnce([] as never)   // the line's journal entry: not reversed
       .mockResolvedValueOnce([{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }] as never);
 
@@ -213,7 +216,7 @@ describe('matchTransaction — a chain with no root', () => {
   it('refuses LINE_REVERSED and never writes', async () => {
     vi.mocked(sql)
       .mockResolvedValueOnce([row()] as never) // the locked bank line
-      .mockResolvedValueOnce([{ id: JL_ID }] as never) // the journal line, this company's
+      .mockResolvedValueOnce([fittingLine()] as never) // the journal line, this company's
       .mockResolvedValueOnce([] as never) // its journal: not reversed
       .mockResolvedValueOnce([] as never) // no other line claims it
       .mockResolvedValueOnce([] as never); // the chain root: none within the bound

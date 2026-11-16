@@ -77,8 +77,9 @@ describeIfDb('K-144 a matched journal line must belong to the caller company', (
 
     const mkLine = async (company: string, account: string, amount: number) => {
       const je = await admin.query(
-        `INSERT INTO gl_journal_entries (company_id, entry_date, created_by, description)
-         VALUES ($1,'2026-03-01',$2,'K144 fixture') RETURNING id`, [company, USER]);
+        // POSTED: a match binds only a posted journal's line (PR #1458 row 4); this suite is about tenancy and claims.
+        `INSERT INTO gl_journal_entries (company_id, entry_date, created_by, description, status)
+         VALUES ($1,'2026-03-01',$2,'K144 fixture','posted') RETURNING id`, [company, USER]);
       const jl = await admin.query(
         `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit)
          VALUES ($1,$2,$3,$4,0) RETURNING id`, [company, je.rows[0].id, account, amount]);

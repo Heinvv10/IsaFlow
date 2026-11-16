@@ -45,10 +45,10 @@
  * line of the amount nearer the date) to the counterparty's transfer, the real leg allocated later is not refused — the
  * guard cannot tell it from a daily sweep, whose earlier transfer is likewise already matched (brk-nrfa round 5 F5).
  *
- * Residual (stated, not closed): a typed post and a statement allocation of one movement IN FLIGHT TOGETHER both read
- * before either commits and both post. Closing it needs a lock shared by the bank-line allocation path, a single
- * writer whose lock order the cross-year census (agents/numrace/crossyear-census) shows is where new deadlocks come
- * from; the bank reconciliation shows the extra journal (no statement line matches it).
+ * Concurrency (WP2 row 6, closed): two legs of one movement, or a typed post and a statement allocation, in flight
+ * together each read before the other committed and both posted. Every writer now takes `lockTransferPair` (an advisory
+ * lock on the company and the SORTED account pair, 5 s, held to the end of the request) BEFORE this guard runs, so the
+ * second one reads the first one's committed journal and is refused here.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';

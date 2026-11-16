@@ -52,6 +52,11 @@ export interface RuleApplyResult {
    */
   autoPostSkippedControlAccount?: number;
   /**
+   * Auto-post attempts skipped because the rule's vat_code is none of none / standard / zero_rated / exempt (a row
+   * no route writes now): it would have posted the gross with no VAT (WP2 row 13). Remedy: edit the rule's VAT code.
+   */
+  autoPostSkippedUnknownVatCode?: number;
+  /**
    * RULES (not lines) skipped because the rule's supplier or customer is not
    * this company's — a row written before the R-067/R-068 fences. Its document
    * would name another tenant's contact. Remedy: set the rule's contact again.

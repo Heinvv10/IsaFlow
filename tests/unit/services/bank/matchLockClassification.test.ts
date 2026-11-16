@@ -51,6 +51,7 @@ import { BankMatchUnavailableError } from '@/modules/accounting/services/bank/ba
 const COMPANY = '11111111-1111-1111-1111-111111111111';
 const TX = '22222222-2222-2222-2222-222222222222';
 const LINE = '33333333-3333-3333-3333-333333333333';
+const BANK = '44444444-4444-4444-4444-444444444444';
 
 class PgError extends Error {
   constructor(readonly code: string, readonly constraint?: string) { super(code); }
@@ -58,9 +59,10 @@ class PgError extends Error {
 
 /** row lock ok → line exists → nobody claims it → the UPDATE fails with `err`. */
 function updateFailsWith(err: unknown): void {
-  lockMock.mockResolvedValue({ id: TX, status: 'imported', feed_state: 'posted' });
+  lockMock.mockResolvedValue({ id: TX, status: 'imported', feed_state: 'posted', bank_account_id: BANK, amount: -100 });
   sqlMock
-    .mockResolvedValueOnce([{ id: LINE }] as never)   // assertMatchTargets: line exists
+    // assertMatchTargets: line exists, and is this line's own bank leg (audit row 4)
+    .mockResolvedValueOnce([{ id: LINE, gl_account_id: BANK, debit: 0, credit: 100, journal_status: 'posted' }] as never)
     .mockResolvedValueOnce([] as never)   // the line's journal entry: not reversed
     .mockResolvedValueOnce([] as never)               // assertMatchTargets: unclaimed
     .mockResolvedValueOnce([{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }] as never) // D10: the chain root (an unreversed journal is its own)

@@ -16,6 +16,7 @@ import { planCustomerRefund } from '../ar/customerRefundDocument';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { assertNoDuplicateTransfer } from './transferDuplicateGuard';
+import { lockTransferPair } from './transferPairLock';
 import type { AllocationType } from './bankAllocationTypes';
 import type { AllocationPlan } from './bankAllocationPlan';
 
@@ -61,6 +62,8 @@ export async function buildAllocationArm(input: AllocationArmInput): Promise<All
       throw new BankAllocationRefusal('Transfer counterparty must be a bank account (subtype = bank)');
     }
 
+    // Serialise the two legs (and a typed transfer) of one movement BEFORE the duplicate check reads (transferPairLock).
+    await lockTransferPair(companyId, bankAccountId, contraAccountId);
     // The same movement already in the ledger (the other bank's line, or a Banking > Transfers journal): refused.
     await assertNoDuplicateTransfer(companyId, bankAccountId, contraAccountId, Number(tx.amount), txDate,
       isBankEvidenced(tx));
