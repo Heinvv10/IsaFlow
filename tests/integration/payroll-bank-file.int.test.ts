@@ -37,8 +37,8 @@ const files = async (r: R) => (await r.pool.query(
 const exports = async (r: R) => Number((await r.pool.query(
   "SELECT count(*) FROM audit_log WHERE company_id = $1 AND entity_type = 'payroll_bank_file'", [r.company])).rows[0]!.count);
 const enable = (r: R) => r.pool.query(
-  `INSERT INTO company_feature_overrides (company_id, feature_id, enabled)
-   SELECT $1, id, true FROM feature_flags WHERE code = 'payroll_salary_bank_file'`, [r.company]);
+  `INSERT INTO company_feature_overrides (company_id, feature_id, enabled, set_by)
+   SELECT $1, id, true, $2 FROM feature_flags WHERE code = 'payroll_salary_bank_file'`, [r.company, r.admin]);
 const bank = (r: R, employee: string, account: string, branch = '632005') => r.pool.query(
   `INSERT INTO payroll_bank_details (company_id, employee_id, bank_name, account_number, account_type, branch_code, account_holder, is_active, effective_from)
    VALUES ($1, $2, 'ABSA', $3, 'savings', $4, NULL, true, '2020-01-01')`, [r.company, employee, account, branch]);
