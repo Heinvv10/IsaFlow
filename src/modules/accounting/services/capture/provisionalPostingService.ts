@@ -11,6 +11,7 @@ import { feedStateOf } from '../bank/bankFeedStateGuard';
 import { isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { handKeyedLineJournalRefusal } from '../bank/bankLineJournalGate';
 import { importerAllocationRefusal, importerArmOf } from '../bank/bankLineImporterGate';
+import { isAllocationVatCode } from '../bank/bankVatCodes';
 import { predictFromHistory, type CodingPrediction } from './provisionalPrediction';
 import { placeCostCentres } from '../gl/dimensions/costCentrePick'; // the predicted centre, in its slot
 
@@ -78,6 +79,15 @@ export async function postProvisional(
 
   if (prediction.confidence < minConfidence) {
     return { journalEntryId: null, prediction, skipped: 'low confidence' };
+  }
+  // WP2 row 13, the unattended twin: a predicted code outside none / standard / zero_rated / exempt (the history holds
+  // whatever its writers recorded) posted the gross with nobody watching. Skipped and reported, before any write.
+  if (prediction.vatCode !== null && !isAllocationVatCode(prediction.vatCode)) {
+    return { journalEntryId: null, prediction, skipped: `unknown VAT code "${prediction.vatCode}"` };
+  }
+
+  if (prediction.vatHistoryAllInvalid) {
+    return { journalEntryId: null, prediction, skipped: "no valid VAT code in this supplier's history" };
   }
 
   const totalAmount = Math.abs(amount);

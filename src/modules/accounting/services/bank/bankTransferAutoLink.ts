@@ -71,6 +71,10 @@ export async function autoLinkCounterpartyTransfer(input: TransferAutoLinkInput)
       if (cpTxRows.length === 0) return;
 
       const cpTxId = String(cpTxRows[0]!.id);
+      // Never WAIT for the counterparty line: its own request may hold it while queued on the transfer-pair lock this
+      // one holds (transferPairLock) — a wait here would close that cycle. Held -> 55P03 -> the savepoint rolls back and
+      // the link is skipped (non-fatal, below); the other leg then finds this journal and is refused as a duplicate.
+      await sql`SELECT id FROM bank_transactions WHERE id = ${cpTxId}::UUID AND company_id = ${companyId}::UUID FOR NO KEY UPDATE NOWAIT`;
       // Find the JE line on the counterparty account side
       const cpJeLines = (await sql`
         SELECT id FROM gl_journal_lines

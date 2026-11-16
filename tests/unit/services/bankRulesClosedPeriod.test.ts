@@ -106,7 +106,7 @@ function withOneAutoPostRule(lock: Record<string, unknown> | null | 'timeout' = 
       return Promise.resolve([{
         id: 'rule-1', rule_name: 'Bank charges', priority: 1,
         auto_create_entry: true, alloc_type: 'gl', gl_account_id: 'acct-charges',
-        match_type: 'contains', match_pattern: 'FEE', vat_code: 'no_vat',
+        match_type: 'contains', match_pattern: 'FEE', vat_code: 'none',
       }]);
     }
     if (text.includes('FROM gl_accounts')) {
@@ -217,7 +217,7 @@ describe('applyRules — period closes between pre-flight and post', () => {
         return Promise.resolve([{
           id: 'rule-1', rule_name: 'Bank charges', priority: 1,
           auto_create_entry: true, alloc_type: 'gl', gl_account_id: 'acct-charges',
-          match_type: 'contains', match_pattern: 'FEE', vat_code: 'no_vat',
+          match_type: 'contains', match_pattern: 'FEE', vat_code: 'none',
         }]);
       }
       if (text.includes('FROM gl_accounts')) return Promise.resolve([{ id: BANK_GL }]);
@@ -251,7 +251,7 @@ describe('applyRules — period closes between pre-flight and post', () => {
         return Promise.resolve([{
           id: 'rule-1', rule_name: 'Bank charges', priority: 1,
           auto_create_entry: true, alloc_type: 'gl', gl_account_id: 'acct-charges',
-          match_type: 'contains', match_pattern: 'FEE', vat_code: 'no_vat',
+          match_type: 'contains', match_pattern: 'FEE', vat_code: 'none',
         }]);
       }
       if (text.includes('FROM gl_accounts')) return Promise.resolve([{ id: BANK_GL }]);

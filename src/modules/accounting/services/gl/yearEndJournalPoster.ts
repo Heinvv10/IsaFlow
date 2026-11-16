@@ -6,7 +6,7 @@
  * it, and it carries the guards that stand in for the canonical posting path.
  */
 
-import { sql, withTransaction, type TxSql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { roundToCents, validateJournalEntry } from '../../utils/doubleEntry';
 import { reloadNetIncome, type FiscalYearRange } from './yearEndJournalBuilder';
@@ -14,6 +14,7 @@ import { assertJournalVatPeriodOpen } from './journalVatLockGuard';
 import { assertNoHeaderAccountLines } from './headerAccountGuard';
 import { ledgerEntryDay } from './journalDateGuard';
 import type { CloseYearError, CloseYearResult, YearEndJournalPreview } from './yearEndCloseTypes';
+import { lockAndJudgeYear, lockYear } from './yearEndPeriodGate';
 
 /** The two refusals a row holding the closing entry number can earn. */
 export type ClosingNumberRefusal =
@@ -152,7 +153,10 @@ export async function postClosingJournal(
   // before this function is called at all, so an empty preview here means
   // dormant and nothing else.
   if (preview.lines.length === 0) {
-    const locked = await withTransaction(async (tx) => lockYear(tx, companyId, yearLabel));
+    const locked = await withTransaction(async (tx) => {
+      const judged = await lockAndJudgeYear(tx, companyId, yearLabel);
+      return lockYear(tx, companyId, yearLabel, judged);
+    });
     log.info('Year-end closed with no journal: no posted profit or loss in the year',
       { companyId, year: yearLabel, periodsLocked: locked }, 'yearEnd');
     return { entry: null, periodsLocked: locked };
@@ -170,6 +174,9 @@ export async function postClosingJournal(
   // Atomic: a partial year-end close is unrecoverable — half the P&L zeroed and
   // the periods left open.
   return withTransaction(async (tx) => {
+    // Every period locked, re-checked closed and judged by the readiness gate
+    // BEFORE the journal is written (yearEndPeriodGate): a refusal writes nothing.
+    const judged = await lockAndJudgeYear(tx, companyId, yearLabel);
     // The VAT-lock refusal every other poster meets in postJournalEntry. The
     // closing lines carry no vat_type, so this refuses only when a P&L account
     // being zeroed is a VAT tax leg (canonical vat_input / vat_output subtype) —
@@ -211,25 +218,8 @@ export async function postClosingJournal(
       `;
     }
 
-    return { entry, periodsLocked: await lockYear(tx, companyId, yearLabel) };
+    return { entry, periodsLocked: await lockYear(tx, companyId, yearLabel, judged) };
   });
-}
-
-/**
- * Lock every period in the year and report HOW MANY were locked.
- *
- * The count is read back from the UPDATE rather than assumed, because
- * `periodsLocked: true` was an assertion about a statement nobody had looked
- * at: a year whose periods had already been locked, or moved out from under the
- * label, produced the same `true` as a year that locked twelve.
- */
-async function lockYear(tx: TxSql, companyId: string, yearLabel: string): Promise<number> {
-  const locked = await tx`
-    UPDATE fiscal_periods SET status = 'locked'
-    WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId}
-    RETURNING id
-  `;
-  return locked.length;
 }
 
 /** True for a duplicate-key violation on the closing entry number, and nothing else. */

@@ -41,9 +41,8 @@ vi.mock('@/lib/neon', () => {
     fmtDate: (d: unknown) => (d instanceof Date ? d.toISOString().split('T')[0] : String(d)),
   };
 });
-vi.mock('@/lib/logger', () => ({
-  log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
-}));
+vi.mock('@/modules/accounting/services/gl/yearEndPeriodGate', async (orig) => (await import('../helpers/yearEndGateMocks')).yearEndPeriodGateMock(orig));
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', async () => {
   const { fakeRegistry, registryMock } = await import('../../helpers/fiscalYearSqlFake');
   fakeRegistry.years = [{ fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31' }];
