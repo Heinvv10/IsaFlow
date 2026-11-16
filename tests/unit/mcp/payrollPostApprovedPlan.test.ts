@@ -185,4 +185,15 @@ describe('post_payroll_journal dry run meets the run-kind guard (wave 6 FQa, rev
     expect(vi.mocked(assertRunKindSupported)).toHaveBeenCalledWith(COMPANY, RUN, 'post');
     expect(postPayrollRunJournal).not.toHaveBeenCalled();
   });
+
+  it.each([[true], [false]])('dry_run=%s: a run with plan blockers AND an unsupported kind gets the run-kind refusal (live order)', async (dry) => {
+    vi.mocked(buildPayrollJournalPlan).mockResolvedValue(plan(null, { blockers: [{ code: 'closed_period', detail: 'the period is closed' }] }));
+    vi.mocked(assertRunKindSupported).mockRejectedValueOnce(
+      new RunKindUnsupportedError('post', [{ clause: 'run_kind', detail: 'it is an off-cycle run, and only regular runs are supported' }]));
+    const res = await call(dry);
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain('off-cycle run');
+    expect(text(res)).not.toContain('closed_period');
+    expect(postPayrollRunJournal).not.toHaveBeenCalled();
+  });
 });

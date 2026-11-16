@@ -150,6 +150,14 @@ export const postPayrollJournalTool: McpTool = {
     }
     if (!read) return toolError(NOT_FOUND);
     const { plan } = read;
+    // Wave 6 FQa: the run-kind guard in postPayrollRunJournal's order (after the plan read, before its blockers), on
+    // both paths: read-only, nothing written yet.
+    try {
+      await assertRunKindSupported(ctx.companyId, runId, 'post');
+    } catch (err) {
+      if (isRunKindUnsupported(err)) return toolError(err.message);
+      throw err;
+    }
 
     if (plan.blockers.length > 0) {
       const detail = plan.blockers.map((b) => `${b.code}: ${b.detail}`).join(' ');
@@ -157,13 +165,6 @@ export const postPayrollJournalTool: McpTool = {
     }
 
     if (args.dry_run === true) {
-      // Wave 6 FQa: the live post's run-kind guard (postPayrollRunJournal), read-only, after the plan as there.
-      try {
-        await assertRunKindSupported(ctx.companyId, runId, 'post');
-      } catch (err) {
-        if (isRunKindUnsupported(err)) return toolError(err.message);
-        throw err;
-      }
       const preview: DryRunResult & {
         advisories: typeof plan.advisories;
         employment_cost: Record<string, number>;
