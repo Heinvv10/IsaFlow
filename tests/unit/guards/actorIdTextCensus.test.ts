@@ -20,12 +20,33 @@ const ROOT = resolve(__dirname, '../../..');
 const S = 'src/modules/accounting/services/';
 const TABLE = /\b(payroll_run_headers|payroll_leave_requests|payroll_external_imports|sars_submissions|sars_efiling_events|tax_directives|tax_directive_payments|uif_declarations|vat_returns)\b/;
 const COLUMN = /\b(approved_by|cancelled_by|created_by|prepared_by|requested_by|submitted_by)\b/;
-/** An actor cast to uuid: the column itself, `col = ${…}::uuid`, or a user-ish value `${…user…|…By…}::uuid`. */
+/** An actor column cast to uuid, or `col = ${…}::uuid` on an actor column. */
 const ACTOR_UUID_CAST = [
   /\b(approved_by|cancelled_by|created_by|prepared_by|requested_by|submitted_by)\s*::\s*uuid\b/i,
   /\b(approved_by|cancelled_by|created_by|prepared_by|requested_by|submitted_by)\s*=\s*\$\{[^}]*\}\s*::\s*uuid\b/i,
-  /\$\{[^}]*(?:user|by)[^}]*\}\s*::\s*uuid\b/i,
 ];
+/**
+ * Fail closed: in those files every `${…}::uuid` bind is refused unless its expression is listed here, verbatim, as
+ * a non-actor id (a company, run, employee, directive, document, journal… row id). A new bind, whatever its name,
+ * fails until it is added here or bound as text.
+ */
+const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
+  // company
+  'companyId', 'ctx.companyId', 'evt.companyId', 'opts.companyId',
+  // payroll runs, employees, leave
+  'runId', 'opts.runId', 'scope.runId', 'employeeId', 'employeeIds', 'input.employeeId', 'ins.employeeId',
+  'scope.employeeId', 'filters.employeeId ?? null', 'movedEnd', 'input.leaveTypeId', 'importId',
+  // tax directives, UIF, SARS submissions
+  'directiveId', 'directive.id', 'l.directiveId', 'filter.directiveId ?? null', 'onlyStandalone', 'standaloneIds',
+  'undone', 'declarationId', 'submissionId', 'evt.submissionId', 'String(open[0].id)',
+  // journals, documents, generic row ids
+  'journalId', 'journalEntryId', 'gate.replaces.journalEntryId', 'live.map((h) => String(h.journal_entry_id))',
+  'entry.id', 'documentId', 'invoiceId', 'rootId', 'id', 'ids', 'l.id', 'p.id', 'prior.id', 'mapped',
+  // entity-change log cursors
+  'opts.before ?? null', 'opts.changeId ?? null', 'opts.entityId ?? null', 'window.excludeId ?? null',
+]);
+const unlistedUuidBinds = (line: string) => [...line.matchAll(/\$\{([^}]*)\}\s*::\s*uuid\b/gi)]
+  .map((m) => m[1]!.trim()).filter((expr) => !NON_ACTOR_UUID_BINDS.has(expr));
 
 /** file -> line -> exact trimmed text of every actor-column line in a file that names one of the tables. */
 const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
@@ -122,7 +143,7 @@ function trackedFiles(): string[] {
     .split('\n').filter((f) => /\.tsx?$/.test(f));
 }
 const lines = (f: string) => readFileSync(resolve(ROOT, f), 'utf8').split('\n');
-const castsActorToUuid = (line: string) => ACTOR_UUID_CAST.some((re) => re.test(line));
+const castsActorToUuid = (line: string) => ACTOR_UUID_CAST.some((re) => re.test(line)) || unlistedUuidBinds(line).length > 0;
 
 describe('actor ids on the payroll, SARS and tax tables are bound as text (HYa census)', () => {
   const found: Record<string, Record<number, string>> = {};
@@ -156,6 +177,8 @@ describe('actor ids on the payroll, SARS and tax tables are bound as text (HYa c
     expect(castsActorToUuid("'draft', ${generatedByUserId}::uuid, NOW()")).toBe(true);
     expect(castsActorToUuid('SELECT i.created_by::UUID FROM sars_efiling_events i')).toBe(true);
     expect(castsActorToUuid('approved_by = ${x}::uuid')).toBe(true);
+    expect(castsActorToUuid('VALUES (${companyId}::uuid, ${actor}::uuid)')).toBe(true);
+    expect(castsActorToUuid('VALUES (${companyId}::uuid, ${runId}::uuid, ${actor})')).toBe(false);
     expect(castsActorToUuid('WHERE company_id = ${companyId}::uuid AND id = ${id}::uuid')).toBe(false);
     expect(castsActorToUuid('prepared_by::text AS prepared_by')).toBe(false);
     expect(TABLE.test(code('// payroll_run_headers in a comment only'))).toBe(false);
