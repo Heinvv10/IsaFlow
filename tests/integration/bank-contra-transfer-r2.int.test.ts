@@ -101,8 +101,11 @@ describe('MCP bulk: what the batch itself makes, and what another request holds'
     const dry = bulkOf(await mcp(a, f.c, 'bulk_allocate_bank_transactions', { allocations, dry_run: true, idempotency_key: key() }));
     expect(dry).toMatchObject({ would_post: 2, skipped: [] }); // not previewable: the caveat says so
     const live = bulkOf(await mcp(a, f.c, 'bulk_allocate_bank_transactions', { allocations, idempotency_key: key() }));
-    expect(live).toMatchObject({ posted: 1, skipped: [{ index: 1, transaction_id: inn, reason: expect.stringMatching(/A matching transfer already exists/) }] });
-    expect({ out: await status(out), inn: await status(inn), journals: await journals(f) }).toEqual({ out: 'allocated', inn: 'imported', journals: 1 });
+    // The batch posts in transaction-id order, so which leg goes first is the ids' draw: whichever is second is skipped.
+    const [first, second] = [out, inn].sort();
+    expect(live).toMatchObject({ posted: 1, skipped: [{ transaction_id: second, reason: expect.stringMatching(/A matching transfer already exists/) }] });
+    expect({ first: await status(first!), second: await status(second!), journals: await journals(f) })
+      .toEqual({ first: 'allocated', second: 'imported', journals: 1 });
   });
 
   it('a transfer line another request holds is skipped as locked; the batch\'s other line posts', async () => {
