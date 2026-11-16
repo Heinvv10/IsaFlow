@@ -71,6 +71,10 @@ export function PaymentTermsField({ days, type, onChange, error: parentError, in
 
   return (
     <div>
+      {/* The visible heading sits over the whole row (number box and kind); the Select carries the same text for readers. */}
+      <span aria-hidden="true" className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
+        Payment Terms<span className="text-red-400 ml-1">*</span>
+      </span>
       <div className="flex items-end gap-2">
         {showNumber && (
           <input
@@ -79,7 +83,7 @@ export function PaymentTermsField({ days, type, onChange, error: parentError, in
           />
         )}
         <div className="min-w-0 flex-1">
-          <Select id="payment-terms-kind" label="Payment Terms" required labelClassName="text-sm font-medium text-[var(--ff-text-secondary)]" placeholder="Choose…"
+          <Select id="payment-terms-kind" label="Payment Terms" required labelClassName="sr-only" placeholder="Choose…"
             options={options} value={mode === 'choose' ? null : mode} onChange={(v) => { if (v) pick(v as Mode); }} />
         </div>
       </div>
