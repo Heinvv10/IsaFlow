@@ -46,7 +46,7 @@ export function buildBankTxSelectionActions(
     const acct = batchType === 'account' ? glAccounts.find(g => g.id === entityId) : null;
     const autoVat = acct?.defaultVatCode && acct.defaultVatCode !== 'none' ? acct.defaultVatCode as VatCode : undefined;
     selectedIds.forEach(id => {
-      updates[id] = { type: batchType, entityId, label, vatCode: autoVat ?? (updates[id]?.vatCode || 'none') as VatCode };
+      updates[id] = { type: batchType, entityId, label, vatCode: batchType === 'account' ? (autoVat ?? (updates[id]?.vatCode || 'none') as VatCode) : 'none' }; // a settlement carries no VAT: switching type resets it, as the single-row change does
       // Persisted like a single-row edit (it used to live only in the page: a reload lost it); a refused save restores that row.
       const patch = { type: batchType, entityId, label, vatCode: updates[id]!.vatCode };
       saves.push(Promise.resolve(saveSelection(id, batchType, entityId, patch.vatCode, rollbackRow(id, rowSelections[id], patch), true)));

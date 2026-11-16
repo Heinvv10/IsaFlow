@@ -25,7 +25,7 @@ describe('amount bounds', () => {
     }
     expect(listTx).not.toHaveBeenCalled();
   });
-  it.each(['0', '100', '1234.56', ' 7.5 ', '0.0001'])('%j passes', async (good) => {
+  it.each(['0', '100', '.5', '.0001', '1234.56', ' 7.5 ', '0.0001'])('%j passes', async (good) => {
     expect((await callRoute(listRoute, { query: { bank_account_id: UUID_A, from_amount: good, to_amount: '9999' } })).code).toBe(200);
   });
   it('empty bounds are no bound', async () => {

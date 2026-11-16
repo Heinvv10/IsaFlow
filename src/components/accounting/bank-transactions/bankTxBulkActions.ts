@@ -33,7 +33,8 @@ export interface BulkDeps {
 export function buildBulkActions(d: BulkDeps) {
   const { transactions, selected, rowSelections, callAction, run, setProgress, setSelectedIds, reload } = d;
   const rows = Array.from(selected); // the lines these operations touch: a row action on one of them is refused meanwhile
-  const done = () => { setSelectedIds(() => new Set()); reload(); };
+  // Only the lines this batch handled are un-ticked: a tick made on another page meanwhile is the user's, and stays.
+  const done = () => { setSelectedIds(prev => { const next = new Set(prev); rows.forEach(id => next.delete(id)); return next; }); reload(); };
 
   const handleBatchAccept = () => run('batch-allocate', async () => {
     const actionable = actionableIds(transactions, Array.from(selected));

@@ -381,3 +381,38 @@ describe('exclude: a refused second confirm leaves the first one\'s outcome alon
   });
 });
 
+describe('Batch Edit to a settlement type resets VAT', () => {
+  it.each(['supplier', 'customer'] as const)('a row that had VAT "S" saves vatCode none when batch-edited to %s (a settlement carries no VAT)', async (type) => {
+    vi.mocked(apiFetch).mockImplementation(async () => json());
+    const setRowSelections = vi.fn();
+    const { actions } = setup({ batchType: type, rowSelections: { t1: { ...sel('g1'), vatCode: 'S' as never } }, setRowSelections });
+    actions.handleApplyBatchEdit('sup1', 'Acme');
+    await vi.waitFor(() => expect(sentActions('save_selection')).toHaveLength(3));
+    expect(sentActions('save_selection').every((b) => b.vatCode === undefined || b.vatCode === 'none')).toBe(true);
+    const applied = (setRowSelections.mock.calls[0]![0] as () => Record<string, RowSelection>)();
+    expect(applied.t1!.vatCode).toBe('none');
+    expect(applied.t1!.type).toBe(type);
+  });
+  it('an account batch keeps the row\'s own VAT when the account has no default', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => json());
+    const setRowSelections = vi.fn();
+    const { actions } = setup({ batchType: 'account', rowSelections: { t1: { ...sel('g1'), vatCode: 'S' as never } }, setRowSelections });
+    actions.handleApplyBatchEdit('gl9', 'Fuel');
+    const applied = (setRowSelections.mock.calls[0]![0] as () => Record<string, RowSelection>)();
+    expect(applied.t1!.vatCode).toBe('S');
+  });
+});
+
+describe('a rollback of one field never reverts an edit to another', () => {
+  it('a refused entity change after a later VAT edit leaves the row as the user last had it', async () => {
+    const setRowSelections = vi.fn();
+    const { actions } = setup({ rowSelections: { t1: sel('old') }, setRowSelections });
+    vi.mocked(apiFetch).mockImplementation(async () => refuse());
+    actions.handleRowEntityChange('t1', 'A', 'A');
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+    const rollback = setRowSelections.mock.calls.at(-1)![0] as (p: Record<string, RowSelection>) => Record<string, RowSelection>;
+    const later = { t1: { ...shown('A', 'A'), vatCode: 'S' as never } }; // the user then changed the VAT on the optimistic row
+    expect(rollback(later)).toBe(later);
+  });
+});
+

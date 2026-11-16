@@ -149,6 +149,12 @@ describe('DebouncedAmountInput validation', () => {
     expect(screen.queryByRole('alert')).toBeNull();
     expect(i.getAttribute('aria-invalid')).toBeNull();
   });
+  it('".5" is a valid amount: sent, no error', () => {
+    const { onCommit } = type('.5');
+    act(() => { vi.advanceTimersByTime(AMOUNT_DEBOUNCE_MS + 10); });
+    expect(onCommit).toHaveBeenCalledWith('.5');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
   it('emptying the field is a valid "no bound"', () => {
     const onCommit = vi.fn();
     render(<DebouncedAmountInput id="a" label="Min R" value="50" placeholder="0" onCommit={onCommit} />);

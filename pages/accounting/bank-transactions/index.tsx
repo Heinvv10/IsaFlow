@@ -113,6 +113,9 @@ export default function BankTransactionsPage() {
   // THE reload for anything that writes: the list AND the summary (cards, tiles, statement panel), so they never disagree.
   const refreshSummary = summary.refresh;
   const afterMutation = useCallback(() => { void loadLatest.current(); void refreshSummary(); }, [refreshSummary]);
+  // EVERY post-mutation list reload goes through this: an action that finishes after an account, page or filter change must
+  // reload the view the user is on NOW, not the one that was on screen when they clicked.
+  const reloadList = useCallback(() => { void loadLatest.current(); }, []);
   const reloadWithSummary = useCallback(async () => { await loadLatest.current({ silent: true }); void refreshSummary(); }, [refreshSummary]);
   usePageClamp({ page, total, pageSize: PAGE_SIZE, isLoading, failed: error !== '', setPage });
 
@@ -135,7 +138,7 @@ export default function BankTransactionsPage() {
     transactions, glAccounts, bankAccounts, selectedBank, selectedIds, rowSelections, batchType,
     excludingTxId: m.excludingTxId, createEntityTxId: m.createEntityTxId,
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds, setShowBatchEdit,
-    setRulePrompt: m.setRulePrompt, setExcludingTxId: m.setExcludingTxId, excludeOutcome: m.excludeOutcome, loadTransactions, refreshBankAccounts: () => void refreshSummary(), refreshSummarySoon: summary.refreshSoon,
+    setRulePrompt: m.setRulePrompt, setExcludingTxId: m.setExcludingTxId, excludeOutcome: m.excludeOutcome, loadTransactions: reloadList, refreshBankAccounts: () => void refreshSummary(), refreshSummarySoon: summary.refreshSoon,
     reloadCurrentView: afterMutation,
     onLlmResidual: pollForLlmResults, busy,
   });
