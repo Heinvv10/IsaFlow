@@ -35,6 +35,14 @@ describe('kit selects write the same values', () => {
     expect(onSourceChange.mock.calls[0]![0]).toBe(DATA_SOURCE_VALUES[0]);
   });
 
+  it('builder data source: clearing goes back to no source (onSourceChange(\'\'))', () => {
+    vi.mocked(apiFetch).mockImplementation(async () => ok([]));
+    const onSourceChange = vi.fn();
+    render(<ReportBuilderSidebar selectedSource="customers" selectedFields={[]} onSourceChange={onSourceChange} onAddField={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
+    expect(onSourceChange).toHaveBeenLastCalledWith('');
+  });
+
   it('directives status filter: the picked status goes out as the status query', async () => {
     vi.mocked(apiFetch).mockImplementation(async () => ok([]));
     render(<TaxDirectivesPage />);

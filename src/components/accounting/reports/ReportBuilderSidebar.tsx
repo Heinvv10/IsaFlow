@@ -67,7 +67,7 @@ export function ReportBuilderSidebar({ selectedSource, selectedFields, onSourceC
     <div className="flex flex-col h-full bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800" style={{ width: 260 }}>
       {/* Data source selector */}
       <div className="p-3 border-b border-gray-200 dark:border-slate-800 bg-gray-50 dark:bg-slate-800/50">
-        <Select label="Data source" labelClassName="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" placeholder="Select source..."
+        <Select label="Data source" labelClassName="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" placeholder="Select source..." clearable
           options={DATA_SOURCES.map(d => ({ value: d.value, label: d.label }))}
           value={selectedSource || null} onChange={v => onSourceChange(v ?? '')} />
       </div>

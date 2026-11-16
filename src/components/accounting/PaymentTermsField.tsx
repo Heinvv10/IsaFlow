@@ -77,16 +77,16 @@ export function PaymentTermsField({ days, type, onChange, error: parentError, in
         className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
         Payment Terms<span className="text-red-400 ml-1">*</span>
       </span>
-      {/* The Select comes first in the DOM, so Tab goes from it to the number box once a kind is chosen; the box is shown first. */}
+      {/* The Select comes first in the DOM, so Tab goes from it to the number box once a kind is chosen, and the box sits to its right. */}
       <div className="flex items-end gap-2">
-        <div className="min-w-0 flex-1 order-2">
+        <div className="min-w-0 flex-1">
           <Select id="payment-terms-kind" label="Payment Terms" required labelClassName="sr-only" placeholder="Choose…"
             options={options} value={mode === 'choose' ? null : mode} onChange={(v) => { if (v) pick(v as Mode); }} />
         </div>
         {showNumber && (
           <input
             type="number" min="0" max="999" step="1" aria-label="Number of days or months" value={days}
-            onChange={(e) => onChange(e.target.value, kind)} className={`${inputClass.replace('w-full', 'w-20 shrink-0')} order-1`}
+            onChange={(e) => onChange(e.target.value, kind)} className={`${inputClass.replace('w-full', 'w-20 shrink-0')}`}
           />
         )}
       </div>

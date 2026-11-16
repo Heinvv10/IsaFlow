@@ -44,12 +44,13 @@ describe('Select required / disabled clear', () => {
 });
 
 describe('payment terms: order and heading', () => {
-  it('the Select is before the number box in the DOM (Tab goes Select -> number), the box is shown first', () => {
+  it('the Select is before the number box in the DOM and on screen (no order override)', () => {
     render(<PaymentTermsField days="30" type="invoice_days" inputClass="x w-full" onChange={vi.fn()} />);
     const box = screen.getByRole('combobox', { name: 'Payment Terms' });
     const num = screen.getByLabelText('Number of days or months');
     expect(box.compareDocumentPosition(num) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(num.className).toContain('order-1');
+    expect(num.className).not.toMatch(/\border-/);
+    expect(box.parentElement!.parentElement!.className).not.toMatch(/\border-/);
   });
 
   it('clicking the visible heading focuses the Select', () => {
