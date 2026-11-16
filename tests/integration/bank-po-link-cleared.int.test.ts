@@ -13,7 +13,7 @@ import { sql } from '@/lib/neon';
 import {
   allocateTransaction, reverseReconciledTransaction, splitAllocateTransaction,
 } from '@/modules/accounting/services/bank/bankAllocationService';
-import { unmatchTransaction } from '@/modules/accounting/services/bank/bankTxStatusMutations';
+import { excludeTransaction, unmatchTransaction } from '@/modules/accounting/services/bank/bankTxStatusMutations';
 import { startReconciliation } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { cancelReconciliation } from '@/modules/accounting/services/bank/bankReconciliationCancelService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -98,6 +98,21 @@ describe('a line that stops paying a purchase order loses its PO link', () => {
     await sql`UPDATE bank_transactions SET status = 'matched', linked_po_id = ${po}::UUID WHERE id = ${bt}::UUID`;
     await inTx(c.fx, () => unmatchTransaction(c.fx.companyId, bt, c.fx.userId));
     expect(await lineRow(bt)).toMatchObject({ status: 'imported', jl: null });
+    expect(await linkOf(bt)).toBeNull();
+  }, 120000);
+
+  // Round 2 (breaker, LOW): exclude kept the link. Exclude KEEPS matched_journal_line_id on purpose; the link is not
+  // what restores anything — the page's Undo is unmatch(expectedStatus 'excluded'), which resets to imported and
+  // clears the link itself, and refuses a line still carrying a journal line. So exclude clears it outright.
+  it('excluding a line clears its link and keeps its journal line', async () => {
+    const bank = await newBank(c);
+    const po = await purchaseOrder(await newSupplier(c), 175);
+    const bt = await importedLine(bank, -175);
+    await inTx(c.fx, () => allocateTransaction(c.fx.companyId, bt, c.acct.expense, c.fx.userId, undefined, 'account'));
+    const jl = (await lineRow(bt)).jl;
+    await sql`UPDATE bank_transactions SET status = 'matched', linked_po_id = ${po}::UUID WHERE id = ${bt}::UUID`;
+    await inTx(c.fx, () => excludeTransaction(c.fx.companyId, bt, 'not ours', c.fx.userId));
+    expect(await lineRow(bt)).toMatchObject({ status: 'excluded', jl });
     expect(await linkOf(bt)).toBeNull();
   }, 120000);
 

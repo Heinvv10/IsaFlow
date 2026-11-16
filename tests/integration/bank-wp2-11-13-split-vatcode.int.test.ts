@@ -79,6 +79,21 @@ describeIfDb('WP2 rows 11 + 13: exact split totals, known VAT codes only', () =>
     expect(await journalLines(out.journalEntryId)).toEqual(['1000:0.00/0.30:-', '6000:0.10/0.00:-', '6000:0.20/0.00:-']);
   }, 60000);
 
+  // Round 2 (breaker, LOW): a zero or negative part reached the journal validator, whose generic Error is a 500.
+  it.each([
+    ['a zero line', [0, 5], 1], ['a negative line', [-1, 6], 1],
+  ] as const)('refuses %s as a typed allocation refusal, before anything is written', async (_what, amounts, bad) => {
+    const expense = await accountByCode('6000');
+    const tx = await seedBankTx(fx, { date: '2026-10-05', amount: -5, description: `split ${amounts.join('/')}` });
+    const before = await journalCount();
+    const err = await inTx(fx, () => splitAllocateTransaction(fx.companyId, tx,
+      amounts.map((amount) => ({ contraAccountId: expense, amount })), fx.userId)).catch((e: unknown) => e);
+    expect(isBankAllocationRefusal(err), String(err)).toBe(true);
+    expect((err as Error).message).toBe(`Split line ${bad}: the amount must be more than zero. Nothing was posted.`);
+    expect(await journalCount()).toBe(before);
+    expect(await lineStatus(tx)).toBe('imported');
+  }, 60000);
+
   it('refuses an empty split as a typed allocation refusal (400), before anything is written', async () => {
     const tx = await seedBankTx(fx, { date: '2026-10-05', amount: -5, description: 'split no lines' });
     const before = await journalCount();

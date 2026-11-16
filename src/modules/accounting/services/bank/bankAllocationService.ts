@@ -217,7 +217,8 @@ export async function allocateTransaction(
             -- reverse a journal its batch never posted (PR #263 review).
             allocation_batch_id = NULL,
             -- Nor does it pay the purchase order the line paid before (a re-pointed reconciled line): left set, that
-            -- PO still counts this cash as paid. The PO match sets it again AFTER this call.
+            -- PO still counts this cash as paid. The PO match (confirmPurchaseOrderMatch, lane B's #1458) sets it again
+            -- AFTER this call.
             linked_po_id = NULL
         WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
     }

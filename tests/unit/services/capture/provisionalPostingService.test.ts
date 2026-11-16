@@ -97,14 +97,33 @@ describe('predictFromHistory', () => {
       { id: SUPPLIER_ID, name: 'Eskom Holdings' },
     ] as never); // suppliers
     // 4 raw history rows all pointing to same GL → mode count = 4 → confidence 0.9
-    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'S', 4) as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'standard', 4) as never);
 
     const result = await predictFromHistory(COMPANY_ID, makeBankTx({ description: 'ESKOM HOLDINGS' }));
 
     expect(result.supplierId).toBe(SUPPLIER_ID);
     expect(result.glAccountId).toBe(GL_ACC_ID);
-    expect(result.vatCode).toBe('S');
+    expect(result.vatCode).toBe('standard');
     expect(result.confidence).toBeCloseTo(0.9, 5);
+  });
+
+  // WP2 round 2: the mode is taken over the VALID codes only. Capture records a supplier's VAT NUMBER as its vat_code
+  // when no default code exists (seen on dev), and a mode over everything skipped that supplier forever.
+  it('takes the mode over valid codes only — a VAT number recorded as the code does not win', async () => {
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([
+      ...makeHistoryRows(GL_ACC_ID, '4240294944', 3), ...makeHistoryRows(GL_ACC_ID, 'zero_rated', 1),
+    ] as never);
+    const result = await predictFromHistory(COMPANY_ID, makeBankTx({ description: 'ESKOM HOLDINGS' }));
+    expect(result.vatCode).toBe('zero_rated');
+    expect(result.confidence).toBeCloseTo(0.9, 5); // the account mode still counts every row
+  });
+
+  it('predicts no code when no recorded code is a valid one', async () => {
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'S', 4) as never);
+    const result = await predictFromHistory(COMPANY_ID, makeBankTx({ description: 'ESKOM HOLDINGS' }));
+    expect(result.vatCode).toBeNull();
   });
 
   it('returns confidence 0.7 when supplier matches but only 1 history row exists', async () => {
@@ -238,22 +257,6 @@ describe('postProvisional', () => {
 
     expect(result.journalEntryId).toBeNull();
     expect(result.skipped).toContain('low confidence');
-  });
-
-  // WP2 row 13: the history holds whatever its writers recorded (a supplier's VAT NUMBER among them on dev). A code
-  // outside the four used to post the gross with nobody watching; it is skipped and reported, before any write.
-  it.each(['4240294944', 'S', 'STANDARD'])('skips a prediction whose VAT code %j is unknown, posting nothing', async (code) => {
-    vi.mocked(sqlMock).mockResolvedValueOnce([
-      { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', feed_state: 'posted', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
-    ] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, code, 4) as never);
-
-    const result = await postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID);
-
-    expect(result).toMatchObject({ journalEntryId: null, skipped: `unknown VAT code "${code}"` });
-    expect(vi.mocked(createJournalEntry)).not.toHaveBeenCalled();
-    expect(vi.mocked(sqlMock)).toHaveBeenCalledTimes(3); // the line, the suppliers, the history: no write
   });
 
   it('creates a journal entry and returns its id on the happy path', async () => {

@@ -67,8 +67,15 @@ describe('row Type change -> save_selection', () => {
     expect(await post(bodies[0])).toBe(200);
   });
 
+  // WP2 round 2: save_selection wrote any string ≤ 20 chars into suggested_vat_code, where the screen pre-fills the
+  // row and the confidence gate posts it. The four allocation codes only; anything else is a 4xx before any SQL.
+  it.each(['STD', '15-VAT', 'no_vat'])('refuses vatCode %j before any SQL', async (vatCode) => {
+    expect(await post({ action: 'save_selection', bankTransactionId: TX, selectionType: 'account', vatCode })).toBe(422);
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
+
   it('keeps the vat code the screen shows: an account row keeps it, a supplier row resets to none', async () => {
-    const rows = { [TX]: { type: 'account', entityId: SUP, label: 'x', vatCode: 'S' } };
+    const rows = { [TX]: { type: 'account', entityId: SUP, label: 'x', vatCode: 'standard' } };
     const setRows = vi.fn();
     const a = buildBankTxActions({
       transactions: [], glAccounts: [], selectedBank: 'b', selectedIds: new Set(), rowSelections: rows, batchType: 'account',
@@ -79,12 +86,12 @@ describe('row Type change -> save_selection', () => {
     a.handleRowTypeChange(TX, 'account');
     a.handleRowTypeChange(TX, 'supplier');
     const [first, second] = sent();
-    expect(first).toMatchObject({ selectionType: 'account', vatCode: 'S' });
+    expect(first).toMatchObject({ selectionType: 'account', vatCode: 'standard' });
     expect(second).toMatchObject({ selectionType: 'supplier', vatCode: 'none' });
     // what the screen holds is what was sent
     const screen = setRows.mock.calls.map(([fn]) => (fn as (p: Record<string, { vatCode: string }>) => Record<string, { vatCode: string }>)(rows as never)[TX]!.vatCode);
-    expect(screen).toEqual(['S', 'none']);
+    expect(screen).toEqual(['standard', 'none']);
     expect(await post(first)).toBe(200);
-    expect(sqlMock.mock.calls[1]!.slice(1).slice(0, 4)).toEqual([null, null, null, 'S']);
+    expect(sqlMock.mock.calls[1]!.slice(1).slice(0, 4)).toEqual([null, null, null, 'standard']);
   });
 });

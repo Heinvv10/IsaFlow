@@ -6,6 +6,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { isAllocationVatCode } from '../bank/bankVatCodes';
 
 type Row = DbRow;
 
@@ -119,7 +120,9 @@ export async function predictFromHistory(
     const gl = r.gl_account_id ? String(r.gl_account_id) : '';
     const vat = r.vat_code ? String(r.vat_code) : '';
     if (gl) glFreq.set(gl, (glFreq.get(gl) ?? 0) + 1);
-    if (vat) vatFreq.set(vat, (vatFreq.get(vat) ?? 0) + 1);
+    // The mode over VALID codes only: capture records a supplier's VAT NUMBER as the code when no default exists,
+    // and a mode over everything skipped that supplier forever (postProvisional refuses an unknown code).
+    if (vat && isAllocationVatCode(vat)) vatFreq.set(vat, (vatFreq.get(vat) ?? 0) + 1);
   }
 
   const topGl = [...glFreq.entries()].sort((a, b) => b[1] - a[1])[0];

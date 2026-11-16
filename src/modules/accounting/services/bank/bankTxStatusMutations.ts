@@ -274,7 +274,10 @@ export async function excludeTransaction(
   try {
     const priorStatus = String((await lockForStatusWrite(companyId, bankTxId, 'exclude')).status);
     const rows = (await sql`
-      UPDATE bank_transactions SET status = 'excluded', excluded_reason = ${reason || null}
+      UPDATE bank_transactions SET status = 'excluded', excluded_reason = ${reason || null},
+        -- An excluded line pays no purchase order. The journal line stays (the line's match); the PO link is not what
+        -- Undo restores — that is unmatch(expectedStatus 'excluded'), which resets to imported and clears it anyway.
+        linked_po_id = NULL
       WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
     if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
     await recordExcluded(companyId, bankTxId, userId); // learning loop (non-fatal)

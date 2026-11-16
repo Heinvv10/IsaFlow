@@ -64,6 +64,10 @@ export async function splitAllocateTransaction(
   // let R5.01 of lines through for an R5.00 line (5.01 - 5.00 is 0.00999… in IEEE-754). Row 13: a VAT code outside
   // the known four would post the part gross, silently. Both refused from the request, before any write.
   for (const [i, l] of lines.entries()) {
+    // Round 2: a zero or negative part reached the journal validator, whose generic Error answers 500.
+    if (!(Number(l.amount) > 0)) {
+      throw new BankAllocationRefusal(`Split line ${i + 1}: the amount must be more than zero. Nothing was posted.`);
+    }
     if (!hasWholeCents(Number(l.amount))) {
       throw new BankAllocationRefusal(`Split line ${i + 1}: ${String(l.amount)} is not an amount in whole cents. Nothing was posted.`);
     }
