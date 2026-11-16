@@ -18,13 +18,13 @@ import { assertDisposable, gotruePath, request, response } from './mfa-impersona
 import { signSession } from './r-032-fake-gotrue.helpers';
 
 assertDisposable();
-const asRole = (role: string): string => {
+export const asRoleUrl = (role: string): string => {
   const url = new URL(process.env.DATABASE_URL!);
   url.searchParams.set('options', `-c role=${role}`);
   return url.toString();
 };
-process.env.PLATFORM_ADMIN_DATABASE_URL = asRole('platform_admin');
-process.env.MIGRATION_ADMIN_DATABASE_URL = asRole('migration_admin');
+process.env.PLATFORM_ADMIN_DATABASE_URL = asRoleUrl('platform_admin');
+process.env.MIGRATION_ADMIN_DATABASE_URL = asRoleUrl('migration_admin');
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'disposable-service-role-key';
 process.env.SUPABASE_ANON_KEY = 'disposable-anon-key';
 
@@ -38,6 +38,16 @@ const digests: string[] = [];
 const ips: string[] = [];
 /** GoTrue accounts by lower-cased address. Every user this file makes has one, deleted or not. */
 const accounts = new Map<string, string>();
+/** Each account's GoTrue login address by id (what GET /admin/users/<id> answers). */
+const logins = new Map<string, string>();
+/** Accounts whose GoTrue admin read answers 503 (an outage). */
+export const gotrueDown = new Set<string>();
+/** GoTrue's login address for `id` moves to `email` (change-email); users.email is not touched. */
+export function setGotrueEmail(id: string, email: string): void {
+  for (const [address, owner] of accounts) if (owner === id) accounts.delete(address);
+  accounts.set(email.trim().toLowerCase(), id);
+  logins.set(id, email);
+}
 /** GoTrue users whose password an accept route set (PUT /admin/users/<id>). */
 export const passwordSets: string[] = [];
 let ipSeq = 0;
@@ -51,6 +61,7 @@ export async function seedUser(opts: { memberOf?: readonly string[]; email?: str
   const email = opts.email ?? `${id}@test.local`;
   created.push(id);
   accounts.set(email.trim().toLowerCase(), id);
+  logins.set(id, email);
   await pool.query(`INSERT INTO users (id, email, role, is_active, status) VALUES ($1, $2, 'viewer', true, 'active')`, [id, email]);
   for (const company of opts.memberOf ?? []) {
     await pool.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'viewer')`, [company, id]);
@@ -125,7 +136,12 @@ function gotrueStub(input: Parameters<typeof fetch>[0], init?: Parameters<typeof
   const method = init?.method ?? 'GET';
   const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
   if (path === '/user') return Promise.resolve(json({ id: 'disposable', factors: [] }));
-  if (path.startsWith('/admin/users/') && method === 'GET') return Promise.resolve(json({ id: path.split('/').pop(), factors: [] }));
+  if (path.startsWith('/admin/users/') && method === 'GET') {
+    const id = decodeURIComponent(path.split('/').pop()!);
+    if (gotrueDown.has(id)) return Promise.resolve(json({ msg: 'unavailable' }, 503));
+    const email = logins.get(id);
+    return Promise.resolve(email === undefined ? json({ msg: 'User not found' }, 404) : json({ id, email, factors: [] }));
+  }
   if (path.startsWith('/admin/users/')) {
     const id = path.split('/').pop()!;
     passwordSets.push(id);

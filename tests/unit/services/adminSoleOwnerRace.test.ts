@@ -12,6 +12,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const sqlMock = vi.fn();
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
 vi.mock('@/lib/auth/gotrue', () => ({ adminRevokeAllUserSessions: vi.fn() }));
+const gotrueUser = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/auth/gotrueAdminUser', () => ({ adminGetUser: gotrueUser }));
 const findStranded = vi.hoisted(() => vi.fn());
 vi.mock('@/modules/accounting/services/core/payRunApproverGuard', () => ({ assertPayRunApproverRetainedEverywhere: vi.fn(async () => undefined), findStrandedPayRunRequests: findStranded })); // judged on a real database: payroll-approver-guard-paths.int.test.ts
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
@@ -25,6 +27,7 @@ const text = (call: unknown[]) => (call[0] as TemplateStringsArray).join('?').re
 
 beforeEach(() => {
   findStranded.mockReset().mockResolvedValue([]);
+  gotrueUser.mockReset().mockResolvedValue({ id: USER, email: 'login@test.local' });
   sqlMock.mockReset().mockImplementation(async (strings: TemplateStringsArray) => {
     const q = strings.join('?');
     if (q.includes('SELECT role FROM users')) return [{ role: 'viewer' }];
@@ -75,9 +78,21 @@ describe('deleteUser is never stopped by the look-up of pay-run approvals it str
     // company_users -> users -> user_sessions (the one lock order), the sweep of a membership added meanwhile, then
     // the invitations, last (follow-up A), for the address the users DELETE returned.
     expect(writes).toEqual(['DELETE FROM company_users', 'DELETE FROM users', 'DELETE FROM user_sessions', 'DELETE FROM company_users',
-      'SELECT public.admin_cancel_user_invitations(?) AS']);
+      'SELECT public.admin_cancel_user_invitations(?, ?::text[])']);
+    // The user's GoTrue id, the deleted row's email and GoTrue's login email (read once, before any write).
     const cancel = sqlMock.mock.calls.find((c) => text(c).includes('admin_cancel_user_invitations'))!;
-    expect(cancel.slice(1)).toEqual(['gone@test.local']);
+    expect(cancel.slice(1)).toEqual([USER, ['gone@test.local', 'login@test.local']]);
+    expect(gotrueUser.mock.calls).toEqual([[USER]]);
+    expect(gotrueUser.mock.invocationCallOrder[0]!).toBeLessThan(
+      sqlMock.mock.invocationCallOrder[sqlMock.mock.calls.findIndex((c) => /^\s*DELETE\b/i.test(text(c)))]!);
+  });
+
+  it('a GoTrue outage fails the delete before any write (never a partial cancel)', async () => {
+    gotrueUser.mockRejectedValueOnce(new Error('gotrue adminGetUser unavailable: 503'));
+    sqlMock.mockReset().mockImplementation(async (strings: TemplateStringsArray) =>
+      (strings.join('?').includes('SELECT role FROM users') ? [{ role: 'viewer' }] : []));
+    await expect(deleteUser(USER)).rejects.toThrow(/unavailable/);
+    expect(sqlMock.mock.calls.map(text).filter((q) => /^\s*(INSERT|UPDATE|DELETE)\b|admin_cancel/i.test(q))).toEqual([]);
   });
 
   it('returns what it strands, for the admin audit row', async () => {

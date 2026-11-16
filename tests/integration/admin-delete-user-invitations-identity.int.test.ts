@@ -1,0 +1,113 @@
+/**
+ * Follow-up A, breaker #1468 (MEDIUM): the accept routes match the GoTrue identity, not users.email. The legacy route
+ * compares the session's (GoTrue) email; the other signs in as the invitation's address, through the GoTrue account
+ * pinned on it. users.email and GoTrue drift: a POPIA erasure rewrites users.email to `anonymized_…@deleted.invalid`
+ * and leaves GoTrue alone; change-email can leave either side behind. So deleteUser cancels every pending invitation
+ * pinned to the user's GoTrue id OR addressed to users.email OR to the GoTrue account's login email, which it reads
+ * (GET /admin/users/<id>) before taking any row lock:
+ *   - erased, then deleted: the old invitation is refused on both routes, nothing written;
+ *   - change-email: an invitation to the OLD address pinned by gotrue_user_id goes, and so does one to the GoTrue
+ *     address users.email never took (the partial failure);
+ *   - GoTrue has no account (404): users.email alone, the delete goes ahead;
+ *   - GoTrue cannot answer: the delete is a 5xx and writes nothing (never a partial cancel);
+ *   - the definer refuses while the user's row still exists (it serves a delete, never a live user).
+ * GoTrue is the helpers' fetch stub. Disposable fixture only.
+ */
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  adminDelete, asRoleUrl, companies, deleteAudit, gotrueDown, invitationRow, invite, legacyAccept, memberships,
+  newAccept, passwordSets, pool, resetAdminLimit, seedUser, setGotrueEmail, setup, teardown, usersRows,
+} from './admin-delete-user-invitations.helpers';
+import { Pool } from 'pg';
+
+const [A, B, C] = companies;
+beforeAll(setup, 60000);
+beforeEach(resetAdminLimit);
+afterAll(teardown);
+
+/** pages/api/accounting/data-subject-rights.ts handleErasure's statement (GoTrue is not touched). */
+const erase = (id: string) => pool.query(
+  `UPDATE users SET first_name = 'Anonymized', last_name = $2, email = $3, updated_at = NOW() WHERE id = $1`,
+  [id, `anonymized_${id}`, `anonymized_${id}@deleted.invalid`]);
+
+describe('deleteUser cancels by the GoTrue identity too', () => {
+  it('erased, then deleted: the old invitation on POST /api/invite/<token> is refused, nothing written', async () => {
+    const u = await seedUser({ memberOf: [A] });
+    const token = await invite(B, u.email); // Settings -> User Access: no GoTrue user pinned
+    await erase(u.id);
+    expect((await adminDelete(u.id)).status).toBe(200);
+    const r = await legacyAccept(u.id, token);
+    expect(r.status, JSON.stringify(r.body)).toBe(404);
+    expect(await usersRows(u.id)).toBe(0);
+    expect(await memberships(u.id)).toBe(0);
+    expect(await invitationRow(token)).toBeUndefined();
+    expect(await deleteAudit(u.id)).toEqual([expect.objectContaining({ invitations_cancelled: 1 })]);
+  });
+
+  it('erased, then deleted: the old invitation on POST /api/invitations/<token>/accept is refused, no password set', async () => {
+    const u = await seedUser({ memberOf: [A] });
+    const token = await invite(C, u.email, { gotrueUserId: u.id });
+    await erase(u.id);
+    expect((await adminDelete(u.id)).status).toBe(200);
+    const r = await newAccept(token);
+    expect(r.status, JSON.stringify(r.body)).toBe(410);
+    expect(await usersRows(u.id)).toBe(0);
+    expect(await memberships(u.id)).toBe(0);
+    expect(passwordSets).not.toContain(u.id);
+  });
+
+  it('change-email: the old address pinned by gotrue_user_id, and the GoTrue address users.email never took, both go', async () => {
+    const u = await seedUser({ memberOf: [A] });
+    const oldAddress = await invite(B, u.email, { gotrueUserId: u.id });
+    const moved = `moved-${u.id}@test.local`;
+    await pool.query('UPDATE users SET email = $2 WHERE id = $1', [u.id, moved]); // change-email, both sides
+    setGotrueEmail(u.id, moved);
+    const v = await seedUser({ memberOf: [A] });
+    const gotrueOnly = `gotrue-only-${v.id}@test.local`;
+    setGotrueEmail(v.id, gotrueOnly); // GoTrue took it, the users COMMIT failed (change-email's logged drift)
+    const toGotrueOnly = await invite(C, gotrueOnly);
+
+    expect((await adminDelete(u.id)).status).toBe(200);
+    expect(await invitationRow(oldAddress)).toBeUndefined();
+    expect((await adminDelete(v.id)).status).toBe(200);
+    expect(await invitationRow(toGotrueOnly)).toBeUndefined();
+    expect(await deleteAudit(v.id)).toEqual([expect.objectContaining({ invitations_cancelled: 1 })]);
+  });
+
+  it('no GoTrue account (404): users.email alone, and the delete goes ahead', async () => {
+    const id = crypto.randomUUID();
+    await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'viewer', true)`, [id, `${id}@test.local`]);
+    const token = await invite(B, `${id}@test.local`);
+    const del = await adminDelete(id);
+    expect(del.status, JSON.stringify(del.body)).toBe(200);
+    expect(await invitationRow(token)).toBeUndefined();
+  });
+
+  it('GoTrue cannot answer: the delete is a 5xx and writes nothing', async () => {
+    const u = await seedUser({ memberOf: [A] });
+    const token = await invite(B, u.email);
+    gotrueDown.add(u.id);
+    try {
+      const del = await adminDelete(u.id);
+      expect(del.status, JSON.stringify(del.body)).toBeGreaterThanOrEqual(500);
+    } finally { gotrueDown.delete(u.id); }
+    expect(await usersRows(u.id)).toBe(1);
+    expect(await memberships(u.id)).toBe(1);
+    expect(await invitationRow(token)).toEqual({ accepted_at: null });
+    expect(await deleteAudit(u.id)).toEqual([]);
+  });
+
+  it('the definer refuses while the user still exists, and only platform_admin may call it', async () => {
+    const u = await seedUser({ memberOf: [A] });
+    const token = await invite(B, u.email, { gotrueUserId: u.id });
+    const asAdmin = new Pool({ connectionString: asRoleUrl('platform_admin'), max: 1 });
+    const asApp = new Pool({ connectionString: asRoleUrl('app_user'), max: 1 });
+    try {
+      await expect(asAdmin.query('SELECT public.admin_cancel_user_invitations($1, $2)', [u.id, [u.email]]))
+        .rejects.toMatchObject({ code: 'RC012' });
+      await expect(asApp.query('SELECT public.admin_cancel_user_invitations($1, $2)', [crypto.randomUUID(), [u.email]]))
+        .rejects.toMatchObject({ code: '42501' });
+    } finally { await Promise.all([asAdmin.end(), asApp.end()]); }
+    expect(await invitationRow(token)).toEqual({ accepted_at: null });
+  });
+});
