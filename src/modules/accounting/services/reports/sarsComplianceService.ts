@@ -3,6 +3,7 @@
  * Submissions CRUD and DB-backed compliance calendar for SA tax obligations.
  */
 
+import { toIsoTimestamp } from '@/lib/dateUtils';
 import { sql } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { fmtDate } from '@/lib/fmtDate';
@@ -42,7 +43,7 @@ function mapSubmissionRow(row: DbRow): SARSSubmission {
     status: String(row.status),
     formData: (row.form_data as Record<string, unknown>) ?? {},
     submissionReference: row.submission_reference ? String(row.submission_reference) : null,
-    submittedAt: row.submitted_at ? String(row.submitted_at) : null,
+    submittedAt: row.submitted_at ? toIsoTimestamp(row.submitted_at as Date | string) : null,
     submittedBy: row.submitted_by ? String(row.submitted_by) : null,
     efilingChannel: row.efiling_channel ? String(row.efiling_channel) : null,
     notes: row.notes ? String(row.notes) : null,

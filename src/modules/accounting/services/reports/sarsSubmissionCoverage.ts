@@ -5,6 +5,7 @@
  *
  * How it was filed: `filingKindOf` (sarsFilingKind.ts).
  */
+import { toIsoTimestamp } from '@/lib/dateUtils';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/types/db';
@@ -101,7 +102,7 @@ export async function readFiledSubmissions(companyId: string, from: string, to: 
     periodStart: fmtDate(r.period_start),
     periodEnd: fmtDate(r.period_end),
     reference: r.submission_reference ? String(r.submission_reference) : null,
-    submittedAt: r.submitted_at instanceof Date ? r.submitted_at.toISOString() : r.submitted_at ? String(r.submitted_at) : null,
+    submittedAt: r.submitted_at ? toIsoTimestamp(r.submitted_at as Date | string) : null,
     status: String(r.status),
     channel: r.efiling_channel ? String(r.efiling_channel) : null,
     submittedBy: r.submitted_by_name ? String(r.submitted_by_name) : null,

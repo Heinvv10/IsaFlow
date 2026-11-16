@@ -112,6 +112,12 @@ describe('SARS submissions view detail', () => {
     open(empty500); fireEvent.click(await screen.findByText('View'));
     await waitFor(() => expect(bodyText()).toContain('Could not load the filing record details')); noParserText();
   });
+  it('the Filed / recorded column shows a formatted date, never a raw "GMT" string', async () => {
+    open(refused);
+    const tr = (await screen.findByText('Marked submitted')).closest('tr') as HTMLElement;
+    expect(tr.textContent).not.toMatch(/GMT|Standard Time/);
+    expect(tr.textContent).toMatch(/2026/);
+  });
   it('opens the server detail on a 200', async () => {
     open(() => ok({ ...sub, notes: 'D2 server detail' })); fireEvent.click(await screen.findByText('View'));
     await waitFor(() => expect(bodyText()).toContain('MODAL D2 server detail'));
