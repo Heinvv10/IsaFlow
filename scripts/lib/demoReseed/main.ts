@@ -6,7 +6,7 @@
 
 import { execFileSync } from 'child_process';
 import { log } from '../../../src/lib/logger';
-import { Refusal, describeTarget, parseArgs, resolveDbUrl } from './cli';
+import { Refusal, assertTransportSafe, describeTarget, parseArgs, resolveDbUrl } from './cli';
 import { DB_URL_ENV, DEMO_MONTHS_BACK, DEMO_MONTHS_FORWARD } from './constants';
 import { runReseed } from './run';
 
@@ -25,6 +25,7 @@ export async function reseedMain(argv: readonly string[], env: Readonly<Record<s
   try {
     args = parseArgs(argv);
     url = resolveDbUrl(env);
+    assertTransportSafe(url);
     out(`target: ${describeTarget(url)} (from ${DB_URL_ENV})`);
   } catch (err) {
     if (err instanceof Refusal) { out(`REFUSED: ${err.message}`); return 2; }

@@ -11,7 +11,7 @@
 import pg from 'pg';
 import { SA_STANDARD_VAT_RATE_PCT } from '../../../src/lib/vat/standardRate';
 import { rollbackFailed } from '../../../src/lib/rollbackFailed';
-import { Refusal, assertDemoCompany, assertTodayNotFuture, type Mode } from './cli';
+import { Refusal, assertDemoCompany, assertTodayNotFuture, assertTransportSafe, type Mode } from './cli';
 import { windowFor } from './dates';
 import { txOver, type Tx } from './db';
 import { postDepreciationHistory } from './depreciation';
@@ -54,9 +54,16 @@ export async function runReseed(opts: RunOptions): Promise<RunResult> {
     throw err;
   }
   const own = !opts.client;
-  const client = opts.client ?? new pg.Client({
-    connectionString: opts.url, ssl: opts.url?.includes('sslmode=disable') ? false : { rejectUnauthorized: false },
-  });
+  if (own) {
+    try {
+      assertTransportSafe(opts.url ?? '');
+    } catch (err) {
+      if (err instanceof Refusal) return refused(opts, err);
+      throw err;
+    }
+  }
+  // No ssl override: the URL's sslmode decides, and pg verifies the certificate when TLS is asked for.
+  const client = opts.client ?? new pg.Client({ connectionString: opts.url });
   if (own) await client.connect();
   const readOnly = opts.mode !== 'run';
   const tx = txOver(client);

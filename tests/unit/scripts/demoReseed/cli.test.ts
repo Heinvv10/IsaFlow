@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  Refusal, assertDemoCompany, assertTodayNotFuture, describeTarget, parseArgs, resolveDbUrl,
+  Refusal, assertDemoCompany, assertTodayNotFuture, assertTransportSafe, describeTarget, parseArgs, resolveDbUrl,
 } from '../../../../scripts/lib/demoReseed/cli';
 import { DEMO_COMPANY_ID } from '../../../../scripts/lib/demoReseed/constants';
 
@@ -39,6 +39,14 @@ describe('reseed CLI contract', () => {
   it('reads the URL only from DEMO_RESEED_DATABASE_URL', () => {
     expect(() => resolveDbUrl({ DATABASE_URL: 'postgresql://x@h/db' })).toThrow(/DEMO_RESEED_DATABASE_URL/);
     expect(resolveDbUrl({ DEMO_RESEED_DATABASE_URL: 'postgresql://x@h/db' })).toBe('postgresql://x@h/db');
+  });
+
+  it('refuses plaintext or unverified TLS to a host that is not loopback', () => {
+    expect(() => assertTransportSafe('postgresql://u@db.example.co.za:5432/x')).toThrow(/not loopback/);
+    expect(() => assertTransportSafe('postgresql://u@db.example.co.za:5432/x?sslmode=disable')).toThrow(Refusal);
+    expect(() => assertTransportSafe('postgresql://u@db.example.co.za:5432/x?sslmode=prefer')).toThrow(Refusal);
+    expect(() => assertTransportSafe('postgresql://u@db.example.co.za:5432/x?sslmode=verify-full')).not.toThrow();
+    expect(() => assertTransportSafe('postgresql://u@127.0.0.1:5432/x?sslmode=disable')).not.toThrow();
   });
 
   it('never prints the password, whatever characters it holds', () => {

@@ -72,6 +72,21 @@ export function describeTarget(url: string): string {
   return `host=${u.hostname} port=${u.port || '5432'} database=${db} user=${decodeURIComponent(u.username) || '(default)'}`;
 }
 
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+
+/**
+ * TLS: the URL's own sslmode decides (pg verifies the server certificate for require/verify-*).
+ * A host that is not loopback must ask for TLS: no sslmode, or sslmode=disable, is refused.
+ */
+export function assertTransportSafe(url: string): void {
+  let u: URL;
+  try { u = new URL(url); } catch { throw new Refusal(`${DB_URL_ENV} is not a valid URL`); }
+  const mode = u.searchParams.get('sslmode');
+  if (!LOOPBACK.has(u.hostname) && (mode === null || mode === 'disable' || mode === 'allow' || mode === 'prefer')) {
+    throw new Refusal(`host ${u.hostname} is not loopback: add sslmode=verify-full (or require) to ${DB_URL_ENV}; plaintext or unverified TLS is refused`);
+  }
+}
+
 /** A supplied --today later than the database's own date is refused. */
 export function assertTodayNotFuture(today: string, dbToday: string): void {
   if (today > dbToday) throw new Refusal(`--today ${today} is after the database's date ${dbToday}`);
