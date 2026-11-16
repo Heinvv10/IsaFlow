@@ -21,6 +21,8 @@ import { withheldLoansReport as withheldLoans } from '@/modules/accounting/servi
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { EtiLaterMonthPostedError } from '@/modules/accounting/services/payroll/etiPeriodGuard';
+import { assertRunKindSupported, isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
+import { listPayrollRunEmployees } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 
 /** The run, as every tool here reports it. */
 export function runPayload(run: PayrollRunSummary): Record<string, unknown> {
@@ -72,6 +74,14 @@ export const calculatePayRunTool: McpTool = {
     if (!run) return toolError(NOT_FOUND);
 
     if (args.dry_run === true) {
+      // Wave 6 FQa: the live call's run-kind guard, on the same population (read-only).
+      try {
+        const employees = await listPayrollRunEmployees(ctx.companyId, { year: run.periodYear, month: run.periodMonth }, run.payFrequency);
+        await assertRunKindSupported(ctx.companyId, runId, 'calculate', { employeeIds: employees.map((e) => e.id) });
+      } catch (err) {
+        if (isRunKindUnsupported(err)) return toolError(err.message);
+        throw err;
+      }
       // dry_run runs the live path's row-state guards, in its order (locked, then tax year): without them a reopened
       // run whose GL journal is still posted was promised a recost that calculatePayrollRun then refuses.
       const refusal = isPayrollRunLocked(run.status) ? new PayrollRunLockedError(run.status).message : unloadedTaxYearMessage(run.periodMonth, run.periodYear);
@@ -108,7 +118,7 @@ export const calculatePayRunTool: McpTool = {
       // raised BEFORE any line is touched. Everything else propagates to the
       // registry's savepoint rather than being flattened into a tool error
       // that would leave the lines half-rebuilt and the key freed.
-      if (err instanceof PayrollRunLockedError || err instanceof EtiLaterMonthPostedError) return toolError(err.message);
+      if (err instanceof PayrollRunLockedError || err instanceof EtiLaterMonthPostedError || isRunKindUnsupported(err)) return toolError(err.message);
       // Same shape: raised before any line is touched, and the message names
       // the action the agent must take instead.
       if (err instanceof PayrollRunJournalPostedError

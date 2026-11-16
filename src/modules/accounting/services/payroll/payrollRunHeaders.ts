@@ -6,6 +6,8 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { PayrollPeriod } from './payrollTypes';
+import type { OffCycleReason, PayFrequency, RunKind } from './payrollTypesRun';
+import { dateColumnOf, offCycleReasonOf, payFrequencyOf, runKindOf } from './payrollFrequency';
 
 type Row = DbRow;
 
@@ -24,6 +26,13 @@ export interface PayrollRunSummary {
   employeeCount: number;
   /** The GL entry posted at approval, still set after reopenPayrollRun. */
   journalEntryId: string | null;
+  /** Migration 999a. This release creates and costs only monthly regular runs (payrollRunKindGuard). */
+  payFrequency: PayFrequency;
+  runKind: RunKind;
+  offCycleReason: OffCycleReason | null;
+  /** The dates the run pays for, 'YYYY-MM-DD'; for a monthly regular run, its calendar month. */
+  periodStart: string | null;
+  periodEnd: string | null;
 }
 
 export function mapRunRow(r: Row): PayrollRunSummary {
@@ -41,6 +50,11 @@ export function mapRunRow(r: Row): PayrollRunSummary {
     totalNet: Number(r.total_net) || 0,
     employeeCount: Number(r.employee_count) || 0,
     journalEntryId: r.journal_entry_id == null ? null : String(r.journal_entry_id),
+    payFrequency: payFrequencyOf(r.pay_frequency),
+    runKind: runKindOf(r.run_kind),
+    offCycleReason: offCycleReasonOf(r.off_cycle_reason),
+    periodStart: dateColumnOf(r.period_start),
+    periodEnd: dateColumnOf(r.period_end),
   };
 }
 
@@ -64,6 +78,7 @@ export class PayrollRunDuplicateError extends Error {
   }
 }
 
+/** A monthly regular run for the calendar month (the only kind this release creates; migration 999a). */
 export async function createPayrollRun(
   companyId: string,
   period: PayrollPeriod,
@@ -71,8 +86,14 @@ export async function createPayrollRun(
 ): Promise<PayrollRunSummary> {
   log.info('Creating payroll run', { companyId, period }, 'payrollRunService');
   const rows = (await sql`
-    INSERT INTO payroll_run_headers (company_id, period_month, period_year, created_by)
-    VALUES (${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}::uuid)
+    INSERT INTO payroll_run_headers (
+      company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end
+    )
+    VALUES (
+      ${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}::uuid, 'monthly', 'regular',
+      public.payroll_month_period_start(${period.year}::int, ${period.month}::int),
+      public.payroll_month_period_end(${period.year}::int, ${period.month}::int)
+    )
     ON CONFLICT (company_id, period_year, period_month) DO NOTHING
     RETURNING *
   `) as Row[];

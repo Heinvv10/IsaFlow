@@ -25,6 +25,8 @@ import { blockedLoanValidation, judgeLoanApplications } from './payrollRunLoanDe
 import { assertNoLaterEtiJournal } from './etiPeriodGuard';
 import { withEtiPriorMonths } from './etiPriorEmployment';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunHeaders';
+import { assertRunKindSupported } from './payrollRunKindGuard';
+import { payFrequencyOf } from './payrollFrequency';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
@@ -63,7 +65,11 @@ export async function calculatePayrollRun(
   // Components are read as at the period's last day, a plain calendar string (payrollRunReadDate).
   const readDate = payrollRunReadDate(period);
 
-  const employees = await withEtiPriorMonths(companyId, await listPayrollRunEmployees(companyId, period)); // ET: a rehire continues its ETI months
+  const payFrequency = payFrequencyOf(run.pay_frequency);
+  const employees = await withEtiPriorMonths(companyId, await listPayrollRunEmployees(companyId, period, payFrequency)); // ET: a rehire continues its ETI months
+  // Wave 6 FQa: a run, employee or assignment this release cannot cost is refused here, before the first write
+  // (listSeveranceOnlyRunEmployees below frees reversed payments; applyRunLoans commits loan deductions).
+  await assertRunKindSupported(companyId, runId, 'calculate', { employeeIds: employees.map((e) => e.id) });
   const allTaxNumbers = await listTaxNumbersForCompany(companyId);
 
   let totalGross = 0;
@@ -79,7 +85,7 @@ export async function calculatePayrollRun(
   // Leavers from earlier periods whose severance directive this run may pay:
   // the severance line alone, no salary, recurring components or loans, and so
   // no UIF or SDL (audit 2026-10-18 P3, payrollSeveranceDirective.ts).
-  const severanceOnly = await listSeveranceOnlyRunEmployees(companyId, runId, period);
+  const severanceOnly = await listSeveranceOnlyRunEmployees(companyId, runId, period, payFrequency);
   const population: Array<{ employee: PayrollEmployee; severanceOnly: boolean }> = [
     ...employees.map(employee => ({ employee, severanceOnly: false })),
     ...severanceOnly.map(employee => ({ employee, severanceOnly: true })),

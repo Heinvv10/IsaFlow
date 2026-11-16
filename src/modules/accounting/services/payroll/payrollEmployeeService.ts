@@ -4,7 +4,8 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { assertEndDateKeepsDirectiveExits } from './payrollRunDirectiveUses';
 import { log } from '@/lib/logger';
-import type { PayrollEmployee } from './payrollTypes';
+import type { PayFrequency, PayrollEmployee } from './payrollTypes';
+import { payFrequencyOf } from './payrollFrequency';
 import { recordEmployeeChange } from './payrollEmployeeHistoryService';
 import { EmployeeTermsRefused, judgeTerms, movedTerms, termsFromRow, TERM_KEYS, type EmployeeTerms } from './payrollEmployeeTerms';
 
@@ -31,6 +32,7 @@ export function mapPayrollEmployeeRow(r: Row): PayrollEmployee {
     payScaleId: r.pay_scale_id == null ? null : String(r.pay_scale_id),
     occupationalLevelId: r.occupational_level_id == null ? null : String(r.occupational_level_id),
     paymentMethod: r.payment_method === 'cash' ? 'cash' : 'eft',
+    payFrequency: payFrequencyOf(r.pay_frequency),
     ...termsFromRow(r),
   };
 }
@@ -60,15 +62,20 @@ export async function listPayrollEmployees(
  * active or terminated employee whose end_date is after the month (a run
  * recalculated after they left); and active employees with no end_date.
  * Nobody who starts after the month. Audit 2026-10-18 P4.
+ * Only employees paid at the run's frequency (wave 6 grill F3): a weekly employee is never in a monthly run.
+ * The default is right while every run is monthly, which payrollRunKindGuard enforces this release; the run-keyed
+ * readers (wave 6 FQb1) pass the run's own frequency.
  */
 export async function listPayrollRunEmployees(
   companyId: string,
   period: { year: number; month: number },
+  payFrequency: PayFrequency = 'monthly',
 ): Promise<PayrollEmployee[]> {
   const rows = (await sql`
     WITH p AS (SELECT make_date(${period.year}::int, ${period.month}::int, 1) AS start)
     SELECT e.* FROM payroll_employees e, p
     WHERE e.company_id = ${companyId}::uuid
+      AND e.pay_frequency = ${payFrequency}
       AND e.start_date < p.start + INTERVAL '1 month'
       AND (
         (e.end_date >= p.start AND e.end_date < p.start + INTERVAL '1 month')
@@ -109,7 +116,7 @@ export async function getDirectivePayee(
 }
 
 /** A new employee; without terms it is an employee on a monthly basis, as the column defaults say. */
-type NewPayrollEmployee = Omit<PayrollEmployee, 'id' | 'companyId' | 'taxStatus' | 'payBasis'> & Partial<Pick<PayrollEmployee, 'taxStatus' | 'payBasis'>>;
+type NewPayrollEmployee = Omit<PayrollEmployee, 'id' | 'companyId' | 'taxStatus' | 'payBasis' | 'payFrequency'> & Partial<Pick<PayrollEmployee, 'taxStatus' | 'payBasis'>>;
 
 export async function createPayrollEmployee(
   companyId: string,

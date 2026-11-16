@@ -36,6 +36,7 @@ import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import { assertPayRunApproved } from '@/modules/accounting/services/payroll/payRunApprovalControl';
+import { isRunKindUnsupported } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 
 
 const NEEDS_PERSON = 'A person must approve this pay run in ISAFlow before the connector can post it.';
@@ -160,7 +161,13 @@ export const approvePayRunTool: McpTool = {
     // it (K-079). The dry run asks the same question, so it refuses what the
     // live call refuses.
     if (args.dry_run === true) {
-      const gate = await previewPayrollApproval(ctx.companyId, runId);
+      let gate;
+      try {
+        gate = await previewPayrollApproval(ctx.companyId, runId); // wave 6 FQa: refuses what approval refuses
+      } catch (err) {
+        if (isRunKindUnsupported(err)) return toolError(err.message);
+        throw err;
+      }
       if (!gate) return toolError(NOT_FOUND);
       if (gate.blocker) return toolError(`The journal for this run cannot post, so it was not approved: ${gate.blocker.detail}`);
       // R-035: the live call refuses a plan no person has cleared, so the
@@ -189,7 +196,7 @@ export const approvePayRunTool: McpTool = {
       if (err instanceof ApprovalRequiredError) {
         return toolError(NEEDS_PERSON);
       }
-      if (err instanceof PayrollApprovalRefusedError) return toolError(`Not approved: ${err.message}`);
+      if (err instanceof PayrollApprovalRefusedError || isRunKindUnsupported(err)) return toolError(`Not approved: ${err.message}`);
       // The bounded wait for the run or its journal ran out — before any write.
       if (err instanceof PayrollLoanLockTimeoutError) return toolError(err.message);
       throw err;

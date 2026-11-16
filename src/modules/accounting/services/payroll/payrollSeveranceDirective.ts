@@ -27,7 +27,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { runHasPaid } from './payrollTerminationPaidCheck';
 import { releaseReversedStandalonePayment } from './taxDirectivePaidGuard';
 import { mapPayrollEmployeeRow } from './payrollEmployeeService';
-import type { EmployeeComponent, PayrollEmployee, PayrollPeriod } from './payrollTypes';
+import type { EmployeeComponent, PayFrequency, PayrollEmployee, PayrollPeriod } from './payrollTypes';
 
 /** The breakdown id of a severance line paid under a directive. Not a `synthetic:termination:` id: see payrollTerminationPaidCheck. */
 export const SEVERANCE_DIRECTIVE_COMPONENT_ID = 'synthetic:directive:severance';
@@ -120,6 +120,7 @@ export async function listSeveranceOnlyRunEmployees(
   companyId: string,
   runId: string,
   period: PayrollPeriod,
+  payFrequency: PayFrequency,
 ): Promise<PayrollEmployee[]> {
   // A stand-alone payment since reversed no longer pays its directive: free it
   // first, so this run may pay it (taxDirectivePaidGuard).
@@ -127,6 +128,7 @@ export async function listSeveranceOnlyRunEmployees(
   const rows = (await sql`
     SELECT e.* FROM payroll_employees e
     WHERE e.company_id = ${companyId}::uuid
+      AND e.pay_frequency = ${payFrequency} -- the run's own frequency only (wave 6 grill F3)
       AND e.end_date < make_date(${period.year}::int, ${period.month}::int, 1)
       AND EXISTS (
         SELECT 1 FROM tax_directives d
