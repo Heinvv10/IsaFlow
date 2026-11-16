@@ -104,7 +104,8 @@ describe('cash13 recurring receipts', () => {
     const items = recurringItems([tpl({})], '2026-11-18', '2027-02-14', (_t, d) => plus30(d));
     // runs 11-20, 12-20, 01-20 (02-20 is past the horizon); receipts 30 days later; 2027-02-19 is past it too.
     expect(items.map((i) => i.date)).toEqual(['2026-12-20', '2027-01-19']);
-    expect(items[0]).toMatchObject({ lineKey: 'recurring:t1', category: 'customer_receipts', amountCents: 5_000 });
+    // entityId is the template's customer: what leftover customer credit nets against (re-review L-c).
+    expect(items[0]).toMatchObject({ lineKey: 'recurring:t1', category: 'customer_receipts', amountCents: 5_000, entityId: 'c1' });
   });
 
   it('a run date already passed is invoiced today; the end date stops the series', () => {
