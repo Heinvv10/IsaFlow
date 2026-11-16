@@ -10,6 +10,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { Select, type SelectOption as KitOption } from '@/components/ui/Select';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { BankTxReviewBadge } from './BankTxReviewBadge';
+import { TOUCH_ROW } from './bankTxTouch';
 import type { RowProps } from '../useBankTxKeyboardNav';
 import { isPendingFeedRow, PendingFeedBadge } from '../bank-transactions/pendingFeedRow';
 import type { AllocType, BankTx, BankTxTableProps } from './bankTxTypes';
@@ -63,7 +64,7 @@ function NotesCell({
         onChange={e => setValue(e.target.value)}
         onBlur={handleBlur}
         onKeyDown={e => { if (e.key === 'Enter') inputRef.current?.blur(); if (e.key === 'Escape') { setValue(initialValue); setEditing(false); } }}
-        className="w-full px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-blue-500/60 text-xs text-[var(--ff-text-primary)] focus:outline-none"
+        className="w-full max-lg:min-h-11 px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-blue-500/60 text-xs text-[var(--ff-text-primary)] focus:outline-none"
         placeholder="Add note..."
         aria-label={`Note, ${label}`}
         autoFocus
@@ -74,7 +75,7 @@ function NotesCell({
   return (
     <button
       onClick={() => setEditing(true)}
-      className="text-xs truncate max-w-[140px] block text-left hover:text-[var(--ff-text-primary)] transition-colors"
+      className={`text-xs truncate max-w-[140px] block text-left ${TOUCH_ROW} hover:text-[var(--ff-text-primary)] transition-colors`}
       title={value || 'Click to add note'}
       aria-label={value ? `Note, ${label}: ${value}` : `Add note, ${label}`}
     >
@@ -117,10 +118,12 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
       } ${isExcluded ? 'opacity-60' : ''}`}
     >
       <td className="py-1 px-2">
-        <input type="checkbox" checked={selectedIds.has(tx.id)}
-          disabled={isPendingFeedRow(tx)}
-          onChange={() => onToggleSelect(tx.id)} className="accent-teal-500"
-          aria-label={`Select ${label}`} />
+        <label className="max-lg:flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center">
+          <input type="checkbox" checked={selectedIds.has(tx.id)}
+            disabled={isPendingFeedRow(tx)}
+            onChange={() => onToggleSelect(tx.id)} className="accent-teal-500 max-lg:h-5 max-lg:w-5"
+            aria-label={`Select ${label}`} />
+        </label>
       </td>
       <td data-label="Date" className="py-1 px-2 tabular-nums text-xs whitespace-nowrap text-[var(--ff-text-secondary)]">
         {formatDisplayDate(tx.transactionDate)}
@@ -128,7 +131,7 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
       <td className="py-1 px-2 text-[var(--ff-text-primary)]">
         {onOpenDetails ? (
           <button type="button" onClick={() => onOpenDetails(tx.id)} aria-label={`Details, ${label}`}
-            className="block w-full text-left hover:underline">
+            className={`block w-full text-left hover:underline ${TOUCH_ROW}`}>
             <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>
           </button>
         ) : (
@@ -144,7 +147,7 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
         )}
         {tx.needsEvidence && tx.provisionalJeId && (
           <Link href={`/accounting/bank/provisional#${tx.id}`}
-            className="ml-1 text-xs text-teal-400 hover:underline">
+            className="ml-1 text-xs text-teal-400 hover:underline max-lg:inline-flex max-lg:min-h-11 max-lg:items-center">
             Attach slip
           </Link>
         )}

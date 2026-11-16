@@ -81,7 +81,7 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dro
             }}
             aria-label={`${triggerText}. Choose ${entityNoun}, ${label}`}
             aria-expanded={isOpen}
-            className={`text-xs px-2 py-0.5 rounded truncate max-w-[200px] block ${
+            className={`text-xs px-2 py-0.5 rounded truncate max-w-[200px] block max-lg:flex max-lg:min-h-11 max-lg:items-center ${
               sel?.entityId
                 ? tx.suggestedGlAccountId && sel.entityId === tx.suggestedGlAccountId
                   ? 'text-amber-300 bg-amber-500/10 border border-amber-500/30'
