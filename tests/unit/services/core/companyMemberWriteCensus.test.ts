@@ -123,8 +123,8 @@ const KNOWN_WRITERS = [
  * insert, update, re-open, re-point or accept no invitation and touches no company_users row, so it can only
  * take away a not-yet-used way into a company, never grant a membership or a role (930's rule: DELETE stays
  * where it only removes access). It refuses (RC012) while the users row with that id exists, and its pinned
- * arm is off while any case variant of the id lives, so a live user's GoTrue-pinned invitations are out of
- * its reach. The email arm takes any address: the portal can already
+ * arm runs only for a canonical lower-case id (the only spelling that owns a GoTrue account), so a live
+ * user's GoTrue-pinned invitations are out of its reach. The email arm takes any address: the portal can already
  * delete the user, every membership and a whole company; at worst a platform admin cancels the pending
  * invitations of an address, which a re-invite restores and entity_change_capture records. RC008 still
  * refuses every direct portal write to the table; the one caller is deleteUser, after its users DELETE,
