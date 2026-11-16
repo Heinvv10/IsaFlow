@@ -142,8 +142,9 @@ as well as the read one, and they say so on the consent screen:
   owner's connection; any other role is told that a person must approve the budget in IsaFlow.
   `import_budget_workbook` is the app's Excel import for an agent: it takes the budget template back, either as
   the .xlsx (base64, checked as the app checks an upload) or as the JSON grid `get_budget_template` returns
-  (a read tool, `read:reports`), and is a dry run first and an apply with the plan hash, like the other amount
-  writes. One MCP request is at most 3 MB, so an .xlsx of about 2 MB is the largest it takes.
+  (a read tool, `read:reports`; each row carries a signed record of what it was read with, so a colleague's later
+  save is never reverted), and is a dry run first and an apply with the plan hash, like the other amount writes.
+  One MCP request is at most 3 MB, so an .xlsx of about 2 MB is the largest it takes.
 - `take_audit_snapshot` (`read:reports` + `write:journals`, owner/admin only) takes a
   sealed, append-only snapshot of the ledger at a cutoff. It cannot be deleted afterwards.
 - `run_depreciation` (`write:journals` + **`write:post`**) **posts** the month's
