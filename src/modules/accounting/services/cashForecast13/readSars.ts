@@ -15,6 +15,7 @@
  * When the calendar could not read the marks or the filings, a filed item may show as pending: said in a
  * warning, never silently. Each amount is read in its own savepoint: one unreadable return leaves the others.
  */
+import { formatCents } from '@/lib/money/formatMoney';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import { getComplianceCalendarWithMarks } from '@/modules/accounting/services/reports/sarsComplianceCalendarDb';
 import type { ComplianceEvent } from '@/modules/accounting/services/reports/sarsTaxPeriodsService';
@@ -74,7 +75,7 @@ export function irp6Item(e: ComplianceEvent, budget: BudgetRead | null, warnings
 }
 
 const KIND: Record<string, string> = { EMP201_DUE: 'EMP201', VAT201_DUE: 'VAT201', PROVISIONAL_TAX: 'IRP6' };
-const rand = (cents: number) => `R${(Math.abs(cents) / 100).toFixed(2)}${cents > 0 ? ' refund' : ''}`;
+const rand = (cents: number) => `${formatCents(Math.abs(cents))}${cents > 0 ? ' refund' : ''}`;
 
 export async function sarsItems(
   companyId: string, today: string, horizonEnd: string, payroll: PayrollRead | null, budget: BudgetRead | null, warnings: ForecastWarning[],

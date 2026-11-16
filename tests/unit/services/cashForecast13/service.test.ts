@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { formatCents } from '@/lib/money/formatMoney';
 
 const balance = vi.fn();
 const budget = vi.fn();
@@ -74,7 +75,7 @@ describe('cash13 service', () => {
     budget.mockResolvedValue(null);
     const f = await getCashForecast13('co', '2026-11-18');
     expect(f.lines.find((l) => l.key === 'recurring:t')!.items.map((i) => [i.ref, i.amountCents])).toEqual([['t:1', 500]]);
-    expect(f.warnings.find((w) => w.code === 'credit_unused')?.message).toContain('R0.70');
+    expect(f.warnings.find((w) => w.code === 'credit_unused')?.message).toContain(formatCents(70));
   });
 
   it('the budget fill subtracts the GROSS recurring receipt, not what credit left of it (round-3 LOW 2)', async () => {

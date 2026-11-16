@@ -8,6 +8,7 @@
  * A loan in a currency other than the company's functional currency has no stored exchange rate (`loans`
  * carries a currency and nothing to convert it with), so it is left out and warned `currency_not_converted`.
  */
+import { formatCents } from '@/lib/money/formatMoney';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
@@ -53,7 +54,7 @@ export async function loanItems(companyId: string, today: string, horizonEnd: st
     }, LOAN_REFUSALS);
     if (!plan) continue;
     if (plan.noPayments) unrecorded.push(`${label}: instalments before today`);
-    for (const r of plan.assumedPaid) unrecorded.push(`${label} instalment ${r.period} (${r.date}) R${(r.cents / 100).toFixed(2)}`);
+    for (const r of plan.assumedPaid) unrecorded.push(`${label} instalment ${r.period} (${r.date}) ${formatCents(r.cents)}`);
     for (const d of plan.due) {
       items.push({
         lineKey: `loan:${id}`, lineLabel: `Loan repayment: ${label}`, category: 'loans', date: d.date, amountCents: -d.cents,

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { formatCents } from '@/lib/money/formatMoney';
 import type { ComplianceEvent } from '@/modules/accounting/services/reports/sarsTaxPeriodsService';
 
 const calendar = vi.fn();
@@ -43,7 +44,7 @@ describe('cash13 SARS: past due is assumed paid (review H1)', () => {
       ['EMP201:2026-11-01', '2026-12-07', -180_000],
     ]);
     const w = warnings.find((x) => x.code === 'sars_past_due_assumed_paid')!;
-    expect(w.message).toContain('EMP201 2026-09-01..2026-09-30 due 2026-10-07 R1234.50');
+    expect(w.message).toContain(`EMP201 2026-09-01..2026-09-30 due 2026-10-07 ${formatCents(123_450)}`);
   });
 
   it('a completed item is neither forecast nor listed as assumed paid', async () => {

@@ -7,6 +7,8 @@
  * `currency_not_converted` with the totals by currency. A document in the functional currency (or with no
  * currency named) passes through unchanged.
  */
+import { formatCents } from '@/lib/money/formatMoney';
+import { toFunctional } from '@/modules/accounting/services/shared/functionalAmounts';
 export interface DocCurrency { currency: string | null; rate: number | null }
 
 export interface FxDoc { id: string; balanceCents: number; disputedCents: number }
@@ -31,12 +33,14 @@ export function convertDocs<T extends FxDoc>(docs: readonly T[], fx: ReadonlyMap
       excluded.set(c.currency, { count: e.count + 1, cents: e.cents + d.balanceCents });
       continue;
     }
-    out.push({ ...d, balanceCents: Math.round(d.balanceCents * c.rate), disputedCents: Math.round(d.disputedCents * c.rate) });
+    // The one conversion (shared/functionalAmounts: ROUND(amount × rate, 2), exact decimal), as SQL's fx_functional.
+    const functionalCents = (cents: number) => Math.round(toFunctional(cents / 100, c.rate as number) * 100);
+    out.push({ ...d, balanceCents: functionalCents(d.balanceCents), disputedCents: functionalCents(d.disputedCents) });
   }
   return { docs: out, excluded };
 }
 
 export function excludedMessage(side: string, excluded: FxResult<FxDoc>['excluded']): string {
-  const parts = [...excluded].sort(([a], [b]) => (a < b ? -1 : 1)).map(([cur, e]) => `${e.count} in ${cur} (${(e.cents / 100).toFixed(2)} ${cur})`);
+  const parts = [...excluded].sort(([a], [b]) => (a < b ? -1 : 1)).map(([cur, e]) => `${e.count} in ${cur} (${formatCents(e.cents, { symbol: false })} ${cur})`);
   return `${side} in another currency with no stored exchange rate are left out: ${parts.join('; ')}`;
 }

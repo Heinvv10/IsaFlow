@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { formatCents } from '@/lib/money/formatMoney';
 
 const queries: Array<() => unknown> = [];
 const schedule = vi.fn();
@@ -46,7 +47,7 @@ describe('cash13 loan reader (review L2, L1, L6)', () => {
     const w: ForecastWarning[] = [];
     const items = await loanItems('co', TODAY, END, w);
     expect(items.filter((i) => i.flags?.includes('loan_overdue')).map((i) => i.ref)).toEqual(['c:3', 'c:4']);
-    expect(w).toEqual([expect.objectContaining({ code: 'loan_payments_not_recorded', message: expect.stringContaining('L-c instalment 2 (2026-09-01) R100.00') })]);
+    expect(w).toEqual([expect.objectContaining({ code: 'loan_payments_not_recorded', message: expect.stringContaining(`L-c instalment 2 (2026-09-01) ${formatCents(10_000)}`) })]);
   });
 
   it('a foreign-currency loan is left out with currency_not_converted; a refused schedule is that loan’s warning; the other loan goes on', async () => {

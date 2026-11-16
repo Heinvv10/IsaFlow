@@ -8,6 +8,7 @@
  * netted to zero is dropped. Credit left after every item of the entity (more credit than open documents) is
  * not cash to come and is ignored — the caller warns with the total.
  */
+import { formatCents } from '@/lib/money/formatMoney';
 import type { ForecastWarning, KnownItem } from './types';
 
 export interface NetResult {
@@ -40,6 +41,6 @@ export function netCredits(items: readonly KnownItem[], credit: ReadonlyMap<stri
 export function warnUnusedCredit(unused: ReadonlyArray<{ cents: number }>, what: string, warnings: ForecastWarning[]): void {
   const total = unused.reduce((t, u) => t + u.cents, 0);
   if (total > 0) {
-    warnings.push({ code: 'credit_unused', source: what, message: `${what}: R${(total / 100).toFixed(2)} of unapplied credit across ${unused.length} account(s) exceeds their expected documents and is ignored` });
+    warnings.push({ code: 'credit_unused', source: what, message: `${what}: ${formatCents(total)} of unapplied credit across ${unused.length} account(s) exceeds their expected documents and is ignored` });
   }
 }

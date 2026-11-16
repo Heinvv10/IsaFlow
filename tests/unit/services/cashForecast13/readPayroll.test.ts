@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { formatCents } from '@/lib/money/formatMoney';
 
 const rows = vi.fn();
 vi.mock('@/lib/neon', () => ({ sql: (..._a: unknown[]) => rows() }));
@@ -44,7 +45,7 @@ describe('cash13 payroll', () => {
     ]);
     // October's run paid on 2026-10-23 (25th is a Sunday) is not forecast, and is listed.
     expect(warnings).toEqual([expect.objectContaining({ code: 'payroll_past_assumed_paid' })]);
-    expect(warnings[0]!.message).toContain('2026-10 on 2026-10-23 R9000.00');
+    expect(warnings[0]!.message).toContain(`2026-10 on 2026-10-23 ${formatCents(900_000)}`);
   });
 
   it('a month with its own run pays that run, not the latest one', () => {

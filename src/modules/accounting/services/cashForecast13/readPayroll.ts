@@ -9,6 +9,7 @@
  *     the 45 days to today) are listed in `payroll_past_assumed_paid` so an unpaid one can be seen.
  * No run → no line (the service warns).
  */
+import { formatCents } from '@/lib/money/formatMoney';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
@@ -72,7 +73,7 @@ export function payrollItems(read: PayrollRead, payDay: PayDay, today: string, h
   if (recent.length > 0) {
     warnings.push({
       code: 'payroll_past_assumed_paid', source: 'payroll',
-      message: `Net pay assumed paid (pay date before today, in opening cash): ${recent.map(({ r, date }) => `${r.period} on ${date} R${(r.netCents / 100).toFixed(2)}`).join('; ')}`,
+      message: `Net pay assumed paid (pay date before today, in opening cash): ${recent.map(({ r, date }) => `${r.period} on ${date} ${formatCents(r.netCents)}`).join('; ')}`,
     });
   }
   const items: KnownItem[] = [];
