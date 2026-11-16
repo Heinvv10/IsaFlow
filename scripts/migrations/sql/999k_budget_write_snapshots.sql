@@ -22,8 +22,11 @@
 --   - A snapshot is inserted only in a transaction that saved its version, with that save's token: its
 --     token_after must be the version's current token AND that token this transaction's now(). An
 --     app_user row forged without a save (made-up before-values an owner's restore would then write) is
---     refused. (A forger who also saves the version in the same transaction can still insert one: the
---     restore then writes only cells its author, an owner or an admin restores, audited as them.)
+--     refused. Accepted LOW: ANY update of the version row in the same transaction satisfies the check,
+--     a no-op `UPDATE budget_versions SET name = name` included (the updated_at trigger sets now()), so
+--     a raw-SQL app_user can still insert a row after such an update; created_by is then that user, and
+--     raw-SQL app_user can already write budget_month_amounts directly. Requiring a changed amount row
+--     in this transaction would be no sounder: a save that only clears cells leaves no row to see.
 --   - A snapshot is marked restored only in a transaction that also wrote its version (the version's
 --     updated_at, which every budget write moves to now(), is this transaction's): the restore's grid
 --     save. This narrows, not closes, a bare `UPDATE restored_at` (any other write of the version in

@@ -141,4 +141,17 @@ describe('drivers', () => {
     expect(await fx.cells(v2)).toEqual(before);
     expect((await reads.snapshots(v2))[0]!.restored_at).toBeNull();
   });
+
+  it('an override OUTSIDE its driver\'s range (left by a range that shrank), cleared by a write, restores to its value as a manual figure', async () => {
+    const v = await driverVersion();
+    await pool.query(
+      `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, amount_source) VALUES ($1, $2, $3, $4::DATE, 80, 'override')`,
+      [w.u.homeCompanyId, v, w.rent, `${w.months[3]}-01`]);
+    expect(body(await mcp(pool, w.u, 'set_budget_amounts', { version_id: v, cells: [cell('BR-5000', w.months[3]!, null)], idempotency_key: key() }))).toMatchObject({ deleted: 1 });
+    expect(body(await mcp(pool, w.u, 'restore_budget_version', { version_id: v, idempotency_key: key() }))).toMatchObject({ restored: 1 });
+    const row = (await pool.query(
+      `SELECT amount::text AS amount, amount_source FROM budget_month_amounts WHERE version_id = $1 AND gl_account_id = $2 AND month = $3::DATE`,
+      [v, w.rent, `${w.months[3]}-01`])).rows;
+    expect(row).toEqual([{ amount: '80.00', amount_source: 'manual' }]);
+  });
 });

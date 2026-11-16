@@ -13,8 +13,9 @@
  *
  * `restoreSnapshot` writes the before-values back through the grid save (`saveCells`: every rule of a
  * person's save, its audit row as the restoring user), a cell that was a driver's computed value before as
- * a clear (the driver recomputes it), then checks every cell holds its before-value again (throws, rolled
- * back, when the save could not put one back exactly) and marks the snapshot restored.
+ * a clear (the driver recomputes it), then checks every cell holds its before-value again, and a former override
+ * that a driver still covers holds 'override' again (one outside every driver's range comes back 'manual', as the
+ * grid writes it); it throws, rolled back, when the save could not put one back exactly, and marks the snapshot restored.
  */
 import { cellKey, type CellKey } from './grid/cellKey';
 import { fromCents, toCents } from './grid/cents';
@@ -23,6 +24,7 @@ import type { SaveCell } from './gridSaveValidate';
 import { loadGridCells } from './gridReadModel';
 import { BudgetVersionError } from './budgetVersionTypes';
 import { budgetPlanHash } from './budgetPlanHash';
+import { listDriverLines } from './drivers/driverRepository';
 import { latestSnapshot, markRestored, snapshotKey, type SnapshotCell } from './budgetWriteSnapshots';
 
 export interface CellState { cents: number; source: string }
@@ -116,11 +118,16 @@ export async function restoreSnapshot(
   const result = await saveCells(companyId, userId, { versionId, expectedUpdatedAt: plan.token, cells: plan.cells });
   const after = await loadGridCells(companyId, { versionId }, userId);
   const now = new Map(after.cells.map((c) => [cellKey(c), c]));
+  // An override comes back as an override only where a driver covers the cell NOW; one left outside its driver's
+  // range (a driver save that shrank the range keeps it) is a manual figure once rewritten, as in the grid.
+  const lines = await listDriverLines(companyId, versionId);
+  const covered = (c: SnapshotCell) => lines.some((d) => d.glAccountId === c.a && d.cc1Id === c.c1 && d.cc2Id === c.c2 && d.buId === c.b
+    && d.fromMonth <= c.m && c.m <= d.toMonth);
   const off = plan.snapshotCells.find((c) => {
     const cell = now.get(snapshotKey(c));
     if (c.before === null) return cell !== undefined;
     return cell === undefined || toCents(cell.amount) !== centsOf(c.before)
-      || (c.bs === 'driver' && cell.source !== 'driver') || (c.bs === 'override' && cell.source !== 'override');
+      || (c.bs === 'driver' && cell.source !== 'driver') || (c.bs === 'override' && covered(c) && cell.source !== 'override');
   });
   if (off) {
     throw new BudgetVersionError('BUDGET_VERSION_STATE',

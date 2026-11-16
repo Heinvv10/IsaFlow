@@ -10,11 +10,13 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []), withSavepoint: vi.fn(
 vi.mock('@/modules/accounting/services/budgets/budgetWriteSnapshots', async (orig) => ({ ...(await orig<object>()), latestSnapshot: vi.fn(), markRestored: vi.fn() }));
 vi.mock('@/modules/accounting/services/budgets/gridSave', () => ({ saveCells: vi.fn() }));
 vi.mock('@/modules/accounting/services/budgets/gridReadModel', () => ({ loadGridCells: vi.fn() }));
+vi.mock('@/modules/accounting/services/budgets/drivers/driverRepository', () => ({ listDriverLines: vi.fn(async () => []) }));
 
 import { latestSnapshot, markRestored, type SnapshotCell } from '@/modules/accounting/services/budgets/budgetWriteSnapshots';
 import { planRestore, restoreSnapshot } from '@/modules/accounting/services/budgets/budgetSnapshotRestore';
 import { saveCells } from '@/modules/accounting/services/budgets/gridSave';
 import { loadGridCells } from '@/modules/accounting/services/budgets/gridReadModel';
+import { listDriverLines } from '@/modules/accounting/services/budgets/drivers/driverRepository';
 
 const A = '11111111-1111-4111-8111-111111111111';
 const V = '22222222-2222-4222-8222-222222222222';
@@ -80,8 +82,19 @@ describe('review round 2: restore exactness', () => {
     vi.mocked(loadGridCells).mockResolvedValue({ versionId: V, updatedAt: T, cells: [{ glAccountId: A, cc1Id: null, cc2Id: null, buId: null, month: '2026-03', amount: 60, source: 'driver' }] });
     const plan = { ok: true as const, snapshot: { id: 's1', tool: 't', createdAt: T, createdBy: 'author' }, token: T, planHash: 'h', cells: [],
       snapshotCells: [c('2026-03', '60.00', '70.00', 'override', 'override')] };
+    vi.mocked(listDriverLines).mockResolvedValueOnce([{ glAccountId: A, cc1Id: null, cc2Id: null, buId: null, fromMonth: '2026-01', toMonth: '2026-12' }] as never);
     await expect(restoreSnapshot('co', 'author', V, plan)).rejects.toThrow(/could not put .* back exactly/);
     expect(markRestored).not.toHaveBeenCalled();
+  });
+
+  it('round 3: a former override no driver covers any more comes back as a manual figure, and that is exact', async () => {
+    vi.mocked(saveCells).mockResolvedValue({ updatedAt: T, saved: 1, deleted: 0 });
+    vi.mocked(loadGridCells).mockResolvedValue({ versionId: V, updatedAt: T, cells: [{ glAccountId: A, cc1Id: null, cc2Id: null, buId: null, month: '2026-06', amount: 80, source: 'manual' }] });
+    vi.mocked(listDriverLines).mockResolvedValueOnce([{ glAccountId: A, cc1Id: null, cc2Id: null, buId: null, fromMonth: '2026-03', toMonth: '2026-04' }] as never);
+    const plan = { ok: true as const, snapshot: { id: 's1', tool: 't', createdAt: T, createdBy: 'author' }, token: T, planHash: 'h', cells: [],
+      snapshotCells: [c('2026-06', '80.00', null, 'override', null)] };
+    await expect(restoreSnapshot('co', 'author', V, plan)).resolves.toMatchObject({ saved: 1 });
+    expect(markRestored).toHaveBeenCalledTimes(1);
   });
 
   it('B2: refuses when the version\'s status moved after the write (approve / lock / unlock), even with the same token', async () => {
