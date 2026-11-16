@@ -8,7 +8,11 @@
  * approval is enforced and the request's user is not the sole approver, a feed
  * line whose extension batch that user imported is left for a colleague. The
  * allocation that posted the journal is unaffected. Statement lines keep
- * linking as before. A pass with no request user (no auth.uid) holds nothing.
+ * linking as before. Covers all three links: the allocation's own counterparty auto-link, the import auto-link and relink.
+ *
+ * FAILS OPEN without a request user: a pass with no auth.uid holds nothing, so a future background caller (a job,
+ * a sweep) of any of these links would NOT be held. Every caller today runs inside a request; a new one must pass
+ * a person or accept that.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';

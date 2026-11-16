@@ -33,6 +33,9 @@ export type { TransferLinkResult };
  * Link the `imported` rows of one import batch to the JE of an existing
  * `transfer` allocation on another bank account, matching on opposite amount
  * and date (±2 days).
+ *
+ * Importer != allocator: extension lines the request user pushed are held (bankTransferLinkImporterHold). That hold
+ * FAILS OPEN when there is no request user (no auth.uid), so a background caller of this pass is not held.
  */
 export async function autoLinkImportedBatchTransfers(
   companyId: string,

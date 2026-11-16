@@ -132,6 +132,26 @@ describe('the transfer auto-link', () => {
     expect(await run(b)).toMatchObject({ linked: 1, failed: false });
   });
 
+  it("push FIRST, then allocate: the allocation's own counterparty auto-link leaves the pusher's forged leg imported; a colleague's relink links it", async () => {
+    const f = await h.fixture(['manual_journal']);
+    const feed = await h.push(f, a, 500, await h.connection(f, f.bank2)); // forged opposite leg, already there
+    const l = await plantLine(pool, f, await plantBatch(pool, f, b), -500); // a colleague's statement line
+    const res = await act(a, f.c, { action: 'allocate', bankTransactionId: l, allocationType: 'transfer', contraAccountId: f.bank2 });
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect(await lineStatus(pool, l)).toBe('allocated'); // the allocation itself posted
+    expect(await lineStatus(pool, feed)).toBe('imported'); // ...and did not clear a's own forged line
+    expect(await relink(b, f)).toMatchObject({ linked: 1, failed: false });
+    expect(await lineStatus(pool, feed)).toBe('allocated');
+  });
+
+  it("push first, a colleague allocates: the counterparty auto-link clears the line as before", async () => {
+    const f = await h.fixture(['manual_journal']);
+    const feed = await h.push(f, a, 500, await h.connection(f, f.bank2));
+    const l = await plantLine(pool, f, await plantBatch(pool, f, a), -500);
+    expect((await act(b, f.c, { action: 'allocate', bankTransactionId: l, allocationType: 'transfer', contraAccountId: f.bank2 })).state.statusCode).toBe(200);
+    expect(await lineStatus(pool, feed)).toBe('allocated');
+  });
+
   it('a sole approver, enforcement off and a line another person pushed all link as before', async () => {
     const sole = await transferScenario(a, ['manual_journal'], [[a, 'admin'], [b, 'viewer']]);
     expect(await relink(a, sole.f)).toMatchObject({ linked: 1 });
