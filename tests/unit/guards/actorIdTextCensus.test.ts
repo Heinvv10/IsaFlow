@@ -93,14 +93,14 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   },
   [`${S}reports/sarsComplianceService.ts`]: {
     47: 'submittedBy: row.submitted_by ? String(row.submitted_by) : null,',
-    112: 'submitted_by = ${userId}, updated_at = NOW()',
-    116: 'INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data, submitted_by)',
+    119: 'submitted_by = ${userId}, updated_at = NOW()',
+    123: 'INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data, submitted_by)',
   },
   [`${S}reports/sarsEfilingRepo.ts`]: {
     81: 'submitted_by = ${userId},',
-    164: 'submitted_by = COALESCE(submitted_by, (SELECT i.created_by FROM sars_efiling_events i',
-    216: '(company_id, submission_id, event_type, efiling_status, http_status, correlation_id, detail, message, created_by)',
-    252: '(company_id, submission_id, event_type, efiling_status, http_status, correlation_id, detail, message, created_by)',
+    165: 'submitted_by = COALESCE(submitted_by, (SELECT i.created_by FROM sars_efiling_events i',
+    217: '(company_id, submission_id, event_type, efiling_status, http_status, correlation_id, detail, message, created_by)',
+    253: '(company_id, submission_id, event_type, efiling_status, http_status, correlation_id, detail, message, created_by)',
   },
   [`${S}reports/taxDirectiveReportsService.ts`]: { 33: 'requested_by: string | null;', 34: 'approved_by: string | null;' },
   [`${S}reports/vatSubmissionService.ts`]: {
@@ -118,11 +118,11 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
   [`${S}payroll/taxDirectiveService.ts`]: { 105: '${requestedByUserId},' },
   [`${S}payroll/uifDeclarationService.ts`]: { 229: "'draft', ${generatedByUserId}, NOW()" },
   [`${S}reports/sarsComplianceService.ts`]: {
-    117: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",
+    124: "VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})",
   },
   [`${S}reports/sarsEfilingRepo.ts`]: {
-    219: 'evt.correlationId ?? null, JSON.stringify(evt.detail ?? {}), evt.message ?? null, evt.createdBy ?? null],',
-    256: '${JSON.stringify(evt.detail ?? {})}::jsonb, ${evt.message ?? null}, ${evt.createdBy ?? null}',
+    220: 'evt.correlationId ?? null, JSON.stringify(evt.detail ?? {}), evt.message ?? null, evt.createdBy ?? null],',
+    257: '${JSON.stringify(evt.detail ?? {})}::jsonb, ${evt.message ?? null}, ${evt.createdBy ?? null}',
   },
   [`${S}reports/vatSubmissionService.ts`]: { 340: '${safeUserId}::UUID,' },
 };

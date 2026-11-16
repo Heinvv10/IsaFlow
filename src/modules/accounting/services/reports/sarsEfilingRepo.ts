@@ -161,6 +161,7 @@ export async function applyPollResult(
                       WHERE c.company_id = sars_submissions.company_id AND c.submission_id = sars_submissions.id
                         AND c.correlation_id = sars_submissions.efiling_correlation_id), 'infinity'::timestamptz)) DESC,
                    i.created_at DESC, i.id DESC LIMIT 1)),
+        -- HYb: sars_efiling_events.created_by and sars_submissions.submitted_by change type in the SAME migration.
         submitted_by = COALESCE(submitted_by, (SELECT i.created_by FROM sars_efiling_events i
           WHERE i.company_id = sars_submissions.company_id AND i.submission_id = sars_submissions.id
             AND i.event_type = 'submit' AND i.efiling_status = 'sending'
