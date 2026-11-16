@@ -105,14 +105,15 @@ export function withHttpIdempotency<Req extends NextApiRequest>(route: string, h
       } else if (first.created_by !== userId) {
         return apiResponse.validationError(res, { 'Idempotency-Key': ['this key is already in use by another request'] },
           'Idempotency key already in use');
+      } else if (first.status_code === null) {
+        // A committed claim that never got an answer (its handler threw below 500 once): nothing was kept, so the same user
+        // reclaims it whatever the body now is (it has no request to differ from).
+        await sql`DELETE FROM http_idempotency_keys WHERE id = ${first.id}::UUID AND status_code IS NULL`;
+        claimed = await claim();
       } else if (first.payload_hash !== hash) {
         return apiResponse.validationError(res, {
           'Idempotency-Key': ['this key was already used for a different request'],
         }, 'Idempotency key reused with a different request');
-      } else if (first.status_code === null) {
-        // A committed claim that never got an answer (its handler threw below 500 once): nothing was kept, so reclaim.
-        await sql`DELETE FROM http_idempotency_keys WHERE id = ${first.id}::UUID AND status_code IS NULL`;
-        claimed = await claim();
       } else if (first.response_body === null) {
         return apiResponse.conflict(res, 'This request was already processed, but its answer is too large to repeat. '
           + 'Reload the page to see the result.');

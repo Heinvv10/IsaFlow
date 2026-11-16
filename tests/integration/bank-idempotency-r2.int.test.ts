@@ -199,6 +199,15 @@ describe('scope, owner and failure handling of a claim', () => {
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
   });
 
+  it('a committed claim with no answer is reclaimed by the same user even with a DIFFERENT body', async () => {
+    const k = key();
+    await pool.query(
+      `INSERT INTO http_idempotency_keys(company_id, route, idempotency_key, payload_hash, created_by) VALUES($1,'test-steered',$2,$3,$4)`,
+      [f.c, k, payloadHashOf({ n: 999 }), a]);
+    const res = await call(k); // the request body is { n: 1 }
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+  });
+
   it('an answer over 64 KB is not stored: the replay says "already processed, reload" instead of a cut body', async () => {
     const k = key();
     mode = 'big';
