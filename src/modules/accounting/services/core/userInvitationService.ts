@@ -32,7 +32,7 @@ function mapInvitation(r: DbRow): PendingInvitation {
     companyId: r.company_id as string,
     email: r.email as string,
     role: r.role as string,
-    invitedBy: r.invited_by as string,
+    invitedBy: (r.invited_by as string | null) ?? null, // NULL once the sender's user is deleted (997c)
     expiresAt: toIso(r.expires_at as string | Date | null) ?? '',
     createdAt: toIso(r.created_at as string | Date | null) ?? '',
     emailSentAt: r.email_sent_at ? (toIso(r.email_sent_at as string | Date | null) ?? null) : null,
