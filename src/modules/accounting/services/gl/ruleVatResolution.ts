@@ -29,6 +29,7 @@ import { resolveBankContraForAccount } from './bankContraVat';
 import { claimsVat } from './nonSupplyAccounts';
 import { applyNonSupplyGuard, resolveNonSupplyForAccount } from './nonSupplyVatGuard';
 import type { NonSupplyContext } from './nonSupplyVatGuard';
+import { assertAllocationVatCode } from '../bank/bankVatCodes';
 
 export interface RuleVatInput {
   /** Only an account allocation has a contra account to judge. */
@@ -69,6 +70,11 @@ export async function resolveRuleVatCode(input: RuleVatInput): Promise<RuleVatDe
     allocType, companyId, requestedVatCode, glAccountId,
     ruleGlAccountVatDenied, ruleGlAccountName, denialContext, guardContext,
   } = input;
+
+  // WP2 row 13 (round 2): an unknown code is refused FIRST, before any guard below can rewrite it. The non-supply
+  // and bank-contra guards turned an unknown 'STD' into 'none' on a salary or bank contra, and the confidence gate
+  // then posted it. Every unattended poster comes through here (BankAllocationRefusal: the gate skips the line).
+  assertAllocationVatCode(requestedVatCode, 'This allocation');
 
   // K-017: a rule with a supplier or customer on it settles a document that
   // already accounted for the VAT, so the code is dropped rather than passed
