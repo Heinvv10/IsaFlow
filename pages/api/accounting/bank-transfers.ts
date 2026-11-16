@@ -15,6 +15,7 @@ import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDa
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withHttpIdempotency } from '@/lib/idempotency/withHttpIdempotency';
 import { fmtDate } from '@/lib/fmtDate';
 import { UUID } from '@/lib/schemas/common';
 import { journalDayWindowError } from '@/modules/accounting/utils/journalDateWindow';
@@ -120,4 +121,5 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+// Idempotency-Key: a double-click or retry replays the first answer, no second journal (withHttpIdempotency).
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(withHttpIdempotency('bank-transfers', handler)))));
