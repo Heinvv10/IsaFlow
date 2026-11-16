@@ -9,7 +9,7 @@ const KEYS = new Set(['taxYear', 'employeeId', 'runId']);
 export function parsePreValidationQuery(query: NextApiRequest['query']): PreValidationScope | string {
   const scope: PreValidationScope = {};
   for (const [key, value] of Object.entries(query)) {
-    if (!KEYS.has(key)) return `Unknown parameter: ${key}`;
+    if (!KEYS.has(key)) return 'Unknown query parameter: only taxYear, employeeId and runId are accepted';
     if (typeof value !== 'string') return `${key} must be given once`;
     if (key === 'taxYear') {
       if (!/^\d{4}$/.test(value) || Number(value) < 2000 || Number(value) > 2100) return 'taxYear must be a year between 2000 and 2100';

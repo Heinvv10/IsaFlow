@@ -14,7 +14,7 @@ describe('parsePreValidationQuery', () => {
     expect(parsePreValidationQuery({ runId: U })).toEqual({ runId: U });
   });
   it.each([
-    [{ year: '2027' }, /Unknown parameter: year/],
+    [{ year: '2027' }, /^Unknown query parameter: only taxYear, employeeId and runId are accepted$/],
     [{ taxYear: ['2027', '2026'] }, /once/],
     [{ taxYear: '27' }, /taxYear/],
     [{ taxYear: '2027.5' }, /taxYear/],

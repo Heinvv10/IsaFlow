@@ -2,13 +2,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-const st = vi.hoisted(() => ({ allowed: true, keys: [] as string[], reads: [] as unknown[], result: {} as unknown }));
+const st = vi.hoisted(() => ({ actor: 'self' as string, allowed: true, keys: [] as string[], reads: [] as unknown[], result: {} as unknown }));
 
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/auth/withNoStore', () => ({ withNoStore: (h: unknown) => h }));
 vi.mock('@/lib/auth/withPayrollDetailAccess', () => ({ withPayrollDetailAccess: (h: unknown) => h }));
+vi.mock('@/lib/auth/impersonationSessions', () => ({ currentSessionActor: vi.fn(async () => st.actor) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/rateLimit', () => ({
   INTERACTIVE_REPORT_LIMIT: { max: 120, windowSecs: 900 },
@@ -32,7 +33,7 @@ function call(query: Record<string, unknown>, method = 'GET') {
   return (handler as unknown as (a: NextApiRequest, b: NextApiResponse) => Promise<void>)(req, res).then(() => out);
 }
 
-beforeEach(() => { st.allowed = true; st.keys = []; st.reads = []; st.result = { taxYear: 2027, employees: [] }; });
+beforeEach(() => { st.actor = 'self'; st.allowed = true; st.keys = []; st.reads = []; st.result = { taxYear: 2027, employees: [] }; });
 
 describe('GET /api/payroll/pre-validation', () => {
   it('passes the parsed scope to the service under its own per-user rate-limit key', async () => {
@@ -54,6 +55,21 @@ describe('GET /api/payroll/pre-validation', () => {
   it('a scope the service cannot find in the company is 404', async () => {
     st.result = null;
     expect((await call({ runId: U })).status).toBe(404);
+  });
+  it('Login-as is 403 IMPERSONATION_FORBIDDEN and reads nothing', async () => {
+    st.actor = 'impersonation';
+    const out = await call({});
+    expect(out.status).toBe(403);
+    expect(JSON.stringify(out.body)).toContain('IMPERSONATION_FORBIDDEN');
+    expect(st.keys).toEqual([]);
+    expect(st.reads).toEqual([]);
+  });
+  it('a session with no GoTrue session id (an agent or a job) is 403 AGENT_FORBIDDEN and reads nothing', async () => {
+    st.actor = 'unknown';
+    const out = await call({});
+    expect(out.status).toBe(403);
+    expect(JSON.stringify(out.body)).toContain('AGENT_FORBIDDEN');
+    expect(st.reads).toEqual([]);
   });
   it('a write method is 405', async () => {
     expect((await call({}, 'POST')).status).toBe(405);

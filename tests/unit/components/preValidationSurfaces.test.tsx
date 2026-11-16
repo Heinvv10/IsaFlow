@@ -6,14 +6,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 
-const st = vi.hoisted(() => ({ urls: [] as string[], pv: {} as unknown, fail: 0 }));
+const st = vi.hoisted(() => ({ urls: [] as string[], pv: {} as unknown, byUrl: {} as Record<string, unknown>, fail: 0 }));
 vi.mock('@/lib/apiFetch', async (orig) => ({
   ...(await orig<typeof import('@/lib/apiFetch')>()),
   apiJson: vi.fn(async (url: string) => {
     st.urls.push(url);
     if (url.startsWith('/api/payroll/pre-validation')) {
       if (st.fail) { const { ApiRequestError: E } = await orig<typeof import('@/lib/apiFetch')>(); throw new E('Forbidden', st.fail); }
-      return st.pv;
+      return st.byUrl[url] ?? st.pv;
     }
     return { plan: { runId: 'r1', status: 'calculated', entryDate: '2026-12-31', periodMonth: 12, periodYear: 2026, lineCount: 1, paidEmployeeCount: 1,
       reference: 'PAY-1', lines: [], totals: { net: 1 }, totalDebit: 1, totalCredit: 1, advisories: [] }, posted: null, replaces: null, planHash: 'h', blocker: null };
@@ -24,7 +24,7 @@ import { PreValidationCard } from '@/components/payroll/preValidation/PreValidat
 import { PreValidationLine } from '@/components/payroll/preValidation/PreValidationLine';
 import { PayrollApproveDialog } from '@/components/payroll/PayrollApproveDialog';
 
-afterEach(() => { cleanup(); st.urls = []; st.fail = 0; });
+afterEach(() => { cleanup(); vi.useRealTimers(); st.urls = []; st.byUrl = {}; st.fail = 0; });
 
 const issue = (severity: string, code: string, message: string, fixHref: string, fixLabel: string) =>
   ({ severity, code, message, field: null, fixHref, fixLabel });
@@ -82,6 +82,30 @@ describe('PreValidationLine (employee profile)', () => {
     const { container } = render(<PreValidationLine employeeId="e9" />);
     await vi.waitFor(() => expect(st.urls).toHaveLength(1));
     expect(container.textContent).toBe('');
+  });
+});
+
+describe('PreValidationLine in the filing season (L4)', () => {
+  const noLine = () => result({ employeesChecked: 0, errors: 0, warnings: 0, employees: [] });
+  it('March to May, with no final line this year yet: shows the previous tax year', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2027-04-15T10:00:00Z'));
+    st.byUrl['/api/payroll/pre-validation?employeeId=e1'] = noLine();
+    st.byUrl['/api/payroll/pre-validation?employeeId=e1&taxYear=2027'] = result({ taxYear: 2027, employeesChecked: 1, employees: [result().employees[0]] });
+    render(<PreValidationLine employeeId="e1" />);
+    const line = await screen.findByTestId('pre-validation-line');
+    expect(line.textContent).toContain('IRP5 checks (2027 tax year): Missing tax number');
+  });
+  it('outside March to May: stays silent and asks for no other year', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2027-08-15T10:00:00Z'));
+    st.byUrl['/api/payroll/pre-validation?employeeId=e1'] = noLine();
+    const { container } = render(<PreValidationLine employeeId="e1" />);
+    await vi.waitFor(() => expect(st.urls).toHaveLength(1));
+    // Let the answer land and any second read start.
+    await new Promise((done) => setTimeout(done, 50));
+    expect(container.textContent).toBe('');
+    expect(st.urls).toEqual(['/api/payroll/pre-validation?employeeId=e1']);
   });
 });
 

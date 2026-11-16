@@ -9,11 +9,14 @@
  *
  * Three scopes: the whole tax year; one employee; or one run (its employees, its tax year, and its own lines counted
  * with the final ones, so run approval previews the year as it will stand once the run is approved). Every query
- * carries the company; another company's employee or run is null (404 at the route).
+ * carries the company; another company's employee or run is null (404 at the route). What is judged comes from the
+ * final lines themselves (`preValidationReads.ts`): totals, the SARS codes paid, the non-cash fringe benefits.
  */
 import { sql } from '@/lib/neon';
 import { currentPayeTaxYear } from '@/modules/accounting/utils/payeTaxYearToday';
-import { payeTaxYearBounds, payeTaxYearOf, payeTaxYearPeriods } from '@/modules/accounting/utils/payeTaxYear';
+import { payeTaxYearOf } from '@/modules/accounting/utils/payeTaxYear';
+import { unflaggedFringeWarning } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
+import { loadFinalLineTotals, loadSeveranceDirectives } from '@/modules/accounting/services/payroll/preValidationReads';
 import { listSarsCodes } from '@/modules/accounting/services/payroll/sarsCodesService';
 import {
   highestSeverity, validateEmployeeIrp5, type ValidationMessage, type ValidationSeverity,
@@ -48,16 +51,11 @@ export interface PreValidationResult {
    * none every component code reads as unknown: the screens say so rather than present those errors as the truth.
    */
   codeReleaseLoaded: boolean;
-  /** Only the employees with at least one issue, errors first. */
+  /** Only the employees with at least one error or warning, errors first. */
   employees: PreValidationEmployee[];
 }
 
 export type PreValidationScope = { taxYear?: number; employeeId?: string; runId?: string };
-
-type AggRow = {
-  employee_id: string; employee_number: string; first_name: string; last_name: string;
-  tax_number: string | null; id_number: string | null; gross: string; paye: string; uif: string; sdl: string;
-};
 
 export function fixFor(employeeId: string, m: ValidationMessage): { fixHref: string; fixLabel: string } {
   const profile = `/payroll/employees/${employeeId}`;
@@ -85,83 +83,53 @@ async function resolveTaxYear(companyId: string, scope: PreValidationScope): Pro
   return scope.taxYear ?? currentPayeTaxYear();
 }
 
+/**
+ * Query count: one read of the scope, one of the final lines (totals, paid codes and fringe together), one of the
+ * severance directives, and the SARS code list for the year, which `sarsCodesService` caches per year: every engine
+ * lookup after the first is a map read. So it does not grow with the number of employees (pinned by a test).
+ */
 export async function preValidateTaxYear(companyId: string, scope: PreValidationScope): Promise<PreValidationResult | null> {
   const taxYear = await resolveTaxYear(companyId, scope);
   if (taxYear === null) return null;
-  const p = payeTaxYearPeriods(taxYear);
-  const bounds = payeTaxYearBounds(taxYear);
-  const runId = scope.runId ?? null;
-  const employeeId = scope.employeeId ?? null;
-
-  const rows = (await sql`
-    SELECT prl.employee_id::text AS employee_id, pe.employee_number, pe.first_name, pe.last_name, pe.tax_number, pe.id_number,
-           SUM(prl.gross_pay) AS gross, SUM(prl.paye) AS paye,
-           SUM(prl.uif_employee + prl.uif_employer) AS uif, SUM(prl.sdl) AS sdl
-      FROM payroll_run_lines prl
-      JOIN payroll_run_headers prh ON prh.id = prl.run_id
-      JOIN payroll_employees pe ON pe.id = prl.employee_id
-     WHERE prh.company_id = ${companyId}::uuid
-       AND pe.company_id = ${companyId}::uuid
-       AND ((prh.status IN ('approved', 'paid') AND COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL)
-            OR prh.id = ${runId}::uuid)
-       AND ((prh.period_year = ${p.startYear} AND prh.period_month >= ${p.startMonth})
-            OR (prh.period_year = ${p.endYear} AND prh.period_month <= ${p.endMonth}))
-       AND (${employeeId}::uuid IS NULL OR prl.employee_id = ${employeeId}::uuid)
-       AND (${runId}::uuid IS NULL OR prl.employee_id IN (SELECT employee_id FROM payroll_run_lines WHERE run_id = ${runId}::uuid))
-     GROUP BY prl.employee_id, pe.employee_number, pe.first_name, pe.last_name, pe.tax_number, pe.id_number
-     ORDER BY pe.last_name, pe.first_name, pe.employee_number
-  `) as AggRow[];
-  const employeeIds = rows.map((r) => r.employee_id);
-
-  const [codeRows, directiveRows] = employeeIds.length === 0 ? [[], []] : await Promise.all([
-    sql`
-      SELECT DISTINCT pec.employee_id::text AS employee_id, pc.sars_source_code
-        FROM payroll_employee_components pec
-        JOIN payroll_components pc ON pc.id = pec.component_id
-        JOIN payroll_employees pe ON pe.id = pec.employee_id
-       WHERE pe.company_id = ${companyId}::uuid AND pc.company_id = ${companyId}::uuid
-         AND pec.employee_id = ANY(${employeeIds}::uuid[])
-         AND pc.is_active = TRUE
-         AND (pec.effective_to IS NULL OR pec.effective_to >= CURRENT_DATE)
-    ` as Promise<Array<{ employee_id: string; sars_source_code: string }>>,
-    sql`
-      SELECT DISTINCT employee_id::text AS employee_id FROM tax_directives
-       WHERE company_id = ${companyId}::uuid AND directive_type = 'severance' AND status = 'approved'
-         AND employee_id = ANY(${employeeIds}::uuid[])
-         AND effective_date <= ${bounds.end}::date AND (expiry_date IS NULL OR expiry_date >= ${bounds.start}::date)
-    ` as Promise<Array<{ employee_id: string }>>,
-  ]);
-  const codes = new Map<string, string[]>();
-  for (const c of codeRows) codes.set(c.employee_id, [...(codes.get(c.employee_id) ?? []), String(c.sars_source_code)]);
-  const severance = new Set(directiveRows.map((d) => d.employee_id));
+  const codeReleaseLoaded = (await listSarsCodes(taxYear)).length > 0;
+  const rows = await loadFinalLineTotals(companyId, taxYear, scope.employeeId ?? null, scope.runId ?? null);
+  const severance = await loadSeveranceDirectives(companyId, taxYear, rows.map((r) => r.employee_id));
 
   const employees: PreValidationEmployee[] = [];
   let errors = 0, warnings = 0;
   for (const row of rows) {
-    const messages = await validateEmployeeIrp5({
+    const name = `${row.first_name} ${row.last_name}`.trim();
+    const nonCash = Number(row.non_cash);
+    const engine = await validateEmployeeIrp5({
       taxNumber: row.tax_number || null,
       idNumber: row.id_number || null,
-      totalGross: Number(row.gross),
+      // Remuneration, as the IRP5 summary judges readiness: an employee paid only a non-cash benefit has a certificate.
+      totalGross: Number(row.gross) + nonCash,
       totalPaye: Number(row.paye),
       totalUif: Number(row.uif),
       totalSdl: Number(row.sdl),
-      componentCodes: codes.get(row.employee_id) ?? [],
+      componentCodes: row.codes,
       hasApprovedSeveranceDirective: severance.has(row.employee_id),
     }, taxYear);
+    const unflagged = Math.round(Number(row.unflagged_3801) * 100) / 100;
+    if (unflagged !== 0) {
+      engine.push({ severity: 'warning', code: 'IRP5_3801_PAID_IN_CASH', field: 'gross', message: unflaggedFringeWarning(name, unflagged) });
+    }
+    // Info lines (e.g. "no payroll") are not issues: an employee with only those is not listed or counted.
+    const messages = engine.filter((m) => m.severity !== 'info');
     if (messages.length === 0) continue;
     errors += messages.filter((m) => m.severity === 'error').length;
     warnings += messages.filter((m) => m.severity === 'warning').length;
     employees.push({
       employeeId: row.employee_id,
       employeeNumber: String(row.employee_number),
-      name: `${row.first_name} ${row.last_name}`.trim(),
+      name,
       severity: highestSeverity(messages),
       issues: messages
         .map((m) => ({ severity: m.severity, code: m.code, message: m.message, field: m.field ?? null, ...fixFor(row.employee_id, m) }))
-        .sort((a, b) => RANK[a.severity] - RANK[b.severity]),
+        .sort((x, y) => RANK[x.severity] - RANK[y.severity]),
     });
   }
-  employees.sort((a, b) => RANK[a.severity ?? 'info'] - RANK[b.severity ?? 'info']);
-  const codeReleaseLoaded = (await listSarsCodes(taxYear)).length > 0;
+  employees.sort((x, y) => RANK[x.severity ?? 'info'] - RANK[y.severity ?? 'info']);
   return { taxYear, employeesChecked: rows.length, errors, warnings, codeReleaseLoaded, employees };
 }

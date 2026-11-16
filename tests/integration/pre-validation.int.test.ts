@@ -12,6 +12,8 @@ import { callRoute } from './r035-approval.helpers';
 import { outsideRls } from './k1-employee-bank-details.helpers';
 import { preValidateTaxYear } from '../../src/modules/accounting/services/payroll/preValidationService';
 import { refreshCache } from '../../src/modules/accounting/services/payroll/sarsCodesService';
+import { impersonationToken } from './r035-pr2.helpers';
+import { SignJWT } from 'jose';
 
 let r: Awaited<ReturnType<typeof rig>>;
 let otherCompany = '', viewer = '';
@@ -21,6 +23,8 @@ const runs: Record<string, string> = {};
 const TAX_YEAR = 2027;
 // A year no other suite or seed loads codes for: the release notice's own rows.
 const RELEASE_YEAR = 2089;
+// What-was-paid cases: tax year 2028 (Mar 2027 - Feb 2028), with its own small code list (no 3801 in it on purpose).
+const PAID_YEAR = 2028;
 
 async function employee(company: string, number: string, taxNumber: string | null, idNumber: string | null): Promise<string> {
   return (await r.pool.query(
@@ -38,6 +42,17 @@ async function runFor(company: string, emp: string, month: number, year: number,
   return run;
 }
 const STAMPED = ', approved_at = clock_timestamp()';
+
+/** A final (stamped) line carrying PAYE and the component breakdown the calculator stores. */
+async function paidLine(emp: string, month: number, year: number, gross: number, paye: number, breakdown: unknown[]): Promise<void> {
+  const run = (await r.pool.query(
+    `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status) VALUES ($1, $2, $3, 'calculated') RETURNING id::text AS id`,
+    [r.company, month, year])).rows[0]!.id;
+  await r.pool.query(
+    `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, net_pay, paye, component_breakdown) VALUES ($1, $2, $3::numeric, $3::numeric - $4::numeric, $4::numeric, $5::jsonb)`,
+    [run, emp, gross, paye, JSON.stringify(breakdown)]);
+  await r.pool.query(`UPDATE payroll_run_headers SET status = 'approved' ${STAMPED} WHERE id = $1`, [run]);
+}
 const GRANDFATHERED = ', approval_grandfathered_at = clock_timestamp()';
 const GOOD_TAX = '0123456789';
 const GOOD_ID = '8001015009087';
@@ -82,9 +97,28 @@ beforeAll(async () => {
 }, 240000);
 
 afterAll(async () => {
-  await r.pool.query('DELETE FROM sars_source_codes WHERE effective_year = $1', [RELEASE_YEAR]);
+  await r.pool.query('DELETE FROM sars_source_codes WHERE effective_year = ANY($1::int[])', [[RELEASE_YEAR, PAID_YEAR]]);
+  await r.pool.query('DELETE FROM impersonation_sessions WHERE target_user_id = $1', [r.admin]);
   refreshCache();
   await r.teardown([otherCompany]);
+});
+
+// First: the empty-catalogue case needs the fixture's SARS code table as loaded (empty); later blocks seed it.
+describe('the SARS code-release flag (the notice)', () => {
+  it('no release at all (an empty catalogue, as production had): false', async () => {
+    const rows = (await r.pool.query('SELECT count(*)::int AS n FROM sars_source_codes')).rows[0]!.n;
+    expect(rows, 'premise: the schema-only fixture loads no SARS codes').toBe(0);
+    refreshCache();
+    expect((await answer({ taxYear: String(TAX_YEAR) })).codeReleaseLoaded).toBe(false);
+  });
+  it('a release for another year only: false for this year, true for that one', async () => {
+    await r.pool.query(
+      `INSERT INTO sars_source_codes (code, effective_year, category, description, status) VALUES ('3601', $1, 'income', 'Income', 'active')`,
+      [RELEASE_YEAR]);
+    refreshCache();
+    expect((await answer({ taxYear: String(RELEASE_YEAR + 1) })).codeReleaseLoaded).toBe(false);
+    expect((await answer({ taxYear: String(RELEASE_YEAR) })).codeReleaseLoaded).toBe(true);
+  });
 });
 
 describe('GET pre-validation (tax year)', () => {
@@ -142,20 +176,51 @@ describe('GET pre-validation (one employee, one run)', () => {
   });
 });
 
-describe('the SARS code-release flag (the notice)', () => {
-  it('no release at all (an empty catalogue, as production had): false', async () => {
-    const rows = (await r.pool.query('SELECT count(*)::int AS n FROM sars_source_codes')).rows[0]!.n;
-    expect(rows, 'premise: the schema-only fixture loads no SARS codes').toBe(0);
-    refreshCache();
-    expect((await answer({ taxYear: String(TAX_YEAR) })).codeReleaseLoaded).toBe(false);
-  });
-  it('a release for another year only: false for this year, true for that one', async () => {
+describe('judged by what the final lines paid, not by today\'s assignments', () => {
+  beforeAll(async () => {
     await r.pool.query(
-      `INSERT INTO sars_source_codes (code, effective_year, category, description, status) VALUES ('3601', $1, 'income', 'Income', 'active')`,
-      [RELEASE_YEAR]);
+      `INSERT INTO sars_source_codes (code, effective_year, category, description, status)
+       VALUES ('3601', $1, 'income', 'Income', 'active'), ('3901', $1, 'lump_sum', 'Severance', 'active')`, [PAID_YEAR]);
     refreshCache();
-    expect((await answer({ taxYear: String(RELEASE_YEAR + 1) })).codeReleaseLoaded).toBe(false);
-    expect((await answer({ taxYear: String(RELEASE_YEAR) })).codeReleaseLoaded).toBe(true);
+    // A leaver: PAYE paid on 3601, every component assignment gone (none left today).
+    ids.leaver = await employee(r.company, 'PV-LEAVER', GOOD_TAX, GOOD_ID);
+    await r.pool.query(`UPDATE payroll_employees SET end_date = '2027-05-31' WHERE id = $1`, [ids.leaver]);
+    await paidLine(ids.leaver!, 4, 2027, 300000, 60000, [{ sarsSourceCode: '3601', amount: 300000 }]);
+    // A once-off severance (3901) paid with no approved directive, never an assignment.
+    ids.severance = await employee(r.company, 'PV-SEVER', GOOD_TAX, GOOD_ID);
+    await paidLine(ids.severance!, 5, 2027, 800000, 0, [{ sarsSourceCode: '3601', amount: 300000 }, { sarsSourceCode: ' 3901 ', amount: 500000 }]);
+    // Paid only a non-cash 3801 (outside gross_pay): it has a certificate, so its codes are checked.
+    ids.fringeOnly = await employee(r.company, 'PV-FRINGE', GOOD_TAX, GOOD_ID);
+    await paidLine(ids.fringeOnly!, 6, 2027, 0, 0, [{ sarsSourceCode: '3801', amount: 50000, isNonCash: true }]);
+    // A 3801 paid as cash (unflagged): inside gross_pay and so in 3601.
+    ids.cashFringe = await employee(r.company, 'PV-CASHFRINGE', GOOD_TAX, GOOD_ID);
+    await paidLine(ids.cashFringe!, 7, 2027, 320000, 0, [{ sarsSourceCode: '3601', amount: 300000 }, { sarsSourceCode: '3801', amount: 20000 }]);
+    // A nil final line: the engine says only "no payroll" (info), which is not an issue.
+    ids.nil = await employee(r.company, 'PV-NIL', GOOD_TAX, GOOD_ID);
+    await paidLine(ids.nil!, 8, 2027, 0, 0, []);
+  });
+
+  it('a leaver with PAYE whose components have ended gets no false "PAYE without an income code"', async () => {
+    const data = await answer({ taxYear: String(PAID_YEAR) });
+    expect(codesOf(data, ids.leaver!)).toEqual([]);
+  });
+  it('a once-off 3901 paid with no approved directive raises the severance warning', async () => {
+    const data = await answer({ taxYear: String(PAID_YEAR) });
+    expect(codesOf(data, ids.severance!)).toEqual(['IRP5_SEVERANCE_WITHOUT_DIRECTIVE']);
+  });
+  it('an employee paid only a non-cash 3801 still gets the code checks (3801 is not in this year\'s list)', async () => {
+    const data = await answer({ taxYear: String(PAID_YEAR) });
+    expect(codesOf(data, ids.fringeOnly!)).toEqual(['IRP5_UNKNOWN_CODE']);
+  });
+  it('a 3801 paid in cash is named (IRP5_3801_PAID_IN_CASH)', async () => {
+    const data = await answer({ taxYear: String(PAID_YEAR) });
+    expect(codesOf(data, ids.cashFringe!)).toContain('IRP5_3801_PAID_IN_CASH');
+  });
+  it('info-only lines are neither listed nor counted (a nil line says only "no payroll")', async () => {
+    const data = await answer({ taxYear: String(PAID_YEAR) });
+    expect(data.employees.map((e) => e.employeeId)).not.toContain(ids.nil);
+    expect(data.employeesChecked).toBe(5);
+    for (const e of data.employees) expect(e.issues.every((i) => i.severity !== 'info')).toBe(true);
   });
 });
 
@@ -165,6 +230,16 @@ describe('GET pre-validation (access)', () => {
   });
   it('a bearer token without the session cookie is 401', async () => {
     expect((await ask({}, { token: '', headers: { authorization: `Bearer ${r.tokens[r.admin]}` } })).state.statusCode).toBe(401);
+  });
+  it('a Login-as session is 403 IMPERSONATION_FORBIDDEN, and a session with no session id 403 AGENT_FORBIDDEN', async () => {
+    const login = await impersonationToken(r.pool, r.admin, r.approver);
+    const agent = await new SignJWT({ sub: r.admin, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+      .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+    for (const [token, reason] of [[login, 'IMPERSONATION_FORBIDDEN'], [agent, 'AGENT_FORBIDDEN']] as const) {
+      const res = await ask({ taxYear: String(TAX_YEAR) }, { token });
+      expect(res.state.statusCode).toBe(403);
+      expect((res.state.body as { error?: { details?: { reason?: string } } }).error?.details?.reason).toBe(reason);
+    }
   });
   it('a malformed or unknown query parameter is 400', async () => {
     for (const q of [{ taxYear: '27' }, { runId: 'x' }, { employeeId: ids.badId!, runId: runs.draft! }, { year: '2027' }]) {
