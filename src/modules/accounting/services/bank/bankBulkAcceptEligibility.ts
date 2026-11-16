@@ -20,6 +20,8 @@ import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { findActiveVatLock } from '../gl/journalVatLockGuard';
 import { isOutsideWindowByCalendarYear } from '../gl/fiscalPeriodAutoCreate';
 import { isBankEvidenced } from '../ap/bankLinePaymentGate';
+import { sql } from '@/lib/neon';
+import { BALANCE_SHEET_LEAF_LEVEL, LEAF_RULE_ACCOUNT_TYPES } from '../gl/isReportVisibleLeaf';
 import { contactControlAccountIds } from './contactControlGuard';
 import { importerAllocationRefusal, importerArmOf } from './bankLineImporterGate';
 import { handKeyedLineJournalRefusal } from './bankLineJournalGate';
@@ -30,6 +32,23 @@ export interface NeedsAttention { id: string; kind: 'importer' | 'approval'; rea
 export type ExcludedCounts = Record<'badTarget' | 'reconciliationHeld' | 'periodClosed' | 'noPeriod' | 'vatLocked' | 'vatCode', number>;
 
 /** `stopAt`: stop screening once that many lines are postable (the caller needs no more); `stoppedAt` is the id of the row that reached it. */
+/**
+ * Targets the writer refuses outright: the late-claim clearing account (lateClaimClearingGuard) and a balance-sheet header
+ * with sub-accounts (headerAccountGuard, the same test: leaf-rule type, level below the leaf level or NULL, has a child).
+ * Read-only here (the guard itself takes row locks, which a preview must not).
+ */
+async function unpostableTargetIds(companyId: string, ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const rows = (await sql`
+    SELECT ga.id::TEXT AS id FROM gl_accounts ga
+    WHERE ga.company_id = ${companyId}::UUID AND ga.id = ANY(${ids}::UUID[])
+      AND (ga.account_subtype = 'vat_input_late_claim'
+        OR (ga.account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[])
+            AND (ga.level IS NULL OR ga.level < ${BALANCE_SHEET_LEAF_LEVEL})
+            AND EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = ga.id AND ch.company_id = ${companyId}::UUID)))`) as Array<{ id: string }>;
+  return new Set(rows.map((r) => r.id.toLowerCase()));
+}
+
 export async function screenCandidates(companyId: string, userId: string, rows: DbRow[], stopAt = Number.POSITIVE_INFINITY): Promise<{
   postable: ScreenedLine[]; needsAttention: NeedsAttention[]; excluded: ExcludedCounts; stoppedAt: string | null;
 }> {
@@ -37,12 +56,13 @@ export async function screenCandidates(companyId: string, userId: string, rows: 
   const postable: ScreenedLine[] = [];
   const needsAttention: NeedsAttention[] = [];
   const control = await contactControlAccountIds(companyId, [...new Set(rows.map((r) => String(r.gl)))]);
+  const refused = await unpostableTargetIds(companyId, [...new Set(rows.map((r) => String(r.gl)))]);
   const periods = new Map<string, string>();
   // The importer check depends on the line's batch and feed, not on the line: asked once per batch.
   const importerByBatch = new Map<string, Awaited<ReturnType<typeof importerAllocationRefusal>>>();
   for (const row of rows) {
     const gl = String(row.gl);
-    if (control.has(gl.toLowerCase()) || isBankSubtype(row.account_subtype == null ? null : String(row.account_subtype))
+    if (control.has(gl.toLowerCase()) || refused.has(gl.toLowerCase()) || isBankSubtype(row.account_subtype == null ? null : String(row.account_subtype))
       || gl === String(row.bank_account_id)) { excluded.badTarget += 1; continue; }
     if (row.reconciliation_id != null) { excluded.reconciliationHeld += 1; continue; }
     const date = String(row.date);

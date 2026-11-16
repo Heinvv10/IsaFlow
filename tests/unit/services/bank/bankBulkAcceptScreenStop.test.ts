@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const resolveRuleVatCode = vi.fn();
 vi.mock('@/modules/accounting/services/gl/ruleVatResolution', () => ({ resolveRuleVatCode: (...a: unknown[]) => resolveRuleVatCode(...a) }));
+vi.mock('@/lib/neon', () => ({ sql: async () => [] }));
+vi.mock('@/modules/accounting/services/gl/isReportVisibleLeaf', () => ({ BALANCE_SHEET_LEAF_LEVEL: 3, LEAF_RULE_ACCOUNT_TYPES: ['asset'] }));
 vi.mock('@/modules/accounting/services/gl/accountSubtypes', () => ({ isBankSubtype: () => false }));
 vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({ getPeriodStatusForDate: async () => 'open' }));
 vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', () => ({ findActiveVatLock: async () => null }));

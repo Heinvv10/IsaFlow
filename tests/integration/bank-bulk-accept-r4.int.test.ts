@@ -5,6 +5,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { log } from '../../src/lib/logger';
+import { writePreviewToken } from '../../src/modules/accounting/services/bank/bankBulkAcceptPreview';
 import { Pool } from 'pg';
 import bulkAccept from '../../pages/api/accounting/bank-bulk-accept';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -36,7 +37,7 @@ async function fixture(): Promise<BankCompany> {
   return f;
 }
 type Preview = {
-  lines: { id: string }[]; scanTruncated: boolean; truncated: boolean; nextScanAfter: string | null; excluded: { noPeriod: number }; previewToken: string | null;
+  lines: { id: string }[]; scanTruncated: boolean; truncated: boolean; nextScanAfter: string | null; excluded: { noPeriod: number; badTarget: number }; previewToken: string | null;
 };
 type Confirmed = { posted: { txId: string }[]; refused: { txId: string; reason: string }[] };
 const confirm = async (f: BankCompany, token: string) => dataOf<Confirmed>(
@@ -126,5 +127,41 @@ describe('round 4', () => {
     const p = await preview(f);
     expect(p.lines).toHaveLength(0);
     expect(p.previewToken).toBeNull();
+  });
+
+  describe('round 6: targets the writer refuses outright', () => {
+    const header = async (f: BankCompany) => {
+      const h = (await pool.query(
+        `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,is_active,level)
+         VALUES ($1,'R6HDR','R6 header','asset','debit',true,2) RETURNING id`, [f.c])).rows[0].id as string;
+      await pool.query(
+        `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,is_active,level,parent_account_id)
+         VALUES ($1,'R6HDR1','R6 child','asset','debit',true,3,$2)`, [f.c, h]);
+      return h;
+    };
+    const clearing = async (f: BankCompany) => (await pool.query(
+      `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,is_active,account_subtype)
+       VALUES ($1,'R6CLR','R6 clearing','asset','debit',true,'vat_input_late_claim') RETURNING id`, [f.c])).rows[0].id as string;
+    const onAccount = async (f: BankCompany, gl: string) => {
+      const id = (await pool.query(
+        `INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description, status, suggested_gl_account_id, suggested_confidence, suggested_strategy)
+         VALUES($1,$2,DATE '2026-09-01',-5,'BULK4 target','imported',$3,0.97,'history') RETURNING id::TEXT AS id`, [f.c, f.bank, gl])).rows[0].id as string;
+      const version = (await pool.query(`SELECT to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') AS v FROM bank_transactions WHERE id = $1`, [id])).rows[0].v as string;
+      const forced = writePreviewToken({ v: 1, a: f.bank, t: 0.8, l: [{ i: id, g: gl, x: null, s: version, m: -5, d: '2026-09-01' }] });
+      return { id, forced };
+    };
+    for (const [name, make, text] of [['a header account with sub-accounts', header, /header/i], ['the late-claim clearing account', clearing, /clearing account/i]] as const) {
+      it(`${name}: the preview leaves it out, and a forced confirm reads as its own refusal, not an internal error`, async () => {
+        const f = await fixture();
+        const { forced } = await onAccount(f, await make(f));
+        const p = await preview(f);
+        expect(p.lines).toHaveLength(0);
+        expect(p.excluded).toMatchObject({ badTarget: 1 });
+        const out = await confirm(f, forced);
+        expect(out.posted).toHaveLength(0);
+        expect(out.refused[0]!.reason).not.toMatch(/internal error/);
+        expect(out.refused[0]!.reason).toMatch(text);
+      }, 30_000);
+    }
   });
 });
