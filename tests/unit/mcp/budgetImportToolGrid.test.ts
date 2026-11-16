@@ -15,6 +15,9 @@ vi.mock('@/modules/accounting/services/budgets/budgetVersions', () => ({ getVers
 vi.mock('@/modules/accounting/services/budgets/gridReadModel', () => ({ loadGridReadModel: vi.fn(), loadGridCells: vi.fn() }));
 vi.mock('@/modules/accounting/services/budgets/gridSave', async (orig) => ({ ...(await orig<object>()), saveCells: vi.fn() }));
 vi.mock('@/modules/accounting/services/budgets/budgetWriteSnapshots', () => ({ recordSnapshot: vi.fn(async () => 'snap-1') }));
+vi.mock('@/modules/accounting/services/budgets/budgetRefResolve', async (orig) => ({
+  ...(await orig<object>()), explainMissingAccounts: vi.fn(async (_c: string, refs: string[]) => new Map(refs.map((r) => [r, `${r} is not an account of this company`]))),
+}));
 vi.mock('@/modules/accounting/services/core/rolledBackSavepoint', () => ({ inRolledBackSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => { await fn(); }) }));
 
 import { getVersion } from '@/modules/accounting/services/budgets/budgetVersions';
@@ -111,7 +114,7 @@ describe('import_budget_workbook (json): refusals', () => {
     expect(refused.map((c) => [c.i, c.month, c.reason])).toEqual([
       [1, '2026-04', expect.stringMatching(/decimal strings/)],
       [2, '2026-04', expect.stringMatching(/at most 2 decimals/)],
-      [3, '', expect.stringMatching(/^Account code NOPE is not a revenue or expense account you can budget/)],
+      [3, '', 'NOPE is not an account of this company'],
       [4, '', expect.stringMatching(/7000 Admin is a header account with no budget/)],
     ]);
     expect([dry.ready, dry.plan_hash]).toEqual([false, null]);

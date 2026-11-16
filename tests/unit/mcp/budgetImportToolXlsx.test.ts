@@ -15,6 +15,10 @@ vi.mock('@/modules/accounting/services/budgets/budgetVersions', () => ({ getVers
 vi.mock('@/modules/accounting/services/budgets/gridReadModel', () => ({ loadGridReadModel: vi.fn(), loadGridCells: vi.fn() }));
 vi.mock('@/modules/accounting/services/budgets/gridSave', async (orig) => ({ ...(await orig<object>()), saveCells: vi.fn() }));
 vi.mock('@/modules/accounting/services/budgets/budgetWriteSnapshots', () => ({ recordSnapshot: vi.fn(async () => 'snap-1') }));
+vi.mock('@/modules/accounting/services/budgets/budgetRefResolve', async (orig) => ({
+  ...(await orig<object>()), explainMissingAccounts: vi.fn(async (_c: string, refs: string[]) => new Map(refs.map((r) => [r, r === '1000'
+    ? '1000 Bank is not a revenue or expense account; budgets are set on income statement accounts only' : `${r} is not an account of this company`]))),
+}));
 vi.mock('@/modules/accounting/services/core/rolledBackSavepoint', () => ({ inRolledBackSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => { await fn(); }) }));
 
 import { checkRateLimit } from '@/lib/rateLimit';
@@ -151,8 +155,8 @@ describe('import_budget_workbook (xlsx): rows refused per row, with the reason',
     expect([out.ready, out.plan_hash, (out.counts as Record<string, number>).refused]).toEqual([false, null, 4]);
     const refused = (out.cells as Array<{ i: number; status: string; reason: string; account: string }>).filter((c) => c.status === 'refused');
     expect(refused.map((c) => [c.i, c.account, c.reason])).toEqual([
-      [6, '9999', expect.stringMatching(/9999 is not a revenue or expense account you can budget/)],
-      [7, '1000', expect.stringMatching(/1000 is not a revenue or expense account you can budget/)],
+      [6, '9999', '9999 is not an account of this company'],
+      [7, '1000', expect.stringMatching(/^1000 Bank is not a revenue or expense account; budgets are set on income statement accounts only/)],
       [8, ' 4000  ', expect.stringMatching(/matches more than one account/)],
       [9, '7000', expect.stringMatching(/7000 Admin is a header account with no budget in this version/)],
     ]);

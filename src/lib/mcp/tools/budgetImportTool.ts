@@ -15,7 +15,9 @@ import { BUDGET_SPREADSHEET_SLOT, CpuSlotBusyError } from '@/lib/withCpuSlot';
 import { SpreadsheetRefusedError } from '@/lib/xlsxToCsv';
 import { readBudgetWorkbook } from '@/modules/accounting/services/budgets/budgetImportParse';
 import { assertHolderSlices, diffImportLines, workbookSource, type ImportSource } from '@/modules/accounting/services/budgets/budgetImportDiff';
-import { TEMPLATE_GRAINS, type TemplateGrain } from '@/modules/accounting/services/budgets/budgetTemplateXlsx';
+import { COLUMN, TEMPLATE_GRAINS, type TemplateGrain } from '@/modules/accounting/services/budgets/budgetTemplateXlsx';
+import { codeIndex } from '@/modules/accounting/services/budgets/codeIndex';
+import { explainMissingAccounts } from '@/modules/accounting/services/budgets/budgetRefResolve';
 import { BudgetVersionError } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import { cellKey, parseKey, rowKeyOf } from '@/modules/accounting/services/budgets/grid/cellKey';
 import { toCents } from '@/modules/accounting/services/budgets/grid/cents';
@@ -157,11 +159,18 @@ export const importBudgetWorkbookTool: McpTool = {
       index: rowOf.get(rowKeyOf(cellKey(c)))!, glAccountId: c.glAccountId, cc1Id: c.cc1Id, cc2Id: c.cc2Id, buId: c.buId, month: c.month,
       cents: c.amount === null ? null : toCents(c.amount),
     }));
+    // An account the grid does not list gets PR 1's precise reason (unknown, not income statement, header, inactive,
+    // outside a holder's slices) from one chart read, in place of the import's combined one.
+    const find = codeIndex(model.accounts);
+    const unlisted = src.lines.filter((l) => l.accountId === undefined && l.accountCode.trim() !== '' && find(l.accountCode) === undefined);
+    const why = await explainMissingAccounts(ctx.companyId, [...new Set(unlisted.map((l) => l.accountCode))]);
+    const unlistedRows = new Set(unlisted.map((l) => l.row));
     const rowRefusals: RowRefusal[] = preview.errors.map((e) => {
       const line = lineOf.get(e.row);
+      const reason = line && unlistedRows.has(e.row) && e.column === COLUMN.accountCode ? why.get(line.accountCode) ?? e.message : e.message;
       return {
         index: e.row, account: line?.accountCode ?? '', month: isMonth(e.column) ? e.column : '',
-        dimension: line?.dimensionCode ? `${src.grain} ${line.dimensionCode}` : null, reason: e.message,
+        dimension: line?.dimensionCode ? `${src.grain} ${line.dimensionCode}` : null, reason,
       };
     });
     return runAmountWrite(ctx, {
