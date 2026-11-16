@@ -7,8 +7,14 @@
  * matched and provisional lines all count until a reconciliation that covers them completes.
  *
  * Until 2026-11-15 this counted only `imported` and `matched`, so a period whose lines were all allocated but never
- * reconciled passed. Hein, 2026-11-15: such a period must not close. A `fail` blocks `close_fiscal_period`
- * (fiscalPeriodCloseService.closePeriodWithReadiness); the app's own close stays advisory and shows it.
+ * reconciled passed. Hein, 2026-11-15: such a period must not close.
+ *
+ * Where a `fail` blocks, today: only MCP `close_fiscal_period` (fiscalPeriodCloseService.closePeriodWithReadiness)
+ * refuses on it. `period_close_checklist`, the close-readiness route behind the Fiscal Periods tab's checklist
+ * (CloseReadinessChecklist) and the close run (closeRunService) report it. The app's Close, Bulk Close and Close Year (fiscal-periods-action -> fiscalPeriodService
+ * closePeriod / closeYear) and the year-end close (yearEndCloseService.closeFiscalYear: MCP `year_end_close`,
+ * /api/accounting/year-end) do not run readiness at all yet; making the app close refuse on every failing check is a
+ * separate follow-up PR (Hein, 2026-11-15).
  */
 
 import { sql } from '@/lib/neon';
