@@ -13,6 +13,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import journalEntriesAction from '../../pages/api/accounting/journal-entries-action';
 import { reverseJournalEntryTool } from '../../src/lib/mcp/tools/writeJournalReverse';
+import { reverseBankAllocationTool } from '../../src/lib/mcp/tools/writeBankAllocate';
 import { McpRegistry } from '../../src/lib/mcp/registry';
 import { reverseJournalEntry } from '../../src/modules/accounting/services/gl/journalEntryPostingService';
 import { callRoute, createUser } from './r035-approval.helpers';
@@ -29,6 +30,8 @@ let a = '';
 let act: ReturnType<typeof actionRoute>;
 const registry = new McpRegistry();
 registry.register(reverseJournalEntryTool);
+const mcpReverse = new McpRegistry();
+mcpReverse.register(reverseBankAllocationTool);
 const mcp = (c: string, args: Record<string, unknown>) => asToken(pool, a, c, async () =>
   (await registry.call('reverse_journal_entry', { idempotency_key: crypto.randomUUID(), ...args }, { userId: a, companyId: c,
     scopes: ['write:journals', 'write:post'], companyRole: 'owner', tokenJti: 'revjl', oauthAppId: null })) as McpReply);
@@ -168,6 +171,16 @@ describe('WP2 row 10: the bank Reverse of one leg of an auto-linked transfer res
       expect({ out: await lineStatus(pool, t.out), inn: await lineStatus(pool, t.inn), reversals: await reversalsOf(t.je) })
         .toEqual({ out: 'imported', inn: 'imported', reversals: 1 });
     }
+  });
+
+  it('MCP reverse_bank_allocation of one leg frees both too (the same choke point)', async () => {
+    const t = await linkedTransfer();
+    const out = await asToken(pool, a, t.c, async () => (await mcpReverse.call('reverse_bank_allocation',
+      { transaction_id: t.inn, idempotency_key: crypto.randomUUID() }, { userId: a, companyId: t.c,
+        scopes: ['write:bank-tx', 'write:post'], companyRole: 'owner', tokenJti: 'revjl-rba', oauthAppId: null })) as McpReply);
+    expect(out.isError, out.content[0]?.text).toBeFalsy();
+    expect({ out: await lineStatus(pool, t.out), inn: await lineStatus(pool, t.inn), reversals: await reversalsOf(t.je) })
+      .toEqual({ out: 'imported', inn: 'imported', reversals: 1 });
   });
 
   it('a counterpart a reconciliation holds refuses the reverse before any write', async () => {
