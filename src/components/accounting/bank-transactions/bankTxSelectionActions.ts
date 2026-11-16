@@ -5,6 +5,7 @@
  */
 
 import { notify } from '@/utils/toast';
+import { trackEdit } from './bankTxEditTracker';
 import type { AllocType, VatCode, SelectOption, RowSelection } from '@/components/accounting/BankTxTable';
 
 interface SelectionDeps {
@@ -17,19 +18,10 @@ interface SelectionDeps {
   setShowBatchEdit: (v: boolean) => void;
 }
 
-/** The newest edit made to each field group of each row: a refused save rolls back only if it is still the latest. */
-const editSeq = new Map<string, number>();
-const claimEdit = (txId: string, group: Group): number => { const n = (editSeq.get(`${txId}:${group}`) ?? 0) + 1; editSeq.set(`${txId}:${group}`, n); return n; };
-const DIM_KEYS = ['cc1Id', 'cc2Id', 'buId'] as const;
-type Group = 'alloc' | 'dims';
-const groupOf = (k: keyof RowSelection): Group => ((DIM_KEYS as readonly string[]).includes(k) ? 'dims' : 'alloc');
-/** What a field is when the row had no selection before the edit. */
-const EMPTY: Partial<RowSelection> = { type: 'account', entityId: '', label: '', vatCode: 'none' };
-
 export function buildBankTxSelectionActions(
   deps: SelectionDeps,
   saveSelection: (txId: string, type: AllocType, entityId: string, vatCode?: string, onFailure?: () => void, silent?: boolean) => Promise<boolean> | void,
-  saveDimensions: (txId: string, cc1Id: string, cc2Id: string, buId: string, onFailure?: () => void) => void,
+  saveDimensions: (txId: string, cc1Id: string, cc2Id: string, buId: string, onFailure?: () => void) => Promise<boolean> | void,
 ) {
   const { glAccounts, selectedIds, rowSelections, batchType, createEntityTxId, setRowSelections, setShowBatchEdit } = deps;
 
@@ -37,29 +29,13 @@ export function buildBankTxSelectionActions(
   const NO_DIMS = { cc1Id: undefined, cc2Id: undefined, buId: undefined };
 
   /**
-   * Puts the fields an edit changed back to what they were, for a save the server refused. Per field GROUP (the allocation:
-   * type, entity, label, VAT; the cost centres), and only for a group where this is still the LATEST edit (a per-edit sequence
-   * id, so re-picking the same value later does not make an old, late failure look current) and the row still shows the
-   * edit's values. An edit to one group never blocks or reverts the other. A row that had no selection before goes back to
-   * none, and is removed once nothing is set on it.
+   * One row edit, tracked (bankTxEditTracker): `persist` runs its save with the rollback as the failure handler, and a stored
+   * save becomes the baseline a later refusal falls back to. Resolves true when stored.
    */
-  const rollbackRow = (txId: string, before: RowSelection | undefined, patch: Partial<RowSelection>) => {
-    const keys = Object.keys(patch) as Array<keyof RowSelection>;
-    const seqs = new Map<Group, number>();
-    for (const k of keys) { const g = groupOf(k); if (!seqs.has(g)) seqs.set(g, claimEdit(txId, g)); }
-    return () => setRowSelections(prev => {
-      const cur = prev[txId];
-      if (!cur) return prev;
-      const restore = keys.filter(k => editSeq.get(`${txId}:${groupOf(k)}`) === seqs.get(groupOf(k))
-        && keys.filter(o => groupOf(o) === groupOf(k)).every(o => cur[o] === patch[o]));
-      if (restore.length === 0) return prev;
-      const row: RowSelection = { ...cur };
-      for (const k of restore) (row as unknown as Record<string, unknown>)[k] = before ? before[k] : EMPTY[k];
-      const next = { ...prev };
-      if (!before && !row.entityId && !DIM_KEYS.some(k => row[k])) delete next[txId];
-      else next[txId] = row;
-      return next;
-    });
+  const persist = (txId: string, before: RowSelection | undefined, patch: Partial<RowSelection>,
+    save: (onFailure: () => void) => Promise<boolean> | void): Promise<boolean> => {
+    const edit = trackEdit(txId, before, patch, setRowSelections);
+    return Promise.resolve(save(edit.rollback)).then(ok => { if (ok === true) edit.saved(); return ok === true; });
   };
 
   const handleApplyBatchEdit = (entityId: string, label: string) => {
@@ -71,7 +47,7 @@ export function buildBankTxSelectionActions(
       updates[id] = { type: batchType, entityId, label, vatCode: batchType === 'account' ? (autoVat ?? (updates[id]?.vatCode || 'none') as VatCode) : 'none' }; // a settlement carries no VAT: switching type resets it, as the single-row change does
       // Persisted like a single-row edit (it used to live only in the page: a reload lost it); a refused save restores that row.
       const patch = { type: batchType, entityId, label, vatCode: updates[id]!.vatCode, ...NO_DIMS };
-      saves.push(Promise.resolve(saveSelection(id, batchType, entityId, patch.vatCode, rollbackRow(id, rowSelections[id], patch), true)));
+      saves.push(persist(id, rowSelections[id], patch, (onFailure) => saveSelection(id, batchType, entityId, patch.vatCode, onFailure, true)));
     });
     setRowSelections(() => updates);
     setShowBatchEdit(false);
@@ -85,7 +61,7 @@ export function buildBankTxSelectionActions(
   // ---- Row-level selection handlers (also persist to DB) ----
   const handleRowTypeChange = (txId: string, type: AllocType) => {
     const vatCode: VatCode = type === 'account' ? (rowSelections[txId]?.vatCode || 'none') : 'none';
-    setRowSelections(prev => ({ ...prev, [txId]: { type, entityId: '', label: '', vatCode } })); void saveSelection(txId, type, '', vatCode, rollbackRow(txId, rowSelections[txId], { type, entityId: '', label: '', vatCode, ...NO_DIMS }));
+    setRowSelections(prev => ({ ...prev, [txId]: { type, entityId: '', label: '', vatCode } })); void persist(txId, rowSelections[txId], { type, entityId: '', label: '', vatCode, ...NO_DIMS }, (f) => saveSelection(txId, type, '', vatCode, f));
   };
   const handleRowEntityChange = (txId: string, entityId: string, label: string) => {
     const type = rowSelections[txId]?.type || 'account';
@@ -97,16 +73,16 @@ export function buildBankTxSelectionActions(
       : acct?.defaultVatCode ? acct.defaultVatCode
       : (rowSelections[txId]?.vatCode || 'none')) as VatCode;
     setRowSelections(prev => ({ ...prev, [txId]: { ...prev[txId], type, entityId, label, vatCode } }));
-    void saveSelection(txId, type as AllocType, entityId, vatCode, rollbackRow(txId, rowSelections[txId], { type, entityId, label, vatCode }));
+    void persist(txId, rowSelections[txId], { type, entityId, label, vatCode }, (f) => saveSelection(txId, type as AllocType, entityId, vatCode, f));
   };
   const handleRowVatChange = (txId: string, vatCode: VatCode) => {
     setRowSelections(prev => ({ ...prev, [txId]: { ...prev[txId], type: prev[txId]?.type || 'account', entityId: prev[txId]?.entityId || '', label: prev[txId]?.label || '', vatCode } }));
     const sel = rowSelections[txId];
-    if (sel?.entityId) void saveSelection(txId, sel.type, sel.entityId, vatCode, rollbackRow(txId, sel, { vatCode }));
+    if (sel?.entityId) void persist(txId, sel, { vatCode }, (f) => saveSelection(txId, sel.type, sel.entityId, vatCode, f));
   };
   const handleRowDimensionChange = (txId: string, cc1Id: string, cc2Id: string, buId: string) => {
     setRowSelections(prev => ({ ...prev, [txId]: { ...prev[txId], type: prev[txId]?.type || 'account', entityId: prev[txId]?.entityId || '', label: prev[txId]?.label || '', vatCode: prev[txId]?.vatCode || 'none', cc1Id: cc1Id || undefined, cc2Id: cc2Id || undefined, buId: buId || undefined } }));
-    saveDimensions(txId, cc1Id, cc2Id, buId, rollbackRow(txId, rowSelections[txId], { cc1Id: cc1Id || undefined, cc2Id: cc2Id || undefined, buId: buId || undefined }));
+    void persist(txId, rowSelections[txId], { cc1Id: cc1Id || undefined, cc2Id: cc2Id || undefined, buId: buId || undefined }, (f) => saveDimensions(txId, cc1Id, cc2Id, buId, f));
   };
   const handleCreateEntityDone = (
     entity: { id: string; name: string; code?: string },
@@ -125,7 +101,8 @@ export function buildBankTxSelectionActions(
       : 'none';
     if (createEntityTxId) {
       setRowSelections(prev => ({ ...prev, [createEntityTxId]: { type, entityId: entity.id, label, vatCode: prev[createEntityTxId]?.vatCode || vatCode } }));
-      void saveSelection(createEntityTxId, type as AllocType, entity.id, vatCode, rollbackRow(createEntityTxId, rowSelections[createEntityTxId], { type, entityId: entity.id, label, vatCode: rowSelections[createEntityTxId]?.vatCode || vatCode, ...NO_DIMS }));
+      void persist(createEntityTxId, rowSelections[createEntityTxId], { type, entityId: entity.id, label, vatCode: rowSelections[createEntityTxId]?.vatCode || vatCode, ...NO_DIMS },
+        (f) => saveSelection(createEntityTxId, type as AllocType, entity.id, vatCode, f));
     }
   };
   return {

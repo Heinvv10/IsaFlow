@@ -15,6 +15,7 @@ vi.mock('@/components/accounting/CreateRuleModal', () => ({ extractPattern: () =
 import { apiFetch } from '@/lib/apiFetch';
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
 import { selectedOnScreen, pruneSelection } from '@/components/accounting/bank-transactions/bankTxSelectionView';
+import { trackedEditCount } from '@/components/accounting/bank-transactions/bankTxEditTracker';
 import { useBankTxBusy, type BankTxBusy } from '@/components/accounting/bank-transactions/useBankTxBusy';
 import type { BankTx, RowSelection } from '@/components/accounting/BankTxTable';
 
@@ -26,6 +27,7 @@ const sel = (entityId = 'gl1'): RowSelection => ({ type: 'account', entityId, la
 const shown = (entityId: string, label: string): RowSelection => ({ type: 'account', entityId, label, vatCode: 'none' });
 
 /** The page's REAL busy hook (rendered, not re-implemented), with the progress it is told about recorded. */
+const touchSpy = vi.fn();
 function busyGuard() {
   const progress: Array<unknown> = [];
   const hook = renderHook(() => useBankTxBusy());
@@ -33,6 +35,7 @@ function busyGuard() {
     get busy() { return hook.result.current.busy; },
     isBusy: (k) => hook.result.current.isBusy(k),
     isRunning: (k) => hook.result.current.isRunning(k),
+    touch: touchSpy,
     get progress() { return hook.result.current.progress; },
     setProgress: (p) => { progress.push(p); },
     run: (key, fn, rows) => hook.result.current.run(key, fn, rows),
@@ -56,7 +59,7 @@ const bodies = () => vi.mocked(apiFetch).mock.calls.map(([, init]) => { try { re
 const sentActions = (action: string) => bodies().filter((b) => b.action === action);
 
 beforeEach(() => {
-  vi.mocked(apiFetch).mockReset();
+  vi.mocked(apiFetch).mockReset(); touchSpy.mockReset();
   Object.values(toast).forEach((f) => f.mockReset());
   vi.stubGlobal('confirm', () => true);
 });
@@ -556,6 +559,88 @@ describe('X1: an exclude refused by a row hold releases the keyboard grid (the r
     await actions.handleExcludeConfirm('Personal');
     expect(await Promise.race([wait, new Promise((r) => setTimeout(() => r('HUNG'), 200))])).toBe(false);
     release(); await batch;
+  });
+});
+
+describe('rollback goes to the last SAVED value, not to the previous snapshot', () => {
+  /** Edits whose saves the test answers by hand, in any order. */
+  function manual() {
+    const answers: Array<(ok: boolean) => void> = [];
+    vi.mocked(apiFetch).mockImplementation(() => new Promise<Response>((r) => { answers.push((ok) => r(ok ? json() : refuse())); }));
+    return answers;
+  }
+  const apply = (setRowSelections: ReturnType<typeof vi.fn>, from: number, state: Record<string, RowSelection>) => {
+    for (const [arg] of setRowSelections.mock.calls.slice(from)) state = (arg as (p: typeof state) => typeof state)(state);
+    return state;
+  };
+
+  it.each([['edit 1 answers first', [0, 1]], ['edit 2 answers first', [1, 0]]] as const)(
+    'X then Y, BOTH refused late (%s): the row goes back to what the server holds, never to X', async (_n, order) => {
+      const setRowSelections = vi.fn();
+      const { actions } = setup({ rowSelections: { t1: sel('old') }, setRowSelections });
+      const answers = manual();
+      actions.handleRowEntityChange('t1', 'X', 'X');
+      actions.handleRowEntityChange('t1', 'Y', 'Y');
+      await vi.waitFor(() => expect(answers).toHaveLength(2));
+      const from = setRowSelections.mock.calls.length;
+      let state: Record<string, RowSelection> = { t1: shown('Y', 'Y') };
+      for (const i of order) { answers[i]!(false); await vi.waitFor(() => expect(toast.error.mock.calls.length).toBeGreaterThan(order.indexOf(i))); }
+      await vi.waitFor(() => expect(setRowSelections.mock.calls.length - from).toBe(2));
+      state = apply(setRowSelections, from, state);
+      expect(state.t1!.entityId).toBe('old');
+    });
+
+  it('X saved, then Y refused: the row goes back to X (the last value the server confirmed)', async () => {
+    const setRowSelections = vi.fn();
+    const { actions } = setup({ rowSelections: { t1: sel('old') }, setRowSelections });
+    const answers = manual();
+    actions.handleRowEntityChange('t1', 'X', 'X');
+    await vi.waitFor(() => expect(answers).toHaveLength(1));
+    answers[0]!(true);
+    await vi.waitFor(() => expect(trackedEditCount()).toBe(0));
+    actions.handleRowEntityChange('t1', 'Y', 'Y');
+    await vi.waitFor(() => expect(answers).toHaveLength(2));
+    const from = setRowSelections.mock.calls.length;
+    answers[1]!(false);
+    await vi.waitFor(() => expect(setRowSelections.mock.calls.length).toBeGreaterThan(from));
+    expect(apply(setRowSelections, from, { t1: shown('Y', 'Y') }).t1!.entityId).toBe('old');
+  });
+
+  it('the fallback follows saves within a burst: X stored while Y is pending, then Y refused -> X', async () => {
+    const setRowSelections = vi.fn();
+    const { actions } = setup({ rowSelections: { t1: sel('old') }, setRowSelections });
+    const answers = manual();
+    actions.handleRowEntityChange('t1', 'X', 'X');
+    actions.handleRowEntityChange('t1', 'Y', 'Y');
+    await vi.waitFor(() => expect(answers).toHaveLength(2));
+    answers[0]!(true); // X stored (a superseded edit that still reached the server)
+    await vi.waitFor(() => expect(trackedEditCount()).toBeGreaterThan(0));
+    const from = setRowSelections.mock.calls.length;
+    answers[1]!(false);
+    await vi.waitFor(() => expect(setRowSelections.mock.calls.length).toBeGreaterThan(from));
+    expect(apply(setRowSelections, from, { t1: shown('Y', 'Y') }).t1!.entityId).toBe('X');
+  });
+});
+
+describe('the edit tracker does not grow: entries go when their last edit is answered', () => {
+  it('saved and refused edits both leave nothing behind', async () => {
+    const before = trackedEditCount();
+    const { actions } = setup({ rowSelections: { t1: sel('old') }, setRowSelections: vi.fn() });
+    vi.mocked(apiFetch).mockImplementation(async () => json());
+    actions.handleRowEntityChange('t1', 'A', 'A'); actions.handleRowDimensionChange('t1', 'cc', '', '');
+    await vi.waitFor(() => expect(trackedEditCount()).toBe(before));
+    vi.mocked(apiFetch).mockImplementation(async () => refuse());
+    actions.handleRowEntityChange('t2', 'B', 'B'); actions.handleRowDimensionChange('t2', 'cc', '', '');
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledTimes(2));
+    expect(trackedEditCount()).toBe(before);
+  });
+});
+
+describe('every request inside an action is activity for the hold timer', () => {
+  it('a bulk action touches the busy hook when its request starts and when it finishes', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => json({ accepted: 3 }));
+    await setup().actions.handleBulkAccept();
+    expect(touchSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 });
 

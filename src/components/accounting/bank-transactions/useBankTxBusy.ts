@@ -11,9 +11,11 @@ import { useCallback, useRef, useState } from 'react';
 import { notify } from '@/utils/toast';
 
 /**
- * The longest one operation may hold its key and rows. apiFetch has no timeout, so a request that never answers would hold
- * its lines for good: after this the hold is released and the user is told. The request itself is not cancelled - it may
- * still finish; its late completion changes nothing (the hold is no longer its own).
+ * How long an operation may be SILENT before its hold is released. It is an inactivity cap, not a limit on the whole run: a
+ * healthy batch that makes a request every 25 s keeps its hold for as long as it keeps making progress. apiFetch has no
+ * timeout, so a request that never answers would otherwise hold its lines for good; after this much silence the hold is
+ * released and the user is told. The request is not cancelled - it may still finish; its late completion changes nothing (the
+ * hold is no longer its own). "Activity" is `touch()`: every request start and finish inside an action, and every progress step.
  */
 export const BUSY_HOLD_CAP_MS = 60_000;
 
@@ -24,14 +26,16 @@ export interface BankTxBusy {
   isRunning: (key: string) => boolean;
   /** Runs `fn` unless `key` is running, or another operation holds one of `rows`; resolves to undefined when refused. */
   run: <T>(key: string, fn: () => Promise<T>, rows?: readonly string[]) => Promise<T | undefined>;
+  /** Marks activity: restarts the silence timer of every running operation (call at each request start and finish). */
+  touch: () => void;
   progress: { key: string; done: number; total: number } | null;
   setProgress: (p: { key: string; done: number; total: number } | null) => void;
 }
 
 export function useBankTxBusy(): BankTxBusy {
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
-  const [progress, setProgress] = useState<BankTxBusy['progress']>(null);
-  const running = useRef(new Map<string, { rows: readonly string[]; token: symbol }>());
+  const [progress, setProgressState] = useState<BankTxBusy['progress']>(null);
+  const running = useRef(new Map<string, { rows: readonly string[]; token: symbol; arm: () => void }>());
   const snapshot = () => {
     const keys = new Set<string>();
     running.current.forEach(({ rows }, key) => { keys.add(key); rows.forEach(r => keys.add(`row:${r}`)); });
@@ -44,18 +48,25 @@ export function useBankTxBusy(): BankTxBusy {
     if (rows.some(id => held.has(id))) { notify.warning('Those lines are already being processed', 'Wait for it to finish, then try again.'); return undefined; }
     const token = Symbol(key);
     const release = () => { if (running.current.get(key)?.token === token) { running.current.delete(key); setBusy(snapshot()); } };
-    running.current.set(key, { rows, token }); setBusy(snapshot());
-    const cap = setTimeout(() => {
-      if (running.current.get(key)?.token !== token) return;
-      release(); setProgress(null);
-      notify.warning('This is taking too long', 'You can try again. If it did go through, refresh the list to see it.');
-    }, BUSY_HOLD_CAP_MS);
+    let cap: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      clearTimeout(cap);
+      cap = setTimeout(() => {
+        if (running.current.get(key)?.token !== token) return;
+        release(); setProgressState(null);
+        notify.warning('This is taking too long', 'You can try again. If it did go through, refresh the list to see it.');
+      }, BUSY_HOLD_CAP_MS);
+    };
+    running.current.set(key, { rows, token, arm }); setBusy(snapshot());
+    arm();
     try { return await fn(); }
     finally { clearTimeout(cap); release(); }
   }, []);
+  const touch = useCallback(() => { running.current.forEach(h => h.arm()); }, []);
+  const setProgress = useCallback((p: BankTxBusy['progress']) => { setProgressState(p); touch(); }, [touch]);
   const isRunning = useCallback((key: string) => running.current.has(key), []);
   const isBusy = useCallback((key: string) => busy.has(key), [busy]);
-  return { busy, isBusy, isRunning, run, progress, setProgress };
+  return { busy, isBusy, isRunning, run, touch, progress, setProgress };
 }
 
 /** The three bulk operations act on the same selected lines: while any runs, all three (and the review bar) wait. */

@@ -46,6 +46,43 @@ describe('useBankTxBusy: a hung request cannot hold its lines for good', () => {
     expect(result.current.busy.has('delete')).toBe(true);
     expect(result.current.busy.has('row:t1')).toBe(true);
   });
+  it('a healthy LONG batch keeps its hold: 4 requests of 25 s each (100 s in all) never lose it, and nothing warns', async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useBankTxBusy());
+    const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+    let done!: Promise<unknown>;
+    act(() => {
+      done = result.current.run('batch-allocate', async () => {
+        for (let i = 0; i < 4; i += 1) {
+          result.current.touch(); // request i starts (callAction touches the hook)
+          await wait(25_000);
+          result.current.touch(); // ... and finishes
+          result.current.setProgress({ key: 'batch-allocate', done: i + 1, total: 4 });
+        }
+      }, ['t1', 't2', 't3', 't4']);
+    });
+    for (const at of [25_000, 50_000, 75_000]) { // 75 s in: well past a 60 s TOTAL cap
+      await act(async () => { await vi.advanceTimersByTimeAsync(25_000); });
+      expect(result.current.busy.has('batch-allocate'), `still held after ${at / 1000}s`).toBe(true);
+    }
+    await act(async () => { await vi.advanceTimersByTimeAsync(25_000); await done; }); // the 4th request ends at 100 s
+    expect(toast.warning).not.toHaveBeenCalled();
+    expect(result.current.busy.size).toBe(0);
+  });
+
+  it('a progress step alone is activity too', async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useBankTxBusy());
+    act(() => { void result.current.run('batch-allocate', () => new Promise<void>(() => undefined), ['t1']); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(BUSY_HOLD_CAP_MS - 1000); });
+    act(() => { result.current.setProgress({ key: 'batch-allocate', done: 1, total: 4 }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(BUSY_HOLD_CAP_MS - 1000); });
+    expect(result.current.busy.has('batch-allocate')).toBe(true); // 119 s since the start, 59 s since the last step
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(result.current.busy.size).toBe(0); // 60 s of silence: released
+    expect(toast.warning).toHaveBeenCalledWith('This is taking too long', expect.any(String));
+  });
+
   it('a request that finishes in time never warns', async () => {
     vi.useFakeTimers();
     const { result } = renderHook(() => useBankTxBusy());

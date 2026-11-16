@@ -63,14 +63,17 @@ export function buildBankTxActions(deps: ActionDeps) {
   const run: BankTxBusy['run'] = deps.busy?.run ?? ((_key, fn) => fn());
 
   const callAction = async (body: Record<string, string>, fallback = 'Could not complete the action - try again') => {
-    const res = await apiFetch('/api/accounting/bank-transactions-action', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify(body),
-    });
-    await assertOk(res, fallback);
-    const json = await res.json();
-    if (json.success === false) throw new ApiEnvelopeError(json.error?.message || fallback);
-    return json;
+    deps.busy?.touch(); // a request starting is activity: the hold's silence timer restarts
+    try {
+      const res = await apiFetch('/api/accounting/bank-transactions-action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify(body),
+      });
+      await assertOk(res, fallback);
+      const json = await res.json();
+      if (json.success === false) throw new ApiEnvelopeError(json.error?.message || fallback);
+      return json;
+    } finally { deps.busy?.touch(); } // and so is one finishing
   };
 
   const { saveSelection, saveDimensions } = buildSaveActions(deps.refreshSummarySoon ?? refreshBankAccounts);

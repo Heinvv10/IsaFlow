@@ -26,11 +26,11 @@ export function buildSaveActions(onSelectionSaved: () => void) {
       .then(() => { onSelectionSaved(); return true; })
       .catch(e => { onFailure?.(); if (!silent) notify.error(apiErrorMessage(e, 'Could not save the selection - try again')); return false; });
 
-  const saveDimensions = (txId: string, cc1Id: string, cc2Id: string, buId: string, onFailure?: () => void) => {
+  const saveDimensions = (txId: string, cc1Id: string, cc2Id: string, buId: string, onFailure?: () => void): Promise<boolean> =>
     post({ action: 'save_dimensions', bankTransactionId: txId, cc1Id: cc1Id || null, cc2Id: cc2Id || null, buId: buId || null })
       .then(r => assertOk(r, 'Could not save the cost centres - try again'))
-      .catch(e => { onFailure?.(); notify.error(apiErrorMessage(e, 'Could not save the cost centres - try again')); });
-  };
+      .then(() => true)
+      .catch(e => { onFailure?.(); notify.error(apiErrorMessage(e, 'Could not save the cost centres - try again')); return false; });
 
   return { saveSelection, saveDimensions };
 }
