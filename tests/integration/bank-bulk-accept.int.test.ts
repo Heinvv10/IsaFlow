@@ -74,8 +74,8 @@ describe('preview', () => {
     await pool.query(
       `INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description, status, suggested_gl_account_id, suggested_confidence, suggested_strategy)
        SELECT $1,$2,DATE '2026-09-01',-1,'BULK many','imported',$3,0.97,'history' FROM generate_series(1,101)`, [f.c, f.bank, f.expA]);
-    const data = dataOf<{ lines: unknown[]; truncated: boolean; totalEligible: number }>(await preview(f));
-    expect({ n: data.lines.length, truncated: data.truncated, eligible: data.totalEligible }).toEqual({ n: 100, truncated: true, eligible: 101 });
+    const data = dataOf<{ lines: unknown[]; truncated: boolean; totalEligibleAtLeast: number }>(await preview(f));
+    expect({ n: data.lines.length, truncated: data.truncated, eligible: data.totalEligibleAtLeast }).toEqual({ n: 100, truncated: true, eligible: 101 });
   });
 });
 

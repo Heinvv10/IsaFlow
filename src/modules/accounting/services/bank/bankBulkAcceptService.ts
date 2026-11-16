@@ -32,7 +32,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
-import { REFUSAL_CODES } from '@/lib/mcp/tools/refusalCodes';
+import { refusalReason, GENERIC_REFUSAL, LineRefused } from './bankBulkAcceptRefusals';
 import { allocateTransaction } from './bankAllocationService';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { evaluate } from './autoPostGate';
@@ -40,10 +40,7 @@ import { getAutoPostSettings } from './autoPostSettingsService';
 import { feedStateOf } from './bankFeedStateGuard';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { assertBankAccountInCompany } from './bankAccountGuard';
-import { BankControlError } from './bankControlRefusal';
-import { undoRun } from './autoPostUndoService';
-import { isLockContention } from '../core/lockContention';
-import { RunAlreadyUndoneError } from './autoPostUndoService';
+import { undoRun, RunAlreadyUndoneError } from './autoPostUndoService';
 import { BulkAcceptRefusal, bulkAcceptSettings, readPreviewToken, resolveMinConfidence, type TokenLine } from './bankBulkAcceptPreview';
 
 const LINE_SAVEPOINT = 'bulk_accept_line';
@@ -55,23 +52,10 @@ export interface BulkAcceptResult {
   totalPosted: number;
 }
 
-class LineRefused extends Error {}
-
-const GENERIC_REFUSAL = 'could not post (internal error)';
-
-/** What the caller reads for a refused line: a typed refusal says why; anything else is logged and not echoed. */
-function refusalReason(err: unknown): string {
-  if (err instanceof LineRefused) return err.message;
-  if (isLockContention(err)) return 'busy - retry (another request holds this line)';
-  const code = err instanceof Error ? (err as { code?: unknown }).code : undefined;
-  if (err instanceof Error && typeof code === 'string') {
-    if (code === 'IMPORTER_MAY_NOT_ALLOCATE') return `needs a colleague: ${err.message}`;
-    if (code === 'APPROVAL_REQUIRED' || err instanceof BankControlError) return `approval_required: ${err.message}`;
-    if (REFUSAL_CODES.has(code)) return err.message;
-  }
-  return GENERIC_REFUSAL;
-}
-
+/**
+ * `admit` runs after the token is valid and the account's lock is held, so a malformed token or a 409 never spends
+ * the caller's rate-limit quota; when it answers false the confirm is turned away 429.
+ */
 export async function confirmBulkAccept(
   companyId: string, userId: string, previewToken: unknown, admit?: () => Promise<boolean>,
 ): Promise<BulkAcceptResult> {
@@ -92,10 +76,15 @@ export async function confirmBulkAccept(
   const result: BulkAcceptResult = { runId: null, posted: [], refused: [], totalPosted: 0 };
   let runId: string | null = null;
   let totalCents = 0;
-  const busy = await lockLinesUpFront(companyId, lines.map((l) => l.i));
+  const { busy, stamped } = await lockLinesUpFront(companyId, lines.map((l) => l.i));
 
   for (const line of lines) {
     const runBefore: string | null = runId;
+    if (stamped.has(line.i.toLowerCase())) {
+      // A reconciliation session took the line after the preview: refused without taking its lock (no wait).
+      result.refused.push({ txId: line.i, reason: 'the line changed since the preview (a reconciliation now holds it)' });
+      continue;
+    }
     if (busy.has(line.i.toLowerCase())) {
       result.refused.push({ txId: line.i, reason: 'busy - retry (another request holds this line)' });
       continue;
@@ -151,21 +140,24 @@ export async function confirmBulkAccept(
 
 /**
  * Lock every line of the batch, in id order, skipping (not waiting for) any a peer holds: the ids returned are the ones
- * that are BUSY. A line a reconciliation session stamps is left to the per-line path (it takes the session's share lock
- * before the line, the lock order) and is refused there as changed since the preview.
+ * that are BUSY, and the ones a reconciliation session now stamps (never locked here: the session's share lock comes before
+ * the line in the lock order, so the line is refused at once as changed since the preview, not waited for).
  */
-async function lockLinesUpFront(companyId: string, ids: string[]): Promise<Set<string>> {
+async function lockLinesUpFront(companyId: string, ids: string[]): Promise<{ busy: Set<string>; stamped: Set<string> }> {
   const locked = (await sql`
     SELECT id::TEXT AS id FROM bank_transactions
     WHERE id = ANY(${ids}::UUID[]) AND company_id = ${companyId}::UUID AND reconciliation_id IS NULL
     ORDER BY id FOR UPDATE SKIP LOCKED`) as Array<{ id: string }>;
   const got = new Set(locked.map((r) => r.id.toLowerCase()));
   const missing = ids.filter((id) => !got.has(id.toLowerCase()));
-  if (missing.length === 0) return new Set();
-  const held = (await sql`
-    SELECT id::TEXT AS id FROM bank_transactions
-    WHERE id = ANY(${missing}::UUID[]) AND company_id = ${companyId}::UUID AND reconciliation_id IS NULL`) as Array<{ id: string }>;
-  return new Set(held.map((r) => r.id.toLowerCase())); // exist, unstamped, not lockable now: busy
+  const busy = new Set<string>();
+  const stamped = new Set<string>();
+  if (missing.length === 0) return { busy, stamped };
+  const rest = (await sql`
+    SELECT id::TEXT AS id, reconciliation_id IS NOT NULL AS stamped FROM bank_transactions
+    WHERE id = ANY(${missing}::UUID[]) AND company_id = ${companyId}::UUID`) as Array<{ id: string; stamped: boolean }>;
+  for (const r of rest) (r.stamped ? stamped : busy).add(r.id.toLowerCase()); // exist and not lockable now: stamped, or busy
+  return { busy, stamped };
 }
 
 /** Why the locked line is no longer the one previewed, or null when it is. */

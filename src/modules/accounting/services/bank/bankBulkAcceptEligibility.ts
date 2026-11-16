@@ -4,8 +4,9 @@
  * only stops the screen promising what the service will refuse.
  *
  *  - dropped silently, counted in `excluded`: a target account that is inactive, missing, a bank account (that is a
- *    transfer, row 5's) or AP/AR control; a line a reconciliation session holds; a date in a closed or missing
- *    fiscal period; a standard-rated line in a locked VAT period; a VAT code the allocation refuses;
+ *    transfer, row 5's) or AP/AR control; a line a reconciliation session holds; a date in a closed fiscal period, or in
+ *    a month with no period that the single accept would NOT create (outside the auto-create window: `noPeriod`; inside
+ *    it the confirm creates the period, exactly as the single accept does, so the line is let through); a standard-rated line in a locked VAT period; a VAT code the allocation refuses;
  *  - listed apart as `needsAttention`, not as postable: a line the caller imported themself under an enforced rule
  *    (someone else must allocate it) and a hand-keyed line a manual-journal rule holds for approval.
  *
@@ -17,6 +18,7 @@ import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { isBankSubtype } from '../gl/accountSubtypes';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { findActiveVatLock } from '../gl/journalVatLockGuard';
+import { isAutoCreatableYear } from '../gl/fiscalPeriodAutoCreate';
 import { isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { contactControlAccountIds } from './contactControlGuard';
 import { importerAllocationRefusal, importerArmOf } from './bankLineImporterGate';
@@ -25,16 +27,18 @@ import { vatInclusiveSplit } from './bankVatInclusive';
 
 export interface ScreenedLine { row: DbRow; effectiveVatCode: string; netAmount: number; vatAmount: number }
 export interface NeedsAttention { id: string; kind: 'importer' | 'approval'; reason: string }
-export type ExcludedCounts = Record<'badTarget' | 'reconciliationHeld' | 'periodClosed' | 'vatLocked' | 'vatCode', number>;
+export type ExcludedCounts = Record<'badTarget' | 'reconciliationHeld' | 'periodClosed' | 'noPeriod' | 'vatLocked' | 'vatCode', number>;
 
 export async function screenCandidates(companyId: string, userId: string, rows: DbRow[]): Promise<{
   postable: ScreenedLine[]; needsAttention: NeedsAttention[]; excluded: ExcludedCounts;
 }> {
-  const excluded: ExcludedCounts = { badTarget: 0, reconciliationHeld: 0, periodClosed: 0, vatLocked: 0, vatCode: 0 };
+  const excluded: ExcludedCounts = { badTarget: 0, reconciliationHeld: 0, periodClosed: 0, noPeriod: 0, vatLocked: 0, vatCode: 0 };
   const postable: ScreenedLine[] = [];
   const needsAttention: NeedsAttention[] = [];
   const control = await contactControlAccountIds(companyId, [...new Set(rows.map((r) => String(r.gl)))]);
   const periods = new Map<string, string>();
+  // The importer check depends on the line's batch and feed, not on the line: asked once per batch.
+  const importerByBatch = new Map<string, Awaited<ReturnType<typeof importerAllocationRefusal>>>();
   for (const row of rows) {
     const gl = String(row.gl);
     if (control.has(gl.toLowerCase()) || isBankSubtype(row.account_subtype == null ? null : String(row.account_subtype))
@@ -42,7 +46,9 @@ export async function screenCandidates(companyId: string, userId: string, rows: 
     if (row.reconciliation_id != null) { excluded.reconciliationHeld += 1; continue; }
     const date = String(row.date);
     if (!periods.has(date)) periods.set(date, await getPeriodStatusForDate(companyId, date));
-    if (periods.get(date) !== 'open') { excluded.periodClosed += 1; continue; }
+    const period = periods.get(date);
+    if (period === 'closed') { excluded.periodClosed += 1; continue; }
+    if (period === 'no_period' && !isAutoCreatableYear(Number(date.slice(0, 4)))) { excluded.noPeriod += 1; continue; }
     let effective: string;
     try {
       const requested = row.vat == null ? 'none' : String(row.vat);
@@ -56,7 +62,12 @@ export async function screenCandidates(companyId: string, userId: string, rows: 
     if (effective === 'standard' && await findActiveVatLock(companyId, date)) { excluded.vatLocked += 1; continue; }
     const amount = Number(row.amount);
     const arm = importerArmOf('account', null, amount);
-    const importer = arm ? await importerAllocationRefusal(companyId, row, userId, arm) : null;
+    let importer = null as Awaited<ReturnType<typeof importerAllocationRefusal>>;
+    if (arm) {
+      const key = `${String(row.import_batch_id ?? '')}|${String(row.bank_feed_connection_id ?? '')}|${arm}`;
+      if (!importerByBatch.has(key)) importerByBatch.set(key, await importerAllocationRefusal(companyId, row, userId, arm));
+      importer = importerByBatch.get(key) ?? null;
+    }
     if (importer) { needsAttention.push({ id: String(row.id), kind: 'importer', reason: importer.message }); continue; }
     const held = isBankEvidenced(row) ? null : await handKeyedLineJournalRefusal(companyId, Math.abs(amount));
     if (held) { needsAttention.push({ id: String(row.id), kind: 'approval', reason: held.message }); continue; }

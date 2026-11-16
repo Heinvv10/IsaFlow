@@ -27,6 +27,8 @@ export const BULK_ACCEPT_MIN_CONFIDENCE_FLOOR = 0.8;
 /** The preview reads candidates PAGE at a time (by id) until it has enough postable lines or has read SCAN_CAP rows. */
 const SCAN_PAGE = 500;
 export const BULK_ACCEPT_SCAN_CAP = 2000;
+/** Held lines (importer / approval) listed; past this many the scan stops - the list is a hint, not the point. */
+export const BULK_ACCEPT_HELD_CAP = 50;
 
 export class BulkAcceptRefusal extends Error {
   readonly code = 'BULK_ACCEPT_REFUSED';
@@ -53,11 +55,15 @@ export interface BulkAcceptPreview {
   lines: PreviewLine[]; totalIn: number; totalOut: number;
   byAccount: Array<{ glAccountId: string; code: string | null; name: string | null; count: number; totalIn: number; totalOut: number }>;
   /** More lines qualified than one confirm posts: the first BULK_ACCEPT_MAX_LINES (by id) are listed. */
-  truncated: boolean; totalEligible: number;
+  truncated: boolean;
+  /** How many postable lines were found: a LOWER BOUND when `truncated` or `scanTruncated` (the scan stops early). */
+  totalEligibleAtLeast: number;
   /** The scan stopped at its row cap with candidates unread: there may be more postable lines than shown or counted. */
   scanTruncated: boolean;
   /** Lines that would be held, not posted: another member must allocate them, or a manual-journal rule needs approval. */
   needsAttention: NeedsAttention[];
+  /** How many held lines the scan met (at least this many when it stopped at the cap); `needsAttention` lists the first few. */
+  needsAttentionCount: number;
   /** How many candidates were left out because a confirm would refuse them, by reason. */
   excluded: ExcludedCounts;
   previewToken: string;
@@ -106,13 +112,14 @@ export async function previewBulkAccept(companyId: string, userId: string, bankA
   const settings = bulkAcceptSettings(base, minConfidence);
   const postable: Awaited<ReturnType<typeof screenCandidates>>['postable'] = [];
   const needsAttention: NeedsAttention[] = [];
-  const excluded: ExcludedCounts = { badTarget: 0, reconciliationHeld: 0, periodClosed: 0, vatLocked: 0, vatCode: 0 };
+  const excluded: ExcludedCounts = { badTarget: 0, reconciliationHeld: 0, periodClosed: 0, noPeriod: 0, vatLocked: 0, vatCode: 0 };
   let after = '00000000-0000-0000-0000-000000000000';
   let scanned = 0;
   let exhausted = false;
   // Every predicate that can be written in SQL is, so a run of ineligible rows cannot hide eligible ones behind a LIMIT;
   // the rest (period, VAT, importer, approval) is screened per page, and pages are read until MAX + 1 lines are found
   // (one more than shown, to know the preview is cut) or the scan cap is reached.
+  let heldCapped = false;
   while (postable.length <= BULK_ACCEPT_MAX_LINES && scanned < BULK_ACCEPT_SCAN_CAP) {
     const rows = await readCandidates(companyId, bankAccountId, settings, after);
     if (rows.length === 0) { exhausted = true; break; }
@@ -126,8 +133,9 @@ export async function previewBulkAccept(companyId: string, userId: string, bankA
     needsAttention.push(...screened.needsAttention);
     for (const k of Object.keys(excluded) as Array<keyof ExcludedCounts>) excluded[k] += screened.excluded[k];
     if (rows.length < SCAN_PAGE) { exhausted = true; break; }
+    if (needsAttention.length >= BULK_ACCEPT_HELD_CAP) { heldCapped = true; break; } // mostly held: stop paying for per-row checks
   }
-  const scanTruncated = !exhausted && postable.length <= BULK_ACCEPT_MAX_LINES;
+  const scanTruncated = !exhausted && (postable.length <= BULK_ACCEPT_MAX_LINES || heldCapped);
   const eligible = postable;
   const chosen = eligible.slice(0, BULK_ACCEPT_MAX_LINES);
   const str = (v: unknown) => (v == null ? null : String(v));
@@ -152,8 +160,8 @@ export async function previewBulkAccept(companyId: string, userId: string, bankA
   const token: PreviewToken = { v: 1, a: bankAccountId, t: minConfidence, l: lines.map((l) => ({ i: l.id, g: l.glAccountId, x: l.vatCode, s: l.version, m: l.amount, d: l.date })) };
   return {
     bankAccountId, minConfidence, lines, totalIn, totalOut, byAccount: [...groups.values()],
-    truncated: eligible.length > chosen.length, totalEligible: eligible.length, scanTruncated,
-    needsAttention, excluded, previewToken: writePreviewToken(token),
+    truncated: eligible.length > chosen.length, totalEligibleAtLeast: eligible.length, scanTruncated,
+    needsAttention: needsAttention.slice(0, BULK_ACCEPT_HELD_CAP), needsAttentionCount: needsAttention.length, excluded, previewToken: writePreviewToken(token),
   };
 }
 

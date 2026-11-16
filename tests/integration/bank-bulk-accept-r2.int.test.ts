@@ -121,7 +121,9 @@ describe('M2: the preview lists only what can post, and says what is held', () =
     await suggested(f, { gl: ap });                                 // AP control
     await suggested(f, { gl: f.bank2 });                            // another bank account: a transfer, row 5's
     await suggested(f, { gl: f.bank });                             // the line's own bank
-    await suggested(f, { date: '2025-05-01' });                     // no fiscal period
+    await pool.query(`INSERT INTO fiscal_periods(company_id,period_name,period_number,fiscal_year,start_date,end_date,status) VALUES($1,'2025-05',5,2025,'2025-05-01','2025-05-31','closed')`, [f.c]);
+    await suggested(f, { date: '2025-05-15' });                     // a closed period
+    await suggested(f, { date: '2005-05-01' });                     // no period, and outside the window a period is created for
     await suggested(f, { vat: 'bogus' });                           // a VAT code the allocation refuses
     const rec = (await pool.query(`INSERT INTO bank_reconciliations(company_id, bank_account_id, statement_date, started_by) VALUES($1,$2,DATE '2026-09-30',$3) RETURNING id`, [f.c, f.bank, a])).rows[0].id;
     const held = await suggested(f);
@@ -130,7 +132,7 @@ describe('M2: the preview lists only what can post, and says what is held', () =
     await suggested(f, { date: '2026-08-15', vat: 'standard' });   // standard-rated in a locked VAT period
     const p = await previewOf(f);
     expect(p.lines.map((l) => l.id)).toEqual([good]);
-    expect(p.excluded).toEqual({ badTarget: 3, reconciliationHeld: 1, periodClosed: 1, vatLocked: 1, vatCode: 1 });
+    expect(p.excluded).toEqual({ badTarget: 3, reconciliationHeld: 1, periodClosed: 1, noPeriod: 1, vatLocked: 1, vatCode: 1 });
   });
 
   it('shows the EFFECTIVE VAT: a denied account previews and posts as none', async () => {

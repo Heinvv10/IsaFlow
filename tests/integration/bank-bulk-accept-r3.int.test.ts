@@ -170,12 +170,58 @@ describe('F5: the preview scan', () => {
 
   it('a scan that hits its row cap with candidates unread says so: lines the SQL cannot rule out hide the rest', async () => {
     const f = await fixture();
-    await bulkInsert(f, 2100, '11111111-1111-4111-8111-', 'history', '2025-05-01'); // no fiscal period: screened out in JS
+    await bulkInsert(f, 2100, '11111111-1111-4111-8111-', 'history', '2005-05-01'); // no period and outside the auto-create window: screened out in JS
     await bulkInsert(f, 3, 'fefefefe-fefe-4efe-8efe-', 'history');
     const p = await previewOf(f);
     expect(p.lines).toHaveLength(0);
     expect(p.scanTruncated).toBe(true);
   }, 60_000);
+});
+
+describe('round 3 review', () => {
+  it('N2: held lines are capped at 50 in the answer and the scan stops once it has met that many', async () => {
+    const f = await fixture();
+    await enforce(pool, f.c, a, ['manual_journal']);
+    const batch = (await pool.query(
+      `INSERT INTO bank_import_batches(company_id, bank_account_id, statement_date, transaction_count, imported_by, import_channel) VALUES($1,$2,DATE '2026-09-30',600,$3,'upload') RETURNING id`, [f.c, f.bank, a])).rows[0].id;
+    await pool.query(
+      `INSERT INTO bank_transactions(id, company_id, bank_account_id, transaction_date, amount, description, status, suggested_gl_account_id, suggested_confidence, suggested_strategy, import_batch_id)
+       SELECT ('22222222-2222-4222-8222-' || lpad(g::TEXT, 12, '0'))::UUID, $1, $2, DATE '2026-09-01', -1, 'BULK3 held', 'imported', $3, 0.97, 'history', $4 FROM generate_series(1, 600) g`, [f.c, f.bank, f.expA, batch]);
+    await suggested(f, { id: 'efefefef-efef-4fef-8fef-000000000001' }); // behind the 600 held lines
+    const p = dataOf<Prev & { needsAttention: unknown[]; needsAttentionCount: number }>(await get(f, {}));
+    expect(p.needsAttention).toHaveLength(50);
+    expect(p.needsAttentionCount).toBe(500); // the first page; the second was never read
+    expect(p.lines).toHaveLength(0);
+    expect(p.scanTruncated).toBe(true);
+  }, 60_000);
+
+  it('N3: a month with no period that the single accept would create is let through to the confirm, which posts it', async () => {
+    const f = await fixture();
+    const id = await suggested(f, { date: '2025-05-15' }); // inside the window, no 2025 period exists
+    const p = await previewOf(f);
+    expect(p.lines.map((l) => l.id)).toEqual([id]);
+    const out = await confirmed(f, p.previewToken);
+    expect(out.posted, JSON.stringify(out.refused)).toHaveLength(1);
+  });
+
+  it('N4: a line stamped to a reconciliation after the preview is refused at once, without waiting on the session\'s lock', async () => {
+    const f = await fixture();
+    const id = await suggested(f);
+    const token = (await previewOf(f)).previewToken;
+    const rec = (await pool.query(`INSERT INTO bank_reconciliations(company_id, bank_account_id, statement_date, started_by) VALUES($1,$2,DATE '2026-09-30',$3) RETURNING id`, [f.c, f.bank, a])).rows[0].id;
+    await pool.query('UPDATE bank_transactions SET reconciliation_id = $2 WHERE id = $1', [id, rec]);
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT id FROM bank_reconciliations WHERE id = $1 FOR UPDATE', [rec]); // would make the per-line path wait 5 s
+      const t0 = Date.now();
+      const out = await confirmed(f, token);
+      expect(Date.now() - t0).toBeLessThan(2_000);
+      expect(out.refused).toEqual([{ txId: id, reason: expect.stringMatching(/reconciliation now holds it/) }]);
+    } finally { await holder.query('ROLLBACK'); holder.release(); }
+    await pool.query('UPDATE bank_transactions SET reconciliation_id = NULL WHERE id = $1', [id]);
+    await pool.query('DELETE FROM bank_reconciliations WHERE id = $1', [rec]);
+  }, 20_000);
 });
 
 describe('warnings', () => {
