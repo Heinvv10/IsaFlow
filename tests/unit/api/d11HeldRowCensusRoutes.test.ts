@@ -13,7 +13,17 @@ vi.mock('@/lib/auth', () => ({
   withRole: () => (h: unknown) => h, withCsrf: (h: unknown) => h,
 }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
-vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
+// The real wrapper's answer to a throw (respondToUnhandledError: 503 for a held row, else 500), so a route that RETHROWS
+// an ordinary failure (audit WP2 row 9) is judged by what production answers, not by an unhandled rejection.
+vi.mock('@/lib/api-error-handler', async (orig) => {
+  const real = await orig<typeof import('@/lib/api-error-handler')>();
+  return {
+    ...real,
+    withErrorHandler: (h: (req: unknown, res: unknown) => unknown) => async (req: unknown, res: unknown) => {
+      try { return await h(req, res); } catch (err) { real.respondToUnhandledError(res as never, err); }
+    },
+  };
+});
 vi.mock('@/lib/rateLimit', () => ({ checkAiRateLimit: vi.fn().mockResolvedValue(true), checkRateLimit: vi.fn().mockResolvedValue(true) }));
 vi.mock('@/lib/billing/withFlowMeter', () => ({ withFlowMeter: () => (h: unknown) => h }));
 vi.mock('@/modules/accounting/services/core/companySettingsService', async (orig) => ({ ...(await orig<object>()), reserveNextDocumentNumber: vi.fn() }));
