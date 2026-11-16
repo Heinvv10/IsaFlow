@@ -27,72 +27,14 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
-import type { LumpSumFiling } from './payrollLumpSumFiling';
 import { listCertificateLumpSums } from './directivePaymentFiling';
 import { allowanceCertificateFields, listRunAllowanceFiling } from './payrollAllowanceFiling';
-import { listRunNonCashBenefits, listRunUnflaggedFringe, unflaggedFringeWarning, type NonCashBenefitFiling } from './payrollNonCashFiling';
+import { listRunNonCashBenefits, listRunUnflaggedFringe, unflaggedFringeWarning } from './payrollNonCashFiling';
+import type { Irp5EmployeeTotals, Irp5Exclusion, Irp5Dataset } from './irp5DataTypes';
 
 type Row = DbRow;
 
-export interface Irp5EmployeeTotals {
-  employeeId: string;
-  employeeNumber: string;
-  firstName: string;
-  lastName: string;
-  /** Masked to the last four digits unless the caller asked to reveal them. */
-  idNumber: string | null;
-  taxNumber: string | null;
-  identityNumbersMasked: boolean;
-  /** Cash only: a non-cash benefit is not in it (fringeBenefits). */
-  grossSalary: number;
-  taxableIncome: number;
-  paye: number;
-  uifEmployee: number;
-  uifEmployer: number;
-  sdl: number;
-  eti: number;
-  netPay: number;
-  runsIncluded: number;
-  /**
-   * Lump sums paid under a SARS directive, in a run (3901 severance, audit
-   * 2026-10-18 P3) or outside payroll (PAYE 4a follow-ups G1). Already inside
-   * grossSalary and paye; the certificate shows them under their own code, the
-   * PAYE under `payeCode`.
-   */
-  lumpSums: LumpSumFiling[];
-  /**
-   * Non-cash fringe benefits (the 3801 loan benefit), NOT in grossSalary; in taxableIncome and
-   * paye. The certificate shows them under their own code (payrollNonCashFiling), so
-   * grossSalary + these is the remuneration.
-   */
-  fringeBenefits: NonCashBenefitFiling[];
-  /** Cash allowances the certificate shows under their own code (3701, whole rand), INSIDE grossSalary (payrollAllowanceFiling). */
-  cashAllowances: NonCashBenefitFiling[];
-  /** 4582: the part of 3701 + 3802 PAYE was withheld on (BRS V25.3.0 p. 105); null when the employee has neither. */
-  paye4582: number | null;
-}
-
-export interface Irp5Exclusion {
-  id: string;
-  reason: string;
-  detail?: string;
-  amount?: number;
-}
-
-export interface Irp5Dataset {
-  taxYear: number;
-  periodStart: string;
-  periodEnd: string;
-  rows: Irp5EmployeeTotals[];
-  rowsTotal: number;
-  universeTotal: number;
-  /** Employees excluded IN TOTAL; `excluded` may carry only a capped sample. */
-  excludedTotal: number;
-  excluded: Irp5Exclusion[];
-  postedThrough: string | null;
-  /** Each employee whose 3801 items were paid in cash (no flag), so are in grossSalary / 3601. */
-  warnings: string[];
-}
+export type { Irp5EmployeeTotals, Irp5Exclusion, Irp5Dataset } from './irp5DataTypes';
 
 /** Excluded employees are listed individually up to this many; beyond it the
  *  envelope reports `excludedTotal` with `truncatedExcludedRows` set. */
