@@ -29,6 +29,7 @@
     "db:migrate": "bun scripts/apply-migrations.ts",
     "db:audit-drift": "bun scripts/audit-schema-drift.ts",
     "db:integrity-check": "bun scripts/integrity-check.ts",
+    "db:reseed-demo": "bun scripts/reseed-demo-company.ts",
     "prepare": "bash scripts/ci/install-hooks.sh || true"
   },
   "dependencies": {

@@ -2,10 +2,13 @@
  * Refresh ISAFlow Demo dates used by dashboard action widgets.
  *
  * Dry-run:
- *   bun scripts/refresh-demo-dashboard-dates.ts
+ *   bun scripts/refresh-demo-dashboard-dates.ts --company 00000000-0000-0000-0000-000000000001
  *
  * Apply:
- *   bun scripts/refresh-demo-dashboard-dates.ts --apply
+ *   bun scripts/refresh-demo-dashboard-dates.ts --company 00000000-0000-0000-0000-000000000001 --apply
+ *
+ * Refuses any company but the Demo company, and refuses to run without --company
+ * (there is no environment override for the company).
  *
  * The script only targets the default ISAFlow Demo company. It keeps amounts,
  * customers, suppliers and invoice numbers intact, but moves open invoice due
@@ -15,8 +18,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createSql, closeSql } from './_pg';
+import { demoCompanyOrExit } from './lib/demoReseed/cli';
 
-const COMPANY_ID = process.env.DEMO_COMPANY_ID ?? '00000000-0000-0000-0000-000000000001';
+const COMPANY_ID = demoCompanyOrExit(process.argv.slice(2));
 const APPLY = process.argv.includes('--apply');
 
 function loadEnvFile(): void {
