@@ -119,8 +119,9 @@ export async function saveDraftSubmission(
     : await sql`
       INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data, submitted_by)
       VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})
-      RETURNING *`.catch((err: { code?: string; constraint?: string }) => {
-        if (err.code === '23505' && err.constraint === ONE_OPEN_DRAFT_INDEX) {
+      RETURNING *`.catch((err: unknown) => {
+        const pg = err as { code?: string; constraint?: string };
+        if (pg.code === '23505' && pg.constraint === ONE_OPEN_DRAFT_INDEX) {
           throw new SubmissionNotOpenError('Another open draft of this period was saved at the same time. Reload and save again.');
         }
         throw err;
