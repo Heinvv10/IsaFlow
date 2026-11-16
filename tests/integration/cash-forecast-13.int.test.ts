@@ -21,6 +21,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const fx = budgetThreeWayFixture(pool);
 const today = appToday();
 const day = (n: number) => addDaysISO(today, n);
+const pad = (n: number) => String(n).padStart(2, '0');
 const prevMonth = (() => { const [y, m] = today.split('-').map(Number) as [number, number]; return m === 1 ? [y - 1, 12] : [y, m - 1]; })();
 
 let A: ThreeWayCo;
@@ -59,6 +60,20 @@ beforeAll(async () => {
     const v = await fx.version(C, { fy, kind: 'original', primary: true });
     await fx.amounts(C, v, C.acct.sales, monthsFrom(first), 50_000);
   }
+  // C: a run for last month and that month's EMP201 marked filed — a completed item is not a payment to come.
+  await pool.query(
+    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_net, total_paye, total_uif, total_sdl)
+     VALUES ($1, $2, $3, 'approved', 9000, 1500, 200, 100)`, [C.id, prevMonth[0], prevMonth[1]]);
+  const mark = await pool.connect();
+  try {
+    await mark.query('BEGIN');
+    await mark.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: C.user, role: 'authenticated' })]);
+    await mark.query(
+      `INSERT INTO sars_compliance_events (company_id, event_type, due_date, description, status, period_start, period_end)
+       VALUES ($1, 'EMP201_DUE', $2, 'EMP201 filed', 'completed', $3, (date_trunc('month', $3::date) + interval '1 month - 1 day')::date)`,
+      [C.id, `${today.slice(0, 7)}-07`, `${prevMonth[0]}-${pad(prevMonth[1]!)}-01`]);
+    await mark.query('COMMIT');
+  } finally { mark.release(); }
   await fx.journal(A, day(-60), [{ acct: A.capital, credit: 10_000 }]); // bank debit R10 000
   await customer(A, ids.hist, 'History Ltd');
   await customer(A, ids.nohist, 'New Ltd');
@@ -95,6 +110,7 @@ afterAll(async () => {
   try {
     const cos = [A.id, B.id, C.id];
     await pool.query('DELETE FROM customer_payment_allocations WHERE payment_id IN (SELECT id FROM customer_payments WHERE company_id = ANY($1))', [cos]);
+    await pool.query('DELETE FROM sars_compliance_events WHERE company_id = ANY($1)', [cos]);
     for (const t of ['customer_payments', 'customer_invoices', 'supplier_invoices', 'suppliers', 'recurring_invoices', 'customers', 'payroll_run_headers', 'loans']) {
       await pool.query(`DELETE FROM ${t} WHERE company_id = ANY($1)`, [cos]);
     }
@@ -154,6 +170,8 @@ describe('GET /api/accounting/cash-forecast-13', () => {
     expect(emp.items.length).toBeGreaterThan(0);
     // A month after the latest run is that run's PAYE − ETI + UIF + SDL (R1 800), an estimate.
     expect(emp.items.some((i) => i.amountCents === -180_000)).toBe(true);
+    // Last month's EMP201 is pending here: its run's declaration (R1 800), not an estimate.
+    expect(emp.items.find((i) => i.ref === `EMP201:${prevMonth[0]}-${pad(prevMonth[1]!)}-01`)?.amountCents).toBe(-180_000);
     const rec = f.lines.find((l) => l.key.startsWith('recurring:'))!;
     expect(rec.category).toBe('customer_receipts');
     for (const i of rec.items) expect(i.amountCents).toBe(115_000);
@@ -184,6 +202,10 @@ describe('GET /api/accounting/cash-forecast-13', () => {
     const b = line(g, 'budget:customer_receipts')!;
     expect(b).toMatchObject({ kind: 'estimate', category: 'customer_receipts' });
     expect(b.totalCents).toBeGreaterThan(0);
+    // Last month's EMP201 was marked filed: not a payment to come. This month's still is.
+    const refs = (line(g, 'sars:emp201')?.items ?? []).map((i) => i.ref);
+    expect(refs).not.toContain(`EMP201:${prevMonth[0]}-${pad(prevMonth[1]!)}-01`);
+    expect(refs).toContain(`EMP201:${today.slice(0, 7)}-01`);
   });
 
   it('refuses a write method', async () => {
