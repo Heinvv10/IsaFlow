@@ -204,7 +204,7 @@ export async function matchFromHistoryBulk(
           ga.account_name AS gl_account_name,
           COUNT(*) AS match_count
         FROM bank_transactions bt
-        LEFT JOIN gl_accounts ga ON ga.id = bt.suggested_gl_account_id
+        LEFT JOIN gl_accounts ga ON ga.id = bt.suggested_gl_account_id AND ga.company_id = bt.company_id
         WHERE bt.company_id = ${companyId}::uuid
           AND bt.status IN ('matched', 'reconciled')
           AND bt.matched_journal_line_id IS NOT NULL

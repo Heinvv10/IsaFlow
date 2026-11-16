@@ -179,8 +179,8 @@ export const TX_SELECT = `
     lnk_f.fill_date AS link_fill_date, lnk_f.amount AS link_fuel_amount,
     lnk_s.description AS link_service_description
   FROM bank_transactions bt
-  LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
-  LEFT JOIN gl_accounts sga ON sga.id = bt.suggested_gl_account_id
+  LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id AND ga.company_id = bt.company_id
+  LEFT JOIN gl_accounts sga ON sga.id = bt.suggested_gl_account_id AND sga.company_id = bt.company_id
   LEFT JOIN suppliers ss ON ss.id = bt.suggested_supplier_id AND ss.company_id = bt.company_id
   LEFT JOIN customers sc ON sc.id = bt.suggested_client_id AND sc.company_id = bt.company_id
   LEFT JOIN gl_journal_lines mje ON mje.id = bt.matched_journal_line_id AND mje.company_id = bt.company_id
