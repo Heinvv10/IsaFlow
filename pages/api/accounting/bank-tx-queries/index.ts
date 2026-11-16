@@ -41,6 +41,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
 
   if (req.method === 'GET') {
+    // A repeated param (?status=a&status=b) is a malformed filter, never "no filter".
+    if (Array.isArray(req.query.status) || Array.isArray(req.query.bankTransactionId)) {
+      return apiResponse.badRequest(res, 'status and bankTransactionId must each be given once');
+    }
     const statusRaw = typeof req.query.status === 'string' ? req.query.status : undefined;
     const status = statusRaw ? StatusSchema.safeParse(statusRaw) : null;
     if (status && !status.success) return apiResponse.badRequest(res, 'invalid status');

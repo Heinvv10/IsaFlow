@@ -8,8 +8,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockedApiFetchModule, useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
-// The query modal reads the company role (owner/admin may direct queries): an owner here.
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/components/accounting/migration/AccountMappingTable', () => ({ AccountMappingTable: () => null }));
 

@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useCompany } from '@/contexts/CompanyContext';
+import { useCompanyRoleOrNull } from '@/contexts/CompanyContext';
 import { canDirectBankQueries } from '@/lib/auth/writeRoles';
 import { X, MessageCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -46,8 +46,7 @@ function formatShortDate(raw: string | null): string {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
-  const { companyRole } = useCompany();
-  const canDirect = canDirectBankQueries(companyRole);
+  const canDirect = canDirectBankQueries(useCompanyRoleOrNull());
   const [phone, setPhone] = useState('');
   const [message, setMessage] = useState('');
   const [messageDirty, setMessageDirty] = useState(false);
@@ -113,7 +112,9 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
           }),
           await step(queriesRes, 'Could not check whether this transaction was already queried', (json) => {
             const rows: QueryRow[] = (json as { data: QueryRow[] }).data ?? [];
-            setPriorQuery(rows.find(r => r.status === 'sent' || r.status === 'replied' || r.status === 'unconfirmed') ?? null);
+            const prior = rows.find(r => r.status === 'sent' || r.status === 'replied' || r.status === 'unconfirmed') ?? null;
+            setPriorQuery(prior); // no saved number: a follow-up goes to the number already asked on this line
+            if (prior?.to_number) setPhone(prev => prev || prior.to_number);
           }),
         ].filter(Boolean);
         if (!cancelled && problems.length > 0) setInlineError(problems.join('. '));
@@ -217,9 +218,10 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
               readOnly={!canDirect}
               className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] focus:outline-none focus:border-green-500/60 disabled:opacity-50"
             />
-            {!canDirect && (
-              <p data-testid="query-number-locked" className="mt-0.5 text-xs text-[var(--ff-text-tertiary)]">
-                Queries go to the company&apos;s saved number. An owner or admin can change it.
+            {!canDirect && (phone !== '' || !loadingSettings) && (
+              <p data-testid={phone === '' ? 'query-number-missing' : 'query-number-locked'}
+                className={`mt-0.5 text-xs ${phone === '' ? 'text-amber-400' : 'text-[var(--ff-text-tertiary)]'}`}>
+                {phone === '' ? 'Ask an owner or admin to set the client\'s WhatsApp number in settings.' : 'Queries go to the company\'s saved number. An owner or admin can change it.'}
               </p>
             )}
           </div>

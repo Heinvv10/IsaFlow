@@ -163,6 +163,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Could not remove the attachment - try again');
       notify.success(`${name} removed`);
       // From the ref, not this render's list: two removes can overlap, and the second must not restore the first.
+      const olderExist = totalRef.current > listRef.current.length; // the list was the newest N of M
       const next = listRef.current.filter(a => a.id !== id);
       listRef.current = next;
       setAttachments(next);
@@ -170,6 +171,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       totalRef.current = Math.max(0, totalRef.current - 1);
       setTotal(totalRef.current);
       countRef.current?.(totalRef.current);
+      if (olderExist) void fetchAttachments(true); // the next-older rows now fit: show them
     } catch (err) {
       notify.error(apiErrorMessage(err, 'Could not remove the attachment - try again'));
     } finally {

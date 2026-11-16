@@ -42,6 +42,13 @@ const time = (v: unknown) => new Date(String(v instanceof Date ? v.toISOString()
  */
 export const BANK_LINE_ATTACHMENT_LIST_MAX = 100;
 
+/**
+ * The most file_url payload (data URLs, in characters) one GET of the list carries, whatever the row count: 100 rows of
+ * 2 MB each was a 267 MB response. Computed in SQL with a running sum over the newest-first order; the newest row is
+ * always returned, even when it alone is over the budget. A cut here reads as "Showing newest N of M", like the row cap.
+ */
+export const BANK_LINE_ATTACHMENT_BYTE_BUDGET = 25 * 1024 * 1024;
+
 /** Every supporting document of the bank line, newest first. The line must already be verified as this company's. */
 export async function listBankLineAttachments(companyId: string, bankTxId: string): Promise<BankLineAttachment[]> {
   return (await loadAttachments(companyId, bankTxId, null)).items;
@@ -58,26 +65,35 @@ export async function countBankLineAttachments(companyId: string, bankTxId: stri
 
 /** The newest `limit` documents of the line, and whether older ones were left out. */
 export async function listBankLineAttachmentsCapped(
-  companyId: string, bankTxId: string, limit = BANK_LINE_ATTACHMENT_LIST_MAX,
+  companyId: string, bankTxId: string, limit = BANK_LINE_ATTACHMENT_LIST_MAX, byteBudget = BANK_LINE_ATTACHMENT_BYTE_BUDGET,
 ): Promise<{ items: BankLineAttachment[]; truncated: boolean }> {
-  return loadAttachments(companyId, bankTxId, limit);
+  return loadAttachments(companyId, bankTxId, limit, byteBudget);
 }
 
 async function loadAttachments(
-  companyId: string, bankTxId: string, limit: number | null,
+  companyId: string, bankTxId: string, limit: number | null, byteBudget: number | null = null,
 ): Promise<{ items: BankLineAttachment[]; truncated: boolean }> {
   const copies = (await sql`
-    SELECT bta.id, bta.bank_transaction_id, bta.file_url, bta.file_name, bta.file_size, bta.uploaded_by,
-           bta.created_at, cd.id AS document_id, cd.file_type
-      FROM bank_transaction_attachments bta
-      JOIN bank_transactions bt ON bt.id = bta.bank_transaction_id
-      LEFT JOIN captured_documents cd
-        ON ${sql.unsafe(linkedCapturedDocSql('bt', 'cd'))} AND ${sql.unsafe(isCopyOfSql('bta', 'cd'))}
-     WHERE bta.bank_transaction_id = ${bankTxId}::uuid AND bt.company_id = ${companyId}::uuid
-       AND ${sql.unsafe(attachmentCountsSql('bta', 'bt'))}
-     ORDER BY bta.created_at DESC, bta.id DESC
+    WITH ranked AS (
+      SELECT bta.id, bta.bank_transaction_id, bta.file_url, bta.file_name, bta.file_size, bta.uploaded_by,
+             bta.created_at, cd.id AS document_id, cd.file_type,
+             SUM(length(bta.file_url)) OVER (ORDER BY bta.created_at DESC, bta.id DESC) AS running_bytes,
+             ROW_NUMBER() OVER (ORDER BY bta.created_at DESC, bta.id DESC) AS rn,
+             COUNT(*) OVER () AS copies_total
+        FROM bank_transaction_attachments bta
+        JOIN bank_transactions bt ON bt.id = bta.bank_transaction_id
+        LEFT JOIN captured_documents cd
+          ON ${sql.unsafe(linkedCapturedDocSql('bt', 'cd'))} AND ${sql.unsafe(isCopyOfSql('bta', 'cd'))}
+       WHERE bta.bank_transaction_id = ${bankTxId}::uuid AND bt.company_id = ${companyId}::uuid
+         AND ${sql.unsafe(attachmentCountsSql('bta', 'bt'))}
+    )
+    SELECT * FROM ranked
+     WHERE rn = 1 OR ${byteBudget}::BIGINT IS NULL OR running_bytes <= ${byteBudget}::BIGINT
+     ORDER BY created_at DESC, id DESC
      LIMIT ${limit === null ? null : limit + 1}::INT
   `) as Row[];
+  // Rows the byte budget left out: older copies exist that this GET does not carry.
+  const budgetCut = copies.length > 0 && Number(copies[0]!.copies_total) > copies.length && (limit === null || copies.length <= limit);
   const uncopied = (await sql`
     SELECT cd.id, cd.file_name, cd.file_type, COALESCE(cd.raw_bytes_size, cd.file_size) AS size, cd.created_at
       FROM captured_documents cd
@@ -111,7 +127,15 @@ async function loadAttachments(
     })),
   ];
   items.sort((a, b) => time(b.created_at) - time(a.created_at) || String(b.id).localeCompare(String(a.id)));
-  return limit === null ? { items, truncated: false } : { items: items.slice(0, limit), truncated: items.length > limit };
+  if (limit === null) return { items, truncated: false };
+  if (budgetCut) {
+    // Newest first stays honest: nothing older than the last copy that fit is shown in place of the copies left out.
+    const last = copies[copies.length - 1]!;
+    const lastAt = time(last.created_at);
+    const kept = items.filter((i) => time(i.created_at) > lastAt || (time(i.created_at) === lastAt && String(i.id).localeCompare(String(last.id)) >= 0));
+    return { items: kept.slice(0, limit), truncated: true };
+  }
+  return { items: items.slice(0, limit), truncated: items.length > limit };
 }
 
 /** Whether this company's captured document is a supporting document of some bank line (the bytes route's gate). */

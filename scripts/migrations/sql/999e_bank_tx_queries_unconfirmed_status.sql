@@ -4,8 +4,27 @@
 -- a 4xx validation error) deletes the row instead.
 SET LOCAL lock_timeout = '5s';
 
-ALTER TABLE bank_tx_queries DROP CONSTRAINT IF EXISTS bank_tx_queries_status_check;
+-- Drop the status CHECK by lookup, not by name: the constraint is auto-named in 496 and may differ per environment.
+DO $$
+DECLARE c record;
+BEGIN
+  FOR c IN
+    SELECT con.conname
+    FROM pg_constraint con
+    WHERE con.conrelid = 'bank_tx_queries'::regclass
+      AND con.contype = 'c'
+      AND pg_get_constraintdef(con.oid) ILIKE '%status%'
+  LOOP
+    EXECUTE format('ALTER TABLE bank_tx_queries DROP CONSTRAINT %I', c.conname);
+  END LOOP;
+END $$;
+
 ALTER TABLE bank_tx_queries
   ADD CONSTRAINT bank_tx_queries_status_check
-  CHECK (status = ANY (ARRAY['sent'::text, 'replied'::text, 'resolved'::text, 'cancelled'::text, 'unconfirmed'::text])) NOT VALID;
-ALTER TABLE bank_tx_queries VALIDATE CONSTRAINT bank_tx_queries_status_check;
+  CHECK (status = ANY (ARRAY['sent'::text, 'replied'::text, 'resolved'::text, 'cancelled'::text, 'unconfirmed'::text]));
+
+-- Reply matching now also scans 'unconfirmed' rows: widen the partial index (same name).
+DROP INDEX IF EXISTS idx_btq_open_number;
+CREATE INDEX IF NOT EXISTS idx_btq_open_number
+  ON bank_tx_queries(company_id, to_number)
+  WHERE status IN ('sent','replied','unconfirmed');

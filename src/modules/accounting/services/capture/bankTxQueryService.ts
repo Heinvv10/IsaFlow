@@ -75,7 +75,7 @@ export async function createAndSendQuery(
   // GUARANTEE, honestly: the row belongs to the request's transaction, which commits on a 4xx/2xx and rolls back on a
   // 5xx; a crash of the server between the send and the commit can still lose it. This closes the "insert failed after
   // a good send" gap, not that one.
-  const [query] = (await sql`
+  let [query] = (await sql`
     INSERT INTO bank_tx_queries (
       company_id, bank_transaction_id, to_number, message_body, status, created_by
     ) VALUES (
@@ -114,10 +114,13 @@ export async function createAndSendQuery(
   // logged rather than thrown (a throw is a 500, which rolls the whole request back, the record included).
   try {
     await withSavepoint('bank_tx_query_confirm', async () => {
-      await sql`
+      const [confirmed] = (await sql`
         UPDATE bank_tx_queries SET status = 'sent', message_sid = ${sendResult.sid ?? null}, updated_at = NOW()
         WHERE id = ${queryId}::uuid AND company_id = ${companyId}::uuid
-      `;
+        RETURNING *
+      `) as Row[];
+      // The 201 says what the database now says: 'sent', with the sid.
+      query = confirmed ?? { ...query, status: 'sent', message_sid: sendResult.sid ?? null };
     });
   } catch (err) {
     log.error('bankTxQuery: the message went out but its sid could not be saved (the query stays unconfirmed)', {

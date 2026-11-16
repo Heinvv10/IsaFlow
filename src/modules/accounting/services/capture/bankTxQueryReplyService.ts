@@ -38,7 +38,7 @@ export async function findOpenQuery(
     WHERE company_id = ${companyId}::uuid
       AND to_number = ${normalized}
       AND status IN ('sent', 'replied', 'unconfirmed') -- an unconfirmed send MAY have gone out: a reply still matches it
-    ORDER BY (status IN ('sent', 'unconfirmed')) DESC, sent_at DESC
+    ORDER BY (status = 'unconfirmed') ASC, (status = 'sent') DESC, sent_at DESC -- confirmed threads first: a ghost row never takes a real thread's reply
     LIMIT 1
   `) as Row[];
   if (!row) return null;

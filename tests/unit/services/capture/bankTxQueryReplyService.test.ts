@@ -44,7 +44,7 @@ describe('findOpenQuery', () => {
     expect(call.values).toContain('+27821234567');
     // an UNCONFIRMED send may have gone out, so a reply still matches it (WP7)
     expect(call.sql).toMatch(/status IN \('sent',\s*'replied',\s*'unconfirmed'\)/);
-    expect(call.sql).toContain('ORDER BY');
+    expect(call.sql).toMatch(/ORDER BY \(status = 'unconfirmed'\) ASC,\s*\(status = 'sent'\) DESC,\s*sent_at DESC/);
   });
 
   it('returns null when nothing is open', async () => {

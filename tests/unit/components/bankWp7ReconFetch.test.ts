@@ -1,5 +1,5 @@
 /**
- * WP7: the reconciliation PDF reads the report to completion (matchedOffset / unmatchedOffset), and only if a hard
+ * WP7: the reconciliation PDF reads the report to completion (keyset cursors), and only if a hard
  * ceiling is hit does it carry the lists' totals so the PDF prints "first N of M transactions".
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -18,12 +18,15 @@ const tx = (i: number) => ({ date: '2026-01-01', description: `t${i}`, amount: -
 function serve(matched: number, unmatched: number) {
   vi.mocked(apiFetch).mockImplementation(async (url) => {
     const q = new URL(String(url), 'http://x').searchParams;
-    const mo = Number(q.get('matchedOffset')), uo = Number(q.get('unmatchedOffset'));
+    const at = (name: string) => (q.get(name) ? Number(q.get(name)!.split(',')[1]) + 1 : 0); // cursor "date,<index>" -> next index
+    const mo = at('matchedAfter'), uo = at('unmatchedAfter');
+    const cur = (list: unknown[], from: number) => (list.length ? `2026-01-01,${from + list.length - 1}` : null);
     const m = Array.from({ length: Math.max(0, Math.min(PAGE, matched - mo)) }, (_, i) => tx(mo + i));
     const u = Array.from({ length: Math.max(0, Math.min(PAGE, unmatched - uo)) }, (_, i) => tx(uo + i));
     return new Response(JSON.stringify({ success: true, data: {
       bankAccountName: 'Cheque', statementDate: '2026-01-31', matchedTransactions: m, unmatchedTransactions: u,
       truncated: { matched: matched > mo + PAGE, unmatched: unmatched > uo + PAGE }, matchedTotal: matched, unmatchedTotal: unmatched,
+      nextMatchedAfter: cur(m, mo), nextUnmatchedAfter: cur(u, uo),
     } }), { status: 200 });
   });
 }
@@ -46,9 +49,20 @@ describe('fetchReconReport', () => {
     expect(r.matchedTransactions.map((t) => t.description)).toEqual(Array.from({ length: 8 }, (_, i) => `t${i}`));
     expect(r.unmatchedTransactions.map((t) => t.description)).toEqual(Array.from({ length: 4 }, (_, i) => `t${i}`));
     expect(requests()).toHaveLength(3);
-    expect(requests()[1]).toContain('matchedOffset=3');
-    expect(requests()[1]).toContain('unmatchedOffset=3');
+    expect(requests()[1]).toContain('matchedAfter=2026-01-01%2C2');
+    expect(requests()[1]).toContain('unmatchedAfter=2026-01-01%2C2');
     expect(r.matchedTotal).toBeUndefined(); // complete: nothing to say
+  });
+
+  it('a list that is whole keeps its last cursor while the other pages: never restarted from the top (no repeats)', async () => {
+    serve(10, 3); // unmatched is whole after page 1; matched needs 4 pages, and the later unmatched pages are empty
+    const r = await fetchReconReport('bank-1');
+    expect(r.matchedTransactions).toHaveLength(10);
+    expect(r.unmatchedTransactions.map((t) => t.description)).toEqual(['t0', 't1', 't2']);
+    serve(3, 10); // and the other way round
+    const r2 = await fetchReconReport('bank-1');
+    expect(r2.matchedTransactions.map((t) => t.description)).toEqual(['t0', 't1', 't2']);
+    expect(r2.unmatchedTransactions).toHaveLength(10);
   });
 
   it('at the hard ceiling the report carries the TRUE totals (the PDF says "first N of M")', async () => {

@@ -30,6 +30,7 @@ beforeEach(() => {
     const t = strings.join('?');
     if (t.includes('FROM bank_transactions')) { order.push('select'); return [{ id: TX, transaction_date: '2026-01-01', description: 'd', amount: 1, reference: null, company_name: 'Co' }]; }
     if (t.includes('INSERT INTO bank_tx_queries')) { order.push('insert'); return [{ id: 'q1', status: 'unconfirmed' }]; }
+    if (t.includes("SET status = 'sent'")) { order.push('confirm'); return [{ id: 'q1', status: 'sent', message_sid: 'SM1' }]; }
     if (t.includes('DELETE FROM bank_tx_queries')) { order.push('delete'); return []; }
     return [];
   });
@@ -41,11 +42,28 @@ describe('createAndSendQuery', () => {
   it('records the row first (unconfirmed), then sends, then confirms it with the sid', async () => {
     const r = await createAndSendQuery('co', input);
     expect(r.ok).toBe(true);
-    expect(order).toEqual(['select', 'insert', 'send', 'savepoint:bank_tx_query_confirm']);
+    expect(order).toEqual(['select', 'insert', 'send', 'savepoint:bank_tx_query_confirm', 'confirm']);
     expect(text(statements('INSERT INTO bank_tx_queries')[0]!)).toMatch(/'unconfirmed'/);
     const confirm = statements("SET status = 'sent'")[0]!;
     expect(confirm.slice(1)).toContain('SM1');
     expect(confirm.slice(1)).toContain('q1');
+  });
+
+  it("a confirmed send's result is the row AFTER the confirm: status 'sent' with the sid, not the stale 'unconfirmed' insert", async () => {
+    const r = await createAndSendQuery('co', input);
+    expect(r).toMatchObject({ ok: true, query: { id: 'q1', status: 'sent', message_sid: 'SM1' } });
+    expect(text(statements("SET status = 'sent'")[0]!)).toMatch(/RETURNING \*/);
+  });
+
+  it('when the confirm returns no row the result is still merged to sent + sid', async () => {
+    sqlMock.mockImplementation(async (strings: string[]) => {
+      const t = strings.join('?');
+      if (t.includes('FROM bank_transactions')) return [{ id: TX, company_name: 'Co', transaction_date: '2026-01-01', description: '', amount: 1 }];
+      if (t.includes('INSERT INTO bank_tx_queries')) return [{ id: 'q1', status: 'unconfirmed' }];
+      return [];
+    });
+    const r = await createAndSendQuery('co', input);
+    expect(r).toMatchObject({ ok: true, query: { status: 'sent', message_sid: 'SM1' } });
   });
 
   it('an insert that fails sends nothing', async () => {

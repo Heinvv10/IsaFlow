@@ -3,7 +3,7 @@
  * The modal reads the TRUE total from X-Attachments-Total (and reports it, not the list length, to the row badge); the
  * drawer reads it from the row's own attachmentCount (the same visible predicate).
  */
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
@@ -55,6 +55,34 @@ describe('modal', () => {
     render(<BankTxAttachmentsModal bankTransactionId="bt-1" onCountChange={onCount} onClose={() => undefined} />);
     await waitFor(() => expect(onCount).toHaveBeenCalledWith(3));
     expect(screen.queryByTestId('attachments-truncated')).toBeNull();
+  });
+});
+
+describe('modal: delete on a cut list', () => {
+  it('when older rows exist (total > list), a delete refetches so the next-older rows appear', async () => {
+    let gets = 0;
+    vi.mocked(apiFetch).mockImplementation(async (u, init) => {
+      if ((init as RequestInit | undefined)?.method === 'DELETE') return new Response(JSON.stringify({ success: true }), { status: 200 });
+      gets += 1;
+      return gets === 1 ? resp(3, 5) : resp(4, 4);
+    });
+    render(<BankTxAttachmentsModal bankTransactionId="bt-1" onClose={() => undefined} />);
+    fireEvent.click(await screen.findByLabelText('Remove f0.png'));
+    await waitFor(() => expect(gets).toBe(2));
+    expect(await screen.findByText('f3.png')).toBeTruthy(); // an older row that was cut before
+  });
+
+  it('a delete on a whole list does NOT refetch', async () => {
+    let gets = 0;
+    vi.mocked(apiFetch).mockImplementation(async (_u, init) => {
+      if ((init as RequestInit | undefined)?.method === 'DELETE') return new Response(JSON.stringify({ success: true }), { status: 200 });
+      gets += 1;
+      return resp(3, 3);
+    });
+    render(<BankTxAttachmentsModal bankTransactionId="bt-1" onClose={() => undefined} />);
+    fireEvent.click(await screen.findByLabelText('Remove f0.png'));
+    await waitFor(() => expect(screen.queryByText('f0.png')).toBeNull());
+    expect(gets).toBe(1);
   });
 });
 

@@ -11,6 +11,8 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
 import { journalCompany } from './r035-pr6.helpers';
@@ -21,6 +23,7 @@ import settingsRoute from '../../pages/api/accounting/bank-tx-queries/settings';
 import commitRoute from '../../pages/api/accounting/bank-statements/[id]/commit';
 import rollbackRoute from '../../pages/api/accounting/bank-statements/[id]/rollback';
 import actionRoute from '../../pages/api/accounting/bank-transactions-action';
+import reconReportRoute from '../../pages/api/accounting/bank-reconciliation-report';
 import exportRoute from '../../pages/api/accounting/bank-transactions-export';
 import { findOpenQuery } from '../../src/modules/accounting/services/capture/bankTxQueryReplyService';
 
@@ -93,10 +96,65 @@ describe('A. attachments', () => {
     expect((await upload(999)).state.statusCode).toBe(409);
   });
 
+  it('BYTE BUDGET: 6 rows of 8 MB each answer under the 25 MB budget (newest 3), with the TRUE total and the truncated flag', async () => {
+    const big = await plantLine(pool, f, await plantBatch(pool, f, admin));
+    await pool.query(
+      `INSERT INTO bank_transaction_attachments(bank_transaction_id, file_url, file_name, file_size, uploaded_by, created_at)
+       SELECT $1, 'data:image/png;base64,' || repeat('A', 8000000), 'big-' || n || '.png', 8000000, $2, now() - (n || ' minutes')::interval FROM generate_series(1, 6) n`,
+      [big, admin]);
+    const r = await as(admin, attachmentsRoute, 'GET', undefined, '/api/accounting/bank-tx-attachments', { bankTransactionId: big });
+    expect(r.state.statusCode).toBe(200);
+    const data = (r.state.body as { data: Array<{ file_name: string; file_url: string }> }).data;
+    expect(data.map((a) => a.file_name)).toEqual(['big-1.png', 'big-2.png', 'big-3.png']);
+    expect(data.reduce((n, a) => n + a.file_url.length, 0)).toBeLessThanOrEqual(25 * 1024 * 1024);
+    expect(header(r, 'X-Attachments-Total')).toBe('6');
+    expect(header(r, 'X-Attachments-Truncated')).toBe('true');
+  }, 120_000);
+
+  it('BYTE BUDGET: a single row over the budget is still returned (at least one row)', async () => {
+    const one = await plantLine(pool, f, await plantBatch(pool, f, admin));
+    await pool.query(
+      `INSERT INTO bank_transaction_attachments(bank_transaction_id, file_url, file_name, file_size, uploaded_by)
+       VALUES ($1, 'data:image/png;base64,' || repeat('A', 26000000), 'huge.png', 26000000, $2)`, [one, admin]);
+    const r = await as(admin, attachmentsRoute, 'GET', undefined, '/api/accounting/bank-tx-attachments', { bankTransactionId: one });
+    expect((r.state.body as { data: unknown[] }).data).toHaveLength(1);
+  }, 120_000);
+
   it("another company's line is not reachable: a 403, nothing inserted", async () => {
     const r = await callRoute(attachmentsRoute as never, tokens[admin]!, g.c, 'POST', { bankTransactionId: line, fileName: 'x.png', fileData: PNG }, '/api/accounting/bank-tx-attachments');
     expect(r.state.statusCode).toBe(403);
   });
+});
+
+describe('A2. the reconciliation report pages by keyset', () => {
+  it('a line inserted between page 1 and page 2 neither repeats nor skips a row after the cursor', async () => {
+    const f3 = await bankCompany(pool, [[admin, 'admin']], companies);
+    const batch = await plantBatch(pool, f3, admin);
+    const original: string[] = [];
+    for (let i = 0; i < 5; i++) original.push(await plantLine(pool, f3, batch, -(i + 1)));
+    const url = '/api/accounting/bank-reconciliation-report';
+    type Rep = { unmatchedTransactions: Array<{ amount: number }>; truncated: { unmatched: boolean }; nextUnmatchedAfter: string | null };
+    const page = async (after?: string) => (await callRoute(reconReportRoute as never, tokens[admin]!, f3.c, 'GET', undefined, url,
+      { bankAccountId: f3.bank, limit: '2', ...(after ? { unmatchedAfter: after } : {}) }) as { state: { body: { data: Rep } } }).state.body.data;
+    const seen: number[] = [];
+    const p1 = await page();
+    seen.push(...p1.unmatchedTransactions.map((t) => t.amount));
+    expect(p1.truncated.unmatched).toBe(true);
+    // between the pages: one line that sorts BEFORE the cursor (an offset would repeat a row) and one AFTER it
+    await pool.query(`INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description, status, import_batch_id)
+                      VALUES($1,$2,DATE '2026-08-01',-100,'early','imported',$3), ($1,$2,DATE '2026-10-01',-200,'late','imported',$3)`, [f3.c, f3.bank, batch]);
+    let after = p1.nextUnmatchedAfter;
+    for (let n = 0; n < 6 && after; n++) {
+      const p = await page(after);
+      seen.push(...p.unmatchedTransactions.map((t) => t.amount));
+      if (!p.truncated.unmatched) break;
+      after = p.nextUnmatchedAfter;
+    }
+    expect(new Set(seen).size).toBe(seen.length); // no duplicate
+    for (let i = 0; i < 5; i++) expect(seen).toContain(-(i + 1)); // no gap among the original lines
+    expect(seen).toContain(-200); // the later insert is picked up
+    expect(seen).not.toContain(-100); // the earlier one is before the cursor: not a repeat of anything
+  }, 120_000);
 });
 
 describe('B. client queries', () => {
@@ -125,11 +183,6 @@ describe('B. client queries', () => {
     const r = await ask(admin, '+27821110002');
     expect(r.state.statusCode).toBe(409);
     expect(await rows()).toEqual([{ status: 'unconfirmed', message_sid: null, to_number: '+27821110002' }]);
-    const open = await pool.connect();
-    try {
-      await open.query('BEGIN'); await open.query(`SELECT set_config('app.current_company_id', $1, true)`, [f.c]);
-      await open.query('ROLLBACK');
-    } finally { open.release(); }
     expect(await findOpenQuery(f.c, '+27821110002')).toMatchObject({ status: 'unconfirmed' });
   });
 
@@ -150,6 +203,37 @@ describe('B. client queries', () => {
   it('the status CHECK admits exactly the five values', async () => {
     await expect(pool.query(`INSERT INTO bank_tx_queries(company_id, bank_transaction_id, to_number, message_body, status) VALUES($1,$2,'+1','x','pending')`, [f.c, line])).rejects.toThrow();
     await pool.query(`INSERT INTO bank_tx_queries(company_id, bank_transaction_id, to_number, message_body, status) VALUES($1,$2,'+1','x','unconfirmed')`, [f.c, line]);
+  });
+
+  it('N1: a NEWER unconfirmed ghost row never takes the reply meant for the real (sent) thread', async () => {
+    const num = '+27821110010';
+    await pool.query(`INSERT INTO bank_tx_queries(company_id, bank_transaction_id, to_number, message_body, status, sent_at) VALUES($1,$2,$3,'real','sent', now() - interval '2 hours')`, [f.c, line, num]);
+    await pool.query(`INSERT INTO bank_tx_queries(company_id, bank_transaction_id, to_number, message_body, status, sent_at) VALUES($1,$2,$3,'ghost','unconfirmed', now())`, [f.c, line, num]);
+    const open = await findOpenQuery(f.c, num);
+    expect(open?.status).toBe('sent');
+    const sentId = (await pool.query(`SELECT id FROM bank_tx_queries WHERE company_id = $1 AND to_number = $2 AND status = 'sent'`, [f.c, num])).rows[0].id;
+    expect(open?.id).toBe(sentId);
+  });
+
+  it('N2: 999e drops the status CHECK by lookup (a differently named one), accepts unconfirmed, and applies twice', async () => {
+    const sqlText = readFileSync(join(process.cwd(), 'scripts/migrations/sql/999e_bank_tx_queries_unconfirmed_status.sql'), 'utf8');
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('ALTER TABLE bank_tx_queries DROP CONSTRAINT IF EXISTS bank_tx_queries_status_check');
+      await c.query(`ALTER TABLE bank_tx_queries ADD CONSTRAINT btq_other_name CHECK (status IN ('sent','replied','resolved','cancelled'))`);
+      await expect(c.query(`INSERT INTO bank_tx_queries(company_id, bank_transaction_id, to_number, message_body, status) VALUES($1,$2,'+2','x','unconfirmed')`, [f.c, line])).rejects.toThrow();
+      await c.query('ROLLBACK'); await c.query('BEGIN');
+      await c.query('ALTER TABLE bank_tx_queries DROP CONSTRAINT IF EXISTS bank_tx_queries_status_check');
+      await c.query(`ALTER TABLE bank_tx_queries ADD CONSTRAINT btq_other_name CHECK (status IN ('sent','replied','resolved','cancelled'))`);
+      await c.query(sqlText);
+      await c.query(sqlText); // idempotent
+      await c.query(`INSERT INTO bank_tx_queries(company_id, bank_transaction_id, to_number, message_body, status) VALUES($1,$2,'+2','x','unconfirmed')`, [f.c, line]);
+      const checks = (await c.query(`SELECT conname FROM pg_constraint WHERE conrelid = 'bank_tx_queries'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) ILIKE '%status%'`)).rows;
+      expect(checks).toEqual([{ conname: 'bank_tx_queries_status_check' }]);
+      const idx = (await c.query(`SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_btq_open_number'`)).rows[0].indexdef as string;
+      expect(idx).toContain('unconfirmed');
+    } finally { await c.query('ROLLBACK').catch(() => undefined); c.release(); }
   });
 
   it('role matrix: a manager may ask the saved default number, may not ask another, may not set the default', async () => {

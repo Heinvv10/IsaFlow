@@ -35,6 +35,18 @@ beforeEach(() => {
   mayMessage.mockReset().mockResolvedValue(false);
 });
 
+describe('GET /bank-tx-queries', () => {
+  it.each([
+    ['an array status', { status: ['open', 'sent'] }],
+    ['an array bankTransactionId', { bankTransactionId: [UUID_A, UUID_A] }],
+  ])('%s is a 400, never a 200 that ignores the filter', async (_n, query) => {
+    expect((await callRoute(queries, { method: 'GET', query, role: 'owner' })).code).toBe(400);
+  });
+  it('single values still list', async () => {
+    expect((await callRoute(queries, { method: 'GET', query: { status: 'open', bankTransactionId: UUID_A }, role: 'owner' })).code).toBe(200);
+  });
+});
+
 describe('POST /bank-tx-queries', () => {
   it('sends when under the limit, charging the company bucket by name', async () => {
     expect((await callRoute(queries, { method: 'POST', body, role: 'admin' })).code).toBe(201);

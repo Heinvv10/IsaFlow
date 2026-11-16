@@ -10,7 +10,7 @@ import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 const role = vi.hoisted(() => ({ value: 'owner' as string | null }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: role.value }) }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompanyRoleOrNull: () => role.value }));
 
 import { apiFetch } from '@/lib/apiFetch';
 import { BankTxQueryModal } from '@/components/accounting/BankTxQueryModal';
@@ -51,6 +51,34 @@ describe('BankTxQueryModal', () => {
     expect(await screen.findByTestId('query-number-locked')).toBeTruthy();
     expect(screen.queryByText(/Save as this client/)).toBeNull();
     expect((screen.getByPlaceholderText('+27 82 123 4567') as HTMLInputElement).readOnly).toBe(true);
+  });
+
+  const withData = (settings: unknown, queries: unknown) =>
+    vi.mocked(apiFetch).mockImplementation(async (u) => (String(u).includes('settings') ? ok(settings) : ok(queries)));
+  const HINT = /Ask an owner or admin to set the client's WhatsApp number in settings/;
+
+  it('a manager with no saved number and no thread is told to ask an owner/admin (not just shown a blank locked box)', async () => {
+    role.value = 'manager';
+    withData({ clientQueryWhatsapp: null, companyName: 'Acme' }, []);
+    render(<BankTxQueryModal tx={TX} onClose={() => undefined} />);
+    expect(await screen.findByText(HINT)).toBeTruthy();
+    expect(screen.queryByTestId('query-number-locked')).toBeNull();
+  });
+
+  it('a manager on a line that already has a thread follows up on THAT number, with no hint', async () => {
+    role.value = 'manager';
+    withData({ clientQueryWhatsapp: null, companyName: 'Acme' }, [{ id: 'q1', status: 'sent', sent_at: null, to_number: '+27829990000' }]);
+    render(<BankTxQueryModal tx={TX} onClose={() => undefined} />);
+    await screen.findByDisplayValue('+27829990000');
+    expect(screen.queryByText(HINT)).toBeNull();
+  });
+
+  it('an owner with no saved number just types one: no hint', async () => {
+    role.value = 'owner';
+    withData({ clientQueryWhatsapp: null, companyName: 'Acme' }, []);
+    render(<BankTxQueryModal tx={TX} onClose={() => undefined} />);
+    await screen.findByText(/Save as this client/);
+    expect(screen.queryByText(HINT)).toBeNull();
   });
 });
 
