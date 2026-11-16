@@ -60,7 +60,10 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
   const origin = useRef<Element | null>(null);
   useEffect(() => {
     const outside = (t: EventTarget | null): t is Element => t instanceof Element && !t.closest('[role="dialog"][aria-label="Command palette"]');
-    const track = (e: FocusEvent): void => { if (outside(e.target)) origin.current = e.target; };
+    // A click inside a focusable container (a scroll region) focuses the container, not the figure clicked: that focus is not a move.
+    const track = (e: FocusEvent): void => {
+      if (outside(e.target) && !(origin.current && e.target !== origin.current && e.target.contains(origin.current))) origin.current = e.target;
+    };
     // A click on a figure's text focuses nothing, so the pointer counts as the person's position too.
     const point = (e: PointerEvent): void => { origin.current = outside(e.target) ? e.target : origin.current; };
     document.addEventListener('focusin', track);
