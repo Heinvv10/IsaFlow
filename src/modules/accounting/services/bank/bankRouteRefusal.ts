@@ -9,7 +9,7 @@
  *
  * Every member is a refusal decided before its caller's first write, or inside a savepoint its throw rolls back
  * (allocate, split, reverse and the reconciliation adjustment post through `withJournalDateRefusal`'s savepoint — the
- * posting-guard refusals below reach a route only that way). Add a class only with that shown.
+ * posting-guard refusals below reach a route only that way). Add a class or code only with that shown.
  *
  * STRUCTURAL checks (a `code` or a `name`), not `instanceof`, as `bankMatchRefusalStatus` does: importing every
  * refusal's module here would drag the services into each route test's mocks.
@@ -21,7 +21,7 @@ import type { NextApiResponse } from 'next';
 import { apiResponse } from '@/lib/apiResponse';
 import { ErrorCode } from '@/lib/apiResponse.types';
 import { isHeldRowError } from '@/lib/lockTimeout';
-import { REFUSAL_CODES } from '@/lib/mcp/tools/refusalCodes';
+import { BANK_ROUTE_PREWRITE_CODES } from './bankRoutePrewriteCodes';
 import { isBankRequestRefusal } from './bankRequestRefusal';
 import { isBankAllocationRefusal } from './bankAllocationRefusal';
 
@@ -53,11 +53,10 @@ export function bankRefusalStatus(err: unknown): BankRefusalStatus | null {
   // answered it; a reconciliation that is not there is 404 (auto_match's own branch answers it before this).
   if (err.name === 'BankMatchTargetError') return code === 'RECONCILIATION_NOT_FOUND' ? 404 : 400;
   if (NAMED_REFUSALS.has(err.name)) return 400;
-  // Every other typed refusal: the allowlist the MCP boundary trusts, kept complete by its census
-  // (typedRefusalReachesAgent.test.ts) — each class there is raised before its caller writes. So a supplier-payment,
-  // receipt, VAT, contact or reconciliation refusal stays a 400 without being listed twice. A bare Error, a SQLSTATE,
-  // a TypeError carry none of these codes: not classified, 500.
-  return typeof code === 'string' && REFUSAL_CODES.has(code) ? 400 : null;
+  // Every other typed refusal: only the codes listed as raised before the write (bankRoutePrewriteCodes.ts). A code
+  // that is merely on REFUSAL_CODES (what an agent may be shown) is NOT enough: some are raised after a write. A bare
+  // Error, a SQLSTATE, a TypeError and an unlisted code are not classified: 500, rolled back.
+  return typeof code === 'string' && BANK_ROUTE_PREWRITE_CODES.has(code) ? 400 : null;
 }
 
 /** Answers a typed bank refusal with its 4xx and the refusal's own message; false when `err` is not one. */

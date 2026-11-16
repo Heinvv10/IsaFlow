@@ -3,6 +3,8 @@
  * must come back null, so the route rethrows and withAuth rolls the request back on the 500.
  */
 import { describe, expect, it } from 'vitest';
+import { REFUSAL_CODES } from '@/lib/mcp/tools/refusalCodes';
+import { BANK_ROUTE_PREWRITE_CODES } from '@/modules/accounting/services/bank/bankRoutePrewriteCodes';
 import { bankRefusalStatus } from '@/modules/accounting/services/bank/bankRouteRefusal';
 import { BankRequestRefusal } from '@/modules/accounting/services/bank/bankRequestRefusal';
 import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
@@ -35,5 +37,23 @@ describe('bankRefusalStatus', () => {
     ['a registered typed refusal (VAT lock)', named('VatPeriodLockedError', 'VAT_PERIOD_LOCKED'), 400],
   ])('answers %s with %s', (_what, err, status) => {
     expect(bankRefusalStatus(err)).toBe(status);
+  });
+});
+
+// Safe by construction: a 400 COMMITs, so a code is answered only when it is LISTED as raised before the write.
+describe('the code allowlist (bankRoutePrewriteCodes)', () => {
+  it('every listed code is still a registered refusal code', () => {
+    expect([...BANK_ROUTE_PREWRITE_CODES].filter((c) => !REFUSAL_CODES.has(c))).toEqual([]);
+  });
+
+  it('answers every listed code 400, and NO other member of REFUSAL_CODES — a new code is a 500 until it is classified', () => {
+    const byClass = new Set(['BANK_ALLOCATION_REFUSED', 'BANK_REQUEST_REFUSED']); // answered by class, with their own status
+    const answered = [...REFUSAL_CODES].filter((c) => !byClass.has(c) && bankRefusalStatus(named('SomeRefusal', c)) === 400).sort();
+    expect(answered).toEqual([...BANK_ROUTE_PREWRITE_CODES].sort());
+  });
+
+  it('a refusal raised AFTER its write is never answered 4xx (BANK_DIMENSION_SYNC_REFUSED: a bank row changed mid-sync)', () => {
+    expect(REFUSAL_CODES.has('BANK_DIMENSION_SYNC_REFUSED')).toBe(true);
+    expect(bankRefusalStatus(named('BankDimensionSyncRefusal', 'BANK_DIMENSION_SYNC_REFUSED'))).toBeNull();
   });
 });
