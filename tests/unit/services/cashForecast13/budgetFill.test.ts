@@ -70,6 +70,34 @@ describe('cash13 budget fill', () => {
     expect(sum(line.weekly)).toBe(1_500 + 1_400);
   });
 
+  it('prorates the budget to the in-horizon days FIRST, then subtracts known (current month: R1m × 15/30 − R500k = 0)', () => {
+    // Reviewer probe: subtracting before prorating left R250k of phantom receipts.
+    const out = runEngine(base({
+      today: '2026-11-16',
+      items: [ar('2026-11-20', 500_000_00)],
+      budget: [{ month: '2026-11', customerReceipts: 1_000_000_00, supplierPayments: 0 }],
+    }));
+    expect(out.lines.find((l) => l.key === 'budget:customer_receipts')).toBeUndefined();
+  });
+
+  it('the last partial month the same way (Feb: R1m × 14/28 − R500k = 0), and a remainder is spread over in-horizon days only', () => {
+    const feb = runEngine(base({
+      today: '2026-11-16',
+      items: [ar('2027-02-10', 500_000_00)],
+      budget: [{ month: '2027-02', customerReceipts: 1_000_000_00, supplierPayments: 0 }],
+    }));
+    expect(feb.lines.find((l) => l.key === 'budget:customer_receipts')).toBeUndefined();
+    const part = runEngine(base({
+      today: '2026-11-16',
+      items: [ar('2026-11-20', 1_000)],
+      budget: [{ month: '2026-11', customerReceipts: 3_000, supplierPayments: 0 }],
+    }));
+    const line = part.lines.find((l) => l.key === 'budget:customer_receipts')!;
+    // 3000 × 15/30 = 1500, less 1000 known = 500, over Nov 16..30 (weeks 1-3; Nov 30 is a Monday).
+    expect(sum(line.weekly)).toBe(500);
+    expect(line.weekly.slice(3).every((v) => v === 0)).toBe(true);
+  });
+
   it('ignores receipts that are not customer receipts when subtracting known', () => {
     const loan: KnownItem = { ...ar('2026-12-10', 1_000), lineKey: 'loan:x', category: 'loans' };
     const out = runEngine(base({ items: [loan], budget: [{ month: '2026-12', customerReceipts: 3_100, supplierPayments: 0 }] }));

@@ -1,12 +1,14 @@
 /**
- * Budget fill (ruling 2026-11-16): for each month the 13 weeks touch, per category (customer receipts,
- * supplier payments), the three-way budget's direct cash flow MINUS what known items already put in that
- * month, floored at zero, spread evenly over the month's days; only the days from today to the last Sunday
- * are counted (earlier days are history, already in opening cash). Lines are estimates. Pure.
+ * Budget fill (ruling 2026-11-16, revised after review M1): for each month the 13 weeks touch, per category
+ * (customer receipts, supplier payments), the part of the three-way budget that falls inside the forecast —
+ * the budget × (the month's days from today to the last Sunday ÷ the month's days) — MINUS the known items
+ * dated in that same in-horizon part, floored at zero, spread evenly over those in-horizon days. Prorating
+ * first matters: subtracting a month's known items from its WHOLE budget and then keeping half left phantom
+ * receipts in a half-month (review probe: R1m budget, R500k known, 15 of 30 days → R250k invented). Pure.
  *
- * A known item counts in the month of its EFFECTIVE date (an overdue invoice expected today counts in
- * today's month). Days are allocated by cumulative rounding — day d of a D-day month gets
- * round(R·d/D) − round(R·(d−1)/D) — so a full month sums to exactly R in integer cents.
+ * A known item counts by its EFFECTIVE date (an overdue invoice expected today counts in today's month); every
+ * effective date is inside the horizon. Days are allocated by cumulative rounding over the in-horizon days, so
+ * they sum to exactly the remainder in integer cents.
  */
 import type { BudgetMonth, CashCategory, ForecastLine, KnownItem } from './types';
 import { assertCents, effectiveDate, emptyWeekly } from './lines';
@@ -39,20 +41,25 @@ export function budgetFillLines(
     for (const bm of budget) {
       const amount = bm[f.field];
       assertCents(amount, `budget ${bm.month} ${f.field}`);
-      const remaining = Math.max(0, amount * f.dir - (knownIn.get(bm.month) ?? 0) * f.dir);
+      const monthDays = daysInMonth(bm.month);
+      const days: string[] = [];
+      for (let d = 1; d <= monthDays; d++) {
+        const date = `${bm.month}-${String(d).padStart(2, '0')}`;
+        if (date >= today && date <= horizonEnd) days.push(date);
+      }
+      if (days.length === 0) continue;
+      const inHorizon = Math.round((amount * f.dir * days.length) / monthDays);
+      const remaining = Math.max(0, inHorizon - (knownIn.get(bm.month) ?? 0) * f.dir);
       if (remaining === 0) continue;
-      const days = daysInMonth(bm.month);
       let counted = 0;
       let firstWeek = -1;
-      for (let d = 1; d <= days; d++) {
-        const date = `${bm.month}-${String(d).padStart(2, '0')}`;
-        if (date < today || date > horizonEnd) continue;
-        const share = Math.round((remaining * d) / days) - Math.round((remaining * (d - 1)) / days);
+      days.forEach((date, i) => {
+        const share = Math.round((remaining * (i + 1)) / days.length) - Math.round((remaining * i) / days.length);
         const w = weekIndexOf(date, today, weeks) as number;
         weekly[w] = (weekly[w] as number) + share * f.dir;
         counted += share;
         if (firstWeek < 0) firstWeek = w;
-      }
+      });
       if (counted !== 0) {
         items.push({ ref: `budget:${bm.month}`, label: `Budget ${bm.month} less known`, date: `${bm.month}-01`, weekIndex: firstWeek, amountCents: counted * f.dir });
       }
