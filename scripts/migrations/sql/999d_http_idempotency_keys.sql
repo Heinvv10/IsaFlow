@@ -9,7 +9,8 @@
 -- can correct the form and resend under the same key. A 5xx rolls the whole request back, claim included.
 -- A concurrent duplicate blocks on the unique index until the first request commits or rolls back.
 --
--- No retention job yet: rows are small (one per submitted form). Prune by created_at when it matters.
+-- Retention: a key older than 24 h is expired (the claim path deletes an expired row for its own key before it
+-- claims), and every claim prunes up to 20 of the company's rows older than 7 days. No cron to run.
 
 CREATE TABLE IF NOT EXISTS http_idempotency_keys (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -25,6 +26,10 @@ CREATE TABLE IF NOT EXISTS http_idempotency_keys (
 
 CREATE UNIQUE INDEX IF NOT EXISTS http_idempotency_keys_company_route_key_uniq
   ON http_idempotency_keys (company_id, route, idempotency_key);
+
+-- The per-claim prune reads the company's oldest rows.
+CREATE INDEX IF NOT EXISTS http_idempotency_keys_company_created_idx
+  ON http_idempotency_keys (company_id, created_at);
 
 -- Tenant isolation — mirror of mig 507 / 514 (helpers from mig 348).
 ALTER TABLE http_idempotency_keys ENABLE ROW LEVEL SECURITY;

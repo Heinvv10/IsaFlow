@@ -13,6 +13,10 @@
  * Two requests racing on one key: the second INSERT waits on the unique index until the first commits (then replays
  * it) or rolls back (then it claims and runs). The wait is bounded by the request's lock timeout (503 + Retry-After).
  * No header: the handler runs as it always did.
+ *
+ * Retention: a key is good for 24 h. The claim path first deletes an expired row for ITS OWN key (so an old key is a
+ * new request, never a stale replay), then prunes up to PRUNE_BATCH of the company's rows older than 7 days. Bounded
+ * work per claim, no cron.
  */
 import { createHash } from 'node:crypto';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -35,6 +39,12 @@ function canonical(value: unknown): string {
 
 export const payloadHashOf = (body: unknown): string => createHash('sha256').update(canonical(body)).digest('hex');
 
+/** How long a key replays its first answer. */
+export const KEY_TTL_HOURS = 24;
+/** Rows older than this are pruned by the next claim of the same company. */
+const PRUNE_AFTER_DAYS = 7;
+const PRUNE_BATCH = 20;
+
 type Stored = { payload_hash: string; status_code: number | null; response_body: unknown };
 
 export function withHttpIdempotency(route: string, handler: Handler): Handler {
@@ -48,6 +58,15 @@ export function withHttpIdempotency(route: string, handler: Handler): Handler {
     const { companyId, user } = req as CompanyAuthedRequest;
     const hash = payloadHashOf(req.body);
 
+    await sql`
+      DELETE FROM http_idempotency_keys
+      WHERE company_id = ${companyId}::UUID AND route = ${route} AND idempotency_key = ${key.toLowerCase()}
+        AND created_at < now() - make_interval(hours => ${KEY_TTL_HOURS})`;
+    await sql`
+      DELETE FROM http_idempotency_keys WHERE id IN (
+        SELECT id FROM http_idempotency_keys
+        WHERE company_id = ${companyId}::UUID AND created_at < now() - make_interval(days => ${PRUNE_AFTER_DAYS})
+        ORDER BY created_at LIMIT ${PRUNE_BATCH})`;
     const claimed = (await sql`
       INSERT INTO http_idempotency_keys (company_id, route, idempotency_key, payload_hash, created_by)
       VALUES (${companyId}::UUID, ${route}, ${key.toLowerCase()}, ${hash}, ${user?.id ?? null})

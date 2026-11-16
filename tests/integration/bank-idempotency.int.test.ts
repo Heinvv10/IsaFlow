@@ -100,6 +100,42 @@ describe.each(routes)('$name: Idempotency-Key', ({ send, body, other, ok }) => {
   });
 });
 
+describe('retention', () => {
+  const rows = async (like: string) => (await pool.query(
+    'SELECT COUNT(*)::INT AS n FROM http_idempotency_keys WHERE company_id = $1 AND idempotency_key LIKE $2', [f.c, like])).rows[0].n as number;
+  const age = (k: string, interval: string) => pool.query(
+    'UPDATE http_idempotency_keys SET created_at = now() - $3::interval WHERE company_id = $1 AND idempotency_key = $2', [f.c, k, interval]);
+
+  it.each(routes)('$name: a key older than 24 h is expired, so the same key is a NEW request', async ({ send, body, ok }) => {
+    const k = key();
+    const before = await journals();
+    expect((await send(body({ reference: 'IDEM-OLD' }), k)).state.statusCode).toBe(ok);
+    const replay = await send(body({ reference: 'IDEM-OLD' }), k);
+    expect(replay.state.statusCode).toBe(ok);
+    expect((await journals()) - before).toBe(1); // inside 24 h: replayed
+    await age(k, '25 hours');
+    const again = await send(body({ reference: 'IDEM-OLD' }), k);
+    expect(again.state.statusCode, JSON.stringify(again.state.body)).toBe(ok);
+    expect((await journals()) - before).toBe(2); // past 24 h: posted again
+  });
+
+  it('every claim prunes at most 20 of the company\'s rows older than 7 days, and keeps the newer ones', async () => {
+    const tag = key().slice(0, 8);
+    await pool.query(
+      `INSERT INTO http_idempotency_keys(company_id, route, idempotency_key, payload_hash, status_code, response_body, created_at)
+       SELECT $1, 'bank-transfers', $2 || '-' || g::TEXT, 'x', 200, '{}'::jsonb, now() - interval '8 days' FROM generate_series(1, 25) g`,
+      [f.c, tag]);
+    await pool.query(
+      `INSERT INTO http_idempotency_keys(company_id, route, idempotency_key, payload_hash, status_code, response_body, created_at)
+       VALUES ($1, 'bank-transfers', $2 || '-recent', 'x', 200, '{}'::jsonb, now() - interval '3 days')`, [f.c, tag]);
+    expect(await rows(`${tag}-%`)).toBe(26);
+    await transfer(transferBody({ reference: 'IDEM-PRUNE' }), key());
+    expect(await rows(`${tag}-%`)).toBe(6); // 20 pruned: 5 old + 1 recent left
+    await transfer(transferBody({ reference: 'IDEM-PRUNE2', amount: 102 }), key());
+    expect(await rows(`${tag}-%`)).toBe(1); // the recent one stays
+  });
+});
+
 describe('without a key the routes behave as before', () => {
   it('manual transactions: two identical requests post two journals', async () => {
     const before = await journals();
