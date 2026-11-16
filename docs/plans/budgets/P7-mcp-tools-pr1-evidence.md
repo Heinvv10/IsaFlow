@@ -1,6 +1,6 @@
 # MCP budget tools, PR 1 of 3: evidence
 
-Branch `feat/mcp-budget-tools-core-20261116`. Tools, migration 999f and the services they call are described in
+Branch `feat/mcp-budget-tools-core-20261116`. Tools, migration 999k and the services they call are described in
 `src/lib/mcp/.claude.md` and `src/modules/accounting/services/budgets/.claude.md`.
 
 ## Mutation table
@@ -24,6 +24,25 @@ registry. Counts are from the runs' own `Tests` lines (2026-11-16, box load 120-
 | M8 | restore only while the token is unchanged | `planRestore` skips the token comparison | int mcp-budget-restore | 1 failed / 4 |
 | M9 | snapshot written with the write | live write records no snapshot | unit budgetAmountTools; int mcp-budget-restore | unit 1 failed / 26; int 3 failed / 4 |
 
+### Review round 1 (blind review of 439ee1ad4f): new guards
+
+Same procedure (cluster rebuilt for N9, a migration mutant). Counts from the runs' `Tests` lines.
+
+| # | Guard | Mutant | Tests run | Result |
+|---|---|---|---|---|
+| N1 | budget writes need read:reports | `BUDGET_WRITE_FENCE` without `requiresScope` | unit budgetToolsRegistry; int mcp-budget-tools | unit 13 failed / 16 (one per write tool); int 1 failed / 21 |
+| N2 | plan_hash binds the live call to its dry run | the hash comparison removed | unit budgetAmountTools; int mcp-budget-tools + mcp-budget-batch | unit 2 failed / 30; int 3 failed / 24 (stale dry run, other mode, in-batch write) |
+| N3 | restore compares content, not only the token | `differing.length > 0` dropped | unit budgetSnapshotRestore; int mcp-budget-restore | unit 2 failed / 6; int first run **0 failed / 5** (every edit in the suite moved the token). Added "a writer that leaves the token" test (376fbaa435); re-run **1 failed / 6** |
+| N4 | restore actor (author, owner or admin) | actor check removed | unit budgetSnapshotRestore; int mcp-budget-restore | unit 1 failed / 6; int 1 failed / 5 |
+| N5 | same-transaction chain (latest snapshot must be unrestored) | `latest.restored` check removed | unit budgetSnapshotRestore; int mcp-budget-batch + restore | unit 1 failed / 6; int 3 failed / 8 |
+| N6 | flat seasonality fills every month | flat spreads over the source's months only | unit budgetMcpPure; int mcp-budget-versions | unit 1 failed / 25; int 1 failed / 6 |
+| N7 | rounding notice (last month past zero) | notice never raised | unit budgetAmountTools | 1 failed / 30 |
+| N8 | get_budget page fits 90 KB | `GET_BUDGET_LIMIT_MAX` 80 → 150 | unit readLimitsSizeBudgets | 2 failed / 7 |
+| N9 | restored_at only with the restore's own save (migration 999k trigger) | the `updated_at = now()` check disabled | int mcp-budget-restore (fresh cluster) | 1 failed / 6 |
+| N11 | exactly 20 000 cells pass | the argument check refuses 20 000 (`>=`) | unit budgetAmountTools | 1 failed / 30 |
+| N12 | the planned save is capped at 20 000 (replace's clears included) | the `plan.save` cap removed | unit budgetAmountTools | 1 failed / 30 |
+| N10 | the diff is what the save actually left | dry run uses the before-state as "after" | unit budgetAmountTools; int mcp-budget-batch | unit 4 failed / 30; int 1 failed / 3 (driver reset / recomputed dependent) |
+
 M4b and M6 show two layers: the app check (with a message naming the account and month) and a database backstop.
 Both stay; the tests now pin the app layer, and the backstops keep their own suites (`budgets-grain-exclusion`,
 `budgets-p5-holders-db`).
@@ -37,12 +56,25 @@ month, amount, amount_source, created_by), the version's state (company, year, k
 created_by, approval and lock stamps), and every `audit_log` row of the version (action, entity type, user, email,
 changes with all metadata, ip, user agent, session).
 
-Ignored, and why: ids and timestamps (new each time; the version token is a timestamp); the version name and the
-create row's `entity_ref` (`FY<year> <name>`: two versions of one year cannot share a name); `entity_id` (the
+Test (2) builds an annual amount through the save route (the grid's even spread, 83.00 x 11 + 87.00) and then
+approves and locks through `POST budget-versions/[id]/status`, against `set_budget_annual` +
+`approve_budget_version` + `lock_budget_version`: same rows, same state (locked, approved_by / locked_by), same audit
+rows. `ip_address`, `user_agent` and `session_id` are NULL on BOTH paths (no budget service passes them to
+`logAuditOrThrow`), so their equality is trivial; the test asserts they are null rather than claiming a comparison.
+
+Ignored, and why: ids and timestamps (new each time; the version token is a timestamp); the version name, the
+create and status rows' `entity_ref` (`FY<year> <name>`) and the status rows' `versionName` metadata (two versions
+of one year cannot share a name); `entity_id` (the
 version's own id). Rows of one transaction share `created_at`, so they are compared in content order. MCP-only rows,
 by design outside the compared tables: `mcp_tool_calls` and `budget_write_snapshots`.
 
+## TDD note (review round 1)
+
+The round-1 tests were written in the same pass as the fixes rather than strictly red first; the N-table above is
+the evidence that each new test fails on its guard's removal.
+
 ## Integration suites
 
-`mcp-budget-tools` (19), `mcp-budget-restore` (4), `mcp-budget-versions` (4), `mcp-budget-equivalence` (1): all
+`mcp-budget-tools` (21), `mcp-budget-restore` (6), `mcp-budget-versions` (6), `mcp-budget-batch` (3),
+`mcp-budget-holders` (2), `mcp-budget-equivalence` (2), and the 24 `budget-grid-*` suites (213 passed, 1 skipped):
 green on the throwaway cluster (output in the PR report).
