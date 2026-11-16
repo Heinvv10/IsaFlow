@@ -52,10 +52,10 @@ export interface BulkAcceptPreview {
 export interface TokenLine { i: string; g: string; x: string | null; s: string }
 export interface PreviewToken { v: 1; a: string; t: number; l: TokenLine[] }
 
-export const encodeToken = (t: PreviewToken): string => Buffer.from(JSON.stringify(t)).toString('base64url');
+export const writePreviewToken = (t: PreviewToken): string => Buffer.from(JSON.stringify(t)).toString('base64url');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export function decodeToken(raw: unknown): PreviewToken {
+export function readPreviewToken(raw: unknown): PreviewToken {
   const bad = () => new BulkAcceptRefusal('The preview token is not valid. Preview again and confirm that.');
   if (typeof raw !== 'string' || raw.length === 0 || raw.length > 64 * 1024) throw bad();
   let t: PreviewToken;
@@ -122,6 +122,6 @@ export async function previewBulkAccept(companyId: string, bankAccountId: string
   const token: PreviewToken = { v: 1, a: bankAccountId, t: minConfidence, l: lines.map((l) => ({ i: l.id, g: l.glAccountId, x: l.vatCode, s: l.version })) };
   return {
     bankAccountId, minConfidence, lines, totalIn, totalOut, byAccount: [...groups.values()],
-    truncated: eligible.length > chosen.length, totalEligible: eligible.length, previewToken: encodeToken(token),
+    truncated: eligible.length > chosen.length, totalEligible: eligible.length, previewToken: writePreviewToken(token),
   };
 }

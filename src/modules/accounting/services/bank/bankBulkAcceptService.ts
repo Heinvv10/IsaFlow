@@ -28,7 +28,7 @@ import { lockBankTransactionForUpdate } from './bankTxLock';
 import { assertBankAccountInCompany } from './bankAccountGuard';
 import { BankControlError } from './bankControlRefusal';
 import { undoRun } from './autoPostUndoService';
-import { BulkAcceptRefusal, bulkAcceptSettings, decodeToken, type TokenLine } from './bankBulkAcceptPreview';
+import { BulkAcceptRefusal, bulkAcceptSettings, readPreviewToken, type TokenLine } from './bankBulkAcceptPreview';
 
 const LINE_SAVEPOINT = 'bulk_accept_line';
 
@@ -42,7 +42,7 @@ export interface BulkAcceptResult {
 class LineRefused extends Error {}
 
 export async function confirmBulkAccept(companyId: string, userId: string, previewToken: unknown): Promise<BulkAcceptResult> {
-  const token = decodeToken(previewToken);
+  const token = readPreviewToken(previewToken);
   await assertBankAccountInCompany(companyId, token.a);
   const [lock] = (await sql`
     SELECT pg_try_advisory_xact_lock(hashtextextended(${`bulk-accept:${companyId}:${token.a}`}, 0)) AS ok`) as Array<{ ok: boolean }>;
