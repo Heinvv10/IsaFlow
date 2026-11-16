@@ -15,11 +15,12 @@ import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
+import { FORM_PHONE_ACTION_BAR, FORM_PHONE_ACTION_PAD, FORM_PHONE_SUBMIT, PHONE_TAP, PHONE_TAP_ICON } from '@/components/accounting/formActionBar';
 
 interface OutstandingInvoice { id: string; invoiceNumber: string; totalAmount: number; balance: number }
 interface Allocation { key: string; invoiceId: string; amount: number }
 
-const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
+const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors max-lg:min-h-11';
 const lbl = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
@@ -111,7 +112,7 @@ export default function NewSupplierPaymentPage() {
           actions={<ScanAndFillButton onExtracted={handleExtracted} label="Scan Document" />}
         />
 
-        <form onSubmit={handleSubmit} className="p-6 xl:p-8">
+        <form onSubmit={handleSubmit} className={`p-6 xl:p-8 ${FORM_PHONE_ACTION_PAD}`}>
           <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6 items-stretch lg:items-start">
             <div className="flex-1 min-w-0 space-y-5">
               {scanBanner && (
@@ -129,17 +130,17 @@ export default function NewSupplierPaymentPage() {
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
-                    <label className={lbl}>Supplier *</label>
-                    <SupplierSelect required value={form.supplierId} inputClassName={inp} onChange={id => { notePick(); setForm(f => ({ ...f, supplierId: id })); }} />
+                    <label htmlFor="supplier-payments-new-supplier" className={lbl}>Supplier *</label>
+                    <SupplierSelect id="supplier-payments-new-supplier" required value={form.supplierId} inputClassName={inp} onChange={id => { notePick(); setForm(f => ({ ...f, supplierId: id })); }} />
                   </div>
                   <div>
                     <DateField label="Payment Date" required name="paymentDate" value={form.paymentDate || null}
-                      resetKey={dates.resetKey('paymentDate')}
+                      resetKey={dates.resetKey('paymentDate')} className={PHONE_TAP}
                       onChange={dates.bind('paymentDate', iso => setForm(f => ({ ...f, paymentDate: iso })), form.paymentDate)} />
                   </div>
                   <div>
-                    <label className={lbl}>Method</label>
-                    <select name="paymentMethod" aria-label="Method" value={form.paymentMethod} onChange={e => setForm(f => ({ ...f, paymentMethod: e.target.value }))} className={inp}>
+                    <label htmlFor="supplier-payments-new-method" className={lbl}>Method</label>
+                    <select id="supplier-payments-new-method" name="paymentMethod" aria-label="Method" value={form.paymentMethod} onChange={e => setForm(f => ({ ...f, paymentMethod: e.target.value }))} className={inp}>
                       <option value="eft">EFT</option>
                       <option value="cheque">Cheque</option>
                       <option value="cash">Cash</option>
@@ -147,8 +148,8 @@ export default function NewSupplierPaymentPage() {
                     </select>
                   </div>
                   <div className="sm:col-span-2">
-                    <label className={lbl}>Reference</label>
-                    <input type="text" name="reference" value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} placeholder="Bank reference" className={inp} />
+                    <label htmlFor="supplier-payments-new-reference" className={lbl}>Reference</label>
+                    <input id="supplier-payments-new-reference" type="text" name="reference" value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} placeholder="Bank reference" className={inp} />
                   </div>
                 </div>
               </div>
@@ -159,7 +160,7 @@ export default function NewSupplierPaymentPage() {
                     <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">2</span>
                     Invoice Allocations
                   </h3>
-                  <button type="button" onClick={addAllocation} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors">
+                  <button type="button" onClick={addAllocation} className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs px-2.5 py-1.5 ${PHONE_TAP} rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors`}>
                     <Plus className="h-3 w-3" /> Add Allocation
                   </button>
                 </div>
@@ -174,8 +175,8 @@ export default function NewSupplierPaymentPage() {
                     return (
                       <div key={alloc.key} className="grid grid-cols-12 gap-2 items-end">
                         <div className="col-span-12 sm:col-span-6">
-                          <label className={idx === 0 ? lbl : `${lbl} sm:hidden`}>Invoice</label>
-                          <select name="invoiceId" aria-label="Invoice" value={alloc.invoiceId} onChange={e => updateAllocation(alloc.key, 'invoiceId', e.target.value)} className={inp}>
+                          <label htmlFor={`supplier-payments-new-invoice-${alloc.key}`} className={idx === 0 ? lbl : `${lbl} sm:hidden`}>Invoice</label>
+                          <select id={`supplier-payments-new-invoice-${alloc.key}`} name="invoiceId" aria-label="Invoice" value={alloc.invoiceId} onChange={e => updateAllocation(alloc.key, 'invoiceId', e.target.value)} className={inp}>
                             <option value="">Select invoice…</option>
                             {invoices.map(inv => <option key={inv.id} value={inv.id}>{inv.invoiceNumber} — Balance: {formatCurrency(inv.balance)}</option>)}
                           </select>
@@ -185,12 +186,12 @@ export default function NewSupplierPaymentPage() {
                           <div className={`${inp} bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 text-right tabular-nums whitespace-nowrap`}>{selectedInvoice ? formatCurrency(selectedInvoice.balance) : '—'}</div>
                         </div>
                         <div className="col-span-6 sm:col-span-3">
-                          <label className={idx === 0 ? lbl : `${lbl} sm:hidden`}>Pay amount</label>
-                          <input type="number" aria-label="Pay Amount" step="0.01" min="0" max={selectedInvoice?.balance || undefined} value={alloc.amount || ''} onChange={e => updateAllocation(alloc.key, 'amount', Number(e.target.value))} className={`${inp} text-right`} />
+                          <label htmlFor={`supplier-payments-new-amount-${alloc.key}`} className={idx === 0 ? lbl : `${lbl} sm:hidden`}>Pay amount</label>
+                          <input id={`supplier-payments-new-amount-${alloc.key}`} type="number" aria-label="Pay Amount" step="0.01" min="0" max={selectedInvoice?.balance || undefined} value={alloc.amount || ''} onChange={e => updateAllocation(alloc.key, 'amount', Number(e.target.value))} className={`${inp} text-right`} />
                         </div>
                         {allocations.length > 1 && (
                           <div className="col-span-12 sm:col-span-1 flex justify-end sm:justify-center">
-                            <button type="button" onClick={() => removeAllocation(alloc.key)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 dark:text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="h-4 w-4" /></button>
+                            <button type="button" aria-label={`Remove allocation ${idx + 1}`} onClick={() => removeAllocation(alloc.key)} className={`p-1.5 ${PHONE_TAP_ICON} rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 dark:text-slate-400 hover:text-red-500 transition-colors`}><Trash2 className="h-4 w-4" /></button>
                           </div>
                         )}
                       </div>
@@ -201,7 +202,7 @@ export default function NewSupplierPaymentPage() {
             </div>
 
             <div className="w-full lg:w-72 shrink-0">
-              <div className="sticky top-6">
+              <div className="lg:sticky lg:top-6">
                 <div className={`${card} p-5`}>
                   <div className="flex items-center gap-2 mb-5">
                     <Receipt className="w-4 h-4 text-amber-500" />
@@ -223,9 +224,11 @@ export default function NewSupplierPaymentPage() {
                       <span className="tabular-nums font-bold text-lg text-amber-500">{formatCurrency(totalAmount)}</span>
                     </div>
                   </div>
-                  <button type="submit" disabled={isSubmitting || totalAmount <= 0} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  <div className={FORM_PHONE_ACTION_BAR}>
+                  <button type="submit" disabled={isSubmitting || totalAmount <= 0} className={`w-full mt-6 py-3 ${FORM_PHONE_SUBMIT} bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm`}>
                     {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><Wallet className="h-4 w-4" />Create Payment</>}
                   </button>
+                  </div>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 text-center px-2 mt-3">Payment will be recorded and allocated to the selected invoices.</p>
               </div>

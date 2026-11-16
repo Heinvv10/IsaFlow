@@ -33,16 +33,21 @@ async function box(el: Locator): Promise<{ x: number; y: number; width: number; 
   return b;
 }
 
-/** Fields outside the line table narrower than `min`, and pairs of labels / controls / buttons drawn over each other. */
+/**
+ * Fields outside the line table narrower than `min`, and pairs of labels / controls / buttons drawn over each other.
+ * The phone action bar (position: fixed below lg) floats over the form as it scrolls by design, so a pinned element is
+ * only compared with other pinned elements.
+ */
 const layoutFaults = (page: Page, min: number) => page.evaluate((minWidth) => {
   const seen = (e: Element) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const pinned = (e: Element) => { for (let n: Element | null = e; n; n = n.parentElement) if (getComputedStyle(n).position === 'fixed') return true; return false; };
   const narrow = [...document.querySelectorAll('main input:not([type=hidden]):not([type=checkbox]), main select, main textarea')]
     .filter((e) => seen(e) && !e.closest('[role=region]') && e.getBoundingClientRect().width < minWidth)
     .map((e) => (e as HTMLInputElement).name || e.tagName);
   const els = [...document.querySelectorAll('main label, main input:not([type=hidden]), main select, main textarea, main button')].filter(seen);
   const overlaps: string[] = [];
   els.forEach((a, i) => els.slice(i + 1).forEach((b) => {
-    if (a.contains(b) || b.contains(a)) return;
+    if (a.contains(b) || b.contains(a) || pinned(a) !== pinned(b)) return;
     const p = a.getBoundingClientRect(); const q = b.getBoundingClientRect();
     if (Math.min(p.right, q.right) - Math.max(p.left, q.left) > 4 && Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top) > 4) {
       overlaps.push(`${(a.textContent ?? '').trim().slice(0, 20) || a.tagName} x ${(b.textContent ?? '').trim().slice(0, 20) || b.tagName}`);
@@ -145,6 +150,32 @@ for (const form of ENTRY_FORMS) {
   });
 }
 
+// Below lg the submit row is pinned to the bottom of the screen (second pass, 16 Nov): Save is on screen before any
+// scrolling, and the form's bottom padding lets the summary card scroll clear of the bar. From lg it is in the card.
+const SUBMIT = ['Create Payment', 'Create Payment', 'Create Credit Note'];
+ENTRY_FORMS.forEach((form, i) => {
+  test(`${form.title} 390 px: the submit button is pinned on screen and never hides the form`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page, form);
+    const submit = page.getByRole('button', { name: SUBMIT[i] });
+    const first = await box(submit);
+    expect(first.y + first.height, 'Save is on screen without scrolling').toBeLessThanOrEqual(844);
+    expect(first.height, 'Save is a 44 px target').toBeGreaterThanOrEqual(44);
+    await page.locator('main').evaluate((m) => m.scrollTo(0, m.scrollHeight));
+    const bar = await box(submit.locator('xpath=..'));
+    const summary = await box(summaryCard(page, form));
+    expect(summary.y + summary.height, 'the summary card scrolls clear of the bar').toBeLessThanOrEqual(bar.y + 1);
+  });
+
+  test(`${form.title} 1440 px: the submit button sits in the summary card`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page, form);
+    const [submit, summary] = [await box(page.getByRole('button', { name: SUBMIT[i] })), await box(summaryCard(page, form))];
+    expect(submit.y, 'inside the card').toBeGreaterThanOrEqual(summary.y);
+    expect(submit.y + submit.height, 'inside the card').toBeLessThanOrEqual(summary.y + summary.height);
+  });
+});
+
 // Second allocation rows (review of the 12 Nov change): the delete button and, on the supplier payment, the row 2
 // labels only exist once a row is added, so measure with two rows. No client or supplier is picked; nothing is saved.
 const ALLOCATIONS = [
@@ -162,8 +193,11 @@ for (const { form, add } of ALLOCATIONS) {
       await expect(selects).toHaveCount(2);
       const card = await box(cardOf(button));
       const [addBox, heading] = [await box(button), await box(page.getByRole('heading', { name: 'Invoice Allocations' }))];
-      expect(addBox.height, `${add} stays on one line`).toBeLessThan(40);
-      expect(Math.abs(addBox.y - heading.y), `${add} sits beside the card heading`).toBeLessThan(12);
+      // 44 px tap target below lg, the compact desktop size from lg.
+      if (width === 390) expect(addBox.height, `${add} is a 44 px target on one line`).toBeGreaterThanOrEqual(44);
+      expect(addBox.height, `${add} stays on one line`).toBeLessThan(width === 390 ? 48 : 40);
+      const centre = (b: { y: number; height: number }) => b.y + b.height / 2;
+      expect(Math.abs(centre(addBox) - centre(heading)), `${add} sits beside the card heading`).toBeLessThan(12);
       const row2 = await box(selects.nth(1));
       const bin = await box(selects.nth(1).locator('xpath=ancestor::div[.//button][1]').locator('button').last());
       expect(bin.x + bin.width, 'delete button inside the card').toBeLessThanOrEqual(card.x + card.width);
