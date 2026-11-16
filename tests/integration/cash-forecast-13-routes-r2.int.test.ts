@@ -265,14 +265,25 @@ describe('a note-only re-save keeps the application order (M2)', () => {
 });
 
 describe("an override on a manual item's line (L8)", () => {
-  it("needs the item to exist for the company: 404 otherwise, nothing written", async () => {
+  it("needs the item to exist for the company (404); a key that names no UUID is 400; nothing written", async () => {
     const id = String((await items.call(a, 'POST', ITEM)).body.data!.id);
     const body = { weekStart: monday(1), mode: 'set', amount: -50 };
     expect((await overrides.call(a, 'PUT', { ...body, lineKey: `manual:${id}` })).status).toBe(200);
     expect((await overrides.call(a, 'PUT', { ...body, lineKey: `manual:${crypto.randomUUID()}` })).status).toBe(404);
-    expect((await overrides.call(a, 'PUT', { ...body, lineKey: 'manual:not-a-uuid' })).status).toBe(404);
+    expect((await overrides.call(a, 'PUT', { ...body, lineKey: 'manual:not-a-uuid' })).status).toBe(400);
+    expect((await overrides.call(a, 'PUT', { ...body, lineKey: 'MANUAL:not-a-uuid' })).status).toBe(400);
     expect((await pool.query('SELECT line_key FROM cash_forecast_overrides WHERE company_id = $1', [co()])).rows)
       .toEqual([{ line_key: `manual:${id}` }]);
+    await clear();
+  });
+
+  it('an uppercase key is stored canonical (lowercase) and so goes with the item on delete', async () => {
+    const id = String((await items.call(a, 'POST', ITEM)).body.data!.id);
+    const out = await overrides.call(a, 'PUT', { weekStart: monday(2), mode: 'set', amount: -5, lineKey: `MANUAL:${id.toUpperCase()}` });
+    expect(out.status, JSON.stringify(out.body)).toBe(200);
+    expect((out.body.data!.override as { lineKey: string }).lineKey).toBe(`manual:${id}`);
+    expect((await items.call(a, 'DELETE', undefined, { id })).status).toBe(200);
+    expect((await pool.query('SELECT COUNT(*)::int n FROM cash_forecast_overrides WHERE company_id = $1', [co()])).rows[0].n).toBe(0);
     await clear();
   });
 });

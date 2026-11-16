@@ -13,20 +13,29 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { toIsoTimestamp } from '@/lib/dateUtils';
 import type { DbRow } from '@/types/db';
 import { logAuditOrThrow, type AuditFieldChange } from '../core/auditTrailService';
-import { CashForecastLimitError, CashForecastNotFoundError } from './storeErrors';
+import { CashForecastInputError, CashForecastLimitError, CashForecastNotFoundError } from './storeErrors';
 import type { OverrideInput } from './storeSchemas';
-import { MAX_OVERRIDES, type ForecastOverride, type OverrideMode } from './storeTypes';
+import { MAX_OVERRIDES, manualLineKey, type ForecastOverride, type OverrideMode } from './storeTypes';
 import { isUuidParam } from '@/lib/validation';
 
 const MANUAL_PREFIX = 'manual:';
 
-/** A 'manual:<id>' line belongs to an item of the company; the row lock holds it until the tx ends. */
+/**
+ * A manual item's line key in its one stored spelling, `manualLineKey(lowercase id)`: the spelling deleteItem
+ * cleans up. Any other key is returned as given. 'manual:' in any case with no UUID after it is a 400.
+ */
+export function canonicalLineKey(lineKey: string): string {
+  if (lineKey.slice(0, MANUAL_PREFIX.length).toLowerCase() !== MANUAL_PREFIX) return lineKey;
+  const id = lineKey.slice(MANUAL_PREFIX.length);
+  if (!isUuidParam(id)) throw new CashForecastInputError('A manual line key is manual:<item id>');
+  return manualLineKey(id.toLowerCase());
+}
+
+/** A canonical 'manual:<id>' line belongs to an item of the company; the row lock holds it until the tx ends. */
 async function assertManualLine(companyId: string, lineKey: string): Promise<void> {
   if (!lineKey.startsWith(MANUAL_PREFIX)) return;
   const id = lineKey.slice(MANUAL_PREFIX.length);
-  const rows = isUuidParam(id)
-    ? (await sql`SELECT 1 FROM cash_forecast_items WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID FOR SHARE`) as DbRow[]
-    : [];
+  const rows = (await sql`SELECT 1 FROM cash_forecast_items WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID FOR SHARE`) as DbRow[];
   if (rows.length === 0) throw new CashForecastNotFoundError('No such cash forecast item for this line');
 }
 
@@ -73,8 +82,9 @@ function changes(before: StoredOverride | null, after: StoredOverride | null): A
 }
 
 /** Upsert on (company, lineKey, weekStart). `created` says whether the cell had no override before. */
-export async function saveOverride(companyId: string, userId: string, input: OverrideInput): Promise<{ override: StoredOverride; created: boolean }> {
+export async function saveOverride(companyId: string, userId: string, given: OverrideInput): Promise<{ override: StoredOverride; created: boolean }> {
   await assertNotImpersonating();
+  const input = { ...given, lineKey: canonicalLineKey(given.lineKey) };
   // One saver per company at a time (to the end of the request tx), so two new cells at the cap cannot both pass.
   await sql`SELECT pg_advisory_xact_lock(hashtextextended('cash_forecast_overrides:' || ${companyId}::uuid::text, 0))`;
   await assertManualLine(companyId, input.lineKey);

@@ -189,4 +189,33 @@ describe('999i: re-run', () => {
     const n = (await pool.query(`SELECT COUNT(*)::int n FROM pg_trigger WHERE tgrelid = 'cash_forecast_items'::regclass AND NOT tgisinternal`)).rows[0].n;
     expect(n).toBe(2);
   });
+
+  it('over an earlier draft shape (no applied_at / category, pay day NOT NULL DEFAULT 25, amount NOT NULL) it restores this one', async () => {
+    const file = readFileSync(join(process.cwd(), 'scripts/migrations/sql/999i_cash_forecast_13.sql'), 'utf8');
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('DELETE FROM cash_forecast_overrides; DELETE FROM cash_forecast_items; DELETE FROM payroll_company_settings');
+      await c.query(`ALTER TABLE cash_forecast_overrides DROP COLUMN applied_at, ALTER COLUMN amount SET NOT NULL;
+                     ALTER TABLE cash_forecast_items DROP COLUMN category;
+                     ALTER TABLE payroll_company_settings ALTER COLUMN salary_pay_day SET DEFAULT 25, ALTER COLUMN salary_pay_day SET NOT NULL,
+                       ALTER COLUMN salary_pay_rule SET DEFAULT 'day_of_month', ALTER COLUMN salary_pay_rule SET NOT NULL`);
+      await c.query(file);
+      const cols = (await c.query(
+        `SELECT table_name, column_name, is_nullable, column_default FROM information_schema.columns
+          WHERE (table_name, column_name) IN (('cash_forecast_overrides', 'applied_at'), ('cash_forecast_overrides', 'amount'),
+                ('cash_forecast_items', 'category'), ('payroll_company_settings', 'salary_pay_day'), ('payroll_company_settings', 'salary_pay_rule'))
+          ORDER BY 1, 2`)).rows;
+      expect(cols.map((r) => [r.table_name, r.column_name, r.is_nullable, r.column_default === null])).toEqual([
+        ['cash_forecast_items', 'category', 'NO', false],
+        ['cash_forecast_overrides', 'amount', 'YES', true],
+        ['cash_forecast_overrides', 'applied_at', 'NO', false],
+        ['payroll_company_settings', 'salary_pay_day', 'YES', true],
+        ['payroll_company_settings', 'salary_pay_rule', 'YES', true],
+      ]);
+      // The trigger that reads applied_at works on the restored column.
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: A.user })]);
+      expect((await c.query(`${OVR.replace('RETURNING id', 'RETURNING applied_at, id')}`, ovr(A.id))).rows[0].applied_at).toBeTruthy();
+    } finally { await c.query('ROLLBACK'); c.release(); }
+  });
 });

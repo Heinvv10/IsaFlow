@@ -65,6 +65,10 @@ SET LOCAL statement_timeout = '120s';
 -- ── 1. Salary pay day on payroll_company_settings ──────────────────────────
 ALTER TABLE public.payroll_company_settings ADD COLUMN IF NOT EXISTS salary_pay_rule TEXT;
 ALTER TABLE public.payroll_company_settings ADD COLUMN IF NOT EXISTS salary_pay_day SMALLINT;
+-- An earlier draft had them NOT NULL DEFAULT 'day_of_month' / 25: never again a backfilled choice.
+ALTER TABLE public.payroll_company_settings
+  ALTER COLUMN salary_pay_rule DROP DEFAULT, ALTER COLUMN salary_pay_rule DROP NOT NULL,
+  ALTER COLUMN salary_pay_day DROP DEFAULT, ALTER COLUMN salary_pay_day DROP NOT NULL;
 ALTER TABLE public.payroll_company_settings DROP CONSTRAINT IF EXISTS payroll_company_settings_salary_pay_rule_check;
 ALTER TABLE public.payroll_company_settings ADD CONSTRAINT payroll_company_settings_salary_pay_rule_check
   CHECK (salary_pay_rule IS NULL OR salary_pay_rule IN ('day_of_month', 'last_working_day'));
@@ -156,6 +160,8 @@ CREATE TABLE IF NOT EXISTS public.cash_forecast_items (
   updated_by TEXT NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- An earlier draft of this file created the table without category: bring it to this shape.
+ALTER TABLE public.cash_forecast_items ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'other';
 ALTER TABLE public.cash_forecast_items DROP CONSTRAINT IF EXISTS cash_forecast_items_direction_check;
 ALTER TABLE public.cash_forecast_items ADD CONSTRAINT cash_forecast_items_direction_check
   CHECK (direction IN ('receipt', 'payment'));
@@ -237,6 +243,9 @@ CREATE TABLE IF NOT EXISTS public.cash_forecast_overrides (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Earlier drafts: no applied_at (the order trigger reads it), amount NOT NULL (move_to may be NULL now).
+ALTER TABLE public.cash_forecast_overrides ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE public.cash_forecast_overrides ALTER COLUMN amount DROP NOT NULL;
 ALTER TABLE public.cash_forecast_overrides DROP CONSTRAINT IF EXISTS cash_forecast_overrides_line_key_check;
 ALTER TABLE public.cash_forecast_overrides ADD CONSTRAINT cash_forecast_overrides_line_key_check
   CHECK (btrim(line_key) <> '' AND length(line_key) <= 200);
