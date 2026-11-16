@@ -32,7 +32,7 @@ export function recurringItems(
       const due = dueDateOf(t, invoiceDate);
       if (due > horizonEnd) continue;
       items.push({
-        lineKey: `recurring:${t.id}`, lineLabel: `${t.customerName} — ${t.name} (recurring)`, category: 'customer_receipts',
+        lineKey: `recurring:${t.id}`, lineLabel: `${t.customerName} — ${t.name} (recurring)`, category: 'customer_receipts', entityId: t.customerId,
         date: due, amountCents: t.totalCents, ref: `${t.id}:${run}`, refLabel: `Run ${run}`,
       });
     }

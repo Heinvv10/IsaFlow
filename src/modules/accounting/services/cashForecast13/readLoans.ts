@@ -1,5 +1,5 @@
 /**
- * Loan repayments for the forecast (ruling 2026-11-16; review L1, L2, L6). Each ACTIVE loan's schedule
+ * Loan repayments for the forecast (ruling 2026-11-16; review L1, L2, L6; re-review L-e). Each ACTIVE loan's schedule
  * (`previewSchedule`, loans/loanScheduleService.ts — it writes nothing): instalment + lump sum, less what
  * `loan_payments` already settled (loanPlan.ts). Each loan in its own savepoint: a loan the database cannot
  * read, or one the schedule refuses (not found, an empty rate curve, more skips than repayments), is that
@@ -52,7 +52,8 @@ export async function loanItems(companyId: string, today: string, horizonEnd: st
       return loanDue(rows, await payments(companyId, id), today, horizonEnd);
     }, LOAN_REFUSALS);
     if (!plan) continue;
-    if (plan.noPayments) unrecorded.push(label);
+    if (plan.noPayments) unrecorded.push(`${label}: instalments before today`);
+    for (const r of plan.assumedPaid) unrecorded.push(`${label} instalment ${r.period} (${r.date}) R${(r.cents / 100).toFixed(2)}`);
     for (const d of plan.due) {
       items.push({
         lineKey: `loan:${id}`, lineLabel: `Loan repayment: ${label}`, category: 'loans', date: d.date, amountCents: -d.cents,
@@ -61,7 +62,7 @@ export async function loanItems(companyId: string, today: string, horizonEnd: st
     }
   }
   if (unrecorded.length > 0) {
-    warnings.push({ code: 'loan_payments_not_recorded', source: 'loans', message: `No loan payments recorded for ${unrecorded.join(', ')}: instalments before today are assumed paid` });
+    warnings.push({ code: 'loan_payments_not_recorded', source: 'loans', message: `Loan payments not recorded, assumed paid: ${unrecorded.join('; ')}` });
   }
   if (foreign.length > 0) {
     warnings.push({ code: 'currency_not_converted', source: 'loans', message: `Loans in another currency have no stored exchange rate and are left out: ${foreign.join('; ')}` });

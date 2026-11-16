@@ -83,6 +83,20 @@ describe('cash13 overrides', () => {
     expect(cell(neg, 'ap:s', 3)).toBe(0);
   });
 
+  it('clamps a move to the cell: R50k from a −R30k cell moves −R30k and leaves 0, never flipping the sign (re-review L-a)', () => {
+    const small: KnownItem = { ...known, amountCents: -30_000_00 };
+    const out = runEngine(base({ items: [small], overrides: [{ lineKey: 'ap:s', weekIndex: 1, mode: 'move_to', amountCents: 50_000_00, targetWeek: 3 }] }));
+    expect([cell(out, 'ap:s', 1), cell(out, 'ap:s', 3)]).toEqual([0, -30_000_00]);
+  });
+
+  it('a move from an empty cell does nothing and is skipped with a warning', () => {
+    for (const amountCents of [100, null]) {
+      const out = runEngine(base({ items: [known], overrides: [{ lineKey: 'ap:s', weekIndex: 5, mode: 'move_to', amountCents, targetWeek: 3 }] }));
+      expect(out.lines.some((l) => l.kind === 'override')).toBe(false);
+      expect(out.warnings.map((w) => w.code)).toEqual(['override_skipped']);
+    }
+  });
+
   it('applies in array order: set then add differs from add then set', () => {
     const set: Override = { lineKey: 'ap:s', weekIndex: 1, mode: 'set', amountCents: -800 };
     const add: Override = { lineKey: 'ap:s', weekIndex: 1, mode: 'add', amountCents: -100 };

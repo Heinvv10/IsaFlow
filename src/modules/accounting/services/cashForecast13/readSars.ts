@@ -3,10 +3,11 @@
  * (`getComplianceCalendarWithMarks`, due dates already weekend-shifted). An item already completed (e-filed,
  * marked filed or recorded) is left out.
  *
- * PAST DUE = ASSUMED PAID (H1). An item whose due date is before today is not forecast: its cash has left the
- * bank and is in opening cash, and an unmarked January–October EMP201 is far more often "paid, never marked"
- * than "owed". Each one is listed in the `sars_past_due_assumed_paid` warning (type, period, amount) so the
- * user can see what was assumed. Only items due today or later are lines.
+ * PAST DUE = ASSUMED PAID (H1). A payment whose due date is before today is not forecast: its cash has left
+ * the bank and is in opening cash, and an unmarked January–October EMP201 is far more often "paid, never
+ * marked" than "owed". A REFUND is judged by its arrival date instead (re-review L-d): one arriving today or
+ * later is forecast even when the return's due date has passed. Each assumed one is listed in the
+ * `sars_past_due_assumed_paid` warning (type, period, amount) so the user can see what was assumed.
  *   - EMP201: `generateEMP201(period).totalDeductions` — PAYE net of ETI + UIF + SDL, as the return computes
  *     it. A month after the latest run has nothing to declare yet: the latest run's figures, an estimate.
  *   - VAT201: readVat.ts.
@@ -81,16 +82,19 @@ export async function sarsItems(
   const items: KnownItem[] = [];
   const assumedPaid: string[] = [];
   for (const e of await readSarsEvents(companyId, today, horizonEnd, warnings)) {
-    const past = e.dueDate < today;
+    const own: ForecastWarning[] = [];
     let item: KnownItem | null = null;
     if (e.eventType === 'EMP201_DUE') {
-      if (payroll) item = await guardedSource('cash13_emp201', `EMP201 ${e.periodStart.slice(0, 7)}`, warnings, () => emp201Item(companyId, e, payroll));
+      if (payroll) item = await guardedSource('cash13_emp201', `EMP201 ${e.periodStart.slice(0, 7)}`, own, () => emp201Item(companyId, e, payroll));
     } else if (e.eventType === 'VAT201_DUE') {
-      item = await guardedSource('cash13_vat201', `VAT201 ${e.periodStart}..${e.periodEnd}`, warnings, () => vatItem(companyId, e, today, budget, past ? [] : warnings));
+      item = await guardedSource('cash13_vat201', `VAT201 ${e.periodStart}..${e.periodEnd}`, own, () => vatItem(companyId, e, today, budget, own));
     } else {
-      item = irp6Item(e, budget, past ? [] : warnings);
+      item = irp6Item(e, budget, own);
     }
+    // A payment is assumed paid when its DUE date has passed; a refund when its ARRIVAL date has (re-review L-d).
+    const past = item !== null && item.amountCents > 0 ? item.date < today : e.dueDate < today;
     if (!past) {
+      warnings.push(...own);
       if (item) items.push(item);
     } else if (item) {
       assumedPaid.push(`${KIND[e.eventType]} ${e.periodStart}..${e.periodEnd} due ${e.dueDate} ${rand(item.amountCents)}`);

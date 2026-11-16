@@ -40,4 +40,15 @@ describe('cash13 loan instalments still to pay (review L2)', () => {
   it('an instalment after the horizon is never returned, even when unpaid', () => {
     expect(loanDue(rows, [], TODAY, END).due.some((d) => d.period === 8)).toBe(false);
   });
+
+  it('with payments, an unmatched instalment within 60 days is overdue; an older one is assumed paid and listed (re-review L-e)', () => {
+    // Aug paid; Sep, Oct and Nov missed. today 2026-11-18: Nov 1 (17 days) and Oct 1 (48) overdue, Sep 1 (78) assumed paid.
+    const r = loanDue(rows, [{ periodNumber: 1, date: '2026-08-01', cents: 1_000 }], TODAY, END);
+    expect(r.due.filter((d) => d.overdue).map((d) => d.period)).toEqual([3, 4]);
+    expect(r.assumedPaid.map((d) => d.period)).toEqual([2]);
+    // A month later (look-back from 2026-10-19): Sep and Oct are assumed paid; Nov and Dec are overdue.
+    const later = loanDue(rows, [{ periodNumber: 1, date: '2026-08-01', cents: 1_000 }], '2026-12-18', '2027-03-14');
+    expect(later.due.filter((d) => d.overdue).map((d) => d.period)).toEqual([4, 5]);
+    expect(later.assumedPaid.map((d) => [d.period, d.cents])).toEqual([[2, 1_000], [3, 1_000]]);
+  });
 });

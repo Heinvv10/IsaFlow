@@ -8,7 +8,7 @@
  * netted to zero is dropped. Credit left after every item of the entity (more credit than open documents) is
  * not cash to come and is ignored — the caller warns with the total.
  */
-import type { KnownItem } from './types';
+import type { ForecastWarning, KnownItem } from './types';
 
 export interface NetResult {
   items: KnownItem[];
@@ -34,4 +34,12 @@ export function netCredits(items: readonly KnownItem[], credit: ReadonlyMap<stri
     .map((it, i) => ({ ...it, amountCents: netted.get(i) as number }))
     .filter((it) => it.amountCents !== 0);
   return { items: out, unused: [...left].filter(([, c]) => c > 0).map(([entityId, cents]) => ({ entityId, cents })) };
+}
+
+/** Credit left over after netting, as a `credit_unused` warning. */
+export function warnUnusedCredit(unused: ReadonlyArray<{ cents: number }>, what: string, warnings: ForecastWarning[]): void {
+  const total = unused.reduce((t, u) => t + u.cents, 0);
+  if (total > 0) {
+    warnings.push({ code: 'credit_unused', source: what, message: `${what}: R${(total / 100).toFixed(2)} of unapplied credit across ${unused.length} account(s) exceeds their expected documents and is ignored` });
+  }
 }

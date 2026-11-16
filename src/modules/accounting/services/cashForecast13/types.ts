@@ -88,6 +88,11 @@ export interface EngineInput {
   today: string;
   openingCents: number;
   items: KnownItem[];
+  /**
+   * The known items as they were BEFORE unapplied credit was netted off (re-review N1): what the budget fill
+   * subtracts, so credit already in the bank is not refilled as budgeted receipts. Defaults to `items`.
+   */
+  budgetKnown?: KnownItem[];
   /** null: no budget lines (no primary version, flag off, or unreadable — the readers say why in `warnings`). */
   budget: BudgetMonth[] | null;
   manualItems: ManualItem[];

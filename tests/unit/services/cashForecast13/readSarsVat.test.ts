@@ -81,6 +81,28 @@ describe('cash13 SARS: past due is assumed paid (review H1)', () => {
   });
 });
 
+describe('cash13 SARS refunds: assumed received by ARRIVAL date (re-review L-d)', () => {
+  const vatEv = (over: Partial<ComplianceEvent>) => ev({ eventType: 'VAT201_DUE', description: 'VAT', ...over });
+
+  it('a refund due before today but arriving today or later is forecast; one that already arrived is assumed received', async () => {
+    cal([
+      vatEv({ periodStart: '2026-09-01', periodEnd: '2026-10-31', dueDate: '2026-11-06' }), // refund arrives 2026-11-30
+      vatEv({ periodStart: '2026-07-01', periodEnd: '2026-08-31', dueDate: '2026-09-25' }), // refund arrived 2026-09-30
+    ]);
+    vat201.mockResolvedValue({ field11_vatPayableOrRefundable: -800 });
+    const warnings: ForecastWarning[] = [];
+    const items = await sarsItems('co', TODAY, END, null, budget(), warnings);
+    expect(items.map((i) => [i.ref, i.date, i.amountCents])).toEqual([['VAT201:2026-09-01:2026-10-31', '2026-11-30', 80_000]]);
+    expect(warnings.find((w) => w.code === 'sars_past_due_assumed_paid')?.message).toContain('VAT201 2026-07-01..2026-08-31');
+  });
+
+  it('a payable keeps the due-date rule', async () => {
+    cal([vatEv({ periodStart: '2026-09-01', periodEnd: '2026-10-31', dueDate: '2026-11-06' })]);
+    vat201.mockResolvedValue({ field11_vatPayableOrRefundable: 800 });
+    expect(await sarsItems('co', TODAY, END, null, budget(), [])).toEqual([]);
+  });
+});
+
 describe('cash13 VAT201', () => {
   const vatEv = (over: Partial<ComplianceEvent>) => ev({ eventType: 'VAT201_DUE', description: 'VAT', ...over });
 

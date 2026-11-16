@@ -98,6 +98,30 @@ describe('cash13 budget fill', () => {
     expect(line.weekly.slice(3).every((v) => v === 0)).toBe(true);
   });
 
+  it('subtracts the GROSS known (before credit netting), so netted-off credit is not refilled (re-review N1)', () => {
+    // Nov in-horizon budget R500k (R1m × 15/30), AR R500k, R40k unapplied receipt → AR R460k, fill R0.
+    const gross = ar('2026-11-20', 500_000_00);
+    const out = runEngine(base({
+      today: '2026-11-16',
+      items: [{ ...gross, amountCents: 460_000_00 }],
+      budgetKnown: [gross],
+      budget: [{ month: '2026-11', customerReceipts: 1_000_000_00, supplierPayments: 0 }],
+    }));
+    expect(sum(out.lines.find((l) => l.key === 'ar:c:due')!.weekly)).toBe(460_000_00);
+    expect(out.lines.find((l) => l.key === 'budget:customer_receipts')).toBeUndefined();
+  });
+
+  it('the AP mirror: a supplier credit netted off a bill is not refilled by the budgeted payments', () => {
+    const gross = ap('2026-11-20', -500_000_00);
+    const out = runEngine(base({
+      today: '2026-11-16',
+      items: [{ ...gross, amountCents: -460_000_00 }],
+      budgetKnown: [gross],
+      budget: [{ month: '2026-11', customerReceipts: 0, supplierPayments: -1_000_000_00 }],
+    }));
+    expect(out.lines.find((l) => l.key === 'budget:supplier_payments')).toBeUndefined();
+  });
+
   it('ignores receipts that are not customer receipts when subtracting known', () => {
     const loan: KnownItem = { ...ar('2026-12-10', 1_000), lineKey: 'loan:x', category: 'loans' };
     const out = runEngine(base({ items: [loan], budget: [{ month: '2026-12', customerReceipts: 3_100, supplierPayments: 0 }] }));

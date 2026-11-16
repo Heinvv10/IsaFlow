@@ -45,7 +45,7 @@ export function runEngine(input: EngineInput): CashForecast13 {
   if (known.beyondHorizon > 0) {
     warnings.push({ code: 'beyond_horizon', source: 'engine', message: `${known.beyondHorizon} dated item(s) fall after week 13 and are not in this forecast` });
   }
-  const budget = input.budget ? budgetFillLines(input.budget, input.items, input.today, spans) : [];
+  const budget = input.budget ? budgetFillLines(input.budget, input.budgetKnown ?? input.items, input.today, spans) : [];
   const manual = manualLines(input.manualItems, input.today, spans);
   const before = [...known.lines, ...budget, ...manual];
   const overridden = applyOverrides(before, input.overrides);

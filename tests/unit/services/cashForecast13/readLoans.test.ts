@@ -38,6 +38,17 @@ describe('cash13 loan reader (review L2, L1, L6)', () => {
     expect(w).toEqual([]);
   });
 
+  it('with payments, an unmatched instalment older than 60 days is assumed paid and listed (period, amount)', async () => {
+    // Aug recorded; Sep (78 days back) and Oct (48) missed: Sep listed, Oct overdue.
+    const aug = ['2026-08-01', ...rows.map((r) => r.date)].map((date, i) => ({ period: i + 1, date, payment: 100, lump: 0 }));
+    queries.push(() => [loan('c')], () => [{ period_number: 1, payment_date: '2026-08-01', amount: '100.00' }]);
+    schedule.mockResolvedValue(aug);
+    const w: ForecastWarning[] = [];
+    const items = await loanItems('co', TODAY, END, w);
+    expect(items.filter((i) => i.flags?.includes('loan_overdue')).map((i) => i.ref)).toEqual(['c:3', 'c:4']);
+    expect(w).toEqual([expect.objectContaining({ code: 'loan_payments_not_recorded', message: expect.stringContaining('L-c instalment 2 (2026-09-01) R100.00') })]);
+  });
+
   it('a foreign-currency loan is left out with currency_not_converted; a refused schedule is that loan’s warning; the other loan goes on', async () => {
     queries.push(() => [loan('usd', { currency: 'USD' }), loan('bad'), loan('ok')], () => []);
     schedule.mockImplementation((_co: string, id: string) => (id === 'bad' ? Promise.reject(new Error('Rate curve is empty')) : Promise.resolve(rows)));

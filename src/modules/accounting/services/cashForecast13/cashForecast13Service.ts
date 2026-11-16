@@ -18,6 +18,7 @@ import { BUDGET_REFUSALS, readBudget } from './readBudget';
 import { loanItems } from './readLoans';
 import { recurringReceiptItems } from './readRecurring';
 import { readPayroll, payrollItems } from './readPayroll';
+import { netCredits, warnUnusedCredit } from './creditNetting';
 import { readPayables, readReceivables } from './readReceivables';
 import { sarsItems } from './readSars';
 import { buildWeeks } from './weeks';
@@ -48,12 +49,21 @@ export async function getCashForecast13(companyId: string, today: string, opts: 
   const horizonEnd = weeks[weeks.length - 1]!.end;
   const warnings: ForecastWarning[] = [];
   const items: KnownItem[] = [];
+  /** The known items before credit netting, for the budget fill (re-review N1). */
+  const gross: KnownItem[] = [];
 
   const balance = await guardedSource('cash13_opening', 'opening cash', warnings, () => getCashBalance(companyId, today));
   if (!balance) throw new CashForecastUnavailableError();
   const ar = await guardedSource('cash13_ar', 'customer invoices', warnings, () => readReceivables(companyId, today, horizonEnd, warnings));
-  if (ar) items.push(...ar.items);
-  items.push(...(await guardedSource('cash13_ap', 'supplier invoices', warnings, () => readPayables(companyId, today, warnings))) ?? []);
+  if (ar) {
+    items.push(...ar.items);
+    gross.push(...ar.gross);
+  }
+  const ap = await guardedSource('cash13_ap', 'supplier invoices', warnings, () => readPayables(companyId, today, warnings));
+  if (ap) {
+    items.push(...ap.items);
+    gross.push(...ap.gross);
+  }
 
   const payroll = await guardedSource('cash13_payroll', 'payroll', warnings, () => readPayroll(companyId));
   if (payroll && !payroll.latest) {
@@ -62,17 +72,25 @@ export async function getCashForecast13(companyId: string, today: string, opts: 
   if (payroll?.unsupportedFrequency) {
     warnings.push({ code: 'payroll_frequency_unsupported', source: 'payroll', message: 'Weekly or fortnightly pay runs are not forecast; only monthly runs are' });
   }
-  if (payroll) items.push(...payrollItems(payroll, opts.payDay ?? DEFAULT_PAY_DAY, today, horizonEnd, warnings));
+  const rest: KnownItem[] = [];
+  if (payroll) rest.push(...payrollItems(payroll, opts.payDay ?? DEFAULT_PAY_DAY, today, horizonEnd, warnings));
 
   const budget = await guardedSource('cash13_budget', 'budget', warnings, () => readBudget(companyId, today, horizonEnd, warnings), BUDGET_REFUSALS);
-  items.push(...(await guardedSource('cash13_sars', 'SARS calendar', warnings, () => sarsItems(companyId, today, horizonEnd, payroll, budget, warnings))) ?? []);
-  items.push(...(await guardedSource('cash13_loans', 'loans', warnings, () => loanItems(companyId, today, horizonEnd, warnings))) ?? []);
-  items.push(...(await guardedSource('cash13_recurring', 'recurring invoices', warnings, () => recurringReceiptItems(companyId, today, horizonEnd))) ?? []);
+  rest.push(...(await guardedSource('cash13_sars', 'SARS calendar', warnings, () => sarsItems(companyId, today, horizonEnd, payroll, budget, warnings))) ?? []);
+  rest.push(...(await guardedSource('cash13_loans', 'loans', warnings, () => loanItems(companyId, today, horizonEnd, warnings))) ?? []);
+  const recurring = (await guardedSource('cash13_recurring', 'recurring invoices', warnings, () => recurringReceiptItems(companyId, today, horizonEnd))) ?? [];
+  // Customer credit the open invoices did not use nets that customer's recurring receipts, earliest first
+  // (re-review L-c); only what is left after that is unused.
+  const rec = netCredits(recurring, ar?.leftover ?? new Map());
+  warnUnusedCredit(rec.unused, 'customer credit', warnings);
+  items.push(...rest, ...rec.items);
+  gross.push(...rest, ...recurring);
 
   return runEngine({
     today,
     openingCents: toCents(balance.total),
     items,
+    budgetKnown: gross,
     budget: budget ? budget.months : null,
     manualItems: opts.manualItems ?? [],
     overrides: opts.overrides ?? [],
