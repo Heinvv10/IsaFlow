@@ -149,7 +149,7 @@ export function ComplianceCalendarTable({ events, marksUnavailable = false, onCh
                             value={reference} onChange={(ev) => setReference(ev.target.value)}
                             className="w-44 px-2 py-1 text-xs rounded border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)]" />
                           <button type="submit" disabled={busy}
-                            className="px-2 py-1 text-xs rounded bg-teal-600 text-white hover:bg-teal-500 disabled:opacity-50">Save</button>
+                            className="px-2 py-1 text-xs rounded bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50">Save</button>
                           <button type="button" onClick={() => { setOpenKey(null); setReference(''); }}
                             className="px-2 py-1 text-xs text-[var(--ff-text-secondary)]">Cancel</button>
                         </form>
