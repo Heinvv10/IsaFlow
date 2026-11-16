@@ -6,6 +6,10 @@
 // MIGRATION_ADMIN_DATABASE_URL as migration_admin. Each runs through its real
 // route or service. The attacks: s07b-app-pool-login-role.int.test.ts.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+// No GoTrue in the fixture: POST /api/invite/<token> reads the session user's login email through adminGetUser
+// (#1468); answer the address this suite's sessions carry (signSession).
+vi.mock('@/lib/auth/gotrueAdminUser', async () =>
+  (await import('./helpers/fixtureGotrueLogin')).fixtureGotrueLogin((id) => `${id}@test.local`));
 import type { NextApiRequest } from 'next';
 import profileRoute from '../../pages/api/auth/profile';
 import meRoute from '../../pages/api/auth/me';

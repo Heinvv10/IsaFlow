@@ -57,7 +57,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 const controls = (root: HTMLElement) =>
-  Array.from(root.querySelectorAll<HTMLElement>('input:not([type="hidden"]), select, textarea, [role="switch"]'));
+  Array.from(root.querySelectorAll<HTMLElement>('input:not([type="hidden"]), select, textarea, [role="switch"], [role="combobox"]'));
 
 describe('company settings tabs name every control', () => {
   it.each(TABS)('%s', async (_tab, tab) => {

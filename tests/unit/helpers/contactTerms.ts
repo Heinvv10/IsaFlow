@@ -1,6 +1,9 @@
-/** A new contact must CHOOSE its payment terms (no pre-selection): the create pages' tests pick one before they save. */
 import { fireEvent, screen } from '@testing-library/react';
 
+const LABEL: Record<string, string | RegExp> = { immediate: 'Immediate', default: /^Use company default/ };
+
+/** Pick a payment-terms choice in the kit Select (synchronous: the open list is in the document after the click). */
 export function chooseTerms(choice: string = 'immediate'): void {
-  fireEvent.change(screen.getByLabelText(/payment terms/i), { target: { value: choice } });
+  fireEvent.click(screen.getByRole('combobox', { name: /payment terms/i }));
+  fireEvent.click(screen.getByRole('option', { name: LABEL[choice] ?? choice }));
 }
