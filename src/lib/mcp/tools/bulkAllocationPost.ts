@@ -12,7 +12,7 @@ import type { ResolvedLine } from './bulkAllocationPrepare';
 import { reasonForStatus, type SkippedLine } from './bulkAllocationSkip';
 import { prefetchAllocationVatFacts, type VatCoercionReason } from './allocationVatGuard';
 import { postAllocationLine } from './allocationLine';
-import { isPeriodRefusal } from '@/modules/accounting/services/bank/bankAllocationPeriod';
+import { isLineSkipRefusal } from '@/modules/accounting/services/bank/bankAllocationPeriod';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { isLockNotAvailable } from '@/modules/accounting/services/core/lockContention';
 import type { McpToolContext } from '../types';
@@ -129,7 +129,7 @@ export function safeLineDetail(err: unknown): string {
  * and the batch cannot continue even for a fault it is entitled to skip — the
  * race path below depends on being able to carry on after a throw.
  *
- * Two outcomes for a throw, and the difference is the whole point:
+ * Three outcomes for a throw, and the difference is the whole point:
  *
  *   - the row was allocated between the pre-check and this post (another
  *     request won the row lock). `allocateTransaction` re-read the settled
@@ -147,7 +147,13 @@ export function safeLineDetail(err: unknown): string {
  *     skipped, reported as retryable, batch continues. Failing 499 good lines
  *     because one row was briefly busy is the opposite of what a bulk tool is
  *     for.
- *   - anything else — a closed period, a missing contra account, a constraint —
+ *   - a refusal about THIS line or its date that the service raises before it writes
+ *     (`isLineSkipRefusal`): a date no open fiscal period covers or can cover, a period that
+ *     closed or went busy after the partition's probe, the ledger-date window, or any other
+ *     `BankAllocationRefusal` the line itself earns (not an imported-status row, a
+ *     sign or refund-ceiling refusal, ...). The line's savepoint has rolled back, so it
+ *     is skipped with the refusal's own text, as the pre-check would have reported it.
+ *   - anything else — a missing contra account, a constraint, an inactive account —
  *     is fatal. It is rethrown as BulkAllocationLineError so the registry's
  *     savepoint unwinds the whole batch AND the agent is told which line did
  *     it. A batch endpoint must never answer a per-line cause with an
@@ -221,7 +227,7 @@ export async function postPreparedLines(
       // WP2 row 12: a period that closed (or went busy) between the partition's probe and this post is the same fact
       // the probe reports for a line it sees closed: a skip, with the refusal's own text. The line's savepoint has
       // rolled back anything it wrote.
-      if (isPeriodRefusal(err)) {
+      if (isLineSkipRefusal(err)) {
         raced.push({ index, transaction_id: txId, reason: err.message });
         continue;
       }

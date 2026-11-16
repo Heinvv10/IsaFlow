@@ -12,7 +12,7 @@ import { isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { handKeyedLineJournalRefusal } from '../bank/bankLineJournalGate';
 import { importerAllocationRefusal, importerArmOf } from '../bank/bankLineImporterGate';
 import { isAllocationVatCode } from '../bank/bankVatCodes';
-import { allocationPeriodFor, isPeriodRefusal } from '../bank/bankAllocationPeriod';
+import { allocationPeriodFor, isLineSkipRefusal } from '../bank/bankAllocationPeriod';
 import { predictFromHistory, type CodingPrediction } from './provisionalPrediction';
 import { placeCostCentres } from '../gl/dimensions/costCentrePick'; // the predicted centre, in its slot
 
@@ -108,7 +108,7 @@ export async function postProvisional(
     // aborted ("current transaction is aborted") for the next row of a batch or sweep.
     fiscalPeriodId = await withSavepoint('provisional_period', () => allocationPeriodFor(companyId, txDate));
   } catch (err) {
-    if (isPeriodRefusal(err)) {
+    if (isLineSkipRefusal(err)) {
       return { journalEntryId: null, prediction, skipped: err.message };
     }
     throw err;

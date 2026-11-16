@@ -64,8 +64,12 @@ export async function allocationPeriodFor(companyId: string, entryDate: string):
   return periodId;
 }
 
-/** An answer about the DATE (or a busy period), raised before anything is written: a skip or a toolError, not a fault. */
-export function isPeriodRefusal(err: unknown): err is Error {
+/**
+ * A refusal about the LINE or its DATE raised before anything is written, so the caller skips the line (or answers a
+ * toolError) instead of failing: any BankAllocationRefusal, a closed/locked period, the ledger-date window, or a busy
+ * period (FiscalPeriodLockTimeoutError). Wider than "period": every BankAllocationRefusal is a per-line answer.
+ */
+export function isLineSkipRefusal(err: unknown): err is Error {
   return isBankAllocationRefusal(err) || err instanceof ClosedFiscalPeriodError || err instanceof JournalDateRefusedError
     || err instanceof FiscalPeriodLockTimeoutError;
 }
@@ -87,7 +91,7 @@ export async function allocationPeriodProbe(companyId: string, entryDate: string
     return null;
   } catch (err) {
     if (err instanceof ProbeDone) return null;
-    if (isPeriodRefusal(err)) return err.message;
+    if (isLineSkipRefusal(err)) return err.message;
     throw err;
   }
 }
