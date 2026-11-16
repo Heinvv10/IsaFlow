@@ -152,8 +152,12 @@ export async function planSplitContacts(
   }
 
   for (const p of paymentTotals.values()) await assertBankLineMayPaySupplier(companyId, tx, p.amount);
-  // A customer refund out of a hand-keyed line: the same gate as a manual journal (bankLineRefundGate).
-  for (const r of refundTotals.values()) if (r.kind === 'customer') await assertBankLineMayRefundCustomer(companyId, tx, r.amount);
+  // A customer refund out of a hand-keyed line: the same gate as a manual journal (bankLineRefundGate). Judged ONCE at the
+  // WHOLE line, as the account arm is: the split posts one journal and a manual-journal rule reads that journal's amount,
+  // so refunding several customers a little each (every part under the rule) cannot slip under it.
+  if ([...refundTotals.values()].some((r) => r.kind === 'customer')) {
+    await assertBankLineMayRefundCustomer(companyId, tx, Math.abs(Number(tx.amount)));
+  }
   // planXRefund locks the contact: in id order, so two splits naming the same
   // contacts in opposite orders wait for each other instead of deadlocking.
   for (const [, r] of [...refundTotals].sort(([a], [b]) => a.localeCompare(b))) {

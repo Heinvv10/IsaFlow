@@ -125,6 +125,24 @@ describe('door 3: split_allocate with a customer line on a negative hand-keyed l
   });
 });
 
+describe('door 3b: a refund split across customers is judged at the whole line', () => {
+  it('two customer parts each under the rule, together over it: 409, nothing written; one part under the rule is not held', async () => {
+    const f = await fixture();
+    const second = (await pool.query('INSERT INTO customers(company_id,name) VALUES($1,$2) RETURNING id', [f.c, 'BC second customer'])).rows[0].id;
+    const handKeyed = await plantLine(f, 'manual', -1200);
+    const before = await counts(f.c);
+    const res = await act(f, { action: 'split_allocate', bankTransactionId: handKeyed, lines: [
+      { contactType: 'customer', contactId: f.customer, amount: 600 }, { contactType: 'customer', contactId: second, amount: 600 }] });
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
+    expect(reasonOf(res)).toBe('APPROVAL_REQUIRED');
+    expect(await counts(f.c)).toEqual(before);
+    expect(await statusOf(handKeyed)).toBe('imported');
+    const small = await plantLine(f, 'manual', -900); // the whole line under the R1 000 rule
+    notTheGate(await act(f, { action: 'split_allocate', bankTransactionId: small, lines: [
+      { contactType: 'customer', contactId: f.customer, amount: 450 }, { contactType: 'customer', contactId: second, amount: 450 }] }));
+  });
+});
+
 describe('door 4: the MCP allocate and bulk tools', () => {
   it('allocate refuses with nothing written; the bulk dry run and live call skip it alike; an imported line is not held', async () => {
     const f = await fixture();
