@@ -54,12 +54,17 @@ failure); after it, unit 113/113 and int 42/42 (all six mcp-budget suites).
 | R1b | B1: the post-check requires a former override to be one again | the `bs === 'override'` clause removed | unit budgetSnapshotRestore | 1 failed / 9 |
 | R2 | B2: a status move after the write refuses the restore (same token, one batch) | the `statusMovedAt` check disabled | unit budgetSnapshotRestore; int mcp-budget-batch | unit 1 failed / 9; int 1 failed / 5 |
 | R3 | B3: a snapshot is inserted only with a save of its version in the same transaction (999k insert trigger) | the trigger's check disabled | int mcp-budget-restore (fresh cluster) | 1 failed / 6 |
+| R5 | round 3: a former override comes back 'override' only where a driver still covers it | `covered(c)` dropped from the post-check (any former override must be 'override') | unit budgetSnapshotRestore; int mcp-budget-batch | unit 1 failed / 10; int 1 failed / 6 |
 | R4 | L1: a multi-cell write that changes nothing says so (before asking for plan_hash) | the nothing-changed answer removed (the hash check answers instead) | unit budgetAmountTools | 1 failed / 31 |
 
 B2 is enforced with the version's clock-time status stamps (approved_at, locked_at, unlocked_at), not a stored status:
-no schema change, and an unlock back to the same status after the write is caught too. B3 narrows, not closes: an
-app_user who also saves the version in the same transaction can still insert a row; its `created_by` is then the
-forger (the database's stamp), and a restore of it writes only as its author, an owner or an admin, audited as them.
+no schema change, and an unlock back to the same status after the write is caught too. B3 narrows, not closes: ANY update of
+the version row in the same transaction satisfies the insert check, a no-op `UPDATE budget_versions SET name = name`
+included (the updated_at trigger sets now()). So raw-SQL app_user can still insert a row after such an update; its
+`created_by` is then that user (the database's stamp), and a restore of it writes only as its author, an owner or an
+admin, audited as them. Accepted LOW: it needs raw app_user SQL, which can already write `budget_month_amounts`
+directly; requiring an amount row changed in this transaction would not be sounder (a save that only clears cells
+leaves none).
 
 ### Accepted limits
 
