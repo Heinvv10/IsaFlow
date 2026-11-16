@@ -1,0 +1,45 @@
+{
+  "id": "weekly-1250-below-threshold",
+  "source": "sars-guide:SARS PAYE-GEN-01-G01-A01 Weekly Tax Deduction Tables 2027, Revision 0, p. 1; SARS PAYE-GEN-01-G21 Guide for Employers iro Employees Tax 2027, Revision 1 p. 13",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Docs/PAYE/Tables/tables2026/PAYE-GEN-01-G01-A01-Weekly-Tax-Deduction-Tables-2027-External-Annexure.pdf",
+  "notes": "Weekly R1 250, under 65, week Mon 2 - Sun 8 March 2026. Weekly table row R1 246 - R1 261 (annual equivalent R65 182 = band x 52): PAYE R0, below the R99 000 threshold (G21 p. 4) on any annualisation. UIF 1% = 12.50 each side (G21 p. 13); SDL 1% = 12.50; net 1 250 - 12.50 = 1 237.50.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3,
+      "frequency": "weekly",
+      "periodStart": "2026-03-02",
+      "periodEnd": "2026-03-08",
+      "runKind": "regular"
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 1250,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ]
+  },
+  "expected": {
+    "paye": 0,
+    "uifEmployee": 12.5,
+    "uifEmployer": 12.5,
+    "sdl": 12.5,
+    "net": 1237.5
+  }
+}

@@ -158,6 +158,12 @@ describe('arSubLedgerCheck — point in time', () => {
     expect(item.key).toBe('ar_ties');
   });
 
+  it.each([['55P03'], ['40P01']])('a busy row (%s) is NOT "Could not compute": it is rethrown, so the close answers 503 retry', async (code) => {
+    const busy = Object.assign(new Error('canceling statement due to lock timeout'), { code });
+    mockReconcile.mockRejectedValueOnce(busy);
+    await expect(arSubLedgerCheck(COMPANY_A, { endDate: '2025-07-31' })).rejects.toBe(busy);
+  });
+
   it('warns "Could not compute" when there are open documents but no control account', async () => {
     mockReconcile.mockResolvedValueOnce(rec({ subledgerTotal: 800, controlAccountBalance: null, difference: null }));
     const item = await arSubLedgerCheck(COMPANY_A, { endDate: '2025-07-31' });

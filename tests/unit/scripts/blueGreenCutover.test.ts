@@ -6,6 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs';
+import { execFileSync } from 'child_process';
 import { join } from 'path';
 import { Box } from './blueGreenHarness';
 
@@ -34,7 +35,7 @@ async function box(hour = '19') {
   writeFileSync(b.path('old-active'), '');
   mkdirSync(b.path('stage'));
   b.stub('date', `case "$1" in +%u) echo 2;; +%H) echo ${hour};; esac`);
-  b.stub('ss', `[ -f "${b.root}/old-active" ] && [[ "$*" == *3101* ]] && echo "LISTEN 0 511 *:3101 *:*"; true`);
+  b.stub('ss', ssStub(b.root));
   const url = `http://127.0.0.1:${front}`;
   Object.assign(b.env, {
     BG_PORTS: `${A} 3112`, BG_FRONT_URL: url, BG_PUBLIC_HEALTH: `http://127.0.0.1:${port80}/api/health`, CUTOVER_SITE: b.path('site'),
@@ -44,7 +45,22 @@ async function box(hour = '19') {
   });
   return { A, front };
 }
+/**
+ * The stub `ss`: while isaflow.service is "running" it listens on :3101. Matched as a whole port: a colour's port comes
+ * from the OS, and `*3101*` also matched :43101 (CI run 43774233858: "isaflow@43101 still has connections").
+ */
+const ssStub = (root: string) => `[ -f "${root}/old-active" ] && [[ "$*" =~ :3101($|[^0-9]) ]] && echo "LISTEN 0 511 *:3101 *:*"; true`;
 const cutover = (args = '', env: Record<string, string> = {}) => b.bash(`bash scripts/deploy/cutover.sh ${args}`, env);
+
+describe('the stub ss', () => {
+  it('answers for port 3101 only, never for a colour port that merely ends in 3101', async () => {
+    await box();
+    const ask = (...args: string[]) => execFileSync('bash', ['-c', ssStub(b.root), 'ss', ...args], { encoding: 'utf8' });
+    expect(ask('-Hltn', 'sport = :3101')).toContain('LISTEN');
+    expect(ask('-Htn', 'state', 'established', '( sport = :3101 )')).toContain('LISTEN');
+    for (const port of [43101, 23101, 33101, 31010]) expect(ask('-Htn', 'state', 'established', `( sport = :${port} )`)).toBe('');
+  });
+});
 
 describe('cutover.sh', () => {
   it('without CUTOVER_CONFIRM it shows the change and changes nothing, at any hour; the cutover itself is after hours only', async () => {

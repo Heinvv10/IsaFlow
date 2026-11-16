@@ -115,4 +115,22 @@ describe('year-end page success message', () => {
     await clickClose();
     expect(await screen.findByText(/reversed, not posted/i)).toBeTruthy();
   });
+
+  it('a close the period checks refuse lists each period and failing check with its Fix link (B1)', async () => {
+    const BANK = { key: 'bank_reconciled', label: 'Bank reconciled', reason: '1 unreconciled bank transaction remains in this period.', fixHref: '/accounting/bank-transactions' };
+    vi.mocked(apiFetch).mockImplementation(async (url, init) =>
+      (init?.method === 'POST'
+        ? new Response(JSON.stringify({ success: false, error: { code: 'CONFLICT', message: 'Fiscal year 2025 cannot be locked',
+          details: { code: 'PERIOD_CLOSE_NOT_READY', fiscalYear: 2025, periods: [{ periodId: 'p3', periodName: 'March 2025', blockers: [BANK] }] } } }),
+        { status: 409 })
+        : String(url).includes('preview=')
+          ? new Response(JSON.stringify({ data: PREVIEW }), { status: 200 })
+          : new Response(JSON.stringify({ data: { years: [YEAR] } }), { status: 200 })));
+    await clickClose();
+    const panel = await screen.findByTestId('close-refusal');
+    expect(within(panel).getByText('March 2025')).toBeTruthy();
+    expect(within(panel).getByText(BANK.reason)).toBeTruthy();
+    expect(within(panel).getByRole('link', { name: 'Fix' }).getAttribute('href')).toBe(BANK.fixHref);
+    expect(screen.queryByText('Could not run year-end processing - try again')).toBeNull();
+  });
 });
