@@ -5,7 +5,9 @@
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { BankTxBankCards, type BankAcct } from '@/components/accounting/bank-transactions/BankTxBankCards';
+import { BankTxBankCards } from '@/components/accounting/bank-transactions/BankTxBankCards';
+import { summaryAcct } from '../helpers/bankSummaryFixture';
+import type { BankAccountSummary } from '@/modules/accounting/services/bank/bankAccountSummaryService';
 
 const apiFetch = vi.fn();
 const notify = { success: vi.fn(), error: vi.fn() };
@@ -13,7 +15,7 @@ vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib
 vi.mock('@/utils/toast', () => ({ notify: { success: (m: string) => notify.success(m), error: (m: string) => notify.error(m) } }));
 let company = 'co-1';
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: company }, companyRole: 'owner' }) }));
-vi.mock('@/components/accounting/StatementBalanceWidget', () => ({ StatementBalanceWidget: () => null }));
+vi.mock('@/components/accounting/bank-transactions/BankStatementPanel', () => ({ BankStatementPanel: () => null }));
 // The row's real DndContext, with its onDragEnd captured so a test can drop a card without pointer geometry.
 let dragEnd: ((e: { active: { id: string }; over: { id: string } | null }) => void) | null = null;
 vi.mock('@dnd-kit/core', async (orig) => {
@@ -25,11 +27,8 @@ vi.mock('@dnd-kit/core', async (orig) => {
   } };
 });
 
-const acct = (id: string, name: string, group?: string): BankAcct => ({
-  id, accountCode: id, accountName: name, balance: 0, reconciledBalance: 0, unreconciledBalance: 0,
-  unreconciledCount: 0, allocatedCount: 0, unallocatedCount: 0, lastDate: '2026-10-20',
-  ...(group ? { groupId: group, groupName: `Group ${group}` } : {}),
-});
+const acct = (id: string, name: string, group?: string): BankAccountSummary =>
+  summaryAcct(id, { accountName: name, ...(group ? { groupId: group, groupName: `Group ${group}` } : {}) });
 const accounts = [acct('p1', 'Main'), acct('p2', 'Savings'), acct('c1', 'Card 1', 'g1'), acct('c2', 'Card 2', 'g1')];
 const json = (data: unknown, status = 200) => new Response(JSON.stringify({ success: status < 400, data, error: { message: 'refused' } }), { status });
 
@@ -49,7 +48,7 @@ const slotKeys = () => screen.getAllByTestId('bank-card-slot').map(e => e.getAtt
 const puts = () => apiFetch.mock.calls.filter(c => (c[1] as RequestInit | undefined)?.method === 'PUT')
   .map(c => JSON.parse((c[1] as RequestInit).body as string).preferences['bank_card_order:co-1'] as string);
 const ui = (onSelectBank = vi.fn(), list = accounts) => (
-  <BankTxBankCards bankAccounts={list} selectedBank="p1" tab="new" total={0} onSelectBank={onSelectBank} onAccountsChanged={vi.fn()} />);
+  <BankTxBankCards bankAccounts={list} selectedBank="p1" shown={null} onSelectBank={onSelectBank} onAccountsChanged={vi.fn()} onShowProvisional={vi.fn()} />);
 const view = () => {
   const onSelectBank = vi.fn();
   const r = render(ui(onSelectBank));

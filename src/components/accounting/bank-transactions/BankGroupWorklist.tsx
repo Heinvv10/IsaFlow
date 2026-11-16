@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Search, Upload } from 'lucide-react';
-import { formatCurrency as fmtCurrency } from '@/utils/formatters';
+import { fmtCents } from './bankCents';
 import { todayInSast } from '@/lib/saDateParser';
 import { Select, type SelectOption } from '@/components/ui/Select';
 import type { BankAccountGroup } from './groupBankAccounts';
@@ -24,14 +24,14 @@ interface Props {
 
 const CHIPS: { id: WorklistFilter; label: string }[] = [
   { id: 'all', label: 'All' },
-  { id: 'open', label: 'Open' },
+  { id: 'open', label: 'To code' },
   { id: 'stale', label: `Stale >${STALE_DAYS}d` },
   { id: 'none', label: 'No statements' },
 ];
 const SORT_OPTIONS: SelectOption[] = [
   { value: 'attention', label: 'Attention' },
   { value: 'name', label: 'Name' },
-  { value: 'balance', label: 'Balance' },
+  { value: 'balance', label: 'Ledger' },
 ];
 
 const amountClass = (n: number) => (n >= 0 ? 'text-teal-700 dark:text-teal-400' : 'text-red-700 dark:text-red-300');
@@ -59,10 +59,10 @@ export function BankGroupWorklist({ group, selectedBank, onSelectBank }: Props) 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 border-b border-[var(--ff-border-light)] text-xs">
         <span className="font-semibold text-sm text-[var(--ff-text-primary)]">{group.groupName}</span>
         <span className="text-[var(--ff-text-secondary)]">
-          Total <span className={`tabular-nums font-semibold ${amountClass(summary.balance)}`}>{fmtCurrency(summary.balance)}</span>
+          Ledger <span className={`tabular-nums font-semibold ${amountClass(summary.ledgerCents)}`}>{fmtCents(summary.ledgerCents)}</span>
         </span>
         <span className="text-[var(--ff-text-secondary)]" data-testid="bank-group-open-total">
-          <span className="tabular-nums font-semibold text-amber-800 dark:text-amber-400">{summary.open}</span> open
+          <span className="tabular-nums font-semibold text-amber-800 dark:text-amber-400">{summary.open}</span> to code
         </span>
         <span className="text-[var(--ff-text-secondary)]">
           <span className="tabular-nums font-semibold text-[var(--ff-text-primary)]">{summary.stale}</span> stale
@@ -102,18 +102,19 @@ export function BankGroupWorklist({ group, selectedBank, onSelectBank }: Props) 
           const stale = isStale(a.lastDate, today);
           return (
             <div key={a.id} data-testid="bank-group-row"
-              className={`flex items-center gap-3 px-3 py-2 text-sm ${active ? 'bg-teal-500/10' : 'hover:bg-[var(--ff-bg-secondary)]'}`}>
+              className={`flex items-center gap-3 px-3 py-2 text-sm ${active ? 'bg-teal-500/10' : 'hover:bg-[var(--ff-bg-secondary)]'} ${a.isActive ? '' : 'opacity-70'}`}>
               <button onClick={() => onSelectBank(a.id)} aria-current={active ? 'true' : undefined}
                 className="flex-1 flex items-center gap-3 text-left min-w-0">
+                {!a.isActive && <span data-testid="row-inactive-chip" className="shrink-0 rounded-full bg-[var(--ff-bg-tertiary)] px-2 py-0.5 text-xs text-[var(--ff-text-secondary)]">Inactive</span>}
                 <span className={`truncate ${active ? 'text-teal-700 dark:text-teal-400 font-semibold' : 'text-[var(--ff-text-primary)]'}`}>
                   {a.accountName}
                 </span>
                 <span className="text-xs font-id text-[var(--ff-text-tertiary)] shrink-0">{a.accountCode}</span>
               </button>
-              <span className={`tabular-nums text-xs shrink-0 ${amountClass(a.balance)}`}>{fmtCurrency(a.balance)}</span>
-              <span data-testid="bank-group-row-open" title="Unallocated transactions"
-                className={`text-xs tabular-nums shrink-0 w-14 text-right ${a.unallocatedCount > 0 ? 'text-amber-800 dark:text-amber-400 font-semibold' : 'text-[var(--ff-text-tertiary)]'}`}>
-                {a.unallocatedCount} open
+              <span title={`Ledger balance as at ${a.ledgerAsAt}`} className={`tabular-nums text-xs shrink-0 ${amountClass(a.ledgerCents)}`}>Ledger {fmtCents(a.ledgerCents)}</span>
+              <span data-testid="bank-group-row-open" title="Lines still to code (suggested + unallocated)"
+                className={`text-xs tabular-nums shrink-0 w-20 text-right ${a.counts.toCode > 0 ? 'text-amber-800 dark:text-amber-400 font-semibold' : 'text-[var(--ff-text-tertiary)]'}`}>
+                {a.counts.toCode} to code
               </span>
               <span title="Last imported transaction"
                 className={`text-xs shrink-0 w-28 text-right ${stale ? 'text-amber-800 dark:text-amber-400' : 'text-[var(--ff-text-tertiary)]'}`}>
