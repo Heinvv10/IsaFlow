@@ -195,6 +195,15 @@ describe('judged by what the final lines paid, not by today\'s assignments', () 
     // A 3801 paid as cash (unflagged): inside gross_pay and so in 3601.
     ids.cashFringe = await employee(r.company, 'PV-CASHFRINGE', GOOD_TAX, GOOD_ID);
     await paidLine(ids.cashFringe!, 7, 2027, 320000, 0, [{ sarsSourceCode: '3601', amount: 300000 }, { sarsSourceCode: '3801', amount: 20000 }]);
+    // A 3901 paid in one month and reversed in the next: nets to nil, so it was not paid (no severance warning).
+    ids.reversed = await employee(r.company, 'PV-REVERSED', GOOD_TAX, GOOD_ID);
+    await paidLine(ids.reversed!, 9, 2027, 800000, 0, [{ sarsSourceCode: '3601', amount: 300000 }, { sarsSourceCode: '3901', amount: 500000 }]);
+    await paidLine(ids.reversed!, 10, 2027, -200000, 0, [{ sarsSourceCode: '3601', amount: 300000 }, { sarsSourceCode: '3901', amount: -500000 }]);
+    // Non-cash floored per code: a 3802 that nets to -R500 does not cancel R400 of 3801; remuneration counts R400.
+    // (Paid only non-cash, gross 0: with a whole-total floor the R400 - R500 = nil would read as "no payroll".)
+    ids.perCode = await employee(r.company, 'PV-PERCODE', GOOD_TAX, GOOD_ID);
+    await paidLine(ids.perCode!, 11, 2027, 0, 0, [
+      { sarsSourceCode: '3801', amount: 400, isNonCash: true }, { sarsSourceCode: '3802', amount: -500, isNonCash: true }]);
     // A nil final line: the engine says only "no payroll" (info), which is not an issue.
     ids.nil = await employee(r.company, 'PV-NIL', GOOD_TAX, GOOD_ID);
     await paidLine(ids.nil!, 8, 2027, 0, 0, []);
@@ -216,10 +225,19 @@ describe('judged by what the final lines paid, not by today\'s assignments', () 
     const data = await answer({ taxYear: String(PAID_YEAR) });
     expect(codesOf(data, ids.cashFringe!)).toContain('IRP5_3801_PAID_IN_CASH');
   });
+  it('a 3901 paid and reversed (nets to nil) raises no severance warning', async () => {
+    const data = await answer({ taxYear: String(PAID_YEAR) });
+    expect(codesOf(data, ids.reversed!)).toEqual([]);
+  });
+  it('non-cash is floored per code: R400 of 3801 beside a -R500 3802 still counts, so the codes are checked', async () => {
+    const data = await answer({ taxYear: String(PAID_YEAR) });
+    // 3801 and 3802 are not in this year's list: the code checks ran (remuneration R400 > 0), not the "no payroll" exit.
+    expect(codesOf(data, ids.perCode!)).toEqual(['IRP5_UNKNOWN_CODE', 'IRP5_UNKNOWN_CODE']);
+  });
   it('info-only lines are neither listed nor counted (a nil line says only "no payroll")', async () => {
     const data = await answer({ taxYear: String(PAID_YEAR) });
     expect(data.employees.map((e) => e.employeeId)).not.toContain(ids.nil);
-    expect(data.employeesChecked).toBe(5);
+    expect(data.employeesChecked).toBe(7);
     for (const e of data.employees) expect(e.issues.every((i) => i.severity !== 'info')).toBe(true);
   });
 });
