@@ -9,13 +9,13 @@ import { AuthUpstreamUnavailableError } from './authUpstream';
  * exists. An account without one is a placeholder (POST /api/invitations' adminCreateUser, a pending signup): the
  * anonymous accept sets its password, so whoever holds the invitation link takes it. Judged here once for the accept
  * (pages/api/invitations/[token]/accept.ts) and for an admin's deleteUser, which counts only an established holder of
- * the deleted row's address as someone else (deletedUserInvitations.ts). `rows` runs one parameterised query on the
- * caller's connection and resolves its rows.
+ * the deleted row's address as someone else (deletedUserInvitations.ts). `db` is the caller's connection (a pg client,
+ * or anything with its `query(text, params)` shape).
  */
 export async function isEstablishedAccount(
-  rows: (text: string, params: unknown[]) => Promise<ArrayLike<unknown>>, accountId: string,
+  db: { query(text: string, params: unknown[]): Promise<{ rows: unknown[] }> }, accountId: string,
 ): Promise<boolean> {
-  return (await rows('SELECT id FROM users WHERE id = $1 LIMIT 1', [accountId])).length > 0;
+  return (await db.query('SELECT id FROM users WHERE id = $1 LIMIT 1', [accountId])).rows.length > 0;
 }
 
 /** The strength floor for a password being SET; the same 10 that register.ts and do-reset-password.ts apply. */

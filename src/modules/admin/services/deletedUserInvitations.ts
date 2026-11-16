@@ -44,6 +44,9 @@ export async function ownedGotrueAccount(userId: string): Promise<OwnedGotrueAcc
   return account === null ? null : { email: account.email || null };
 }
 
+/** The request transaction (`sql`, the admin portal's platform_admin connection) in the shape isEstablishedAccount reads. */
+const requestDb = { query: async (text: string, params: unknown[]) => ({ rows: await sql.query(text, params) }) };
+
 /** An address as both accept routes and 997b compare it: JavaScript trim, then lower case. */
 const normalised = (email: string | null | undefined): string => (email ?? '').trim().toLowerCase();
 
@@ -76,7 +79,7 @@ export async function deletedUserIdentity(userId: string, rowEmail: string): Pro
   // Only an established holder makes the address someone else's: a placeholder's password is set by whoever accepts
   // the invitation, the deleted user included if they read that mailbox (round-6 breaker R6-1).
   const elsewhere = holder !== null && holder.id !== userId
-    && await isEstablishedAccount((text, params) => sql.query(text, params), holder.id);
+    && await isEstablishedAccount(requestDb, holder.id);
   return { account, rowEmail, rowEmailHeldElsewhere: elsewhere };
 }
 
