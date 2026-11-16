@@ -2,7 +2,9 @@
  * Week overrides of the 13-week forecast (cash_forecast_overrides, migration 999i). One override per
  * (company, line key, week): a save UPSERTS on that key (a second save of the same cell replaces the
  * first, never a 409; a save that changes nothing writes nothing). At most MAX_OVERRIDES per company (409 on
- * a new cell). Listed in application order, the last edit last (updated_at, id). Deletes by id. Every write runs in the request transaction, refuses a Login-as
+ * a new cell). Listed in application order (applied_at, id): the trigger moves a cell to the end only when its
+ * mode, amount or target changes, so a note-only edit keeps its place. An override on a 'manual:<id>' line needs
+ * that item to exist for the company (404), checked FOR SHARE so a concurrent delete waits. Deletes by id. Every write runs in the request transaction, refuses a Login-as
  * session first, and writes one audit row (entity_type 'cash_forecast_override') with the old and new
  * values. The table's trigger stamps who and when.
  */
@@ -14,6 +16,19 @@ import { logAuditOrThrow, type AuditFieldChange } from '../core/auditTrailServic
 import { CashForecastLimitError, CashForecastNotFoundError } from './storeErrors';
 import type { OverrideInput } from './storeSchemas';
 import { MAX_OVERRIDES, type ForecastOverride, type OverrideMode } from './storeTypes';
+import { isUuidParam } from '@/lib/validation';
+
+const MANUAL_PREFIX = 'manual:';
+
+/** A 'manual:<id>' line belongs to an item of the company; the row lock holds it until the tx ends. */
+async function assertManualLine(companyId: string, lineKey: string): Promise<void> {
+  if (!lineKey.startsWith(MANUAL_PREFIX)) return;
+  const id = lineKey.slice(MANUAL_PREFIX.length);
+  const rows = isUuidParam(id)
+    ? (await sql`SELECT 1 FROM cash_forecast_items WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID FOR SHARE`) as DbRow[]
+    : [];
+  if (rows.length === 0) throw new CashForecastNotFoundError('No such cash forecast item for this line');
+}
 
 export interface StoredOverride extends ForecastOverride { id: string; note: string | null; createdAt: string; updatedAt: string }
 
@@ -39,7 +54,7 @@ const COLUMNS = sql`id, line_key, week_start::text AS week_start, mode, amount, 
 
 export async function listOverrides(companyId: string): Promise<StoredOverride[]> {
   const rows = (await sql`
-    SELECT ${COLUMNS} FROM cash_forecast_overrides WHERE company_id = ${companyId}::UUID ORDER BY updated_at, id
+    SELECT ${COLUMNS} FROM cash_forecast_overrides WHERE company_id = ${companyId}::UUID ORDER BY applied_at, id
   `) as DbRow[];
   return rows.map(toOverride);
 }
@@ -62,6 +77,7 @@ export async function saveOverride(companyId: string, userId: string, input: Ove
   await assertNotImpersonating();
   // One saver per company at a time (to the end of the request tx), so two new cells at the cap cannot both pass.
   await sql`SELECT pg_advisory_xact_lock(hashtextextended('cash_forecast_overrides:' || ${companyId}::uuid::text, 0))`;
+  await assertManualLine(companyId, input.lineKey);
   const prior = (await sql`
     SELECT ${COLUMNS} FROM cash_forecast_overrides
      WHERE company_id = ${companyId}::UUID AND line_key = ${input.lineKey} AND week_start = ${input.weekStart}::DATE

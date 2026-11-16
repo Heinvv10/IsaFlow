@@ -230,6 +230,53 @@ describe('override order: the last edit wins', () => {
   });
 });
 
+describe('a note-only re-save keeps the application order (M2)', () => {
+  /** The engine's set / whole-cell move_to, stubbed on one line's cells (rand): only the ORDER is under test. */
+  const apply = (cells: Record<string, number>, list: StoredOverride[]) => {
+    const c = { ...cells };
+    for (const o of list) {
+      if (o.mode === 'set') c[o.weekStart] = o.amount ?? 0;
+      if (o.mode === 'move_to' && o.targetWeekStart) {
+        const moved = o.amount === null ? (c[o.weekStart] ?? 0) : Math.sign(c[o.weekStart] ?? 0) * o.amount;
+        c[o.weekStart] = (c[o.weekStart] ?? 0) - moved;
+        c[o.targetWeekStart] = (c[o.targetWeekStart] ?? 0) + moved;
+      }
+    }
+    return c;
+  };
+
+  it('set w3 -100000, move w2 -> w3 whole: -120000; a note-only re-save of the set leaves it -120000', async () => {
+    const put = (b: Record<string, unknown>) => overrides.call(a, 'PUT', { lineKey: 'ap:s2', ...b });
+    const setBody = { weekStart: monday(3), mode: 'set', amount: -100000 };
+    expect((await put(setBody)).status).toBe(200);
+    expect((await put({ weekStart: monday(2), mode: 'move_to', amount: null, targetWeekStart: monday(3) })).status).toBe(200);
+    const cells = { [monday(2)]: -20000, [monday(3)]: -50000 };
+    const list = async () => (await overrides.call(a, 'GET')).body.data!.overrides as StoredOverride[];
+    expect(apply(cells, await list())[monday(3)]).toBe(-120000);
+    const out = await put({ ...setBody, note: 'confirmed with supplier' });
+    expect(out.body.data).toMatchObject({ created: false, override: { note: 'confirmed with supplier' } });
+    const after = await list();
+    expect(after.map((o) => o.mode)).toEqual(['set', 'move_to']);
+    expect(apply(cells, after)[monday(3)]).toBe(-120000);
+    // The note change is still audited.
+    expect((await audit('cash_forecast_override')).map((r) => r.action)).toEqual(['create', 'create', 'update']);
+    await clear();
+  });
+});
+
+describe("an override on a manual item's line (L8)", () => {
+  it("needs the item to exist for the company: 404 otherwise, nothing written", async () => {
+    const id = String((await items.call(a, 'POST', ITEM)).body.data!.id);
+    const body = { weekStart: monday(1), mode: 'set', amount: -50 };
+    expect((await overrides.call(a, 'PUT', { ...body, lineKey: `manual:${id}` })).status).toBe(200);
+    expect((await overrides.call(a, 'PUT', { ...body, lineKey: `manual:${crypto.randomUUID()}` })).status).toBe(404);
+    expect((await overrides.call(a, 'PUT', { ...body, lineKey: 'manual:not-a-uuid' })).status).toBe(404);
+    expect((await pool.query('SELECT line_key FROM cash_forecast_overrides WHERE company_id = $1', [co()])).rows)
+      .toEqual([{ line_key: `manual:${id}` }]);
+    await clear();
+  });
+});
+
 describe('pay day not chosen', () => {
   it('a settings row with only 999a columns reads as the default (day 25, isDefault)', async () => {
     await seedAs('INSERT INTO payroll_company_settings (company_id, pay_weekday) VALUES ($1, 4)', [co()]);

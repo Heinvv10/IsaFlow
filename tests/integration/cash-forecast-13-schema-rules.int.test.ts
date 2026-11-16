@@ -121,6 +121,48 @@ describe('999i: override rules', () => {
   });
 });
 
+describe('999i: override applied_at (application order)', () => {
+  const at = async (q: import('pg').PoolClient, id: string) =>
+    String((await q.query('SELECT applied_at::text AS t FROM cash_forecast_overrides WHERE id = $1', [id])).rows[0].t);
+
+  it('app_user cannot send applied_at', async () => {
+    await as(A, async (q) => {
+      expect(await codeOf(q, `INSERT INTO cash_forecast_overrides (company_id, line_key, week_start, mode, amount, applied_at)
+                              VALUES ($1, 'k', '2026-11-16', 'set', 1, '2020-01-01')`, [A.id])).toBe('42501');
+      const id = String((await q.query(OVR, ovr(A.id))).rows[0].id);
+      expect(await codeOf(q, "UPDATE cash_forecast_overrides SET applied_at = '2020-01-01' WHERE id = $1", [id])).toBe('42501');
+    });
+  });
+
+  it('a privileged writer forging applied_at is overwritten on insert and on a figure change', async () => {
+    await as(A, async (q) => {
+      await q.query('RESET ROLE');
+      const r = (await q.query(`INSERT INTO cash_forecast_overrides (company_id, line_key, week_start, mode, amount, applied_at)
+                                VALUES ($1, 'k', '2026-11-16', 'set', 1, '2020-01-01') RETURNING id, applied_at`, [A.id])).rows[0];
+      expect(new Date(r.applied_at).getUTCFullYear()).toBeGreaterThan(2020);
+      const u = (await q.query("UPDATE cash_forecast_overrides SET amount = 2, applied_at = '2020-01-01' WHERE id = $1 RETURNING applied_at", [r.id])).rows[0];
+      expect(new Date(u.applied_at).getUTCFullYear()).toBeGreaterThan(2020);
+      const n = (await q.query("UPDATE cash_forecast_overrides SET note = 'n', applied_at = '2020-01-01' WHERE id = $1 RETURNING applied_at", [r.id])).rows[0];
+      expect(new Date(n.applied_at).toISOString()).toBe(new Date(u.applied_at).toISOString());
+    });
+  });
+
+  it.each([
+    ['mode and amount', "mode = 'add', amount = 5", true],
+    ['amount', 'amount = 7', true],
+    ['target', "mode = 'move_to', amount = NULL, target_week_start = '2026-11-23'", true],
+    ['note only', "note = 'why'", false],
+    ['nothing (same values)', 'amount = amount', false],
+  ])('an UPDATE of %s restamps applied_at: %s', async (_n, set, restamps) => {
+    await as(A, async (q) => {
+      const id = String((await q.query(OVR, ovr(A.id, { amount: 3 }))).rows[0].id);
+      const before = await at(q, id);
+      await q.query(`UPDATE cash_forecast_overrides SET ${set} WHERE id = $1`, [id]);
+      expect((await at(q, id)) !== before).toBe(restamps);
+    });
+  });
+});
+
 describe('999i: re-run', () => {
   it('the file applies a second time over existing rows and leaves the rules in place', async () => {
     const file = readFileSync(join(process.cwd(), 'scripts/migrations/sql/999i_cash_forecast_13.sql'), 'utf8');

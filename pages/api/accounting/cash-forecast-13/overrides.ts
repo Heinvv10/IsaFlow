@@ -1,7 +1,9 @@
 /**
  * 13-week cash forecast: week overrides (migration 999i, service cashForecast13/overridesRepo).
  * GET                    → { overrides }: every override of the company, in the order the engine applies them
- *                          (created_at, id; an upsert keeps its creation time). Any member.
+ *                          (applied_at, id: a cell moves to the end only when its mode, amount or target
+ *                          changes; a note-only edit keeps its place). Any member.
+ *        An override on a 'manual:<id>' line needs that item to exist for the company (404).
  * PUT    { lineKey, weekStart, mode, amount, targetWeekStart?, note? } → 200 { override, created }
  *        UPSERT on (lineKey, weekStart): a second save of a cell replaces the first (never 409).
  *        weekStart / targetWeekStart are Mondays; set/add amounts are signed in the line's own sign

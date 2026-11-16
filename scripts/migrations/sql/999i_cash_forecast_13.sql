@@ -17,7 +17,7 @@
 --     optional GL account of the company. Dates lie in 2000-01-01..2100-12-31. Forecasts, so edits and deletes are allowed (each audited by
 --     the service in the request transaction).
 --   cash_forecast_overrides  a user's change to one forecast line in one week:
---     line_key           the engine's stable key ('ar:customer:<id>', 'payroll:net', 'item:<id>', ...);
+--     line_key           the engine's stable key ('ap:<supplierId>', 'payroll:net', 'manual:<itemId>', ...);
 --     week_start         a Monday (2000-01-01..2100-12-31, as target_week_start);
 --     mode / amount      amounts of set/add are SIGNED in the line's own sign (a payment cell is negative;
 --                        the UI sends the sign from the line, the override does not know it):
@@ -26,6 +26,9 @@
 --                        move_to: amount (a magnitude, > 0) of the week's figure moves to target_week_start,
 --                        or NULL = the whole cell moves;
 --     target_week_start  move_to only (required there, NULL otherwise), a Monday, not week_start.
+--     applied_at         the order the engine applies overrides in (ORDER BY applied_at, id): set on insert,
+--                        restamped by the trigger ONLY when mode, amount or target_week_start change, so a
+--                        note-only edit keeps a cell's place. Never granted, never forgeable.
 --     One override per (company, line, week): the service upserts on that key.
 --
 -- RULES IN THE DATABASE.
@@ -38,6 +41,8 @@
 --     and an UPDATE keeps the creation stamps and the company. ENABLE ALWAYS.
 --   - Column privileges: app_user never writes id or a stamp, and never UPDATEs company_id.
 --   - The service pool reaches the tables through 915's mirrors (app_service_sync_policies).
+--   - payroll_company_settings' stamp trigger refuses a NULL auth.uid() for EVERY role (ENABLE ALWAYS): a
+--     backfill must set request.jwt.claims, or disable trg_payroll_company_settings_stamp inside its own migration.
 --
 -- Every function here is SECURITY INVOKER: no app_definer_reviews row (930). Safe to re-run.
 --
@@ -46,6 +51,7 @@
 --   DROP TABLE IF EXISTS public.cash_forecast_items;
 --   DROP FUNCTION IF EXISTS public.cash_forecast_stamp();
 --   DROP FUNCTION IF EXISTS public.cash_forecast_items_check_account();
+--   DROP FUNCTION IF EXISTS public.cash_forecast_overrides_applied_at();
 --   DROP TRIGGER IF EXISTS trg_payroll_company_settings_stamp ON public.payroll_company_settings;
 --   DROP FUNCTION IF EXISTS public.payroll_company_settings_stamp();
 --   GRANT INSERT (updated_by) ON public.payroll_company_settings TO app_user;
@@ -228,7 +234,8 @@ CREATE TABLE IF NOT EXISTS public.cash_forecast_overrides (
   created_by TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_by TEXT NOT NULL,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE public.cash_forecast_overrides DROP CONSTRAINT IF EXISTS cash_forecast_overrides_line_key_check;
 ALTER TABLE public.cash_forecast_overrides ADD CONSTRAINT cash_forecast_overrides_line_key_check
@@ -262,6 +269,30 @@ DROP TRIGGER IF EXISTS trg_cash_forecast_overrides_stamp ON public.cash_forecast
 CREATE TRIGGER trg_cash_forecast_overrides_stamp BEFORE INSERT OR UPDATE ON public.cash_forecast_overrides
   FOR EACH ROW EXECUTE FUNCTION public.cash_forecast_stamp();
 ALTER TABLE public.cash_forecast_overrides ENABLE ALWAYS TRIGGER trg_cash_forecast_overrides_stamp;
+
+-- The application order: a new figure (mode, amount or target) moves the override to the end; anything else
+-- (a note, a no-op) keeps OLD.applied_at, whatever the writer sent.
+CREATE OR REPLACE FUNCTION public.cash_forecast_overrides_applied_at()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT'
+     OR (NEW.mode, NEW.amount, NEW.target_week_start) IS DISTINCT FROM (OLD.mode, OLD.amount, OLD.target_week_start) THEN
+    NEW.applied_at := clock_timestamp();
+  ELSE
+    NEW.applied_at := OLD.applied_at;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.cash_forecast_overrides_applied_at() FROM PUBLIC;
+DROP TRIGGER IF EXISTS trg_cash_forecast_overrides_applied_at ON public.cash_forecast_overrides;
+CREATE TRIGGER trg_cash_forecast_overrides_applied_at BEFORE INSERT OR UPDATE ON public.cash_forecast_overrides
+  FOR EACH ROW EXECUTE FUNCTION public.cash_forecast_overrides_applied_at();
+ALTER TABLE public.cash_forecast_overrides ENABLE ALWAYS TRIGGER trg_cash_forecast_overrides_applied_at;
 
 ALTER TABLE public.cash_forecast_overrides ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cash_forecast_overrides FORCE ROW LEVEL SECURITY;

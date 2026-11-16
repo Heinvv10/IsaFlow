@@ -10,7 +10,7 @@
  *   - An override's weekIndex counts Mondays from the horizon's first Monday (the Monday of `today`'s week,
  *     as buildWeeks does); a week before it (scrolled into the past) or past week 13 is dropped.
  *   - Overrides keep the order they arrive in: the repo lists them in application order, the last edit last
- *     (ORDER BY updated_at, id in the database). Never re-sorted here: ISO strings hold milliseconds only, the
+ *     (ORDER BY applied_at, id in the database; a note-only edit keeps its place). Never re-sorted here: ISO strings hold milliseconds only, the
  *     database's microseconds would tie and reorder.
  *   - set/add amounts are stored in the line's own sign and pass through. A move_to amount is stored as a
  *     magnitude (> 0) and passes through positive; null = the whole cell. The engine applies a move_to

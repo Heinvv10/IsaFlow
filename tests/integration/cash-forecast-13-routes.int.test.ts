@@ -186,7 +186,7 @@ describe('overrides', () => {
     expect(await count('cash_forecast_overrides', a.homeCompanyId)).toBe(0);
     expect((await audit(a.homeCompanyId, 'cash_forecast_override')).map((r) => r.action)).toEqual(['create', 'update', 'delete']);
   });
-  it('GET lists in the order the engine applies them (updated_at, id), not by week or key', async () => {
+  it('GET lists in the order the engine applies them (applied_at, id), not by week or key', async () => {
     // Three rows whose creation order differs from week order (either way) and from key order.
     for (const [lineKey, weekStart] of [['m:o', '2026-11-30'], ['z:o', '2026-11-16'], ['a:o', '2026-11-23']]) {
       expect((await overrides.call(a, 'PUT', { ...OVR, lineKey, weekStart })).status).toBe(200);

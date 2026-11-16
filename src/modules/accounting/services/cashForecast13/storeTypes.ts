@@ -13,7 +13,7 @@
 export type OverrideMode = 'set' | 'add' | 'move_to';
 
 export interface ForecastOverride {
-  /** The engine's stable line key, e.g. 'ar:customer:<id>', 'payroll:net', 'sars:VAT201:<period_end>', 'item:<id>'. */
+  /** The engine's stable line key, e.g. 'ar:<customerId>:due', 'ap:<supplierId>', 'payroll:net', 'sars:vat201', 'manual:<itemId>'. */
   lineKey: string;
   /** A Monday. Overrides for past weeks are kept and ignored by the engine. */
   weekStart: string;
