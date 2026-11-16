@@ -120,8 +120,7 @@ describeIfDb('ledger dates outside 1900..2199 are refused; every form base took 
     expect(days.map((d) => d.d)).toEqual(bankForms.map(() => '2025-03-31'));
   }, 60000);
 
-  // The classified import's INSERT fails on this fixture's schema (suggested_cost_centre, before and after this
-  // change), so its window is pinned at the refusal, which comes first: a base form passes it, 0001 does not.
+  // Its window is pinned at the refusal, which comes first: a base form passes it, 0001 does not.
   it('brk F1: the classified import refuses 0001-06-01 (422) and lets 2025-3-31 through its window', async () => {
     const send = (d: string) => callRoute(c.fx, token, classifiedTx, { bankAccountId: c.fx.bankAccountId,
       transactions: [{ transactionDate: d, description: `NRDWF classified ${d}`, debit: 3 }] });

@@ -37,10 +37,6 @@ const sha = (bytes: string | Buffer) => createHash('sha256').update(bytes).diges
 const csv = (tag: string) => ['Date,Description,Amount', `2026-09-02,BC ${tag} ONE,-120.00`, `2026-09-03,BC ${tag} TWO,450.00`].join('\n');
 
 beforeAll(async () => {
-  // PRE-EXISTING DEFECT, not this slice's: import-classified writes bank_transactions.suggested_cost_centre, which no
-  // migration creates, so on a schema built from migrations the route answers 400 before anything lands. Added here, on
-  // the disposable fixture only, so the batch-row provenance can be proven through the real route.
-  await pool.query('ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS suggested_cost_centre TEXT');
   a = await createUser(pool, tokens);
   b = await createUser(pool, tokens);
   f = await bankCompany(pool, [[a, 'admin'], [b, 'admin']], companies);

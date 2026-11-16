@@ -22,6 +22,8 @@ import { existingStatementHashes, statementLineHash } from '@/modules/accounting
 import { dateRangeOf } from '@/modules/accounting/services/bank/bankStatementDateRange';
 import { lockBankAccountIngest } from '@/modules/accounting/services/bank/bankIngestLock';
 import { assertBankAccountInCompany, isBankAccountGuardRefusal } from '@/modules/accounting/services/bank/bankAccountGuard';
+import { resolveWorksheetDimensions } from '@/modules/accounting/services/bank/classifiedImportDimensions';
+import type { DimensionIds } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 type Row = Record<string, unknown>;
 
 const ClassifiedBankTxSchema = z.object({
@@ -68,11 +70,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       FROM bank_categorisation_rules
       WHERE is_active = true AND company_id = ${companyId}
     `) as Row[];
-    const categoryMap = new Map<string, { glAccountId: string; supplierId: number | null }>();
+    const categoryMap = new Map<string, { glAccountId: string; supplierId: string | null }>();
     for (const r of ruleRows) {
       categoryMap.set(String(r.rule_name).toLowerCase(), {
         glAccountId: String(r.gl_account_id),
-        supplierId: r.supplier_id ? Number(r.supplier_id) : null,
+        supplierId: r.supplier_id ? String(r.supplier_id) : null, // a UUID: Number() made it NaN
       });
     }
 
@@ -126,17 +128,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       desc: string;
       statementRef: string | null;
       suggestedGlAccountId: string | null;
-      suggestedSupplierId: number | null;
+      suggestedSupplierId: string | null;
       category: string | null;
-      costCentre: string | null;
+      dims: DimensionIds;
     }
-    const insertRows: InsertRow[] = toInsert.map(({ tx, amount, txDate, desc }) => {
+    // The worksheet's cost centres, resolved to the line's own dimension columns (classifiedImportDimensions).
+    const { dimensions, unresolved: unresolvedDimensions } = await resolveWorksheetDimensions(
+      companyId, toInsert.map(({ tx }) => tx));
+    const insertRows: InsertRow[] = toInsert.map(({ tx, amount, txDate, desc }, i) => {
       const category = String(tx.category || '').trim();
       const mapping = categoryMap.get(category.toLowerCase());
       if (category && !mapping && !unresolvedCategories.includes(category)) {
         unresolvedCategories.push(category);
       }
-      const costCentre = [tx.costCentreT1, tx.costCentreT2].filter(Boolean).join(' > ').trim() || null;
       return {
         txDate,
         amount,
@@ -145,7 +149,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         suggestedGlAccountId: mapping?.glAccountId || null,
         suggestedSupplierId: mapping?.supplierId || null,
         category: category || null,
-        costCentre,
+        dims: dimensions[i] ?? {},
       };
     });
 
@@ -166,13 +170,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
               bank_account_id, transaction_date, amount, description,
               reference, import_batch_id, status,
               suggested_gl_account_id, suggested_supplier_id,
-              suggested_category, suggested_cost_centre,
+              suggested_category, cc1_id, cc2_id, bu_id,
               company_id
             ) VALUES (
               ${bankAccountId}::UUID, ${r.txDate}, ${r.amount}, ${r.desc},
               ${r.statementRef}, ${batchId}::UUID, 'imported',
-              ${r.suggestedGlAccountId}::UUID, ${r.suggestedSupplierId},
-              ${r.category}, ${r.costCentre},
+              ${r.suggestedGlAccountId}::UUID, ${r.suggestedSupplierId}::UUID,
+              ${r.category}, ${r.dims.cc1Id ?? null}::UUID, ${r.dims.cc2Id ?? null}::UUID, ${r.dims.buId ?? null}::UUID,
               ${companyId}
             )
           `
@@ -192,6 +196,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       inserted,
       skippedDuplicates,
       unresolvedCategories: unresolvedCategories.length > 0 ? unresolvedCategories : undefined,
+      unresolvedDimensions: unresolvedDimensions.length > 0 ? unresolvedDimensions : undefined,
     });
   } catch (err) {
     // A held ingest lock (or any lock wait) aborted the transaction: 503 + Retry-After rolls it back; a 400 would COMMIT it.
