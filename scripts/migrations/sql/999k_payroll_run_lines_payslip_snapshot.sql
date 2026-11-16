@@ -1,4 +1,4 @@
--- 999f: payslip details frozen at approval (wave 6 PS3).
+-- 999k: payslip details frozen at approval (wave 6 PS3).
 --
 -- WHAT. payroll_run_lines.payslip_snapshot (jsonb, nullable): the employee's and the employer's details as they
 -- were when the run was approved, written by approvePayrollRun (payslipSnapshot.freezePayslipDetails) in the

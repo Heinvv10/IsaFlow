@@ -1,5 +1,5 @@
 /**
- * Wave 6 PS3: the details a final payslip prints, frozen at approval (migration 999f).
+ * Wave 6 PS3: the details a final payslip prints, frozen at approval (migration 999k).
  *
  * `freezePayslipDetails` runs inside approvePayrollRun's transaction, after the header's approval UPDATE: it writes
  * each line's `payslip_snapshot` (the employee's name, number, tax number, payment method, occupation and terms of
