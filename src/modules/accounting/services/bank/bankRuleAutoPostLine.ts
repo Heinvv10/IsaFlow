@@ -27,10 +27,10 @@ import { isBankEvidenced, manualLinePaymentRefusal } from '../ap/bankLinePayment
 import { handKeyedLineJournalRefusal } from './bankLineJournalGate';
 import { handKeyedRefundRefusal } from './bankLineRefundGate';
 import { importerAllocationRefusal, importerArmOf } from './bankLineImporterGate';
+import type { AutoPostOutcome } from './bankRuleAutoPostOutcome';
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
-import type { AutoPostOutcome } from './bankRuleAutoPostOutcome';
 export type { AutoPostOutcome };
 
 export interface AutoPostLineInput {
