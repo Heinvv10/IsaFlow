@@ -6,14 +6,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import {
-  FileText, Loader2, ChevronLeft,
-  CheckCircle2, Clock, XCircle, AlertTriangle,
-  Eye,
-} from 'lucide-react';
+import { FileText, Loader2, ChevronLeft, Eye } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { SubmissionDetailModal, type SubmissionDetail } from '@/components/accounting/sars/SubmissionDetailModal';
+import { submissionStatusBadge } from '@/components/accounting/sars/sarsStatusBadge';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 interface Submission extends SubmissionDetail {
@@ -23,27 +20,6 @@ interface Submission extends SubmissionDetail {
 const formatDateTime = (d: string) => {
   if (!d) return '—';
   return formatDisplayDateTime(d);
-};
-
-const statusBadge = (status: string) => {
-  const configs: Record<string, { icon: typeof CheckCircle2; className: string }> = {
-    submitted: { icon: CheckCircle2, className: 'bg-emerald-500/10 text-emerald-400' },
-    accepted: { icon: CheckCircle2, className: 'bg-emerald-500/10 text-emerald-400' },
-    draft: { icon: Clock, className: 'bg-amber-500/10 text-amber-400' },
-    generated: { icon: Clock, className: 'bg-blue-500/10 text-blue-400' },
-    rejected: { icon: XCircle, className: 'bg-red-500/10 text-red-400' },
-  };
-  const cfg = configs[status] || { icon: AlertTriangle, className: 'bg-gray-500/10 text-gray-400' };
-  const Icon = cfg.icon;
-  const label = status === 'submitted'
-    ? 'Filed on eFiling'
-    : status.charAt(0).toUpperCase() + status.slice(1);
-
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.className}`}>
-      <Icon className="h-3 w-3" /> {label}
-    </span>
-  );
 };
 
 export default function SubmissionsPage() {
@@ -186,7 +162,7 @@ export default function SubmissionsPage() {
                   <th className="px-4 py-3">Period</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">SARS Reference</th>
-                  <th className="px-4 py-3">Filed on eFiling</th>
+                  <th className="px-4 py-3">Filed / recorded</th>
                   <th className="px-4 py-3">Created</th>
                   <th className="px-4 py-3">Actions</th>
                 </tr>
@@ -220,7 +196,7 @@ export default function SubmissionsPage() {
                     <td className="px-4 py-3 text-[var(--ff-text-primary)]">
                       {formatDate(sub.periodStart)} — {formatDate(sub.periodEnd)}
                     </td>
-                    <td className="px-4 py-3">{statusBadge(sub.status)}</td>
+                    <td className="px-4 py-3">{submissionStatusBadge(sub.status, sub.efilingChannel)}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)] font-mono text-xs">
                       {sub.submissionReference || '—'}
                     </td>

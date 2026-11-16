@@ -19,6 +19,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { seedRules } from '@/modules/accounting/services/bank/bankRuleChangeControl';
 import { pendingCreationPatterns } from '@/modules/accounting/services/bank/bankRuleChangeQueries';
+import { respondIfBankRefusal } from '@/modules/accounting/services/bank/bankRouteRefusal';
 
 const CategoryMapEntrySchema = z.object({
   originalCategory: z.string().min(1).max(500),
@@ -112,11 +113,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       missingGlCodes: missingGlCodes.length > 0 ? missingGlCodes : undefined,
     });
   } catch (err) {
-    // A database refusal (a SQLSTATE) is a fault, never an answer: its text is not for the caller.
-    if (typeof (err as { code?: unknown }).code === 'string') throw err;
-    const message = err instanceof Error ? err.message : 'Failed to seed bank rules';
+    // Audit WP2 row 9: a typed refusal keeps its 4xx; anything else — a SQLSTATE, a crash after the rules were
+    // written — is a fault, rethrown (500, rolled back). A 400 here COMMITTED the rules a crash had already seeded.
+    if (respondIfBankRefusal(res, err)) return;
     log.error('Failed to seed bank rules', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, message);
+    throw err;
   }
 }
 

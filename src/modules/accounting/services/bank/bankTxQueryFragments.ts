@@ -7,6 +7,7 @@
  * what makes them safe for `sql.unsafe`.
  */
 import { attachmentCountSql } from './bankLineDocumentSql';
+import { LINE_BUCKET_SQL } from './bankLineBucket';
 import type { BankTxFilters } from './bankTxFilters';
 import { JOURNAL_DIMENSION_SET_LATERAL } from '../gl/dimensions/journalDimensionSetSql';
 
@@ -190,23 +191,14 @@ export const TX_SELECT = `
   ${LINK_JOINS}
 `;
 
-// allocationFilter — same definition as bankAccountStatusService counts (PRD-11 §2):
-// allocated = journal posted; suggested = categorised, not posted; unallocated = neither.
-// Fixed literals keyed on a validated enum — safe for sql.unsafe. Applied in EVERY branch (#256).
-export const HAS_CATEGORY =
-  '(bt.suggested_gl_account_id IS NOT NULL OR bt.suggested_supplier_id IS NOT NULL OR bt.suggested_client_id IS NOT NULL OR bt.allocation_type IS NOT NULL)';
-const NO_CATEGORY =
-  'bt.suggested_gl_account_id IS NULL AND bt.suggested_supplier_id IS NULL AND bt.suggested_client_id IS NULL AND bt.allocation_type IS NULL';
+// allocationFilter (WP1, 2026-11-15): each filter is ONE bucket of LINE_BUCKET_SQL (./bankLineBucket), the
+// definition the bank card counts with, so a tile and the list it opens cannot disagree. Excluded comes before
+// allocated (a kept match no longer lists an excluded line under Allocated); provisional and Sage-reconciled lines are
+// allocated; pending lines are in no allocation bucket. Fixed literals keyed on a validated enum — safe for
+// sql.unsafe. Applied in EVERY branch (#256).
+const ALLOCATION_BUCKETS: readonly string[] = ['allocated', 'suggested', 'unallocated'];
 
 export function allocationCond(f?: BankTxFilters): string {
-  switch (f?.allocationFilter) {
-    case 'allocated':
-      return 'AND bt.matched_journal_line_id IS NOT NULL';
-    case 'suggested':
-      return `AND bt.matched_journal_line_id IS NULL AND ${HAS_CATEGORY} AND bt.status != 'excluded'`;
-    case 'unallocated':
-      return `AND bt.matched_journal_line_id IS NULL AND ${NO_CATEGORY} AND bt.status != 'excluded'`;
-    default:
-      return '';
-  }
+  const bucket = f?.allocationFilter;
+  return bucket && ALLOCATION_BUCKETS.includes(bucket) ? `AND (${LINE_BUCKET_SQL}) = '${bucket}'` : '';
 }

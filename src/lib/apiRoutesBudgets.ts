@@ -1,5 +1,6 @@
 /**
- * The budget routes of the route registry (budgets P1-P5), kept beside `apiRoutes.ts` so the
+ * The budget routes of the route registry (budgets P1-P6, and the 13-week cash forecast that reads the
+ * three-way budget), kept beside `apiRoutes.ts` so the
  * registry stays under the file-size limit; `StaticRoutes` and `DynamicRoutes` there extend these.
  * Same rules as the registry: one type per URL, taken from the service, `{}` binds one segment.
  * Every import is `import type`.
@@ -19,6 +20,7 @@ import type { ImportPreview } from '@/modules/accounting/services/budgets/budget
 import type { DriverHeadcountResponse, DriverOverrideResponse, DriversResponse, PlannedHiresResponse, ReforecastResponse } from '@/modules/accounting/services/budgets/drivers/driverApiTypes';
 import type { StoredAssumptions } from '@/modules/accounting/services/budgets/threeWay/assumptionsRepo';
 import type { AssumptionsView, CompareView, DeriveView, ThreeWayView } from '@/modules/accounting/services/budgets/threeWay/threeWayViews';
+import type { getCashForecast13 } from '@/modules/accounting/services/cashForecast13/cashForecast13Service';
 
 export interface BudgetStaticRoutes {
   // Budget versions (mig 947): GET the list, POST the new draft (the list and the item of one resource, a union).
@@ -52,6 +54,8 @@ export interface BudgetStaticRoutes {
   '/api/accounting/budget-three-way/assumptions': AssumptionsView | (StoredAssumptions & { versionId: string });
   '/api/accounting/budget-three-way/derive': DeriveView;
   '/api/accounting/budget-three-way/compare': CompareView;
+  // 13-week cash forecast (cash13 PR 1): GET only, money in cents.
+  '/api/accounting/cash-forecast-13': Awaited<ReturnType<typeof getCashForecast13>>;
 }
 
 export interface BudgetDynamicRoutes {

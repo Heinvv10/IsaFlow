@@ -1,12 +1,28 @@
-/** Status pills and the days-until helper shared by the SARS overview page and its calendar table. */
+/**
+ * Status pills and the days-until helper shared by the SARS pages. A submission's status always goes
+ * through submissionStatusBadge (one label rule, sarsFilingKind): only IsaFlow's own accepted ISV
+ * send says "Filed on eFiling".
+ */
 import { CheckCircle2, Clock, XCircle } from 'lucide-react';
+import { FILING_KIND_LABEL, filingKindOf } from '@/modules/accounting/services/reports/sarsFilingKind';
 
+const PILL = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium';
+
+/** A sars_submissions row's status, labelled by how it was filed; a non-filing status keeps its name. */
+export const submissionStatusBadge = (status: string, channel: string | null | undefined) => {
+  const kind = filingKindOf(status, channel);
+  if (!kind) return statusBadge(status);
+  if (kind === 'processing') {
+    return <span className={`${PILL} bg-amber-500/10 text-amber-400`}><Clock className="h-3 w-3" /> {FILING_KIND_LABEL.processing}</span>;
+  }
+  return <span className={`${PILL} bg-emerald-500/10 text-emerald-400`}><CheckCircle2 className="h-3 w-3" /> {FILING_KIND_LABEL[kind]}</span>;
+};
+
+/** A calendar item's status (completed / pending / overdue) or a non-filing submission status. */
 export const statusBadge = (status: string) => {
-  const label = status === 'submitted'
-    ? 'Filed on eFiling'
-    : status === 'completed'
-      ? 'Marked filed'
-      : status.charAt(0).toUpperCase() + status.slice(1);
+  const label = status === 'completed'
+    ? 'Marked filed'
+    : status.charAt(0).toUpperCase() + status.slice(1);
   switch (status) {
     case 'completed':
     case 'submitted':

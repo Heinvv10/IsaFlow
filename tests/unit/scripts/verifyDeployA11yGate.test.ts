@@ -53,6 +53,7 @@ const DEV_ONLY_SPECS = [
   'z20-budgets-three-way',
   'z20-comments',
   'z21-ask',
+  'z28-late-claims',
   'z29-pre-validation',
   'z2b-invoice-held-back',
   'z3-pnl-pdf',

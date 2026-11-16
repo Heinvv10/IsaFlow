@@ -47,7 +47,7 @@ async function reverseReconciledInner(
   // WP2 row 10: the other live legs of a plain journal (a transfer's auto-linked counterpart), locked WITH this line.
   const legRows = await lockOtherLegs(companyId, bankTxId, chain, Boolean(undoing));
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
-  if (!tx) throw new Error('Transaction not found');
+  if (!tx) throw new BankAllocationRefusal('Transaction not found');
   // D10 O9 (with R-127's settled case): a provisional's own line is refused while its journal stands; one whose
   // journal the GL already took out is only freed below, its link cleared, nothing posted.
   const deadProvisional = await refuseResettingProvisionalLine(companyId, tx, 'reverse');
@@ -59,7 +59,7 @@ async function reverseReconciledInner(
   }
   await refuseStaleUndo(companyId, bankTxId, chain, undoing); // the page's Undo: the journal it offered, or nothing
   if (!deadProvisional && tx.status !== 'allocated' && tx.status !== 'matched' && tx.status !== 'reconciled') {
-    throw new Error('Can only reverse allocated, matched, or reconciled transactions');
+    throw new BankAllocationRefusal('Can only reverse allocated, matched, or reconciled transactions');
   }
   // Cash on a COMPLETED reconciliation (or reconciled in the Sage import) is
   // locked — the shared rule void and batch reversal apply. Reversing it here
