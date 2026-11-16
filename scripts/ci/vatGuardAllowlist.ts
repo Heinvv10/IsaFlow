@@ -232,6 +232,11 @@ export const ALLOWED: Record<string, AllowedEntry> = {
     + 'allocationVatGuard.resolveLineVatCode — the same funnel and the same tool-side split as '
     + 'allocate_bank_transaction (allocationLine.ts), reported back as vat_coerced.',
   },
+  'src/modules/accounting/services/bank/bankRuleTransferLine.ts': {
+    kinds: ['allocate_call'],
+    reason: 'The rule sweep\'s TRANSFER line (WP2 row 5): allocateTransaction with allocType transfer and no VAT code — '
+    + 'the transfer arm posts bank to bank with no VAT leg, so no claim is decided.',
+  },
   'src/modules/accounting/services/ap/supplierBankPaymentService.ts': {
     kinds: ['allocate_call'],
     reason: 'allocType supplier — VAT routes to the AP control account, never a '
