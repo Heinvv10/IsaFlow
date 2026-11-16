@@ -46,12 +46,14 @@ async function findRunForPeriod(
   periodYear: number,
 ): Promise<DbRow | null> {
   const rows = (await sql`
-    SELECT id, period_month, period_year, status
-      FROM payroll_run_headers
-     WHERE company_id = ${companyId}::uuid
-       AND period_month = ${periodMonth}
-       AND period_year = ${periodYear}
-       AND status <> 'cancelled'
+    SELECT h.id, h.period_month, h.period_year, h.status
+      FROM payroll_run_headers h
+     WHERE h.company_id = ${companyId}::uuid
+       AND h.period_month = ${periodMonth}
+       AND h.period_year = ${periodYear}
+       AND h.status <> 'cancelled'
+       -- An external payroll's month is compared with the month's regular run, never an off-cycle one (wave 6 FQb1).
+       AND h.run_kind = 'regular' AND h.pay_frequency = 'monthly'
      LIMIT 1
   `) as DbRow[];
   return rows[0] ?? null;

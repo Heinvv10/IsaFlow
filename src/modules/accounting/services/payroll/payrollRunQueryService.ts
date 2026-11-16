@@ -18,6 +18,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunService';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { runOrderKeySql } from './payrollRunOrder';
 
 type Row = DbRow;
 
@@ -109,8 +110,8 @@ export function payRunCursorParts(run: { periodYear: number; periodMonth: number
 }
 
 /**
- * The pay run a statutory figure would be taken from: only the statuses an EMP201 declares, the latest period first. A company has
- * one run per (year, month) (unique constraint), so that order is total. `month` narrows to one calendar month; null is the latest.
+ * The pay run a statutory figure would be taken from: only the statuses an EMP201 declares, the latest in pay order
+ * (payrollRunOrder: a month may hold several runs). `month` narrows to one calendar month; null is the latest.
  */
 export async function getDeclarablePayRun(
   companyId: string,
@@ -120,11 +121,11 @@ export async function getDeclarablePayRun(
   const year = month ? month.year : null;
   const m = month ? month.month : null;
   const rows = (await sql`
-    SELECT * FROM payroll_run_headers
-    WHERE company_id = ${companyId}::UUID
-      AND status = ANY(${statuses}::TEXT[])
-      AND (${year}::INT IS NULL OR (period_year = ${year}::INT AND period_month = ${m}::INT))
-    ORDER BY period_year DESC, period_month DESC
+    SELECT * FROM payroll_run_headers h
+    WHERE h.company_id = ${companyId}::UUID
+      AND h.status = ANY(${statuses}::TEXT[])
+      AND (${year}::INT IS NULL OR (h.period_year = ${year}::INT AND h.period_month = ${m}::INT))
+    ORDER BY ${runOrderKeySql('h')} DESC
     LIMIT 1
   `) as Row[];
   return rows[0] ? { ...mapRunRow(rows[0]) } : null;

@@ -57,7 +57,7 @@ export async function bookedByEtiJournals(companyId: string, ym: YearMonth): Pro
   return (await bookedEtiJournalsByMonth(companyId, [ym])).get(monthKey(ym))!;
 }
 
-/** Booked by each month's pay-run journal while it is in force, keyed YYYY-MM: two queries plus the in-force reads. */
+/** Booked by each month's pay-run journals while in force, keyed YYYY-MM: two queries plus the in-force reads. */
 export async function bookedRunJournalsByMonth(companyId: string, months: YearMonth[]): Promise<Map<string, RunBooked>> {
   const out = new Map<string, RunBooked>(months.map((m) => [monthKey(m), NONE]));
   if (months.length === 0) return out;
@@ -78,11 +78,16 @@ export async function bookedRunJournalsByMonth(companyId: string, months: YearMo
      WHERE jl.company_id = ${companyId}::UUID AND jl.journal_entry_id = ANY(${live.map((h) => String(h.journal_entry_id))}::uuid[])
      GROUP BY jl.journal_entry_id
   `) as DbRow[];
+  // Every in-force run journal of the month adds to it (wave 6 FQb1: an off-cycle run beside the regular one).
   for (const h of live) {
     const l = lines.find((x) => String(x.journal_entry_id) === String(h.journal_entry_id));
     const net = r2(Number(l?.paye_net) || 0);
-    out.set(monthKey({ year: Number(h.period_year), month: Number(h.period_month) }), {
-      used: r2((Number(h.total_paye) || 0) - net), refund: r2(Number(l?.refund) || 0), net2140: net,
+    const key = monthKey({ year: Number(h.period_year), month: Number(h.period_month) });
+    const was = out.get(key) ?? NONE;
+    out.set(key, {
+      used: r2(was.used + (Number(h.total_paye) || 0) - net),
+      refund: r2(was.refund + (Number(l?.refund) || 0)),
+      net2140: r2(was.net2140 + net),
     });
   }
   return out;

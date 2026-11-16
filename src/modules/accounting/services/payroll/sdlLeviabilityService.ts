@@ -6,6 +6,7 @@ import { withSdlCharge } from './statutoryExplain';
 import type { LineExplanations } from './payrollExplainTypes';
 import type { PayrollPeriod } from './payrollTypes';
 import { contractorLineFlag } from './payrollOutsideTables';
+import { runOrderColumnsSql, runOrderKeySql } from './payrollRunOrder';
 
 /**
  * Section 4(b) of the Skills Development Levies Act exempts an employer whose
@@ -90,6 +91,11 @@ export async function estimateAnnualRemuneration(
   const rows = (await sql`
     WITH runs AS (
       SELECT prh.period_year * 12 + prh.period_month AS idx,
+             -- An earlier run (pay order) of this run's own month is history too: an off-cycle run beside the
+             -- regular one, or the month's earlier weekly runs (wave 6 FQb1). This run and later ones are not.
+             (prh.period_year * 12 + prh.period_month = ${index} AND ${runOrderKeySql('prh')} < (
+               SELECT ${runOrderColumnsSql('me')} FROM payroll_run_headers me WHERE me.id = ${runId}::uuid AND me.company_id = ${companyId}::uuid
+             )) IS TRUE AS earlier_this_month,
              -- The breakdown is read only inside the window: an older run counts only for the first
              -- month of history, which its cash gross decides (a run of benefits alone is not one).
              -- An independent contractor's fees are not remuneration (G21 p. 26): out of the threshold basis (PAYE_OUTSIDE_TABLES, treatment none).
@@ -110,8 +116,9 @@ export async function estimateAnnualRemuneration(
          AND prh.status IN ('calculated', 'approved', 'paid')
          AND (prh.period_year * 12 + prh.period_month) <= ${index}
     )
-    SELECT COALESCE(SUM(remuneration) FILTER (WHERE idx BETWEEN ${windowStart} AND ${index - 1}), 0)::float8 AS window_remuneration,
-           COUNT(*) FILTER (WHERE idx BETWEEN ${windowStart} AND ${index - 1})::int AS window_periods,
+    SELECT COALESCE(SUM(remuneration) FILTER (WHERE idx BETWEEN ${windowStart} AND ${index - 1} OR earlier_this_month), 0)::float8
+             AS window_remuneration,
+           COUNT(*) FILTER (WHERE idx BETWEEN ${windowStart} AND ${index - 1} OR earlier_this_month)::int AS window_periods,
            MIN(idx)::int AS first_index
       FROM runs
      WHERE remuneration > 0

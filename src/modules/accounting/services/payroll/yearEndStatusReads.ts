@@ -10,6 +10,7 @@ import {
   payeTaxYearBounds,
 } from '@/modules/accounting/utils/payeTaxYear';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { emp201PayeRows } from './payrollEmp201Paye';
 
 export interface YearEndStatus {
   taxYear: number;
@@ -95,17 +96,7 @@ export async function readYearEndStatusRows(companyId: string, taxYear: number) 
             (period_year = ${endYear}   AND period_month <= ${endMonth})
           )
       ` as Promise<DbRow[]>,
-      sql`
-        SELECT period_month, period_year, COALESCE(total_paye, 0) AS emp201_paye
-        FROM   payroll_run_headers
-        WHERE  company_id = ${companyId}::uuid
-          AND  status = ANY(${declarableStatuses}::text[])
-          AND (
-            (period_year = ${startYear} AND period_month >= ${startMonth})
-            OR
-            (period_year = ${endYear}   AND period_month <= ${endMonth})
-          )
-      ` as Promise<DbRow[]>,
+      emp201PayeRows(companyId, taxYear),
       sql`
         SELECT id, name, sars_source_code, component_type, is_active
         FROM   payroll_components
