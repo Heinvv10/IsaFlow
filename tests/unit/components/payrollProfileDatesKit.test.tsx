@@ -12,8 +12,8 @@ vi.mock('@/components/layout/AppLayout', () => ({
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'manager' }) }));
 vi.mock('@/components/payroll/TaxDirectiveEmployeeSelect', () => ({
   useDirectiveEmployees: () => ({ employees: [{ id: 'e1', firstName: 'Ann', lastName: 'Lee', taxNumber: '123' }], loading: false, error: '', reload: vi.fn() }),
-  DirectiveEmployeeSelect: ({ onChange }: { onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void }) => (
-    <select aria-label="Employee" onChange={onChange}><option value="" /><option value="e1">Ann Lee</option></select>
+  DirectiveEmployeeSelect: ({ onChange }: { onChange: (employeeId: string) => void }) => (
+    <select aria-label="Employee" onChange={e => onChange(e.target.value)}><option value="" /><option value="e1">Ann Lee</option></select>
   ),
 }));
 
