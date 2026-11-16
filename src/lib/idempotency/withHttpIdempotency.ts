@@ -39,7 +39,7 @@ type Stored = { payload_hash: string; status_code: number | null; response_body:
 
 export function withHttpIdempotency(route: string, handler: Handler): Handler {
   return async (req, res) => {
-    const header = req.headers['idempotency-key'];
+    const header = req.headers?.['idempotency-key']; // unit tests drive the handler with a bare request
     if (header === undefined) return handler(req, res);
     const key = Array.isArray(header) ? header[0] : header;
     if (!key || !UUID_RE.test(key)) {
