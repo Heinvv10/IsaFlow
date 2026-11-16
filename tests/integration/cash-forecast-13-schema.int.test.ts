@@ -90,6 +90,8 @@ describe('999g: stamps and privileges', () => {
     await as(B, async (q) => {
       for (const t of ['cash_forecast_items', 'cash_forecast_overrides']) {
         expect(await codeOf(q, `UPDATE ${t} SET company_id = $1`, [A.id])).toBe('42501');
+        // Same value: the trigger lets it by, so only the column privilege refuses it.
+        expect(await codeOf(q, `UPDATE ${t} SET company_id = company_id`)).toBe('42501');
         expect(await codeOf(q, `UPDATE ${t} SET created_by = 'x'`)).toBe('42501');
         expect(await codeOf(q, `UPDATE ${t} SET updated_at = now()`)).toBe('42501');
       }
