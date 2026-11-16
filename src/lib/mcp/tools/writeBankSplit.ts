@@ -26,6 +26,7 @@
 import type { McpTool } from '../types';
 import { splitAllocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { planSplitDimensionsForTransaction } from '@/modules/accounting/services/bank/bankSplitDimensions';
+import { allocationPeriodProbe } from '@/modules/accounting/services/bank/bankAllocationPeriod';
 import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { importerRefusalForLineId } from '@/modules/accounting/services/bank/bankLineImporterGate';
@@ -210,6 +211,9 @@ export const splitAllocateBankTransactionTool: McpTool = {
     }
     const mismatch = splitTotalMismatch(lines.map((l) => l.amount), state.amount); // exact cents, as the service
     if (mismatch) return toolError(mismatch);
+    // WP2 row 12: as the service refuses it, a toolError ahead of the dry run.
+    const periodRefusal = await allocationPeriodProbe(ctx.companyId, state.transactionDate);
+    if (periodRefusal) return toolError(periodRefusal);
     const accountLines = lines.flatMap((l, index) => (l.contraAccountId
       ? [{ l: { ...l, contraAccountId: l.contraAccountId }, index }] : []));
     // Step 2: the statement's importer is refused by the service too — asked here so the dry run refuses alike.

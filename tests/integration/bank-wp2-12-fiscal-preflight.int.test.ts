@@ -13,7 +13,7 @@ import { allocateTransaction, splitAllocateTransaction } from '@/modules/account
 import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import type { AllocationType } from '@/modules/accounting/services/bank/bankAllocationTypes';
-import { dropFixture, inTx, seedBankTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, inTx, runOn, seedBankTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -23,6 +23,35 @@ let expense = '';
 let otherBank = '';
 const FAR = '2001-03-15'; // outside the auto-create window (2026 - 10 years) and covered by no period
 
+/**
+ * A request's shape (withAuth): the refusal is CAUGHT inside the transaction and the transaction COMMITS, so whatever
+ * the failing call had already written survives to be counted. `inTx` rolls back on a throw, which made every
+ * "nothing was written" assertion vacuous.
+ */
+async function refusedAndCommitted(fn: () => Promise<unknown>): Promise<unknown> {
+  const c = await fx.pool.connect();
+  await c.query('BEGIN');
+  let err: unknown;
+  try {
+    await runOn(fx, c, fn);
+  } catch (e) {
+    err = e;
+  }
+  await c.query('COMMIT');
+  c.release();
+  return err;
+}
+async function written(): Promise<Record<string, number>> {
+  const [r] = (await sql`SELECT
+    (SELECT COUNT(*) FROM gl_journal_entries WHERE company_id = ${fx.companyId}::UUID)::int AS journals,
+    (SELECT COUNT(*) FROM gl_journal_lines jl JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+      WHERE je.company_id = ${fx.companyId}::UUID)::int AS lines,
+    (SELECT COUNT(*) FROM supplier_payments WHERE company_id = ${fx.companyId}::UUID)::int AS supplier_payments,
+    (SELECT COUNT(*) FROM customer_payments WHERE company_id = ${fx.companyId}::UUID)::int AS customer_payments,
+    (SELECT COUNT(*) FROM bank_transactions WHERE company_id = ${fx.companyId}::UUID
+      AND (matched_journal_line_id IS NOT NULL OR status <> 'imported'))::int AS touched_lines`) as Record<string, unknown>[];
+  return Object.fromEntries(Object.entries(r!).map(([k, v]) => [k, Number(v)]));
+}
 async function journalCount(): Promise<number> {
   const [r] = (await sql`SELECT COUNT(*)::int AS n FROM gl_journal_entries WHERE company_id = ${fx.companyId}::UUID`) as Record<string, unknown>[];
   return Number(r!.n);
@@ -58,25 +87,25 @@ describeIfDb('WP2 row 12: a bank allocation never posts outside every fiscal per
     ['account', -100], ['supplier', -100], ['customer', 100], ['transfer', -100],
   ] as const)('refuses a %s allocation dated where no period is or can be, before anything is written', async (allocType, amount) => {
     const tx = await seedBankTx(fx, { date: FAR, amount, description: `far ${allocType}` });
-    const before = await journalCount();
+    const before = await written();
     const contra = allocType === 'account' ? expense : allocType === 'transfer' ? otherBank : null;
     const entity = allocType === 'supplier' ? fx.supplierId : allocType === 'customer' ? fx.customerId : undefined;
-    const err = await inTx(fx, () => allocateTransaction(fx.companyId, tx, contra, fx.userId, undefined,
-      allocType as AllocationType, entity)).catch((e: unknown) => e);
+    const err = await refusedAndCommitted(() => allocateTransaction(fx.companyId, tx, contra, fx.userId, undefined,
+      allocType as AllocationType, entity));
     expect(isBankAllocationRefusal(err), String(err)).toBe(true);
     expect((err as Error).message).toMatch(/^No fiscal period covers 2001-03-15, and none can be created for it/);
-    expect(await journalCount()).toBe(before);
+    expect(await written()).toEqual(before);
     expect(await nullPeriodJournals()).toBe(0);
     expect(await lineStatus(tx)).toBe('imported');
   }, 60000);
 
   it('refuses a split dated where no period is or can be, before anything is written', async () => {
     const tx = await seedBankTx(fx, { date: FAR, amount: -100, description: 'far split' });
-    const before = await journalCount();
-    const err = await inTx(fx, () => splitAllocateTransaction(fx.companyId, tx,
-      [{ contraAccountId: expense, amount: 60 }, { contraAccountId: expense, amount: 40 }], fx.userId)).catch((e: unknown) => e);
+    const before = await written();
+    const err = await refusedAndCommitted(() => splitAllocateTransaction(fx.companyId, tx,
+      [{ contraAccountId: expense, amount: 60 }, { contraAccountId: expense, amount: 40 }], fx.userId));
     expect(isBankAllocationRefusal(err), String(err)).toBe(true);
-    expect(await journalCount()).toBe(before);
+    expect(await written()).toEqual(before);
     expect(await nullPeriodJournals()).toBe(0);
     expect(await lineStatus(tx)).toBe('imported');
   }, 60000);
@@ -85,12 +114,34 @@ describeIfDb('WP2 row 12: a bank allocation never posts outside every fiscal per
     await sql`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
               VALUES (${fx.companyId}::UUID, ${`FY25 ${fx.tag}`}, 1, 2025, '2025-01-01', '2025-12-31', 'closed')`;
     const tx = await seedBankTx(fx, { date: '2025-06-10', amount: -100, description: 'closed period' });
-    const before = await journalCount();
-    const err = await inTx(fx, () => allocateTransaction(fx.companyId, tx, expense, fx.userId, undefined, 'account'))
-      .catch((e: unknown) => e);
+    const before = await written();
+    const err = await refusedAndCommitted(() => allocateTransaction(fx.companyId, tx, expense, fx.userId, undefined, 'account'));
     expect(err).toBeInstanceOf(ClosedFiscalPeriodError);
-    expect(await journalCount()).toBe(before);
+    expect(await written()).toEqual(before);
     expect(await lineStatus(tx)).toBe('imported');
+  }, 60000);
+
+  it('a gap beside closed periods in a year says so, never "create the period first"', async () => {
+    await sql`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
+              VALUES (${fx.companyId}::UUID, ${`Q1 24 ${fx.tag}`}, 1, 2024, '2024-01-01', '2024-03-31', 'closed')`;
+    const tx = await seedBankTx(fx, { date: '2024-06-10', amount: -100, description: 'gap beside closed' });
+    const before = await written();
+    const err = await refusedAndCommitted(() => allocateTransaction(fx.companyId, tx, expense, fx.userId, undefined, 'account'));
+    expect(err).toBeInstanceOf(ClosedFiscalPeriodError);
+    expect((err as Error).message).toMatch(/holds closed or locked periods/);
+    expect((err as Error).message).not.toMatch(/Create the period first/);
+    expect(await written()).toEqual(before);
+  }, 60000);
+
+  it('asks the period LAST: another refusal on the same far-dated line wins, and nothing is written', async () => {
+    const [ap] = (await sql`SELECT id FROM gl_accounts WHERE company_id = ${fx.companyId}::UUID AND account_subtype = 'payable' LIMIT 1`) as Record<string, unknown>[];
+    expect(ap, 'the fixture needs an AP control account').toBeTruthy();
+    const tx = await seedBankTx(fx, { date: FAR, amount: -100, description: 'far onto AP control' });
+    const before = await written();
+    const err = await refusedAndCommitted(() => allocateTransaction(fx.companyId, tx, String(ap!.id), fx.userId, undefined, 'account'));
+    expect(err, 'a refusal is expected').toBeInstanceOf(Error);
+    expect((err as Error).message).not.toMatch(/No fiscal period covers/);
+    expect(await written()).toEqual(before);
   }, 60000);
 
   it('still posts on an open period, on exactly that period', async () => {

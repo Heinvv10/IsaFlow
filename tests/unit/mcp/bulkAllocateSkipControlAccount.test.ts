@@ -6,6 +6,7 @@
  */
 import { beforeEach, expect, it, vi } from 'vitest';
 
+vi.mock('@/modules/accounting/services/bank/bankAllocationPeriod', () => ({ allocationPeriodProbe: async () => null, lineAllocationPeriodRefusal: async () => null, periodLineSkips: async () => new Map(), allocationPeriodFor: async () => 'fp-open' })); // WP2 row 12: proven in bank-wp2-12-*.int
 vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () => ({ findBankTransactionAllocationStates: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ handKeyedAccountLineSkips: vi.fn(async () => new Map()) }));
 vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async (orig) => ({
