@@ -43,6 +43,7 @@ import customerAction from '../../../pages/api/accounting/customer-payments-acti
 import bankAction from '../../../pages/api/accounting/bank-transactions-action';
 import supplierInvoiceAction from '../../../pages/api/accounting/supplier-invoices-action';
 import creditNoteAction from '../../../pages/api/accounting/credit-notes-action';
+import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 
 const ID = '66666666-6666-4666-8666-666666666666';
 
@@ -64,7 +65,9 @@ const routes = [
   { name: 'customer-payments-action cancel (receipt cancel)', handler: customerAction,
     body: { action: 'cancel', paymentId: ID }, service: () => vi.mocked(cancelCustomerPayment) },
   { name: 'bank-transactions-action reverse (bank reversal)', handler: bankAction,
-    body: { action: 'reverse', bankTransactionId: ID }, service: () => vi.mocked(reverseReconciledTransaction) },
+    body: { action: 'reverse', bankTransactionId: ID }, service: () => vi.mocked(reverseReconciledTransaction),
+    // Audit WP2 row 9: this route answers only a TYPED refusal 400; a bare Error is a fault (500, rolled back).
+    refusal: () => new BankAllocationRefusal('Cannot cancel this document') },
   { name: 'supplier-invoices-action cancel (bill cancel)', handler: supplierInvoiceAction,
     body: { action: 'cancel', invoiceId: ID }, service: () => vi.mocked(cancelSupplierInvoice) },
   { name: 'credit-notes-action cancel (credit-note cancel)', handler: creditNoteAction,
@@ -73,7 +76,7 @@ const routes = [
 
 beforeEach(() => { vi.resetAllMocks(); });
 
-describe.each(routes)('$name', ({ handler, body, service }) => {
+describe.each(routes)('$name', ({ handler, body, service, ...row }) => {
   it.each([
     ['the chain head', () => new JournalReversalLockTimeoutError(ID)],
     ['a bounded document lock', () => new RowLockTimeoutError(`Invoice ${ID}`)],
@@ -86,7 +89,8 @@ describe.each(routes)('$name', ({ handler, body, service }) => {
   });
 
   it('still answers an ordinary refusal 400 with its message', async () => {
-    service().mockRejectedValue(new Error('Cannot cancel this document') as never);
+    const refusal = 'refusal' in row ? row.refusal() : new Error('Cannot cancel this document');
+    service().mockRejectedValue(refusal as never);
     const res = await call(handler as never, body);
     expect(res.statusCode).toBe(400);
     expect(JSON.stringify(res.sent)).toMatch(/Cannot cancel this document/);
