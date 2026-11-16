@@ -161,6 +161,14 @@ describe('999i: override applied_at (application order)', () => {
       expect((await at(q, id)) !== before).toBe(restamps);
     });
   });
+  it('an UPDATE of the target week alone restamps applied_at', async () => {
+    await as(A, async (q) => {
+      const id = String((await q.query(OVR, ovr(A.id, { mode: 'move_to', amount: 5, target: '2026-11-23' }))).rows[0].id);
+      const before = await at(q, id);
+      await q.query("UPDATE cash_forecast_overrides SET target_week_start = '2026-11-30' WHERE id = $1", [id]);
+      expect(await at(q, id)).not.toBe(before);
+    });
+  });
 });
 
 describe('999i: re-run', () => {
