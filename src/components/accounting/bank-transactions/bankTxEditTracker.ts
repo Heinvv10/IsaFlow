@@ -19,12 +19,34 @@ const groupKeys = (g: Group): ReadonlyArray<keyof RowSelection> => (g === 'dims'
 /** What an allocation field is when the row had no selection. */
 const EMPTY: Partial<RowSelection> = { type: 'account', entityId: '', label: '', vatCode: 'none' };
 
-interface GroupState { seq: number; pending: number; baseline: Record<string, unknown>; noRow: boolean }
+interface GroupState {
+  seq: number; pending: number; baseline: Record<string, unknown>; noRow: boolean;
+  /** The NEWEST edit was refused while an older one was still in flight: its answer decides, so the put-back waits for it. */
+  deferred: Partial<RowSelection> | null;
+}
 const states = new Map<string, GroupState>();
 /** Open entries (for tests and diagnostics). */
 export const trackedEditCount = (): number => states.size;
 
 type SetRows = (fn: (prev: Record<string, RowSelection>) => Record<string, RowSelection>) => void;
+
+/** Puts `restoreKeys` of the row back to `baseline`, but only while the row still shows `patch`; drops a row that is empty again. */
+function putBack(setRowSelections: SetRows, txId: string, patch: Partial<RowSelection>, restoreKeys: Array<keyof RowSelection>,
+  baseline: Record<string, unknown>, emptied: boolean) {
+  setRowSelections(prev => {
+    const cur = prev[txId];
+    if (!cur) return prev;
+    const groups = new Set(restoreKeys.map(groupOf));
+    const owned = restoreKeys.filter(k => groups.has(groupOf(k)));
+    if (owned.length === 0 || (Object.keys(patch) as Array<keyof RowSelection>).some(o => groups.has(groupOf(o)) && cur[o] !== patch[o])) return prev;
+    const row: RowSelection = { ...cur };
+    for (const k of owned) (row as unknown as Record<string, unknown>)[k] = baseline[k];
+    const next = { ...prev };
+    if (emptied && !row.entityId && !DIM_KEYS.some(k => row[k])) delete next[txId];
+    else next[txId] = row;
+    return next;
+  });
+}
 
 export function trackEdit(txId: string, before: RowSelection | undefined, patch: Partial<RowSelection>, setRowSelections: SetRows) {
   const keys = Object.keys(patch) as Array<keyof RowSelection>;
@@ -33,48 +55,51 @@ export function trackEdit(txId: string, before: RowSelection | undefined, patch:
   for (const g of groups) {
     let st = states.get(`${txId}:${g}`);
     if (!st) {
-      st = { seq: 0, pending: 0, noRow: !before, baseline: Object.fromEntries(groupKeys(g).map(k => [k, before ? before[k] : EMPTY[k]])) };
+      st = { seq: 0, pending: 0, noRow: !before, deferred: null, baseline: Object.fromEntries(groupKeys(g).map(k => [k, before ? before[k] : EMPTY[k]])) };
       states.set(`${txId}:${g}`, st);
     }
     st.seq += 1; st.pending += 1; seqs.set(g, st.seq);
   }
+  const keysOf = (g: Group) => keys.filter(k => groupOf(k) === g);
+
+  /** One answer in: when it was the last in flight, a deferred put-back of the newest (refused) edit is carried out now. */
   const settle = (g: Group) => {
     const st = states.get(`${txId}:${g}`);
-    if (st && --st.pending <= 0) states.delete(`${txId}:${g}`);
+    if (!st) return;
+    st.pending -= 1;
+    if (st.pending > 0) return;
+    states.delete(`${txId}:${g}`);
+    if (st.deferred) putBack(setRowSelections, txId, st.deferred, (Object.keys(st.deferred) as Array<keyof RowSelection>).filter(k => groupOf(k) === g), { ...st.baseline }, st.noRow);
   };
 
   /** The save was stored: its values are now the baseline a later refusal falls back to. */
   const saved = () => {
     for (const g of groups) {
       const st = states.get(`${txId}:${g}`);
-      if (st) for (const k of keys) if (groupOf(k) === g) st.baseline[k] = patch[k];
+      if (st) for (const k of keysOf(g)) st.baseline[k] = patch[k];
       settle(g);
     }
   };
 
-  /** The save was refused: put back the groups this edit still owns, to their baseline. */
+  /**
+   * The save was refused. If this is still the newest edit of a group and nothing older is in flight, the group goes back to
+   * the last stored values now. If an older edit is still in flight the server may yet hold THAT value, so the put-back waits
+   * for its answer (the newest in-flight edit's answer decides). An edit that is no longer the newest owns nothing.
+   */
   const rollback = () => {
-    const snap = new Map<Group, { owns: boolean; baseline: Record<string, unknown>; noRow: boolean }>();
+    const now: Array<keyof RowSelection> = [];
+    const baseline: Record<string, unknown> = {};
+    let emptied = false;
     for (const g of groups) {
       const st = states.get(`${txId}:${g}`);
-      snap.set(g, { owns: !!st && st.seq === seqs.get(g), baseline: { ...(st?.baseline ?? {}) }, noRow: !!st?.noRow });
+      if (st && st.seq === seqs.get(g)) {
+        if (st.pending > 1) st.deferred = { ...(st.deferred ?? {}), ...Object.fromEntries(keysOf(g).map(k => [k, patch[k]])) };
+        else { now.push(...keysOf(g)); Object.assign(baseline, st.baseline); emptied ||= st.noRow; }
+      }
       settle(g);
     }
-    setRowSelections(prev => {
-      const cur = prev[txId];
-      if (!cur) return prev;
-      const restore = keys.filter(k => {
-        const s = snap.get(groupOf(k))!;
-        return s.owns && keys.filter(o => groupOf(o) === groupOf(k)).every(o => cur[o] === patch[o]);
-      });
-      if (restore.length === 0) return prev;
-      const row: RowSelection = { ...cur };
-      for (const k of restore) (row as unknown as Record<string, unknown>)[k] = snap.get(groupOf(k))!.baseline[k];
-      const next = { ...prev };
-      if (snap.get('alloc')?.noRow && !row.entityId && !DIM_KEYS.some(k => row[k])) delete next[txId];
-      else next[txId] = row;
-      return next;
-    });
+    // One update for everything this edit puts back (the allocation and the cost centres together).
+    if (now.length > 0) putBack(setRowSelections, txId, patch, now, baseline, emptied);
   };
 
   return { rollback, saved };

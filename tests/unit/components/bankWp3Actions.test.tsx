@@ -503,9 +503,12 @@ describe('rollback by per-edit sequence and field group', () => {
     const calls = setRowSelections.mock.calls.length;
     failFirst();
     await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
-    await vi.waitFor(() => expect(setRowSelections.mock.calls.length).toBeGreaterThan(calls));
+    await new Promise((r) => setTimeout(r, 20));
+    // edit 1 is no longer the row's newest edit, so its late failure puts nothing back - whatever it is applied to
     const now = { t1: shown('X', 'X') }; // value-equal to edit 1's patch
-    expect(lastRollback(setRowSelections, calls)(now)).toBe(now); // yet it is edit 3's: left alone
+    let state: Record<string, RowSelection> = now;
+    for (const [arg] of setRowSelections.mock.calls.slice(calls)) state = (arg as (p: typeof state) => typeof state)(state);
+    expect(state).toEqual(now);
   });
 
   it('a cost-centre edit made meanwhile neither blocks nor is reverted by a failed allocation edit', async () => {
@@ -585,7 +588,7 @@ describe('rollback goes to the last SAVED value, not to the previous snapshot', 
       const from = setRowSelections.mock.calls.length;
       let state: Record<string, RowSelection> = { t1: shown('Y', 'Y') };
       for (const i of order) { answers[i]!(false); await vi.waitFor(() => expect(toast.error.mock.calls.length).toBeGreaterThan(order.indexOf(i))); }
-      await vi.waitFor(() => expect(setRowSelections.mock.calls.length - from).toBe(2));
+      await new Promise((r) => setTimeout(r, 20));
       state = apply(setRowSelections, from, state);
       expect(state.t1!.entityId).toBe('old');
     });
@@ -641,6 +644,9 @@ describe('every request inside an action is activity for the hold timer', () => 
     vi.mocked(apiFetch).mockImplementation(async () => json({ accepted: 3 }));
     await setup().actions.handleBulkAccept();
     expect(touchSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+    // ... naming the lines the request is about, so only the operation holding them is kept alive
+    expect(touchSpy.mock.calls[0]![0]).toEqual({ rows: ['t1', 't2', 't3'] }); // at the start
+    expect(touchSpy.mock.calls.at(-1)![0]).toEqual({ rows: ['t1', 't2', 't3'] }); // and at the finish
   });
 });
 

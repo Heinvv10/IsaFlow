@@ -63,7 +63,9 @@ export function buildBankTxActions(deps: ActionDeps) {
   const run: BankTxBusy['run'] = deps.busy?.run ?? ((_key, fn) => fn());
 
   const callAction = async (body: Record<string, string>, fallback = 'Could not complete the action - try again') => {
-    deps.busy?.touch(); // a request starting is activity: the hold's silence timer restarts
+    // A request about these lines is activity for the operation holding them (and only that one): its silence timer restarts.
+    const rows = [body.bankTransactionId, ...(Array.isArray(body.bankTransactionIds) ? body.bankTransactionIds : [])].filter((r): r is string => typeof r === 'string');
+    deps.busy?.touch?.({ rows });
     try {
       const res = await apiFetch('/api/accounting/bank-transactions-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
@@ -73,7 +75,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       const json = await res.json();
       if (json.success === false) throw new ApiEnvelopeError(json.error?.message || fallback);
       return json;
-    } finally { deps.busy?.touch(); } // and so is one finishing
+    } finally { deps.busy?.touch?.({ rows }); } // and so is one finishing
   };
 
   const { saveSelection, saveDimensions } = buildSaveActions(deps.refreshSummarySoon ?? refreshBankAccounts);
