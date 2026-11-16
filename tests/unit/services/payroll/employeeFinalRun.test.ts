@@ -5,11 +5,8 @@ const st = vi.hoisted(() => ({ employee: true, hasFinal: false, queries: [] as s
 
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async (strings: TemplateStringsArray) => {
-    const q = strings.join('?');
-    st.queries.push(q);
-    if (q.includes('FROM payroll_employees')) return st.employee ? [{ '?column?': 1 }] : [];
-    if (q.includes('EXISTS')) return [{ has_final: st.hasFinal }];
-    throw new Error(`unexpected query ${q.slice(0, 60)}`);
+    st.queries.push(strings.join('?'));
+    return st.employee ? [{ has_bank: false, has_final: st.hasFinal, latest: null }] : [];
   }),
 }));
 
@@ -20,10 +17,10 @@ const E = '11111111-1111-4111-8111-111111111111';
 beforeEach(() => { st.employee = true; st.hasFinal = false; st.queries = []; });
 
 describe('employeeHasFinalRun', () => {
-  it('is null for an employee the company does not have, and reads no runs', async () => {
+  it('is null for an employee the company does not have, and answers from one query', async () => {
     st.employee = false;
     expect(await employeeHasFinalRun(C, E)).toBeNull();
-    expect(st.queries.some(q => q.includes('EXISTS'))).toBe(false);
+    expect(st.queries.length).toBe(1);
   });
   it('is the EXISTS answer, true and false', async () => {
     st.hasFinal = true;
