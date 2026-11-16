@@ -10,7 +10,7 @@
  * Each bi-monthly period spans two calendar months. Monthly (Category C)
  * vendors are driven by `companies.vat_period` instead — alignment is
  * irrelevant for them. Returns are due by the 25th of the month following
- * the period end.
+ * the period end, moved back to the Friday on a weekend (`backToFriday`).
  *
  * A company that is NOT a VAT vendor is recorded by `vat_system_type = 'none'`
  * (mig 245 — the "No VAT" option in company settings). `vat_period = 'none'`
@@ -34,7 +34,7 @@ export interface VatPeriod {
   periodStart: string;
   /** YYYY-MM-DD, last day of the period (a month of the requested parity). */
   periodEnd: string;
-  /** YYYY-MM-DD, 25th of the month after periodEnd. */
+  /** YYYY-MM-DD, 25th of the month after periodEnd (weekend → preceding Friday). */
   dueDate: string;
 }
 
@@ -105,8 +105,20 @@ function isoYmd(y: number, m: number, d: number): string {
   return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
+/**
+ * A statutory due day (y, m 1..12, d) on a Saturday or Sunday moves BACK to the
+ * preceding Friday (TAA s244). Public holidays are not shifted (no holiday
+ * calendar). The one weekend rule for every SARS deadline in the app.
+ */
+export function backToFriday(y: number, m: number, d: number): string {
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  if (dow === 6) return isoYmd(y, m, d - 1); // Saturday → Friday
+  if (dow === 0) return isoYmd(y, m, d - 2); // Sunday → Friday
+  return isoYmd(y, m, d);
+}
+
 /** Last calendar day of month m (1..12) in year y — leap-aware. */
-function lastDayOf(y: number, m: number): number {
+export function lastDayOf(y: number, m: number): number {
   return new Date(Date.UTC(y, m, 0)).getUTCDate();
 }
 
@@ -135,8 +147,7 @@ export function expectedVatPeriodAsOf(
       const periodStart = new Date(Date.UTC(y, m - startMonthsBack, 1));
       const dueMonth = m === 12 ? 1 : m + 1;
       const dueYear = m === 12 ? y + 1 : y;
-      const dueDate = new Date(Date.UTC(dueYear, dueMonth - 1, 25));
-      return { periodStart: iso(periodStart), periodEnd: iso(lastDay), dueDate: iso(dueDate) };
+      return { periodStart: iso(periodStart), periodEnd: iso(lastDay), dueDate: backToFriday(dueYear, dueMonth, 25) };
     }
     m -= 1;
     if (m === 0) { m = 12; y -= 1; }

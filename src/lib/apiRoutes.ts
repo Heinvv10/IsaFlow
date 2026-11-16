@@ -64,6 +64,7 @@ import type { EmployeePayslipEntry } from '@/modules/accounting/services/payroll
 import type { FringeBenefit } from '@/modules/accounting/services/payroll/fringeBenefits';
 import type { getSetupProgress } from '@/modules/accounting/services/core/setupProgressService';
 import type { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
+import type { listImportBatches } from '@/modules/accounting/services/bank/bankImportBatchQueryService';
 import type { getOrCreateEmailInbox } from '@/modules/accounting/services/capture/captureInboxService';
 import type { CapturedDocument } from '@/modules/accounting/types/documentCapture.types';
 import type { VlmJobView } from '@/modules/accounting/services/bank/vlmExtractJobs';
@@ -127,6 +128,8 @@ interface StaticRoutes extends BudgetStaticRoutes {
   '/api/accounting/customer-merge': Awaited<ReturnType<typeof mergeCustomers>>;
   // W1-02. GET lists accounts, PUT returns `{ updated }` — disjoint on Array.isArray.
   '/api/accounting/bank-accounts': Awaited<ReturnType<typeof getBankAccountsStatus>> | { updated: true };
+  // GET only (?bankAccountId=): newest statement first.
+  '/api/accounting/bank-import-batches': { batches: Awaited<ReturnType<typeof listImportBatches>> };
   // GET and POST (regenerate) both return `{ inbox }`.
   '/api/accounting/capture/inbox-address': { inbox: Awaited<ReturnType<typeof getOrCreateEmailInbox>> | { id: string; address: string } };
   // W1-02. GET list = array, POST upload = `{ document }`: the row is saved as readState 'reading' and read after
