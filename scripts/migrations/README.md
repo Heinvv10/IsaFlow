@@ -14,10 +14,12 @@ Never rename a migration file after it has been applied to any environment — t
 
 ## Prefix Uniqueness
 
-Each new migration must use the **next unused** numeric prefix. Find it with:
+Each new migration must use the **next unused** numeric prefix. Prefixes are
+ordered numerically and may exceed 999 (`1000_` follows `999_`; a plain `sort`
+puts it before `100_`). Find the newest with:
 
 ```bash
-ls scripts/migrations/sql/ | sort | tail -5
+ls scripts/migrations/sql/ | LC_ALL=C sort -t_ -k1,1n | tail -5
 ```
 
 Never reuse an existing prefix.
