@@ -163,7 +163,7 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resets, commit, 
           </p>
         )}
       </div>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" role="region" aria-label="Pay run lines, scrolls sideways" tabIndex={0}>
         <PayrollRunLinesTable lines={lines} edit={{
           hours: byUnit.some((e) => e.componentId) || inputs.hours.duplicates.length > 0 ? { head: hoursHead, cell: hoursCell } : undefined,
           earning: { head: COLUMN_LABEL.earning, cell: cell('earning', earningId) },

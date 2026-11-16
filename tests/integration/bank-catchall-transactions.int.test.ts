@@ -51,14 +51,13 @@ describe('bank-transactions-action: a crash after the write is a 500 and rolls b
     expect({ status: res.state.statusCode, kept: await exists(line) }).toEqual({ status: 500, kept: true });
   });
 
-  it('the typed refusals keep their 4xx: a missing line is 404, a split that does not add up is 400', async () => {
+  it('the typed refusals keep their 4xx: a missing line is 404, reversing a line with nothing to reverse is 400', async () => {
     const missing = crypto.randomUUID();
     expect(refusalOf(await act(a, f.c, { action: 'exclude', bankTransactionId: missing })).status).toBe(404);
     const line = await plantLine(pool, f, null, -100);
-    const split = refusalOf(await act(a, f.c, { action: 'split_allocate', bankTransactionId: line,
-      lines: [{ contraAccountId: f.expA, amount: 60 }, { contraAccountId: f.expB, amount: 30 }] }));
-    expect(split.status).toBe(400);
-    expect(split.message).toMatch(/does not equal transaction amount/);
+    const reverse = refusalOf(await act(a, f.c, { action: 'reverse', bankTransactionId: line }));
+    expect(reverse).toMatchObject({ status: 400, message: expect.stringMatching(/Can only reverse allocated, matched, or reconciled/) });
+    expect((await pool.query('SELECT status FROM bank_transactions WHERE id = $1', [line])).rows[0].status).toBe('imported');
   });
 });
 

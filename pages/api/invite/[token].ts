@@ -16,6 +16,7 @@ import { isLiveCompanyForUser } from '@/lib/auth/liveCompanies';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import { maskInviteEmail } from '@/lib/auth/maskInviteEmail';
+import { adminGetUser } from '@/lib/auth/gotrueAdminUser';
 import { EMAIL_IN_USE_MESSAGE, upsertInviteeProfile } from '@/lib/auth/inviteeProfile';
 type Row = Record<string, unknown>;
 
@@ -96,6 +97,22 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   // the COMMIT. Set from the cast once the transaction is open; a sub that is no UUID
   // fails it (22P02, a 500), as the membership cast did before.
   let userId = authReq.user.id;
+  // A token naming no live invitation is the 404 before anything else, GoTrue
+  // included (an outage must not turn it into a 5xx). One statement, no lock;
+  // the transaction below reads the invitation again and decides.
+  const live = await migrationAdminPool().query(
+    `SELECT 1 FROM company_invitations WHERE token = $1 AND accepted_at IS NULL AND expires_at > NOW() LIMIT 1`,
+    [tokenHash],
+  );
+  if ((live.rowCount ?? 0) === 0) return apiResponse.notFound(res, 'Invitation');
+  // GoTrue's CURRENT login email for this user, read before the transaction (no
+  // connection or lock held across the call). Not the session's email claim: no
+  // token is re-issued on change-email, so the claim names the old address for up
+  // to an hour, and an admin's deleteUser cancels only the addresses current then
+  // (#1468 re-break F1). No GoTrue account, or one with no email (GoTrue answers ''
+  // for a phone-only account), is the mismatch 403 below; a GoTrue outage throws
+  // (a 5xx, nothing written).
+  const loginEmail = (await adminGetUser(userId.toLowerCase()))?.email || null;
   const client = await migrationAdminPool().connect();
   let opened = false;
   let unusable = false;
@@ -104,14 +121,16 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     opened = true; // before BEGIN (R-176): a BEGIN that reached the server but failed is rolled back too
     await client.query('BEGIN');
     userId = (await client.query<{ id: string }>('SELECT $1::uuid::text AS id', [userId])).rows[0]!.id;
+    // A plain read, no FOR UPDATE: the invitation row is locked LAST, by the UPDATE that marks it accepted below,
+    // as /api/invitations/[token]/accept and an admin's deleteUser (which cancels it) take it. Locking it first
+    // deadlocked (40P01) against both: they hold the membership and users rows when they reach the invitation.
     const rows = (await client.query(
       `SELECT id, company_id, email, role
          FROM company_invitations
         WHERE token = $1
           AND accepted_at IS NULL
           AND expires_at > NOW()
-        LIMIT 1
-          FOR UPDATE`,
+        LIMIT 1`,
       [tokenHash],
     )).rows as Row[];
 
@@ -122,8 +141,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
     inv = rows[0]!;
 
-    // Verify invited email matches the logged-in user's email
-    if ((inv.email as string).toLowerCase() !== (authReq.user.email ?? '').toLowerCase()) {
+    // Verify invited email matches the user's current GoTrue login email (above)
+    if (loginEmail === null || (inv.email as string).trim().toLowerCase() !== loginEmail.trim().toLowerCase()) {
       unusable = await rollbackFailed(client, 'invite accept');
       opened = false;
       return apiResponse.forbidden(res, 'This invitation was sent to a different email address');
@@ -164,8 +183,19 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.conflict(res, EMAIL_IN_USE_MESSAGE);
     }
 
-    // Mark invitation accepted
-    await client.query(`UPDATE company_invitations SET accepted_at = NOW() WHERE id = $1::UUID`, [inv.id]);
+    // Mark it accepted, still pending under its token, or nothing commits: a cancel (an admin deleting the user,
+    // a revoke), a re-send or a competing accept since the read above leaves no row to mark, and the membership
+    // and users row written above roll back with it.
+    const marked = await client.query(
+      `UPDATE company_invitations SET accepted_at = NOW()
+        WHERE id = $1::UUID AND token = $2 AND accepted_at IS NULL AND expires_at > NOW()`,
+      [inv.id, tokenHash],
+    );
+    if (marked.rowCount !== 1) {
+      unusable = await rollbackFailed(client, 'invite accept');
+      opened = false;
+      return apiResponse.notFound(res, 'Invitation');
+    }
 
     // Mark onboarding completed for this user (they're joining an existing company)
     await client.query(`UPDATE users SET onboarding_completed = true WHERE id = $1`, [userId]);

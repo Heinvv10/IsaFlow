@@ -10,6 +10,12 @@
  */
 import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
+
+// No GoTrue in the fixture: POST /api/invite/<token> reads the session user's login email through adminGetUser
+// (#1468); answer the address each session below carries (k041m- for `member`, k041l- for the L6 fresh member).
+const logins = vi.hoisted(() => new Map<string, string>());
+vi.mock('@/lib/auth/gotrueAdminUser', async () =>
+  (await import('./helpers/fixtureGotrueLogin')).fixtureGotrueLogin((id) => logins.get(id)));
 import { Pool } from 'pg';
 import { assertDisposable, response } from './mfa-impersonation-postgres.helpers';
 
@@ -20,6 +26,7 @@ const company = crypto.randomUUID();
 const member = crypto.randomUUID();
 const inviter = crypto.randomUUID();
 const email = `k041m-${member}@test.local`;
+logins.set(member, email);
 /** Users a test inserts for itself; afterAll deletes them with the fixture's own. */
 const testUsers: string[] = [];
 const rawToken = `k041m${'0'.repeat(27)}${member.replace(/-/g, '')}`;
@@ -109,6 +116,7 @@ it('L6: accepting an invitation never writes the raw token to the log', async ()
   const freshMember = crypto.randomUUID();
   testUsers.push(freshMember);
   const freshEmail = `k041l-${freshMember}@test.local`;
+  logins.set(freshMember, freshEmail);
   const freshToken = `k041l${'0'.repeat(27)}${freshMember.replace(/-/g, '')}`;
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'viewer',true)",
     [freshMember, freshEmail]);

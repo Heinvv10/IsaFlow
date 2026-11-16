@@ -12,11 +12,13 @@
  * ranges, the year-end close) from the declared month.
  */
 import { YEAR_END_CHANGE_MESSAGE } from '@/modules/accounting/services/gl/financialYearStartMessages';
-import { Company, INPUT_CLS, LABEL_CLS } from './settingsTypes';
+import { Select } from '@/components/ui';
+import { Company, LABEL_CLS } from './settingsTypes';
 
 const SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
   'November', 'December'];
+const MONTH_OPTIONS = SHORT.map((m, i) => ({ value: String(i + 1), label: m }));
 const NOTE_CLS = 'text-xs text-[var(--ff-text-tertiary)] mt-1';
 
 interface Props {
@@ -35,11 +37,8 @@ export function FinancialYearStartField({ company, onChange }: Props) {
 
   return (
     <div>
-      <label htmlFor="settings-financial-year-start" className={LABEL_CLS}>Financial Year Start Month</label>
-      <select id="settings-financial-year-start" className={INPUT_CLS} value={shown} disabled={locked}
-        onChange={e => onChange('financialYearStart', Number(e.target.value))}>
-        {SHORT.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
-      </select>
+      <Select id="settings-financial-year-start" label="Financial Year Start Month" labelClassName={LABEL_CLS} options={MONTH_OPTIONS}
+        value={String(shown)} disabled={locked} onChange={v => { if (v) onChange('financialYearStart', Number(v)); }} />
       {reason === 'not_active' && <p className={NOTE_CLS}>Switch to this company to change its financial year start.</p>}
       {(reason === 'posted' || reason === 'in_use') && (
         <p className={NOTE_CLS}>

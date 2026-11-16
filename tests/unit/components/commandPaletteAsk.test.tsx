@@ -78,6 +78,15 @@ describe('Explain this figure', () => {
     expect(onExplain).toHaveBeenCalledTimes(1);
   });
 
+  it('clicking a figure inside a focusable scroll region still explains that figure (the region taking focus is not a move)', () => {
+    const onExplain = vi.fn();
+    render(<><div role="region" aria-label="lines" tabIndex={0}>{figure(onExplain)}</div><CommandPalette isOpen onClose={() => undefined} /></>);
+    fireEvent.pointerDown(screen.getByText('R 1.00'));
+    fireEvent.focusIn(screen.getByLabelText('lines')); // the click focuses the nearest focusable ancestor
+    fireEvent.click(screen.getByText('Explain this figure'));
+    expect(onExplain).toHaveBeenCalledTimes(1);
+  });
+
   it('a click on blank space after a figure means nothing is focused any more', () => {
     const onExplain = vi.fn();
     render(<>{figure(onExplain)}<div>blank</div><CommandPalette isOpen onClose={() => undefined} /></>);

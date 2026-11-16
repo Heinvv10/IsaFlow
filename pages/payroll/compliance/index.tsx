@@ -5,6 +5,7 @@
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, Scale, ArrowRight } from 'lucide-react';
+import { PreValidationCard } from '@/components/payroll/preValidation/PreValidationCard';
 
 const CARDS = [
   {
@@ -33,6 +34,7 @@ export default function PayrollCompliancePage() {
         </p>
 
         <div className="grid gap-4">
+          <PreValidationCard />
           {CARDS.map(({ href, icon: Icon, title, description, color }) => (
             <Link
               key={href}
