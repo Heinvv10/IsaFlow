@@ -11,6 +11,7 @@ import { canWrite } from '@/lib/auth/writeRoles';
 import { formatDate } from '@/utils/formatters';
 import { log } from '@/lib/logger';
 import { statusBadge, daysUntil } from './sarsStatusBadge';
+import { EfilingStatus, type Efiling } from './EfilingStatus';
 
 export interface CalendarItem {
   id?: string;
@@ -24,7 +25,7 @@ export interface CalendarItem {
   filedAt?: string;
   sarsReference?: string | null;
   /** IsaFlow's own filed submissions cover the item: shown as "Filed on eFiling", never undone here. */
-  efiling?: { reference: string | null; submittedAt: string | null };
+  efiling?: Efiling;
 }
 
 interface Props {
@@ -137,13 +138,10 @@ export function ComplianceCalendarTable({ events, marksUnavailable = false, subm
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    {evt.efiling ? statusBadge('submitted') : statusBadge(evt.status)}
-                    {evt.efiling && (evt.efiling.reference || evt.efiling.submittedAt) && (
-                      <p className="mt-1 text-xs text-[var(--ff-text-tertiary)]">
-                        {[evt.efiling.reference ? `Ref ${evt.efiling.reference}` : '', evt.efiling.submittedAt ? formatDate(evt.efiling.submittedAt) : '']
-                          .filter(Boolean).join(' · ')}
-                      </p>
-                    )}
+                    {evt.efiling ? (
+                      <EfilingStatus efiling={evt.efiling} busy={busy} mark={evt.id ? { by: evt.filedBy ?? null } : null}
+                        onUndoMark={writer && evt.id ? () => void send(evt, 'DELETE') : undefined} />
+                    ) : statusBadge(evt.status)}
                     {!evt.efiling && filed && evt.filedAt && (
                       <p className="mt-1 text-xs text-[var(--ff-text-tertiary)]">
                         {`by ${evt.filedBy || 'a team member'} on ${formatDate(evt.filedAt)}`}

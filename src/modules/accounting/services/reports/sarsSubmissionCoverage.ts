@@ -1,8 +1,15 @@
 /**
- * Which SARS calendar items IsaFlow itself filed: the company's sars_submissions with a filed status
- * ('submitted' — on eFiling, by hand with a reference, through the return lifecycle or the ISV
- * channel while SARS processes it — or 'accepted'). Drafts, rejected and superseded rows never count.
- * Only VAT201 and EMP201 are ever written there; EMP501 and IRP6 are manual-mark only.
+ * Which SARS calendar items were filed according to the company's own sars_submissions: a filed
+ * status ('submitted' or 'accepted'); drafts, rejected and superseded rows never count. Only VAT201
+ * and EMP201 are ever written there; EMP501 and IRP6 are manual-mark only.
+ *
+ * How it was filed (`filingKind`), from who wrote the row:
+ *   - efiling_channel 'isv' is set only by IsaFlow's own send to SARS (sarsEfilingRepo
+ *     markSubmissionSubmitted / applyPollResult). 'accepted' is SARS's final verdict: `efiled`.
+ *     'submitted' means SARS received it and has not ruled (it may still turn 'rejected'): `processing`.
+ *   - No channel: markSubmitted wrote it (the legacy "mark submitted" with a typed reference, or the
+ *     return lifecycle's "file" with one). A user recorded that they filed; IsaFlow did not send it,
+ *     so it never claims eFiling: `recorded`.
  */
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
@@ -15,6 +22,39 @@ export interface FiledSubmission {
   reference: string | null;
   /** ISO timestamp, or null when the row has none. */
   submittedAt: string | null;
+  status: string;
+  channel: string | null;
+  /** Display name of the user who recorded or sent it (a member of the company), or null. */
+  submittedBy: string | null;
+}
+
+export type FilingKind = 'efiled' | 'processing' | 'recorded';
+
+/** How the submission was filed (see the header). */
+export function filingKind(s: FiledSubmission): FilingKind {
+  if (s.channel !== 'isv') return 'recorded';
+  return s.status === 'accepted' ? 'efiled' : 'processing';
+}
+
+/** The least certain kind among several filings: processing, then recorded, then efiled. */
+const KIND_RANK: Readonly<Record<FilingKind, number>> = { processing: 0, recorded: 1, efiled: 2 };
+export function weakestKind(subs: FiledSubmission[]): FilingKind {
+  return subs.map(filingKind).reduce((a, b) => (KIND_RANK[b] < KIND_RANK[a] ? b : a));
+}
+
+export interface FilingLine { reference: string | null; submittedAt: string | null; by: string | null }
+
+/** The filings to show: in period order, a row identical in period and reference to an earlier one shown once. */
+export function filingLines(subs: FiledSubmission[]): FilingLine[] {
+  const seen = new Set<string>();
+  const out: FilingLine[] = [];
+  for (const s of [...subs].sort((a, b) => a.periodStart.localeCompare(b.periodStart) || a.periodEnd.localeCompare(b.periodEnd))) {
+    const key = `${s.periodStart}|${s.periodEnd}|${s.reference ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ reference: s.reference, submittedAt: s.submittedAt, by: s.submittedBy });
+  }
+  return out;
 }
 
 /** The calendar event type each submitted form completes. */
@@ -48,15 +88,11 @@ export function coveringSubmissions(
   return uncovered > item.periodEnd ? inside : null;
 }
 
-/** The latest of the covering submissions (by submitted time; a row without one sorts first). */
-export function latestSubmission(subs: FiledSubmission[]): FiledSubmission {
-  return subs.reduce((a, b) => ((b.submittedAt ?? '') >= (a.submittedAt ?? '') ? b : a));
-}
-
 /** The company's filed VAT201/EMP201 submissions overlapping [from, to]. Errors propagate (the caller holds the savepoint). */
 export async function readFiledSubmissions(companyId: string, from: string, to: string): Promise<FiledSubmission[]> {
   const rows = (await sql`
-    SELECT form_type, period_start, period_end, submission_reference, submitted_at
+    SELECT form_type, period_start, period_end, submission_reference, submitted_at, status, efiling_channel,
+           public.approval_company_member_name(company_id, submitted_by::TEXT) AS submitted_by_name
     FROM sars_submissions
     WHERE company_id = ${companyId}::UUID
       AND status IN ('submitted', 'accepted')
@@ -69,5 +105,8 @@ export async function readFiledSubmissions(companyId: string, from: string, to: 
     periodEnd: fmtDate(r.period_end),
     reference: r.submission_reference ? String(r.submission_reference) : null,
     submittedAt: r.submitted_at instanceof Date ? r.submitted_at.toISOString() : r.submitted_at ? String(r.submitted_at) : null,
+    status: String(r.status),
+    channel: r.efiling_channel ? String(r.efiling_channel) : null,
+    submittedBy: r.submitted_by_name ? String(r.submitted_by_name) : null,
   }));
 }

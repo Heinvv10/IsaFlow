@@ -27,8 +27,15 @@ export interface ComplianceEvent {
   filedBy?: string | null;
   filedAt?: string;
   sarsReference?: string | null;
-  /** Set when IsaFlow's own filed submissions cover the item ("Filed on eFiling"): the latest one's reference and time (ISO). */
-  efiling?: { reference: string | null; submittedAt: string | null };
+  /**
+   * Set when the company's filed sars_submissions cover the item: how it was filed (`efiled` = sent
+   * through IsaFlow and accepted by SARS, `processing` = sent, SARS not final, `recorded` = a user
+   * recorded the filing) and every covering filing, in period order.
+   */
+  efiling?: {
+    kind: 'efiled' | 'processing' | 'recorded';
+    filings: Array<{ reference: string | null; submittedAt: string | null; by: string | null }>;
+  };
 }
 
 function pad(n: number): string {

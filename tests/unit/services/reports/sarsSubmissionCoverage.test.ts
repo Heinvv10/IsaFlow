@@ -5,10 +5,10 @@
  * type, or an unfiled status never completes it.
  */
 import { describe, it, expect } from 'vitest';
-import { coveringSubmissions, type FiledSubmission } from '@/modules/accounting/services/reports/sarsSubmissionCoverage';
+import { coveringSubmissions, filingKind, type FiledSubmission } from '@/modules/accounting/services/reports/sarsSubmissionCoverage';
 
 const sub = (formType: string, periodStart: string, periodEnd: string, extra: Partial<FiledSubmission> = {}): FiledSubmission =>
-  ({ formType, periodStart, periodEnd, reference: null, submittedAt: null, ...extra });
+  ({ formType, periodStart, periodEnd, reference: null, submittedAt: null, status: 'submitted', channel: null, submittedBy: null, ...extra });
 const VAT_JF = { eventType: 'VAT201_DUE', periodStart: '2026-01-01', periodEnd: '2026-02-28' };
 const EMP_DEC = { eventType: 'EMP201_DUE', periodStart: '2025-12-01', periodEnd: '2025-12-31' };
 
@@ -38,6 +38,11 @@ describe('coveringSubmissions', () => {
     expect(coveringSubmissions(febMonthly, [sub('VAT201', '2026-01-01', '2026-02-28')])).toBeNull();
   });
 
+  it('a submission starting on the item but ending after it never counts (monthly item, bi-monthly filing)', () => {
+    const janMonthly = { eventType: 'VAT201_DUE', periodStart: '2026-01-01', periodEnd: '2026-01-31' };
+    expect(coveringSubmissions(janMonthly, [sub('VAT201', '2026-01-01', '2026-02-28')])).toBeNull();
+  });
+
   it('another type never counts', () => {
     expect(coveringSubmissions(EMP_DEC, [sub('VAT201', '2025-12-01', '2025-12-31')])).toBeNull();
   });
@@ -56,5 +61,17 @@ describe('coveringSubmissions', () => {
     const febLeap = { eventType: 'EMP201_DUE', periodStart: '2028-02-01', periodEnd: '2028-02-29' };
     expect(coveringSubmissions(febLeap, [sub('EMP201', '2028-02-01', '2028-02-28')])).toBeNull();
     expect(coveringSubmissions(febLeap, [sub('EMP201', '2028-02-01', '2028-02-29')])).toHaveLength(1);
+  });
+});
+
+describe('filingKind', () => {
+  it('an ISV row SARS accepted is filed on eFiling', () => {
+    expect(filingKind(sub('EMP201', '2026-01-01', '2026-01-31', { channel: 'isv', status: 'accepted' }))).toBe('efiled');
+  });
+  it('an ISV row still submitted (SARS received or processing) is provisional', () => {
+    expect(filingKind(sub('EMP201', '2026-01-01', '2026-01-31', { channel: 'isv', status: 'submitted' }))).toBe('processing');
+  });
+  it('a row with no channel (a user recorded the filing) is recorded, never eFiling', () => {
+    expect(filingKind(sub('EMP201', '2026-01-01', '2026-01-31', { channel: null, status: 'submitted' }))).toBe('recorded');
   });
 });

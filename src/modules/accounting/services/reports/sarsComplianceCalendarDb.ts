@@ -9,7 +9,7 @@ import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { getComplianceCalendar, type ComplianceEvent } from './sarsTaxPeriodsService';
 import { readCompanyVatRow, vatCycleOfRow, type VatCycle } from './companyVatCycle';
-import { coveringSubmissions, latestSubmission, readFiledSubmissions } from './sarsSubmissionCoverage';
+import { coveringSubmissions, filingLines, readFiledSubmissions, weakestKind } from './sarsSubmissionCoverage';
 
 /**
  * Events due from 1 Jan `y` to 31 Mar `y + 1`: the year plus the SARS page's
@@ -45,11 +45,19 @@ export interface CalendarWithMarks {
   submissionsUnavailable: boolean;
 }
 
-/** One read in its own savepoint: a failure is logged and returns null, and leaves the request transaction usable. */
+/** A database error carries a five-character SQLSTATE `code`; anything else is a code bug. */
+const isDatabaseError = (err: unknown): boolean =>
+  typeof (err as { code?: unknown } | null)?.code === 'string' && /^[0-9A-Z]{5}$/.test((err as { code: string }).code);
+
+/**
+ * One read in its own savepoint (rolled back on any error, so the request transaction stays usable).
+ * A database error is logged and returns null ("could not be loaded"); any other error propagates.
+ */
 async function guardedRead<T>(savepoint: string, what: string, read: () => Promise<T>): Promise<T | null> {
   try {
     return await withSavepoint(savepoint, read);
   } catch (err) {
+    if (!isDatabaseError(err)) throw err;
     log.warn(`Could not load ${what} for the compliance calendar`, { error: err }, 'sarsComplianceService');
     return null;
   }
@@ -57,13 +65,14 @@ async function guardedRead<T>(savepoint: string, what: string, read: () => Promi
 
 /**
  * The company's calendar with what was filed laid over it.
- *   - IsaFlow's own filings (sars_submissions, submitted or accepted): an item they fully cover
- *     (sarsSubmissionCoverage) is completed with `efiling` (the latest one's reference and time).
- *     It is shown over a manual mark, whose id and stamps are then not exposed (no undo).
+ *   - The company's filings (sars_submissions, submitted or accepted): an item they fully cover
+ *     (sarsSubmissionCoverage) is completed with `efiling` (how it was filed, and every covering
+ *     filing). It is shown over a manual mark, which stays on the item so it can still be undone.
  *   - Manual marks (sars_compliance_events, 999c): a mark matches an item on (event type, period
  *     start, period end), so a mark made under one VAT cadence never marks another period that ends
  *     the same day; a row from before 999c (no period) matches on (event type, due date).
- * Each is read in its own savepoint; a failed read sets its flag and leaves the rest of the calendar.
+ * Each is read in its own savepoint; a database error sets its flag and leaves the rest of the
+ * calendar, any other error propagates.
  */
 export async function getComplianceCalendarWithMarks(companyId: string, year?: number): Promise<CalendarWithMarks> {
   const y = year || new Date().getFullYear();
@@ -90,15 +99,9 @@ export async function getComplianceCalendarWithMarks(companyId: string, year?: n
   }
 
   const events = staticEvents.map((se): ComplianceEvent => {
-    const covering = coveringSubmissions(se, filed ?? []);
-    if (covering) {
-      const latest = latestSubmission(covering);
-      return { ...se, status: 'completed', efiling: { reference: latest.reference, submittedAt: latest.submittedAt } };
-    }
     const m = byPeriod.get(`${se.eventType}_${se.periodStart}_${se.periodEnd}`) ?? byDue.get(`${se.eventType}_${se.dueDate}`);
-    if (!m) return se;
-    const filedAt = m.filed_at instanceof Date ? m.filed_at.toISOString() : m.filed_at ? String(m.filed_at) : undefined;
-    return {
+    const filedAt = m ? (m.filed_at instanceof Date ? m.filed_at.toISOString() : m.filed_at ? String(m.filed_at) : undefined) : undefined;
+    const marked: ComplianceEvent = !m ? se : {
       ...se,
       id: String(m.id),
       status: m.status as ComplianceEvent['status'],
@@ -106,6 +109,10 @@ export async function getComplianceCalendarWithMarks(companyId: string, year?: n
       ...(filedAt ? { filedAt, filedBy: m.filed_by_name ? String(m.filed_by_name) : null } : {}),
       sarsReference: m.sars_reference ? String(m.sars_reference) : null,
     };
+    // A filing is shown over a manual mark; the mark stays on the item so it can still be undone.
+    const covering = coveringSubmissions(se, filed ?? []);
+    if (!covering) return marked;
+    return { ...marked, status: 'completed', efiling: { kind: weakestKind(covering), filings: filingLines(covering) } };
   });
   return { events, marksUnavailable: dbEvents === null, submissionsUnavailable: filed === null };
 }
