@@ -3,6 +3,7 @@
  * Phase 1 Sage Alignment: Manual VAT corrections with GL posting
  */
 
+import { toIsoTimestamp } from '@/lib/dateUtils';
 import { sql, withSavepoint } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import { fmtDate } from '@/lib/fmtDate';
@@ -212,9 +213,9 @@ function mapRow(row: Row): VATAdjustment {
     status: String(row.status) as VATAdjustment['status'],
     glJournalEntryId: row.gl_journal_entry_id ? String(row.gl_journal_entry_id) : undefined,
     approvedBy: row.approved_by ? String(row.approved_by) : undefined,
-    approvedAt: row.approved_at ? String(row.approved_at) : undefined,
+    approvedAt: row.approved_at ? (toIsoTimestamp(row.approved_at as Date | string) ?? undefined) : undefined,
     createdBy: String(row.created_by),
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
+    createdAt: toIsoTimestamp(row.created_at as Date | string) ?? '',
+    updatedAt: toIsoTimestamp(row.updated_at as Date | string) ?? '',
   };
 }

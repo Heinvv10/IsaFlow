@@ -25,6 +25,7 @@ import { handOffsetOf, postingJournalOf, type HandOffset } from './autoPostHandO
 import { assertMayUndoRun, auditRunUndo } from './bankReversalGate';
 import { postingRefOf, recordAutoPostUndone } from './codingDecisionLog';
 import { attemptUndoRow, type UndoTally } from './autoPostUndoAttempt';
+import { BankRequestRefusal } from './bankRequestRefusal';
 
 type Row = DbRow;
 
@@ -182,8 +183,8 @@ export async function undoRun(companyId: string, runId: string, userId: string):
     WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID
     LIMIT 1
   `) as Row[];
-  if (runRows.length === 0) throw new Error(`Auto-post run ${runId} not found`);
-  if (runRows[0]!.undone_at) throw new Error('Run already undone');
+  if (runRows.length === 0) throw new BankRequestRefusal(`Auto-post run ${runId} not found`, 404);
+  if (runRows[0]!.undone_at) throw new BankRequestRefusal('Run already undone', 400); // 400, not 409: the panel reads 409 as "another request is working on this run" and invites a retry
   const clearance = await assertMayUndoRun(companyId, runId, userId); // step 2 (decision 4): the RUN judged, before any row
 
   const txRows = (await sql`

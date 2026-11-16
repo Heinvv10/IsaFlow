@@ -39,7 +39,7 @@ describe('statutory services refuse a Login-as session first', () => {
   });
 
   it('markSubmitted', async () => {
-    await refused(markSubmitted(C, 'sub-1', 'REF'));
+    await refused(markSubmitted(C, 'sub-1', 'REF', 'user-1'));
     expect(fx.queries).toBe(0);
   });
 

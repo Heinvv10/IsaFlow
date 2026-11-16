@@ -6,7 +6,7 @@
  * the move goes through the existing grouping PUT.
  */
 
-import type { BankAcct } from './BankTxBankCards';
+import type { BankAccountSummary } from './useBankTxSummary';
 import type { BankAccountGroup } from './groupBankAccounts';
 
 /** Fewer look-alikes than this is coincidence, not a missed group. */
@@ -15,7 +15,7 @@ export const MIN_UNGROUPED = 3;
 export interface UngroupedHint {
   groupId: string;
   groupName: string;
-  accounts: BankAcct[];
+  accounts: BankAccountSummary[];
 }
 
 /**
@@ -40,7 +40,7 @@ function groupPrefix(group: BankAccountGroup): string | null {
   return null;
 }
 
-export function findUngroupedHints(primaries: BankAcct[], groups: BankAccountGroup[]): UngroupedHint[] {
+export function findUngroupedHints(primaries: BankAccountSummary[], groups: BankAccountGroup[]): UngroupedHint[] {
   const byPrefix = new Map<string, BankAccountGroup[]>();
   for (const g of groups) {
     const p = groupPrefix(g);

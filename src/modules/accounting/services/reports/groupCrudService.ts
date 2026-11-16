@@ -3,6 +3,7 @@
  * Manages company groups and membership records.
  */
 
+import { toIsoTimestamp } from '@/lib/dateUtils';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
@@ -43,8 +44,8 @@ export function mapGroup(r: DbRow): CompanyGroup {
     financialYearStart: Number(r.financial_year_start),
     isActive: Boolean(r.is_active),
     createdBy: r.created_by != null ? String(r.created_by) : null,
-    createdAt: String(r.created_at),
-    updatedAt: String(r.updated_at),
+    createdAt: (toIsoTimestamp(r.created_at as Date | string) ?? ''),
+    updatedAt: (toIsoTimestamp(r.updated_at as Date | string) ?? ''),
   };
 }
 
@@ -58,7 +59,7 @@ export function mapMember(r: DbRow): GroupMember {
     isHolding: Boolean(r.is_holding),
     joinedDate: String(r.joined_date),
     leftDate: r.left_date != null ? String(r.left_date) : null,
-    createdAt: String(r.created_at),
+    createdAt: (toIsoTimestamp(r.created_at as Date | string) ?? ''),
   };
 }
 
