@@ -70,6 +70,22 @@ describe('bank-rules-action: a crash after the write is a 500 and rolls back', (
   });
 });
 
+describe('bank-rules-action update: a GL account that is not this company\'s is a 400, not an FK 500', () => {
+  it('another company\'s account and an unknown account are refused before the UPDATE; the rule keeps its account', async () => {
+    const other = await bankCompany(pool, [[a, 'admin']], companies);
+    const rule = (await pool.query(
+      `INSERT INTO bank_categorisation_rules(company_id, rule_name, match_field, match_type, match_pattern, gl_account_id, created_by)
+       VALUES($1,'Acct rule','description','contains','CATCHALL ACCT',$2,$3) RETURNING id`, [f.c, f.expA, a])).rows[0].id as string;
+    for (const glAccountId of [other.expA, crypto.randomUUID()]) {
+      const res = refusalOf(await call(rulesAction, 'POST', { action: 'update', id: rule, glAccountId }, '/api/accounting/bank-rules-action'));
+      expect(res).toMatchObject({ status: 400, message: expect.stringMatching(/GL account.*not .*this company/i) });
+    }
+    expect((await pool.query('SELECT gl_account_id FROM bank_categorisation_rules WHERE id = $1', [rule])).rows[0].gl_account_id).toBe(f.expA);
+    const ok = await call(rulesAction, 'POST', { action: 'update', id: rule, glAccountId: f.expB }, '/api/accounting/bank-rules-action');
+    expect(ok.state.statusCode).toBe(200);
+  });
+});
+
 describe('bank-auto-post: a crash after the write is a 500 and rolls back; typed refusals keep their 4xx', () => {
   const settings = async () => (await pool.query(
     'SELECT min_confidence::TEXT AS c FROM bank_auto_post_settings WHERE company_id = $1', [f.c])).rows as { c: string }[];

@@ -93,6 +93,43 @@ describe('bank-transactions-import-classified: it imports, and a crash after the
     expect(await batches()).toBe(before + 1);
   });
 
+  // The system validator (journalCostCentreValidation) assigns only cc_type exactly 'cc1'/'cc2' and is_active exactly true.
+  it('a NULL-type centre, an inactive centre, a NULL-active unit: unresolved and not stored', async () => {
+    await pool.query("INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1,'NULLTYPE','Null Type',NULL)", [f.c]);
+    await pool.query("INSERT INTO cost_centres(company_id, code, name, cc_type, is_active) VALUES($1,'GONE','Gone','cc1',false)", [f.c]);
+    await pool.query("INSERT INTO business_units(company_id, code, name, is_active) VALUES($1,'BU-NULL','Null Unit',NULL)", [f.c]);
+    const res = await importAs(f.c, f.bank, [
+      { transactionDate: '2026-09-07', description: 'STRICT A', debit: 5, costCentreT1: 'NULLTYPE', businessUnit: 'BU-NULL' },
+      { transactionDate: '2026-09-08', description: 'STRICT B', debit: 6, costCentreT1: 'GONE' },
+    ]);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(201);
+    const data = (res.state.body as { data: { unresolvedDimensions: string[] } }).data;
+    expect([...data.unresolvedDimensions].sort()).toEqual(['BU: BU-NULL', 'T1: GONE', 'T1: NULLTYPE']);
+    expect(await linesNamed('STRICT')).toEqual([
+      { description: 'STRICT A', amount: -5, cc1: null, cc2: null, bu: null },
+      { description: 'STRICT B', amount: -6, cc1: null, cc2: null, bu: null },
+    ]);
+  });
+
+  it('a label two masters answer to is ambiguous: stored NULL and listed, never guessed', async () => {
+    await pool.query("INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1,'TW-1','Twin','cc1'),($1,'TW-2','Twin','cc1')", [f.c]);
+    const res = await importAs(f.c, f.bank, [{ transactionDate: '2026-09-09', description: 'TWIN A', debit: 7, costCentreT1: 'twin' }]);
+    expect((res.state.body as { data: { unresolvedDimensions: string[] } }).data.unresolvedDimensions).toEqual(['T1: twin']);
+    expect(await linesNamed('TWIN')).toEqual([{ description: 'TWIN A', amount: -7, cc1: null, cc2: null, bu: null }]);
+  });
+
+  // pg read '31/12/2026' as an error (500) and '01/02/2026' as 2 January: the worksheet takes ISO days only.
+  it('a date that is not an ISO day (or not a real day) is a 400 naming the row; nothing is written', async () => {
+    const before = await batches();
+    for (const bad of ['31/12/2026', '01/02/2026', '2026-02-30', '2026-13-01', 'September 4']) {
+      const res = refusalOf(await importAs(f.c, f.bank, [
+        { transactionDate: '2026-09-10', description: 'DATE OK', debit: 1 },
+        { transactionDate: bad, description: 'DATE BAD', debit: 2 }]));
+      expect(res, bad).toMatchObject({ status: 400, message: expect.stringContaining('Row 2') });
+    }
+    expect({ lines: await linesNamed('DATE '), batches: await batches() }).toEqual({ lines: [], batches: before });
+  });
+
   it('the lines were inserted, then a TypeError — 500, and no line or batch is left', async () => {
     const before = await batches();
     faults.afterLog = 'Imported classified bank transactions';

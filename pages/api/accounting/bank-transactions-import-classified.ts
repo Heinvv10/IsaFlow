@@ -46,6 +46,15 @@ const BodySchema = z.object({
 
 type ClassifiedBankTx = z.infer<typeof ClassifiedBankTxSchema>;
 
+/** YYYY-MM-DD naming a day that exists (not 2026-02-30). */
+function isIsoCalendarDay(value: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const probe = new Date(Date.UTC(y, mo - 1, d));
+  return probe.getUTCFullYear() === y && probe.getUTCMonth() === mo - 1 && probe.getUTCDate() === d;
+}
+
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -90,7 +99,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       desc: string;
     }
     const normTxs: NormTx[] = [];
-    for (const tx of transactions) {
+    for (const [row, tx] of transactions.entries()) {
       const debit = Number(tx.debit || 0);
       const credit = Number(tx.credit || 0);
       const amount = credit > 0 ? credit : -debit;
@@ -98,6 +107,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const txDate = String(tx.transactionDate).trim();
       const desc = String(tx.description || '').trim();
       if (!txDate || !desc) continue;
+      // Before any write: only an ISO calendar day. Postgres refused '31/12/2026' (a 500 from the cast) and read
+      // '01/02/2026' as 2 January, so a worksheet in another order cannot be told apart from one in this.
+      if (!isIsoCalendarDay(txDate)) {
+        return apiResponse.badRequest(res, `Row ${row + 1}: transactionDate "${txDate}" must be an ISO date (YYYY-MM-DD)`);
+      }
       normTxs.push({ tx, amount, txDate, desc });
     }
     // The day Postgres stores for each date (gl/journalDateGuard); one outside the ledger window refuses the file (422).

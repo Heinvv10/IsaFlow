@@ -5,11 +5,15 @@
  * T1 and T2 into one string for `bank_transactions.suggested_cost_centre`, a column no migration ever created — so
  * every import that inserted a line failed. The values belong in the columns a line's saved dimensions live in
  * (`cc1_id`, `cc2_id`, `bu_id`: what the dimension picker saves and an allocation reads), so each is resolved here to
- * an ACTIVE master of its own slot in this company, by code or by name (exact, case-insensitive). A value that
- * resolves to nothing — or to more than one master — is left NULL and reported back, never guessed.
+ * a master this company may ASSIGN in that slot — the journal writer's own rule (`isAssignableCostCentre`: cc_type
+ * exactly the slot's, is_active exactly true; a NULL type or flag is not assignable) — by code or by name (exact,
+ * case-insensitive). A value that resolves to nothing, or to more than one master, is left NULL and reported back,
+ * never guessed. The masters are read FOR SHARE (as `assertJournalAnalysisDimensions` reads them, under the request's
+ * lock wait): one deactivated between this read and the INSERT waits for the import, so it cannot be attached.
  */
 import { sql } from '@/lib/neon';
 import type { DimensionIds } from '../gl/dimensions/dimensionTypes';
+import { isAssignableBusinessUnit, isAssignableCostCentre } from '../gl/journalCostCentreValidation';
 
 export interface WorksheetDimensions { costCentreT1?: string; costCentreT2?: string; businessUnit?: string }
 
@@ -40,15 +44,16 @@ export async function resolveWorksheetDimensions(
   const named = rows.some((r) => r.costCentreT1?.trim() || r.costCentreT2?.trim() || r.businessUnit?.trim());
   if (!named) return { dimensions: rows.map(() => ({})), unresolved: [] };
   const centres = (await sql`
-    SELECT id::TEXT AS id, code, name, COALESCE(cc_type, 'cc1') AS cc_type FROM cost_centres
-    WHERE company_id = ${companyId}::UUID AND is_active = true`) as Row[];
+    SELECT id::TEXT AS id, code, name, cc_type, is_active FROM cost_centres
+    WHERE company_id = ${companyId}::UUID FOR SHARE`) as Row[];
   const units = (await sql`
-    SELECT id::TEXT AS id, code, name FROM business_units
-    WHERE company_id = ${companyId}::UUID AND is_active IS NOT FALSE`) as Row[];
+    SELECT id::TEXT AS id, code, name, is_active FROM business_units
+    WHERE company_id = ${companyId}::UUID FOR SHARE`) as Row[];
   const asMaster = (r: Row): Master => ({ id: String(r.id), code: String(r.code ?? ''), name: String(r.name ?? '') });
-  const cc1 = indexOf(centres.filter((r) => r.cc_type === 'cc1').map(asMaster));
-  const cc2 = indexOf(centres.filter((r) => r.cc_type === 'cc2').map(asMaster));
-  const bu = indexOf(units.map(asMaster));
+  const centreOf = (r: Row) => ({ cc_type: r.cc_type as string | null, is_active: r.is_active as boolean | null });
+  const cc1 = indexOf(centres.filter((r) => isAssignableCostCentre(centreOf(r), 'cc1')).map(asMaster));
+  const cc2 = indexOf(centres.filter((r) => isAssignableCostCentre(centreOf(r), 'cc2')).map(asMaster));
+  const bu = indexOf(units.filter((r) => isAssignableBusinessUnit({ is_active: r.is_active as boolean | null })).map(asMaster));
 
   const unresolved = new Set<string>();
   const pick = (index: Map<string, string | null>, value: string | undefined, slot: string): string | undefined => {
