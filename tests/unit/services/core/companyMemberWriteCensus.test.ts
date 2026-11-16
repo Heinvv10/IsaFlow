@@ -111,7 +111,8 @@ const KNOWN_WRITERS = [
  * 886 was; 930 (S-07c) revokes INSERT and UPDATE on both from app_user and
  * grants back only UPDATE (role) on company_users; 937 (S-07d) revokes that
  * and DELETE on company_users too. 996 (OP-2) adds company_users_user_id_fkey
- * (NOT VALID, deferred) and 997 validates it: no trigger, guard or grant is touched.
+ * (NOT VALID, deferred) and 997 validates it; 997c makes company_invitations.invited_by nullable
+ * and its FK ON DELETE SET NULL: no trigger, guard or grant is touched.
  */
 const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '220_multi_company_scoping.sql': ['writes'],
@@ -134,6 +135,7 @@ const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '937_credential_tables_off_app_pools.sql': ['writes'],
   '996_company_users_user_fk_not_valid.sql': ['alters'],
   '997_company_users_user_fk_validate.sql': ['alters'],
+  '997c_company_invitations_invited_by_set_null.sql': ['alters'],
 };
 
 const all = (() => { let cache: SourceFile[] | undefined; return () => (cache ??= sourceFiles()); })();
