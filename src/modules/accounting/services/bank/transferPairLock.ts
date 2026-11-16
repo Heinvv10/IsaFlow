@@ -9,8 +9,9 @@
  * duplicate check and held to the end of the request: the second writer then reads the first one's committed journal.
  *
  * Lock order (bank/.claude.md): AFTER the bank line(s) a caller holds, BEFORE the journal-number lock the journal
- * INSERT trigger takes (857/858), so the pair key is never awaited by a holder of a later lock in the same request
- * except across lines of one bulk request (see the table row). It is bounded 5 s, tighten-only like
+ * INSERT trigger takes (857/858), so the pair key is never awaited by a holder of a later lock in the same request:
+ * no request posts two transfer journals today (a bulk one would, once WP2 row 5 routes bulk bank contras here — it
+ * must then take every pair first, in sorted order; see the table row). It is bounded 5 s, tighten-only like
  * `documentNumberLockBudget` and `bankAccountGuard` (a tighter caller value is kept, and the caller's value is put back),
  * and a wait that runs out is `RowLockTimeoutError`, which every route answers 503 + Retry-After.
  */
@@ -23,22 +24,6 @@ import { RowLockTimeoutError, restoreLockTimeout } from '../core/rowLockBudget';
 export function transferPairKey(companyId: string, accountA: string, accountB: string): string {
   const [lo, hi] = [accountA.toLowerCase(), accountB.toLowerCase()].sort();
   return `bank_transfer_pair:${companyId.toLowerCase()}:${lo}:${hi}`;
-}
-
-/**
- * Take the pair lock for each distinct pair, in SORTED key order, before anything of the request posts. A bulk request
- * (the MCP bulk allocate) that posts transfer AB and then asks for AC would otherwise hold the journal-number lock
- * from AB's journal while waiting on AC's pair lock, which a single request holds while it waits on that number lock:
- * a 40P01 that did not exist before the pair lock. With every pair taken first the pair locks always precede the number
- * lock within a request, and the sorted order keeps two bulk requests from crossing on the pairs themselves.
- */
-export async function lockTransferPairs(companyId: string, pairs: ReadonlyArray<readonly [string, string]>): Promise<void> {
-  const keyed = new Map<string, readonly [string, string]>();
-  for (const [a, b] of pairs) keyed.set(transferPairKey(companyId, a, b), [a, b]);
-  for (const key of [...keyed.keys()].sort()) {
-    const [a, b] = keyed.get(key)!;
-    await lockTransferPair(companyId, a, b);
-  }
 }
 
 export async function lockTransferPair(companyId: string, accountA: string, accountB: string): Promise<void> {

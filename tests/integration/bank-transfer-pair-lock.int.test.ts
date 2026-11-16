@@ -33,6 +33,9 @@ const transferJournals = async () => Number(((await sql`SELECT COUNT(*)::int AS 
   WHERE company_id = ${c.fx.companyId}::UUID AND source = 'auto_bank_transfer' AND status = 'posted'`) as Row[])[0]!.n);
 const statusOf = async (id: string) => String(((await sql`SELECT status FROM bank_transactions WHERE id = ${id}::UUID`) as Row[])[0]!.status);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Deadlocks this database has broken so far (pg_stat_database): a delta of 0 proves no 40P01 was ever raised. */
+const deadlocks = async () => Number(((await sql`SELECT deadlocks FROM pg_stat_database
+  WHERE datname = current_database()`) as Row[])[0]!.deadlocks);
 
 /** Waits (bounded) until the first writer is asleep in the journal trigger; fails loudly if it never is. */
 async function firstWriterAsleep(): Promise<void> {
@@ -81,6 +84,7 @@ describeIfDb('bank-to-bank transfer: one journal per movement under concurrency'
     const legA = await line(c.fx.bankAccountId, -321, '2025-04-10');
     const legB = await line(bank2, 321, '2025-04-10');
     const before = await transferJournals();
+    const dl0 = await deadlocks();
     const first = inTx(c.fx, () => allocateTransaction(c.fx.companyId, legA, bank2, c.fx.userId, 'BTPL first', 'transfer'));
     const firstOutcome = first.then(() => 'ok', (e: Error) => e.message);
     await firstWriterAsleep();
@@ -88,6 +92,8 @@ describeIfDb('bank-to-bank transfer: one journal per movement under concurrency'
     const secondOutcome = await second.then(() => 'ok', (e: Error) => e.message);
     expect(await firstOutcome).toBe('ok');
     expect(secondOutcome).toMatch(/A matching transfer already exists/);
+    // Not a deadlock the detector broke: the auto-link's NOWAIT skipped the held line instead of waiting on it.
+    expect(await deadlocks() - dl0).toBe(0);
     expect(await transferJournals()).toBe(before + 1);
     expect(await statusOf(legA)).toBe('allocated');
     expect(await statusOf(legB)).toBe('imported');
@@ -102,10 +108,12 @@ describeIfDb('bank-to-bank transfer: one journal per movement under concurrency'
       const legB = await line(bank2, 654, '2025-06-10');
       const first = inTx(c.fx, () => allocateTransaction(c.fx.companyId, legA, bank2, c.fx.userId, 'BTPL first', 'transfer'));
       const firstOutcome = first.then(() => 'ok', (e: Error) => e.message);
+      const dl0 = await deadlocks();
       await firstWriterAsleep();
       await inTx(c.fx, () => allocateTransaction(c.fx.companyId, legB, c.fx.bankAccountId, c.fx.userId, 'BTPL second', 'transfer'))
         .then(() => null, () => null);
       expect(await firstOutcome).toBe('ok');
+      expect(await deadlocks() - dl0).toBe(0);
       const links = warn.mock.calls.filter((call) => String(call[0]).startsWith('Failed to auto-link counterparty transfer'));
       expect(links.map((call) => (call[1] as { error?: { code?: string } }).error?.code)).toEqual(['55P03']);
     } finally {
