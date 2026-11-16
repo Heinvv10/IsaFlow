@@ -159,7 +159,7 @@ export default function PayrollRunDetailPage() {
                     The once-off amounts cannot be edited right now. Reload the page to try again.
                   </p>
                 )}
-                <div className="overflow-x-auto"><PayrollRunLinesTable lines={run.lines} onPayslip={openPayslip} onExplain={explain} /></div>
+                <div className="overflow-x-auto" role="region" aria-label="Payroll run lines, scrolls sideways" tabIndex={0}><PayrollRunLinesTable lines={run.lines} onPayslip={openPayslip} onExplain={explain} /></div>
               </>
             )}
           </section>
