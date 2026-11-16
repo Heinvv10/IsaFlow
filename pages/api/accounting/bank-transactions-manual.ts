@@ -16,6 +16,7 @@ import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withHttpIdempotency } from '@/lib/idempotency/withHttpIdempotency';
 import { UUID } from '@/lib/schemas/common';
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { log } from '@/lib/logger';
@@ -218,4 +219,5 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 }
 
  
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+// Idempotency-Key: a double-click or retry replays the first answer, no second journal (withHttpIdempotency).
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(withHttpIdempotency('bank-transactions-manual', handler as never) as never))));
