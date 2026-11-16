@@ -87,6 +87,16 @@ describe('a chosen account that disappears', () => {
   });
 });
 
+describe('after the pinned account vanishes', () => {
+  it('the fallback is pinned: a later change of the first active account does not move the user', () => {
+    const h = renderHook(({ accounts }) => useBankTxSelection(accounts, undefined), { initialProps: { accounts: [B(), C()] } });
+    h.rerender({ accounts: [C()] });
+    expect(h.result.current.selected).toBe('c');
+    h.rerender({ accounts: [summaryAcct('z', { accountName: 'New first' }), C()] });
+    expect(h.result.current.selected).toBe('c');
+  });
+});
+
 describe('late-hydrating deep link', () => {
   it('accounts load first, the link becomes readable afterwards: it is applied', () => {
     const h = renderHook(({ accounts, link, ready }) => useBankTxSelection(accounts, link, ready),

@@ -38,7 +38,7 @@ export function useBankTxSelection(accounts: BankAccountSummary[], deepLink: str
     if (nextLost && accounts.some(b => b.id === nextLost!.id)) nextLost = null;
     if (next && !accounts.some(b => b.id === next)) {
       nextLost = { kind: 'gone', id: next, name: seen.find(b => b.id === next)?.accountName ?? 'The selected account' };
-      next = '';
+      next = defaultBankId(accounts); // re-pin the fallback so the next loss is again a notice, not a silent drift
     }
   }
   if (accounts.length > 0 && linkReady && !handled) {
