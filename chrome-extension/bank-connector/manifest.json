@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ISAFlow Bank Connector",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Imports bank transactions from your authenticated SA bank session into ISAFlow. Credentials never leave your browser.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
