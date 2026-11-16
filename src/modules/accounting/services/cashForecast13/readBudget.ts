@@ -10,7 +10,7 @@
  */
 import { withSavepoint } from '@/lib/neon';
 import { hasFeature } from '@/modules/admin/services/featureFlagService';
-import { fiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import { FiscalYearLabelUnknownError, fiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { BudgetVersionError } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import { getThreeWay, type ThreeWayView } from '@/modules/accounting/services/budgets/threeWay/threeWayViews';
 import { THREE_WAY_FEATURE } from '@/modules/accounting/services/budgets/threeWay/routeSchemas';
@@ -19,10 +19,11 @@ import {
 } from '@/modules/accounting/services/budgets/threeWay/errors';
 import { ThreeWayServiceError } from '@/modules/accounting/services/budgets/threeWay/serviceErrors';
 import type { TaxEvent, VatSettlement } from '@/modules/accounting/services/budgets/threeWay/types';
-import type { BudgetMonth, ForecastWarning } from './types';
+import { refusalOf } from './guardedSource';
+import { DEFAULT_REFUND_LAG_MONTHS, type BudgetMonth, type ForecastWarning } from './types';
 
-/** The refund lag the three-way assumes when no budget says otherwise (assumptionsDefaults.ts). */
-export const DEFAULT_REFUND_LAG_MONTHS = 1;
+/** The year lookups the budget source may refuse with (review L1): no financial year holds the horizon's end. */
+export const BUDGET_REFUSALS = refusalOf([FiscalYearLabelUnknownError], [/^fiscalYearForDate: no fiscal year for company /]);
 
 export interface BudgetRead {
   months: BudgetMonth[];

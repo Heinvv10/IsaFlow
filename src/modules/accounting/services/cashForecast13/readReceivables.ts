@@ -1,6 +1,6 @@
 /**
  * Open AR and AP for the forecast, from the aging's own fetchers (one definition of "open"), plus each
- * customer's payment history.
+ * customer's payment history, foreign documents converted (review L6) and unapplied credit netted (M2).
  *
  * PAID DATE (census): an invoice's paid date is the latest `payment_date` of the customer receipts allocated
  * to it (customer_payment_allocations → customer_payments, status not draft/cancelled) — the datable
@@ -12,9 +12,12 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fetchARAgingInvoices } from '@/modules/accounting/services/ar/arAgingInvoices';
 import { fetchAPAgingInvoices } from '@/modules/accounting/services/ap/apAgingInvoices';
-import { arItems } from './arExpected';
+import { getUnappliedByEntity } from '@/modules/accounting/services/shared/agedNetting';
+import { arItems, overdueSummary } from './arExpected';
+import { netCredits } from './creditNetting';
+import { convertDocs, excludedMessage, type DocCurrency } from './fx';
 import { toCents } from './lines';
-import type { KnownItem, OverdueArSummary } from './types';
+import type { ForecastWarning, KnownItem, OverdueArSummary } from './types';
 
 /** Per customer, the days late (paid date − due date) of each fully paid invoice with a paid date in the 12 months to today. */
 export async function readCustomerDaysLate(companyId: string, today: string): Promise<Map<string, number[]>> {
@@ -46,20 +49,68 @@ export async function readCustomerDaysLate(companyId: string, today: string): Pr
   return out;
 }
 
-export async function readReceivables(companyId: string, today: string): Promise<{ items: KnownItem[]; summary: OverdueArSummary }> {
-  const open = await fetchARAgingInvoices(companyId, today, today);
-  const history = await readCustomerDaysLate(companyId, today);
-  return arItems(open.map((i) => ({
-    id: i.id, invoiceNumber: i.invoiceNumber, customerId: i.entityId, customerName: i.entityName, dueDate: i.dueDate,
-    balanceCents: toCents(i.balance), disputedCents: toCents(i.disputedAmount ?? 0),
-  })), history, today);
+/** Each open document's currency and stored rate, with the company's functional currency (one query per side). */
+async function currencies(companyId: string, side: 'ar' | 'ap', ids: string[]): Promise<{ fx: Map<string, DocCurrency>; functional: string }> {
+  const rows = (side === 'ar'
+    ? await sql`
+        SELECT d.id, NULLIF(upper(btrim(d.currency_code)), '') AS code_a, NULL::TEXT AS code_b, d.exchange_rate
+        FROM customer_invoices d
+        WHERE d.company_id = ${companyId}::UUID AND d.id = ANY(${ids}::UUID[])`
+    : await sql`
+        SELECT d.id, NULLIF(upper(btrim(d.currency_code)), '') AS code_a, NULLIF(upper(btrim(d.currency)), '') AS code_b, d.exchange_rate
+        FROM supplier_invoices d
+        WHERE d.company_id = ${companyId}::UUID AND d.id = ANY(${ids}::UUID[])`) as DbRow[];
+  const fn = (await sql`SELECT functional_currency FROM companies WHERE id = ${companyId}::UUID`) as DbRow[];
+  const functional = String(fn[0]?.functional_currency ?? 'ZAR');
+  // Foreign when EITHER column names another currency (fx_row_is_foreign, migration 871).
+  const foreignCode = (r: DbRow) => [r.code_a, r.code_b].find((c) => c != null && c !== functional) ?? null;
+  return {
+    fx: new Map(rows.map((r) => [String(r.id), { currency: foreignCode(r) as string | null, rate: r.exchange_rate == null ? null : Number(r.exchange_rate) }])),
+    functional,
+  };
 }
 
-/** Open supplier bills by due date (a missing one is the bill date, as the aging dates it); overdue lands in week 1. */
-export async function readPayables(companyId: string, today: string): Promise<KnownItem[]> {
+/** Per entity, the unapplied receipts / payments on account and credit notes (shared/agedNetting), in cents. */
+async function creditByEntity(companyId: string, side: 'ar' | 'ap', today: string): Promise<Map<string, number>> {
+  const byEntity = await getUnappliedByEntity(companyId, side, today);
+  return new Map([...byEntity].map(([id, u]) => [id, toCents(u.total)]));
+}
+
+function netAndWarn(items: KnownItem[], credit: Map<string, number>, what: string, warnings: ForecastWarning[]): KnownItem[] {
+  const r = netCredits(items, credit);
+  const unused = r.unused.reduce((t, u) => t + u.cents, 0);
+  if (unused > 0) {
+    warnings.push({ code: 'credit_unused', source: what, message: `${what}: R${(unused / 100).toFixed(2)} of unapplied credit across ${r.unused.length} account(s) exceeds their open documents and is ignored` });
+  }
+  return r.items;
+}
+
+/**
+ * Open AR, dated by arExpected, foreign documents converted (fx.ts), each customer's unapplied credit netted
+ * earliest first (creditNetting.ts); the overdue summary is taken over what is then forecast.
+ */
+export async function readReceivables(companyId: string, today: string, horizonEnd: string, warnings: ForecastWarning[]): Promise<{ items: KnownItem[]; summary: OverdueArSummary }> {
+  const open = await fetchARAgingInvoices(companyId, today, today);
+  const { fx, functional } = await currencies(companyId, 'ar', open.map((i) => i.id));
+  const converted = convertDocs(open.map((i) => ({
+    id: i.id, invoiceNumber: i.invoiceNumber, customerId: i.entityId, customerName: i.entityName, dueDate: i.dueDate,
+    balanceCents: toCents(i.balance), disputedCents: toCents(i.disputedAmount ?? 0),
+  })), fx, functional);
+  if (converted.excluded.size > 0) warnings.push({ code: 'currency_not_converted', source: 'customer invoices', message: excludedMessage('Customer invoices', converted.excluded) });
+  const dated = arItems(converted.docs, await readCustomerDaysLate(companyId, today), today);
+  const items = netAndWarn(dated.items, await creditByEntity(companyId, 'ar', today), 'customer credit', warnings);
+  return { items, summary: overdueSummary(items, dated.disputedCents, horizonEnd) };
+}
+
+/** Open supplier bills by due date (a missing one is the bill date, as the aging dates it), converted and netted as AR is; overdue lands in week 1. */
+export async function readPayables(companyId: string, today: string, warnings: ForecastWarning[]): Promise<KnownItem[]> {
   const open = await fetchAPAgingInvoices(companyId, today, today);
-  return open.map((b) => ({
-    lineKey: `ap:${b.entityId}`, lineLabel: b.entityName, category: 'supplier_payments' as const,
-    date: b.dueDate, amountCents: -toCents(b.balance), ref: b.id, refLabel: b.invoiceNumber,
+  const { fx, functional } = await currencies(companyId, 'ap', open.map((b) => b.id));
+  const converted = convertDocs(open.map((b) => ({ ...b, balanceCents: toCents(b.balance), disputedCents: 0 })), fx, functional);
+  if (converted.excluded.size > 0) warnings.push({ code: 'currency_not_converted', source: 'supplier invoices', message: excludedMessage('Supplier invoices', converted.excluded) });
+  const items: KnownItem[] = converted.docs.map((b) => ({
+    lineKey: `ap:${b.entityId}`, lineLabel: b.entityName, category: 'supplier_payments' as const, entityId: b.entityId,
+    date: b.dueDate, amountCents: -b.balanceCents, ref: b.id, refLabel: b.invoiceNumber,
   }));
+  return netAndWarn(items, await creditByEntity(companyId, 'ap', today), 'supplier credit', warnings);
 }

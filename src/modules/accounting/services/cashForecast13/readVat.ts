@@ -13,8 +13,8 @@ import type { ComplianceEvent } from '@/modules/accounting/services/reports/sars
 import type { VatSettlement } from '@/modules/accounting/services/budgets/threeWay/types';
 import { toCents } from './lines';
 import { addMonthsToMonth, daysBetween, daysInMonth } from './weeks';
-import type { ForecastWarning, KnownItem } from './types';
-import { DEFAULT_REFUND_LAG_MONTHS, type BudgetRead } from './readBudget';
+import { DEFAULT_REFUND_LAG_MONTHS, type ForecastWarning, type KnownItem } from './types';
+import type { BudgetRead } from './readBudget';
 
 export const VAT_LINE = { lineKey: 'sars:vat201', lineLabel: 'SARS VAT201' } as const;
 
@@ -61,6 +61,6 @@ export async function vatItem(
     date: refund ? vatRefundDate(e.periodEnd, budget?.refundLagMonths ?? DEFAULT_REFUND_LAG_MONTHS) : e.dueDate,
     amountCents: -r.net, ref: `VAT201:${e.periodStart}:${e.periodEnd}`,
     refLabel: `${e.description}${refund ? ' (refund)' : ''}`,
-    estimate: r.estimate, flags: [...r.flags, ...(e.dueDate < today ? ['overdue_unfiled'] : [])],
+    estimate: r.estimate, flags: r.flags,
   };
 }

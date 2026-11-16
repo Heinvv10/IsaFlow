@@ -9,13 +9,18 @@ import { addMonthsToMonth } from './weeks';
 
 export type PayDay = number | 'last_working_day';
 
+/** The pay date of month 'YYYY-MM': the pay day (a short month's last day when past it), back to Friday. */
+export function payDateOf(payDay: PayDay, month: string): string {
+  const [y, m] = month.split('-').map(Number) as [number, number];
+  const last = lastDayOf(y, m);
+  return backToFriday(y, m, payDay === 'last_working_day' ? last : Math.min(payDay, last));
+}
+
 /** `paidMonths`: 'YYYY-MM' periods whose run is already paid — no second payment that month. */
 export function payDatesInHorizon(payDay: PayDay, today: string, horizonEnd: string, paidMonths: ReadonlySet<string>): string[] {
   const out: string[] = [];
   for (let month = today.slice(0, 7); month <= horizonEnd.slice(0, 7); month = addMonthsToMonth(month, 1)) {
-    const [y, m] = month.split('-').map(Number) as [number, number];
-    const last = lastDayOf(y, m);
-    const date = backToFriday(y, m, payDay === 'last_working_day' ? last : Math.min(payDay, last));
+    const date = payDateOf(payDay, month);
     if (date >= today && date <= horizonEnd && !paidMonths.has(month)) out.push(date);
   }
   return out;

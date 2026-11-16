@@ -5,6 +5,9 @@
 
 export const FORECAST_WEEKS = 13;
 
+/** The VAT refund lag the three-way assumes when no budget says otherwise (budgets/threeWay/assumptionsDefaults.ts). */
+export const DEFAULT_REFUND_LAG_MONTHS = 1;
+
 /** What a line is about. Receipts and supplier payments are also what the budget fill tops up. */
 export type CashCategory = 'customer_receipts' | 'supplier_payments' | 'payroll' | 'sars' | 'loans' | 'other';
 
@@ -18,6 +21,8 @@ export interface KnownItem {
   lineKey: string;
   lineLabel: string;
   category: CashCategory;
+  /** The customer or supplier, for netting their unapplied credit (AR and AP items). */
+  entityId?: string;
   /** The date the money is expected; a date before today lands in week 1. */
   date: string;
   amountCents: number;
@@ -68,8 +73,10 @@ export interface ForecastWarning {
 }
 
 export interface OverdueArSummary {
-  /** Overdue open AR expected in the forecast (disputes excluded), cents. */
+  /** Overdue open AR expected inside the 13 weeks (disputes and unapplied credit excluded), cents. */
   totalCents: number;
+  /** Overdue AR whose history-projected date falls after week 13: not in the forecast. */
+  beyondHorizonCents: number;
   invoiceCount: number;
   byBasis: { history: number; no_history: number };
   /** Disputed amounts on open invoices, left out of receipts as the aging leaves them out of its buckets. */

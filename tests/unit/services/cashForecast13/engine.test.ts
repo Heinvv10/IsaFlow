@@ -3,7 +3,7 @@ import { runEngine } from '@/modules/accounting/services/cashForecast13/engine';
 import { buildWeeks, weekIndexOf } from '@/modules/accounting/services/cashForecast13/weeks';
 import type { EngineInput, KnownItem } from '@/modules/accounting/services/cashForecast13/types';
 
-const NO_OVERDUE = { totalCents: 0, invoiceCount: 0, byBasis: { history: 0, no_history: 0 }, disputedCents: 0 };
+const NO_OVERDUE = { totalCents: 0, beyondHorizonCents: 0, invoiceCount: 0, byBasis: { history: 0, no_history: 0 }, disputedCents: 0 };
 
 function input(over: Partial<EngineInput> = {}): EngineInput {
   return { today: '2026-11-18', openingCents: 100_000, items: [], budget: null, manualItems: [], overrides: [], overdueAR: NO_OVERDUE, warnings: [], ...over };
@@ -96,7 +96,7 @@ describe('cash13 engine', () => {
   });
 
   it('passes reader warnings and the overdue summary through', () => {
-    const overdueAR = { totalCents: 5, invoiceCount: 1, byBasis: { history: 0, no_history: 5 }, disputedCents: 2 };
+    const overdueAR = { totalCents: 5, beyondHorizonCents: 0, invoiceCount: 1, byBasis: { history: 0, no_history: 5 }, disputedCents: 2 };
     const out = runEngine(input({ overdueAR, warnings: [{ code: 'source_unavailable', source: 'loans', message: 'x' }] }));
     expect(out.overdueAR).toEqual(overdueAR);
     expect(out.warnings[0]).toMatchObject({ code: 'source_unavailable', source: 'loans' });

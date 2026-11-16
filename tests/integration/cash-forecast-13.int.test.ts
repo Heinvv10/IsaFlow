@@ -11,6 +11,7 @@ import { appToday } from '@/modules/accounting/services/reports/dueByDateService
 import { addDaysISO } from '@/lib/dateUtils';
 import { clearRateLimitCache } from '@/lib/rateLimit';
 import type { CashForecast13 } from '@/modules/accounting/services/cashForecast13/types';
+import { backToFriday } from '@/modules/bureau/services/vatPeriodHelper';
 import { buildWeeks, weekIndexOf } from '@/modules/accounting/services/cashForecast13/weeks';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { monthsFrom } from './helpers/budgetGridFixture';
@@ -27,7 +28,7 @@ const prevMonth = (() => { const [y, m] = today.split('-').map(Number) as [numbe
 let A: ThreeWayCo;
 let B: ThreeWayCo;
 let C: ThreeWayCo;
-const ids = { hist: crypto.randomUUID(), nohist: crypto.randomUUID(), other: crypto.randomUUID(), sup: crypto.randomUUID() };
+const ids = { hist: crypto.randomUUID(), nohist: crypto.randomUUID(), other: crypto.randomUUID(), sup: crypto.randomUUID(), credit: crypto.randomUUID() };
 const docs: Record<string, string> = {};
 
 async function customer(c: ThreeWayCo, id: string, name: string) {
@@ -64,6 +65,11 @@ beforeAll(async () => {
   await pool.query(
     `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_net, total_paye, total_uif, total_sdl)
      VALUES ($1, $2, $3, 'approved', 9000, 1500, 200, 100)`, [C.id, prevMonth[0], prevMonth[1]]);
+  // C: a weekly regular run two months back — not forecast as monthly, warned (review L3).
+  const twoBack = prevMonth[1] === 1 ? [prevMonth[0]! - 1, 12] : [prevMonth[0], prevMonth[1]! - 1];
+  await pool.query(
+    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_net, pay_frequency, period_start, period_end)
+     VALUES ($1, $2, $3, 'approved', 1, 'weekly', make_date($2, $3, 1), make_date($2, $3, 7))`, [C.id, twoBack[0], twoBack[1]]);
   const mark = await pool.connect();
   try {
     await mark.query('BEGIN');
@@ -91,6 +97,18 @@ beforeAll(async () => {
   docs.nohistOverdue = await invoice(A, ids.nohist, 'N5', day(-10), 300);
   docs.notDue = await invoice(A, ids.nohist, 'N6', day(10), 200);
   docs.otherTenant = await invoice(B, ids.other, 'X1', day(-5), 999);
+  // Credit Ltd: a R100 000 invoice and an unallocated R40 000 receipt → R60 000 expected (review M2).
+  await customer(A, ids.credit, 'Credit Ltd');
+  docs.creditInv = await invoice(A, ids.credit, 'CR1', day(5), 100_000);
+  await pool.query(
+    `INSERT INTO customer_payments (company_id, client_id, payment_number, payment_date, total_amount, status, bank_account_id, created_by)
+     VALUES ($1, $2, 'RC-ONACC', $3, 40000, 'confirmed', $4, $5)`, [A.id, ids.credit, day(-3), A.acct.bank, A.user]);
+  // Foreign invoices (review L6): USD at its stored 18.5; one with no stored rate is left out and warned.
+  await pool.query('UPDATE companies SET fx_documents_enabled = true WHERE id = $1', [A.id]);
+  docs.usd = await invoice(A, ids.credit, 'USD1', day(8), 100);
+  await pool.query(`UPDATE customer_invoices SET currency_code = 'USD', exchange_rate = 18.5 WHERE id = $1`, [docs.usd]);
+  docs.eur = await invoice(A, ids.credit, 'EUR1', day(8), 70);
+  await pool.query(`UPDATE customer_invoices SET currency_code = 'EUR', exchange_rate = NULL WHERE id = $1`, [docs.eur]);
   await pool.query(`INSERT INTO suppliers (id, company_id, name) VALUES ($1, $2, 'Supplier Ltd')`, [ids.sup, A.id]);
   docs.bill = String((await pool.query(
     `INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date, due_date, status, total_amount, amount_paid, created_by)
@@ -170,8 +188,17 @@ describe('GET /api/accounting/cash-forecast-13', () => {
     expect(emp.items.length).toBeGreaterThan(0);
     // A month after the latest run is that run's PAYE − ETI + UIF + SDL (R1 800), an estimate.
     expect(emp.items.some((i) => i.amountCents === -180_000)).toBe(true);
-    // Last month's EMP201 is pending here: its run's declaration (R1 800), not an estimate.
-    expect(emp.items.find((i) => i.ref === `EMP201:${prevMonth[0]}-${pad(prevMonth[1]!)}-01`)?.amountCents).toBe(-180_000);
+    // Last month's EMP201 is pending here. Due before today it is assumed paid (review H1): listed, not forecast;
+    // due today or later it is forecast at its run's declaration (R1 800).
+    const prevRef = `EMP201:${prevMonth[0]}-${pad(prevMonth[1]!)}-01`;
+    const prevDue = backToFriday(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 7);
+    if (prevDue < today) {
+      expect(emp.items.map((i) => i.ref)).not.toContain(prevRef);
+      expect(f.warnings.find((w) => w.code === 'sars_past_due_assumed_paid')?.message).toContain(`EMP201 ${prevMonth[0]}-${pad(prevMonth[1]!)}-01`);
+    } else {
+      expect(emp.items.find((i) => i.ref === prevRef)?.amountCents).toBe(-180_000);
+    }
+    expect(f.warnings.some((w) => w.code === 'loan_payments_not_recorded')).toBe(true);
     const rec = f.lines.find((l) => l.key.startsWith('recurring:'))!;
     expect(rec.category).toBe('customer_receipts');
     for (const i of rec.items) expect(i.amountCents).toBe(115_000);
@@ -206,6 +233,20 @@ describe('GET /api/accounting/cash-forecast-13', () => {
     const refs = (line(g, 'sars:emp201')?.items ?? []).map((i) => i.ref);
     expect(refs).not.toContain(`EMP201:${prevMonth[0]}-${pad(prevMonth[1]!)}-01`);
     expect(refs).toContain(`EMP201:${today.slice(0, 7)}-01`);
+    expect(g.warnings.some((w) => w.code === 'payroll_frequency_unsupported')).toBe(true);
+    for (const i of line(g, 'payroll:net')!.items) expect(i.amountCents).toBe(-900_000);
+  });
+
+  it('nets a customer’s unapplied receipt off its invoice (R100k − R40k = R60k)', () => {
+    const items = f.lines.flatMap((l) => l.items);
+    expect(items.find((i) => i.ref === docs.creditInv)?.amountCents).toBe(6_000_000);
+  });
+
+  it('converts a foreign invoice at its stored rate; leaves out one with no rate, warned', () => {
+    const items = f.lines.flatMap((l) => l.items);
+    expect(items.find((i) => i.ref === docs.usd)?.amountCents).toBe(185_000);
+    expect(items.map((i) => i.ref)).not.toContain(docs.eur);
+    expect(f.warnings.find((w) => w.code === 'currency_not_converted')?.message).toContain('1 in EUR (70.00 EUR)');
   });
 
   it('refuses a write method', async () => {

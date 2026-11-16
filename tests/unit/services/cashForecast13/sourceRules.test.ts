@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { arItems, medianDaysLate, type OpenArInvoice } from '@/modules/accounting/services/cashForecast13/arExpected';
+import { arItems, medianDaysLate, overdueSummary, type OpenArInvoice } from '@/modules/accounting/services/cashForecast13/arExpected';
 import { payDatesInHorizon } from '@/modules/accounting/services/cashForecast13/payDates';
 import { recurringItems, type RecurringTemplateRow } from '@/modules/accounting/services/cashForecast13/recurringItems';
 import { toCents } from '@/modules/accounting/services/cashForecast13/lines';
@@ -7,6 +7,12 @@ import { toCents } from '@/modules/accounting/services/cashForecast13/lines';
 const inv = (over: Partial<OpenArInvoice>): OpenArInvoice => ({
   id: 'i1', invoiceNumber: 'INV1', customerId: 'c1', customerName: 'Acme', dueDate: '2026-11-30', balanceCents: 1_000, disputedCents: 0, ...over,
 });
+
+const END = '2027-02-14';
+function ar(invs: OpenArInvoice[], hist: Map<string, number[]>, today: string) {
+  const r = arItems(invs, hist, today);
+  return { items: r.items, summary: overdueSummary(r.items, r.disputedCents, END) };
+}
 
 describe('cash13 AR expected dates', () => {
   const today = '2026-11-18';
@@ -18,37 +24,44 @@ describe('cash13 AR expected dates', () => {
   });
 
   it('not yet due: the due date, basis due', () => {
-    const { items } = arItems([inv({})], new Map(), today);
+    const { items } = ar([inv({})], new Map(), today);
     expect(items[0]).toMatchObject({ date: '2026-11-30', amountCents: 1_000, basis: 'due', lineKey: 'ar:c1:due' });
   });
 
   it('due today is not overdue', () => {
-    const { items, summary } = arItems([inv({ dueDate: today })], new Map(), today);
+    const { items, summary } = ar([inv({ dueDate: today })], new Map(), today);
     expect(items[0]?.basis).toBe('due');
     expect(summary.invoiceCount).toBe(0);
   });
 
   it('overdue with 3 or more paid invoices: due + median days late, basis history', () => {
-    const { items, summary } = arItems([inv({ dueDate: '2026-11-10' })], new Map([['c1', [20, 30, 25]]]), today);
+    const { items, summary } = ar([inv({ dueDate: '2026-11-10' })], new Map([['c1', [20, 30, 25]]]), today);
     expect(items[0]).toMatchObject({ date: '2026-12-05', basis: 'history', lineKey: 'ar:c1:history' });
     expect(summary).toMatchObject({ totalCents: 1_000, invoiceCount: 1, byBasis: { history: 1_000, no_history: 0 } });
   });
 
   it('overdue with only 2 paid invoices: week 1 (today), basis no_history', () => {
-    const { items, summary } = arItems([inv({ dueDate: '2026-11-10' })], new Map([['c1', [20, 30]]]), today);
+    const { items, summary } = ar([inv({ dueDate: '2026-11-10' })], new Map([['c1', [20, 30]]]), today);
     expect(items[0]).toMatchObject({ date: today, basis: 'no_history', lineKey: 'ar:c1:no_history' });
     expect(summary.byBasis).toEqual({ history: 0, no_history: 1_000 });
   });
 
   it('a history projection still before today keeps its date (the engine puts it in week 1)', () => {
-    const { items } = arItems([inv({ dueDate: '2026-09-01' })], new Map([['c1', [5, 5, 5]]]), today);
+    const { items } = ar([inv({ dueDate: '2026-09-01' })], new Map([['c1', [5, 5, 5]]]), today);
     expect(items[0]).toMatchObject({ date: '2026-09-06', basis: 'history' });
   });
 
   it('takes disputes out of the receipt and reports them; a fully disputed invoice is not expected', () => {
-    const { items, summary } = arItems([inv({ disputedCents: 400 }), inv({ id: 'i2', balanceCents: 300, disputedCents: 300 })], new Map(), today);
+    const { items, summary } = ar([inv({ disputedCents: 400 }), inv({ id: 'i2', balanceCents: 300, disputedCents: 300 })], new Map(), today);
     expect(items.map((i) => i.amountCents)).toEqual([600]);
     expect(summary.disputedCents).toBe(700);
+  });
+
+  it('the overdue summary counts only what lands in the 13 weeks; a history date past them is beyondHorizonCents (review L4)', () => {
+    const { summary } = ar([inv({ dueDate: '2026-11-10' }), inv({ id: 'i2', dueDate: '2026-11-10', customerId: 'c2', balanceCents: 700 })],
+      new Map([['c1', [200, 200, 200]]]), today);
+    // c1: 2026-11-10 + 200 days = 2027-05-29, past the horizon; c2 has no history → week 1.
+    expect(summary).toMatchObject({ totalCents: 700, beyondHorizonCents: 1_000, invoiceCount: 1, byBasis: { history: 0, no_history: 700 } });
   });
 
   it('toCents rounds rand to integer cents', () => {

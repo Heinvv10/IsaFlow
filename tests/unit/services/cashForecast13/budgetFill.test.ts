@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { runEngine } from '@/modules/accounting/services/cashForecast13/engine';
 import type { EngineInput, KnownItem } from '@/modules/accounting/services/cashForecast13/types';
 
-const NO_OVERDUE = { totalCents: 0, invoiceCount: 0, byBasis: { history: 0, no_history: 0 }, disputedCents: 0 };
+const NO_OVERDUE = { totalCents: 0, beyondHorizonCents: 0, invoiceCount: 0, byBasis: { history: 0, no_history: 0 }, disputedCents: 0 };
 const base = (over: Partial<EngineInput>): EngineInput => ({
   today: '2026-12-01', openingCents: 0, items: [], budget: null, manualItems: [], overrides: [], overdueAR: NO_OVERDUE, warnings: [], ...over,
 });

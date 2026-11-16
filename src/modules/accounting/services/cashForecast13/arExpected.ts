@@ -38,24 +38,38 @@ function expected(inv: OpenArInvoice, samples: readonly number[] | undefined, to
 /** `daysLate`: per customer, days late (paid − due) of each paid invoice in the last 12 months. */
 export function arItems(
   invoices: readonly OpenArInvoice[], daysLate: ReadonlyMap<string, readonly number[]>, today: string,
-): { items: KnownItem[]; summary: OverdueArSummary } {
-  const summary: OverdueArSummary = { totalCents: 0, invoiceCount: 0, byBasis: { history: 0, no_history: 0 }, disputedCents: 0 };
+): { items: KnownItem[]; disputedCents: number } {
+  let disputedCents = 0;
   const items: KnownItem[] = [];
   for (const inv of invoices) {
-    summary.disputedCents += inv.disputedCents;
+    disputedCents += inv.disputedCents;
     const amount = inv.balanceCents - inv.disputedCents;
     if (amount <= 0) continue;
     const { date, basis } = expected(inv, daysLate.get(inv.customerId), today);
-    if (basis !== 'due') {
-      summary.totalCents += amount;
-      summary.invoiceCount += 1;
-      summary.byBasis[basis] += amount;
-    }
     items.push({
-      lineKey: `ar:${inv.customerId}:${basis}`, lineLabel: inv.customerName, category: 'customer_receipts',
+      lineKey: `ar:${inv.customerId}:${basis}`, lineLabel: inv.customerName, category: 'customer_receipts', entityId: inv.customerId,
       date, amountCents: amount, ref: inv.id, refLabel: inv.invoiceNumber, basis,
       ...(basis === 'no_history' ? { flags: ['no_history'] } : {}),
     });
   }
-  return { items, summary };
+  return { items, disputedCents };
+}
+
+/**
+ * The overdue-AR summary over the items as forecast (after credit netting): what lands inside the 13 weeks,
+ * and apart from it what a customer's history puts after the last Sunday (review L4).
+ */
+export function overdueSummary(items: readonly KnownItem[], disputedCents: number, horizonEnd: string): OverdueArSummary {
+  const summary: OverdueArSummary = { totalCents: 0, beyondHorizonCents: 0, invoiceCount: 0, byBasis: { history: 0, no_history: 0 }, disputedCents };
+  for (const it of items) {
+    if (it.basis !== 'history' && it.basis !== 'no_history') continue;
+    if (it.date > horizonEnd) {
+      summary.beyondHorizonCents += it.amountCents;
+      continue;
+    }
+    summary.totalCents += it.amountCents;
+    summary.invoiceCount += 1;
+    summary.byBasis[it.basis] += it.amountCents;
+  }
+  return summary;
 }
