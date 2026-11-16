@@ -177,7 +177,7 @@ describe('allocated Account column resolves to the GL account, not the rule name
         // The service now refuses a match to a non-bank leg (assertMatchTargets), so
         // pin that guard here...
         await expect(matchTransaction(fixture.companyId, txId, expenseLegId))
-          .rejects.toBeInstanceOf(BankMatchTargetError);
+          .rejects.toSatisfy((e: unknown) => e instanceof BankMatchTargetError && e.code === 'LINE_WRONG_ACCOUNT');
         // ...and create the legacy state directly: rows matched to a non-bank leg exist
         // from before that guard, and the Account column must stay silent for them.
         await client.query(
