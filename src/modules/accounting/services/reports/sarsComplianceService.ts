@@ -3,6 +3,7 @@
  * Submissions CRUD and DB-backed compliance calendar for SA tax obligations.
  */
 
+import { toIsoTimestamp } from '@/lib/dateUtils';
 import { sql } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { fmtDate } from '@/lib/fmtDate';
@@ -26,6 +27,8 @@ export interface SARSSubmission {
   submissionReference: string | null;
   submittedAt: string | null;
   submittedBy: string | null;
+  /** 'isv' when IsaFlow sent it to SARS; null when a user recorded the filing (sarsFilingKind). */
+  efilingChannel: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
@@ -40,11 +43,13 @@ function mapSubmissionRow(row: DbRow): SARSSubmission {
     status: String(row.status),
     formData: (row.form_data as Record<string, unknown>) ?? {},
     submissionReference: row.submission_reference ? String(row.submission_reference) : null,
-    submittedAt: row.submitted_at ? String(row.submitted_at) : null,
+    submittedAt: row.submitted_at ? toIsoTimestamp(row.submitted_at as Date | string) : null,
     submittedBy: row.submitted_by ? String(row.submitted_by) : null,
+    efilingChannel: row.efiling_channel ? String(row.efiling_channel) : null,
     notes: row.notes ? String(row.notes) : null,
-    createdAt: fmtDate(row.created_at) || String(row.created_at),
-    updatedAt: fmtDate(row.updated_at) || String(row.updated_at),
+    // Timestamps with their time (the detail modal shows it); fmtDate kept only the day ("00:00").
+    createdAt: toIsoTimestamp(row.created_at as Date | string) ?? '',
+    updatedAt: toIsoTimestamp(row.updated_at as Date | string) ?? '',
   };
 }
 
@@ -155,6 +160,7 @@ export async function getSubmission(companyId: string, id: string): Promise<SARS
 export async function markSubmitted(companyId: string,
   id: string,
   reference: string,
+  actorUserId: string,
   opts: { lifecycle?: boolean } = {},
 ): Promise<SARSSubmission> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
@@ -182,6 +188,8 @@ export async function markSubmitted(companyId: string,
     SET status = 'submitted',
         submission_reference = ${reference},
         submitted_at = NOW(),
+        -- Who recorded the filing (the calendar names them), not whoever last saved the draft.
+        submitted_by = ${actorUserId}::UUID,
         updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'draft'
     RETURNING *
