@@ -16,6 +16,17 @@ export interface McpOpts { role?: string; scopes?: string[]; jti?: string }
 export const FULL_SCOPES = ['read:reports', 'write:budgets'];
 
 export async function mcp(pool: Pool, u: SetupUser, name: string, args: Record<string, unknown>, opts: McpOpts = {}): Promise<McpToolResult> {
+  return (await mcpBatch(pool, u, [() => [name, args]], opts))[0]!;
+}
+
+/** One step of a batch: the call to make, given the results of the steps before it. */
+export type BatchStep = (before: McpToolResult[]) => [string, Record<string, unknown>];
+
+/**
+ * Several calls in ONE request transaction, as the transport runs a JSON-RPC batch: every budget write in it
+ * sets the version token to the same now(), so only content (cells, plan hashes) can tell the calls apart.
+ */
+export async function mcpBatch(pool: Pool, u: SetupUser, steps: BatchStep[], opts: McpOpts = {}): Promise<McpToolResult[]> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -27,7 +38,13 @@ export async function mcp(pool: Pool, u: SetupUser, name: string, args: Record<s
       userId: u.userId, companyId: u.homeCompanyId, scopes: opts.scopes ?? FULL_SCOPES, tokenJti: opts.jti ?? 'jti-mcp-budget',
       oauthAppId: null, companyRole: opts.role ?? 'owner', authMethod: 'pat',
     };
-    const out = await als.run({ client, userId: u.userId, companyId: u.homeCompanyId, claims } as never, () => mcpRegistry.call(name, args, ctx));
+    const out: McpToolResult[] = [];
+    await als.run({ client, userId: u.userId, companyId: u.homeCompanyId, claims } as never, async () => {
+      for (const step of steps) {
+        const [name, args] = step(out);
+        out.push(await mcpRegistry.call(name, args, ctx));
+      }
+    });
     await client.query('COMMIT');
     return out;
   } catch (err) {
@@ -51,9 +68,9 @@ export function mcpReads(pool: Pool) {
       id: string; tool: string; token_jti: string; token_before: string; token_after: string; cells: Array<Record<string, unknown>>;
       created_by: string; restored_at: Date | null; restored_by: string | null;
     }>;
-  const toolCalls = async (companyId: string, tool: string) => (await pool.query(
-    `SELECT status, idempotency_key FROM mcp_tool_calls WHERE company_id = $1 AND tool = $2 ORDER BY created_at`, [companyId, tool])).rows as
-    Array<{ status: string; idempotency_key: string | null }>;
+  const toolCalls = async (companyId: string, tool: string, userId?: string) => (await pool.query(
+    `SELECT status, idempotency_key FROM mcp_tool_calls WHERE company_id = $1 AND tool = $2 AND ($3::TEXT IS NULL OR user_id = $3) ORDER BY created_at`,
+    [companyId, tool, userId ?? null])).rows as Array<{ status: string; idempotency_key: string | null }>;
   const status = async (versionId: string) => String((await pool.query('SELECT status FROM budget_versions WHERE id = $1', [versionId])).rows[0]?.status);
   return { snapshots, toolCalls, status };
 }
