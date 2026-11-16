@@ -4,7 +4,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from './payRunFinalSql';
 import { listStandaloneDirectivePayments } from './directivePaymentFiling';
 import { payrollJournalInForce } from './payrollJournalChain';
 import {
@@ -18,7 +18,7 @@ const fromIndex = (i: number): YearMonth => ({ year: Math.floor(i / 12), month: 
 
 /**
  * Which runs a month's sum counts:
- *  - 'declarable': approved or paid headers, what the EMP201 declares;
+ *  - 'declarable': FINAL headers (payRunFinalSql: approved or paid with an approval time), what the EMP201 declares;
  *  - 'inForceJournal': headers whose journal is in force (payrollJournalChain), what the ledger has booked;
  *  - 'none': no runs (the caller adds its own).
  */
@@ -27,9 +27,9 @@ export type RunBasis = 'declarable' | 'inForceJournal' | 'none';
 /** PAYE and ETI by month for `from`..`to` (inclusive): the runs on `basis`, and every in-force stand-alone directive. */
 export async function loadEtiMonths(companyId: string, from: YearMonth, to: YearMonth, basis: RunBasis = 'declarable'): Promise<EtiMonth[]> {
   if (index(to) < index(from)) return [];
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = basis === 'none' ? [] : (await sql`
-    SELECT period_year, period_month, total_paye AS paye, total_eti AS eti, status, journal_entry_id
+    SELECT period_year, period_month, total_paye AS paye, total_eti AS eti, status, journal_entry_id,
+           ${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AS final
       FROM payroll_run_headers
      WHERE company_id = ${companyId}::uuid
        AND make_date(period_year, period_month, 1) >= ${firstOf(from)}::date
@@ -38,7 +38,7 @@ export async function loadEtiMonths(companyId: string, from: YearMonth, to: Year
   const runs: DbRow[] = [];
   for (const r of rows) {
     const counted = basis === 'declarable'
-      ? declarable.includes(String(r.status))
+      ? r.final === true
       : r.journal_entry_id != null && await payrollJournalInForce(companyId, String(r.journal_entry_id));
     if (counted) runs.push(r);
   }

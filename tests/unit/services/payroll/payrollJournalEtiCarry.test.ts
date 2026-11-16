@@ -60,7 +60,7 @@ function route(earlier: unknown[], directives: (start: unknown) => unknown[] = (
     if (q.includes('je.reference')) return Promise.resolve(etiJournalsBooked);
     if (q.includes('information_schema.tables')) return Promise.resolve([{ table_name: 'payroll_run_headers' }, { table_name: 'payroll_run_lines' }]);
     if (q.includes('tax_directive_payments')) return Promise.resolve(directives(values[1]));
-    if (q.includes('total_paye AS paye')) return Promise.resolve((earlier as Array<Record<string, unknown>>).map((r) => ({ status: 'approved', ...r })));
+    if (q.includes('total_paye AS paye')) return Promise.resolve((earlier as Array<Record<string, unknown>>).map((r) => ({ status: 'approved', final: true, ...r })));
     if (q.includes('payroll_run_headers')) return Promise.resolve([JUNE]);
     if (q.includes('FROM gl_accounts')) return Promise.resolve(ACCOUNTS);
     return Promise.resolve([]);

@@ -102,7 +102,7 @@ describe('generateEMP201 uses the carry', () => {
     vi.mocked(sql)
       .mockResolvedValueOnce([{ table_name: 'payroll_run_headers' }, { table_name: 'payroll_run_lines' }] as never)
       .mockResolvedValueOnce([] as never)
-      .mockResolvedValueOnce([{ period_year: 2026, period_month: 1, paye: 0, eti: 1_000, status: 'approved' }] as never)
+      .mockResolvedValueOnce([{ period_year: 2026, period_month: 1, paye: 0, eti: 1_000, status: 'approved', final: true }] as never)
       .mockResolvedValueOnce([] as never) // February's run header: none, so nothing booked by a run journal
       .mockResolvedValueOnce([{ used: 0, refund: 0 }] as never) // February's ETI journals: none
       .mockResolvedValueOnce([] as never); // February's run journal in force: none (a run-less month)
@@ -121,7 +121,7 @@ describe('generateEMP201 uses the carry', () => {
       .mockResolvedValueOnce([{ id: 'jun', period_month: 6, period_year: 2026, employee_count: 2, total_gross: 20_000,
         total_paye: 3_000, total_uif: 400, total_sdl: 200, total_eti: 500, non_cash: 0, employee_ids: ['a'] }] as never)
       // the earlier months of the period (March-May): May's ETI exceeds its PAYE by R1 800 less the directive's R300
-      .mockResolvedValueOnce([{ period_year: 2026, period_month: 5, paye: 200, eti: 2_000, status: 'paid' }] as never);
+      .mockResolvedValueOnce([{ period_year: 2026, period_month: 5, paye: 200, eti: 2_000, status: 'paid', final: true }] as never);
     vi.mocked(listStandaloneDirectivePayments)
       .mockResolvedValueOnce([]) // June's own directives
       .mockResolvedValueOnce([{ paymentDate: '2026-05-20', paye: 300 } as never]);
