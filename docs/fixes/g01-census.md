@@ -66,6 +66,7 @@ Raw-ledger views keep the close visible: journal list and detail (`journalEntryL
 | `pages/api/accounting/reports-budget-vs-actual.ts` | budget vs actual page | n/a: no equity read | exclude |
 | `pages/api/accounting/budget-vs-actual-export.ts` | budget vs actual export | n/a: no equity read | exclude |
 | `src/modules/bureau/services/bureauClientMetricsService.ts` | bureau client revenue/expense/bank | n/a: no equity read | exclude |
+| `src/modules/accounting/services/bank/bankReconciliationBalance.ts` | bank-account ledger balance as at a date (`postedBankLedgerSum` → `bankGlBalanceAsAt`, the reconciliation; `bankGlBalancesAsAt`, the bank card) | n/a: cash/bank accounts only | exclude (PR #1475 review round 2, 2026-11-16: moved from section 2, where it was allow-listed as cash-only; marked so the bank ledger equals the TB bank row by construction. The close posts only to P&L and retained earnings, and dev had 0 year-end lines on bank-subtype accounts, so no reconciliation figure changes) |
 
 ## 2. Figure-producing statements that are not statement readers: n/a (allow-listed per file in the guard test, with the same reason)
 
@@ -89,7 +90,6 @@ The guard is per STATEMENT (`tests/unit/guards/yearEndJournalCensus.test.ts`, ru
 | `src/modules/accounting/services/bank/bankAutoMatchService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: bank-feed matching and posting: reads one bank line's own journal |
 | `src/modules/accounting/services/bank/bankCoverageDirections.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
 | `src/modules/accounting/services/bank/bankMatchDbQueries.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: bank-feed matching and posting: reads one bank line's own journal |
-| `src/modules/accounting/services/bank/bankReconciliationBalance.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
 | `src/modules/accounting/services/bank/cashBalanceService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
 | `src/modules/accounting/services/bank/journalReversalState.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: bank-feed matching and posting: reads one bank line's own journal |
 | `src/modules/accounting/services/bank/splitJournalDocuments.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: bank-feed matching and posting: reads one bank line's own journal |
