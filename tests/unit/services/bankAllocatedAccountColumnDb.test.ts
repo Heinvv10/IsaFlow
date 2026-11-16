@@ -32,6 +32,7 @@ vi.mock('@/lib/logger', () => ({
 import { getPoolForTests } from '@/lib/neon';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { applyRules } from '@/modules/accounting/services/bank/bankRulesMatchingService';
+import { BankMatchTargetError } from '@/modules/accounting/services/bank/bankTxStatusErrors';
 import { getBankTransactions, matchTransaction } from '@/modules/accounting/services/bank/bankTransactionQueryService';
 
 type Ctx = Parameters<typeof als.run>[0];
@@ -173,9 +174,17 @@ describe('allocated Account column resolves to the GL account, not the rule name
       const txId = await insertTx(client, fixture, 'ZZTESTJOURNALLINEMATCH purchase');
 
       const page = await als.run(ctxFor(client, fixture.companyId), async () => {
-        // Matching to the EXPENSE leg — not the bank leg. This is what the UI's
-        // journal_line candidate list makes possible.
-        await matchTransaction(fixture.companyId, txId, expenseLegId);
+        // The service now refuses a match to a non-bank leg (assertMatchTargets), so
+        // pin that guard here...
+        await expect(matchTransaction(fixture.companyId, txId, expenseLegId))
+          .rejects.toBeInstanceOf(BankMatchTargetError);
+        // ...and create the legacy state directly: rows matched to a non-bank leg exist
+        // from before that guard, and the Account column must stay silent for them.
+        await client.query(
+          `UPDATE bank_transactions SET status = 'matched', matched_journal_line_id = $1
+           WHERE id = $2 AND company_id = $3`,
+          [expenseLegId, txId, fixture.companyId],
+        );
         return getBankTransactions(fixture.companyId, { bankAccountId: fixture.bankAccountId, limit: 100 });
       });
 
