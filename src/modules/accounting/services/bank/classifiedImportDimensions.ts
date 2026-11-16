@@ -21,6 +21,9 @@ type Master = { id: string; code: string; name: string };
 type Row = Record<string, unknown>;
 
 const key = (v: string): string => v.trim().toLowerCase();
+// What JS trim() strips, as a Postgres regex (btrim strips only spaces, so a master named "Nbsp\u00a0" would not match).
+const WS = String.raw`[\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]`;
+const TRIM_RE = `^${WS}+|${WS}+$`;
 
 /** label → id for one slot; a label two masters answer to is ambiguous and maps to null. */
 function indexOf(masters: Master[]): Map<string, string | null> {
@@ -82,10 +85,10 @@ export async function resolveWorksheetDimensions(
   const readLabelled = async () => ({
     cs: (await sql`
       SELECT id::TEXT AS id, code, name, cc_type, is_active FROM cost_centres
-      WHERE company_id = ${companyId}::UUID AND (lower(btrim(code)) = ANY(${labels}::TEXT[]) OR lower(btrim(name)) = ANY(${labels}::TEXT[]))`) as Row[],
+      WHERE company_id = ${companyId}::UUID AND (lower(regexp_replace(code, ${TRIM_RE}, '', 'g')) = ANY(${labels}::TEXT[]) OR lower(regexp_replace(name, ${TRIM_RE}, '', 'g')) = ANY(${labels}::TEXT[]))`) as Row[],
     us: (await sql`
       SELECT id::TEXT AS id, code, name, is_active FROM business_units
-      WHERE company_id = ${companyId}::UUID AND (lower(btrim(code)) = ANY(${labels}::TEXT[]) OR lower(btrim(name)) = ANY(${labels}::TEXT[]))`) as Row[],
+      WHERE company_id = ${companyId}::UUID AND (lower(regexp_replace(code, ${TRIM_RE}, '', 'g')) = ANY(${labels}::TEXT[]) OR lower(regexp_replace(name, ${TRIM_RE}, '', 'g')) = ANY(${labels}::TEXT[]))`) as Row[],
   });
   const locked = new Set([...lockedCentres, ...lockedUnits].map((r) => String(r.id)));
   let now = await readLabelled();

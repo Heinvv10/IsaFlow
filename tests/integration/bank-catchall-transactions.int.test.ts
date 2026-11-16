@@ -202,6 +202,35 @@ describe('bank-transactions-import-classified: it imports, and a crash after the
     expect(await linesNamed('RENAME')).toEqual([{ description: 'RENAME A', amount: -6, cc1: null, cc2: null, bu: null }]);
   });
 
+  // JS trim() strips NBSP, tabs and the other Unicode spaces; SQL btrim() only spaces. One definition on both sides.
+  it('a master whose name ends in a non-breaking space or tab resolves from the plain label, with and without a concurrent edit', async () => {
+    const nb = (await pool.query(
+      "INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1,'NB-1',E'Nbsp\\u00a0','cc1') RETURNING id", [f.c])).rows[0].id;
+    const tab = (await pool.query(
+      "INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1,'NB-2',E'\\tTabbed\\t\\u2003','cc1') RETURNING id", [f.c])).rows[0].id;
+    const plain = await importAs(f.c, f.bank, [
+      { transactionDate: '2026-09-16', description: 'NBSP A', debit: 2, costCentreT1: 'nbsp' },
+      { transactionDate: '2026-09-16', description: 'NBSP B', debit: 3, costCentreT1: 'TABBED' }]);
+    expect(plain.state.statusCode, JSON.stringify(plain.state.body)).toBe(201);
+    expect((plain.state.body as { data: { unresolvedDimensions?: string[] } }).data.unresolvedDimensions ?? []).toEqual([]);
+    expect((await linesNamed('NBSP')).map((l) => l.cc1)).toEqual([nb, tab]);
+    const bystander = (await pool.query(
+      "INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1,'NB-3','Bystander','cc1') RETURNING id", [f.c])).rows[0].id;
+    let release: () => void = () => {};
+    faults.gate = new Promise<void>((resolve) => { release = resolve; });
+    faults.holdAfterSql = /cost_centres[\s\S]*FOR SHARE/;
+    const running = importAs(f.c, f.bank, [{ transactionDate: '2026-09-17', description: 'NBSPLOCK A', debit: 4, costCentreT1: 'nbsp' }]);
+    const until = Date.now() + 15_000;
+    while (!faults.held && Date.now() < until) await new Promise((r) => setTimeout(r, 25));
+    expect(faults.held, 'the import reached its lock').toBe(true);
+    await pool.query("UPDATE cost_centres SET description = 'edited' WHERE id = $1", [bystander]);
+    release();
+    const res = await running;
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(201);
+    expect((res.state.body as { data: { unresolvedDimensions?: string[] } }).data.unresolvedDimensions ?? []).toEqual([]);
+    expect((await linesNamed('NBSPLOCK')).map((l) => l.cc1)).toEqual([nb]);
+  });
+
   it('an inactive master sharing a label is not a candidate: the active one resolves (W3)', async () => {
     const live = (await pool.query(
       "INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1,'SH-LIVE','Shared','cc1') RETURNING id", [f.c])).rows[0].id;
