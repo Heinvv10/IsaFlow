@@ -30,5 +30,6 @@
 - D3 Disputed AR (`disputedAmount`) is out of receipts and shown in `overdueAR.disputedCents`, as the aging leaves it out of its buckets.
 - D4 AR paid date = the agingRewind datable-settlement date: MAX(`customer_payments.payment_date`) over allocations, receipts not draft/cancelled. Credit-note-only and undated legacy settlements do not count toward the 3-invoice history.
 
-## PR 2 hooks
-- `getCashForecast13(co, today, { payDay, manualItems, overrides })`: defaults 25 / [] / [] until the tables and pay-day setting exist.
+## Stored inputs (PR 2, migration 999i)
+- `getCashForecast13` reads the stored manual items, overrides and salary pay day through `readStoredInputs` (each its own guarded source; unreadable = a `source_unavailable` warning, none / none / day 25). Options the caller passes win over the stored ones.
+- `engineAdapter.ts` converts stored rows (rand, dates, `direction`) to `ManualItem` / `Override` / `PayDay`; the store, routes and rules are documented in `pages/api/accounting/cash-forecast-13/.claude.md`.

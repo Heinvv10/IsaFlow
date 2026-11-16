@@ -1,5 +1,5 @@
 /**
- * The user's own changes, applied after every source line (PR 2 stores them; the readers pass none yet):
+ * The user's own changes, applied after every source line (stored by 999i, read by readStoredInputs):
  *   - manual items become `manual:<id>` lines, repeated weekly or monthly within the horizon;
  *   - overrides change one cell of a line. They never edit the line itself: each overridden line gets one
  *     `override:<key>` line holding the deltas, so the source figure stays visible beside the change.
