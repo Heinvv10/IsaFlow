@@ -8,8 +8,12 @@
  * Idempotent. The GoTrue user and its public.users row are re-asserted every run; the company is created once,
  * the way signup makes one (provisionTenant), and --app-url (a local dev server on isaflow_dev) seeds its standard
  * chart of accounts through the app's own coa-seed route as that user; without it the sandbox has no chart. The
- * password is read from the env file or made once, set in GoTrue, and written to the env file (default ~/.secrets/isaflow-dev-golden-qa.env, mode 600); it is
+ * password is read from the env file or made once (a lost env file therefore ROTATES the password: the run makes a new
+ * one and sets it in GoTrue), set in GoTrue, and written to the env file (default ~/.secrets/isaflow-dev-golden-qa.env, mode 600); it is
  * never printed. --verify only reads: exits 1 unless the user belongs to exactly the sandbox, as owner.
+ *
+ * --app-url: only a local dev port is accepted, but nothing can prove from outside which database that server uses, so
+ * start it from a checkout whose .env.local points at isaflow_dev (as provision-slots.ts requires).
  *
  * Refuses any database but isaflow_dev and any GoTrue but the one pinned in slotConfig.ts (shared with production).
  */
@@ -64,10 +68,15 @@ async function ensureUserRow(db: pg.Client, userId: string): Promise<void> {
      ON CONFLICT (user_id, key) DO UPDATE SET value = 'true', updated_at = NOW() WHERE user_preferences.value IS DISTINCT FROM 'true'`, [userId]);
 }
 
-/** The company, as signup makes it: provisionTenant (company, trial subscription, owner membership, first fiscal year). */
+/**
+ * The company, as signup makes it: provisionTenant (company, trial subscription, owner membership, first fiscal year).
+ * The check and the create share one transaction under an advisory lock, so two runs cannot both create it.
+ */
 async function createSandbox(db: pg.Client, userId: string): Promise<void> {
   await db.query('BEGIN');
   try {
+    await db.query(`SELECT pg_advisory_xact_lock(hashtextextended('provision-w6-qa:sandbox', 0))`);
+    if ((await memberships(db, userId)).some((m) => m.name === W6_COMPANY_NAME)) { await db.query('COMMIT'); return; }
     await provisionTenant(db, {
       ownerUserId: userId, email: W6_EMAIL, firstName: 'Golden', lastName: 'QA W6', companyName: W6_COMPANY_NAME,
       phone: null, annualTurnoverCents: null, signupType: 'direct',
@@ -92,13 +101,14 @@ async function seedChart(appUrl: string, password: string): Promise<void> {
   if (seeded.status() !== 200) throw new Error(`coa-seed failed: ${seeded.status()} ${(await seeded.text()).slice(0, 400)}`);
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const envFile = option('--env-file') ?? DEFAULT_ENV_FILE;
   const appUrl = option('--app-url');
   const verifyOnly = process.argv.includes('--verify');
   const fileText = existsSync(envFile) ? readFileSync(envFile, 'utf8') : '';
   const fileEnv = parseEnvFile(fileText);
-  const dev = parseEnvFile(readFileSync(join(process.cwd(), '.env.local'), 'utf8'));
+  const localEnv = join(process.cwd(), '.env.local');
+  const dev = existsSync(localEnv) ? parseEnvFile(readFileSync(localEnv, 'utf8')) : {};
   const get = (k: string): string | undefined => process.env[k] || dev[k] || undefined;
   const dbUrl = get('MIGRATION_ADMIN_DATABASE_URL') ?? get('DATABASE_URL');
   if (!dbUrl) throw new Error('MIGRATION_ADMIN_DATABASE_URL or DATABASE_URL is not set');
@@ -119,6 +129,9 @@ async function main(): Promise<void> {
     }
     const password = fileEnv.GOLDEN_QA_W6_PASSWORD || randomBytes(24).toString('base64url');
     const user = await adminCreateUser({ email: W6_EMAIL, password, email_confirm: true, user_metadata: { purpose: 'wave-6 golden QA' } });
+    // Before the password is touched: a user that already belongs to some other company is not this account.
+    const held = (await memberships(db, user.id)).filter((m) => m.name !== W6_COMPANY_NAME);
+    if (held.length) throw new Error(`${W6_EMAIL} already belongs to ${held.map((m) => m.name).join(', ')}; refusing to continue (password untouched)`);
     await adminUpdateUser(user.id, { password, email_confirm: true });
     await ensureUserRow(db, user.id);
     if (!existsSync(envFile)) writeFileSync(envFile, '', { mode: 0o600 });
