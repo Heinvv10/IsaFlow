@@ -42,7 +42,7 @@
    {"line":47,"text":"'The UIF split is an approximation. payroll_run_headers stores a single combined employee-plus-employer total, so this halves it. Where the two halves genuinely differ — an employee over the UIF ceiling, or one excluded from UIF — the split will be wrong even though the combined total is right. ' +","class":"L","owner":"FQb1","why":"tool description text"}
   ],
   "src/modules/accounting/services/cashForecast13/readPayroll.ts": [
-   {"line":56,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"regular runs only, filtered to monthly: one per period by the 999a regular-period key, so the month-keyed map is one run each; off-cycle runs are left out of the forecast (a gap, not a lookup)"}
+   {"line":56,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"regular runs only, filtered to monthly: one per period by the 999a regular-period key, so the month-keyed map is one run each; off-cycle runs are left out of the forecast: a gap for FQb2 to close (a bonus run's net pay and statutory payments are not forecast), not a month lookup"}
   ],
   "src/modules/accounting/services/core/entityChanges/entityChangeQuery.ts": [
    {"line":218,"text":"JOIN payroll_run_headers h ON h.id = ${runId}::uuid AND h.company_id = c.company_id","class":"R","owner":"FQc","why":"by run id; the run's period dates taken from its month (right for a monthly run, regular or off-cycle); weekly/fortnightly dates are FQc's"}
