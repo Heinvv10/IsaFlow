@@ -27,6 +27,8 @@ const sel = (entityId = 'gl1'): RowSelection => ({ type: 'account', entityId, la
 const shown = (entityId: string, label: string): RowSelection => ({ type: 'account', entityId, label, vatCode: 'none' });
 
 /** The page's REAL busy hook (rendered, not re-implemented), with the progress it is told about recorded. */
+/** Turns of the event loop (no wall clock, so load cannot change the outcome), for the effect of an answer that has no observable of its own. */
+const settleIO = async () => { for (let i = 0; i < 10; i++) await new Promise<void>((r) => setImmediate(r)); };
 const touchSpy = vi.fn();
 function busyGuard() {
   const progress: Array<unknown> = [];
@@ -503,7 +505,7 @@ describe('rollback by per-edit sequence and field group', () => {
     const calls = setRowSelections.mock.calls.length;
     failFirst();
     await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
-    await new Promise((r) => setTimeout(r, 20));
+    await settleIO();
     // edit 1 is no longer the row's newest edit, so its late failure puts nothing back - whatever it is applied to
     const now = { t1: shown('X', 'X') }; // value-equal to edit 1's patch
     let state: Record<string, RowSelection> = now;
@@ -588,7 +590,7 @@ describe('rollback goes to the last SAVED value, not to the previous snapshot', 
       const from = setRowSelections.mock.calls.length;
       let state: Record<string, RowSelection> = { t1: shown('Y', 'Y') };
       for (const i of order) { answers[i]!(false); await vi.waitFor(() => expect(toast.error.mock.calls.length).toBeGreaterThan(order.indexOf(i))); }
-      await new Promise((r) => setTimeout(r, 20));
+      await settleIO();
       state = apply(setRowSelections, from, state);
       expect(state.t1!.entityId).toBe('old');
     });

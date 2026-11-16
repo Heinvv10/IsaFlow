@@ -5,8 +5,8 @@
  *  - a refused first-ever cost-centre edit on a line with no selection removes the empty entry;
  *  - a busy object without `touch` does not break an action.
  */
-import { act, renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, renderHook } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn(), undoable: vi.fn() }));
 vi.mock('@/utils/toast', () => ({ notify: toast }));
@@ -16,7 +16,7 @@ vi.mock('@/components/accounting/CreateRuleModal', () => ({ extractPattern: () =
 
 import { apiFetch } from '@/lib/apiFetch';
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
-import { trackedEditCount } from '@/components/accounting/bank-transactions/bankTxEditTracker';
+import { trackedEditCount, EDIT_ABANDON_MS } from '@/components/accounting/bank-transactions/bankTxEditTracker';
 import { useBankTxBusy, type BankTxBusy } from '@/components/accounting/bank-transactions/useBankTxBusy';
 import type { BankTx, RowSelection } from '@/components/accounting/BankTxTable';
 
@@ -58,6 +58,7 @@ function setup(over: Record<string, unknown> = {}) {
 const bodies = () => vi.mocked(apiFetch).mock.calls.map(([, init]) => { try { return JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>; } catch { return {}; } });
 const sentActions = (action: string) => bodies().filter((b) => b.action === action);
 
+afterEach(() => { cleanup(); vi.useRealTimers(); }); // a failing fake-timer test must not leave fake timers on for the next one
 beforeEach(() => {
   vi.mocked(apiFetch).mockReset();
   Object.values(toast).forEach((f) => f.mockReset());
@@ -78,9 +79,17 @@ function rig(init: Record<string, RowSelection>) {
   const gates: Array<{ ok: () => void; no: () => void }> = [];
   vi.mocked(apiFetch).mockImplementation(async () => new Promise<Response>(r => { gates.push({ ok: () => r(json({ saved: true })), no: () => r(refuse()) }); }));
   const build = () => setup({ rowSelections: state, setRowSelections, transactions: [tx('t1')], selectedIds: new Set() }).actions;
-  return { get: () => state, set: (s: Record<string, RowSelection>) => { state = s; }, gates, build };
+  let refused = 0;
+  return {
+    get: () => state, set: (s: Record<string, RowSelection>) => { state = s; }, gates, build,
+    /** Refuse save i and wait for the app to report it (the error toast is the observable). */
+    no: async (i: number) => { gates[i]!.no(); refused += 1; await vi.waitFor(() => expect(toast.error).toHaveBeenCalledTimes(refused)); await settleIO(); },
+    /** Store save i; a stored save has no observable of its own, so let the event loop turn. */
+    ok: async (i: number) => { gates[i]!.ok(); await settleIO(); },
+  };
 }
-const tick = () => new Promise(r => setTimeout(r, 10));
+/** Turns of the event loop (no wall clock, so load cannot change the outcome): lets the app consume a mocked response that has no observable effect of its own. */
+const settleIO = async () => { for (let i = 0; i < 10; i++) await new Promise<void>(r => setImmediate(r)); };
 
 
 describe('touch() is per operation', () => {
@@ -141,44 +150,44 @@ describe('the newest edit refused while an older one is in flight', () => {
   it('Y refused BEFORE X answers, then X is stored: the row shows X (the server holds X)', async () => {
     const r = rig({ t1: A });
     r.build().handleRowEntityChange('t1', 'glX', 'X'); r.build().handleRowEntityChange('t1', 'glY', 'Y');
-    r.gates[1]!.no(); await tick();
+    await r.no(1);
     expect(r.get().t1?.entityId).toBe('glY'); // not rolled back past an edit still in flight
-    r.gates[0]!.ok(); await tick();
+    await r.ok(0);
     expect(r.get().t1?.entityId).toBe('glX');
   });
   it('Y refused first, then X refused too: back to the original', async () => {
     const r = rig({ t1: A });
     r.build().handleRowEntityChange('t1', 'glX', 'X'); r.build().handleRowEntityChange('t1', 'glY', 'Y');
-    r.gates[1]!.no(); await tick(); r.gates[0]!.no(); await tick();
+    await r.no(1); await r.no(0);
     expect(r.get().t1?.entityId).toBe('glA');
   });
   it('X refused first, then Y refused: back to the original (the earlier behaviour holds)', async () => {
     const r = rig({ t1: A });
     r.build().handleRowEntityChange('t1', 'glX', 'X'); r.build().handleRowEntityChange('t1', 'glY', 'Y');
-    r.gates[0]!.no(); await tick(); r.gates[1]!.no(); await tick();
+    await r.no(0); await r.no(1);
     expect(r.get().t1?.entityId).toBe('glA');
   });
   it('Y refused first, X stored, and the user has since moved on to Z: Z stays', async () => {
     const r = rig({ t1: A });
     r.build().handleRowEntityChange('t1', 'glX', 'X'); r.build().handleRowEntityChange('t1', 'glY', 'Y');
-    r.gates[1]!.no(); await tick();
+    await r.no(1);
     r.build().handleRowEntityChange('t1', 'glZ', 'Z'); // a newer edit
-    r.gates[0]!.ok(); await tick();
+    await r.ok(0);
     expect(r.get().t1?.entityId).toBe('glZ');
-    r.gates[2]!.ok(); await tick();
+    await r.ok(2);
     expect(r.get().t1?.entityId).toBe('glZ');
   });
   it('an entity edit refused while a cost-centre edit is stored keeps the cost centre (groups stay independent)', async () => {
     const r = rig({ t1: { ...A, cc1Id: 'c0' } });
     r.build().handleRowEntityChange('t1', 'glX', 'X'); r.build().handleRowDimensionChange('t1', 'c1', '', '');
-    r.gates[0]!.no(); await tick(); r.gates[1]!.ok(); await tick();
+    await r.no(0); await r.ok(1);
     expect(r.get().t1).toMatchObject({ entityId: 'glA', cc1Id: 'c1' });
   });
   it('nothing is left tracked once every answer is in', async () => {
     const before = trackedEditCount();
     const r = rig({ t1: A });
     r.build().handleRowEntityChange('t1', 'glX', 'X'); r.build().handleRowEntityChange('t1', 'glY', 'Y');
-    r.gates[1]!.no(); await tick(); r.gates[0]!.ok(); await tick();
+    await r.no(1); await r.ok(0);
     expect(trackedEditCount()).toBe(before);
   });
 });
@@ -188,14 +197,14 @@ describe('a refused first-ever cost-centre edit on a line with no selection', ()
     const r = rig({});
     r.build().handleRowDimensionChange('t1', 'c1', '', '');
     expect(r.get().t1?.cc1Id).toBe('c1'); // optimistic
-    r.gates[0]!.no(); await tick();
+    await r.no(0);
     expect(r.get().t1).toBeUndefined();
   });
   it('but keeps the entry when an allocation was chosen on it meanwhile', async () => {
     const r = rig({});
     r.build().handleRowDimensionChange('t1', 'c1', '', '');
     r.set({ t1: { ...A, cc1Id: 'c1' } }); // the user picked an account in the meantime
-    r.gates[0]!.no(); await tick();
+    await r.no(0);
     expect(r.get().t1).toMatchObject({ entityId: 'glA' });
     expect(r.get().t1?.cc1Id).toBeUndefined();
   });
@@ -212,3 +221,64 @@ describe('a busy object without touch', () => {
     expect(sentActions('bulk_accept')).toHaveLength(1);
   });
 });
+
+describe('an older save that never answers cannot pin the row to a refused value', () => {
+  it('Y is refused while X hangs: Y stays shown at first, then after the abandon time the row goes back to the last STORED value, with a warning', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const r = rig({ t1: A });
+    r.build().handleRowEntityChange('t1', 'glX', 'X'); r.build().handleRowEntityChange('t1', 'glY', 'Y');
+    r.gates[1]!.no();
+    await vi.advanceTimersByTimeAsync(5);
+    expect(toast.error).toHaveBeenCalledTimes(1);
+    expect(r.get().t1?.entityId).toBe('glY'); // deferred behind the in-flight X
+    await vi.advanceTimersByTimeAsync(EDIT_ABANDON_MS - 100);
+    expect(r.get().t1?.entityId).toBe('glY'); // not yet
+    await vi.advanceTimersByTimeAsync(200);
+    expect(r.get().t1?.entityId).toBe('glA'); // X's answer is unknown: back to what is known to be stored
+    expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining('not been confirmed'), expect.any(String));
+    r.gates[0]!.ok(); // the hung request finally answers: nothing more happens to the row
+    await vi.advanceTimersByTimeAsync(5);
+    expect(r.get().t1?.entityId).toBe('glA');
+    expect(trackedEditCount()).toBe(0);
+  });
+
+  it('an answer that arrives in time cancels the wait: no warning, no put-back to the old value', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const r = rig({ t1: A });
+    r.build().handleRowEntityChange('t1', 'glX', 'X'); r.build().handleRowEntityChange('t1', 'glY', 'Y');
+    r.gates[1]!.no(); await vi.advanceTimersByTimeAsync(5);
+    r.gates[0]!.ok(); await vi.advanceTimersByTimeAsync(5);
+    expect(r.get().t1?.entityId).toBe('glX');
+    expect(vi.getTimerCount()).toBe(0); // the wait was cancelled, not left to fire
+    await vi.advanceTimersByTimeAsync(EDIT_ABANDON_MS * 2);
+    expect(r.get().t1?.entityId).toBe('glX');
+    expect(toast.warning).not.toHaveBeenCalled();
+  });
+});
+
+describe('Apply Rules keeps its hold while it makes progress', () => {
+  it('rules (55 s) then smart-categorize (14 s): 69 s in all, never silent for 60 s, so the hold lasts and nothing warns', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const hook = renderHook(() => useBankTxBusy());
+    vi.mocked(apiFetch).mockImplementation(async (u) => {
+      await new Promise(res => setTimeout(res, String(u).includes('smart-categorize') ? 14_000 : 55_000));
+      return json({ applied: 2, categorized: 1, skipped: 0 });
+    });
+    let done!: Promise<unknown>;
+    act(() => { done = mkWith(hook.result.current, {}).handleApplyRules() as Promise<unknown>; });
+    await act(async () => { await vi.advanceTimersByTimeAsync(65_000); }); // past 60 s in total, 10 s into the second step
+    expect(hook.result.current.busy.has('apply-rules')).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); await done; });
+    expect(toast.warning).not.toHaveBeenCalledWith('This is taking too long', expect.anything());
+    expect(hook.result.current.busy.size).toBe(0);
+  });
+  it('but one request silent for 60 s inside it still releases', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const hook = renderHook(() => useBankTxBusy());
+    vi.mocked(apiFetch).mockImplementation(() => new Promise<Response>(() => undefined));
+    act(() => { void mkWith(hook.result.current, {}).handleApplyRules(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(61_000); });
+    expect(hook.result.current.busy.has('apply-rules')).toBe(false);
+  });
+});
+

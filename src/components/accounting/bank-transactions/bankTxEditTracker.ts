@@ -9,6 +9,7 @@
  * The entry is dropped when its last pending edit settles, so the map does not grow with the session.
  */
 
+import { notify } from '@/utils/toast';
 import type { RowSelection } from '@/components/accounting/BankTxTable';
 
 const DIM_KEYS = ['cc1Id', 'cc2Id', 'buId'] as const;
@@ -16,6 +17,12 @@ const ALLOC_KEYS = ['type', 'entityId', 'label', 'vatCode'] as const;
 type Group = 'alloc' | 'dims';
 const groupOf = (k: keyof RowSelection): Group => ((DIM_KEYS as readonly string[]).includes(k) ? 'dims' : 'alloc');
 const groupKeys = (g: Group): ReadonlyArray<keyof RowSelection> => (g === 'dims' ? DIM_KEYS : ALLOC_KEYS);
+/**
+ * How long a refused newest edit waits for an older edit that has not answered. apiFetch has no timeout, so an older save
+ * that hangs would pin the row to the refused value until a reload: after this the older answer is treated as UNKNOWN and the
+ * row goes back to the last value known to be stored (the user is told to check).
+ */
+export const EDIT_ABANDON_MS = 60_000;
 /** What an allocation field is when the row had no selection. */
 const EMPTY: Partial<RowSelection> = { type: 'account', entityId: '', label: '', vatCode: 'none' };
 
@@ -23,6 +30,7 @@ interface GroupState {
   seq: number; pending: number; baseline: Record<string, unknown>; noRow: boolean;
   /** The NEWEST edit was refused while an older one was still in flight: its answer decides, so the put-back waits for it. */
   deferred: Partial<RowSelection> | null;
+  abandon?: ReturnType<typeof setTimeout>;
 }
 const states = new Map<string, GroupState>();
 /** Open entries (for tests and diagnostics). */
@@ -68,6 +76,7 @@ export function trackEdit(txId: string, before: RowSelection | undefined, patch:
     if (!st) return;
     st.pending -= 1;
     if (st.pending > 0) return;
+    clearTimeout(st.abandon);
     states.delete(`${txId}:${g}`);
     if (st.deferred) putBack(setRowSelections, txId, st.deferred, (Object.keys(st.deferred) as Array<keyof RowSelection>).filter(k => groupOf(k) === g), { ...st.baseline }, st.noRow);
   };
@@ -93,7 +102,18 @@ export function trackEdit(txId: string, before: RowSelection | undefined, patch:
     for (const g of groups) {
       const st = states.get(`${txId}:${g}`);
       if (st && st.seq === seqs.get(g)) {
-        if (st.pending > 1) st.deferred = { ...(st.deferred ?? {}), ...Object.fromEntries(keysOf(g).map(k => [k, patch[k]])) };
+        if (st.pending > 1) {
+          st.deferred = { ...(st.deferred ?? {}), ...Object.fromEntries(keysOf(g).map(k => [k, patch[k]])) };
+          if (!st.abandon) {
+            const stuck = st;
+            st.abandon = setTimeout(() => {
+              if (states.get(`${txId}:${g}`) !== stuck || !stuck.deferred) return;
+              const deferred = stuck.deferred; stuck.deferred = null;
+              putBack(setRowSelections, txId, deferred, (Object.keys(deferred) as Array<keyof RowSelection>).filter(k => groupOf(k) === g), { ...stuck.baseline }, stuck.noRow);
+              notify.warning('An earlier change to this line has not been confirmed', 'It was put back to the last saved value. Refresh to see what the server holds.');
+            }, EDIT_ABANDON_MS);
+          }
+        }
         else { now.push(...keysOf(g)); Object.assign(baseline, st.baseline); emptied ||= st.noRow; }
       }
       settle(g);

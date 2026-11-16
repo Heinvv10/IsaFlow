@@ -182,23 +182,26 @@ export function buildBankTxActions(deps: ActionDeps) {
     if (!selectedBank) { notify.error('Select a bank account first'); return; }
     setSmartRunning(true);
     notify.success('Running smart categorization...');
+    const alive = () => deps.busy?.touch?.({ key: 'apply-rules' }); // each step of a long run is activity for its hold
     try {
+      alive();
       const rulesRes = await apiFetch('/api/accounting/bank-rules-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ action: 'apply', bankAccountId: selectedBank }),
       });
-      await assertOk(rulesRes, 'Could not apply the rules - try again');
+      alive(); await assertOk(rulesRes, 'Could not apply the rules - try again');
       const rulesApplied = (await rulesRes.json()).data?.applied ?? 0;
       let smartCategorized = 0, totalSkipped = 0, smartFailed = false;
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 15000);
+        alive();
         const smartRes = await apiFetch('/api/accounting/smart-categorize', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ action: 'categorize', bankAccountId: selectedBank }),
           signal: controller.signal,
         });
-        clearTimeout(timeout); await assertOk(smartRes, 'Smart categorisation could not run - try again');
+        clearTimeout(timeout); alive(); await assertOk(smartRes, 'Smart categorisation could not run - try again');
         const smartJson = await smartRes.json();
         smartCategorized = smartJson.data?.categorized ?? 0;
         totalSkipped = smartJson.data?.skipped ?? 0;
