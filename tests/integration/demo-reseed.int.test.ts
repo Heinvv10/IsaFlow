@@ -183,7 +183,8 @@ describe('Demo reseed: the real run', () => {
     for (const t of ['paystack_payment_requests', 'stitch_payment_requests']) {
       expect(await x(`SELECT id FROM ${t} WHERE company_id = $1 AND purpose = 'customer_invoice'`, [DEMO])).toHaveLength(0);
       // The other tenant's invoice requests keep their invoice (the byte-for-byte check covers the rest).
-      expect(await x(`SELECT id FROM ${t} WHERE company_id = $1 AND purpose = 'customer_invoice' AND customer_invoice_id IS NOT NULL`, [OTHER])).toHaveLength(1);
+      expect(await x(`SELECT id FROM ${t} WHERE company_id = $1 AND customer_invoice_id IS NOT NULL`, [OTHER])).toHaveLength(2);
+      expect(await x(`SELECT id FROM ${t} WHERE company_id = $1 AND customer_invoice_id IS NOT NULL`, [DEMO])).toHaveLength(0);
     }
     for (const [t, id] of dirty.unlinkedRequests) {
       expect(await x(`SELECT customer_invoice_id FROM ${t} WHERE id = $1 AND company_id = $2`, [id, DEMO])).toEqual([{ customer_invoice_id: null }]);
