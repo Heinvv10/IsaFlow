@@ -7,7 +7,11 @@
  * app's, unchanged, except the one rule Hein added (2026-10-09): only an owner
  * may invite someone as `owner`.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+// No GoTrue in the fixture: POST /api/invite/<token> reads the session user's login email through adminGetUser
+// (#1468); answer the address this suite's sessions carry (r035-n1b-members.helpers emailOf).
+vi.mock('@/lib/auth/gotrueAdminUser', async () =>
+  (await import('./helpers/fixtureGotrueLogin')).fixtureGotrueLogin((id) => `n1bc-${id}@test.local`));
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { asRole, outcome } from './r035-n1.helpers';

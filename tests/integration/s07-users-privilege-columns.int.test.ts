@@ -16,6 +16,10 @@
 // because RLS refusals share the SQLSTATE ("new row violates row-level
 // security policy"), and SET LOCAL ROLE failing would too.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+// No GoTrue in the fixture: POST /api/invite/<token> reads the session user's login email through adminGetUser
+// (#1468); answer the address this suite's sessions carry (signSession).
+vi.mock('@/lib/auth/gotrueAdminUser', async () =>
+  (await import('./helpers/fixtureGotrueLogin')).fixtureGotrueLogin((id) => `${id}@test.local`));
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import profileRoute from '../../pages/api/auth/profile';
