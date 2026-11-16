@@ -56,6 +56,17 @@ function bodyAsOverride(body: OverrideBody, weeks: readonly ForecastWeek[]): Ove
   return toEngineOverrides([{ lineKey: body.lineKey, weekStart: body.weekStart, mode: body.mode, amount: body.amount, ...(body.targetWeekStart ? { targetWeekStart: body.targetWeekStart } : {}) }], weeks);
 }
 
+/**
+ * A save whose mode, amount and target equal the stored override's (unchanged, or the note only) keeps the row's
+ * place in the application order (999i restamps applied_at only when they change), so the figures do not move:
+ * "draft applied last" would mislead when a later change moved money into this week.
+ */
+export function isNoOpResave(body: OverrideBody, existing: Omit<ExistingOverride, 'id' | 'note'> | undefined): boolean {
+  if (!existing || existing.mode !== body.mode) return false;
+  const cents = (a: number | null) => (a === null ? null : toCents(a));
+  return cents(existing.amount) === cents(body.amount) && (existing.targetWeekStart ?? null) === (body.targetWeekStart ?? null);
+}
+
 /** "Week 8 will be −R 20 000.00." (a move names both weeks): the engine's result of `body` on the base. */
 export function previewOf(body: OverrideBody, base: ForecastLine, week: number, targetWeek: number | null, weeks: readonly ForecastWeek[]): string {
   const after = withOverrides(base, bodyAsOverride(body, weeks));

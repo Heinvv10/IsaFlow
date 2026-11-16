@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react';
 import { Button, Input, Modal, MoneyField } from '@/components/ui';
 import type { ApiResult } from '@/components/accounting/budgets/workspace/types';
 import { formatCents } from '@/lib/money/formatMoney';
-import { editorBase, previewOf, toEngineOverrides, withOverrides } from './editorBase';
+import { editorBase, isNoOpResave, previewOf, toEngineOverrides, withOverrides } from './editorBase';
 import type { ForecastLine, ForecastWeek } from '@/modules/accounting/services/cashForecast13/types';
 import { PHONE_TAP } from '@/components/accounting/formActionBar';
 import {
@@ -69,7 +69,10 @@ export function CellEditor({ line: source, stored, week, weeks, existing, onClos
 
   const shown = localError ?? error;
   const built = buildOverrideBody(draft, line, week, weeks);
-  const preview = built.ok ? previewOf(built.body, line, week, draft.mode === 'move_to' ? draft.targetWeek : null, weeks) : null; // incomplete: nothing to state yet
+  const unchanged = built.ok && isNoOpResave(built.body, existing);
+  const preview = !built.ok ? null // incomplete: nothing to state yet
+    : unchanged ? `No change to the figures: week ${week + 1} stays ${formatCents(shownNow)}.`
+      : previewOf(built.body, line, week, draft.mode === 'move_to' ? draft.targetWeek : null, weeks);
   const onAmount = (c: number | null, v: { valid: boolean }) => { patch({ amountCents: c }); setAmountValid(v.valid); };
 
   return (

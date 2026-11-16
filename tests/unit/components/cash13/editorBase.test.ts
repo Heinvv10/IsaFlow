@@ -5,7 +5,7 @@
  * a re-saved add (+250.50), a re-saved partial move (2 000 of -8 000) and a re-saved whole move.
  */
 import { describe, expect, it } from 'vitest';
-import { editorBase, previewOf, toEngineOverrides, withOverrides } from '@/components/accounting/cashForecast13/editorBase';
+import { editorBase, isNoOpResave, previewOf, toEngineOverrides, withOverrides } from '@/components/accounting/cashForecast13/editorBase';
 import { buildOverrideBody, draftFromOverride } from '@/components/accounting/cashForecast13/overridePayload';
 import type { ExistingOverride } from '@/components/accounting/cashForecast13/overridePayload';
 import { forecastFixture } from './fixture';
@@ -78,5 +78,22 @@ describe('the base keeps every OTHER change', () => {
   it('weeks map like the adapter: a cell outside the 13 weeks is dropped', () => {
     expect(toEngineOverrides([o({ weekStart: '2026-11-09' })], weeks)).toEqual([]);
     expect(toEngineOverrides([o({ weekStart: W(12), amount: -1 })], weeks)).toEqual([{ lineKey: 'ap:s1', weekIndex: 12, mode: 'set', amountCents: -100 }]);
+  });
+});
+
+describe('isNoOpResave', () => {
+  const set = o({ weekStart: W(4), mode: 'set', amount: -1000 });
+  it('same mode, amount and target: no change (the row keeps its place)', () => {
+    expect(isNoOpResave({ lineKey: 'ap:s1', weekStart: W(4), mode: 'set', amount: -1000, note: 'only the note' }, set)).toBe(true);
+  });
+  it('a different amount, mode or target is a change', () => {
+    expect(isNoOpResave({ lineKey: 'ap:s1', weekStart: W(4), mode: 'set', amount: -2000, note: null }, set)).toBe(false);
+    expect(isNoOpResave({ lineKey: 'ap:s1', weekStart: W(4), mode: 'add', amount: -1000, note: null }, set)).toBe(false);
+    const mv = o({ mode: 'move_to', amount: null, targetWeekStart: W(4) });
+    expect(isNoOpResave({ lineKey: 'ap:s1', weekStart: W(1), mode: 'move_to', amount: null, targetWeekStart: W(5), note: null }, mv)).toBe(false);
+    expect(isNoOpResave({ lineKey: 'ap:s1', weekStart: W(1), mode: 'move_to', amount: null, targetWeekStart: W(4), note: null }, mv)).toBe(true);
+  });
+  it('no stored change: never a no-op', () => {
+    expect(isNoOpResave({ lineKey: 'ap:s1', weekStart: W(4), mode: 'set', amount: -1000, note: null }, undefined)).toBe(false);
   });
 });

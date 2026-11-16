@@ -46,19 +46,21 @@ describe('re-saving a changed week (forecast and store agree, as the route sends
   }
   const preview = () => sp(screen.getByTestId('override-preview').textContent);
 
-  it('a stored add +250.50 previews the engine\'s -7 749.50 and re-saves the same body', async () => {
+  it('a stored add +250.50 reopened: no change, -7 749.50, and re-saves the same body', async () => {
     agree([{ id: 'o1', lineKey: 'ap:s1', weekStart: W(1), mode: 'add', amount: 250.5, note: null }]);
     await open(2);
     expect(sp(screen.getByTestId('cell-in-force').textContent)).toBe('This week: −R 7 749.50');
-    expect(preview()).toBe('Week 2 will be −R 7 749.50.');
+    expect(preview()).toBe('No change to the figures: week 2 stays −R 7 749.50.');
     fireEvent.click(screen.getByRole('button', { name: 'Save change' }));
     await waitFor(() => expect(client.saveOverride).toHaveBeenCalledWith({ lineKey: 'ap:s1', weekStart: W(1), mode: 'add', amount: 250.5, note: null }));
   });
 
-  it('a stored partial move of 2 000 previews -6 000 / -2 000', async () => {
+  it('a stored partial move of 2 000: -6 000 stays; moved elsewhere it is -6 000 / -2 000', async () => {
     agree([{ id: 'o1', lineKey: 'ap:s1', weekStart: W(1), mode: 'move_to', amount: 2000, targetWeekStart: W(4), note: null }]);
     await open(2);
-    expect(preview()).toBe('Week 2 will be −R 6 000.00 and week 5 will be −R 2 000.00.');
+    expect(preview()).toBe('No change to the figures: week 2 stays −R 6 000.00.');
+    fireEvent.change(screen.getByLabelText('Move to'), { target: { value: '5' } });
+    expect(preview()).toBe('Week 2 will be −R 6 000.00 and week 6 will be −R 2 000.00.');
   });
 
   it('a stored whole-week move can be edited: Move is enabled and the save goes through', async () => {
@@ -73,10 +75,28 @@ describe('re-saving a changed week (forecast and store agree, as the route sends
     await waitFor(() => expect(client.saveOverride).toHaveBeenCalledWith(expect.objectContaining({ mode: 'move_to', amount: null, targetWeekStart: W(6) })));
   });
 
-  it('a stored set -6 000 previews -6 000', async () => {
+  it('a stored set -6 000: no change; as an add it is -14 000', async () => {
     agree([{ id: 'o1', lineKey: 'ap:s1', weekStart: W(1), mode: 'set', amount: -6000, note: null }]);
     await open(2);
-    expect(preview()).toBe('Week 2 will be −R 6 000.00.');
+    expect(preview()).toBe('No change to the figures: week 2 stays −R 6 000.00.');
+    fireEvent.click(screen.getByLabelText('Add'));
+    expect(preview()).toBe('Week 2 will be −R 14 000.00.');
+  });
+
+  it('reviewer order: wk5 set -1 000 first, then wk2 moved whole into wk5 (-9 000): an unchanged re-save says no change', async () => {
+    agree([
+      { id: 'o1', lineKey: 'ap:s1', weekStart: W(4), mode: 'set', amount: -1000, note: null },
+      { id: 'o2', lineKey: 'ap:s1', weekStart: W(1), mode: 'move_to', amount: null, targetWeekStart: W(4), note: null },
+    ]);
+    await open(5);
+    expect(sp(screen.getByTestId('cell-in-force').textContent)).toBe('This week: −R 9 000.00');
+    expect(preview()).toBe('No change to the figures: week 5 stays −R 9 000.00.');
+    fireEvent.change(screen.getByLabelText('Note (optional)'), { target: { value: 'agreed' } });
+    expect(preview()).toBe('No change to the figures: week 5 stays −R 9 000.00.');
+    const amount = screen.getByLabelText('New amount');
+    fireEvent.change(amount, { target: { value: '2000' } });
+    fireEvent.blur(amount);
+    expect(preview()).toBe('Week 5 will be −R 2 000.00.');
   });
 
   it('money moved in by another cell\'s change is in this week and can be moved on', async () => {
