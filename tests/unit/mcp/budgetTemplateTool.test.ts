@@ -103,6 +103,7 @@ describe('get_budget_template, format xlsx', () => {
     await excel.xlsx.load(file as unknown as ArrayBuffer);
     expect(excel.worksheets.map((s) => s.name)).toEqual(['Budget', 'Instructions', '_base', '_meta']);
     expect(checkRateLimit).toHaveBeenCalledWith('budget-template:u-1', { max: 60, windowSecs: 900 });
+    expect(loadGridReadModel).toHaveBeenCalledWith(expect.any(String), { versionId: VERSION }, 'totals', 'u-1'); // a holder's file is their slices
   });
 
   it('a workbook whose base64 would not fit one reply is refused, pointing at format json and fewer members', async () => {
