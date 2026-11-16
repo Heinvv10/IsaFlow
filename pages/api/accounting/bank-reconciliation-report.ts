@@ -4,6 +4,10 @@
  *
  * Returns matched and unmatched transaction data alongside statement balances
  * for rendering the PDF reconciliation report on the client.
+ *
+ * Bounded: each of the two lists carries at most `limit` rows (default and maximum REPORT_ROWS_MAX), starting at
+ * `matchedOffset` / `unmatchedOffset`; `truncated` says which list has more rows than were returned, so a caller can
+ * page or warn instead of presenting a partial list as the whole. bankAccountId must be a UUID (400).
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -13,6 +17,10 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { UUID } from '@/lib/schemas/common';
+import { parseBoundedInt } from '@/modules/accounting/services/gl/ledgerDateRange';
+
+export const REPORT_ROWS_MAX = 5000;
 
 // ─── Row types returned from DB ───────────────────────────────────────────────
 
@@ -62,7 +70,7 @@ async function fetchLatestBatch(companyId: string, bankAccountId: string): Promi
   return rows[0] ?? null;
 }
 
-async function fetchMatchedTransactions(companyId: string, bankAccountId: string): Promise<TxRow[]> {
+async function fetchMatchedTransactions(companyId: string, bankAccountId: string, limit: number, offset: number): Promise<TxRow[]> {
   return (await sql`
     SELECT
       bt.id,
@@ -78,11 +86,12 @@ async function fetchMatchedTransactions(companyId: string, bankAccountId: string
       AND bt.status = 'matched'
       AND bt.feed_state = 'posted'
       AND bt.company_id = ${companyId}
-    ORDER BY bt.transaction_date
+    ORDER BY bt.transaction_date, bt.id
+    LIMIT ${limit + 1}::INT OFFSET ${offset}::INT
   `) as TxRow[];
 }
 
-async function fetchUnmatchedTransactions(companyId: string, bankAccountId: string): Promise<TxRow[]> {
+async function fetchUnmatchedTransactions(companyId: string, bankAccountId: string, limit: number, offset: number): Promise<TxRow[]> {
   return (await sql`
     SELECT
       bt.id,
@@ -96,7 +105,8 @@ async function fetchUnmatchedTransactions(companyId: string, bankAccountId: stri
       AND bt.status = 'imported'
       AND bt.feed_state = 'posted'
       AND bt.company_id = ${companyId}
-    ORDER BY bt.transaction_date
+    ORDER BY bt.transaction_date, bt.id
+    LIMIT ${limit + 1}::INT OFFSET ${offset}::INT
   `) as TxRow[];
 }
 
@@ -109,20 +119,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
 
-  const { bankAccountId } = req.query;
-
-  if (!bankAccountId || typeof bankAccountId !== 'string' || bankAccountId.trim() === '') {
-    return apiResponse.badRequest(res, 'bankAccountId query parameter is required');
-  }
+  const parsedId = UUID.safeParse(req.query.bankAccountId);
+  if (!parsedId.success) return apiResponse.badRequest(res, 'bankAccountId must be a valid UUID');
+  const bankAccountId = parsedId.data;
+  const limit = parseBoundedInt(req.query.limit, 1, REPORT_ROWS_MAX) ?? REPORT_ROWS_MAX;
+  const matchedOffset = parseBoundedInt(req.query.matchedOffset, 0, 10_000_000) ?? 0;
+  const unmatchedOffset = parseBoundedInt(req.query.unmatchedOffset, 0, 10_000_000) ?? 0;
 
   try {
-    // Parallel fetch: account name, latest batch, matched and unmatched transactions
-    const [bankAccountName, latestBatch, matchedRows, unmatchedRows] = await Promise.all([
+    // Parallel fetch: account name, latest batch, matched and unmatched transactions (one row past each limit, to know).
+    const [bankAccountName, latestBatch, matchedAll, unmatchedAll] = await Promise.all([
       fetchBankAccountName(companyId, bankAccountId),
       fetchLatestBatch(companyId, bankAccountId),
-      fetchMatchedTransactions(companyId, bankAccountId),
-      fetchUnmatchedTransactions(companyId, bankAccountId),
+      fetchMatchedTransactions(companyId, bankAccountId, limit, matchedOffset),
+      fetchUnmatchedTransactions(companyId, bankAccountId, limit, unmatchedOffset),
     ]);
+    const matchedRows = matchedAll.slice(0, limit);
+    const unmatchedRows = unmatchedAll.slice(0, limit);
 
     const mapTx = (row: TxRow) => ({
       date: toDateStr(row.transaction_date),
@@ -145,6 +158,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           : null,
       matchedTransactions: matchedRows.map(mapTx),
       unmatchedTransactions: unmatchedRows.map(mapTx),
+      truncated: { matched: matchedAll.length > limit, unmatched: unmatchedAll.length > limit },
     });
   } catch (err) {
     log.error('Failed to get bank reconciliation report data', { error: err }, 'accounting-api');

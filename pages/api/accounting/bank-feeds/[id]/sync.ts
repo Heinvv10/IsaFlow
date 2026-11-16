@@ -8,6 +8,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import {
   syncBankFeed,
   BankFeedProviderNotImplementedError,
@@ -21,6 +22,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (!connectionId) {
     return apiResponse.badRequest(res, 'Connection ID is required');
   }
+  if (!UUID.safeParse(connectionId).success) return apiResponse.badRequest(res, 'Connection ID must be a valid UUID');
 
   if (req.method === 'POST') {
     try {

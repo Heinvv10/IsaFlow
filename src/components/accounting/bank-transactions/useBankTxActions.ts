@@ -275,7 +275,11 @@ export function buildBankTxActions(deps: ActionDeps) {
       await assertOk(res, 'Could not build the reconciliation report - try again');
       const json = await res.json();
       const { generateReconReport } = await import('@/modules/accounting/utils/reconReportPdf');
-      const blob = await generateReconReport(json.data || json);
+      const report = json.data || json;
+      if (report.truncated?.matched || report.truncated?.unmatched) {
+        notify.warning('The report lists only the first lines of a very long list', 'Download it again for a shorter period, or reconcile first, to get every line.');
+      }
+      const blob = await generateReconReport(report);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = `recon-report-${bankAccountCode || 'bank'}.pdf`;

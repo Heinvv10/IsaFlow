@@ -10,6 +10,7 @@ import { getImport, notReadyError } from './bankStatementOcrRead';
 import { rowsToCommit } from './bankStatementDedupHelpers';
 import { assertBankAccountInCompany } from './bankAccountGuard';
 import { ocrBalanceColumns } from './bankStatementBalances';
+import { ExtractionActionRefusedError } from './statementExtractionState';
 
 export async function commitImport(
   companyId: string,
@@ -19,7 +20,7 @@ export async function commitImport(
   // Locked first, so a concurrent commit waits here and then reads 'committed' — one batch row, one set of lines.
   await sql`SELECT 1 FROM bank_statement_imports WHERE id = ${importId}::uuid AND company_id = ${companyId} FOR UPDATE`;
   const imp = await getImport(companyId, importId);
-  if (!imp) throw new Error(`Import not found: ${importId}`);
+  if (!imp) throw new ExtractionActionRefusedError('NOT_FOUND', 'Statement not found.'); // 404, before any write
   const notReady = notReadyError(imp.status);
   if (notReady) throw notReady;
   if (imp.status === 'committed') throw new Error('Import already committed');
@@ -53,9 +54,11 @@ export async function commitImport(
     `;
   }
 
+  // Only a row that was really inserted counts: ON CONFLICT DO NOTHING skips one that already exists (a race with an
+  // import that landed after the duplicate check), and counting it overstated the import and its batch.
   let insertedCount = 0;
   for (const row of nonDupes) {
-    await sql`
+    const written = (await sql`
       INSERT INTO bank_transactions (
         company_id, bank_account_id, transaction_date, amount,
         description, reference, status, import_batch_id
@@ -64,8 +67,12 @@ export async function commitImport(
         ${row.description}, ${row.reference ?? null}, 'imported', ${importId}::uuid
       )
       ON CONFLICT DO NOTHING
-    `;
-    insertedCount++;
+      RETURNING id
+    `) as Array<{ id: string }>;
+    insertedCount += written.length;
+  }
+  if (nonDupes.length > 0 && insertedCount !== nonDupes.length) {
+    await sql`UPDATE bank_import_batches SET transaction_count = ${insertedCount} WHERE id = ${importId}::uuid AND company_id = ${companyId}::uuid`;
   }
 
   const skipped = imp.rows.length - insertedCount;

@@ -8,6 +8,7 @@ import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { isUuidParam } from '@/lib/validation';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -207,6 +208,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         // on it. Refused before the UPDATE; the catch below answers 400.
         if (selType === 'customer') await assertCustomerInCompany(companyId, selEntityId);
         if (selType === 'supplier') await assertSupplierInCompany(companyId, selEntityId); // R-068
+        // The same for the account: it is read back with its code and name joined on it, and a foreign or malformed id
+        // is a caller error (400, before the UPDATE), not a raw cast failure.
+        if (selType === 'account' && selEntityId) {
+          const [own] = isUuidParam(selEntityId)
+            ? (await sql`SELECT 1 AS ok FROM gl_accounts WHERE id = ${selEntityId}::UUID AND company_id = ${companyId}::UUID`) as Array<{ ok: number }>
+            : [];
+          if (!own) return apiResponse.badRequest(res, 'Selected account is not one of your accounts');
+        }
         // Refused from a read, before the write: the UPDATE's feed_state
         // predicate alone would answer { saved: true } for a no-op (F-M2).
         const feedState = await readFeedState(companyId, body.bankTransactionId);

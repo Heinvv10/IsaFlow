@@ -34,8 +34,24 @@ export const capturedFileUrl = (documentId: string): string =>
 type Row = Record<string, unknown>;
 const time = (v: unknown) => new Date(String(v instanceof Date ? v.toISOString() : v)).getTime();
 
+/** The most documents one bank line's list carries (stored uploads are data URLs of up to 2 MB each, so the list is bounded). */
+export const BANK_LINE_ATTACHMENT_LIST_MAX = 20;
+
 /** Every supporting document of the bank line, newest first. The line must already be verified as this company's. */
 export async function listBankLineAttachments(companyId: string, bankTxId: string): Promise<BankLineAttachment[]> {
+  return (await loadAttachments(companyId, bankTxId, null)).items;
+}
+
+/** The newest `limit` documents of the line, and whether older ones were left out. */
+export async function listBankLineAttachmentsCapped(
+  companyId: string, bankTxId: string, limit = BANK_LINE_ATTACHMENT_LIST_MAX,
+): Promise<{ items: BankLineAttachment[]; truncated: boolean }> {
+  return loadAttachments(companyId, bankTxId, limit);
+}
+
+async function loadAttachments(
+  companyId: string, bankTxId: string, limit: number | null,
+): Promise<{ items: BankLineAttachment[]; truncated: boolean }> {
   const copies = (await sql`
     SELECT bta.id, bta.bank_transaction_id, bta.file_url, bta.file_name, bta.file_size, bta.uploaded_by,
            bta.created_at, cd.id AS document_id, cd.file_type
@@ -45,6 +61,8 @@ export async function listBankLineAttachments(companyId: string, bankTxId: strin
         ON ${sql.unsafe(linkedCapturedDocSql('bt', 'cd'))} AND ${sql.unsafe(isCopyOfSql('bta', 'cd'))}
      WHERE bta.bank_transaction_id = ${bankTxId}::uuid AND bt.company_id = ${companyId}::uuid
        AND ${sql.unsafe(attachmentCountsSql('bta', 'bt'))}
+     ORDER BY bta.created_at DESC
+     LIMIT ${limit === null ? null : limit + 1}::INT
   `) as Row[];
   const uncopied = (await sql`
     SELECT cd.id, cd.file_name, cd.file_type, COALESCE(cd.raw_bytes_size, cd.file_size) AS size, cd.created_at
@@ -78,7 +96,8 @@ export async function listBankLineAttachments(companyId: string, bankTxId: strin
       content_type: r.file_type ? mimeForCapturedFileType(String(r.file_type)) : null,
     })),
   ];
-  return items.sort((a, b) => time(b.created_at) - time(a.created_at));
+  items.sort((a, b) => time(b.created_at) - time(a.created_at));
+  return limit === null ? { items, truncated: false } : { items: items.slice(0, limit), truncated: items.length > limit };
 }
 
 /** Whether this company's captured document is a supporting document of some bank line (the bytes route's gate). */

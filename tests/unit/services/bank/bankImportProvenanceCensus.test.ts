@@ -58,7 +58,9 @@ describe('1. every import path records the importer', () => {
   });
 
   it('nothing UPDATEs a batch: who imported it, from what file and how is fixed once written (877)', () => {
-    expect(filesMatching(/UPDATE\s+bank_import_batches/)).toEqual([]);
+    // …except the line count: commitImport corrects `transaction_count` when ON CONFLICT skipped a row (WP7). That column
+    // is a tally, not provenance; every provenance column stays write-once.
+    expect(filesMatching(/UPDATE\s+bank_import_batches(?!\s+SET\s+transaction_count\s*=)/)).toEqual([]);
     expect(filesMatching(/UPDATE\s+bank_transactions\s+SET[^`;]*\bimport_batch_id\s*=/)).toEqual([]);
     // …nor a line's feed connection: both are fixed at INSERT (877's bank_transaction_batch_fixed — breaker R2-3).
     expect(filesMatching(/UPDATE\s+bank_transactions\s+SET[^`;]*\bbank_feed_connection_id\s*=/)).toEqual([]);

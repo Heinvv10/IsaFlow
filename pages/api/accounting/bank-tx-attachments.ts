@@ -28,7 +28,7 @@ import { magicBytesMatchMime, decodeUploadPayload } from '@/lib/fileMagic';
 import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
 import { extractAttachmentData } from '@/modules/accounting/services/bank/bankTxAttachmentExtraction';
 import { runAfterCommit } from '@/lib/afterCommit';
-import { listBankLineAttachments, unlinkCapturedDocFromBankTx } from '@/modules/accounting/services/capture/capturedAttachmentLinks';
+import { BANK_LINE_ATTACHMENT_LIST_MAX, listBankLineAttachmentsCapped, unlinkCapturedDocFromBankTx } from '@/modules/accounting/services/capture/capturedAttachmentLinks';
 import { isCopyOfSql, linkedCapturedDocSql, uploadFileName } from '@/modules/accounting/services/bank/bankLineDocumentSql';
 import { documentRemovalRefused, RECONCILED_DOCUMENT_REMOVAL } from '@/modules/accounting/services/bank/reconciledCash';
 import { isValidUUID } from '@/lib/validation';
@@ -85,6 +85,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (!bankTransactionId || typeof bankTransactionId !== 'string') {
       return apiResponse.badRequest(res, 'bankTransactionId query param is required');
     }
+    if (!UUID.safeParse(bankTransactionId).success) {
+      return apiResponse.badRequest(res, 'bankTransactionId must be a valid UUID');
+    }
 
     // Verify the bank transaction belongs to this company
     const [btOwner] = await sql`
@@ -93,8 +96,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (!btOwner) return apiResponse.forbidden(res, 'Bank transaction does not belong to your company');
 
     // Uploads, and each linked captured document once (capture/capturedAttachmentLinks).
-    const rows = await listBankLineAttachments(companyId, bankTransactionId);
-    log.info('Listed bank tx attachments', { bankTransactionId, count: rows.length }, 'bank-tx-attachments');
+    // Bounded: a stored upload is a data URL of up to 2 MB, so only the newest BANK_LINE_ATTACHMENT_LIST_MAX are sent;
+    // `X-Attachments-Truncated: true` says older ones exist (and POST refuses a line's 21st upload).
+    const { items: rows, truncated } = await listBankLineAttachmentsCapped(companyId, bankTransactionId);
+    if (truncated) res.setHeader('X-Attachments-Truncated', 'true');
+    log.info('Listed bank tx attachments', { bankTransactionId, count: rows.length, truncated }, 'bank-tx-attachments');
     return apiResponse.success(res, rows);
   }
 
@@ -112,6 +118,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       SELECT id FROM bank_transactions WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}
     ` as SqlRow[];
     if (!btCheck) return apiResponse.forbidden(res, 'Bank transaction does not belong to your company');
+
+    // At most BANK_LINE_ATTACHMENT_LIST_MAX stored uploads per line, so the list a read sends stays bounded.
+    const [{ n: stored } = { n: 0 }] = (await sql`
+      SELECT COUNT(*)::INT AS n FROM bank_transaction_attachments WHERE bank_transaction_id = ${bankTransactionId}::UUID
+    `) as SqlRow[];
+    if (Number(stored) >= BANK_LINE_ATTACHMENT_LIST_MAX) {
+      return apiResponse.conflict(res, `A line can carry at most ${BANK_LINE_ATTACHMENT_LIST_MAX} attachments - remove one first`);
+    }
 
     // Validate the claimed MIME (from the client-controlled data URL header).
     const mime = extractMime(fileData);

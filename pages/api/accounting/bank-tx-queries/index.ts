@@ -7,7 +7,8 @@
  * POST /api/accounting/bank-tx-queries
  *   Body: { bankTransactionId, toNumber, message?, saveAsDefault? }
  *   → Compose (or use supplied message), send via WhatsApp, record the query.
- *     No Twilio send → no row (fails closed with the reason).
+ *     The row is recorded BEFORE the send and taken back out when the send is refused (no send → no row, with the
+ *     reason). Rate-limited per company and per IP.
  */
 
 import type { NextApiResponse } from 'next';
@@ -17,6 +18,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
+import { checkSendRateLimit } from '@/lib/rateLimit';
+import { log } from '@/lib/logger';
 import {
   createAndSendQuery,
   listQueries,
@@ -53,6 +56,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     const parsed = PostSchema.safeParse(req.body);
     if (!parsed.success) {
       return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
+    }
+    // The default number is the company's setting, which only an owner or admin changes (settings PATCH).
+    if (parsed.data.saveAsDefault && req.companyRole !== 'owner' && req.companyRole !== 'admin') {
+      return apiResponse.forbidden(res, 'Only an owner or admin can change the company\'s default query number');
+    }
+    // A per-company ceiling on messages sent to clients' phones (15 minutes and a day): a loop of POSTs is a WhatsApp bill.
+    if (!(await checkSendRateLimit(req, companyId, 'bank-tx-queries', { ipMax: 30, companyMax: 30, dailyMax: 200 }))) {
+      log.warn('Bank tx queries rate limit exceeded', { companyId }, 'rateLimit');
+      return apiResponse.tooManyRequests(res, 'Too many client queries sent. Please try again shortly.');
     }
     const result = await createAndSendQuery(companyId, {
       bankTransactionId: parsed.data.bankTransactionId,

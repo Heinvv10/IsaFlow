@@ -15,6 +15,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { checkAiRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
 import {
@@ -92,6 +93,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // ── POST ─────────────────────────────────────────────────────────────────
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? '', ['GET', 'POST']);
 
+  // Every upload starts an AI read of the statement: per IP, per company and per day, before the body is parsed.
+  if (!(await checkAiRateLimit(req, companyId, 'bank-statements-upload', { ipMax: 10, companyMax: 20, dailyMax: 100 }))) {
+    log.warn('Bank statement upload rate limit exceeded', { companyId }, 'rateLimit');
+    return apiResponse.tooManyRequests(res, 'Too many statement uploads. Please try again shortly.');
+  }
+
   let fields: formidable.Fields;
   let files: formidable.Files;
   try {
@@ -99,7 +106,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('maxFileSize')) return apiResponse.badRequest(res, `File too large. Max ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
-    return apiResponse.badRequest(res, `Upload parse error: ${msg}`);
+    // The parser's own message names its internals (limits, field names, paths): logged, not echoed.
+    log.warn('bank-statements/index: upload could not be parsed', { companyId, error: msg }, 'bank-stmt-api');
+    return apiResponse.badRequest(res, 'The upload could not be read. Send the statement as a PDF or image under 10MB.');
   }
 
   const bankAccountId = firstField(fields, 'bankAccountId');
