@@ -6,6 +6,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { fmtDate } from '@/lib/fmtDate';
 import { listPayrollRuns } from '@/modules/accounting/services/payroll/payrollRunService';
+import { vatPeriodFilings } from '@/modules/accounting/services/returns/vatPeriodFilings';
 import { getSalesFigures, getPurchasesFigures } from './monthEndSalesFigures';
 import type { CardStatus, WorkbenchCard } from './monthEndWorkbenchService';
 
@@ -79,17 +80,12 @@ export async function buildVatCard(companyId: string, periodStart: string, perio
   // Match a return whose period is wholly inside the requested month-range,
   // not any return that overlaps it. Bi-monthly tenants will get whichever
   // return covers their canonical period; a tenant on monthly VAT will get
-  // the exact month.
-  const rows = (await sql`
-    SELECT status, net_vat
-    FROM vat_returns
-    WHERE company_id   = ${companyId}::uuid
-      AND period_start >= ${periodStart}::date
-      AND period_end   <= ${periodEnd}::date
-    ORDER BY period_end DESC
-    LIMIT 1
-  `) as DbRow[];
-  if (rows.length === 0) {
+  // the exact month. The return is the VAT201 filing (vatPeriodFilings: the
+  // lifecycle's version, else the legacy vat_returns row), latest period first.
+  const r = (await vatPeriodFilings([companyId], { from: periodStart, to: periodEnd }))
+    .filter((f) => f.periodStart >= periodStart && f.periodEnd <= periodEnd)
+    .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd))[0];
+  if (!r) {
     return {
       id: 'vat',
       title: 'VAT Readiness',
@@ -99,15 +95,14 @@ export async function buildVatCard(companyId: string, periodStart: string, perio
       href: '/accounting/sars/vat201',
     };
   }
-  const r = rows[0]!;
-  const status: CardStatus = r.status === 'submitted' ? 'ready' : 'in_progress';
-  const netVat = Number(r.net_vat) || 0;
+  const status: CardStatus = r.submitted ? 'ready' : 'in_progress';
+  const netVat = r.netVat;
   return {
     id: 'vat',
     title: 'VAT Readiness',
     status,
     primary: `${fmtR(Math.abs(netVat))} ${netVat >= 0 ? 'payable' : 'refund'}`,
-    secondary: String(r.status ?? 'draft'),
+    secondary: r.status,
     href: '/accounting/sars/vat201',
   };
 }

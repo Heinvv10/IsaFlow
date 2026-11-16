@@ -9,6 +9,7 @@ import { deletedDocumentChainLinkFragment } from '../shared/softDeleteLedgerPres
 
 import type { VatReconciliation, VatReconIssue, VatReconMonth } from './vatReconciliationTypes';
 import { fmtNum, r2, toNum } from './vatReconNumbers';
+import { vatPeriodFilings } from '../returns/vatPeriodFilings';
 
 export type { VatReconciliation, VatReconIssue, VatReconMonth } from './vatReconciliationTypes';
 export { getVatMultiYearSummary, type VatYearSummary } from './vatMultiYearSummary';
@@ -41,7 +42,7 @@ export async function getVatReconciliation(
         --                  own journal (the delete's reversal, a hand reversal
         --                  of it, or one made before the delete) is left out,
         --                  else it lands as revenue the invoice leg never had.
-        --   gl_output_vat  vs vat_returns, which submitVATReturn fills from the
+        --   gl_output_vat  vs the filed VAT201 (query 3), read from the
         --   gl_input_vat   LEDGER by entry date, chain and all. Leaving the chain
         --                  out here reported a variance against a return that
         --                  matched the ledger exactly (round 3).
@@ -101,20 +102,14 @@ export async function getVatReconciliation(
       ORDER BY month
     ` as Promise<DbRow[]>,
 
-    // 3. Submitted VAT returns
-    sql`
-      SELECT
-        TO_CHAR(vr.period_start, 'YYYY-MM') AS month,
-        vr.total_output_tax AS return_output_vat,
-        vr.total_input_tax AS return_input_vat,
-        vr.net_vat AS return_net_vat,
-        vr.status AS return_status
-      FROM vat_returns vr
-      WHERE vr.company_id = ${companyId}
-        AND vr.period_start >= ${periodStart}::DATE
-        AND vr.period_end <= ${periodEnd}::DATE
-      ORDER BY month
-    ` as Promise<DbRow[]>,
+    // 3. The VAT201 filed for each period inside the window (the lifecycle's version, else the legacy
+    //    vat_returns row), keyed by the month its period starts.
+    vatPeriodFilings([companyId], { from: periodStart, to: periodEnd }).then((filings) => filings
+      .filter((f) => f.periodStart >= periodStart && f.periodEnd <= periodEnd)
+      .map((f): DbRow => ({
+        month: f.periodStart.slice(0, 7), return_output_vat: f.outputTax, return_input_vat: f.inputTax,
+        return_net_vat: f.netVat, return_status: f.status,
+      }))),
 
     // 4. Capital goods vs other goods split by month
     sql`

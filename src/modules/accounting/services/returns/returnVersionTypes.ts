@@ -77,6 +77,8 @@ export interface VatReturnRecord {
   netVat: number;
   sarsReference: string | null;
   submittedAt: string | null;
+  /** The version the settlement was posted against (wave 6 VR); null for a record made before the lifecycle. */
+  returnVersionNo: number | null;
   /** True when its figures differ from the version's (or, before finalising, the figures about to be recorded). */
   mismatch: boolean;
 }

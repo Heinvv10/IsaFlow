@@ -43,7 +43,8 @@ export function ReturnVersionsDrawer({ open, onClose, form, versions, vatReturn,
       <div className="space-y-4 p-4" data-testid="return-versions-drawer">
         {vatReturn && (
           <p className="text-xs text-[var(--ff-text-secondary)]">
-            Older VAT return record: {vatReturn.status}{vatReturn.sarsReference ? `, reference ${vatReturn.sarsReference}` : ''},
+            {vatReturn.returnVersionNo == null ? 'Older VAT return record' : `VAT settlement, posted against v${vatReturn.returnVersionNo}`}
+            : {vatReturn.status}{vatReturn.sarsReference ? `, reference ${vatReturn.sarsReference}` : ''},
             net VAT {formatMoney(vatReturn.netVat)}{vatReturn.mismatch ? ' (differs from the live version)' : ''}.
           </p>
         )}

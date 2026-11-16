@@ -14,10 +14,10 @@ export interface VatReconMonth {
   invoiceOutputVat: number;     // Customer invoice VAT
   invoiceInputVat: number;      // Supplier invoice VAT
   // Submitted returns
-  returnOutputVat: number | null; // From vat_returns (null = not submitted)
+  returnOutputVat: number | null; // The VAT201 filed (vatPeriodFilings: version, else legacy vat_returns); null = none
   returnInputVat: number | null;
   returnNetVat: number | null;
-  returnStatus: string | null;  // 'submitted' | 'draft' | null
+  returnStatus: string | null;  // 'finalised' | 'filed' (lifecycle), 'submitted' (legacy) | null
   // Capital goods split
   capitalGoodsOutput: number;
   capitalGoodsInput: number;

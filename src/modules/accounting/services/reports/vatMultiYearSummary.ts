@@ -3,6 +3,7 @@
 import { sql } from '@/lib/neon';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
 import { r2, toNum } from './vatReconNumbers';
+import { vatPeriodFilings } from '../returns/vatPeriodFilings';
 
 type DbRow = Record<string, unknown>;
 
@@ -56,17 +57,16 @@ export async function getVatMultiYearSummary(
       GROUP BY EXTRACT(YEAR FROM gje.entry_date)
       ORDER BY year
     ` as Promise<DbRow[]>,
-    sql`
-      SELECT
-        EXTRACT(YEAR FROM vr.period_start)::INT AS year,
-        COUNT(*)::INT AS returns_submitted
-      FROM vat_returns vr
-      WHERE vr.company_id = ${companyId}
-        AND EXTRACT(YEAR FROM vr.period_start) >= ${startYear}
-        AND vr.status = 'submitted'
-      GROUP BY EXTRACT(YEAR FROM vr.period_start)
-      ORDER BY year
-    ` as Promise<DbRow[]>,
+    // Returns submitted per year, by the year the period starts: the lifecycle's filed or settled VAT201, else the
+    // legacy vat_returns row (vatPeriodFilings).
+    vatPeriodFilings([companyId], { from: `${startYear}-01-01`, to: '9999-12-31' }).then((filings) => {
+      const byYear = new Map<number, number>();
+      for (const f of filings) {
+        const year = Number(f.periodStart.slice(0, 4));
+        if (f.submitted && year >= startYear) byYear.set(year, (byYear.get(year) ?? 0) + 1);
+      }
+      return [...byYear].map(([year, n]): DbRow => ({ year, returns_submitted: n }));
+    }),
   ]);
 
   const retMap = new Map(returnRows.map((r) => [Number(r.year), Number(r.returns_submitted)]));

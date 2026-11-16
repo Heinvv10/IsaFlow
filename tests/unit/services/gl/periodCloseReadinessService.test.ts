@@ -186,7 +186,7 @@ describe('getCloseReadiness — orchestrator', () => {
     mockSql
       .mockResolvedValueOnce([{ unreconciled_count: '0' }])
       .mockResolvedValueOnce([{ draft_count: '0' }])
-      .mockResolvedValueOnce([{ vat_count: '0' }])         // VAT: WARN
+      .mockResolvedValueOnce([])                           // VAT: no filing, WARN
       // tb — period postings, then the report itself
       .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }])
       .mockResolvedValueOnce([{ start_date: '2026-02-01', end_date: '2026-02-28' }])
@@ -233,7 +233,8 @@ describe('getCloseReadiness — orchestrator', () => {
     // bounds before it reaches the WHERE clause, and an unscoped query fails
     // this exactly as it failed the positional form.
     for (const call of mockSql.mock.calls) {
-      const args = (call as unknown[]).slice(1);
+      // flat(): the VAT check scopes by [companyId] (vatPeriodFilings takes a list).
+      const args = (call as unknown[]).slice(1).flat();
       expect(args).toContain(COMPANY_A);
     }
   });
@@ -682,29 +683,33 @@ describe('vatReviewedCheck', () => {
 
   const PERIOD = { startDate: '2026-01-01', endDate: '2026-01-31' };
 
-  it('passes when a VAT return exists for this period', async () => {
-    mockSql.mockResolvedValueOnce([{ vat_count: '1' }]);
+  const FILING = { source: 'lifecycle', company_id: COMPANY_A, period_start: '2026-01-01', period_end: '2026-02-28',
+    status: 'finalised', output_tax: '150', input_tax: '60', net_vat: '90' };
+
+  it('passes when a VAT201 filing overlaps this period', async () => {
+    mockSql.mockResolvedValueOnce([FILING]);
     const item = await vatReviewedCheck(COMPANY_A, PERIOD);
     expect(item.status).toBe('pass');
   });
 
-  it('warns (not fails) when no VAT return exists', async () => {
-    mockSql.mockResolvedValueOnce([{ vat_count: '0' }]);
+  it('warns (not fails) when no VAT201 filing exists', async () => {
+    mockSql.mockResolvedValueOnce([]);
     const item = await vatReviewedCheck(COMPANY_A, PERIOD);
     expect(item.status).toBe('warn');
   });
 
-  it('SQL references vat_returns table', async () => {
-    mockSql.mockResolvedValueOnce([{ vat_count: '0' }]);
+  it('reads the lifecycle with vat_returns as the fallback (vatPeriodFilings)', async () => {
+    mockSql.mockResolvedValueOnce([]);
     await vatReviewedCheck(COMPANY_A, PERIOD);
 
-    const template = mockSql.mock.calls[0]![0] as TemplateStringsArray;
-    expect(template.join('?')).toContain('vat_returns');
+    const template = (mockSql.mock.calls[0]![0] as TemplateStringsArray).join('?');
+    expect(template).toContain('tax_return_versions');
+    expect(template).toContain('vat_returns');
   });
 
-  it('company_id is first interpolated arg', async () => {
-    mockSql.mockResolvedValueOnce([{ vat_count: '0' }]);
+  it('scopes to the company: [companyId] is the first interpolated arg', async () => {
+    mockSql.mockResolvedValueOnce([]);
     await vatReviewedCheck(COMPANY_A, PERIOD);
-    expect(mockSql.mock.calls[0]![1]).toBe(COMPANY_A);
+    expect(mockSql.mock.calls[0]![1]).toEqual([COMPANY_A]);
   });
 });

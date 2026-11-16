@@ -1,4 +1,7 @@
-/** The older vat_returns record (submitVATReturn) beside a VAT201 version. Read only: L1a never writes it. */
+/**
+ * The vat_returns record (submitVATReturn's settlement) beside a VAT201 version, with the version it was posted against
+ * (wave 6 VR; null before the lifecycle). Read only: the lifecycle never writes it.
+ */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { VatReturnRecord } from './returnVersionTypes';
@@ -12,9 +15,11 @@ export async function getVatReturnRecord(
   companyId: string, start: string, end: string, figures: VatFigures | undefined,
 ): Promise<VatReturnRecord | null> {
   const rows = (await sql`
-    SELECT status, total_output_tax, total_input_tax, net_vat, sars_reference, submitted_at
-    FROM vat_returns
-    WHERE company_id = ${companyId}::UUID AND period_start = ${start}::DATE AND period_end = ${end}::DATE
+    SELECT vr.status, vr.total_output_tax, vr.total_input_tax, vr.net_vat, vr.sars_reference, vr.submitted_at,
+           v.version_no AS return_version_no
+    FROM vat_returns vr
+    LEFT JOIN tax_return_versions v ON v.id = vr.return_version_id AND v.company_id = vr.company_id
+    WHERE vr.company_id = ${companyId}::UUID AND vr.period_start = ${start}::DATE AND vr.period_end = ${end}::DATE
   `) as DbRow[];
   const r = rows[0];
   if (!r) return null;
@@ -24,6 +29,7 @@ export async function getVatReturnRecord(
     || rec.netVat !== cents(figures.netVat));
   return {
     status: String(r.status), ...rec, sarsReference: r.sars_reference == null ? null : String(r.sars_reference),
-    submittedAt: r.submitted_at == null ? null : new Date(r.submitted_at as string | Date).toISOString(), mismatch,
+    submittedAt: r.submitted_at == null ? null : new Date(r.submitted_at as string | Date).toISOString(),
+    returnVersionNo: r.return_version_no == null ? null : Number(r.return_version_no), mismatch,
   };
 }

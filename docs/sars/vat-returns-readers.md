@@ -17,7 +17,7 @@ Census: `git grep -l vat_returns -- src pages` at `27b74d2bc8` (master after #14
 | `src/modules/bureau/services/bureauVatSignal.ts` | 60 | filed-record | bureau "VAT return due" signal (many companies) | reads `vatPeriodFilings` |
 | `src/modules/accounting/services/reports/vatSubmissionService.ts` | 221, 327, 359, 365 | settlement | `submitVATReturn` (idempotency, insert), `listVATReturns` | 409 without a finalised/filed version; writes `return_version_id` |
 | `src/modules/accounting/services/core/companyVatProfileService.ts` | 85 | settlement | filing footprint: every record of any kind that pins the VAT category | unchanged: a settlement row is a footprint whatever its version |
-| `src/modules/accounting/services/returns/vatReturnRecord.ts` | 16 | display | the `vat_returns` row beside a VAT201 version, with a mismatch flag | adds the linked version number |
+| `src/modules/accounting/services/returns/vatReturnRecord.ts` | 16 | display | the `vat_returns` row beside a VAT201 version, with a mismatch flag | adds the linked version number (versions drawer: "VAT settlement, posted against vN") |
 | `src/modules/accounting/services/returns/finaliseReturn.ts` | 21 | display | comment | none |
 | `src/modules/accounting/services/returns/returnDrift.ts` | 3 | display | comment | none |
 | `src/modules/accounting/services/returns/returnVersionTypes.ts` | 69 | display | comment | none |
@@ -26,7 +26,7 @@ Census: `git grep -l vat_returns -- src pages` at `27b74d2bc8` (master after #14
 | `src/components/accounting/sars/returns/ReturnLifecycleBar.tsx` | 4 | display | comment | none |
 | `src/lib/mcp/tools/vatReports.ts` | 41, 93 | display | tool descriptions | line 41 reworded to the new source |
 | `src/modules/bureau/services/complianceCalendarEngine.ts` | 107 | display | comment | none |
-| `src/modules/accounting/services/core/nlQueryFkPairs.ts` | 93 | schema-list | FK pair list | add `tax_return_versions.id|vat_returns.return_version_id` |
+| `src/modules/accounting/services/core/nlQueryFkPairs.ts` | 93 | schema-list | FK pair list | none (`tax_return_versions` is not an NL-query table) |
 | `src/modules/accounting/services/core/nlQueryValidationService.ts` | 64 | schema-list | allowed tables | none |
 
 Dev (`isaflow_dev`, read-only 2026-11-16): 18 `vat_returns` rows in 2 companies, none with a VAT201 version for its

@@ -60,3 +60,6 @@ These services run on the RLS-bypassing `@/lib/neon` pool (no `SET LOCAL ROLE ap
 `linkCompanyToBureau({ bureauId, companyId, addedBy }): Promise<boolean>` is re-exported from `bureauCompanyLinkService.ts` and runs on the migration_admin pool (932). New links require both ownership of the bureau and owner/admin membership of the target company. The company must not be suspended/deleted or carry a suspension timestamp. One SQL statement checks these conditions and inserts; authorized repeated links return true without duplicating the row. False means no authority (the API returns403). A bureau membership or a company viewer/accountant role is insufficient to grant bureau-wide access.
 
 Existing links remain durable delegations until unlink; losing the grantor's direct company membership does not automatically remove the bureau. Historical links predating this check need consent review, not automatic deletion based on current membership. Bureau members can consume authorized links without their own company_users row. The trusted company-ID set on reads is unchanged.
+
+## Recent changes
+- 2026-11-16 (wave 6 VR): "VAT due" reads `vatPeriodFilings` (returns module): a period is covered by a filed or settled VAT201 version, else (before the lifecycle) by a `submitted` `vat_returns` row. A finalised-only version still shows as due.
