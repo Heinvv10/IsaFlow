@@ -73,4 +73,19 @@ describe('BankTransfersPage idempotency', () => {
     await waitFor(() => expect(posts()).toHaveLength(3));
     expect(keyOf(posts()[2]!)).not.toBe(keyOf(posts()[1]!));
   });
+
+  it('an edit after a failed post is a different request and gets a new key', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown) => {
+      if (String(url).includes('chart-of-accounts')) return ok(banks);
+      return new Response(JSON.stringify({ success: false, error: { code: 'X', message: 'timed out' } }), { status: 503 });
+    });
+    render(<BankTransfersPage />);
+    await fillForm('100');
+    fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
+    await screen.findByText(/timed out|Could not record/);
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '120' } });
+    fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
+    await waitFor(() => expect(posts()).toHaveLength(2));
+    expect(keyOf(posts()[1]!)).not.toBe(keyOf(posts()[0]!));
+  });
 });

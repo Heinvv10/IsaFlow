@@ -79,4 +79,17 @@ describe('new bank transaction idempotency', () => {
     expect(keyOf(posts()[2]!)).toMatch(UUID);
     expect(keyOf(posts()[2]!)).not.toBe(keyOf(posts()[1]!));
   });
+
+  it('an edit after a failed post is a different request and gets a new key', async () => {
+    reply = async () => new Response(JSON.stringify({ success: false, error: { code: 'X', message: 'timed out' } }), { status: 503 });
+    render(<NewBankTransactionPage />);
+    await fillForm('50');
+    fireEvent.click(submit());
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    await waitFor(() => expect((submit() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.change(screen.getByLabelText(/Amount/), { target: { value: '55' } });
+    fireEvent.click(submit());
+    await waitFor(() => expect(posts()).toHaveLength(2));
+    expect(keyOf(posts()[1]!)).not.toBe(keyOf(posts()[0]!));
+  });
 });
