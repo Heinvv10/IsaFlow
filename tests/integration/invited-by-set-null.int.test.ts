@@ -6,7 +6,8 @@
  * and deleted nothing. 997c makes the column nullable and the FK ON DELETE SET NULL: the invitation
  * keeps everything except who sent it. Pinned here, on real Postgres, through the real routes:
  *   · the DELETE answers 200; a pending and an accepted invitation the user sent both remain, with
- *     invited_by NULL and every other column unchanged;
+ *     invited_by NULL and every other column unchanged; its `user.delete` audit row lists their ids
+ *     (sent_invitations_unattributed, [] for a user who sent none), so who sent them is not lost;
  *   · GET /api/invite/<token> names the sender 'Someone'; the members screen lists the invitation
  *     with invitedBy null; the invitee still accepts it (POST /api/invite/<token>);
  *   · the SET NULL passes company_invitations_role_guard, which refuses platform_admin's own writes
@@ -21,7 +22,11 @@
  */
 import { readFileSync } from 'fs';
 import path from 'path';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+// No GoTrue in the fixture: deleteUser (its invitation cancel, 997b) and POST /api/invite/<token> read the login email
+// through adminGetUser; answer the address this suite's sessions carry (signSession).
+vi.mock('@/lib/auth/gotrueAdminUser', async () =>
+  (await import('./helpers/fixtureGotrueLogin')).fixtureGotrueLogin((id) => `${id}@test.local`));
 import type { PoolClient } from 'pg';
 import userRoute from '../../pages/api/admin/users/[id]';
 import inviteRoute from '../../pages/api/invite/[token]';
@@ -49,8 +54,8 @@ const invitationsBy = (ids_: string[]) => q('SELECT * FROM company_invitations W
 const deleteUser = (id: string) => callRoute(userRoute, { sub: admin, method: 'DELETE', query: { id } });
 
 /** A users row, an admin membership of `company`, and `invites` invitations it sent: [email, accepted]. */
-async function inviter(invites: Array<[string, boolean]>): Promise<{ id: string; invites: Array<{ id: string; token: string }> }> {
-  const id = crypto.randomUUID();
+const inviter = (invites: Array<[string, boolean]>) => inviterWithId(crypto.randomUUID(), invites);
+async function inviterWithId(id: string, invites: Array<[string, boolean]>): Promise<{ id: string; invites: Array<{ id: string; token: string }> }> {
   users.push(id);
   await q(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'viewer', true)`, [id, `${id}@test.local`]);
   await q(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'admin')`, [company, id]);
@@ -95,14 +100,23 @@ describe('997c: deleting a user who sent invitations', () => {
     expect(await invitationsBy(sender.invites.map((i) => i.id))).toEqual(before.map((row) => ({ ...row, invited_by: null })));
     // Attribution kept: the audit row lists every invitation the delete left with no sender.
     expect(await q(`SELECT details FROM admin_audit_log WHERE target_id = $1 AND action = 'user.delete'`, [sender.id]))
-      .toEqual([{ details: { sent_invitations_unattributed: sender.invites.map((i) => i.id).sort() } }]);
+      .toEqual([{ details: { invitations_cancelled: 0, sent_invitations_unattributed: sender.invites.map((i) => i.id).sort() } }]);
   });
 
   it('a user who sent nothing: the audit row records an empty list', async () => {
     const quiet = await inviter([]);
     expect((await deleteUser(quiet.id)).status).toBe(200);
     expect(await q(`SELECT details FROM admin_audit_log WHERE target_id = $1 AND action = 'user.delete'`, [quiet.id]))
-      .toEqual([{ details: { sent_invitations_unattributed: [] } }]);
+      .toEqual([{ details: { invitations_cancelled: 0, sent_invitations_unattributed: [] } }]);
+  });
+
+  it('an invitation the user sent to their own address: listed as sent, then cancelled as theirs (997b)', async () => {
+    const id = crypto.randomUUID();
+    const self = await inviterWithId(id, [[`${id}@test.local`, false]]);
+    expect((await deleteUser(id)).status).toBe(200);
+    expect(await invitationsBy([self.invites[0]!.id])).toEqual([]);
+    expect(await q(`SELECT details FROM admin_audit_log WHERE target_id = $1 AND action = 'user.delete'`, [id]))
+      .toEqual([{ details: { invitations_cancelled: 1, sent_invitations_unattributed: [self.invites[0]!.id] } }]);
   });
 
   it('GET /api/invite/<token> of the pending one names the sender "Someone"', async () => {

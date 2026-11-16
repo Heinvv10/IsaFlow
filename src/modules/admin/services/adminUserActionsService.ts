@@ -230,7 +230,7 @@ export interface DeleteUserOutcome {
   stranded: StrandedPayRunRequest[];
   /** Pending invitations it cancelled (deleted), in any company: pinned to the user's GoTrue id or to their addresses. */
   invitationsCancelled: number;
-  /** Ids of the invitations the user sent: kept, their invited_by set NULL by the users DELETE (997c). */
+  /** Ids of the invitations the user sent, their invited_by set NULL by the users DELETE (997c); cancelled ones too. */
   sentInvitationsUnattributed: string[];
 }
 
@@ -255,9 +255,7 @@ export async function deleteUser(userId: string): Promise<DeleteUserOutcome> {
   // The DELETE decides: the loser of two concurrent deletes matches nothing and is a 404 before the route's audit row
   // (its company_users DELETE above matched nothing either). It also waits for an in-flight add-to-company, which
   // holds the users row FOR KEY SHARE (companyMembershipService.addUserToCompany).
-  // The invitations it sent, read just before that DELETE nulls their invited_by (997c, ON DELETE SET NULL), so the
-  // audit row keeps who sent them. A plain read, no row lock: invitation rows stay the last lock (LOCK ORDER above).
-  // Exact match, as the FK's: userId is the stored id. Limit: one the user sends while the DELETE waits is nulled, unlisted.
+  // Its sent invitations (997c nulls invited_by in the DELETE), for the audit row; no lock (INV last). One sent while it waits: unlisted.
   const sent = await sql<{ id: string }>`SELECT id FROM company_invitations WHERE invited_by = ${userId} ORDER BY id`;
   const deleted = await sql<{ email: string }>`DELETE FROM users WHERE id = ${userId} RETURNING email`;
   if (deleted.length === 0) throw new AdminRequestError(404, 'User not found');
@@ -272,9 +270,8 @@ export async function deleteUser(userId: string): Promise<DeleteUserOutcome> {
   const invitationsCancelled = await cancelPendingInvitations(userId, deleted[0]!.email, identity);
 
   reportStranded('deleteUser', userId, stranded);
-  const sentInvitationsUnattributed = sent.map((r) => r.id);
-  log.info('deleteUser', { userId, invitationsCancelled, sentInvitationsUnattributed: sentInvitationsUnattributed.length }, 'AdminUserActionsService');
-  return { stranded, invitationsCancelled, sentInvitationsUnattributed };
+  log.info('deleteUser', { userId, invitationsCancelled, sentInvitationsUnattributed: sent.length }, 'AdminUserActionsService');
+  return { stranded, invitationsCancelled, sentInvitationsUnattributed: sent.map((r) => r.id) };
 }
 
 /**
