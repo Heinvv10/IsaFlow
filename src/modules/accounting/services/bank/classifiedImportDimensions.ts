@@ -73,18 +73,33 @@ export async function resolveWorksheetDimensions(
     SELECT id::TEXT AS id, code, name, is_active FROM business_units
     WHERE company_id = ${companyId}::UUID AND id = ANY(${matchedUnits}::UUID[]) ORDER BY id FOR SHARE`) as Row[];
   // Re-decided under the lock, from the CURRENT masters that answer to this file's labels (one read per table, keyed
-  // by the labels): a twin activated, or a master re-typed, since the first read can make a label ambiguous or
-  // resolve it to a master that is not locked. Such a label is unresolved, never guessed.
+  // by the labels, ALL of them, assignable or not): a twin activated, or an unmatched master renamed to a matched label,
+  // since the first read makes the label ambiguous. Candidates not yet locked are locked too (FOR SHARE, ORDER BY id) so
+  // none can change before the INSERT, and the labels are read once more. Ambiguous, or resolving to a master that is
+  // not locked, is unresolved, never guessed.
   const labels = [...new Set(rows.flatMap((r) => [r.costCentreT1, r.costCentreT2, r.businessUnit])
     .flatMap((v) => (v?.trim() ? [key(v)] : [])))];
-  const nowCentres = (await sql`
-    SELECT id::TEXT AS id, code, name, cc_type, is_active FROM cost_centres
-    WHERE company_id = ${companyId}::UUID AND (lower(btrim(code)) = ANY(${labels}::TEXT[]) OR lower(btrim(name)) = ANY(${labels}::TEXT[]))`) as Row[];
-  const nowUnits = (await sql`
-    SELECT id::TEXT AS id, code, name, is_active FROM business_units
-    WHERE company_id = ${companyId}::UUID AND (lower(btrim(code)) = ANY(${labels}::TEXT[]) OR lower(btrim(name)) = ANY(${labels}::TEXT[]))`) as Row[];
-  const { cc1, cc2, bu } = indexes(nowCentres, nowUnits);
+  const readLabelled = async () => ({
+    cs: (await sql`
+      SELECT id::TEXT AS id, code, name, cc_type, is_active FROM cost_centres
+      WHERE company_id = ${companyId}::UUID AND (lower(btrim(code)) = ANY(${labels}::TEXT[]) OR lower(btrim(name)) = ANY(${labels}::TEXT[]))`) as Row[],
+    us: (await sql`
+      SELECT id::TEXT AS id, code, name, is_active FROM business_units
+      WHERE company_id = ${companyId}::UUID AND (lower(btrim(code)) = ANY(${labels}::TEXT[]) OR lower(btrim(name)) = ANY(${labels}::TEXT[]))`) as Row[],
+  });
   const locked = new Set([...lockedCentres, ...lockedUnits].map((r) => String(r.id)));
+  let now = await readLabelled();
+  const newCentres = now.cs.map((r) => String(r.id)).filter((id) => !locked.has(id)).sort();
+  const newUnits = now.us.map((r) => String(r.id)).filter((id) => !locked.has(id)).sort();
+  if (newCentres.length > 0 || newUnits.length > 0) {
+    if (newCentres.length > 0) await sql`
+      SELECT id FROM cost_centres WHERE company_id = ${companyId}::UUID AND id = ANY(${newCentres}::UUID[]) ORDER BY id FOR SHARE`;
+    if (newUnits.length > 0) await sql`
+      SELECT id FROM business_units WHERE company_id = ${companyId}::UUID AND id = ANY(${newUnits}::UUID[]) ORDER BY id FOR SHARE`;
+    [...newCentres, ...newUnits].forEach((id) => locked.add(id));
+    now = await readLabelled();
+  }
+  const { cc1, cc2, bu } = indexes(now.cs, now.us);
 
   const unresolved = new Set<string>();
   const pick = (index: Map<string, string | null>, value: string | undefined, slot: string): string | undefined => {

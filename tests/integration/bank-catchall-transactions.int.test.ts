@@ -182,6 +182,26 @@ describe('bank-transactions-import-classified: it imports, and a crash after the
     expect(await linesNamed('TWINLOCK')).toEqual([{ description: 'TWINLOCK A', amount: -4, cc1: null, cc2: null, bu: null }]);
   });
 
+  // An unmatched master renamed to the matched label while the import waits: two active masters now share it.
+  it('an unmatched master renamed to a matched label while the import holds its lock: ambiguous, unresolved, not stored', async () => {
+    await pool.query("INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1,'RN-LIVE','Rename Lock','cc1')", [f.c]);
+    const other = (await pool.query(
+      "INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1,'RN-OTHER','Something Else','cc1') RETURNING id", [f.c])).rows[0].id;
+    let release: () => void = () => {};
+    faults.gate = new Promise<void>((resolve) => { release = resolve; });
+    faults.holdAfterSql = /cost_centres[\s\S]*FOR SHARE/;
+    const running = importAs(f.c, f.bank, [{ transactionDate: '2026-09-15', description: 'RENAME A', debit: 6, costCentreT1: 'rename lock' }]);
+    const until = Date.now() + 15_000;
+    while (!faults.held && Date.now() < until) await new Promise((r) => setTimeout(r, 25));
+    expect(faults.held, 'the import reached its lock').toBe(true);
+    await pool.query("UPDATE cost_centres SET name = 'Rename Lock' WHERE id = $1", [other]); // unmatched, so not locked
+    release();
+    const res = await running;
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(201);
+    expect((res.state.body as { data: { unresolvedDimensions: string[] } }).data.unresolvedDimensions).toEqual(['T1: rename lock']);
+    expect(await linesNamed('RENAME')).toEqual([{ description: 'RENAME A', amount: -6, cc1: null, cc2: null, bu: null }]);
+  });
+
   it('an inactive master sharing a label is not a candidate: the active one resolves (W3)', async () => {
     const live = (await pool.query(
       "INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1,'SH-LIVE','Shared','cc1') RETURNING id", [f.c])).rows[0].id;
