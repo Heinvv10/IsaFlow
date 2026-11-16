@@ -143,7 +143,11 @@ export async function reverseDocumentChainLine(
 }
 
 /** The line back to 'imported', out of its allocation batch; `clearProvisional` also drops a dead provisional link. */
-export async function resetBankLine(companyId: string, bankTxId: string, clearProvisional: boolean): Promise<void> {
+export async function resetBankLine(
+  companyId: string, bankTxId: string, clearProvisional: boolean,
+  /** The bank Reverse of a plain journal (WP2 row 10): the line's transfer pointer goes with its allocation (#1518 brk L3). */
+  clearTransfer = false,
+): Promise<void> {
   await sql`
     UPDATE bank_transactions
     SET status = 'imported', matched_journal_line_id = NULL, reconciliation_id = NULL,
@@ -154,6 +158,8 @@ export async function resetBankLine(companyId: string, bankTxId: string, clearPr
         -- up by reverse_bank_allocation_batch.
         allocation_batch_id = NULL,
         provisional_je_id = CASE WHEN ${clearProvisional} THEN NULL ELSE provisional_je_id END,
+        transfer_journal_entry_id = CASE WHEN ${clearTransfer} THEN NULL ELSE transfer_journal_entry_id END,
+        counterparty_account_id = CASE WHEN ${clearTransfer} THEN NULL ELSE counterparty_account_id END,
         updated_at = NOW()
     WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
 }

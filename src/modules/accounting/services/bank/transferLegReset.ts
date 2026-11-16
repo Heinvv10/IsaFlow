@@ -12,6 +12,7 @@
  * Not for a document's chain (`reverseDocumentChainLine` frees every line of it) nor for the page's Undo, which already
  * refuses a journal with a second line (`refuseStaleUndo`).
  */
+import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
 import type { LineChain } from './bankChainLineReversal';
@@ -60,4 +61,12 @@ export async function takeOtherLegs(
     legs.push(row);
   }
   return legs;
+}
+
+/** Has `journalId` been reversed (its claim stamped)? For the reverse that lost a race to the other leg's. */
+export async function journalReversedNow(companyId: string, journalId: string): Promise<boolean> {
+  const [row] = (await sql`
+    SELECT reversed_at IS NOT NULL AS out FROM gl_journal_entries WHERE id = ${journalId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  return row?.out === true;
 }

@@ -38,7 +38,8 @@ const REFUSED = ['allocated', 'matched'] as const;
 export const LIVE_STATUSES = ['allocated', 'matched', 'reconciled'] as const;
 
 /**
- * The live statement lines (allocated / matched / reconciled, a matched line, not a provisional's own) whose movement
+ * The live statement lines (allocated / matched / reconciled, a matched line, not a provisional's own line on this
+ * chain) whose movement
  * reversing `headId` takes out of the ledger: matched to the head, or to an entry an EVEN number of steps up from it
  * (a re-reversal books the original's direction again). One matched an ODD number of steps up (the original under a
  * legacy hand reversal, re-reversed now) gets its cash BACK. `among`: only these ids. Ascending id.
@@ -64,7 +65,9 @@ export async function liveLinesLosingCash(
     JOIN gl_journal_lines jl ON jl.id = bt.matched_journal_line_id AND jl.company_id = bt.company_id
     JOIN up ON up.id = jl.journal_entry_id
     WHERE bt.company_id = ${companyId}::UUID AND up.dist % 2 = 0
-      AND bt.status = ANY(${[...statuses]}::TEXT[]) AND bt.provisional_je_id IS NULL
+      AND bt.status = ANY(${[...statuses]}::TEXT[])
+      -- A provisional's own line is D10's only when its provisional journal is in THIS chain (#1518 brk L5).
+      AND (bt.provisional_je_id IS NULL OR bt.provisional_je_id NOT IN (SELECT id FROM up))
       AND (${among === undefined}::BOOLEAN OR bt.id = ANY(${[...(among ?? [])]}::UUID[]))
     ORDER BY 1`) as DbRow[]).map((r) => String(r.id));
 }
@@ -80,8 +83,7 @@ export async function refuseLiveBankLines(
   /** The GL entrance (before the claim): an already-reversed entry is left to reverseJournalEntry's own answer. */
   atEntrance = false,
 ): Promise<void> {
-  const live = rows.filter((r) => r.matched_journal_line_id && !r.provisional_je_id
-    && (REFUSED as readonly string[]).includes(String(r.status)));
+  const live = rows.filter((r) => r.matched_journal_line_id && (REFUSED as readonly string[]).includes(String(r.status)));
   if (live.length === 0) return;
   const takenOut = new Set(await liveLinesLosingCash(companyId, journalEntryId, live.map((r) => String(r.id)), REFUSED, atEntrance));
   const first = live.filter((r) => takenOut.has(String(r.id))).sort((a, b) => String(a.id) < String(b.id) ? -1 : 1)[0];

@@ -16,7 +16,7 @@ import { underFlowLockBudget } from '../core/rowLockBudget';
 import { refuseResettingProvisionalLine } from './provisionalLineGuard';
 import { isoDay, lockChainLines, peekLineChain, refuseStaleUndo, resetBankLine, reverseDocumentChainLine } from './bankChainLineReversal';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
-import { lockOtherLegs, takeOtherLegs } from './transferLegReset';
+import { journalReversedNow, lockOtherLegs, takeOtherLegs } from './transferLegReset';
 import { assertMayReverse, auditedReversal } from './bankReversalGate';
 import { postingRefOf, recordAutoPostUndone } from './codingDecisionLog';
 
@@ -54,6 +54,12 @@ async function reverseReconciledInner(
   // Changed since the peek (matched, unmatched or re-matched by another request): a state conflict, nothing written,
   // 409 — before the status refusal, which would otherwise answer an unmatch in between as a 400.
   if (String(tx.matched_journal_line_id ?? '') !== (chain?.lineId ?? '')) {
+    // Freed meanwhile by the reversal of its journal (the transfer's other leg reversed — WP2 row 10 resets both — or
+    // this line's own reverse twice): a retry would only find nothing to undo, so say so (#1518 brk L2).
+    if (chain && !tx.matched_journal_line_id && tx.status === 'imported' && await journalReversedNow(companyId, chain.journalId)) {
+      throw new BankAllocationRefusal('This bank line was already freed: its journal was reversed meanwhile (the reverse '
+        + "of the transfer's other leg, or of this line) and the line reset — there is nothing left to undo.");
+    }
     throw new BankAllocationRefusal('This bank line was changed by another request while it was being reversed — retry in a moment.',
       undefined, { retryable: true });
   }
@@ -134,8 +140,8 @@ async function reverseReconciledInner(
     // Reset the bank transaction. If this fails after a successful GL reversal,
     // log the inconsistency; the savepoint then takes the reversal back with it.
     try {
-      await resetBankLine(companyId, bankTxId, deadProvisional);
-      for (const leg of otherLegs) await resetBankLine(companyId, String(leg.id), false); // WP2 row 10: both legs, one savepoint
+      await resetBankLine(companyId, bankTxId, deadProvisional, true); // the transfer pointer too (#1518 brk L3)
+      for (const leg of otherLegs) await resetBankLine(companyId, String(leg.id), false, true); // WP2 row 10: both legs, one savepoint
     } catch (resetErr) {
       log.error('Bank transaction reset failed after GL reversal — rolling the reversal back',
         { bankTxId, journalEntryId, error: resetErr }, 'accounting');

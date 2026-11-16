@@ -34,7 +34,10 @@ export function importerGateOpen() {
  * Proven against real Postgres in tests/integration/bank-reversed-journal-line.int.test.ts.
  */
 export function transferLegResetNone() {
-  return { lockOtherLegs: vi.fn(async () => new Map()), takeOtherLegs: vi.fn(async () => [] as string[]) };
+  return {
+    lockOtherLegs: vi.fn(async () => new Map()), takeOtherLegs: vi.fn(async () => [] as string[]),
+    journalReversedNow: vi.fn(async () => false),
+  };
 }
 
 export function reversalGateOpen() {
