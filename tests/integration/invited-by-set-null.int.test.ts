@@ -279,4 +279,28 @@ describe('997c: the migration', () => {
       c.release();
     }
   });
+
+  it('on production\'s shape (old FK NOT VALID, an invitation whose sender has no users row) NULLs only the orphan and validates', async () => {
+    // 16 Nov 2026: the release stopped on dev with 23503 on company_invitations_invited_by_fkey; the old FK was NOT VALID.
+    const sender = await inviter([[`kept-${crypto.randomUUID()}@test.local`, false]]);
+    const c = await fixture.connect();
+    try {
+      await c.query('BEGIN');
+      await toMasterShape(c);
+      await c.query(`ALTER TABLE company_invitations DROP CONSTRAINT ${FK}`);
+      const ghost = crypto.randomUUID();
+      const orphan = (await c.query(`INSERT INTO company_invitations (company_id, email, role, invited_by, token, expires_at)
+        VALUES ($1, $2, 'viewer', $3, $4, NOW() + interval '1 day') RETURNING id`,
+      [company, `orphan-${ghost}@test.local`, ghost, hashInviteToken(`orphan-${ghost}`)])).rows[0]!.id as string;
+      await c.query(`ALTER TABLE company_invitations ADD CONSTRAINT ${FK} FOREIGN KEY (invited_by) REFERENCES users(id) NOT VALID`);
+      await c.query(migration());
+      expect(await shape(c)).toEqual(SET_NULL);
+      const rows = (await c.query('SELECT id, invited_by FROM company_invitations WHERE id = ANY($1::uuid[]) ORDER BY id',
+        [[orphan, sender.invites[0]!.id]])).rows as Row[];
+      expect(Object.fromEntries(rows.map((r) => [r.id, r.invited_by]))).toEqual({ [orphan]: null, [sender.invites[0]!.id]: sender.id });
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+    }
+  });
 });
