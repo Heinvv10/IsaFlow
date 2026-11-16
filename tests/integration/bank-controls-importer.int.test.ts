@@ -7,7 +7,7 @@
  * account, split and transfer under manual_journal; a supplier outflow under
  * supplier_payment. Refused 403 IMPORTER_MAY_NOT_ALLOCATE with nothing
  * written; another member allocates the same line. The sole approver on the
- * admin floor passes; feed lines, money in and enforcement off are untouched.
+ * admin floor passes; a feed line with no batch (feed pushes are in bank-controls-feed-importer), money in and enforcement off are untouched.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -116,7 +116,7 @@ describe('what the importer check leaves alone', () => {
     expect((await supplier(a, f, await plantLine(pool, f, f.batch))).state.statusCode).toBe(200);
   });
 
-  it('a feed line, another person\'s batch, a legacy mcp:* importer and enforcement off all allocate', async () => {
+  it('a batch-less feed line, another person\'s batch, a legacy mcp:* importer and enforcement off all allocate', async () => {
     const f = await fixture(['manual_journal']);
     expect((await allocate(a, f, await plantLine(pool, f, 'feed'))).state.statusCode).toBe(200);
     expect((await allocate(a, f, await plantLine(pool, f, await plantBatch(pool, f, b)))).state.statusCode).toBe(200);
