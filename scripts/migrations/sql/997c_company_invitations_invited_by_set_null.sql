@@ -17,9 +17,12 @@
 -- LOCKS. One transaction (apply-migrations.ts): DROP NOT NULL takes ACCESS EXCLUSIVE on
 -- company_invitations (catalog only, no scan); replacing the FK takes company_invitations and then
 -- users, and the new FK is checked once by one query over company_invitations (one row per
--- invitation ever sent: a small table; every non-NULL value already satisfies the old FK on the same
--- column, so the check cannot fail). NOT VALID plus a later VALIDATE would buy nothing here: the
--- old constraint is dropped and the new one added under the same lock in this file. lock_timeout
+-- invitation ever sent: a small table). The old FK did NOT hold every row: the dev/production
+-- database has invitations whose invited_by matches no users.id (the old constraint was NOT VALID,
+-- so ADD CONSTRAINT failed there with 23503 on 16 Nov 2026). Between dropping the old FK and adding
+-- the new one, those orphans get invited_by NULL: the same end state SET NULL gives when a sender is
+-- deleted (their sender is already gone), so the check cannot fail. NOT VALID plus a later VALIDATE
+-- would buy nothing here: the old constraint is dropped and the new one added under the same lock. lock_timeout
 -- 5 s: a writer holding either table longer makes the file roll back with nothing recorded; rerun it.
 --
 -- Idempotent: the FK is replaced only when pg_constraint does not already hold it with
@@ -45,6 +48,9 @@ BEGIN
                                 AND a.attname = 'invited_by')]::pg_catalog.int2[]
   ) THEN
     ALTER TABLE public.company_invitations DROP CONSTRAINT IF EXISTS company_invitations_invited_by_fkey;
+    UPDATE public.company_invitations i SET invited_by = NULL
+     WHERE i.invited_by IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM public.users u WHERE u.id = i.invited_by);
     ALTER TABLE public.company_invitations ADD CONSTRAINT company_invitations_invited_by_fkey
       FOREIGN KEY (invited_by) REFERENCES public.users(id) ON DELETE SET NULL;
   END IF;

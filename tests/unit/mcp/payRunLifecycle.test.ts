@@ -14,6 +14,15 @@
  *  - both dry runs answer from a READ and write nothing.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+// Wave 6 FQa: the run-kind guard reads the database; its own tests are payrollRunKindGuard*.test.ts.
+vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
+  assertRunKindSupported: vi.fn(async () => undefined),
+}));
+vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollEmployeeService')>(),
+  listPayrollRunEmployees: vi.fn(async () => []),
+}));
 
 // What the costing withholds is read from the database; its own integration suite covers it.
 vi.mock('@/modules/accounting/services/payroll/payrollLoanWithholding', () => ({ withheldLoansReport: vi.fn(async () => []) }));
