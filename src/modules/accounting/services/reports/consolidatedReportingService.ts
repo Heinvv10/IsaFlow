@@ -111,7 +111,7 @@ export async function getGroupDashboardStats(groupId: string): Promise<GroupDash
       // always 0.
       sql`SELECT bt.company_id, COALESCE(SUM(bt.amount),0) AS cash
           FROM bank_transactions bt
-          JOIN gl_accounts ga ON ga.id = bt.bank_account_id
+          JOIN gl_accounts ga ON ga.id = bt.bank_account_id AND ga.company_id = bt.company_id
           WHERE bt.company_id = ANY(${companyIds}::UUID[])
             AND ga.company_id = ANY(${companyIds}::UUID[])
             AND ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
