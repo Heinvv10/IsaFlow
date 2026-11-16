@@ -1,5 +1,28 @@
 {
  "tables": ["payroll_run_headers","payroll_employee_components","uif_declarations","payroll_loan_payments","payroll_loan_payment_reversals","payroll_loan_schedule","payroll_run_directive_uses","payroll_batches","payroll_external_imports"],
+ "orderKeys": {
+  "src/modules/accounting/services/payroll/employeeReadinessRead.ts": [
+   "ORDER BY ${runOrderKeySql('h')} DESC"
+  ],
+  "src/modules/accounting/services/payroll/payrollMedicalRecord.ts": [
+   "(array_agg(l.medical_credit IS NOT NULL ORDER BY ${runOrderKeySql('h')} DESC)"
+  ],
+  "src/modules/accounting/services/payroll/payrollRunHeaders.ts": [
+   "ORDER BY ${runOrderKeySql('h')} DESC"
+  ],
+  "src/modules/accounting/services/payroll/payrollRunQueryService.ts": [
+   "ORDER BY (${year}::INT IS NOT NULL AND NOT (h.run_kind = 'regular' AND h.pay_frequency = 'monthly')), ${runOrderKeySql('h')} DESC"
+  ],
+  "src/modules/accounting/services/payroll/payrollVarianceService.ts": [
+   "AND ${runOrderKeySql('p')} < ${runOrderKeySql('c')}",
+   "ORDER BY ${runOrderKeySql('p')} DESC"
+  ],
+  "src/modules/accounting/services/payroll/sdlLeviabilityService.ts": [
+   "${runOrderKeySql('prh')} AS k,",
+   "(prh.period_year * 12 + prh.period_month = ${index} AND ${runOrderKeySql('prh')} < (",
+   "SELECT ${runOrderColumnsSql('me')} FROM payroll_run_headers me WHERE me.id = ${runId}::uuid AND me.company_id = ${companyId}::uuid"
+  ]
+ },
  "consumers": [
   {"file":"src/lib/mcp/tools/writePayroll.ts","line":68,"text":"const clash = existing.rows.find((r) => r.periodMonth === month && r.runKind === 'regular' && r.payFrequency === 'monthly');","class":"S","owner":"FQb1","why":"FQb1 converted (R): the clash is the month's regular monthly run (the 999a key); an off-cycle run is none"},
   {"file":"src/modules/accounting/services/workbench/monthEndLedgerCards.ts","line":118,"text":"const thisRun = runs.find(r => r.periodYear === year && r.periodMonth === month);","class":"R","owner":"FQb2","why":"runs.find by month: one run stands for the month"},

@@ -22,8 +22,15 @@
  * `consumers` are rows the table scan cannot see (a month lookup over rows a service returned, the F2 bounds);
  * each must still exist verbatim.
  *
+ * `orderKeys` (the fourth rule, review #1507): a converted reader's ordering often sits on a line that names no table
+ * (`ORDER BY ${runOrderKeySql('h')} DESC`). Every non-comment line outside payrollRunOrder.ts that calls
+ * runOrderKeySql( or runOrderColumnsSql( is pinned verbatim, per file, in order, so flipping DESC to ASC, dropping a
+ * call or adding one fails here.
+ *
  * Named limits: a reader that reaches these tables through a view, a SQL function (migrations 951/979) or a
- * runtime-built table name is not seen; a consumer keyed by month that names no table is seen only if listed.
+ * runtime-built table name is not seen; a consumer keyed by month that names no table is seen only if listed; a key
+ * aliased into a column (sdlLeviabilityService's `AS k`) is pinned where it is built, not where `k` is ordered (the
+ * integration mutants cover that line).
  * When this test fails on a new line: read the query, add ONE row classified honestly, with its owner and why.
  */
 import { describe, expect, it } from 'vitest';
@@ -35,7 +42,7 @@ const ROOT = resolve(__dirname, '../../..');
 
 interface Row { line: number; text: string; class: string; owner: string; why: string }
 interface Consumer extends Row { file: string }
-interface Census { tables: string[]; consumers: Consumer[]; rows: Record<string, Row[]> }
+interface Census { tables: string[]; orderKeys: Record<string, string[]>; consumers: Consumer[]; rows: Record<string, Row[]> }
 
 const census = JSON.parse(readFileSync(resolve(__dirname, 'payrollRunReaderCensus.json'), 'utf8')) as Census;
 
@@ -81,6 +88,16 @@ describe('payroll run reader census (wave 6 F9, by table)', () => {
       if (!hits.has(f)) rows.forEach((r) => stale.push(fmt(f, r)));
     }
     expect({ unclassified, stale }).toEqual({ unclassified: [], stale: [] });
+  });
+
+  it('pins every runOrderKeySql( / runOrderColumnsSql( call site verbatim (the fourth rule)', () => {
+    const call = /\brunOrder(Key|Columns)Sql\(/;
+    const found: Record<string, string[]> = {};
+    for (const f of sourceFiles().filter((x) => !x.endsWith('/payrollRunOrder.ts'))) {
+      const lines = readFileSync(resolve(ROOT, f), 'utf8').split('\n').filter((l) => call.test(l) && !COMMENT.test(l)).map((l) => l.trim());
+      if (lines.length > 0) found[f] = lines;
+    }
+    expect(found).toEqual(census.orderKeys);
   });
 
   it('finds every listed consumer line verbatim', () => {

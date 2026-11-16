@@ -125,11 +125,11 @@ describe('the medical-credit record reads the latest line in run order', () => {
 });
 
 describe('readers of "the regular run of the month"', () => {
-  it('the parallel-run report compares the import with the regular run, not the bonus', async () => {
+  it.each(BOTH_ORDERS)('the parallel-run report compares the import with the regular run, not the bonus (seeded reversed: %s)', async (flip) => {
     let regular = '';
     let importId = '';
     const got = await twoRunsInMonth(pool, A, async (c) => {
-      [, regular] = await seedBoth(c, [BONUS, REGULAR]);
+      regular = ordered(await seedBoth(c, ordered([REGULAR, BONUS], flip)), flip)[0]!;
       importId = String((await c.query(
         "INSERT INTO payroll_external_imports (company_id, period_month, period_year, file_name) VALUES ($1, 5, 2026, 'may.csv') RETURNING id",
         [A.company])).rows[0].id);

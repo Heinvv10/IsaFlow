@@ -95,11 +95,12 @@ describe('ETI booked by the month\'s run journals (EMP201 carry, integrity check
 });
 
 describe('the reversal guard finds a run journal\'s run', () => {
-  it('an unlinked "Payroll run 2026-05" journal belongs to the month\'s regular run, never the bonus', async () => {
+  it.each([false, true])('an unlinked "Payroll run 2026-05" journal belongs to the month\'s regular run, never the bonus (regular seeded first: %s)', async (regularFirst) => {
     let regular = '';
     let je = '';
     const got = await twoRunsInMonth(pool, A, async (c) => {
-      [, regular] = await seedBoth(c, [BONUS, REGULAR]);
+      const ids = await seedBoth(c, regularFirst ? [REGULAR, BONUS] : [BONUS, REGULAR]);
+      regular = ids[regularFirst ? 0 : 1]!;
       je = await payrollJournal(c, A, 1800);
     }, () => refuseReversalAgainstPayRun(A.company, { id: je, source: 'auto_payroll' }));
     expect(got?.runId).toBe(regular);
