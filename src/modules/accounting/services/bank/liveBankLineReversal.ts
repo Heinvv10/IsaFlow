@@ -38,8 +38,8 @@ const REFUSED = ['allocated', 'matched'] as const;
 export const LIVE_STATUSES = ['allocated', 'matched', 'reconciled'] as const;
 
 /**
- * The live statement lines (allocated / matched / reconciled, a matched line, not a provisional's own line on this
- * chain) whose movement
+ * The live statement lines (allocated / matched / reconciled, with a matched line — so never a provisional's own,
+ * which is status 'provisional' with none) whose movement
  * reversing `headId` takes out of the ledger: matched to the head, or to an entry an EVEN number of steps up from it
  * (a re-reversal books the original's direction again). One matched an ODD number of steps up (the original under a
  * legacy hand reversal, re-reversed now) gets its cash BACK. `among`: only these ids. Ascending id.
@@ -65,9 +65,10 @@ export async function liveLinesLosingCash(
     JOIN gl_journal_lines jl ON jl.id = bt.matched_journal_line_id AND jl.company_id = bt.company_id
     JOIN up ON up.id = jl.journal_entry_id
     WHERE bt.company_id = ${companyId}::UUID AND up.dist % 2 = 0
+      -- No provisional_je_id exemption (#1518 brk r2 L1): a provisional's own line (D10) is status 'provisional' with no
+      -- matched line, which this status list and the matched-line join already leave out; a LIVE matched line is refused
+      -- whatever provisional journal it also names.
       AND bt.status = ANY(${[...statuses]}::TEXT[])
-      -- A provisional's own line is D10's only when its provisional journal is in THIS chain (#1518 brk L5).
-      AND (bt.provisional_je_id IS NULL OR bt.provisional_je_id NOT IN (SELECT id FROM up))
       AND (${among === undefined}::BOOLEAN OR bt.id = ANY(${[...(among ?? [])]}::UUID[]))
     ORDER BY 1`) as DbRow[]).map((r) => String(r.id));
 }

@@ -5,7 +5,8 @@
  *      included: the claim and its refusals run in one savepoint, rolled back, not "released" by a second UPDATE.
  *  L2  Two bank Reverses of the two legs at once: the loser is told the line was already freed, not "retry".
  *  L3  The bank Reverse clears the transfer pointer (transfer_journal_entry_id, counterparty_account_id) on both legs.
- *  L5  A line carrying a provisional_je_id is exempt only when that provisional journal is in the chain reversed.
+ *  L5  A provisional_je_id never exempts a LIVE (matched) line; only a provisional's own line — status 'provisional', no
+ *      matched line — is D10's.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -110,24 +111,29 @@ describe('L3: the bank Reverse clears the transfer pointer on both legs', () => 
   });
 });
 
-describe('L5: provisional_je_id exempts a line only for its own provisional chain', () => {
-  async function allocatedWithProvisional(own: boolean) {
+describe('L5: provisional_je_id never exempts a LIVE line; only a provisional\'s own line is D10\'s', () => {
+  async function allocatedWithProvisional(own: boolean, status = 'allocated') {
     const f = await bankCompany(pool, [[a, 'admin']], companies);
     const line = await plantLine(pool, f, await plantBatch(pool, f, a));
     expect((await act(a, f.c, { action: 'allocate', bankTransactionId: line, allocationType: 'account', contraAccountId: f.expA })).state.statusCode).toBe(200);
     const je = (await pool.query(`SELECT jl.journal_entry_id AS je FROM bank_transactions bt
       JOIN gl_journal_lines jl ON jl.id = bt.matched_journal_line_id WHERE bt.id = $1`, [line])).rows[0].je as string;
     const other = own ? je : await plantJournal(pool, f, a, { status: 'posted' });
-    // Forced: no product path writes both a live match and a provisional of another journal (brk L5).
-    await pool.query('UPDATE bank_transactions SET provisional_je_id = $2 WHERE id = $1', [line, other]);
-    return { ...f, je };
+    // Forced: no product path writes a live match together with a provisional_je_id (brk L5, r2 L1).
+    await pool.query('UPDATE bank_transactions SET provisional_je_id = $2, status = $3 WHERE id = $1', [line, other, status]);
+    return { ...f, je, line };
   }
   it('a provisional of ANOTHER journal does not exempt the live line: 400', async () => {
     const f = await allocatedWithProvisional(false);
     expect(refusalOf(await glReverse(f.c, f.je))).toMatchObject({ status: 400, message: expect.stringMatching(/still allocated to it/) });
   });
-  it('the line\'s own provisional journal being reversed is D10\'s: it passes', async () => {
+  it.each(['allocated', 'matched'])('a %s line whose provisional_je_id IS the journal reversed is still refused: 400', async (status) => {
+    const f = await allocatedWithProvisional(true, status);
+    expect(refusalOf(await glReverse(f.c, f.je))).toMatchObject({ status: 400, message: expect.stringMatching(`still ${status} to it`) });
+  });
+  it('a provisional\'s own line (status provisional, no matched line) is D10\'s: the GL reversal passes', async () => {
     const f = await allocatedWithProvisional(true);
+    await pool.query("UPDATE bank_transactions SET status = 'provisional', matched_journal_line_id = NULL WHERE id = $1", [f.line]);
     expect((await glReverse(f.c, f.je)).state.statusCode).toBe(200);
   });
 });
