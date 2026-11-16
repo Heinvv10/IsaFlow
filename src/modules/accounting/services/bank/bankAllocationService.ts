@@ -33,6 +33,7 @@ import { recordAllocationDecision } from './codingDecisionLog';
 import { planAllocationPosting } from './bankAllocationPlan';
 import { buildAllocationArm } from './bankAllocationArms';
 import { invoiceSourceDocumentOf, recordAllocationDocuments } from './bankAllocationDocuments';
+import { assertAllocationVatCode } from './bankVatCodes';
 
 export { splitAllocateTransaction } from './bankSplitAllocate';
 export { reverseReconciledTransaction } from './bankReverseReconciled';
@@ -81,6 +82,9 @@ export async function allocateTransaction(
   /** Present only for a supplier/customer line that named no document. */
   application?: AllocationApplicationResult;
 }> {
+  // WP2 row 13: a code outside none / standard / zero_rated / exempt posted the gross with no VAT, silently, on every
+  // arm. Refused from the request itself, before the lock and every write (bankVatCodes).
+  assertAllocationVatCode(vatCode, 'This allocation');
   // FOR UPDATE: hold the row for the rest of the request so a concurrent
   // allocate blocks here rather than passing the same status check and posting
   // a second journal for one transaction.
@@ -211,7 +215,11 @@ export async function allocateTransaction(
             -- A fresh allocation is NOT part of whatever batch previously
             -- owned this row. Left set, reverse_bank_allocation_batch would
             -- reverse a journal its batch never posted (PR #263 review).
-            allocation_batch_id = NULL
+            allocation_batch_id = NULL,
+            -- Nor does it pay the purchase order the line paid before (a re-pointed reconciled line): left set, that
+            -- PO still counts this cash as paid. The PO match (confirmPurchaseOrderMatch, lane B's #1458) sets it again
+            -- AFTER this call.
+            linked_po_id = NULL
         WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
     }
     if (allocType === 'customer' && entityId && paymentUserId && !isSpent) {

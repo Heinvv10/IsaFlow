@@ -53,18 +53,34 @@ describe('MCP write-tool role fence (S-01)', () => {
     for (const role of ['viewer', 'storeman', 'technician', null, undefined]) {
       const r = await registry.call(tool.name, { idempotency_key: 'k-1' }, ctxFor(role));
       expect(r.isError).toBe(true);
-      expect(r.content[0]!.text).toMatch(/owner, admin and manager/);
+      expect(r.content[0]!.text).toMatch(tool.requiresRole ? /only by the owner and admin roles/ : /owner, admin and manager/);
     }
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it.each(WRITES.map((t) => [t.name, t] as const))('%s: an owner/admin/manager-bound token reaches the handler', async (_n, tool) => {
-    for (const role of ['owner', 'admin', 'manager']) {
+  it.each(WRITES.map((t) => [t.name, t] as const))('%s: an owner/admin(/manager)-bound token reaches the handler', async (_n, tool) => {
+    for (const role of tool.requiresRole ? ['owner', 'admin'] : ['owner', 'admin', 'manager']) {
       const { registry, handler } = registryWith(tool);
       const r = await registry.call(tool.name, { idempotency_key: `k-${role}` }, ctxFor(role));
       expect(r.isError, r.content[0]?.text).toBeFalsy();
       expect(handler).toHaveBeenCalledTimes(1);
     }
+  });
+
+  // B6 (2026-11-15): the HTTP period controls are withRole('admin'); over MCP a manager was let through by the
+  // write fence. These three are owner/admin only, and nothing else is narrowed by accident.
+  it('the period controls, and only they, are owner/admin only', () => {
+    expect(ALL.filter((t) => t.requiresRole).map((t) => [t.name, t.requiresRole]).sort()).toEqual([
+      ['close_fiscal_period', 'admin'], ['reopen_fiscal_period', 'admin'], ['year_end_close', 'admin'],
+    ]);
+  });
+
+  it.each(['close_fiscal_period', 'reopen_fiscal_period', 'year_end_close'])('%s: a manager is refused, handler never runs', async (name) => {
+    const { registry, handler } = registryWith(ALL.find((t) => t.name === name)!);
+    const r = await registry.call(name, { idempotency_key: 'k-m' }, ctxFor('manager'));
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toMatch(/only by the owner and admin roles/);
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it('a read tool stays open to a viewer', async () => {

@@ -27,6 +27,7 @@ import { isBankSubtype } from '../gl/accountSubtypes';
 import { markManualJournal, newManualJournalGate } from '../gl/manualJournalApproval';
 import { requestApproval } from '../gl/approvalDocuments';
 import { findTransferRecordedFromStatement } from './transferDuplicateGuard';
+import { lockTransferPair } from './transferPairLock';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import type { JournalEntry } from '../../types/gl.types';
 
@@ -85,6 +86,9 @@ export async function postBankTransfer(
     throw new BankTransferRefusedError('A transfer moves money between two of the company\'s bank accounts: '
       + 'both accounts must be bank accounts');
   }
+  // One writer of this account pair at a time, to the end of the request: a statement leg allocated as a transfer
+  // cannot read before this one commits (transferPairLock; the residual transferDuplicateGuard used to state).
+  await lockTransferPair(companyId, input.fromAccountId, input.toAccountId);
   // The bank statement may already have recorded this movement as a transfer: typing it again would post it twice
   // (rev-nrfa LOW-1). A second real transfer of the same amount is legitimate too, so the caller confirms instead of
   // being refused outright (brk-nrfa round 3 M2).

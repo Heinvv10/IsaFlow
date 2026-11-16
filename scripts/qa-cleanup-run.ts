@@ -108,6 +108,7 @@ async function main() {
     ['company_documents', 'company', await countByCompany('company_documents')],
     ['company_directors', 'company', await countByCompany('company_directors')],
     ['page_visits',       'company', await countByCompany('page_visits')],
+    ['sars_compliance_events', 'company', await countByCompany('sars_compliance_events')],
     ['company_users',     'company', await countByCompany('company_users')],
     ['company_users',     'user',    await countByUser('company_users', userIds)],
     ['user_sessions',     'user',    await countByUser('user_sessions', userIds)],
@@ -135,6 +136,9 @@ async function main() {
   console.log(`  company_directors      deleted ${d2}`);
   const d3 = await deleteByCompany('page_visits');
   console.log(`  page_visits (by co)    deleted ${d3}`);
+  // A "marked filed" row (999c) names the company with no ON DELETE: remove it before the company.
+  const d3b = await deleteByCompany('sars_compliance_events');
+  console.log(`  sars_compliance_events deleted ${d3b}`);
   const d4 = await deleteByCompany('company_users');
   console.log(`  company_users          deleted ${d4}`);
 

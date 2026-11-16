@@ -9,16 +9,22 @@
  * records those hours, the way HD stores a run's hours; `ordinaryHoursWage` is what the engine derives from that row.
  * Inputs the engine still has no field for (fringe terms) stay in `unmodelled` so the gap is
  * visible; they are not passed to it (oracleInputs.test.ts names each one's owner).
+ *
+ * Wave 6 (O3): `input.period` may say its `frequency`, `periodStart`/`periodEnd` and `runKind`, and
+ * `input.priorPeriods` lists the tax year's earlier periods with the figures their lines stored. The calculator
+ * has no field for the first three yet (FQc, OC wire them; until then such a case runs as a monthly regular line
+ * and sits on knownGaps.json). The priors reach it as the year to date (oracleInput.ts priorYearToDate).
+ * An UNVERIFIED case is on knownGaps.json (the engine differs from the hand computation in its notes) or on
+ * unverified.json (the engine equals it), never on both and never on neither.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
-import type { EmployeeComponent, PayrollEmployee, PayrollLineInput, TaxStatus } from '@/modules/accounting/services/payroll/payrollTypes';
-import { withFringeBenefits } from './fringeInput';
-import { costRfi, withEmployerRetirement } from './rfiInput';
-import { ORACLE_FIELDS, validateCase, type OracleField } from './validate';
+import { buildCaseInput } from './oracleInput';
+import { ORACLE_FIELDS, validateCase, type FREQUENCIES, type OracleField, type PRIOR_FIGURES, type RUN_KINDS } from './validate';
 
 export { ORACLE_FIELDS, type OracleField };
+export { buildCaseInput, oracleTaxStatus, saIdFor } from './oracleInput';
 
 export const ORACLE_DIR = __dirname;
 
@@ -42,7 +48,10 @@ export interface OracleCase {
   sourceRef: string;
   notes: string;
   input: {
-    period: { year: number; month: number };
+    period: {
+      year: number; month: number;
+      frequency?: typeof FREQUENCIES[number]; periodStart?: string; periodEnd?: string; runKind?: typeof RUN_KINDS[number];
+    };
     taxYear: number;
     employee: {
       dateOfBirth: string | null;
@@ -57,6 +66,8 @@ export interface OracleCase {
     components: OracleComponent[];
     /** Inputs the calculator takes only in part (the work terms are passed; the rest are recorded, not passed). */
     unmodelled?: Record<string, unknown>;
+    /** The tax year's earlier periods (wave-6 F1), oldest first; absent = this is the first. */
+    priorPeriods?: OraclePriorPeriod[];
   };
   /** Only the fields the source gives are asserted. */
   expected: Partial<Record<OracleField, number>>;
@@ -67,6 +78,24 @@ export interface OracleCase {
   tolerance?: Partial<Record<OracleField, { cents: number; reason: string; engineActual: number }>>;
 }
 
+/** An earlier period: its inputs and the figures its line stored (validate.ts PRIOR_FIGURES). */
+export type OraclePriorPeriod = {
+  periodStart: string;
+  frequency: typeof FREQUENCIES[number];
+  runKind: typeof RUN_KINDS[number];
+  components: OracleComponent[];
+} & Record<typeof PRIOR_FIGURES[number], number>;
+
+/** An UNVERIFIED case the engine matches: why no source is cited, and what would verify it (spec §1.6). */
+export interface UnverifiedEntry {
+  case: string;
+  reason: string;
+  wouldVerify: string;
+}
+
+/** The list files in this directory: never loaded as cases (F22). */
+export const LIST_FILES = ['knownGaps.json', 'unverified.json'] as const;
+
 /**
  * A case that misses its source today. `engineActual` is the engine's CURRENT figure for each
  * missed field, asserted exactly: the gap is a pinned amount, so drift inside it is red too.
@@ -76,32 +105,15 @@ export interface KnownGap {
   engineActual: Partial<Record<OracleField, number>>;
   reason: string;
   closedBy: string;
+  /** A vendor-parity gap that no wave-6 PR closes (its closedBy says when it would close); exempt from CLOSER. */
+  parity?: true;
 }
 
-/** A valid 13-digit SA ID number for a date of birth (YYMMDD 5009 0 8 + the Luhn check digit). */
-export function saIdFor(dob: string): string {
-  const base = `${dob.slice(2, 4)}${dob.slice(5, 7)}${dob.slice(8, 10)}500908`;
-  for (let c = 0; c < 10; c += 1) {
-    const id = base + c;
-    let sum = 0;
-    for (let i = 0; i < 13; i += 1) {
-      let d = Number(id[12 - i]);
-      if (i % 2 === 1) { d *= 2; if (d > 9) d -= 9; }
-      sum += d;
-    }
-    if (sum % 10 === 0) return id;
-  }
-  throw new Error(`no SA ID for ${dob}`);
-}
-
-function parseDate(s: string): Date {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-  if (!m) throw new Error(`bad date ${s}`);
-  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-}
+/** A gap's closer: the wave-6 PR that closes it, or a PR number. */
+export const CLOSER = /^(UF|FQc|OC|PSP|DBF|RI|GA|#\d+)\b/;
 
 export function loadCases(): OracleCase[] {
-  const files = readdirSync(ORACLE_DIR).filter(f => f.endsWith('.json') && f !== 'knownGaps.json').sort();
+  const files = readdirSync(ORACLE_DIR).filter(f => f.endsWith('.json') && !(LIST_FILES as readonly string[]).includes(f)).sort();
   return files.map(f => {
     const raw: unknown = JSON.parse(readFileSync(join(ORACLE_DIR, f), 'utf8'));
     validateCase(raw, f);
@@ -113,8 +125,15 @@ export function loadKnownGaps(): KnownGap[] {
   return JSON.parse(readFileSync(join(ORACLE_DIR, 'knownGaps.json'), 'utf8')) as KnownGap[];
 }
 
-/** Problems with the gap list itself: unknown cases, duplicates, empty entries, UNVERIFIED cases off the list. */
-export function gapListProblems(cases: readonly OracleCase[], gaps: readonly KnownGap[]): string[] {
+export function loadUnverified(): UnverifiedEntry[] {
+  return JSON.parse(readFileSync(join(ORACLE_DIR, 'unverified.json'), 'utf8')) as UnverifiedEntry[];
+}
+
+/**
+ * Problems with the two lists: unknown cases, duplicates, empty entries, and an UNVERIFIED case on neither list or on
+ * both. An unverified.json entry is not a gap, so caseProblems holds its engine figure to `expected` exactly.
+ */
+export function gapListProblems(cases: readonly OracleCase[], gaps: readonly KnownGap[], unverified: readonly UnverifiedEntry[] = []): string[] {
   const problems: string[] = [];
   const byId = new Map(cases.map(c => [c.id, c]));
   const seen = new Set<string>();
@@ -132,85 +151,25 @@ export function gapListProblems(cases: readonly OracleCase[], gaps: readonly Kno
     }
     if (!g.reason || g.reason.length < 20) problems.push(`${g.case}: reason missing`);
     if (!g.closedBy || g.closedBy.length < 5) problems.push(`${g.case}: closedBy missing`);
+    else if (g.parity !== true && !CLOSER.test(g.closedBy)) problems.push(`${g.case}: closedBy must start with a closing PR (UF, FQc, OC, PSP, DBF, RI, GA or #n) or the gap be parity: true`);
+  }
+  const unverifiedIds = new Set<string>();
+  for (const u of unverified) {
+    const c = byId.get(u.case);
+    if (!c) problems.push(`${u.case}: on unverified.json but has no fixture`);
+    else if (c.source !== 'UNVERIFIED') problems.push(`${u.case}: on unverified.json but its source is ${c.source}`);
+    if (unverifiedIds.has(u.case)) problems.push(`${u.case}: listed twice on unverified.json`);
+    if (seen.has(u.case)) problems.push(`${u.case}: on both knownGaps.json and unverified.json`);
+    unverifiedIds.add(u.case);
+    if (!u.reason || u.reason.length < 20) problems.push(`${u.case}: unverified reason missing`);
+    if (!u.wouldVerify || u.wouldVerify.length < 20) problems.push(`${u.case}: unverified wouldVerify missing`);
   }
   for (const c of cases) {
-    if (c.source === 'UNVERIFIED' && !seen.has(c.id)) problems.push(`${c.id}: source UNVERIFIED is allowed only on a known gap`);
+    if (c.source === 'UNVERIFIED' && !seen.has(c.id) && !unverifiedIds.has(c.id)) {
+      problems.push(`${c.id}: source UNVERIFIED must be on knownGaps.json (engine differs) or unverified.json (engine matches)`);
+    }
   }
   return problems;
-}
-
-/** A fixture's status label as the engine's tax status: only the two it treats differently; every Sage label is an employee. */
-export function oracleTaxStatus(label: string): TaxStatus {
-  return label === 'independent_contractor' || label === 'director' ? label : 'employee';
-}
-
-const numberOf = (v: unknown): number | null => (typeof v === 'number' ? v : null);
-
-/** An IRP3(b) percentage or IRP3(c) amount from the case, as the run's directive for the period (DR). */
-function oracleDirective(c: OracleCase): Pick<PayrollLineInput, 'regularPayDirective'> {
-  const rate = numberOf(c.input.unmodelled?.fixedRateDirectivePercent);
-  const amount = numberOf(c.input.unmodelled?.fixedAmountDirective);
-  if (rate == null && amount == null) return {};
-  const endsOn = `${c.input.taxYear}-02-28`;
-  const effectiveDate = `${c.input.taxYear - 1}-03-01`;
-  return {
-    regularPayDirective: {
-      current: rate != null
-        ? { id: `${c.id}-directive`, number: null, type: 'fixed_percentage', rate: rate / 100, fixedAmount: null, endsOn, effectiveDate }
-        : { id: `${c.id}-directive`, number: null, type: 'fixed_amount', rate: null, fixedAmount: amount!, endsOn, effectiveDate },
-      ended: null,
-    },
-  };
-}
-
-/** The calculator's input for a case, exactly what runCase costs (exported so a test can see what reaches it). */
-export function buildCaseInput(c: OracleCase): PayrollLineInput {
-  const { input } = c;
-  const hoursPerWeek = numberOf(input.unmodelled?.ordinaryHoursPerWeek);
-  const dayRate = numberOf(input.unmodelled?.dayRate);
-  const monthlyHours = numberOf(input.unmodelled?.monthlyHours);
-  const basic = input.components.filter(x => x.type === 'earning' && x.code === '3601');
-  if (monthlyHours != null && (dayRate != null || basic.length !== 1)) {
-    throw new Error(`${c.id}: monthlyHours needs exactly one 3601 earning and no dayRate`);
-  }
-  const employee: PayrollEmployee = {
-    id: c.id,
-    companyId: 'oracle',
-    employeeNumber: c.id,
-    firstName: 'Oracle',
-    lastName: 'Case',
-    employmentType: input.employee.taxStatus === 'temporary_part_time' ? 'casual' : 'permanent',
-    startDate: parseDate(input.employee.startDate),
-    ...(input.employee.dateOfBirth ? { dateOfBirth: parseDate(input.employee.dateOfBirth) } : {}),
-    // ETI Act s6(b): the oracle's employees hold an ID document (a valid SA ID number for their date of birth); the cases
-    // test the incentive's amount, not the document.
-    ...(input.employee.dateOfBirth ? { idNumber: saIdFor(input.employee.dateOfBirth) } : {}),
-    uifExcluded: input.employee.uifExcluded,
-    medicalAidMainMember: input.employee.medicalAidMainMember,
-    medicalAidDependantsCount: input.employee.medicalAidDependantsCount,
-    s18aReceiptHeld: input.employee.s18aReceiptHeld,
-    taxStatus: oracleTaxStatus(input.employee.taxStatus),
-    payBasis: dayRate != null ? 'daily' : monthlyHours != null ? 'hourly' : 'monthly',
-    hoursPerWeek,
-    hoursPerDay: numberOf(input.unmodelled?.hoursPerDay),
-    dailyRate: dayRate,
-    hourlyRate: monthlyHours != null && monthlyHours > 0 ? basic[0]!.amount / monthlyHours : null,
-  };
-  const base: EmployeeComponent[] = input.components.map((x, i) => ({
-    component: {
-      id: `${c.id}-${i}`, name: x.name, sarsSourceCode: x.code, componentType: x.type,
-      isTaxable: x.taxable, isUifApplicable: x.uif, isSdlApplicable: x.sdl,
-    },
-    amount: x.amount,
-    ...(monthlyHours != null && x === basic[0] ? { quantity: monthlyHours, quantityUnit: 'hour' as const } : {}),
-  }));
-  // As a run: fringe benefits applied and employer benefits marked non-cash, then the percent-of-RFI rows costed (RF).
-  const components = costRfi(withFringeBenefits(withEmployerRetirement(base, input.unmodelled), input.unmodelled, input.period), input.unmodelled);
-  return {
-    employee, components, period: input.period, taxYear: input.taxYear,
-    annualPayrollEstimate: input.employerAnnualRemuneration,
-    ...oracleDirective(c),
-  };
 }
 
 export function runCase(c: OracleCase): Record<OracleField, number> {

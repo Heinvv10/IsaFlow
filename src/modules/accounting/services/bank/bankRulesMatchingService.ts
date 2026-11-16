@@ -7,9 +7,6 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
-import { fetchVatDenialFlags } from '../gl/inputVatDenial';
-import { fetchAccountNames } from '../gl/nonSupplyVatGuard';
-import { fetchBankContraFlags } from '../gl/bankContraVat';
 import type { RuleApplyResult } from '../../types/bank.types';
 import {
   findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType,
@@ -23,7 +20,8 @@ import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { isHeaderAccountRefusal } from '../gl/headerAccountGuard';
 import { isSupplierRefundRefusal } from '../ap/supplierRefundDocument';
-import { contactControlAccountIds } from './contactControlGuard';
+import { fetchRuleAccountFacts } from './bankRuleAccountFacts';
+import { isAllocationVatCode } from './bankVatCodes';
 
 export async function applyRules(
   companyId: string,
@@ -103,6 +101,8 @@ export async function applyRules(
     let autoPostSkippedRefundCeiling = 0;
     // The rule's account is AP/AR control (contactControlGuard): posting there has no document. Name the contact.
     let autoPostSkippedControlAccount = 0;
+    // WP2 row 13: the rule's vat_code is none of the four known codes (a row no route writes now) — it would post gross.
+    let autoPostSkippedUnknownVatCode = 0;
     let autoPostRulesSkippedForeignContact = 0; // rules whose supplier/customer is not this company's
     let autoPostSkippedApprovalRequired = 0;
     let autoPostSkippedRaced = 0;
@@ -117,25 +117,9 @@ export async function applyRules(
     // must see, not something to fix silently every sweep.
     let autoPostNonSupply = 0;
 
-    // One query for every rule's target account. A sweep posts hundreds of
-    // lines against a handful of accounts, so resolving the s17(2)(a) denial
-    // inside autoPostRuleLine would be one redundant SELECT per transaction.
-    const ruleAccountIds = autoCreateRules
-      .map((r) => (r.gl_account_id ? String(r.gl_account_id) : ''))
-      .filter(Boolean);
-    const [ruleAccountVatDenied, ruleAccountNames, ruleAccountIsBank, ruleAccountIsControl] = await Promise.all([
-      fetchVatDenialFlags(companyId, ruleAccountIds),
-      // The non-supply guard classifies on account NAME, so the batched branch
-      // needs these for the same reason and on the same one-query-per-sweep
-      // budget as the denial flags beside them.
-      fetchAccountNames(companyId, ruleAccountIds),
-      // A transfer rule stores its counterparty BANK in gl_account_id and so
-      // arrives as an ordinary `account` line. The name guard cannot see that
-      // — "FNB Cheque Account" reads like any other — so the subtype comes
-      // along on the same budget.
-      fetchBankContraFlags(companyId, ruleAccountIds),
-      contactControlAccountIds(companyId, ruleAccountIds),
-    ]);
+    // One read per sweep for every rule's target account (bankRuleAccountFacts).
+    const { ruleAccountVatDenied, ruleAccountNames, ruleAccountIsBank, ruleAccountIsControl } =
+      await fetchRuleAccountFacts(companyId, autoCreateRules);
 
     for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
       const pattern = rulePattern(rule);
@@ -188,6 +172,12 @@ export async function applyRules(
       const matchingTxs = await findMatchingTxs(companyId, bankAccountId, field, pattern);
       if (allocType === 'account' && ruleGlAccountId && ruleAccountIsControl.has(ruleGlAccountId.toLowerCase())) {
         autoPostSkippedControlAccount += Math.min(matchingTxs.length, MAX_RULE_CANDIDATES);
+        continue;
+      }
+      // Empty means none, as autoPostRuleLine reads it; anything else outside the four posts nothing until fixed.
+      if (!isAllocationVatCode(String(rule.vat_code || 'none'))) {
+        autoPostSkippedUnknownVatCode += Math.min(matchingTxs.length, MAX_RULE_CANDIDATES);
+        log.warn('Skipping auto-create rule with an unknown VAT code', { ruleId: rule.id, ruleName, vatCode: rule.vat_code }, 'accounting');
         continue;
       }
 
@@ -291,7 +281,7 @@ export async function applyRules(
 
     const counts = {
       autoPostRulesSkippedNoBankGl, autoPostSkippedClosedPeriod, autoPostSkippedNoPeriod, autoPostSkippedVatLocked,
-      autoPostSkippedHeaderAccount, autoPostSkippedControlAccount, autoPostSkippedRefundCeiling, autoPostSkippedApprovalRequired, autoPostSkippedRaced,
+      autoPostSkippedHeaderAccount, autoPostSkippedControlAccount, autoPostSkippedUnknownVatCode, autoPostSkippedRefundCeiling, autoPostSkippedApprovalRequired, autoPostSkippedRaced,
       autoPostSkippedLocked, autoPostRulesSkippedForeignContact,
       autoPostTruncatedRules, autoPostVatDenied, autoPostNonSupply,
     };

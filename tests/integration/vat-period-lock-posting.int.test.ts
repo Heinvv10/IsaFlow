@@ -166,7 +166,8 @@ describeIfDb('a locked VAT period refuses every posting that moves a VAT figure'
 
     const noVat = await seedBankTx(fx, { date: '2026-06-15', amount: -40, description: 'No VAT spend' });
     const out = await inTx(fx, () => allocateTransaction(
-      fx.companyId, noVat, acc.expense!, fx.userId, undefined, 'account', undefined, 'no_vat',
+      // 'none' is the bank VAT code; 'no_vat' is the journal-line VatType and is refused as a code (WP2 row 13).
+      fx.companyId, noVat, acc.expense!, fx.userId, undefined, 'account', undefined, 'none',
     ));
     expect(await statusOf(out.journalEntryId)).toBe('posted');
   });

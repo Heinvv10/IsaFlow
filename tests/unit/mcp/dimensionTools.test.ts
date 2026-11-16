@@ -146,7 +146,16 @@ describe('split_allocate_bank_transaction', () => {
     const r = await splitAllocateBankTransactionTool.handler({
       transaction_id: TX, lines: [{ ...lines[0], amount: 60 }, lines[1]], ...KEY,
     }, ctx);
-    expect(text(r)).toMatch(/does not equal the transaction amount R115\.00/);
+    expect(text(r)).toMatch(/^Split lines total R\s106\.00 does not equal the transaction amount R\s115\.00\. Nothing was posted\.$/);
+    expect(splitAllocateTransaction).not.toHaveBeenCalled();
+  });
+
+  // WP2 row 11: the tool asks the service's own exact-cents rule (bankSplitTotal), so the two cannot disagree.
+  it('refuses lines one cent over the transaction, naming both totals', async () => {
+    const r = await splitAllocateBankTransactionTool.handler({
+      transaction_id: TX, lines: [{ ...lines[0], amount: 69.01 }, lines[1]], ...KEY,
+    }, ctx);
+    expect(text(r)).toBe('Split lines total R\u00A0115.01 does not equal the transaction amount R\u00A0115.00. Nothing was posted.');
     expect(splitAllocateTransaction).not.toHaveBeenCalled();
   });
 
