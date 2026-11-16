@@ -13,6 +13,7 @@ import type { ForecastLine } from '@/modules/accounting/services/cashForecast13/
 import { createItem, deleteItem, deleteOverride, saveOverride, savePayDay, type StoredOverride } from './cash13Client';
 import { useCash13 } from './useCash13';
 import { ForecastGrid, overrideKey } from './ForecastGrid';
+import { inForceLine } from './forecastRows';
 import { Cash13Header, Cash13Runway, OverdueArPanel, WarningsList } from './Cash13Summary';
 import { CellEditor } from './CellEditor';
 import { AddItemForm } from './AddItemForm';
@@ -48,7 +49,7 @@ export function Cash13Tab() {
       {writer && store.status === 'missing' && (
         <p className="text-sm text-ink-muted" data-testid="store-missing">Changing the forecast is not available yet: you can view it.</p>
       )}
-      {writer && store.status === 'failed' && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{store.message}</p>}
+      {store.status === 'failed' && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{store.message}</p>}
       {!writer && <p className="text-sm text-ink-muted" data-testid="read-only-note">You can view this forecast. Owners, admins and managers can change it.</p>}
 
       {forecast.status === 'loading' && (
@@ -68,12 +69,12 @@ export function Cash13Tab() {
             {store.status === 'ready' && (
               <>
                 <PayDayControl setting={data.payDay} canEdit={editable} onSave={(rule) => write(() => savePayDay(rule))} />
-                <ExpectedItemsList items={data.items} canEdit={editable} onDelete={(id) => write(() => deleteItem(id))} />
+                <ExpectedItemsList state={data.items} canEdit={editable} onDelete={(id) => write(() => deleteItem(id))} />
               </>
             )}
           </div>
           {editing && (
-            <CellEditor line={editing.line} week={editing.week} weeks={forecast.data.weeks}
+            <CellEditor line={inForceLine(editing.line, forecast.data.lines)} week={editing.week} weeks={forecast.data.weeks}
               existing={overrides.get(overrideKey(editing.line.key, forecast.data.weeks[editing.week]?.start ?? ''))}
               onClose={() => setEditing(null)}
               onSave={(body) => write(() => saveOverride(body))}

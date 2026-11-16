@@ -51,12 +51,23 @@ describe('cell editor payloads', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
-  it('Add on a payment flips the sign', async () => {
+  it('Add on a payment defaults to Money out; Money in makes it positive', async () => {
     await openApCell();
     fireEvent.click(screen.getByLabelText('Add'));
+    expect((screen.getByLabelText('Money out') as HTMLInputElement).checked).toBe(true);
     typeMoney('Amount to add', '1000');
+    fireEvent.click(screen.getByLabelText('Money in'));
     fireEvent.click(screen.getByRole('button', { name: 'Save change' }));
-    await waitFor(() => expect(client.saveOverride).toHaveBeenCalledWith(expect.objectContaining({ mode: 'add', amount: -1000 })));
+    await waitFor(() => expect(client.saveOverride).toHaveBeenCalledWith(expect.objectContaining({ mode: 'add', amount: 1000 })));
+  });
+
+  it('the result is stated before Save, and follows the direction chosen', async () => {
+    await openApCell();
+    typeMoney('New amount', '6000');
+    const sp = () => screen.getByTestId('override-preview').textContent?.replace(/\u00a0/g, ' ');
+    expect(sp()).toBe('Week 2 will be −R 6 000.00.');
+    fireEvent.click(screen.getByLabelText('Money in'));
+    expect(sp()).toBe('Week 2 will be R 6 000.00.');
   });
 
   it('Move the whole week: amount null and the target Monday', async () => {

@@ -1,25 +1,28 @@
 /**
- * The editor for one cell of the 13-week grid (writers only): Set to / Add / Move to another week, with a note.
- * The draft becomes the PUT body in `buildOverrideBody` (sign rules there). A cell already changed by hand
- * offers "Remove this change" (DELETE by the override's id). One submit at a time; a refusal shows the
- * server's message and keeps the dialog open; a save closes it and the page reloads the forecast.
+ * The editor for one cell of the 13-week grid (writers only): Set to / Add / Move to another week, Money in or
+ * Money out, an amount typed as a positive figure, and a note. `line` is the line AS IN FORCE (source + earlier
+ * changes), so "This week" and what can be moved are what the grid adds up to. The preview states the result
+ * before Save. One override per cell: an existing one pre-fills the editor and a save replaces it ("Remove this
+ * change" deletes it). One submit at a time; a refusal shows the server's message and keeps the dialog open.
  */
 import { useState } from 'react';
 import { Button, Input, Modal, MoneyField } from '@/components/ui';
 import type { ApiResult } from '@/components/accounting/budgets/workspace/types';
-import { formatStatementFigure } from '@/lib/format/money';
+import { formatCents } from '@/lib/money/formatMoney';
 import type { ForecastLine, ForecastWeek } from '@/modules/accounting/services/cashForecast13/types';
 import { PHONE_TAP } from '@/components/accounting/formActionBar';
-import { buildOverrideBody, type OverrideBody, type OverrideMode } from './overridePayload';
+import {
+  buildOverrideBody, cellSign, draftFromOverride, previewText,
+  type ExistingOverride, type OverrideBody, type OverrideDraft, type OverrideMode,
+} from './overridePayload';
 import { weekLabel } from './forecastRows';
-import type { StoredOverride } from './cash13Client';
 import { useGuardedSubmit } from './useGuardedSubmit';
 
 export interface CellEditorProps {
   line: ForecastLine;
   week: number;
   weeks: readonly ForecastWeek[];
-  existing: StoredOverride | undefined;
+  existing: ExistingOverride | undefined;
   onClose: () => void;
   onSave: (body: OverrideBody) => Promise<ApiResult<unknown>>;
   onRemove: (id: string) => Promise<ApiResult<unknown>>;
@@ -31,22 +34,23 @@ const MODES: ReadonlyArray<{ id: OverrideMode; label: string }> = [
   { id: 'move_to', label: 'Move to another week' },
 ];
 
-const rands = (cents: number) => formatStatementFigure(cents / 100, { symbol: true, cents: true });
+/** The footer's buttons wrap (and take the width) on a 360px phone instead of running off the dialog. */
+export const EDITOR_FOOTER = 'flex-wrap max-sm:[&>button]:flex-1';
+const RADIO = `flex items-center gap-2 text-sm text-[var(--ff-text-primary)] ${PHONE_TAP}`;
 
 export function CellEditor({ line, week, weeks, existing, onClose, onSave, onRemove }: CellEditorProps) {
   const cell = line.weekly[week] ?? 0;
-  const [mode, setMode] = useState<OverrideMode>('set');
-  const [amountCents, setAmountCents] = useState<number | null>(null);
+  const [draft, setDraft] = useState<OverrideDraft>(() => (existing
+    ? draftFromOverride(existing, line, week, weeks)
+    : { mode: 'set', direction: cellSign(line, week), amountCents: null, wholeCell: true, targetWeek: null, note: '' }));
   const [amountValid, setAmountValid] = useState(true);
-  const [wholeCell, setWholeCell] = useState(true);
-  const [targetWeek, setTargetWeek] = useState<number | null>(null);
-  const [note, setNote] = useState(existing?.note ?? '');
   const [localError, setLocalError] = useState<string | null>(null);
   const { busy, error, submit } = useGuardedSubmit();
+  const patch = (p: Partial<OverrideDraft>) => { setDraft((d) => ({ ...d, ...p })); setLocalError(null); };
 
   const save = async () => {
-    if (!amountValid && !(mode === 'move_to' && wholeCell)) { setLocalError('The amount could not be read.'); return; }
-    const built = buildOverrideBody({ mode, amountCents, wholeCell, targetWeek, note }, line, week, weeks);
+    if (!amountValid && !(draft.mode === 'move_to' && draft.wholeCell)) { setLocalError('The amount could not be read.'); return; }
+    const built = buildOverrideBody(draft, line, week, weeks);
     if (!built.ok) { setLocalError(built.message); return; }
     setLocalError(null);
     await submit(() => onSave(built.body), onClose);
@@ -58,48 +62,64 @@ export function CellEditor({ line, week, weeks, existing, onClose, onSave, onRem
   };
 
   const shown = localError ?? error;
-  const onAmount = (c: number | null, v: { valid: boolean }) => { setAmountCents(c); setAmountValid(v.valid); };
+  const preview = previewText(draft, line, week, weeks);
+  const onAmount = (c: number | null, v: { valid: boolean }) => { patch({ amountCents: c }); setAmountValid(v.valid); };
 
   return (
     <Modal open onClose={onClose} title={`${line.label} · ${weekLabel(weeks[week] as ForecastWeek)}`} size="md">
       <Modal.Body className="space-y-4">
-        <p className="text-sm text-[var(--ff-text-secondary)]">This week: {cell === 0 ? 'nothing' : rands(cell)}</p>
+        <p className="text-sm text-[var(--ff-text-secondary)]" data-testid="cell-in-force">This week: {formatCents(cell)}</p>
+        {existing && <p className="text-sm text-[var(--ff-text-primary)]" data-testid="replaces-note">This replaces your earlier change to this week.</p>}
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium text-[var(--ff-text-primary)]">Change</legend>
           <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
             {MODES.map((m) => (
-              <label key={m.id} className={`flex items-center gap-2 text-sm text-[var(--ff-text-primary)] ${PHONE_TAP}`}>
-                <input type="radio" name="cash13-mode" value={m.id} checked={mode === m.id} onChange={() => { setMode(m.id); setLocalError(null); }}
+              <label key={m.id} className={RADIO}>
+                <input type="radio" name="cash13-mode" value={m.id} checked={draft.mode === m.id} onChange={() => patch({ mode: m.id })}
                   disabled={m.id === 'move_to' && cell === 0} />
                 {m.label}
               </label>
             ))}
           </div>
         </fieldset>
-        {mode === 'move_to' ? (
+        {draft.mode === 'move_to' ? (
           <>
-            <label className={`flex items-center gap-2 text-sm text-[var(--ff-text-primary)] ${PHONE_TAP}`}>
-              <input type="checkbox" checked={wholeCell} onChange={(e) => setWholeCell(e.target.checked)} />
+            <label className={RADIO}>
+              <input type="checkbox" checked={draft.wholeCell} onChange={(e) => patch({ wholeCell: e.target.checked })} />
               Move the whole week
             </label>
-            {!wholeCell && <MoneyField label="Amount to move" value={amountCents} onChange={onAmount} />}
+            {!draft.wholeCell && <MoneyField label="Amount to move" value={draft.amountCents} onChange={onAmount} />}
             <div className="space-y-1">
               <label htmlFor="cash13-target" className="block text-sm font-medium text-[var(--ff-text-primary)]">Move to</label>
-              <select id="cash13-target" className="w-full rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-primary)] px-3 py-2 text-sm text-[var(--ff-text-primary)]"
-                value={targetWeek ?? ''} onChange={(e) => setTargetWeek(e.target.value === '' ? null : Number(e.target.value))}>
+              <select id="cash13-target" className="w-full rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-primary)] px-3 py-2 text-sm text-[var(--ff-text-primary)] max-lg:min-h-11"
+                value={draft.targetWeek ?? ''} onChange={(e) => patch({ targetWeek: e.target.value === '' ? null : Number(e.target.value) })}>
                 <option value="">Choose a week</option>
                 {weeks.filter((w) => w.index !== week).map((w) => <option key={w.index} value={w.index}>{weekLabel(w)}</option>)}
               </select>
             </div>
           </>
         ) : (
-          <MoneyField label={mode === 'set' ? 'New amount' : 'Amount to add'} value={amountCents} onChange={onAmount}
-            allowNegative={mode === 'add'} helperText={mode === 'add' ? 'A negative amount means less.' : 'As it reads in the grid, without a minus sign.'} />
+          <>
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium text-[var(--ff-text-primary)]">Direction</legend>
+              <div className="flex gap-4">
+                {([[1, 'Money in'], [-1, 'Money out']] as const).map(([d, l]) => (
+                  <label key={d} className={RADIO}>
+                    <input type="radio" name="cash13-direction" checked={draft.direction === d} onChange={() => patch({ direction: d })} />
+                    {l}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <MoneyField label={draft.mode === 'set' ? 'New amount' : 'Amount to add'} value={draft.amountCents} onChange={onAmount}
+              helperText="Type the amount without a minus sign; the direction above gives its sign." />
+          </>
         )}
-        <Input label="Note (optional)" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} />
+        <Input label="Note (optional)" value={draft.note} maxLength={500} onChange={(e) => patch({ note: e.target.value })} />
+        {preview && <p className="text-sm font-medium text-[var(--ff-text-primary)]" data-testid="override-preview">{preview}</p>}
         {shown && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{shown}</p>}
       </Modal.Body>
-      <Modal.Footer>
+      <Modal.Footer className={EDITOR_FOOTER}>
         {existing && <Button variant="ghost" className={PHONE_TAP} onClick={() => void remove()} disabled={busy}>Remove this change</Button>}
         <Button variant="secondary" className={PHONE_TAP} onClick={onClose} disabled={busy}>Cancel</Button>
         <Button className={PHONE_TAP} onClick={() => void save()} loading={busy}>Save change</Button>

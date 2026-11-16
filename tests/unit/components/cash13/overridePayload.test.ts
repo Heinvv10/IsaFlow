@@ -1,76 +1,130 @@
 /**
- * The override editor's PUT body (data layer #1509 storeSchemas.OverrideInput): set/add amounts are SIGNED in the
- * cell's own sign (a payment is negative), the person types what they see; move_to sends a MAGNITUDE (> 0) or
- * null for the whole cell, with a target Monday other than the cell's week.
+ * The override editor's PUT body (data layer #1509 storeSchemas.OverrideInput). The person types a positive
+ * MAGNITUDE and chooses Money in / Money out (default from `cellSign`: the cell, else the line total, else the
+ * first non-zero week, else the category); set/add go out SIGNED by that choice. move_to sends a MAGNITUDE (> 0)
+ * or null for the whole cell, with a target Monday other than the cell's week. The preview states the result.
+ * A stored override pre-fills the draft (one override per cell: a re-save replaces it).
  */
 import { describe, expect, it } from 'vitest';
-import { buildOverrideBody, cellSign } from '@/components/accounting/cashForecast13/overridePayload';
+import { buildOverrideBody, cellSign, draftFromOverride, previewText, type OverrideDraft } from '@/components/accounting/cashForecast13/overridePayload';
+import type { ForecastLine } from '@/modules/accounting/services/cashForecast13/types';
 import { forecastFixture } from './fixture';
 
 const f = forecastFixture({ overrides: [] });
 const line = (key: string) => f.lines.find((l) => l.key === key)!;
+const W = (cells: Record<number, number>): number[] => Array.from({ length: 13 }, (_, i) => cells[i] ?? 0);
+const custom = (category: ForecastLine['category'], cells: Record<number, number>): ForecastLine => {
+  const weekly = W(cells);
+  return { ...line('sars:emp201'), key: `x:${category}`, category, weekly, totalCents: weekly.reduce((a, b) => a + b, 0) };
+};
+const draft = (d: Partial<OverrideDraft>): OverrideDraft => ({ mode: 'set', direction: -1, amountCents: null, wholeCell: false, targetWeek: null, note: '', ...d });
 
-describe('cellSign', () => {
-  it('a payment cell is negative, a receipt cell positive', () => {
-    expect(cellSign(line('ap:s1'), 1)).toBe(-1);
-    expect(cellSign(line('ar:c1:due'), 0)).toBe(1);
+describe('cellSign: the default direction, in fallback order', () => {
+  it('the cell\'s own sign first: a refund week on a payments line is in', () => {
+    expect(cellSign(custom('sars', { 0: 500_00, 1: -900_00 }), 0)).toBe(1);
   });
-  it('an empty cell takes the line\'s sign', () => {
-    expect(cellSign(line('payroll:net'), 5)).toBe(-1);
-    expect(cellSign(line('ar:c1:due'), 7)).toBe(1);
+  it('an empty cell takes the line TOTAL (not the first non-zero week)', () => {
+    expect(cellSign(custom('sars', { 0: 100_00, 1: -900_00 }), 5)).toBe(-1);
   });
-  it('a line with no figures falls back on its category: receipts in, the rest out', () => {
-    const empty = { ...line('ar:c1:due'), weekly: Array(13).fill(0), totalCents: 0 };
-    expect(cellSign(empty, 0)).toBe(1);
-    expect(cellSign({ ...empty, category: 'sars' }, 0)).toBe(-1);
+  it('total 0: the first non-zero week (not the category)', () => {
+    expect(cellSign(custom('sars', { 0: 100_00, 1: -100_00 }), 5)).toBe(1);
   });
-  it('a refund cell on a payments line keeps its own sign', () => {
-    const mixed = { ...line('sars:emp201'), weekly: [500_00, ...Array(12).fill(-100_00)], totalCents: -700_00 };
-    expect(cellSign(mixed, 0)).toBe(1);
+  it('no figures: the category, receipts in and the rest out', () => {
+    expect(cellSign(custom('customer_receipts', {}), 0)).toBe(1);
+    expect(cellSign(custom('loans', {}), 0)).toBe(-1);
   });
 });
 
 describe('buildOverrideBody', () => {
   const ap = line('ap:s1');
-  it('set on a payment cell sends the typed amount negative, in rand', () => {
-    expect(buildOverrideBody({ mode: 'set', amountCents: 6_000_00, wholeCell: false, targetWeek: null, note: ' late ' }, ap, 1, f.weeks))
-      .toEqual({ ok: true, body: { lineKey: 'ap:s1', weekStart: f.weeks[1]!.start, mode: 'set', amount: -6000, note: 'late' } });
+  const wk2 = f.weeks[1]!.start;
+
+  it('Set to, money out: the typed 6 000 goes as -6000 for that Monday', () => {
+    expect(buildOverrideBody(draft({ amountCents: 6_000_00, note: ' late ' }), ap, 1, f.weeks))
+      .toEqual({ ok: true, body: { lineKey: 'ap:s1', weekStart: wk2, mode: 'set', amount: -6000, note: 'late' } });
   });
-  it('set to nothing on a payment cell is 0, never -0', () => {
-    const r = buildOverrideBody({ mode: 'set', amountCents: 0, wholeCell: false, targetWeek: null, note: '' }, ap, 1, f.weeks);
+
+  it('reviewer case: a SARS line in net refund, an empty week set to a 20 000 PAYMENT goes negative', () => {
+    const sars = custom('sars', { 0: 50_000_00 });
+    expect(cellSign(sars, 7)).toBe(1);
+    expect(buildOverrideBody(draft({ direction: -1, amountCents: 20_000_00 }), sars, 7, f.weeks)).toMatchObject({ ok: true, body: { amount: -20000 } });
+  });
+
+  it('a loans drawdown: money IN on a loans line is positive', () => {
+    const loans = line('loan:L1');
+    expect(buildOverrideBody(draft({ direction: 1, amountCents: 100_000_00 }), loans, 0, f.weeks)).toMatchObject({ ok: true, body: { amount: 100000 } });
+  });
+
+  it('a refund cell set to a payment', () => {
+    const sars = custom('sars', { 2: 3_000_00 });
+    expect(buildOverrideBody(draft({ direction: -1, amountCents: 5_000_00 }), sars, 2, f.weeks)).toMatchObject({ ok: true, body: { mode: 'set', amount: -5000 } });
+  });
+
+  it('set to nothing is 0, never -0', () => {
+    const r = buildOverrideBody(draft({ amountCents: 0 }), ap, 1, f.weeks);
     expect(r.ok && Object.is(r.body.amount, 0)).toBe(true);
     expect(r.ok && r.body.note).toBe(null);
   });
-  it('add on a receipt cell is positive; a negative add (less) stays negative', () => {
-    const ar = line('ar:c1:due');
-    expect(buildOverrideBody({ mode: 'add', amountCents: 150_50, wholeCell: false, targetWeek: null, note: '' }, ar, 0, f.weeks))
-      .toMatchObject({ ok: true, body: { mode: 'add', amount: 150.5 } });
-    expect(buildOverrideBody({ mode: 'add', amountCents: -100_00, wholeCell: false, targetWeek: null, note: '' }, ar, 0, f.weeks))
-      .toMatchObject({ ok: true, body: { amount: -100 } });
+
+  it('add: the direction signs the magnitude; less is the other direction', () => {
+    expect(buildOverrideBody(draft({ mode: 'add', direction: -1, amountCents: 1_000_00 }), ap, 1, f.weeks)).toMatchObject({ ok: true, body: { amount: -1000 } });
+    expect(buildOverrideBody(draft({ mode: 'add', direction: 1, amountCents: 1_000_00 }), ap, 1, f.weeks)).toMatchObject({ ok: true, body: { amount: 1000 } });
   });
-  it('add on a payment cell flips the typed sign: "add R1 000" pays R1 000 more', () => {
-    expect(buildOverrideBody({ mode: 'add', amountCents: 1_000_00, wholeCell: false, targetWeek: null, note: '' }, ap, 1, f.weeks))
-      .toMatchObject({ ok: true, body: { amount: -1000 } });
+
+  it('refused before the request: add of 0, a negative typed amount, no amount', () => {
+    expect(buildOverrideBody(draft({ mode: 'add', amountCents: 0 }), ap, 1, f.weeks).ok).toBe(false);
+    expect(buildOverrideBody(draft({ amountCents: -5_00 }), ap, 1, f.weeks).ok).toBe(false);
+    expect(buildOverrideBody(draft({ amountCents: null }), ap, 1, f.weeks).ok).toBe(false);
   });
-  it('add of nothing is refused before the request', () => {
-    expect(buildOverrideBody({ mode: 'add', amountCents: 0, wholeCell: false, targetWeek: null, note: '' }, ap, 1, f.weeks).ok).toBe(false);
+
+  it('move_to a part: a positive magnitude and the target Monday', () => {
+    expect(buildOverrideBody(draft({ mode: 'move_to', amountCents: 2_000_00, targetWeek: 3 }), ap, 1, f.weeks))
+      .toEqual({ ok: true, body: { lineKey: 'ap:s1', weekStart: wk2, mode: 'move_to', amount: 2000, targetWeekStart: f.weeks[3]!.start, note: null } });
   });
-  it('move_to a part sends a positive magnitude and the target Monday, whatever the cell sign', () => {
-    expect(buildOverrideBody({ mode: 'move_to', amountCents: 2_000_00, wholeCell: false, targetWeek: 3, note: '' }, ap, 1, f.weeks))
-      .toEqual({ ok: true, body: { lineKey: 'ap:s1', weekStart: f.weeks[1]!.start, mode: 'move_to', amount: 2000, targetWeekStart: f.weeks[3]!.start, note: null } });
-  });
+
   it('move_to the whole cell sends amount null', () => {
-    expect(buildOverrideBody({ mode: 'move_to', amountCents: 5_00, wholeCell: true, targetWeek: 4, note: '' }, ap, 1, f.weeks))
+    expect(buildOverrideBody(draft({ mode: 'move_to', amountCents: 5_00, wholeCell: true, targetWeek: 4 }), ap, 1, f.weeks))
       .toMatchObject({ ok: true, body: { amount: null, targetWeekStart: f.weeks[4]!.start } });
   });
+
   it('move_to is refused with no target, the same week, a zero amount, or an empty cell', () => {
-    const base = { mode: 'move_to' as const, amountCents: 1_00, wholeCell: false, note: '' };
-    expect(buildOverrideBody({ ...base, targetWeek: null }, ap, 1, f.weeks).ok).toBe(false);
-    expect(buildOverrideBody({ ...base, targetWeek: 1 }, ap, 1, f.weeks).ok).toBe(false);
-    expect(buildOverrideBody({ ...base, amountCents: 0, targetWeek: 2 }, ap, 1, f.weeks).ok).toBe(false);
-    expect(buildOverrideBody({ ...base, targetWeek: 2 }, ap, 6, f.weeks).ok).toBe(false);
+    const base = { mode: 'move_to' as const, amountCents: 1_00 };
+    expect(buildOverrideBody(draft({ ...base, targetWeek: null }), ap, 1, f.weeks).ok).toBe(false);
+    expect(buildOverrideBody(draft({ ...base, targetWeek: 1 }), ap, 1, f.weeks).ok).toBe(false);
+    expect(buildOverrideBody(draft({ ...base, amountCents: 0, targetWeek: 2 }), ap, 1, f.weeks).ok).toBe(false);
+    expect(buildOverrideBody(draft({ ...base, targetWeek: 2 }), ap, 6, f.weeks).ok).toBe(false);
   });
-  it('set and add need an amount', () => {
-    expect(buildOverrideBody({ mode: 'set', amountCents: null, wholeCell: false, targetWeek: null, note: '' }, ap, 1, f.weeks).ok).toBe(false);
+});
+
+describe('previewText', () => {
+  const sp = (t: string | null) => t?.replace(/\u00a0/g, ' ') ?? null;
+  const sars = custom('sars', { 0: 50_000_00 });
+  it('set: "Week 8 will be −R 20 000.00"', () => {
+    expect(sp(previewText(draft({ direction: -1, amountCents: 20_000_00 }), sars, 7, f.weeks))).toBe('Week 8 will be −R 20 000.00.');
+  });
+  it('add: the figure in force plus the change', () => {
+    expect(sp(previewText(draft({ mode: 'add', direction: 1, amountCents: 1_000_00 }), sars, 0, f.weeks))).toBe('Week 1 will be R 51 000.00.');
+  });
+  it('move: both weeks', () => {
+    expect(sp(previewText(draft({ mode: 'move_to', wholeCell: true, targetWeek: 2 }), sars, 0, f.weeks))).toBe('Week 1 will be R 0.00 and week 3 will be R 50 000.00.');
+  });
+  it('nothing to say until the draft is complete', () => {
+    expect(previewText(draft({ amountCents: null }), sars, 0, f.weeks)).toBeNull();
+  });
+});
+
+describe('draftFromOverride: a re-save replaces the stored change, so the editor opens on it', () => {
+  const ap = line('ap:s1');
+  it('set, money out, magnitude, note', () => {
+    expect(draftFromOverride({ id: 'o', lineKey: 'ap:s1', weekStart: f.weeks[1]!.start, mode: 'set', amount: -6000, note: 'agreed' }, ap, 1, f.weeks))
+      .toEqual({ mode: 'set', direction: -1, amountCents: 6_000_00, wholeCell: false, targetWeek: null, note: 'agreed' });
+  });
+  it('add in, on a payments line', () => {
+    expect(draftFromOverride({ id: 'o', lineKey: 'ap:s1', weekStart: f.weeks[1]!.start, mode: 'add', amount: 250.5, note: null }, ap, 1, f.weeks))
+      .toMatchObject({ mode: 'add', direction: 1, amountCents: 250_50, note: '' });
+  });
+  it('move_to the whole week, to week 5', () => {
+    expect(draftFromOverride({ id: 'o', lineKey: 'ap:s1', weekStart: f.weeks[1]!.start, mode: 'move_to', amount: null, targetWeekStart: f.weeks[4]!.start, note: null }, ap, 1, f.weeks))
+      .toMatchObject({ mode: 'move_to', wholeCell: true, targetWeek: 4 });
   });
 });

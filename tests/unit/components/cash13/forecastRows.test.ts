@@ -4,7 +4,7 @@
  * one group; the groups' subtotals add up to the engine's net per week.
  */
 import { describe, expect, it } from 'vitest';
-import { groupLines, weekLabel, groupOf } from '@/components/accounting/cashForecast13/forecastRows';
+import { groupLines, weekLabel, groupOf, inForceLine } from '@/components/accounting/cashForecast13/forecastRows';
 import { forecastFixture } from './fixture';
 
 const f = forecastFixture();
@@ -45,5 +45,22 @@ describe('weekLabel', () => {
   it('reads "Week 1 · 16 Nov"', () => {
     expect(weekLabel(f.weeks[0]!)).toBe('Week 1 · 16 Nov');
     expect(weekLabel(f.weeks[12]!)).toBe('Week 13 · 8 Feb');
+  });
+});
+
+describe('inForceLine', () => {
+  it('adds the override line\'s deltas: a cell set to 0 is 0, a moved-in amount is there', () => {
+    const g = forecastFixture({ overrides: [
+      { lineKey: 'ap:s1', weekIndex: 1, mode: 'move_to', amountCents: null, targetWeek: 4 },
+      { lineKey: 'payroll:net', weekIndex: 1, mode: 'set', amountCents: 0 },
+    ] });
+    const ap = inForceLine(g.lines.find((l) => l.key === 'ap:s1')!, g.lines);
+    expect(ap.weekly[1]).toBe(0);
+    expect(ap.weekly[4]).toBe(-8_000_00);
+    expect(inForceLine(g.lines.find((l) => l.key === 'payroll:net')!, g.lines).weekly[1]).toBe(0);
+  });
+  it('a line with no changes is returned as it is', () => {
+    const l = f.lines.find((x) => x.key === 'loan:L1')!;
+    expect(inForceLine(l, f.lines)).toBe(l);
   });
 });

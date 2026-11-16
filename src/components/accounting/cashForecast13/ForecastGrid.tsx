@@ -57,7 +57,7 @@ function Cell({ line, week, start, label, override, onEdit }: {
   const changed = override ? `, changed by hand${override.note ? `: ${override.note}` : ''}` : '';
   if (!onEdit || line.kind === 'override') {
     return (
-      <td className={`${CELL} ${neg(v)}`} data-cell={`${line.key}|${start}`}>
+      <td className={`${CELL} ${neg(v)}`} data-cell={`${line.key}|${start}`} title={override?.note ?? undefined}>
         {fig(v)}{marker}{override && <span className="sr-only">{changed}</span>}
       </td>
     );
@@ -128,7 +128,7 @@ function GroupRows({ title, span, children }: { title: string; span: number; chi
   return (
     <>
       <tr className="bg-[var(--ff-bg-secondary)]">
-        <th scope="colgroup" colSpan={span} className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-ink-muted">{title}</th>
+        <th scope="rowgroup" colSpan={span} className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-ink-muted">{title}</th>
       </tr>
       {children}
     </>

@@ -3,8 +3,10 @@
  *   - "13 weeks" (default): the 13-week cash forecast from the books (cash13; Cash13Tab).
  *   - "AI outlook" (`?tab=ai`): the AI weekly forecast, unchanged (AiOutlookTab). With no AI key configured it
  *     says so instead of failing; `aiConfigured` is read on the server by the same test the AI service makes.
+ * A tab is mounted when first opened and then only hidden, so its state (a generated AI forecast) survives.
  * The monthly heuristic forecast stays at /accounting/cash-flow-forecast (its own page; not linked from the menu).
  */
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { TrendingUp } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -21,6 +23,10 @@ const TABS = [
 export default function CashFlowForecastPage({ aiConfigured = false }: { aiConfigured?: boolean }) {
   const router = useRouter();
   const tab = router.query.tab === 'ai' ? 'ai' : 'weeks';
+  // A tab stays mounted (hidden) once opened: switching away must not drop a generated AI forecast and bill a
+  // second one, nor reload the 13 weeks.
+  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set([tab]));
+  useEffect(() => { setOpened((o) => (o.has(tab) ? o : new Set([...o, tab]))); }, [tab]);
   const onChange = (id: string) => {
     const query = id === 'ai' ? { tab: 'ai' } : {};
     void router.replace({ pathname: router.pathname, query }, undefined, { shallow: true });
@@ -35,7 +41,8 @@ export default function CashFlowForecastPage({ aiConfigured = false }: { aiConfi
           <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Cash Flow Forecast</h1>
         </div>
         <Tabs tabs={TABS} activeTab={tab} onChange={onChange} aria-label="Forecast views" />
-        {tab === 'weeks' ? <Cash13Tab /> : <AiOutlookTab aiConfigured={aiConfigured} />}
+        {(tab === 'weeks' || opened.has('weeks')) && <div hidden={tab !== 'weeks'}><Cash13Tab /></div>}
+        {(tab === 'ai' || opened.has('ai')) && <div hidden={tab !== 'ai'}><AiOutlookTab aiConfigured={aiConfigured} /></div>}
       </div>
     </AppLayout>
   );

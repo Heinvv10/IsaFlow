@@ -16,12 +16,14 @@ import {
 
 export type ForecastState = { status: 'loading' } | { status: 'ok'; data: CashForecast13 } | { status: 'error'; message: string };
 export type StoreState = { status: 'loading' } | { status: 'ready' } | { status: 'missing' } | { status: 'failed'; message: string };
+/** The expected items: a failed read is an error with the server's message, never an empty list. */
+export type ItemsState = { status: 'loading' } | { status: 'ok'; data: StoredItem[] } | { status: 'error'; message: string };
 
 export interface Cash13Data {
   forecast: ForecastState;
   store: StoreState;
   overrides: StoredOverride[];
-  items: StoredItem[];
+  items: ItemsState;
   payDay: PayDaySetting | null;
   reload: () => Promise<void>;
   /** Runs a write; on success reloads everything. Returns the write's result. */
@@ -37,7 +39,7 @@ export function useCash13(): Cash13Data {
   const [forecast, setForecast] = useState<ForecastState>({ status: 'loading' });
   const [store, setStore] = useState<StoreState>({ status: 'loading' });
   const [overrides, setOverrides] = useState<StoredOverride[]>([]);
-  const [items, setItems] = useState<StoredItem[]>([]);
+  const [items, setItems] = useState<ItemsState>({ status: 'loading' });
   const [payDay, setPayDay] = useState<PayDaySetting | null>(null);
   const seq = useRef(0);
 
@@ -48,7 +50,7 @@ export function useCash13(): Cash13Data {
     setForecast(f.ok ? { status: 'ok', data: f.data } : { status: 'error', message: f.message });
     setStore(storeOf(o));
     setOverrides(o.ok ? o.data : []);
-    setItems(i.ok ? i.data : []);
+    setItems(i.ok ? { status: 'ok', data: i.data } : { status: 'error', message: i.message });
     setPayDay(p.ok ? p.data : null);
   }, []);
 

@@ -8,7 +8,8 @@ import { Button, Input } from '@/components/ui';
 import type { ApiResult } from '@/components/accounting/budgets/workspace/types';
 import { formatStatementFigure } from '@/lib/format/money';
 import { PHONE_TAP } from '@/components/accounting/formActionBar';
-import type { PayDayRule, PayDaySetting, StoredItem } from './cash13Client';
+import type { PayDayRule, PayDaySetting } from './cash13Client';
+import type { ItemsState } from './useCash13';
 import { CATEGORY_LABELS } from './AddItemForm';
 import { useGuardedSubmit } from './useGuardedSubmit';
 
@@ -28,11 +29,15 @@ export function PayDayControl({ setting, canEdit, onSave }: {
   const [localError, setLocalError] = useState<string | null>(null);
   const { busy, error, submit } = useGuardedSubmit();
 
+  // Reset the form only when the stored VALUE changes: every write reloads the setting as a new object, and that
+  // must not wipe a half-edited pay day.
+  const storedKind = setting?.payDay.kind;
+  const storedDay = setting?.day;
   useEffect(() => {
-    if (!setting) return;
-    setKind(setting.payDay.kind);
-    setDay(String(setting.day));
-  }, [setting]);
+    if (storedKind === undefined || storedDay === undefined) return;
+    setKind(storedKind);
+    setDay(String(storedDay));
+  }, [storedKind, storedDay]);
 
   const save = async () => {
     const n = Number(day);
@@ -69,11 +74,20 @@ export function PayDayControl({ setting, canEdit, onSave }: {
   );
 }
 
-export function ExpectedItemsList({ items, canEdit, onDelete }: {
-  items: readonly StoredItem[]; canEdit: boolean; onDelete: (id: string) => Promise<ApiResult<unknown>>;
+export function ExpectedItemsList({ state, canEdit, onDelete }: {
+  state: ItemsState; canEdit: boolean; onDelete: (id: string) => Promise<ApiResult<unknown>>;
 }) {
   const { busy, error, submit } = useGuardedSubmit();
-  if (items.length === 0) return null;
+  if (state.status === 'error') {
+    return (
+      <section className={PANEL} role="alert" data-testid="items-failed">
+        <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">Expected items could not be loaded</h3>
+        <p className="mt-1 text-sm text-red-600 dark:text-red-400">{state.message}</p>
+      </section>
+    );
+  }
+  if (state.status !== 'ok' || state.data.length === 0) return null;
+  const items = state.data;
   return (
     <section className={PANEL} aria-labelledby="cash13-items">
       <h3 id="cash13-items" className="text-sm font-semibold text-[var(--ff-text-primary)]">Expected items you added</h3>
