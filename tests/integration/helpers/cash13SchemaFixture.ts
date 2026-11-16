@@ -1,5 +1,5 @@
 /**
- * Shared by the migration 999g schema suites: two synthetic companies (each with an owner and a revenue
+ * Shared by the migration 999i schema suites: two synthetic companies (each with an owner and a revenue
  * account), the insert statements, and a transaction as withAuth opens one (app_user, claims, company).
  */
 import type { Pool, PoolClient } from 'pg';

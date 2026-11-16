@@ -1,5 +1,5 @@
 /**
- * Request validation of the 13-week cash forecast's stored inputs: mirrors migration 999g's CHECKs so a
+ * Request validation of the 13-week cash forecast's stored inputs: mirrors migration 999i's CHECKs so a
  * bad value is a 400, and refuses dates Postgres would choke on (30 February).
  */
 import { describe, expect, it } from 'vitest';

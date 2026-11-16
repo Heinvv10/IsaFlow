@@ -1,5 +1,5 @@
 /**
- * Migration 999g as app_user, tenancy and stamps: cash_forecast_items and cash_forecast_overrides are
+ * Migration 999i as app_user, tenancy and stamps: cash_forecast_items and cash_forecast_overrides are
  * tenant-isolated under forced RLS (944's predicate); stamps are the trigger's (a forged value is
  * overwritten, an UPDATE keeps the creation stamps, no session user is refused); app_user writes only the
  * granted columns. Rules, pay day and re-run: cash-forecast-13-schema-rules. Real PostgreSQL; synthetic rows.
@@ -27,7 +27,7 @@ afterAll(async () => {
   try { await tearDown(); } finally { await pool.end(); }
 });
 
-describe('999g: tenancy', () => {
+describe('999i: tenancy', () => {
   it.each(['cash_forecast_items', 'cash_forecast_overrides'])('%s: RLS enabled and forced, the 944 predicate both ways', async (t) => {
     const r = (await pool.query(
       `SELECT c.relrowsecurity, c.relforcerowsecurity, pg_get_expr(p.polqual, p.polrelid) q, pg_get_expr(p.polwithcheck, p.polrelid) w
@@ -74,7 +74,7 @@ describe('999g: tenancy', () => {
   });
 });
 
-describe('999g: stamps and privileges', () => {
+describe('999i: stamps and privileges', () => {
   it.each([
     ['cash_forecast_items', 'created_by'], ['cash_forecast_items', 'updated_at'], ['cash_forecast_items', 'id'],
     ['cash_forecast_overrides', 'created_by'], ['cash_forecast_overrides', 'updated_by'], ['cash_forecast_overrides', 'id'],

@@ -1,6 +1,6 @@
 /**
  * The company's salary pay day (payroll_company_settings.salary_pay_rule / salary_pay_day, migration
- * 999g): day N of the month (1-31; beyond the month's length = its last day) or the last working day.
+ * 999i): day N of the month (1-31; beyond the month's length = its last day) or the last working day.
  * No row = day 25. The write upserts the company's row, refuses a Login-as session first and writes one
  * audit row (entity_type 'payroll_company_settings') in the request transaction. Choosing
  * last_working_day keeps the stored day, so switching back restores it.

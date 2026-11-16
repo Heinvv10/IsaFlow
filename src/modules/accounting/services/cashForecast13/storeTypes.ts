@@ -1,5 +1,5 @@
 /**
- * The 13-week cash forecast's stored inputs, as the engine takes them (migration 999g). Shared by the
+ * The 13-week cash forecast's stored inputs, as the engine takes them (migration 999i). Shared by the
  * data layer (itemsRepo, overridesRepo, payDaySetting) and the engine. Dates are 'YYYY-MM-DD'; amounts
  * are rand, at most two decimals.
  */

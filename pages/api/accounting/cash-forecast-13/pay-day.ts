@@ -1,5 +1,5 @@
 /**
- * 13-week cash forecast: the company's salary pay day (migration 999g on payroll_company_settings,
+ * 13-week cash forecast: the company's salary pay day (migration 999i on payroll_company_settings,
  * service cashForecast13/payDaySetting). Set here until the payroll settings UI exists.
  * GET → { payDay, day, isDefault }: payDay { kind: 'day_of_month', day } | { kind: 'last_working_day' };
  *       no settings row = day 25 (isDefault). Any member.

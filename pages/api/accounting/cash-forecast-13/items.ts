@@ -1,5 +1,5 @@
 /**
- * 13-week cash forecast: expected cash items (migration 999g, service cashForecast13/itemsRepo).
+ * 13-week cash forecast: expected cash items (migration 999i, service cashForecast13/itemsRepo).
  * GET                    → { items }: every item of the company, by expected date. Any member.
  * POST   { direction, amount, date, repeat?, repeatUntil?, description, accountId? } → 201 item
  * PUT    { id, …the same } → 200 item; 404 for an id not of the company

@@ -1,5 +1,5 @@
 /**
- * Expected cash items of the 13-week forecast (cash_forecast_items, migration 999g): receipts and
+ * Expected cash items of the 13-week forecast (cash_forecast_items, migration 999i): receipts and
  * payments a user types. Forecasts, so they are edited and deleted freely; every write runs in the
  * request transaction, refuses a Login-as session first, and writes one audit row
  * (entity_type 'cash_forecast_item'). The table's trigger stamps who and when.

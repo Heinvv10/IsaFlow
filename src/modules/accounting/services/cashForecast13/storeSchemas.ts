@@ -1,6 +1,6 @@
 /**
  * Request validation for the 13-week cash forecast's stored inputs (routes under
- * /api/accounting/cash-forecast-13). Mirrors migration 999g's CHECKs so a bad value is a 400 here,
+ * /api/accounting/cash-forecast-13). Mirrors migration 999i's CHECKs so a bad value is a 400 here,
  * never a 23514 inside the request transaction. Dates must be real calendar dates.
  */
 import { z } from 'zod';

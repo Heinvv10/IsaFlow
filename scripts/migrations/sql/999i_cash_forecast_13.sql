@@ -1,4 +1,4 @@
--- 999g: the 13-week cash forecast's stored inputs (data layer only; the engine is pure TypeScript).
+-- 999i: the 13-week cash forecast's stored inputs (data layer only; the engine is pure TypeScript).
 --
 -- WHAT.
 --   payroll_company_settings (999a) gains the salary pay day (Hein, 2026-11-16):
@@ -56,7 +56,7 @@ ALTER TABLE public.payroll_company_settings ADD CONSTRAINT payroll_company_setti
 GRANT INSERT (salary_pay_rule, salary_pay_day) ON public.payroll_company_settings TO app_user;
 GRANT UPDATE (salary_pay_rule, salary_pay_day) ON public.payroll_company_settings TO app_user;
 COMMENT ON COLUMN public.payroll_company_settings.salary_pay_day IS
-  'Salaries paid on this day of the month (999g); beyond the month''s length = its last day. Used when salary_pay_rule = day_of_month.';
+  'Salaries paid on this day of the month (999i); beyond the month''s length = its last day. Used when salary_pay_rule = day_of_month.';
 
 -- ── 2. Shared stamp trigger ────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.cash_forecast_stamp()
@@ -220,8 +220,8 @@ GRANT INSERT (company_id, line_key, week_start, mode, amount, target_week_start,
 GRANT UPDATE (mode, amount, target_week_start, note) ON public.cash_forecast_overrides TO app_user;
 
 COMMENT ON TABLE public.cash_forecast_items IS
-  'Expected cash receipts/payments typed by users for the 13-week cash forecast (999g). Editable; audited by the service.';
+  'Expected cash receipts/payments typed by users for the 13-week cash forecast (999i). Editable; audited by the service.';
 COMMENT ON TABLE public.cash_forecast_overrides IS
-  'Per-line, per-week overrides of the 13-week cash forecast (999g): set | add | move_to. One per (company, line_key, week_start).';
+  'Per-line, per-week overrides of the 13-week cash forecast (999i): set | add | move_to. One per (company, line_key, week_start).';
 
 SELECT public.app_service_sync_policies();

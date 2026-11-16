@@ -1,5 +1,5 @@
 /**
- * Migration 999g as app_user, the rules: item CHECKs (amount, direction, repeat, description) and its
+ * Migration 999i as app_user, the rules: item CHECKs (amount, direction, repeat, description) and its
  * company-matched account; override CHECKs (Monday weeks, mode/amount, move_to target) and one override per
  * (company, line, week); the salary pay-day columns; and the file is safe to run twice. Real PostgreSQL.
  *
@@ -21,7 +21,7 @@ afterAll(async () => {
   try { await tearDown(); } finally { await pool.end(); }
 });
 
-describe('999g: item rules', () => {
+describe('999i: item rules', () => {
   const cases: Array<[string, Parameters<typeof item>[1], string]> = [
     ['amount 0', { amount: 0 }, '23514:cash_forecast_items_amount_check'],
     ['negative amount', { amount: -1 }, '23514:cash_forecast_items_amount_check'],
@@ -62,7 +62,7 @@ describe('999g: item rules', () => {
   });
 });
 
-describe('999g: override rules', () => {
+describe('999i: override rules', () => {
   const cases: Array<[string, Parameters<typeof ovr>[1], string]> = [
     ['a Tuesday week', { week: '2026-11-17' }, '23514:cash_forecast_overrides_week_monday'],
     ['set below 0', { mode: 'set', amount: -1 }, '23514:cash_forecast_overrides_mode_amount'],
@@ -101,7 +101,7 @@ describe('999g: override rules', () => {
   });
 });
 
-describe('999g: salary pay day', () => {
+describe('999i: salary pay day', () => {
   it('defaults to day 25 of the month; app_user may write both columns', async () => {
     await as(A, async (q) => {
       const r = (await q.query(
@@ -126,9 +126,9 @@ describe('999g: salary pay day', () => {
   });
 });
 
-describe('999g: re-run', () => {
+describe('999i: re-run', () => {
   it('the file applies a second time over existing rows and leaves the rules in place', async () => {
-    const file = readFileSync(join(process.cwd(), 'scripts/migrations/sql/999g_cash_forecast_13.sql'), 'utf8');
+    const file = readFileSync(join(process.cwd(), 'scripts/migrations/sql/999i_cash_forecast_13.sql'), 'utf8');
     const c = await pool.connect();
     try {
       await c.query('BEGIN');
