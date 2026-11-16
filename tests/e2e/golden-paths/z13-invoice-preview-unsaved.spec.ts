@@ -10,7 +10,7 @@
  */
 // golden:dev-only
 // Dev only: it creates a customer in a sandbox company and runs axe. The post-deploy run skips it by this marker.
-import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { expect, request as pwRequest, test, type BrowserContext, type Page } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { Api } from './_api';
@@ -24,6 +24,29 @@ const EVIDENCE = process.env.INVOICE_EVIDENCE_DIR;
 const SANDBOX_NAME = '0GP Golden Invoice Form Sandbox';
 const SANDBOX_ONBOARDING_ID = 'd6630d3e-22b5-4c1f-b872-262d940a869a';
 const CUSTOMER = { name: '0GP-Golden-Preview-Customer', payment_terms: 30, payment_terms_type: 'invoice_days', default_discount: 0, default_vat_type: 'standard' };
+
+const PREVIEW_API = '/api/accounting/invoice-pdf-preview';
+
+/**
+ * `next dev` compiles a route on its first request and then tells every open page to do a full reload (see
+ * y1-invoice-form-kit.spec.ts). Preview PDF was the preview route's first request, so on a fresh dev server (every
+ * hosted chunk piece) the reload landed on /new after the PDF had answered: the form came back empty, the preview
+ * closed, and the first theme's wait for the frame timed out while the second, on a warm route, passed (chunk 5,
+ * 16 Nov, three PRs). Requesting the route once before any page is open makes the compile happen with no page to reload.
+ */
+test.beforeAll(async () => {
+  test.setTimeout(150_000); // one cold compile: longer than the config's 90 s test timeout
+  const { baseURL, storageState } = test.info().project.use;
+  if (!storageState) throw new Error('z13 warm-up needs the golden session (use.storageState); refusing to warm up unauthenticated');
+  const ctx = await pwRequest.newContext({ baseURL, storageState });
+  try {
+    // GET passes auth and CSRF and answers 405: the route compiled, nothing rendered. A stale session (401, 3xx) fails here.
+    const res = await ctx.get(PREVIEW_API, { timeout: 120_000, maxRedirects: 0 });
+    expect(res.status(), `warm-up ${PREVIEW_API}: the handler's own 405, from a signed-in session`).toBe(405);
+  } finally {
+    await ctx.dispose();
+  }
+});
 
 async function sandbox(context: BrowserContext, baseURL: string): Promise<{ api: Api; customerId: string }> {
   const api = await Api.login(baseURL);
@@ -64,7 +87,7 @@ async function fillTwoLines(page: Page): Promise<void> {
 
 /** Opens the preview and returns the PDF's text, read from the response the frame shows. */
 async function openPreview(page: Page, theme: string): Promise<string> {
-  const answered = page.waitForResponse((r) => r.url().includes('/api/accounting/invoice-pdf-preview') && r.request().method() === 'POST');
+  const answered = page.waitForResponse((r) => r.url().includes(PREVIEW_API) && r.request().method() === 'POST');
   await page.getByRole('button', { name: 'Preview PDF' }).click();
   const res = await answered;
   expect(res.status()).toBe(200);
