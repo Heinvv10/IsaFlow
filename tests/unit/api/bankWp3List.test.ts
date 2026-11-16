@@ -51,7 +51,7 @@ describe('the service compares the size of the line', () => {
     const withAmount = calls.filter((c) => c.includes('amount'));
     expect(withAmount.length).toBeGreaterThanOrEqual(2); // rows + count
     for (const c of withAmount.filter((q) => q.includes('>='))) {
-      expect(c).toMatch(/ABS\(bt\.amount\) >= \?::NUMERIC AND ABS\(bt\.amount\) <= \?::NUMERIC/);
+      expect(c).toMatch(/ABS\(bt\.amount\) >= ABS\(\?::NUMERIC\) AND ABS\(bt\.amount\) <= ABS\(\?::NUMERIC\)/);
       expect(c).not.toMatch(/bt\.amount >= /);
     }
     // the search pattern is escaped text: the SQL must say which character escapes (never rely on the default)

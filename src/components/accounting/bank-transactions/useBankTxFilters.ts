@@ -27,6 +27,8 @@ export function useBankTxFilters(setPage: (n: number) => void) {
   const [allocType, setAllocType] = useState<AllocTypeFilter>('all');
   const [hasSuggestion, setHasSuggestion] = useState<HasSuggestionFilter>('all');
   const [reconFilter, setReconFilter] = useState<ReconFilter>('all');
+  // Bumped by Clear and by an account switch: an amount input holding a draft that was never sent (invalid) resets with it.
+  const [resetTick, setResetTick] = useState(0);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Debounce search - 500ms. Only a changed search resets to page 1 (the mount timer used to undo a page-3 click).
@@ -55,7 +57,7 @@ export function useBankTxFilters(setPage: (n: number) => void) {
   /** Every filter (the sort stays). */
   const clear = useCallback(() => {
     resetSelects();
-    setSearchTerm(''); setDebouncedSearch(''); setFromDate(''); setToDate(''); setFromAmount(''); setToAmount('');
+    setSearchTerm(''); setDebouncedSearch(''); setFromDate(''); setToDate(''); setFromAmount(''); setToAmount(''); setResetTick(t => t + 1);
     setPage(1);
   }, [resetSelects, setPage]);
   /** Everything, including the sort: an account switch starts the next account from its defaults. */
@@ -65,7 +67,7 @@ export function useBankTxFilters(setPage: (n: number) => void) {
     searchTerm, setSearchTerm, debouncedSearch, fromDate, setFromDate, toDate, setToDate, fromAmount, setFromAmount,
     toAmount, setToAmount, sortOrder, setSortOrder, allocationFilter, setAllocationFilter, txType, setTxType,
     allocType, setAllocType, hasSuggestion, setHasSuggestion, reconFilter, setReconFilter,
-    activeLabels, resetSelects, clear, resetForAccount,
+    activeLabels, resetSelects, clear, resetForAccount, resetTick,
   };
 }
 

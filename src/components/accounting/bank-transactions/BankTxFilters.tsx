@@ -11,6 +11,7 @@ import { DateField } from '@/components/ui/DateField';
 import { BankTxExportButtons } from './BankTxExportButtons';
 import { DebouncedAmountInput } from './DebouncedAmountInput';
 import { BankTxFilterSelects } from './BankTxFilterSelects';
+import { isBulkBusy } from './useBankTxBusy';
 import type { ReconFilter } from '@/modules/accounting/services/bank/bankTxTabCond';
 
 type Tab = import('./BankTxTabs').BankTxTab;
@@ -41,6 +42,8 @@ export interface BankTxFiltersProps {
   busy?: ReadonlySet<string>;
   /** "Allocating 3 of 12" while a batch runs. */
   progress?: { key: string; done: number; total: number } | null;
+  /** Changes when the filters are cleared or the account switches: the amount inputs drop any unsent draft. */
+  resetKey?: number;
   onRefresh: () => void;
   onBulkAccept: () => void;
   onBatchAccept: () => void;
@@ -66,7 +69,7 @@ export interface BankTxFiltersProps {
 }
 
 export function BankTxFilters({
-  tab, page, total, pageSize, selectedCount, selectedBank, smartRunning, busy, progress,
+  tab, page, total, pageSize, selectedCount, selectedBank, smartRunning, busy, progress, resetKey,
   showCC, showBU,
   searchTerm, fromDate, toDate, fromAmount, toAmount,
   sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter,
@@ -77,7 +80,7 @@ export function BankTxFilters({
   onHasSuggestionChange, onReconFilterChange, onToggleCC, onToggleBU,
 }: BankTxFiltersProps) {
   // The three bulk operations act on the same selected lines: while one runs, the others wait (the hook refuses them too).
-  const bulkBusy = !!busy && (busy.has('review') || busy.has('batch-allocate') || busy.has('delete'));
+  const bulkBusy = isBulkBusy(busy);
   return (
     <div className="px-6 py-2 border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]/30 flex items-center gap-2 flex-wrap">
       <span role="status" aria-live="polite" className="sr-only" data-testid="bank-tx-progress-live">
@@ -170,8 +173,8 @@ export function BankTxFilters({
 
       {/* Amount range filter */}
       <div className="flex items-center gap-1 text-xs text-[var(--ff-text-secondary)]">
-        <DebouncedAmountInput id="bank-tx-min-amount" label="Min R" value={fromAmount} placeholder="0" onCommit={onFromAmountChange} />
-        <DebouncedAmountInput id="bank-tx-max-amount" label="Max R" value={toAmount} placeholder="any" onCommit={onToAmountChange} />
+        <DebouncedAmountInput key={`min-${resetKey ?? 0}`} id="bank-tx-min-amount" label="Min R" value={fromAmount} placeholder="0" onCommit={onFromAmountChange} />
+        <DebouncedAmountInput key={`max-${resetKey ?? 0}`} id="bank-tx-max-amount" label="Max R" value={toAmount} placeholder="any" onCommit={onToAmountChange} />
       </div>
 
       <div className="border-l border-[var(--ff-border-light)] h-5 mx-1" />

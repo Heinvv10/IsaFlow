@@ -229,5 +229,36 @@ describe('overlapping loads: the LATEST load ends the skeleton, silent or not', 
     await waitFor(() => expect(screen.queryByText(/list is down|Could not load transactions/)).toBeNull());
     expect((cap.table.transactions as { id: string }[]).map(t => t.id)).toEqual(['back']);
   });
+
+  it('a silent tick that supersedes a visible load and then FAILS shows the error, not the old rows under the new page', async () => {
+    await loaded();
+    const pendingVisible: Array<() => void> = [];
+    list = () => new Promise<Response>(resolve => { pendingVisible.push(() => resolve(ok({ transactions: [row('p2a')], total: 60 }))); });
+    fireEvent.click(screen.getByRole('button', { name: '2' })); // a visible load for page 2
+    expect(await screen.findByTestId('list-skeleton')).toBeTruthy();
+    list = () => new Response(JSON.stringify({ success: false, error: { message: 'tick failed' } }), { status: 500 });
+    await act(async () => { await cap.poll!(); }); // the silent tick supersedes it and fails
+    await act(async () => { pendingVisible.forEach(r => r()); }); // the stale visible one resolving changes nothing
+    expect(await screen.findByText(/tick failed|Could not load transactions/)).toBeTruthy();
+    expect(screen.queryByTestId('list-skeleton')).toBeNull();
+    expect(screen.getByTestId('bank-tx-selected-count').textContent).toBe('0 selected'); // and no stale rows left to tick
+  });
 });
 
+describe('the review bar waits for the other bulk operations', () => {
+  it('while a bulk Delete runs, "Mark Selected as Reviewed" is disabled and aria-busy', async () => {
+    vi.stubGlobal('confirm', () => true);
+    await loaded();
+    await call(cap.table, 'onToggleSelect', 'p1a');
+    const reviewBtn = () => screen.getByRole('button', { name: /Mark Selected as Reviewed/ }) as HTMLButtonElement;
+    expect(reviewBtn().disabled).toBe(false);
+    let release!: () => void;
+    const prev = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation(async (u, i) => String(u).includes('bank-transactions-action')
+      ? new Promise<Response>(r => { release = () => r(ok({ deleted: 1 })); }) : prev(u, i));
+    await act(async () => { void (cap.filters.onBatchDelete as () => void)(); });
+    await waitFor(() => expect(reviewBtn().disabled).toBe(true));
+    expect(reviewBtn().getAttribute('aria-busy')).toBe('true');
+    await act(async () => { release(); });
+  });
+});

@@ -82,6 +82,8 @@ export async function getBankTransactions(
       const fromDate = filters.fromDate || '1900-01-01';
       const toDate = filters.toDate || '2099-12-31';
       // The amount filter is on the SIZE of the line (ABS): "Min R 100" must find a R150 payment as well as a R150 receipt.
+      // A bound is a magnitude too (ABS): the list API refuses a negative one (400), but a service caller that passes the signed
+      // amount of the line it wants (-123.45 to -123.45) still finds it.
       const fromAmt = filters.fromAmount || '0';
       const toAmt = filters.toAmount || '999999999';
       // The tab's lines (./bankTxTabCond): New = waiting for review, Reviewed = reviewed + reconciled.
@@ -112,7 +114,7 @@ export async function getBankTransactions(
           ${sql.unsafe(tabCond)}
           AND bt.feed_state <> 'removed'
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
-          AND ABS(bt.amount) >= ${fromAmt}::NUMERIC AND ABS(bt.amount) <= ${toAmt}::NUMERIC
+          AND ABS(bt.amount) >= ABS(${fromAmt}::NUMERIC) AND ABS(bt.amount) <= ABS(${toAmt}::NUMERIC)
           AND (bt.description ILIKE ${searchPattern} ESCAPE '\\' OR bt.reference ILIKE ${searchPattern} ESCAPE '\\')
           ${sql.unsafe(extra)}
           ${keyset}
@@ -124,7 +126,7 @@ export async function getBankTransactions(
           ${sql.unsafe(tabCond)}
           AND bt.feed_state <> 'removed'
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
-          AND ABS(bt.amount) >= ${fromAmt}::NUMERIC AND ABS(bt.amount) <= ${toAmt}::NUMERIC
+          AND ABS(bt.amount) >= ABS(${fromAmt}::NUMERIC) AND ABS(bt.amount) <= ABS(${toAmt}::NUMERIC)
           AND (bt.description ILIKE ${searchPattern} ESCAPE '\\' OR bt.reference ILIKE ${searchPattern} ESCAPE '\\')
           ${sql.unsafe(extra)}`) as Row[];
     } else {

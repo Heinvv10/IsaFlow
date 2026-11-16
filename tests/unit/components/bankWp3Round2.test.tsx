@@ -10,7 +10,7 @@ const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.
 vi.mock('@/utils/toast', () => ({ notify: toast }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
-import { useBankTxBusy } from '@/components/accounting/bank-transactions/useBankTxBusy';
+import { useBankTxBusy, BUSY_HOLD_CAP_MS } from '@/components/accounting/bank-transactions/useBankTxBusy';
 import { BankTxFilters, type BankTxFiltersProps } from '@/components/accounting/bank-transactions/BankTxFilters';
 import { BankTxRowActions } from '@/components/accounting/bankTx/BankTxRowActions';
 import { ActiveFiltersChip } from '@/components/accounting/bank-transactions/ActiveFiltersChip';
@@ -20,6 +20,40 @@ import type { BankTx } from '@/components/accounting/BankTxTable';
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 beforeEach(() => { Object.values(toast).forEach((f) => f.mockReset()); });
+
+describe('useBankTxBusy: a hung request cannot hold its lines for good', () => {
+  afterEach(() => { vi.useRealTimers(); });
+  it('after the cap the key and rows are released, the user is told, and a retry runs; the late finish of the hung one changes nothing', async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useBankTxBusy());
+    let finishHung!: () => void;
+    const hung = new Promise<void>((r) => { finishHung = r; });
+    let p1!: Promise<unknown>;
+    act(() => { p1 = result.current.run('delete', () => hung, ['t1']); });
+    expect(result.current.busy.has('row:t1')).toBe(true);
+    await act(async () => { vi.advanceTimersByTime(BUSY_HOLD_CAP_MS - 1); });
+    expect(result.current.busy.has('delete')).toBe(true); // not yet
+    await act(async () => { vi.advanceTimersByTime(2); });
+    expect(result.current.busy.size).toBe(0);
+    expect(toast.warning).toHaveBeenCalledWith('This is taking too long', expect.any(String));
+    // a retry on the same key/row now runs, and holds
+    const retry = vi.fn(() => new Promise<string>(() => undefined));
+    act(() => { void result.current.run('delete', retry, ['t1']); });
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(result.current.busy.has('row:t1')).toBe(true);
+    // the first request finally answers: it must NOT release the retry's hold
+    await act(async () => { finishHung(); await p1; });
+    expect(result.current.busy.has('delete')).toBe(true);
+    expect(result.current.busy.has('row:t1')).toBe(true);
+  });
+  it('a request that finishes in time never warns', async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useBankTxBusy());
+    await act(async () => { await result.current.run('review', async () => 1); });
+    await act(async () => { vi.advanceTimersByTime(BUSY_HOLD_CAP_MS * 2); });
+    expect(toast.warning).not.toHaveBeenCalled();
+  });
+});
 
 describe('useBankTxBusy (the real hook)', () => {
   const gate = () => { let go!: () => void; const p = new Promise<void>((r) => { go = r; }); return { p, go }; };
@@ -160,6 +194,32 @@ describe('DebouncedAmountInput validation', () => {
     render(<DebouncedAmountInput id="a" label="Min R" value="50" placeholder="0" onCommit={onCommit} />);
     const i = screen.getByLabelText('Min R'); fireEvent.change(i, { target: { value: '' } }); fireEvent.blur(i);
     expect(onCommit).toHaveBeenCalledWith('');
+  });
+});
+
+describe('an invalid amount draft does not survive Clear or an account switch', () => {
+  it('the amount input drops its unsent draft when the filters\' resetKey changes', () => {
+    const props = filterProps();
+    const { rerender } = render(<BankTxFilters {...props} resetKey={0} />);
+    const min = () => screen.getByLabelText('Min R') as HTMLInputElement;
+    fireEvent.change(min(), { target: { value: '-5' } });
+    expect(screen.getByRole('alert')).toBeTruthy();
+    rerender(<BankTxFilters {...props} resetKey={0} />); // an ordinary re-render keeps the draft
+    expect(min().value).toBe('-5');
+    rerender(<BankTxFilters {...props} resetKey={1} />); // Clear / account switch
+    expect(min().value).toBe('');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+  it('useBankTxFilters bumps resetKey on clear() and on resetForAccount(), not on a plain change', async () => {
+    const { useBankTxFilters } = await import('@/components/accounting/bank-transactions/useBankTxFilters');
+    const { result } = renderHook(() => useBankTxFilters(vi.fn()));
+    const start = result.current.resetTick;
+    act(() => { result.current.setFromAmount('5'); });
+    expect(result.current.resetTick).toBe(start);
+    act(() => { result.current.clear(); });
+    expect(result.current.resetTick).toBe(start + 1);
+    act(() => { result.current.resetForAccount(); });
+    expect(result.current.resetTick).toBeGreaterThan(start + 1);
   });
 });
 

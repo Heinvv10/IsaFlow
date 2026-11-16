@@ -32,6 +32,7 @@ function busyGuard() {
   const busy: BankTxBusy = {
     get busy() { return hook.result.current.busy; },
     isBusy: (k) => hook.result.current.isBusy(k),
+    isRunning: (k) => hook.result.current.isRunning(k),
     get progress() { return hook.result.current.progress; },
     setProgress: (p) => { progress.push(p); },
     run: (key, fn, rows) => hook.result.current.run(key, fn, rows),
@@ -413,6 +414,148 @@ describe('a rollback of one field never reverts an edit to another', () => {
     const rollback = setRowSelections.mock.calls.at(-1)![0] as (p: Record<string, RowSelection>) => Record<string, RowSelection>;
     const later = { t1: { ...shown('A', 'A'), vatCode: 'S' as never } }; // the user then changed the VAT on the optimistic row
     expect(rollback(later)).toBe(later);
+  });
+});
+
+describe('a rollback after a row-REPLACING edit brings back its cost centres', () => {
+  const dims = { cc1Id: 'cc1', cc2Id: 'cc2', buId: 'bu1' };
+  const before: RowSelection = { ...sel('old'), ...dims };
+  const restore = (setRowSelections: ReturnType<typeof vi.fn>) =>
+    setRowSelections.mock.calls.at(-1)![0] as (p: Record<string, RowSelection>) => Record<string, RowSelection>;
+  const sentDims = (o: RowSelection) => [o.cc1Id, o.cc2Id, o.buId];
+
+  it('a refused type change: the row shows its cost centres again, so a later Accept does not post without them', async () => {
+    const setRowSelections = vi.fn();
+    const { actions } = setup({ rowSelections: { t1: before }, setRowSelections });
+    vi.mocked(apiFetch).mockImplementation(async () => refuse());
+    actions.handleRowTypeChange('t1', 'supplier');
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+    // the optimistic row (type switched, dimensions dropped) is what the rollback is applied to
+    const optimistic = (setRowSelections.mock.calls[0]![0] as (p: Record<string, RowSelection>) => Record<string, RowSelection>)({ t1: before }).t1!;
+    expect(sentDims(optimistic)).toEqual([undefined, undefined, undefined]);
+    const out = restore(setRowSelections)({ t1: optimistic }).t1!;
+    expect(out.type).toBe('account'); expect(out.entityId).toBe('old');
+    expect(sentDims(out)).toEqual(['cc1', 'cc2', 'bu1']);
+  });
+
+  it('a refused Batch Edit restores each row\'s cost centres', async () => {
+    const setRowSelections = vi.fn();
+    const { actions } = setup({ rowSelections: { t1: before }, setRowSelections });
+    vi.mocked(apiFetch).mockImplementation(async () => refuse());
+    actions.handleApplyBatchEdit('sup1', 'Acme');
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+    let state = (setRowSelections.mock.calls[0]![0] as () => Record<string, RowSelection>)();
+    expect(sentDims(state.t1!)).toEqual([undefined, undefined, undefined]);
+    for (const [arg] of setRowSelections.mock.calls.slice(1)) state = (arg as (p: typeof state) => typeof state)(state);
+    expect(state.t1!.entityId).toBe('old');
+    expect(sentDims(state.t1!)).toEqual(['cc1', 'cc2', 'bu1']);
+  });
+
+  it('a refused create-entity allocation restores the cost centres', async () => {
+    const setRowSelections = vi.fn();
+    const { actions } = setup({ rowSelections: { t1: before }, setRowSelections, createEntityTxId: 't1' });
+    vi.mocked(apiFetch).mockImplementation(async () => refuse());
+    actions.handleCreateEntityDone({ id: 'e1', name: 'New Co' }, 'supplier', vi.fn(), vi.fn(), vi.fn());
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+    const optimistic = (setRowSelections.mock.calls[0]![0] as (p: Record<string, RowSelection>) => Record<string, RowSelection>)({ t1: before }).t1!;
+    const out = restore(setRowSelections)({ t1: optimistic }).t1!;
+    expect(sentDims(out)).toEqual(['cc1', 'cc2', 'bu1']);
+  });
+});
+
+describe('exclude refused because a ROW hold, not the same key', () => {
+  it('releases the grid\'s outcome (settle(false)) and tells the user; the same-key refusal still does not settle', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    vi.mocked(apiFetch).mockImplementation(async () => { await gate; return json({ accepted: 3 }); });
+    const settle = vi.fn(); const begin = vi.fn(() => Promise.resolve(true));
+    const { actions } = setup({ excludingTxId: 't1', excludeOutcome: { begin, settle } });
+    const batch = actions.handleBulkAccept(); // holds t1, t2, t3 (key "review")
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1));
+    await actions.handleExcludeConfirm('Personal'); // different key, held row
+    expect(settle).toHaveBeenCalledTimes(1); expect(settle).toHaveBeenCalledWith(false);
+    expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining('already being processed'), expect.any(String));
+    expect(sentActions('exclude')).toHaveLength(0);
+    release(); await batch;
+  });
+});
+
+describe('rollback by per-edit sequence and field group', () => {
+  const lastRollback = (fn: ReturnType<typeof vi.fn>, from = 0) => fn.mock.calls.slice(from).at(-1)![0] as (p: Record<string, RowSelection>) => Record<string, RowSelection>;
+
+  it('re-picking the SAME value later: the first save failing late does not undo the row the user has now', async () => {
+    const setRowSelections = vi.fn();
+    const { actions } = setup({ rowSelections: { t1: sel('old') }, setRowSelections });
+    let failFirst!: () => void;
+    let n = 0;
+    vi.mocked(apiFetch).mockImplementation(async () => {
+      n += 1;
+      if (n === 1) return new Promise<Response>((r) => { failFirst = () => r(refuse()); }); // edit 1: fails LATE
+      return json();
+    });
+    actions.handleRowEntityChange('t1', 'X', 'X'); // edit 1 (A)
+    actions.handleRowEntityChange('t1', 'Y', 'Y'); // edit 2
+    actions.handleRowEntityChange('t1', 'X', 'X'); // edit 3: the SAME value as edit 1, saved fine
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(3));
+    const calls = setRowSelections.mock.calls.length;
+    failFirst();
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+    await vi.waitFor(() => expect(setRowSelections.mock.calls.length).toBeGreaterThan(calls));
+    const now = { t1: shown('X', 'X') }; // value-equal to edit 1's patch
+    expect(lastRollback(setRowSelections, calls)(now)).toBe(now); // yet it is edit 3's: left alone
+  });
+
+  it('a cost-centre edit made meanwhile neither blocks nor is reverted by a failed allocation edit', async () => {
+    const setRowSelections = vi.fn();
+    const { actions } = setup({ rowSelections: { t1: { ...sel('old'), cc1Id: 'cc-old' } }, setRowSelections });
+    let failFirst!: () => void; let n = 0;
+    vi.mocked(apiFetch).mockImplementation(async () => { n += 1; return n === 1 ? new Promise<Response>((r) => { failFirst = () => r(refuse()); }) : json(); });
+    actions.handleRowEntityChange('t1', 'A', 'A');
+    actions.handleRowDimensionChange('t1', 'cc-new', '', '');
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+    const calls = setRowSelections.mock.calls.length;
+    failFirst();
+    await vi.waitFor(() => expect(setRowSelections.mock.calls.length).toBeGreaterThan(calls));
+    const out = lastRollback(setRowSelections, calls)({ t1: { ...shown('A', 'A'), cc1Id: 'cc-new' } }).t1!;
+    expect(out.entityId).toBe('old'); // the allocation edit IS rolled back
+    expect(out.cc1Id).toBe('cc-new'); // the later cost-centre edit survives
+  });
+
+  it('a row with NO prior selection: the rollback keeps cost centres set since instead of deleting the whole row', async () => {
+    const setRowSelections = vi.fn();
+    const { actions } = setup({ rowSelections: {}, setRowSelections });
+    let failFirst!: () => void; let n = 0;
+    vi.mocked(apiFetch).mockImplementation(async () => { n += 1; return n === 1 ? new Promise<Response>((r) => { failFirst = () => r(refuse()); }) : json(); });
+    actions.handleRowEntityChange('t1', 'A', 'A');
+    actions.handleRowDimensionChange('t1', 'cc-new', '', '');
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+    const calls = setRowSelections.mock.calls.length;
+    failFirst();
+    await vi.waitFor(() => expect(setRowSelections.mock.calls.length).toBeGreaterThan(calls));
+    const out = lastRollback(setRowSelections, calls)({ t1: { ...shown('A', 'A'), cc1Id: 'cc-new' } }).t1!;
+    expect(out.entityId).toBe(''); expect(out.cc1Id).toBe('cc-new');
+    // and with nothing set since, the row is removed
+    expect(lastRollback(setRowSelections, calls)({ t1: shown('A', 'A') }).t1).toBeUndefined();
+  });
+});
+
+describe('X1: an exclude refused by a row hold releases the keyboard grid (the real outcome hook)', () => {
+  it('handleExclude\'s promise resolves false at once instead of hanging until a timeout', async () => {
+    const { useBankTxOutcome } = await import('@/components/accounting/bank-transactions/useBankTxOutcome');
+    const outcome = renderHook(() => useBankTxOutcome());
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    vi.mocked(apiFetch).mockImplementation(async () => { await gate; return json({ accepted: 3 }); });
+    const { deps } = setup({ excludingTxId: null, excludeOutcome: outcome.result.current });
+    let excluding: string | null = null;
+    (deps as { setExcludingTxId: (v: string | null) => void }).setExcludingTxId = (v) => { excluding = v; };
+    const actions = buildBankTxActions({ ...(deps as object), get excludingTxId() { return excluding; } } as unknown as Parameters<typeof buildBankTxActions>[0]);
+    const batch = actions.handleBulkAccept(); // holds t1..t3
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1));
+    const wait = actions.handleExclude('t1'); // the grid awaits this
+    await actions.handleExcludeConfirm('Personal');
+    expect(await Promise.race([wait, new Promise((r) => setTimeout(() => r('HUNG'), 200))])).toBe(false);
+    release(); await batch;
   });
 });
 

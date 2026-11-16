@@ -22,7 +22,7 @@ import { useBankTxFilters } from '@/components/accounting/bank-transactions/useB
 import { pruneSelection, selectedOnScreen } from '@/components/accounting/bank-transactions/bankTxSelectionView';
 import { BankTxSelectionBar } from '@/components/accounting/bank-transactions/BankTxSelectionBar';
 import { ActiveFiltersChip } from '@/components/accounting/bank-transactions/ActiveFiltersChip';
-import { useBankTxBusy } from '@/components/accounting/bank-transactions/useBankTxBusy';
+import { isBulkBusy, useBankTxBusy } from '@/components/accounting/bank-transactions/useBankTxBusy';
 import { useBankTxSummary } from '@/components/accounting/bank-transactions/useBankTxSummary';
 import { BankTxSummaryNotice } from '@/components/accounting/bank-transactions/BankTxSummaryNotice';
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
@@ -87,11 +87,14 @@ export default function BankTransactionsPage() {
   const { detailTx, closeDetail, error: deepLinkError, dismissError } = useBankLineDeepLink(listTx, closeListDetail);
   // Load transactions. Only the latest request writes state: a slow older response must not overwrite a newer one.
   const loadSeq = useRef(0);
+  // The newest VISIBLE load started, and the newest load whose rows were applied: if a silent tick supersedes a visible load
+  // and then fails, the screen still holds the OLD view under the new page/filter, so that failure must be shown.
+  const visibleSeq = useRef(0), goodSeq = useRef(0);
   const loadTransactions = useCallback(async (opts?: { silent?: boolean }) => {
     const seq = ++loadSeq.current, latest = () => seq === loadSeq.current;
     if (!selectedBank) { setIsLoading(false); setTransactions([]); setLoaded({ page, total: 0, key: '' }); return; }
     // A silent reload (the AI poll) keeps the rows on screen: no skeleton, no flash, and a failure keeps them too.
-    if (!opts?.silent) { setIsLoading(true); setError(''); }
+    if (!opts?.silent) { visibleSeq.current = seq; setIsLoading(true); setError(''); }
     try {
       const params = bankTxQueryParams({ bankAccountId: selectedBank, tab, page, pageSize: PAGE_SIZE, fromDate, toDate, fromAmount, toAmount,
         search: debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter });
@@ -100,9 +103,9 @@ export default function BankTransactionsPage() {
       if (!latest()) return;
       const data = json.data || json;
       setTransactions(data.transactions || []); setLoaded({ page, total: data.total || 0, key: listKey(selectedBank, tab) });
-      setError(''); // a good read (silent or not) ends an earlier failed one
+      goodSeq.current = seq; setError(''); // a good read (silent or not) ends an earlier failed one
     } catch (err) {
-      if (latest() && !opts?.silent) { setTransactions([]); setLoaded({ page, total: 0, key: '' }); setError(apiErrorMessage(err, 'Could not load transactions - try again')); }
+      if (latest() && (!opts?.silent || visibleSeq.current > goodSeq.current)) { setTransactions([]); setLoaded({ page, total: 0, key: '' }); setError(apiErrorMessage(err, 'Could not load transactions - try again')); }
     } finally { if (latest()) setIsLoading(false); } // the LATEST load ends the skeleton, silent or not: a silent tick that supersedes a visible load must not strand it
   }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion, reconFilter]);
 
@@ -195,7 +198,7 @@ export default function BankTransactionsPage() {
           showBatchEdit={showBatchEdit} searchTerm={searchTerm} fromDate={fromDate} toDate={toDate}
           fromAmount={fromAmount} toAmount={toAmount} sortOrder={sortOrder}
           allocationFilter={allocationFilter} txType={txType} allocType={allocType} hasSuggestion={hasSuggestion}
-          reconFilter={reconFilter} busy={busy.busy} progress={busy.progress}
+          reconFilter={reconFilter} busy={busy.busy} progress={busy.progress} resetKey={f.resetTick}
           onRefresh={afterMutation} onBulkAccept={actions.handleBulkAccept}
           onBatchAccept={actions.handleBatchAccept} onBatchDelete={actions.handleBatchDelete}
           onToggleBatchEdit={() => { setShowBatchEdit(s => !s); setBatchSearch(''); }}
@@ -264,7 +267,7 @@ export default function BankTransactionsPage() {
         <BankTxPagination page={page} total={total} pageSize={PAGE_SIZE} onPage={setPage} />
 
         {tab === 'new' && transactions.length > 0 && (
-          <BankTxReviewBar selectedCount={onScreenSelected.size} onReview={actions.handleBulkAccept} busy={busy.isBusy('review')} />
+          <BankTxReviewBar selectedCount={onScreenSelected.size} onReview={actions.handleBulkAccept} busy={isBulkBusy(busy.busy)} />
         )}
       </div>
 

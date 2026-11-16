@@ -138,9 +138,8 @@ export function buildBankTxActions(deps: ActionDeps) {
     if (!excludingTxId) { excludeOutcome?.settle(false); return; }
     const txId = excludingTxId;
     setExcludingTxId(null);
-    // A second confirm while the first runs is refused (run resolves undefined). It must NOT settle the outcome: that
-    // promise belongs to the first exclude, still in flight.
-    await run(`exclude:${txId}`, async () => {
+    const sameKey = deps.busy?.isRunning(`exclude:${txId}`) ?? false;
+    const ran = await run(`exclude:${txId}`, async () => {
       try {
         const excluded = await callAction({ action: 'exclude', bankTransactionId: txId, excludeReason: reason });
         excludeOutcome?.settle(true);
@@ -148,7 +147,11 @@ export function buildBankTxActions(deps: ActionDeps) {
         else notify.success('Transaction excluded');
         loadTransactions(); refreshBankAccounts();
       } catch (e) { excludeOutcome?.settle(false); notify.error(apiErrorMessage(e, 'Could not exclude - try again')); }
+      return true;
     }, [txId]);
+    // Refused because another operation holds this LINE (the hook already said why): this exclude will never run, so the
+    // keyboard grid waiting on its outcome is released. A refusal by the SAME key leaves the first exclude's outcome alone.
+    if (ran === undefined && !sameKey) excludeOutcome?.settle(false);
   };
   const handleUnmatch = async (txId: string) => {
     // A reviewed line has been signed off by a person: undoing it asks first, as the Undo toast and Reverse do.
