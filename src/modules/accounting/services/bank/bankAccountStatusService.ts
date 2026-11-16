@@ -73,7 +73,13 @@ export interface BankAccountStatusRow {
   /** Posted lines neither reconciled nor excluded (bank/unreconciledLineSql), on this account. */
   unreconciledCount: number;
   allocatedCount: number;
+  /** No journal line, but a suggestion or saved category; not excluded. */
   suggestedCount: number;
+  /**
+   * NARROW "unallocated": no journal line AND no suggestion or category; not excluded. Not the board pack's or the
+   * card's "unallocated" (Δ tooltip, "N unallocated bank items"), which is every line with no journal line, not
+   * excluded: `suggestedCount + unallocatedCount`. Name kept: the API, export and MCP shapes are stable.
+   */
   unallocatedCount: number;
   firstDate: string | null;
   lastDate: string | null;
@@ -142,7 +148,8 @@ export async function getBankAccountsStatus(
           bt.suggested_client_id     IS NOT NULL OR
           bt.allocation_type         IS NOT NULL
         ) AND bt.status != 'excluded' THEN 1 END)::INT AS suggested_count,
-        -- Unallocated = no journal line, no category at all, not excluded
+        -- Unallocated = no journal line, no category at all, not excluded. NARROWER than the pack's and the card's
+        -- "unallocated" (no journal line, not excluded), which is suggested_count + unallocated_count.
         COUNT(CASE WHEN (
           bt.matched_journal_line_id IS NULL AND
           bt.suggested_gl_account_id IS NULL AND
