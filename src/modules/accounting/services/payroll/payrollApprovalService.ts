@@ -22,6 +22,7 @@ import { soleApproverAuditMetadata } from '../gl/approvalSelfApproval';
 import { recordPayRunApprovalAudit } from './payRunApprovalAudit';
 import { rebookEtiAfterEvent } from './etiRebook';
 import { assertRunKindSupported } from './payrollRunKindGuard';
+import { freezePayslipDetails } from './payslipSnapshot';
 
 
 type Row = DbRow;
@@ -156,6 +157,7 @@ export async function approvePayrollRun(
     RETURNING *
   `) as Row[];
   if (!updatedRows[0]) throw new Error('Status update returned no row');
+  await freezePayslipDetails(companyId, runId); // wave 6 PS3: the slip's details at this approval (not in the plan hash)
 
   // The plan the gate judged and the hash described is the plan that posts —
   // the poster does not build its own (breaker D). Its blockers were judged
