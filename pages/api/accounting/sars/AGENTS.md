@@ -6,8 +6,8 @@
 SARS return preparation + eFiling submissions tracking + compliance calendar. VAT201, EMP201, EMP501 bi-annual, IRP6 provisional. All handlers at same depth (no subdirs).
 
 ## Endpoints
-- `GET /api/accounting/sars/sars-compliance` — DB-backed calendar (`?year=YYYY`); returns `{ events }`; delegates to `getComplianceCalendarWithDB`
-- `GET /api/accounting/sars/compliance-calendar` — pure calendar (no DB); `?year=YYYY`; returns `{ year, deadlines, total }`
+- `GET /api/accounting/sars/sars-compliance` — DB-backed calendar (`?year=YYYY`); returns `{ events }`; delegates to `getComplianceCalendarWithDB` (VAT201 events follow the company's VAT category/cadence; none for a non-vendor; events due 1 Jan year to 31 Mar year+1; bad `year` = 400, service failure = 5xx)
+- `GET /api/accounting/sars/compliance-calendar` — pure calendar (no DB); `?year=YYYY`; returns `{ year, deadlines, total }`. **Dead code (no UI caller) and wrong for bi-monthly vendors:** its VAT201 list is always monthly, labelled "Category A". Not the VAT source of truth; use `sars-compliance`
 - `GET|POST /api/accounting/sars/sars-submissions` — list / mark-submitted `{ id, action: 'mark_submitted', reference, overrideReason? }`. For a VAT201 submission, refuses with getVatExceptions' blocking exceptions UNLESS the caller is owner/admin and supplies `overrideReason` — recorded in `vat_gate_overrides` (migration 704, `reports/vatGateOverrideService`), never consulted by the ISV `efiling-submit` gate below. No MCP equivalent (this route has no MCP tool at all today)
 - `GET|POST /api/accounting/sars/sars-vat201` — GET `?from=&to=` build; POST `{ periodStart, periodEnd }` save draft. Both answer from `getVat201Return` (vat201Return.ts) = `getLedgerVAT201` (journal-derived) + `sarsFields` (the SARS VAT201 form), `warnings` (classification calls to confirm) and `filability` (fields 1, 1A, 2, 2A, 3, 4, 4A, 5-20; `vat201SarsFields.ts`); the invoice-derived `generateVAT201` is the exceptions recon's input only
 - `GET|POST /api/accounting/sars/sars-emp201` — monthly PAYE/UIF/SDL; same query shape as VAT201
@@ -25,7 +25,7 @@ All routes: `withAuth(withErrorHandler(withWriteAccess(handler)))`.
 - Read-only routes (`sars-compliance`, `compliance-calendar`, `emp501`, `vat-exceptions`, `efiling-status`) omit CSRF. `efiling-status` is `withAuth(withErrorHandler(handler))` only (no write access needed to read a redacted config flag)
 
 ## Business rules
-- **Two calendar endpoints intentionally coexist** — `sars-compliance` is DB/tenant-customised, `compliance-calendar` is pure math. Don't merge
+- **Two calendar endpoints coexist** — `sars-compliance` is DB/tenant-customised and follows `vatPeriodHelper`; `compliance-calendar` is the dead exception above. Don't build on `compliance-calendar`
 - **Route naming is inconsistent** — some have `sars-` prefix, others don't (`irp6`, `emp501`). URLs are public API; don't rename without client migration
 - SARS credentials encrypted — `sarsEfilingService` decrypts via `@/lib/encryption`. Never log decrypted value from a route
 - POST `sars-submissions` is destructive when not sandboxed — check `SARS_EFILING_ENV=sandbox` in dev/staging

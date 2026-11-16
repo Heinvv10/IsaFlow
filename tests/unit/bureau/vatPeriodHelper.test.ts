@@ -21,7 +21,7 @@ describe('expectedVatPeriodAsOf', () => {
 
   it('skips a parity month that has not fully ended yet', () => {
     const p = expectedVatPeriodAsOf('odd', new Date('2026-05-15T00:00:00Z'));
-    expect(p).toEqual({ periodStart: '2026-02-01', periodEnd: '2026-03-31', dueDate: '2026-04-25' });
+    expect(p).toEqual({ periodStart: '2026-02-01', periodEnd: '2026-03-31', dueDate: '2026-04-24' }); // Sat 25 Apr → Fri
   });
 
   it('wraps across the year boundary', () => {
@@ -46,7 +46,7 @@ describe('expectedVatPeriodAsOf', () => {
 
   it('monthly cadence wraps across the year boundary', () => {
     const p = expectedVatPeriodAsOf('odd', new Date('2026-01-10T00:00:00Z'), 'monthly');
-    expect(p).toEqual({ periodStart: '2025-12-01', periodEnd: '2025-12-31', dueDate: '2026-01-25' });
+    expect(p).toEqual({ periodStart: '2025-12-01', periodEnd: '2025-12-31', dueDate: '2026-01-23' }); // Sun 25 Jan → Fri
   });
 
   it('monthly cadence ignores alignment parity', () => {

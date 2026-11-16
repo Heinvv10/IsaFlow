@@ -22,6 +22,7 @@ import { parseMt940Statement } from '../../utils/bankMt940Parser';
 import type { BankCsvParseResult, BankFormat } from '../../types/bank.types';
 import { StatementNotImportableError } from './bankStatementImportErrors';
 import { parsedDayWindowError } from '../../utils/journalDateWindow';
+import { deriveStatementBalances } from './bankStatementBalances';
 
 export type StatementFileType = 'pdf' | 'csv' | 'ofx' | 'qif' | 'mt940';
 
@@ -43,7 +44,11 @@ export interface ParseStatementArgs {
  * accountNumber (PDFs only) which downstream code uses for auto-match.
  */
 export async function parseStatement(args: ParseStatementArgs): Promise<BankCsvParseResult> {
-  return withinLedgerDates(await parseStatementRaw(args));
+  const raw = await parseStatementRaw(args);
+  // The file's own balances, from every line it carries: before the ledger window drops any, and before a caller
+  // dedupes (bankStatementBalances.ts). Spread through both, so importParsedTransactions receives them.
+  // A PDF read by its text parsers can earn 'pdf_read' at most, never 'running_balance' (bankStatementBalances rule 6).
+  return withinLedgerDates({ ...raw, statementBalances: deriveStatementBalances(raw, { textPdf: args.fileType === 'pdf' }) });
 }
 
 /**

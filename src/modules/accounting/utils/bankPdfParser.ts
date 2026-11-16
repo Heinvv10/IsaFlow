@@ -177,7 +177,10 @@ export async function parseBankPdf(
     log.info('PDF parsed using ABSA fallback pattern', {
       count: fallback.transactions.length,
     }, 'accounting-pdf');
-    return { ...fallback, bankFormat: detectedFormat, parser: 'fallback' };
+    // The fallback reads some rows of a layout it was not written for and silently drops the rest: its balances are
+    // never trusted (WP1 round 3).
+    return { ...fallback, bankFormat: detectedFormat, parser: 'fallback',
+      balancesUnverifiable: fallback.balancesUnverifiable ?? 'read by the ABSA fallback, not this layout\'s own parser' };
   }
 
   return {
