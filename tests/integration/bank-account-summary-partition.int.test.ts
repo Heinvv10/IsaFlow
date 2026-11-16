@@ -167,14 +167,14 @@ describe('GET bank-account-summaries — the counts partition the posted lines',
     expect(s.counts.awaitingReview + reviewed + excludedTab + provisionalTab).toBe(s.counts.posted);
   });
 
-  it('spec §7 (#1442): posted − excluded − reconciled vs the card\'s unreconciledCount — two named disagreements', async () => {
-    // The identity does not hold as written, for two reasons, both pinned here and reported (not bent to agree):
-    //   1. the NULL-status line: UNRECONCILED_LINE_SQL is `status NOT IN ('reconciled', 'excluded')`, and
-    //      NULL NOT IN (...) is not true, so the card leaves it out; the bucket count keeps it (posted, not excluded,
-    //      not reconciled). −1.
-    //   2. the other company's line filed against THIS bank id: getBankAccountsStatus's LATERAL filters
-    //      bt.bank_account_id only, with no bt.company_id, and RLS does not hide it either, so the card counts it. +1.
-    // On this fixture the two cancel, which is why they are asserted separately rather than as one difference.
+  it('spec §7 (#1442): posted − excluded − reconciled vs the card\'s unreconciledCount — one named disagreement (NULL status)', async () => {
+    // The identity does not hold as written, for one reason, pinned here and reported (not bent to agree):
+    //   the NULL-status line: UNRECONCILED_LINE_SQL is `status NOT IN ('reconciled', 'excluded')`, and
+    //   NULL NOT IN (...) is not true, so the card leaves it out; the bucket count keeps it (posted, not excluded,
+    //   not reconciled). -1.
+    // The other company's line filed against THIS bank id used to be a second disagreement (+1: the card's LATERAL
+    //   had no bt.company_id). #1456 fenced it, so the card no longer counts it; it is asserted as present in the
+    //   fixture and absent from the card's figure.
     const s = await mine();
     const one = async (where: string, company = f.c) => Number((await pool.query(
       `SELECT COUNT(*) FROM bank_transactions bt WHERE bt.company_id = $1 AND bt.bank_account_id = $2
@@ -184,7 +184,7 @@ describe('GET bank-account-summaries — the counts partition the posted lines',
     const foreign = await one('TRUE', other.c);
     const card = (await asToken(pool, u, f.c, () => getBankAccountsStatus(f.c))).find((a) => a.id === f.bank)!;
     expect({ reconciled, nullStatus, foreign }).toEqual({ reconciled: 2, nullStatus: 1, foreign: 1 });
-    expect(card.unreconciledCount).toBe(s.counts.posted - s.counts.excluded - reconciled - nullStatus + foreign);
+    expect(card.unreconciledCount).toBe(s.counts.posted - s.counts.excluded - reconciled - nullStatus); // no + foreign: #1456
   });
 
   it('in / out are the to-code lines\' amounts, exact cents', async () => {
