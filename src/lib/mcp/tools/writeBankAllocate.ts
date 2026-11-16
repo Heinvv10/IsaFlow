@@ -27,7 +27,6 @@ import {
 import { mcpPostingOpts } from '../mcpActor';
 import { attachLineDimensionIds, dimensionWarningsOrRefusal } from './dimensionArgs';
 import { NOT_FOUND, ok, strArg, toolError } from './toolHelpers';
-import { bankContraLineSkips } from '@/modules/accounting/services/bank/bankContraLineSkips';
 
 export const allocateBankTransactionTool: McpTool = {
   name: 'allocate_bank_transaction',
@@ -96,13 +95,9 @@ export const allocateBankTransactionTool: McpTool = {
         [{ glAccountId: line.contraAccountId, cc2Id: line.dimIds?.cc2Id ?? null }], () => 'allocation')
       : { warnings: [] };
     if (typeof cos === 'string') return toolError(cos);
-    // WP2 row 5: onto its own bank (posts nothing), or onto another bank whose movement the ledger already holds — the
-    // transfer arm's refusals, read here so they answer typed and pre-write (bankContraLineSkips).
-    const bankContra = line.allocType === 'account' && line.contraAccountId
-      ? (await bankContraLineSkips(ctx.companyId, [{ txId: resolved.id, accountId: line.contraAccountId }])).get(resolved.id)
-      : undefined;
-    if (bankContra) return toolError(bankContra);
 
+    // WP2 row 5: onto its own bank, or a transfer already in the ledger, allocateTransaction refuses before any write
+    // (BANK_ALLOCATION_REFUSED / DUPLICATE_TRANSFER): the registry answers both typed, its savepoint rolled back.
     // No try/catch below this line, deliberately. Anything the service throws
     // must reach the registry's savepoint, which rolls the partial write back
     // and makes the retry safe.
