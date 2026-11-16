@@ -18,6 +18,7 @@ import {
   MIGRATIONS_DIR,
 } from '../../../scripts/lib/migrationFiles';
 import { classifyMigrationParity, type ParityFile } from '../../../scripts/lib/migrationParity';
+import { parseExpectedSchema } from '../../../scripts/lib/schemaDriftParse';
 import { migrationNumber } from '../helpers/sourceCensus';
 
 const version = (name: string) => /^(\d+[a-z]?)_/.exec(name)![1]!;
@@ -111,6 +112,21 @@ describe('refresh-baseline.sh order (scripts/ci/integration/migration-order.sh)'
   it('mig_below keeps the files strictly before the top, in order', () => {
     expect(bash('mig_below', MIXED, '1000_next.sql')).toEqual(ORDERED.slice(0, ORDERED.indexOf('1000_next.sql')));
     expect(bash('mig_below', MIXED, '999_top.sql')).not.toContain('1000_next.sql');
+  });
+});
+
+describe('schemaDriftParse replays migrations in numeric order', () => {
+  it('a 1000_ rename and drop act on what 999_ created, not before it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'drift-order-'));
+    try {
+      writeFileSync(join(dir, '999_create.sql'), 'CREATE TABLE IF NOT EXISTS o_t (id uuid, old_name text);\nCREATE TABLE IF NOT EXISTS o_gone (id uuid);\n');
+      writeFileSync(join(dir, '1000_change.sql'), 'ALTER TABLE o_t RENAME COLUMN old_name TO new_name;\nDROP TABLE IF EXISTS o_gone;\n');
+      const expected = parseExpectedSchema(dir);
+      expect([...(expected.get('o_t') ?? [])].sort()).toEqual(['id', 'new_name']);
+      expect(expected.has('o_gone')).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
