@@ -31,8 +31,9 @@ async function employee(company: string, number: string): Promise<string> {
 
 async function run(company: string, key: string, month: number, status: string, paye: number, emp: string, reopened = false) {
   const id = (await pool.query<{ id: string }>(
-    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_paye, total_gross, total_uif, total_sdl, total_eti, employee_count, reopened_at)
-     VALUES ($1, 2026, $2, $3, $4::numeric, $4::numeric * 10, 0, 0, 0, 1, $5) RETURNING id`,
+    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_paye, total_gross, total_uif, total_sdl, total_eti, employee_count, reopened_at, approved_at)
+     VALUES ($1, 2026, $2, $3::text, $4::numeric, $4::numeric * 10, 0, 0, 0, 1, $5,
+             CASE WHEN $3::text IN ('approved', 'paid') THEN clock_timestamp() END) RETURNING id`,
     [company, month, status, paye, reopened ? new Date() : null])).rows[0]!.id;
   await pool.query(
     `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, net_pay) VALUES ($1, $2, $3::numeric, $3::numeric, $4::numeric, $3::numeric)`,
