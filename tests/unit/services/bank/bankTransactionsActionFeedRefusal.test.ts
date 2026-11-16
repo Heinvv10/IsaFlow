@@ -60,6 +60,7 @@ vi.mock('@/lib/apiResponse', () => ({
 }));
 
 import handler from '../../../../pages/api/accounting/bank-transactions-action';
+import { apiResponse } from '@/lib/apiResponse';
 import { matchTransaction, allocateTransaction } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { BankTransactionNotPostedError, assertPostedForAllocation } from '@/modules/accounting/services/bank/bankFeedStateGuard';
 import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
@@ -138,11 +139,12 @@ describe('bank-transactions-action — pending-row refusal mapping', () => {
       new BankAllocationRefusal('Transaction already allocated — cannot allocate'),
     );
 
-    const out = await handler(req({
+    await handler(req({
       action: 'allocate', bankTransactionId: BANK_TX_ID, allocationType: 'account',
       contraAccountId: '00000000-0000-0000-0000-000000000005',
-    }), {} as NextApiResponse) as { kind: string };
+    }), {} as NextApiResponse);
 
-    expect(out.kind).toBe('badRequest');
+    // Answered by the typed-refusal responder (audit WP2 row 9), which returns nothing: read the call it made.
+    expect(apiResponse.badRequest).toHaveBeenCalledWith(expect.anything(), 'Transaction already allocated — cannot allocate');
   });
 });

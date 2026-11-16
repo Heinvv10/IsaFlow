@@ -68,6 +68,7 @@ import { BankTransactionLockTimeoutError } from '@/modules/accounting/services/b
 import { PaymentLockTimeoutError } from '@/modules/accounting/services/core/paymentLock';
 import { ReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
 import { SupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
+import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import bankAction from '../../../pages/api/accounting/bank-transactions-action';
 import bankManual from '../../../pages/api/accounting/bank-transactions-manual';
 import supplierAction from '../../../pages/api/accounting/supplier-payments-action';
@@ -163,12 +164,18 @@ describe('POST /api/accounting/bank-transactions-action', () => {
     expect(JSON.stringify(res.sent)).toMatch(/cancelled and cannot be paid/);
   });
 
-  it('still answers a bare Error 400, the behaviour this change did not touch', async () => {
+  // Audit WP2 row 9: a bare Error is a fault, not a refusal — rethrown, so withErrorHandler answers 500 and withAuth
+  // rolls back (a 400 COMMITTED whatever the crash had written). A typed refusal keeps its 400.
+  it('rethrows a bare Error (500, rolled back) and still answers a typed refusal 400', async () => {
     vi.mocked(allocateTransaction).mockRejectedValue(new Error('Bank transaction not found'));
-    const { req, res } = mockReqRes(ALLOCATE_BODY);
-    await bankAction(req, res);
+    const crashed = mockReqRes(ALLOCATE_BODY);
+    await expect(bankAction(crashed.req, crashed.res)).rejects.toThrow('Bank transaction not found');
+    expect(crashed.res.statusCode).not.toBe(400);
 
-    expect(res.statusCode).toBe(400);
+    vi.mocked(allocateTransaction).mockRejectedValue(new BankAllocationRefusal('Bank transaction not found'));
+    const refused = mockReqRes(ALLOCATE_BODY);
+    await bankAction(refused.req, refused.res);
+    expect(refused.res.statusCode).toBe(400);
   });
 });
 

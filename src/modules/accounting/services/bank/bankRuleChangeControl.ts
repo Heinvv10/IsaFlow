@@ -21,6 +21,7 @@ import { BANK_RULE } from '../gl/approvalRuleOptions';
 import { BankControlError } from './bankControlRefusal';
 import { lockRuleProjection } from './bankRuleChangeQueries';
 import { lockForRuleWrite } from './bankRuleAutoPostLock';
+import { BankRequestRefusal } from './bankRequestRefusal';
 
 /** A rule as 877 projects it: every column but its identity and bookkeeping (snake_case). */
 export type RuleProjection = Record<string, unknown>;
@@ -121,7 +122,7 @@ export async function writeRuleChange(
 ): Promise<RuleWrite> {
   await lockForRuleWrite(companyId);
   const before = await lockRuleProjection(companyId, ruleId);
-  if (!before) throw new Error(`Rule ${ruleId} not found`);
+  if (!before) throw new BankRequestRefusal(`Rule ${ruleId} not found`, 404);
   const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
   const { after, postsMoney, held, toggleOnly } = await classify(companyId, before, { ...before, ...defined });
   await guard?.(after, postsMoney);
