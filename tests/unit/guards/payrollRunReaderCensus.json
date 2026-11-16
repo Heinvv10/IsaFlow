@@ -180,6 +180,15 @@
    {"line":50,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"MIN over the company"},
    {"line":60,"text":"JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"FQb1","why":"by run id"}
   ],
+  "src/modules/accounting/services/payroll/payrollLoanApply.ts": [
+   {"line":54,"text":"FROM payroll_loan_schedule","class":"S","owner":"FQb1","why":"unpaid instalment of the due month; paid_flag stops a second run of the month taking it again"},
+   {"line":79,"text":"INSERT INTO payroll_loan_payments (","class":"S","owner":"FQb1","why":"payment insert, unique per loan-month: one instalment a month (paid_flag above)"},
+   {"line":108,"text":"UPDATE payroll_loan_schedule","class":"S","owner":"FQb1","why":"schedule write by id"}
+  ],
+  "src/modules/accounting/services/payroll/payrollLoanDue.ts": [
+   {"line":22,"text":"JOIN payroll_loan_schedule s ON s.loan_id = l.id","class":"S","owner":"FQb1","why":"loans due in the month"},
+   {"line":40,"text":"JOIN payroll_loan_schedule s ON s.loan_id = l.id","class":"S","owner":"FQb1","why":"loans with an unpaid instalment in the month"}
+  ],
   "src/modules/accounting/services/payroll/payrollLoanPreview.ts": [
    {"line":21,"text":"FROM payroll_loan_schedule","class":"S","owner":"FQb1","why":"loan instalment by due month (an instalment is monthly by schedule; loans on weekly refused, §0a.11)"}
   ],
@@ -191,14 +200,9 @@
    {"line":139,"text":"UPDATE payroll_loan_schedule","class":"S","owner":"FQb1","why":"pre-622 rows only: schedule rows of the due month"}
   ],
   "src/modules/accounting/services/payroll/payrollLoanService.ts": [
-   {"line":284,"text":"INSERT INTO payroll_loan_schedule (","class":"S","owner":"FQb1","why":"schedule insert"},
-   {"line":330,"text":"SELECT * FROM payroll_loan_schedule","class":"S","owner":"FQb1","why":"schedule of one loan"},
-   {"line":336,"text":"SELECT * FROM payroll_loan_payments","class":"S","owner":"FQb1","why":"payments of one loan"},
-   {"line":417,"text":"FROM payroll_loan_schedule","class":"S","owner":"FQb1","why":"unpaid instalment of the due month; paid_flag stops a second run of the month taking it again"},
-   {"line":442,"text":"INSERT INTO payroll_loan_payments (","class":"S","owner":"FQb1","why":"payment insert, unique per loan-month: one instalment a month (paid_flag above)"},
-   {"line":471,"text":"UPDATE payroll_loan_schedule","class":"S","owner":"FQb1","why":"schedule write by id"},
-   {"line":564,"text":"JOIN payroll_loan_schedule s ON s.loan_id = l.id","class":"S","owner":"FQb1","why":"loans due in the month"},
-   {"line":582,"text":"JOIN payroll_loan_schedule s ON s.loan_id = l.id","class":"S","owner":"FQb1","why":"loans with an unpaid instalment in the month"}
+   {"line":145,"text":"INSERT INTO payroll_loan_schedule (","class":"S","owner":"FQb1","why":"schedule insert"},
+   {"line":191,"text":"SELECT * FROM payroll_loan_schedule","class":"S","owner":"FQb1","why":"schedule of one loan"},
+   {"line":197,"text":"SELECT * FROM payroll_loan_payments","class":"S","owner":"FQb1","why":"payments of one loan"}
   ],
   "src/modules/accounting/services/payroll/payrollLoanWithholding.ts": [
    {"line":53,"text":"SELECT p.schedule_row_id FROM payroll_loan_payments p","class":"S","owner":"FQb1","why":"by run id; the month arm is pre-622 rows only"},
