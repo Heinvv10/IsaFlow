@@ -14,7 +14,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Pool, type PoolClient } from 'pg';
 import { als } from '@/lib/als';
-import { saveDraftSubmission } from '@/modules/accounting/services/reports/sarsComplianceService';
+import { saveDraftSubmission, SubmissionNotOpenError } from '@/modules/accounting/services/reports/sarsComplianceService';
+import { vatFilingFootprint } from '@/modules/accounting/services/core/companyVatProfileService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 const MIGRATION = readFileSync(resolve(__dirname, '../../scripts/migrations/sql/999b_sars_submissions_one_open_draft.sql'), 'utf8');
@@ -74,6 +75,26 @@ describe('migration 999b: one open draft per company, form and period', () => {
     });
   }, 30000);
 
+  it('a duplicate that may have reached SARS (correlation id, or any eFiling event) stops the migration; nothing is superseded', async () => {
+    const id = (n: number) => `00000000-0000-4000-8001-${String(n).padStart(12, '0')}`;
+    const run = (sent: 'correlation' | 'event') => rolledBack(async (c) => {
+      await c.query('DROP INDEX IF EXISTS public.uq_sars_submissions_one_open_draft');
+      await seed(c, id(1), a, 'VAT201', '2026-03-01', 'draft', '2026-09-26 06:00'); // the older duplicate: would be superseded
+      await seed(c, id(2), a, 'VAT201', '2026-03-01', 'draft', '2026-09-26 07:00');
+      if (sent === 'correlation') await c.query('UPDATE sars_submissions SET efiling_correlation_id = $2 WHERE id = $1', [id(1), 'CORR-HYA']);
+      else await c.query("INSERT INTO sars_efiling_events (company_id, submission_id, event_type) VALUES ($1, $2, 'submit')", [a, id(1)]);
+      await c.query('SAVEPOINT m');
+      const outcome = await c.query(MIGRATION).then(() => 'ran', (err: { code?: string; message?: string }) => `${err.code} ${err.message}`);
+      await c.query('ROLLBACK TO SAVEPOINT m');
+      return { outcome, left: await statuses(c) };
+    });
+    for (const sent of ['correlation', 'event'] as const) {
+      const { outcome, left } = await run(sent);
+      expect(outcome).toMatch(/^P0001 999b: 1 duplicate open SARS draft\(s\) to supersede may have been sent to SARS/);
+      expect(left).toEqual({ [id(1)]: 'draft', [id(2)]: 'draft' });
+    }
+  }, 30000);
+
   it('a second draft of a key is refused with 23505; another period, form or tenant, or a non-draft row, is not', async () => {
     const outcome = await rolledBack(async (c) => {
       const tried = async (company: string, form: string, start: string, status: string) => {
@@ -104,4 +125,54 @@ describe('migration 999b: one open draft per company, form and period', () => {
     }));
     expect(saved).toEqual({ same: true, drafts: 1, v: 2 });
   });
+
+  it('a superseded (or open) VAT201 draft is no filing record in the VAT profile footprint; submitted, accepted, rejected are', async () => {
+    const c = await pool.connect();
+    try {
+      const statusesByMonth: Array<[string, string]> = [
+        ['2025-01-01', 'draft'], ['2025-02-01', 'superseded'], ['2025-03-01', 'submitted'], ['2025-04-01', 'accepted'], ['2025-05-01', 'rejected'],
+      ];
+      for (const [start, status] of statusesByMonth) await seed(c, randomUUID(), b, 'VAT201', start, status, '2026-09-01');
+    } finally { c.release(); }
+    const footprint = await vatFilingFootprint(b);
+    expect(footprint.records.filter((r) => r.source === 'sars_vat201_submission').map((r) => r.period_start).sort())
+      .toEqual(['2025-03-01', '2025-04-01', '2025-05-01']);
+  });
+
+  /** BEGIN on a connection of its own; `act` runs with the ALS bound to it; `end` commits. */
+  async function openTx() {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    const act = <T>(fn: () => Promise<T>) => als.run({ client: c, userId: randomUUID(), companyId: a, claims: {} } as never, fn);
+    const end = async () => { try { await c.query('COMMIT'); } finally { c.release(); } };
+    return { c, act, end };
+  }
+
+  it('saveDraftSubmission queues a save of the same period written differently (2026-6-1) behind an open one, and updates its draft', async () => {
+    const first = await openTx();
+    const saved = await first.act(() => saveDraftSubmission(a, 'EMP201', '2026-06-01', '2026-06-30', { v: 1 }, randomUUID()));
+    const second = await openTx();
+    const pending = second.act(() => saveDraftSubmission(a, 'EMP201', '2026-6-1', '2026-6-30', { v: 2 }, randomUUID()))
+      .then((d) => ({ id: d.id, v: d.formData.v }), (err: { code?: string; name?: string }) => err.name ?? err.code);
+    await new Promise((r) => setTimeout(r, 300)); // the second is waiting on the period's lock
+    await first.end();
+    const outcome = await pending;
+    await second.end();
+    expect(outcome).toEqual({ id: saved.id, v: 2 });
+  }, 30000);
+
+  it('a second open draft another writer slipped in is refused as SubmissionNotOpenError (the routes answer 409), not a raw 23505', async () => {
+    const other = await openTx(); // a writer that takes no draft lock
+    await other.c.query(`INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status)
+      VALUES ($1, 'EMP201', '2026-07-01', '2026-07-31', 'draft')`, [a]);
+    const mine = await openTx();
+    const pending = mine.act(() => saveDraftSubmission(a, 'EMP201', '2026-07-01', '2026-07-31', { v: 1 }, randomUUID()))
+      .then(() => 'saved', (err: unknown) => err);
+    await new Promise((r) => setTimeout(r, 300)); // the insert is waiting on the other writer's row in the index
+    await other.end();
+    const outcome = await pending;
+    await mine.c.query('ROLLBACK').catch(() => undefined);
+    mine.c.release();
+    expect(outcome).toBeInstanceOf(SubmissionNotOpenError);
+  }, 30000);
 });

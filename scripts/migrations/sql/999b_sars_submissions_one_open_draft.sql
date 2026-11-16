@@ -11,8 +11,10 @@
 --    as the open one is kept (newest updated_at, then created_at, then highest id: its own ORDER BY); every other
 --    draft of that key moves to 'superseded', the status fileReturn already writes, with a note saying why. The move
 --    is draft to superseded, which the lifecycle trigger allows. A draft a return version names cannot move (the
---    freeze trigger refuses it) and would stop this migration: the read-only pre-check in the PR body counts them
---    first. Every tenant's duplicates, deliberately: the rule is the same for all of them. Dev had one pair.
+--    freeze trigger refuses it) and would stop this migration, and so does a duplicate that may have been sent to SARS
+--    (an efiling_correlation_id or any sars_efiling_events row): it is never buried, the migration raises instead. The
+--    read-only pre-check in the PR body counts both first. Every tenant's duplicates, deliberately: the rule is the
+--    same for all of them. Dev had one pair.
 -- 3. The partial unique index.
 -- 4. payroll_employees.tax_directive_number is marked deprecated: nothing reads or writes it (the HYa census); it is
 --    dropped in wave 7.
@@ -24,6 +26,32 @@ SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
 
 LOCK TABLE public.sars_submissions IN SHARE ROW EXCLUSIVE MODE;
+
+-- A duplicate that may have reached SARS (a correlation id, or any eFiling event) is not buried: stop instead.
+DO $$
+DECLARE
+  v_sent pg_catalog.int8;
+BEGIN
+  WITH ranked AS (
+    SELECT id, efiling_correlation_id,
+           pg_catalog.row_number() OVER (
+             PARTITION BY company_id, form_type, period_start, period_end
+             ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
+           ) AS rn
+    FROM public.sars_submissions
+    WHERE status = 'draft'
+  )
+  SELECT pg_catalog.count(*) INTO v_sent
+  FROM ranked r
+  WHERE r.rn > 1
+    AND (r.efiling_correlation_id IS NOT NULL
+         OR EXISTS (SELECT 1 FROM public.sars_efiling_events e WHERE e.submission_id = r.id));
+  IF v_sent > 0 THEN
+    RAISE EXCEPTION '999b: % duplicate open SARS draft(s) to supersede may have been sent to SARS (correlation id or eFiling event); resolve them by hand first', v_sent
+      USING ERRCODE = 'P0001';
+  END IF;
+END
+$$;
 
 WITH ranked AS (
   SELECT id,
