@@ -10,23 +10,19 @@
  * Including such a run in the UI-19 declares UIF to the UIF fund that the
  * ledger does not carry, and `markUifDeclarationPaid` then DEBITS 2150 for the
  * declared total — driving the control account negative by exactly the
- * unposted amount. Same argument as EMP201, so UIF reuses the same declarable
- * set (UI19_DECLARABLE_STATUSES === EMP201_DECLARABLE_STATUSES).
+ * unposted amount. Same argument as EMP201, so UIF selects the same runs: the
+ * FINAL ones, by the one fragment `payRunFinalSql` (approved or paid AND an
+ * approval time; wave 6 EF), never a status array of its own.
  *
- * Assertions are on the BOUND PARAMETERS, not the SQL text, so an explanatory
- * SQL comment mentioning 'calculated' cannot make these pass falsely.
- *
- * Mutation check (apply each alone, expect red):
- *  1. In generateUifDeclaration, swap the bound array back to
- *     `['calculated', 'approved', 'paid']` → "aggregates only GL-posted runs" fails.
- *  2. Same swap in getUifDeclaration's line query → "lists only GL-posted runs" fails.
- *  3. Change UI19_DECLARABLE_STATUSES to include 'calculated'
- *     → both tests plus the constant test fail.
+ * Assertions are on the BOUND VALUES (the spliced fragment), not the SQL text,
+ * so an explanatory SQL comment cannot make these pass falsely. The figures,
+ * an unstamped approved run and a second tenant are proven on real PG in
+ * tests/integration/w6-ef-emp201-finality.int.test.ts.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/neon', () => {
-  const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
+  const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn(), unsafe: (text: string) => ({ unsafe: text }) });
   return { sql: sqlMock, withTransaction: vi.fn() };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
@@ -48,6 +44,7 @@ import {
   UI19_DECLARABLE_STATUSES,
   EMP201_DECLARABLE_STATUSES,
 } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
 const DECL_ID = 'dddddddd-0000-0000-0000-000000000002';
@@ -63,6 +60,11 @@ function bindsStatus(status: string): boolean {
   return allBoundValues().some(
     (v) => v === status || (Array.isArray(v) && v.includes(status)),
   );
+}
+
+/** True if the one final-run fragment was spliced into a query. */
+function splicesFinal(): boolean {
+  return allBoundValues().some((v) => JSON.stringify(v) === JSON.stringify({ unsafe: payRunFinalSql('prh') }));
 }
 
 const declarationRow = {
@@ -98,7 +100,7 @@ describe('UI19_DECLARABLE_STATUSES', () => {
 describe('generateUifDeclaration', () => {
   beforeEach(() => vi.mocked(sql).mockReset());
 
-  it('aggregates only GL-posted runs — never a "calculated" run', async () => {
+  it('aggregates only final runs (the one fragment) — never a "calculated" run', async () => {
     vi.mocked(sql)
       .mockResolvedValueOnce([
         { employee_count: 10, total_uif_employee: 1624.84, total_uif_employer: 1624.84 },
@@ -107,8 +109,8 @@ describe('generateUifDeclaration', () => {
 
     await generateUifDeclaration(COMPANY_ID, 2026, 3, USER_ID);
 
-    expect(bindsStatus('approved')).toBe(true);
-    expect(bindsStatus('paid')).toBe(true);
+    expect(splicesFinal()).toBe(true);
+    expect(bindsStatus('approved')).toBe(false);
     expect(bindsStatus('calculated')).toBe(false);
     expect(bindsStatus('draft')).toBe(false);
     expect(bindsStatus('cancelled')).toBe(false);
@@ -118,7 +120,7 @@ describe('generateUifDeclaration', () => {
 describe('getUifDeclaration', () => {
   beforeEach(() => vi.mocked(sql).mockReset());
 
-  it('lists only GL-posted runs — never a "calculated" run', async () => {
+  it('lists only final runs (the one fragment) — never a "calculated" run', async () => {
     vi.mocked(sql)
       .mockResolvedValueOnce([declarationRow] as never)
       .mockResolvedValueOnce([] as never);
@@ -126,8 +128,7 @@ describe('getUifDeclaration', () => {
     const detail = await getUifDeclaration(COMPANY_ID, DECL_ID);
 
     expect(detail).not.toBeNull();
-    expect(bindsStatus('approved')).toBe(true);
-    expect(bindsStatus('paid')).toBe(true);
+    expect(splicesFinal()).toBe(true);
     expect(bindsStatus('calculated')).toBe(false);
   });
 });

@@ -6,9 +6,10 @@
  * judged by what was paid. Every query carries the company.
  *
  * Final = `status IN ('approved','paid') AND COALESCE(approved_at, approval_grandfathered_at) IS NOT NULL` (wave-5 FS,
- * `payslipFinal.isPayRunFinal`), inlined until EF's `payRunFinalSql.ts` lands. A run scope also counts that run's lines.
+ * `payslipFinal.isPayRunFinal`), the one fragment `payRunFinalSql.ts`. A run scope also counts that run's lines.
  */
 import { sql } from '@/lib/neon';
+import { payRunFinalSql } from './payRunFinalSql';
 import { payeTaxYearBounds, payeTaxYearPeriods } from '@/modules/accounting/utils/payeTaxYear';
 
 export type PreValidationRow = {
@@ -29,8 +30,7 @@ export async function loadFinalLineTotals(
         FROM payroll_run_lines prl
         JOIN payroll_run_headers prh ON prh.id = prl.run_id
        WHERE prh.company_id = ${companyId}::uuid
-         AND ((prh.status IN ('approved', 'paid') AND COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL)
-              OR prh.id = ${runId}::uuid)
+         AND (${sql.unsafe(payRunFinalSql('prh'))} OR prh.id = ${runId}::uuid)
          AND ((prh.period_year = ${p.startYear} AND prh.period_month >= ${p.startMonth})
               OR (prh.period_year = ${p.endYear} AND prh.period_month <= ${p.endMonth}))
          AND (${employeeId}::uuid IS NULL OR prl.employee_id = ${employeeId}::uuid)

@@ -7,7 +7,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/modules/accounting/services/payroll/directivePaymentFiling', () => ({
   listStandaloneDirectivePayments: vi.fn(async () => []),
 }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: (text: string) => ({ unsafe: text }) }) }));
+vi.mock('@/modules/accounting/services/payroll/payRunNotFinal', () => ({
+  listNotFinalDeclaredRuns: vi.fn(async () => []),
+  notFinalRunWarning: vi.fn(() => 'not final'),
+}));
+vi.mock('@/modules/accounting/services/reports/emp201LineUif', () => ({
+  loadRunLineUif: vi.fn(async () => new Map()),
+  uifSplitMismatchWarning: vi.fn(() => null),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 
 import { sql } from '@/lib/neon';

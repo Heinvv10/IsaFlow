@@ -7,7 +7,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { contractorLineFlag } from './payrollOutsideTables';
-import { UI19_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from './payRunFinalSql';
 import {
   componentIdsToResolve,
   loadComponentTypes,
@@ -121,9 +121,6 @@ export async function getUifDeclaration(
   if (rows.length === 0 || !rows[0]) return null;
 
   const decl = mapUifDeclaration(rows[0]);
-  // Bound as an array rather than inlined literals so the vocabulary lives in
-  // exactly one place (@/lib/constants/payrollRunStatuses).
-  const declarableStatuses: string[] = [...UI19_DECLARABLE_STATUSES];
 
   // Pull per-employee lines from the payroll run for this period
   const lineRows = (await sql`
@@ -142,7 +139,8 @@ export async function getUifDeclaration(
     WHERE prh.company_id = ${companyId}::uuid
       AND prh.period_year  = ${decl.periodYear}
       AND prh.period_month = ${decl.periodMonth}
-      AND prh.status = ANY(${declarableStatuses}::text[])
+      -- Final runs only (payRunFinalSql: approved or paid with an approval time), as the EMP201.
+      AND ${sql.unsafe(payRunFinalSql('prh'))}
       -- An independent contractor is no UIF contributor (G21 p. 26): not on the UI-19.
       AND NOT COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)
     ORDER BY pe.employee_number
@@ -186,9 +184,7 @@ export async function generateUifDeclaration(
 ): Promise<UifDeclaration> {
   log.info('Generating UIF declaration', { companyId, year, month }, 'uifDeclarationService');
 
-  const declarableStatuses: string[] = [...UI19_DECLARABLE_STATUSES];
-
-  // Aggregate from payroll run lines for the period
+  // Aggregate from the final runs' lines for the period (payRunFinalSql, as the EMP201)
   const aggRows = (await sql`
     SELECT
       COUNT(DISTINCT prl.employee_id)::int        AS employee_count,
@@ -199,7 +195,7 @@ export async function generateUifDeclaration(
     WHERE prh.company_id  = ${companyId}::uuid
       AND prh.period_year  = ${year}
       AND prh.period_month = ${month}
-      AND prh.status = ANY(${declarableStatuses}::text[])
+      AND ${sql.unsafe(payRunFinalSql('prh'))}
       AND NOT COALESCE(prl.validation_results @> ${contractorLineFlag}::jsonb, false)
   `) as Row[];
 

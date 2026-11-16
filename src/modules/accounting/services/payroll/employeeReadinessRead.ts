@@ -8,6 +8,7 @@
  * which is all `nextRunMonth` reads. Company-scoped; another company's employee is null (404 at the route).
  */
 import { sql } from '@/lib/neon';
+import { payRunFinalSql } from './payRunFinalSql';
 
 export interface EmployeeReadinessRead {
   bank: 'on-file' | 'none';
@@ -28,8 +29,7 @@ export async function readEmployeeReadiness(companyId: string, employeeId: strin
                 JOIN payroll_run_headers prh ON prh.id = prl.run_id
                WHERE prh.company_id = ${companyId}::uuid
                  AND prl.employee_id = ${employeeId}::uuid
-                 AND prh.status IN ('approved', 'paid')
-                 AND COALESCE(prh.approved_at, prh.approval_grandfathered_at) IS NOT NULL) AS has_final,
+                 AND ${sql.unsafe(payRunFinalSql('prh'))}) AS has_final,
       (SELECT json_build_object('periodYear', period_year, 'periodMonth', period_month, 'status', status)
          FROM payroll_run_headers
         WHERE company_id = ${companyId}::uuid AND status IN ('calculated', 'approved', 'paid')

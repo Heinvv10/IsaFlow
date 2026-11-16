@@ -13,19 +13,21 @@
  * tenant boundary: it is INNER and the company predicate lives in WHERE, never
  * in an outer join's ON clause where it would restrict nothing.
  *
- * DECLARABLE RUNS ONLY. A draft or cancelled run is not remuneration anybody
- * was paid, and a certificate built from one would be wrong. The statuses come
- * from `EMP201_DECLARABLE_STATUSES` so the EMP201 and the IRP5 cannot disagree
- * about which runs count. Runs excluded on that basis are COUNTED and named,
- * because "this employee earned nothing" and "this employee's runs were never
- * approved" are different facts.
+ * FINAL RUNS ONLY. A draft or cancelled run is not remuneration anybody
+ * was paid, and a certificate built from one would be wrong. Final is the one
+ * fragment `payRunFinalSql` (approved or paid AND an approval time), the same
+ * the EMP201 uses, so the two cannot disagree about which runs count. Runs
+ * excluded on that basis are COUNTED and named, because "this employee earned
+ * nothing" and "this employee's runs were never approved" are different facts;
+ * an approved run with no approval time is also named in `warnings`.
  *
  * The SA tax year runs 1 March (taxYear − 1) to 28/29 February (taxYear).
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payRunFinalSql } from './payRunFinalSql';
+import { listNotFinalDeclaredRuns, notFinalRunWarning } from './payRunNotFinal';
 import { payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 import { listCertificateLumpSums } from './directivePaymentFiling';
 import { allowanceCertificateFields, listRunAllowanceFiling } from './payrollAllowanceFiling';
@@ -62,7 +64,6 @@ export async function getIrp5EmployeeTotals(
   const { start, end } = saTaxYearBounds(taxYear);
   const reveal = opts.revealIdentityNumbers === true;
   const employeeId = opts.employeeId ?? null;
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
 
   const rows = (await sql`
     SELECT
@@ -83,7 +84,7 @@ export async function getIrp5EmployeeTotals(
     JOIN payroll_employees e ON e.id = prl.employee_id
     WHERE prh.company_id = ${companyId}::UUID
       AND e.company_id = ${companyId}::UUID
-      AND prh.status = ANY(${declarable}::TEXT[])
+      AND ${sql.unsafe(payRunFinalSql('prh'))}
       AND make_date(prh.period_year, prh.period_month, 1)
           BETWEEN ${start}::DATE AND ${end}::DATE
       AND (${employeeId}::UUID IS NULL OR e.id = ${employeeId}::UUID)
@@ -91,7 +92,7 @@ export async function getIrp5EmployeeTotals(
     ORDER BY e.last_name, e.first_name, e.id
   `) as Row[];
 
-  // Employees whose remuneration in this tax year sits ONLY on non-declarable
+  // Employees whose remuneration in this tax year sits ONLY on non-final
   // runs. Their pay is real and does not belong on a certificate, so each is
   // named rather than silently absent.
   //
@@ -112,11 +113,11 @@ export async function getIrp5EmployeeTotals(
     JOIN payroll_employees e ON e.id = prl.employee_id
     WHERE prh.company_id = ${companyId}::UUID
       AND e.company_id = ${companyId}::UUID
-      AND NOT (prh.status = ANY(${declarable}::TEXT[]))
+      AND NOT ${sql.unsafe(payRunFinalSql('prh'))}
       AND make_date(prh.period_year, prh.period_month, 1)
           BETWEEN ${start}::DATE AND ${end}::DATE
       AND (${employeeId}::UUID IS NULL OR e.id = ${employeeId}::UUID)
-      -- Anyone who ALSO has a declarable run is already a certificate row, and
+      -- Anyone who ALSO has a final run is already a certificate row, and
       -- counting them on both sides would overstate the universe.
       AND NOT EXISTS (
         SELECT 1
@@ -124,7 +125,7 @@ export async function getIrp5EmployeeTotals(
         JOIN payroll_run_headers dh ON dh.id = d.run_id
         WHERE d.employee_id = e.id
           AND dh.company_id = ${companyId}::UUID
-          AND dh.status = ANY(${declarable}::TEXT[])
+          AND ${sql.unsafe(payRunFinalSql('dh'))}
           AND make_date(dh.period_year, dh.period_month, 1)
               BETWEEN ${start}::DATE AND ${end}::DATE
       )
@@ -138,6 +139,7 @@ export async function getIrp5EmployeeTotals(
   const fringeBenefits = await listRunNonCashBenefits(companyId, { start, end }, employeeId);
   const unflagged = await listRunUnflaggedFringe(companyId, { start, end }, employeeId);
   const allowances = await listRunAllowanceFiling(companyId, { start, end }, employeeId);
+  const notFinal = await listNotFinalDeclaredRuns(companyId, start, end, employeeId);
   const standaloneIds = [...standaloneTotals.keys()];
   const withRuns = new Set(rows.map(r => String(r.id)));
   const onlyStandalone = standaloneIds.filter(id => !withRuns.has(id));
@@ -187,7 +189,7 @@ export async function getIrp5EmployeeTotals(
       id: String(r.id),
       reason: 'run_not_declarable',
       detail: `${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim() +
-        ` (${String(r.employee_number ?? '')}) has pay on ${Number(r.runs) || 0} run(s) in this tax year, none in a declarable status (${declarable.join(', ')}), so none of it is on a certificate.`,
+        ` (${String(r.employee_number ?? '')}) has pay on ${Number(r.runs) || 0} run(s) in this tax year, none of them final (approved or paid, with an approval time), so none of it is on a certificate.`,
       amount: Number(r.gross) || 0,
     }));
 
@@ -231,7 +233,10 @@ export async function getIrp5EmployeeTotals(
     excludedTotal,
     excluded,
     postedThrough,
-    warnings: rows.filter((r) => unflagged.has(String(r.id))).map((r) =>
-      unflaggedFringeWarning(`${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim(), unflagged.get(String(r.id))!)),
+    warnings: [
+      ...notFinal.map((r) => notFinalRunWarning(r, 'IRP5')),
+      ...rows.filter((r) => unflagged.has(String(r.id))).map((r) =>
+        unflaggedFringeWarning(`${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim(), unflagged.get(String(r.id))!)),
+    ],
   };
 }

@@ -15,10 +15,12 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const coA = randomUUID();
 const coB = randomUUID();
 
+/** An approved/paid header carries its approval time, as approvePayrollRun leaves it (the EMP201 reads final runs). */
 async function header(company: string, year: number, month: number, status: string, paye: number, eti: number): Promise<void> {
   await pool.query(
-    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_paye, total_eti)
-     VALUES ($1, $2, $3, $4, $5, $6)`, [company, year, month, status, paye, eti]);
+    `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, total_paye, total_eti, approved_at)
+     VALUES ($1, $2, $3, $4::text, $5, $6, CASE WHEN $4::text IN ('approved', 'paid') THEN clock_timestamp() END)`,
+    [company, year, month, status, paye, eti]);
 }
 
 beforeAll(async () => {
