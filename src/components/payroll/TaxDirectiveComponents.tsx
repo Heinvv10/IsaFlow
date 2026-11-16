@@ -68,7 +68,7 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // The select is required, but a submit can get past the browser's check: never POST without the employee.
+    // The picker has no browser-level required check: never POST without the employee.
     if (!form.employee_id) {
       setError('Choose the employee the directive is paid to');
       return;

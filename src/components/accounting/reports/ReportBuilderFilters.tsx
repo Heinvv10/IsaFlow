@@ -107,7 +107,7 @@ export function ReportBuilderFilters({ filters, availableFields, onChange }: Pro
             <div key={filter.id} className="flex flex-wrap items-center gap-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded px-2 py-1.5">
               {/* Field selector */}
               <div className="w-44">
-                <Select size="sm" label="Filter field" labelClassName="sr-only" placeholder="Select field..." searchable
+                <Select size="sm" label="Filter field" labelClassName="sr-only" placeholder="Select field..." searchable clearable
                   options={filterableFields.map(f => ({ value: f.field, label: f.label }))}
                   value={filter.field || null}
                   onChange={v => updateFilter(filter.id, { field: v ?? '', operator: 'equals', value: '', value2: '' })} />

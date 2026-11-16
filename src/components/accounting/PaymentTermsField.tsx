@@ -79,7 +79,7 @@ export function PaymentTermsField({ days, type, onChange, error: parentError, in
           />
         )}
         <div className="min-w-0 flex-1">
-          <Select id="payment-terms-kind" label="Payment Terms *" labelClassName="text-sm font-medium text-[var(--ff-text-secondary)]" placeholder="Choose…"
+          <Select id="payment-terms-kind" label="Payment Terms" required labelClassName="text-sm font-medium text-[var(--ff-text-secondary)]" placeholder="Choose…"
             options={options} value={mode === 'choose' ? null : mode} onChange={(v) => { if (v) pick(v as Mode); }} />
         </div>
       </div>
