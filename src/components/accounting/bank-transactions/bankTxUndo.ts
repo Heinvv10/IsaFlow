@@ -47,16 +47,24 @@ function notifyUndone(contra: ContraDates | undefined): void {
     `${formatDisplayDate(from)} is in a ${contra?.vatLockRoll ? 'locked VAT' : 'closed'} period.`);
 }
 
+/** Undo clicks in flight, by line: a second click on a toast's Undo while the first reverses must not reverse twice. */
+const undoing = new Set<string>();
+async function once(txId: string, fn: () => Promise<void>): Promise<void> {
+  if (undoing.has(txId)) return;
+  undoing.add(txId);
+  try { await fn(); } finally { undoing.delete(txId); }
+}
+
 export function offerAllocationUndo(txId: string, journalEntryId: string, learned: boolean, ctx: UndoContext): void {
   notify.undoable('Transaction allocated', {
     message: learned ? LEARNING_KEPT_MESSAGE : DECISION_KEPT_MESSAGE,
-    onUndo: async () => {
+    onUndo: () => once(txId, async () => {
       try {
         const reversed = await ctx.callAction({ action: 'reverse', bankTransactionId: txId, expectedJournalEntryId: journalEntryId }) as { data?: ContraDates };
         notifyUndone(reversed?.data);
       } catch (e) { notify.error(apiErrorMessage(e, 'Could not undo the allocation - try again')); }
       ctx.reloadCurrentView(); // a refusal means the view is out of date too
-    },
+    }),
   });
 }
 
@@ -64,12 +72,12 @@ export function offerAllocationUndo(txId: string, journalEntryId: string, learne
 export function offerExcludeUndo(txId: string, ctx: UndoContext): void {
   notify.undoable('Transaction excluded', {
     message: SUGGESTION_KEPT_MESSAGE,
-    onUndo: async () => {
+    onUndo: () => once(txId, async () => {
       try {
         await ctx.callAction({ action: 'unmatch', bankTransactionId: txId, expectedStatus: 'excluded' });
         notify.success('Transaction restored');
       } catch (e) { notify.error(apiErrorMessage(e, 'Could not restore the transaction - try again')); }
       ctx.reloadCurrentView();
-    },
+    }),
   });
 }
