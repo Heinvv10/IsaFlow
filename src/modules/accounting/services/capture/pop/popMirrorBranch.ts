@@ -4,7 +4,7 @@
  * imapMirrorService lets a message through its invoice-subject filter when its envelope looks
  * like an ABSA notice (isAbsaNoticeEnvelope), then hands its attachments here instead of to the
  * bill capture ingest. Only a message whose DKIM signature verifies as ABSA's (absaPopTrust.ts),
- * from a trusted payer, with a PDF that reads as a complete notice, is filed. Anything else is
+ * whatever payer name it prints, with a PDF that reads as a complete notice, is filed. Anything else is
  * NOT captured (a payment notice read as a supplier bill is worse than none) but logged: its
  * reasons go to the scan log as outcome 'pop_not_filed'. A lookup of ABSA's key that failed for
  * want of DNS is transient for DNS_RETRY_MS after the server received the message (IMAP

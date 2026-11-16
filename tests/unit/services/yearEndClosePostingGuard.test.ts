@@ -44,6 +44,8 @@ vi.mock('@/lib/neon', () => {
   return { sql, tx, withTransaction: vi.fn((cb: (t: typeof tx) => unknown) => cb(tx)) };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
+// The year's period lock + readiness gate passes here (tested in gl/yearEndPeriodGate.test.ts).
+vi.mock('@/modules/accounting/services/gl/yearEndPeriodGate', async (orig) => (await import('../helpers/yearEndGateMocks')).yearEndPeriodGateMock(orig));
 
 const buildPreviewMock = vi.fn();
 vi.mock('@/modules/accounting/services/gl/yearEndJournalBuilder', async (importOriginal) => ({

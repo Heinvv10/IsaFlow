@@ -18,6 +18,52 @@ import { devOnlySpecFiles } from '../../e2e/golden-paths/helpers/devOnlySpecs';
 
 const GOLDEN_DIR = path.resolve(__dirname, '../../e2e/golden-paths');
 const EXCLUDED = devOnlySpecFiles(GOLDEN_DIR).map((f) => f.replace('.spec.ts', ''));
+/** Every spec carrying `// golden:dev-only`, sorted. A PR that adds a dev-only golden adds its line here. */
+const DEV_ONLY_SPECS = [
+  'n-a11y-main-screens',
+  'o-theme-contrast',
+  'o2-theme-behaviour',
+  'o3-banner-titles',
+  'q2-top-nav-axe',
+  'r-command-palette',
+  's-shell-cls-mobile',
+  't-report-filter-dates',
+  'v-budget-workspace-axe',
+  'v-empty-states',
+  'w-setup-checklist',
+  'x-contrast-sweep',
+  'y1-invoice-form-kit',
+  'y2-bank-tx-naming',
+  'y3-employee-create-kit',
+  'y5-document-dates-sales',
+  'y6-document-dates-rest',
+  'y7-dashboard-aging-tie',
+  'y8-purchase-forms-390',
+  'z1-invoice-defaults',
+  'z10-payslips',
+  'z11-kit-select',
+  'z12-bank-tx-selects',
+  'z13-invoice-preview-unsaved',
+  'z15-density',
+  'z16-return-lifecycle',
+  'z17-return-drill',
+  'z18-explain',
+  'z19-native-selects',
+  'z2-invoice-autosave-send',
+  'z20-budgets-three-way',
+  'z20-comments',
+  'z21-ask',
+  'z28-late-claims',
+  'z29-pre-validation',
+  'z2b-invoice-held-back',
+  'z3-pnl-pdf',
+  'z4-employee-pay-on-create',
+  'z5-employee-bank-details',
+  'z6-payrun-review-grid',
+  'z7-undo-drawers',
+  'z8-budget-tracking',
+  'z9-employee-readiness',
+];
 const PREFIX = ['s2-shell', 'q-top-nav', 'm-migration'];
 
 let server: Server | null = null;
@@ -73,7 +119,12 @@ describe('verify-deploy.sh and the a11y gate', () => {
     expect(r.code).toBe(0);
     expect(r.skipA11y).toBe('1');
     const tests = listTests({ GOLDEN_SKIP_A11Y: r.skipA11y }, r.args); // throws if the spec were loaded
-    expect(EXCLUDED.length).toBe(42); // master's 33 (z8-budget-tracking, #1114; z2, z2b, z5; wave 4 B's z9; NS1's z11; PV's z13; DG's z15-density; PS's z10) + NS2's z12 + wave 5 L2's z16 + L3u's z17 + EX-core's z18 + UXN's z19 + budgets P6 PR D's z20 + M14's z20-comments + M11's z21 + wave 6 PV's z29
+    // Three independent views must agree: this list (edited on purpose), a grep of the marker, and devOnlySpecFiles. A spec
+    // that loses its marker, or one that gains it, fails until the list is edited: a floor or a count nets out.
+    const marked = execFileSync('grep', ['-rlx', '--include=*.spec.ts', '// golden:dev-only', '--', GOLDEN_DIR], { encoding: 'utf8' })
+      .split('\n').filter(Boolean).map((f) => path.relative(GOLDEN_DIR, f).replace('.spec.ts', '')).sort();
+    expect(marked).toEqual(DEV_ONLY_SPECS);
+    expect([...EXCLUDED].sort()).toEqual(DEV_ONLY_SPECS);
     expect(tests.filter((l) => EXCLUDED.some((n) => l.includes(`${n}.spec.ts`)))).toEqual([]);
     expect(tests.length).toBeGreaterThanOrEqual(10); // one file left out, not the suite
     for (const p of PREFIX) expect(tests.some((l) => l.includes(p))).toBe(true);

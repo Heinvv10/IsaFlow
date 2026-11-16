@@ -9,6 +9,11 @@
  * every other auto-posting gets — and the poster writes the plan's account id.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+// Wave 6 FQa: the run-kind guard reads the database; its own tests are payrollRunKindGuard*.test.ts.
+vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
+  assertRunKindSupported: vi.fn(async () => undefined),
+}));
 import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import {
   answerHeaderGuard, glAccount, selectGlAccounts, type GlAccountRow,

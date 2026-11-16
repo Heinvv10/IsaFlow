@@ -16,8 +16,8 @@ vi.mock('@/lib/apiResponse', () => ({
     methodNotAllowed: vi.fn(() => ({ kind: 'methodNotAllowed' })),
   },
 }));
-const m = vi.hoisted(() => ({ getComplianceCalendarWithDB: vi.fn() }));
-vi.mock('@/modules/accounting/services/reports/sarsService', () => ({ getComplianceCalendarWithDB: m.getComplianceCalendarWithDB }));
+const m = vi.hoisted(() => ({ getComplianceCalendarWithMarks: vi.fn() }));
+vi.mock('@/modules/accounting/services/reports/sarsComplianceCalendarDb', () => ({ getComplianceCalendarWithMarks: m.getComplianceCalendarWithMarks }));
 
 import handler from '../../../pages/api/accounting/sars/sars-compliance';
 
@@ -27,27 +27,37 @@ const call = (query: Record<string, string>) =>
     { method: 'GET', query, companyId: COMPANY } as unknown as NextApiRequest, {} as NextApiResponse);
 
 describe('sars-compliance route', () => {
-  beforeEach(() => { m.getComplianceCalendarWithDB.mockReset(); });
+  beforeEach(() => { m.getComplianceCalendarWithMarks.mockReset(); });
 
   it('passes the company and a valid year through', async () => {
-    m.getComplianceCalendarWithDB.mockResolvedValue([]);
-    expect(await call({ year: '2027' })).toEqual({ kind: 'success', data: { events: [] } });
-    expect(m.getComplianceCalendarWithDB).toHaveBeenCalledWith(COMPANY, 2027);
+    m.getComplianceCalendarWithMarks.mockResolvedValue({ events: [], marksUnavailable: false });
+    expect(await call({ year: '2027' })).toEqual({ kind: 'success', data: { events: [], marksUnavailable: false } });
+    expect(m.getComplianceCalendarWithMarks).toHaveBeenCalledWith(COMPANY, 2027);
   });
 
   it('defaults the year when none is given', async () => {
-    m.getComplianceCalendarWithDB.mockResolvedValue([]);
+    m.getComplianceCalendarWithMarks.mockResolvedValue({ events: [], marksUnavailable: false });
     await call({});
-    expect(m.getComplianceCalendarWithDB).toHaveBeenCalledWith(COMPANY, undefined);
+    expect(m.getComplianceCalendarWithMarks).toHaveBeenCalledWith(COMPANY, undefined);
   });
 
   it.each(['abc', '1999', '2026.5'])('rejects year=%s as a 400', async (year) => {
     expect(await call({ year })).toMatchObject({ kind: 'badRequest' });
-    expect(m.getComplianceCalendarWithDB).not.toHaveBeenCalled();
+    expect(m.getComplianceCalendarWithMarks).not.toHaveBeenCalled();
+  });
+
+  it('passes marksUnavailable through', async () => {
+    m.getComplianceCalendarWithMarks.mockResolvedValue({ events: [], marksUnavailable: true });
+    expect(await call({})).toMatchObject({ data: { marksUnavailable: true } });
+  });
+
+  it('passes submissionsUnavailable through', async () => {
+    m.getComplianceCalendarWithMarks.mockResolvedValue({ events: [], marksUnavailable: false, submissionsUnavailable: true });
+    expect(await call({})).toMatchObject({ data: { submissionsUnavailable: true } });
   });
 
   it('lets a service failure propagate to withErrorHandler (5xx), not a 400', async () => {
-    m.getComplianceCalendarWithDB.mockRejectedValue(new Error('company row missing'));
+    m.getComplianceCalendarWithMarks.mockRejectedValue(new Error('company row missing'));
     await expect(call({ year: '2026' })).rejects.toThrow('company row missing');
   });
 });

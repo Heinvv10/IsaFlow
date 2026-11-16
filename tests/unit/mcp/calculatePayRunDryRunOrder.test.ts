@@ -3,7 +3,16 @@
  * it before anything else, so the dry run reports that refusal alone, without asking about journals, loans
  * or the tax year.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+// Wave 6 FQa: the run-kind guard reads the database; its own tests are payrollRunKindGuard*.test.ts.
+vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
+  assertRunKindSupported: vi.fn(async () => undefined),
+}));
+vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollEmployeeService')>(),
+  listPayrollRunEmployees: vi.fn(async () => []),
+}));
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollLoanWithholding', () => ({ withheldLoansReport: vi.fn(async () => []) }));
@@ -19,6 +28,7 @@ import { getPayrollRun } from '@/modules/accounting/services/payroll/payrollRunS
 import { payrollJournalInForce } from '@/modules/accounting/services/payroll/payrollJournalChain';
 import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { calculatePayRunTool } from '@/lib/mcp/tools/writePayrollRun';
+import { assertRunKindSupported, RunKindUnsupportedError } from '@/modules/accounting/services/payroll/payrollRunKindGuard';
 
 const RUN = '22222222-2222-4222-8222-222222222222';
 
@@ -52,3 +62,27 @@ describe('calculate_pay_run dry run on a tax year with no tables', () => {
     expect(payrollJournalInForce).not.toHaveBeenCalled();
   });
 });
+
+describe('calculate_pay_run dry run on a locked run that is also off-cycle (wave 6 FQa, review #1483)', () => {
+  // In afterEach, so a failed assertion cannot leave the rejecting guard behind for later tests.
+  afterEach(() => {
+    vi.mocked(assertRunKindSupported).mockReset();
+    vi.mocked(assertRunKindSupported).mockResolvedValue(undefined);
+  });
+
+  it('reports the lock, as the live call refuses it first, and never asks the run-kind guard', async () => {
+    vi.mocked(assertRunKindSupported).mockClear();
+    vi.mocked(assertRunKindSupported).mockRejectedValue(
+      new RunKindUnsupportedError('calculate', [{ clause: 'run_kind', detail: 'it is an off-cycle run, and only regular runs are supported' }]));
+    vi.mocked(getPayrollRun).mockResolvedValue({
+      id: RUN, companyId: 'c', periodMonth: 3, periodYear: 2026, status: 'approved', journalEntryId: 'j1', runKind: 'off_cycle',
+      payFrequency: 'monthly', totalGross: 0, totalPaye: 0, totalUif: 0, totalSdl: 0, totalEti: 0, totalNet: 0, employeeCount: 0,
+    } as never);
+    const r = await calculatePayRunTool.handler({ run_id: RUN, dry_run: true, idempotency_key: 'k' }, { companyId: 'c', userId: 'u' } as never);
+    expect(r.isError).toBeUndefined();
+    const out = JSON.parse(r.content[0]!.text) as { skipped: string[] };
+    expect(out.skipped).toEqual([new PayrollRunLockedError('approved').message]);
+    expect(assertRunKindSupported).not.toHaveBeenCalled();
+  });
+});
+

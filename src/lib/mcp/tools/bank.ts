@@ -9,6 +9,7 @@ import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAc
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
 import { InvalidCursorError } from '@/modules/accounting/services/bank/bankTxCursor';
 import { BANK_TX_GROUP_BY, summariseBankTransactions } from '@/modules/accounting/services/bank/bankTxSummaryService';
+import { lineBucketOf, type LineBucket } from '@/modules/accounting/services/bank/bankLineBucket';
 import { SUMMARY_DETAIL_SCHEMA, groupBySchema, parseSummaryRequest, summaryBody } from './summaryMode';
 import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { escapeLikeLiteral } from '@/lib/sqlLikeLiteral';
@@ -16,35 +17,13 @@ import { escapeLikeLiteral } from '@/lib/sqlLikeLiteral';
 const ALLOCATION_FILTERS = ['all', 'unallocated', 'suggested', 'allocated'] as const;
 type AllocationFilter = (typeof ALLOCATION_FILTERS)[number];
 
-type AllocationState = 'allocated' | 'suggested' | 'unallocated' | 'excluded';
 
 interface CompactBankTx {
   id: string;
   date: string;
   amount: number;
   bank_reference: string | null;
-  allocation: AllocationState;
-}
-
-/**
- * Mirrors `allocation_filter` (PRD-11 §2), which is why `status` is part of it:
- * the SQL for both `suggested` and `unallocated` carries `AND bt.status != 'excluded'`,
- * so an excluded row is returned by NEITHER filter. Labelling it `unallocated`
- * would tell an agent to go allocate a row that `allocation_filter=unallocated`
- * will never hand it — hence the fourth value.
- *
- * A posted journal line still wins outright: a row can be excluded AFTER it was
- * allocated, and the money has moved either way.
- */
-export function allocationStateOf(tx: BankTransaction): AllocationState {
-  if (tx.matchedJournalLineId) return 'allocated';
-  if (tx.status === 'excluded') return 'excluded';
-  if (
-    tx.suggestedGlAccountId || tx.suggestedSupplierId || tx.suggestedClientId || tx.allocationType
-  ) {
-    return 'suggested';
-  }
-  return 'unallocated';
+  allocation: LineBucket;
 }
 
 function toCompact(tx: BankTransaction): CompactBankTx {
@@ -62,7 +41,10 @@ function toCompact(tx: BankTransaction): CompactBankTx {
     // wins where present: it is the stable external id, and the lookup
     // resolves either column.
     bank_reference: tx.bankReference ?? tx.reference ?? null,
-    allocation: allocationStateOf(tx),
+    // The line bucket (bankLineBucket), the one allocation_filter selects and group_by=allocation counts: an excluded
+    // line is 'excluded' even if it kept its match, a provisional or Sage-reconciled line is 'allocated', and a line
+    // still pending at the bank is 'pending' (no allocation_filter returns it).
+    allocation: lineBucketOf(tx),
   };
 }
 
@@ -90,13 +72,13 @@ export const listBankTransactionsTool: McpTool = {
   description:
     'Bank transactions, filterable by account, allocation state, and date range. ' +
     'limit is capped at 100 rows per call: a larger value is ACCEPTED and silently clamped to 100, so page with cursor rather than raising limit. ' +
-    'allocation_filter: allocated = a journal has been posted; suggested = categorised/AI-suggested but not yet posted; unallocated = neither. ' +
+    'allocation_filter: allocated = a journal books the line (a posted journal line, or a provisional / reconciled line); suggested = categorised/AI-suggested but not yet posted; unallocated = neither. An excluded line is in none of them, even if it kept a journal match. ' +
     'Paging: the reply carries next_cursor whenever more rows match. To read a whole account, call again with cursor set to that value and every other argument unchanged, and keep looping until next_cursor is null. ' +
     'fields="compact" returns only id, date, amount, bank_reference and allocation (~10x smaller) — use it when you are scanning or bulk-allocating and do not need the full row. '
     + 'compact bank_reference is the statement reference from either column (the row\'s bank_reference, else its reference), which is exactly what allocate_bank_transaction and bulk_allocate_bank_transactions resolve. '
-    + 'compact allocation is one of allocated | suggested | unallocated | excluded; an excluded row is returned by NEITHER allocation_filter=unallocated NOR =suggested, so never treat one as work to do.'
+    + 'compact allocation is one of allocated | suggested | unallocated | excluded | pending; an excluded row is returned by NO allocation_filter, so never treat one as work to do, and pending means the line is still pending at the bank (not yet posted; no allocation_filter returns it and it cannot be allocated until it posts).'
     + ' description_contains: case-insensitive substring matched against the statement description OR reference (a literal match — % and _ are not wildcards). It combines with every other filter (bank_account_id, allocation_filter, dates) and with cursor paging, and total counts only the matching lines.'
-    + ' A full row is 0.5 to 1 KB, so a 100-row page can approach or pass 90 KB: to size or total a large window, use detail="summary" (counts and money in/out/net over the WHOLE filter set, no rows) and group_by=account|month|allocation (groups sum to the totals; allocation is allocated|suggested|unallocated|excluded). A summary takes no cursor.',
+    + ' A full row is 0.5 to 1 KB, so a 100-row page can approach or pass 90 KB: to size or total a large window, use detail="summary" (counts and money in/out/net over the WHOLE filter set, no rows) and group_by=account|month|allocation (groups sum to the totals; allocation is allocated|suggested|unallocated|excluded|pending). A summary takes no cursor.',
   scope: 'read:bank-tx',
   write: false,
   inputSchema: {

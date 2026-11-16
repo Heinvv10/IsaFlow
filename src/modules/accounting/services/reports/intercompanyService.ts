@@ -3,6 +3,7 @@
  * Manages intercompany transactions and reconciliation within company groups.
  */
 
+import { toIsoTimestamp } from '@/lib/dateUtils';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -69,9 +70,9 @@ export function mapIntercompanyTx(r: Row): IntercompanyTransaction {
     transactionDate: String(r.transaction_date),
     matchStatus: String(r.match_status),
     varianceAmount: Number(r.variance_amount),
-    matchedAt: r.matched_at != null ? String(r.matched_at) : null,
+    matchedAt: r.matched_at != null ? toIsoTimestamp(r.matched_at as Date | string) : null,
     matchedBy: r.matched_by != null ? String(r.matched_by) : null,
-    createdAt: String(r.created_at),
+    createdAt: (toIsoTimestamp(r.created_at as Date | string) ?? ''),
   };
 }
 
