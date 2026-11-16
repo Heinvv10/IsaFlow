@@ -73,12 +73,13 @@ describe('the SDL month gate reads the run as the calculation costed it', () => 
   });
 
   it("the stored figure is the costed one (salary + non-cash 3810, contractor's fee out) and the gate passes the run", async () => {
+    // 258 000 is hand-computed: (20 000 salary + 1 500 non-cash 3810) x 12, the contractor's 9 000 left out. That is
+    // the figure the calculation costs (the non-contractor lines' allEarnings); its own stored decision is checked above.
     const got = await asA(async () => ({
       stored: await estimateAnnualRemuneration(A, MAY, 'stored', runId),
-      costed: await estimateAnnualRemuneration(A, MAY, 21500, runId),
       refusal: await sdlMonthSplitRefusal(A, runId),
     }));
-    expect(got).toEqual({ stored: 258000, costed: 258000, refusal: null });
+    expect(got).toEqual({ stored: 258000, refusal: null });
   });
 
   it('a single-run month whose own stored decision is stale is refused, and recalculating the run clears it', async () => {
