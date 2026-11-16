@@ -1,8 +1,8 @@
 {
   "id": "ri-sunday-8h-at-2x",
   "source": "UNVERIFIED",
-  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf p. 33 (overtime taxed with the period\\’s pay, code 3607); BCEA s16(1)",
-  "notes": "Hourly R60, 160 ordinary hours = R9 600 (monthlyHours), plus 8 h at 2x (BCEA s16(1)) = 960.00. G21 p. 33: overtime is added to the period\\’s pay and taxed by the tables (code 3607). Gross 10560.00 x 12, 18% - 17 820, / 12 = 415.80; UIF 1% = 105.60; net 10038.60. UNVERIFIED: the multiplier is the BCEA\\’s, whose text was not read here.",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf p. 33 (overtime taxed with the period’s pay, code 3607); BCEA s16(1)",
+  "notes": "Hourly R60, 160 ordinary hours = R9 600 (monthlyHours), plus 8 h at 2x (BCEA s16(1): the employee does not ordinarily work on a Sunday, so double the wage for each hour) = 960.00. G21 p. 33: overtime is added to the period’s pay and taxed by the tables (code 3607). Gross 10560.00 x 12, 18% - 17 820, / 12 = 415.80; UIF 1% = 105.60; net 10038.60. UNVERIFIED: the multiplier is the BCEA’s, whose text was not read here.",
   "input": {
     "period": {
       "year": 2026,
@@ -33,7 +33,8 @@
     "unmodelled": {
       "monthlyHours": 160,
       "overtimeHours": 8,
-      "overtimeMultiplier": 2
+      "overtimeMultiplier": 2,
+      "ordinarilyWorksSunday": false
     }
   },
   "expected": {

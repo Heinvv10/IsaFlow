@@ -2,7 +2,7 @@
   "id": "weekly-starter-g21-3-of-7-days",
   "source": "sars-guide:SARS PAYE-GEN-01-G21 Guide for Employers iro Employees Tax 2027, Revision 1 p. 10 (employee employed for a portion of a pay period, weekly example)",
   "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
-  "notes": "G21 p. 10: a weekly employee (under 65) starts on the 5th day of a 7-day week and receives R1 090 for 3 days. Decimal portion 3 / 7 = 0.4285 (as printed); annual equivalent 1 090 / 0.4285 x 52 = 132275.38; tax 18% - 17 820 = 5989.57; x 0.4285 / 52 = 49.36. SARS prints R5 966 and R49 from the banded annual table; the case asserts the formula to the cent. Week Mon 29 June - Sun 5 July 2026, start Friday 3 July. UIF 1% = 10.90.",
+  "notes": "G21 p. 10: a weekly employee (under 65) starts on the 5th day of a 7-day week and receives R1 090 for 3 days. Decimal portion 3 / 7 = 0.4285 (as printed); annual equivalent 1 090 / 0.4285 x 52 = 132275.38; tax 18% - 17 820 = 5989.57; x 0.4285 / 52 = 49.36. SARS prints R5 966 and R49 from the banded annual table; the case asserts the formula to the cent with the fraction as an INPUT truncated to 4 decimals as G21 prints it (0.4285, not 3/7 = 0.428571: 3/7 gives 49.37). Week Mon 29 June - Sun 5 July 2026, start Friday 3 July. UIF 1% = 10.90.",
   "input": {
     "period": {
       "year": 2026,

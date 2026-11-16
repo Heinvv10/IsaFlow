@@ -1,8 +1,8 @@
 {
   "id": "ri-overtime-10h-at-1-5x",
   "source": "UNVERIFIED",
-  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf p. 33 (overtime taxed with the period\\’s pay, code 3607); BCEA s10(2)",
-  "notes": "Hourly R60, 160 ordinary hours = R9 600 (monthlyHours), plus 10 h at 1.5x (BCEA s10(2)) = 900.00. G21 p. 33: overtime is added to the period\\’s pay and taxed by the tables (code 3607). Gross 10500.00 x 12, 18% - 17 820, / 12 = 405.00; UIF 1% = 105.00; net 9990.00. UNVERIFIED: the multiplier is the BCEA\\’s, whose text was not read here.",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf p. 33 (overtime taxed with the period’s pay, code 3607); BCEA s10(2)",
+  "notes": "Hourly R60, 160 ordinary hours = R9 600 (monthlyHours), plus 10 h at 1.5x (BCEA s10(2)) = 900.00. G21 p. 33: overtime is added to the period’s pay and taxed by the tables (code 3607). Gross 10500.00 x 12, 18% - 17 820, / 12 = 405.00; UIF 1% = 105.00; net 9990.00. UNVERIFIED: the multiplier is the BCEA’s, whose text was not read here.",
   "input": {
     "period": {
       "year": 2026,

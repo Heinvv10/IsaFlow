@@ -2,7 +2,7 @@
   "id": "offcycle-bonus-after-regular-g21",
   "source": "sars-guide:SARS PAYE-GEN-01-G21 Guide for Employers iro Employees Tax 2027, Revision 1 p. 32-33 (annual payment) and p. 13 (UIF per month)",
   "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
-  "notes": "G21 p. 32-33 example: monthly R28 000 (under 65) and a R14 800 bonus in October, here paid in a bonus run after October\\’s regular run. Tax on the annual payment = tax(336 000 + 14 800) - tax(336 000) = 53 780 - 49 932 = 3848.00 (SARS prints 3 778 from the banded annual table). Priors: March-October regular runs, PAYE 4161.00 each (49 932 / 12). UIF: October\\’s regular run already levied the month\\’s ceiling (R17 712, G21 p. 13: 1% of remuneration paid in any month, up to the ceiling), so the bonus run levies 0.00.",
+  "notes": "G21 p. 32-33 example: monthly R28 000 (under 65) and a R14 800 bonus in October, here paid in a bonus run after October’s regular run. Tax on the annual payment = tax(336 000 + 14 800) - tax(336 000) = 53 780 - 49 932 = 3848.00 (SARS prints 3 778 from the banded annual table). Priors: March-October regular runs, PAYE 4161.00 each (49 932 / 12). UIF: October’s regular run already levied the month’s ceiling (R17 712, G21 p. 13: 1% of remuneration paid in any month, up to the ceiling), so the bonus run levies 0.00.",
   "input": {
     "period": {
       "year": 2026,

@@ -28,6 +28,7 @@ const gapFor = (id: string) => gaps.find(g => g.case === id);
 /** Every case, pinned: deleting or renaming a fixture is red. */
 const EXPECTED_CASE_IDS = [
   'db-fund-12d-category-factor',
+  'db-fund-12d-s11f-cap-binds',
   'director-uif-on-remuneration',
   'eti-below-minimum-wage-4000',
   'eti-min-wage-1c-below-4606-39',
@@ -47,6 +48,7 @@ const EXPECTED_CASE_IDS = [
   'g21-annual-bonus-statutory-table',
   'ga-emolument-attachment-capped-25pct',
   'ga-maintenance-outside-cap',
+  'monthly-raise-averaged-with-priors',
   'offcycle-bonus-after-regular-g21',
   'offcycle-termination-leave-after-regular',
   'psp-company-27pct',
@@ -84,7 +86,8 @@ const EXPECTED_CASE_IDS = [
   'uif-ceiling-20000',
   'uif-clawback-larger-than-pay-nil',
   'weekly-1250-below-threshold',
-  'weekly-6000-above-weekly-uif-ceiling',
+  'weekly-6000-fourth-week-month-uif-ceiling',
+  'weekly-6000-third-week-month-uif-ceiling',
   'weekly-starter-fourth-week-averaged',
   'weekly-starter-g21-3-of-7-days',
   'weekly-week-53-pay-sunday',
@@ -107,11 +110,28 @@ describe('payroll oracle fixtures', () => {
     expect(json.filter(f => !(LIST_FILES as readonly string[]).includes(f)).sort()).toEqual([...ids].sort());
   });
 
-  it('O3: the wave-6 cases sit on their closing PR\'s gap or on unverified.json until the engine PR lands', () => {
-    const closer = (id: string) => gaps.find(g => g.case === id)?.closedBy.split(' ')[0];
-    expect(closer('uif-clawback-larger-than-pay-nil')).toBe('UF');
-    expect(closer('weekly-6000-above-weekly-uif-ceiling')).toBe('FQc');
-    expect(closer('offcycle-bonus-after-regular-g21')).toBe('OC');
+  it('O3: every gap is pinned to its closing PR (or parity), and unverified.json holds exactly its two signed entries', () => {
+    const closers = Object.fromEntries(gaps.map(g => [g.case, g.parity ? 'PARITY' : g.closedBy.split(' ')[0]]));
+    expect(closers).toEqual({
+    'db-fund-12d-s11f-cap-binds': 'DBF',
+    'ga-emolument-attachment-capped-25pct': 'GA',
+    'ga-maintenance-outside-cap': 'GA',
+    'offcycle-bonus-after-regular-g21': 'OC',
+    'offcycle-termination-leave-after-regular': 'OC',
+    'psp-company-27pct': 'PSP',
+    'psp-trust-45pct': 'PSP',
+    'ri-overtime-10h-at-1-5x': 'RI',
+    'ri-reimbursive-1000km-at-prescribed-3703': 'RI',
+    'ri-reimbursive-above-prescribed-3702-3722': 'RI',
+    'ri-sunday-8h-at-2x': 'RI',
+    'sage-2027-03-marco': 'PARITY',
+    'uif-clawback-larger-than-pay-nil': 'UF',
+    'weekly-6000-fourth-week-month-uif-ceiling': 'FQc',
+    'weekly-6000-third-week-month-uif-ceiling': 'FQc',
+    'weekly-starter-fourth-week-averaged': 'FQc',
+    'weekly-starter-g21-3-of-7-days': 'FQc',
+    'weekly-week-53-pay-sunday': 'FQc',
+    });
     expect(unverified.map(u => u.case).sort()).toEqual(['db-fund-12d-category-factor', 'director-uif-on-remuneration']);
   });
 

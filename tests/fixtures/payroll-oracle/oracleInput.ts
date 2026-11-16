@@ -119,6 +119,9 @@ const RETIREMENT_CODES = ['4001', '4003', '4006'];
  * its retirement deduction, floored at nil (no donation); no s18A receipt, no 65+ credit and no PAYE-outside-tables
  * prior. uifEmployee, uifLeviable, businessKm, etiRemuneration and etiHours have no year-to-date field yet: they are
  * validated and carried for FQc, OC and RI, not passed.
+ * NAMED LIMIT (TDD round 1): for the weekly cases the fold is vacuous today. The engine annualises x12 over the priors'
+ * count, so their pay lands below the threshold and PAYE is 0 whatever the fold says; the cases that prove the fold are
+ * the monthly ones (monthly-raise-averaged-with-priors, the off-cycle pair, ri-reimbursive-above-prescribed-3702-3722).
  */
 export function priorYearToDate(priors: readonly OraclePriorPeriod[]): PayeYearToDate {
   const amounts = (p: OraclePriorPeriod, keep: (x: OraclePriorPeriod['components'][number]) => boolean) =>

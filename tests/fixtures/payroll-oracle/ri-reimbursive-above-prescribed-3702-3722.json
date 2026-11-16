@@ -1,8 +1,8 @@
 {
   "id": "ri-reimbursive-above-prescribed-3702-3722",
-  "source": "UNVERIFIED",
-  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf p. 4 (rate); Sage Payroll Tax Pocket Guide 2025-2026 s3.4 (treatment)",
-  "notes": "Salary R20 000; July 2026: 1 000 business km at R6.00 = R6 000, of which 1 000 x 4.95 = 4 950 is not remuneration (3702) and the excess 1 050 is (3722). km to date before July: 8 000 (four priors of 2 000 km at the prescribed rate). Sage\\’s pocket guide states no km threshold for 3703/3702, so the km to date do not change the figure (spec F25 asked for them). PAYE averaged: YTD periodic 4 x 20 000 + 21 050 = 101 050, x 12 / 5 = 242 520, tax 25 833.60, YTD tax x 5/12 = 10 764.00 less 4 x 2 115 = 2 304.00. UIF 177.12 (capped); SDL 1% x 21 050 = 210.50; net 26 000 - 2 304 - 177.12 = 23 518.88. UNVERIFIED as above.",
+  "source": "sars-guide:SARS PAYE-GEN-01-G21 Guide for Employers iro Employees Tax 2027, Revision 1 p. 4 (rate) and the SARS FAQ on reimbursed travel (treatment, codes 3702/3722)",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf ; https://www.sars.gov.za/faq/faq-how-are-travel-expenses-for-which-i-was-reimbursed-treated-for-paye-purposes/",
+  "notes": "Salary R20 000; July 2026: 1 000 business km at R6.00 = R6 000, of which 1 000 x 4.95 = 4 950 is not remuneration (3702) and the excess 1 050 is (3722). km to date before July: 8 000 (four priors of 2 000 km at the prescribed rate). Sage’s pocket guide states no km threshold for 3703/3702, so the km to date do not change the figure (spec F25 asked for them). PAYE averaged: YTD periodic 4 x 20 000 + 21 050 = 101 050, x 12 / 5 = 242 520, tax 25 833.60, YTD tax x 5/12 = 10 764.00 less 4 x 2 115 = 2 304.00. UIF 177.12 (capped); SDL 1% x 21 050 = 210.50 (the excess is remuneration); net 26 000 - 2 304 - 177.12 = 23 518.88.",
   "input": {
     "period": {
       "year": 2026,

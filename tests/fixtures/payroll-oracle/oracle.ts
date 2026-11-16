@@ -105,7 +105,12 @@ export interface KnownGap {
   engineActual: Partial<Record<OracleField, number>>;
   reason: string;
   closedBy: string;
+  /** A vendor-parity gap that no wave-6 PR closes (its closedBy says when it would close); exempt from CLOSER. */
+  parity?: true;
 }
+
+/** A gap's closer: the wave-6 PR that closes it, or a PR number. */
+export const CLOSER = /^(UF|FQc|OC|PSP|DBF|RI|GA|#\d+)\b/;
 
 export function loadCases(): OracleCase[] {
   const files = readdirSync(ORACLE_DIR).filter(f => f.endsWith('.json') && !(LIST_FILES as readonly string[]).includes(f)).sort();
@@ -146,6 +151,7 @@ export function gapListProblems(cases: readonly OracleCase[], gaps: readonly Kno
     }
     if (!g.reason || g.reason.length < 20) problems.push(`${g.case}: reason missing`);
     if (!g.closedBy || g.closedBy.length < 5) problems.push(`${g.case}: closedBy missing`);
+    else if (g.parity !== true && !CLOSER.test(g.closedBy)) problems.push(`${g.case}: closedBy must start with a closing PR (UF, FQc, OC, PSP, DBF, RI, GA or #n) or the gap be parity: true`);
   }
   const unverifiedIds = new Set<string>();
   for (const u of unverified) {

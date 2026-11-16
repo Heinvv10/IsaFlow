@@ -1,8 +1,8 @@
 {
   "id": "psp-trust-45pct",
   "source": "UNVERIFIED",
-  "sourceRef": "Sage Payroll Tax Pocket Guide 2025-2026 s2.2.2; https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf p. 31",
-  "notes": "R50 000 paid to a personal service trust (code 3601, G21 p. 31). Sage\\’s pocket guide s2.2.2: a PSP is taxed at 27% (company) or 45% (trust), so PAYE = 45% x 50 000 = 22500.00; s12.1: all legal entities are excluded from UIF, so UIF 0.00. UNVERIFIED: G21 2027 p. 31 says only to calculate employees tax on such payments in the same manner as tax on a bonus, which does not give the flat rate; the two disagree.",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Docs/PAYE/Tables/2023/PAYE-GEN-01-G01-A06-2023-Other-Employment-Tax-Deduction-Tables-External-Annexure.pdf row 6; Unemployment Insurance Contributions Act 4 of 2002 s1 \"remuneration\" (b); https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf p. 31",
+  "notes": "R50 000 paid to a personal service trust (code 3601, G21 p. 31). SARS Other Employment Tax Deduction Tables (PAYE-GEN-01-G01-A06) row 6, Personal Service Provider: deduct 45% for a trust, so PAYE = 45% x 50 000 = 22500.00. UIF nil: UICA s1 excludes from \"remuneration\" any amount in paragraph (cA) of the \"gross income\" definition (amounts received by a personal service provider). UNVERIFIED only because the A06 found is the 2025 edition (SARS still links it as the 2023 file); no 2027 A06 is published at the tables page (read 2026-11-16).",
   "input": {
     "period": {
       "year": 2026,

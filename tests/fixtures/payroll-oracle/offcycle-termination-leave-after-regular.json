@@ -2,7 +2,7 @@
   "id": "offcycle-termination-leave-after-regular",
   "source": "sars-guide:SARS PAYE-GEN-01-G21 Guide for Employers iro Employees Tax 2027, Revision 1 p. 31-32 (leave pay: encashed leave taxed as a bonus, code 3605) and p. 13",
   "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
-  "notes": "Monthly R20 000 (under 65), June 2026 regular run paid, then a termination run in June paying R10 000 accrued leave. G21 p. 31-32: accrued leave encashed on termination is taxed in the same manner as a bonus (code 3605): tax(240 000 + 10 000) - tax(240 000) = 27 572 - 25 380 = 2192.00. UIF: the regular run already levied the month\\’s R17 712 ceiling (G21 p. 13), so 0.00 each side (spec F12: a monthly employee\\’s regular plus off-cycle runs are capped at the month\\’s ceiling).",
+  "notes": "Monthly R20 000 (under 65), June 2026 regular run paid, then a termination run in June paying R10 000 accrued leave. G21 p. 31-32: accrued leave encashed on termination is taxed in the same manner as a bonus (code 3605): tax(240 000 + 10 000) - tax(240 000) = 27 572 - 25 380 = 2192.00. UIF: the regular run already levied the month’s R17 712 ceiling (G21 p. 13), so 0.00 each side (spec F12: a monthly employee’s regular plus off-cycle runs are capped at the month’s ceiling).",
   "input": {
     "period": {
       "year": 2026,

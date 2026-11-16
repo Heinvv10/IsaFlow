@@ -1,0 +1,124 @@
+{
+  "id": "weekly-6000-fourth-week-month-uif-ceiling",
+  "source": "sars-guide:SARS PAYE-GEN-01-G21 Guide for Employers iro Employees Tax 2027, Revision 1 p. 13 (UIF per month) and PAYE-GEN-01-G01-A01 Weekly Tables 2027 p. 3",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf ; https://www.sars.gov.za/wp-content/uploads/Docs/PAYE/Tables/tables2026/PAYE-GEN-01-G01-A01-Weekly-Tax-Deduction-Tables-2027-External-Annexure.pdf ; Unemployment Insurance Contributions Act 4 of 2002 s6(2) (ceiling on remuneration paid during any month)",
+  "notes": "Weekly R6 000, under 65, week 4 of March 2026 (2026-03-23 to 2026-03-29), after 3 weekly priors in the same month. PAYE: x52 = 312 000, tax 43 692, averaged over 4 weeks = 43 692 / 52 x 4 less the priors = 840.23 (weekly table row R5 989 - R6 009 prints R840). UIF (coordinator ruling on UICA s6(2), G21 p. 13: 1% of the remuneration paid during the MONTH, up to R17 712): the month to date before this week is 18000, so this week levies 1% of 0.00 = 0.00 each side (week 1 and 2: 60.00; week 3: 57.12; week 4 on: 0.00). Net 6 000 - 840.23 - 0.00.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 3,
+      "frequency": "weekly",
+      "periodStart": "2026-03-23",
+      "periodEnd": "2026-03-29",
+      "runKind": "regular"
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 6000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "priorPeriods": [
+      {
+        "periodStart": "2026-03-02",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 6000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 840.23,
+        "uifEmployee": 60.0,
+        "uifLeviable": 6000,
+        "periodicTaxable": 6000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-03-09",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 6000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 840.23,
+        "uifEmployee": 60.0,
+        "uifLeviable": 6000,
+        "periodicTaxable": 6000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-03-16",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 6000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 840.23,
+        "uifEmployee": 57.12,
+        "uifLeviable": 5712,
+        "periodicTaxable": 6000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      }
+    ]
+  },
+  "expected": {
+    "paye": 840.23,
+    "uifEmployee": 0.0,
+    "uifEmployer": 0.0,
+    "net": 5159.77
+  }
+}

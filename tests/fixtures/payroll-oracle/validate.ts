@@ -20,6 +20,17 @@ export const PRIOR_FIGURES = [
   'businessKm', 'etiRemuneration', 'etiHours',
 ] as const;
 
+/**
+ * Every key a case may put in `input.unmodelled` (TDD round 1): a typo or an unowned input is refused here, and
+ * payrollOracleInputs.test.ts holds each one to a "passed" or "owned by <PR>" entry.
+ */
+export const UNMODELLED_KEYS = [
+  'businessKm', 'businessUseAtLeast80Pct', 'dayRate', 'daysWorked', 'dbMemberCategoryFactor', 'employmentBasis', 'erMedicalContribution',
+  'erRetirementPctOfRfi', 'fixedAmountDirective', 'fixedRateDirectivePercent', 'garnisheeOrders', 'hoursPerDay', 'maintenancePlanIncluded',
+  'monthlyHours', 'ordinarilyWorksSunday', 'ordinaryHoursPerWeek', 'ordinaryHoursWage', 'overtimeHours', 'overtimeMultiplier', 'periodFraction',
+  'reimbursiveRatePerKm', 'rfiBase', 'travelBusinessUseAtLeast80Pct', 'vehicleBenefitPctOfValue', 'vehicleDeterminedValue', 'writtenDeclarationHeld',
+] as const;
+
 /** Substrings of a normalised key (lowercase, no `_` or `-`) that mark personal data. */
 export const PII_KEY_PARTS = ['name', 'surname', 'id', 'tax', 'bank', 'account', 'mobile', 'phone', 'email', 'dob', 'birth', 'passport'];
 
@@ -116,6 +127,7 @@ export function validateCase(raw: unknown, file: string): void {
   validatePeriod(input.period as Obj, input.taxYear as number, file);
   need(isNum(input.employerAnnualRemuneration), file, 'input.employerAnnualRemuneration must be a number');
   need(input.unmodelled === undefined || isObj(input.unmodelled), file, 'input.unmodelled must be an object');
+  if (input.unmodelled !== undefined) onlyKeys(input.unmodelled as Obj, UNMODELLED_KEYS, file, 'input.unmodelled');
 
   need(isObj(input.employee), file, 'input.employee must be an object');
   const e = input.employee as Obj;
@@ -196,6 +208,7 @@ function validatePriorPeriods(raw: unknown, period: Obj, taxYear: number, file: 
   need(Array.isArray(raw) && raw.length > 0, file, 'input.priorPeriods must be a non-empty array (leave it out for a first period)');
   const { from } = taxYearBounds(taxYear);
   const thisStart = (period.periodStart as string | undefined) ?? `${String(period.year)}-${String(period.month).padStart(2, '0')}-01`;
+  let previous = '';
   (raw as unknown[]).forEach((x, i) => {
     const at = `input.priorPeriods[${i}]`;
     need(isObj(x), file, `${at} must be an object`);
@@ -203,6 +216,8 @@ function validatePriorPeriods(raw: unknown, period: Obj, taxYear: number, file: 
     onlyKeys(p, SCHEMA.priorPeriod!, file, at);
     need(isDate(p.periodStart) && (p.periodStart as string) >= from && (p.periodStart as string) <= thisStart, file,
       `${at}.periodStart must be a real date from ${from} to this period's start ${thisStart}`);
+    need((p.periodStart as string) > previous, file, `${at}.periodStart must be after the previous prior's (${previous}): oldest first, no duplicates`);
+    previous = p.periodStart as string;
     need((FREQUENCIES as readonly unknown[]).includes(p.frequency), file, `${at}.frequency must be one of ${FREQUENCIES.join(' | ')}`);
     need((RUN_KINDS as readonly unknown[]).includes(p.runKind), file, `${at}.runKind must be one of ${RUN_KINDS.join(' | ')}`);
     need(Array.isArray(p.components), file, `${at}.components must be an array`);
