@@ -141,4 +141,17 @@ describe('bank account summary — statement', () => {
     expect(s.lastWithBalance).toMatchObject({ batchId: ai, balanceSource: 'ai_read', closingCents: 25000 });
     expect({ ledger: s.ledgerAtStatementCents, difference: s.differenceCents }).toEqual({ ledger: 20000, difference: 5000 });
   });
+
+  it('a line on ANOTHER bank account naming the batch is not one of its live lines (PR #1475 round 2)', async () => {
+    const before = (await summary(f.bank)).statement;
+    const stray = await batch(f.bank, '2026-12-20', '2026-12-21T08:00:00Z', { closing: 7 }); // no line of its own
+    await pool.query(
+      `INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description, status, import_batch_id)
+       VALUES($1,$2,DATE '2026-12-20',-3,'WP1 stray','imported',$3)`, [f.c, f.bank2, stray]);
+    expect((await summary(f.bank)).statement).toEqual(before); // skipped: its only line is on bank 2
+    await pool.query(
+      `INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description, status, import_batch_id)
+       VALUES($1,$2,DATE '2026-12-20',-4,'WP1 own','imported',$3)`, [f.c, f.bank, stray]);
+    expect((await summary(f.bank)).statement.latest).toMatchObject({ batchId: stray, lineCount: 1 }); // not 2
+  });
 });

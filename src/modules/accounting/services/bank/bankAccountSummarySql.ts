@@ -34,8 +34,9 @@ import { NEW_TAB_SQL } from './bankTxTabCond';
 import { bankGlBalancesAsAt } from './bankReconciliationBalance';
 
 /**
- * The newest batch of account `a` (optionally: the newest carrying a closing balance), with its live line count. A
- * batch with no live line is skipped: every line it wrote was undone or deleted, so its balances describe lines that
+ * The newest batch of account `a` (optionally: the newest carrying a closing balance), with its live line count — its
+ * lines ON THIS ACCOUNT (company, batch and bank account all match; PR #1475 round 2). A batch with no live line is
+ * skipped: every line it wrote was undone or deleted, so its balances describe lines that
  * are no longer there (team-lead decision, 2026-11-15).
  */
 function newestBatch(withBalance: boolean) {
@@ -45,12 +46,13 @@ function newestBatch(withBalance: boolean) {
            ROUND(b.closing_balance * 100)::BIGINT AS closing_cents,
            (SELECT COUNT(*)::INT FROM bank_transactions x
              WHERE x.company_id = b.company_id AND x.import_batch_id = b.id
-               AND x.feed_state <> 'removed') AS line_count
+               AND x.bank_account_id = b.bank_account_id AND x.feed_state <> 'removed') AS line_count
     FROM bank_import_batches b
     WHERE b.company_id = a.company_id AND b.bank_account_id = a.id
       ${sql.unsafe(withBalance ? 'AND b.closing_balance IS NOT NULL' : '')}
       AND EXISTS (SELECT 1 FROM bank_transactions x
-                   WHERE x.company_id = b.company_id AND x.import_batch_id = b.id AND x.feed_state <> 'removed')
+                   WHERE x.company_id = b.company_id AND x.import_batch_id = b.id
+                     AND x.bank_account_id = b.bank_account_id AND x.feed_state <> 'removed')
     ORDER BY b.statement_date DESC NULLS LAST, b.created_at DESC, b.id DESC
     LIMIT 1`;
 }
