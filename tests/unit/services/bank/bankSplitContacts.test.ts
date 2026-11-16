@@ -19,6 +19,7 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', async (ori
   assertSupplierInCompany: vi.fn(), assertCustomerInCompany: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/ap/bankLinePaymentGate', () => ({ assertBankLineMayPaySupplier: vi.fn() }));
+vi.mock('@/modules/accounting/services/bank/bankLineRefundGate', () => ({ assertBankLineMayRefundCustomer: vi.fn() })); // reads Postgres; proven in bank-refund-gate.int
 vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', () => ({ assertImporterMayAllocateAs: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/supplierRefundDocument', () => ({ planSupplierRefund: vi.fn(), recordSupplierRefund: vi.fn() }));
 vi.mock('@/modules/accounting/services/ar/customerRefundDocument', () => ({ planCustomerRefund: vi.fn(), recordCustomerRefund: vi.fn() }));
