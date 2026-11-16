@@ -96,4 +96,11 @@ describe('D the gate re-judges a just-calculated run as the calculation did', ()
     const got = await months('drift D3', [[3, 40_166.67], [4, 40_166.67]], true, { nonCash3810: 1_500, contractorFee: 9_000 });
     expect(got).toEqual([{ exempt: false, gate: null }, { exempt: false, gate: null }]);
   });
+
+  // Just under the line (41 666.66 a month = 499 999.92 a year, exempt): a contractor fee counted on either side would
+  // tip it over, so this case is the one that catches the contractor rule (D3 catches the non-cash rule).
+  it('D4 just under the line with a non-cash 3810 and a contractor: exempt on both readings', async () => {
+    const got = await months('drift D4', [[3, 40_166.66], [4, 40_166.66]], true, { nonCash3810: 1_500, contractorFee: 9_000 });
+    expect(got).toEqual([{ exempt: true, gate: null }, { exempt: true, gate: null }]);
+  });
 });
