@@ -6,7 +6,8 @@
 SARS return preparation + eFiling submissions tracking + compliance calendar. VAT201, EMP201, EMP501 bi-annual, IRP6 provisional. All handlers at same depth (no subdirs).
 
 ## Endpoints
-- `GET /api/accounting/sars/sars-compliance` — DB-backed calendar (`?year=YYYY`); returns `{ events }`; delegates to `getComplianceCalendarWithDB` (VAT201 events follow the company's VAT category/cadence; none for a non-vendor; events due 1 Jan year to 31 Mar year+1; bad `year` = 400, service failure = 5xx)
+- `GET /api/accounting/sars/sars-compliance` — DB-backed calendar (`?year=YYYY`); returns `{ events, marksUnavailable }` (`marksUnavailable`: the "marked filed" rows could not be read, the page says so); delegates to `getComplianceCalendarWithMarks` (VAT201 events follow the company's VAT category/cadence; none for a non-vendor; events due 1 Jan year to 31 Mar year+1; bad `year` = 400, service failure = 5xx)
+- `POST|DELETE /api/accounting/sars/compliance-filed` — "Marked filed" on a calendar item: POST `{ eventType, periodEnd, sarsReference? }` (201; 409 already marked; 404 not a calendar item of the company under its current VAT cycle, or a period end outside the year before to the year after this one), DELETE `{ eventType, periodEnd }` (200, also removes a pre-999c row on the item's due date; any period the calendar can draw, years 2000-2100; 404 not marked). `eventType` ∈ VAT201_DUE, EMP201_DUE, EMP501_DUE, PROVISIONAL_TAX. Write roles + CSRF; Login-as refused (403) before any write; one audit row (`entity_type` `sars_compliance_event`, action create/delete) per mark and undo, in the request tx. Service `reports/sarsFiledMarks.ts`. A mark is the user's word, not a check against SARS: it never touches `sars_submissions` or return versions, and the UI says "Marked filed", never "Submitted"
 - `GET /api/accounting/sars/compliance-calendar` — pure calendar (no DB); `?year=YYYY`; returns `{ year, deadlines, total }`. **Dead code (no UI caller) and wrong for bi-monthly vendors:** its VAT201 list is always monthly, labelled "Category A". Not the VAT source of truth; use `sars-compliance`
 - `GET|POST /api/accounting/sars/sars-submissions` — list / mark-submitted `{ id, action: 'mark_submitted', reference, overrideReason? }`. For a VAT201 submission, refuses with getVatExceptions' blocking exceptions UNLESS the caller is owner/admin and supplies `overrideReason` — recorded in `vat_gate_overrides` (migration 704, `reports/vatGateOverrideService`), never consulted by the ISV `efiling-submit` gate below. No MCP equivalent (this route has no MCP tool at all today)
 - `GET|POST /api/accounting/sars/sars-vat201` — GET `?from=&to=` build; POST `{ periodStart, periodEnd }` save draft. Both answer from `getVat201Return` (vat201Return.ts) = `getLedgerVAT201` (journal-derived) + `sarsFields` (the SARS VAT201 form), `warnings` (classification calls to confirm) and `filability` (fields 1, 1A, 2, 2A, 3, 4, 4A, 5-20; `vat201SarsFields.ts`); the invoice-derived `generateVAT201` is the exceptions recon's input only
@@ -22,7 +23,7 @@ SARS return preparation + eFiling submissions tracking + compliance calendar. VA
 
 ## Auth
 All routes: `withAuth(withErrorHandler(withWriteAccess(handler)))`.
-- CSRF applied only on mutating routes that import `withCsrf`: `sars-submissions`, `sars-vat201`, `sars-emp201`, `irp6`, `efiling-submit`
+- CSRF applied only on mutating routes that import `withCsrf`: `sars-submissions`, `sars-vat201`, `sars-emp201`, `irp6`, `efiling-submit`, `compliance-filed`
 - Read-only routes (`sars-compliance`, `compliance-calendar`, `emp501`, `vat-exceptions`, `efiling-status`) omit CSRF. `efiling-status` is `withAuth(withErrorHandler(handler))` only (no write access needed to read a redacted config flag)
 
 ## Business rules

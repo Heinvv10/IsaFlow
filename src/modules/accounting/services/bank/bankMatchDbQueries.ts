@@ -5,6 +5,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { journalStandsUnbrokenFragment } from '../shared/journalInForceAsAt';
 import { billForeignCurrencySql, invoiceForeignCurrencySql } from '@/modules/accounting/services/shared/documentCurrency';
 import type { MatchCandidate } from '@/modules/accounting/types/bank-match.types';
 import type { DbRow } from '@/types/db';
@@ -20,6 +21,8 @@ import {
   findInvoiceCombos,
   type InvoiceRow,
 } from './bankMatchCandidatesService';
+import { lineFitsBankLineFragment } from './bankMatchTargetFit';
+import { PAYABLE_PO_STATUSES, purchaseOrderOutstandingSql } from './purchaseOrderOutstanding';
 
 
 export async function fetchBankTransaction(
@@ -169,18 +172,20 @@ export async function fetchPurchaseOrderCandidates(
   extractedEntity: string,
   invoiceRefs: string[],
 ): Promise<MatchCandidate[]> {
-  // purchase_orders_status_check allows draft/submitted/approved/
-  // partially_received/received/cancelled. 'partially_paid' was a dead literal
-  // no row can carry, and 'partially_received' — the status a part-delivered PO
-  // actually holds — was never offered as a candidate.
+  // The confirm's own rule (purchaseOrderOutstanding, audit row 8): only a payable order, shown at what is still
+  // OUTSTANDING after the statement lines already linked to it, and only when this line fits in it — the confirm
+  // refuses anything else, so the picker does not offer it.
   const allRows = (await sql`
-    SELECT po.id, po.po_number, COALESCE(s.company_name, s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name,
-           po.total, po.created_at
-    FROM purchase_orders po
-    LEFT JOIN suppliers s ON s.id = po.supplier_id AND s.company_id = po.company_id
-    WHERE po.status IN ('approved', 'partially_received')
-      AND po.company_id = ${companyId}
-    ORDER BY ABS(po.total - ${absAmount}::NUMERIC) ASC
+    SELECT * FROM (
+      SELECT po.id, po.po_number, COALESCE(s.company_name, s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name,
+             ${purchaseOrderOutstandingSql(null)} AS outstanding, po.created_at
+      FROM purchase_orders po
+      LEFT JOIN suppliers s ON s.id = po.supplier_id AND s.company_id = po.company_id
+      WHERE po.status = ANY(${PAYABLE_PO_STATUSES}::TEXT[])
+        AND po.company_id = ${companyId}
+    ) o
+    WHERE o.outstanding > 0 AND o.outstanding >= ${absAmount}::NUMERIC
+    ORDER BY ABS(o.outstanding - ${absAmount}::NUMERIC) ASC
     LIMIT 50
   `) as DbRow[];
 
@@ -193,7 +198,7 @@ export async function fetchPurchaseOrderCandidates(
   return rows.slice(0, 20).map((row) => {
     const poNum = String(row.po_number);
     const label = `${String(row.supplier_name)} — PO ${poNum}`;
-    const candAmount = Number(row.total);
+    const candAmount = Number(row.outstanding);
     const candDate = fmtDate(row.created_at);
 
     let score = scoreAmount(txAmount, candAmount) + scoreDate(txDate, candDate) + scoreDescription(txDesc, label);
@@ -211,25 +216,27 @@ export async function fetchJournalLineCandidates(
   txAmount: number,
   txDate: string,
   txDesc: string,
-  bankAccountId?: string,
+  bankAccountId: string,
 ): Promise<MatchCandidate[]> {
   const jlRows = (await sql`
     SELECT jl.id, jl.description, jl.debit, jl.credit, je.entry_date, je.source,
       (je.reversed_at IS NOT NULL OR (je.reversal_of_id IS NOT NULL
         AND (orig.reversal_of_id IS NULL OR orig2.reversal_of_id IS NOT NULL))) AS undone,
-      (jl.gl_account_id = ${bankAccountId ?? null}::UUID) IS TRUE AS own_bank
+      (jl.gl_account_id = ${bankAccountId}::UUID) IS TRUE AS own_bank
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+    -- The statement line as the confirm's rule sees it: its bank account and its signed amount.
+    CROSS JOIN (SELECT ${bankAccountId}::UUID AS bank_account_id, ${txAmount}::NUMERIC AS amount) bt
     LEFT JOIN gl_journal_entries orig ON orig.id = je.reversal_of_id AND orig.company_id = je.company_id
     -- Three or more steps down the chain is never read as the live movement (an odd step is a reversal; fails closed).
     LEFT JOIN gl_journal_entries orig2 ON orig2.id = orig.reversal_of_id AND orig2.company_id = je.company_id
     WHERE je.status = 'posted'
       AND je.company_id = ${companyId}
       AND jl.company_id = ${companyId}::UUID
-      -- Only a line that can be this statement line's bank leg: on its own bank, in its direction (money in debits
-      -- the bank, money out credits it — brk-nrfa round 21).
-      AND (${bankAccountId ?? null}::UUID IS NULL OR jl.gl_account_id = ${bankAccountId ?? null}::UUID)
-      AND SIGN(jl.debit - jl.credit) = SIGN(${txAmount}::NUMERIC)
+      -- Only a line the confirm accepts (bankMatchTargetFit, audit row 4): this statement line's bank leg — on its own
+      -- bank, in its direction, for its exact amount (brk-nrfa round 21 had the first two) — on a journal that stands.
+      AND ${lineFitsBankLineFragment('jl', 'bt')}
+      AND ${journalStandsUnbrokenFragment('je.id', companyId)}
       -- A per-line index probe, not NOT IN: past hash_mem (about 210k matched lines) a NOT IN subplan scans the whole
       -- list per candidate and the picker does not return (sec-nrfa round 27). OFFSET 0 keeps it a probe: pulled up into
       -- an anti join, stale stats planned it as a nested loop over the company's whole matched set (204 s, brk round 28).
@@ -253,12 +260,9 @@ export async function fetchJournalLineCandidates(
             UNION ALL SELECT c.id, held.d + 1 FROM gl_journal_entries c JOIN held ON c.reversal_of_id = held.id
               WHERE c.company_id = ${companyId}::UUID AND held.d < 64)
           SELECT DISTINCT id FROM held)
-    -- Ties on the amount: a line on the statement line's own bank first (a transfer or payment journal's bank leg —
-    -- what the transfer guard's match remedy needs, however old: brk-nrfa rounds 16-17), then the nearest date
-    -- (computed only between finite dates: an 'infinity' date sorts last instead of failing the query — sec r16).
-    ORDER BY ABS((jl.debit - jl.credit) - ${txAmount}::NUMERIC) ASC,
-      (jl.gl_account_id = ${bankAccountId ?? null}::UUID) IS TRUE DESC,
-      CASE WHEN isfinite(je.entry_date) AND isfinite(${txDate}::DATE) THEN ABS(je.entry_date - ${txDate}::DATE) END
+    -- Every candidate is this bank's line of the exact amount, so: the nearest date (computed only between finite
+    -- dates: an 'infinity' date sorts last instead of failing the query — sec r16).
+    ORDER BY CASE WHEN isfinite(je.entry_date) AND isfinite(${txDate}::DATE) THEN ABS(je.entry_date - ${txDate}::DATE) END
         ASC NULLS LAST
     LIMIT 20
   `) as DbRow[];

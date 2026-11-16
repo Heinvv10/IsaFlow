@@ -24,6 +24,7 @@ import { sql } from '@/lib/neon';
 import { applyTransferLinks, runLinkPasses, type TransferLinkPair, type TransferLinkResult } from './bankTransferLinkPasses';
 import { journalStandsUnbrokenFragment } from '../shared/journalInForceAsAt';
 import { lineHasUndoneLinkFragment, pairNotUndoneFragment, type TransferLinkTrigger } from './bankTransferLinkLog';
+import { lineFitsBankLineFragment } from './bankMatchTargetFit';
 
 export type { TransferLinkResult };
 
@@ -79,6 +80,8 @@ export async function autoLinkImportedBatchTransfers(
           ON  jl.journal_entry_id = et.transfer_journal_entry_id
           AND jl.gl_account_id    = n.bank_account_id
           AND jl.company_id       = ${companyId}::UUID
+          -- Audit row 4: this line's own movement — its direction and exact amount, not only its account.
+          AND ${lineFitsBankLineFragment('jl', 'n')}
         -- D12 round 4: only a transfer journal that stands (apply re-checks it under the chain head's lock).
         JOIN gl_journal_entries je
           ON  je.id = et.transfer_journal_entry_id AND je.company_id = ${companyId}::UUID
@@ -192,6 +195,11 @@ export async function relinkTransferCounterparts(
               (sa.src_date::DATE - INTERVAL '2 days')
           AND (sa.src_date::DATE + INTERVAL '2 days')
         )
+        -- Audit row 4: the counterpart leg must be THIS line's movement. The source line's amount is not the leg's: a
+        -- split allocation (R400 expense + R100 to this bank) offered its R100 leg to a R500 deposit.
+        JOIN gl_journal_lines jt
+          ON  jt.id = sa.target_je_line_id AND jt.company_id = ${companyId}::UUID
+          AND ${lineFitsBankLineFragment('jt', 'bt_new')}
         WHERE bt_new.bank_account_id = ${bankAccountId}::UUID
           AND bt_new.company_id      = ${companyId}::UUID
           AND bt_new.status          = 'imported'

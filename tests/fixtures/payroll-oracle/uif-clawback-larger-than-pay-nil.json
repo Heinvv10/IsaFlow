@@ -1,0 +1,47 @@
+{
+  "id": "uif-clawback-larger-than-pay-nil",
+  "source": "sars-guide:SARS PAYE-GEN-01-G21 Guide for Employers iro Employees Tax 2027, Revision 1 p. 13 (UIF liable amount)",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
+  "notes": "R5 000 salary and a R8 000 overpayment clawback (a negative UIF-applicable earning): UIF-leviable remuneration is -R3 000. G21 p. 13 (UIC Act s5-6): employer and employee each contribute 1% of the remuneration paid or payable in the month; nothing is paid, so nothing is levied: UIF 0.00 each side, not -30.00. Only UIF is asserted. Closed by UF (UIF floored at nil).",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 6
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 5000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      },
+      {
+        "code": "3601",
+        "name": "Overpayment recovered",
+        "type": "earning",
+        "amount": -8000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ]
+  },
+  "expected": {
+    "uifEmployee": 0,
+    "uifEmployer": 0
+  }
+}

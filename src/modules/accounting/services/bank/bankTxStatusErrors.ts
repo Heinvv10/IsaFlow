@@ -46,7 +46,9 @@ export class BankTransactionAllocatedError extends Error {
  * only fire when a peer binds the line in between), so the code is what lets
  * the loop skip that one case and keep rethrowing the rest.
  */
-export type BankMatchTargetCode = 'LINE_NOT_FOUND' | 'LINE_CLAIMED' | 'LINE_REVERSED' | 'RECONCILIATION_NOT_FOUND';
+export type BankMatchTargetCode = 'LINE_NOT_FOUND' | 'LINE_CLAIMED' | 'LINE_REVERSED' | 'RECONCILIATION_NOT_FOUND'
+  // Audit row 4 (bankMatchTargetFit): the line is not this statement line's own bank movement, or not posted.
+  | 'LINE_WRONG_ACCOUNT' | 'LINE_WRONG_DIRECTION' | 'LINE_WRONG_AMOUNT' | 'LINE_NOT_POSTED';
 
 export class BankMatchTargetError extends Error {
   constructor(readonly code: BankMatchTargetCode, message: string) {

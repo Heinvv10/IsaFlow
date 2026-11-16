@@ -12,6 +12,8 @@ import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { YearEndConfirmDialog } from '@/components/accounting/yearEnd/YearEndConfirmDialog';
+import { CloseRefusalNotice } from '@/components/accounting/fiscal-periods/CloseRefusalNotice';
+import { readCloseRefusal, type CloseRefusal } from '@/components/accounting/fiscal-periods/closeRefusal';
 
 interface FiscalYear {
   year_label: string;
@@ -34,6 +36,8 @@ export default function YearEndPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [confirmYear, setConfirmYear] = useState<FiscalYear | null>(null);
+  // A period the close would lock failed its close checks (409 PERIOD_CLOSE_NOT_READY): listed with Fix links.
+  const [closeRefusal, setCloseRefusal] = useState<CloseRefusal | null>(null);
 
   const loadYears = useCallback(async () => {
     setIsLoading(true);
@@ -55,12 +59,15 @@ export default function YearEndPage() {
   const processYearEnd = async (yearLabel: string) => {
     setIsProcessing(true);
     setMessage({ type: '', text: '' });
+    setCloseRefusal(null);
     try {
       const res = await apiFetch('/api/accounting/year-end', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ yearLabel, action: 'close', confirm: true }),
       });
+      const refusal = await readCloseRefusal(res);
+      if (refusal) { setCloseRefusal(refusal); return; }
       await assertOk(res, 'Could not run year-end processing - try again');
       const json = await res.json();
       // The SERVICE's sentence, not a hardcoded one. A 200 no longer means a
@@ -129,6 +136,10 @@ export default function YearEndPage() {
               {message.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
               {message.text}
             </div>
+          )}
+
+          {closeRefusal && (
+            <div className="mb-6"><CloseRefusalNotice refusal={closeRefusal} onDismiss={() => setCloseRefusal(null)} /></div>
           )}
 
           {isLoading ? (

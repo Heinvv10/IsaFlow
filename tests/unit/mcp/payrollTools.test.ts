@@ -17,6 +17,11 @@
  *   - a deactivated target account is REPORTED, never filtered.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+// Wave 6 FQa: the run-kind guard reads the database; its own tests are payrollRunKindGuard*.test.ts.
+vi.mock('@/modules/accounting/services/payroll/payrollRunKindGuard', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollRunKindGuard')>(),
+  assertRunKindSupported: vi.fn(async () => undefined),
+}));
 
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeQueryService', () => ({
   listPayrollEmployeesPage: vi.fn(),

@@ -48,6 +48,8 @@ export interface PayrollEmployee {
   etiIdDocument?: EtiIdDocument | null;
   /** Months employed by this employer before the current start date, under the same ID number (ET: a rehire continues the ETI window). */
   etiPriorMonths?: number;
+  /** How often they are paid (migration 999a); a run pays only employees of its own frequency ('unsupported': in none). */
+  payFrequency: PayFrequency | UnsupportedValue;
 }
 
 export interface PayrollComponent {
@@ -100,10 +102,8 @@ export interface EmployeeComponent {
   employerFundAsCash?: boolean;
 }
 
-export interface PayrollPeriod {
-  month: number;
-  year: number;
-}
+export type { OffCycleReason, PayFrequency, PayrollPeriod, RunKind, UnsupportedValue } from './payrollTypesRun';
+import type { PayFrequency, PayrollPeriod, UnsupportedValue } from './payrollTypesRun';
 
 export interface PayeInput {
   annualTaxableIncome: number;

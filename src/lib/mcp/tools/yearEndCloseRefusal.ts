@@ -17,10 +17,18 @@ export function yearEndCloseRefusal(year: number, result: CloseYearError): McpTo
   switch (result.error) {
     case 'open_periods':
       return toolError(
-        `Fiscal year ${year} has ${result.count} open period`
-        + `${result.count === 1 ? '' : 's'}: `
+        `Fiscal year ${year} has ${result.count} period`
+        + `${result.count === 1 ? '' : 's'} not closed yet: `
         + `${result.openPeriods.map((p) => p.periodName).join(', ')}. `
         + 'Close each of them with close_fiscal_period first. Nothing was posted.',
+      );
+    case 'close_checks_failed':
+      return toolError(
+        `Fiscal year ${year} cannot be locked: ${result.periods.length} period`
+        + `${result.periods.length === 1 ? '' : 's'} failed the close checks — `
+        + result.periods.map((p) => `${p.periodName} (${p.blockers.map((b) => `${b.key}: ${b.reason}`).join('; ')})`)
+          .join('; ')
+        + '. Nothing was posted or locked. Fix these (period_close_checklist has the fix links), then retry.',
       );
     case 'period_range_mismatch':
       return toolError(
