@@ -1,4 +1,4 @@
--- 999k: Budget write snapshots (MCP budget write tools, PR 1; Hein's ruling 1, 2026-11-16).
+-- 999l: Budget write snapshots (MCP budget write tools, PR 1; Hein's ruling 1, 2026-11-16).
 --
 -- WHAT. One row per amount write an MCP budget tool makes (set_budget_amounts, set_budget_annual):
 -- the version, the tool, the token's jti, the version token before and after the write, and per

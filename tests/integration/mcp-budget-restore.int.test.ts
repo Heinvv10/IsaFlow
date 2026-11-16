@@ -1,5 +1,5 @@
 /**
- * MCP budget writes against a real database, as app_user: the undo snapshot (migration 999k) is written with
+ * MCP budget writes against a real database, as app_user: the undo snapshot (migration 999l) is written with
  * the write (values and sources), stamped by the database (session user, clock), and app_user can neither
  * forge its stamps, change its payload, delete it, nor mark it restored without the restore's own save;
  * restore_budget_version puts the before-values back through the grid save (one more audit row), marks the

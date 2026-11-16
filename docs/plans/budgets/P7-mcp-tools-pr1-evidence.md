@@ -1,6 +1,6 @@
 # MCP budget tools, PR 1 of 3: evidence
 
-Branch `feat/mcp-budget-tools-core-20261116`. Tools, migration 999k and the services they call are described in
+Branch `feat/mcp-budget-tools-core-20261116`. Tools, migration 999l and the services they call are described in
 `src/lib/mcp/.claude.md` and `src/modules/accounting/services/budgets/.claude.md`.
 
 ## Mutation table
@@ -38,7 +38,7 @@ Same procedure (cluster rebuilt for N9, a migration mutant). Counts from the run
 | N6 | flat seasonality fills every month | flat spreads over the source's months only | unit budgetMcpPure; int mcp-budget-versions | unit 1 failed / 25; int 1 failed / 6 |
 | N7 | rounding notice (last month past zero) | notice never raised | unit budgetAmountTools | 1 failed / 30 |
 | N8 | get_budget page fits 90 KB | `GET_BUDGET_LIMIT_MAX` 80 → 150 | unit readLimitsSizeBudgets | 2 failed / 7 |
-| N9 | restored_at only with the restore's own save (migration 999k trigger) | the `updated_at = now()` check disabled | int mcp-budget-restore (fresh cluster) | 1 failed / 6 |
+| N9 | restored_at only with the restore's own save (migration 999l trigger) | the `updated_at = now()` check disabled | int mcp-budget-restore (fresh cluster) | 1 failed / 6 |
 | N11 | exactly 20 000 cells pass | the argument check refuses 20 000 (`>=`) | unit budgetAmountTools | 1 failed / 30 |
 | N12 | the planned save is capped at 20 000 (replace's clears included) | the `plan.save` cap removed | unit budgetAmountTools | 1 failed / 30 |
 | N10 | the diff is what the save actually left | dry run uses the before-state as "after" | unit budgetAmountTools; int mcp-budget-batch | unit 4 failed / 30; int 1 failed / 3 (driver reset / recomputed dependent) |
@@ -53,7 +53,7 @@ failure); after it, unit 113/113 and int 42/42 (all six mcp-budget suites).
 | R1 | B1: an override reset to an equal driver value is refused (not half-restored) | the `unpinnable` refusal disabled | unit budgetSnapshotRestore; int mcp-budget-batch | unit 1 failed / 9; int 1 failed / 5 |
 | R1b | B1: the post-check requires a former override to be one again | the `bs === 'override'` clause removed | unit budgetSnapshotRestore | 1 failed / 9 |
 | R2 | B2: a status move after the write refuses the restore (same token, one batch) | the `statusMovedAt` check disabled | unit budgetSnapshotRestore; int mcp-budget-batch | unit 1 failed / 9; int 1 failed / 5 |
-| R3 | B3: a snapshot is inserted only with a save of its version in the same transaction (999k insert trigger) | the trigger's check disabled | int mcp-budget-restore (fresh cluster) | 1 failed / 6 |
+| R3 | B3: a snapshot is inserted only with a save of its version in the same transaction (999l insert trigger) | the trigger's check disabled | int mcp-budget-restore (fresh cluster) | 1 failed / 6 |
 | R5 | round 3: a former override comes back 'override' only where a driver still covers it | `covered(c)` dropped from the post-check (any former override must be 'override') | unit budgetSnapshotRestore; int mcp-budget-batch | unit 1 failed / 10; int 1 failed / 6 |
 | R4 | L1: a multi-cell write that changes nothing says so (before asking for plan_hash) | the nothing-changed answer removed (the hash check answers instead) | unit budgetAmountTools | 1 failed / 31 |
 

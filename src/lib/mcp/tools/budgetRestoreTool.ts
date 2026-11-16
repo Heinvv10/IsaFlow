@@ -1,6 +1,6 @@
 /**
  * MCP write tool restore_budget_version (Hein's ruling 1; review round 1): undo the version's most recent MCP
- * amount write (its snapshot, migration 999k) while nothing has changed it since: the token AND every cell's
+ * amount write (its snapshot, migration 999l) while nothing has changed it since: the token AND every cell's
  * value and source (budgetSnapshotRestore.planRestore), by its author or an owner / admin. The before-values go
  * back through the grid save as the token user (every save rule, the save's own audit row). dry_run runs the
  * same restore in a savepoint that is always rolled back and answers the plan_hash; a live restore of more

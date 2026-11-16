@@ -1,5 +1,5 @@
 /**
- * Budget write snapshots (migration 999k; Hein's ruling 1, 2026-11-16): the undo record of each amount
+ * Budget write snapshots (migration 999l; Hein's ruling 1, 2026-11-16): the undo record of each amount
  * write an MCP budget tool makes. `recordSnapshot` runs in the SAME savepoint as the write it records (the
  * MCP registry's), after the grid save: every cell the write changed (the cells it was asked to write, not
  * a driver's recomputed dependents, which recompute again on a restore), its value and amount_source
