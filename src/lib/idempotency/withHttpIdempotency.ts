@@ -89,12 +89,14 @@ export function withHttpIdempotency<Req extends NextApiRequest>(route: string, h
       DELETE FROM http_idempotency_keys
       WHERE company_id = ${companyId}::UUID AND route = ${route} AND idempotency_key = ${key}
         AND created_at < now() - make_interval(hours => ${KEY_TTL_HOURS})`;
+    // A MATERIALIZED CTE: as `WHERE id IN (SELECT ... LIMIT n FOR UPDATE SKIP LOCKED)` the planner ran the limited
+    // subquery once per outer row (a nested-loop semi join) and a claim deleted every old row, not PRUNE_BATCH.
     await sql`
-      DELETE FROM http_idempotency_keys WHERE id IN (
+      WITH doomed AS MATERIALIZED (
         SELECT id FROM http_idempotency_keys
         WHERE company_id = ${companyId}::UUID AND created_at < now() - make_interval(days => ${PRUNE_AFTER_DAYS})
-        ORDER BY created_at LIMIT ${PRUNE_BATCH} FOR UPDATE SKIP LOCKED)`;
-
+        ORDER BY created_at LIMIT ${PRUNE_BATCH} FOR UPDATE SKIP LOCKED)
+      DELETE FROM http_idempotency_keys WHERE id IN (SELECT id FROM doomed)`;
     let claimed = await claim();
     if (claimed === null) {
       const first = await find();
@@ -136,7 +138,8 @@ export function withHttpIdempotency<Req extends NextApiRequest>(route: string, h
     } catch (err) {
       // Mapped below 500 by withErrorHandler (a 409, say) the request would COMMIT the claim with no answer.
       try { await free(); } catch (freeErr) {
-        log.warn('Idempotency claim not freed after a handler error', { error: freeErr, route }, 'idempotency');
+        // 25P02: the handler's own SQL error aborted the transaction; it rolls back, claim included. Nothing to say.
+        if ((freeErr as { code?: unknown }).code !== '25P02') log.warn('Idempotency claim not freed after a handler error', { error: freeErr, route }, 'idempotency');
       }
       throw err;
     }
@@ -145,7 +148,7 @@ export function withHttpIdempotency<Req extends NextApiRequest>(route: string, h
     if (result && result.status >= 200 && result.status < 300) {
       const text = JSON.stringify(result.body);
       // Too large to keep: the status is stored with no body, and a replay says "already processed, reload".
-      const body = text.length > MAX_STORED_BODY_BYTES ? null : text;
+      const body = Buffer.byteLength(text) > MAX_STORED_BODY_BYTES ? null : text;
       await sql`
         UPDATE http_idempotency_keys SET status_code = ${result.status}, response_body = ${body}::jsonb
         WHERE id = ${claimed}::UUID AND company_id = ${companyId}::UUID`;

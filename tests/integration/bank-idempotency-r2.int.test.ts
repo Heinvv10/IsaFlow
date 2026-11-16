@@ -13,6 +13,7 @@ import { callRoute, createUser } from './r035-approval.helpers';
 import { bankCompany, cleanupBankControlsA, type BankCompany } from './bank-controls-a.helpers';
 import { faults, resetFaults } from './bank-idempotency.helpers';
 import { withAuth } from '../../src/lib/auth';
+import { sql } from '../../src/lib/neon';
 import { withErrorHandler } from '../../src/lib/api-error-handler';
 import { ImpersonationForbiddenError } from '../../src/lib/auth/impersonationGuard';
 import { withHttpIdempotency, payloadHashOf } from '../../src/lib/idempotency/withHttpIdempotency';
@@ -29,10 +30,19 @@ let f: BankCompany;
 let g: BankCompany;
 
 // A route whose handler the test steers: ok, a big body, or a throw that withErrorHandler maps below 500.
-let mode: 'ok' | 'big' | 'forbidden' = 'ok';
-const steered = withAuth(withErrorHandler(withHttpIdempotency('test-steered', async (_req, res) => {
+let mode: 'ok' | 'big' | 'forbidden' | 'setting' | 'wide' = 'ok';
+let callerLockTimeout: string | null = null; // a lock_timeout the CALLER set before the wrapper ran
+const inner = withHttpIdempotency('test-steered', async (_req, res) => {
   if (mode === 'forbidden') throw new ImpersonationForbiddenError();
-  res.status(200).json({ ok: true, filler: mode === 'big' ? 'x'.repeat(70_000) : '' });
+  if (mode === 'setting') {
+    const [row] = (await sql`SELECT current_setting('lock_timeout') AS lt`) as { lt: string }[];
+    return res.status(200).json({ lt: row!.lt });
+  }
+  res.status(200).json({ ok: true, filler: mode === 'big' ? 'x'.repeat(70_000) : mode === 'wide' ? '€'.repeat(30_000) : '' });
+});
+const steered = withAuth(withErrorHandler((async (req: never, res: never) => {
+  if (callerLockTimeout) await sql`SELECT set_config('lock_timeout', ${callerLockTimeout}, true)`;
+  return inner(req, res);
 }) as never));
 
 beforeAll(async () => {
@@ -41,7 +51,7 @@ beforeAll(async () => {
   f = await bankCompany(pool, [[a, 'admin'], [b, 'admin']], companies);
   g = await bankCompany(pool, [[a, 'admin']], companies);
 });
-beforeEach(() => { resetFaults(); mode = 'ok'; });
+beforeEach(() => { resetFaults(); mode = 'ok'; callerLockTimeout = null; });
 afterAll(async () => {
   await pool.query('DELETE FROM bank_transactions WHERE company_id = ANY($1)', [companies]);
   await cleanupBankControlsA(pool, companies, [a, b]); // ends the pool; the keys go with their companies (ON DELETE CASCADE)
@@ -200,6 +210,13 @@ describe('scope, owner and failure handling of a claim', () => {
     expect(JSON.stringify(again.state.body)).toMatch(/already processed/);
   });
 
+  it('the size cap counts BYTES: 30 000 euro signs (30 000 characters, 90 000 bytes) are not stored either', async () => {
+    const k = key();
+    mode = 'wide';
+    expect((await call(k)).state.statusCode).toBe(200);
+    expect((await call(k)).state.statusCode).toBe(409);
+  });
+
   it('a claim that vanishes between the INSERT and the SELECT is claimed once more, not answered 409', async () => {
     const k = key();
     expect((await call(k)).state.statusCode).toBe(200);
@@ -214,6 +231,15 @@ describe('scope, owner and failure handling of a claim', () => {
     release();
     expect((await second).state.statusCode).toBe(200);
   }, 30_000);
+});
+
+describe('the claim\'s lock_timeout bound is put back for the handler', () => {
+  it.each([[null, '0'], ['2000ms', '2s']])('the caller had %s: the handler sees %s, not the claim\'s 5 s', async (set, seen) => {
+    callerLockTimeout = set;
+    mode = 'setting';
+    const res = await call(key());
+    expect(res.state.body).toEqual({ lt: seen });
+  });
 });
 
 describe('W1: the manual route refuses another company\'s account before it writes', () => {
