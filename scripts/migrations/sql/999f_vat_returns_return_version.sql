@@ -1,4 +1,4 @@
--- 999d: vat_returns.return_version_id, the VAT201 version a settlement was posted against (wave 6 VR, §0a.12).
+-- 999f: vat_returns.return_version_id, the VAT201 version a settlement was posted against (wave 6 VR, §0a.12).
 --
 -- WHAT. The return lifecycle (tax_return_versions, 969/971) is the record of a VAT201; vat_returns is the settlement
 -- record (submitVATReturn's clearing journal). From this release submitVATReturn refuses a period with no finalised or

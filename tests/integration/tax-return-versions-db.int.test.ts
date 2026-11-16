@@ -174,7 +174,7 @@ describeIfDb('tax_return_versions rules (migration 969)', () => {
           .toMatch(/^23514 .*never changed/);
       }
       expect(await failOf(c, `DELETE FROM tax_return_versions WHERE company_id = $1`, [a.fx.companyId])).toMatch(/^23514 .*never deleted/);
-      // 999d: vat_returns references the table, so a bare TRUNCATE stops at the foreign key first; naming both
+      // 999f: vat_returns references the table, so a bare TRUNCATE stops at the foreign key first; naming both
       // tables reaches the statement trigger (inside this rolled-back transaction).
       expect(await failOf(c, `TRUNCATE tax_return_versions`)).toMatch(/^0A000 cannot truncate a table referenced in a foreign key/);
       expect(await failOf(c, `TRUNCATE tax_return_versions, vat_returns`)).toMatch(/^23514 .*never truncated/);

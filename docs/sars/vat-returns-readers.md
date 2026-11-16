@@ -30,4 +30,4 @@ Census: `git grep -l vat_returns -- src pages` at `27b74d2bc8` (master after #14
 | `src/modules/accounting/services/core/nlQueryValidationService.ts` | 64 | schema-list | allowed tables | none |
 
 Dev (`isaflow_dev`, read-only 2026-11-16): 18 `vat_returns` rows in 2 companies, none with a VAT201 version for its
-period (live or any status), so the 999d backfill links 0 rows there.
+period (live or any status), so the 999f backfill links 0 rows there.

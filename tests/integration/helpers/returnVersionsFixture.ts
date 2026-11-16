@@ -111,7 +111,7 @@ export async function releaseLockDirectly(pool: Pool, lockId: string, userId: st
 
 export async function dropReturnFixture(rf: ReturnFixture): Promise<void> {
   const c = rf.fx.companyId;
-  await sql`DELETE FROM vat_returns WHERE company_id = ${c}::UUID`; // names a version (999d's FK): first
+  await sql`DELETE FROM vat_returns WHERE company_id = ${c}::UUID`; // names a version (999f's FK): first
   await withVersionsMutable(rf.fx.pool, (cl) => cl.query('DELETE FROM tax_return_versions WHERE company_id = $1', [c]));
   await sql`DELETE FROM sars_submissions WHERE company_id = ${c}::UUID`; // after the versions that name them
   await sql`DELETE FROM vat_gate_overrides WHERE company_id = ${c}::UUID`;
