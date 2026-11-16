@@ -1,6 +1,6 @@
 /**
  * SARS Compliance Calendar API
- * GET ?year=YYYY — get compliance calendar with upcoming deadlines: { events, marksUnavailable }
+ * GET ?year=YYYY — get compliance calendar with upcoming deadlines: { events, marksUnavailable, submissionsUnavailable }
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -23,9 +23,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
   // A service failure (e.g. the company row cannot be read) is a server error:
   // it propagates to withErrorHandler (5xx), never a 400.
-  // marksUnavailable: the "marked filed" rows could not be read; the page says so rather than show them overdue.
-  const { events, marksUnavailable } = await getComplianceCalendarWithMarks(companyId, year);
-  return apiResponse.success(res, { events, marksUnavailable });
+  // marksUnavailable / submissionsUnavailable: the "marked filed" rows / IsaFlow's own filings could not be read;
+  // the page says so rather than show those items overdue.
+  const { events, marksUnavailable, submissionsUnavailable } = await getComplianceCalendarWithMarks(companyId, year);
+  return apiResponse.success(res, { events, marksUnavailable, submissionsUnavailable });
 }
 
  

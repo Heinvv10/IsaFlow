@@ -233,7 +233,7 @@ describeIfDb('sars_submissions, locks and drafts under migration 971', () => {
     const n = async () => Number(((await sql`SELECT COUNT(*)::INT AS n FROM sars_submissions WHERE company_id = ${a.fx.companyId}::UUID
       AND form_type = 'VAT201' AND period_start = '2026-01-01'::DATE`) as Row[])[0]!.n);
     expect(await n()).toBe(1);
-    await inTx(a.fx, () => markSubmitted(a.fx.companyId, first.id, 'FILED-1'));
+    await inTx(a.fx, () => markSubmitted(a.fx.companyId, first.id, 'FILED-1', a.admin.userId));
     const correction = await save({ v: 3 });
     expect(correction.id).not.toBe(first.id);
     expect(await n()).toBe(2);
