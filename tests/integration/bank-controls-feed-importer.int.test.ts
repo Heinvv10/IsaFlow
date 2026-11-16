@@ -12,75 +12,36 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
-import { randomUUID } from 'crypto';
-import type { NextApiRequest, NextApiResponse } from 'next';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { createUser, plantRule } from './r035-approval.helpers';
-import { journalRule } from './r035-pr6.helpers';
 import {
-  actionRoute, bankCompany, cleanupBankControlsA, enforce, lineStatus, PAY_TYPES, plantBatch, plantLine, refusalOf, type BankCompany,
+  actionRoute, cleanupBankControlsA, lineStatus, PAY_TYPES, plantBatch, plantLine, refusalOf, type BankCompany,
 } from './bank-controls-a.helpers';
-import { ingestReq, mockRes } from './s06b-extension-token-standing.helpers';
+import { EXT_REFUSAL, FeedHarness, type FeedCompany } from './bank-controls-feed-importer.helpers';
 
 assertDisposable();
-type Route = (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const companies: string[] = [];
-const tokens: Record<string, string> = {};
-const savedKey = process.env.EXTENSION_SIGNING_KEY;
+const h = new FeedHarness(pool);
 let a = '';
 let b = '';
 let act: ReturnType<typeof actionRoute>;
-let ingest: Route;
-let sign: typeof import('@/lib/auth/extensionJwt').signExtensionToken;
-let n = 0;
 
 beforeAll(async () => {
-  process.env.EXTENSION_SIGNING_KEY = randomUUID() + randomUUID();
-  a = await createUser(pool, tokens);
-  b = await createUser(pool, tokens);
-  act = actionRoute(tokens);
-  ({ signExtensionToken: sign } = await import('@/lib/auth/extensionJwt'));
-  ingest = (await import('../../pages/api/accounting/bank-feeds/[id]/extension-ingest')).default as unknown as Route;
+  await h.start();
+  ({ a, b } = h);
+  act = actionRoute(h.tokens);
 }, 60000);
-afterAll(async () => {
-  if (savedKey === undefined) delete process.env.EXTENSION_SIGNING_KEY;
-  else process.env.EXTENSION_SIGNING_KEY = savedKey;
-  await pool.query('DELETE FROM bank_feed_sync_logs WHERE company_id = ANY($1)', [companies]);
-  await pool.query('DELETE FROM rate_limit_counters WHERE key = ANY($1::text[])', [companies.map((c) => `extension-ingest:${c}`)]);
-  await cleanupBankControlsA(pool, companies, [a, b]);
-  const { getPoolForTests } = await import('@/lib/neon');
-  await getPoolForTests().end();
-});
+afterAll(() => h.stop(cleanupBankControlsA));
 
-type Fx = BankCompany & { conn: string };
-async function fixture(types: string[], members: [string, string][] = [[a, 'admin'], [b, 'admin']]): Promise<Fx> {
-  const f = await bankCompany(pool, members, companies);
-  await journalRule(plantRule, pool, f.c);
-  await enforce(pool, f.c, a, types);
-  const conn = (await pool.query(
-    `INSERT INTO bank_feed_connections(company_id, bank_account_id, provider, status, is_active, config, created_by)
-     VALUES($1,$2,'extension','active',true,'{"bankId":"absa"}',$3) RETURNING id`, [f.c, f.bank, a])).rows[0].id as string;
-  return { ...f, conn };
-}
-/** `pusher` pairs (a token for the connection) and pushes one outflow through the real extension-ingest route. */
-async function push(f: Fx, pusher: string, amount: number): Promise<string> {
-  n += 1;
-  const token = await sign({ userId: pusher, companyId: f.c, connectionId: f.conn, bankId: 'absa', scope: 'bank-feed-ingest' });
-  const req = ingestReq(token, f.conn, `FEEDGATE FORGED ${n}`);
-  (req.body as { transactions: { amount: number }[] }).transactions[0]!.amount = amount;
-  const res = mockRes();
-  await ingest(req, res);
-  expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
-  return (await pool.query(
-    `SELECT id FROM bank_transactions WHERE company_id = $1 AND description = $2`, [f.c, `FEEDGATE FORGED ${n}`])).rows[0].id as string;
-}
+const fixture = (types: string[], members?: [string, string][]) => h.fixture(types, members);
+const push = (f: FeedCompany, pusher: string, amount: number) => h.push(f, pusher, amount);
 const journals = async (c: string) =>
   (await pool.query('SELECT count(*)::INT AS n FROM gl_journal_entries WHERE company_id = $1', [c])).rows[0].n as number;
 const allocate = (user: string, f: BankCompany, line: string, extra: Record<string, unknown> = { contraAccountId: f.expA }) =>
   act(user, f.c, { action: 'allocate', bankTransactionId: line, allocationType: 'account', ...extra });
-const refused = (res: Parameters<typeof refusalOf>[0]) =>
+const refused = (res: Parameters<typeof refusalOf>[0], arm = 'manual-journal') => {
   expect(refusalOf(res), JSON.stringify(res.state.body)).toMatchObject({ status: 403, reason: 'IMPORTER_MAY_NOT_ALLOCATE' });
+  expect(refusalOf(res).message).toBe(EXT_REFUSAL(arm)); // the extension wording, not the statement one
+};
 
 describe('the forged-extension repro', () => {
   it('records the pusher as the batch importer', async () => {
@@ -108,7 +69,7 @@ describe('the forged-extension repro', () => {
   it('supplier_payment: the pusher is refused paying a supplier from the forged line; another member pays it', async () => {
     const f = await fixture(PAY_TYPES);
     const line = await push(f, a, -9999);
-    refused(await allocate(a, f, line, { allocationType: 'supplier', entityId: f.supplier }));
+    refused(await allocate(a, f, line, { allocationType: 'supplier', entityId: f.supplier }), 'supplier-payment');
     expect(await journals(f.c)).toBe(0);
     expect((await pool.query('SELECT count(*)::INT AS n FROM supplier_payments WHERE company_id = $1', [f.c])).rows[0].n).toBe(0);
     expect((await allocate(b, f, line, { allocationType: 'supplier', entityId: f.supplier })).state.statusCode).toBe(200);

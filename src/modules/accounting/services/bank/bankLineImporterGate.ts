@@ -33,7 +33,7 @@ export type BankArm = 'manual_journal' | 'supplier_payment';
 const LABEL: Record<BankArm, string> = { manual_journal: 'manual-journal', supplier_payment: 'supplier-payment' };
 export const armLabel = (arm: BankArm): string => LABEL[arm];
 
-type Provenance = { import_batch_id?: unknown; bank_feed_connection_id?: unknown };
+type Provenance = { import_batch_id?: unknown };
 
 /** Whether `arm`'s type is enforced — for supplier payments, either coupled switch. */
 export async function armEnforced(companyId: string, arm: BankArm): Promise<boolean> {
@@ -74,7 +74,15 @@ export async function isSoleAsCaller(companyId: string, actorUserId: string): Pr
   return isSoleAtFloor(companyId, String(row.uid));
 }
 
-function refusal(arm: BankArm): BankControlError {
+/** The channel a batch came in through; a line pushed through the bank extension is not a statement the user uploaded. */
+const EXTENSION = 'extension';
+
+function refusal(arm: BankArm, channel?: unknown): BankControlError {
+  if (channel === EXTENSION) {
+    return new BankControlError('IMPORTER_MAY_NOT_ALLOCATE',
+      `You brought this line in through the bank extension, so while ${LABEL[arm]} approval is on you cannot allocate it yourself. `
+      + 'Ask another member to allocate this line.');
+  }
   return new BankControlError('IMPORTER_MAY_NOT_ALLOCATE',
     `You imported this bank statement, so while ${LABEL[arm]} approval is on you cannot allocate its lines yourself. `
     + 'Ask another member to allocate this line.');
@@ -87,13 +95,13 @@ export async function importerAllocationRefusal(
   if (line.import_batch_id == null) return null; // no batch: a bank-API feed with no person behind it
   if (!(await armEnforced(companyId, arm))) return null;
   const [batch] = (await sql`
-    SELECT imported_by FROM bank_import_batches
+    SELECT imported_by, import_channel FROM bank_import_batches
     WHERE id = ${String(line.import_batch_id)}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (batch?.imported_by == null || String(batch.imported_by).startsWith('mcp:')) return null; // no person on record
   // An actor of nobody (a sweep that named no person) cannot show it was not run for the importer: held, failing closed.
   if (actorUserId !== NOBODY && !sameUser(batch.imported_by, actorUserId)) return null;
-  return (await isSoleAsCaller(companyId, actorUserId)) ? null : refusal(arm);
+  return (await isSoleAsCaller(companyId, actorUserId)) ? null : refusal(arm, batch.import_channel);
 }
 
 /** Throws the refusal unless `actorUserId` may allocate `line` (the locked row) on `arm`. */
@@ -163,7 +171,7 @@ export async function importerMatchRefusal(
   companyId: string, bankTxId: string, journalLineId: string, actorUserId: string,
 ): Promise<BankControlError | null> {
   const [row] = (await sql`
-    SELECT bt.import_batch_id, bt.bank_feed_connection_id, bt.amount, jl.journal_entry_id::TEXT AS journal_id
+    SELECT bt.import_batch_id, bt.amount, jl.journal_entry_id::TEXT AS journal_id
     FROM bank_transactions bt
     LEFT JOIN gl_journal_lines jl ON jl.id = ${journalLineId}::UUID AND jl.company_id = bt.company_id
     WHERE bt.id = ${bankTxId}::UUID AND bt.company_id = ${companyId}::UUID
@@ -213,7 +221,7 @@ export async function importerRefusalForLineId(
   companyId: string, bankTxId: string, actorUserId: string, arm: BankArm,
 ): Promise<BankControlError | null> {
   const [line] = (await sql`
-    SELECT import_batch_id, bank_feed_connection_id FROM bank_transactions
+    SELECT import_batch_id FROM bank_transactions
     WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   return line ? importerAllocationRefusal(companyId, line, actorUserId, arm) : null;
@@ -231,14 +239,14 @@ export async function importerHeldLineSkips(companyId: string, actorUserId: stri
   for (const arm of new Set(lines.map((l) => l.arm))) enforced.set(arm, await armEnforced(companyId, arm));
   const gated = lines.filter((l) => enforced.get(l.arm));
   if (gated.length === 0) return skips;
-  const own = new Set(((await sql`
-    SELECT bt.id FROM bank_transactions bt
+  const own = new Map(((await sql`
+    SELECT bt.id, b.import_channel FROM bank_transactions bt
     JOIN bank_import_batches b ON b.id = bt.import_batch_id AND b.company_id = bt.company_id
     WHERE bt.company_id = ${companyId}::UUID AND bt.id = ANY(${gated.map((l) => l.txId)}::UUID[])
       AND b.imported_by IS NOT NULL AND b.imported_by NOT LIKE 'mcp:%'
       AND (lower(b.imported_by) = lower(${actorUserId}) OR ${actorUserId === NOBODY}::BOOLEAN)
-  `) as DbRow[]).map((r) => String(r.id)));
+  `) as DbRow[]).map((r) => [String(r.id), r.import_channel] as const));
   if (own.size === 0 || await isSoleAsCaller(companyId, actorUserId)) return skips;
-  for (const line of gated) if (own.has(line.txId)) skips.set(line.txId, `approval_required: ${refusal(line.arm).message}`);
+  for (const line of gated) if (own.has(line.txId)) skips.set(line.txId, `approval_required: ${refusal(line.arm, own.get(line.txId)).message}`);
   return skips;
 }
