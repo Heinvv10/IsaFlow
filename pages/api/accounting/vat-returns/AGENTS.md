@@ -43,5 +43,5 @@ Balance enforced by `createJournalEntry.validateJournalEntry`. Source tag: `auto
 - **`getVATReturn` is read-only** — it can be called any number of times to preview the submission, without creating a `vat_returns` row. The POST/submit flow persists it.
 - **Idempotency**: the UNIQUE constraint on `(company, periodStart, periodEnd)` is the only guard. If the first submission raced against a second, the second will fail at the INSERT (after the journal has been posted in a race window). For safety, run submissions sequentially per period.
 
-## Recent changes
-- 2026-11-16 (wave 6 VR, mig 999g): POST is 409 `VAT201_NOT_FINALISED` (ReturnRefusal via `respondReturnRefusal`) unless a finalised or filed VAT201 version exists for exactly the period; checked first, before the idempotency read and every write. The row records `return_version_id`. `vatSubmissionService.ts` was split (pure move): `vatSubmissionSupport.ts` (net-VAT account, clearing date guard) and `vatReturnsList.ts` (record type, `listVATReturns`).
+## Settlement needs a finalised VAT201
+- POST is 409 `VAT201_NOT_FINALISED` (ReturnRefusal via `respondReturnRefusal`) unless a finalised or filed VAT201 version exists for exactly the period; checked first, before the idempotency read and every write. The row records `return_version_id`. `vatSubmissionService.ts` was split (pure move): `vatSubmissionSupport.ts` (net-VAT account, clearing date guard) and `vatReturnsList.ts` (record type, `listVATReturns`).
