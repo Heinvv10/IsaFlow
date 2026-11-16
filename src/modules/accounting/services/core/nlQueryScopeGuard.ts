@@ -34,7 +34,7 @@
  */
 import { parse, type Statement } from 'pgsql-ast-parser';
 import { ALLOWED_TABLES } from './nlQueryValidationService';
-import { FK_PAIRS, NO_COMPANY_TABLES, SEED_BOTH_PAIRS } from './nlQueryFkPairs';
+import { FK_PAIRS, NO_COMPANY_TABLES, edgeNeedsBothSeeds } from './nlQueryFkPairs';
 
 export interface ScopeResult {
   ok: boolean;
@@ -156,7 +156,7 @@ function validateSelect(sel: Node, companyId: string, cteNames: Set<string>): Sc
   const onlyAlias = aliasTable.size === 1 ? [...aliasTable.keys()][0]! : null;
   const seeds = new Set<string>();
   const edges = new Map<string, Set<string>>();
-  // Edges over an id-only FK (SEED_BOTH_PAIRS): kept only if BOTH aliases are seeded, decided after the seeds are known.
+  // Edges over an id-only FK (edgeNeedsBothSeeds): kept only if BOTH aliases are seeded, decided after the seeds are known.
   const seedBothEdges: Array<[string, string]> = [];
   const addEdge = (a: string, b: string) => {
     if (!edges.has(a)) edges.set(a, new Set());
@@ -186,7 +186,7 @@ function validateSelect(sel: Node, companyId: string, cteNames: Set<string>): Sc
       const tr = aliasTable.get(right.table);
       const key = tl && tr ? fkKey(tl, left.column, tr, right.column) : null;
       if (key && FK_PAIRS.has(key)) {
-        if (SEED_BOTH_PAIRS.has(key)) seedBothEdges.push([left.table, right.table]);
+        if (edgeNeedsBothSeeds(key, tl!, tr!)) seedBothEdges.push([left.table, right.table]);
         else addEdge(left.table, right.table);
       }
     }

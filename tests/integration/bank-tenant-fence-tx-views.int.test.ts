@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
 import { listQueries } from '@/modules/accounting/services/capture/bankTxQueryService';
+import { getReconciliationById } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { matchFromHistoryBulk } from '@/modules/accounting/services/core/smartCategorizationMatchingService';
 import { bankLine, dropCompanies, seedCompanies, uuid, type FenceCompanies } from './helpers/bankFenceFixture';
 
@@ -14,7 +15,7 @@ const pool = new Pool({ connectionString: url });
 let c: FenceCompanies;
 let userId = '';
 const ids = { own: '', onForeignGl: '', foreignLine: '', suggestedForeign: '', history: '' };
-const [period, je] = [uuid(), uuid()];
+const [period, je, recId] = [uuid(), uuid(), uuid()];
 
 async function query(company: string, tx: string) {
   await pool.query(
@@ -49,6 +50,10 @@ describeIfDb('bank tenant fence — transaction views', () => {
       `UPDATE bank_transactions SET status='matched', matched_journal_line_id=$2, suggested_gl_account_id=$3,
          description='FENCEHIST WIDGETS' WHERE id=$1`, [ids.history, line, c.bankB]);
     userId = user;
+    // A's reconciliation session on B's GL account.
+    await pool.query(
+      `INSERT INTO bank_reconciliations(id,company_id,bank_account_id,statement_date,statement_balance,gl_balance,reconciled_balance,status,started_by)
+       VALUES($1,$2,$3,'2025-04-30',0,0,0,'in_progress',$4)`, [recId, c.a, c.bankB, user]);
     await query(c.a, ids.own);
     await query(c.a, ids.onForeignGl);
     await query(c.a, ids.foreignLine); // A's query pointing at B's line
@@ -56,6 +61,7 @@ describeIfDb('bank tenant fence — transaction views', () => {
 
   afterAll(async () => {
     try {
+      await pool.query('DELETE FROM bank_reconciliations WHERE company_id=$1', [c.a]);
       await pool.query('DELETE FROM bank_transactions WHERE company_id=$1', [c.a]);
       await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [c.a]);
       await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [c.a]);
@@ -93,5 +99,11 @@ describeIfDb('bank tenant fence — transaction views', () => {
     expect(hit?.glAccountId).toBe(c.bankB); // the stored suggestion is what history learned
     expect(hit?.glAccountName).toBeUndefined();
     expect(hit?.glAccountCode).toBeUndefined();
+  });
+
+  it("a reconciliation on another company's GL account is read without that account's name", async () => {
+    const rec = await getReconciliationById(c.a, recId);
+    expect(rec?.id).toBe(recId);
+    expect(rec?.bankAccountName).toBeUndefined();
   });
 });
