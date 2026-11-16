@@ -76,4 +76,15 @@ describe('cash13 service', () => {
     expect(f.lines.find((l) => l.key === 'recurring:t')!.items.map((i) => [i.ref, i.amountCents])).toEqual([['t:1', 500]]);
     expect(f.warnings.find((w) => w.code === 'credit_unused')?.message).toContain('R0.70');
   });
+
+  it('the budget fill subtracts the GROSS recurring receipt, not what credit left of it (round-3 LOW 2)', async () => {
+    balance.mockResolvedValue({ total: 0 });
+    // today 2026-12-01: all 31 December days are in the horizon. Budget R31, recurring R10 netted to 0 by R10 credit.
+    receivables.mockResolvedValue({ items: [], gross: [], summary: SUMMARY, leftover: new Map([['c1', 1_000]]) });
+    recurring.mockResolvedValue([item('t:0', '2026-12-10', 1_000, 'recurring:t')]);
+    budget.mockResolvedValue({ months: [{ month: '2026-12', customerReceipts: 3_100, supplierPayments: 0 }], vatSettlements: [], taxEvents: [], refundLagMonths: 1 });
+    const f = await getCashForecast13('co', '2026-12-01');
+    expect(f.lines.find((l) => l.key === 'recurring:t')).toBeUndefined();
+    expect(f.lines.find((l) => l.key === 'budget:customer_receipts')?.totalCents).toBe(2_100);
+  });
 });

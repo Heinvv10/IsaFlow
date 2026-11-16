@@ -96,6 +96,15 @@ describe('cash13 SARS refunds: assumed received by ARRIVAL date (re-review L-d)'
     expect(warnings.find((w) => w.code === 'sars_past_due_assumed_paid')?.message).toContain('VAT201 2026-07-01..2026-08-31');
   });
 
+  it('a VAT201 whose read FAILS is never judged past by its due date: no line, and the source_unavailable warning is kept', async () => {
+    // Reviewer case: period ending 30 Sep, due 23 Oct, lag 3 — a refund would arrive 31 Dec; the read raises a SQLSTATE.
+    cal([vatEv({ periodStart: '2026-08-01', periodEnd: '2026-09-30', dueDate: '2026-10-23' })]);
+    vat201.mockRejectedValue(Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' }));
+    const warnings: ForecastWarning[] = [];
+    expect(await sarsItems('co', TODAY, END, null, budget({ refundLagMonths: 3 }), warnings)).toEqual([]);
+    expect(warnings).toEqual([expect.objectContaining({ code: 'source_unavailable', source: 'VAT201 2026-08-01..2026-09-30' })]);
+  });
+
   it('a payable keeps the due-date rule', async () => {
     cal([vatEv({ periodStart: '2026-09-01', periodEnd: '2026-10-31', dueDate: '2026-11-06' })]);
     vat201.mockResolvedValue({ field11_vatPayableOrRefundable: 800 });

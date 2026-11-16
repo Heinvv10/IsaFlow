@@ -91,6 +91,13 @@ export async function sarsItems(
     } else {
       item = irp6Item(e, budget, own);
     }
+    // A read that FAILED is never judged past: without its amount a refund cannot be told from a payment, so
+    // its source_unavailable warning always stands and there is no line (round-3 LOW 1).
+    const failed = own.filter((w) => w.code === 'source_unavailable');
+    if (failed.length > 0) {
+      warnings.push(...failed);
+      continue;
+    }
     // A payment is assumed paid when its DUE date has passed; a refund when its ARRIVAL date has (re-review L-d).
     const past = item !== null && item.amountCents > 0 ? item.date < today : e.dueDate < today;
     if (!past) {
