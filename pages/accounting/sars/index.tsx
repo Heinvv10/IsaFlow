@@ -18,7 +18,7 @@ import { useSarsOverview, calendarCounts } from '@/components/accounting/sars/us
 
 export default function SARSDashboard() {
   const { isRegistered } = useVatRegistration();
-  const { events, submissions, marksUnavailable, loading, error, refresh } = useSarsOverview();
+  const { events, submissions, marksUnavailable, submissionsUnavailable, loading, error, refresh } = useSarsOverview();
   const { overdue: overdueCount, pending: pendingCount, completed: completedCount } = calendarCounts(events);
 
   return (
@@ -105,7 +105,7 @@ export default function SARSDashboard() {
               </div>
 
               {/* Compliance Calendar */}
-              <ComplianceCalendarTable events={events} marksUnavailable={marksUnavailable} onChanged={refresh} />
+              <ComplianceCalendarTable events={events} marksUnavailable={marksUnavailable} submissionsUnavailable={submissionsUnavailable} onChanged={refresh} />
 
               {/* Recent Submissions */}
               <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">

@@ -27,6 +27,8 @@ export interface ComplianceEvent {
   filedBy?: string | null;
   filedAt?: string;
   sarsReference?: string | null;
+  /** Set when IsaFlow's own filed submissions cover the item ("Filed on eFiling"): the latest one's reference and time (ISO). */
+  efiling?: { reference: string | null; submittedAt: string | null };
 }
 
 function pad(n: number): string {

@@ -23,17 +23,21 @@ export interface CalendarItem {
   filedBy?: string | null;
   filedAt?: string;
   sarsReference?: string | null;
+  /** IsaFlow's own filed submissions cover the item: shown as "Filed on eFiling", never undone here. */
+  efiling?: { reference: string | null; submittedAt: string | null };
 }
 
 interface Props {
   events: CalendarItem[];
   /** The marks could not be read: say so, since a filed item then shows as overdue. */
   marksUnavailable?: boolean;
+  /** IsaFlow's own filings could not be read: say so, since an item IsaFlow filed then shows as overdue. */
+  submissionsUnavailable?: boolean;
   /** Reload the calendar (after a mark, an undo, or a refusal that means the row is stale). */
   onChanged: () => void;
 }
 
-export function ComplianceCalendarTable({ events, marksUnavailable = false, onChanged }: Props) {
+export function ComplianceCalendarTable({ events, marksUnavailable = false, submissionsUnavailable = false, onChanged }: Props) {
   const { companyRole } = useCompany();
   const writer = canWrite(companyRole);
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -86,6 +90,11 @@ export function ComplianceCalendarTable({ events, marksUnavailable = false, onCh
           Filed marks could not be loaded. Items marked filed may show as overdue - reload to try again.
         </div>
       )}
+      {submissionsUnavailable && (
+        <div className="mx-4 mt-3 p-2 rounded bg-amber-500/10 text-amber-500 text-sm" role="status">
+          IsaFlow filings could not be loaded. Returns filed through IsaFlow may show as overdue - reload to try again.
+        </div>
+      )}
       {error && <div className="mx-4 mt-3 p-2 rounded bg-red-500/10 text-red-400 text-sm" role="alert">{error}</div>}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -128,8 +137,14 @@ export function ComplianceCalendarTable({ events, marksUnavailable = false, onCh
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    {statusBadge(evt.status)}
-                    {filed && evt.filedAt && (
+                    {evt.efiling ? statusBadge('submitted') : statusBadge(evt.status)}
+                    {evt.efiling && (evt.efiling.reference || evt.efiling.submittedAt) && (
+                      <p className="mt-1 text-xs text-[var(--ff-text-tertiary)]">
+                        {[evt.efiling.reference ? `Ref ${evt.efiling.reference}` : '', evt.efiling.submittedAt ? formatDate(evt.efiling.submittedAt) : '']
+                          .filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                    {!evt.efiling && filed && evt.filedAt && (
                       <p className="mt-1 text-xs text-[var(--ff-text-tertiary)]">
                         {`by ${evt.filedBy || 'a team member'} on ${formatDate(evt.filedAt)}`}
                         {evt.sarsReference ? ` · Ref ${evt.sarsReference}` : ''}
@@ -138,7 +153,7 @@ export function ComplianceCalendarTable({ events, marksUnavailable = false, onCh
                   </td>
                   {writer && (
                     <td className="px-4 py-3 text-right whitespace-nowrap">
-                      {filed ? (
+                      {evt.efiling ? null : filed ? (
                         <button type="button" disabled={busy} onClick={() => void send(evt, 'DELETE')}
                           className="inline-flex items-center gap-1 text-xs text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] disabled:opacity-50">
                           <Undo2 className="h-3.5 w-3.5" /> Undo

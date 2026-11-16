@@ -1,6 +1,7 @@
 /**
- * The SARS page's compliance calendar: the static calendar for the company's VAT cycle, with the
- * company's "marked filed" rows (sars_compliance_events, migration 999c) laid over it.
+ * The SARS page's compliance calendar: the static calendar for the company's VAT cycle, with
+ * IsaFlow's own filings (sars_submissions) and the company's "marked filed" rows
+ * (sars_compliance_events, migration 999c) laid over it.
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
@@ -8,6 +9,7 @@ import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { getComplianceCalendar, type ComplianceEvent } from './sarsTaxPeriodsService';
 import { readCompanyVatRow, vatCycleOfRow, type VatCycle } from './companyVatCycle';
+import { coveringSubmissions, latestSubmission, readFiledSubmissions } from './sarsSubmissionCoverage';
 
 /**
  * Events due from 1 Jan `y` to 31 Mar `y + 1`: the year plus the SARS page's
@@ -37,16 +39,31 @@ export async function companyVatCycle(companyId: string): Promise<VatCycle | nul
 
 export interface CalendarWithMarks {
   events: ComplianceEvent[];
-  /** True when the marks could not be read: the events are the bare calendar, and a filed item may show overdue. */
+  /** True when the marks could not be read: a manually marked item may show overdue. */
   marksUnavailable: boolean;
+  /** True when IsaFlow's own filings could not be read: an item IsaFlow filed may show overdue. */
+  submissionsUnavailable: boolean;
+}
+
+/** One read in its own savepoint: a failure is logged and returns null, and leaves the request transaction usable. */
+async function guardedRead<T>(savepoint: string, what: string, read: () => Promise<T>): Promise<T | null> {
+  try {
+    return await withSavepoint(savepoint, read);
+  } catch (err) {
+    log.warn(`Could not load ${what} for the compliance calendar`, { error: err }, 'sarsComplianceService');
+    return null;
+  }
 }
 
 /**
- * The company's calendar with its marks laid over it. A mark matches an item on (event type,
- * period start, period end), so a mark made under one VAT cadence never marks another period that
- * ends the same day; a row from before 999c (no period) matches on (event type, due date). The
- * marks are read in their own savepoint: a failed read (e.g. a privilege missing) returns the bare
- * calendar with `marksUnavailable` and leaves the request transaction usable.
+ * The company's calendar with what was filed laid over it.
+ *   - IsaFlow's own filings (sars_submissions, submitted or accepted): an item they fully cover
+ *     (sarsSubmissionCoverage) is completed with `efiling` (the latest one's reference and time).
+ *     It is shown over a manual mark, whose id and stamps are then not exposed (no undo).
+ *   - Manual marks (sars_compliance_events, 999c): a mark matches an item on (event type, period
+ *     start, period end), so a mark made under one VAT cadence never marks another period that ends
+ *     the same day; a row from before 999c (no period) matches on (event type, due date).
+ * Each is read in its own savepoint; a failed read sets its flag and leaves the rest of the calendar.
  */
 export async function getComplianceCalendarWithMarks(companyId: string, year?: number): Promise<CalendarWithMarks> {
   const y = year || new Date().getFullYear();
@@ -54,9 +71,7 @@ export async function getComplianceCalendarWithMarks(companyId: string, year?: n
   const from = `${y - 1}-01-01`;
   const to = `${y + 1}-12-31`;
 
-  let dbEvents: DbRow[];
-  try {
-    dbEvents = await withSavepoint('sars_calendar_marks', async () => (await sql`
+  const dbEvents = await guardedRead('sars_calendar_marks', 'compliance events', async () => (await sql`
       SELECT ce.id, ce.event_type, ce.due_date, ce.period_start, ce.period_end, ce.status, ce.submission_id,
              ce.sars_reference, ce.filed_at,
              public.approval_company_member_name(ce.company_id, ce.filed_by) AS filed_by_name
@@ -65,19 +80,21 @@ export async function getComplianceCalendarWithMarks(companyId: string, year?: n
         AND (ce.due_date BETWEEN ${from}::DATE AND ${to}::DATE OR ce.period_end BETWEEN ${from}::DATE AND ${to}::DATE)
       ORDER BY ce.due_date
     `) as DbRow[]);
-  } catch (err) {
-    log.warn('Could not load compliance events from DB, using static calendar', { error: err }, 'sarsComplianceService');
-    return { events: staticEvents, marksUnavailable: true };
-  }
+  const filed = await guardedRead('sars_calendar_submissions', 'filed submissions', () => readFiledSubmissions(companyId, from, to));
 
   const byPeriod = new Map<string, DbRow>();
   const byDue = new Map<string, DbRow>();
-  for (const dbe of dbEvents) {
+  for (const dbe of dbEvents ?? []) {
     if (dbe.period_end) byPeriod.set(`${dbe.event_type}_${fmtDate(dbe.period_start)}_${fmtDate(dbe.period_end)}`, dbe);
     else byDue.set(`${dbe.event_type}_${fmtDate(dbe.due_date)}`, dbe);
   }
 
-  const events = staticEvents.map((se) => {
+  const events = staticEvents.map((se): ComplianceEvent => {
+    const covering = coveringSubmissions(se, filed ?? []);
+    if (covering) {
+      const latest = latestSubmission(covering);
+      return { ...se, status: 'completed', efiling: { reference: latest.reference, submittedAt: latest.submittedAt } };
+    }
     const m = byPeriod.get(`${se.eventType}_${se.periodStart}_${se.periodEnd}`) ?? byDue.get(`${se.eventType}_${se.dueDate}`);
     if (!m) return se;
     const filedAt = m.filed_at instanceof Date ? m.filed_at.toISOString() : m.filed_at ? String(m.filed_at) : undefined;
@@ -90,7 +107,7 @@ export async function getComplianceCalendarWithMarks(companyId: string, year?: n
       sarsReference: m.sars_reference ? String(m.sars_reference) : null,
     };
   });
-  return { events, marksUnavailable: false };
+  return { events, marksUnavailable: dbEvents === null, submissionsUnavailable: filed === null };
 }
 
 /** The events only (getComplianceCalendarWithMarks without the flag). */
