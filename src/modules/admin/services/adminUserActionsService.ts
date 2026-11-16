@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import { adminRevokeAllUserSessions } from '@/lib/auth/gotrue';
 import { revokeAllUserPats } from '@/lib/auth/personalAccessTokens';
 import { revokeAllUserAuthorisations } from '@/lib/auth/oauth';
+import { cancelPendingInvitations, deletedUserIdentity } from './deletedUserInvitations';
 import {
   assertPayRunApproverRetainedEverywhere, findStrandedPayRunRequests, type StrandedPayRunRequest,
 } from '@/modules/accounting/services/core/payRunApproverGuard';
@@ -220,20 +221,31 @@ async function deleteMemberships(userId: string): Promise<void> {
  * tenant invite-accept routes already use (they upsert the membership, then write the users row). deleteUser and
  * resetOnboarding take their company_users rows first and decide by the users statement's RETURNING; suspendUser,
  * activateUser and forceLogout write no company_users. A users-first writer deadlocked against invite accept and
- * reset-onboarding. Census of every writer: the admin .claude.md ("Lock order for a user's rows").
+ * reset-onboarding. Invitation rows come LAST (follow-up A, 2026-11-16), as both accept routes take them.
+ * Census of every writer: the admin .claude.md ("Lock order for a user's rows").
  */
 
+/** What deleteUser did beyond the delete, for the route's audit row. */
+export interface DeleteUserOutcome {
+  stranded: StrandedPayRunRequest[];
+  /** Pending invitations it cancelled (deleted), in any company: pinned to the user's GoTrue id or to their addresses. */
+  invitationsCancelled: number;
+}
+
 /**
- * Permanently delete a user and all associated company links / sessions.
+ * Permanently delete a user and all associated company links / sessions, and cancel every invitation still pending
+ * for them (Hein, 2026-11-16: their GoTrue sign-in stays, so an old invitation must not let them back in).
  * Super-admins are protected — throws if the target user has role = 'super_admin'.
  * Throws SoleOwnerError, having written nothing, when the user is a company's only owner.
  */
-export async function deleteUser(userId: string): Promise<StrandedPayRunRequest[]> {
-  const users = await sql<{ role: string }>`SELECT role FROM users WHERE id = ${userId}`;
+export async function deleteUser(userId: string): Promise<DeleteUserOutcome> {
+  const users = await sql<{ role: string; email: string }>`SELECT role, email FROM users WHERE id = ${userId}`;
   if (users.length === 0) throw new AdminRequestError(404, 'User not found');
   if (users[0]!.role === 'super_admin') {
     throw new AdminRequestError(403, 'Cannot delete a super_admin user');
   }
+  // Who the row is to GoTrue, read BEFORE any row lock (a GoTrue failure throws: a 5xx that writes nothing).
+  const identity = await deletedUserIdentity(userId, users[0]!.email);
 
   // Never refused for a pending pay-run approval (see suspendUser): reported instead.
   const stranded = await strandedOrNone(userId);
@@ -241,16 +253,21 @@ export async function deleteUser(userId: string): Promise<StrandedPayRunRequest[
   // The DELETE decides: the loser of two concurrent deletes matches nothing and is a 404 before the route's audit row
   // (its company_users DELETE above matched nothing either). It also waits for an in-flight add-to-company, which
   // holds the users row FOR KEY SHARE (companyMembershipService.addUserToCompany).
-  const deleted = await sql`DELETE FROM users WHERE id = ${userId} RETURNING id`;
+  const deleted = await sql<{ email: string }>`DELETE FROM users WHERE id = ${userId} RETURNING email`;
   if (deleted.length === 0) throw new AdminRequestError(404, 'User not found');
   await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`; // the FK cascade already did; hygiene
-  // company_users.user_id has no foreign key to users: a membership an add-to-company committed while this request
-  // waited above would outlive the user (breaker #1405 round 4, E1). Sweep it.
+  // A membership an add-to-company committed while this request waited above would outlive the user (breaker #1405
+  // round 4, E1), and company_users_user_id_fkey (996, checked at COMMIT) would then refuse the whole delete. Sweep it.
   await deleteMemberships(userId);
+  // LAST, after every refusal above (a committed 4xx cancels nothing): pending invitations pinned to the GoTrue account
+  // or addressed to its login email or the row's (unless another account holds it; deletedUserInvitations); 997b's
+  // definer (RC008 refuses the portal any invitation write). An accept that read the invitation before this commits
+  // finds no row to mark and rolls back whole.
+  const invitationsCancelled = await cancelPendingInvitations(userId, deleted[0]!.email, identity);
 
   reportStranded('deleteUser', userId, stranded);
-  log.info('deleteUser', { userId }, 'AdminUserActionsService');
-  return stranded;
+  log.info('deleteUser', { userId, invitationsCancelled }, 'AdminUserActionsService');
+  return { stranded, invitationsCancelled };
 }
 
 /**

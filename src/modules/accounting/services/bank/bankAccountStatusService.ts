@@ -12,6 +12,7 @@
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
+import { UNRECONCILED_LINE_SQL } from './unreconciledLineSql';
 
 /**
  * `includeInactive` defaults to FALSE, deliberately.
@@ -62,11 +63,23 @@ export interface BankAccountStatusRow {
   totalDebits: number;
   totalCredits: number;
   balance: number;
+  /** JOURNAL-based, despite the name: the net of posted lines that have a journal line (allocated / matched). */
   reconciledBalance: number;
+  /**
+   * JOURNAL-based, despite the name: the net of posted lines with NO journal line, not excluded — suggested +
+   * unallocated, not "not reconciled". Kept under this name because the API, export and MCP shapes are stable.
+   */
   unreconciledBalance: number;
+  /** Posted lines neither reconciled nor excluded (bank/unreconciledLineSql), on this account. */
   unreconciledCount: number;
   allocatedCount: number;
+  /** No journal line, but a suggestion or saved category; not excluded. */
   suggestedCount: number;
+  /**
+   * NARROW "unallocated": no journal line AND no suggestion or category; not excluded. Not the board pack's or the
+   * card's "unallocated" (Δ tooltip, "N unallocated bank items"), which is every line with no journal line, not
+   * excluded: `suggestedCount + unallocatedCount`. Name kept: the API, export and MCP shapes are stable.
+   */
   unallocatedCount: number;
   firstDate: string | null;
   lastDate: string | null;
@@ -120,11 +133,12 @@ export async function getBankAccountsStatus(
         SUM(CASE WHEN bt.amount < 0 THEN ABS(bt.amount) ELSE 0 END) AS total_debits,
         SUM(CASE WHEN bt.amount > 0 THEN bt.amount ELSE 0 END)      AS total_credits,
         SUM(bt.amount)                                               AS balance,
-        -- Reconciled = transactions matched to a GL journal entry
+        -- Journal-based, whatever the names say: "reconciled" = has a journal line (allocated / matched),
+        -- "unreconciled" = no journal line and not excluded. Reconciliation state is unreconciled_count.
         SUM(CASE WHEN bt.matched_journal_line_id IS NOT NULL THEN bt.amount ELSE 0 END) AS reconciled_balance,
-        -- Unreconciled = imported/suggested but not yet matched
         SUM(CASE WHEN bt.matched_journal_line_id IS NULL AND bt.status != 'excluded' THEN bt.amount ELSE 0 END) AS unreconciled_balance,
-        COUNT(CASE WHEN bt.status IN ('imported', 'allocated') THEN 1 END)::INT AS unreconciled_count,
+        -- Not reconciled and not excluded: the one definition, ./unreconciledLineSql (#1308 follow-up).
+        COUNT(CASE WHEN ${sql.unsafe(UNRECONCILED_LINE_SQL)} THEN 1 END)::INT AS unreconciled_count,
         -- PRD-11 §2: allocated = a journal line was posted. A suggestion is NOT an allocation.
         COUNT(CASE WHEN bt.matched_journal_line_id IS NOT NULL THEN 1 END)::INT AS allocated_count,
         -- Suggested = no journal line yet, but an AI suggestion or saved category exists
@@ -134,7 +148,8 @@ export async function getBankAccountsStatus(
           bt.suggested_client_id     IS NOT NULL OR
           bt.allocation_type         IS NOT NULL
         ) AND bt.status != 'excluded' THEN 1 END)::INT AS suggested_count,
-        -- Unallocated = no journal line, no category at all, not excluded
+        -- Unallocated = no journal line, no category at all, not excluded. NARROWER than the pack's and the card's
+        -- "unallocated" (no journal line, not excluded), which is suggested_count + unallocated_count.
         COUNT(CASE WHEN (
           bt.matched_journal_line_id IS NULL AND
           bt.suggested_gl_account_id IS NULL AND
@@ -147,6 +162,7 @@ export async function getBankAccountsStatus(
         MAX(bt.transaction_date)                                     AS last_date
       FROM bank_transactions bt
       WHERE bt.bank_account_id = ga.id
+        AND bt.company_id = ga.company_id -- a foreign company's line pointing at this GL id is not ours (RLS does not hide it)
         AND bt.feed_state = 'posted'
     ) s ON TRUE
     WHERE ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})

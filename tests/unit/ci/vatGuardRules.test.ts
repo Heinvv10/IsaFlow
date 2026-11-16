@@ -96,6 +96,14 @@ describe('inspectVatGuardCoverage — what is in scope', () => {
     // something puts it in the ledger.
     expect(inspectVatGuardCoverage("const l = { vatType: 'standard' };")).toBeNull();
   });
+
+  // 2026-11-15: a file that builds the lines ANOTHER file posts (a declared LINE_BUILDER, e.g. allocateTransaction's
+  // arms) keeps the poster's view: its VAT field is on a posting path though it calls no poster itself.
+  it('judges a declared line builder\'s vat type as a poster\'s', () => {
+    const src = "lines.push({ glAccountId: a, debit: 1, credit: 0, vatType: 'standard' });";
+    expect(inspectVatGuardCoverage(src)).toBeNull();
+    expect(inspectVatGuardCoverage(src, { buildsLinesForAPoster: true })?.kinds).toEqual(['vat_field_on_a_posting_path']);
+  });
 });
 
 describe('inspectVatGuardCoverage — what counts as guarded', () => {

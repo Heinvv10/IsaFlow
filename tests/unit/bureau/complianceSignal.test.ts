@@ -94,7 +94,7 @@ describe('shapeCompliance', () => {
       META,
       JUN_11,
     );
-    expect(items.map((i) => i.dueAt)).toEqual(['2026-07-25']); // May–Jun, Cat B
+    expect(items.map((i) => i.dueAt)).toEqual(['2026-07-24']); // Sat 25 Jul → Fri 24 Jul; May–Jun, Cat B
     expect(items[0]!.task).toBe('VAT return due');
     expect(items[0]!.href).toBe('/accounting/sars/vat201');
   });

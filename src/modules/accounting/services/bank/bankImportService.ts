@@ -7,6 +7,7 @@ import { sql, withTransaction, withSavepoint, assertTxUsable } from '@/lib/neon'
 import { log } from '@/lib/logger';
 import { sweep, type SweepWarning } from './autoPostGateService';
 import { withLedgerDays } from './bankStatementLedgerDays';
+import { batchBalanceColumns } from './bankStatementBalances';
 import type { BankCsvParseResult } from '../../types/bank.types';
 import { autoLinkImportedBatchTransfers, relinkTransferCounterparts } from './bankTransferLinkService';
 import { newLinkBatchId } from './bankTransferLinkLog';
@@ -88,18 +89,22 @@ export async function importParsedTransactions(
     const bulkSequence = options.bulkContext?.bulkSequence ?? null;
     const importedBy = options.importedBy ?? null;
     const bankFormat = parseResult.bankFormat ?? null;
+    // The whole file's balances (parseStatement), stored only under the write rule in bankStatementBalances.ts.
+    const balances = batchBalanceColumns(parseResult.statementBalances, statementDate);
 
     await withTransaction(async (tx) => {
       await tx`
         INSERT INTO bank_import_batches (
           id, company_id, bank_account_id, statement_date, bank_format,
           transaction_count, source_filename, imported_by,
-          bulk_import_id, bulk_sequence, source_file_size_bytes, import_channel, file_sha256
+          bulk_import_id, bulk_sequence, source_file_size_bytes, import_channel, file_sha256,
+          opening_balance, closing_balance, balance_source
         ) VALUES (
           ${batchId}::UUID, ${companyId}::UUID, ${bankAccountId}::UUID,
           ${statementDate}::DATE, ${bankFormat},
           ${parseResult.transactions.length}, ${sourceFilename}, ${importedBy},
-          ${bulkImportId}, ${bulkSequence}, ${sourceFileSizeBytes}, ${options.importChannel ?? null}, ${options.fileSha256 ?? null}
+          ${bulkImportId}, ${bulkSequence}, ${sourceFileSizeBytes}, ${options.importChannel ?? null}, ${options.fileSha256 ?? null},
+          ${balances.openingBalance}::NUMERIC, ${balances.closingBalance}::NUMERIC, ${balances.balanceSource}
         )
       `;
       for (const txRow of parseResult.transactions) {

@@ -58,3 +58,18 @@ export async function contactControlOpen() {
   };
 }
 
+
+/**
+ * bankAccountGuard accepting every id as an active bank account of the company: its read hits Postgres, and a mocked
+ * `sql` would answer it with whatever the test queued for something else. The refusals (another company's account, a
+ * non-bank account, a deactivated one) are proven in tests/integration/bank-account-guard-*.int.test.ts.
+ */
+export async function bankAccountGuardOpen() {
+  const actual = await vi.importActual<typeof import('@/modules/accounting/services/bank/bankAccountGuard')>(
+    '@/modules/accounting/services/bank/bankAccountGuard');
+  return {
+    ...actual,
+    assertBankAccountInCompany: vi.fn(async (_companyId: string, id: unknown) =>
+      ({ id: String(id), accountName: 'Bank', bankAccountNumber: null })),
+  };
+}

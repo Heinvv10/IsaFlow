@@ -222,7 +222,7 @@ describe('buildBoardPackPages calls the gate', () => {
       ...demoInput,
       matters: [
         { ...demoInput.matters[0]!, quantum: 244_800 },
-        { ...demoInput.matters[0]!, issue: 'Unreconciled bank items', quantum: 91_400 },
+        { ...demoInput.matters[0]!, issue: 'Unallocated bank items', quantum: 91_400 },
       ],
     }).pages.find((pg) => pg.number === 11)!.blocks.flatMap((b) => (b.kind === 'matters' ? b.matters : []));
     expect(many).toHaveLength(2);

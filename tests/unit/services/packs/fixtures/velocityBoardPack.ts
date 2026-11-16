@@ -173,7 +173,7 @@ export const velocityMatters: PackMatter[] = [
   bulkLoadedMatter(VELOCITY_RELOAD, NO_PRIOR_MEETING_RECORD),
   {
     kind: 'finding',
-    issue: '30 unreconciled bank items across 2 bank accounts, as at the time this pack was extracted '
+    issue: '30 unallocated bank items across 2 bank accounts, as at the time this pack was extracted '
       + 'rather than at the period end; receipts and payments among them net to nil on each account, '
       + 'so no amount is stated',
     quantum: null,

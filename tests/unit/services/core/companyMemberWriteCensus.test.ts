@@ -73,8 +73,10 @@ const KNOWN_WRITERS = [
   'pages/api/invitations/[token]/accept.ts: writes', // W9 invite accept — migration_admin pool, invitation's role
   'pages/api/invitations/index.ts: writes', // W7 second invitation system — migration_admin pool since S-07c (930), assertCanInvite
   'pages/api/invitations/revoke/[id].ts: writes', // W8 revoke — app_user
-  'pages/api/invite/[token].ts: locks', // W10's invitation row, FOR UPDATE inside the accept transaction (S-07b review)
-  'pages/api/invite/[token].ts: writes', // W10 /invite accept — migration_admin pool since S-07b (916), invitation's role
+  // W10 /invite accept — migration_admin pool since S-07b (916), invitation's role. Since 2026-11-16 it takes no FOR UPDATE: the
+  // invitation is locked last, by the still-pending UPDATE that marks it accepted (rowCount 1 or roll back), as W9 does,
+  // and the address is judged against GoTrue's current login email (adminGetUser, before the transaction), not the claim.
+  'pages/api/invite/[token].ts: writes',
   'scripts/ci/userIdCastRules.ts: names as a string', // a lint's table list
   'scripts/ci/golden/slotProvision.ts: writes', // Golden Paths slot owner membership — isaflow_dev only (provision-slots.ts refuses any other database), one golden user per slot
   'scripts/acceptance/entity-onboarding-admin.ts: writes', // browser acceptance admin scenarios — throwaway DB via psql
@@ -91,7 +93,9 @@ const KNOWN_WRITERS = [
   'src/modules/accounting/services/core/payRunApproverGuard.ts: locks', // the onboarding reset's pre-lock of the user's membership rows FOR UPDATE (platform_admin), so it takes them before the approver lock as every member write does
   'src/modules/accounting/services/core/userInvitationService.ts: locks', // assertCanInvite: the inviter's membership, FOR SHARE — migration_admin pool (S-07c)
   'src/modules/accounting/services/core/userInvitationService.ts: writes', // W3–W6 — migration_admin pool since S-07c (930), no auto-add; the cancel DELETE — app_user
-  'src/modules/admin/services/adminUserActionsService.ts: writes', // W13–W14 delete-user, reset-onboarding — platform_admin; refused whole for a company's only owner (908b)
+  // W13–W14 delete-user, reset-onboarding — platform_admin; refused whole for a company's only owner (908b). Delete-user also
+  // cancels the user's pending invitations, last, through 997b's definer (deletedUserInvitations.ts), not a direct write.
+  'src/modules/admin/services/adminUserActionsService.ts: writes',
   'src/modules/admin/services/companyMembershipService.ts: locks', // the membership row, FOR UPDATE — platform_admin
   'src/modules/admin/services/companyMembershipService.ts: writes', // W11–W12 link, re-role, remove — platform_admin, last-owner rule
   'src/modules/onboarding/services/tenantProvisioningService.ts: writes', // W15 — migration_admin pool
@@ -110,7 +114,21 @@ const KNOWN_WRITERS = [
  * rules, patching the exemption line in place (pg_get_functiondef), read as
  * 886 was; 930 (S-07c) revokes INSERT and UPDATE on both from app_user and
  * grants back only UPDATE (role) on company_users; 937 (S-07d) revokes that
- * and DELETE on company_users too.
+ * and DELETE on company_users too. 996 (OP-2) adds company_users_user_id_fkey
+ * (NOT VALID, deferred) and 997 validates it: no trigger, guard or grant is touched.
+ * 997b (follow-up A, 2026-11-16) adds admin_cancel_user_invitations(text, text[]), a SECURITY DEFINER owned
+ * by migration_admin that DELETEs company_invitations rows, executable by platform_admin only. Read and
+ * pinned because it is safe for the portal to call: it deletes only PENDING rows (accepted_at IS NULL)
+ * pinned to the given user id (gotrue_user_id) or addressed (trimmed as JS trim, lower-cased) to the given emails, and can
+ * insert, update, re-open, re-point or accept no invitation and touches no company_users row, so it can only
+ * take away a not-yet-used way into a company, never grant a membership or a role (930's rule: DELETE stays
+ * where it only removes access). It refuses (RC012) while the users row with that id exists, and its pinned
+ * arm runs only for a canonical lower-case id (the only spelling that owns a GoTrue account), so a live
+ * user's GoTrue-pinned invitations are out of its reach. The email arm takes any address: the portal can already
+ * delete the user, every membership and a whole company; at worst a platform admin cancels the pending
+ * invitations of an address, which a re-invite restores and entity_change_capture records. RC008 still
+ * refuses every direct portal write to the table; the one caller is deleteUser, after its users DELETE,
+ * in the same transaction.
  */
 const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '220_multi_company_scoping.sql': ['writes'],
@@ -131,6 +149,10 @@ const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '930_credential_membership_writes_off_app_pools.sql': ['grants'],
   // 937 grants nothing on either table; its REVOKE names TRUNCATE, which the truncate pattern reads as a write.
   '937_credential_tables_off_app_pools.sql': ['writes'],
+  '996_company_users_user_fk_not_valid.sql': ['alters'],
+  '997_company_users_user_fk_validate.sql': ['alters'],
+  // A platform_admin-only definer that deletes pending invitations for one address (read above).
+  '997b_admin_delete_user_cancels_invitations.sql': ['writes'],
 };
 
 const all = (() => { let cache: SourceFile[] | undefined; return () => (cache ??= sourceFiles()); })();

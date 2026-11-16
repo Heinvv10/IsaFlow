@@ -26,8 +26,11 @@ export interface BankAcct {
   accountName: string;
   bankAccountNumber?: string | null;
   balance: number;
+  /** Journal-based: net of lines WITH a journal line (bankAccountStatusService). */
   reconciledBalance: number;
+  /** Journal-based: net of lines with NO journal line, not excluded — the card's Δ. Not reconciliation state. */
   unreconciledBalance: number;
+  /** Lines neither reconciled nor excluded (bank/unreconciledLineSql). Not the Δ's count. */
   unreconciledCount: number;
   allocatedCount: number;
   /** Suggested/categorised but no journal posted yet (PRD-11). */

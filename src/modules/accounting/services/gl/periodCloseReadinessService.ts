@@ -7,7 +7,8 @@
  * the shared request transaction — and one failing check still cannot blank the
  * whole panel (it degrades to a single 'warn' row).
  *
- *   1. bank_reconciled   — all bank txns in period are reconciled or excluded
+ *   1. bank_reconciled   — no posted bank line dated in the period that is neither reconciled nor excluded
+ *                          (the shared definition, bank/unreconciledLineSql; allocated / reviewed lines count)
  *   2. unposted_journals — all journal entries in period are posted
  *   3. ar_ties           — AR sub-ledger ties to GL receivable control account
  *   4. ap_ties           — AP sub-ledger ties to GL payable control account

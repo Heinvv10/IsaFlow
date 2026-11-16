@@ -22,7 +22,7 @@
   };
 
   function announce() {
-    window.postMessage({ source: 'isaflow-bank-extension', type: 'announce', version: '0.1.0' }, window.location.origin);
+    window.postMessage({ source: 'isaflow-bank-extension', type: 'announce', version: '0.1.1' }, window.location.origin);
   }
 
   window.addEventListener('message', (event) => {

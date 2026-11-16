@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { Select } from '@/components/ui';
 import { FileText, Loader2, AlertCircle, Plus, Search } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { CreateTaxDirectiveModal } from '@/components/payroll/TaxDirectiveComponents';
@@ -150,15 +151,10 @@ export default function TaxDirectivesPage() {
                 className="pl-9 pr-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm w-72 focus:outline-none focus:ring-1 focus:ring-teal-500"
               />
             </div>
-            <select
-              value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value as StatusFilter)}
-              className="py-2 px-3 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
-            >
-              {STATUS_FILTER_OPTIONS.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+            <div className="w-44">
+              <Select label="Status" labelClassName="sr-only" options={STATUS_FILTER_OPTIONS} value={statusFilter}
+                onChange={v => { if (v) setStatusFilter(v as StatusFilter); }} />
+            </div>
             {!isLoading && (
               <span className="text-sm text-[var(--ff-text-secondary)]">
                 {directives.length} directive{directives.length !== 1 ? 's' : ''}

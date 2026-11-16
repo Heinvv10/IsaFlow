@@ -13,6 +13,7 @@ import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import { updateCompanyUserRole, removeCompanyUser } from '@/modules/accounting/services/core/memberWrites';
 import { OwnerProtectedError, ownerLockKey } from '@/modules/accounting/services/core/ownerLock';
 import { fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
+import { fixtureEmail } from './helpers/fixtureEmail';
 
 const ids = newIds();
 const companies: string[] = [];
@@ -23,7 +24,7 @@ beforeAll(async () => {
   await setup(ids);
   for (const u of users) {
     await fixture.query(`INSERT INTO users (id, email, first_name, last_name, is_active, status)
-      VALUES ($1, $2, 'S07d', 'S07d', true, 'active')`, [u, `${u}@test.local`]);
+      VALUES ($1, $2, 'S07d', 'S07d', true, 'active')`, [u, fixtureEmail(u)]);
   }
 }, 60000);
 afterAll(async () => {
@@ -38,7 +39,15 @@ async function company(members: Array<[string, string]> = [[o, 'owner'], [o2, 'o
   const c = crypto.randomUUID();
   companies.push(c);
   await fixture.query(`INSERT INTO companies (id, name, is_active) VALUES ($1, 'S07d members', true)`, [c]);
-  for (const [u, r] of members) await fixture.query('INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, $3)', [c, u, r]);
+  for (const [u, r] of members) {
+    // A case-variant id gets its own users row: company_users_user_id_fkey (996) refuses a membership without one.
+    if (!users.includes(u)) {
+      users.push(u);
+      await fixture.query(`INSERT INTO users (id, email, first_name, last_name, is_active, status)
+        VALUES ($1, $2, 'S07d', 'S07d', true, 'active') ON CONFLICT (id) DO NOTHING`, [u, fixtureEmail(u)]);
+    }
+    await fixture.query('INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, $3)', [c, u, r]);
+  }
   return c;
 }
 const roleOf = async (c: string, u: string) => (await fixture.query(

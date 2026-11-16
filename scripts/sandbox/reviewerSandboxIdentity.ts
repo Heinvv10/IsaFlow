@@ -112,7 +112,7 @@ export async function ensureReviewer(
   }
   await sql`
     INSERT INTO users (id, email, first_name, last_name, is_active, role)
-    VALUES (${userId}, ${email}, 'Demo', 'Marketplace Reviewer', true, ${REVIEWER_PLATFORM_ROLE})
+    VALUES (${userId}, lower(btrim(${email})), 'Demo', 'Marketplace Reviewer', true, ${REVIEWER_PLATFORM_ROLE})
     ON CONFLICT (id) DO UPDATE SET is_active = true, role = ${REVIEWER_PLATFORM_ROLE}`;
   await sql`
     INSERT INTO company_users (user_id, company_id, role, is_default, created_at)

@@ -126,7 +126,8 @@ const handler: NextApiHandler = async (req, res) => {
     // purgeExpiredVerificationTokens) so the address is registerable again.
     try {
       // Kill its tokens first. Deleting the GoTrue user does not touch them, and
-      // company_users.user_id has no foreign key — so a leftover link would
+      // company_users.user_id's foreign key (996) names the users row that
+      // provisioning writes itself, not the GoTrue user — so a leftover link would
       // still provision a tenant owned by a user that no longer exists.
       const killed = await invalidateVerificationTokensForUser(existing.id);
       await adminDeleteUser(existing.id);

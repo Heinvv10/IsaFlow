@@ -119,8 +119,8 @@ export async function listQueries(
            ga.account_name AS bank_account_name,
            ${sql.unsafe(attachmentCountSql('bt'))} AS attachment_count
     FROM bank_tx_queries q
-    JOIN bank_transactions bt ON bt.id = q.bank_transaction_id
-    LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
+    JOIN bank_transactions bt ON bt.id = q.bank_transaction_id AND bt.company_id = q.company_id
+    LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id AND ga.company_id = bt.company_id
     WHERE q.company_id = ${companyId}::uuid
       AND (${status}::text IS NULL OR q.status = ${status})
       AND (${txId}::uuid IS NULL OR q.bank_transaction_id = ${txId}::uuid)

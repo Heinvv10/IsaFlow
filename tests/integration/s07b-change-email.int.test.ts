@@ -137,6 +137,18 @@ describe('change-email: the database first, then GoTrue', () => {
     expect((await userRow(u)).email).toBe(`${u}@test.local`);
   });
 
+  // 999: users_email_lower_key. A profile stored in mixed case (never rewritten) still owns its address.
+  it('an address another profile holds in a different case: 409 from users_email_lower_key, and GoTrue is never asked', async () => {
+    const [u, holder] = [await newUser(), await newUser()];
+    await fixture.query('UPDATE users SET email = $2 WHERE id = $1', [holder, `${holder}@Test.Local`.toUpperCase()]);
+    const gt = stubGotrue(200);
+    const r = await change(u, `${holder}@test.local`);
+    vi.unstubAllGlobals();
+    expect(r).toMatchObject({ status: 409, body: { error: { code: 'EMAIL_TAKEN' } } });
+    expect(gt.updates).toEqual([]);
+    expect((await userRow(u)).email).toBe(`${u}@test.local`);
+  });
+
   it('GoTrue accepts but the COMMIT fails: 500, the drift is logged, users.email unchanged', async () => {
     const u = await newUser();
     // A deferred constraint trigger raises at COMMIT, after GoTrue has answered.

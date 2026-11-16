@@ -26,6 +26,8 @@ beforeAll(async () => {
   await setupInviteFixture();
 });
 afterAll(async () => {
+  // Memberships first: company_users_user_id_fkey (996) refuses a users row a membership names.
+  await pool.query('DELETE FROM company_users WHERE user_id = ANY($1::text[])', [created]);
   await pool.query('DELETE FROM users WHERE id = ANY($1::text[])', [created]);
   await teardownInviteFixture();
 });

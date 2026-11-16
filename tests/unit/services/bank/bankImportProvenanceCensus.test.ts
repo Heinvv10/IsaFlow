@@ -51,7 +51,7 @@ describe('1. every import path records the importer', () => {
       [`${B}bankImportService.ts`]: /\$\{options\.importChannel \?\? null\}/, // upload (bulk-commit) and mcp (agent import)
       [`${B}feed/bankIngestionPersistence.ts`]: /'extension'\)/,
       [CLASSIFIED]: /'classified'\)/,
-      [`${B}bankStatementOcrService.ts`]: /'statement_ocr',/,
+      [`${B}bankStatementOcrCommit.ts`]: /'statement_ocr',/, // commitImport (re-exported by bankStatementOcrService)
     };
     expect(filesMatching(/INSERT INTO bank_import_batches/)).toEqual(Object.keys(channels).sort());
     for (const [file, channel] of Object.entries(channels)) expect(textOf(file), file).toMatch(channel);
@@ -70,7 +70,7 @@ describe('1. every import path records the importer', () => {
     expect(filesMatching(/INSERT INTO bank_transactions\s*\([^)]*\bimport_batch_id\b/)).toEqual([
       CLASSIFIED,
       `${B}bankImportService.ts`, // importParsedTransactions, with its batch row (the legacy importBankStatement is deleted)
-      `${B}bankStatementOcrService.ts`,
+      `${B}bankStatementOcrCommit.ts`,
       `${B}feed/bankIngestionPersistence.ts`,
     ].sort());
     expect(filesMatching(/\bimportBankStatement\b/)).toEqual([]); // the legacy importer (no batch row) is gone
@@ -96,7 +96,7 @@ describe('2. every hand-keyed gate site also asks the importer check', () => {
     expect(callers).toEqual([
       ...NO_IMPORT, `${MCP}bulkAllocationSkip.ts`, `${MCP}writeApplySupplierPayment.ts`, `${MCP}writeBankSplit.ts`,
       'src/modules/accounting/services/ap/provisionalSettlementClaim.ts', `${B}bankAllocationService.ts`,
-      `${B}bankRuleAutoPostLine.ts`, `${B}bankSplitContacts.ts`,
+      `${B}bankRuleAutoPostLine.ts`, `${B}bankSplitAllocate.ts`, `${B}bankSplitContacts.ts`,
       'src/modules/accounting/services/capture/provisionalPostingService.ts',
     ].sort());
     for (const file of callers.filter((f) => !NO_IMPORT.includes(f))) expect(textOf(file), file).toMatch(IMPORTER);
@@ -131,7 +131,7 @@ describe('3. every sweep names the person who triggered it', () => {
 
 describe('4. every reversal path passes the reversal gate', () => {
   it('the callers of reverseReconciledTransaction', () => {
-    const callers = filesMatching(/\breverseReconciledTransaction\(/).filter((f) => f !== `${B}bankAllocationService.ts`);
+    const callers = filesMatching(/\breverseReconciledTransaction\(/).filter((f) => f !== `${B}bankReverseReconciled.ts`);
     expect(callers).toEqual([
       'pages/api/accounting/bank-transactions-action.ts', `${MCP}writeBankAllocate.ts`, `${MCP}writeBankReverseBatch.ts`,
       `${MCP}writeBankReverseRange.ts`, 'src/modules/accounting/services/ap/paymentJournalReversal.ts',
@@ -140,7 +140,7 @@ describe('4. every reversal path passes the reversal gate', () => {
   });
 
   it('the choke point decides before any write and audits after; the MCP tools ask first; the screen answers 403', () => {
-    const svc = `${B}bankAllocationService.ts`;
+    const svc = `${B}bankReverseReconciled.ts`;
     before(svc, 'await assertMayReverse(companyId, tx,', 'reverseDocumentChainLine(companyId, tx,');
     before(svc, 'await assertMayReverse(companyId, tx,', "withSavepoint('bank_reverse_reconciled'");
     before(`${MCP}writeBankAllocate.ts`, 'await agentReversalRefusal(', 'await reverseReconciledTransaction(');
@@ -165,7 +165,7 @@ describe('5. #684 follow-ups: the GL reversal, Dismiss and the match writers', (
     const CALLERS: Record<string, string> = {
       'pages/api/accounting/journal-entries-action.ts': 'GL reverse of ANY journal: lockJournalCashForGlReversal first (409 under enforcement)',
       [`${MCP}writeJournalReverse.ts`]: 'MCP reverse_journal_entry: lockJournalCashForGlReversal first, dry run included',
-      [`${B}bankAllocationService.ts`]: 'the choke point itself (assertMayReverse, audited)',
+      [`${B}bankReverseReconciled.ts`]: 'the choke point itself (assertMayReverse, audited)',
       [`${B}bankChainLineReversal.ts`]: "the choke point's document arm, called from it only",
       [`${B}bankReallocationService.ts`]: 'reallocate a reconciled line: agentReversalRefusal + assertMayReverse under the line lock, audited',
       [`${B}autoPostUndoService.ts`]: "undoRow's provisional/hand-reversed arms, behind assertMayUndoRun",
