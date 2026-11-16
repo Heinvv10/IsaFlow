@@ -27,6 +27,8 @@ vi.mock('@/lib/auth/gotrueAdminUser', () => ({ adminGetUser: vi.fn(async (id: st
 vi.mock('@/lib/auth/liveCompanies', () => ({ isLiveCompanyForUser: vi.fn(async () => h.live) }));
 vi.mock('@/lib/auth/migrationAdminPool', () => ({
   migrationAdminPool: () => ({
+    // The route's pre-check that the token names a live invitation (before GoTrue).
+    query: async () => ({ rows: [{ '?column?': 1 }], rowCount: 1 }),
     connect: async () => ({
       async query(text: string, params: unknown[] = []) {
         h.queries.push(text);

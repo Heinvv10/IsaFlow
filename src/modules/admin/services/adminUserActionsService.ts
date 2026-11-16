@@ -262,7 +262,7 @@ export async function deleteUser(userId: string): Promise<DeleteUserOutcome> {
   // LAST, after every refusal above (a committed 4xx cancels nothing): pending invitations pinned to this GoTrue id or
   // addressed to the deleted row's email or GoTrue's; migration 997b's definer (RC008 refuses the portal any invitation
   // write). An accept that read the invitation before this commits finds no row to mark and rolls back whole.
-  const invitationsCancelled = await cancelPendingInvitations(userId, [deleted[0]!.email, gotrueEmail]);
+  const invitationsCancelled = await cancelPendingInvitations(userId, deleted[0]!.email, gotrueEmail);
 
   reportStranded('deleteUser', userId, stranded);
   log.info('deleteUser', { userId, invitationsCancelled }, 'AdminUserActionsService');

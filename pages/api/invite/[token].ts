@@ -97,13 +97,22 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   // the COMMIT. Set from the cast once the transaction is open; a sub that is no UUID
   // fails it (22P02, a 500), as the membership cast did before.
   let userId = authReq.user.id;
+  // A token naming no live invitation is the 404 before anything else, GoTrue
+  // included (an outage must not turn it into a 5xx). One statement, no lock;
+  // the transaction below reads the invitation again and decides.
+  const live = await migrationAdminPool().query(
+    `SELECT 1 FROM company_invitations WHERE token = $1 AND accepted_at IS NULL AND expires_at > NOW() LIMIT 1`,
+    [tokenHash],
+  );
+  if ((live.rowCount ?? 0) === 0) return apiResponse.notFound(res, 'Invitation');
   // GoTrue's CURRENT login email for this user, read before the transaction (no
   // connection or lock held across the call). Not the session's email claim: no
   // token is re-issued on change-email, so the claim names the old address for up
   // to an hour, and an admin's deleteUser cancels only the addresses current then
-  // (#1468 re-break F1). No GoTrue account is the mismatch 403 below; a GoTrue
-  // outage throws (a 5xx, nothing written).
-  const loginEmail = (await adminGetUser(userId.toLowerCase()))?.email ?? null;
+  // (#1468 re-break F1). No GoTrue account, or one with no email (GoTrue answers ''
+  // for a phone-only account), is the mismatch 403 below; a GoTrue outage throws
+  // (a 5xx, nothing written).
+  const loginEmail = (await adminGetUser(userId.toLowerCase()))?.email || null;
   const client = await migrationAdminPool().connect();
   let opened = false;
   let unusable = false;

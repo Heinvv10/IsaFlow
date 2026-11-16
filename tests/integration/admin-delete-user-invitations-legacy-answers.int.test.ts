@@ -14,7 +14,7 @@ import {
   seedUser, setGotrueEmail, setup, teardown, usersRows,
 } from './admin-delete-user-invitations.helpers';
 
-const [A, B] = companies;
+const [A, B, C] = companies;
 const NOT_FOUND = { success: false, error: { code: 'NOT_FOUND', message: 'Invitation not found' } };
 
 beforeAll(setup, 60000);
@@ -117,6 +117,18 @@ describe("POST /api/invite/<token> judges GoTrue's current login email, not the 
     expect([r.status, shape(r.body)]).toEqual([403, MISMATCH]);
     expect(await memberOf(B, id)).toBe(0);
     await pool.query('DELETE FROM users WHERE id = $1', [id]);
+  });
+
+  it('GoTrue cannot answer, but the token names no live invitation: the 404, before any GoTrue call', async () => {
+    const u = await seedUser({ memberOf: [A] });
+    const used = await invite(B, u.email, { acceptedAt: '2026-11-01T00:00:00Z' });
+    gotrueDown.add(u.id);
+    try {
+      for (const token of [`delinv-unknown-${crypto.randomUUID()}`, used, await invite(C, u.email, { expired: true })]) {
+        const r = await legacyAccept(u.id, token);
+        expect([r.status, shape(r.body)]).toEqual([404, { success: false, error: { code: 'NOT_FOUND', message: 'Invitation not found' } }]);
+      }
+    } finally { gotrueDown.delete(u.id); }
   });
 
   it('GoTrue cannot answer: a 5xx, nothing written', async () => {

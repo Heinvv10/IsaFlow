@@ -137,7 +137,8 @@ function gotrueStub(input: Parameters<typeof fetch>[0], init?: Parameters<typeof
   const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
   if (path === '/user') return Promise.resolve(json({ id: 'disposable', factors: [] }));
   if (path.startsWith('/admin/users/') && method === 'GET') {
-    const id = decodeURIComponent(path.split('/').pop()!);
+    // GoTrue parses the id as a UUID, so any letter case names the same (lower-case) account.
+    const id = decodeURIComponent(path.split('/').pop()!).toLowerCase();
     if (gotrueDown.has(id)) return Promise.resolve(json({ msg: 'unavailable' }, 503));
     const email = logins.get(id);
     return Promise.resolve(email === undefined ? json({ msg: 'User not found' }, 404) : json({ id, email, factors: [] }));
