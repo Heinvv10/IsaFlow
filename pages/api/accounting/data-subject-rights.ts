@@ -8,6 +8,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
+import { erasedUserEmail } from '@/lib/auth/usersEmailUnique';
 import { log } from '@/lib/logger';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess} from '@/lib/auth';
@@ -89,10 +90,11 @@ async function handleErasure(req: NextApiRequest, res: NextApiResponse) {
   // auth.uid(). One statement, so it commits on its own, which is safe for an
   // idempotent erasure that is this handler's last write.
   const erased = await migrationAdminPool().query(
-    // lower(btrim()): the form every writer stores (users_email_lower_key, migration 999).
+    // lower(btrim()): the form every writer stores; erasedUserEmail is distinct per id in that form
+    // (users_email_lower_key, migration 999).
     `UPDATE users SET first_name = 'Anonymized', last_name = $2, email = lower(btrim($3)), updated_at = NOW()
       WHERE id = $1`,
-    [userId, placeholder, `${placeholder}@deleted.invalid`],
+    [userId, placeholder, erasedUserEmail(userId)],
   );
   // Never answer "anonymized" for a write that matched nothing: no profile row.
   if (erased.rowCount !== 1) {
