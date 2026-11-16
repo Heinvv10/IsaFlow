@@ -4,7 +4,7 @@
  * Transfer between own bank accounts (creates balanced journal entry)
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle } from 'lucide-react';
@@ -13,6 +13,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import { DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
+import { useIdempotencyKey } from '@/hooks/useIdempotencyKey';
 
 /** Under manual-journal enforcement a transfer a rule matches is held: a draft journal and an approval request (202). */
 interface HeldTransfer { journalId: string; message: string }
@@ -62,7 +63,11 @@ export default function BankTransfersPage() {
   // fields are disabled while a POST is pending, so no edit lands under the answer to the earlier body (round 5 F2).
   useEffect(() => { setNeedsConfirm(false); }, [fromAccount, toAccount, amount, transferDate]);
 
+  const idempotency = useIdempotencyKey();
+  const inFlight = useRef(false); // state alone lets a second click in before the re-render that disables the button
+
   const handleTransfer = async (confirmDuplicate = false) => {
+    if (inFlight.current) return;
     if (dates.blocked) {
       setMessage({ type: 'error', text: 'Fix the date marked in red before transferring.' });
       return;
@@ -71,24 +76,27 @@ export default function BankTransfersPage() {
       setMessage({ type: 'error', text: 'Please fill all fields and select different accounts' });
       return;
     }
+    inFlight.current = true;
     setIsSubmitting(true);
     setNeedsConfirm(false);
     setMessage({ type: '', text: '' });
     setHeld(null);
     try {
+      const body = JSON.stringify({
+        fromAccountId: fromAccount,
+        toAccountId: toAccount,
+        amount: parseFloat(amount),
+        reference,
+        transferDate,
+        ...(confirmDuplicate ? { confirmDuplicate: true } : {}),
+      });
       const res = await apiFetch('/api/accounting/bank-transfers', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fromAccountId: fromAccount,
-          toAccountId: toAccount,
-          amount: parseFloat(amount),
-          reference,
-          transferDate,
-          ...(confirmDuplicate ? { confirmDuplicate: true } : {}),
-        }),
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotency.keyFor(body) },
+        body,
       });
       await assertOk(res, 'Could not record the transfer - try again');
+      idempotency.done();
       const json = (await res.json()) as { data?: { status?: string; journalId?: string }; message?: string };
       if (json.data?.status === 'awaiting_approval' && json.data.journalId) {
         setHeld({ journalId: json.data.journalId, message: json.message ?? 'Transfer saved as a draft journal awaiting approval' });
@@ -101,6 +109,7 @@ export default function BankTransfersPage() {
       setNeedsConfirm(err instanceof ApiRequestError && err.status === 428);
       setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not record the transfer - try again') });
     } finally {
+      inFlight.current = false;
       setIsSubmitting(false);
     }
   };
