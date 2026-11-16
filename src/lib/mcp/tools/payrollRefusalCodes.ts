@@ -6,4 +6,5 @@ export const PAYROLL_REFUSAL_CODES = [
   // payrollRunKindGuard: a run kind, frequency, tax status, assignment or garnishee this release cannot handle. Names
   // only the run's kind and the company's own employee numbers; raised before any write.
   'RUN_KIND_UNSUPPORTED',
+  'PAYROLL_BANK_FILE_REFUSED', // BF payrollBankFileStatus: a bank-file write refused before any write, naming the run's own employee numbers.
 ] as const;
